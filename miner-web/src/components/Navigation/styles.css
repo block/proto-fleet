@@ -1,0 +1,9 @@
+html[data-theme='light'] .sidebar-wrapper {
+  background: radial-gradient(327.46% 71.55% at 100% 48.83%, #B2D9E0 0%, #E8F9FE 99.98%);
+}
+html[data-theme='light'] .selected {
+  background-color: theme('colors.white.100');
+}
+html[data-theme='light'] .navigation-item:not(.selected):hover {
+  background: rgba(255, 255, 255, 0.40);
+}

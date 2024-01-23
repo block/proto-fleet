@@ -1,0 +1,70 @@
+# Copyright 2023 Block Inc.
+
+version: '3'
+
+services:
+  regtest-node:
+    image: ruimarinho/bitcoin-core
+    container_name: regtest-node
+    ports:
+      - "2333:2333"
+    networks:
+      - miner-web
+    volumes:
+      - ${PWD}/../local_testchain/bitcoin-conf:/home/bitcoin/.bitcoin
+
+  ckpool:
+    build:
+      context: ${PWD}/../local_testchain/ckpool
+    image: mc1/ckpool
+    container_name: ckpool
+    ports:
+      - "3333:3333"
+    networks:
+      - miner-web
+    depends_on:
+      - regtest-node
+    volumes:
+      - ${PWD}/../local_testchain/ckpool-conf/ckpool.conf:/opt/ckpool-build/ckpool.conf
+
+  mcdd:
+    build:
+      context: ${PWD}/../mcdd
+    image: mcdd
+    container_name: mcdd
+    command: /bin/sh -c "/usr/start_mcdd_cgminer.sh"
+    ports:
+      - "2121:2121"
+    networks:
+      - miner-web
+    depends_on:
+      - ckpool
+    sysctls:
+      - fs.mqueue.msg_max=256
+    volumes:
+      - ${PWD}/../cgminer:/usr/src/cgminer
+      - ${PWD}/../hashboard/lib/hashboard-protobuf:/usr/src/hashboard/lib/hashboard-protobuf
+      - ${PWD}/../mcdd:/usr/src/mcdd
+      - ${PWD}/../mcdd/test/cgminer.conf:/usr/src/cgminer/cgminer.conf
+      - ${PWD}/scripts/start_mcdd_cgminer.sh:/usr/start_mcdd_cgminer.sh
+      - mcdd-db:/dev/shm
+
+  miner-api-server:
+    build:
+      context: ${PWD}/../miner-api-server
+    image: miner-api-server
+    container_name: miner-api-server
+    ports:
+      - "8080:8080"
+    networks:
+      - miner-web
+    volumes:
+      - ${PWD}/../miner-api-server:/usr/src/miner-api-server
+      - ${PWD}/dist:/var/www
+      - mcdd-db:/dev/shm
+
+networks:
+  miner-web:
+
+volumes:
+  mcdd-db:

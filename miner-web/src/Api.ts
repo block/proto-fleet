@@ -1,0 +1,1317 @@
+/* eslint-disable */
+/* tslint:disable */
+/*
+ * ---------------------------------------------------------------
+ * ## THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API        ##
+ * ##                                                           ##
+ * ## AUTHOR: acacode                                           ##
+ * ## SOURCE: https://github.com/acacode/swagger-typescript-api ##
+ * ---------------------------------------------------------------
+ */
+
+export interface AsicStats {
+  /**
+   * The number of times that the ASIC produced an incorrect hash or an error during a specific period of time.  Error Rate (%) = (Number of incorrect hash / Total number of expected Hash) x 100%
+   * @example 3.3
+   */
+  error_rate?: number;
+  /**
+   * The frequency of the ASIC measured in megahertz.
+   * @example 650
+   */
+  freq_mhz?: number;
+  /**
+   * The current hash rate of the ASIC, measured in GH/s.
+   * @example 300
+   */
+  hashrate_ghs?: number;
+  /**
+   * Unique identifier assigned to each ASIC located on a hashboard, starting from 0.
+   * @example 0
+   */
+  id?: number;
+  /**
+   * The expected hashrate determined by the clock frequency of the ASIC, measured in GH/s.
+   * @example 300
+   */
+  ideal_hashrate_ghs?: number;
+  /**
+   * The current state or condition of the ASIC.
+   * @example "Running"
+   */
+  status?: "Running" | "Stopped" | "Error" | "Overheated" | "Unknown";
+  /**
+   * Current temperature of the ASIC in celsius
+   * @example 45.5
+   */
+  temp_c?: number;
+}
+
+export interface AsicStatsResponse {
+  "asic-stats"?: AsicStats;
+}
+
+export interface CoolingConfig {
+  /**
+   * Parameter to define the cooling mode.  Modes:
+   *  - Auto: Fans will be controlled based on miner temperature.
+   *  - Maximum: Fans will be run at full speed regardless of temperature.
+   *  - Off: Fans will be set to off for immersion cooling.
+   * @example "auto"
+   */
+  mode?: "auto" | "maximum" | "false";
+}
+
+export interface CoolingStatus {
+  "cooling-status"?: CoolingStatusCoolingstatus;
+}
+
+export interface CoolingStatusCoolingstatus {
+  /**
+   * Parameter to show the current fan mode.
+   * @example "auto"
+   */
+  fan_mode?: "auto" | "maximum" | "false";
+  /** This will show speed of all fans in the system. */
+  fans?: FanInfo[];
+}
+
+export interface Error {
+  /**
+   * Error code.
+   * @example "INCORRECT_ARGS"
+   */
+  code?: string;
+  /**
+   * Error message.
+   * @example "Arguments are incorrect for query."
+   */
+  message?: string;
+}
+
+export interface ErrorResponse {
+  error?: Error;
+}
+
+export interface FWInfo {
+  /** @example "release" */
+  build?: "debug" | "release";
+  /** @example "1213423223" */
+  git_hash?: string;
+  /** @example "1213423223" */
+  image_hash?: string;
+  /** @example "1.0" */
+  version?: string;
+}
+
+export interface FanInfo {
+  /**
+   * Each fan is assigned a unique identifier starting from 0.
+   * @example 0
+   */
+  id?: number;
+  /**
+   * The fan's current rotations per minute (RPM).
+   * @example 1200
+   */
+  rpm?: number;
+}
+
+export interface HashboardStats {
+  "hashboard-stats"?: HashboardStatsHashboardstats;
+}
+
+export interface HashboardStatsHashboardstats {
+  asics?: AsicStats[];
+  /**
+   * Current average temperature of the hashboard in celsius.
+   * @example 75
+   */
+  avg_asic_temp_c?: number;
+  /**
+   * The current hash rate of the hashboard, measured in GH/s. It will be sum of all ASIC hashrate_ghs values.
+   * @example 300
+   */
+  hashrate_ghs?: number;
+  /**
+   * Each hash board is assigned a unique serial number.
+   * @example "YWWLMMMMRRFSSSSS"
+   */
+  id?: string;
+  /**
+   * The expected hashrate is determined by the clock frequency of the all ASIC on the hash board, measured in GH/s.
+   * @example 300
+   */
+  ideal_hashrate_ghs?: number;
+  /**
+   * The power consumption of the hashboard in watts.
+   * @example 1000
+   */
+  power_usage_watts?: number;
+  /**
+   * The current state or condition of the hashboard.
+   * @example "Running"
+   */
+  status?: "Running" | "Stopped" | "Error" | "Overheated" | "Unknown";
+  /**
+   * The present voltage being supplied to the hashboard in millivolts.
+   * @example 16200
+   */
+  voltage_mv?: number;
+}
+
+export interface HashboardsInfo {
+  "hashboards-info"?: HashboardsInfoHashboardsinfo[];
+}
+
+export interface HashboardsInfoHashboardsinfo {
+  /** @example "1.0" */
+  api_version?: string;
+  /** @example "PROTO0_B" */
+  board?: "NOT_SET" | "PROTO0_A" | "PROTO0_B" | "EVT" | "DVT" | "PVT" | "EVB" | "EPIC" | "EE_TEST";
+  bootloader?: FWInfo;
+  /** @example "ABC123" */
+  chip_id?: string;
+  firmware?: FWInfo;
+  /**
+   * Hashboard serial number.
+   * @example "YWWLMMMMRRFSSSSS"
+   */
+  hb_sn?: string;
+  /** @example "BZM" */
+  mining_asic?: "BZM" | "MC1" | "MC2";
+  /**
+   * Number of asics.
+   * @example 100
+   */
+  mining_asic_count?: number;
+  /** @example 3 */
+  temp_sensor_count?: number;
+}
+
+export interface HashrateData {
+  /** Unix time epoch. */
+  datetime?: number;
+  /** Hashrate in gigahash/s. */
+  hashrate_ghs?: number;
+}
+
+export interface HashrateResponse {
+  "hashrate-data"?: HashrateResponseHashratedata;
+}
+
+export interface HashrateResponseHashratedata {
+  data?: HashrateData[];
+  /** Duration of hashrate data returned. */
+  duration?: "8h" | "24h" | "48h" | "72h" | "5d" | "7d";
+  /** Granularity of hashrate data returned. */
+  granularity?: "1m" | "5m" | "15m";
+}
+
+export interface LogsResponse {
+  logs?: LogsResponseLogs;
+}
+
+export interface LogsResponseLogs {
+  content?: string[];
+  /**
+   * Number of lines returned.
+   * @example 100
+   */
+  lines?: number;
+  /**
+   * Source of logs.
+   * @example "miner_sw"
+   */
+  source?: string;
+}
+
+/** Mining statistics */
+export interface MiningStatus {
+  "mining-status"?: MiningStatusMiningstatus;
+}
+
+export interface MiningStatusMiningstatus {
+  /**
+   * The average hash rate in giga-hashes per second over the last 15 minutes.  average_hashrate_ghs_15min = total hash in last 15 min / (900 * 10^9)
+   * @example 110000
+   */
+  average_hashrate_ghs_15min?: number;
+  /**
+   * The average hash rate in giga-hashes per second over the last 1 minute.  average_hashrate_ghs_1min = total_hash_in_last_60s / (60 * 10^9)
+   * @example 110000
+   */
+  average_hashrate_ghs_1min?: number;
+  /**
+   * The average hash rate in giga-hashes per second over the last 5 minutes.  average_hashrate_ghs_5min = total_hash_in_last_300s / (300 * 10^9)
+   * @example 110000
+   */
+  average_hashrate_ghs_5min?: number;
+  /**
+   * The average hash rate in giga-hashes per second, since the device  started mining. average_hashrate_ghs = Total hash count / (elapsed_time_s * 10^9)
+   * @example 110000.2
+   */
+  average_hashrate_ghs?: number;
+  /**
+   * The amount of time in seconds that has passed since the start of the mining operation.
+   * @example 521
+   */
+  elapsed_time_s?: number;
+  /**
+   * The number of hardware errors that have occurred during the mining operation.
+   * @example 100
+   */
+  hw_errors?: number;
+  /**
+   * Expected hashrate determined by the current power level.
+   * @example 112000
+   */
+  ideal_hashrate_ghs?: number;
+  /** @example "This reserved space can be utilized to include additional debug information." */
+  message?: string;
+  /**
+   * Amount of power in watts for the system to target.
+   * @example 3120
+   */
+  power_target_watts?: number;
+  /**
+   * Amount of power being consumed by mining in watts.
+   * @example 3100
+   */
+  power_usage_watts?: number;
+  /**
+   * The indication will reveal whether the mining operation is currently active or has ceased
+   * @example "Running"
+   */
+  status?: "Stopping" | "Stopped" | "Starting" | "Running" | "Error";
+  /**
+   * Average temperature of the mining device.
+   * @example 3100
+   */
+  temp_c?: number;
+}
+
+export interface MiningTarget {
+  /** @example 3000 */
+  power_target_watts?: number;
+}
+
+export interface NetworkInfo {
+  "network-info"?: NetworkInfoNetworkinfo;
+}
+
+export interface NetworkInfoNetworkinfo {
+  /** @example true */
+  dhcp?: boolean;
+  /** @example "172.27.244.177" */
+  gateway?: string;
+  /** @example "172.27.244.179" */
+  ip?: string;
+  /** @example "82:11:D2:94:0D:6D" */
+  mac?: string;
+  /** @example "255.255.255.240" */
+  netmask?: string;
+}
+
+export interface Notification {
+  /** @example "FAN1_NOT_OPERATING" */
+  code?: string;
+  /** @default false */
+  hidden?: boolean;
+  id?: number;
+  /** @example "Fan 1 is not operating correctly." */
+  message?: string;
+  /** @example "error" */
+  type?: "error" | "warning" | "info";
+}
+
+export interface NotificationListResponse {
+  notifications?: Notification[];
+}
+
+export interface OSInfo {
+  /** @example "20231208T220633Z" */
+  build_datetime_utc?: string;
+  /** @example "1213423223" */
+  git_hash?: string;
+  /** @example "btcm-c1-mp157" */
+  machine?: string;
+  /** @example "BTCM Linux Distribution" */
+  name?: string;
+  status?: OSStatus;
+  /** @example "rel" */
+  variant?: "rel" | "mfg" | "dev";
+  /** @example "1.0.1" */
+  version?: string;
+}
+
+export interface OSStatus {
+  /** @example 30.2 */
+  cpu_load_percent?: number;
+  /** @example 192784 */
+  mem_free_kb?: number;
+  /** @example 233712 */
+  mem_total_kb?: number;
+  /** @example 600 */
+  rootfs_free_mb?: number;
+  /** @example 1024 */
+  rootfs_total_mb?: number;
+}
+
+export interface PasswordRequest {
+  /**
+   * The new password for the user.
+   * @format password
+   */
+  new_password: string;
+  /**
+   * The current password for the user.
+   * @format password
+   */
+  old_password: string;
+}
+
+export interface Pool {
+  /**
+   * .
+   * @example 10
+   */
+  diff1_shares?: number;
+  /**
+   * The number of shares that have been accepted by the mining pool as valid solutions to a mining problem.
+   * @example 100
+   */
+  accepted?: number;
+  /**
+   * .
+   * @example 10
+   */
+  bad_work?: number;
+  /**
+   * The best share in mining device is the share with the highest difficulty among all the shares that have been accepted by the mining pool.
+   * @example 10
+   */
+  best_share_difficulty?: number;
+  /**
+   * The number of blocks found by the mining device
+   * @example 10
+   */
+  block_found?: number;
+  /**
+   * .
+   * @example 10
+   */
+  current_block_height?: number;
+  /**
+   * .
+   * @example 10
+   */
+  current_block_version?: number;
+  /**
+   * Total difficulty of all the shares accepted by the mining pool.
+   * @example 134000
+   */
+  difficulty_accepted?: number;
+  /**
+   * Total difficulty of all rejected shares by the mining pool
+   * @example 134000
+   */
+  difficulty_rejected?: number;
+  /**
+   * Total difficulty of all stale shares by the mining pool
+   * @example 2340000
+   */
+  difficulty_stale?: number;
+  /**
+   * .
+   * @example 10
+   */
+  discarded?: number;
+  /**
+   * The frequency of network connection interruptions while retrieving work from the server.
+   * @example 10
+   */
+  get_work_failures?: number;
+  /**
+   * The number of minging works-jobs received from the minining pool.
+   * @example 100
+   */
+  getworks?: number;
+  /**
+   * Each pool has a unique ID from 0 to 2, with 0 representing the highest priority and 2 representing the lowest priority.
+   * @example 0
+   */
+  id?: number;
+  /**
+   * The difficulty of the most recent share submitted by the miner to the mining pool
+   * @example 140000
+   */
+  last_share_diff?: number;
+  /**
+   * The time when the miner submitted the last accepted share to the mining pool
+   * @example 122323
+   */
+  last_share_time?: number;
+  /**
+   * .
+   * @example 10.1
+   */
+  pool_rejected_percentage?: number;
+  /**
+   * .
+   * @example 10.1
+   */
+  pool_stale_percentage?: number;
+  /** Connection priority for this pool. Lower numbers are higher priorities, with 0 being the maximum. */
+  priority?: number;
+  /**
+   * The number of shares submitted by the miner to the pool that were not accepted because they did not meet the required difficulty level or other criteria.
+   * @example 20
+   */
+  rejected?: number;
+  /**
+   * The frequency of network connection interruptions while sending nonce to the server. In such case, Cgminer retries every 5 seconds for up to 2 minutes before discarding the nonce.
+   * @example 10
+   */
+  remotefail_occasions?: number;
+  /**
+   * .
+   * @example 10
+   */
+  staged_works?: number;
+  /**
+   * The number of share that is generated by a miner, submitted to the pool but not accepted because a newer block has already been found by the time it reached the pool.
+   * @example 10
+   */
+  stale?: number;
+  /** The status field indicates the state of the mining pool. An "Alive" status means that the pool is currently active, A "Dead" status indicates that the mining device is unable to establish a connection with the pool. */
+  status?: "Alive" | "Dead" | "Disabled" | "Rejecting";
+  /**
+   * .
+   * @example 10
+   */
+  stratum_diff?: number;
+  /**
+   * The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information.
+   * @example "pool1.com:3333"
+   */
+  url?: string;
+  /**
+   * The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device.
+   * @example "user1"
+   */
+  user?: string;
+  /**
+   * .
+   * @example 196608
+   */
+  vmask?: number;
+  /**
+   * .
+   * @example 10
+   */
+  work_diff?: number;
+}
+
+export type PoolConfig = PoolConfigInner[];
+
+export interface PoolConfigInner {
+  /**
+   * A password used for authentication and accessing the mining pool, which is ignored by SV1 pools.
+   * @example "anything"
+   */
+  password?: string;
+  /** Connection priority for this pool. Lower numbers are higher priorities, with 0 being the maximum. */
+  priority?: number;
+  /**
+   * The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information.
+   * @example "pool1.com:3333"
+   */
+  url?: string;
+  /**
+   * The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device.
+   * @example "user1"
+   */
+  username?: string;
+}
+
+export type PoolConfigResponse = PoolConfigResponseInner[];
+
+export interface PoolConfigResponseInner {
+  /** Connection priority for this pool. Lower numbers are higher priorities, with 0 being the maximum. */
+  priority?: number;
+  /**
+   * The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information.
+   * @example "pool1.com:3333"
+   */
+  url?: string;
+  /**
+   * The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device.
+   * @example "user1"
+   */
+  username?: string;
+}
+
+export interface PoolResponse {
+  pool?: Pool;
+}
+
+export interface PoolsList {
+  pools?: Pool[];
+}
+
+export interface SWInfo {
+  /** @example "1213423223" */
+  commit_hash?: string;
+  /** @example "Cgminer" */
+  name?: string;
+  /** @example "1.0" */
+  version?: string;
+}
+
+export interface SystemInfo {
+  "system-info"?: SystemInfoSysteminfo;
+}
+
+export interface SystemInfoSysteminfo {
+  /** @example "c1-mp157" */
+  board?: "stm32mp157d-dk1" | "stm32mp157f-dk2" | "c1-mp157" | "c1-mp151" | "c1-mp131";
+  /** @example "YWWLMMMMRRFSSSSS" */
+  cb_sn?: string;
+  mining_driver_sw?: SWInfo;
+  os?: OSInfo;
+  pool_interface_sw?: SWInfo;
+  /** @example "STM32MP157F" */
+  soc?: "STM32MP157F" | "STM32MP157D" | "STM32MP151F" | "STM32MP131F";
+  /** @example 300 */
+  uptime_seconds?: number;
+  web_server?: SWInfo;
+}
+
+export type QueryParamsType = Record<string | number, any>;
+export type ResponseFormat = keyof Omit<Body, "body" | "bodyUsed">;
+
+export interface FullRequestParams extends Omit<RequestInit, "body"> {
+  /** set parameter to `true` for call `securityWorker` for this request */
+  secure?: boolean;
+  /** request path */
+  path: string;
+  /** content type of request body */
+  type?: ContentType;
+  /** query params */
+  query?: QueryParamsType;
+  /** format of response (i.e. response.json() -> format: "json") */
+  format?: ResponseFormat;
+  /** request body */
+  body?: unknown;
+  /** base url */
+  baseUrl?: string;
+  /** request cancellation token */
+  cancelToken?: CancelToken;
+}
+
+export type RequestParams = Omit<FullRequestParams, "body" | "method" | "query" | "path">;
+
+export interface ApiConfig<SecurityDataType = unknown> {
+  baseUrl?: string;
+  baseApiParams?: Omit<RequestParams, "baseUrl" | "cancelToken" | "signal">;
+  securityWorker?: (securityData: SecurityDataType | null) => Promise<RequestParams | void> | RequestParams | void;
+  customFetch?: typeof fetch;
+}
+
+export interface HttpResponse<D extends unknown, E extends unknown = unknown> extends Response {
+  data: D;
+  error: E;
+}
+
+type CancelToken = Symbol | string | number;
+
+export enum ContentType {
+  Json = "application/json",
+  FormData = "multipart/form-data",
+  UrlEncoded = "application/x-www-form-urlencoded",
+  Text = "text/plain",
+}
+
+export class HttpClient<SecurityDataType = unknown> {
+  public baseUrl: string = "";
+  private securityData: SecurityDataType | null = null;
+  private securityWorker?: ApiConfig<SecurityDataType>["securityWorker"];
+  private abortControllers = new Map<CancelToken, AbortController>();
+  private customFetch = (...fetchParams: Parameters<typeof fetch>) => fetch(...fetchParams);
+
+  private baseApiParams: RequestParams = {
+    credentials: "same-origin",
+    headers: {},
+    redirect: "follow",
+    referrerPolicy: "no-referrer",
+  };
+
+  constructor(apiConfig: ApiConfig<SecurityDataType> = {}) {
+    Object.assign(this, apiConfig);
+  }
+
+  public setSecurityData = (data: SecurityDataType | null) => {
+    this.securityData = data;
+  };
+
+  protected encodeQueryParam(key: string, value: any) {
+    const encodedKey = encodeURIComponent(key);
+    return `${encodedKey}=${encodeURIComponent(typeof value === "number" ? value : `${value}`)}`;
+  }
+
+  protected addQueryParam(query: QueryParamsType, key: string) {
+    return this.encodeQueryParam(key, query[key]);
+  }
+
+  protected addArrayQueryParam(query: QueryParamsType, key: string) {
+    const value = query[key];
+    return value.map((v: any) => this.encodeQueryParam(key, v)).join("&");
+  }
+
+  protected toQueryString(rawQuery?: QueryParamsType): string {
+    const query = rawQuery || {};
+    const keys = Object.keys(query).filter((key) => "undefined" !== typeof query[key]);
+    return keys
+      .map((key) => (Array.isArray(query[key]) ? this.addArrayQueryParam(query, key) : this.addQueryParam(query, key)))
+      .join("&");
+  }
+
+  protected addQueryParams(rawQuery?: QueryParamsType): string {
+    const queryString = this.toQueryString(rawQuery);
+    return queryString ? `?${queryString}` : "";
+  }
+
+  private contentFormatters: Record<ContentType, (input: any) => any> = {
+    [ContentType.Json]: (input: any) =>
+      input !== null && (typeof input === "object" || typeof input === "string") ? JSON.stringify(input) : input,
+    [ContentType.Text]: (input: any) => (input !== null && typeof input !== "string" ? JSON.stringify(input) : input),
+    [ContentType.FormData]: (input: any) =>
+      Object.keys(input || {}).reduce((formData, key) => {
+        const property = input[key];
+        formData.append(
+          key,
+          property instanceof Blob
+            ? property
+            : typeof property === "object" && property !== null
+            ? JSON.stringify(property)
+            : `${property}`,
+        );
+        return formData;
+      }, new FormData()),
+    [ContentType.UrlEncoded]: (input: any) => this.toQueryString(input),
+  };
+
+  protected mergeRequestParams(params1: RequestParams, params2?: RequestParams): RequestParams {
+    return {
+      ...this.baseApiParams,
+      ...params1,
+      ...(params2 || {}),
+      headers: {
+        ...(this.baseApiParams.headers || {}),
+        ...(params1.headers || {}),
+        ...((params2 && params2.headers) || {}),
+      },
+    };
+  }
+
+  protected createAbortSignal = (cancelToken: CancelToken): AbortSignal | undefined => {
+    if (this.abortControllers.has(cancelToken)) {
+      const abortController = this.abortControllers.get(cancelToken);
+      if (abortController) {
+        return abortController.signal;
+      }
+      return void 0;
+    }
+
+    const abortController = new AbortController();
+    this.abortControllers.set(cancelToken, abortController);
+    return abortController.signal;
+  };
+
+  public abortRequest = (cancelToken: CancelToken) => {
+    const abortController = this.abortControllers.get(cancelToken);
+
+    if (abortController) {
+      abortController.abort();
+      this.abortControllers.delete(cancelToken);
+    }
+  };
+
+  public request = async <T = any, E = any>({
+    body,
+    secure,
+    path,
+    type,
+    query,
+    format,
+    baseUrl,
+    cancelToken,
+    ...params
+  }: FullRequestParams): Promise<HttpResponse<T, E>> => {
+    const secureParams =
+      ((typeof secure === "boolean" ? secure : this.baseApiParams.secure) &&
+        this.securityWorker &&
+        (await this.securityWorker(this.securityData))) ||
+      {};
+    const requestParams = this.mergeRequestParams(params, secureParams);
+    const queryString = query && this.toQueryString(query);
+    const payloadFormatter = this.contentFormatters[type || ContentType.Json];
+    const responseFormat = format || requestParams.format;
+
+    return this.customFetch(`${baseUrl || this.baseUrl || ""}${path}${queryString ? `?${queryString}` : ""}`, {
+      ...requestParams,
+      headers: {
+        ...(requestParams.headers || {}),
+        ...(type && type !== ContentType.FormData ? { "Content-Type": type } : {}),
+      },
+      signal: (cancelToken ? this.createAbortSignal(cancelToken) : requestParams.signal) || null,
+      body: typeof body === "undefined" || body === null ? null : payloadFormatter(body),
+    }).then(async (response) => {
+      const r = response as HttpResponse<T, E>;
+      r.data = null as unknown as T;
+      r.error = null as unknown as E;
+
+      const data = !responseFormat
+        ? r
+        : await response[responseFormat]()
+            .then((data) => {
+              if (r.ok) {
+                r.data = data;
+              } else {
+                r.error = data;
+              }
+              return r;
+            })
+            .catch((e) => {
+              r.error = e;
+              return r;
+            });
+
+      if (cancelToken) {
+        this.abortControllers.delete(cancelToken);
+      }
+
+      if (!response.ok) throw data;
+      return data;
+    });
+  };
+}
+
+/**
+ * @title Mining Device Kit API
+ * @version 1.0.0
+ * @license MIT (https://www.mit.edu/~amini/LICENSE.md)
+ * @baseUrl https://virtserver.swaggerhub.com/KSHITIZ_1/MDK-API/1.0.0
+ * @contact <btcm-sw-team@squareup.com>
+ *
+ * The Mining Device Kit API will serve as a means to access information from the mining device and make necessary adjustments to its settings.
+ */
+export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
+  api = {
+    /**
+     * @description The get pools endpoint returns the full list of currently configured pools.
+     *
+     * @tags Pools
+     * @name ListPools
+     * @request GET:/api/v1/pools
+     */
+    listPools: (params: RequestParams = {}) =>
+      this.request<PoolsList, ErrorResponse>({
+        path: `/api/v1/pools`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Pools
+     * @name CreatePool
+     * @request POST:/api/v1/pools
+     * @secure
+     */
+    createPool: (params: RequestParams = {}) =>
+      this.request<PoolResponse, ErrorResponse>({
+        path: `/api/v1/pools`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Pools
+     * @name GetPool
+     * @request GET:/api/v1/pools/{id}
+     */
+    getPool: (id: number, params: RequestParams = {}) =>
+      this.request<PoolResponse, ErrorResponse>({
+        path: `/api/v1/pools/${id}`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Using this pool configuration endpoint, users can edit the properties of an existing pool.
+     *
+     * @tags Pools
+     * @name EditPool
+     * @request PUT:/api/v1/pools/{id}
+     * @secure
+     */
+    editPool: (id: number, data: PoolConfig, params: RequestParams = {}) =>
+      this.request<PoolConfigResponse, ErrorResponse>({
+        path: `/api/v1/pools/${id}`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Pools
+     * @name DeletePool
+     * @request DELETE:/api/v1/pools/{id}
+     * @secure
+     */
+    deletePool: (id: number, params: RequestParams = {}) =>
+      this.request<void, ErrorResponse>({
+        path: `/api/v1/pools/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description The update password endpoint allows users to change the user password for the mining device.
+     *
+     * @tags Authentication
+     * @name UpdatePassword
+     * @request PUT:/api/v1/update-password
+     */
+    updatePassword: (
+      query: {
+        /** The old and new password for the user. */
+        password_request: PasswordRequest;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<void, ErrorResponse>({
+        path: `/api/v1/update-password`,
+        method: "PUT",
+        query: query,
+        ...params,
+      }),
+
+    /**
+     * @description The system endpoint provides information related to the control board including OS, software, and hardware component details.
+     *
+     * @tags System
+     * @name GetSystemInfo
+     * @request GET:/api/v1/system
+     */
+    getSystemInfo: (params: RequestParams = {}) =>
+      this.request<SystemInfo, ErrorResponse>({
+        path: `/api/v1/system`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The mining endpoint provides summary information about the mining operations of the device. This includes device level hashrate statistics, overall miner status, and current power usage and target information.
+     *
+     * @tags Mining
+     * @name GetMiningStatus
+     * @request GET:/api/v1/mining
+     */
+    getMiningStatus: (params: RequestParams = {}) =>
+      this.request<MiningStatus, ErrorResponse>({
+        path: `/api/v1/mining`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The mining target endpoint returns the current power target in watts that the miner is controlling for.
+     *
+     * @tags Mining
+     * @name GetMiningTarget
+     * @request GET:/api/v1/mining/target
+     */
+    getMiningTarget: (params: RequestParams = {}) =>
+      this.request<MiningTarget, ErrorResponse>({
+        path: `/api/v1/mining/target`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The mining target endpoint can be used to set a target power consumption for the miner. Once set, the mining device will operate to consume as close to that amount of power as possible. In the event that the device is unable to maintain its temperature within the allowed range, it may scale down and use less power.
+     *
+     * @tags Mining
+     * @name EditMiningTarget
+     * @request PUT:/api/v1/mining/target
+     * @secure
+     */
+    editMiningTarget: (data: MiningTarget, params: RequestParams = {}) =>
+      this.request<MiningTarget, ErrorResponse>({
+        path: `/api/v1/mining/target`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The stop mining endpoint can be used to stop the device from mining, going into a minimal power mode with only the control board running.
+     *
+     * @tags Mining
+     * @name StopMining
+     * @request POST:/api/v1/mining/stop
+     * @secure
+     */
+    stopMining: (params: RequestParams = {}) =>
+      this.request<void, ErrorResponse>({
+        path: `/api/v1/mining/stop`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description The start mining endpoint can be used to make the device start mining, into account the current power target of the system.
+     *
+     * @tags Mining
+     * @name StartMining
+     * @request POST:/api/v1/mining/start
+     * @secure
+     */
+    startMining: (params: RequestParams = {}) =>
+      this.request<void, ErrorResponse>({
+        path: `/api/v1/mining/start`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description The reboot endpoint can be used to reboot the entire system.
+     *
+     * @tags System
+     * @name RebootSystem
+     * @request POST:/api/v1/system/reboot
+     * @secure
+     */
+    rebootSystem: (params: RequestParams = {}) =>
+      this.request<void, ErrorResponse>({
+        path: `/api/v1/system/reboot`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description The locate system endpoint can be used to flash the indicator LED on the control board to assist in finding the miner.
+     *
+     * @tags System
+     * @name LocateSystem
+     * @request POST:/api/v1/system/locate
+     */
+    locateSystem: (
+      query?: {
+        /**
+         * The duration in seconds for which to turn on the LED. If not specified, a default value of 30 seconds will be used.
+         * @default 30
+         */
+        ledOnTime?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<void, ErrorResponse>({
+        path: `/api/v1/system/locate`,
+        method: "POST",
+        query: query,
+        ...params,
+      }),
+
+    /**
+     * @description The hashboards endpoint provides information about all of the hashboards connected to the system, including firmware version, MCU, ASIC count, API version, and hardware serial numbers.
+     *
+     * @tags Hashboards
+     * @name Hashboards
+     * @request GET:/api/v1/hashboards
+     */
+    hashboards: (params: RequestParams = {}) =>
+      this.request<HashboardsInfo, ErrorResponse>({
+        path: `/api/v1/hashboards`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The hashboard status endpoint returns statistics for a single hashboard in the system based on its serial number.
+     *
+     * @tags Hashboards
+     * @name HashboardStats
+     * @request GET:/api/v1/hashboards/{hb_sn}
+     */
+    hashboardStats: (hbSn: string, params: RequestParams = {}) =>
+      this.request<HashboardStats, ErrorResponse>({
+        path: `/api/v1/hashboards/${hbSn}`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The hashboard logs endpoint provides the most recent log lines from the specified hashboard.
+     *
+     * @tags Hashboards
+     * @name GetHashboardLogs
+     * @request GET:/api/v1/hashboards/{hb_sn}/logs
+     */
+    getHashboardLogs: (
+      hbSn: string,
+      query?: {
+        /**
+         * The number of most recent logs to return. Maximum of 500, defaults to 100.
+         * @default 100
+         */
+        lines?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<LogsResponse, ErrorResponse>({
+        path: `/api/v1/hashboards/${hbSn}/logs`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The hashboard status endpoint returns statistics for a single ASIC on the specified hashboard in the system based on serial number and ASIC ID.
+     *
+     * @tags Hashboards
+     * @name HashboardAsicStats
+     * @request GET:/api/v1/hashboards/{hb_sn}/{asic_id}
+     */
+    hashboardAsicStats: (hbSn: string, asicId: string, params: RequestParams = {}) =>
+      this.request<AsicStatsResponse, ErrorResponse>({
+        path: `/api/v1/hashboards/${hbSn}/${asicId}`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The hashrate endpoint provides miner-level historical hashrate operation data.
+     *
+     * @tags Hashrate
+     * @name V1HashrateList
+     * @request GET:/api/v1/hashrate
+     */
+    v1HashrateList: (
+      query?: {
+        /** @default "8h" */
+        duration?: "8h" | "24h" | "48h" | "72h" | "5d" | "7d";
+        /** @default "15m" */
+        granularity?: "1m" | "5m" | "15m";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<HashrateResponse, ErrorResponse>({
+        path: `/api/v1/hashrate`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The hashrate endpoint provides hashboard-level historical operation data.
+     *
+     * @tags Hashrate
+     * @name V1HashrateDetail
+     * @request GET:/api/v1/hashrate/{hb_sn}
+     */
+    v1HashrateDetail: (
+      hbSn: string,
+      query?: {
+        /** @default "8h" */
+        duration?: "8h" | "24h" | "48h" | "72h" | "5d" | "7d";
+        /** @default "15m" */
+        granularity?: "1m" | "5m" | "15m";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<HashrateResponse, ErrorResponse>({
+        path: `/api/v1/hashrate/${hbSn}`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The hashrate endpoint provides ASIC-level historical hashrate operation data.
+     *
+     * @tags Hashrate
+     * @name V1HashrateDetail2
+     * @request GET:/api/v1/hashrate/{hb_sn}/{asic_id}
+     * @originalName v1HashrateDetail
+     * @duplicate
+     */
+    v1HashrateDetail2: (
+      hbSn: string,
+      asicId: number,
+      query?: {
+        /** @default "8h" */
+        duration?: "8h" | "24h" | "48h" | "72h" | "5d" | "7d";
+        /** @default "15m" */
+        granularity?: "1m" | "5m" | "15m";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<HashrateResponse, ErrorResponse>({
+        path: `/api/v1/hashrate/${hbSn}/${asicId}`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The cooling endpoint provides information on the cooling status of the device, including mode and current fan RPM.
+     *
+     * @tags Cooling
+     * @name GetCooling
+     * @request GET:/api/v1/cooling
+     */
+    getCooling: (params: RequestParams = {}) =>
+      this.request<CoolingStatus, ErrorResponse>({
+        path: `/api/v1/cooling`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The cooling configuration endpoint allows the user to control the fan mode.
+     *
+     * @tags Cooling
+     * @name SetCoolingMode
+     * @request PUT:/api/v1/cooling
+     * @secure
+     */
+    setCoolingMode: (data: CoolingConfig, params: RequestParams = {}) =>
+      this.request<CoolingConfig, ErrorResponse>({
+        path: `/api/v1/cooling`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The network endpoint provides information related to the networkconfiguration of the miner including IP address, gateways, and MAC address.
+     *
+     * @tags Network
+     * @name GetNetwork
+     * @request GET:/api/v1/network
+     */
+    getNetwork: (params: RequestParams = {}) =>
+      this.request<NetworkInfo, ErrorResponse>({
+        path: `/api/v1/network`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The logs endpoint provides the most recent log lines from a given source, either OS, pool software, or miner logs.
+     *
+     * @tags System
+     * @name GetSystemLogs
+     * @request GET:/api/v1/system/logs
+     */
+    getSystemLogs: (
+      query?: {
+        /**
+         * Number of log lines to return from the tail of the log, up to a maximum of 500 lines. Defaults to 100 lines.
+         * @default 100
+         */
+        lines?: number;
+        /**
+         * Source of logs to fetch. Defaults to miner software logs.
+         * @default "miner_sw"
+         * @example "miner_sw"
+         */
+        source?: "os" | "pool_sw" | "miner_sw";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<LogsResponse, ErrorResponse>({
+        path: `/api/v1/system/logs`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The notifications endpoint provides alerts to be surfaced on the UI such as errors. This endpoint should be polled periodically to surface any issues that arise during mining operation.
+     *
+     * @tags Notifications
+     * @name GetNotifications
+     * @request GET:/api/v1/notifications
+     */
+    getNotifications: (params: RequestParams = {}) =>
+      this.request<NotificationListResponse, ErrorResponse>({
+        path: `/api/v1/notifications`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The notifications configuration endpoint can be used to mark certain notifications as seen or dismissed by the user.
+     *
+     * @tags Notifications
+     * @name EditNotifications
+     * @request PUT:/api/v1/notifications
+     */
+    editNotifications: (
+      query: {
+        /** Hidden status of notification. */
+        hidden: boolean;
+        /** ID of notification to edit. */
+        id: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<void, ErrorResponse>({
+        path: `/api/v1/notifications`,
+        method: "PUT",
+        query: query,
+        ...params,
+      }),
+  };
+}
