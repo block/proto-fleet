@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from "react";
+
+import Navigation from "components/Navigation";
+
 import {
   Api,
-  NetworkInfoNetworkinfo,
   HashboardsInfoHashboardsinfo,
+  NetworkInfoNetworkinfo,
 } from "./Api";
-import Navigation from "components/Navigation";
 
 const { api } = new Api();
 

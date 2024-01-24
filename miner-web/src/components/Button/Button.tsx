@@ -2,10 +2,11 @@ import clsx from "clsx";
 
 interface ButtonProps {
   className?: string;
+  onClick: () => void;
   text: string;
 }
 
-const Button = ({ className, text }: ButtonProps) => {
+const Button = ({ className, onClick, text }: ButtonProps) => {
   return (
     <button
       type="button"
@@ -14,6 +15,7 @@ const Button = ({ className, text }: ButtonProps) => {
         "hover:bg-white-100 hover:border-foreground-100",
         className
       )}
+      onClick={onClick}
     >
       {text}
     </button>

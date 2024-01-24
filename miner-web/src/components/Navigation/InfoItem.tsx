@@ -1,6 +1,8 @@
 import clsx from "clsx";
-import SkeletonBar from "components/SkeletonBar";
+
 import CaretIcon from "assets/caret.svg";
+
+import SkeletonBar from "components/SkeletonBar";
 
 interface InfoItemProps {
   caret?: boolean;

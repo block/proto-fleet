@@ -3,6 +3,7 @@ module.exports = {
   env: { browser: true, es2020: true },
   extends: [
     "eslint:recommended",
+    "plugin:import/recommended",
     "plugin:react-hooks/recommended",
     "plugin:react/recommended",
     "plugin:react/jsx-runtime",
@@ -19,11 +20,75 @@ module.exports = {
   rules: {
     "no-unused-vars": "off",
     "@typescript-eslint/no-unused-vars": "error",
-    "react-hooks/exhaustive-deps": "warn",
+    "react-hooks/exhaustive-deps": "error",
     "react-refresh/only-export-components": [
       "warn",
       { allowConstantExport: true },
     ],
     quotes: ["error", "double"],
+    "sort-imports": [
+      "error",
+      {
+        ignoreCase: true,
+        ignoreDeclarationSort: true,
+      },
+    ],
+    "import/order": [
+      "error",
+      {
+        groups: [
+          "external",
+          "builtin",
+          "internal",
+          "parent",
+          "sibling",
+          "index",
+        ],
+        pathGroups: [
+          {
+            pattern: "assets",
+            group: "internal",
+          },
+          {
+            pattern: "common",
+            group: "internal",
+          },
+          {
+            pattern: "components",
+            group: "internal",
+          },
+          {
+            pattern: "pages",
+            group: "internal",
+          },
+          {
+            pattern: "react",
+            group: "external",
+            position: "before",
+          },
+          {
+            pattern: "react-router-dom",
+            group: "external",
+            position: "before",
+          },
+          {
+            pattern: "react-dom/client",
+            group: "external",
+            position: "before",
+          },
+          {
+            pattern: "clsx",
+            group: "external",
+            position: "before",
+          },
+        ],
+        pathGroupsExcludedImportTypes: ["internal"],
+        alphabetize: {
+          order: "asc",
+          caseInsensitive: true,
+        },
+      },
+    ],
+    "import/no-unresolved": "off",
   },
 };

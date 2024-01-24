@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import clsx from "clsx";
 import { useLocation } from "react-router-dom";
+import clsx from "clsx";
+
+import { Api } from "Api";
 
 import dashboardIcon from "assets/dashboard.svg";
 import hardwareIcon from "assets/hardware.svg";
@@ -9,10 +11,9 @@ import setupIcon from "assets/setup.svg";
 
 import { useLocalStorage } from "common/hooks/useLocalStorage";
 
-import Button from "components/Button";
-
 import { navigationItems, showIdentifiersLocalStorageKey } from "./constants";
 import InfoItem from "./InfoItem";
+import NavigationButton from "./NavigationButton";
 import NavigationItem from "./NavigationItem";
 
 import "./styles.css";
@@ -22,6 +23,8 @@ interface NavigationProps {
   controller_mac?: string;
   hashboard_serials?: (string | undefined)[];
 }
+
+const { api } = new Api();
 
 const Navigation = ({
   controller_ip,
@@ -42,7 +45,9 @@ const Navigation = ({
     string | undefined
   >();
   const [hashboardDropdownOpen, setHashboardDropdownOpen] = useState(false);
-  const [showIdentifiers, setShowIdentifiers] = useState(getItem(showIdentifiersLocalStorageKey) ?? true);
+  const [showIdentifiers, setShowIdentifiers] = useState(
+    getItem(showIdentifiersLocalStorageKey) ?? true
+  );
 
   const toggleHashboardDropdown = useCallback(() => {
     setHashboardDropdownOpen(!hashboardDropdownOpen);
@@ -120,7 +125,11 @@ const Navigation = ({
           <div className="relative">
             <InfoItem
               caret={shouldShowHashboardDropdown}
-              handleClick={shouldShowHashboardDropdown ? toggleHashboardDropdown : undefined}
+              handleClick={
+                shouldShowHashboardDropdown
+                  ? toggleHashboardDropdown
+                  : undefined
+              }
               label={`Hashboard #${selectedHashboardLabel} Serial`}
               value={selectedHashboard}
             />
@@ -159,9 +168,9 @@ const Navigation = ({
         {showIdentifiers ? "Hide" : "Show"} Identifiers
       </div>
 
-      <Button text="Sleep" className="w-full mb-3" />
-      <Button text="Reboot" className="w-full mb-3" />
-      <Button text="Update firmware" className="w-full" />
+      <NavigationButton text="Sleep" className="mb-3" onClick={api.stopMining} />
+      <NavigationButton text="Reboot" className="mb-3" onClick={api.rebootSystem} />
+      <NavigationButton text="Update firmware" onClick={() => {}} />
     </div>
   );
 };

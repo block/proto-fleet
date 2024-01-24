@@ -1,7 +1,8 @@
-import clsx from "clsx";
-import { Link } from "react-router-dom";
-import { navigationItems } from "./constants";
 import { useCallback, useMemo } from "react";
+import { Link } from "react-router-dom";
+import clsx from "clsx";
+
+import { navigationItems } from "./constants";
 
 interface NavigationItemProps {
   icon: string;
