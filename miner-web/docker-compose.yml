@@ -27,44 +27,30 @@ services:
     volumes:
       - ${PWD}/../local_testchain/ckpool-conf/ckpool.conf:/opt/ckpool-build/ckpool.conf
 
-  mcdd:
+  mcdd-cgminer-miner-api-server:
     build:
-      context: ${PWD}/../mcdd
-    image: mcdd
-    container_name: mcdd
-    command: /bin/sh -c "/usr/start_mcdd_cgminer.sh"
-    ports:
-      - "2121:2121"
-    networks:
-      - miner-web
+      context: ${PWD}/../miner-api-server
+    image: mcdd-cgminer-miner-api-server
+    container_name: mcdd-cgminer-miner-api-server
+    command: /bin/sh -c "/usr/start_mcdd_cgminer_miner_api_server.sh"
     depends_on:
       - ckpool
-    sysctls:
-      - fs.mqueue.msg_max=256
+    ports:
+      - "8080:8080"
+      - "2121:2121"
+      - "4028:4028"
+    networks:
+      - miner-web
     volumes:
       - ${PWD}/../cgminer:/usr/src/cgminer
       - ${PWD}/../hashboard/lib/hashboard-protobuf:/usr/src/hashboard/lib/hashboard-protobuf
       - ${PWD}/../mcdd:/usr/src/mcdd
       - ${PWD}/../mcdd/test/cgminer.conf:/usr/src/cgminer/cgminer.conf
-      - ${PWD}/scripts/start_mcdd_cgminer.sh:/usr/start_mcdd_cgminer.sh
-      - mcdd-db:/dev/shm
-
-  miner-api-server:
-    build:
-      context: ${PWD}/../miner-api-server
-    image: miner-api-server
-    container_name: miner-api-server
-    ports:
-      - "8080:8080"
-    networks:
-      - miner-web
-    volumes:
       - ${PWD}/../miner-api-server:/usr/src/miner-api-server
       - ${PWD}/dist:/var/www
-      - mcdd-db:/dev/shm
+      - ${PWD}/scripts/start_mcdd_cgminer_miner_api_server.sh:/usr/start_mcdd_cgminer_miner_api_server.sh
+    sysctls:
+      - fs.mqueue.msg_max=256
 
 networks:
   miner-web:
-
-volumes:
-  mcdd-db:

@@ -1,17 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import clsx from "clsx";
 
-import { Api } from "Api";
+import { Api, Pool } from "Api";
 
-import dashboardIcon from "assets/dashboard.svg";
-import hardwareIcon from "assets/hardware.svg";
-import helpIcon from "assets/help.svg";
-import setupIcon from "assets/setup.svg";
+import pauseIcon from "assets/icons/pause.svg";
+import powerIcon from "assets/icons/power.svg";
 
-import { useLocalStorage } from "common/hooks/useLocalStorage";
+import { useClickOutside } from "common/hooks/useClickOutside";
 
-import { navigationItems, showIdentifiersLocalStorageKey } from "./constants";
+import { navigationItems } from "./constants";
 import InfoItem from "./InfoItem";
 import NavigationButton from "./NavigationButton";
 import NavigationItem from "./NavigationItem";
@@ -22,6 +20,7 @@ interface NavigationProps {
   controller_ip?: string;
   controller_mac?: string;
   hashboard_serials?: (string | undefined)[];
+  pool_info?: { status?: Pool["status"]; url?: Pool["url"] };
 }
 
 const { api } = new Api();
@@ -30,33 +29,25 @@ const Navigation = ({
   controller_ip,
   controller_mac,
   hashboard_serials = [],
+  pool_info = { status: undefined, url: undefined },
 }: NavigationProps) => {
   const location = useLocation();
   const { pathname } = location;
   const pageName = pathname.split("/")[1] as keyof typeof navigationItems;
 
-  const { setItem, getItem } = useLocalStorage();
-
   const [selected, setSelected] = useState(
     (navigationItems[pageName] ||
-      navigationItems.dashboard) as keyof typeof navigationItems
+      navigationItems.performance) as keyof typeof navigationItems
   );
   const [selectedHashboard, setSelectedHashboard] = useState<
     string | undefined
   >();
   const [hashboardDropdownOpen, setHashboardDropdownOpen] = useState(false);
-  const [showIdentifiers, setShowIdentifiers] = useState(
-    getItem(showIdentifiersLocalStorageKey) ?? true
-  );
+  const hashboardDropdownRef = useRef<HTMLDivElement>(null);
 
   const toggleHashboardDropdown = useCallback(() => {
     setHashboardDropdownOpen(!hashboardDropdownOpen);
   }, [hashboardDropdownOpen]);
-
-  const toggleIdentifiers = useCallback(() => {
-    setShowIdentifiers(!showIdentifiers);
-    setItem(showIdentifiersLocalStorageKey, !showIdentifiers);
-  }, [setItem, showIdentifiers]);
 
   const selectHashboard = useCallback((serial: string) => {
     setSelectedHashboard(serial);
@@ -84,33 +75,37 @@ const Navigation = ({
     return hashboard_serials.length > 1;
   }, [hashboard_serials]);
 
+  const onClickOutside = useCallback(() => {
+    setHashboardDropdownOpen(false);
+  }, []);
+
+  useClickOutside({ ref: hashboardDropdownRef, onClickOutside });
+
   return (
-    <div className="sidebar-wrapper w-[280px] h-screen p-6 flex flex-col">
+    <div className="sidebar-wrapper w-[280px] h-screen p-6 flex flex-col border-r border-foreground-30">
       <div className="grow">
-        <div className="text-title-1 mb-10">BTC Miner</div>
+        <div className="text-title-1 mb-6 text-foreground-60">
+          Proto<span className="text-foreground-100">Mine</span>
+        </div>
         <NavigationItem
-          icon={dashboardIcon}
-          id={navigationItems.dashboard}
-          text="Dashboard"
+          id={navigationItems.performance}
+          text="Performance"
           selected={selected}
           setSelected={setSelected}
         />
         <NavigationItem
-          icon={hardwareIcon}
           id={navigationItems.hardware}
           text="Hardware"
           selected={selected}
           setSelected={setSelected}
         />
         <NavigationItem
-          icon={setupIcon}
-          id={navigationItems.setup}
-          text="Setup"
+          id={navigationItems.settings}
+          text="Settings"
           selected={selected}
           setSelected={setSelected}
         />
         <NavigationItem
-          icon={helpIcon}
           id={navigationItems.help}
           text="Help"
           selected={selected}
@@ -118,59 +113,71 @@ const Navigation = ({
         />
       </div>
 
-      {showIdentifiers && (
-        <>
-          <div className="border-t-[1px] border-foreground-100/10 mt-11 mb-3" />
+      <div className="border-t border-foreground-100/10 mt-11 mb-3" />
 
-          <div className="relative">
-            <InfoItem
-              caret={shouldShowHashboardDropdown}
-              handleClick={
-                shouldShowHashboardDropdown
-                  ? toggleHashboardDropdown
-                  : undefined
-              }
-              label={`Hashboard #${selectedHashboardLabel} Serial`}
-              value={selectedHashboard}
-            />
+      <InfoItem
+        label="Pool Connection"
+        value={pool_info.url}
+        badge={pool_info.status === "Alive" ? "success" : "warning"}
+      />
 
-            {hashboardDropdownOpen && (
-              <div className="w-[232px] bg-white-100 p-4 rounded-md shadow-lg absolute z-10 top-6 -left-1">
-                {hashboard_serials.map((serial, index) => (
-                  <div
-                    className={clsx(
-                      "hover:cursor-pointer rounded-lg p-2 h-[35px] flex items-center border-b-[1px] border-foreground-100/5",
-                      {
-                        "bg-primary-100/10": serial === selectedHashboard,
-                      }
-                    )}
-                    key={serial}
-                    onClick={() => serial && selectHashboard(serial)}
-                  >
-                    Hashboard #{index + 1}
-                  </div>
-                ))}
+      <div className="relative">
+        <InfoItem
+          caret={shouldShowHashboardDropdown}
+          handleClick={
+            shouldShowHashboardDropdown ? toggleHashboardDropdown : undefined
+          }
+          label={`Hashboard ${selectedHashboardLabel} Serial`}
+          value={selectedHashboard}
+        />
+
+        {hashboardDropdownOpen && (
+          <div
+            ref={hashboardDropdownRef}
+            className="w-[232px] bg-foreground-20 p-4 rounded-md shadow-lg absolute z-10 top-5 -left-1 text-body-regular"
+          >
+            {hashboard_serials.map((serial, index) => (
+              <div
+                className={clsx(
+                  "hover:cursor-pointer rounded-md px-2 h-[33px] flex items-center",
+                  {
+                    "bg-warning-100/10": serial === selectedHashboard,
+                    "hover:bg-warning-100/5": serial !== selectedHashboard,
+                    // only add this bottom border if not selected item and not one before the selected item
+                    "border-b-2 border-black-100/5":
+                      serial !== selectedHashboard &&
+                      selectedHashboard !== hashboard_serials[index + 1],
+                  }
+                )}
+                key={serial}
+                onClick={() => serial && selectHashboard(serial)}
+              >
+                Hashboard {index + 1}
               </div>
-            )}
+            ))}
           </div>
-
-          <InfoItem label="Controller Board IP Address" value={controller_ip} />
-          <InfoItem label="Controller MAC Address" value={controller_mac} />
-        </>
-      )}
-
-      <div className="border-t-[1px] border-foreground-100/10 mb-3" />
-
-      <div
-        className="text-primary-100 text-body-default mb-4 hover:cursor-pointer select-none"
-        onClick={toggleIdentifiers}
-      >
-        {showIdentifiers ? "Hide" : "Show"} Identifiers
+        )}
       </div>
 
-      <NavigationButton text="Sleep" className="mb-3" onClick={api.stopMining} />
-      <NavigationButton text="Reboot" className="mb-3" onClick={api.rebootSystem} />
-      <NavigationButton text="Update firmware" onClick={() => {}} />
+      <InfoItem label="Controller Board IP Address" value={controller_ip} />
+      <InfoItem label="Controller MAC Address" value={controller_mac} />
+
+      <div className="border-t border-foreground-100/10 mb-3" />
+
+      <div className="flex space-x-3">
+        <NavigationButton
+          text="Sleep"
+          className="w-full"
+          icon={pauseIcon}
+          onClick={api.stopMining}
+        />
+        <NavigationButton
+          text="Reboot"
+          className="w-full"
+          icon={powerIcon}
+          onClick={api.rebootSystem}
+        />
+      </div>
     </div>
   );
 };

@@ -24,6 +24,7 @@ export const Typography = () => {
       <Block typography="text-title-2" label="Title 2" />
       <Block typography="text-body-default" label="Body / Default" />
       <Block typography="text-body-regular" label="Body / Regular" />
+      <Block typography="text-button" label="Button" />
     </div>
   );
 };

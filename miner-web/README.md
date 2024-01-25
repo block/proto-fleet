@@ -79,9 +79,8 @@ npm run storybook
 `docker-compose.yml`:
 - brings up a bitcoin-core regtest-node
 - brings up ckpool (edit the mining difficulty in `local-testchain/ckpool.conf`).
-- brings up mcdd
-    - executes the `scripts/start_mcdd_cgminer.sh` script to build and run cgminer and mcdd
-- brings up the miner-api-server in watch mode
+- brings up mcdd, cgminer, and miner-api-server in watch mode
+    - executes the `scripts/start_mcdd_cgminer_miner_api_server.sh` script to build and run cgminer, mcdd, and miner-api-server
 
 ## Learn More
 

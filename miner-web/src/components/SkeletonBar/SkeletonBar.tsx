@@ -13,7 +13,7 @@ const SkeletonBar = ({ className }: SkeletonBarProps) => {
           before:-translate-x-full
           before:animate-[shimmer_2s_infinite]
           before:bg-gradient-to-r
-          before:from-transparent before:via-primary-50/40 before:to-transparent
+          before:from-transparent before:via-foreground-30/20 before:to-transparent
           isolate
           overflow-hidden
           shadow-xl shadow-black/5"

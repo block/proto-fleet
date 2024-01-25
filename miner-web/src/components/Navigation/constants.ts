@@ -1,8 +1,11 @@
 export const navigationItems = {
-  dashboard: "dashboard",
+  performance: "performance",
   hardware: "hardware",
-  setup: "setup",
+  settings: "settings",
   help: "help",
 };
 
-export const showIdentifiersLocalStorageKey = "preferences.showIdentifiers";
+export const badgeColorClassName = {
+  success: "bg-success-100",
+  warning: "bg-warning-100",
+};

@@ -5,3 +5,8 @@
 .text-body-default, .text-body-regular {
   margin-bottom: 0.25rem;
 }
+
+@font-face {
+  font-family: 'BerkeleyMonoVariable';
+  src: url('../../assets/fonts/BerkeleyMonoVariable-Regular.ttf') format('truetype');
+}

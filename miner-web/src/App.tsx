@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from "react";
 
+import { getSerialNumbersDisplay, getUrlDisplay } from "common/utils/stringUtils";
+
 import Navigation from "components/Navigation";
 
 import {
   Api,
-  HashboardsInfoHashboardsinfo,
   NetworkInfoNetworkinfo,
+  Pool,
 } from "./Api";
 
 const { api } = new Api();
@@ -16,9 +18,8 @@ interface AppProps {
 
 const App = ({ children }: AppProps) => {
   const [networkInfo, setNetworkInfo] = useState({} as NetworkInfoNetworkinfo);
-  const [hashboardsInfo, setHashboardsInfo] = useState<
-    HashboardsInfoHashboardsinfo[]
-  >([]);
+  const [hashboardSerials, setHashboardSerials] = useState<(string | undefined)[] | undefined>([]);
+  const [poolInfo, setPoolInfo] = useState([] as Pool | undefined);
 
   useEffect(() => {
     api.getNetwork().then((res) => {
@@ -28,7 +29,16 @@ const App = ({ children }: AppProps) => {
     });
     api.hashboards().then((res) => {
       if (res.data["hashboards-info"]) {
-        setHashboardsInfo(res.data["hashboards-info"]);
+        setHashboardSerials(
+          getSerialNumbersDisplay(
+            res.data["hashboards-info"]?.map((hashboard) => hashboard.hb_sn)
+          )
+        );
+      }
+    });
+    api.listPools().then((res) => {
+      if (res.data["pools"]) {
+        setPoolInfo(res.data["pools"].find((pool) => pool.priority === 0));
       }
     });
   }, []);
@@ -37,9 +47,13 @@ const App = ({ children }: AppProps) => {
     <div className="flex">
       <div className="grow">
         <Navigation
-          hashboard_serials={hashboardsInfo.map((hashboard) => hashboard.hb_sn)}
+          hashboard_serials={hashboardSerials}
           controller_ip={networkInfo.ip}
-          controller_mac={networkInfo.mac}
+          controller_mac={networkInfo.mac?.replace(/\./g, ":")}
+          pool_info={{
+            status: poolInfo?.status,
+            url: getUrlDisplay(poolInfo?.url),
+          }}
         />
       </div>
       <div className="w-full p-6">{children}</div>
