@@ -13,3 +13,8 @@ export const getSerialNumbersDisplay = (value?: (string | undefined)[]) => {
 export const getUrlDisplay = (value?: string) => {
   return value?.match(/:\/\/(.*):/)?.[1] || value?.match(/:\/\/(.*)\//)?.[1] || value;
 }
+
+// adds a comma separator for every 3 digits
+export const addCommas = (value?: number) => {
+  return value?.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}

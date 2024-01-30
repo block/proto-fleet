@@ -14,6 +14,9 @@ export default {
         80: "rgb(var(--black-80) / <alpha-value>)",
         100: "rgb(var(--black-100) / <alpha-value>)",
       },
+      error: {
+        100: "rgb(var(--error-100) / <alpha-value>)",
+      },
       foreground: {
         10: "rgb(var(--foreground-10) / <alpha-value>)",
         20: "rgb(var(--foreground-20) / <alpha-value>)",
@@ -43,28 +46,24 @@ export default {
     },
     fontFamily: {
       body: ["'Inter'"],
-      "berkeley-mono-variable": ["'BerkeleyMonoVariable'"],
+      "mono": ["'BerkeleyMonoVariable'"],
     },
     fontSize: {
       "title-1": [
-        "1.25rem",
-        { lineHeight: "1.875rem", fontWeight: "500", letterSpacing: "-0.4px" },
-      ],
-      "title-2": [
-        "1.125rem",
-        { lineHeight: "2rem", fontWeight: "600", letterSpacing: "-0.8px" },
+        "24px",
+        { lineHeight: "32px", fontWeight: "600", letterSpacing: "-0.8px" },
       ],
       "body-default": [
-        "0.938rem",
+        "15px",
         { lineHeight: "normal", fontWeight: "500", letterSpacing: "-0.3px" },
       ],
-      "body-regular": [
-        "0.75rem",
-        { lineHeight: "normal", fontWeight: "400", letterSpacing: "-0.25px" },
-      ],
       "button": [
-        "0.813rem",
+        "13px",
         { lineHeight: "normal", fontWeight: "500", letterSpacing: "-0.26px" },
+      ],
+      "body-regular": [
+        "12px",
+        { lineHeight: "normal", fontWeight: "400", letterSpacing: "-0.25px" },
       ],
     },
     keyframes: {

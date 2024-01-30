@@ -36,7 +36,7 @@ const InfoItem = ({
           <img src={CaretIcon} alt="caret" className="absolute right-0 top-1" />
         )}
       </div>
-      <div className="text-foreground-100 tracking-[-0.14px] font-berkeley-mono-variable">
+      <div className="text-foreground-100 tracking-[-0.14px] font-mono">
         {value || <SkeletonBar className="w-4/5 mt-1" />}
       </div>
     </div>

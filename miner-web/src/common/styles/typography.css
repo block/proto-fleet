@@ -1,11 +1,3 @@
-.text-title-1, .text-title-2 {
-  margin-bottom: 0.5rem;
-}
-
-.text-body-default, .text-body-regular {
-  margin-bottom: 0.25rem;
-}
-
 @font-face {
   font-family: 'BerkeleyMonoVariable';
   src: url('../../assets/fonts/BerkeleyMonoVariable-Regular.ttf') format('truetype');

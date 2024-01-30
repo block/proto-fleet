@@ -95,6 +95,13 @@ export const Colors = () => {
               hex="#F46E38"
             />
           </div>
+          <div className="flex flex-col border border-solid border-bg-dark h-fit">
+            <Block
+              className="bg-error-100 text-foreground-20"
+              footer="error-100"
+              hex="#CA0000"
+            />
+          </div>
         </div>
         <div className="flex flex-col space-y-6">
           <div className="flex flex-col border border-solid border-bg-dark h-fit">

@@ -1,14 +1,13 @@
 import React, { useEffect, useState } from "react";
 
-import { getSerialNumbersDisplay, getUrlDisplay } from "common/utils/stringUtils";
-
-import Navigation from "components/Navigation";
+import { Api, NetworkInfoNetworkinfo, Pool } from "Api";
 
 import {
-  Api,
-  NetworkInfoNetworkinfo,
-  Pool,
-} from "./Api";
+  getSerialNumbersDisplay,
+  getUrlDisplay,
+} from "common/utils/stringUtils";
+
+import Navigation from "components/Navigation";
 
 const { api } = new Api();
 
@@ -18,7 +17,9 @@ interface AppProps {
 
 const App = ({ children }: AppProps) => {
   const [networkInfo, setNetworkInfo] = useState({} as NetworkInfoNetworkinfo);
-  const [hashboardSerials, setHashboardSerials] = useState<(string | undefined)[] | undefined>([]);
+  const [hashboardSerials, setHashboardSerials] = useState<
+    (string | undefined)[] | undefined
+  >([]);
   const [poolInfo, setPoolInfo] = useState([] as Pool | undefined);
 
   useEffect(() => {

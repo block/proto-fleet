@@ -19,12 +19,11 @@ export default {
 
 export const Typography = () => {
   return (
-    <div className="w-1/2">
+    <div className="w-1/2 space-y-2">
       <Block typography="text-title-1" label="Title 1" />
-      <Block typography="text-title-2" label="Title 2" />
       <Block typography="text-body-default" label="Body / Default" />
-      <Block typography="text-body-regular" label="Body / Regular" />
       <Block typography="text-button" label="Button" />
+      <Block typography="text-body-regular" label="Body / Regular" />
     </div>
   );
 };
