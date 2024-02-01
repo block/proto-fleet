@@ -15,10 +15,9 @@ const SkeletonBar = ({ className }: SkeletonBarProps) => {
           before:bg-gradient-to-r
           before:from-transparent before:via-foreground-30/20 before:to-transparent
           isolate
-          overflow-hidden
-          shadow-xl shadow-black/5"
+          overflow-hidden"
       >
-        <div className="h-full bg-white-100/40" />
+        <div className="h-full bg-foreground-30/20" />
       </div>
     </div>
   );

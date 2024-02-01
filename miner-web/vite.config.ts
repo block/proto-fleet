@@ -20,8 +20,8 @@ export default defineConfig({
   server: {
     proxy: {
       // miner-api-server http://127.0.0.1:8080
-      // "/api": "https://virtserver.swaggerhub.com/KSHITIZ_1/MDK-API/1.0.0",
-      "/api": "http://127.0.0.1:8080",
+      "/api": "https://virtserver.swaggerhub.com/KSHITIZ_1/MDK-API/1.0.0",
+      // "/api": "http://127.0.0.1:8080",
     },
   },
 });

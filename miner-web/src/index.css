@@ -1,4 +1,3 @@
-@import './common/styles/typography.css';
 @import './common/styles/colors.css';
 
 @tailwind components;

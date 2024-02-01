@@ -4,7 +4,10 @@ import { Api } from "Api";
 
 import { addCommas } from "common/utils/stringUtils";
 
+import { AvgEfficiency, AvgHashrate, Efficiency, Hashrate } from "components/Chart/chart.stories";
+import DurationSelector from "components/DurationSelector";
 import InfoWidget, { InfoWidgetWrapper } from "components/InfoWidget";
+import Tab, { TabWrapper } from "components/Tab";
 
 const { api } = new Api();
 
@@ -43,11 +46,13 @@ const Performance = () => {
   return (
     <>
       <div className="text-title-1 mb-8">Performance</div>
-      <InfoWidgetWrapper>
+
+      <InfoWidgetWrapper className="mb-8">
         <InfoWidget
           title="Current Power Usage"
           value={powerUsage && `${powerUsage} kW`}
         />
+        {/* TODO: pass text-error-100 if fan speed outside of range once we know the range */}
         <InfoWidget
           title="Average Fan Speed"
           value={avgFanSpeed && `${avgFanSpeed} RPM`}
@@ -57,6 +62,27 @@ const Performance = () => {
           value={asicTemp && `${asicTemp}&deg;c`}
         />
       </InfoWidgetWrapper>
+
+      <TabWrapper>
+        <Tab label={"Efficiency"}>
+          {/* TODO: BTCM-1145 - use efficiency data from API and hook up duration changes */}
+          <Efficiency />
+          <DurationSelector className="mt-10" />
+        </Tab>
+        <Tab label={"Hashrate"}>
+          {/* TODO: BTCM-1147 - use hashrate data from API and hook up duration changes */}
+          <Hashrate />
+          <DurationSelector className="mt-10" />
+        </Tab>
+        <Tab label={"Compare"}>
+          {/* TODO: BTCM-1145 - use efficiency data from API and hook up duration changes */}
+          <AvgEfficiency height={200} />
+          <div className="mb-6" />
+          {/* TODO: BTCM-1147 - use hashrate data from API and hook up duration changes */}
+          <AvgHashrate height={200} />
+          <DurationSelector className="mt-10" />
+        </Tab>
+      </TabWrapper>
     </>
   );
 };

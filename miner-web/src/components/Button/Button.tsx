@@ -13,7 +13,7 @@ const Button = ({ className, icon, onClick, text }: ButtonProps) => {
       type="button"
       className={clsx(
         "text-button text-foreground-100 h-9 p-3 flex items-center justify-center bg-black-100/5 rounded-lg",
-        "hover:bg-warning-100/5",
+        "hover:bg-black-100/20",
         className
       )}
       onClick={onClick}

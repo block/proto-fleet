@@ -1,4 +1,4 @@
-import { Data } from "./LineChart";
+import { Data } from "./types";
 
 interface LineLabelProps {
   chartData: Data[];

@@ -8,7 +8,7 @@ interface InfoWidgetProps {
 
 const InfoWidget = ({ className, title, value }: InfoWidgetProps) => {
   return (
-    <div>
+    <div className="min-w-[250px]">
       <div className="text-body-default font-semibold text-foreground-60 mb-2">
         {title}
       </div>

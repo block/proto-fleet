@@ -35,6 +35,8 @@ const Navigation = ({
   const { pathname } = location;
   const pageName = pathname.split("/")[1] as keyof typeof navigationItems;
 
+  const isPoolConnected = useMemo(() => pool_info.status === "Alive", [pool_info]);
+
   const [selected, setSelected] = useState(
     (navigationItems[pageName] ||
       navigationItems.performance) as keyof typeof navigationItems
@@ -116,9 +118,10 @@ const Navigation = ({
       <div className="border-t border-foreground-100/10 mt-11 mb-3" />
 
       <InfoItem
-        label="Pool Connection"
+        label={`Pool Connection ${isPoolConnected ? "" : "(failed)"}`}
         value={pool_info.url}
-        badge={pool_info.status === "Alive" ? "success" : "warning"}
+        badge={isPoolConnected ? "success" : "error"}
+        error={!isPoolConnected}
       />
 
       <div className="relative">

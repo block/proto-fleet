@@ -39,13 +39,18 @@ const App = ({ children }: AppProps) => {
     });
     api.listPools().then((res) => {
       if (res.data["pools"]) {
-        setPoolInfo(res.data["pools"].find((pool) => pool.priority === 0));
+        // find the highest priority pool that is alive
+        // highest priority is the lowest number
+        const sortedPools = res.data["pools"].sort(
+          (a, b) => (a.priority || 0) - (b.priority || 0)
+        );
+        setPoolInfo(sortedPools.find((pool) => pool.status === "Alive"));
       }
     });
   }, []);
 
   return (
-    <div className="flex">
+    <div className="flex max-w-[1440px] h-screen">
       <div className="grow">
         <Navigation
           hashboard_serials={hashboardSerials}
@@ -57,7 +62,7 @@ const App = ({ children }: AppProps) => {
           }}
         />
       </div>
-      <div className="w-full p-6">{children}</div>
+      <div className="w-full m-14">{children}</div>
     </div>
   );
 };

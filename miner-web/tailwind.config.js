@@ -14,6 +14,9 @@ export default {
         80: "rgb(var(--black-80) / <alpha-value>)",
         100: "rgb(var(--black-100) / <alpha-value>)",
       },
+      critical: {
+        100: "rgb(var(--critical-100) / <alpha-value>)",
+      },
       error: {
         100: "rgb(var(--error-100) / <alpha-value>)",
       },
@@ -46,9 +49,13 @@ export default {
     },
     fontFamily: {
       body: ["'Inter'"],
-      "mono": ["'BerkeleyMonoVariable'"],
+      mono: ["'Fira Code'"],
     },
     fontSize: {
+      "heading-300": [
+        "28px",
+        { lineHeight: "40px", fontWeight: "500", letterSpacing: "-4%" },
+      ],
       "title-1": [
         "24px",
         { lineHeight: "32px", fontWeight: "600", letterSpacing: "-0.8px" },

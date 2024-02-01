@@ -1,0 +1,3 @@
+.selected {
+  box-shadow: 0 0 1px 0 theme('colors.black.100/30%');
+}

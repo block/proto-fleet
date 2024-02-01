@@ -6,6 +6,7 @@ export const navigationItems = {
 };
 
 export const badgeColorClassName = {
+  error: "bg-error-100",
   success: "bg-success-100",
   warning: "bg-warning-100",
 };

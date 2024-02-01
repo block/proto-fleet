@@ -9,6 +9,7 @@ import Badge, { BadgeStatus } from "./badge";
 interface InfoItemProps {
   badge?: BadgeStatus;
   caret?: boolean;
+  error?: boolean;
   handleClick?: () => void;
   label: string;
   value?: string;
@@ -17,6 +18,7 @@ interface InfoItemProps {
 const InfoItem = ({
   badge,
   caret,
+  error,
   handleClick,
   label,
   value,
@@ -25,8 +27,10 @@ const InfoItem = ({
     <div className="text-body-regular mb-3">
       <div
         className={clsx(
-          "flex items-center select-none text-foreground-100/40 tracking-[-0.28px] mb-[6px] relative",
-          { "hover:cursor-pointer": caret }
+          "flex items-center select-none tracking-[-0.28px] mb-[6px] relative",
+          { "hover:cursor-pointer": caret },
+          { "text-foreground-100/40": !error },
+          { "text-critical-100": error }
         )}
         onClick={handleClick}
       >
@@ -36,7 +40,13 @@ const InfoItem = ({
           <img src={CaretIcon} alt="caret" className="absolute right-0 top-1" />
         )}
       </div>
-      <div className="text-foreground-100 tracking-[-0.14px] font-mono">
+      <div
+        className={clsx(
+          "tracking-[-0.14px] font-mono",
+          { "text-foreground-100": !error },
+          { "text-critical-100": error }
+        )}
+      >
         {value || <SkeletonBar className="w-4/5 mt-1" />}
       </div>
     </div>
