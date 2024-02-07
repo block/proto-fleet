@@ -1,6 +1,6 @@
 import clsx from "clsx";
 
-import CaretIcon from "assets/icons/caret.svg";
+import CaretIcon from "assets/icons/Caret";
 
 import SkeletonBar from "components/SkeletonBar";
 
@@ -37,7 +37,7 @@ const InfoItem = ({
         <div className="grow">{label}</div>
         {badge && <Badge status={badge} />}
         {caret && (
-          <img src={CaretIcon} alt="caret" className="absolute right-0 top-1" />
+          <CaretIcon className="absolute right-0 top-1" />
         )}
       </div>
       <div

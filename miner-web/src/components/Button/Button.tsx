@@ -1,25 +1,85 @@
+import { ReactNode } from "react";
 import clsx from "clsx";
+
+import Spinner from "components/Spinner";
+
+import { sizes, variants } from "./constants";
 
 interface ButtonProps {
   className?: string;
-  icon?: string;
+  disabled?: boolean;
+  prefixIcon?: ReactNode;
+  loading?: boolean;
   onClick: () => void;
-  text: string;
+  size: keyof typeof sizes;
+  suffixIcon?: ReactNode;
+  text?: string;
+  variant: keyof typeof variants;
 }
 
-const Button = ({ className, icon, onClick, text }: ButtonProps) => {
+const Button = ({
+  className,
+  disabled,
+  prefixIcon,
+  loading,
+  onClick,
+  size,
+  suffixIcon,
+  text,
+  variant,
+}: ButtonProps) => {
+  const prefix = loading ? <Spinner /> : prefixIcon;
+  const gap = size === sizes.compact ? "w-2" : "w-3";
+
   return (
     <button
       type="button"
       className={clsx(
-        "text-button text-foreground-100 h-9 p-3 flex items-center justify-center bg-black-100/5 rounded-lg",
-        "hover:bg-black-100/20",
+        "flex items-center justify-center rounded-lg",
+        {
+          "text-emphasis-400": size === sizes.base,
+        },
+        {
+          "text-emphasis-300": size === sizes.compact,
+        },
+        {
+          "px-4 py-3": size === sizes.base && text,
+        },
+        {
+          "p-3": size === sizes.base && !text,
+        },
+        {
+          "px-3 py-1": size === sizes.compact && text,
+        },
+        {
+          "p-[10px]": size === sizes.compact && !text,
+        },
+        {
+          "text-black-100 bg-black-100/5 hover:bg-black-100/20":
+            variant === variants.secondary && !disabled,
+        },
+        {
+          "text-black-100/50 bg-black-100/5":
+            variant === variants.secondary && disabled,
+        },
+        {
+          "text-white-100 bg-warning-90 hover:bg-warning-90/80":
+            variant === variants.accent && !disabled,
+        },
+        {
+          "text-white-100 bg-warning-90/40":
+            variant === variants.accent && disabled,
+        },
         className
       )}
+      disabled={disabled}
       onClick={onClick}
     >
-      {icon && <img src={icon} className="mr-2" />}
+      {prefix}
+      {text && prefix && <div className={gap} />}
       {text}
+      {text && suffixIcon && <div className={gap} />}
+      {suffixIcon}
     </button>
   );
 };

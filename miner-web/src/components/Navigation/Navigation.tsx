@@ -4,8 +4,8 @@ import clsx from "clsx";
 
 import { Api, Pool } from "Api";
 
-import pauseIcon from "assets/icons/pause.svg";
-import powerIcon from "assets/icons/power.svg";
+import PauseIcon from "assets/icons/Pause";
+import PowerIcon from "assets/icons/Power";
 
 import { useClickOutside } from "common/hooks/useClickOutside";
 
@@ -36,6 +36,7 @@ const Navigation = ({
   const pageName = pathname.split("/")[1] as keyof typeof navigationItems;
 
   const isPoolConnected = useMemo(() => pool_info.status === "Alive", [pool_info]);
+  const isPoolLoading = useMemo(() => !pool_info.status, [pool_info]);
 
   const [selected, setSelected] = useState(
     (navigationItems[pageName] ||
@@ -118,10 +119,10 @@ const Navigation = ({
       <div className="border-t border-foreground-100/10 mt-11 mb-3" />
 
       <InfoItem
-        label={`Pool Connection ${isPoolConnected ? "" : "(failed)"}`}
+        label={`Pool Connection ${isPoolLoading || isPoolConnected ? "" : "(failed)"}`}
         value={pool_info.url}
         badge={isPoolConnected ? "success" : "error"}
-        error={!isPoolConnected}
+        error={!isPoolLoading && !isPoolConnected}
       />
 
       <div className="relative">
@@ -171,13 +172,13 @@ const Navigation = ({
         <NavigationButton
           text="Sleep"
           className="w-full"
-          icon={pauseIcon}
+          prefixIcon={<PauseIcon />}
           onClick={api.stopMining}
         />
         <NavigationButton
           text="Reboot"
           className="w-full"
-          icon={powerIcon}
+          prefixIcon={<PowerIcon />}
           onClick={api.rebootSystem}
         />
       </div>

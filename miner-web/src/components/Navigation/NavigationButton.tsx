@@ -1,17 +1,18 @@
+import { ReactNode } from "react";
 import clsx from "clsx";
 
-import Button from "components/Button";
+import Button, { sizes, variants } from "components/Button";
 
 interface NavigationButtonProps {
   className?: string;
-  icon?: string;
+  prefixIcon?: ReactNode;
   onClick: () => void;
   text: string;
 }
 
 const NavigationButton = ({
   className,
-  icon,
+  prefixIcon,
   onClick,
   text,
 }: NavigationButtonProps) => {
@@ -19,8 +20,10 @@ const NavigationButton = ({
     <Button
       text={text}
       className={clsx("w-full", className)}
-      icon={icon}
+      prefixIcon={prefixIcon}
       onClick={onClick}
+      size={sizes.compact}
+      variant={variants.secondary}
     />
   );
 };

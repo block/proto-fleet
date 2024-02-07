@@ -59,7 +59,8 @@ const Performance = () => {
         />
         <InfoWidget
           title="Average ASIC Temperature"
-          value={asicTemp && `${asicTemp}&deg;c`}
+          // \u00B0c is the degree symbol
+          value={asicTemp && `${asicTemp}\u00B0c`}
         />
       </InfoWidgetWrapper>
 

@@ -6,6 +6,13 @@ export default {
       opacity: {
         4: ".04",
       },
+      keyframes: {
+        shimmer: {
+          "100%": {
+            transform: "translateX(100%)",
+          },
+        },
+      },
     },
     colors: {
       transparent: "transparent",
@@ -41,6 +48,7 @@ export default {
         20: "rgb(var(--tinted-20) / <alpha-value>)",
       },
       warning: {
+        90: "rgb(var(--warning-90) / <alpha-value>)",
         100: "rgb(var(--warning-100) / <alpha-value>)",
       },
       white: {
@@ -53,9 +61,34 @@ export default {
     },
     fontSize: {
       "heading-300": [
-        "28px",
-        { lineHeight: "40px", fontWeight: "500", letterSpacing: "-4%" },
+        "1.75rem", // 28px
+        { lineHeight: "2.5rem", fontWeight: "500", letterSpacing: "-0.07rem" },
       ],
+      "heading-200": [
+        "1.25rem", // 20px
+        { lineHeight: "1.75rem", fontWeight: "500", letterSpacing: "-0.025rem" },
+      ],
+      "400": [
+        "1rem", // 16px
+        { lineHeight: "1.5rem", fontWeight: "400" },
+      ],
+      "300": [
+        "0.875rem", // 14px
+        { lineHeight: "1.375rem", fontWeight: "400" },
+      ],
+      "200": [
+        "0.75rem", // 12px
+        { lineHeight: "1.25rem", fontWeight: "400" },
+      ],
+      "emphasis-400": [
+        "1rem", // 16px
+        { lineHeight: "1.5rem", fontWeight: "500" },
+      ],
+      "emphasis-300": [
+        "0.875rem", // 14px
+        { lineHeight: "1.5rem", fontWeight: "500" },
+      ],
+      // TODO: BTCM-1223 - replace the following with the new typography
       "title-1": [
         "24px",
         { lineHeight: "32px", fontWeight: "600", letterSpacing: "-0.8px" },
@@ -72,13 +105,6 @@ export default {
         "12px",
         { lineHeight: "normal", fontWeight: "400", letterSpacing: "-0.25px" },
       ],
-    },
-    keyframes: {
-      shimmer: {
-        "100%": {
-          transform: "translateX(100%)",
-        },
-      },
     },
   },
   plugins: [],
