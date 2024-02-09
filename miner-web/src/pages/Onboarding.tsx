@@ -1,5 +1,7 @@
 import { useCallback, useState } from "react";
 
+import { Api } from "Api";
+
 import SuccessIcon from "assets/icons/Success";
 
 import Button, { sizes, variants } from "components/Button";
@@ -7,7 +9,7 @@ import Input from "components/Input";
 
 const info = {
   url: "url",
-  user: "user",
+  username: "username",
   password: "password",
 };
 
@@ -17,11 +19,13 @@ const status = {
   success: "success",
 } as const;
 
+const { api } = new Api();
+
 const Onboarding = () => {
   // TODO: BTCM-1141 - add sidebar and onboarding steps
   const [poolInfo, setPoolInfo] = useState({
     [info.url]: "",
-    [info.user]: "",
+    [info.username]: "",
     [info.password]: "",
   });
 
@@ -36,13 +40,17 @@ const Onboarding = () => {
     [poolInfo]
   );
 
-  // TODO: call API when implemented
   const testConnection = useCallback(() => {
     setConnectionStatus(status.loading);
-    setTimeout(() => {
-      setConnectionStatus(status.success);
-    }, 2000);
-  }, []);
+    api
+      .createPool([poolInfo])
+      .then(() => {
+        setConnectionStatus(status.success);
+      })
+      .catch(() => {
+        setConnectionStatus(status.error);
+      });
+  }, [poolInfo]);
 
   return (
     <div className="mx-8 my-6">
@@ -58,7 +66,7 @@ const Onboarding = () => {
         maxLength={2083}
         onKeyUp={setInfo}
       />
-      <Input id={info.user} label="Username" onKeyUp={setInfo} />
+      <Input id={info.username} label="Username" onKeyUp={setInfo} />
       <Input
         id={info.password}
         label="Password"
@@ -78,7 +86,7 @@ const Onboarding = () => {
           onClick={testConnection}
           disabled={
             !poolInfo[info.url] ||
-            !poolInfo[info.user] ||
+            !poolInfo[info.username] ||
             !poolInfo[info.password] ||
             !!connectionStatus
           }

@@ -45,7 +45,7 @@ Open [http://localhost:5173](http://localhost:5173) with your browser to see the
 There is a `Api.ts` file that has been automatically generated based on the swagger json. To regenerate it, run this command:
 
 ```sh
-node scripts/generate_api_ts.js
+node scripts/generate_api_ts.cjs
 ```
 
 This file helps us maintain correct typing between the frontend and API and puts a wrapper around the API so we can make requests like `api.network().then(res => {})`.

@@ -226,6 +226,10 @@ export interface LogsResponseLogs {
   source?: string;
 }
 
+export interface MessageResponse {
+  message?: string;
+}
+
 /** Mining statistics */
 export interface MiningStatus {
   "mining-status"?: MiningStatusMiningstatus;
@@ -248,7 +252,7 @@ export interface MiningStatusMiningstatus {
    */
   average_hashrate_ghs_5min?: number;
   /**
-   * The average hash rate in giga-hashes per second, since the device  started mining. average_hashrate_ghs = Total hash count / (elapsed_time_s * 10^9)
+   * The average hash rate in giga-hashes per second, since the device started mining. average_hashrate_ghs = Total hash count / (elapsed_time_s * 10^9)
    * @example 110000.2
    */
   average_hashrate_ghs?: number;
@@ -832,11 +836,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/pools
      * @secure
      */
-    createPool: (params: RequestParams = {}) =>
-      this.request<PoolResponse, ErrorResponse>({
+    createPool: (data: PoolConfig, params: RequestParams = {}) =>
+      this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/pools`,
         method: "POST",
+        body: data,
         secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -864,7 +870,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/pools/{id}
      * @secure
      */
-    editPool: (id: number, data: PoolConfig, params: RequestParams = {}) =>
+    editPool: (id: number, data: PoolConfigInner, params: RequestParams = {}) =>
       this.request<PoolConfigResponse, ErrorResponse>({
         path: `/api/v1/pools/${id}`,
         method: "PUT",

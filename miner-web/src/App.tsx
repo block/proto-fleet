@@ -10,6 +10,8 @@ import {
 import Navigation from "components/Navigation";
 
 const { api } = new Api();
+// TODO: remove this once we are done with development
+(window as any).api = api;
 
 interface AppProps {
   children?: React.ReactNode;
@@ -44,7 +46,7 @@ const App = ({ children }: AppProps) => {
         const sortedPools = res.data["pools"].sort(
           (a, b) => (a.priority || 0) - (b.priority || 0)
         );
-        setPoolInfo(sortedPools.find((pool) => pool.status === "Alive"));
+        setPoolInfo(sortedPools.find((pool) => pool.status === "Alive") || sortedPools[0]);
       }
     });
   }, []);

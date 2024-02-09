@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 
-/* eslint-disable */
 const fs = require("fs");
 const path = require("path");
 const {
   generateApi,
-} = require("../node_modules/swagger-typescript-api/src/index");
+} = require("swagger-typescript-api/src");
 
 const swaggerSchemaPath = path.resolve(
   __dirname,
