@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 
-import { Api } from "Api";
+import { useCreatePool } from "api";
 
 import SuccessIcon from "assets/icons/Success";
 
@@ -13,14 +13,6 @@ const info = {
   password: "password",
 };
 
-const status = {
-  error: "error",
-  loading: "loading",
-  success: "success",
-} as const;
-
-const { api } = new Api();
-
 const Onboarding = () => {
   // TODO: BTCM-1141 - add sidebar and onboarding steps
   const [poolInfo, setPoolInfo] = useState({
@@ -29,34 +21,27 @@ const Onboarding = () => {
     [info.password]: "",
   });
 
-  const [connectionStatus, setConnectionStatus] =
-    useState<keyof typeof status>();
+  const [submitted, setSubmitted] = useState(false);
 
   const setInfo = useCallback(
     (value: string, info: string) => {
       setPoolInfo({ ...poolInfo, [info]: value });
-      setConnectionStatus(undefined);
+      setSubmitted(false);
     },
     [poolInfo]
   );
 
+  const { createPool, pending, error } = useCreatePool();
+
   const testConnection = useCallback(() => {
-    setConnectionStatus(status.loading);
-    api
-      .createPool([poolInfo])
-      .then(() => {
-        setConnectionStatus(status.success);
-      })
-      .catch(() => {
-        setConnectionStatus(status.error);
-      });
-  }, [poolInfo]);
+    createPool([poolInfo]).then(() => setSubmitted(true));
+  }, [createPool, poolInfo]);
 
   return (
     <div className="mx-8 my-6">
       <div className="text-heading-200 mb-2">Add a mining pool</div>
       {/* TODO: add link to FAQ */}
-      <div className="text-400 text-black-100/50 mb-6">
+      <div className="text-400 text-text-primary/50 mb-6">
         Input your desired mining pool URL and credentials. To learn more about
         mining pools or how to get started with a mining pool, visit our FAQ.
       </div>
@@ -64,14 +49,14 @@ const Onboarding = () => {
         id={info.url}
         label="Pool URL"
         maxLength={2083}
-        onKeyUp={setInfo}
+        onChange={setInfo}
       />
-      <Input id={info.username} label="Username" onKeyUp={setInfo} />
+      <Input id={info.username} label="Username" onChange={setInfo} />
       <Input
         id={info.password}
         label="Password"
         type="password"
-        onKeyUp={setInfo}
+        onChange={setInfo}
       />
       <div className="flex mt-8">
         <div className="grow">
@@ -88,12 +73,10 @@ const Onboarding = () => {
             !poolInfo[info.url] ||
             !poolInfo[info.username] ||
             !poolInfo[info.password] ||
-            !!connectionStatus
+            pending
           }
-          loading={connectionStatus === status.loading}
-          prefixIcon={
-            connectionStatus === status.success ? <SuccessIcon /> : undefined
-          }
+          loading={pending}
+          prefixIcon={submitted && !error ? <SuccessIcon /> : undefined}
           text="Test Connection"
           size={sizes.compact}
           variant={variants.accent}

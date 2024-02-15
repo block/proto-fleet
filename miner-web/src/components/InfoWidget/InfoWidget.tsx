@@ -1,19 +1,26 @@
 import clsx from "clsx";
 
+import SkeletonBar from "components/SkeletonBar";
+
 interface InfoWidgetProps {
   className?: string;
+  loading?: boolean;
   title: string;
-  value?: string;
+  value?: string | number;
 }
 
-const InfoWidget = ({ className, title, value }: InfoWidgetProps) => {
+const InfoWidget = ({ className, loading, title, value }: InfoWidgetProps) => {
   return (
     <div className="min-w-[250px]">
-      <div className="text-body-default font-semibold text-foreground-60 mb-2">
+      <div className="text-emphasis-400 text-text-primary/70 mb-2">
         {title}
       </div>
-      <div className={clsx("text-title-1 font-normal leading-10 tracking-[-0.24px] font-mono", className)}>
-        {value || "-"}
+      <div className={clsx("text-heading-300 font-mono", className)}>
+        {loading ? (
+          <SkeletonBar className="w-36 mt-4" />
+        ) : (
+          <>{value ?? "-"}</>
+        )}
       </div>
     </div>
   );

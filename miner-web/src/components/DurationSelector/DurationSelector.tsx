@@ -18,7 +18,7 @@ const DurationSelector = ({ className }: DurationSelectorProps) => {
   return (
     <div
       className={clsx(
-        "flex bg-foreground-20 rounded-lg w-fit p-1 text-body-regular font-medium text-foreground-60",
+        "flex bg-surface-5 rounded-lg w-fit p-1 text-emphasis-200 text-text-primary/70",
         className
       )}
     >
@@ -26,7 +26,7 @@ const DurationSelector = ({ className }: DurationSelectorProps) => {
         <div
           key={duration}
           className={clsx("px-3 py-[6px] hover:cursor-pointer", {
-            "text-warning-100 bg-white-100 rounded font-bold selected":
+            "text-text-emphasis bg-surface-base rounded font-bold selected":
               duration === selectedDuration,
           })}
           onClick={() => setSelectedDuration(duration)}

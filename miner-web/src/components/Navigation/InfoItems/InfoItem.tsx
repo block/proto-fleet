@@ -4,7 +4,7 @@ import CaretIcon from "assets/icons/Caret";
 
 import SkeletonBar from "components/SkeletonBar";
 
-import Badge, { BadgeStatus } from "./badge";
+import Badge, { BadgeStatus } from "../badge";
 
 interface InfoItemProps {
   badge?: BadgeStatus;
@@ -12,7 +12,8 @@ interface InfoItemProps {
   error?: boolean;
   handleClick?: () => void;
   label: string;
-  value?: string;
+  loading?: boolean;
+  value?: string | number;
 }
 
 const InfoItem = ({
@@ -21,33 +22,32 @@ const InfoItem = ({
   error,
   handleClick,
   label,
+  loading,
   value,
 }: InfoItemProps) => {
   return (
-    <div className="text-body-regular mb-3">
+    <div className="text-200 mb-3">
       <div
         className={clsx(
-          "flex items-center select-none tracking-[-0.28px] mb-[6px] relative",
+          "flex items-center select-none mb-[6px] relative",
           { "hover:cursor-pointer": caret },
-          { "text-foreground-100/40": !error },
-          { "text-critical-100": error }
+          { "text-text-primary/40": !error },
+          { "text-text-critical": error }
         )}
         onClick={handleClick}
       >
         <div className="grow">{label}</div>
         {badge && <Badge status={badge} />}
-        {caret && (
-          <CaretIcon className="absolute right-0 top-1" />
-        )}
+        {caret && <CaretIcon className="absolute right-0 top-1" />}
       </div>
       <div
         className={clsx(
-          "tracking-[-0.14px] font-mono",
-          { "text-foreground-100": !error },
-          { "text-critical-100": error }
+          "font-mono",
+          { "text-text-primary": !error },
+          { "text-text-critical": error }
         )}
       >
-        {value || <SkeletonBar className="w-4/5 mt-1" />}
+        {loading ? <SkeletonBar className="w-4/5 mt-1" /> : value ?? "-"}
       </div>
     </div>
   );

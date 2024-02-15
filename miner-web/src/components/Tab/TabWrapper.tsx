@@ -20,8 +20,10 @@ const TabWrapper = ({ children }: TabWrapperProps) => {
         handleActiveTab(child.props.label);
       }}
       className={clsx("pb-2", {
-        "text-warning-100 border-b-2 border-warning-100 mb-[-0.1rem]":
+        "text-text-emphasis border-b-2 border-text-emphasis mb-[-0.1rem]":
           child.props.label === activeTab,
+        "text-text-primary/70":
+          child.props.label !== activeTab,
       })}
       key={child.props.label}
     >
@@ -35,7 +37,7 @@ const TabWrapper = ({ children }: TabWrapperProps) => {
 
   return (
     <>
-      <div className="flex space-x-10 text-body-default font-semibold leading-8 tracking-[-0.4px] border-b-2 border-foreground-100/10">
+      <div className="flex space-x-10 text-emphasis-400 border-b-2 border-border-primary/5">
         {tabs}
       </div>
       <div className="mt-6">{tabContent}</div>

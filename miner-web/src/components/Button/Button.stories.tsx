@@ -1,3 +1,5 @@
+import { action } from "@storybook/addon-actions";
+
 import Button, { sizes, variants } from ".";
 
 const IconBase = () => {
@@ -34,7 +36,7 @@ interface ButtonsProps {
 
 const Buttons = ({ size }: ButtonsProps) => {
   const onClick = () => {
-    console.log("clicked");
+    action("Button clicked")();
   };
 
   const Icon = size === sizes.base ? IconBase : IconCompact;

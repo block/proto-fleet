@@ -13,7 +13,7 @@ export const InfoWidgetWrapper = () => {
         <InfoWidgetComponent
           title="Average Fan Speed"
           value="3,980 RPM"
-          className="text-error-100"
+          className="text-text-critical"
         />
         <InfoWidgetComponent
           title="Average ASIC Temperature"

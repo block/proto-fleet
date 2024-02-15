@@ -1,3 +1,3 @@
 html[data-theme='light'] .sidebar-wrapper {
-  background: linear-gradient(180deg, theme('colors.white.100') -23.36%, #F7F7F7 83.38%);
+  background: linear-gradient(180deg, theme('colors.surface.base') -23.36%, #F7F7F7 83.38%);
 }

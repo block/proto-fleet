@@ -1,66 +1,74 @@
 import { useEffect, useState } from "react";
 
-import { Api } from "Api";
+import { useCoolingStatus, useMiningStatus } from "api";
 
 import { addCommas } from "common/utils/stringUtils";
 
-import { AvgEfficiency, AvgHashrate, Efficiency, Hashrate } from "components/Chart/chart.stories";
+import {
+  AvgEfficiency,
+  AvgHashrate,
+  Efficiency,
+  Hashrate,
+} from "components/Chart/chart.stories";
 import DurationSelector from "components/DurationSelector";
 import InfoWidget, { InfoWidgetWrapper } from "components/InfoWidget";
 import Tab, { TabWrapper } from "components/Tab";
 
-const { api } = new Api();
-
 const Performance = () => {
   const [powerUsage, setPowerUsage] = useState<string>();
   const [asicTemp, setAsicTemp] = useState<string>();
-  const [avgFanSpeed, setAvgFanSpeed] = useState<string>();
+  const [avgFanSpeed, setAvgFanSpeed] = useState<string | number>();
+  // TODO: figure out how frequently we should be re-fetching this data
+  const { data: miningStatus, pending: pendingMiningStatus } =
+    useMiningStatus();
+  const { data: coolingStatus, pending: pendingCoolingStatus } =
+    useCoolingStatus();
 
   useEffect(() => {
-    api.getMiningStatus().then((res) => {
-      if (res.data["mining-status"]) {
-        const miningStatus = res.data["mining-status"];
-        if (miningStatus.power_usage_watts) {
-          const powerUsageKw = miningStatus.power_usage_watts / 1000;
-          const powerUsageRounded = powerUsageKw.toFixed(2);
-          setPowerUsage(powerUsageRounded);
-          setAsicTemp(miningStatus.temp_c?.toFixed(2));
-        }
+    if (miningStatus) {
+      if (miningStatus.power_usage_watts) {
+        const powerUsageKw = miningStatus.power_usage_watts / 1000;
+        const powerUsageRounded = powerUsageKw.toFixed(2);
+        setPowerUsage(powerUsageRounded);
+        setAsicTemp(miningStatus.temp_c?.toFixed(2));
       }
-    });
-    api.getCooling().then((res) => {
-      if (res.data["cooling-status"]) {
-        const cooling = res.data["cooling-status"];
-        if (cooling.fans) {
-          const sum =
-            cooling.fans
-              .map((fan) => fan.rpm)
-              .reduce((a = 0, b = 0) => a + b, 0) || 0;
-          const avg = sum / cooling.fans.length;
-          setAvgFanSpeed(addCommas(avg));
-        }
+    }
+  }, [miningStatus]);
+
+  useEffect(() => {
+    if (coolingStatus) {
+      if (coolingStatus.fans) {
+        const sum =
+          coolingStatus.fans
+            .map((fan) => fan.rpm)
+            .reduce((a = 0, b = 0) => a + b, 0) || 0;
+        const avg = sum / coolingStatus.fans.length;
+        setAvgFanSpeed(addCommas(avg));
       }
-    });
-  }, []);
+    }
+  }, [coolingStatus]);
 
   return (
     <>
-      <div className="text-title-1 mb-8">Performance</div>
+      <div className="text-heading-300 mb-8">Performance</div>
 
       <InfoWidgetWrapper className="mb-8">
         <InfoWidget
           title="Current Power Usage"
           value={powerUsage && `${powerUsage} kW`}
+          loading={pendingMiningStatus}
         />
-        {/* TODO: pass text-error-100 if fan speed outside of range once we know the range */}
+        {/* TODO: pass text-text-critical if fan speed outside of range once we know the range */}
         <InfoWidget
           title="Average Fan Speed"
           value={avgFanSpeed && `${avgFanSpeed} RPM`}
+          loading={pendingCoolingStatus}
         />
         <InfoWidget
           title="Average ASIC Temperature"
           // \u00B0c is the degree symbol
           value={asicTemp && `${asicTemp}\u00B0c`}
+          loading={pendingMiningStatus}
         />
       </InfoWidgetWrapper>
 

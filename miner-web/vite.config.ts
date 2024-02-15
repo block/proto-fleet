@@ -1,3 +1,6 @@
+/// <reference types="vitest" />
+/// <reference types="vite/client" />
+
 import react from "@vitejs/plugin-react";
 import { defineConfig, splitVendorChunkPlugin } from "vite";
 import { resolve } from "path";
@@ -9,8 +12,9 @@ const root = resolve(__dirname, "src");
 export default defineConfig({
   plugins: [react(), splitVendorChunkPlugin()],
   resolve: {
-  alias: {
-      Api: resolve(root, "Api"),
+    alias: {
+      api: resolve(root, "api"),
+      apiTypes: resolve(root, "api/types.ts"),
       assets: resolve(root, "assets"),
       common: resolve(root, "common"),
       components: resolve(root, "components"),
@@ -23,5 +27,9 @@ export default defineConfig({
       // "/api": "https://virtserver.swaggerhub.com/KSHITIZ_1/MDK-API/1.0.0",
       "/api": "http://127.0.0.1:8080",
     },
+  },
+  test: {
+    globals: true,
+    environment: "jsdom",
   },
 });

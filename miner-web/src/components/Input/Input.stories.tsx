@@ -1,3 +1,5 @@
+import { action } from "@storybook/addon-actions";
+
 import Input from ".";
 
 export const Single = () => {
@@ -6,7 +8,7 @@ export const Single = () => {
       <Input
         id="poolUrl"
         label="Pool URL"
-        onKeyUp={(value) => console.log(value)}
+        onChange={(value) => action("onChange pool url")(value)}
         maxLength={2083}
       />
     </>
@@ -19,18 +21,18 @@ export const Multiple = () => {
       <Input
         id="poolUrl"
         label="Pool URL"
-        onKeyUp={(value) => console.log(value)}
+        onChange={(value) => action("onChange pool url")(value)}
         maxLength={2083}
       />
       <Input
         id="username"
         label="Username"
-        onKeyUp={(value) => console.log(value)}
+        onChange={(value) => action("onChange username")(value)}
       />
       <Input
         id="password"
         label="Password"
-        onKeyUp={(value) => console.log(value)}
+        onChange={(value) => action("onChange password")(value)}
         type="password"
       />
     </>

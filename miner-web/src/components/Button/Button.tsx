@@ -55,19 +55,19 @@ const Button = ({
           "p-[10px]": size === sizes.compact && !text,
         },
         {
-          "text-black-100 bg-black-100/5 hover:bg-black-100/20":
+          "text-text-primary bg-core-primary/5 hover:bg-core-primary/20":
             variant === variants.secondary && !disabled,
         },
         {
-          "text-black-100/50 bg-black-100/5":
+          "text-text-primary/50 bg-core-primary/5":
             variant === variants.secondary && disabled,
         },
         {
-          "text-white-100 bg-warning-90 hover:bg-warning-90/80":
+          "text-text-contrast bg-core-accent-fill hover:bg-core-accent-fill/80":
             variant === variants.accent && !disabled,
         },
         {
-          "text-white-100 bg-warning-90/40":
+          "text-text-contrast bg-core-accent-fill/40":
             variant === variants.accent && disabled,
         },
         className

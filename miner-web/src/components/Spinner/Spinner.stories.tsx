@@ -1,3 +1,5 @@
+import { action } from "@storybook/addon-actions";
+
 import Button, { sizes, variants } from "components/Button";
 
 import Spinner from ".";
@@ -9,7 +11,7 @@ export const Default = () => {
 export const InButton = () => {
   return (
     <Button
-      onClick={() => console.log("clicked")}
+      onClick={() => action("Test Connection")()}
       disabled
       size={sizes.compact}
       text="Test Connection"

@@ -81,6 +81,16 @@ module.exports = {
             group: "external",
             position: "before",
           },
+          {
+            pattern: "@testing-library/react",
+            group: "external",
+            position: "before",
+          },
+          {
+            pattern: "vitest",
+            group: "external",
+            position: "before",
+          },
         ],
         pathGroupsExcludedImportTypes: ["internal"],
         alphabetize: {

@@ -4,7 +4,7 @@ interface CaretProps {
 
 const Caret = ({ className }: CaretProps) => {
   return (
-    <svg width="18" height="19" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <svg width="18" height="19" fill="none" xmlns="http://www.w3.org/2000/svg" className={className} data-testid="caret-icon">
       <g clipPath="url(#a)">
         <path
           d="m4 6.5 5 5 5-5"
