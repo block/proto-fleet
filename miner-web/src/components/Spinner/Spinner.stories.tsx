@@ -16,12 +16,11 @@ export const InButton = () => {
       size={sizes.compact}
       text="Test Connection"
       loading
-      variant={variants.accent}
+      variant={variants.secondary}
     />
   );
 };
 
 export default {
-  component: Spinner,
   title: "Spinner",
 };

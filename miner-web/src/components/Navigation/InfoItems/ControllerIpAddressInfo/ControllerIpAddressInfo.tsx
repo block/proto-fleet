@@ -1,18 +1,18 @@
 import InfoItem from "../InfoItem";
 
 export interface ControllerIpAddressInfoProps {
-  ip_address?: string;
+  ipAddress?: string;
   loading?: boolean;
 }
 
 const ControllerIpAddressInfo = ({
-  ip_address,
+  ipAddress,
   loading,
 }: ControllerIpAddressInfoProps) => {
   return (
     <InfoItem
       label="Controller Board IP Address"
-      value={ip_address}
+      value={ipAddress}
       loading={loading}
     />
   );

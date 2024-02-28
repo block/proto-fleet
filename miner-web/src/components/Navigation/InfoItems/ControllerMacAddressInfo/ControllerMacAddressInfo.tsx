@@ -6,14 +6,14 @@ import InfoItem from "../InfoItem";
 
 export interface ControllerMacAddressInfoProps {
   loading?: boolean;
-  mac_address?: string;
+  macAddress?: string;
 }
 
 const ControllerMacAddressInfo = ({
   loading,
-  mac_address,
+  macAddress,
 }: ControllerMacAddressInfoProps) => {
-  const displayMacAddress = useMemo(() => getMacAddressDisplay(mac_address), [mac_address]);
+  const displayMacAddress = useMemo(() => getMacAddressDisplay(macAddress), [macAddress]);
 
   return (
     <InfoItem

@@ -2,7 +2,8 @@ const config = {
   stories: ["../src/**/*.stories.@(js|jsx|mjs|ts|tsx)"],
   addons: [
     "storybook-addon-data-theme-switcher",
-    "@storybook/addon-actions"
+    "@storybook/addon-actions",
+    "@storybook/addon-controls",
   ],
   framework: {
     name: "@storybook/react-vite",

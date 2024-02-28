@@ -11,6 +11,5 @@ export const SkeletonBar = () => {
 };
 
 export default {
-  component: SkeletonBar,
   title: "Skeleton Bar",
 };

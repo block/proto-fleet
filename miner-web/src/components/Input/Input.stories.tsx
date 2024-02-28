@@ -40,6 +40,5 @@ export const Multiple = () => {
 };
 
 export default {
-  component: Input,
   title: "Input",
 };

@@ -282,6 +282,5 @@ AvgEfficiency.args = AvgHashrate.args = {
 };
 
 export default {
-  component: Efficiency,
   title: "Charts",
 };

@@ -25,6 +25,5 @@ export const Tabs = () => {
 };
 
 export default {
-  component: Tabs,
   title: "Tabs",
 };

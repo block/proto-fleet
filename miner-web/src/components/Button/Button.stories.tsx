@@ -1,61 +1,32 @@
 import { action } from "@storybook/addon-actions";
 
+import { BaseIcon, CompactIcon } from "common/stories/icons";
+
 import Button, { sizes, variants } from ".";
 
-const IconBase = () => {
-  return (
-    <svg width="20" height="20" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path fill="currentColor" fillOpacity=".01" d="M0 0h20v20H0z" />
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="m10 .94.53.53 3 3 .53.53-.53.53-3 3-.53.53-.53-.53-3-3L5.94 5l.53-.53 3-3L10 .94ZM8.06 5 10 6.94 11.94 5 10 3.06 8.06 5ZM5 5.94l.53.53 3 2.995.53.53-.53.53-3 3.005-.53.531-.53-.531-3-3.005-.53-.53.53-.53 3-2.996L5 5.94Zm10 0 .53.53 3 2.995.53.53-.53.53-3 3.005-.53.531-.53-.531-3-3.005-.53-.53.53-.53 3-2.996.53-.529Zm-1.94 4.056L15 11.938l1.94-1.942L15 8.06l-1.94 1.936Zm-10 0L5 11.938l1.94-1.942L5 8.06 3.06 9.996Zm6.94.943.53.53 3 3 .53.531-.53.53-3 3-.53.53-.53-.53-3-3-.53-.53.53-.53 3-3 .53-.53ZM8.06 15 10 16.94 11.94 15 10 13.06 8.06 15Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
+const onClick = () => {
+  action("Button clicked")();
 };
 
-const IconCompact = () => {
-  return (
-    <svg width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path fill="currentColor" fillOpacity=".02" d="M0 0h16v16H0z" />
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="m8 .54.53.53 2.4 2.4.53.53-.53.53-2.4 2.4-.53.53-.53-.53-2.4-2.4L4.54 4l.53-.53 2.4-2.4L8 .54ZM6.66 4 8 5.34 9.34 4 8 2.66 6.66 4ZM4 4.54l.53.53 2.4 2.396.53.53-.53.53-2.4 2.404-.53.531-.53-.531-2.4-2.404-.53-.53.53-.53 2.4-2.397L4 4.54Zm8 0 .53.53 2.4 2.396.53.53-.53.53-2.4 2.404-.53.531-.53-.531-2.4-2.404-.53-.53.53-.53 2.4-2.397.53-.529Zm-1.34 3.457L12 9.34l1.34-1.342L12 6.66l-1.34 1.337Zm-8 0L4 9.34l1.34-1.342L4 6.66 2.66 7.997ZM8 8.54l.53.53 2.4 2.4.53.531-.53.53-2.4 2.4-.53.53-.53-.53-2.4-2.4-.53-.53.53-.53 2.4-2.4.53-.53ZM6.66 12 8 13.34 9.34 12 8 10.66 6.66 12Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-};
-
-interface ButtonsProps {
+interface ButtonProps {
   size: keyof typeof sizes;
+  variant: keyof typeof variants;
 }
 
-const Buttons = ({ size }: ButtonsProps) => {
-  const onClick = () => {
-    action("Button clicked")();
-  };
-
-  const Icon = size === sizes.base ? IconBase : IconCompact;
+export const Buttons = ({ size, variant }: ButtonProps) => {
+  const Icon = size === sizes.base ? BaseIcon : CompactIcon;
+  const text = "Button";
 
   return (
-    <div className="space-y-2">
+    <div className="flex flex-col space-y-4">
       <div className="flex space-x-2">
+        <Button text={text} onClick={onClick} size={size} variant={variant} />
         <Button
-          text="Secondary button"
-          onClick={onClick}
-          size={size}
-          variant={variants.secondary}
-        />
-        <Button
-          text="Secondary button"
+          text={text}
           disabled
           onClick={onClick}
           size={size}
-          variant={variants.secondary}
+          variant={variant}
         />
       </div>
       <div className="flex space-x-2">
@@ -63,127 +34,96 @@ const Buttons = ({ size }: ButtonsProps) => {
           prefixIcon={<Icon />}
           onClick={onClick}
           size={size}
-          variant={variants.secondary}
+          variant={variant}
         />
         <Button
           prefixIcon={<Icon />}
           disabled
           onClick={onClick}
           size={size}
-          variant={variants.secondary}
+          variant={variant}
         />
       </div>
       <div className="flex space-x-2">
         <Button
-          text="Secondary button"
+          text={text}
           prefixIcon={<Icon />}
           onClick={onClick}
           size={size}
-          variant={variants.secondary}
+          variant={variant}
         />
         <Button
-          text="Secondary button"
+          text={text}
           prefixIcon={<Icon />}
           disabled
           onClick={onClick}
           size={size}
-          variant={variants.secondary}
+          variant={variant}
         />
       </div>
       <div className="flex space-x-2">
         <Button
-          text="Secondary button"
+          text={text}
           suffixIcon={<Icon />}
           onClick={onClick}
           size={size}
-          variant={variants.secondary}
+          variant={variant}
         />
         <Button
-          text="Secondary button"
+          text={text}
           suffixIcon={<Icon />}
           disabled
           onClick={onClick}
           size={size}
-          variant={variants.secondary}
-        />
-      </div>
-      <div className="flex space-x-2">
-        <Button
-          text="Accent button"
-          onClick={onClick}
-          size={size}
-          variant={variants.accent}
-        />
-        <Button
-          text="Accent button"
-          disabled
-          onClick={onClick}
-          size={size}
-          variant={variants.accent}
-        />
-      </div>
-      <div className="flex space-x-2">
-        <Button
-          prefixIcon={<Icon />}
-          onClick={onClick}
-          size={size}
-          variant={variants.accent}
-        />
-        <Button
-          prefixIcon={<Icon />}
-          disabled
-          onClick={onClick}
-          size={size}
-          variant={variants.accent}
-        />
-      </div>
-      <div className="flex space-x-2">
-        <Button
-          text="Accent button"
-          prefixIcon={<Icon />}
-          onClick={onClick}
-          size={size}
-          variant={variants.accent}
-        />
-        <Button
-          text="Accent button"
-          prefixIcon={<Icon />}
-          disabled
-          onClick={onClick}
-          size={size}
-          variant={variants.accent}
-        />
-      </div>
-      <div className="flex space-x-2">
-        <Button
-          text="Accent button"
-          suffixIcon={<Icon />}
-          onClick={onClick}
-          size={size}
-          variant={variants.accent}
-        />
-        <Button
-          text="Accent button"
-          suffixIcon={<Icon />}
-          disabled
-          onClick={onClick}
-          size={size}
-          variant={variants.accent}
+          variant={variant}
         />
       </div>
     </div>
   );
 };
 
-export const Base = () => {
-  return <Buttons size={sizes.base} />;
+Buttons.args = {
+  size: sizes.base,
+  variant: variants.primary,
+};
+Buttons.argTypes = {
+  size: {
+    control: "select",
+    options: [sizes.base, sizes.compact],
+  },
+  variant: {
+    control: "select",
+    options: [
+      variants.primary,
+      variants.accent,
+      variants.secondary,
+      variants.danger,
+      variants.secondaryDanger,
+    ],
+  },
 };
 
-export const Compact = () => {
-  return <Buttons size={sizes.compact} />;
+// since size isn't changeable in textOnly variant, have it in a separate story
+export const TextOnly = () => {
+  return (
+    <div className="flex space-x-2">
+      <Button
+        text="Text only button"
+        onClick={onClick}
+        size={sizes.textOnly}
+        variant={variants.textOnly}
+      />
+      <Button
+        text="Text only button"
+        disabled
+        onClick={onClick}
+        size={sizes.textOnly}
+        variant={variants.textOnly}
+      />
+    </div>
+  );
 };
 
 export default {
-  component: Button,
   title: "Buttons",
 };

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import clsx from "clsx";
 
 interface TabWrapperProps {
@@ -8,16 +8,12 @@ interface TabWrapperProps {
 const TabWrapper = ({ children }: TabWrapperProps) => {
   const initialTab: string = children[0].props.label;
   const [activeTab, setActiveTab] = useState(initialTab);
-  const handleActiveTab = useCallback(
-    (label: string) => setActiveTab(label),
-    []
-  );
 
   const tabs = children?.map((child) => (
     <button
       onClick={(e) => {
         e.preventDefault();
-        handleActiveTab(child.props.label);
+        setActiveTab(child.props.label);
       }}
       className={clsx("pb-2", {
         "text-text-emphasis border-b-2 border-text-emphasis mb-[-0.1rem]":

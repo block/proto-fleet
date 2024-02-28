@@ -6,78 +6,115 @@ import Spinner from "components/Spinner";
 import { sizes, variants } from "./constants";
 
 interface ButtonProps {
+  borderColor?: string;
   className?: string;
   disabled?: boolean;
-  prefixIcon?: ReactNode;
   loading?: boolean;
-  onClick: () => void;
-  size: keyof typeof sizes;
+  onClick?: () => void;
+  prefixIcon?: ReactNode;
+  size?: keyof typeof sizes;
   suffixIcon?: ReactNode;
   text?: string;
+  textColor?: string;
   variant: keyof typeof variants;
 }
 
 const Button = ({
+  borderColor = "border-core-accent-fill",
   className,
   disabled,
-  prefixIcon,
   loading,
   onClick,
+  prefixIcon,
   size,
   suffixIcon,
   text,
+  textColor = "text-text-emphasis",
   variant,
 }: ButtonProps) => {
+  const primary = variant === variants.primary;
+  const accent = variant === variants.accent;
+  const secondary = variant === variants.secondary;
+  const danger = variant === variants.danger;
+  const secondaryDanger = variant === variants.secondaryDanger;
+  const textOnly = variant === variants.textOnly;
+  const base = size === sizes.base;
+  const compact = size === sizes.compact;
+  const gap = compact ? "w-2" : "w-3";
   const prefix = loading ? <Spinner /> : prefixIcon;
-  const gap = size === sizes.compact ? "w-2" : "w-3";
+  const disabledState = disabled || loading;
 
   return (
     <button
       type="button"
       className={clsx(
-        "flex items-center justify-center rounded-lg",
+        "group flex items-center justify-center rounded-lg h-fit outline-0",
         {
-          "text-emphasis-400": size === sizes.base,
+          "cursor-not-allowed": disabledState,
         },
+        // font size
         {
-          "text-emphasis-300": size === sizes.compact,
+          "text-emphasis-400": base,
+          "text-emphasis-300": compact,
+          "text-emphasis-300 font-extrabold": textOnly,
         },
+        // padding
         {
-          "px-4 py-3": size === sizes.base && text,
+          "px-4 py-3": base && text,
+          "p-3": base && !text,
+          "px-3 py-1": compact && text,
+          "p-[10px]": compact && !text,
         },
+        // color and bg - primary
         {
-          "p-3": size === sizes.base && !text,
+          "text-text-contrast bg-core-primary-fill hover:bg-core-primary-fill/80":
+            primary && !disabledState,
+            "text-text-contrast bg-core-primary-fill/40": primary && disabledState,
         },
-        {
-          "px-3 py-1": size === sizes.compact && text,
-        },
-        {
-          "p-[10px]": size === sizes.compact && !text,
-        },
-        {
-          "text-text-primary bg-core-primary/5 hover:bg-core-primary/20":
-            variant === variants.secondary && !disabled,
-        },
-        {
-          "text-text-primary/50 bg-core-primary/5":
-            variant === variants.secondary && disabled,
-        },
+        // color and bg - accent
         {
           "text-text-contrast bg-core-accent-fill hover:bg-core-accent-fill/80":
-            variant === variants.accent && !disabled,
+            accent && !disabledState,
+            "text-text-contrast bg-core-accent-fill/40": accent && disabledState,
         },
+        // color and bg - secondary
         {
-          "text-text-contrast bg-core-accent-fill/40":
-            variant === variants.accent && disabled,
+          "text-text-primary bg-core-primary/5 hover:bg-core-primary/20":
+            secondary && !disabledState,
+            "text-text-primary/50 bg-core-primary/5": secondary && disabledState,
+        },
+        // color and bg - danger
+        {
+          "text-text-contrast bg-intent-critical-fill hover:bg-intent-critical-text":
+            danger && !disabledState,
+            "text-text-contrast bg-intent-critical-fill/40": danger && disabledState,
+        },
+        // color and bg - secondary danger
+        {
+          "text-text-critical bg-intent-critical-fill/10 hover:bg-intent-critical-fill/20":
+            secondaryDanger && !disabledState,
+            "text-intent-critical-fill/80 bg-intent-critical-fill/10": secondaryDanger && disabledState,
+        },
+        // color and bg - text only
+        {
+          [textColor]: textOnly && !disabledState,
+          [`${textColor}/40`]: textOnly && disabledState,
         },
         className
       )}
-      disabled={disabled}
+      disabled={disabledState}
       onClick={onClick}
     >
       {prefix}
       {text && prefix && <div className={gap} />}
-      {text}
+      <div className="flex flex-col">
+        <div className={clsx({ "mb-[2px] group-hover:mb-0": textOnly })}>
+          {text}
+        </div>
+        {textOnly && !disabledState && (
+          <div className={clsx("group-hover:border-b-2 w-full opacity-20 -mt-[2px]", borderColor)} />
+        )}
+      </div>
       {text && suffixIcon && <div className={gap} />}
       {suffixIcon}
     </button>

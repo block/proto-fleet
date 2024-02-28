@@ -1,14 +1,19 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { api } from "./api";
-import { Pool } from "./types";
+import { Error, ErrorResponse, Pool } from "./types";
+
+interface FetchPoolsInfoProps {
+  onError?: (response?: Error) => void;
+  onSuccess?: (response?: Pool[]) => void;
+}
 
 const usePoolsInfo = () => {
   const [data, setData] = useState<Pool[]>();
-  const [error, setError] = useState();
+  const [error, setError] = useState<Error>();
   const [pending, setPending] = useState<boolean>(false);
 
-  useEffect(() => {
+  const fetch = ({ onSuccess, onError }: FetchPoolsInfoProps = {}) => {
     setPending(true);
     api
       .listPools()
@@ -19,16 +24,19 @@ const usePoolsInfo = () => {
           (a, b) => (a.priority || 0) - (b.priority || 0)
         );
         setData(sortedPools);
+        onSuccess?.(sortedPools);
       })
-      .catch((err) => {
+      .catch((err: ErrorResponse) => {
         setError(err?.error);
+        onError?.(err?.error);
       })
       .finally(() => {
         setPending(false);
       });
-  }, []);
+  };
 
   return {
+    fetch,
     pending,
     error,
     data,

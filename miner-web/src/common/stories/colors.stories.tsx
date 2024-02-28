@@ -366,6 +366,5 @@ export const Grayscale = () => {
 };
 
 export default {
-  component: Typography,
   title: "Colors",
 };

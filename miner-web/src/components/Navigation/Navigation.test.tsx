@@ -17,19 +17,19 @@ describe("Navigation", () => {
   const mockOnClickSleep = vi.fn();
 
   const mockProps = {
-    controller_ip: {
+    controllerIp: {
       loading: false,
       value: "192.168.0.1",
     },
-    controller_mac: {
+    controllerMac: {
       loading: false,
       value: "00.11.22.33.44.55",
     },
-    hashboard_serials: {
+    hashboardSerials: {
       loading: false,
       value: ["ABC123", "DEF456"],
     },
-    pool_info: {
+    poolInfo: {
       loading: false,
       url: "stratum+tcp://host.docker.internal:3333",
       worker: "worker1",
@@ -42,7 +42,7 @@ describe("Navigation", () => {
     render(<Navigation {...mockProps} />);
 
     // Assert that the controller IP is rendered correctly
-    const controllerIpElement = screen.getByText(mockProps.controller_ip.value);
+    const controllerIpElement = screen.getByText(mockProps.controllerIp.value);
     expect(controllerIpElement).toBeInTheDocument();
 
     // Assert that the controller MAC is rendered correctly
@@ -72,9 +72,9 @@ describe("Navigation", () => {
     render(
       <Navigation
         {...mockProps}
-        hashboard_serials={{
-          loading: mockProps.hashboard_serials.loading,
-          value: [mockProps.hashboard_serials.value[0]],
+        hashboardSerials={{
+          loading: mockProps.hashboardSerials.loading,
+          value: [mockProps.hashboardSerials.value[0]],
         }}
       />
     );

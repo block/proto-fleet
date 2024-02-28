@@ -13,7 +13,6 @@ const Block = ({ label, typography }: BlockProps) => {
 };
 
 export default {
-  component: Block,
   title: "Typography",
 };
 

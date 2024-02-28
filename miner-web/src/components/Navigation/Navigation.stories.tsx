@@ -7,16 +7,16 @@ import Navigation from ".";
 export const NavigationSidebar = () => {
   return (
     <Navigation
-      hashboard_serials={{
+      hashboardSerials={{
         value: [
           "1111111111111111111111",
           "2222222222222222222222",
           "3333333333333333333333",
         ],
       }}
-      controller_ip={{ value: "210.1.1.0.0" }}
-      controller_mac={{ value: "42.08.59.58.84.c6" }}
-      pool_info={{
+      controllerIp={{ value: "210.1.1.0.0" }}
+      controllerMac={{ value: "42.08.59.58.84.c6" }}
+      poolInfo={{
         status: "Alive",
         url: "stratum+tcp://host.docker.internal:3333",
       }}
@@ -27,7 +27,6 @@ export const NavigationSidebar = () => {
 };
 
 export default {
-  component: NavigationSidebar,
   title: "Navigation Sidebar",
   decorators: [
     (Story: ElementType) => (

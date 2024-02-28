@@ -1,8 +1,8 @@
 import clsx from "clsx";
 
-import CaretIcon from "assets/icons/Caret";
-
 import SkeletonBar from "components/SkeletonBar";
+
+import CaretIcon from "icons/Caret";
 
 import Badge, { BadgeStatus } from "../badge";
 
@@ -10,7 +10,7 @@ interface InfoItemProps {
   badge?: BadgeStatus;
   caret?: boolean;
   error?: boolean;
-  handleClick?: () => void;
+  onClick?: () => void;
   label: string;
   loading?: boolean;
   value?: string | number;
@@ -20,7 +20,7 @@ const InfoItem = ({
   badge,
   caret,
   error,
-  handleClick,
+  onClick,
   label,
   loading,
   value,
@@ -34,7 +34,7 @@ const InfoItem = ({
           { "text-text-primary/40": !error },
           { "text-text-critical": error }
         )}
-        onClick={handleClick}
+        onClick={onClick}
       >
         <div className="grow">{label}</div>
         {badge && <Badge status={badge} />}

@@ -7,6 +7,5 @@ export const DurationSelector = () => {
 };
 
 export default {
-  component: DurationSelector,
   title: "Duration Selector",
 };

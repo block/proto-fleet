@@ -8,21 +8,21 @@ const serials = [
 
 const InfoItemWrapper = ({
   loading,
-  hashboard_serials,
+  hashboardSerials,
 }: HashboardInfoProps) => {
   return (
     <div className="w-64">
-      <HashboardInfo hashboard_serials={hashboard_serials} loading={loading} />
+      <HashboardInfo hashboardSerials={hashboardSerials} loading={loading} />
     </div>
   );
 };
 
 export const SingleSerial = () => {
-  return <InfoItemWrapper hashboard_serials={[serials[0]]} />;
+  return <InfoItemWrapper hashboardSerials={[serials[0]]} />;
 };
 
 export const MultiSerial = () => {
-  return <InfoItemWrapper hashboard_serials={serials} />;
+  return <InfoItemWrapper hashboardSerials={serials} />;
 };
 
 export const Loading = () => {
@@ -30,10 +30,9 @@ export const Loading = () => {
 };
 
 export const Error = () => {
-  return <InfoItemWrapper hashboard_serials={[]} />;
+  return <InfoItemWrapper hashboardSerials={[]} />;
 };
 
 export default {
-  component: HashboardInfo,
   title: "Navigation Sidebar/Info Items/Hashboard Info",
 };

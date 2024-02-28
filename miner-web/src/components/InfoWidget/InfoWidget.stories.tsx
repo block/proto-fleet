@@ -25,6 +25,5 @@ export const InfoWidgetWrapper = () => {
 };
 
 export default {
-  component: InfoWidget,
   title: "Info Widget",
 };

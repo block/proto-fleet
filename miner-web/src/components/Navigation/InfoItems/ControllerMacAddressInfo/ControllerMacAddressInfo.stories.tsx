@@ -1,15 +1,15 @@
 import ControllerMacAddressInfo, { ControllerMacAddressInfoProps } from ".";
 
-const InfoItemWrapper = ({ loading, mac_address }: ControllerMacAddressInfoProps) => {
+const InfoItemWrapper = ({ loading, macAddress }: ControllerMacAddressInfoProps) => {
   return (
     <div className="w-64">
-      <ControllerMacAddressInfo loading={loading} mac_address={mac_address} />
+      <ControllerMacAddressInfo loading={loading} macAddress={macAddress} />
     </div>
   );
 };
 
 export const Default = () => {
-  return <InfoItemWrapper mac_address="42.08.59.58.84.c6" />;
+  return <InfoItemWrapper macAddress="42.08.59.58.84.c6" />;
 };
 
 export const Loading = () => {
@@ -21,6 +21,5 @@ export const Error = () => {
 };
 
 export default {
-  component: ControllerMacAddressInfo,
   title: "Navigation Sidebar/Info Items/Controller Mac Address Info",
 };

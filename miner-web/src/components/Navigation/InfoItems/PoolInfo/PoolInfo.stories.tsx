@@ -1,7 +1,7 @@
 import PoolInfo, { PoolProps } from ".";
 
-const pool_url_v1 = "stratum+tcp://host.docker.internal:3333";
-const pool_url_v2 =
+const poolUrlV1 = "stratum+tcp://host.docker.internal:3333";
+const poolUrlV2 =
   "stratum2+tcp://v2.stratum.braiins.com/u95GEReVMjK6k5YqiSFNqqTnKU4ypU2Wm8awa6tmbmDmk1bWt";
 
 const InfoItemWrapper = ({ error, loading, status, url }: PoolProps) => {
@@ -13,11 +13,11 @@ const InfoItemWrapper = ({ error, loading, status, url }: PoolProps) => {
 };
 
 export const StratumV1 = () => {
-  return <InfoItemWrapper url={pool_url_v1} status="Alive" />;
+  return <InfoItemWrapper url={poolUrlV1} status="Alive" />;
 };
 
 export const StratumV2 = () => {
-  return <InfoItemWrapper url={pool_url_v2} status="Alive" />;
+  return <InfoItemWrapper url={poolUrlV2} status="Alive" />;
 };
 
 export const Loading = () => {
@@ -25,10 +25,9 @@ export const Loading = () => {
 };
 
 export const Error = () => {
-  return <InfoItemWrapper error url={pool_url_v1} status="Dead" />;
+  return <InfoItemWrapper error url={poolUrlV1} status="Dead" />;
 };
 
 export default {
-  component: PoolInfo,
   title: "Navigation Sidebar/Info Items/Pool Info",
 };

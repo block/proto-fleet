@@ -1,28 +1,31 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 
 import { api } from "./api";
-import { PoolConfig } from "./types";
+import { MessageResponse, PoolConfig } from "./types";
+
+interface CreatePoolProps {
+  onError?: (response: MessageResponse) => void;
+  onSuccess?: (response: MessageResponse) => void;
+  poolInfo: PoolConfig;
+}
 
 const useCreatePool = () => {
-  const [error, setError] = useState();
-  const [pending, setPending] = useState<boolean>(false);
-
-  const createPool = useCallback(async (poolInfo: PoolConfig) => {
-    setPending(true);
-    api.createPool(poolInfo)
-      .catch((err) => {
-        setError(err?.error);
-      })
-      .finally(() => {
-        setPending(false);
-      });
-  }, []);
+  const createPool = useCallback(
+    async ({ poolInfo, onSuccess, onError }: CreatePoolProps) => {
+      await api
+        .createPool(poolInfo)
+        .then((data) => {
+          onSuccess?.(data?.data);
+        })
+        .catch((err) => {
+          onError?.(err);
+        })
+    },
+    []
+  );
 
   return {
     createPool,
-    pending,
-    setPending,
-    error,
   };
 };
 

@@ -18,8 +18,13 @@ const App = ({ children }: AppProps) => {
     data: poolsInfo,
     pending: pendingPoolsInfo,
     error: errorPoolsInfo,
+    fetch: fetchPoolsInfo,
   } = usePoolsInfo();
   const { data: hashboards, pending: pendingHashboards } = useHashboards();
+
+  useEffect(() => {
+    fetchPoolsInfo();
+  }, [fetchPoolsInfo]);
 
   useEffect(() => {
     if (poolsInfo) {
@@ -36,7 +41,7 @@ const App = ({ children }: AppProps) => {
     if (hashboards) {
       const serials = hashboards
         .map((hashboard) => hashboard.hb_sn)
-        .filter((serial) => serial !== undefined) as string[];
+        .filter(Boolean) as string[];
       setHashboardSerials(serials);
     }
   }, [hashboards]);
@@ -45,23 +50,23 @@ const App = ({ children }: AppProps) => {
     <div className="flex max-w-[1440px] h-screen">
       <div className="grow">
         <Navigation
-          hashboard_serials={{
+          hashboardSerials={{
             value: hashboardSerials,
             loading: pendingHashboards,
           }}
-          controller_ip={{
+          controllerIp={{
             value: networkInfo?.ip,
             loading: pendingNetworkInfo,
           }}
-          controller_mac={{
+          controllerMac={{
             value: networkInfo?.mac,
             loading: pendingNetworkInfo,
           }}
-          pool_info={{
+          poolInfo={{
             status: poolInfo?.status,
             url: poolInfo?.url,
             loading: pendingPoolsInfo,
-            error: errorPoolsInfo,
+            error: !!errorPoolsInfo,
           }}
           onClickReboot={api.rebootSystem}
           onClickSleep={api.stopMining}

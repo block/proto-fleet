@@ -15,9 +15,9 @@ export default defineConfig({
     alias: {
       api: resolve(root, "api"),
       apiTypes: resolve(root, "api/types.ts"),
-      assets: resolve(root, "assets"),
       common: resolve(root, "common"),
       components: resolve(root, "components"),
+      icons: resolve(root, "assets/icons/"),
       pages: resolve(root, "pages"),
     },
   },

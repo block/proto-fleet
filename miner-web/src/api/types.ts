@@ -592,6 +592,24 @@ export interface SystemInfoSysteminfo {
   web_server?: SWInfo;
 }
 
+export interface TestConnection {
+  /**
+   * A password used for authentication and accessing the mining pool, which is ignored by SV1 pools.
+   * @example "anything"
+   */
+  password?: string;
+  /**
+   * The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information.
+   * @example "pool1.com:3333"
+   */
+  url?: string;
+  /**
+   * The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device.
+   * @example "user1"
+   */
+  username?: string;
+}
+
 export type QueryParamsType = Record<string | number, any>;
 export type ResponseFormat = keyof Omit<Body, "body" | "bodyUsed">;
 
@@ -894,6 +912,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/pools/${id}`,
         method: "DELETE",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Used to test a pool connection
+     *
+     * @tags Pools
+     * @name TestConnection
+     * @request POST:/api/v1/pools/test-connection
+     */
+    testConnection: (data: TestConnection, params: RequestParams = {}) =>
+      this.request<MessageResponse, ErrorResponse>({
+        path: `/api/v1/pools/test-connection`,
+        method: "POST",
+        body: data,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

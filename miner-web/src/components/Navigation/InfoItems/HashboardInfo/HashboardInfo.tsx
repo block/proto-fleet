@@ -8,19 +8,19 @@ import InfoItem from "../InfoItem";
 
 export interface HashboardInfoProps {
   loading?: boolean;
-  hashboard_serials?: string[];
+  hashboardSerials?: string[];
 }
 
 const HashboardInfo = ({
   loading,
-  hashboard_serials = [],
+  hashboardSerials = [],
 }: HashboardInfoProps) => {
   const [selectedHashboard, setSelectedHashboard] = useState<string>();
   const [hashboardDropdownOpen, setHashboardDropdownOpen] = useState(false);
   const hashboardDropdownRef = useRef<HTMLDivElement>(null);
   const serials = useMemo(
-    () => getSerialNumbersDisplay(hashboard_serials) || [],
-    [hashboard_serials]
+    () => getSerialNumbersDisplay(hashboardSerials) || [],
+    [hashboardSerials]
   );
 
   const toggleHashboardDropdown = useCallback(() => {
@@ -58,7 +58,7 @@ const HashboardInfo = ({
     <div className="relative">
       <InfoItem
         caret={shouldShowHashboardDropdown}
-        handleClick={
+        onClick={
           shouldShowHashboardDropdown ? toggleHashboardDropdown : undefined
         }
         label={`Hashboard ${selectedHashboardLabel} Serial`}

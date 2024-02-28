@@ -1,15 +1,15 @@
 import ControllerIpAddressInfo, { ControllerIpAddressInfoProps } from ".";
 
-const InfoItemWrapper = ({ loading, ip_address }: ControllerIpAddressInfoProps) => {
+const InfoItemWrapper = ({ loading, ipAddress }: ControllerIpAddressInfoProps) => {
   return (
     <div className="w-64">
-      <ControllerIpAddressInfo loading={loading} ip_address={ip_address} />
+      <ControllerIpAddressInfo loading={loading} ipAddress={ipAddress} />
     </div>
   );
 };
 
 export const Default = () => {
-  return <InfoItemWrapper ip_address="42.08.59.58.84.c6" />;
+  return <InfoItemWrapper ipAddress="42.08.59.58.84.c6" />;
 };
 
 export const Loading = () => {
@@ -21,6 +21,5 @@ export const Error = () => {
 };
 
 export default {
-  component: ControllerIpAddressInfo,
   title: "Navigation Sidebar/Info Items/Controller IP Address Info",
 };
