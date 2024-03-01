@@ -90,7 +90,8 @@ node scripts/generate_api_ts.cjs
 
 This file helps us maintain correct typing between the frontend and API and puts a wrapper around the API so we can make requests like `api.getNetwork().then(res => console.log(res))`.
 
-To allow for easier API development, `api` is exposed globally to enable making such calls in the browser's console. docker compose also runs `miner-api-server` in watch mode so that any saved changes to its rust files automatically trigger a rebuild.
+To allow for easier API development, `api` is exposed globally to enable making such calls in the browser's console. docker compose also runs `mcdd` and `miner-api-server` in watch mode so that any saved changes to their rust files automatically trigger a rebuild.
+  - Note that `mcdd/src/usb/pb/*` folder is ignored by watch mode. `mcdd/build.rs` makes changes to that folder which will cause an infinite loop when building mcdd in watch mode. If any changes are made to that folder, you will have to manually rebuild mcdd.
 
 ## Production build
 
@@ -136,7 +137,7 @@ Npm is needed to compile and run the UI code via vite.
 `docker-compose.yml`:
 - brings up a bitcoin-core regtest-node
 - brings up ckpool (edit the mining difficulty in `local-testchain/ckpool.conf`).
-- brings up mcdd, cgminer, and miner-api-server in watch mode
+- brings up cgminer, mcdd and miner-api-server in watch mode
     - executes the `scripts/start_mcdd_cgminer_miner_api_server.sh` script to build and run cgminer, mcdd, and miner-api-server
 
 ## Learn More
