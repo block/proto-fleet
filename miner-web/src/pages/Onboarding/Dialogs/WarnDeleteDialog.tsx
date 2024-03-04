@@ -1,4 +1,5 @@
-import Button, { sizes, variants } from "components/Button";
+import { variants } from "components/Button";
+import ButtonGroup, { groupVariants, sizes } from "components/ButtonGroup";
 import Dialog from "components/Dialog";
 import Row from "components/Row";
 
@@ -32,6 +33,7 @@ const WarnDeleteDialog = ({
       preventScroll
       titleSize="text-heading-200"
       show={show}
+      testId="warn-delete-dialog"
     >
       {(showPoolUrl || showUsername) && (
         <div className="border border-border-primary/5 rounded-lg px-4 py-1 mt-4">
@@ -47,20 +49,25 @@ const WarnDeleteDialog = ({
           )}
         </div>
       )}
-      <div className="flex flex-col space-y-4 mt-4">
-        <Button
-          text="Keep backup"
-          onClick={keepBackup}
-          variant={variants.primary}
-          size={sizes.base}
-        />
-        <Button
-          text="Delete backup"
-          onClick={onDelete}
-          variant={variants.danger}
-          size={sizes.base}
-        />
-      </div>
+      <ButtonGroup
+        className="mt-4"
+        variant={groupVariants.stack}
+        size={sizes.base}
+        buttons={[
+          {
+            text: "Keep backup",
+            onClick: keepBackup,
+            variant: variants.primary,
+            testId: "keep-backup-button",
+          },
+          {
+            text: "Delete backup",
+            onClick: onDelete,
+            variant: variants.danger,
+            testId: "delete-backup-button",
+          },
+        ]}
+      />
     </Dialog>
   );
 };

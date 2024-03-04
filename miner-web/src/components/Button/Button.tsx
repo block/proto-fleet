@@ -14,6 +14,7 @@ interface ButtonProps {
   prefixIcon?: ReactNode;
   size?: keyof typeof sizes;
   suffixIcon?: ReactNode;
+  testId?: string;
   text?: string;
   textColor?: string;
   variant: keyof typeof variants;
@@ -28,6 +29,7 @@ const Button = ({
   prefixIcon,
   size,
   suffixIcon,
+  testId,
   text,
   textColor = "text-text-emphasis",
   variant,
@@ -69,31 +71,34 @@ const Button = ({
         {
           "text-text-contrast bg-core-primary-fill hover:bg-core-primary-fill/80":
             primary && !disabledState,
-            "text-text-contrast bg-core-primary-fill/40": primary && disabledState,
+          "text-text-contrast bg-core-primary-fill/40":
+            primary && disabledState,
         },
         // color and bg - accent
         {
           "text-text-contrast bg-core-accent-fill hover:bg-core-accent-fill/80":
             accent && !disabledState,
-            "text-text-contrast bg-core-accent-fill/40": accent && disabledState,
+          "text-text-contrast bg-core-accent-fill/40": accent && disabledState,
         },
         // color and bg - secondary
         {
           "text-text-primary bg-core-primary/5 hover:bg-core-primary/20":
             secondary && !disabledState,
-            "text-text-primary/50 bg-core-primary/5": secondary && disabledState,
+          "text-text-primary/50 bg-core-primary/5": secondary && disabledState,
         },
         // color and bg - danger
         {
           "text-text-contrast bg-intent-critical-fill hover:bg-intent-critical-text":
             danger && !disabledState,
-            "text-text-contrast bg-intent-critical-fill/40": danger && disabledState,
+          "text-text-contrast bg-intent-critical-fill/40":
+            danger && disabledState,
         },
         // color and bg - secondary danger
         {
           "text-text-critical bg-intent-critical-fill/10 hover:bg-intent-critical-fill/20":
             secondaryDanger && !disabledState,
-            "text-intent-critical-fill/80 bg-intent-critical-fill/10": secondaryDanger && disabledState,
+          "text-intent-critical-fill/80 bg-intent-critical-fill/10":
+            secondaryDanger && disabledState,
         },
         // color and bg - text only
         {
@@ -104,6 +109,7 @@ const Button = ({
       )}
       disabled={disabledState}
       onClick={onClick}
+      data-testid={testId}
     >
       {prefix}
       {text && prefix && <div className={gap} />}
@@ -112,7 +118,12 @@ const Button = ({
           {text}
         </div>
         {textOnly && !disabledState && (
-          <div className={clsx("group-hover:border-b-2 w-full opacity-20 -mt-[2px]", borderColor)} />
+          <div
+            className={clsx(
+              "group-hover:border-b-2 w-full opacity-20 -mt-[2px]",
+              borderColor
+            )}
+          />
         )}
       </div>
       {text && suffixIcon && <div className={gap} />}

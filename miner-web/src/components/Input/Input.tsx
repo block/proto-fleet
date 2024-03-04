@@ -1,4 +1,10 @@
-import { ChangeEvent, KeyboardEvent, useCallback, useEffect, useState } from "react";
+import {
+  ChangeEvent,
+  KeyboardEvent,
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 import clsx from "clsx";
 
 import Tooltip, { positions } from "components/Tooltip";
@@ -11,6 +17,7 @@ interface InputProps {
   maxLength?: number;
   onChange?: (value: string, id: string) => void;
   onKeyDown?: (key: string) => void;
+  testId?: string;
   tooltip?: { header: string; body: string };
   type?: string;
 }
@@ -23,6 +30,7 @@ const Input = ({
   maxLength,
   onChange,
   onKeyDown,
+  testId,
   tooltip,
   type = "text",
 }: InputProps) => {
@@ -57,15 +65,19 @@ const Input = ({
     [onChange, id]
   );
 
-  const handleKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>) => {
-    onKeyDown?.(e.key);
-  }, [onKeyDown]);
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLInputElement>) => {
+      onKeyDown?.(e.key);
+    },
+    [onKeyDown]
+  );
 
   return (
     <div className="relative">
       <input
         type={type}
         id={id}
+        data-testid={testId}
         className={clsx(
           "peer rounded-lg w-full h-14 outline-none pt-[18px] px-4 text-300",
           "transition-[border-color] ease-in-out duration-200",
@@ -113,7 +125,9 @@ const Input = ({
           <svg width="6" height="6" viewBox="0 0 6 6">
             <circle cx="3" cy="3" r="3" fill="currentColor" fillOpacity="0.2" />
           </svg>
-          <div>{validationError}</div>
+          <div data-testid={`${testId}-validation-error`}>
+            {validationError}
+          </div>
         </div>
       </div>
     </div>

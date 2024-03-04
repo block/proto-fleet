@@ -90,6 +90,7 @@ const BackupPoolModal = ({
               text: pools[poolIndex].url ? "Save" : "Add",
               onClick: onSubmit,
               variant: variants.primary,
+              testId: "backup-pool-save-button",
             },
             ...(pools[poolIndex].url
               ? [
@@ -97,6 +98,7 @@ const BackupPoolModal = ({
                     text: "Delete",
                     onClick: () => setWarnDelete(true),
                     variant: variants.secondary,
+                    testId: "backup-pool-delete-button",
                   },
                 ]
               : []),

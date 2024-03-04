@@ -9,6 +9,7 @@ interface RowProps {
   divider?: boolean;
   isActive?: boolean;
   onClick?: () => void;
+  testId?: string;
 }
 
 const Row = ({
@@ -18,6 +19,7 @@ const Row = ({
   divider = true,
   isActive,
   onClick,
+  testId,
 }: RowProps) => {
   return (
     <div>
@@ -31,6 +33,7 @@ const Row = ({
           className
         )}
         onClick={onClick}
+        data-testid={testId}
       >
         {children}
       </div>

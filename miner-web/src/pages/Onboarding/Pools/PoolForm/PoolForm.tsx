@@ -118,6 +118,7 @@ const PoolForm = ({
           onChange={onChange}
           onKeyDown={onKeyDown}
           initValue={pools[poolIndex].url}
+          testId={`${info.url}-${poolIndex}-input`}
           tooltip={{
             header: "Mining Pool URL",
             body: "Enter the mining pool URL you want this miner to connect with. A mining pool URL allows this miner to communicate with the pool's server.",

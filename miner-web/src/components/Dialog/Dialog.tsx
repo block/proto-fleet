@@ -12,6 +12,7 @@ interface DialogProps {
   show: boolean;
   subtitle?: string;
   subtitleSize?: string;
+  testId?: string;
   title: string;
   titleSize?: string;
 }
@@ -23,6 +24,7 @@ const Dialog = ({
   show,
   subtitle,
   subtitleSize = "text-heading-100",
+  testId,
   title,
   titleSize = "text-heading-100",
 }: DialogProps) => {
@@ -67,6 +69,7 @@ const Dialog = ({
                 "animate-sliding-down": !show,
               }
             )}
+            data-testid={testId}
           >
             {loading && <Spinner className="h-6 mb-3" />}
             <Header

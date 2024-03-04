@@ -37,6 +37,7 @@ const OnboardingNavigation = ({
                 activeTab !== tabs.pools,
             })}
             onClick={() => onChangeActiveTab(tabs.pools)}
+            testId="pools-tab"
           >
             <div>Pools</div>
             {poolUrls.map((poolUrl, index) => (
@@ -53,6 +54,7 @@ const OnboardingNavigation = ({
             {...(poolUrls.length && {
               onClick: () => onChangeActiveTab(tabs.cooling),
             })}
+            testId="cooling-tab"
           >
             Cooling
           </Row>

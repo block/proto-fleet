@@ -18,6 +18,7 @@ const PoolConnectedCallout = ({
       onDismiss={onDismiss}
       show={show}
       subtitle="The mining pool connection was successful."
+      testId="pool-connected-callout"
     />
   );
 };

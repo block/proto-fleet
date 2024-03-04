@@ -106,9 +106,8 @@ const Modal = ({
           icon={<DismissIcon />}
           iconOnClick={onClickOutside}
           buttons={buttons?.map((button) => ({
-            text: button.text,
+            ...button,
             onClick: onButtonClick(button),
-            variant: button.variant,
           }))}
           inline
         />

@@ -119,6 +119,7 @@ const SettingUp = ({ fanMode, pools }: SettingUpProps) => {
           )}
           suffixIcon={<ArrowRight />}
           onClick={() => Navigate("/")}
+          testId="continue-to-dashboard-button"
         />
       </div>
     </>

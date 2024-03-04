@@ -32,6 +32,7 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
           loading={isTestingConnection}
           size={sizes.compact}
           variant={variants.secondary}
+          testId="test-connection-button"
         />
       </div>
 
@@ -60,6 +61,7 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
               pools={pools}
               backupPoolIndex={backupPoolIndex}
               onClick={() => setCurrentPoolIndex(backupPoolIndex)}
+              testId={`backup-pool-${backupPoolIndex}-add-button`}
             />
           );
         })}

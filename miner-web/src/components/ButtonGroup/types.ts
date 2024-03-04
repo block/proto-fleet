@@ -5,5 +5,6 @@ export interface ButtonProps {
   loading?: boolean;
   onClick?: () => void;
   variant: keyof typeof variants;
+  testId?: string;
   text?: string;
 }

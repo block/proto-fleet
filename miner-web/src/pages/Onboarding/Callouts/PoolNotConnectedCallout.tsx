@@ -29,6 +29,7 @@ const PoolNotConnectedCallout = ({
           Review your pool details and try again.
         </>
       }
+      testId="pool-not-connected-callout"
     />
   );
 };

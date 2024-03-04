@@ -10,6 +10,7 @@ interface DismissibleCalloutWrapperProps {
   onDismiss: () => void;
   show: boolean;
   subtitle: string | ReactNode;
+  testId?: string;
 }
 
 const DismissibleCalloutWrapper = ({
@@ -19,6 +20,7 @@ const DismissibleCalloutWrapper = ({
   onDismiss,
   show,
   subtitle,
+  testId,
 }: DismissibleCalloutWrapperProps) => {
   return (
     <div
@@ -31,6 +33,7 @@ const DismissibleCalloutWrapper = ({
         },
         className
       )}
+      data-testid={testId}
     >
       <Callout
         buttonOnClick={onDismiss}

@@ -10,6 +10,7 @@ import { sortPrimaryButtonFirst, sortPrimaryButtonLast } from "./utility";
 
 interface ButtonGroupProps {
   buttons: ButtonProps[];
+  className?: string;
   size?: keyof typeof sizes;
   sortButtons?: boolean;
   variant: keyof typeof groupVariants;
@@ -17,6 +18,7 @@ interface ButtonGroupProps {
 
 const ButtonGroup = ({
   buttons,
+  className,
   size,
   sortButtons = true,
   variant,
@@ -69,7 +71,7 @@ const ButtonGroup = ({
   }
 
   return (
-    <div className={parentClasses.join(" ")}>
+    <div className={clsx(parentClasses, className)}>
       {sortedButtons.map((button, index) => (
         <Fragment key={index}>
           <Button

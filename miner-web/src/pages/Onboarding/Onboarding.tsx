@@ -99,11 +99,13 @@ const Onboarding = () => {
                     text: "Continue",
                     onClick: () => onContinue(),
                     variant: variants.primary,
+                    testId: "continue-button",
                   }
                 : {
                     text: "Finish setup",
                     onClick: () => setSettingUpMiner(true),
                     variant: variants.accent,
+                    testId: "finish-setup-button",
                   }
             }
           />
@@ -124,6 +126,7 @@ const Onboarding = () => {
                   <ContentHeader
                     title="Mining pool"
                     subtitle="Enter your mining pool details below."
+                    testId="mining-pool-title"
                   />
                   <WarnDefaultPoolCallout
                     onDismiss={() => setWarnDefaultPool(false)}
@@ -137,6 +140,7 @@ const Onboarding = () => {
                   <ContentHeader
                     title="Cooling"
                     subtitle="Choose how you want to cool your device. This can be changed at any time."
+                    testId="cooling-title"
                   />
                   <Cooling fanMode={fanMode} onChange={onChangeFanMode} />
                 </>

@@ -29,7 +29,7 @@ describe("Button", () => {
         variant={variants.secondary}
       />
     );
-    const buttonElement = getByText("Click me");
+    const buttonElement = getByText(buttonText);
     fireEvent.click(buttonElement);
     expect(onClickMock).toHaveBeenCalled();
   });

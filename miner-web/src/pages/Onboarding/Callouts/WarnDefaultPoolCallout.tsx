@@ -21,6 +21,7 @@ const WarnDefaultPoolCallout = ({
       onDismiss={onDismiss}
       show={show}
       subtitle="A default pool is required to set up your ProtoMiner."
+      testId="warn-default-pool-callout"
     />
   );
 };

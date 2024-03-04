@@ -21,6 +21,7 @@ const WarnDiscardDialog = ({
       preventScroll
       titleSize="text-heading-200"
       show={show}
+      testId="warn-discard-dialog"
     >
       <ButtonGroup
         variant={groupVariants.stack}
@@ -31,11 +32,13 @@ const WarnDiscardDialog = ({
             text: "Continue editing",
             onClick: continueEditing,
             variant: variants.primary,
+            testId: "continue-editing-button",
           },
           {
             text: "Discard changes",
             onClick: onDiscard,
             variant: variants.secondaryDanger,
+            testId: "discard-changes-button",
           },
         ]}
       />

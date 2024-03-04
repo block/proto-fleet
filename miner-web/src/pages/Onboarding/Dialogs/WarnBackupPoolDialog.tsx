@@ -19,6 +19,7 @@ const WarnBackupPoolDialog = ({
       title="Continue without a backup pool?"
       subtitle="Adding a backup pool will help this miner keep mining if your default pool fails."
       titleSize="text-heading-200"
+      testId="warn-backup-pool-dialog"
     >
       <ButtonGroup
         variant={groupVariants.stack}
@@ -33,6 +34,7 @@ const WarnBackupPoolDialog = ({
             text: "Continue without backup",
             onClick: onContinueWithoutBackup,
             variant: variants.secondary,
+            testId: "continue-without-backup-button",
           },
         ]}
       />

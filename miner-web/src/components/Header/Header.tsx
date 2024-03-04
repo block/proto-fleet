@@ -17,6 +17,7 @@ interface HeaderProps {
   inline?: boolean;
   subtitleSize?: string;
   subtitle?: string;
+  testId?: string;
   title?: string;
   titleSize?: string;
 }
@@ -31,6 +32,7 @@ const Header = ({
   inline = false,
   subtitle,
   subtitleSize = "text-heading-100",
+  testId,
   title,
   titleSize = "text-heading-100",
 }: HeaderProps) => {
@@ -49,6 +51,7 @@ const Header = ({
             size={sizes.base}
             prefixIcon={icon}
             onClick={iconOnClick}
+            testId="header-icon-button"
           />
         )}
         {icon && !iconOnClick && icon}
@@ -59,6 +62,7 @@ const Header = ({
               "mt-3": (icon || iconOnClick) && !inline,
               "mb-1": subtitle,
             })}
+            data-testid={testId}
           >
             {title}
           </div>
