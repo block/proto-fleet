@@ -1,8 +1,7 @@
 import Row from "components/Row";
 import Spinner from "components/Spinner";
 
-import Alert from "icons/Alert";
-import Success from "icons/Success";
+import { Alert, Success } from "icons";
 
 import { statuses } from "./constants";
 import Error from "./Error";

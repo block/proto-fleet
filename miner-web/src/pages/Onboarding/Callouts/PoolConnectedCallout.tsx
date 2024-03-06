@@ -1,6 +1,6 @@
 import { DismissibleCalloutWrapper, intents } from "components/Callout";
 
-import SuccessIcon from "icons/Success";
+import { Success } from "icons";
 
 interface PoolConnectedCalloutProps {
   onDismiss: () => void;
@@ -13,7 +13,7 @@ const PoolConnectedCallout = ({
 }: PoolConnectedCalloutProps) => {
   return (
     <DismissibleCalloutWrapper
-      icon={<SuccessIcon />}
+      icon={<Success />}
       intent={intents.success}
       onDismiss={onDismiss}
       show={show}

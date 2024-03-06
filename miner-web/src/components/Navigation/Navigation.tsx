@@ -1,54 +1,57 @@
-import PauseIcon from "icons/Pause";
-import PowerIcon from "icons/Power";
+import { useState } from "react";
+import { useLocation } from "react-router-dom";
 
-import ControllerIpAddressInfo from "./InfoItems/ControllerIpAddressInfo";
-import ControllerMacAddressInfo from "./InfoItems/ControllerMacAddressInfo";
-import HashboardInfo from "./InfoItems/HashboardInfo";
+import { Home, Mining, Settings } from "icons";
+
+import { navigationItems } from "./constants";
+import MacAddressInfo, { MacAddressInfoProps } from "./InfoItems/MacAddressInfo";
 import PoolInfo, { PoolProps } from "./InfoItems/PoolInfo";
-import NavigationButton from "./NavigationButton";
-import NavigationItems from "./NavigationItems";
-
-import "./styles.css";
-
-interface ApiProps {
-  loading?: boolean;
-}
-
-interface InfoItemProps extends ApiProps {
-  value?: string;
-}
-
-interface HashboardProps extends ApiProps {
-  value?: string[];
-}
+import NavigationItem from "./NavigationItem";
 
 interface NavigationProps {
-  controllerIp?: InfoItemProps;
-  controllerMac?: InfoItemProps;
-  hashboardSerials?: HashboardProps;
+  macInfo?: MacAddressInfoProps;
   poolInfo?: PoolProps;
-  onClickReboot: () => void;
-  onClickSleep: () => void;
 }
 
-const Navigation = ({
-  controllerIp,
-  controllerMac,
-  hashboardSerials,
-  poolInfo,
-  onClickReboot,
-  onClickSleep,
-}: NavigationProps) => {
-  return (
-    <div className="sidebar-wrapper w-[280px] h-auto min-h-screen p-6 flex flex-col border-r border-border-primary/30">
-      <div className="grow">
-        <div className="text-heading-300 mb-6 text-text-primary/70">
-          Proto<span className="text-text-primary">Mine</span>
-        </div>
-        <NavigationItems />
-      </div>
+const Navigation = ({ macInfo, poolInfo }: NavigationProps) => {
+  const location = useLocation();
+  const { pathname } = location;
+  const pageName = pathname.split("/")[1] as keyof typeof navigationItems;
 
-      <div className="border-t border-border-primary/10 mt-11 mb-3" />
+  const [selected, setSelected] = useState(
+    (navigationItems[pageName] ||
+      navigationItems.home) as keyof typeof navigationItems
+  );
+
+  return (
+    <div className="w-[216px] h-auto min-h-screen p-3 flex flex-col bg-core-primary-fill text-text-contrast/70">
+      <div className="grow">
+        {/* TODO: replace with logo when ready */}
+        <div className="text-[18px] font-semibold text-text-contrast py-2 mb-3">
+          Proto
+        </div>
+        <NavigationItem
+          icon={<Home />}
+          id={navigationItems.home}
+          text="Home"
+          selected={selected}
+          setSelected={setSelected}
+        />
+        <NavigationItem
+          icon={<Mining />}
+          id={navigationItems.hardware}
+          text="Hardware"
+          selected={selected}
+          setSelected={setSelected}
+        />
+        <NavigationItem
+          icon={<Settings />}
+          id={navigationItems.settings}
+          text="Settings"
+          selected={selected}
+          setSelected={setSelected}
+        />
+      </div>
 
       <PoolInfo
         status={poolInfo?.status}
@@ -56,35 +59,10 @@ const Navigation = ({
         loading={poolInfo?.loading}
         error={poolInfo?.error}
       />
-      <HashboardInfo
-        hashboardSerials={hashboardSerials?.value}
-        loading={hashboardSerials?.loading}
+      <MacAddressInfo
+        loading={macInfo?.loading}
+        value={macInfo?.value}
       />
-      <ControllerIpAddressInfo
-        ipAddress={controllerIp?.value}
-        loading={controllerIp?.loading}
-      />
-      <ControllerMacAddressInfo
-        macAddress={controllerMac?.value}
-        loading={controllerMac?.loading}
-      />
-
-      <div className="border-t border-border-primary/10 mb-3" />
-
-      <div className="flex space-x-3">
-        <NavigationButton
-          text="Sleep"
-          className="w-full"
-          prefixIcon={<PauseIcon />}
-          onClick={onClickSleep}
-        />
-        <NavigationButton
-          text="Reboot"
-          className="w-full"
-          prefixIcon={<PowerIcon />}
-          onClick={onClickReboot}
-        />
-      </div>
     </div>
   );
 };

@@ -1,8 +1,6 @@
-interface AlertProps {
-  className?: string;
-}
+import { IconProps } from "./types";
 
-const Alert = ({ className }: AlertProps) => {
+const Alert = ({ className }: IconProps) => {
   return (
     <svg width="20" height="20" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
       <path

@@ -1,8 +1,6 @@
-interface CoolingProps {
-  className?: string;
-}
+import { IconProps } from "./types";
 
-const Cooling = ({ className }: CoolingProps) => {
+const ImmersionCooling = ({ className }: IconProps) => {
   return (
     <svg width="20" height="20" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
       <path
@@ -16,4 +14,4 @@ const Cooling = ({ className }: CoolingProps) => {
   );
 };
 
-export default Cooling;
+export default ImmersionCooling;

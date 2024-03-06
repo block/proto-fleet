@@ -1,32 +1,36 @@
 import { Fragment } from "react";
 
-import Alert from "icons/Alert";
-import ArrowRight from "icons/ArrowRight";
-import Caret from "icons/Caret";
-import Checkmark from "icons/Checkmark";
-import Cooling from "icons/Cooling";
-import Dismiss from "icons/Dismiss";
-import Fan from "icons/Fan";
-import Info from "icons/Info";
-import Logo from "icons/Logo";
-import Pause from "icons/Pause";
-import Power from "icons/Power";
-import Question from "icons/Question";
-import Success from "icons/Success";
+import {
+  Alert,
+  ArrowRight,
+  Caret,
+  Checkmark,
+  Dismiss,
+  Fan,
+  Home,
+  ImmersionCooling,
+  Info,
+  Logo,
+  Mining,
+  Question,
+  Settings,
+  Success,
+} from ".";
 
 const icons = {
   Alert,
   ArrowRight,
   Caret,
   Checkmark,
-  Cooling,
   Dismiss,
   Fan,
+  Home,
+  ImmersionCooling,
   Info,
   Logo,
-  Pause,
-  Power,
+  Mining,
   Question,
+  Settings,
   Success,
 };
 
@@ -46,7 +50,9 @@ const IconWrapper = ({ Icons }: IconProps) => {
           const Icon = icons[icon];
           return (
             <Fragment key={icon}>
-              <td className="p-4 border border-r-transparent border-border-primary/5">{icon}</td>
+              <td className="p-4 border border-r-transparent border-border-primary/5">
+                {icon}
+              </td>
               <td className="border border-l-transparent border-border-primary/5">
                 <Icon className="m-auto" />
               </td>

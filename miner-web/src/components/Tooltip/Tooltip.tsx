@@ -1,6 +1,6 @@
 import clsx from "clsx";
 
-import QuestionIcon from "icons/Question";
+import { Question } from "icons";
 
 import { positions } from "./constants";
 
@@ -19,7 +19,7 @@ const Tooltip = ({ header, body, position }: TooltipProps) => {
 
   return (
     <div className="relative">
-      <QuestionIcon className="cursor-help peer" />
+      <Question className="cursor-help peer" />
       <div
         className={clsx(
           "invisible opacity-0 peer-hover:visible peer-hover:opacity-100",

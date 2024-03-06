@@ -2,7 +2,7 @@ import { sizes } from "components/Button";
 import { ButtonProps } from "components/ButtonGroup";
 import Header from "components/Header";
 
-import Logo from "icons/Logo";
+import { Logo } from "icons";
 
 interface OnboardingHeaderProps {
   button?: ButtonProps;

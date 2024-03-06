@@ -12,7 +12,7 @@ const Badge = ({ status }: BadgeProps) => {
   return (
     <span
       className={clsx(
-        "rounded-[3px] w-[18px] h-2",
+        "rounded-[200px] w-3 h-1",
         status && badgeColorClassName[status]
       )}
     />

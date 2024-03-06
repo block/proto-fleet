@@ -7,7 +7,7 @@ import { useCoolingMode, useCreatePool, usePoolsInfo } from "api";
 import Button, { sizes, variants } from "components/Button";
 import Header from "components/Header";
 
-import ArrowRight from "icons/ArrowRight";
+import { ArrowRight } from "icons";
 
 import { FanMode, PoolInfo } from "../types";
 import { isValidPool } from "../utility";

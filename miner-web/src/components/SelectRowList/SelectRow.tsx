@@ -1,7 +1,7 @@
 import { ChangeEvent, ReactNode, useCallback, useMemo } from "react";
 import clsx from "clsx";
 
-import Checkmark from "icons/Checkmark";
+import { Checkmark } from "icons";
 
 import { SelectType, selectTypes } from ".";
 

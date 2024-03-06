@@ -1,9 +1,8 @@
 import { createBrowserRouter } from "react-router-dom";
 
 import Hardware from "pages/Hardware";
-import Help from "pages/Help";
+import Home from "pages/Home";
 import Onboarding from "pages/Onboarding";
-import Performance from "pages/Performance";
 import Settings from "pages/Settings";
 
 import App from "./App.tsx";
@@ -11,23 +10,19 @@ import App from "./App.tsx";
 const router = createBrowserRouter([
   {
     path: "/",
-    element: <App><Performance /></App>,
+    element: <App><Home /></App>,
   },
   {
     path: "/hardware",
     element: <App><Hardware /></App>,
   },
   {
-    path: "/help",
-    element: <App><Help /></App>,
-  },
-  {
     path: "/onboarding",
     element: <Onboarding />,
   },
   {
-    path: "/performance",
-    element: <App><Performance /></App>,
+    path: "/home",
+    element: <App><Home /></App>,
   },
   {
     path: "/settings",

@@ -14,7 +14,7 @@ import DurationSelector from "components/DurationSelector";
 import InfoWidget, { InfoWidgetWrapper } from "components/InfoWidget";
 import Tab, { TabWrapper } from "components/Tab";
 
-const Performance = () => {
+const Home = () => {
   const [powerUsage, setPowerUsage] = useState<string>();
   const [asicTemp, setAsicTemp] = useState<string>();
   const [avgFanSpeed, setAvgFanSpeed] = useState<string | number>();
@@ -50,7 +50,7 @@ const Performance = () => {
 
   return (
     <>
-      <div className="text-heading-300 mb-8">Performance</div>
+      <div className="text-heading-300 mb-8">Home</div>
 
       <InfoWidgetWrapper className="mb-8">
         <InfoWidget
@@ -96,4 +96,4 @@ const Performance = () => {
   );
 };
 
-export default Performance;
+export default Home;

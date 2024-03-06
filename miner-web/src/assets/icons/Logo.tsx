@@ -1,8 +1,6 @@
-interface LogoProps {
-  className?: string;
-}
+import { IconProps } from "./types";
 
-const Logo = ({ className }: LogoProps) => {
+const Logo = ({ className }: IconProps) => {
   // TODO: replace with actual logo when ready
   return (
     <svg width="89" height="41" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>

@@ -17,7 +17,7 @@ export default defineConfig({
       apiTypes: resolve(root, "api/types.ts"),
       common: resolve(root, "common"),
       components: resolve(root, "components"),
-      icons: resolve(root, "assets/icons/"),
+      icons: resolve(root, "assets/icons"),
       pages: resolve(root, "pages"),
     },
   },

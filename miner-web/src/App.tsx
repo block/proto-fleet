@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 
-import { api, useHashboards, useNetworkInfo, usePoolsInfo } from "api";
+import { useNetworkInfo, usePoolsInfo } from "api";
 import { Pool } from "apiTypes";
 
 import Navigation from "components/Navigation";
@@ -10,7 +10,6 @@ interface AppProps {
 }
 
 const App = ({ children }: AppProps) => {
-  const [hashboardSerials, setHashboardSerials] = useState<string[]>();
   const [poolInfo, setPoolInfo] = useState<Pick<Pool, "status" | "url">>();
 
   const { data: networkInfo, pending: pendingNetworkInfo } = useNetworkInfo();
@@ -20,11 +19,12 @@ const App = ({ children }: AppProps) => {
     error: errorPoolsInfo,
     fetch: fetchPoolsInfo,
   } = usePoolsInfo();
-  const { data: hashboards, pending: pendingHashboards } = useHashboards();
 
   useEffect(() => {
-    fetchPoolsInfo();
-  }, [fetchPoolsInfo]);
+    if (!poolsInfo && !pendingPoolsInfo && !errorPoolsInfo) {
+      fetchPoolsInfo();
+    }
+  }, [errorPoolsInfo, fetchPoolsInfo, pendingPoolsInfo, poolsInfo]);
 
   useEffect(() => {
     if (poolsInfo) {
@@ -37,28 +37,11 @@ const App = ({ children }: AppProps) => {
     }
   }, [poolsInfo]);
 
-  useEffect(() => {
-    if (hashboards) {
-      const serials = hashboards
-        .map((hashboard) => hashboard.hb_sn)
-        .filter(Boolean) as string[];
-      setHashboardSerials(serials);
-    }
-  }, [hashboards]);
-
   return (
-    <div className="flex max-w-[1440px] h-screen">
+    <div className="flex max-w-[1440px] h-screen bg-core-primary-fill">
       <div className="grow">
         <Navigation
-          hashboardSerials={{
-            value: hashboardSerials,
-            loading: pendingHashboards,
-          }}
-          controllerIp={{
-            value: networkInfo?.ip,
-            loading: pendingNetworkInfo,
-          }}
-          controllerMac={{
+          macInfo={{
             value: networkInfo?.mac,
             loading: pendingNetworkInfo,
           }}
@@ -68,11 +51,11 @@ const App = ({ children }: AppProps) => {
             loading: pendingPoolsInfo,
             error: !!errorPoolsInfo,
           }}
-          onClickReboot={api.rebootSystem}
-          onClickSleep={api.stopMining}
         />
       </div>
-      <div className="w-full m-14">{children}</div>
+      <div className="w-full rounded-s-2xl bg-surface-base">
+        <div className="m-14">{children}</div>
+      </div>
     </div>
   );
 };

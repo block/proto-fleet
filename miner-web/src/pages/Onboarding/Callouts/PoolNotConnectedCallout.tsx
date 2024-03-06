@@ -1,6 +1,6 @@
 import { DismissibleCalloutWrapper, intents } from "components/Callout";
 
-import InfoIcon from "icons/Info";
+import { Info } from "icons";
 
 import { PoolIndex } from "../types";
 import { getPoolType } from "../utility";
@@ -18,7 +18,7 @@ const PoolNotConnectedCallout = ({
 }: PoolNotConnectedCalloutProps) => {
   return (
     <DismissibleCalloutWrapper
-      icon={<InfoIcon />}
+      icon={<Info />}
       intent={intents.warning}
       onDismiss={onDismiss}
       show={show}

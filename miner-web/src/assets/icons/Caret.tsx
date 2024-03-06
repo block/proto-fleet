@@ -1,8 +1,6 @@
-interface CaretProps {
-  className?: string;
-}
+import { IconProps } from "./types";
 
-const Caret = ({ className }: CaretProps) => {
+const Caret = ({ className }: IconProps) => {
   return (
     <svg width="18" height="19" fill="none" xmlns="http://www.w3.org/2000/svg" className={className} data-testid="caret-icon">
       <g clipPath="url(#a)">

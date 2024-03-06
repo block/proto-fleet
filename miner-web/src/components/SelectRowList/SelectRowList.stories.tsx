@@ -1,7 +1,6 @@
 import { ReactNode, useCallback, useEffect, useState } from "react";
 
-import Cooling from "icons/Cooling";
-import Fan from "icons/Fan";
+import { Fan, ImmersionCooling } from "icons";
 
 import SelectRowListComponent, { SelectType } from ".";
 
@@ -77,7 +76,7 @@ export const SelectRowList = ({
           isSelected: selected.includes(fanModes.false),
           prefixIcon: hasPrefixIcon && (
             <IconWrapper>
-              <Cooling />
+              <ImmersionCooling />
             </IconWrapper>
           ),
           subtext: hasSubtext

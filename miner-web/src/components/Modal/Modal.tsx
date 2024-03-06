@@ -9,7 +9,7 @@ import Divider from "components/Divider";
 import Header from "components/Header";
 import PageOverlay, { animationDuration } from "components/PageOverlay";
 
-import DismissIcon from "icons/Dismiss";
+import { Dismiss } from "icons";
 
 // optional prop to delay close modal on clicking button and allow animations to finish
 interface ModalButtonProps extends ButtonProps {
@@ -103,7 +103,7 @@ const Modal = ({
       >
         <Header
           title={title}
-          icon={<DismissIcon />}
+          icon={<Dismiss />}
           iconOnClick={onClickOutside}
           buttons={buttons?.map((button) => ({
             ...button,

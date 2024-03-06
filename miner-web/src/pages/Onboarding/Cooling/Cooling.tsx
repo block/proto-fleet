@@ -2,8 +2,7 @@ import { ReactNode } from "react";
 
 import SelectRowList, { selectTypes } from "components/SelectRowList";
 
-import CoolingIcon from "icons/Cooling";
-import FanIcon from "icons/Fan";
+import { Fan, ImmersionCooling } from "icons";
 
 import { fanModes } from "../constants";
 
@@ -30,7 +29,7 @@ const Cooling = ({ fanMode, onChange }: CoolingProps) => {
           isSelected: fanMode === fanModes.auto,
           prefixIcon: (
             <IconWrapper>
-              <FanIcon />
+              <Fan />
             </IconWrapper>
           ),
           text: "Fan cooled",
@@ -40,7 +39,7 @@ const Cooling = ({ fanMode, onChange }: CoolingProps) => {
           isSelected: fanMode === fanModes.false,
           prefixIcon: (
             <IconWrapper>
-              <CoolingIcon />
+              <ImmersionCooling />
             </IconWrapper>
           ),
           subtext: "This will disable any connected fans.",

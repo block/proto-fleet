@@ -1,8 +1,6 @@
-interface ArrowRightProps {
-  className?: string;
-}
+import { IconProps } from "./types";
 
-const ArrowRight = ({ className }: ArrowRightProps) => {
+const ArrowRight = ({ className }: IconProps) => {
   return (
     <svg width="20" height="20" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
       <path fill="currentColor" fillOpacity=".01" d="M0 0h20v20H0z" />

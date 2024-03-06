@@ -1,9 +1,6 @@
-interface CheckmarkProps {
-  className?: string;
-  onClick?: () => void;
-}
+import { IconProps } from "./types";
 
-const Checkmark = ({ className, onClick }: CheckmarkProps) => {
+const Checkmark = ({ className, onClick }: IconProps) => {
   return (
     <svg
       width="20"

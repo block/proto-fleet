@@ -1,11 +1,11 @@
-import { useCallback, useMemo } from "react";
+import { ReactNode, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
 
-import Badge from "../badge";
 import { navigationItems } from "../constants";
 
 interface NavigationItemProps {
+  icon: ReactNode;
   id: string;
   selected: keyof typeof navigationItems;
   setSelected: (selected: keyof typeof navigationItems) => void;
@@ -13,6 +13,7 @@ interface NavigationItemProps {
 }
 
 const NavigationItem = ({
+  icon,
   id,
   selected,
   setSelected,
@@ -29,17 +30,18 @@ const NavigationItem = ({
   return (
     <Link
       className={clsx(
-        "flex text-emphasis-400 text-text-primary/70 items-center h-10 px-3 py-2 mb-8 border-box rounded-md hover:cursor-pointer hover:bg-core-accent-fill/5",
+        "flex text-emphasis-300 items-center px-3 py-2 mb-3 rounded-md hover:cursor-pointer",
         {
-          "border border-text-emphasis/10 bg-core-accent-fill/5 text-text-emphasis ml-[-1px]":
+          "text-text-emphasis bg-core-accent-fill/20 hover:bg-core-accent-fill/50":
             isSelected,
+          "text-text-contrast/70 hover:bg-text-contrast/10": !isSelected,
         }
       )}
       onClick={handleClick}
       to={`/${id}`}
     >
-      <span className="flex-grow">{text}</span>
-      {isSelected && <Badge status="warning" />}
+      {icon}
+      <span className="flex-grow ml-2">{text}</span>
     </Link>
   );
 };

@@ -1,8 +1,6 @@
-interface QuestionProps {
-  className?: string;
-}
+import { IconProps } from "./types";
 
-const Question = ({ className }: QuestionProps) => {
+const Question = ({ className }: IconProps) => {
   return (
     <svg
       width="16"

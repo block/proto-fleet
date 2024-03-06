@@ -1,3 +1,5 @@
+import Row from "components/Row";
+
 import PoolInfo, { PoolProps } from ".";
 
 const poolUrlV1 = "stratum+tcp://host.docker.internal:3333";
@@ -6,9 +8,9 @@ const poolUrlV2 =
 
 const InfoItemWrapper = ({ error, loading, status, url }: PoolProps) => {
   return (
-    <div className="w-64">
+    <Row className="w-64 bg-core-primary-fill rounded-md p-3 pb-3" compact divider={false}>
       <PoolInfo error={error} loading={loading} status={status} url={url} />
-    </div>
+    </Row>
   );
 };
 
@@ -26,6 +28,10 @@ export const Loading = () => {
 
 export const Error = () => {
   return <InfoItemWrapper error url={poolUrlV1} status="Dead" />;
+};
+
+export const Empty = () => {
+  return <InfoItemWrapper error status="Dead" />;
 };
 
 export default {

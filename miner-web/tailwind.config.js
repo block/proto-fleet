@@ -108,7 +108,7 @@ export default {
     },
     fontFamily: {
       body: ["'Inter'"],
-      mono: ["'Fira Code'"],
+      mono: ["'JetBrains Mono'"],
     },
     fontSize: {
       "heading-300": [
@@ -150,6 +150,10 @@ export default {
       "emphasis-200": [
         "0.75rem", // 12px
         { lineHeight: "1.25rem", fontWeight: "500" },
+      ],
+      "mono-text-50": [
+        "0.75rem", // 12px
+        { lineHeight: "1rem", fontWeight: "500", letterSpacing: "-0.015rem" },
       ],
     },
   },

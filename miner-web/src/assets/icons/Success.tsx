@@ -1,8 +1,6 @@
-interface SuccessProps {
-  className?: string;
-}
+import { IconProps } from "./types";
 
-const Success = ({ className }: SuccessProps) => {
+const Success = ({ className }: IconProps) => {
   return (
     <svg
       width="20"
