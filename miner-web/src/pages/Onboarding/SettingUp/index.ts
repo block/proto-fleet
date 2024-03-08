@@ -1,3 +1,3 @@
-import SettingUp from "./SettingUp";
+import SettingUpWrapper from "./SettingUpWrapper";
 
-export default SettingUp;
+export default SettingUpWrapper;

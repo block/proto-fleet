@@ -8,9 +8,9 @@ const Error = ({ onClickRetry, text }: ErrorProps) => {
     <>
       We’re having trouble connecting to your {text}. You can continue to your
       dashboard and adjust {text} or{" "}
-      <span className="underline hover:cursor-pointer" onClick={onClickRetry}>
+      <button className="underline" onClick={onClickRetry}>
         try connecting again
-      </span>
+      </button>
       .
     </>
   );

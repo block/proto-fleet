@@ -5,13 +5,13 @@ import { sizes, variants } from "components/Button";
 import ButtonGroup, { groupVariants } from ".";
 
 const primaryButton = {
-  onClick: () => action("Primary button clicked")(),
+  onClick: action("Primary button clicked"),
   text: "Primary",
   variant: variants.primary,
 };
 
 const secondaryButton = {
-  onClick: () => action("Secondary button clicked")(),
+  onClick: action("Secondary button clicked"),
   text: "Secondary",
   variant: variants.secondary,
 };

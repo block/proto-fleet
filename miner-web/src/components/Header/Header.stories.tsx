@@ -29,7 +29,7 @@ export const Header = ({
   titleSize,
 }: HeaderProps) => {
   const iconProps = hasIcon
-    ? { icon: <BaseIcon />, iconOnClick: () => action("Icon clicked")() }
+    ? { icon: <BaseIcon />, iconOnClick: action("Icon clicked") }
     : {};
   const hasButton = button === buttons.primary || button === buttons.both;
   const buttonProps = {
@@ -38,14 +38,14 @@ export const Header = ({
           {
             ...(hasButton && {
               text: "Primary",
-              onClick: () => action("Primary button clicked")(),
+              onClick: action("Primary button clicked"),
               variant: variants.primary,
             }),
           },
           {
             ...(button === buttons.both && {
               text: "Secondary",
-              onClick: () => action("Secondary button clicked")(),
+              onClick: action("Secondary button clicked"),
               variant: variants.secondary,
             }),
           },

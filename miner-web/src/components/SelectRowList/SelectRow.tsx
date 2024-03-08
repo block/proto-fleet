@@ -33,9 +33,9 @@ const SelectRow = ({
   );
 
   return (
-    <div
+    <button
       className={clsx(
-        "rounded-xl text-text-primary bg-surface-default flex items-center cursor-pointer select-none",
+        "rounded-xl text-text-primary bg-surface-default flex items-center cursor-pointer select-none text-left",
         "hover:bg-surface-5 transition-[background-color] ease-in-out duration-200",
         {
           "border-[1.5px] border-border-primary p-4": isSelected,
@@ -90,7 +90,7 @@ const SelectRow = ({
           )}
         />
       </div>
-    </div>
+    </button>
   );
 };
 

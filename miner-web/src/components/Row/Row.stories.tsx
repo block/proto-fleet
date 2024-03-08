@@ -11,7 +11,7 @@ interface RowProps {
 export const Row = ({ clickable, compact, removeLastDivider }: RowProps) => {
   const rowProps = {
     compact,
-    onClick: clickable ? () => action("Row clicked")() : undefined,
+    onClick: clickable ? action("Row clicked") : undefined,
   };
 
   return (

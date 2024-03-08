@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { KeyboardEvent, useCallback, useState } from "react";
 import clsx from "clsx";
 
 import { durations } from "./constants";
@@ -13,6 +13,12 @@ const DurationSelector = ({ className }: DurationSelectorProps) => {
     durations[0]
   );
 
+  const onKeyDown = useCallback((key: string, duration: Duration) => {
+    if (key === "Enter") {
+      setSelectedDuration(duration);
+    }
+  }, []);
+
   return (
     <div
       className={clsx(
@@ -21,16 +27,19 @@ const DurationSelector = ({ className }: DurationSelectorProps) => {
       )}
     >
       {durations.map((duration) => (
-        <div
+        <button
           key={duration}
-          className={clsx("px-3 py-1 hover:cursor-pointer", {
-            "text-text-emphasis text-emphasis-200 bg-surface-base rounded-lg shadow-100":
+          className={clsx("px-3 py-1 rounded-lg", {
+            "text-text-emphasis text-emphasis-200 bg-surface-base shadow-100":
               duration === selectedDuration,
           })}
           onClick={() => setSelectedDuration(duration)}
+          onKeyDown={(e: KeyboardEvent<HTMLButtonElement>) =>
+            onKeyDown(e.key, duration)
+          }
         >
           {duration}
-        </div>
+        </button>
       ))}
     </div>
   );

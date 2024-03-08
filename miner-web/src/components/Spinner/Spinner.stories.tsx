@@ -11,7 +11,7 @@ export const Default = () => {
 export const InButton = () => {
   return (
     <Button
-      onClick={() => action("Test Connection")()}
+      onClick={action("Test Connection")}
       disabled
       size={sizes.compact}
       text="Test Connection"

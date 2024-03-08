@@ -8,7 +8,6 @@ import Badge, { BadgeStatus } from "../badge";
 interface InfoItemProps {
   badge?: BadgeStatus;
   error?: boolean;
-  onClick?: () => void;
   label: string;
   loading?: boolean;
   value?: string | number;
@@ -17,7 +16,6 @@ interface InfoItemProps {
 const InfoItem = ({
   badge,
   error,
-  onClick,
   label,
   loading,
   value,
@@ -31,7 +29,6 @@ const InfoItem = ({
             { "text-text-contrast/70": !error },
             { "text-text-critical": error }
           )}
-          onClick={onClick}
         >
           {label}
         </div>

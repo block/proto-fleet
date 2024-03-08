@@ -21,14 +21,15 @@ const Row = ({
   onClick,
   testId,
 }: RowProps) => {
+  const Element = onClick ? "button" : "div";
   return (
     <div>
-      <div
+      <Element
         className={clsx(
           "peer",
           { "py-2": compact },
           { "py-4": !compact },
-          { "px-4 -mx-4 rounded-lg hover:cursor-pointer": onClick },
+          { "px-4 -mx-4 rounded-lg": onClick },
           { "hover:bg-surface-5": onClick && !isActive },
           className
         )}
@@ -36,7 +37,7 @@ const Row = ({
         data-testid={testId}
       >
         {children}
-      </div>
+      </Element>
       {divider && <Divider className={clsx("mt-[-1px]", { "peer-hover:invisible": onClick })} />}
     </div>
   );

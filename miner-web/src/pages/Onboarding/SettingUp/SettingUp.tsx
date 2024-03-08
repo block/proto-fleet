@@ -1,91 +1,28 @@
-import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
-
-import { useCoolingMode, useCreatePool, usePoolsInfo } from "api";
 
 import Button, { sizes, variants } from "components/Button";
 import Header from "components/Header";
 
 import { ArrowRight } from "icons";
 
-import { FanMode, PoolInfo } from "../types";
-import { isValidPool } from "../utility";
 import { statuses } from "./constants";
 import Item from "./Item";
 
 interface SettingUpProps {
-  fanMode: FanMode;
-  pools: PoolInfo[];
+  fanStatus: keyof typeof statuses,
+  isSetupDone: boolean,
+  poolStatus: keyof typeof statuses,
+  onClickContinue: () => void,
+  onClickRetry: () => void,
 }
 
-const SettingUp = ({ fanMode, pools }: SettingUpProps) => {
-  const Navigate = useNavigate();
-  const { createPool } = useCreatePool();
-  const { setCoolingMode } = useCoolingMode();
-  const { fetch: fetchPools } = usePoolsInfo();
-  const [intervalId, setIntervalId] =
-    useState<ReturnType<typeof setInterval>>();
-  const [poolStatus, setPoolStatus] = useState<keyof typeof statuses>(
-    statuses.fetch
-  );
-  const [fanStatus, setFanStatus] = useState<keyof typeof statuses>(
-    statuses.fetch
-  );
-
-  const getPoolStatus = useCallback(() => {
-    fetchPools({
-      onSuccess: () => setPoolStatus(statuses.success),
-      onError: (error) => {
-        // wait for cgminer to restart before marking pools as configured
-        const message = (error?.message || "").toLowerCase();
-        if (!/failed to connect to cgminer/.test(message)) {
-          setPoolStatus(statuses.error);
-        }
-      },
-    });
-  }, [fetchPools]);
-
-  useEffect(() => {
-    if (poolStatus !== statuses.pending && intervalId) {
-      clearInterval(intervalId);
-      setIntervalId(undefined);
-    }
-  }, [intervalId, poolStatus]);
-
-  useEffect(() => {
-    if (poolStatus === statuses.fetch) {
-      setPoolStatus(statuses.pending);
-      const validPools = pools.filter(isValidPool);
-      createPool({
-        poolInfo: validPools,
-        onSuccess: () => {
-          const newIntervalId = setInterval(getPoolStatus, 2500);
-          setIntervalId(newIntervalId);
-        },
-        onError: () => setPoolStatus(statuses.error),
-      });
-    }
-  }, [createPool, getPoolStatus, poolStatus, pools]);
-
-  useEffect(() => {
-    // TODO: revisit this when API is ready
-    if (fanStatus === statuses.fetch) {
-      setFanStatus(statuses.pending);
-      setCoolingMode({
-        fanMode,
-        onSuccess: () => setFanStatus(statuses.success),
-        onError: () => setFanStatus(statuses.error),
-      });
-    }
-  }, [fanMode, fanStatus, setCoolingMode]);
-
-  const isConfigured = useCallback(
-    (status: keyof typeof statuses) =>
-      status === statuses.success || status === statuses.error,
-    []
-  );
-
+const SettingUp = ({
+  fanStatus,
+  isSetupDone,
+  poolStatus,
+  onClickContinue,
+  onClickRetry,
+}: SettingUpProps) => {
   return (
     <>
       <Header
@@ -98,13 +35,9 @@ const SettingUp = ({ fanMode, pools }: SettingUpProps) => {
       <Item
         status={poolStatus}
         text="mining pools"
-        onClickRetry={() => setPoolStatus(statuses.fetch)}
+        onClickRetry={onClickRetry}
       />
-      <Item
-        status={fanStatus}
-        text="fans"
-        onClickRetry={() => setPoolStatus(statuses.fetch)}
-      />
+      <Item status={fanStatus} text="fans" onClickRetry={onClickRetry} />
       <div className="flex justify-end">
         <Button
           variant={variants.accent}
@@ -113,12 +46,11 @@ const SettingUp = ({ fanMode, pools }: SettingUpProps) => {
           className={clsx(
             "mt-6 transition-opacity ease-in-out duration-200 opacity-0",
             {
-              "opacity-100 animate-[fade-in_.31s_ease-in-out]":
-                isConfigured(poolStatus) && isConfigured(fanStatus),
+              "opacity-100 animate-[fade-in_.31s_ease-in-out]": isSetupDone,
             }
           )}
           suffixIcon={<ArrowRight />}
-          onClick={() => Navigate("/")}
+          onClick={onClickContinue}
           testId="continue-to-dashboard-button"
         />
       </div>

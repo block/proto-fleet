@@ -4,9 +4,7 @@ import { BaseIcon, CompactIcon } from "common/stories/icons";
 
 import Button, { sizes, variants } from ".";
 
-const onClick = () => {
-  action("Button clicked")();
-};
+const onClick = action("Button clicked");
 
 interface ButtonProps {
   size: keyof typeof sizes;

@@ -18,7 +18,7 @@ export const Modal = ({
 }: ModalProps) => {
   const secondaryButton = {
     text: "Secondary",
-    onClick: () => action("Secondary button clicked")(),
+    onClick: action("Secondary button clicked"),
     variant: variants.secondary,
   };
 
@@ -44,7 +44,7 @@ export const Modal = ({
           buttons={hasButtons ? [
             {
               text: "Primary",
-              onClick: () => action("Primary button clicked")(),
+              onClick: action("Primary button clicked"),
               variant: variants.primary,
             },
             ...Array(numberOfSecondaryButtons).fill(secondaryButton),
