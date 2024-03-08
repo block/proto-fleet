@@ -100,5 +100,6 @@ module.exports = {
       },
     ],
     "import/no-unresolved": "off",
+    "no-console": ["error", { allow: ["warn", "error"] }],
   },
 };

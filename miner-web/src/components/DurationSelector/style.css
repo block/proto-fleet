@@ -1,3 +1,0 @@
-html[data-theme='light'] .selected {
-  box-shadow: 0 0 1px 0 theme('colors.border.primary/30%');
-}

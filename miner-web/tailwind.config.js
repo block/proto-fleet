@@ -127,6 +127,10 @@ export default {
         "1rem", // 16px
         { lineHeight: "1.5rem", fontWeight: "500", letterSpacing: "-0.02rem" },
       ],
+      "heading-50": [
+        "0.75rem", // 12px
+        { lineHeight: "1.25rem", fontWeight: "500", letterSpacing: "-0.008rem" },
+      ],
       400: [
         "1rem", // 16px
         { lineHeight: "1.5rem", fontWeight: "400" },

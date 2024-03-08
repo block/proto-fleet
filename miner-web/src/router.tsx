@@ -10,23 +10,23 @@ import App from "./App.tsx";
 const router = createBrowserRouter([
   {
     path: "/",
-    element: <App><Home /></App>,
+    element: <App title="Home"><Home /></App>,
   },
   {
     path: "/hardware",
-    element: <App><Hardware /></App>,
+    element: <App title="Hardware"><Hardware /></App>,
+  },
+  {
+    path: "/home",
+    element: <App title="Home"><Home /></App>,
   },
   {
     path: "/onboarding",
     element: <Onboarding />,
   },
   {
-    path: "/home",
-    element: <App><Home /></App>,
-  },
-  {
     path: "/settings",
-    element: <App><Settings /></App>,
+    element: <App title="Settings"><Settings /></App>,
   },
 ]);
 

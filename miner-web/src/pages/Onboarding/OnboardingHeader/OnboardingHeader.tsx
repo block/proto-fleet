@@ -10,7 +10,7 @@ interface OnboardingHeaderProps {
 
 const OnboardingHeader = ({ button }: OnboardingHeaderProps) => {
   return (
-    <div className="fixed w-full">
+    <div className="fixed w-full bg-surface-base">
       <div className="border-b border-border-primary/5 px-6 py-3 flex items-center">
         <Header
           icon={<Logo />}

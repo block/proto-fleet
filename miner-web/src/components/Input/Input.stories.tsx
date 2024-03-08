@@ -17,7 +17,7 @@ export const Single = () => {
 
 export const Multiple = () => {
   return (
-    <>
+    <div className="space-y-4">
       <Input
         id="poolUrl"
         label="Pool URL"
@@ -35,7 +35,7 @@ export const Multiple = () => {
         onChange={(value) => action("onChange password")(value)}
         type="password"
       />
-    </>
+    </div>
   );
 };
 

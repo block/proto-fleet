@@ -1,5 +1,6 @@
+import Bar from "./Bar";
 import InfoWidget from "./InfoWidget";
-import InfoWidgetWrapper from "./InfoWidgetWrapper";
+import Line from "./Line";
 
-export { InfoWidgetWrapper };
+export { Bar, Line };
 export default InfoWidget;
