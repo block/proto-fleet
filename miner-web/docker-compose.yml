@@ -43,7 +43,7 @@ services:
       - miner-web
     volumes:
       - ${PWD}/../third-party/cgminer:/usr/src/cgminer
-      - ${PWD}/../hashboard/lib/hashboard-protobuf:/usr/src/hashboard/lib/hashboard-protobuf
+      - ${PWD}/../hashboard/lib/protobuf:/usr/src/hashboard/lib/protobuf
       - ${PWD}/../mcdd:/usr/src/mcdd
       - ${PWD}/../mcdd/test/cgminer.conf:/usr/src/cgminer/cgminer.conf
       - ${PWD}/../miner-api-server:/usr/src/miner-api-server
