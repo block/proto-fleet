@@ -2,17 +2,18 @@ import clsx from "clsx";
 
 interface SpinnerProps {
   className?: string;
+  size?: number;
 }
 
-const Spinner = ({ className }: SpinnerProps) => {
+const Spinner = ({ className, size = 20 }: SpinnerProps) => {
   return (
     <svg
       className={clsx("animate-spin", className)}
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 20 20"
-      width="20"
-      height="20"
+      width={size}
+      height={size}
     >
       <path
         fillRule="evenodd"

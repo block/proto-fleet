@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
 import Navigation from "./Navigation";
@@ -12,27 +12,15 @@ vi.mock("react-router-dom", () => ({
 }));
 
 describe("Navigation", () => {
-  const mockProps = {
-    macInfo: {
-      loading: false,
-      value: "00.11.22.33.44.55",
-    },
-    poolInfo: {
-      loading: false,
-      url: "stratum+tcp://host.docker.internal:3333",
-      worker: "worker1",
-    },
-  };
+  const macValue = "00:11:22:33:44:55";
 
-  test("renders the navigation component with correct props", () => {
-    render(<Navigation {...mockProps} />);
+  test("renders mac info", () => {
+    const { getByTestId } = render(
+      <Navigation macInfo={{ loading: false, value: macValue }} />
+    );
+    const { getByText } = within(getByTestId("mac-address-info-item"));
 
     // Assert that the controller MAC is rendered correctly
-    const controllerMacElement = screen.getByText("00:11:22:33:44:55");
-    expect(controllerMacElement).toBeInTheDocument();
-
-    // Assert that the pool info is rendered correctly
-    const poolInfoElement = screen.getByText("host.docker.internal");
-    expect(poolInfoElement).toBeInTheDocument();
+    expect(getByText(macValue)).toBeInTheDocument();
   });
 });

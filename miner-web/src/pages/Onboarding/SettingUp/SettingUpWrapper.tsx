@@ -14,7 +14,7 @@ interface SettingUpWrapperProps {
 }
 
 const SettingUpWrapper = ({ fanMode, pools }: SettingUpWrapperProps) => {
-  const Navigate = useNavigate();
+  const navigate = useNavigate();
   const { createPool } = useCreatePool();
   const { setCoolingMode } = useCoolingMode();
   const { fetch: fetchPools } = usePoolsInfo();
@@ -89,7 +89,7 @@ const SettingUpWrapper = ({ fanMode, pools }: SettingUpWrapperProps) => {
     [fanStatus, isConfigured, poolStatus]
   );
 
-  const handleClickContinue = useCallback(() => Navigate("/"), [Navigate]);
+  const handleClickContinue = useCallback(() => navigate("/"), [navigate]);
 
   return (
     <SettingUp

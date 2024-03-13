@@ -3,7 +3,7 @@ export const navigationItems = {
   home: "home",
   settings: "settings",
   help: "help",
-};
+} as const;
 
 export const badgeColorClassName = {
   error: "bg-text-critical",

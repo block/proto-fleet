@@ -1,4 +1,4 @@
-import { api } from "./api";
+import { api, ApiContext } from "./api";
 import { useCoolingMode } from "./useCoolingMode";
 import { useCoolingStatus } from "./useCoolingStatus";
 import { useCreatePool } from "./useCreatePool";
@@ -10,6 +10,7 @@ import { TestConnectionProps, useTestConnection } from "./useTestConnection";
 
 export {
   api,
+  ApiContext,
   useCreatePool,
   useCoolingMode,
   useCoolingStatus,

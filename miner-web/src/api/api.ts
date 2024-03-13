@@ -1,4 +1,6 @@
-import { Api } from "./types";
+import { createContext } from "react";
+
+import { Api, Pool } from "./types";
 
 const { api } = new Api();
 
@@ -6,3 +8,7 @@ const { api } = new Api();
 (window as any).api = api;
 
 export { api };
+export const ApiContext = createContext({
+  poolsInfo: [] as Pool[],
+  poolsInfoStatus: { pending: false },
+});

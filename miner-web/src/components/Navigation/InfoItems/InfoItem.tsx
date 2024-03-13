@@ -10,6 +10,7 @@ interface InfoItemProps {
   error?: boolean;
   label: string;
   loading?: boolean;
+  testId?: string;
   value?: string | number;
 }
 
@@ -18,10 +19,11 @@ const InfoItem = ({
   error,
   label,
   loading,
+  testId,
   value,
 }: InfoItemProps) => {
   return (
-    <Row compact divider={false} className="flex items-center">
+    <Row compact divider={false} className="flex items-center" testId={testId}>
       <div className="grow">
         <div
           className={clsx(

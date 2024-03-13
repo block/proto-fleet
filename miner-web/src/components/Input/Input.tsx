@@ -7,7 +7,9 @@ import {
 } from "react";
 import clsx from "clsx";
 
-import Tooltip, { positions } from "components/Tooltip";
+import { positions } from "common/constants";
+
+import Tooltip from "components/Tooltip";
 
 interface InputProps {
   error?: string;

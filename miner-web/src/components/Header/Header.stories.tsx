@@ -49,7 +49,7 @@ export const Header = ({
               variant: variants.secondary,
             }),
           },
-        ].filter(Boolean) as ButtonProps[])
+        ].filter(button => !!button.text) as ButtonProps[])
       : undefined,
   };
 

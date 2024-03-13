@@ -12,6 +12,7 @@ interface HeaderProps {
   buttonSize?: keyof typeof sizes;
   centerButton?: boolean;
   className?: string;
+  compact?: boolean;
   icon?: ReactNode;
   iconOnClick?: () => void;
   inline?: boolean;
@@ -27,6 +28,7 @@ const Header = ({
   buttonSize = sizes.base,
   centerButton,
   className,
+  compact,
   icon,
   iconOnClick,
   inline = false,
@@ -60,7 +62,7 @@ const Header = ({
             className={clsx("text-text-primary", titleSize, {
               "ml-4": (icon || iconOnClick) && inline,
               "mt-3": (icon || iconOnClick) && !inline,
-              "mb-1": subtitle,
+              "mb-1": subtitle && !compact,
             })}
             data-testid={testId}
           >

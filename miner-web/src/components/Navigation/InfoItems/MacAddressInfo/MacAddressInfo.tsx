@@ -9,10 +9,7 @@ export interface MacAddressInfoProps {
   value?: string;
 }
 
-const MacAddressInfo = ({
-  loading,
-  value,
-}: MacAddressInfoProps) => {
+const MacAddressInfo = ({ loading, value }: MacAddressInfoProps) => {
   const displayValue = useMemo(() => getMacAddressDisplay(value), [value]);
 
   return (
@@ -21,6 +18,7 @@ const MacAddressInfo = ({
         label="Mac Address"
         value={displayValue}
         loading={loading}
+        testId="mac-address-info-item"
       />
     </div>
   );

@@ -1,8 +1,8 @@
 import clsx from "clsx";
 
-import { Question } from "icons";
+import { positions } from "common/constants";
 
-import { positions } from "./constants";
+import { Question } from "icons";
 
 interface TooltipProps {
   header: string;

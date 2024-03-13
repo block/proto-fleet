@@ -17,7 +17,9 @@ export const Row = ({ clickable, compact, removeLastDivider }: RowProps) => {
   return (
     <div className="w-96 px-4">
       <RowComponent {...rowProps}>Row</RowComponent>
-      <RowComponent {...rowProps} divider={!removeLastDivider}>Row</RowComponent>
+      <RowComponent {...rowProps} divider={!removeLastDivider}>
+        Row
+      </RowComponent>
     </div>
   );
 };
@@ -28,15 +30,9 @@ Row.args = {
 };
 Row.argTypes = {
   compact: {
-    clickable: {
-      type: "boolean",
-    },
-    control: {
-      type: "boolean",
-    },
-    removeLastDivdier: {
-      type: "boolean",
-    },
+    clickable: "boolean",
+    control: "boolean",
+    removeLastDivdier: "boolean",
   },
 };
 

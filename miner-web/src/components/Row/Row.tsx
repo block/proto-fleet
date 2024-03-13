@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import clsx from "clsx";
+
 import Divider from "components/Divider";
 
 interface RowProps {
@@ -9,6 +10,7 @@ interface RowProps {
   divider?: boolean;
   isActive?: boolean;
   onClick?: () => void;
+  suffixIcon?: ReactNode;
   testId?: string;
 }
 
@@ -19,26 +21,34 @@ const Row = ({
   divider = true,
   isActive,
   onClick,
+  suffixIcon,
   testId,
 }: RowProps) => {
   const Element = onClick ? "button" : "div";
   return (
     <div>
-      <Element
-        className={clsx(
-          "peer",
-          { "py-2": compact },
-          { "py-4": !compact },
-          { "px-4 -mx-4 rounded-lg": onClick },
-          { "hover:bg-surface-5": onClick && !isActive },
-          className
-        )}
-        onClick={onClick}
-        data-testid={testId}
-      >
-        {children}
-      </Element>
-      {divider && <Divider className={clsx("mt-[-1px]", { "peer-hover:invisible": onClick })} />}
+      <div className={clsx({ "flex items-center": suffixIcon })}>
+        <Element
+          className={clsx(
+            "peer grow overflow-scroll",
+            { "py-2": compact },
+            { "py-4": !compact },
+            { "px-4 -mx-4 rounded-lg": onClick },
+            { "hover:bg-surface-5": onClick && !isActive },
+            className
+          )}
+          onClick={onClick}
+          data-testid={testId}
+        >
+          {children}
+        </Element>
+        {suffixIcon}
+      </div>
+      {divider && (
+        <Divider
+          className={clsx("mt-[-1px]", { "peer-hover:invisible": onClick })}
+        />
+      )}
     </div>
   );
 };

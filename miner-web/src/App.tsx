@@ -1,19 +1,17 @@
-import React, { useEffect, useState } from "react";
+import { ReactNode, useEffect } from "react";
 
 import { useNetworkInfo, usePoolsInfo } from "api";
-import { Pool } from "apiTypes";
 
 import Navigation from "components/Navigation";
 import PageHeader from "components/PageHeader";
+import { ApiContext } from "./api/api";
 
 interface AppProps {
-  children?: React.ReactNode;
+  children?: ReactNode;
   title: string;
 }
 
 const App = ({ children, title }: AppProps) => {
-  const [poolInfo, setPoolInfo] = useState<Pick<Pool, "status" | "url">>();
-
   const { data: networkInfo, pending: pendingNetworkInfo } = useNetworkInfo();
   const {
     data: poolsInfo,
@@ -28,38 +26,28 @@ const App = ({ children, title }: AppProps) => {
     }
   }, [errorPoolsInfo, fetchPoolsInfo, pendingPoolsInfo, poolsInfo]);
 
-  useEffect(() => {
-    if (poolsInfo) {
-      const activePool =
-        poolsInfo.find((pool) => pool.status === "Alive") || poolsInfo[0];
-      setPoolInfo({
-        status: activePool?.status,
-        url: activePool?.url,
-      });
-    }
-  }, [poolsInfo]);
-
   return (
-    <div className="flex h-screen bg-core-primary-fill">
-      <div className="grow">
-        <Navigation
-          macInfo={{
-            value: networkInfo?.mac,
-            loading: pendingNetworkInfo,
-          }}
-          poolInfo={{
-            status: poolInfo?.status,
-            url: poolInfo?.url,
-            loading: pendingPoolsInfo,
-            error: !!errorPoolsInfo,
-          }}
-        />
+    <ApiContext.Provider
+      value={{
+        poolsInfo: poolsInfo || [],
+        poolsInfoStatus: { pending: pendingPoolsInfo },
+      }}
+    >
+      <div className="flex h-screen bg-core-primary-fill">
+        <div className="grow">
+          <Navigation
+            macInfo={{
+              value: networkInfo?.mac,
+              loading: pendingNetworkInfo,
+            }}
+          />
+        </div>
+        <div className="w-full rounded-s-2xl bg-surface-base">
+          <PageHeader title={title} />
+          <div className="m-20 max-w-[880px]">{children}</div>
+        </div>
       </div>
-      <div className="w-full rounded-s-2xl bg-surface-base">
-        <PageHeader title={title} />
-        <div className="m-20 max-w-[880px]">{children}</div>
-      </div>
-    </div>
+    </ApiContext.Provider>
   );
 };
 

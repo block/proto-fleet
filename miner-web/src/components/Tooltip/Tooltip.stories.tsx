@@ -1,4 +1,6 @@
-import TooltipComponent, { positions } from ".";
+import { positions } from "common/constants";
+
+import TooltipComponent from ".";
 
 interface TooltipWrapperProps {
   position: keyof typeof positions;

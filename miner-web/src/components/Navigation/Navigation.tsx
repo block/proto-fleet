@@ -1,27 +1,34 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import { Home, Mining, Settings } from "icons";
 
 import { navigationItems } from "./constants";
-import MacAddressInfo, { MacAddressInfoProps } from "./InfoItems/MacAddressInfo";
-import PoolInfo, { PoolProps } from "./InfoItems/PoolInfo";
+import MacAddressInfo, {
+  MacAddressInfoProps,
+} from "./InfoItems/MacAddressInfo";
 import NavigationItem from "./NavigationItem";
 
 interface NavigationProps {
   macInfo?: MacAddressInfoProps;
-  poolInfo?: PoolProps;
 }
 
-const Navigation = ({ macInfo, poolInfo }: NavigationProps) => {
+const Navigation = ({ macInfo }: NavigationProps) => {
   const location = useLocation();
-  const { pathname } = location;
-  const pageName = pathname.split("/")[1] as keyof typeof navigationItems;
+  const { pathname } = useMemo(() => location, [location]);
+  const pageName = useMemo(() => {
+    const newPageName = pathname.split("/")[1];
+    if (newPageName in navigationItems) {
+      return newPageName as keyof typeof navigationItems;
+    }
+    return navigationItems.home;
+  }, [pathname]);
 
-  const [selected, setSelected] = useState(
-    (navigationItems[pageName] ||
-      navigationItems.home) as keyof typeof navigationItems
-  );
+  const [selected, setSelected] = useState(navigationItems[pageName]);
+
+  useEffect(() => {
+    setSelected(navigationItems[pageName]);
+  }, [pageName]);
 
   return (
     <div className="w-[216px] h-auto min-h-screen p-3 flex flex-col bg-core-primary-fill text-text-contrast/70">
@@ -53,16 +60,7 @@ const Navigation = ({ macInfo, poolInfo }: NavigationProps) => {
         />
       </div>
 
-      <PoolInfo
-        status={poolInfo?.status}
-        url={poolInfo?.url}
-        loading={poolInfo?.loading}
-        error={poolInfo?.error}
-      />
-      <MacAddressInfo
-        loading={macInfo?.loading}
-        value={macInfo?.value}
-      />
+      <MacAddressInfo loading={macInfo?.loading} value={macInfo?.value} />
     </div>
   );
 };
