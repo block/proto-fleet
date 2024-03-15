@@ -100,6 +100,7 @@ const Modal = ({
           }
         )}
         ref={ModalRef}
+        data-testid="modal"
       >
         <Header
           title={title}

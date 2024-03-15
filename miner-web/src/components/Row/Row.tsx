@@ -27,10 +27,10 @@ const Row = ({
   const Element = onClick ? "button" : "div";
   return (
     <div>
-      <div className={clsx({ "flex items-center": suffixIcon })}>
+      <div className={clsx("peer", { "flex items-center": suffixIcon })}>
         <Element
           className={clsx(
-            "peer grow overflow-scroll",
+            "grow overflow-scroll w-full text-left",
             { "py-2": compact },
             { "py-4": !compact },
             { "px-4 -mx-4 rounded-lg": onClick },
@@ -46,7 +46,7 @@ const Row = ({
       </div>
       {divider && (
         <Divider
-          className={clsx("mt-[-1px]", { "peer-hover:invisible": onClick })}
+          className={clsx("mt-[-1px]", { "peer-hover:invisible px-4 -mx-4": onClick })}
         />
       )}
     </div>

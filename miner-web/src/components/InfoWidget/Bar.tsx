@@ -6,7 +6,7 @@ interface BarProps {
 
 const Bar = ({ intensity }: BarProps) => {
   return (
-    <div className="flex flex-col space-y-1">
+    <div className="flex flex-col space-y-1" data-testid="bar">
       {[...Array(10)].map((_, index) => {
         const isFilled = index >= 10 - intensity;
         return (

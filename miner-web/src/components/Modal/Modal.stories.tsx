@@ -59,7 +59,7 @@ export const Modal = ({
 };
 
 export default {
-  title: "Modal",
+  title: "Components/Modal",
   args: {
     hasButtons: true,
     hasTitle: true,

@@ -56,7 +56,7 @@ export const PoolStatus = ({
 };
 
 export default {
-  title: "Pool Status",
+  title: "Components/PageHeader/Pool Status",
   args: {
     hasDefaultPool: true,
     loading: false,

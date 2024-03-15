@@ -6,7 +6,7 @@ import { Home, Mining, Settings } from "icons";
 import { navigationItems } from "./constants";
 import MacAddressInfo, {
   MacAddressInfoProps,
-} from "./InfoItems/MacAddressInfo";
+} from "./MacAddressInfo";
 import NavigationItem from "./NavigationItem";
 
 interface NavigationProps {

@@ -75,5 +75,5 @@ export const Icons = () => {
 };
 
 export default {
-  title: "Icons",
+  title: "Style/Icons",
 };

@@ -46,5 +46,5 @@ export const Callout = () => {
 };
 
 export default {
-  title: "Callout",
+  title: "Components/Callout",
 };

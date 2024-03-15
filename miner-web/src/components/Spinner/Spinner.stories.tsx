@@ -2,25 +2,36 @@ import { action } from "@storybook/addon-actions";
 
 import Button, { sizes, variants } from "components/Button";
 
-import Spinner from ".";
+import SpinnerComponent from ".";
 
-export const Default = () => {
-  return <Spinner />;
-};
+interface SpinnerProps {
+  inButton?: boolean;
+}
 
-export const InButton = () => {
-  return (
-    <Button
-      onClick={action("Test Connection")}
-      disabled
-      size={sizes.compact}
-      text="Test Connection"
-      loading
-      variant={variants.secondary}
-    />
-  );
+export const Spinner = ({ inButton }: SpinnerProps) => {
+  if (inButton) {
+    return (
+      <Button
+        onClick={action("Test Connection")}
+        disabled
+        size={sizes.compact}
+        text="Test Connection"
+        loading
+        variant={variants.secondary}
+      />
+    );
+  }
+  return <SpinnerComponent />;
 };
 
 export default {
-  title: "Spinner",
+  title: "Components/Loaders/Spinner",
+  args: {
+    inButton: false,
+  },
+  argTypes: {
+    inButton: {
+      control: "boolean",
+    },
+  },
 };

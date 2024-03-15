@@ -11,5 +11,5 @@ export const Tabs = () => {
 };
 
 export default {
-  title: "Tabs",
+  title: "Components/Tabs",
 };

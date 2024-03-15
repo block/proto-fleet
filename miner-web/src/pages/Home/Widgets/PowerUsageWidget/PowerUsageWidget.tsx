@@ -1,11 +1,12 @@
 import { useMemo } from "react";
 
 import InfoWidget, { Bar } from "components/InfoWidget";
-import { getIntensity } from "./utility";
+
+import { getDisplayValue, getIntensity } from "../utility";
 
 interface PowerUsageWidgetProps {
   loading?: boolean;
-  powerUsage?: string;
+  powerUsage?: string | null;
 }
 
 const PowerUsageWidget = ({ loading, powerUsage }: PowerUsageWidgetProps) => {
@@ -17,10 +18,10 @@ const PowerUsageWidget = ({ loading, powerUsage }: PowerUsageWidgetProps) => {
   return (
     <InfoWidget
       title="Power Usage"
-      value={powerUsage && `${powerUsage} kW`}
+      value={powerUsage && `${getDisplayValue(powerUsage)} kW`}
       loading={loading}
       hasBorder
-      stats={<Bar intensity={intensity} />}
+      stats={<Bar intensity={loading ? 0 : intensity} />}
     />
   );
 };

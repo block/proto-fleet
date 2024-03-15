@@ -123,5 +123,5 @@ export const TextOnly = () => {
 };
 
 export default {
-  title: "Buttons",
+  title: "Components/Buttons",
 };

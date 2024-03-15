@@ -1,35 +1,22 @@
 import { action } from "@storybook/addon-actions";
 
-import Input from ".";
+import InputComponent from ".";
 
-export const Single = () => {
-  return (
-    <>
-      <Input
-        id="poolUrl"
-        label="Pool URL"
-        onChange={(value) => action("onChange pool url")(value)}
-        maxLength={2083}
-      />
-    </>
-  );
-};
-
-export const Multiple = () => {
+export const Input = () => {
   return (
     <div className="space-y-4">
-      <Input
+      <InputComponent
         id="poolUrl"
         label="Pool URL"
         onChange={(value) => action("onChange pool url")(value)}
         maxLength={2083}
       />
-      <Input
+      <InputComponent
         id="username"
         label="Username"
         onChange={(value) => action("onChange username")(value)}
       />
-      <Input
+      <InputComponent
         id="password"
         label="Password"
         onChange={(value) => action("onChange password")(value)}
@@ -40,5 +27,5 @@ export const Multiple = () => {
 };
 
 export default {
-  title: "Input",
+  title: "Components/Input",
 };

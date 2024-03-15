@@ -12,5 +12,5 @@ export const Dialog = () => {
 };
 
 export default {
-  title: "Dialog",
+  title: "Components/Dialog",
 };

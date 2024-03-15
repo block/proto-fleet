@@ -1,4 +1,6 @@
-import { action } from "@storybook/addon-actions";
+import { useRef, useState } from "react";
+
+import { useClickOutside } from "common/hooks/useClickOutside";
 
 import { variants } from "components/Button";
 import { ButtonProps } from "components/ButtonGroup";
@@ -11,34 +13,46 @@ interface PopoverProps {
 }
 
 export const Popover = ({ hasSubtitle, numberOfButtons }: PopoverProps) => {
+  const [showPopover, setShowPopover] = useState(true);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useClickOutside({ ref, onClickOutside: () => setShowPopover(false) });
+
   return (
-    <PopoverComponent
-      title="Title"
-      subtitle={hasSubtitle ? "Subtitle" : undefined}
-      buttons={
-        [
-          {
-            ...(numberOfButtons >= 1 && {
-              text: "Cancel",
-              onClick: action("Cancel clicked"),
-              variant: variants.secondary,
-            }),
-          },
-          {
-            ...(numberOfButtons === 2 && {
-              text: "Apply",
-              onClick: action("Apply clicked"),
-              variant: variants.accent,
-            }),
-          },
-        ].filter((button) => !!button.text) as ButtonProps[]
-      }
-    />
+    <div ref={ref}>
+      <button onClick={() => setShowPopover((prev) => !prev)}>
+        Show Popover
+      </button>
+      {showPopover && (
+        <PopoverComponent
+          title="Title"
+          subtitle={hasSubtitle ? "Subtitle" : undefined}
+          buttons={
+            [
+              {
+                ...(numberOfButtons >= 1 && {
+                  text: "Cancel",
+                  onClick: () => setShowPopover(false),
+                  variant: variants.secondary,
+                }),
+              },
+              {
+                ...(numberOfButtons === 2 && {
+                  text: "Apply",
+                  onClick: () => setShowPopover(false),
+                  variant: variants.accent,
+                }),
+              },
+            ].filter((button) => !!button.text) as ButtonProps[]
+          }
+        />
+      )}
+    </div>
   );
 };
 
 export default {
-  title: "Popover",
+  title: "Components/Popover",
   args: {
     hasSubtitle: true,
     numberOfButtons: 2,

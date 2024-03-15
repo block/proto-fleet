@@ -12,10 +12,6 @@ const Block = ({ label, typography }: BlockProps) => {
   );
 };
 
-export default {
-  title: "Typography",
-};
-
 export const Typography = () => {
   return (
     <div className="space-y-2">
@@ -29,4 +25,8 @@ export const Typography = () => {
       <Block typography="text-emphasis-200" label="Text Emphasis 200" />
     </div>
   );
+};
+
+export default {
+  title: "Style/Typography",
 };

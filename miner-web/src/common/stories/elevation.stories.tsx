@@ -10,5 +10,5 @@ export const Elevation = () => {
 };
 
 export default {
-  title: "Elevation",
+  title: "Style/Elevation",
 };

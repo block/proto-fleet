@@ -11,5 +11,5 @@ export const SkeletonBar = () => {
 };
 
 export default {
-  title: "Skeleton Bar",
+  title: "Components/Loaders/Skeleton Bar",
 };

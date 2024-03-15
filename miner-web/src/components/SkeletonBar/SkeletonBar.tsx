@@ -7,7 +7,7 @@ interface SkeletonBarProps {
 
 const SkeletonBar = ({ className, theme = "light" }: SkeletonBarProps) => {
   return (
-    <div className={clsx("h-4", className)}>
+    <div className={clsx("h-4", className)} data-testid="skeleton-bar">
       <div
         className={clsx(
           "h-full relative isolate overflow-hidden rounded",

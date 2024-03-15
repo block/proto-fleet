@@ -7,17 +7,28 @@ import SkeletonBar from "components/SkeletonBar";
 interface InfoWidgetProps {
   hasBorder?: boolean;
   loading?: boolean;
+  onClick?: () => void;
   stats?: ReactNode;
   title: string;
-  value?: string | number;
+  value?: string | number | null;
 }
 
-const InfoWidget = ({ hasBorder, loading, stats, title, value }: InfoWidgetProps) => {
+const InfoWidget = ({
+  hasBorder,
+  loading,
+  onClick,
+  stats,
+  title,
+  value,
+}: InfoWidgetProps) => {
+  const Element = onClick ? "button" : "div";
   return (
-    <div
-      className={clsx("p-4 grow basis-0 flex", {
-        "border border-border-primary/5 rounded-xl": hasBorder,
+    <Element
+      className={clsx("grow basis-0 flex text-left w-full", {
+        "p-4 border border-border-primary/5 rounded-xl": hasBorder,
       })}
+      onClick={onClick}
+      data-testid="info-widget"
     >
       <div className="grow mr-2 whitespace-nowrap">
         <div className="text-heading-50 text-text-primary/50 mb-1">{title}</div>
@@ -30,7 +41,7 @@ const InfoWidget = ({ hasBorder, loading, stats, title, value }: InfoWidgetProps
         </div>
       </div>
       {stats}
-    </div>
+    </Element>
   );
 };
 

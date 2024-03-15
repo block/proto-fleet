@@ -37,7 +37,7 @@ export const SettingUp = ({ fanStatus, poolStatus }: SettingUpProps) => {
 };
 
 export default {
-  title: "Setting Up",
+  title: "Onboarding/Setting Up",
   args: {
     fanStatus: statuses.error,
     poolStatus: statuses.success,

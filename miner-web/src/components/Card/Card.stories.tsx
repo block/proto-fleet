@@ -19,5 +19,5 @@ export const Card = () => {
 };
 
 export default {
-  title: "Card",
+  title: "Components/Card",
 };

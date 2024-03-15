@@ -91,7 +91,7 @@ export const SelectRowList = ({
 };
 
 export default {
-  title: "Select Row List",
+  title: "Components/Select Row List",
   component: SelectRowList,
   args: {
     hasPrefixIcon: true,

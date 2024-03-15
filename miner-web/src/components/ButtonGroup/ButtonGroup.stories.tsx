@@ -75,5 +75,5 @@ export const TextOnly = () => {
 };
 
 export default {
-  title: "Button Groups",
+  title: "Components/Button Groups",
 };

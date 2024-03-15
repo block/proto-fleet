@@ -61,7 +61,7 @@ export const InfoWidgets = ({
 };
 
 export default {
-  title: "Info Widgets",
+  title: "Components/Info Widgets",
   args: {
     hasBorder: true,
     loading: false,

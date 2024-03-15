@@ -23,19 +23,19 @@ export const Row = ({ clickable, compact, removeLastDivider }: RowProps) => {
     </div>
   );
 };
-Row.args = {
-  clickable: false,
-  compact: false,
-  removeLastDivider: true,
-};
-Row.argTypes = {
-  compact: {
-    clickable: "boolean",
-    control: "boolean",
-    removeLastDivdier: "boolean",
-  },
-};
 
 export default {
-  title: "Row",
+  title: "Components/Row",
+  args: {
+    clickable: false,
+    compact: false,
+    removeLastDivider: true,
+  },
+  argTypes: {
+    compact: {
+      clickable: "boolean",
+      control: "boolean",
+      removeLastDivider: "boolean",
+    },
+  },
 };
