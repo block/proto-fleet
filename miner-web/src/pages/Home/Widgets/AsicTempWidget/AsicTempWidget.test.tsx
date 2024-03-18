@@ -12,7 +12,7 @@ vi.mock("react-router-dom", () => ({
 
 describe("AsicTempWidget", () => {
   const asicTemp = "1300";
-  const asicTempDisplay = `${asicTemp}°c`;
+  const asicTempDisplay = `${asicTemp}.00°c`;
 
   test("renders the widget in loading state", () => {
     const { getByTestId, queryByTestId, queryByText } = render(
