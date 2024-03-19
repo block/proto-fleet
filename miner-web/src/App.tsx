@@ -44,7 +44,9 @@ const App = ({ children, title }: AppProps) => {
         </div>
         <div className="w-full rounded-s-2xl bg-surface-base">
           <PageHeader title={title} />
-          <div className="m-20 max-w-[880px]">{children}</div>
+          <div className="w-full my-20">
+            <div className="mx-auto max-w-[880px]">{children}</div>
+          </div>
         </div>
       </div>
     </ApiContext.Provider>

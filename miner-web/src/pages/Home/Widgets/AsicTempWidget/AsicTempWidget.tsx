@@ -26,7 +26,7 @@ const AsicTempWidget = ({ asicTemp, loading }: AsicTempWidgetProps) => {
   return (
     <>
       <InfoWidget
-        title="Avg. ASIC Temp"
+        title="Avg. ASIC temp"
         value={displayAsicTemp}
         loading={loading}
         hasBorder

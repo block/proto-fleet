@@ -5,6 +5,7 @@ import {
   getMacAddressDisplay,
   getPoolUrlDisplay,
   getSerialNumbersDisplay,
+  getStandardTime,
 } from "./stringUtils";
 
 describe("addCommas", () => {
@@ -77,5 +78,18 @@ describe("getMacAddressDisplay", () => {
 
   test("should return undefined if the mac address is not provided", () => {
     expect(getMacAddressDisplay()).toBe(undefined);
+  });
+});
+
+describe("getStandardTime", () => {
+  test("should return the standard time format", () => {
+    expect(getStandardTime("00:00")).toBe("12:00 AM");
+    expect(getStandardTime("12:00")).toBe("12:00 PM");
+    expect(getStandardTime("13:00")).toBe("1:00 PM");
+    expect(getStandardTime("23:59")).toBe("11:59 PM");
+  });
+
+  test("should return the original value if the time format is not recognized", () => {
+    expect(getStandardTime("123")).toBe("123");
   });
 });

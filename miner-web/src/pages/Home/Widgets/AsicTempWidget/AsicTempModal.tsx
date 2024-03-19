@@ -33,7 +33,7 @@ const AsicTempModal = ({ avgAsicTemp, onDismiss }: AsicTempModalProps) => {
           variant: variants.primary,
         },
       ]}
-      contentHeader="ASIC Temperature"
+      contentHeader="ASIC temperature"
       onDismiss={onDismiss}
     >
       <div className="space-y-6">
@@ -43,9 +43,9 @@ const AsicTempModal = ({ avgAsicTemp, onDismiss }: AsicTempModalProps) => {
           miner will no longer be able to mine.
         </div>
         <div className="flex">
-          <InfoWidget title="Avg. ASIC Temp" value={avgAsicTemp} />
+          <InfoWidget title="Avg. ASIC temp" value={avgAsicTemp} />
           {/* TODO: get highest temp when API provides it */}
-          <InfoWidget title="Highest Temp" value="81.4°c" />
+          <InfoWidget title="Highest temp" value="81.4°c" />
         </div>
         <div>
           {/* TODO: get temp for each hashboard when API provides it */}

@@ -60,7 +60,7 @@ const Home = () => {
         <div className="flex space-x-6 w-full">
           {/* TODO: display hashrate values once API is implemented */}
           <InfoWidget
-            title="Current Hashrate"
+            title="Current hashrate"
             value={undefined}
             loading={false}
           />

@@ -1,0 +1,28 @@
+export const chartData = [
+  { value: 0, time: "0:00" },
+  { value: 1, time: "1:00" },
+  { value: 1, time: "2:00" },
+  { value: 1, time: "3:00" },
+  { value: 1, time: "4:00" },
+  { value: 2, time: "5:00" },
+  { value: 2, time: "6:00" },
+  { value: 4, time: "7:00" },
+  { value: 4, time: "8:00" },
+  { value: 4, time: "9:00" },
+  { value: 4, time: "10:00" },
+  { value: 1, time: "11:00" },
+  { value: 1, time: "12:00" },
+  { value: 1, time: "13:00" },
+  { value: 1, time: "14:00" },
+  { value: 1, time: "15:00" },
+  { value: 3, time: "16:00" },
+  { value: 3, time: "17:00" },
+  { value: 3, time: "18:00" },
+  { value: 1.7, time: "19:00" },
+  { value: 1.7, time: "20:00" },
+  { value: 1.7, time: "21:00" },
+  { value: 1.7, time: "22:00" },
+  { value: 4.5, time: "23:00" },
+];
+
+export const marginValue = 0.6;
