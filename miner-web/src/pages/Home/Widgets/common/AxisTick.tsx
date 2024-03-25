@@ -1,16 +1,11 @@
-interface PowerUsageAxisTickProps {
-  value: string;
+interface AxisTickProps {
+  payload: { value: string };
   x: number;
   xOffset?: number;
   y: number;
 }
 
-const PowerUsageAxisTick = ({
-  value,
-  x,
-  xOffset = 0,
-  y,
-}: PowerUsageAxisTickProps) => {
+const AxisTick = ({ payload, x, xOffset = 0, y }: AxisTickProps) => {
   return (
     <g transform={`translate(${x + xOffset},${y})`}>
       <text
@@ -22,10 +17,10 @@ const PowerUsageAxisTick = ({
         fillOpacity={0.5}
         className="text-emphasis-200"
       >
-        {value}
+        {payload.value}
       </text>
     </g>
   );
 };
 
-export default PowerUsageAxisTick;
+export default AxisTick;

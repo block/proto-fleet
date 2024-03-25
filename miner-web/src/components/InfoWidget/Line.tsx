@@ -6,7 +6,7 @@ interface LineProps {
 
 const Line = ({ data }: LineProps) => {
   return (
-    <div className="relative">
+    <div className="relative" data-testid="line">
       <LineChart width={120} height={64} data={data}>
         <RechartsLine
           type="monotone"
@@ -15,6 +15,7 @@ const Line = ({ data }: LineProps) => {
           strokeWidth={2}
           label={false}
           dot={false}
+          className="hover:cursor-pointer"
         />
       </LineChart>
       <div className="absolute bottom-0 h-full w-full pointer-events-none bg-gradient-to-r from-surface-base to-transparent" />

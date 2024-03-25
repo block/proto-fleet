@@ -18,13 +18,17 @@ export const EfficiencyWidget = ({
     <div className="w-[277px]">
       <EfficiencyWidgetComponent
         efficiency={hasEfficiency ? efficiency : null}
-        efficiencyValues={hasEfficiency && !loading ? [
-          { value: 1 },
-          { value: 3 },
-          { value: 2 },
-          { value: 9 },
-          { value: 5 },
-        ] : []}
+        efficiencyValues={
+          hasEfficiency && !loading
+            ? [
+                { value: 1 },
+                { value: 3 },
+                { value: 2 },
+                { value: 9 },
+                { value: 5 },
+              ]
+            : []
+        }
         loading={loading}
       />
     </div>
@@ -34,7 +38,7 @@ export const EfficiencyWidget = ({
 export default {
   title: "Home/Widgets/EfficiencyWidget",
   args: {
-    efficiency: 15.5,
+    efficiency: 15.50,
     hasEfficiency: true,
     loading: false,
   },

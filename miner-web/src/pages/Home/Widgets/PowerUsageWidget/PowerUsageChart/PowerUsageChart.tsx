@@ -12,11 +12,11 @@ import {
   YAxis,
 } from "recharts";
 
+import AxisTick from "../../common/AxisTick";
+import TickTooltip, { TooltipData } from "../../common/TickTooltip";
+import TimeXAxisTick from "../../common/TimeXAxisTick";
 import { chartData, marginValue } from "./constants";
-import PowerUsageXAxisTick from "./PowerUsageAxis/PowerUsageXAxisTick";
-import PowerUsageYAxisTick from "./PowerUsageAxis/PowerUsageYAxisTick";
 import PowerUsageBar from "./PowerUsageBar";
-import PowerUsageTooltip, { TooltipData } from "./PowerUsageTooltip";
 
 interface chartDataProps {
   time?: string;
@@ -26,6 +26,7 @@ interface chartDataProps {
 const PowerUsageChart = () => {
   const [tooltipData, setTooltipData] = useState<TooltipData>({
     x: 0,
+    y: 0,
     payload: [],
   });
   const [isTooltipActive, setTooltipActive] = useState(false);
@@ -48,7 +49,7 @@ const PowerUsageChart = () => {
 
   const onClickOutside = useCallback(() => {
     setTooltipActive(false);
-    setTooltipData({ x: 0, payload: [] });
+    setTooltipData({ x: 0, y: 0, payload: [] });
   }, []);
 
   useClickOutside({ ref: tooltipRef, onClickOutside });
@@ -73,13 +74,13 @@ const PowerUsageChart = () => {
             axisLine={false}
             tickLine={false}
             interval={0}
-            tick={PowerUsageXAxisTick}
+            tick={TimeXAxisTick}
           />
           <YAxis
             axisLine={false}
             tickLine={false}
             interval={0}
-            tick={PowerUsageYAxisTick}
+            tick={AxisTick}
             scale="linear"
             domain={[0, maxValue + 1]}
             tickMargin={6}
@@ -90,9 +91,11 @@ const PowerUsageChart = () => {
             cursor={{ fill: "#fff" }}
             position={{ y: -75, x: tooltipData.x - 50 }}
             content={
-              <PowerUsageTooltip
+              <TickTooltip
                 onClick={setTooltipData}
                 tooltipData={tooltipData}
+                marginValue={marginValue}
+                unit="kW"
               />
             }
             trigger="click"

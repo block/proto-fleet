@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import InfoWidget from "components/InfoWidget";
 import Line from "components/InfoWidget/Line";
 
 import { getDisplayValue } from "../utility";
+import EfficiencyModal from "./EfficiencyModal";
 
 interface EfficiencyWidgetProps {
   efficiency?: string | number | null;
@@ -12,20 +13,13 @@ interface EfficiencyWidgetProps {
 }
 
 const EfficiencyWidget = ({
-  efficiency = "15.5",
+  efficiency,
   efficiencyValues,
   loading,
 }: EfficiencyWidgetProps) => {
+  const [showModal, setShowModal] = useState(false);
   // TODO: get efficiency values from API once implemented
-  const [data, setData] = useState(
-    efficiencyValues || [
-      { value: 1 },
-      { value: 3 },
-      { value: 2 },
-      { value: 9 },
-      { value: 5 },
-    ]
-  );
+  const [data, setData] = useState(efficiencyValues || []);
 
   useEffect(() => {
     if (loading || !efficiencyValues?.length) {
@@ -48,14 +42,28 @@ const EfficiencyWidget = ({
     };
   }, [data, efficiencyValues, loading]);
 
+  const displayEfficiency = useMemo(
+    () => efficiency && `${getDisplayValue(efficiency)} J/TH`,
+    [efficiency]
+  );
+
   return (
-    <InfoWidget
-      title="Efficiency"
-      value={efficiency && `${getDisplayValue(efficiency)} J/TH`}
-      loading={loading}
-      hasBorder
-      stats={<Line data={data} />}
-    />
+    <>
+      <InfoWidget
+        title="Efficiency"
+        value={displayEfficiency}
+        loading={loading}
+        hasBorder
+        stats={<Line data={data} />}
+        onClick={loading ? undefined : () => setShowModal(true)}
+      />
+      {showModal && (
+        <EfficiencyModal
+          onDismiss={() => setShowModal(false)}
+          efficiency={displayEfficiency}
+        />
+      )}
+    </>
   );
 };
 

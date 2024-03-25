@@ -2,8 +2,6 @@ import { useEffect } from "react";
 
 import { getStandardTime } from "common/utils/stringUtils";
 
-import { marginValue } from "./constants";
-
 type PayloadType = {
   value: string | number;
   name: string;
@@ -13,23 +11,28 @@ type PayloadType = {
 export type TooltipData = {
   payload: PayloadType[];
   x: number;
+  y: number;
 };
 
-interface CustomTooltipProps {
+interface TickTooltipProps {
   active?: boolean;
-  coordinate?: { x: number };
-  onClick: ({ payload, x }: TooltipData) => void;
+  coordinate?: { x: number; y: number };
+  marginValue?: number;
+  onClick: ({ payload, x, y }: TooltipData) => void;
   payload?: PayloadType[];
   tooltipData: TooltipData;
+  unit?: string;
 }
 
-const PowerUsageTooltip = ({
+const TickTooltip = ({
   active,
-  coordinate = { x: 0 },
+  coordinate = { x: 0, y: 0 },
+  marginValue = 0,
   onClick,
   payload: payloads,
   tooltipData,
-}: CustomTooltipProps) => {
+  unit,
+}: TickTooltipProps) => {
   useEffect(() => {
     if (
       active &&
@@ -37,7 +40,7 @@ const PowerUsageTooltip = ({
       payloads.length > 0 &&
       coordinate.x !== tooltipData.x
     ) {
-      onClick({ payload: payloads, x: coordinate.x });
+      onClick({ payload: payloads, x: coordinate.x, y: coordinate.y });
     }
   }, [active, coordinate, onClick, payloads, tooltipData]);
 
@@ -49,7 +52,7 @@ const PowerUsageTooltip = ({
             {getStandardTime(payload.payload.time)}
           </div>
           <div className="text-heading-100 text-text-primary">
-            {`${Math.round((+payload.value - marginValue) * 100) / 100} kW`}
+            {`${Math.round((+payload.value - marginValue) * 100) / 100} ${unit}`}
           </div>
         </div>
       ))}
@@ -57,4 +60,4 @@ const PowerUsageTooltip = ({
   );
 };
 
-export default PowerUsageTooltip;
+export default TickTooltip;

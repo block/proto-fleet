@@ -38,7 +38,9 @@ const Home = () => {
 
   return (
     <>
-      {noPoolsLive && <NoPoolsCallout arePoolsConfigured={!!poolsInfo[0]?.url} />}
+      {noPoolsLive && (
+        <NoPoolsCallout arePoolsConfigured={!!poolsInfo[0]?.url} />
+      )}
       <div className="flex flex-col space-y-6">
         <div className="flex items-center">
           <div className="text-heading-300 grow">Home</div>
@@ -47,7 +49,16 @@ const Home = () => {
 
         <div className="flex space-x-6 w-full">
           {/* TODO: send efficiency value & loading once API is implemented */}
-          <EfficiencyWidget />
+          <EfficiencyWidget
+            efficiency={15.50}
+            efficiencyValues={[
+              { value: 1 },
+              { value: 3 },
+              { value: 2 },
+              { value: 9 },
+              { value: 5 },
+            ]}
+          />
           <PowerUsageWidget
             loading={pendingMiningStatus}
             powerUsage={powerUsage}
