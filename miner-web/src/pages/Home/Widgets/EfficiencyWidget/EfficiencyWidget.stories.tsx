@@ -36,7 +36,7 @@ export const EfficiencyWidget = ({
 };
 
 export default {
-  title: "Home/Widgets/EfficiencyWidget",
+  title: "Pages/Home/Widgets/EfficiencyWidget",
   args: {
     efficiency: 15.50,
     hasEfficiency: true,

@@ -1,4 +1,4 @@
-import AxisTick from "./AxisTick";
+import { AxisTick } from "components/Chart";
 
 interface TimeXAxisTickProps {
   payload: { value: string; index: number };

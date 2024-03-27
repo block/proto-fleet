@@ -78,6 +78,11 @@ module.exports = {
             position: "before",
           },
           {
+            pattern: "recharts",
+            group: "external",
+            position: "before",
+          },
+          {
             pattern: "clsx",
             group: "external",
             position: "before",

@@ -4,7 +4,8 @@ import { ApiContext, useMiningStatus } from "api";
 
 import Divider from "components/Divider";
 import DurationSelector from "components/DurationSelector";
-import InfoWidget from "components/InfoWidget";
+
+import Hashrate from "./Hashrate";
 import NoPoolsCallout from "./NoPoolsCallout";
 import AsicTempWidget from "./Widgets/AsicTempWidget";
 import EfficiencyWidget from "./Widgets/EfficiencyWidget";
@@ -50,7 +51,7 @@ const Home = () => {
         <div className="flex space-x-6 w-full">
           {/* TODO: send efficiency value & loading once API is implemented */}
           <EfficiencyWidget
-            efficiency={15.50}
+            efficiency={15.5}
             efficiencyValues={[
               { value: 1 },
               { value: 3 },
@@ -68,17 +69,7 @@ const Home = () => {
 
         <Divider />
 
-        <div className="flex space-x-6 w-full">
-          {/* TODO: display hashrate values once API is implemented */}
-          <InfoWidget
-            title="Current hashrate"
-            value={undefined}
-            loading={false}
-          />
-          <InfoWidget title="Average" value={undefined} loading={false} />
-          <InfoWidget title="Lowest" value={undefined} loading={false} />
-          <InfoWidget title="Highest" value={undefined} loading={false} />
-        </div>
+        <Hashrate />
       </div>
     </>
   );

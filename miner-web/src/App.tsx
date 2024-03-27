@@ -44,8 +44,10 @@ const App = ({ children, title }: AppProps) => {
         </div>
         <div className="w-full rounded-s-2xl bg-surface-base">
           <PageHeader title={title} />
-          <div className="w-full my-20">
-            <div className="mx-auto max-w-[880px]">{children}</div>
+          <div className="w-full h-[calc(100%-56px)] overflow-scroll">
+            <div className="m-20 flex justify-center">
+              <div className="w-[880px]">{children}</div>
+            </div>
           </div>
         </div>
       </div>

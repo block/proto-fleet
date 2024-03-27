@@ -2,13 +2,15 @@ import { useEffect } from "react";
 
 import { getStandardTime } from "common/utils/stringUtils";
 
+import { getTickValue } from "components/Chart";
+
 type PayloadType = {
   value: string | number;
   name: string;
   payload: { time: string };
 };
 
-export type TooltipData = {
+type TooltipData = {
   payload: PayloadType[];
   x: number;
   y: number;
@@ -52,7 +54,7 @@ const TickTooltip = ({
             {getStandardTime(payload.payload.time)}
           </div>
           <div className="text-heading-100 text-text-primary">
-            {`${Math.round((+payload.value - marginValue) * 100) / 100} ${unit}`}
+            {`${getTickValue(+payload.value, marginValue)} ${unit}`}
           </div>
         </div>
       ))}

@@ -64,6 +64,7 @@ export default {
           fill: "rgb(var(--orange-100) / <alpha-value>)",
           text: "rgb(var(--text-accent))",
         },
+        indigo: "rgb(var(--indigo-100) / <alpha-value>)",
         primary: "rgb(var(--black-100) / <alpha-value>)",
         "primary-fill": "rgb(var(--black-100) / <alpha-value>)",
       },

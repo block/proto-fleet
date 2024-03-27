@@ -25,7 +25,7 @@ export const PowerUsageWidget = ({
 };
 
 export default {
-  title: "Home/Widgets/PowerUsageWidget",
+  title: "Pages/Home/Widgets/PowerUsageWidget",
   args: {
     hasPowerUsage: true,
     loading: false,
