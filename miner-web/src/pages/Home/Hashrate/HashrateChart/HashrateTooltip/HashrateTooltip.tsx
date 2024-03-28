@@ -17,7 +17,7 @@ type PayloadType = {
   };
 };
 
-type TooltipData = {
+export type TooltipData = {
   payload: PayloadType[];
   x: number;
   y: number;
@@ -27,7 +27,7 @@ interface HashrateTooltipProps {
   active?: boolean;
   coordinate?: { x: number; y: number };
   marginValue?: number;
-  onClick: ({ payload, x, y }: TooltipData) => void;
+  onHover: ({ payload, x, y }: TooltipData) => void;
   payload?: PayloadType[];
   tooltipData: TooltipData;
 }
@@ -35,7 +35,7 @@ interface HashrateTooltipProps {
 const HashrateTooltip = ({
   active,
   coordinate = { x: 0, y: 0 },
-  onClick,
+  onHover,
   payload: payloads,
   tooltipData,
 }: HashrateTooltipProps) => {
@@ -46,9 +46,11 @@ const HashrateTooltip = ({
       payloads.length > 0 &&
       coordinate.x !== tooltipData.x
     ) {
-      onClick({ payload: payloads, x: coordinate.x, y: coordinate.y });
+      onHover({ payload: payloads, x: coordinate.x, y: coordinate.y });
+    } else if (!active && tooltipData.payload.length > 0) {
+      onHover({ payload: [], x: 0, y: 0 });
     }
-  }, [active, coordinate, onClick, payloads, tooltipData]);
+  }, [active, coordinate, onHover, payloads, tooltipData]);
 
   const payload = useMemo(() => tooltipData.payload[0]?.payload || {}, [tooltipData]);
 

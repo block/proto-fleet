@@ -10,7 +10,7 @@ type PayloadType = {
   payload: { time: string };
 };
 
-type TooltipData = {
+export type TooltipData = {
   payload: PayloadType[];
   x: number;
   y: number;
@@ -20,7 +20,7 @@ interface TickTooltipProps {
   active?: boolean;
   coordinate?: { x: number; y: number };
   marginValue?: number;
-  onClick: ({ payload, x, y }: TooltipData) => void;
+  onHover: ({ payload, x, y }: TooltipData) => void;
   payload?: PayloadType[];
   tooltipData: TooltipData;
   unit?: string;
@@ -30,7 +30,7 @@ const TickTooltip = ({
   active,
   coordinate = { x: 0, y: 0 },
   marginValue = 0,
-  onClick,
+  onHover,
   payload: payloads,
   tooltipData,
   unit,
@@ -42,9 +42,11 @@ const TickTooltip = ({
       payloads.length > 0 &&
       coordinate.x !== tooltipData.x
     ) {
-      onClick({ payload: payloads, x: coordinate.x, y: coordinate.y });
+      onHover({ payload: payloads, x: coordinate.x, y: coordinate.y });
+    } else if (!active && tooltipData.payload.length > 0) {
+      onHover({ payload: [], x: 0, y: 0 });
     }
-  }, [active, coordinate, onClick, payloads, tooltipData]);
+  }, [active, coordinate, onHover, payloads, tooltipData]);
 
   return (
     <div className="bg-surface-base/70 px-3 py-2 rounded-xl shadow-200 backdrop-blur-[7px]">

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -11,25 +12,22 @@ import {
   ChartWrapper,
   LineCursor,
   LineDot,
-  useTooltip,
   xAxisProps,
   yAxisProps,
 } from "components/Chart";
 
-import TickTooltip from "../common/TickTooltip";
+import TickTooltip, { TooltipData } from "../common/TickTooltip";
 import { chartData } from "./constants";
 
 const EfficiencyChart = () => {
-  const {
-    tooltipData,
-    setTooltipData,
-    isTooltipActive,
-    setTooltipActive,
-    tooltipRef,
-  } = useTooltip();
+  const [tooltipData, setTooltipData] = useState<TooltipData>({
+    x: 0,
+    y: 0,
+    payload: [],
+  });
 
   return (
-    <ChartWrapper tooltipRef={tooltipRef}>
+    <ChartWrapper>
       <LineChart
         data={chartData}
         margin={{
@@ -38,7 +36,6 @@ const EfficiencyChart = () => {
           left: -17,
           bottom: 5,
         }}
-        onClick={() => setTooltipActive(true)}
       >
         <CartesianGrid
           strokeOpacity={0.2}
@@ -49,17 +46,16 @@ const EfficiencyChart = () => {
         <XAxis {...xAxisProps} />
         <YAxis {...yAxisProps} padding={{ top: -5, bottom: 20 }} />
         <Tooltip
-          active={isTooltipActive}
           position={{ y: tooltipData.y - 33, x: tooltipData.x - 112 }}
           content={
             <TickTooltip
-              onClick={setTooltipData}
+              onHover={setTooltipData}
               tooltipData={tooltipData}
               unit="J/TH"
             />
           }
-          trigger="click"
           cursor={<LineCursor />}
+          isAnimationActive={false}
         />
         <Line
           type="basis"
@@ -70,7 +66,6 @@ const EfficiencyChart = () => {
           dot={false}
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="hover:cursor-pointer"
           activeDot={
             tooltipData.payload.length ? <LineDot color="#90C300" /> : <></>
           }

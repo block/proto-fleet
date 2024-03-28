@@ -16,15 +16,13 @@ const App = ({ children, title }: AppProps) => {
   const {
     data: poolsInfo,
     pending: pendingPoolsInfo,
-    error: errorPoolsInfo,
     fetch: fetchPoolsInfo,
   } = usePoolsInfo();
 
   useEffect(() => {
-    if (!poolsInfo && !pendingPoolsInfo && !errorPoolsInfo) {
-      fetchPoolsInfo();
-    }
-  }, [errorPoolsInfo, fetchPoolsInfo, pendingPoolsInfo, poolsInfo]);
+    fetchPoolsInfo();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <ApiContext.Provider

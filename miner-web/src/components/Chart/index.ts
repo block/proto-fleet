@@ -1,11 +1,10 @@
 import AxisTick from "./AxisTick";
 import ChartWrapper from "./ChartWrapper";
 import { xAxisProps, yAxisProps } from "./constants";
-import { getTickValue } from "./helper";
 import LineCursor from "./LineCursor";
 import LineDot from "./LineDot";
 import TimeXAxisTick from "./TimeXAxisTick";
-import { useTooltip } from "./useTooltip";
+import { getTickValue } from "./utility";
 
 export {
   AxisTick,
@@ -14,7 +13,6 @@ export {
   LineCursor,
   LineDot,
   TimeXAxisTick,
-  useTooltip,
   xAxisProps,
   yAxisProps,
 };

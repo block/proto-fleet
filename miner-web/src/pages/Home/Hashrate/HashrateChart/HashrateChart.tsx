@@ -12,22 +12,19 @@ import {
   ChartWrapper,
   LineCursor,
   LineDot,
-  useTooltip,
   xAxisProps,
   yAxisProps,
 } from "components/Chart";
 
 import { chartData, LineProps } from "./constants";
-import HashrateTooltip from "./HashrateTooltip";
+import HashrateTooltip, { TooltipData } from "./HashrateTooltip";
 
 const HashrateChart = () => {
-  const {
-    tooltipData,
-    setTooltipData,
-    isTooltipActive,
-    setTooltipActive,
-    tooltipRef,
-  } = useTooltip();
+  const [tooltipData, setTooltipData] = useState<TooltipData>({
+    x: 0,
+    y: 0,
+    payload: [],
+  });
   const [initChart, setInitChart] = useState(false);
 
   const max = Math.max(...chartData.map((data) => data.avgHashrate));
@@ -43,7 +40,7 @@ const HashrateChart = () => {
   }, []);
 
   return (
-    <ChartWrapper tooltipRef={tooltipRef}>
+    <ChartWrapper>
       <LineChart
         data={chartData}
         margin={{
@@ -52,7 +49,6 @@ const HashrateChart = () => {
           left: -17,
           bottom: 5,
         }}
-        onClick={() => setTooltipActive(true)}
       >
         <CartesianGrid
           strokeOpacity={0.2}
@@ -68,16 +64,15 @@ const HashrateChart = () => {
           tickCount={maxDomain / 5 + 2}
         />
         <Tooltip
-          active={isTooltipActive}
           position={{ y: tooltipData.y - 150, x: tooltipData.x - 290 }}
           content={
             <HashrateTooltip
-              onClick={setTooltipData}
+              onHover={setTooltipData}
               tooltipData={tooltipData}
             />
           }
-          trigger="click"
           cursor={<LineCursor />}
+          isAnimationActive={false}
         />
         {!!tooltipData.payload.length && (
           <>
@@ -112,7 +107,6 @@ const HashrateChart = () => {
             tooltipData.payload.length ? <LineDot color="#FF7900" /> : <></>
           }
           isAnimationActive={!initChart}
-          className="hover:cursor-pointer"
         />
       </LineChart>
     </ChartWrapper>

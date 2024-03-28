@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { getTickValue } from "./helper";
+import { getTickValue } from "./utility";
 
 describe("getTickValue", () => {
   test("should round down to 2 decimal places", () => {
