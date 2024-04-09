@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { api } from "./api";
 import { Error, ErrorResponse, Pool } from "./types";
@@ -8,7 +8,7 @@ interface FetchPoolsInfoProps {
   onSuccess?: (response?: Pool[]) => void;
 }
 
-const usePoolsInfo = () => {
+const usePoolsInfo = (shouldFetch?: boolean) => {
   const [data, setData] = useState<Pool[]>();
   const [error, setError] = useState<Error>();
   const [pending, setPending] = useState<boolean>(false);
@@ -34,6 +34,12 @@ const usePoolsInfo = () => {
         setPending(false);
       });
   };
+
+  useEffect(() => {
+    if (shouldFetch) {
+      fetch();
+    }
+  }, [shouldFetch]);
 
   return {
     fetch,

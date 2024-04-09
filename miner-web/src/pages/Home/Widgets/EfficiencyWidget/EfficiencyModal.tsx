@@ -27,7 +27,7 @@ const EfficiencyModal = ({ efficiency, onDismiss }: PowerUsageModalProps) => (
         <InfoWidget title="Avg. efficiency" value="12.5 J/TH" />
         <InfoWidget title="Current efficiency" value={efficiency} />
       </div>
-      <div className="w-[600px] h-[228px]">
+      <div className="w-[600px] phone:w-[352px] h-[228px]">
         <EfficiencyChart />
       </div>
     </div>

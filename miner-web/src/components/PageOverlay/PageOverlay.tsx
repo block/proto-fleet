@@ -1,34 +1,32 @@
 import { ReactNode, useEffect } from "react";
 import clsx from "clsx";
 
+import { usePreventScroll } from "common/hooks/usePreventScroll";
+
 interface PageOverlayProps {
   children: ReactNode;
-  preventScroll?: boolean;
+  shouldPreventScroll?: boolean;
   show: boolean;
   zIndex?: string;
 }
 
 const PageOverlay = ({
   children,
-  preventScroll = true,
+  shouldPreventScroll = true,
   show,
-  zIndex = "z-20",
+  zIndex = "z-30",
 }: PageOverlayProps) => {
+  const { preventScroll } = usePreventScroll();
   useEffect(() => {
-    if (preventScroll) {
-      document.body.style.overflow = "hidden";
+    if (shouldPreventScroll) {
+      preventScroll();
     }
-    return () => {
-      if (preventScroll) {
-        document.body.style.overflow = "scroll";
-      }
-    };
-  }, [preventScroll]);
+  }, [preventScroll, shouldPreventScroll]);
 
   return (
     <div
       className={clsx(
-        "fixed top-0 left-0 h-screen w-screen flex justify-center items-center bg-border-primary/5",
+        "fixed top-0 left-0 h-screen w-screen flex justify-center items-center bg-border-primary/5 !m-0 !p-0 !overflow-hidden",
         zIndex,
         {
           "animate-[fade-in_.3s_ease-in-out]": show,

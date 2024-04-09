@@ -6,7 +6,7 @@ interface LineProps {
 
 const Line = ({ data }: LineProps) => {
   return (
-    <div className="relative" data-testid="line">
+    <div className="absolute right-4" data-testid="line">
       <LineChart width={120} height={64} data={data}>
         <RechartsLine
           type="monotone"

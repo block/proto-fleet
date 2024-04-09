@@ -13,7 +13,7 @@ const TimeXAxisTick = ({ x, y, payload }: TimeXAxisTickProps) => {
       <AxisTick
         x={x}
         y={y}
-        xOffset={index === 23 ? 8 : 16}
+        xOffset={index === 23 ? -5 : 16}
         payload={{ ...payload, value: index === 23 ? "Now" : payload.value }}
       />
     );

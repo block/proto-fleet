@@ -1,18 +1,40 @@
+import { useWindowDimensions } from "common/hooks/useWindowDimensions";
+
+import { Pause } from "icons";
+
 import PoolStatus from "./PoolStatus";
 import Warning from "./Warning";
 
 interface PageHeaderProps {
+  openMenu?: () => void;
   title: string;
 }
 
-const PageHeader = ({ title }: PageHeaderProps) => {
+const PageHeader = ({ openMenu, title }: PageHeaderProps) => {
+  const { isPhone, isTablet } = useWindowDimensions();
   return (
     <div className="h-[56px] flex border-b border-border-primary/5 py-2 p-[15px] items-center">
-      <div className="text-300 text-text-primary/70 grow">{title}</div>
+      <div className="flex grow">
+        {(isPhone || isTablet) && (
+          <Pause
+            className="mr-2 text-text-primary hover:cursor-pointer"
+            onClick={openMenu}
+          />
+        )}
+        <div className="text-300 text-text-primary/70">{title}</div>
+      </div>
       {/* TODO: add errors & warnings from API when available */}
       <div className="flex space-x-4">
-        <Warning label="ASIC" state="critical" messages={["12% Higher Temperature"]} />
-        <Warning label="Fans" state="warning" messages={["Fan 1 low speed", "Fan 2 low speed"]} />
+        <Warning
+          label="ASIC"
+          state="critical"
+          messages={["12% Higher Temperature"]}
+        />
+        <Warning
+          label="Fans"
+          state="warning"
+          messages={["Fan 1 low speed", "Fan 2 low speed"]}
+        />
         <PoolStatus />
       </div>
     </div>

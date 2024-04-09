@@ -76,11 +76,13 @@ const Header = ({
         )}
       </div>
       {buttons && (
-        <ButtonGroup
-          buttons={buttons}
-          variant={groupVariants.rightAligned}
-          size={buttonSize}
-        />
+        <div className="ml-3">
+          <ButtonGroup
+            buttons={buttons}
+            variant={groupVariants.rightAligned}
+            size={buttonSize}
+          />
+        </div>
       )}
     </div>
   );

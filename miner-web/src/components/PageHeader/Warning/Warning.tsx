@@ -1,5 +1,8 @@
 import { useState } from "react";
 import clsx from "clsx";
+
+import { useWindowDimensions } from "common/hooks/useWindowDimensions";
+
 import WarningModal from "./WarningModal";
 
 interface WarningProps {
@@ -9,6 +12,7 @@ interface WarningProps {
 }
 
 const Warning = ({ label, messages, state }: WarningProps) => {
+  const { isPhone } = useWindowDimensions();
   const [showModal, setShowModal] = useState(false);
 
   const isWarning = state === "warning";
@@ -17,7 +21,7 @@ const Warning = ({ label, messages, state }: WarningProps) => {
   return (
     <>
       <button
-        className={clsx("text-heading-50 rounded flex items-center", {
+        className={clsx("text-heading-50 rounded flex items-center whitespace-nowrap", {
           "bg-intent-critical-fill/10 text-intent-critical-text": isCritical,
           "bg-intent-warning-fill/10 text-intent-warning-text": isWarning,
         })}
@@ -31,18 +35,20 @@ const Warning = ({ label, messages, state }: WarningProps) => {
         >
           {label}
         </div>
-        <div className="flex items-center px-2 py-1 space-x-1">
-          <svg width="6" height="6" viewBox="0 0 6 6">
-            <circle cx="3" cy="3" r="3" fill="currentColor" />
-          </svg>
-          <div>
-            {messages.length === 1
-              ? messages[0]
-              : isWarning
-                ? `${messages.length} warnings`
-                : `${messages.length} errors`}
+        {!isPhone && (
+          <div className="flex items-center px-2 py-1 space-x-1">
+            <svg width="6" height="6" viewBox="0 0 6 6">
+              <circle cx="3" cy="3" r="3" fill="currentColor" />
+            </svg>
+            <div>
+              {messages.length === 1
+                ? messages[0]
+                : isWarning
+                  ? `${messages.length} warnings`
+                  : `${messages.length} errors`}
+            </div>
           </div>
-        </div>
+        )}
       </button>
       {showModal && (
         <WarningModal

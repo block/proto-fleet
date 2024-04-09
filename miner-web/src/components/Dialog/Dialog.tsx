@@ -60,7 +60,7 @@ const Dialog = ({
   return (
     <>
       {showDialog && (
-        <PageOverlay zIndex="z-30" preventScroll={preventScroll} show={show}>
+        <PageOverlay zIndex="z-40" shouldPreventScroll={preventScroll} show={show}>
           <div
             className={clsx(
               "shadow-200 rounded-3xl p-6 w-[360px] h-fit bg-surface-base",

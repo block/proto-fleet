@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { useWindowDimensions } from "common/hooks/useWindowDimensions";
+
 import InfoWidget from "components/InfoWidget";
 import Line from "components/InfoWidget/Line";
 
@@ -18,15 +20,17 @@ const EfficiencyWidget = ({
   loading,
 }: EfficiencyWidgetProps) => {
   const [showModal, setShowModal] = useState(false);
+  const { isDesktop } = useWindowDimensions();
   // TODO: get efficiency values from API once implemented
-  const [data, setData] = useState(efficiencyValues || []);
+  const initValue = isDesktop ? efficiencyValues : efficiencyValues?.slice(2);
+  const [data, setData] = useState(initValue || []);
 
   useEffect(() => {
-    if (loading || !efficiencyValues?.length) {
+    if (loading || !initValue?.length) {
       if (data.length) setData([]);
       return;
-    } else if (efficiencyValues.length !== data.length) {
-      setData(efficiencyValues);
+    } else if (initValue.length !== data.length) {
+      setData(initValue);
       return;
     }
 
@@ -40,7 +44,7 @@ const EfficiencyWidget = ({
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [data, efficiencyValues, loading]);
+  }, [data, initValue, loading]);
 
   const displayEfficiency = useMemo(
     () => efficiency && `${getDisplayValue(efficiency)} J/TH`,
@@ -56,6 +60,7 @@ const EfficiencyWidget = ({
         hasBorder
         stats={<Line data={data} />}
         onClick={loading ? undefined : () => setShowModal(true)}
+        className="z-10"
       />
       {showModal && (
         <EfficiencyModal

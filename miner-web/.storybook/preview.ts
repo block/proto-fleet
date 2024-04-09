@@ -1,12 +1,10 @@
 import type { Preview } from "@storybook/react";
-import '../src/index.css';
+import "../src/index.css";
 
 export const globalTypes = {
   dataThemes: {
     defaultValue: {
-      list: [
-        { name: "Light", dataTheme: "light" },
-      ],
+      list: [{ name: "Light", dataTheme: "light" }],
     },
   },
   dataTheme: {

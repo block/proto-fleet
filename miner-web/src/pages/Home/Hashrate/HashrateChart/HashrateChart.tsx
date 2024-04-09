@@ -8,6 +8,8 @@ import {
   YAxis,
 } from "recharts";
 
+import { useWindowDimensions } from "common/hooks/useWindowDimensions";
+
 import {
   ChartWrapper,
   LineCursor,
@@ -18,6 +20,7 @@ import {
 
 import { chartData, LineProps } from "./constants";
 import HashrateTooltip, { TooltipData } from "./HashrateTooltip";
+import { getPoint } from "./utility";
 
 const HashrateChart = () => {
   const [tooltipData, setTooltipData] = useState<TooltipData>({
@@ -26,6 +29,7 @@ const HashrateChart = () => {
     payload: [],
   });
   const [initChart, setInitChart] = useState(false);
+  const { isDesktop } = useWindowDimensions();
 
   const max = Math.max(...chartData.map((data) => data.avgHashrate));
   const nearestTen = Math.round(max / 10) * 10;
@@ -39,13 +43,25 @@ const HashrateChart = () => {
     }, 1500);
   }, []);
 
+  const firstVerticalPoint = isDesktop ? 130 : 105;
+  const verticalGap = isDesktop ? 90 : 55;
+  const verticalPoints = [...Array(9)].map((_, i) =>
+    getPoint(i, firstVerticalPoint, verticalGap)
+  );
+
+  const firstHorizontalPoint = 40;
+  const horizontalGap = 35;
+  const horizontalPoints = [...Array(9)].map((_, i) =>
+    getPoint(i, firstHorizontalPoint, horizontalGap)
+  );
+
   return (
     <ChartWrapper>
       <LineChart
         data={chartData}
         margin={{
           top: 0,
-          right: 30,
+          right: 0,
           left: -17,
           bottom: 5,
         }}
@@ -53,8 +69,8 @@ const HashrateChart = () => {
         <CartesianGrid
           strokeOpacity={0.2}
           color="black"
-          verticalPoints={[43, 130, 210, 290, 370, 450, 530, 610, 690, 770]}
-          horizontalPoints={[40, 75, 110, 145, 180, 215, 250, 285, 320, 365]}
+          verticalPoints={[43, ...verticalPoints]}
+          horizontalPoints={[...horizontalPoints, 365]}
         />
         <XAxis {...xAxisProps} tickMargin={12} />
         <YAxis

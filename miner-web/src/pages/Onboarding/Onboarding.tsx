@@ -33,6 +33,8 @@ const Onboarding = () => {
   const [activeTab, setActiveTab] = useState<Tabs>(tabs.pools);
   const [settingUpMiner, setSettingUpMiner] = useState(false);
 
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
   const onContinue = useCallback(
     (ignoreBackupPools?: boolean) => {
       // check if default pool has been entered
@@ -80,7 +82,7 @@ const Onboarding = () => {
     <div className="h-screen flex flex-col">
       {settingUpMiner ? (
         <>
-          <OnboardingHeader />
+          <OnboardingHeader openMenu={() => setIsMenuOpen(true)} />
           <div className="h-screen flex justify-center items-center">
             <div className="w-[600px]">
               <SettingUp
@@ -108,43 +110,50 @@ const Onboarding = () => {
                     testId: "finish-setup-button",
                   }
             }
+            openMenu={() => setIsMenuOpen(true)}
           />
           <WarnBackupPoolDialog
             onAddBackupPool={() => setWarnBackupPool(false)}
             onContinueWithoutBackup={onContinueWithoutBackup}
             show={warnBackupPool}
           />
-          <div className="max-w-[1440px] flex flex-1 mt-[66px]">
+          <div className="mt-[66px]">
             <OnboardingNavigation
+              isVisible={isMenuOpen}
+              closeMenu={() => setIsMenuOpen(false)}
               poolUrls={finalizedPoolUrls}
               activeTab={activeTab}
               onChangeActiveTab={setActiveTab}
             />
-            <div className="mx-40 my-20 w-full max-w-[640px] min-w-[370px] ml-[480px]">
-              {activeTab === tabs.pools && (
-                <>
-                  <ContentHeader
-                    title="Mining pool"
-                    subtitle="Enter your mining pool details below."
-                    testId="mining-pool-title"
-                  />
-                  <WarnDefaultPoolCallout
-                    onDismiss={() => setWarnDefaultPool(false)}
-                    show={warnDefaultPool}
-                  />
-                  <Pools pools={pools} onChangePools={onChangePools} />
-                </>
-              )}
-              {activeTab === tabs.cooling && (
-                <>
-                  <ContentHeader
-                    title="Cooling"
-                    subtitle="Choose how you want to cool your device. This can be changed at any time."
-                    testId="cooling-title"
-                  />
-                  <Cooling fanMode={fanMode} onChange={onChangeFanMode} />
-                </>
-              )}
+            <div className="desktop:ml-80 laptop:ml-80">
+              <div className="m-14 tablet:m-6 phone:m-6 flex justify-center">
+                <div className="w-[640px]">
+                  {activeTab === tabs.pools && (
+                    <>
+                      <ContentHeader
+                        title="Mining pool"
+                        subtitle="Enter your mining pool details below."
+                        testId="mining-pool-title"
+                      />
+                      <WarnDefaultPoolCallout
+                        onDismiss={() => setWarnDefaultPool(false)}
+                        show={warnDefaultPool}
+                      />
+                      <Pools pools={pools} onChangePools={onChangePools} />
+                    </>
+                  )}
+                  {activeTab === tabs.cooling && (
+                    <>
+                      <ContentHeader
+                        title="Cooling"
+                        subtitle="Choose how you want to cool your device. This can be changed at any time."
+                        testId="cooling-title"
+                      />
+                      <Cooling fanMode={fanMode} onChange={onChangeFanMode} />
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </>

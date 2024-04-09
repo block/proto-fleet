@@ -38,6 +38,19 @@ export default {
             transform: "translateY(0) scale(1)",
           },
         },
+        "slide-right": {
+          "0%": {
+            transform: "translateX(-240px)",
+          },
+          "100%": {
+            transform: "translateX(0)",
+          },
+        },
+        "slide-left": {
+          "100%": {
+            transform: "translateX(-240px)",
+          },
+        },
       },
       transitionTimingFunction: {
         gentle: "cubic-bezier(0.47, 0, 0.23, 1.38)",
@@ -45,6 +58,8 @@ export default {
       animation: {
         "sliding-down": "slide-down .3s theme('transitionTimingFunction.gentle')",
         "sliding-up": "slide-up .3s theme('transitionTimingFunction.gentle')",
+        "sliding-right": "slide-right .3s ease-in-out",
+        "sliding-left": "slide-left .3s ease-in-out",
       },
     },
     boxShadow: {
@@ -160,6 +175,12 @@ export default {
         "0.75rem", // 12px
         { lineHeight: "1rem", fontWeight: "500", letterSpacing: "-0.015rem" },
       ],
+    },
+    screens: {
+      phone: { max: "631px" },
+      tablet: { min: "632px", max: "959px" },
+      laptop: { min: "960px", max: "1279px" },
+      desktop: "1280px",
     },
   },
   plugins: [],

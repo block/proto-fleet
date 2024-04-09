@@ -107,6 +107,7 @@ const BackupPoolModal = ({
               onClick: () => setShouldTestConnection(true),
               loading: isTestingConnection,
               variant: variants.secondary,
+              className: "whitespace-nowrap overflow-clip",
             },
           ]}
           contentHeader={`Backup pool #${poolIndex}`}

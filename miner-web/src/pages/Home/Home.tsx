@@ -48,7 +48,7 @@ const Home = () => {
           <DurationSelector className="h-fit" />
         </div>
 
-        <div className="flex space-x-6 w-full">
+        <div className="flex space-x-6 w-full phone:flex-col phone:space-x-0 phone:space-y-6">
           {/* TODO: send efficiency value & loading once API is implemented */}
           <EfficiencyWidget
             efficiency={15.5}

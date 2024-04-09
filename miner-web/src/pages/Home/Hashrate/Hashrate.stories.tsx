@@ -3,7 +3,7 @@ import HashrateComponent from ".";
 export const Hashrate = () => {
   return (
     <div className="flex justify-center my-8">
-      <div className="w-[880px]">
+      <div className="w-[928px]">
         <HashrateComponent />
       </div>
     </div>

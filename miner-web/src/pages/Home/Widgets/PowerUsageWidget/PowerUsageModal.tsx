@@ -27,7 +27,7 @@ const PowerUsageModal = ({ onDismiss, powerUsage }: PowerUsageModalProps) => (
         <InfoWidget title="Avg. power usage" value="3.8 kW" />
         <InfoWidget title="Current power usage" value={powerUsage} />
       </div>
-      <div className="w-[592px] h-[156px]">
+      <div className="w-[592px] phone:w-[352px] h-[156px]">
         <PowerUsageChart />
       </div>
     </div>

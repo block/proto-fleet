@@ -1,8 +1,8 @@
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useState } from "react";
 
 import { useNetworkInfo, usePoolsInfo } from "api";
 
-import Navigation from "components/Navigation";
+import NavigationMenu from "components/NavigationMenu";
 import PageHeader from "components/PageHeader";
 import { ApiContext } from "./api/api";
 
@@ -16,13 +16,8 @@ const App = ({ children, title }: AppProps) => {
   const {
     data: poolsInfo,
     pending: pendingPoolsInfo,
-    fetch: fetchPoolsInfo,
-  } = usePoolsInfo();
-
-  useEffect(() => {
-    fetchPoolsInfo();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  } = usePoolsInfo(true);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   return (
     <ApiContext.Provider
@@ -33,18 +28,22 @@ const App = ({ children, title }: AppProps) => {
     >
       <div className="flex h-screen bg-core-primary-fill">
         <div className="grow">
-          <Navigation
+          <NavigationMenu
             macInfo={{
               value: networkInfo?.mac,
               loading: pendingNetworkInfo,
             }}
+            isVisible={isMenuOpen}
+            closeMenu={() => setIsMenuOpen(false)}
           />
         </div>
-        <div className="w-full rounded-s-2xl bg-surface-base">
-          <PageHeader title={title} />
+        <div className="w-full laptop:rounded-s-2xl desktop:laptop:rounded-s-2xl bg-surface-base">
+          <PageHeader title={title} openMenu={() => setIsMenuOpen(true)} />
           <div className="w-full h-[calc(100%-56px)] overflow-scroll">
-            <div className="m-20 flex justify-center">
-              <div className="w-[880px]">{children}</div>
+            <div className="m-14 tablet:m-6 phone:m-6 flex justify-center">
+              <div className="desktop:w-[928px] laptop:w-[608px] tablet:w-[584px] phone:w-[352px]">
+                {children}
+              </div>
             </div>
           </div>
         </div>

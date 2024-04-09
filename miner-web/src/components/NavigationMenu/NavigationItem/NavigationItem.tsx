@@ -7,16 +7,16 @@ import { navigationItems } from "../constants";
 interface NavigationItemProps {
   icon: ReactNode;
   id: string;
+  onClick: (selected: keyof typeof navigationItems) => void;
   selected: keyof typeof navigationItems;
-  setSelected: (selected: keyof typeof navigationItems) => void;
   text: string;
 }
 
 const NavigationItem = ({
   icon,
   id,
+  onClick,
   selected,
-  setSelected,
   text,
 }: NavigationItemProps) => {
   const isSelected = useMemo(() => {
@@ -24,8 +24,8 @@ const NavigationItem = ({
   }, [id, selected]);
 
   const handleClick = useCallback(() => {
-    setSelected(id as keyof typeof navigationItems);
-  }, [id, setSelected]);
+    onClick(id as keyof typeof navigationItems);
+  }, [id, onClick]);
 
   return (
     <Link

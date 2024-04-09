@@ -9,6 +9,7 @@ import ImmersionCooling from "./ImmersionCooling";
 import Info from "./Info";
 import Logo from "./Logo";
 import Mining from "./Mining";
+import Pause from "./Pause";
 import Question from "./Question";
 import Settings from "./Settings";
 import Success from "./Success";
@@ -25,6 +26,7 @@ export {
   Info,
   Logo,
   Mining,
+  Pause,
   Question,
   Settings,
   Success,
