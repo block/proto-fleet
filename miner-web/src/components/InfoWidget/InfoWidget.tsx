@@ -29,10 +29,9 @@ const InfoWidget = ({
   return (
     <Element
       className={clsx(
-        "text-left relative",
+        "text-left relative grow basis-0 flex",
         {
           "p-4 border border-border-primary/5 rounded-xl": hasBorder,
-          "grow basis-0 flex": stats,
         },
         wrapperClassName
       )}

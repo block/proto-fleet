@@ -21,7 +21,7 @@ export const Warning = () => {
 };
 
 export default {
-  title: "Components/PageHeader/Warning",
+  title: "Components/Page Header/Warning",
   decorators: [
     (Story: ElementType) => (
       <MemoryRouter>

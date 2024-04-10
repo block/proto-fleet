@@ -7,5 +7,5 @@ export const DurationSelector = () => {
 };
 
 export default {
-  title: "Pages/Home/Duration Selector",
+  title: "Components/Duration Selector",
 };

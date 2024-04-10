@@ -15,7 +15,7 @@ export const EfficiencyWidget = ({
   loading,
 }: EfficiencyWidgetProps) => {
   return (
-    <div className="w-[277px]">
+    <div className="flex w-[294px]">
       <EfficiencyWidgetComponent
         efficiency={hasEfficiency ? efficiency : null}
         efficiencyValues={
@@ -36,7 +36,7 @@ export const EfficiencyWidget = ({
 };
 
 export default {
-  title: "Pages/Home/Widgets/EfficiencyWidget",
+  title: "Components/Info Widgets/Efficiency Widget",
   args: {
     efficiency: 15.50,
     hasEfficiency: true,

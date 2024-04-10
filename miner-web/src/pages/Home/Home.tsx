@@ -4,12 +4,12 @@ import { ApiContext, useMiningStatus } from "api";
 
 import Divider from "components/Divider";
 import DurationSelector from "components/DurationSelector";
+import AsicTempWidget from "components/InfoWidget/AsicTempWidget";
+import EfficiencyWidget from "components/InfoWidget/EfficiencyWidget";
+import PowerUsageWidget from "components/InfoWidget/PowerUsageWidget";
 
 import Hashrate from "./Hashrate";
 import NoPoolsCallout from "./NoPoolsCallout";
-import AsicTempWidget from "./Widgets/AsicTempWidget";
-import EfficiencyWidget from "./Widgets/EfficiencyWidget";
-import PowerUsageWidget from "./Widgets/PowerUsageWidget";
 
 const Home = () => {
   const [powerUsage, setPowerUsage] = useState<string>();

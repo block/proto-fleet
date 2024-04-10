@@ -15,7 +15,7 @@ export const PowerUsageWidget = ({
   powerUsage,
 }: PowerUsageWidgetProps) => {
   return (
-    <div className="w-[277px]">
+    <div className="flex w-[294px]">
       <PowerUsageWidgetComponent
         powerUsage={hasPowerUsage ? powerUsage : null}
         loading={loading}
@@ -25,7 +25,7 @@ export const PowerUsageWidget = ({
 };
 
 export default {
-  title: "Pages/Home/Widgets/PowerUsageWidget",
+  title: "Components/Info Widgets/Power Usage Widget",
   args: {
     hasPowerUsage: true,
     loading: false,

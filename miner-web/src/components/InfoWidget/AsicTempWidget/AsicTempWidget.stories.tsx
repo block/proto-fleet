@@ -15,7 +15,7 @@ export const AsicTempWidget = ({
   loading,
 }: AsicTempProps) => {
   return (
-    <div className="w-[277px]">
+    <div className="flex w-[294px]">
       <AsicTempWidgetComponent
         asicTemp={hasAsicTemp ? asicTemp : undefined}
         loading={loading}
@@ -25,7 +25,7 @@ export const AsicTempWidget = ({
 };
 
 export default {
-  title: "Pages/Home/Widgets/AsicTempWidget",
+  title: "Components/Info Widgets/Asic Temp Widget",
   args: {
     asicTemp: 1300,
     hasAsicTemp: true,
