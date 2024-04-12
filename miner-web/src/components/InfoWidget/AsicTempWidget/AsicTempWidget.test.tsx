@@ -1,6 +1,7 @@
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
+import { getDisplayValue } from "../utility";
 import AsicTempWidget from ".";
 
 vi.mock("react-router-dom", () => ({
@@ -12,7 +13,7 @@ vi.mock("react-router-dom", () => ({
 
 describe("AsicTempWidget", () => {
   const asicTemp = "1300";
-  const asicTempDisplay = `${asicTemp}.00°c`;
+  const asicTempDisplay = `${getDisplayValue(asicTemp)}°c`;
 
   test("renders the widget in loading state", () => {
     const { getByTestId, queryByTestId, queryByText } = render(

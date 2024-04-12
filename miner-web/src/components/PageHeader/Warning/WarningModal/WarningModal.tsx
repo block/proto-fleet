@@ -14,7 +14,7 @@ const WarningModal = ({ onDismiss, type }: PowerUsageModalProps) => {
     <Modal
       buttons={[
         {
-          text: "Repair",
+          text: "View repair instructions",
           variant: variants.secondary,
           // TODO: link to repair page when available
         },

@@ -1,11 +1,12 @@
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 
+import { getDisplayValue } from "../utility";
 import EfficiencyWidget from ".";
 
 describe("PowerUsageWidget", () => {
   const efficiency = "15.50";
-  const efficiencyDisplay = `${efficiency} J/TH`;
+  const efficiencyDisplay = `${getDisplayValue(efficiency)} J/TH`;
   const efficiencyValues = [
     { value: 1 },
     { value: 3 },

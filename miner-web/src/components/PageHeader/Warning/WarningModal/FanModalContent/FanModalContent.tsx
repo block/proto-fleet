@@ -1,9 +1,9 @@
 import { addCommas } from "common/utils/stringUtils";
 
+import FanSpeedPieChart from "components/InfoWidget/FanSpeedWidget/FanSpeedPieChart";
 import Row from "components/Row";
 
 import { arrayOfWarnings } from "../utility";
-import FanSpeedPieChart from "./FanSpeedPieChart";
 
 const FanModalContent = () => {
   // TODO: get number of errors from API
@@ -23,10 +23,18 @@ const FanModalContent = () => {
         </div>
       </div>
       {arrayOfWarnings(numberOfErrors).map((_, index) => (
-        <Row key={index} divider={index + 1 !== numberOfErrors} className="flex">
+        <Row
+          key={index}
+          divider={index + 1 !== numberOfErrors}
+          className="flex"
+        >
           <div className="mr-4 w-10 h-10">
-            {/* TODO: get max speed from API */}
-            <FanSpeedPieChart fanSpeed={fanSpeeds[index]} maxSpeed={3500} />
+            {/* TODO: get acceptable speed and max speed from API */}
+            <FanSpeedPieChart
+              acceptableSpeed={6500}
+              fanSpeed={fanSpeeds[index]}
+              maxSpeed={7500}
+            />
           </div>
           <div>
             <div className="text-emphasis-300 text-text-primary">

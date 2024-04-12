@@ -1,15 +1,18 @@
 import { useEffect, useState } from "react";
 
-import { useMiningStatus } from "api";
+import { useCoolingStatus, useMiningStatus } from "api";
 
 import DurationSelector from "components/DurationSelector";
 import AsicTempWidget from "components/InfoWidget/AsicTempWidget";
+import FanSpeedWidget from "components/InfoWidget/FanSpeedWidget";
 
 const Hardware = () => {
   const [asicTemp, setAsicTemp] = useState<string>();
   // TODO: figure out how frequently we should be re-fetching this data
   const { data: miningStatus, pending: pendingMiningStatus } =
     useMiningStatus();
+  const { data: coolingStatus, pending: pendingCoolingStatus } =
+    useCoolingStatus();
 
   useEffect(() => {
     if (miningStatus) {
@@ -25,10 +28,21 @@ const Hardware = () => {
       </div>
 
       <div className="flex space-x-6 w-full phone:flex-col phone:space-x-0 phone:space-y-6">
-        {/* TODO: remove this wrapper when second widget is added as width will automatically become half */}
-        <div className="flex w-1/2 phone:w-full">
-          <AsicTempWidget asicTemp={asicTemp} loading={pendingMiningStatus} />
-        </div>
+        <AsicTempWidget asicTemp={asicTemp} loading={pendingMiningStatus} />
+        <FanSpeedWidget
+          fanSpeeds={
+            coolingStatus?.fans
+              ? [
+                  ...coolingStatus.fans,
+                  // Remove these when we have real fan data
+                  { rpm: 3049 },
+                  { rpm: 6800 },
+                  { rpm: 6730 },
+                ]
+              : undefined
+          }
+          loading={pendingCoolingStatus}
+        />
       </div>
     </div>
   );
