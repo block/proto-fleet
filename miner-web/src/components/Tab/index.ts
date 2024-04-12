@@ -1,5 +1,3 @@
-import Tab from "./Tab";
-import TabWrapper from "./TabWrapper";
+import Tabs from "./Tabs";
 
-export { TabWrapper };
-export default Tab;
+export default Tabs;
