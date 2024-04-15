@@ -340,7 +340,7 @@ export interface OSInfo {
   build_datetime_utc?: string;
   /** @example "1213423223" */
   git_hash?: string;
-  /** @example "btcm-c1-mp157" */
+  /** @example "btcm-c1-p0" */
   machine?: string;
   /** @example "BTCM Linux Distribution" */
   name?: string;
