@@ -8,6 +8,8 @@ import FanSpeedWidget from "components/InfoWidget/FanSpeedWidget";
 import Row from "components/Row";
 import Tabs from "components/Tab";
 
+import AsicTable from "./AsicTable";
+
 const Hardware = () => {
   const [asicTemp, setAsicTemp] = useState<string>();
   // TODO: figure out how frequently we should be re-fetching this data
@@ -70,6 +72,7 @@ const Hardware = () => {
                   Connected to port {index + 1}
                 </div>
               </Row>
+              {hashboardInfo.hb_sn && <AsicTable hashboardSerialNumber={hashboardInfo.hb_sn} />}
             </Tabs.Tab>
           ))}
         </Tabs>

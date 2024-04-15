@@ -10,6 +10,8 @@
  */
 
 export interface AsicStats {
+  col?: number;
+  row?: number;
   /**
    * The number of times that the ASIC produced an incorrect hash or an error during a specific period of time.  Error Rate (%) = (Number of incorrect hash / Total number of expected Hash) x 100%
    * @example 3.3

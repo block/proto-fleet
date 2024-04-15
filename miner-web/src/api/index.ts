@@ -3,6 +3,7 @@ import { useCoolingMode } from "./useCoolingMode";
 import { useCoolingStatus } from "./useCoolingStatus";
 import { useCreatePool } from "./useCreatePool";
 import { useHashboards } from "./useHashboards";
+import { useHashboardStats } from "./useHashboardStats";
 import { useMiningStatus } from "./useMiningStatus";
 import { useNetworkInfo } from "./useNetworkInfo";
 import { usePoolsInfo } from "./usePoolsInfo";
@@ -17,6 +18,7 @@ export {
   useMiningStatus,
   useNetworkInfo,
   useHashboards,
+  useHashboardStats,
   usePoolsInfo,
   useTestConnection,
   type TestConnectionProps,
