@@ -12,7 +12,7 @@ const root = resolve(__dirname, "src");
 // https://vitejs.dev/config/
 export default defineConfig(() => {
   const apiServers = {
-    "swagger": "https://virtserver.swaggerhub.com/KSHITIZ_1/MDK-API/1.0.0",
+    "swagger": "https://virtserver.swaggerhub.com/kkurucz/mining_development_kit_api/1.0.0",
     "local": "http://127.0.0.1:8080",
   };
 

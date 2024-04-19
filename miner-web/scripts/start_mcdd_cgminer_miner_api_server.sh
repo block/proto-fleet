@@ -22,9 +22,13 @@ EOF
 # Start cgminer service:
 systemctl enable cgminer && systemctl start cgminer
 
+# Create MCDD empty database
+cd /usr/src/crates/mcdd ; cargo run -- -c
+
 # Run MCDD in watch mode
 # mcdd/build.rs makes changes to the src/usb/pb/ directory which triggers a rebuild of the entire project so ignore that folder
-cd /usr/src/mcdd && watchexec -r -w src -e rs --ignore 'src/usb/pb/*' 'cargo run' &
+# cd /usr/src/crates/mcdd && watchexec -r -w src -e rs --ignore 'src/usb/pb/*' 'cargo run' &
+cd /usr/src/crates/mcdd && cargo run &
 
 # Run miner-api-server in watch mode
-cd /usr/src/miner-api-server && watchexec -r -w src -e rs 'cargo run -- --ip-addr 0.0.0.0 --cgminer-config-path /usr/src/cgminer/cgminer.conf'
+cd /usr/src/crates/miner-api-server && watchexec -r -w src -e rs --project-origin . 'cargo run -- --ip-addr 0.0.0.0 --cgminer-config-path /usr/src/cgminer/cgminer.conf'
