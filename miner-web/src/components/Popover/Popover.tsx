@@ -32,20 +32,23 @@ const Popover = ({
   return (
     <div
       className={clsx(
-        "w-80 p-6 rounded-3xl shadow-200 absolute mt-2 bg-surface-base/85 backdrop-blur-[7px] space-y-4 z-20",
+        "w-80 p-6 rounded-3xl shadow-200 absolute bg-surface-base/85 backdrop-blur-[7px] space-y-4 z-20",
         {
-          "right-0": position === positions["bottom left"],
+          "right-0 mt-2": position === positions["bottom left"],
+          "bottom-0": position === positions["top right"],
         },
         className
       )}
       data-testid={testId}
     >
-      <Header
-        title={title}
-        titleSize="text-heading-200"
-        subtitle={subtitle}
-        subtitleSize="text-300"
-      />
+      {(title || subtitle) && (
+        <Header
+          title={title}
+          titleSize="text-heading-200"
+          subtitle={subtitle}
+          subtitleSize="text-300"
+        />
+      )}
       {children}
       {buttons && (
         <ButtonGroup

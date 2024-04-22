@@ -8,7 +8,7 @@ import FanSpeedWidget from "components/InfoWidget/FanSpeedWidget";
 import Row from "components/Row";
 import Tabs from "components/Tab";
 
-import AsicTable from "./AsicTable";
+import AsicTable from "./Asic/AsicTable";
 
 const Hardware = () => {
   const [asicTemp, setAsicTemp] = useState<string>();

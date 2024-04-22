@@ -1,10 +1,18 @@
+const precision = 100;
+
 export const getAsics = () => {
-  const asics: Record<"temp_c" | "row" | "col", number>[] = [];
+  const asics: Record<"temp_c" | "row" | "col" | "hashrate_ghs", number>[] = [];
 
   [...Array(10).keys()].map((row) => {
     [...Array(10).keys()].map((col) => {
       asics.push({
-        temp_c: Math.floor(Math.random() * (60 - 40 + 1)) + 40,
+        temp_c:
+          (Math.floor(
+            Math.random() * (60 * precision - 40 * precision) + 1 * precision
+          ) +
+            40 * precision) /
+          (1 * precision),
+        hashrate_ghs: Math.floor(Math.random() * (30 - 10 + 1)) + 10,
         row,
         col,
       });

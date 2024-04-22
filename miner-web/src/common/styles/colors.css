@@ -4,7 +4,7 @@
   /* rgb values without the rgb wrapper as those get added in the tailwind config to handle opacity */
   html[data-theme='light'] {
     --black-100: 0 0 0; /* #000 */
-    --blue-100: 0 164 251; /* #00A4FB */
+    --blue-100: 38 144 199; /* #2690C7 */
     --gray-5: 242 242 242; /* #F2F2F2 */
     --gray-10: 229 229 229; /* #E5E5E5 */
     --gray-20: 204 204 204; /* #CCC */
