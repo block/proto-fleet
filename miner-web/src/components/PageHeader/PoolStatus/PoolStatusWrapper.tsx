@@ -12,7 +12,7 @@ const PoolStatusWrapper = () => {
   const { poolsInfo, poolsInfoStatus } = useContext(ApiContext);
 
   const handleClickViewPools = useCallback(() => {
-    navigate("/settings");
+    navigate("/settings/mining-pools");
   }, [navigate]);
 
   return (

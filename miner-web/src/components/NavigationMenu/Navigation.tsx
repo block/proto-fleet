@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useCallback, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
-import { Home, Mining, Settings } from "icons";
+import { Caret, Home, Mining, Settings } from "icons";
 
 import { navigationItems } from "./constants";
 import MacAddressInfo, { MacAddressInfoProps } from "./MacAddressInfo";
 import NavigationItem from "./NavigationItem";
+import { NavigationItemValue } from "./types";
 
 interface NavigationProps {
   macInfo?: MacAddressInfoProps;
@@ -14,26 +15,33 @@ interface NavigationProps {
 }
 
 const Navigation = ({ macInfo, onItemClick }: NavigationProps) => {
+  const navigate = useNavigate();
   const location = useLocation();
   const { pathname } = useMemo(() => location, [location]);
   const pageName = useMemo(() => {
-    const newPageName = pathname.split("/")[1];
-    if (newPageName in navigationItems) {
-      return newPageName as keyof typeof navigationItems;
-    }
-    return navigationItems.home;
+    // Remove leading slash
+    return pathname.replace(/^\//, "");
   }, [pathname]);
+  const [showAccordionItems, setShowAccordionItems] = useState(
+    pageName.startsWith("settings")
+  );
+  const [showAccordionCaret, setShowAccordionCaret] = useState(false);
 
-  const [selected, setSelected] = useState(navigationItems[pageName]);
+  const handleClick = useCallback(
+    (navigationItem: NavigationItemValue) => {
+      navigate(`/${navigationItem}`);
+      onItemClick?.();
+    },
+    [onItemClick, navigate]
+  );
 
-  useEffect(() => {
-    setSelected(navigationItems[pageName]);
-  }, [pageName]);
+  const handleAccordionClick = useCallback(() => {
+    setShowAccordionItems((prev) => !prev);
+  }, []);
 
-  const handleClick = (navigationItem: keyof typeof navigationItems) => {
-    setSelected(navigationItem);
-    onItemClick?.();
-  };
+  const handleAccordionHover = useCallback((hover: boolean) => {
+    setShowAccordionCaret(hover);
+  }, []);
 
   return (
     <div
@@ -52,23 +60,47 @@ const Navigation = ({ macInfo, onItemClick }: NavigationProps) => {
           icon={<Home />}
           id={navigationItems.home}
           text="Home"
-          selected={selected}
           onClick={handleClick}
+          pageName={pageName}
         />
         <NavigationItem
           icon={<Mining />}
           id={navigationItems.hardware}
           text="Hardware"
-          selected={selected}
           onClick={handleClick}
+          pageName={pageName}
         />
         <NavigationItem
           icon={<Settings />}
-          id={navigationItems.settings}
+          suffixIcon={
+            showAccordionCaret || showAccordionItems ? (
+              <Caret
+                className={clsx({
+                  "-rotate-90": showAccordionCaret && !showAccordionItems,
+                })}
+              />
+            ) : undefined
+          }
           text="Settings"
-          selected={selected}
-          onClick={handleClick}
+          onClick={handleAccordionClick}
+          onHover={handleAccordionHover}
         />
+        {showAccordionItems && (
+          <>
+            <NavigationItem
+              id={navigationItems.miningPools}
+              text="Mining Pools"
+              onClick={handleClick}
+              pageName={pageName}
+            />
+            <NavigationItem
+              id={navigationItems.cooling}
+              text="Cooling"
+              onClick={handleClick}
+              pageName={pageName}
+            />
+          </>
+        )}
       </div>
 
       <MacAddressInfo loading={macInfo?.loading} value={macInfo?.value} />

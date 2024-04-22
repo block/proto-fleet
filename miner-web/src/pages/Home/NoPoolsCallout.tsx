@@ -22,7 +22,7 @@ const NoPoolsCallout = ({ arePoolsConfigured }: NoPoolsCalloutProps) => {
             : "No mining pools configured."
         }
         buttonText={arePoolsConfigured ? "View pool settings" : "Add mining pools"}
-        buttonOnClick={() => navigate("/settings")}
+        buttonOnClick={() => navigate("/settings/mining-pools")}
       />
     </div>
   );

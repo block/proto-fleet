@@ -1,36 +1,31 @@
 import { ReactNode, useCallback, useMemo } from "react";
-import { Link } from "react-router-dom";
 import clsx from "clsx";
 
-import { navigationItems } from "../constants";
+import { NavigationItemValue } from "../types";
 
 interface NavigationItemProps {
-  icon: ReactNode;
-  id: string;
-  onClick: (selected: keyof typeof navigationItems) => void;
-  selected: keyof typeof navigationItems;
+  icon?: ReactNode;
+  id?: string;
+  onClick: (selected: NavigationItemValue) => void;
+  onHover?: (hover: boolean) => void;
+  pageName?: string;
+  suffixIcon?: ReactNode;
   text: string;
 }
 
-const NavigationItem = ({
-  icon,
-  id,
-  onClick,
-  selected,
-  text,
-}: NavigationItemProps) => {
+const NavigationItem = ({ icon, id, onClick, onHover, pageName, suffixIcon, text }: NavigationItemProps) => {
   const isSelected = useMemo(() => {
-    return selected === id;
-  }, [id, selected]);
+    return pageName && pageName === id;
+  }, [id, pageName]);
 
   const handleClick = useCallback(() => {
-    onClick(id as keyof typeof navigationItems);
+    onClick(id as NavigationItemValue);
   }, [id, onClick]);
 
   return (
-    <Link
+    <button
       className={clsx(
-        "flex text-emphasis-300 items-center px-3 py-2 mb-3 rounded-md hover:cursor-pointer",
+        "flex text-emphasis-300 items-center px-3 py-2 mb-3 rounded-md w-full text-left",
         {
           "text-text-emphasis bg-core-accent-fill/20 hover:bg-core-accent-fill/50":
             isSelected,
@@ -38,11 +33,15 @@ const NavigationItem = ({
         }
       )}
       onClick={handleClick}
-      to={`/${id}`}
+      onMouseOver={() => onHover?.(true)}
+      onMouseOut={() => onHover?.(false)}
     >
       {icon}
-      <span className="flex-grow ml-2">{text}</span>
-    </Link>
+      <span className={clsx("flex-grow", { "ml-2": icon, "ml-7": !icon })}>
+        {text}
+      </span>
+      {suffixIcon}
+    </button>
   );
 };
 
