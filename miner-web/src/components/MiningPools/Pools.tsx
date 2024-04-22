@@ -4,10 +4,10 @@ import { useTestConnection } from "api";
 
 import Button, { sizes, variants } from "components/Button";
 
-import { BackupPoolIndex, PoolIndex, PoolInfo } from "../types";
 import BackupPoolModal from "./BackupPoolModal";
 import BackupPoolRow from "./BackupPoolRow";
 import PoolForm from "./PoolForm";
+import { BackupPoolIndex, PoolIndex, PoolInfo } from "./types";
 
 interface PoolsProps {
   onChangePools: (pools: PoolInfo[]) => void;

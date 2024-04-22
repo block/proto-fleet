@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import Button, { sizes, variants } from "components/Button";
 import Row from "components/Row";
 
-import { BackupPoolIndex, PoolInfo } from "../types";
+import { BackupPoolIndex, PoolInfo } from "./types";
 
 interface BackupPoolRowProps {
   backupPoolIndex: BackupPoolIndex;

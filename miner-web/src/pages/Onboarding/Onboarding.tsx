@@ -3,18 +3,20 @@ import { useCallback, useState } from "react";
 import { deepClone } from "common/utils/utility";
 
 import { variants } from "components/Button";
+import Cooling, { FanMode, fanModes } from "components/Cooling";
+import MiningPools, {
+  emptyPoolInfo,
+  isValidPool,
+  PoolInfo,
+} from "components/MiningPools";
 
-import { WarnDefaultPoolCallout } from "./Callouts";
-import { emptyPoolInfo, fanModes, tabs } from "./constants";
-import ContentHeader from "./ContentHeader";
-import Cooling from "./Cooling";
-import { WarnBackupPoolDialog } from "./Dialogs";
+import { tabs } from "./constants";
 import OnboardingHeader from "./OnboardingHeader";
 import OnboardingNavigation from "./OnboardingNavigation";
-import Pools from "./Pools";
 import SettingUp from "./SettingUp";
-import { FanMode, PoolInfo, Tabs } from "./types";
-import { isValidPool } from "./utility";
+import { Tabs } from "./types";
+import { WarnBackupPoolDialog } from "./WarnBackupPoolDialog";
+import { WarnDefaultPoolCallout } from "./WarnDefaultPoolCallout";
 
 const Onboarding = () => {
   // pools is an array of 3 PoolInfo objects
@@ -72,11 +74,11 @@ const Onboarding = () => {
     }
   }, []);
 
-  const onChangeFanMode = useCallback((id: string, isSelected: boolean) => {
+  const onChangeFanMode = (fanMode: FanMode, isSelected: boolean) => {
     if (isSelected) {
-      setFanMode(id as FanMode);
+      setFanMode(fanMode);
     }
-  }, []);
+  };
 
   return (
     <div className="h-screen flex flex-col">
@@ -85,10 +87,7 @@ const Onboarding = () => {
           <OnboardingHeader openMenu={() => setIsMenuOpen(true)} />
           <div className="h-screen flex justify-center items-center">
             <div className="w-[600px]">
-              <SettingUp
-                fanMode={fanMode}
-                pools={pools}
-              />
+              <SettingUp fanMode={fanMode} pools={pools} />
             </div>
           </div>
         </>
@@ -130,27 +129,16 @@ const Onboarding = () => {
                 <div className="w-[640px]">
                   {activeTab === tabs.pools && (
                     <>
-                      <ContentHeader
-                        title="Mining pool"
-                        subtitle="Enter your mining pool details below."
-                        testId="mining-pool-title"
-                      />
-                      <WarnDefaultPoolCallout
-                        onDismiss={() => setWarnDefaultPool(false)}
-                        show={warnDefaultPool}
-                      />
-                      <Pools pools={pools} onChangePools={onChangePools} />
+                      <MiningPools onChange={onChangePools} pools={pools}>
+                        <WarnDefaultPoolCallout
+                          onDismiss={() => setWarnDefaultPool(false)}
+                          show={warnDefaultPool}
+                        />
+                      </MiningPools>
                     </>
                   )}
                   {activeTab === tabs.cooling && (
-                    <>
-                      <ContentHeader
-                        title="Cooling"
-                        subtitle="Choose how you want to cool your device. This can be changed at any time."
-                        testId="cooling-title"
-                      />
-                      <Cooling fanMode={fanMode} onChange={onChangeFanMode} />
-                    </>
+                    <Cooling onChange={onChangeFanMode} />
                   )}
                 </div>
               </div>

@@ -6,9 +6,9 @@ import { deepClone } from "common/utils/utility";
 
 import Input from "components/Input";
 
-import { PoolConnectedCallout, PoolNotConnectedCallout } from "../../Callouts";
-import { info } from "../../constants";
-import { PoolIndex, PoolInfo } from "../../types";
+import { PoolConnectedCallout, PoolNotConnectedCallout } from "../Callouts";
+import { info } from "../constants";
+import { PoolIndex, PoolInfo } from "../types";
 import { urlValidationErrors } from "./constants";
 
 interface PoolFormProps {

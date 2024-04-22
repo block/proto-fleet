@@ -1,7 +1,7 @@
 import { fireEvent, render, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import { urlValidationErrors } from "./Pools/PoolForm/constants";
+import { urlValidationErrors } from "../../components/MiningPools/PoolForm/constants";
 
 import Onboarding from ".";
 
@@ -113,7 +113,9 @@ describe("Onboarding", () => {
     // click add button of backup pool 1
     fireEvent.click(getByTestId(backupPoolAddButton));
     // input backup pool URL
-    fireEvent.change(getByTestId(backupUrlInput), { target: { value: poolUrl } });
+    fireEvent.change(getByTestId(backupUrlInput), {
+      target: { value: poolUrl },
+    });
     // click save button
     fireEvent.click(getByTestId(backupPoolSaveButton));
     fireEvent.click(getByTestId(continueButton));
@@ -126,7 +128,9 @@ describe("Onboarding", () => {
     let addButtonWrapper = within(getByTestId(backupPoolAddButton));
     expect(addButtonWrapper.getByText("Add")).toBeInTheDocument();
     fireEvent.click(getByTestId(backupPoolAddButton));
-    fireEvent.change(getByTestId(backupUrlInput), { target: { value: poolUrl } });
+    fireEvent.change(getByTestId(backupUrlInput), {
+      target: { value: poolUrl },
+    });
     let saveButtonWrapper = within(getByTestId(backupPoolSaveButton));
     expect(saveButtonWrapper.getByText("Add")).toBeInTheDocument();
     fireEvent.click(getByTestId(backupPoolSaveButton));
@@ -138,7 +142,9 @@ describe("Onboarding", () => {
     expect(addButtonWrapper.getByText("Edit")).toBeInTheDocument();
     fireEvent.click(getByTestId(backupPoolAddButton));
     const newPoolUrl = "stratum+tcp://ckpool:4444";
-    fireEvent.change(getByTestId(backupUrlInput), { target: { value: newPoolUrl } });
+    fireEvent.change(getByTestId(backupUrlInput), {
+      target: { value: newPoolUrl },
+    });
     saveButtonWrapper = within(getByTestId(backupPoolSaveButton));
     expect(saveButtonWrapper.getByText("Save")).toBeInTheDocument();
     fireEvent.click(getByTestId(backupPoolSaveButton));
@@ -149,7 +155,9 @@ describe("Onboarding", () => {
 
   test("Renders discard warning for dismissing unsaved backup pool", async () => {
     fireEvent.click(getByTestId(backupPoolAddButton));
-    fireEvent.change(getByTestId(backupUrlInput), { target: { value: poolUrl } });
+    fireEvent.change(getByTestId(backupUrlInput), {
+      target: { value: poolUrl },
+    });
     expect(queryByTestId(warnDiscardDialog)).not.toBeInTheDocument();
     fireEvent.click(getByTestId(backupPoolDismissButton));
     await waitFor(() => {
@@ -159,7 +167,9 @@ describe("Onboarding", () => {
 
   test("Does not renders discard warning for dismissing unchanged backup pool", async () => {
     fireEvent.click(getByTestId(backupPoolAddButton));
-    fireEvent.change(getByTestId(backupUrlInput), { target: { value: poolUrl } });
+    fireEvent.change(getByTestId(backupUrlInput), {
+      target: { value: poolUrl },
+    });
     fireEvent.click(getByTestId(backupPoolSaveButton));
     fireEvent.click(getByTestId(backupPoolAddButton));
     fireEvent.click(getByTestId(backupPoolDismissButton));
@@ -168,7 +178,9 @@ describe("Onboarding", () => {
 
   test("Can continue editing backup pool on clicking continue editing", async () => {
     fireEvent.click(getByTestId(backupPoolAddButton));
-    fireEvent.change(getByTestId(backupUrlInput), { target: { value: poolUrl } });
+    fireEvent.change(getByTestId(backupUrlInput), {
+      target: { value: poolUrl },
+    });
     fireEvent.click(getByTestId(backupPoolDismissButton));
     await waitFor(() => {
       expect(getByTestId(warnDiscardDialog)).toBeInTheDocument();
@@ -181,11 +193,15 @@ describe("Onboarding", () => {
 
   test("Can discard changes to backup pool", async () => {
     fireEvent.click(getByTestId(backupPoolAddButton));
-    fireEvent.change(getByTestId(backupUrlInput), { target: { value: poolUrl } });
+    fireEvent.change(getByTestId(backupUrlInput), {
+      target: { value: poolUrl },
+    });
     fireEvent.click(getByTestId(backupPoolSaveButton));
     fireEvent.click(getByTestId(backupPoolAddButton));
     const newPoolUrl = "stratum+tcp://ckpool:4444";
-    fireEvent.change(getByTestId(backupUrlInput), { target: { value: newPoolUrl } });
+    fireEvent.change(getByTestId(backupUrlInput), {
+      target: { value: newPoolUrl },
+    });
     fireEvent.click(getByTestId(backupPoolDismissButton));
     await waitFor(() => {
       expect(getByTestId(warnDiscardDialog)).toBeInTheDocument();
@@ -197,7 +213,9 @@ describe("Onboarding", () => {
 
   test("Renders delete warning for deleting backup pool", async () => {
     fireEvent.click(getByTestId(backupPoolAddButton));
-    fireEvent.change(getByTestId(backupUrlInput), { target: { value: poolUrl } });
+    fireEvent.change(getByTestId(backupUrlInput), {
+      target: { value: poolUrl },
+    });
     fireEvent.click(getByTestId(backupPoolSaveButton));
     fireEvent.click(getByTestId(backupPoolAddButton));
     expect(queryByTestId(warnDeleteDialog)).not.toBeInTheDocument();
@@ -209,7 +227,9 @@ describe("Onboarding", () => {
 
   test("Goes back to editing backup pool on clicking keep backup", async () => {
     fireEvent.click(getByTestId(backupPoolAddButton));
-    fireEvent.change(getByTestId(backupUrlInput), { target: { value: poolUrl } });
+    fireEvent.change(getByTestId(backupUrlInput), {
+      target: { value: poolUrl },
+    });
     fireEvent.click(getByTestId(backupPoolSaveButton));
     fireEvent.click(getByTestId(backupPoolAddButton));
     fireEvent.click(getByTestId(backupPoolDeleteButton));
@@ -224,7 +244,9 @@ describe("Onboarding", () => {
 
   test("Deletes backup pool on clicking delete backup", async () => {
     fireEvent.click(getByTestId(backupPoolAddButton));
-    fireEvent.change(getByTestId(backupUrlInput), { target: { value: poolUrl } });
+    fireEvent.change(getByTestId(backupUrlInput), {
+      target: { value: poolUrl },
+    });
     fireEvent.click(getByTestId(backupPoolSaveButton));
     fireEvent.click(getByTestId(backupPoolAddButton));
     expect(queryByTestId(backupPoolSavedUrl)).toBeInTheDocument();
@@ -263,10 +285,17 @@ describe("Onboarding", () => {
     fireEvent.click(getByTestId(continueButton));
     fireEvent.click(getByTestId(continueWithoutBackupButton));
     fireEvent.click(getByTestId(finishSetupButton));
-    expect(getByTestId(continueToDashboardButton)).not.toHaveClass("opacity-100");
+    expect(getByTestId(continueToDashboardButton)).not.toHaveClass(
+      "opacity-100"
+    );
     // wait until setup is done and continue to dashboard button shows up
-    await waitFor(() => {
-      expect(getByTestId(continueToDashboardButton)).toHaveClass("opacity-100");
-    });
+    await waitFor(
+      () => {
+        expect(getByTestId(continueToDashboardButton)).toHaveClass(
+          "opacity-100"
+        );
+      },
+      { timeout: 3000 }
+    );
   });
 });

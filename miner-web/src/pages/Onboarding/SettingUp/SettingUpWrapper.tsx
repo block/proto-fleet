@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 
 import { useCoolingMode, useCreatePool, usePoolsInfo } from "api";
 
-import { FanMode, PoolInfo } from "../types";
-import { isValidPool } from "../utility";
+import { FanMode } from "components/Cooling";
+import { isValidPool, PoolInfo } from "components/MiningPools";
+
 import { statuses } from "./constants";
 import SettingUp from "./SettingUp";
 

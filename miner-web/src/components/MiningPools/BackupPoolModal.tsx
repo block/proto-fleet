@@ -8,10 +8,10 @@ import { variants } from "components/Button";
 import Modal from "components/Modal";
 import { animationDuration } from "components/PageOverlay";
 
-import { emptyPoolInfo } from "../constants";
-import { WarnDeleteDialog, WarnDiscardDialog } from "../Dialogs";
-import { PoolIndex, PoolInfo } from "../types";
+import { emptyPoolInfo } from "./constants";
+import { WarnDeleteDialog, WarnDiscardDialog } from "./Dialogs";
 import PoolForm from "./PoolForm";
+import { PoolIndex, PoolInfo } from "./types";
 
 interface BackupPoolProps {
   onChangePools: (pools: PoolInfo[]) => void;
