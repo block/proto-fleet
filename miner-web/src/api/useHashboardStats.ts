@@ -10,7 +10,7 @@ const useHashboardStats = (hashboardSerialNumber: string) => {
 
   useEffect(() => {
     setPending(true);
-    api.hashboardStats(hashboardSerialNumber)
+    api.getHashboardStatus(hashboardSerialNumber)
       .then((res) => {
         setData(res?.data["hashboard-stats"]);
       })

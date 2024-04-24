@@ -21,7 +21,7 @@ const useTestConnection = () => {
   }: TestConnectionProps) => {
     setPending(true);
     api
-      .testConnection(poolInfo)
+      .testPoolConnection(poolInfo)
       .then(({ data }) => {
         const message = data?.message || "";
         const passed = /connection test passed/.test(message.toLowerCase());

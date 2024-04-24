@@ -20,7 +20,12 @@ const Navigation = ({ macInfo, onItemClick }: NavigationProps) => {
   const { pathname } = useMemo(() => location, [location]);
   const pageName = useMemo(() => {
     // Remove leading slash
-    return pathname.replace(/^\//, "");
+    const route = pathname.replace(/^\//, "");
+    if (route.length) {
+      return pathname.replace(/^\//, "");
+    } else {
+      return "home";
+    }
   }, [pathname]);
   const [showAccordionItems, setShowAccordionItems] = useState(
     pageName.startsWith("settings")

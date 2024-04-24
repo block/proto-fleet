@@ -10,7 +10,7 @@ const useHashboards = () => {
 
   useEffect(() => {
     setPending(true);
-    api.hashboards()
+    api.getAllHashboards()
       .then((res) => {
         setData(res?.data["hashboards-info"]);
       })

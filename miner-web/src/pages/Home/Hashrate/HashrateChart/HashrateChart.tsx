@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -18,7 +18,7 @@ import {
   yAxisProps,
 } from "components/Chart";
 
-import { chartData, LineProps } from "./constants";
+import { getChartData, LineProps } from "./constants";
 import HashrateTooltip, { TooltipData } from "./HashrateTooltip";
 import { getPoint } from "./utility";
 
@@ -30,6 +30,7 @@ const HashrateChart = () => {
   });
   const [initChart, setInitChart] = useState(false);
   const { isDesktop } = useWindowDimensions();
+  const chartData = useMemo(() => getChartData(), []);
 
   const max = Math.max(...chartData.map((data) => data.avgHashrate));
   const nearestTen = Math.round(max / 10) * 10;

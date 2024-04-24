@@ -13,7 +13,7 @@ interface AsicTempWidgetProps {
 const AsicTempWidget = ({ asicTemp, loading }: AsicTempWidgetProps) => {
   const [showModal, setShowModal] = useState(false);
   // TODO: calculate intensity based on the actual data when API returns max value
-  const max = 3100;
+  const max = 100;
 
   const intensity = useMemo(() => getIntensity(asicTemp, max), [asicTemp]);
 

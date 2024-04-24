@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useWindowDimensions } from "common/hooks/useWindowDimensions";
+import { getRandomInt } from "common/utils/utility";
 
 import InfoWidget from "components/InfoWidget";
 import Line from "components/InfoWidget/Line";
@@ -37,7 +38,7 @@ const EfficiencyWidget = ({
     let timeoutId = setTimeout(() => {
       const newData = [...data];
       newData.shift();
-      newData.push({ value: Math.floor(Math.random() * (10 - 1) + 1) });
+      newData.push({ value: getRandomInt(20, 30) });
       setData(newData);
     }, 5000);
 

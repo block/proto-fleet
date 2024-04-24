@@ -9,9 +9,21 @@
  * ---------------------------------------------------------------
  */
 
+export interface Aggregates {
+  /** Average value in data. */
+  avg?: number;
+  /** Maximum value in data. */
+  max?: number;
+  /** Minimum value in data. */
+  min?: number;
+}
+
 export interface AsicStats {
-  col?: number;
-  row?: number;
+  /**
+   * Physical column location of the ASIC on the hashboard.
+   * @example 10
+   */
+  column?: number;
   /**
    * The number of times that the ASIC produced an incorrect hash or an error during a specific period of time.  Error Rate (%) = (Number of incorrect hash / Total number of expected Hash) x 100%
    * @example 3.3
@@ -38,10 +50,10 @@ export interface AsicStats {
    */
   ideal_hashrate_ghs?: number;
   /**
-   * The current state or condition of the ASIC.
-   * @example "Running"
+   * Physical row location of the ASIC on the hashboard.
+   * @example 0
    */
-  status?: "Running" | "Stopped" | "Error" | "Overheated" | "Unknown";
+  row?: number;
   /**
    * Current temperature of the ASIC in celsius
    * @example 45.5
@@ -76,6 +88,17 @@ export interface CoolingStatusCoolingstatus {
   fan_mode?: "auto" | "maximum" | "false";
   /** This will show speed of all fans in the system. */
   fans?: FanInfo[];
+}
+
+export interface EfficiencyResponse {
+  "efficiency-aggregates"?: Aggregates;
+  "efficiency-data"?: EfficiencyResponseEfficiencydata;
+}
+
+export interface EfficiencyResponseEfficiencydata {
+  data?: TimeSeriesData[];
+  /** Duration of power data returned. */
+  duration?: "12h" | "24h" | "48h" | "5d";
 }
 
 export interface Error {
@@ -131,6 +154,11 @@ export interface HashboardStatsHashboardstats {
    */
   avg_asic_temp_c?: number;
   /**
+   * The efficiency of the hashboard in joules per terahash.
+   * @example 40
+   */
+  efficiency_jth?: number;
+  /**
    * The current hash rate of the hashboard, measured in GH/s. It will be sum of all ASIC hashrate_ghs values.
    * @example 300
    */
@@ -183,31 +211,31 @@ export interface HashboardsInfoHashboardsinfo {
   /** @example "BZM" */
   mining_asic?: "BZM" | "MC1" | "MC2";
   /**
-   * Number of asics.
+   * Number of asics on the hashboard.
    * @example 100
    */
   mining_asic_count?: number;
-  /** @example 3 */
+  /**
+   * The USB port number the hashboard is connected to.
+   * @example 0
+   */
+  port?: number;
+  /**
+   * Number of temperature sensors on the hashboard.
+   * @example 3
+   */
   temp_sensor_count?: number;
 }
 
-export interface HashrateData {
-  /** Unix time epoch. */
-  datetime?: number;
-  /** Hashrate in gigahash/s. */
-  hashrate_ghs?: number;
-}
-
 export interface HashrateResponse {
+  "hashrate-aggregates"?: Aggregates;
   "hashrate-data"?: HashrateResponseHashratedata;
 }
 
 export interface HashrateResponseHashratedata {
-  data?: HashrateData[];
+  data?: TimeSeriesData[];
   /** Duration of hashrate data returned. */
-  duration?: "8h" | "24h" | "48h" | "72h" | "5d" | "7d";
-  /** Granularity of hashrate data returned. */
-  granularity?: "1m" | "5m" | "15m";
+  duration?: "12h" | "24h" | "48h" | "5d";
 }
 
 export interface LogsResponse {
@@ -238,31 +266,18 @@ export interface MiningStatus {
 }
 
 export interface MiningStatusMiningstatus {
-  /**
-   * The average hash rate in giga-hashes per second over the last 15 minutes.  average_hashrate_ghs_15min = total hash in last 15 min / (900 * 10^9)
-   * @example 110000
-   */
-  average_hashrate_ghs_15min?: number;
-  /**
-   * The average hash rate in giga-hashes per second over the last 1 minute.  average_hashrate_ghs_1min = total_hash_in_last_60s / (60 * 10^9)
-   * @example 110000
-   */
-  average_hashrate_ghs_1min?: number;
-  /**
-   * The average hash rate in giga-hashes per second over the last 5 minutes.  average_hashrate_ghs_5min = total_hash_in_last_300s / (300 * 10^9)
-   * @example 110000
-   */
-  average_hashrate_ghs_5min?: number;
+  /** The average efficiency in joules per terahash, since the device started mining. */
+  average_efficiency_jth?: number;
   /**
    * The average hash rate in giga-hashes per second, since the device started mining. average_hashrate_ghs = Total hash count / (elapsed_time_s * 10^9)
    * @example 110000.2
    */
   average_hashrate_ghs?: number;
   /**
-   * The amount of time in seconds that has passed since the start of the mining operation.
-   * @example 521
+   * Average temperature of the mining device.
+   * @example 60
    */
-  elapsed_time_s?: number;
+  average_temp_c?: number;
   /**
    * The number of hardware errors that have occurred during the mining operation.
    * @example 100
@@ -276,6 +291,11 @@ export interface MiningStatusMiningstatus {
   /** @example "This reserved space can be utilized to include additional debug information." */
   message?: string;
   /**
+   * The amount of time in seconds that has passed since the start of the mining operation.
+   * @example 521
+   */
+  mining_uptime_s?: number;
+  /**
    * Amount of power in watts for the system to target.
    * @example 3120
    */
@@ -286,20 +306,31 @@ export interface MiningStatusMiningstatus {
    */
   power_usage_watts?: number;
   /**
+   * The amount of time in seconds that has passed since the last reboot of the system.
+   * @example 521
+   */
+  reboot_uptime_s?: number;
+  /**
    * The indication will reveal whether the mining operation is currently active or has ceased
    * @example "Running"
    */
   status?: "Stopping" | "Stopped" | "Starting" | "Running" | "Error";
-  /**
-   * Average temperature of the mining device.
-   * @example 3100
-   */
-  temp_c?: number;
 }
 
 export interface MiningTarget {
   /** @example 3000 */
   power_target_watts?: number;
+}
+
+export interface NetworkConfig {
+  "network-config"?: NetworkConfigNetworkconfig;
+}
+
+export interface NetworkConfigNetworkconfig {
+  /** @example true */
+  dhcp?: boolean;
+  /** @example "172.27.244.179" */
+  ip?: string;
 }
 
 export interface NetworkInfo {
@@ -566,6 +597,17 @@ export interface PoolsList {
   pools?: Pool[];
 }
 
+export interface PowerResponse {
+  "power-aggregates"?: Aggregates;
+  "power-data"?: PowerResponsePowerdata;
+}
+
+export interface PowerResponsePowerdata {
+  data?: TimeSeriesData[];
+  /** Duration of power data returned. */
+  duration?: "12h" | "24h" | "48h" | "5d";
+}
+
 export interface SWInfo {
   /** @example "1213423223" */
   commit_hash?: string;
@@ -594,6 +636,17 @@ export interface SystemInfoSysteminfo {
   web_server?: SWInfo;
 }
 
+export interface TemperatureResponse {
+  "temperature-aggregates"?: Aggregates;
+  "temperature-data"?: TemperatureResponseTemperaturedata;
+}
+
+export interface TemperatureResponseTemperaturedata {
+  data?: TimeSeriesData[];
+  /** Duration of temperature data returned. */
+  duration?: "12h" | "24h" | "48h" | "5d";
+}
+
 export interface TestConnection {
   /**
    * A password used for authentication and accessing the mining pool, which is ignored by SV1 pools.
@@ -610,6 +663,13 @@ export interface TestConnection {
    * @example "user1"
    */
   username?: string;
+}
+
+export interface TimeSeriesData {
+  /** Unix time epoch. */
+  datetime?: number;
+  /** Value of data requested at the given datetime. */
+  value?: number;
 }
 
 export type QueryParamsType = Record<string | number, any>;
@@ -823,13 +883,13 @@ export class HttpClient<SecurityDataType = unknown> {
 }
 
 /**
- * @title Mining Device Kit API
+ * @title Mining Development Kit API
  * @version 1.0.0
  * @license MIT (https://www.mit.edu/~amini/LICENSE.md)
- * @baseUrl https://virtserver.swaggerhub.com/KSHITIZ_1/MDK-API/1.0.0
+ * @baseUrl https://virtserver.swaggerhub.com/kkurucz/mining_development_kit_api/1.0.0
  * @contact <btcm-sw-team@squareup.com>
  *
- * The Mining Device Kit API will serve as a means to access information from the mining device and make necessary adjustments to its settings.
+ * The Mining Development Kit API serves as a means to access information from the mining device and make necessary adjustments to its settings.
  */
 export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
@@ -921,10 +981,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Used to test a pool connection
      *
      * @tags Pools
-     * @name TestConnection
+     * @name TestPoolConnection
      * @request POST:/api/v1/pools/test-connection
      */
-    testConnection: (data: TestConnection, params: RequestParams = {}) =>
+    testPoolConnection: (data: TestConnection, params: RequestParams = {}) =>
       this.request<MessageResponse, ErrorResponse>({
         path: `/api/v1/pools/test-connection`,
         method: "POST",
@@ -1080,7 +1140,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
          * The duration in seconds for which to turn on the LED. If not specified, a default value of 30 seconds will be used.
          * @default 30
          */
-        ledOnTime?: number;
+        led_on_time?: number;
       },
       params: RequestParams = {},
     ) =>
@@ -1092,13 +1152,29 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description The update system endpoint can be used to initiate a system update of the miner software.
+     *
+     * @tags System
+     * @name UpdateSystem
+     * @request POST:/api/v1/system/update
+     * @secure
+     */
+    updateSystem: (params: RequestParams = {}) =>
+      this.request<void, ErrorResponse>({
+        path: `/api/v1/system/update`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description The hashboards endpoint provides information about all of the hashboards connected to the system, including firmware version, MCU, ASIC count, API version, and hardware serial numbers.
      *
      * @tags Hashboards
-     * @name Hashboards
+     * @name GetAllHashboards
      * @request GET:/api/v1/hashboards
      */
-    hashboards: (params: RequestParams = {}) =>
+    getAllHashboards: (params: RequestParams = {}) =>
       this.request<HashboardsInfo, ErrorResponse>({
         path: `/api/v1/hashboards`,
         method: "GET",
@@ -1107,13 +1183,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description The hashboard status endpoint returns statistics for a single hashboard in the system based on its serial number.
+     * @description The hashboard status endpoint returns current operating statistics for a single hashboard in the system based on its serial number.
      *
      * @tags Hashboards
-     * @name HashboardStats
+     * @name GetHashboardStatus
      * @request GET:/api/v1/hashboards/{hb_sn}
      */
-    hashboardStats: (hbSn: string, params: RequestParams = {}) =>
+    getHashboardStatus: (hbSn: string, params: RequestParams = {}) =>
       this.request<HashboardStats, ErrorResponse>({
         path: `/api/v1/hashboards/${hbSn}`,
         method: "GET",
@@ -1148,13 +1224,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description The hashboard status endpoint returns statistics for a single ASIC on the specified hashboard in the system based on serial number and ASIC ID.
+     * @description The hashboard status endpoint returns current operating statistics for a single ASIC on the specified hashboard in the system based on serial number and ASIC ID.
      *
      * @tags Hashboards
-     * @name HashboardAsicStats
+     * @name GetAsicStatus
      * @request GET:/api/v1/hashboards/{hb_sn}/{asic_id}
      */
-    hashboardAsicStats: (hbSn: string, asicId: string, params: RequestParams = {}) =>
+    getAsicStatus: (hbSn: string, asicId: string, params: RequestParams = {}) =>
       this.request<AsicStatsResponse, ErrorResponse>({
         path: `/api/v1/hashboards/${hbSn}/${asicId}`,
         method: "GET",
@@ -1166,15 +1242,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description The hashrate endpoint provides miner-level historical hashrate operation data.
      *
      * @tags Hashrate
-     * @name V1HashrateList
+     * @name GetMinerHashrate
      * @request GET:/api/v1/hashrate
      */
-    v1HashrateList: (
+    getMinerHashrate: (
       query?: {
-        /** @default "8h" */
-        duration?: "8h" | "24h" | "48h" | "72h" | "5d" | "7d";
-        /** @default "15m" */
-        granularity?: "1m" | "5m" | "15m";
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
       },
       params: RequestParams = {},
     ) =>
@@ -1190,16 +1264,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description The hashrate endpoint provides hashboard-level historical operation data.
      *
      * @tags Hashrate
-     * @name V1HashrateDetail
+     * @name GetHashboardHashrate
      * @request GET:/api/v1/hashrate/{hb_sn}
      */
-    v1HashrateDetail: (
+    getHashboardHashrate: (
       hbSn: string,
       query?: {
-        /** @default "8h" */
-        duration?: "8h" | "24h" | "48h" | "72h" | "5d" | "7d";
-        /** @default "15m" */
-        granularity?: "1m" | "5m" | "15m";
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
       },
       params: RequestParams = {},
     ) =>
@@ -1215,24 +1287,179 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description The hashrate endpoint provides ASIC-level historical hashrate operation data.
      *
      * @tags Hashrate
-     * @name V1HashrateDetail2
+     * @name GetAsicHashrate
      * @request GET:/api/v1/hashrate/{hb_sn}/{asic_id}
-     * @originalName v1HashrateDetail
-     * @duplicate
      */
-    v1HashrateDetail2: (
+    getAsicHashrate: (
       hbSn: string,
       asicId: number,
       query?: {
-        /** @default "8h" */
-        duration?: "8h" | "24h" | "48h" | "72h" | "5d" | "7d";
-        /** @default "15m" */
-        granularity?: "1m" | "5m" | "15m";
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
       },
       params: RequestParams = {},
     ) =>
       this.request<HashrateResponse, ErrorResponse>({
         path: `/api/v1/hashrate/${hbSn}/${asicId}`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The temperature endpoint provides miner-level historical temperature operation data.
+     *
+     * @tags Temperature
+     * @name GetMinerTemperature
+     * @request GET:/api/v1/temperature
+     */
+    getMinerTemperature: (
+      query?: {
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TemperatureResponse, ErrorResponse>({
+        path: `/api/v1/temperature`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The temperature endpoint provides hashboard-level historical operation data.
+     *
+     * @tags Temperature
+     * @name GetHashboardTemperature
+     * @request GET:/api/v1/temperature/{hb_sn}
+     */
+    getHashboardTemperature: (
+      hbSn: string,
+      query?: {
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TemperatureResponse, ErrorResponse>({
+        path: `/api/v1/temperature/${hbSn}`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The hashrate endpoint provides ASIC-level historical temperature operation data.
+     *
+     * @tags Temperature
+     * @name GetAsicTemperature
+     * @request GET:/api/v1/temperature/{hb_sn}/{asic_id}
+     */
+    getAsicTemperature: (
+      hbSn: string,
+      asicId: number,
+      query?: {
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TemperatureResponse, ErrorResponse>({
+        path: `/api/v1/temperature/${hbSn}/${asicId}`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The power endpoint provides miner-level historical power operation data.
+     *
+     * @tags Power
+     * @name GetMinerPower
+     * @request GET:/api/v1/power
+     */
+    getMinerPower: (
+      query?: {
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<PowerResponse, ErrorResponse>({
+        path: `/api/v1/power`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The power endpoint provides hashboard-level historical operation data.
+     *
+     * @tags Power
+     * @name GetHashboardPower
+     * @request GET:/api/v1/power/{hb_sn}
+     */
+    getHashboardPower: (
+      hbSn: string,
+      query?: {
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<PowerResponse, ErrorResponse>({
+        path: `/api/v1/power/${hbSn}`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The efficiency endpoint provides miner-level historical power operation data.
+     *
+     * @tags Efficiency
+     * @name GetMinerEfficiency
+     * @request GET:/api/v1/efficiency
+     */
+    getMinerEfficiency: (
+      query?: {
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<EfficiencyResponse, ErrorResponse>({
+        path: `/api/v1/efficiency`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The efficiency endpoint provides hashboard-level historical operation data.
+     *
+     * @tags Efficiency
+     * @name GetHashboardEfficiency
+     * @request GET:/api/v1/efficiency/{hb_sn}
+     */
+    getHashboardEfficiency: (
+      hbSn: string,
+      query?: {
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<EfficiencyResponse, ErrorResponse>({
+        path: `/api/v1/efficiency/${hbSn}`,
         method: "GET",
         query: query,
         format: "json",
@@ -1274,7 +1501,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description The network endpoint provides information related to the networkconfiguration of the miner including IP address, gateways, and MAC address.
+     * @description The network GET endpoint provides information related to the network configuration of the miner including IP address, gateways, and MAC address.
      *
      * @tags Network
      * @name GetNetwork
@@ -1284,6 +1511,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<NetworkInfo, ErrorResponse>({
         path: `/api/v1/network`,
         method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The network PUT endpoint allows the user to change the configuration of the miner between DHCP and a static IP.
+     *
+     * @tags Network
+     * @name SetNetworkConfig
+     * @request PUT:/api/v1/network
+     * @secure
+     */
+    setNetworkConfig: (data: NetworkConfig, params: RequestParams = {}) =>
+      this.request<NetworkInfo, ErrorResponse>({
+        path: `/api/v1/network`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

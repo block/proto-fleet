@@ -17,3 +17,18 @@ export const debounce = (callback: (...args: any) => void) => {
     }, 500);
   };
 };
+
+export const getRandomInt = (min: number, max: number) => {
+  return Math.floor(Math.random() * (max - min + 1) + min);
+};
+
+// precision is used for the number of decimal places, e.g. 100 for 2 decimal places
+export const getRandomFloat = (min: number, max: number, precision: number = 100) => {
+  return (
+    (Math.floor(
+      Math.random() * (max * precision - min * precision) + 1 * precision
+    ) +
+      min * precision) /
+    (1 * precision)
+  );
+};

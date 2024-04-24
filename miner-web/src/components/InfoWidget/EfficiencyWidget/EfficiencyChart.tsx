@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -17,7 +17,7 @@ import {
 } from "components/Chart";
 
 import TickTooltip, { TooltipData } from "../common/TickTooltip";
-import { chartData } from "./constants";
+import { getChartData } from "./constants";
 
 const EfficiencyChart = () => {
   const [tooltipData, setTooltipData] = useState<TooltipData>({
@@ -25,6 +25,8 @@ const EfficiencyChart = () => {
     y: 0,
     payload: [],
   });
+
+  const chartData = useMemo(() => getChartData(), []);
 
   return (
     <ChartWrapper>

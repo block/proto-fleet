@@ -22,7 +22,7 @@ const Hardware = () => {
 
   useEffect(() => {
     if (miningStatus) {
-      setAsicTemp(miningStatus.temp_c?.toFixed(2));
+      setAsicTemp(miningStatus.average_temp_c?.toFixed(2));
     }
   }, [miningStatus]);
 
@@ -69,7 +69,7 @@ const Hardware = () => {
                 </div>
                 <div className="text-300 text-text-primary/50">
                   {/* TODO: get port number from API when available */}
-                  Connected to port {index + 1}
+                  {hashboardInfo.port !== undefined ? `Connected to port ${hashboardInfo.port}` : null}
                 </div>
               </Row>
               {hashboardInfo.hb_sn && <AsicTable hashboardSerialNumber={hashboardInfo.hb_sn} />}

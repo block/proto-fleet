@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { getRandomInt } from "common/utils/utility";
+
 import InfoWidget, { Bar, Line } from ".";
 
 interface InfoWidgetProps {
@@ -25,7 +27,7 @@ export const InfoWidgets = ({
     let timeoutId = setTimeout(() => {
       const newData = [...data];
       newData.shift();
-      newData.push({ value: Math.floor(Math.random() * (10 - 1) + 1) });
+      newData.push({ value: getRandomInt(1, 10) });
       setData(newData);
     }, 5000);
 

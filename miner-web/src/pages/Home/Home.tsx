@@ -25,7 +25,7 @@ const Home = () => {
         const powerUsageKw = miningStatus.power_usage_watts / 1000;
         const powerUsageRounded = powerUsageKw.toFixed(2);
         setPowerUsage(powerUsageRounded);
-        setAsicTemp(miningStatus.temp_c?.toFixed(2));
+        setAsicTemp(miningStatus.average_temp_c?.toFixed(2));
       }
     }
   }, [miningStatus]);
@@ -51,13 +51,13 @@ const Home = () => {
         <div className="flex space-x-6 w-full phone:flex-col phone:space-x-0 phone:space-y-6">
           {/* TODO: send efficiency value & loading once API is implemented */}
           <EfficiencyWidget
-            efficiency={15.5}
+            efficiency={29}
             efficiencyValues={[
-              { value: 1 },
-              { value: 3 },
-              { value: 2 },
-              { value: 9 },
-              { value: 5 },
+              { value: 25 },
+              { value: 24 },
+              { value: 29 },
+              { value: 26 },
+              { value: 28 },
             ]}
           />
           <PowerUsageWidget

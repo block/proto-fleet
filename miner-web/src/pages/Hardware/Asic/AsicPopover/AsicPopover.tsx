@@ -20,7 +20,7 @@ const AsicPopover = ({ asic }: AsicPopoverProps) => {
         <div className="text-200 text-text-primary/70">ASIC</div>
         <div className="text-heading-200 text-text-primary/90">
           {getRowLabel(asic.row || 0)}
-          {(asic.col || 0) + 1}
+          {(asic.column || 0) + 1}
         </div>
         {/* TODO: update this condition when we have set indicators */}
         {(asic.temp_c || 0) >= dangerTemp && (

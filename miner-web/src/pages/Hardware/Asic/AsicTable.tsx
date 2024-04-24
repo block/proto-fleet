@@ -32,7 +32,7 @@ const AsicTable = ({ hashboardSerialNumber }: AsicTableProps) => {
         <div className="space-y-2 mt-[34px] mr-[3px]">
           {/* Row label */}
           {asics
-            .filter((asic) => asic.col === 0)
+            .filter((asic) => asic.column === 0)
             .map((asic) => (
               <div
                 className="bg-surface-5 text-mono-text-50 text-text-primary/90 px-2 py-1 rounded-lg border border-border-primary/5 text-center flex items-center h-[42px]"
@@ -50,9 +50,9 @@ const AsicTable = ({ hashboardSerialNumber }: AsicTableProps) => {
               .map((asic) => (
                 <div
                   className="bg-surface-5 text-mono-text-50 text-text-primary/90 px-2 py-1 rounded-lg border border-border-primary/5 basis-0 grow text-center"
-                  key={`asic-header-${asic.col}`}
+                  key={`asic-header-${asic.column}`}
                 >
-                  {(asic.col || 0) + 1}
+                  {(asic.column || 0) + 1}
                 </div>
               ))}
           </div>
@@ -64,7 +64,7 @@ const AsicTable = ({ hashboardSerialNumber }: AsicTableProps) => {
                 .map((asic) => (
                   <AsicButton
                     asic={asic}
-                    key={`asic-${asic.row}-${asic.col}`}
+                    key={`asic-${asic.row}-${asic.column}`}
                   />
                 ))}
             </div>

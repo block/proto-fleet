@@ -8,7 +8,7 @@ const {
 
 const swaggerSchemaPath = path.resolve(
   __dirname,
-  "../../miner-www/api/MDK-API.json"
+  "../../crates/miner-api-server/docs/MDK-API.json"
 );
 
 if (!fs.existsSync(swaggerSchemaPath)) {

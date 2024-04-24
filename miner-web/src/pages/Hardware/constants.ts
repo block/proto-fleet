@@ -1,20 +1,15 @@
-const precision = 100;
+import { getRandomFloat, getRandomInt } from "common/utils/utility";
 
 export const getAsics = () => {
-  const asics: Record<"temp_c" | "row" | "col" | "hashrate_ghs", number>[] = [];
+  const asics: Record<"temp_c" | "row" | "column" | "hashrate_ghs", number>[] = [];
 
   [...Array(10).keys()].map((row) => {
-    [...Array(10).keys()].map((col) => {
+    [...Array(10).keys()].map((column) => {
       asics.push({
-        temp_c:
-          (Math.floor(
-            Math.random() * (60 * precision - 40 * precision) + 1 * precision
-          ) +
-            40 * precision) /
-          (1 * precision),
-        hashrate_ghs: Math.floor(Math.random() * (30 - 10 + 1)) + 10,
+        temp_c: getRandomFloat(40, 60),
+        hashrate_ghs: getRandomInt(10, 30),
         row,
-        col,
+        column,
       });
     });
   });

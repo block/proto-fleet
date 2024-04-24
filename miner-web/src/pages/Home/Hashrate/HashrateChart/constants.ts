@@ -1,175 +1,26 @@
+import { getRandomFloat } from "common/utils/utility";
+
+import { times } from "components/Chart/constants";
+
 import { CurveType } from "recharts/types/shape/Curve";
 
-export const chartData = [
-  {
-    avgHashrate: 26,
-    hashrate1: 24,
-    hashrate2: 25,
-    hashrate3: 29,
-    time: "0:00",
-  },
-  {
-    avgHashrate: 25,
-    hashrate1: 23,
-    hashrate2: 24,
-    hashrate3: 28,
-    time: "1:00",
-  },
-  {
-    avgHashrate: 24,
-    hashrate1: 22,
-    hashrate2: 23,
-    hashrate3: 27,
-    time: "2:00",
-  },
-  {
-    avgHashrate: 23,
-    hashrate1: 21,
-    hashrate2: 22,
-    hashrate3: 27,
-    time: "3:00",
-  },
-  {
-    avgHashrate: 22,
-    hashrate1: 20,
-    hashrate2: 21,
-    hashrate3: 25,
-    time: "4:00",
-  },
-  {
-    avgHashrate: 21,
-    hashrate1: 19,
-    hashrate2: 20,
-    hashrate3: 24,
-    time: "5:00",
-  },
-  {
-    avgHashrate: 22,
-    hashrate1: 20,
-    hashrate2: 21,
-    hashrate3: 25,
-    time: "6:00",
-  },
-  {
-    avgHashrate: 23,
-    hashrate1: 21,
-    hashrate2: 22,
-    hashrate3: 26,
-    time: "7:00",
-  },
-  {
-    avgHashrate: 24,
-    hashrate1: 22,
-    hashrate2: 23,
-    hashrate3: 27,
-    time: "8:00",
-  },
-  {
-    avgHashrate: 23,
-    hashrate1: 21,
-    hashrate2: 22,
-    hashrate3: 26,
-    time: "9:00",
-  },
-  {
-    avgHashrate: 22,
-    hashrate1: 20,
-    hashrate2: 21,
-    hashrate3: 25,
-    time: "10:00",
-  },
-  {
-    avgHashrate: 21,
-    hashrate1: 19,
-    hashrate2: 20,
-    hashrate3: 24,
-    time: "11:00",
-  },
-  {
-    avgHashrate: 22,
-    hashrate1: 20,
-    hashrate2: 21,
-    hashrate3: 25,
-    time: "12:00",
-  },
-  {
-    avgHashrate: 23,
-    hashrate1: 21,
-    hashrate2: 22,
-    hashrate3: 26,
-    time: "13:00",
-  },
-  {
-    avgHashrate: 24,
-    hashrate1: 22,
-    hashrate2: 23,
-    hashrate3: 27,
-    time: "14:00",
-  },
-  {
-    avgHashrate: 25,
-    hashrate1: 23,
-    hashrate2: 24,
-    hashrate3: 28,
-    time: "15:00",
-  },
-  {
-    avgHashrate: 26,
-    hashrate1: 24,
-    hashrate2: 25,
-    hashrate3: 29,
-    time: "16:00",
-  },
-  {
-    avgHashrate: 27,
-    hashrate1: 25,
-    hashrate2: 26,
-    hashrate3: 30,
-    time: "17:00",
-  },
-  {
-    avgHashrate: 28,
-    hashrate1: 26,
-    hashrate2: 27,
-    hashrate3: 31,
-    time: "18:00",
-  },
-  {
-    avgHashrate: 29,
-    hashrate1: 27,
-    hashrate2: 28,
-    hashrate3: 32,
-    time: "19:00",
-  },
-  {
-    avgHashrate: 30,
-    hashrate1: 28,
-    hashrate2: 29,
-    hashrate3: 33,
-    time: "20:00",
-  },
-  {
-    avgHashrate: 31,
-    hashrate1: 29,
-    hashrate2: 30,
-    hashrate3: 32,
-    time: "21:00",
-  },
-  {
-    avgHashrate: 30,
-    hashrate1: 28,
-    hashrate2: 29,
-    hashrate3: 33,
-    time: "22:00",
-  },
-  {
-    avgHashrate: 29,
-    hashrate1: 27,
-    hashrate2: 28,
-    hashrate3: 32,
-    time: "23:00",
-  },
-];
+export const getChartData = () => {
+  const chartData = times.map((time) => {
+    const hashrate2 = getRandomFloat(30, 40);
+    const hashrate1 = getRandomFloat(30, 40);
+    const hashrate3 = getRandomFloat(30, 40);
+    const avg = +((hashrate1 + hashrate2 + hashrate3) / 3).toFixed(2);
+    return {
+      avgHashrate: avg,
+      hashrate1,
+      hashrate2,
+      hashrate3,
+      time,
+    };
+  });
+
+  return chartData;
+};
 
 export const LineProps = {
   type: "basis" as CurveType,
@@ -178,7 +29,12 @@ export const LineProps = {
   label: false,
   dot: false,
   strokeLinecap: "round" as "round" | "inherit" | "butt" | "square" | undefined,
-  strokeLinejoin: "round" as "round" | "inherit" | "miter" | "bevel" | undefined,
+  strokeLinejoin: "round" as
+    | "round"
+    | "inherit"
+    | "miter"
+    | "bevel"
+    | undefined,
   activeDot: false,
   isAnimationActive: true,
 };

@@ -8,25 +8,25 @@ const Hashrate = () => {
         {/* TODO: display hashrate values once API is implemented */}
         <InfoWidget
           title="Current hashrate"
-          value="230.2 TH/s"
+          value="105.2 TH/s"
           loading={false}
           wrapperClassName="w-full tablet:w-32"
         />
         <InfoWidget
           title="Average"
-          value="225.1 TH/s"
+          value="106.1 TH/s"
           loading={false}
           wrapperClassName="w-full tablet:w-32"
         />
         <InfoWidget
           title="Lowest"
-          value="215.2 TH/s"
+          value="101.2 TH/s"
           loading={false}
           wrapperClassName="w-full tablet:w-32"
         />
         <InfoWidget
           title="Highest"
-          value="231.2 TH/s"
+          value="110.2 TH/s"
           loading={false}
           wrapperClassName="w-full tablet:w-32"
         />

@@ -3,7 +3,7 @@ import { AsicStats } from "apiTypes";
 export const sortAsics = (asics: AsicStats[]) => {
   return asics.sort((a, b) => {
     if (a.row === b.row) {
-      return (a.col || 0) - (b.col || 0);
+      return (a.column || 0) - (b.column || 0);
     }
 
     return (a.row || 0) - (b.row || 0);
