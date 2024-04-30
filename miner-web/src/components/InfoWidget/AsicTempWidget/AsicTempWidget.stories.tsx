@@ -27,7 +27,7 @@ export const AsicTempWidget = ({
 export default {
   title: "Components/Info Widgets/Asic Temp Widget",
   args: {
-    asicTemp: 1300,
+    asicTemp: 61,
     hasAsicTemp: true,
     loading: false,
   },
