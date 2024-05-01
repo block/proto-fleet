@@ -1,3 +1,5 @@
+import { ReactNode } from "react";
+
 import { variants } from "components/Button";
 
 export interface ButtonProps {
@@ -5,6 +7,7 @@ export interface ButtonProps {
   loading?: boolean;
   onClick?: () => void;
   variant: keyof typeof variants;
+  suffixIcon?: ReactNode;
   testId?: string;
   text?: string;
 }

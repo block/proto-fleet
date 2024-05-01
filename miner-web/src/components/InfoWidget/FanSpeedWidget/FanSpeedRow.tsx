@@ -3,6 +3,8 @@ import clsx from "clsx";
 import Button, { sizes, variants } from "components/Button";
 import Row from "components/Row";
 
+import { ArrowRight } from "icons";
+
 import FanSpeedPieChart from "./FanSpeedPieChart";
 
 interface FanSpeedRowProps {
@@ -41,7 +43,12 @@ const FanSpeedRow = ({
       </div>
       {warn && (
         // TODO: add onClick handler when repair manual is ready
-        <Button size={sizes.compact} variant={variants.secondary} text="Repair" />
+        <Button
+          size={sizes.compact}
+          variant={variants.secondary}
+          text="Repair instructions"
+          suffixIcon={<ArrowRight className="w-4" />}
+        />
       )}
     </Row>
   );

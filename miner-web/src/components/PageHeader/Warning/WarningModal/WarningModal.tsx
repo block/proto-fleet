@@ -1,6 +1,8 @@
 import { variants } from "components/Button";
 import Modal from "components/Modal";
 
+import { ArrowRight } from "icons";
+
 import AsicModalContent from "./AsicModalContent";
 import FanModalContent from "./FanModalContent";
 
@@ -14,8 +16,9 @@ const WarningModal = ({ onDismiss, type }: PowerUsageModalProps) => {
     <Modal
       buttons={[
         {
-          text: "View repair instructions",
+          text: "Repair instructions",
           variant: variants.secondary,
+          suffixIcon: <ArrowRight />,
           // TODO: link to repair page when available
         },
         {

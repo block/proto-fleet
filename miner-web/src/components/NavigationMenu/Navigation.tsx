@@ -22,7 +22,7 @@ const Navigation = ({ macInfo, onItemClick }: NavigationProps) => {
     // Remove leading slash
     const route = pathname.replace(/^\//, "");
     if (route.length) {
-      return pathname.replace(/^\//, "");
+      return route;
     } else {
       return "home";
     }

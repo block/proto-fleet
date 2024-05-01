@@ -37,8 +37,9 @@ const AsicButton = ({ asic }: AsicButtonProps) => {
       {showPopover && <AsicPopover asic={asic} />}
       <button
         className={clsx(
-          "text-mono-text-50 text-text-primary/90 text-center px-1 py-3 rounded-lg border border-border-primary/5 w-full truncate",
+          "text-mono-text-50 text-text-primary/90 text-center rounded-lg border border-border-primary/5 w-full truncate",
           {
+            "bg-surface-base": temp < warningTemp,
             "bg-intent-warning-fill/50":
               temp >= warningTemp && temp < dangerTemp,
             "bg-intent-warning-fill": temp >= dangerTemp,
@@ -46,7 +47,9 @@ const AsicButton = ({ asic }: AsicButtonProps) => {
         )}
         onClick={() => setShowPopover((prev) => !prev)}
       >
-        {asic.temp_c}º
+        <div className="bg-transparent hover:bg-surface-overlay">
+          <div className="px-1 py-3">{asic.temp_c}º</div>
+        </div>
       </button>
     </div>
   );

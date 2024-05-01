@@ -55,6 +55,7 @@ const PoolInfoPopover = ({
               priority={poolInfo.priority}
               url={poolInfo.url}
               suffixIcon={<Success className="text-intent-success-fill" />}
+              hasDivider={!poolsInfo?.length}
             />
           ) : (
             <>

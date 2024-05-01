@@ -1,5 +1,7 @@
-import { Link } from "react-router-dom";
+import { useMemo } from "react";
+import { Link, useLocation } from "react-router-dom";
 
+import { navigationItems } from "components/NavigationMenu/constants";
 import Row from "components/Row";
 
 import { arrayOfWarnings } from "../utility";
@@ -10,6 +12,9 @@ interface AsicModalContentProps {
 }
 
 const AsicModalContent = ({ onDismiss }: AsicModalContentProps) => {
+  const location = useLocation();
+  const { pathname } = useMemo(() => location, [location]);
+
   // TODO: get number of errors from API
   const numberOfErrors = 12;
   const asics = [
@@ -52,7 +57,7 @@ const AsicModalContent = ({ onDismiss }: AsicModalContentProps) => {
           </div>
         </Row>
       ))}
-      {numberOfErrors > 8 && (
+      {numberOfErrors > 8 && pathname !== `/${navigationItems.hardware}` && (
         <Row
           className="text-emphasis-300 text-text-emphasis -mb-3"
           divider={false}

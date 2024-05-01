@@ -22,7 +22,7 @@ const Tabs = ({ children }: TabsProps) => {
         e.preventDefault();
         setActiveTab(child.props.label);
       }}
-      className={clsx("pb-2", {
+      className={clsx("pb-2 text-300", {
         "text-text-emphasis border-b-2 border-text-emphasis mb-[-0.1rem]":
           child.props.label === activeTab,
         "text-text-primary/70": child.props.label !== activeTab,
