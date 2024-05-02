@@ -80,7 +80,7 @@ const Navigation = ({ macInfo, onItemClick }: NavigationProps) => {
           suffixIcon={
             showAccordionCaret || showAccordionItems ? (
               <Caret
-                className={clsx({
+                className={clsx("transition-transform", {
                   "-rotate-90": showAccordionCaret && !showAccordionItems,
                 })}
               />

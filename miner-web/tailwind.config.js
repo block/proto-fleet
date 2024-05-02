@@ -38,7 +38,7 @@ export default {
             transform: "translateY(0) scale(1)",
           },
         },
-        "slide-right": {
+        "slide-right-nav": {
           "0%": {
             transform: "translateX(-240px)",
           },
@@ -46,7 +46,7 @@ export default {
             transform: "translateX(0)",
           },
         },
-        "slide-left": {
+        "slide-left-nav": {
           "100%": {
             transform: "translateX(-240px)",
           },
@@ -58,8 +58,6 @@ export default {
       animation: {
         "sliding-down": "slide-down .3s theme('transitionTimingFunction.gentle')",
         "sliding-up": "slide-up .3s theme('transitionTimingFunction.gentle')",
-        "sliding-right": "slide-right .3s ease-in-out",
-        "sliding-left": "slide-left .3s ease-in-out",
       },
     },
     boxShadow: {

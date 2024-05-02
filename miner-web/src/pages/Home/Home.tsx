@@ -12,6 +12,7 @@ import Hashrate from "./Hashrate";
 import NoPoolsCallout from "./NoPoolsCallout";
 
 const Home = () => {
+  const [efficiency, setEfficiency] = useState<string>();
   const [powerUsage, setPowerUsage] = useState<string>();
   const [asicTemp, setAsicTemp] = useState<string>();
   // TODO: figure out how frequently we should be re-fetching this data
@@ -24,6 +25,7 @@ const Home = () => {
       if (miningStatus.power_usage_watts) {
         const powerUsageKw = miningStatus.power_usage_watts / 1000;
         const powerUsageRounded = powerUsageKw.toFixed(2);
+        setEfficiency(miningStatus.average_efficiency_jth?.toFixed(2));
         setPowerUsage(powerUsageRounded);
         setAsicTemp(miningStatus.average_temp_c?.toFixed(2));
       }
@@ -51,7 +53,7 @@ const Home = () => {
         <div className="flex space-x-6 w-full phone:flex-col phone:space-x-0 phone:space-y-6">
           {/* TODO: send efficiency value & loading once API is implemented */}
           <EfficiencyWidget
-            efficiency={29}
+            efficiency={efficiency}
             efficiencyValues={[
               { value: 25 },
               { value: 24 },

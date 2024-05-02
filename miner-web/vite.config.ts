@@ -16,7 +16,7 @@ export default defineConfig(() => {
     "local": "http://127.0.0.1:8080",
   };
 
-  process.env.VITE_API_BASE_URL = apiServers[process.env.API_SERVER || "local"]
+  process.env.VITE_API_BASE_URL = process.env.API_SERVER ? apiServers[process.env.API_SERVER] : "";
 
   return {
     plugins: [react(), splitVendorChunkPlugin()],

@@ -46,8 +46,8 @@ const FloatingNavigation = ({
       />
       <div
         className={clsx("z-30", {
-          "animate-sliding-right": isVisible,
-          "animate-sliding-left": !isVisible,
+          "animate-[slide-right-nav_.3s_ease-in-out]": isVisible,
+          "animate-[slide-left-nav_.3s_ease-in-out]": !isVisible,
         })}
       >
         <Navigation
