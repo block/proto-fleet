@@ -28,12 +28,12 @@
     "recharts": "2.12.6"
   },
   "devDependencies": {
-    "@eslint/js": "9.1.1",
-    "@storybook/addon-actions": "8.0.9",
-    "@storybook/addon-controls": "8.0.9",
-    "@storybook/react": "8.0.9",
-    "@storybook/react-vite": "8.0.9",
-    "@testing-library/jest-dom": "6.4.2",
+    "@eslint/js": "9.2.0",
+    "@storybook/addon-actions": "8.0.10",
+    "@storybook/addon-controls": "8.0.10",
+    "@storybook/react": "8.0.10",
+    "@storybook/react-vite": "8.0.10",
+    "@testing-library/jest-dom": "6.4.5",
     "@testing-library/react": "15.0.6",
     "@types/react": "18.3.1",
     "@types/react-dom": "18.3.0",
@@ -51,13 +51,13 @@
     "globals": "15.1.0",
     "jsdom": "24.0.0",
     "postcss": "8.4.38",
-    "storybook": "8.0.9",
+    "storybook": "8.0.10",
     "storybook-addon-data-theme-switcher": "0.4.2",
     "swagger-typescript-api": "13.0.3",
     "tailwindcss": "3.4.3",
     "typescript": "5.4.5",
     "vite": "5.2.11",
-    "vitest": "1.5.3"
+    "vitest": "1.6.0"
   },
   "overrides": {
     "eslint": "9.1.1"
