@@ -14,6 +14,10 @@ describe("Pool Status", () => {
   const onClickViewPools = vi.fn();
   const defaultPoolUrl = "test.com";
   const backupPoolUrl = "backup.com";
+  const buttonLabel = "Mining pool";
+  const iconTestId = "concentric-circles";
+  const successIconClass = "text-intent-success-fill";
+  const criticalIconClass = "text-intent-critical-fill";
   const aliveDefaultPool = {
     url: defaultPoolUrl,
     status: "Alive" as const,
@@ -39,9 +43,8 @@ describe("Pool Status", () => {
     const { getByTestId } = render(
       <PoolStatus loading onClickViewPools={onClickViewPools} />
     );
-    const { getByText } = within(getByTestId("pool-status-widget"));
 
-    expect(getByText("Connecting")).toBeInTheDocument();
+    expect(getByTestId("mining-pool-spinner")).toBeInTheDocument();
   });
 
   test("does not render popover on click if pool status widget is loading", () => {
@@ -49,7 +52,7 @@ describe("Pool Status", () => {
       <PoolStatus loading onClickViewPools={onClickViewPools} />
     );
     const { getByText } = within(getByTestId("pool-status-widget"));
-    const buttonElement = getByText("Connecting");
+    const buttonElement = getByText(buttonLabel);
     fireEvent.click(buttonElement);
     expect(queryByTestId("pool-info-popover")).not.toBeInTheDocument();
   });
@@ -61,9 +64,8 @@ describe("Pool Status", () => {
         poolsInfo={[aliveDefaultPool]}
       />
     );
-    const { getByText } = within(getByTestId("pool-status-widget"));
 
-    expect(getByText("Connected")).toBeInTheDocument();
+    expect(getByTestId(iconTestId)).toHaveClass(successIconClass);
   });
 
   test("renders pool status popover", () => {
@@ -74,7 +76,7 @@ describe("Pool Status", () => {
       />
     );
     let { getByText } = within(getByTestId("pool-status-widget"));
-    const buttonElement = getByText("Connected");
+    const buttonElement = getByText(buttonLabel);
     fireEvent.click(buttonElement);
 
     getByText = within(getByTestId("pool-info-popover")).getByText;
@@ -92,7 +94,7 @@ describe("Pool Status", () => {
       />
     );
     let { getByText } = within(getByTestId("pool-status-widget"));
-    const buttonElement = getByText("Connected");
+    const buttonElement = getByText(buttonLabel);
     fireEvent.click(buttonElement);
 
     getByText = within(getByTestId("pool-info-popover")).getByText;
@@ -106,9 +108,8 @@ describe("Pool Status", () => {
     const { getByTestId } = render(
       <PoolStatus onClickViewPools={onClickViewPools} />
     );
-    const { getByText } = within(getByTestId("pool-status-widget"));
 
-    expect(getByText("No pools configured")).toBeInTheDocument();
+    expect(getByTestId(iconTestId)).toHaveClass(criticalIconClass);
   });
 
   test("renders no pools configured state in the popover", () => {
@@ -116,7 +117,7 @@ describe("Pool Status", () => {
       <PoolStatus onClickViewPools={onClickViewPools} />
     );
     const { getByText } = within(getByTestId("pool-status-widget"));
-    const buttonElement = getByText("No pools configured");
+    const buttonElement = getByText(buttonLabel);
     fireEvent.click(buttonElement);
     expect(getByText("No mining pools")).toBeInTheDocument();
   });
@@ -128,9 +129,8 @@ describe("Pool Status", () => {
         poolsInfo={[deadDefaultPool]}
       />
     );
-    const { getByText } = within(getByTestId("pool-status-widget"));
 
-    expect(getByText("Disconnected")).toBeInTheDocument();
+    expect(getByTestId(iconTestId)).toHaveClass(criticalIconClass);
   });
 
   test("renders disconnected state in the popover", () => {
@@ -141,7 +141,7 @@ describe("Pool Status", () => {
       />
     );
     const { getByText } = within(getByTestId("pool-status-widget"));
-    const buttonElement = getByText("Disconnected");
+    const buttonElement = getByText(buttonLabel);
     fireEvent.click(buttonElement);
     expect(getByText("Not connected")).toBeInTheDocument();
     expect(getByText(defaultPoolUrl)).toBeInTheDocument();

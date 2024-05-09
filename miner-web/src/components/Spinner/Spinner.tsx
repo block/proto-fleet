@@ -2,10 +2,11 @@ import clsx from "clsx";
 
 interface SpinnerProps {
   className?: string;
+  dataTestId?: string;
   size?: number;
 }
 
-const Spinner = ({ className, size = 20 }: SpinnerProps) => {
+const Spinner = ({ className, dataTestId, size = 20 }: SpinnerProps) => {
   return (
     <svg
       className={clsx("animate-spin", className)}
@@ -14,6 +15,7 @@ const Spinner = ({ className, size = 20 }: SpinnerProps) => {
       viewBox="0 0 20 20"
       width={size}
       height={size}
+      data-testid={dataTestId}
     >
       <path
         fillRule="evenodd"

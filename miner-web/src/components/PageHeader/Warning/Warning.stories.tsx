@@ -6,16 +6,8 @@ import WarningComponent from ".";
 export const Warning = () => {
   return (
     <div className="flex space-x-4">
-      <WarningComponent
-        label="ASIC"
-        state="critical"
-        messages={["12% Higher Temperature"]}
-      />
-      <WarningComponent
-        label="Fans"
-        state="warning"
-        messages={["Fan 1 low speed", "Fan 2 low speed"]}
-      />
+      <WarningComponent errorCount={47} errorType="asic" state="critical" />
+      <WarningComponent errorCount={12} errorType="fan" state="warning" />
     </div>
   );
 };

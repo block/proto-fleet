@@ -3,58 +3,42 @@ import clsx from "clsx";
 
 import { useWindowDimensions } from "common/hooks/useWindowDimensions";
 
+import { AlertCompact } from "icons";
+
+import WidgetWrapper from "../WidgetWrapper";
 import WarningModal from "./WarningModal";
 
 interface WarningProps {
-  label: "Fans" | "ASIC";
-  messages: string[];
+  errorCount: number;
+  errorType: "fan" | "asic";
   state: "critical" | "warning";
 }
 
-const Warning = ({ label, messages, state }: WarningProps) => {
+const Warning = ({ errorCount, errorType, state }: WarningProps) => {
   const { isPhone } = useWindowDimensions();
   const [showModal, setShowModal] = useState(false);
 
   const isWarning = state === "warning";
   const isCritical = state === "critical";
 
+  const plural = errorCount > 1 ? "s" : "";
+  const severity = isWarning ? `warning${plural}` : `error${plural}`;
+  const label = errorType === "fan" ? "fan" : "ASIC";
+
   return (
     <>
-      <button
-        className={clsx("text-heading-50 rounded flex items-center whitespace-nowrap", {
-          "bg-intent-critical-fill/10 text-intent-critical-text": isCritical,
-          "bg-intent-warning-fill/10 text-intent-warning-text": isWarning,
+      <WidgetWrapper
+        className={clsx({
+          "text-text-critical": isCritical,
+          "text-text-warning": isWarning,
         })}
         onClick={() => setShowModal(true)}
       >
-        <div
-          className={clsx("px-2 py-1 rounded-s", {
-            "bg-intent-critical-fill/20": isCritical,
-            "bg-intent-warning-fill/20": isWarning,
-          })}
-        >
-          {label}
-        </div>
-        {!isPhone && (
-          <div className="flex items-center px-2 py-1 space-x-1">
-            <svg width="6" height="6" viewBox="0 0 6 6">
-              <circle cx="3" cy="3" r="3" fill="currentColor" />
-            </svg>
-            <div>
-              {messages.length === 1
-                ? messages[0]
-                : isWarning
-                  ? `${messages.length} warnings`
-                  : `${messages.length} errors`}
-            </div>
-          </div>
-        )}
-      </button>
+        <AlertCompact className="mr-1" />
+        {isPhone ? label : `${errorCount} ${label} ${severity}`}
+      </WidgetWrapper>
       {showModal && (
-        <WarningModal
-          onDismiss={() => setShowModal(false)}
-          type={label === "Fans" ? "fan" : "asic"}
-        />
+        <WarningModal onDismiss={() => setShowModal(false)} type={errorType} />
       )}
     </>
   );

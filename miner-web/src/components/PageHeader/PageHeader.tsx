@@ -24,18 +24,10 @@ const PageHeader = ({ openMenu, title }: PageHeaderProps) => {
         <div className="text-300 text-text-primary/70">{title}</div>
       </div>
       {/* TODO: add errors & warnings from API when available */}
-      <div className="flex space-x-4">
-        <Warning
-          label="ASIC"
-          state="critical"
-          messages={["12% Higher Temperature"]}
-        />
-        <Warning
-          label="Fans"
-          state="warning"
-          messages={["Fan 1 low speed", "Fan 2 low speed"]}
-        />
+      <div className="flex space-x-3">
         <PoolStatus />
+        <Warning errorCount={47} errorType="asic" state="critical" />
+        <Warning errorCount={12} errorType="fan" state="warning" />
       </div>
     </div>
   );

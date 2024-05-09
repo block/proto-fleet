@@ -5,8 +5,6 @@ import { ApiContext } from "api";
 
 import PoolStatus from "./PoolStatus";
 
-import "./style.css";
-
 const PoolStatusWrapper = () => {
   const navigate = useNavigate();
   const { poolsInfo, poolsInfoStatus } = useContext(ApiContext);

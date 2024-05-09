@@ -8,7 +8,6 @@ import Popover from "components/Popover";
 
 import { Alert, Success } from "icons";
 
-import "./style.css";
 import PoolInfoRow from "./PoolInfoRow";
 import { getTexts } from "./utility";
 

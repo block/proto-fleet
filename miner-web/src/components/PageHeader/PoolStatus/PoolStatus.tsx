@@ -4,7 +4,6 @@ import { Pool } from "apiTypes";
 
 import { useClickOutside } from "common/hooks/useClickOutside";
 
-import "./style.css";
 import PoolInfoPopover from "./PoolInfoPopover";
 import PoolWidget from "./PoolWidget";
 
@@ -53,15 +52,20 @@ const PoolStatus = ({
     onClickViewPools();
   }, [onClickViewPools]);
 
+  const isPopoverOpen = useMemo(
+    () => !loading && showPopover,
+    [loading, showPopover]
+  );
+
   return (
     <div className="relative" ref={WidgetRef} data-testid="pool-status-widget">
       <PoolWidget
         loading={loading}
         isConnected={isConnected}
-        poolInfo={poolInfo}
-        onTogglePopover={() => setShowPopover(prev => !prev)}
+        isOpen={isPopoverOpen}
+        onTogglePopover={() => setShowPopover((prev) => !prev)}
       />
-      {showPopover && !loading && (
+      {isPopoverOpen && (
         <PoolInfoPopover
           onClickViewPools={handleClickViewPools}
           poolInfo={poolInfo}

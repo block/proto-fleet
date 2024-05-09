@@ -2,9 +2,11 @@ import { Fragment } from "react";
 
 import {
   Alert,
+  AlertCompact,
   ArrowRight,
   Caret,
   Checkmark,
+  ConcentricCircles,
   Dismiss,
   Fan,
   Home,
@@ -20,9 +22,11 @@ import {
 
 const icons = {
   Alert,
+  AlertCompact,
   ArrowRight,
   Caret,
   Checkmark,
+  ConcentricCircles,
   Dismiss,
   Fan,
   Home,
