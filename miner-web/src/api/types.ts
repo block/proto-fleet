@@ -1137,7 +1137,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     locateSystem: (
       query?: {
         /**
-         * The duration in seconds for which to turn on the LED. If not specified, a default value of 30 seconds will be used.
+         * The duration in seconds for which to turn on the LED, with a max value of 300 seconds. If not specified, a default value of 30 seconds will be used. Requests made while the LED is on will be ignored.
          * @default 30
          */
         led_on_time?: number;
