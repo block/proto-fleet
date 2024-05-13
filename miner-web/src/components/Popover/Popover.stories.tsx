@@ -45,6 +45,7 @@ export const Popover = ({ hasSubtitle, numberOfButtons }: PopoverProps) => {
               },
             ].filter((button) => !!button.text) as ButtonProps[]
           }
+          position="bottom right"
         />
       )}
     </div>

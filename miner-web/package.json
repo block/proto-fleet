@@ -24,7 +24,7 @@
     "path": "0.12.7",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "react-router-dom": "6.23.0",
+    "react-router-dom": "6.23.1",
     "recharts": "2.12.7"
   },
   "devDependencies": {
@@ -35,7 +35,7 @@
     "@storybook/react-vite": "8.0.10",
     "@testing-library/jest-dom": "6.4.5",
     "@testing-library/react": "15.0.7",
-    "@types/react": "18.3.1",
+    "@types/react": "18.3.2",
     "@types/react-dom": "18.3.0",
     "@typescript-eslint/eslint-plugin": "7.8.0",
     "@typescript-eslint/parser": "7.8.0",
@@ -48,7 +48,7 @@
     "eslint-plugin-react-hooks": "4.6.2",
     "eslint-plugin-react-refresh": "0.4.7",
     "eslint-plugin-storybook": "0.8.0",
-    "globals": "15.1.0",
+    "globals": "15.2.0",
     "jsdom": "24.0.0",
     "postcss": "8.4.38",
     "storybook": "8.0.10",

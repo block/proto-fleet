@@ -1,0 +1,33 @@
+@keyframes slideDownPopover {
+  0% {
+    transform: translateY(-8px);
+    opacity: 0;
+    visibility: hidden;
+  }
+  100% {
+    transform: translateY(0px);
+    opacity: 1;
+    visibility: visible;
+  }
+}
+
+@keyframes slideUpPopover {
+  0% {
+    transform: translateY(0px);
+    opacity: 0;
+    visibility: hidden;
+  }
+  100% {
+    transform: translateY(-8px);
+    opacity: 1;
+    visibility: visible;
+  }
+}
+
+.animate-slide-down-popover {
+  animation: slideDownPopover 0.2s forwards;
+}
+
+.animate-slide-up-popover {
+  animation: slideUpPopover 0.2s forwards;
+}
