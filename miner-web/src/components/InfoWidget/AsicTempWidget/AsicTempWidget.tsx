@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 
+import { getDisplayValue } from "common/utils/stringUtils";
+
 import InfoWidget, { Bar } from "components/InfoWidget";
 
-import { getDisplayValue, getIntensity } from "../utility";
+import { getIntensity } from "../utility";
 import AsicTempModal from "./AsicTempModal";
 
 interface AsicTempWidgetProps {

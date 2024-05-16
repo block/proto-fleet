@@ -1,7 +1,8 @@
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
-import { getDisplayValue } from "../utility";
+import { getDisplayValue } from "common/utils/stringUtils";
+
 import AsicTempWidget from ".";
 
 vi.mock("react-router-dom", () => ({

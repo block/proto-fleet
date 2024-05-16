@@ -2,22 +2,24 @@ import { AxisTick } from "components/Chart";
 
 interface TimeXAxisTickProps {
   payload: { value: string; index: number; offset: number };
+  visibleTicksCount: number;
   x: number;
   y: number;
 }
 
-const TimeXAxisTick = ({ x, y, payload }: TimeXAxisTickProps) => {
+const TimeXAxisTick = ({ x, y, payload, visibleTicksCount }: TimeXAxisTickProps) => {
   const { index } = payload;
   const firstTick = index === 0;
-  const midTick = index === 12;
-  const lastTick = index === 23;
+  const lastTick = index === visibleTicksCount - 1;
+  // show time for every 6th tick but maintain more than two tick gap before last tick
+  const midTick = index % 6 === 0 && index < visibleTicksCount - 2;
   if (firstTick || midTick || lastTick) {
     let xOffset = 0;
     if (firstTick) {
       // the offset needed to add margin left to the first tick
       xOffset = 25 - payload.offset;
     } else if (midTick) {
-      // the offset needed to center the mid tick
+      // the offset needed to center the mid ticks
       xOffset = 16 + payload.offset;
     } else if (lastTick) {
       // the offset needed to add margin right to the first tick
@@ -28,7 +30,7 @@ const TimeXAxisTick = ({ x, y, payload }: TimeXAxisTickProps) => {
         x={x}
         y={y}
         xOffset={xOffset}
-        payload={{ ...payload, value: index === 23 ? "Now" : payload.value }}
+        payload={{ ...payload, value: payload.value }}
       />
     );
   }

@@ -1,9 +1,10 @@
 import { FanInfo } from "apiTypes";
 
+import { getDisplayValue } from "common/utils/stringUtils";
+
 import { variants } from "components/Button";
 import Modal from "components/Modal";
 
-import { getDisplayValue } from "../utility";
 import FanSpeedRow from "./FanSpeedRow";
 
 interface FanSpeedModalProps {

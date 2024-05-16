@@ -1,1 +1,1 @@
-export const durations = ["12H", "24H", "48H", "5D"] as const;
+export const durations = ["12h", "24h", "48h", "5d"] as const;

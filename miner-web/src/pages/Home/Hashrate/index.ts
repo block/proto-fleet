@@ -1,3 +1,3 @@
-import Hashrate from "./Hashrate";
+import HashrateWrapper from "./HashrateWrapper";
 
-export default Hashrate;
+export default HashrateWrapper;

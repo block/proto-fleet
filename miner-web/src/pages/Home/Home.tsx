@@ -3,7 +3,7 @@ import { useContext, useEffect, useMemo, useState } from "react";
 import { ApiContext, useMiningStatus } from "api";
 
 import Divider from "components/Divider";
-import DurationSelector from "components/DurationSelector";
+import DurationSelector, { Duration, durations } from "components/DurationSelector";
 import AsicTempWidget from "components/InfoWidget/AsicTempWidget";
 import EfficiencyWidget from "components/InfoWidget/EfficiencyWidget";
 import PowerUsageWidget from "components/InfoWidget/PowerUsageWidget";
@@ -12,6 +12,7 @@ import Hashrate from "./Hashrate";
 import NoPoolsCallout from "./NoPoolsCallout";
 
 const Home = () => {
+  const [duration, setDuration] = useState<Duration>(durations[0]);
   const [efficiency, setEfficiency] = useState<string>();
   const [powerUsage, setPowerUsage] = useState<string>();
   const [asicTemp, setAsicTemp] = useState<string>();
@@ -47,7 +48,7 @@ const Home = () => {
       <div className="flex flex-col space-y-6">
         <div className="flex items-center">
           <div className="text-heading-300 grow">Home</div>
-          <DurationSelector className="h-fit" />
+          <DurationSelector className="h-fit" onSelect={setDuration} />
         </div>
 
         <div className="flex space-x-6 w-full phone:flex-col phone:space-x-0 phone:space-y-6">
@@ -71,7 +72,7 @@ const Home = () => {
 
         <Divider />
 
-        <Hashrate />
+        <Hashrate duration={duration} />
       </div>
     </>
   );

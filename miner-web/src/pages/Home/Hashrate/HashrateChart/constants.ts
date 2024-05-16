@@ -1,25 +1,46 @@
-import { getRandomFloat } from "common/utils/utility";
-
-import { times } from "components/Chart/constants";
-
 import { CurveType } from "recharts/types/shape/Curve";
 
-export const getChartData = () => {
-  const chartData = times.map((time) => {
-    const hashrate2 = getRandomFloat(30, 40);
-    const hashrate1 = getRandomFloat(30, 40);
-    const hashrate3 = getRandomFloat(30, 40);
-    const avg = +((hashrate1 + hashrate2 + hashrate3) / 3).toFixed(2);
+import { Hashrates } from "../types";
+import { getHashrateValue } from "./utility";
+
+interface ChartDataProps {
+  hashrate1: Hashrates;
+  hashrate2: Hashrates;
+  hashrate3: Hashrates;
+  hashrates: Hashrates;
+}
+
+export const getChartData = ({
+  hashrate1,
+  hashrate2,
+  hashrate3,
+  hashrates,
+}: ChartDataProps) => {
+  const chartData = hashrates?.map((hashrate) => {
+    const hashrate1Value = getHashrateValue({
+      datetime: hashrate.datetime,
+      hashrates: hashrate1,
+    });
+    const hashrate2Value = getHashrateValue({
+      datetime: hashrate.datetime,
+      hashrates: hashrate2,
+    });
+    const hashrate3Value = getHashrateValue({
+      datetime: hashrate.datetime,
+      hashrates: hashrate3,
+    });
+
     return {
-      avgHashrate: avg,
-      hashrate1,
-      hashrate2,
-      hashrate3,
-      time,
+      avgHashrate: hashrate.value,
+      hashrate1: hashrate1Value,
+      hashrate2: hashrate2Value,
+      hashrate3: hashrate3Value,
+      // cut off seconds when displaying timestamp
+      time: hashrate.datetime.slice(0, 5),
     };
   });
 
-  return chartData;
+  return chartData || [];
 };
 
 export const LineProps = {

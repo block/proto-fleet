@@ -2,9 +2,10 @@ import { useMemo, useState } from "react";
 
 import { FanInfo } from "apiTypes";
 
+import { getDisplayValue } from "common/utils/stringUtils";
+
 import InfoWidget from "components/InfoWidget";
 
-import { getDisplayValue } from "../utility";
 import FanSpeedModal from "./FanSpeedModal";
 import FanSpeedPieChart from "./FanSpeedPieChart";
 

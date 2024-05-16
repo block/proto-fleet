@@ -8,9 +8,10 @@ import "./style.css";
 
 interface DurationSelectorProps {
   className?: string;
+  onSelect?: (duration: Duration) => void;
 }
 
-const DurationSelector = ({ className }: DurationSelectorProps) => {
+const DurationSelector = ({ className, onSelect }: DurationSelectorProps) => {
   const [selectedDuration, setSelectedDuration] = useState<Duration>(
     durations[0]
   );
@@ -39,9 +40,10 @@ const DurationSelector = ({ className }: DurationSelectorProps) => {
       const timeoutDuration = 100 + distance * 50;
       setTimeout(() => {
         setSelectedDuration(slidingDuration);
+        onSelect?.(slidingDuration);
       }, timeoutDuration);
     }
-  }, [selectedDuration, slidingDuration, distance]);
+  }, [selectedDuration, slidingDuration, distance, onSelect]);
 
   // since the last item has a smaller width, we need a different translateX value
   const slidingToRightEnd1 =
@@ -87,7 +89,7 @@ const DurationSelector = ({ className }: DurationSelectorProps) => {
                 selectedDurationIndex > slidingDurationIndex,
             })}
           />
-          <div className="px-3 py-1 relative z-10">{duration}</div>
+          <div className="px-3 py-1 relative z-10">{duration.toUpperCase()}</div>
         </button>
       ))}
     </div>

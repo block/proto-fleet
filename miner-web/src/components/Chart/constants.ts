@@ -7,6 +7,7 @@ export const xAxisProps = {
   tickLine: false,
   interval: 0,
   tick: TimeXAxisTick,
+  tickMargin: 18,
 };
 
 export const yAxisProps = {

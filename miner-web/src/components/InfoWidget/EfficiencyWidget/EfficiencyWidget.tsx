@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useWindowDimensions } from "common/hooks/useWindowDimensions";
+import { getDisplayValue } from "common/utils/stringUtils";
 import { getRandomInt } from "common/utils/utility";
 
 import InfoWidget from "components/InfoWidget";
 import Line from "components/InfoWidget/Line";
 
-import { getDisplayValue } from "../utility";
 import EfficiencyModal from "./EfficiencyModal";
 
 interface EfficiencyWidgetProps {

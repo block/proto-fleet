@@ -18,11 +18,26 @@ import {
   yAxisProps,
 } from "components/Chart";
 
+import { Hashrates } from "../types";
 import { getChartData, LineProps } from "./constants";
 import HashrateTooltip, { TooltipData } from "./HashrateTooltip";
 import { getPoint } from "./utility";
 
-const HashrateChart = () => {
+interface HashrateChartProps {
+  hashrate1: Hashrates;
+  hashrate2: Hashrates;
+  hashrate3: Hashrates;
+  hashrates: Hashrates;
+  highestValue?: string | number;
+}
+
+const HashrateChart = ({
+  hashrate1,
+  hashrate2,
+  hashrate3,
+  hashrates,
+  highestValue,
+}: HashrateChartProps) => {
   const [tooltipData, setTooltipData] = useState<TooltipData>({
     x: 0,
     y: 0,
@@ -30,11 +45,16 @@ const HashrateChart = () => {
   });
   const [initChart, setInitChart] = useState(false);
   const { isDesktop } = useWindowDimensions();
-  const chartData = useMemo(() => getChartData(), []);
+  const chartData = useMemo(
+    () => getChartData({ hashrate1, hashrate2, hashrate3, hashrates }),
+    [hashrate1, hashrate2, hashrate3, hashrates]
+  );
 
-  const max = Math.max(...chartData.map((data) => data.avgHashrate));
+  const max =
+    +(highestValue || 0) ||
+    Math.max(...chartData.map((data) => data.avgHashrate));
   const nearestTen = Math.round(max / 10) * 10;
-  const maxDomain = nearestTen + 20;
+  const maxDomain = nearestTen + (max < 10 ? 5 : 20);
 
   useEffect(() => {
     setTimeout(() => {
@@ -45,16 +65,18 @@ const HashrateChart = () => {
   }, []);
 
   const firstVerticalPoint = isDesktop ? 130 : 105;
-  const verticalGap = isDesktop ? 90 : 55;
+  const verticalGap = isDesktop ? 87.5 : 55;
   const verticalPoints = [...Array(9)].map((_, i) =>
     getPoint(i, firstVerticalPoint, verticalGap)
   );
 
-  const firstHorizontalPoint = 40;
-  const horizontalGap = 35;
+  const firstHorizontalPoint = 24;
+  const horizontalGap = 38;
   const horizontalPoints = [...Array(9)].map((_, i) =>
     getPoint(i, firstHorizontalPoint, horizontalGap)
   );
+
+  const yAxisTickCount = maxDomain / 5 + 10;
 
   return (
     <ChartWrapper>
@@ -62,7 +84,7 @@ const HashrateChart = () => {
         data={chartData}
         margin={{
           top: 0,
-          right: 0,
+          right: 10,
           left: -17,
           bottom: 5,
         }}
@@ -73,12 +95,12 @@ const HashrateChart = () => {
           verticalPoints={[43, ...verticalPoints]}
           horizontalPoints={[...horizontalPoints, 365]}
         />
-        <XAxis {...xAxisProps} tickMargin={12} />
+        <XAxis {...xAxisProps} tickMargin={28} />
         <YAxis
           {...yAxisProps}
-          padding={{ top: -5, bottom: 20 }}
+          padding={{ top: -10, bottom: 0 }}
           domain={[0, maxDomain]}
-          tickCount={maxDomain / 5 + 2}
+          tickCount={Math.min(15, yAxisTickCount)}
         />
         <Tooltip
           position={{ y: tooltipData.y - 150, x: tooltipData.x - 290 }}

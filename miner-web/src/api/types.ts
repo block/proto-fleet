@@ -96,6 +96,7 @@ export interface EfficiencyResponse {
 }
 
 export interface EfficiencyResponseEfficiencydata {
+  aggregates?: Aggregates;
   data?: TimeSeriesData[];
   /** Duration of power data returned. */
   duration?: "12h" | "24h" | "48h" | "5d";
@@ -228,11 +229,11 @@ export interface HashboardsInfoHashboardsinfo {
 }
 
 export interface HashrateResponse {
-  "hashrate-aggregates"?: Aggregates;
   "hashrate-data"?: HashrateResponseHashratedata;
 }
 
 export interface HashrateResponseHashratedata {
+  aggregates?: Aggregates;
   data?: TimeSeriesData[];
   /** Duration of hashrate data returned. */
   duration?: "12h" | "24h" | "48h" | "5d";
@@ -314,7 +315,7 @@ export interface MiningStatusMiningstatus {
    * The indication will reveal whether the mining operation is currently active or has ceased
    * @example "Running"
    */
-  status?: "Stopping" | "Stopped" | "Starting" | "Running" | "Error";
+  status?: "Stopped" | "Running" | "Degraded" | "Error";
 }
 
 export interface MiningTarget {
@@ -329,8 +330,12 @@ export interface NetworkConfig {
 export interface NetworkConfigNetworkconfig {
   /** @example true */
   dhcp?: boolean;
+  /** @example "172.27.244.1" */
+  gateway?: string;
   /** @example "172.27.244.179" */
   ip?: string;
+  /** @example "255.255.255.0" */
+  netmask?: string;
 }
 
 export interface NetworkInfo {
@@ -340,13 +345,13 @@ export interface NetworkInfo {
 export interface NetworkInfoNetworkinfo {
   /** @example true */
   dhcp?: boolean;
-  /** @example "172.27.244.177" */
+  /** @example "172.27.244.1" */
   gateway?: string;
   /** @example "172.27.244.179" */
   ip?: string;
   /** @example "82:11:D2:94:0D:6D" */
   mac?: string;
-  /** @example "255.255.255.240" */
+  /** @example "255.255.255.0" */
   netmask?: string;
 }
 
@@ -603,6 +608,7 @@ export interface PowerResponse {
 }
 
 export interface PowerResponsePowerdata {
+  aggregates?: Aggregates;
   data?: TimeSeriesData[];
   /** Duration of power data returned. */
   duration?: "12h" | "24h" | "48h" | "5d";
@@ -615,6 +621,19 @@ export interface SWInfo {
   name?: string;
   /** @example "1.0" */
   version?: string;
+}
+
+export interface SshConfig {
+  "ssh-status"?: SshStatus;
+}
+
+export interface SshResponse {
+  "ssh-status"?: SshStatus;
+}
+
+export interface SshStatus {
+  /** @example true */
+  enabled?: boolean;
 }
 
 export interface SystemInfo {
@@ -642,6 +661,7 @@ export interface TemperatureResponse {
 }
 
 export interface TemperatureResponseTemperaturedata {
+  aggregates?: Aggregates;
   data?: TimeSeriesData[];
   /** Duration of temperature data returned. */
   duration?: "12h" | "24h" | "48h" | "5d";
@@ -1152,6 +1172,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description The get ssh endpoint returns if SSH is enabled or disabled on the control board
+     *
+     * @tags System
+     * @name GetSsh
+     * @request GET:/api/v1/system/ssh
+     */
+    getSsh: (params: RequestParams = {}) =>
+      this.request<SshResponse, ErrorResponse>({
+        path: `/api/v1/system/ssh`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The put ssh endpoint enables/disables SSH on the control board
+     *
+     * @tags System
+     * @name SetSsh
+     * @request PUT:/api/v1/system/ssh
+     * @secure
+     */
+    setSsh: (data: SshConfig, params: RequestParams = {}) =>
+      this.request<SshResponse, ErrorResponse>({
+        path: `/api/v1/system/ssh`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description The update system endpoint can be used to initiate a system update of the miner software.
      *
      * @tags System
@@ -1296,6 +1350,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query?: {
         /** @default "12h" */
         duration?: "12h" | "24h" | "48h" | "5d";
+        /** @default "1m" */
+        granularity?: "1m" | "5m" | "15m";
       },
       params: RequestParams = {},
     ) =>
@@ -1365,6 +1421,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query?: {
         /** @default "12h" */
         duration?: "12h" | "24h" | "48h" | "5d";
+        /** @default "1m" */
+        granularity?: "1m" | "5m" | "15m";
       },
       params: RequestParams = {},
     ) =>

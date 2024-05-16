@@ -3,7 +3,8 @@ import { describe, expect, test, vi } from "vitest";
 
 import { FanInfo } from "apiTypes";
 
-import { getDisplayValue } from "../utility";
+import { getDisplayValue } from "common/utils/stringUtils";
+
 import FanSpeedWidget from ".";
 
 vi.mock("react-router-dom", () => ({
