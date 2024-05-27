@@ -14,12 +14,20 @@ import {
   ChartWrapper,
   LineCursor,
   LineDot,
+  TimeXAxisTick,
   xAxisProps,
   yAxisProps,
 } from "components/Chart";
 
 import { Hashrates } from "../types";
-import { getChartData, LineProps } from "./constants";
+import {
+  getChartData,
+  Hashrate1Props,
+  Hashrate2Props,
+  Hashrate3Props,
+  LineProps,
+  NullLineProps,
+} from "./constants";
 import HashrateTooltip, { TooltipData } from "./HashrateTooltip";
 import { getPoint } from "./utility";
 
@@ -95,7 +103,13 @@ const HashrateChart = ({
           verticalPoints={[43, ...verticalPoints]}
           horizontalPoints={[...horizontalPoints, 365]}
         />
-        <XAxis {...xAxisProps} tickMargin={28} />
+        <XAxis
+          {...xAxisProps}
+          tickMargin={28}
+          tick={
+            <TimeXAxisTick tooltipTime={tooltipData.payload[0]?.payload.time} />
+          }
+        />
         <YAxis
           {...yAxisProps}
           padding={{ top: -10, bottom: 0 }}
@@ -115,26 +129,26 @@ const HashrateChart = ({
         />
         {!!tooltipData.payload.length && (
           <>
+            <Line {...LineProps} {...Hashrate1Props} />
             <Line
               {...LineProps}
-              dataKey="hashrate1"
-              stroke="#00A4FB"
+              {...Hashrate1Props}
+              {...NullLineProps}
               strokeOpacity={0.5}
-              isAnimationActive={false}
             />
+            <Line {...LineProps} {...Hashrate2Props} />
             <Line
               {...LineProps}
-              dataKey="hashrate2"
-              stroke="#90C300"
+              {...Hashrate2Props}
+              {...NullLineProps}
               strokeOpacity={0.5}
-              isAnimationActive={false}
             />
+            <Line {...LineProps} {...Hashrate3Props} />
             <Line
               {...LineProps}
-              dataKey="hashrate3"
-              stroke="#783EED"
+              {...Hashrate3Props}
+              {...NullLineProps}
               strokeOpacity={0.8}
-              isAnimationActive={false}
             />
           </>
         )}

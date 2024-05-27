@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { arrayOfWarnings } from "./utility";
 
-describe("getTickValue", () => {
+describe("arrayOfWarnings", () => {
   test("should have length of passed number", () => {
     expect(arrayOfWarnings(7).length).toBe(7);
   });

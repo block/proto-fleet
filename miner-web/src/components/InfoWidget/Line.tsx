@@ -11,7 +11,7 @@ const Line = ({ data }: LineProps) => {
         <RechartsLine
           type="monotone"
           dataKey="value"
-          stroke="#90C300"
+          stroke="#38A600"
           strokeWidth={2}
           label={false}
           dot={false}

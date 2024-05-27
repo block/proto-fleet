@@ -7,7 +7,7 @@ import { getDisplayValue } from "common/utils/stringUtils";
 
 import InfoWidget from "components/InfoWidget";
 
-import { getMockHashrateData, mockHashrateData } from "./constants";
+import { getMockHashrateData, mockHashrateData1 } from "./constants";
 import HashrateChart from "./HashrateChart";
 import { Hashrates } from "./types";
 import { convertHashrateValues } from "./utility";
@@ -47,13 +47,10 @@ const Hashrate = ({
 
   useEffect(() => {
     if (hashrate1Data?.data && hashrate1Data.data.length) {
-      // if there is only one hashboard to mock, it should match the real data
-      const mockHashrate1Data =
-        hashboardSerials.length > 1 ? getMockHashrateData() : mockHashrateData;
       // TODO: remove else when mocks moved to swagger
       const apiData = hashrate1Data.data[0].datetime
         ? hashrate1Data
-        : mockHashrate1Data;
+        : mockHashrateData1;
       setHashrate1(convertHashrateValues(apiData.data));
     }
   }, [hashrate1Data, hashboardSerials]);
@@ -63,7 +60,7 @@ const Hashrate = ({
       // TODO: remove else when mocks moved to swagger
       const apiData = hashrate2Data.data[0].datetime
         ? hashrate2Data
-        : getMockHashrateData();
+        : getMockHashrateData(10, 15);
       setHashrate2(convertHashrateValues(apiData.data));
     }
   }, [hashrate2Data]);
@@ -73,7 +70,7 @@ const Hashrate = ({
       // TODO: remove else when mocks moved to swagger
       const apiData = hashrate3Data.data[0].datetime
         ? hashrate3Data
-        : getMockHashrateData();
+        : getMockHashrateData(20, 30);
       setHashrate3(convertHashrateValues(apiData.data));
     }
   }, [hashrate3Data]);

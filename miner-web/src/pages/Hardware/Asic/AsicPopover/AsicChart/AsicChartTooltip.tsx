@@ -1,10 +1,8 @@
 import { useEffect, useMemo } from "react";
 
-import { getStandardTime } from "common/utils/stringUtils";
+import { getDisplayValue } from "common/utils/stringUtils";
 
-import { getTickValue } from "components/Chart";
-
-import AsicChartTooltipItem from "./AsicChartTooltipItem";
+import AsicPopoverRow from "../AsicPopoverRow";
 
 type PayloadType = {
   payload: { time: string; temp_c: number; hashrate_ghs: number };
@@ -53,20 +51,15 @@ const AsicChartTooltip = ({
     <>
       {payload.time && (
         <div className="bg-surface-base/70 px-3 py-2 rounded-xl shadow-200 backdrop-blur-[7px] w-[180px]">
-          <div className="flex justify-end mb-2">
-            <div className="text-200 text-text-primary/70 rounded-lg px-2 py-[2px] bg-surface-5 h-fit w-fit">
-              {getStandardTime(payload.time)}
-            </div>
-          </div>
-          <AsicChartTooltipItem
+          <AsicPopoverRow
             label="Temperature"
-            value={`${getTickValue(payload.temp_c)}º`}
-            colorClassName="bg-core-accent-fill"
+            value={`${getDisplayValue(payload.temp_c)}º`}
+            className="text-core-accent-fill"
           />
-          <AsicChartTooltipItem
+          <AsicPopoverRow
             label="Hashrate"
-            value={`${getTickValue(+payload.hashrate_ghs)} TH/s`}
-            colorClassName="bg-core-primary-fill"
+            value={`${getDisplayValue(+payload.hashrate_ghs)} TH/s`}
+            className="text-core-primary-fill"
           />
         </div>
       )}

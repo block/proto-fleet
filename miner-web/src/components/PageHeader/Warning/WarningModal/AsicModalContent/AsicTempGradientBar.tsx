@@ -28,7 +28,7 @@ const AsicTempGradientBar = ({ maxTemp, temp }: AsicTempGradientBarProps) => {
             <stop stopColor="#FA2B37" />
             <stop offset="0.25" stopColor="#FF5B00" />
             <stop offset="0.5" stopColor="#FD8A00" />
-            <stop offset="0.75" stopColor="#90C300" />
+            <stop offset="0.75" stopColor="#38A600" />
             <stop offset="1" stopColor="#00A4FB" />
           </linearGradient>
         </defs>

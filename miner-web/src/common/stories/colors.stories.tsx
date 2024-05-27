@@ -81,7 +81,7 @@ export const Typography = () => {
       </Column>
       <Column>
         <NestedCol>
-          <Block className="bg-text-success text-text-contrast" hex="#90C300" />
+          <Block className="bg-text-success text-text-contrast" hex="#38A600" />
           <Block className="bg-text-warning text-text-contrast" hex="#FD8A00" />
           <Block
             className="bg-text-critical text-text-contrast"

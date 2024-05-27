@@ -1,18 +1,16 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Bar, BarChart, Tooltip, XAxis, YAxis } from "recharts";
 
-import { deepClone } from "common/utils/utility";
-
-import { ChartWrapper, xAxisProps, yAxisProps } from "components/Chart";
+import {
+  ChartWrapper,
+  TimeXAxisTick,
+  xAxisProps,
+  yAxisProps,
+} from "components/Chart";
 
 import TickTooltip, { TooltipData } from "../../common/TickTooltip";
-import { chartData, marginValue } from "./constants";
+import { chartData } from "./constants";
 import PowerUsageBar from "./PowerUsageBar";
-
-interface chartDataProps {
-  time?: string;
-  value: number;
-}
 
 const PowerUsageChart = () => {
   const [tooltipData, setTooltipData] = useState<TooltipData>({
@@ -22,26 +20,12 @@ const PowerUsageChart = () => {
   });
 
   // TODO: get chart data from API when available
-  const [chartDataPadded, setChartDataPadded] = useState<chartDataProps[] | []>(
-    []
-  );
-
-  useEffect(() => {
-    const newData = deepClone(chartData);
-    setChartDataPadded(
-      newData.map((data: chartDataProps) => {
-        data.value += marginValue;
-        return data;
-      })
-    );
-  }, []);
-
   const maxValue = Math.max(...chartData.map((data) => data.value));
 
   return (
     <ChartWrapper>
       <BarChart
-        data={chartDataPadded}
+        data={chartData}
         margin={{
           top: 16,
           right: 0,
@@ -49,22 +33,26 @@ const PowerUsageChart = () => {
           bottom: 0,
         }}
       >
-        <XAxis {...xAxisProps} />
+        <XAxis
+          {...xAxisProps}
+          tick={
+            <TimeXAxisTick tooltipTime={tooltipData.payload[0]?.payload.time} chartType="bar" />
+          }
+        />
         <YAxis
           {...yAxisProps}
           scale="linear"
           tickMargin={6}
           domain={[0, maxValue + 1]}
-          padding={{ top: -26, bottom: 25 }}
+          padding={{ top: -5, bottom: 5 }}
         />
         <Tooltip
           cursor={{ fill: "#fff" }}
-          position={{ y: -75, x: tooltipData.x - 50 }}
+          position={{ y: -45, x: tooltipData.x - 30 }}
           content={
             <TickTooltip
               onHover={setTooltipData}
               tooltipData={tooltipData}
-              marginValue={marginValue}
               unit="kW"
             />
           }

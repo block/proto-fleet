@@ -5,6 +5,7 @@ import {
   ChartWrapper,
   LineCursor,
   LineDot,
+  TimeXAxisTick,
   xAxisProps,
 } from "components/Chart";
 
@@ -21,7 +22,12 @@ const AsicChart = () => {
   return (
     <ChartWrapper>
       <LineChart data={chartData}>
-        <XAxis {...xAxisProps} />
+        <XAxis
+          {...xAxisProps}
+          tick={
+            <TimeXAxisTick tooltipTime={tooltipData.payload[0]?.payload.time} />
+          }
+        />
         <Tooltip
           position={{ y: tooltipData.y - 150, x: tooltipData.x - 90 }}
           content={
@@ -34,7 +40,7 @@ const AsicChart = () => {
           isAnimationActive={false}
         />
         <Line
-          type="basis"
+          type="monotone"
           dataKey="temp_c"
           stroke="#FF5B00"
           strokeWidth={2.5}
@@ -47,7 +53,7 @@ const AsicChart = () => {
           }
         />
         <Line
-          type="basis"
+          type="monotone"
           dataKey="hashrate_ghs"
           stroke="#000"
           strokeWidth={2.5}

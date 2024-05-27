@@ -24,5 +24,3 @@ export const chartData = [
   { value: 1.7, time: "22:00" },
   { value: 4.5, time: "23:00" },
 ];
-
-export const marginValue = 0.6;

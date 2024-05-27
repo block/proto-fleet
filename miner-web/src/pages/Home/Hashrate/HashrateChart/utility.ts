@@ -13,5 +13,10 @@ export const getHashrateValue = ({
   datetime,
   hashrates,
 }: HashrateValueProps) => {
-  return hashrates?.find((hashrate) => hashrate.datetime === datetime)?.value;
+  // ignore seconds, only match up to minute
+  return hashrates?.find(
+    (hashrate) =>
+      hashrate.datetime.toString().slice(0, -3) ===
+      datetime.toString().slice(0, -3)
+  )?.value;
 };

@@ -1,8 +1,5 @@
 import { useEffect, useMemo } from "react";
 
-import { getStandardTime } from "common/utils/stringUtils";
-
-import { getTickValue } from "components/Chart";
 import Divider from "components/Divider";
 
 import HashrateTooltipItem from "./HashrateTooltipItem";
@@ -61,28 +58,25 @@ const HashrateTooltip = ({
           <div className="w-[269px]">
             <div className="flex space-x-2 px-6">
               <div className="w-1 h-3 bg-core-accent-fill rounded-sm mt-1" />
-              <div className="grow">
+              <div>
                 <div className="text-200 mb-1 text-text-primary/70">
                   Total Hashrate
                 </div>
                 <div className="text-heading-100 text-text-primary">
-                  {`${getTickValue(+(payload.hashrate1 || 0) + +(payload.hashrate2 || 0) + +(payload.hashrate3 || 0))} TH/s`}
+                  {payload.avgHashrate} TH/s
                 </div>
-              </div>
-              <div className="text-200 rounded-lg px-2 py-[2px] text-text-primary/70 bg-surface-5 h-fit">
-                {getStandardTime(payload.time)}
               </div>
             </div>
             {payload.hashrate1 || payload.hashrate2 || payload.hashrate3 ? (
               <Divider className="mt-4 mb-6" />
             ) : null}
             <HashrateTooltipItem
-              colorClassName="bg-intent-info-fill/50"
+              colorClassName="bg-intent-info-fill"
               label="Hashboard 1"
               value={payload.hashrate1}
             />
             <HashrateTooltipItem
-              colorClassName="bg-intent-success-fill/50"
+              colorClassName="bg-intent-success-fill"
               label="Hashboard 2"
               value={payload.hashrate2}
             />

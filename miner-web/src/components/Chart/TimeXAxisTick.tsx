@@ -1,35 +1,58 @@
 import { AxisTick } from "components/Chart";
 
+import { getAxisTickOffset } from "./utility";
+
 interface TimeXAxisTickProps {
-  payload: { value: string; index: number; offset: number };
-  visibleTicksCount: number;
-  x: number;
-  y: number;
+  chartType?: "line" | "bar";
+  payload?: { value: string; index: number; offset: number };
+  tooltipTime?: string;
+  visibleTicksCount?: number;
+  x?: number;
+  y?: number;
 }
 
-const TimeXAxisTick = ({ x, y, payload, visibleTicksCount }: TimeXAxisTickProps) => {
+const TimeXAxisTick = ({
+  chartType,
+  payload = { value: "", index: 0, offset: 0 },
+  tooltipTime,
+  visibleTicksCount = 0,
+  x = 0,
+  y = 0,
+}: TimeXAxisTickProps) => {
   const { index } = payload;
   const firstTick = index === 0;
   const lastTick = index === visibleTicksCount - 1;
   // show time for every 6th tick but maintain more than two tick gap before last tick
-  const midTick = index % 6 === 0 && index < visibleTicksCount - 2;
-  if (firstTick || midTick || lastTick) {
-    let xOffset = 0;
-    if (firstTick) {
-      // the offset needed to add margin left to the first tick
-      xOffset = 25 - payload.offset;
-    } else if (midTick) {
-      // the offset needed to center the mid ticks
-      xOffset = 16 + payload.offset;
-    } else if (lastTick) {
-      // the offset needed to add margin right to the first tick
-      xOffset = 0 + payload.offset;
+  const midTick = !firstTick && !lastTick && index % 6 === 0 && index < visibleTicksCount - 2;
+  if (tooltipTime) {
+    if (tooltipTime === payload.value) {
+      return (
+        <AxisTick
+          x={x}
+          y={y}
+          xOffset={getAxisTickOffset({
+            chartType,
+            firstTick,
+            midTick: !firstTick && !lastTick,
+            lastTick,
+            payloadOffset: payload.offset,
+          })}
+          payload={{ ...payload, value: payload.value }}
+        />
+      );
     }
+  } else if (firstTick || midTick || lastTick) {
     return (
       <AxisTick
         x={x}
         y={y}
-        xOffset={xOffset}
+        xOffset={getAxisTickOffset({
+          chartType,
+          firstTick,
+          midTick,
+          lastTick,
+          payloadOffset: payload.offset,
+        })}
         payload={{ ...payload, value: payload.value }}
       />
     );

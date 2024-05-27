@@ -1,8 +1,6 @@
 import { useEffect } from "react";
 
-import { getStandardTime } from "common/utils/stringUtils";
-
-import { getTickValue } from "components/Chart";
+import { getDisplayValue } from "common/utils/stringUtils";
 
 type PayloadType = {
   value: string | number;
@@ -19,7 +17,6 @@ export type TooltipData = {
 interface TickTooltipProps {
   active?: boolean;
   coordinate?: { x: number; y: number };
-  marginValue?: number;
   onHover: ({ payload, x, y }: TooltipData) => void;
   payload?: PayloadType[];
   tooltipData: TooltipData;
@@ -29,7 +26,6 @@ interface TickTooltipProps {
 const TickTooltip = ({
   active,
   coordinate = { x: 0, y: 0 },
-  marginValue = 0,
   onHover,
   payload: payloads,
   tooltipData,
@@ -51,12 +47,9 @@ const TickTooltip = ({
   return (
     <div className="bg-surface-base/70 px-3 py-2 rounded-xl shadow-200 backdrop-blur-[7px]">
       {tooltipData.payload.map((payload: PayloadType) => (
-        <div key={payload.name} className="w-[74px]">
-          <div className="text-200 mb-1 text-text-primary/70">
-            {getStandardTime(payload.payload.time)}
-          </div>
+        <div key={payload.name}>
           <div className="text-heading-100 text-text-primary">
-            {`${getTickValue(+payload.value, marginValue)} ${unit}`}
+            {`${getDisplayValue(payload.value)} ${unit}`}
           </div>
         </div>
       ))}

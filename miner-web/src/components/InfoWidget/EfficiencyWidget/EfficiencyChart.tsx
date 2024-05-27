@@ -12,6 +12,7 @@ import {
   ChartWrapper,
   LineCursor,
   LineDot,
+  TimeXAxisTick,
   xAxisProps,
   yAxisProps,
 } from "components/Chart";
@@ -45,10 +46,15 @@ const EfficiencyChart = () => {
           verticalPoints={[42.5, 100, 150, 200, 250, 300, 350, 400, 450, 500]}
           horizontalPoints={[30, 70, 110, 150, 192.5]}
         />
-        <XAxis {...xAxisProps} />
-        <YAxis {...yAxisProps} padding={{ top: -5, bottom: 20 }} />
+        <XAxis
+          {...xAxisProps}
+          tick={
+            <TimeXAxisTick tooltipTime={tooltipData.payload[0]?.payload.time} />
+          }
+        />
+        <YAxis {...yAxisProps} padding={{ top: -5, bottom: 0 }} />
         <Tooltip
-          position={{ y: tooltipData.y - 33, x: tooltipData.x - 112 }}
+          position={{ y: tooltipData.y - 33, x: tooltipData.x - 100 }}
           content={
             <TickTooltip
               onHover={setTooltipData}
@@ -60,16 +66,16 @@ const EfficiencyChart = () => {
           isAnimationActive={false}
         />
         <Line
-          type="basis"
+          type="monotone"
           dataKey="value"
-          stroke="#90C300"
+          stroke="#38A600"
           strokeWidth={2.5}
           label={false}
           dot={false}
           strokeLinecap="round"
           strokeLinejoin="round"
           activeDot={
-            tooltipData.payload.length ? <LineDot color="#90C300" /> : <></>
+            tooltipData.payload.length ? <LineDot color="#38A600" /> : <></>
           }
         />
       </LineChart>
