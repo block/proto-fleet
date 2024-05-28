@@ -1,14 +1,19 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { api } from "./api";
 import { HashboardsInfoHashboardsinfo } from "./types";
+import { usePoll } from "./usePoll";
 
-const useHashboards = () => {
+interface UseHashboardsProps {
+  poll?: boolean;
+}
+
+const useHashboards = ({ poll }: UseHashboardsProps = {}) => {
   const [data, setData] = useState<HashboardsInfoHashboardsinfo[]>();
   const [error, setError] = useState();
   const [pending, setPending] = useState<boolean>(false);
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
     setPending(true);
     api.getAllHashboards()
       .then((res) => {
@@ -21,6 +26,8 @@ const useHashboards = () => {
         setPending(false);
       });
   }, []);
+
+  usePoll({ fetchData, poll });
 
   return {
     pending,

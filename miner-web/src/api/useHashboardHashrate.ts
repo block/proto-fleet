@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { api } from "./api";
 import { HashrateResponseHashratedata } from "./types";
+import { usePoll } from "./usePoll";
 
 interface UseHashboardHashrateProps {
   duration: HashrateResponseHashratedata["duration"];
@@ -34,13 +35,7 @@ const useHashboardHashrate = ({
       });
   }, [duration, hashboardSerial]);
 
-  useEffect(() => {
-    fetchData();
-    if (poll) {
-      const interval = setInterval(fetchData, 60000);
-      return () => clearInterval(interval);
-    }
-  }, [fetchData, poll]);
+  usePoll({ fetchData, poll });
 
   return {
     pending,

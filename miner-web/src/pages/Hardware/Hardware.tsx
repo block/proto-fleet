@@ -12,13 +12,12 @@ import AsicTable from "./Asic/AsicTable";
 
 const Hardware = () => {
   const [asicTemp, setAsicTemp] = useState<string>();
-  // TODO: figure out how frequently we should be re-fetching this data
   const { data: miningStatus, pending: pendingMiningStatus } =
-    useMiningStatus();
+    useMiningStatus({ poll: true });
   const { data: hashboardsInfo, pending: pendingHashboardsInfo } =
-    useHashboards();
+    useHashboards({ poll: true });
   const { data: coolingStatus, pending: pendingCoolingStatus } =
-    useCoolingStatus();
+    useCoolingStatus({ poll: true });
 
   useEffect(() => {
     if (miningStatus) {
@@ -36,28 +35,13 @@ const Hardware = () => {
       <div className="flex space-x-6 w-full phone:flex-col phone:space-x-0 phone:space-y-6">
         <AsicTempWidget asicTemp={asicTemp} loading={pendingMiningStatus} />
         <FanSpeedWidget
-          fanSpeeds={
-            coolingStatus?.fans
-              ? [
-                  ...coolingStatus.fans,
-                  // Remove these when we have real fan data
-                  { rpm: 3049 },
-                  { rpm: 6800 },
-                  { rpm: 6730 },
-                ]
-              : undefined
-          }
+          fanSpeeds={coolingStatus?.fans}
           loading={pendingCoolingStatus}
         />
       </div>
       {!pendingHashboardsInfo && hashboardsInfo?.length && (
         <Tabs>
-          {[
-            hashboardsInfo[0],
-            // TODO: remove these when real hashboards data is available
-            { hb_sn: "YWWLMMMMRRFS3024" },
-            { hb_sn: "YWWLMMMMRRFS3025" },
-          ].map((hashboardInfo, index) => (
+          {hashboardsInfo.map((hashboardInfo, index) => (
             <Tabs.Tab
               label={`Hashboard ${index + 1}`}
               key={hashboardInfo.hb_sn}
@@ -69,10 +53,14 @@ const Hardware = () => {
                 </div>
                 <div className="text-300 text-text-primary/50">
                   {/* TODO: get port number from API when available */}
-                  {hashboardInfo.port !== undefined ? `Connected to port ${hashboardInfo.port}` : null}
+                  {hashboardInfo.port !== undefined
+                    ? `Connected to port ${hashboardInfo.port}`
+                    : null}
                 </div>
               </Row>
-              {hashboardInfo.hb_sn && <AsicTable hashboardSerialNumber={hashboardInfo.hb_sn} />}
+              {hashboardInfo.hb_sn && (
+                <AsicTable hashboardSerialNumber={hashboardInfo.hb_sn} />
+              )}
             </Tabs.Tab>
           ))}
         </Tabs>

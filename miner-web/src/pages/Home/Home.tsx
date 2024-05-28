@@ -18,7 +18,7 @@ const Home = () => {
   const [asicTemp, setAsicTemp] = useState<string>();
   // TODO: figure out how frequently we should be re-fetching this data
   const { data: miningStatus, pending: pendingMiningStatus } =
-    useMiningStatus();
+    useMiningStatus({ poll: true });
   const { poolsInfo, poolsInfoStatus } = useContext(ApiContext);
 
   useEffect(() => {

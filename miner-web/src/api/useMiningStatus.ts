@@ -1,16 +1,22 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { api } from "./api";
 import { MiningStatusMiningstatus } from "./types";
+import { usePoll } from "./usePoll";
 
-const useMiningStatus = () => {
+interface UseMiningStatusProps {
+  poll?: boolean;
+}
+
+const useMiningStatus = ({ poll }: UseMiningStatusProps = {}) => {
   const [data, setData] = useState<MiningStatusMiningstatus>();
   const [error, setError] = useState();
   const [pending, setPending] = useState<boolean>(false);
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
     setPending(true);
-    api.getMiningStatus()
+    api
+      .getMiningStatus()
       .then((res) => {
         setData(res?.data["mining-status"]);
       })
@@ -21,6 +27,8 @@ const useMiningStatus = () => {
         setPending(false);
       });
   }, []);
+
+  usePoll({ fetchData, poll });
 
   return {
     pending,

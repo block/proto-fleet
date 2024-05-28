@@ -74,9 +74,9 @@ const Onboarding = () => {
     }
   }, []);
 
-  const onChangeFanMode = (fanMode: FanMode, isSelected: boolean) => {
+  const onChangeFanMode = (newFanMode: FanMode, isSelected: boolean) => {
     if (isSelected) {
-      setFanMode(fanMode);
+      setFanMode(newFanMode);
     }
   };
 
@@ -138,7 +138,7 @@ const Onboarding = () => {
                     </>
                   )}
                   {activeTab === tabs.cooling && (
-                    <Cooling onChange={onChangeFanMode} />
+                    <Cooling onChange={onChangeFanMode} mode={fanMode} />
                   )}
                 </div>
               </div>

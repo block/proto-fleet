@@ -1,4 +1,4 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 
 import ContentHeader from "components/ContentHeader";
 import SelectRowList, { selectTypes } from "components/SelectRowList";
@@ -17,11 +17,20 @@ const IconWrapper = ({ children }: IconWrapperProps) => {
 };
 
 interface CoolingProps {
+  mode?: string;
   onChange: (fanMode: FanMode, isSelected: boolean) => void;
 }
 
-const Cooling = ({ onChange }: CoolingProps) => {
-  const [fanMode, setFanMode] = useState<FanMode>(fanModes.auto);
+const Cooling = ({ mode, onChange }: CoolingProps) => {
+  const [fanMode, setFanMode] = useState<FanMode | undefined>(
+    mode && mode in fanModes ? (mode as FanMode) : undefined
+  );
+
+  useEffect(() => {
+    if (mode && mode in fanModes) {
+      setFanMode(mode as FanMode);
+    }
+  }, [mode]);
 
   const handleChange = (id: string, isSelected: boolean) => {
     if (isSelected) {
