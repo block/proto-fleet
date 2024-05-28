@@ -29,6 +29,7 @@
       "common/*": ["./src/common/*"],
       "components/*": ["./src/components/*"],
       "icons": ["./src/assets/icons"],
+      "icons/*": ["./src/assets/icons/*"],
       "pages/*": ["./src/pages/*"],
     }
   },

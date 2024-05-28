@@ -4,6 +4,7 @@ import Button, { sizes, variants } from "components/Button";
 import Row from "components/Row";
 
 import { ArrowRight } from "icons";
+import { iconSizes } from "icons/constants";
 
 import FanSpeedPieChart from "./FanSpeedPieChart";
 
@@ -47,7 +48,7 @@ const FanSpeedRow = ({
           size={sizes.compact}
           variant={variants.secondary}
           text="Repair instructions"
-          suffixIcon={<ArrowRight className="w-4" />}
+          suffixIcon={<ArrowRight className={iconSizes.small} />}
         />
       )}
     </Row>

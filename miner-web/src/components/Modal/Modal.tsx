@@ -2,6 +2,7 @@ import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { useClickOutside } from "common/hooks/useClickOutside";
+import { useKeyDown } from "common/hooks/useKeyDown";
 
 import { variants } from "components/Button";
 import { ButtonProps } from "components/ButtonGroup";
@@ -66,22 +67,7 @@ const Modal = ({
     [closeModal]
   );
 
-  const dismissOnEsc = useCallback(
-    (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        closeModal();
-      }
-    },
-    [closeModal]
-  );
-
-  useEffect(() => {
-    document.addEventListener("keydown", dismissOnEsc, false);
-
-    return () => {
-      document.removeEventListener("keydown", dismissOnEsc, false);
-    };
-  }, [dismissOnEsc]);
+  useKeyDown({ key: "Escape", onKeyDown: closeModal });
 
   const onClickOutside = useCallback(() => {
     closeModal();

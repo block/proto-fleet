@@ -1,6 +1,7 @@
+import { iconSizes } from "./constants";
 import { IconProps } from "./types";
 
-const ArrowRight = ({ className, width = "w-5" }: IconProps) => {
+const ArrowRight = ({ className, width = iconSizes.medium }: IconProps) => {
   return (
     <div className={width}>
       <svg
