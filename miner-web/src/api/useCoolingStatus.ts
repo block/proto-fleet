@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import { api } from "./api";
 import { CoolingStatusCoolingstatus } from "./types";
@@ -13,7 +13,7 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
   const [error, setError] = useState();
   const [pending, setPending] = useState<boolean>(false);
 
-  const fetchData = () => {
+  const fetchData = useCallback(() => {
     setPending(true);
     api
       .getCooling()
@@ -26,7 +26,7 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
       .finally(() => {
         setPending(false);
       });
-  };
+  }, []);
 
   usePoll({ fetchData, poll });
 
