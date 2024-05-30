@@ -32,3 +32,5 @@ export const getRandomFloat = (min: number, max: number, precision: number = 100
     (1 * precision)
   );
 };
+
+export const convertMhSToThS = (value: number = 0) => value / 1000000;

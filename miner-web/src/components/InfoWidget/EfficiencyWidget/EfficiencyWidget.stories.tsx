@@ -1,15 +1,19 @@
 import { ElementType } from "react";
 import { MemoryRouter } from "react-router-dom";
 
-import EfficiencyWidgetComponent from ".";
+import { getTimeFromEpoch } from "common/utils/stringUtils";
+
+import EfficiencyWidgetComponent, { mockEfficiencyData } from ".";
 
 interface EfficiencyWidgetProps {
+  avgEfficiency: number;
   efficiency: number;
   hasEfficiency: boolean;
   loading: boolean;
 }
 
 export const EfficiencyWidget = ({
+  avgEfficiency,
   efficiency,
   hasEfficiency,
   loading,
@@ -18,15 +22,13 @@ export const EfficiencyWidget = ({
     <div className="flex w-[294px]">
       <EfficiencyWidgetComponent
         efficiency={hasEfficiency ? efficiency : null}
+        avgEfficiency={hasEfficiency ? avgEfficiency : null}
         efficiencyValues={
           hasEfficiency && !loading
-            ? [
-                { value: 1 },
-                { value: 3 },
-                { value: 2 },
-                { value: 9 },
-                { value: 5 },
-              ]
+            ? mockEfficiencyData.data.map((data) => ({
+                time: getTimeFromEpoch(data.datetime),
+                value: data.value || 0,
+              }))
             : []
         }
         loading={loading}
@@ -38,11 +40,15 @@ export const EfficiencyWidget = ({
 export default {
   title: "Components/Info Widgets/Efficiency Widget",
   args: {
+    avgEfficiency: 10.5,
     efficiency: 15.50,
     hasEfficiency: true,
     loading: false,
   },
   argTypes: {
+    avgEfficiency: {
+      control: "number",
+    },
     efficiency: {
       control: "number",
     },

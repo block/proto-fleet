@@ -9,7 +9,7 @@ import PowerUsageModal from "./PowerUsageModal";
 
 interface PowerUsageWidgetProps {
   loading?: boolean;
-  powerUsage?: string | null;
+  powerUsage?: string | number | null;
 }
 
 const PowerUsageWidget = ({ loading, powerUsage }: PowerUsageWidgetProps) => {

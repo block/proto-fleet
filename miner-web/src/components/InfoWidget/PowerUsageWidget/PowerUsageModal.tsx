@@ -6,7 +6,7 @@ import PowerUsageChart from "./PowerUsageChart";
 
 interface PowerUsageModalProps {
   onDismiss: () => void;
-  powerUsage?: string | null;
+  powerUsage?: string | number | null;
 }
 
 const PowerUsageModal = ({ onDismiss, powerUsage }: PowerUsageModalProps) => (

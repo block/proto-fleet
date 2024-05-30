@@ -4,15 +4,14 @@ import {
   getDisplayValue,
   getTimeFromEpoch,
 } from "common/utils/stringUtils";
-
-const convertMhSToThS = (value: number = 0) => value / 1000000;
+import { convertMhSToThS } from "common/utils/utility";
 
 export const convertHashrateValues = (
   data: HashrateResponseHashratedata["data"]
 ) => {
   return data?.map((hashrate) => ({
     datetime: getTimeFromEpoch(hashrate.datetime),
-    value: +(getDisplayValue(convertMhSToThS(hashrate.value)) || 0),
+    value: convertMhSToThS(hashrate.value) || 0,
   }));
 };
 

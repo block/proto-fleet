@@ -1,5 +1,7 @@
 import { useEffect, useMemo } from "react";
 
+import { getDisplayValue } from "common/utils/stringUtils";
+
 import Divider from "components/Divider";
 
 import HashrateTooltipItem from "./HashrateTooltipItem";
@@ -63,7 +65,7 @@ const HashrateTooltip = ({
                   Total Hashrate
                 </div>
                 <div className="text-heading-100 text-text-primary">
-                  {payload.avgHashrate} TH/s
+                  {getDisplayValue(payload.avgHashrate)} TH/s
                 </div>
               </div>
             </div>
@@ -73,17 +75,17 @@ const HashrateTooltip = ({
             <HashrateTooltipItem
               colorClassName="bg-intent-info-fill"
               label="Hashboard 1"
-              value={payload.hashrate1}
+              value={getDisplayValue(payload.hashrate1)}
             />
             <HashrateTooltipItem
               colorClassName="bg-intent-success-fill"
               label="Hashboard 2"
-              value={payload.hashrate2}
+              value={getDisplayValue(payload.hashrate2)}
             />
             <HashrateTooltipItem
               colorClassName="bg-core-indigo"
               label="Hashboard 3"
-              value={payload.hashrate3}
+              value={getDisplayValue(payload.hashrate3)}
             />
           </div>
         </div>

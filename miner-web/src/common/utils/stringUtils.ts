@@ -7,8 +7,8 @@ export const getMacAddressDisplay = (value?: string) => {
   return value?.replace(/\./g, ":");
 };
 
-export const separateByCommas = (value: string) => {
-  const [integer, decimal] = value.split(".");
+export const separateByCommas = (value: string | number) => {
+  const [integer, decimal] = value.toString().split(".");
   const commaSeparatedInteger = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   if (decimal) {
     return `${commaSeparatedInteger}.${decimal}`;

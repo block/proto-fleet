@@ -75,7 +75,7 @@ const Hashrate = ({
     }
   }, [hashrate3Data]);
 
-  const currentValue = hashrates?.[hashrates.length - 1]?.value;
+  const currentValue = getDisplayValue(hashrates?.[hashrates.length - 1]?.value);
   const averageValue = getDisplayValue(aggregates?.avg);
   const lowestValue = getDisplayValue(aggregates?.min);
   const highestValue = getDisplayValue(aggregates?.max);

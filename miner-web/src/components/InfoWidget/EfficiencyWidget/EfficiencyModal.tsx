@@ -5,11 +5,18 @@ import Modal from "components/Modal";
 import EfficiencyChart from "./EfficiencyChart";
 
 interface PowerUsageModalProps {
+  avgEfficiency?: string | number | null;
   efficiency?: string | number | null;
+  efficiencyValues?: Record<string, number | string>[];
   onDismiss: () => void;
 }
 
-const EfficiencyModal = ({ efficiency, onDismiss }: PowerUsageModalProps) => (
+const EfficiencyModal = ({
+  avgEfficiency,
+  efficiency,
+  efficiencyValues,
+  onDismiss,
+}: PowerUsageModalProps) => (
   <Modal
     buttons={[
       {
@@ -21,15 +28,19 @@ const EfficiencyModal = ({ efficiency, onDismiss }: PowerUsageModalProps) => (
     onDismiss={onDismiss}
   >
     <div className="space-y-6">
-      <div>Miner efficiency tracks the relationship between power usage and hashrate.</div>
+      <div>
+        Miner efficiency tracks the relationship between power usage and
+        hashrate.
+      </div>
       <div className="flex">
-        {/* TODO: get average efficiency when API provides it */}
-        <InfoWidget title="Avg. efficiency" value="12.5 J/TH" />
-        <InfoWidget title="Current efficiency" value={efficiency} />
+        <InfoWidget title="Avg. efficiency" value={avgEfficiency && `${avgEfficiency} J/TH`} />
+        <InfoWidget title="Current efficiency" value={efficiency && `${efficiency} J/TH`} />
       </div>
-      <div className="w-[600px] phone:w-[352px] h-[228px]">
-        <EfficiencyChart />
-      </div>
+      {efficiencyValues && (
+        <div className="w-[600px] phone:w-[352px] h-[228px]">
+          <EfficiencyChart efficiencies={efficiencyValues} />
+        </div>
+      )}
     </div>
   </Modal>
 );

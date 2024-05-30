@@ -1,7 +1,7 @@
 import { LineChart, Line as RechartsLine } from "recharts";
 
 interface LineProps {
-  data: Record<"value", number>[];
+  data: Record<string, number | string>[];
 }
 
 const Line = ({ data }: LineProps) => {

@@ -20,8 +20,8 @@ describe("convertHashrateValues", () => {
     const result = convertHashrateValues(data) || [];
     expect(result[0].datetime).toMatch(expectedTimestamp);
     expect(result[1].datetime).toMatch(expectedTimestamp);
-    expect(result[0].value).toEqual(4.07);
-    expect(result[1].value).toEqual(2.1);
+    expect(result[0].value).toEqual(4.06907);
+    expect(result[1].value).toEqual(2.103689);
   });
 });
 
