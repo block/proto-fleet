@@ -34,3 +34,5 @@ export const getRandomFloat = (min: number, max: number, precision: number = 100
 };
 
 export const convertMhSToThS = (value: number = 0) => value / 1000000;
+
+export const convertWtoKW = (value: number = 0) => value / 1000;

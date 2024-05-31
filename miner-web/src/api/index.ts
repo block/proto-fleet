@@ -10,6 +10,7 @@ import { useHashrate } from "./useHashrate";
 import { useMiningStatus } from "./useMiningStatus";
 import { useNetworkInfo } from "./useNetworkInfo";
 import { usePoolsInfo } from "./usePoolsInfo";
+import { usePower } from "./usePower";
 import { TestConnectionProps, useTestConnection } from "./useTestConnection";
 
 export {
@@ -26,6 +27,7 @@ export {
   useMiningStatus,
   useNetworkInfo,
   usePoolsInfo,
+  usePower,
   useTestConnection,
   type TestConnectionProps,
 };

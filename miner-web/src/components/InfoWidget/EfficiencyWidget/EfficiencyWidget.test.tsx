@@ -1,31 +1,30 @@
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 
-import { getTimeFromEpoch } from "common/utils/stringUtils";
+import { getDisplayValue } from "common/utils/stringUtils";
 
+import { convertEfficiencyValues } from "./utility";
 import EfficiencyWidget, { mockEfficiencyData } from ".";
 
-describe("PowerUsageWidget", () => {
-  const avgEfficiency = "10.33";
-  const efficiency = "15.50";
+describe("EfficiencyWidget", () => {
+  const avgEfficiency = getDisplayValue(mockEfficiencyData.aggregates.avg);
+  const efficiency = getDisplayValue(
+    mockEfficiencyData.data[mockEfficiencyData.data.length - 1].value
+  );
   const avgEfficiencyDisplay = `${avgEfficiency} J/TH`;
   const efficiencyDisplay = `${efficiency} J/TH`;
-  const efficiencyValues = mockEfficiencyData.data.map((data) => ({
-    time: getTimeFromEpoch(data.datetime),
-    value: data.value || 0,
-  }));
+  const efficiencyValues = convertEfficiencyValues(mockEfficiencyData.data);
 
   test("renders the widget in loading state", () => {
     const { getByTestId, queryByTestId, queryByText } = render(
       <EfficiencyWidget
         loading
         avgEfficiency={avgEfficiency}
-        efficiency={efficiency}
         efficiencyValues={efficiencyValues}
       />
     );
     expect(getByTestId("skeleton-bar")).toBeInTheDocument();
-    expect(getByTestId("line")).toBeInTheDocument();
+    expect(queryByTestId("line")).not.toBeInTheDocument();
     expect(queryByText(efficiencyDisplay)).not.toBeInTheDocument();
     expect(queryByTestId("empty-value")).not.toBeInTheDocument();
   });
@@ -44,7 +43,6 @@ describe("PowerUsageWidget", () => {
     const { getByTestId, getByText, queryByTestId } = render(
       <EfficiencyWidget
         avgEfficiency={avgEfficiency}
-        efficiency={efficiency}
         efficiencyValues={efficiencyValues}
       />
     );
@@ -59,7 +57,6 @@ describe("PowerUsageWidget", () => {
       <EfficiencyWidget
         loading
         avgEfficiency={avgEfficiency}
-        efficiency={efficiency}
         efficiencyValues={efficiencyValues}
       />
     );
@@ -82,7 +79,6 @@ describe("PowerUsageWidget", () => {
     const { getByTestId } = render(
       <EfficiencyWidget
         avgEfficiency={avgEfficiency}
-        efficiency={efficiency}
         efficiencyValues={efficiencyValues}
       />
     );

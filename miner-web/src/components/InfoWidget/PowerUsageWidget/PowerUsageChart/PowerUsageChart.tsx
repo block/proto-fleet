@@ -9,23 +9,24 @@ import {
 } from "components/Chart";
 
 import TickTooltip, { TooltipData } from "../../common/TickTooltip";
-import { chartData } from "./constants";
 import PowerUsageBar from "./PowerUsageBar";
 
-const PowerUsageChart = () => {
+interface PowerUsageChartProps {
+  powers: Record<string, number | string>[];
+  maxPower: number;
+}
+
+const PowerUsageChart = ({ maxPower, powers }: PowerUsageChartProps) => {
   const [tooltipData, setTooltipData] = useState<TooltipData>({
     x: 0,
     y: 0,
     payload: [],
   });
 
-  // TODO: get chart data from API when available
-  const maxValue = Math.max(...chartData.map((data) => data.value));
-
   return (
     <ChartWrapper>
       <BarChart
-        data={chartData}
+        data={powers}
         margin={{
           top: 16,
           right: 0,
@@ -43,7 +44,7 @@ const PowerUsageChart = () => {
           {...yAxisProps}
           scale="linear"
           tickMargin={6}
-          domain={[0, maxValue + 1]}
+          domain={[0, maxPower + 1]}
           padding={{ top: -5, bottom: 5 }}
         />
         <Tooltip

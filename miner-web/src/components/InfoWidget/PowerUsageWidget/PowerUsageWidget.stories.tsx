@@ -1,23 +1,29 @@
 import { ElementType } from "react";
 import { MemoryRouter } from "react-router-dom";
 
-import PowerUsageWidgetComponent from ".";
+import { convertAggregatePowerValues, convertPowerValues } from "./utility";
+import PowerUsageWidgetComponent, { mockPowerData } from ".";
 
 interface PowerUsageWidgetProps {
   hasPowerUsage: boolean;
   loading: boolean;
-  powerUsage: string;
 }
 
 export const PowerUsageWidget = ({
   hasPowerUsage,
   loading,
-  powerUsage,
 }: PowerUsageWidgetProps) => {
   return (
     <div className="flex w-[294px]">
       <PowerUsageWidgetComponent
-        powerUsage={hasPowerUsage ? powerUsage : null}
+        powerAggregates={
+          hasPowerUsage
+            ? convertAggregatePowerValues(mockPowerData.aggregates)
+            : {}
+        }
+        powerValues={
+          hasPowerUsage ? convertPowerValues(mockPowerData.data) : []
+        }
         loading={loading}
       />
     </div>
@@ -29,7 +35,6 @@ export default {
   args: {
     hasPowerUsage: true,
     loading: false,
-    powerUsage: 3.1,
   },
   argTypes: {
     hasPowerUsage: {
@@ -37,9 +42,6 @@ export default {
     },
     loading: {
       control: "boolean",
-    },
-    powerUsage: {
-      control: "number",
     },
   },
   decorators: [

@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+import { Aggregates } from "apiTypes";
 
 import { getDisplayValue } from "common/utils/stringUtils";
 
@@ -9,26 +11,34 @@ import PowerUsageModal from "./PowerUsageModal";
 
 interface PowerUsageWidgetProps {
   loading?: boolean;
-  powerUsage?: string | number | null;
+  powerAggregates?: Aggregates;
+  powerValues?: Record<string, number | string>[];
 }
 
-const PowerUsageWidget = ({ loading, powerUsage }: PowerUsageWidgetProps) => {
+const PowerUsageWidget = ({
+  loading,
+  powerAggregates,
+  powerValues,
+}: PowerUsageWidgetProps) => {
+  const [powerUsage, setPowerUsage] = useState<string | number>();
   const [showModal, setShowModal] = useState(false);
-  // TODO: calculate intensity based on the actual data when API returns max value
-  const max = 10;
 
-  const intensity = useMemo(() => getIntensity(powerUsage, max), [powerUsage]);
+  const max = useMemo(() => powerAggregates?.max || 0, [powerAggregates]);
 
-  const displayPowerUsage = useMemo(
-    () => powerUsage && `${getDisplayValue(powerUsage)} kW`,
-    [powerUsage]
+  const intensity = useMemo(
+    () => getIntensity(powerUsage, max),
+    [powerUsage, max]
   );
+
+  useEffect(() => {
+    setPowerUsage(powerValues?.[powerValues.length - 1]?.value);
+  }, [powerValues]);
 
   return (
     <>
       <InfoWidget
         title="Power usage"
-        value={displayPowerUsage}
+        value={powerUsage && `${getDisplayValue(powerUsage)} kW`}
         loading={loading}
         hasBorder
         stats={<Bar intensity={loading ? 0 : intensity} />}
@@ -37,7 +47,9 @@ const PowerUsageWidget = ({ loading, powerUsage }: PowerUsageWidgetProps) => {
       {showModal && (
         <PowerUsageModal
           onDismiss={() => setShowModal(false)}
-          powerUsage={displayPowerUsage}
+          powerUsage={powerUsage}
+          powerAggregates={powerAggregates}
+          powerValues={powerValues}
         />
       )}
     </>

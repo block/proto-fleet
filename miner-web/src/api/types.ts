@@ -203,6 +203,11 @@ export interface HashboardsInfoHashboardsinfo {
   bootloader?: FWInfo;
   /** @example "ABC123" */
   chip_id?: string;
+  /**
+   * The absolute path where EC logs are stored.
+   * @example "/var/log/ec_logs"
+   */
+  ec_logs_path?: string;
   firmware?: FWInfo;
   /**
    * Hashboard serial number.
@@ -381,8 +386,8 @@ export interface OSInfo {
   /** @example "BTCM Linux Distribution" */
   name?: string;
   status?: OSStatus;
-  /** @example "rel" */
-  variant?: "rel" | "mfg" | "dev";
+  /** @example "release" */
+  variant?: "release" | "mfg" | "dev" | "unknown";
   /** @example "1.0.1" */
   version?: string;
 }
@@ -615,8 +620,6 @@ export interface PowerResponsePowerdata {
 }
 
 export interface SWInfo {
-  /** @example "1213423223" */
-  commit_hash?: string;
   /** @example "Cgminer" */
   name?: string;
   /** @example "1.0" */
@@ -642,15 +645,18 @@ export interface SystemInfo {
 
 export interface SystemInfoSysteminfo {
   /** @example "c1-mp157" */
-  board?: "stm32mp157d-dk1" | "stm32mp157f-dk2" | "c1-mp157" | "c1-mp151" | "c1-mp131";
+  board?: "stm32mp157d-dk1" | "stm32mp157f-dk2" | "c1-p0" | "c1-evt" | "unknown";
   /** @example "YWWLMMMMRRFSSSSS" */
   cb_sn?: string;
   mining_driver_sw?: SWInfo;
   os?: OSInfo;
   pool_interface_sw?: SWInfo;
   /** @example "STM32MP157F" */
-  soc?: "STM32MP157F" | "STM32MP157D" | "STM32MP151F" | "STM32MP131F";
-  /** @example 300 */
+  soc?: "STM32MP157F" | "STM32MP157D" | "STM32MP151F" | "STM32MP131F" | "unknown";
+  /**
+   * @format int64
+   * @example 300
+   */
   uptime_seconds?: number;
   web_server?: SWInfo;
 }
@@ -1611,7 +1617,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
          * @default "miner_sw"
          * @example "miner_sw"
          */
-        source?: "os" | "pool_sw" | "miner_sw";
+        source?: "os" | "pool_sw" | "miner_sw" | "miner_web_server";
       },
       params: RequestParams = {},
     ) =>
