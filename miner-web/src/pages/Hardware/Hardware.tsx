@@ -1,39 +1,69 @@
 import { useEffect, useState } from "react";
 
-import { useCoolingStatus, useHashboards, useMiningStatus } from "api";
+import { useCoolingStatus, useHashboards, useTemperature } from "api";
 
-import DurationSelector from "components/DurationSelector";
-import AsicTempWidget from "components/InfoWidget/AsicTempWidget";
+import DurationSelector, {
+  Duration,
+  durations,
+} from "components/DurationSelector";
 import FanSpeedWidget from "components/InfoWidget/FanSpeedWidget";
+import TempWidget, {
+  mockTemperatureData,
+} from "components/InfoWidget/TempWidget";
 import Row from "components/Row";
 import Tabs from "components/Tab";
 
 import AsicTable from "./Asic/AsicTable";
 
 const Hardware = () => {
-  const [asicTemp, setAsicTemp] = useState<string>();
-  const { data: miningStatus, pending: pendingMiningStatus } =
-    useMiningStatus({ poll: true });
+  const [duration, setDuration] = useState<Duration>(durations[0]);
+  const [temp, setTemp] = useState<number>();
+  const [highestTemp, setHighestTemp] = useState<number>();
+  const [hashboardSerials, setHashboardSerials] = useState<string[]>();
+  const { data: tempData, pending: pendingTempData } = useTemperature({
+    duration,
+    poll: true,
+  });
   const { data: hashboardsInfo, pending: pendingHashboardsInfo } =
     useHashboards({ poll: true });
   const { data: coolingStatus, pending: pendingCoolingStatus } =
     useCoolingStatus({ poll: true });
 
   useEffect(() => {
-    if (miningStatus) {
-      setAsicTemp(miningStatus.average_temp_c?.toFixed(2));
+    if (hashboardsInfo) {
+      setHashboardSerials(
+        hashboardsInfo
+          ?.map((hashboardInfo) => hashboardInfo.hb_sn)
+          .filter(Boolean) as string[]
+      );
     }
-  }, [miningStatus]);
+  }, [hashboardsInfo]);
+
+  useEffect(() => {
+    if (tempData && tempData.data?.length) {
+      // TODO: remove else when mocks moved to swagger
+      const apiData = tempData.data[0].datetime
+        ? tempData
+        : mockTemperatureData;
+      setHighestTemp(apiData.aggregates?.max);
+      setTemp(apiData.data?.[apiData.data.length - 1].value);
+    }
+  }, [tempData]);
 
   return (
     <div className="flex flex-col space-y-6">
       <div className="flex items-center">
         <div className="text-heading-300 grow">Hardware</div>
-        <DurationSelector className="h-fit" />
+        <DurationSelector className="h-fit" onSelect={setDuration} />
       </div>
 
       <div className="flex space-x-6 w-full phone:flex-col phone:space-x-0 phone:space-y-6">
-        <AsicTempWidget asicTemp={asicTemp} loading={pendingMiningStatus} />
+        <TempWidget
+          temp={temp}
+          hashboardSerials={hashboardSerials}
+          highestTemp={highestTemp}
+          loading={pendingTempData}
+        />
         <FanSpeedWidget
           fanSpeeds={coolingStatus?.fans}
           loading={pendingCoolingStatus}

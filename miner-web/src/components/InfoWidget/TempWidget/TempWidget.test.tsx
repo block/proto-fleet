@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import { getDisplayValue } from "common/utils/stringUtils";
 
-import AsicTempWidget from ".";
+import TempWidget, { mockTemperatureData } from ".";
 
 vi.mock("react-router-dom", () => ({
   ...vi.importActual("react-router-dom"),
@@ -12,65 +12,92 @@ vi.mock("react-router-dom", () => ({
   }),
 }));
 
-describe("AsicTempWidget", () => {
-  const asicTemp = "1300";
-  const asicTempDisplay = `${getDisplayValue(asicTemp)}°c`;
+describe("TempWidget", () => {
+  const temp =
+    mockTemperatureData.data[mockTemperatureData.data.length - 1].value;
+  const highestTemp = mockTemperatureData.aggregates?.max;
+  const hashboardSerials = ["1", "2", "3"];
+  const tempDisplay = `${getDisplayValue(temp)}°c`;
 
   test("renders the widget in loading state", () => {
     const { getByTestId, queryByTestId, queryByText } = render(
-      <AsicTempWidget loading asicTemp={asicTemp} />
+      <TempWidget
+        loading
+        temp={temp}
+        duration="12h"
+        highestTemp={highestTemp}
+        hashboardSerials={hashboardSerials}
+      />
     );
     expect(getByTestId("skeleton-bar")).toBeInTheDocument();
     expect(getByTestId("bar")).toBeInTheDocument();
-    expect(queryByText(asicTempDisplay)).not.toBeInTheDocument();
+    expect(queryByText(tempDisplay)).not.toBeInTheDocument();
     expect(queryByTestId("empty-value")).not.toBeInTheDocument();
   });
 
   test("renders the widget in empty state", () => {
     const { getByTestId, queryByTestId, queryByText } = render(
-      <AsicTempWidget />
+      <TempWidget />
     );
     expect(queryByTestId("skeleton-bar")).not.toBeInTheDocument();
     expect(getByTestId("bar")).toBeInTheDocument();
-    expect(queryByText(asicTempDisplay)).not.toBeInTheDocument();
+    expect(queryByText(tempDisplay)).not.toBeInTheDocument();
     expect(getByTestId("empty-value")).toBeInTheDocument();
   });
 
   test("renders the widget with value", () => {
     const { getByTestId, getByText, queryByTestId } = render(
-      <AsicTempWidget asicTemp={asicTemp} />
+      <TempWidget
+        temp={temp}
+        duration="12h"
+        highestTemp={highestTemp}
+        hashboardSerials={hashboardSerials}
+      />
     );
     expect(queryByTestId("skeleton-bar")).not.toBeInTheDocument();
     expect(getByTestId("bar")).toBeInTheDocument();
-    expect(getByText(asicTempDisplay)).toBeInTheDocument();
+    expect(getByText(tempDisplay)).toBeInTheDocument();
     expect(queryByTestId("empty-value")).not.toBeInTheDocument();
   });
 
   test("does not open the modal if loading", () => {
     const { getByTestId, queryByTestId } = render(
-      <AsicTempWidget loading asicTemp={asicTemp} />
+      <TempWidget
+        loading
+        temp={temp}
+        duration="12h"
+        highestTemp={highestTemp}
+        hashboardSerials={hashboardSerials}
+      />
     );
     fireEvent.click(getByTestId("info-widget"));
     expect(queryByTestId("modal")).not.toBeInTheDocument();
   });
 
   test("opens the modal if empty", () => {
-    const { getByTestId } = render(<AsicTempWidget />);
+    const { getByTestId } = render(<TempWidget hashboardSerials={hashboardSerials} />);
     fireEvent.click(getByTestId("info-widget"));
     const modal = getByTestId("modal");
     expect(modal).toBeInTheDocument();
 
     const { queryByText } = within(modal);
-    expect(queryByText(asicTempDisplay)).not.toBeInTheDocument();
+    expect(queryByText(tempDisplay)).not.toBeInTheDocument();
   });
 
   test("opens the modal with value", () => {
-    const { getByTestId } = render(<AsicTempWidget asicTemp={asicTemp} />);
+    const { getByTestId } = render(
+      <TempWidget
+        temp={temp}
+        duration="12h"
+        highestTemp={highestTemp}
+        hashboardSerials={hashboardSerials}
+      />
+    );
     fireEvent.click(getByTestId("info-widget"));
     const modal = getByTestId("modal");
     expect(modal).toBeInTheDocument();
 
-    const { getByText } = within(modal);
-    expect(getByText(asicTempDisplay)).toBeInTheDocument();
+    const { getAllByText } = within(modal);
+    expect(getAllByText(tempDisplay)).toHaveLength(2);
   });
 });

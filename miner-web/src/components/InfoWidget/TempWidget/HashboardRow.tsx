@@ -6,7 +6,7 @@ interface HashboardRowProps {
   className?: string;
   divider?: boolean;
   label: string;
-  secondaryLabel: string;
+  secondaryLabel?: string;
   warn?: boolean;
 }
 

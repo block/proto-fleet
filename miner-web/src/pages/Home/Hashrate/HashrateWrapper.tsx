@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { useHashboards, useHashrate } from "api";
+import { useHashrate } from "api";
 import { HashrateResponseHashratedata } from "apiTypes";
 
 import { mockHashrateData } from "./constants";
@@ -10,11 +10,11 @@ import { convertAggregateValues, convertHashrateValues } from "./utility";
 
 interface HashrateProps {
   duration: HashrateResponseHashratedata["duration"];
+  hashboardSerials?: string[];
 }
 
-const HashrateWrapper = ({ duration }: HashrateProps) => {
+const HashrateWrapper = ({ duration, hashboardSerials }: HashrateProps) => {
   const { data: hashrateData } = useHashrate({ duration, poll: true });
-  const { data: hashboardsInfo } = useHashboards();
   const [aggregates, setAggregates] = useState<
     HashrateResponseHashratedata["aggregates"]
   >({});
@@ -33,16 +33,12 @@ const HashrateWrapper = ({ duration }: HashrateProps) => {
 
   return (
     <>
-      {hashboardsInfo ? (
+      {hashboardSerials ? (
         <Hashrate
           aggregates={aggregates}
           duration={duration}
           hashrates={hashrates}
-          hashboardSerials={
-            hashboardsInfo
-              ?.map((hashboards) => hashboards.hb_sn)
-              .filter(Boolean) as string[]
-          }
+          hashboardSerials={hashboardSerials}
         />
       ) : null}
     </>

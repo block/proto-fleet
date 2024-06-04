@@ -23,11 +23,9 @@ const PowerUsageWidget = ({
   const [powerUsage, setPowerUsage] = useState<string | number>();
   const [showModal, setShowModal] = useState(false);
 
-  const max = useMemo(() => powerAggregates?.max || 0, [powerAggregates]);
-
   const intensity = useMemo(
-    () => getIntensity(powerUsage, max),
-    [powerUsage, max]
+    () => getIntensity(powerUsage, 10),
+    [powerUsage]
   );
 
   useEffect(() => {

@@ -1,6 +1,12 @@
 import { useContext, useEffect, useMemo, useState } from "react";
 
-import { ApiContext, useEfficiency, useMiningStatus, usePower } from "api";
+import {
+  ApiContext,
+  useEfficiency,
+  useHashboards,
+  usePower,
+  useTemperature,
+} from "api";
 import { Aggregates } from "apiTypes";
 
 import { getDisplayValue } from "common/utils/stringUtils";
@@ -10,7 +16,6 @@ import DurationSelector, {
   Duration,
   durations,
 } from "components/DurationSelector";
-import AsicTempWidget from "components/InfoWidget/AsicTempWidget";
 import EfficiencyWidget, {
   mockEfficiencyData,
 } from "components/InfoWidget/EfficiencyWidget";
@@ -22,6 +27,7 @@ import {
   convertAggregatePowerValues,
   convertPowerValues,
 } from "components/InfoWidget/PowerUsageWidget/utility";
+import TempWidget, { mockTemperatureData } from "components/InfoWidget/TempWidget";
 
 import Hashrate from "./Hashrate";
 import NoPoolsCallout from "./NoPoolsCallout";
@@ -34,10 +40,11 @@ const Home = () => {
   const [historicalPower, setHistoricalPower] =
     useState<{ time: string; value: string | number }[]>();
   const [powerAggregates, setPowerAggregates] = useState<Aggregates>();
-  const [asicTemp, setAsicTemp] = useState<string | number>();
-  const { data: miningStatus, pending: pendingMiningStatus } = useMiningStatus({
-    poll: true,
-  });
+  const [temp, setTemp] = useState<number>();
+  const [highestTemp, setHighestTemp] = useState<number>();
+  const [hashboardSerials, setHashboardSerials] = useState<string[]>();
+  const { data: hashboardsInfo, pending: pendingHashboardsInfo } =
+    useHashboards();
   const { data: efficiencyData, pending: pendingEfficiency } = useEfficiency({
     duration,
     poll: true,
@@ -46,13 +53,21 @@ const Home = () => {
     duration,
     poll: true,
   });
+  const { data: tempData, pending: pendingTempData } = useTemperature({
+    duration,
+    poll: true,
+  });
   const { poolsInfo, poolsInfoStatus } = useContext(ApiContext);
 
   useEffect(() => {
-    if (miningStatus?.average_temp_c) {
-      setAsicTemp(getDisplayValue(miningStatus.average_temp_c));
+    if (hashboardsInfo) {
+      setHashboardSerials(
+        hashboardsInfo
+          ?.map((hashboardInfo) => hashboardInfo.hb_sn)
+          .filter(Boolean) as string[]
+      );
     }
-  }, [miningStatus]);
+  }, [hashboardsInfo]);
 
   useEffect(() => {
     if (efficiencyData && efficiencyData.data?.length) {
@@ -73,6 +88,15 @@ const Home = () => {
       setPowerAggregates(convertAggregatePowerValues(apiData.aggregates));
     }
   }, [powerData]);
+
+  useEffect(() => {
+    if (tempData && tempData.data?.length) {
+      // TODO: remove else when mocks moved to swagger
+      const apiData = tempData.data[0].datetime ? tempData : mockTemperatureData;
+      setHighestTemp(apiData.aggregates?.max);
+      setTemp(apiData.data?.[apiData.data.length - 1].value);
+    }
+  }, [tempData]);
 
   const noPoolsLive = useMemo(() => {
     return (
@@ -103,12 +127,18 @@ const Home = () => {
             powerValues={historicalPower}
             loading={pendingPower}
           />
-          <AsicTempWidget asicTemp={asicTemp} loading={pendingMiningStatus} />
+          <TempWidget
+            temp={temp}
+            highestTemp={highestTemp}
+            duration={duration}
+            hashboardSerials={hashboardSerials}
+            loading={pendingTempData || pendingHashboardsInfo}
+          />
         </div>
 
         <Divider />
 
-        <Hashrate duration={duration} />
+        <Hashrate duration={duration} hashboardSerials={hashboardSerials} />
       </div>
     </>
   );

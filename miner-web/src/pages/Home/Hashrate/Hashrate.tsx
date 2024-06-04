@@ -53,7 +53,7 @@ const Hashrate = ({
         : mockHashrateData1;
       setHashrate1(convertHashrateValues(apiData.data));
     }
-  }, [hashrate1Data, hashboardSerials]);
+  }, [hashrate1Data]);
 
   useEffect(() => {
     if (hashrate2Data?.data && hashrate2Data.data.length) {
