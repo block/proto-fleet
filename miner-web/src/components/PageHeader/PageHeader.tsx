@@ -3,7 +3,7 @@ import { useWindowDimensions } from "common/hooks/useWindowDimensions";
 import { Pause } from "icons";
 
 import PoolStatus from "./PoolStatus";
-import Warning from "./Warning";
+// import Warning from "./Warning";
 
 interface PageHeaderProps {
   openMenu?: () => void;
@@ -23,11 +23,11 @@ const PageHeader = ({ openMenu, title }: PageHeaderProps) => {
         )}
         <div className="text-300 text-text-primary/70">{title}</div>
       </div>
-      {/* TODO: add errors & warnings from API when available */}
       <div className="flex space-x-3">
         <PoolStatus />
-        <Warning errorCount={47} errorType="asic" state="critical" />
-        <Warning errorCount={12} errorType="fan" state="warning" />
+        {/* TODO: add errors & warnings from API when available */}
+        {/* <Warning errorCount={47} errorType="asic" state="critical" />
+        <Warning errorCount={12} errorType="fan" state="warning" /> */}
       </div>
     </div>
   );

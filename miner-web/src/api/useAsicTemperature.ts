@@ -4,27 +4,29 @@ import { api } from "./api";
 import { Error, TemperatureResponseTemperaturedata } from "./types";
 import { usePoll } from "./usePoll";
 
-interface UseHashboardTemperatureProps {
+interface UseAsicTemperatureProps {
+  asicID?: number;
   duration: TemperatureResponseTemperaturedata["duration"];
   hashboardSerial?: string;
   poll?: boolean;
 }
 
-const useHashboardTemperature = ({
+const useAsicTemperature = ({
+  asicID,
   duration,
   hashboardSerial,
   poll,
-}: UseHashboardTemperatureProps) => {
+}: UseAsicTemperatureProps) => {
   const [data, setData] = useState<TemperatureResponseTemperaturedata>();
   const [error, setError] = useState<Error>();
   const [pending, setPending] = useState<boolean>(false);
 
   const fetchData = useCallback(() => {
-    if (!hashboardSerial) return;
+    if (!hashboardSerial || asicID === undefined) return;
 
     setPending(true);
     api
-      .getHashboardTemperature(hashboardSerial, { duration })
+      .getAsicTemperature(hashboardSerial, asicID, { duration })
       .then((res) => {
         setData(res?.data["temperature-data"]);
       })
@@ -34,7 +36,7 @@ const useHashboardTemperature = ({
       .finally(() => {
         setPending(false);
       });
-  }, [duration, hashboardSerial]);
+  }, [duration, hashboardSerial, asicID]);
 
   usePoll({ fetchData, poll });
 
@@ -45,4 +47,4 @@ const useHashboardTemperature = ({
   };
 };
 
-export { useHashboardTemperature };
+export { useAsicTemperature };

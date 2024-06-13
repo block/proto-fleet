@@ -1,4 +1,6 @@
 import { api, ApiContext } from "./api";
+import { useAsicHashrate } from "./useAsicHashrate";
+import { useAsicTemperature } from "./useAsicTemperature";
 import { useCoolingMode } from "./useCoolingMode";
 import { useCoolingStatus } from "./useCoolingStatus";
 import { useCreatePool } from "./useCreatePool";
@@ -18,6 +20,8 @@ import { TestConnectionProps, useTestConnection } from "./useTestConnection";
 export {
   api,
   ApiContext,
+  useAsicHashrate,
+  useAsicTemperature,
   useCoolingMode,
   useCoolingStatus,
   useCreatePool,

@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { api } from "./api";
-import { CoolingStatusCoolingstatus } from "./types";
+import { CoolingStatusCoolingstatus, Error } from "./types";
 import { usePoll } from "./usePoll";
 
 interface UseCoolingStatusProps {
@@ -10,7 +10,7 @@ interface UseCoolingStatusProps {
 
 const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
   const [data, setData] = useState<CoolingStatusCoolingstatus>();
-  const [error, setError] = useState();
+  const [error, setError] = useState<Error>();
   const [pending, setPending] = useState<boolean>(false);
 
   const fetchData = useCallback(() => {
@@ -21,7 +21,7 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
         setData(res?.data["cooling-status"]);
       })
       .catch((err) => {
-        setError(err?.error);
+        setError(err?.error || { message: err });
       })
       .finally(() => {
         setPending(false);

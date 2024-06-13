@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { api } from "./api";
-import { HashboardsInfoHashboardsinfo } from "./types";
+import { Error, HashboardsInfoHashboardsinfo } from "./types";
 import { usePoll } from "./usePoll";
 
 interface UseHashboardsProps {
@@ -10,7 +10,7 @@ interface UseHashboardsProps {
 
 const useHashboards = ({ poll }: UseHashboardsProps = {}) => {
   const [data, setData] = useState<HashboardsInfoHashboardsinfo[]>();
-  const [error, setError] = useState();
+  const [error, setError] = useState<Error>();
   const [pending, setPending] = useState<boolean>(false);
 
   const fetchData = useCallback(() => {
@@ -20,7 +20,7 @@ const useHashboards = ({ poll }: UseHashboardsProps = {}) => {
         setData(res?.data["hashboards-info"]);
       })
       .catch((err) => {
-        setError(err?.error);
+        setError(err?.error || { message: err });
       })
       .finally(() => {
         setPending(false);

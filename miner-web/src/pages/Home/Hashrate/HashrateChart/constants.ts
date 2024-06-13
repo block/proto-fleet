@@ -35,8 +35,7 @@ export const getChartData = ({
       hashrate1: hashrate1Value,
       hashrate2: hashrate2Value,
       hashrate3: hashrate3Value,
-      // cut off seconds when displaying timestamp
-      time: hashrate.datetime.slice(0, 5),
+      time: hashrate.datetime,
     };
   });
 

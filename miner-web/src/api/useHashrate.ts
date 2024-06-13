@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { api } from "./api";
-import { HashrateResponseHashratedata } from "./types";
+import { Error, HashrateResponseHashratedata } from "./types";
 import { usePoll } from "./usePoll";
 
 interface UseHashrateProps {
@@ -11,7 +11,7 @@ interface UseHashrateProps {
 
 const useHashrate = ({ duration, poll }: UseHashrateProps) => {
   const [data, setData] = useState<HashrateResponseHashratedata>();
-  const [error, setError] = useState();
+  const [error, setError] = useState<Error>();
   const [pending, setPending] = useState<boolean>(false);
 
   const fetchData = useCallback(() => {
@@ -22,7 +22,7 @@ const useHashrate = ({ duration, poll }: UseHashrateProps) => {
         setData(res?.data["hashrate-data"]);
       })
       .catch((err) => {
-        setError(err?.error);
+        setError(err?.error || { message: err });
       })
       .finally(() => {
         setPending(false);

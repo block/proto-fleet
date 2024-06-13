@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 
 import { api } from "./api";
-import { HashboardStatsHashboardstats } from "./types";
+import { Error, HashboardStatsHashboardstats } from "./types";
 
 const useHashboardStats = (hashboardSerialNumber: string) => {
   const [data, setData] = useState<HashboardStatsHashboardstats>();
-  const [error, setError] = useState();
+  const [error, setError] = useState<Error>();
   const [pending, setPending] = useState<boolean>(false);
 
   useEffect(() => {
@@ -15,7 +15,7 @@ const useHashboardStats = (hashboardSerialNumber: string) => {
         setData(res?.data["hashboard-stats"]);
       })
       .catch((err) => {
-        setError(err?.error);
+        setError(err?.error || { message: err });
       })
       .finally(() => {
         setPending(false);

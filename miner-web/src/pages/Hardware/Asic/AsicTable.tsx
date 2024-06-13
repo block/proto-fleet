@@ -1,23 +1,26 @@
-import { useEffect, useState } from "react";
+import { Dispatch, SetStateAction, useEffect, useState } from "react";
 
 import { useHashboardStats } from "api";
-import { AsicStats } from "apiTypes";
+import { AsicStats, HashrateResponseHashratedata } from "apiTypes";
 
 import { getAsics } from "../constants";
 import { getAsicsRows, getRowLabel, sortAsics } from "../utility";
 import AsicButton from "./AsicButton";
 
 interface AsicTableProps {
+  duration: HashrateResponseHashratedata["duration"];
   hashboardSerialNumber: string;
+  showPopover: string | undefined;
+  setShowPopover: Dispatch<SetStateAction<string | undefined>>;
 }
 
-const AsicTable = ({ hashboardSerialNumber }: AsicTableProps) => {
+const AsicTable = ({ duration, hashboardSerialNumber, showPopover, setShowPopover }: AsicTableProps) => {
   const { data } = useHashboardStats(hashboardSerialNumber);
   const [asics, setAsics] = useState<AsicStats[]>([]);
 
   useEffect(() => {
     if (data?.asics && !asics.length) {
-      // TODO: remove else when API returns real data
+      // TODO: remove else when mocks moved to swagger
       if (data.asics.length > 1) {
         setAsics(sortAsics(data.asics));
       } else {
@@ -64,6 +67,10 @@ const AsicTable = ({ hashboardSerialNumber }: AsicTableProps) => {
                 .map((asic) => (
                   <AsicButton
                     asic={asic}
+                    duration={duration}
+                    hashboardSerial={hashboardSerialNumber}
+                    showPopover={showPopover}
+                    setShowPopover={setShowPopover}
                     key={`asic-${asic.row}-${asic.column}`}
                   />
                 ))}

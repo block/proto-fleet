@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 
 import { api } from "./api";
-import { NetworkInfoNetworkinfo } from "./types";
+import { Error, NetworkInfoNetworkinfo } from "./types";
 
 const useNetworkInfo = () => {
   const [data, setData] = useState<NetworkInfoNetworkinfo>();
-  const [error, setError] = useState();
+  const [error, setError] = useState<Error>();
   const [pending, setPending] = useState<boolean>(false);
 
   useEffect(() => {
@@ -15,7 +15,7 @@ const useNetworkInfo = () => {
         setData(res?.data["network-info"]);
       })
       .catch((err) => {
-        setError(err?.error);
+        setError(err?.error || { message: err });
       })
       .finally(() => {
         setPending(false);

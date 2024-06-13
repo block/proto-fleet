@@ -3,7 +3,7 @@ import clsx from "clsx";
 
 import { useNetworkInfo } from "api";
 
-import Divider from "components/Divider";
+// import Divider from "components/Divider";
 import Row from "components/Row";
 
 import { tabs } from "../constants";
@@ -78,10 +78,10 @@ const Navigation = ({
           </Row>
         </div>
       </div>
-      <div>
+      {/* TODO: add documentation and support links when available */}
+      {/* <div>
         <Divider />
         <div className="p-6 pt-4">
-          {/* TODO: add documentation and support links when available */}
           <Row compact className="text-200 text-text-primary/70">
             Documentation
           </Row>
@@ -93,7 +93,7 @@ const Navigation = ({
             Support
           </Row>
         </div>
-      </div>
+      </div> */}
     </div>
   );
 };

@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { api } from "./api";
-import { MiningStatusMiningstatus } from "./types";
+import { Error, MiningStatusMiningstatus } from "./types";
 import { usePoll } from "./usePoll";
 
 interface UseMiningStatusProps {
@@ -10,7 +10,7 @@ interface UseMiningStatusProps {
 
 const useMiningStatus = ({ poll }: UseMiningStatusProps = {}) => {
   const [data, setData] = useState<MiningStatusMiningstatus>();
-  const [error, setError] = useState();
+  const [error, setError] = useState<Error>();
   const [pending, setPending] = useState<boolean>(false);
 
   const fetchData = useCallback(() => {
@@ -21,7 +21,7 @@ const useMiningStatus = ({ poll }: UseMiningStatusProps = {}) => {
         setData(res?.data["mining-status"]);
       })
       .catch((err) => {
-        setError(err?.error);
+        setError(err?.error || { message: err });
       })
       .finally(() => {
         setPending(false);

@@ -5,7 +5,7 @@ import { getDisplayValue } from "common/utils/stringUtils";
 import AsicPopoverRow from "../AsicPopoverRow";
 
 type PayloadType = {
-  payload: { time: string; temp_c: number; hashrate_ghs: number };
+  payload: { time: string; temp_c?: number; hashrate_ghs?: number, value?: number };
 };
 
 export type TooltipData = {
@@ -58,7 +58,7 @@ const AsicChartTooltip = ({
           />
           <AsicPopoverRow
             label="Hashrate"
-            value={`${getDisplayValue(+payload.hashrate_ghs)} TH/s`}
+            value={`${getDisplayValue(+(payload.hashrate_ghs || 0))} TH/s`}
             className="text-core-primary-fill"
           />
         </div>

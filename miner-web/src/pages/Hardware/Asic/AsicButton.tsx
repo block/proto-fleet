@@ -1,24 +1,37 @@
-import { useMemo, useRef, useState } from "react";
+import { Dispatch, SetStateAction, useMemo, useRef } from "react";
 import clsx from "clsx";
 
-import { AsicStats } from "apiTypes";
+import { AsicStats, HashrateResponseHashratedata } from "apiTypes";
 
 import { useClickOutside } from "common/hooks/useClickOutside";
 
 import { dangerTemp, warningTemp } from "../constants";
 import AsicPopover from "./AsicPopover";
+import { getAsicUniqueId } from "./utility";
 
 interface AsicButtonProps {
   asic: AsicStats;
+  duration: HashrateResponseHashratedata["duration"];
+  hashboardSerial: string;
+  showPopover: string | undefined;
+  setShowPopover: Dispatch<SetStateAction<string | undefined>>;
 }
 
-const AsicButton = ({ asic }: AsicButtonProps) => {
+const AsicButton = ({
+  asic,
+  duration,
+  hashboardSerial,
+  showPopover,
+  setShowPopover,
+}: AsicButtonProps) => {
   const asicRef = useRef<HTMLDivElement>(null);
-  const [showPopover, setShowPopover] = useState(false);
+  const shouldShowPopover =
+    asic.id !== undefined &&
+    showPopover === getAsicUniqueId(asic.id, hashboardSerial);
 
   useClickOutside({
     ref: asicRef,
-    onClickOutside: () => setShowPopover(false),
+    onClickOutside: () => setShowPopover(undefined),
   });
 
   const temp = useMemo(() => asic.temp_c || 0, [asic.temp_c]);
@@ -28,13 +41,19 @@ const AsicButton = ({ asic }: AsicButtonProps) => {
       className={clsx(
         "basis-0 grow relative phone:static p-[2px] border-[3px] rounded-xl phone:truncate",
         {
-          "border-transparent": !showPopover,
-          "border-intent-info-fill": showPopover,
+          "border-transparent": !shouldShowPopover,
+          "border-intent-info-fill": shouldShowPopover,
         }
       )}
       ref={asicRef}
     >
-      {showPopover && <AsicPopover asic={asic} />}
+      {shouldShowPopover ? (
+        <AsicPopover
+          asic={asic}
+          duration={duration}
+          hashboardSerial={hashboardSerial}
+        />
+      ) : null}
       <button
         className={clsx(
           "text-mono-text-50 text-text-primary/90 text-center rounded-lg border border-border-primary/5 w-full truncate",
@@ -45,7 +64,13 @@ const AsicButton = ({ asic }: AsicButtonProps) => {
             "bg-intent-warning-fill": temp >= dangerTemp,
           }
         )}
-        onClick={() => setShowPopover((prev) => !prev)}
+        onClick={() =>
+          setShowPopover((prev) =>
+            prev || asic.id === undefined
+              ? undefined
+              : getAsicUniqueId(asic.id, hashboardSerial)
+          )
+        }
       >
         <div className="bg-transparent hover:bg-surface-overlay">
           <div className="px-1 py-3">{asic.temp_c}º</div>

@@ -83,7 +83,6 @@ const Hashrate = ({
   return (
     <div className="space-y-6">
       <div className="flex space-x-6 w-full phone:flex-col phone:space-x-0 phone:space-y-6">
-        {/* TODO: display hashrate values once API is implemented */}
         <InfoWidget
           title="Current hashrate"
           value={currentValue && `${currentValue} TH/s`}

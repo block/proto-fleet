@@ -6,7 +6,7 @@ export const Hashrate = () => {
   return (
     <div className="flex justify-center my-8">
       <div className="w-[928px]">
-        <HashrateComponent duration={durations[0]} />
+        <HashrateComponent duration={durations[0]} hashboardSerials={["1", "2", "3"]} />
       </div>
     </div>
   );

@@ -64,7 +64,6 @@ const SettingUpWrapper = ({ fanMode, pools }: SettingUpWrapperProps) => {
   }, [createPool, getPoolStatus, poolStatus, pools]);
 
   useEffect(() => {
-    // TODO: revisit this when API is ready
     if (fanStatus === statuses.fetch) {
       setFanStatus(statuses.pending);
       setCoolingMode({

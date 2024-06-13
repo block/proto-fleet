@@ -17,6 +17,7 @@ import AsicTable from "./Asic/AsicTable";
 
 const Hardware = () => {
   const [duration, setDuration] = useState<Duration>(durations[0]);
+  const [showPopover, setShowPopover] = useState<string | undefined>(undefined);
   const [temp, setTemp] = useState<number>();
   const [highestTemp, setHighestTemp] = useState<number>();
   const [hashboardSerials, setHashboardSerials] = useState<string[]>();
@@ -82,14 +83,18 @@ const Hardware = () => {
                     `Board ending in ${hashboardInfo.hb_sn.slice(-4)}`}
                 </div>
                 <div className="text-300 text-text-primary/50">
-                  {/* TODO: get port number from API when available */}
                   {hashboardInfo.port !== undefined
                     ? `Connected to port ${hashboardInfo.port}`
                     : null}
                 </div>
               </Row>
               {hashboardInfo.hb_sn && (
-                <AsicTable hashboardSerialNumber={hashboardInfo.hb_sn} />
+                <AsicTable
+                  duration={duration}
+                  hashboardSerialNumber={hashboardInfo.hb_sn}
+                  showPopover={showPopover}
+                  setShowPopover={setShowPopover}
+                />
               )}
             </Tabs.Tab>
           ))}

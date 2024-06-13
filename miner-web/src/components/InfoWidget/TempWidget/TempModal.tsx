@@ -37,17 +37,17 @@ const TempModal = ({
   const [hashboard2Temperature, setHashboard2Temperature] = useState<number>();
   const [hashboard3Temperature, setHashboard3Temperature] = useState<number>();
 
-  const { data: hashboard1TemperatureData } = useHashboardTemperature({
+  const { data: hashboard1TemperatureData, pending: pendingHashboard1Temperature } = useHashboardTemperature({
     duration,
     hashboardSerial: hashboardSerials?.[0],
     poll: true,
   });
-  const { data: hashboard2TemperatureData } = useHashboardTemperature({
+  const { data: hashboard2TemperatureData, pending: pendingHashboard2Temperature } = useHashboardTemperature({
     duration,
     hashboardSerial: hashboardSerials?.[1],
     poll: true,
   });
-  const { data: hashboard3TemperatureData } = useHashboardTemperature({
+  const { data: hashboard3TemperatureData, pending: pendingHashboard3Temperature } = useHashboardTemperature({
     duration,
     hashboardSerial: hashboardSerials?.[2],
     poll: true,
@@ -135,7 +135,7 @@ const TempModal = ({
         </div>
         <div>
           {/* TODO: show warning based on how many chips are overheating on this hashboard */}
-          {hashboard1Temperature && (
+          {hashboardSerials?.[0] && (
             <HashboardRow
               label="Hashboard 1"
               secondaryLabel={
@@ -143,23 +143,27 @@ const TempModal = ({
                   ? `${getDisplayValue(hashboard1Temperature)}\u00B0c`
                   : undefined
               }
-              divider={!!hashboard2Temperature || !!hashboard3Temperature}
+              divider={!!hashboardSerials?.[1] || !!hashboardSerials?.[2]}
+              loading={pendingHashboard1Temperature}
               // secondaryLabel="75.56ºc • 12 chips are over heating"
               // warn
             />
           )}
-          {hashboard2Temperature ? (
+          {hashboardSerials?.[1] ? (
             <HashboardRow
               label="Hashboard 2"
               secondaryLabel={`${getDisplayValue(hashboard2Temperature)}\u00B0c`}
+              divider={!!hashboardSerials?.[2]}
+              loading={pendingHashboard2Temperature}
             />
           ) : null}
-          {hashboard3Temperature ? (
+          {hashboardSerials?.[2] ? (
             <HashboardRow
               label="Hashboard 3"
               secondaryLabel={`${getDisplayValue(hashboard3Temperature)}\u00B0c`}
               divider={false}
               className="-mb-4"
+              loading={pendingHashboard3Temperature}
             />
           ) : null}
         </div>

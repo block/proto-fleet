@@ -41,11 +41,11 @@ const getHoursFromEpoch = (epoch: number) => {
 };
 
 const getMinutesFromEpoch = (epoch: number) => {
-  return `${getDateFromEpoch(epoch).getMinutes()}0`.slice(0, 2);
+  return `0${getDateFromEpoch(epoch).getMinutes()}`.slice(-2);
 };
 
 const getSecondsFromEpoch = (epoch: number) => {
-  return `${getDateFromEpoch(epoch).getSeconds()}0`.slice(0, 2);
+  return `0${getDateFromEpoch(epoch).getSeconds()}`.slice(-2);
 };
 
 export const getTimeFromEpoch = (epoch?: number) => {

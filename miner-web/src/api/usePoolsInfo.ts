@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { api } from "./api";
-import { Error, ErrorResponse, Pool } from "./types";
+import { Error, Pool } from "./types";
 
 interface FetchPoolsInfoProps {
   onError?: (response?: Error) => void;
@@ -26,9 +26,10 @@ const usePoolsInfo = (shouldFetch?: boolean) => {
         setData(sortedPools);
         onSuccess?.(sortedPools);
       })
-      .catch((err: ErrorResponse) => {
-        setError(err?.error);
-        onError?.(err?.error);
+      .catch((err) => {
+        const newError = err?.error || { message: err };
+        setError(newError);
+        onError?.(newError);
       })
       .finally(() => {
         setPending(false);
