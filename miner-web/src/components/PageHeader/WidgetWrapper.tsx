@@ -17,7 +17,7 @@ const WidgetWrapper = ({
   return (
     <button
       className={clsx(
-        "text-heading-50 rounded-md bg-surface-base shadow-50 px-2 py-1 flex items-center whitespace-nowrap",
+        "text-heading-50 rounded-md bg-surface-base px-2 py-1 flex items-center whitespace-nowrap",
         { "shadow-50": !isOpen },
         { "shadow-200": isOpen },
         className

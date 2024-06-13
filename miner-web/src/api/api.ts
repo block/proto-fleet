@@ -1,6 +1,6 @@
 import { createContext } from "react";
 
-import { Api, Pool } from "./types";
+import { Api, MiningStatusMiningstatus, Pool } from "./types";
 
 const apiHost = import.meta.env.VITE_API_BASE_URL || "";
 const { api } = new Api({ baseUrl: apiHost });
@@ -10,6 +10,10 @@ const { api } = new Api({ baseUrl: apiHost });
 
 export { api };
 export const ApiContext = createContext({
+  miningStatus: {} as MiningStatusMiningstatus,
   poolsInfo: [] as Pool[],
   poolsInfoStatus: { pending: false },
+  setMiningStatus: (newMiningStatus: MiningStatusMiningstatus | undefined) => {
+    void newMiningStatus;
+  },
 });

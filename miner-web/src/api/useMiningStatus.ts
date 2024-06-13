@@ -1,39 +1,41 @@
 import { useCallback, useState } from "react";
 
-import { api } from "./api";
-import { Error, MiningStatusMiningstatus } from "./types";
-import { usePoll } from "./usePoll";
+import { api } from "api";
+import { Error, MiningStatusMiningstatus } from "apiTypes";
 
-interface UseMiningStatusProps {
-  poll?: boolean;
+interface getMiningStatusProps {
+  onSuccess?: (res?: MiningStatusMiningstatus) => void;
 }
 
-const useMiningStatus = ({ poll }: UseMiningStatusProps = {}) => {
+const useMiningStatus = () => {
   const [data, setData] = useState<MiningStatusMiningstatus>();
   const [error, setError] = useState<Error>();
   const [pending, setPending] = useState<boolean>(false);
 
-  const fetchData = useCallback(() => {
-    setPending(true);
-    api
-      .getMiningStatus()
-      .then((res) => {
-        setData(res?.data["mining-status"]);
-      })
-      .catch((err) => {
-        setError(err?.error || { message: err });
-      })
-      .finally(() => {
-        setPending(false);
-      });
-  }, []);
-
-  usePoll({ fetchData, poll });
+  const getMiningStatus = useCallback(
+    ({ onSuccess }: getMiningStatusProps = {}) => {
+      setPending(true);
+      api
+        .getMiningStatus()
+        .then((res) => {
+          setData(res?.data["mining-status"]);
+          onSuccess?.(res?.data["mining-status"]);
+        })
+        .catch((err) => {
+          setError(err?.error || { message: err });
+        })
+        .finally(() => {
+          setPending(false);
+        });
+    },
+    []
+  );
 
   return {
+    data,
     pending,
     error,
-    data,
+    getMiningStatus,
   };
 };
 

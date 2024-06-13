@@ -12,6 +12,7 @@ import Info from "./Info";
 import Logo from "./Logo";
 import Mining from "./Mining";
 import Pause from "./Pause";
+import Power from "./Power";
 import Question from "./Question";
 import Settings from "./Settings";
 import Success from "./Success";
@@ -31,6 +32,7 @@ export {
   Logo,
   Mining,
   Pause,
+  Power,
   Question,
   Settings,
   Success,

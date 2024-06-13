@@ -10,10 +10,13 @@ import { useHashboards } from "./useHashboards";
 import { useHashboardStats } from "./useHashboardStats";
 import { useHashboardTemperature } from "./useHashboardTemperature";
 import { useHashrate } from "./useHashrate";
+import { useMiningStart } from "./useMiningStart";
 import { useMiningStatus } from "./useMiningStatus";
+import { useMiningStop } from "./useMiningStop";
 import { useNetworkInfo } from "./useNetworkInfo";
 import { usePoolsInfo } from "./usePoolsInfo";
 import { usePower } from "./usePower";
+import { useSystemReboot } from "./useSystemReboot";
 import { useTemperature } from "./useTemperature";
 import { TestConnectionProps, useTestConnection } from "./useTestConnection";
 
@@ -31,10 +34,13 @@ export {
   useHashboardStats,
   useHashboardTemperature,
   useHashrate,
+  useMiningStart,
   useMiningStatus,
+  useMiningStop,
   useNetworkInfo,
   usePoolsInfo,
   usePower,
+  useSystemReboot,
   useTemperature,
   useTestConnection,
   type TestConnectionProps,

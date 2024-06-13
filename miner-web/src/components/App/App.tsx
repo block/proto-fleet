@@ -1,27 +1,46 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 
-import { useNetworkInfo, usePoolsInfo } from "api";
+import { ApiContext, useNetworkInfo, usePoolsInfo } from "api";
+import { MiningStatusMiningstatus } from "apiTypes";
 
 import NavigationMenu from "components/NavigationMenu";
 import PageHeader from "components/PageHeader";
-import { ApiContext } from "./api/api";
+
+import WakeCallout from "./WakeCallout";
 
 interface AppProps {
+  afterWake?: () => void;
+  apiMiningStatus?: MiningStatusMiningstatus;
   children?: ReactNode;
+  onWake: () => void;
   title: string;
 }
 
-const App = ({ children, title }: AppProps) => {
+const App = ({
+  afterWake,
+  apiMiningStatus,
+  children,
+  onWake,
+  title,
+}: AppProps) => {
   const { data: networkInfo, pending: pendingNetworkInfo } = useNetworkInfo();
-  const {
-    data: poolsInfo,
-    pending: pendingPoolsInfo,
-  } = usePoolsInfo(true);
+  const { data: poolsInfo, pending: pendingPoolsInfo } = usePoolsInfo(true);
+  const [miningStatus, setMiningStatus] = useState<
+    MiningStatusMiningstatus | undefined
+  >(apiMiningStatus);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (apiMiningStatus !== undefined) {
+      setMiningStatus(apiMiningStatus);
+    }
+  }, [apiMiningStatus]);
 
   return (
     <ApiContext.Provider
       value={{
+        miningStatus: miningStatus || {},
+        setMiningStatus,
         poolsInfo: poolsInfo || [],
         poolsInfoStatus: { pending: pendingPoolsInfo },
       }}
@@ -42,6 +61,7 @@ const App = ({ children, title }: AppProps) => {
           <div className="w-full h-[calc(100%-56px)] overflow-y-scroll relative">
             <div className="m-14 tablet:m-6 phone:m-6 flex justify-center">
               <div className="desktop:w-[928px] laptop:w-[608px] tablet:w-[584px] phone:w-[352px]">
+                <WakeCallout afterWake={afterWake} miningStatus={miningStatus} onWake={onWake} />
                 {children}
               </div>
             </div>

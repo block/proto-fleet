@@ -1,12 +1,13 @@
 import { createBrowserRouter } from "react-router-dom";
 
+import App from "components/App";
+
 import Hardware from "pages/Hardware";
 import Home from "pages/Home";
 import Onboarding from "pages/Onboarding";
 import Cooling from "pages/Settings/Cooling";
 import MiningPools from "pages/Settings/MiningPools";
 
-import App from "./App.tsx";
 
 const router = createBrowserRouter([
   {

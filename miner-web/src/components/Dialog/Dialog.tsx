@@ -71,7 +71,7 @@ const Dialog = ({
             )}
             data-testid={testId}
           >
-            {loading && <Spinner className="h-6 mb-3" />}
+            {loading && <Spinner className="h-6 mb-3 text-core-accent-fill" />}
             <Header
               title={title}
               subtitle={subtitle}
