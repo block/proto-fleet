@@ -56,7 +56,7 @@ const AsicButton = ({
       ) : null}
       <button
         className={clsx(
-          "text-mono-text-50 text-text-primary/90 text-center rounded-lg border border-border-primary/5 w-full truncate",
+          "font-mono text-mono-text-50 text-text-primary/90 text-center rounded-lg border border-border-primary/5 w-full truncate",
           {
             "bg-surface-base": temp < warningTemp,
             "bg-intent-warning-fill/50":

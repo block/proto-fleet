@@ -8,6 +8,7 @@ import { sizes, variants } from "./constants";
 interface ButtonProps {
   borderColor?: string;
   className?: string;
+  children?: ReactNode;
   disabled?: boolean;
   loading?: boolean;
   onClick?: () => void;
@@ -23,6 +24,7 @@ interface ButtonProps {
 const Button = ({
   borderColor = "border-core-accent-fill",
   className,
+  children,
   disabled,
   loading,
   onClick,
@@ -69,7 +71,7 @@ const Button = ({
         },
         // color and bg - primary
         {
-          "text-text-contrast bg-core-primary-fill hover:bg-core-primary-fill/80":
+          "text-text-contrast bg-core-primary-fill/90 hover:bg-core-primary-fill/80":
             primary && !disabledState,
           "text-text-contrast bg-core-primary-fill/40":
             primary && disabledState,
@@ -112,10 +114,11 @@ const Button = ({
       data-testid={testId}
     >
       {prefix}
-      {text && prefix && <div className={gap} />}
+      {(text || children) && prefix && <div className={gap} />}
       <div className="flex flex-col">
         <div className={clsx({ "mb-[2px] group-hover:mb-0": textOnly })}>
           {text}
+          {children}
         </div>
         {textOnly && !disabledState && (
           <div
@@ -126,7 +129,7 @@ const Button = ({
           />
         )}
       </div>
-      {text && suffixIcon && <div className={gap} />}
+      {(text || children) && suffixIcon && <div className={gap} />}
       {suffixIcon}
     </button>
   );

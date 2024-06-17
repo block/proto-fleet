@@ -16,6 +16,7 @@ import Power from "./Power";
 import Question from "./Question";
 import Settings from "./Settings";
 import Success from "./Success";
+import Terminal from "./Terminal";
 
 export {
   Alert,
@@ -36,4 +37,5 @@ export {
   Question,
   Settings,
   Success,
+  Terminal,
 };

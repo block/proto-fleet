@@ -37,18 +37,22 @@ const getDateFromEpoch = (epoch: number) => {
 };
 
 const getHoursFromEpoch = (epoch: number) => {
-  return `0${getDateFromEpoch(epoch).getHours()}`.slice(-2);
+  return padLeft(getDateFromEpoch(epoch).getHours(), 2);
 };
 
 const getMinutesFromEpoch = (epoch: number) => {
-  return `0${getDateFromEpoch(epoch).getMinutes()}`.slice(-2);
+  return padLeft(getDateFromEpoch(epoch).getMinutes(), 2);
 };
 
 const getSecondsFromEpoch = (epoch: number) => {
-  return `0${getDateFromEpoch(epoch).getSeconds()}`.slice(-2);
+  return padLeft(getDateFromEpoch(epoch).getSeconds(), 2);
 };
 
 export const getTimeFromEpoch = (epoch?: number) => {
   if (!epoch) return "";
   return `${getHoursFromEpoch(epoch)}:${getMinutesFromEpoch(epoch)}:${getSecondsFromEpoch(epoch)}`;
+};
+
+export const padLeft = (value: number, length: number) => {
+  return value.toString().padStart(length, "0");
 };

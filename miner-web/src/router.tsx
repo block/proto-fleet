@@ -4,6 +4,7 @@ import App from "components/App";
 
 import Hardware from "pages/Hardware";
 import Home from "pages/Home";
+import Logs from "pages/MinerLogs";
 import Onboarding from "pages/Onboarding";
 import Cooling from "pages/Settings/Cooling";
 import MiningPools from "pages/Settings/MiningPools";
@@ -21,6 +22,10 @@ const router = createBrowserRouter([
   {
     path: "/home",
     element: <App title="Home"><Home /></App>,
+  },
+  {
+    path: "/logs",
+    element: <Logs />,
   },
   {
     path: "/onboarding",

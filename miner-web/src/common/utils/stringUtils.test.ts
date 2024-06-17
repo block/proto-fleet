@@ -5,6 +5,7 @@ import {
   getDisplayValue,
   getMacAddressDisplay,
   getTimeFromEpoch,
+  padLeft,
   separateByCommas,
 } from "./stringUtils";
 
@@ -153,5 +154,21 @@ describe("getTimeFromEpoch", () => {
   test("should return an empty string when epoch is not provided", () => {
     const result = getTimeFromEpoch();
     expect(result).toBe("");
+  });
+});
+
+describe("padLeft", () => {
+  test("should pad the value with zeros to the left", () => {
+    const value = 5;
+    const length = 3;
+    const result = padLeft(value, length);
+    expect(result).toBe("005");
+  });
+
+  test("should not pad the value if the length is less than the value", () => {
+    const value = 5;
+    const length = 1;
+    const result = padLeft(value, length);
+    expect(result).toBe("5");
   });
 });

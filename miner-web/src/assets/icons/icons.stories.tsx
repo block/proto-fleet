@@ -19,6 +19,7 @@ import {
   Question,
   Settings,
   Success,
+  Terminal,
 } from ".";
 
 const icons = {
@@ -40,6 +41,7 @@ const icons = {
   Question,
   Settings,
   Success,
+  Terminal,
 };
 
 interface IconProps {

@@ -1,7 +1,7 @@
 import { iconSizes } from "./constants";
 import { IconProps } from "./types";
 
-const Dismiss = ({ className, width = iconSizes.medium }: IconProps) => {
+const Dismiss = ({ className, opacity = ".01", width = iconSizes.medium }: IconProps) => {
   return (
     <div className={width}>
       <svg
@@ -13,7 +13,7 @@ const Dismiss = ({ className, width = iconSizes.medium }: IconProps) => {
         className={className}
         preserveAspectRatio="xMidYMid meet"
       >
-        <path fill="#fff" fillOpacity=".01" d="M0 0h20v20H0z" />
+        <path fill="#fff" fillOpacity={opacity} d="M0 0h20v20H0z" />
         <path
           fillRule="evenodd"
           clipRule="evenodd"
