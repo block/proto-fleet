@@ -22,6 +22,8 @@ const AppWrapper = ({ children, title }: AppProps) => {
   const { data: miningStatus, getMiningStatus } = useMiningStatus();
   const [intervalId, setIntervalId] =
     useState<ReturnType<typeof setInterval>>();
+  const [wakeIntervalId, setWakeIntervalId] =
+    useState<ReturnType<typeof setInterval>>();
   const { startMining } = useMiningStart();
   const { data: systemInfo, pending: pendingSystemInfo } = useSystemInfo();
   const navigate = useNavigate();
@@ -34,22 +36,35 @@ const AppWrapper = ({ children, title }: AppProps) => {
   }, [systemInfo, navigate]);
 
   useEffect(() => {
-    getMiningStatus();
-  }, [getMiningStatus]);
+    if (!miningStatus) {
+      getMiningStatus();
+    } else if (!intervalId) {
+      // on first load, if the device is booting up, check the mining status until it's running
+      // TODO: replace this with a warming up message when API tells us if device is booting up
+      if (miningStatus?.status === "Stopped") {
+        const newIntervalId = setInterval(() => {
+          getMiningStatus({ onSuccess: setMiningStatus });
+        }, 30000);
+        setIntervalId(newIntervalId);
+      }
+    } else if (miningStatus?.status === "Running") {
+      clearInterval(intervalId);
+    }
+  }, [getMiningStatus, setMiningStatus, intervalId, miningStatus]);
 
   const handleWake = () => {
     startMining();
     const newIntervalId = setInterval(() => {
       getMiningStatus({ onSuccess: setMiningStatus });
     }, 10000);
-    setIntervalId(newIntervalId);
+    setWakeIntervalId(newIntervalId);
   };
 
   const afterWake = useCallback(() => {
-    if (intervalId) {
-      clearInterval(intervalId);
+    if (wakeIntervalId) {
+      clearInterval(wakeIntervalId);
     }
-  }, [intervalId]);
+  }, [wakeIntervalId]);
 
   return (
     <>

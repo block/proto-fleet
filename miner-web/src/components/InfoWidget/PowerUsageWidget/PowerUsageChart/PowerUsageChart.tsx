@@ -29,15 +29,20 @@ const PowerUsageChart = ({ maxPower, powers }: PowerUsageChartProps) => {
         data={powers}
         margin={{
           top: 16,
-          right: 0,
-          left: -34,
+          right: 16,
+          left: -30,
           bottom: 0,
         }}
       >
         <XAxis
           {...xAxisProps}
           tick={
-            <TimeXAxisTick tooltipTime={tooltipData.payload[0]?.payload.time} chartType="bar" />
+            <TimeXAxisTick
+              tooltipTime={tooltipData.payload[0]?.payload.time}
+              dataPointCount={powers.length}
+              maxTicksToShow={8}
+              chartType="bar"
+            />
           }
         />
         <YAxis

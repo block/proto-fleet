@@ -4,8 +4,9 @@ import { getAxisTickOffset } from "./utility";
 
 interface TimeXAxisTickProps {
   chartType?: "line" | "bar";
+  dataPointCount: number;
+  maxTicksToShow: number;
   payload?: { value: string; index: number; offset: number };
-  showEveryNthTick?: number;
   tooltipTime?: string;
   visibleTicksCount?: number;
   x?: number;
@@ -14,9 +15,9 @@ interface TimeXAxisTickProps {
 
 const TimeXAxisTick = ({
   chartType,
+  dataPointCount,
+  maxTicksToShow,
   payload = { value: "", index: 0, offset: 0 },
-  // show time for every 6th tick by default to give enough space between time labels
-  showEveryNthTick = 6,
   tooltipTime,
   visibleTicksCount = 0,
   x = 0,
@@ -25,6 +26,8 @@ const TimeXAxisTick = ({
   const { index } = payload;
   const firstTick = index === 0;
   const lastTick = index === visibleTicksCount - 1;
+  // show a max number of ticks on the x-axis to avoid overlapping time labels
+  const showEveryNthTick = Math.ceil(dataPointCount / maxTicksToShow);
   // show time for every nth tick and maintain more than nth tick gap before last tick
   const midTick =
     !firstTick &&
@@ -43,6 +46,7 @@ const TimeXAxisTick = ({
             midTick: !firstTick && !lastTick,
             lastTick,
             payloadOffset: payload.offset,
+            x,
           })}
           // hide seconds from showing on xAxis
           payload={{ ...payload, value: payload.value.slice(0, 5) }}
@@ -60,6 +64,7 @@ const TimeXAxisTick = ({
           midTick,
           lastTick,
           payloadOffset: payload.offset,
+          x,
         })}
         // hide seconds from showing on xAxis
         payload={{ ...payload, value: payload.value.slice(0, 5) }}

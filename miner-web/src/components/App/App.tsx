@@ -24,7 +24,11 @@ const App = ({
   title,
 }: AppProps) => {
   const { data: networkInfo, pending: pendingNetworkInfo } = useNetworkInfo();
-  const { data: poolsInfo, pending: pendingPoolsInfo } = usePoolsInfo(true);
+  const {
+    data: poolsInfo,
+    error: errorPoolsInfo,
+    pending: pendingPoolsInfo,
+  } = usePoolsInfo(true);
   const [miningStatus, setMiningStatus] = useState<
     MiningStatusMiningstatus | undefined
   >(apiMiningStatus);
@@ -42,7 +46,7 @@ const App = ({
         miningStatus: miningStatus || {},
         setMiningStatus,
         poolsInfo: poolsInfo || [],
-        poolsInfoStatus: { pending: pendingPoolsInfo },
+        poolsInfoStatus: { error: !!errorPoolsInfo, pending: pendingPoolsInfo },
       }}
     >
       <div className="flex h-screen bg-core-primary-fill">
@@ -61,7 +65,11 @@ const App = ({
           <div className="w-full h-[calc(100%-56px)] overflow-y-scroll relative">
             <div className="h-full m-14 tablet:m-6 phone:m-6 flex justify-center">
               <div className="desktop:w-[928px] laptop:w-[608px] tablet:w-[584px] phone:w-[352px]">
-                <WakeCallout afterWake={afterWake} miningStatus={miningStatus} onWake={onWake} />
+                <WakeCallout
+                  afterWake={afterWake}
+                  miningStatus={miningStatus}
+                  onWake={onWake}
+                />
                 {children}
               </div>
             </div>

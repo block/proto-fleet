@@ -78,10 +78,12 @@ const AsicPopover = ({ asic, duration, hashboardSerial }: AsicPopoverProps) => {
         )} */}
       </div>
       <div className="w-[272px] h-[92px]">
-        <AsicChart
-          hashrateData={hashrateData}
-          temperatureData={temperatureData}
-        />
+        {hashrateData && temperatureData && (
+          <AsicChart
+            hashrateData={hashrateData}
+            temperatureData={temperatureData}
+          />
+        )}
       </div>
       <div>
         <AsicPopoverRow

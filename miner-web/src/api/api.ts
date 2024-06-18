@@ -12,7 +12,7 @@ export { api };
 export const ApiContext = createContext({
   miningStatus: {} as MiningStatusMiningstatus,
   poolsInfo: [] as Pool[],
-  poolsInfoStatus: { pending: false },
+  poolsInfoStatus: { error: false, pending: false },
   setMiningStatus: (newMiningStatus: MiningStatusMiningstatus | undefined) => {
     void newMiningStatus;
   },

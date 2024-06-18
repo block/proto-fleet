@@ -13,8 +13,8 @@ import AsicChartTooltip, { TooltipData } from "./AsicChartTooltip";
 import { ChartData } from "./types";
 
 interface AsicChartProps {
-  hashrateData?: ChartData[];
-  temperatureData?: ChartData[];
+  hashrateData: ChartData[];
+  temperatureData: ChartData[];
 }
 
 const AsicChart = ({ hashrateData, temperatureData }: AsicChartProps) => {
@@ -56,7 +56,8 @@ const AsicChart = ({ hashrateData, temperatureData }: AsicChartProps) => {
           tick={
             <TimeXAxisTick
               tooltipTime={tooltipData.payload[0]?.payload.time}
-              showEveryNthTick={10}
+              dataPointCount={hashrateData?.length}
+              maxTicksToShow={5}
             />
           }
         />

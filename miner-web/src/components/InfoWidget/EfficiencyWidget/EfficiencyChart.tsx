@@ -50,7 +50,11 @@ const EfficiencyChart = ({ efficiencies }: EfficiencyChartProps) => {
         <XAxis
           {...xAxisProps}
           tick={
-            <TimeXAxisTick tooltipTime={tooltipData.payload[0]?.payload.time} />
+            <TimeXAxisTick
+              tooltipTime={tooltipData.payload[0]?.payload.time}
+              dataPointCount={efficiencies.length}
+              maxTicksToShow={8}
+            />
           }
         />
         <YAxis {...yAxisProps} padding={{ top: -5, bottom: 0 }} />

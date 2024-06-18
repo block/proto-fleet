@@ -92,7 +92,7 @@ const HashrateChart = ({
         data={chartData}
         margin={{
           top: 0,
-          right: 10,
+          right: 12,
           left: -17,
           bottom: 5,
         }}
@@ -107,7 +107,11 @@ const HashrateChart = ({
           {...xAxisProps}
           tickMargin={28}
           tick={
-            <TimeXAxisTick tooltipTime={tooltipData.payload[0]?.payload.time} />
+            <TimeXAxisTick
+              tooltipTime={tooltipData.payload[0]?.payload.time}
+              dataPointCount={chartData.length}
+              maxTicksToShow={13}
+            />
           }
         />
         <YAxis

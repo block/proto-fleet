@@ -27,7 +27,9 @@ import {
   convertAggregatePowerValues,
   convertPowerValues,
 } from "components/InfoWidget/PowerUsageWidget/utility";
-import TempWidget, { mockTemperatureData } from "components/InfoWidget/TempWidget";
+import TempWidget, {
+  mockTemperatureData,
+} from "components/InfoWidget/TempWidget";
 
 import Hashrate from "./Hashrate";
 import NoPoolsCallout from "./NoPoolsCallout";
@@ -92,7 +94,9 @@ const Home = () => {
   useEffect(() => {
     if (tempData && tempData.data?.length) {
       // TODO: remove else when mocks moved to swagger
-      const apiData = tempData.data[0].datetime ? tempData : mockTemperatureData;
+      const apiData = tempData.data[0].datetime
+        ? tempData
+        : mockTemperatureData;
       setHighestTemp(apiData.aggregates?.max);
       setTemp(apiData.data?.[apiData.data.length - 1].value);
     }
@@ -101,6 +105,7 @@ const Home = () => {
   const noPoolsLive = useMemo(() => {
     return (
       !poolsInfoStatus.pending &&
+      !poolsInfoStatus.error &&
       !poolsInfo.find((pool) => pool?.status === "Alive")
     );
   }, [poolsInfo, poolsInfoStatus]);
