@@ -31,9 +31,9 @@ const SettingUpWrapper = ({ fanMode, pools }: SettingUpWrapperProps) => {
   const getPoolStatus = useCallback(() => {
     fetchPools({
       onSuccess: () => setPoolStatus(statuses.success),
-      onError: (error) => {
+      onError: (error = "") => {
         // wait for cgminer to restart before marking pools as configured
-        const message = (error?.message || "").toLowerCase();
+        const message = error.toLowerCase();
         if (!/failed to connect to cgminer/.test(message)) {
           setPoolStatus(statuses.error);
         }

@@ -27,7 +27,7 @@ const usePoolsInfo = (shouldFetch?: boolean) => {
         onSuccess?.(sortedPools);
       })
       .catch((err) => {
-        const newError = err?.error || { message: err };
+        const newError = err?.error || err;
         setError(newError);
         onError?.(newError);
       })

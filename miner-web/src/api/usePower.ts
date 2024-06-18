@@ -22,7 +22,7 @@ const usePower = ({ duration, poll }: UsePowerProps) => {
         setData(res?.data["power-data"]);
       })
       .catch((err) => {
-        setError(err?.error || { message: err });
+        setError(err?.error || err);
       })
       .finally(() => {
         setPending(false);

@@ -71,9 +71,9 @@ export interface CoolingConfig {
    *  - Auto: Fans will be controlled based on miner temperature.
    *  - Maximum: Fans will be run at full speed regardless of temperature.
    *  - Off: Fans will be set to off for immersion cooling.
-   * @example "auto"
+   * @example "Auto"
    */
-  mode?: "auto" | "maximum" | "false";
+  mode?: "Auto" | "Max" | "False";
 }
 
 export interface CoolingStatus {
@@ -83,9 +83,9 @@ export interface CoolingStatus {
 export interface CoolingStatusCoolingstatus {
   /**
    * Parameter to show the current fan mode.
-   * @example "auto"
+   * @example "Auto"
    */
-  fan_mode?: "auto" | "maximum" | "false";
+  fan_mode?: "Auto" | "Max" | "False";
   /** This will show speed of all fans in the system. */
   fans?: FanInfo[];
 }
@@ -102,18 +102,7 @@ export interface EfficiencyResponseEfficiencydata {
   duration?: "12h" | "24h" | "48h" | "5d";
 }
 
-export interface Error {
-  /**
-   * Error code.
-   * @example "INCORRECT_ARGS"
-   */
-  code?: string;
-  /**
-   * Error message.
-   * @example "Arguments are incorrect for query."
-   */
-  message?: string;
-}
+export type Error = string;
 
 export interface ErrorResponse {
   error?: Error;
@@ -262,9 +251,7 @@ export interface LogsResponseLogs {
   source?: string;
 }
 
-export interface MessageResponse {
-  message?: string;
-}
+export type MessageResponse = string;
 
 /** Mining statistics */
 export interface MiningStatus {
@@ -272,6 +259,11 @@ export interface MiningStatus {
 }
 
 export interface MiningStatusMiningstatus {
+  /**
+   * Average temperature of the ASICs in the mining device.
+   * @example 60
+   */
+  average_asic_temp_c?: number;
   /** The average efficiency in joules per terahash, since the device started mining. */
   average_efficiency_jth?: number;
   /**
@@ -280,10 +272,10 @@ export interface MiningStatusMiningstatus {
    */
   average_hashrate_ghs?: number;
   /**
-   * Average temperature of the mining device.
+   * Average temperature of the hashboards in the mining device.
    * @example 60
    */
-  average_temp_c?: number;
+  average_hb_temp_c?: number;
   /**
    * The number of hardware errors that have occurred during the mining operation.
    * @example 100
@@ -649,6 +641,8 @@ export interface SystemInfoSysteminfo {
   /** @example "YWWLMMMMRRFSSSSS" */
   cb_sn?: string;
   mining_driver_sw?: SWInfo;
+  /** @example true */
+  onboarded?: boolean;
   os?: OSInfo;
   pool_interface_sw?: SWInfo;
   /** @example "STM32MP157F" */
@@ -804,8 +798,8 @@ export class HttpClient<SecurityDataType = unknown> {
           property instanceof Blob
             ? property
             : typeof property === "object" && property !== null
-            ? JSON.stringify(property)
-            : `${property}`,
+              ? JSON.stringify(property)
+              : `${property}`,
         );
         return formData;
       }, new FormData()),
@@ -878,7 +872,7 @@ export class HttpClient<SecurityDataType = unknown> {
       signal: (cancelToken ? this.createAbortSignal(cancelToken) : requestParams.signal) || null,
       body: typeof body === "undefined" || body === null ? null : payloadFormatter(body),
     }).then(async (response) => {
-      const r = response as HttpResponse<T, E>;
+      const r = response.clone() as HttpResponse<T, E>;
       r.data = null as unknown as T;
       r.error = null as unknown as E;
 

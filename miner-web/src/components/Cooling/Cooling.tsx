@@ -17,13 +17,13 @@ const IconWrapper = ({ children }: IconWrapperProps) => {
 };
 
 interface CoolingProps {
-  mode?: string;
+  mode?: FanMode;
   onChange: (fanMode: FanMode, isSelected: boolean) => void;
 }
 
 const Cooling = ({ mode, onChange }: CoolingProps) => {
   const [fanMode, setFanMode] = useState<FanMode | undefined>(
-    mode && mode in fanModes ? (mode as FanMode) : undefined
+    mode && Object.values(fanModes).includes(mode) ? (mode as FanMode) : undefined
   );
 
   useEffect(() => {

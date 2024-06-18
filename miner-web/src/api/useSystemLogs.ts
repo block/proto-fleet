@@ -21,7 +21,7 @@ const useSystemLogs = ({ poll }: UseSystemLogsProps) => {
         setData(res?.data["logs"]);
       })
       .catch((err) => {
-        setError(err?.error || { message: err });
+        setError(err?.error || err);
       })
       .finally(() => {
         setPending(false);

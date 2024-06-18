@@ -1,3 +1,3 @@
 import { fanModes } from "./constants";
 
-export type FanMode = keyof typeof fanModes;
+export type FanMode = typeof fanModes[keyof typeof fanModes];

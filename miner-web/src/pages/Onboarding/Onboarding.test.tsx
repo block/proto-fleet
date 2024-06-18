@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { urlValidationErrors } from "../../components/MiningPools/PoolForm/constants";
 
-import Onboarding from ".";
+import Onboarding from "./Onboarding";
 
 vi.mock("react-router-dom", () => ({
   ...vi.importActual("react-router-dom"),

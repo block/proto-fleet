@@ -12,7 +12,7 @@ const useMiningStart = () => {
     api
       .startMining()
       .catch((err) => {
-        setError(err?.error || { message: err });
+        setError(err?.error || err);
       })
       .finally(() => {
         setPending(false);

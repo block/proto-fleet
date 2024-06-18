@@ -1,4 +1,5 @@
 export const fanModes = {
-  auto: "auto",
-  false: "false",
+  auto: "Auto",
+  false: "False",
+  max: "Max",
 } as const;

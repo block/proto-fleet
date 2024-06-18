@@ -12,7 +12,7 @@ const useSystemReboot = () => {
     api
       .rebootSystem()
       .catch((err) => {
-        setError(err?.error || { message: err });
+        setError(err?.error || err);
       })
       .finally(() => {
         setPending(false);

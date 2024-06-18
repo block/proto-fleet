@@ -22,7 +22,7 @@ const useMiningStatus = () => {
           onSuccess?.(res?.data["mining-status"]);
         })
         .catch((err) => {
-          setError(err?.error || { message: err });
+          setError(err?.error || err);
         })
         .finally(() => {
           setPending(false);

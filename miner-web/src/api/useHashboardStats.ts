@@ -15,7 +15,7 @@ const useHashboardStats = (hashboardSerialNumber: string) => {
         setData(res?.data["hashboard-stats"]);
       })
       .catch((err) => {
-        setError(err?.error || { message: err });
+        setError(err?.error || err);
       })
       .finally(() => {
         setPending(false);

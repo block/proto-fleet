@@ -1,16 +1,20 @@
-import { useCallback, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { api } from "./api";
-import { Error } from "./types";
+import { Error, SystemInfoSysteminfo } from "./types";
 
-const useMiningStop = () => {
+const useSystemInfo = () => {
+  const [data, setData] = useState<SystemInfoSysteminfo>();
   const [error, setError] = useState<Error>();
   const [pending, setPending] = useState<boolean>(false);
 
-  const stopMining = useCallback(() => {
+  useEffect(() => {
     setPending(true);
     api
-      .stopMining()
+      .getSystemInfo()
+      .then((res) => {
+        setData(res?.data["system-info"]);
+      })
       .catch((err) => {
         setError(err?.error || err);
       })
@@ -22,8 +26,8 @@ const useMiningStop = () => {
   return {
     pending,
     error,
-    stopMining,
+    data,
   };
 };
 
-export { useMiningStop };
+export { useSystemInfo };

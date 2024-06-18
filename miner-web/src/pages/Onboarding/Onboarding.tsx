@@ -8,7 +8,7 @@ import MiningPools, {
   emptyPoolInfo,
   isValidPool,
   PoolInfo,
-} from "components/MiningPools";
+  } from "components/MiningPools";
 
 import { tabs } from "./constants";
 import OnboardingHeader from "./OnboardingHeader";
@@ -116,7 +116,7 @@ const Onboarding = () => {
             onContinueWithoutBackup={onContinueWithoutBackup}
             show={warnBackupPool}
           />
-          <div className="mt-[66px]">
+          <div className="mt-[66px] h-full">
             <OnboardingNavigation
               isVisible={isMenuOpen}
               closeMenu={() => setIsMenuOpen(false)}
@@ -124,8 +124,8 @@ const Onboarding = () => {
               activeTab={activeTab}
               onChangeActiveTab={setActiveTab}
             />
-            <div className="desktop:ml-80 laptop:ml-80">
-              <div className="m-14 tablet:m-6 phone:m-6 flex justify-center">
+            <div className="desktop:ml-80 laptop:ml-80 h-full">
+              <div className="m-14 tablet:m-6 phone:m-6 flex justify-center h-full">
                 <div className="w-[640px]">
                   {activeTab === tabs.pools && (
                     <>

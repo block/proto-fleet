@@ -19,11 +19,11 @@ interface SelectRowProps {
 }
 
 const fanModes = {
-  auto: "auto",
-  false: "false",
+  auto: "Auto",
+  false: "False",
 } as const;
 
-type FanMode = keyof typeof fanModes;
+type FanMode = typeof fanModes[keyof typeof fanModes];
 
 export const SelectRowList = ({
   hasPrefixIcon,

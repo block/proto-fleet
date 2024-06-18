@@ -16,6 +16,7 @@ import { useMiningStop } from "./useMiningStop";
 import { useNetworkInfo } from "./useNetworkInfo";
 import { usePoolsInfo } from "./usePoolsInfo";
 import { usePower } from "./usePower";
+import { useSystemInfo } from "./useSystemInfo";
 import { useSystemLogs } from "./useSystemLogs";
 import { useSystemReboot } from "./useSystemReboot";
 import { useTemperature } from "./useTemperature";
@@ -41,6 +42,7 @@ export {
   useNetworkInfo,
   usePoolsInfo,
   usePower,
+  useSystemInfo,
   useSystemLogs,
   useSystemReboot,
   useTemperature,

@@ -20,7 +20,7 @@ const useHashboards = ({ poll }: UseHashboardsProps = {}) => {
         setData(res?.data["hashboards-info"]);
       })
       .catch((err) => {
-        setError(err?.error || { message: err });
+        setError(err?.error || err);
       })
       .finally(() => {
         setPending(false);

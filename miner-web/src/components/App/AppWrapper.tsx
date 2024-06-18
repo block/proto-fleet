@@ -1,6 +1,14 @@
 import { ReactNode, useCallback, useContext, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
-import { ApiContext, useMiningStart, useMiningStatus } from "api";
+import {
+  ApiContext,
+  useMiningStart,
+  useMiningStatus,
+  useSystemInfo,
+} from "api";
+
+import Spinner from "components/Spinner";
 
 import App from "./App";
 
@@ -15,6 +23,15 @@ const AppWrapper = ({ children, title }: AppProps) => {
   const [intervalId, setIntervalId] =
     useState<ReturnType<typeof setInterval>>();
   const { startMining } = useMiningStart();
+  const { data: systemInfo, pending: pendingSystemInfo } = useSystemInfo();
+  const navigate = useNavigate();
+
+  // navigate to onboarding page if miner has not been onboarded
+  useEffect(() => {
+    if (systemInfo && "onboarded" in systemInfo && !systemInfo.onboarded) {
+      navigate("/onboarding");
+    }
+  }, [systemInfo, navigate]);
 
   useEffect(() => {
     getMiningStatus();
@@ -35,14 +52,22 @@ const AppWrapper = ({ children, title }: AppProps) => {
   }, [intervalId]);
 
   return (
-    <App
-      title={title}
-      apiMiningStatus={miningStatus}
-      onWake={handleWake}
-      afterWake={afterWake}
-    >
-      {children}
-    </App>
+    <>
+      {pendingSystemInfo && !systemInfo ? (
+        <div className="min-h-screen flex items-center justify-center">
+          <Spinner />
+        </div>
+      ) : (
+        <App
+          title={title}
+          apiMiningStatus={miningStatus}
+          onWake={handleWake}
+          afterWake={afterWake}
+        >
+          {children}
+        </App>
+      )}
+    </>
   );
 };
 
