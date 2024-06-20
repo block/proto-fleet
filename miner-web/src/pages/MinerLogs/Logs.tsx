@@ -3,6 +3,7 @@ import clsx from "clsx";
 
 import { padLeft } from "common/utils/stringUtils";
 
+import { logTypes } from "./constants";
 import { LogInfo } from "./types";
 
 interface LogsProps {
@@ -28,16 +29,18 @@ const Logs = ({ logs }: LogsProps) => {
       {logs.length
         ? logs.map((log, index) => {
             const line = padLeft(index + 1, 3);
+            const isDebug = log.logType === logTypes.debug;
+            const isError = log.logType === logTypes.error;
+            const isWarning = log.logType === logTypes.warn;
             return (
               <div
                 key={line}
                 className={clsx("flex pl-4 leading-6 mb-1", {
-                  "border-l-[2px] pl-[14px]":
-                    log.isError || log.isWarning || log.isDebug,
-                  "text-text-warning border-border-text-warning": log.isWarning,
-                  "text-text-critical border-border-text-critical": log.isError,
+                  "border-l-[2px] pl-[14px]": isError || isWarning || isDebug,
+                  "text-text-warning border-border-text-warning": isWarning,
+                  "text-text-critical border-border-text-critical": isError,
                   "text-intent-info-fill border-border-intent-info-fill":
-                    log.isDebug,
+                    isDebug,
                 })}
               >
                 <div className="mr-10 text-text-contrast/30">{line}</div>

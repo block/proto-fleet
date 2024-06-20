@@ -8,6 +8,8 @@ import {
   YAxis,
 } from "recharts";
 
+import { useWindowDimensions } from "common/hooks/useWindowDimensions";
+
 import {
   ChartWrapper,
   LineCursor,
@@ -29,6 +31,7 @@ const EfficiencyChart = ({ efficiencies }: EfficiencyChartProps) => {
     y: 0,
     payload: [],
   });
+  const { isPhone } = useWindowDimensions();
 
   return (
     <ChartWrapper>
@@ -53,7 +56,7 @@ const EfficiencyChart = ({ efficiencies }: EfficiencyChartProps) => {
             <TimeXAxisTick
               tooltipTime={tooltipData.payload[0]?.payload.time}
               dataPointCount={efficiencies.length}
-              maxTicksToShow={8}
+              maxTicksToShow={isPhone ? 5 : 8}
             />
           }
         />

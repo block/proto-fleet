@@ -1,53 +1,81 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useSystemLogs } from "api";
 
 import Button, { sizes, variants } from "components/Button";
+import Spinner from "components/Spinner";
 
 import { Dismiss } from "icons";
 import { iconSizes } from "icons/constants";
 
-import { mockLogs } from "./constants";
+import { mockLogs, mockNewLogs } from "./constants";
 import LogBadges from "./LogBadges";
 import Logs from "./Logs";
 import { LogInfo } from "./types";
-import { formatLogs, getErrorWarningCount, getExportLink, getFileName } from "./utility";
+import {
+  formatLogs,
+  formatLogType,
+  getErrorWarningCount,
+  getExportLink,
+  getFileName,
+} from "./utility";
 
 const LogsWrapper = () => {
   const navigate = useNavigate();
   const { data: logsData } = useSystemLogs({ poll: true });
+  const [storedLogs, setStoredLogs] = useState<string[]>([]);
   const [logs, setLogs] = useState<LogInfo[]>([]);
   const [errorCount, setErrorCount] = useState(0);
   const [warningCount, setWarningCount] = useState(0);
   const [exportLink, setExportLink] = useState<string | null>(null);
 
+  const formatAndSetLogsData = useCallback(
+    (logsDataToSet: string[]) => {
+      if (logsDataToSet.length === storedLogs.length) return;
+      setStoredLogs(logsDataToSet);
+
+      const { error, warning } = getErrorWarningCount(logsDataToSet);
+      setErrorCount(error);
+      setWarningCount(warning);
+
+      const formattedLogs = formatLogs(logsDataToSet);
+      setLogs(formattedLogs);
+
+      const newExportLink = getExportLink([
+        "Time,Type,Message",
+        ...formattedLogs.map(
+          (log) =>
+            `${log.timestamp},${formatLogType(log.logType)},${log.message.replace(/,/g, " | ")}`
+        ),
+      ]);
+      setExportLink(newExportLink);
+    },
+    [storedLogs]
+  );
+
   useEffect(() => {
-    if (logsData?.content) {
+    if (logsData?.content?.length) {
       let newLogs;
       // TODO: remove else when mocks moved to swagger
       if (logsData.content[0] === "string") {
-        newLogs = mockLogs.content;
+        // if no logs are stored, set initial logs
+        newLogs = storedLogs.length ? mockNewLogs.content : mockLogs.content;
       } else {
         newLogs = logsData.content;
       }
 
-      const { error, warning } = getErrorWarningCount(newLogs);
-      setErrorCount(error);
-      setWarningCount(warning);
+      // after initial logs are fetched, remove duplicated logs and add them
+      const uniqueLogs = storedLogs.length
+        ? newLogs.filter(
+            (log) => !storedLogs.find((storedLog) => storedLog === log)
+          )
+        : newLogs;
 
-      const formattedLogs = formatLogs(newLogs);
-      setLogs(formattedLogs);
-
-      const newExportLink = getExportLink([
-        "Time,Message",
-        ...formattedLogs.map(
-          (log) => `${log.timestamp},${log.message.replace(/,/g, " | ")}`
-        ),
-      ]);
-      setExportLink(newExportLink);
+      const combinedLogs = [...storedLogs, ...uniqueLogs];
+      formatAndSetLogsData(combinedLogs);
     }
-  }, [logsData]);
+  }, [logsData, storedLogs, formatAndSetLogsData]);
 
   const handleClickDismiss = () => {
     navigate("/");
@@ -91,7 +119,13 @@ const LogsWrapper = () => {
         </div>
       </div>
       <div className="overflow-y-scroll h-[calc(100%-65px)]">
-        {logs.length ? <Logs logs={logs} /> : null}
+        {logs.length ? (
+          <Logs logs={logs} />
+        ) : (
+          <div className="flex h-[calc(100vh-65px)] w-full justify-center items-center">
+            <Spinner />
+          </div>
+        )}
       </div>
     </div>
   );

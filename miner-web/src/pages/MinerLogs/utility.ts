@@ -1,17 +1,16 @@
 import { padLeft } from "common/utils/stringUtils";
-import { tags } from "./constants";
-import { LogInfo } from "./types";
 
-const formatLog = (
-  log: string,
-  tag: (typeof tags)[keyof typeof tags]
-): LogInfo => {
-  const info = log.split(tag);
+import { logTypes } from "./constants";
+import { LogInfo, logType } from "./types";
+
+const formatLog = (log: string, logType: logType): LogInfo => {
+  const info = log.split(logType);
   const timestamp = info[0].split(": ")?.[1];
   const timeWithoutMs = timestamp?.split(".")?.[0] || timestamp;
   const message = info[1];
 
   return {
+    logType,
     timestamp: timeWithoutMs && message ? timeWithoutMs : null,
     message: timeWithoutMs && message ? message : log,
   };
@@ -19,28 +18,24 @@ const formatLog = (
 
 export const formatLogs = (logs: string[]) => {
   return logs.map((log) => {
-    const isWarning = log.includes(tags.warn);
-    const isError = log.includes(tags.error);
-    const isInfo = log.includes(tags.info);
-    const isDebug = log.includes(tags.debug);
+    const isWarning = log.includes(logTypes.warn);
+    const isError = log.includes(logTypes.error);
+    const isInfo = log.includes(logTypes.info);
+    const isDebug = log.includes(logTypes.debug);
 
-    let info: LogInfo = { timestamp: null, message: log };
+    let info: LogInfo = { timestamp: null, logType: null, message: log };
     if (isError) {
-      info = formatLog(log, tags.error);
+      info = formatLog(log, logTypes.error);
     } else if (isWarning) {
-      info = formatLog(log, tags.warn);
+      info = formatLog(log, logTypes.warn);
     } else if (isDebug) {
-      info = formatLog(log, tags.debug);
+      info = formatLog(log, logTypes.debug);
     } else if (isInfo) {
-      info = formatLog(log, tags.info);
+      info = formatLog(log, logTypes.info);
     }
 
     return {
       ...info,
-      isDebug,
-      isError,
-      isInfo,
-      isWarning,
     };
   });
 };
@@ -49,9 +44,9 @@ export const getErrorWarningCount = (logs: string[]) => {
   let error = 0;
   let warning = 0;
   logs.forEach((log) => {
-    if (log.includes(tags.error)) {
+    if (log.includes(logTypes.error)) {
       error++;
-    } else if (log.includes(tags.warn)) {
+    } else if (log.includes(logTypes.warn)) {
       warning++;
     }
   });
@@ -79,4 +74,8 @@ export const getFileName = () => {
   const seconds = padLeft(date.getSeconds(), 2);
   const formattedDate = `${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
   return `miner-logs-${formattedDate}.csv`;
+};
+
+export const formatLogType = (logType: logType | null) => {
+  return logType?.split("|")[1].trim();
 };

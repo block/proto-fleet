@@ -44,7 +44,7 @@ const AsicChart = ({ hashrateData, temperatureData }: AsicChartProps) => {
     <ChartWrapper>
       <LineChart
         margin={{
-          top: 0,
+          top: 10,
           right: 12,
           left: 12,
           bottom: 0,

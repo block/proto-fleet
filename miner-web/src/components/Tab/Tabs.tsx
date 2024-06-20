@@ -73,7 +73,7 @@ const Tabs = ({ children }: TabsProps) => {
 
   const tabContent = childrenArray?.map((tabContent) => (
     <div
-      className={clsx("mt-6", {
+      className={clsx("mt-6 h-full", {
         hidden: tabContent.props.label !== activeTab,
       })}
       key={`${tabContent.props.label}-content`}

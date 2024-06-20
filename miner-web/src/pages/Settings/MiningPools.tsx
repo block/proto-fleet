@@ -2,21 +2,31 @@ import { useCallback, useContext, useEffect, useState } from "react";
 
 import { ApiContext, useCreatePool } from "api";
 
-import { debounce } from "common/utils/utility";
+import { debounce, deepClone } from "common/utils/utility";
 
-import MiningPools, { PoolInfo } from "components/MiningPools";
+import MiningPools, {
+  emptyPoolInfo,
+  isValidPool,
+  PoolInfo,
+} from "components/MiningPools";
 import { ToastType, toastTypes } from "components/Toast";
+
 import StatusToast from "./StatusToast";
 
 const SettingsMiningPools = () => {
-  const [pools, setPools] = useState<PoolInfo[]>([]);
+  // pools is an array of 3 PoolInfo objects
+  // index 0 is the default pool, then backups 1 and 2
+  // [{url: "", username: "", password: ""}, x3]
+  const [pools, setPools] = useState<PoolInfo[]>(
+    Array(3).fill(deepClone(emptyPoolInfo))
+  );
   const [toastType, setToastType] = useState<ToastType | null>(null);
 
   const { poolsInfo } = useContext(ApiContext);
   const { createPool } = useCreatePool();
 
   useEffect(() => {
-    if (poolsInfo.length && !pools.length) {
+    if (poolsInfo.length && !pools[0].url) {
       const newPools = [...Array(3)].map((_, index) => ({
         url: poolsInfo[index]?.url || "",
         username: poolsInfo[index]?.user || "",
@@ -30,8 +40,9 @@ const SettingsMiningPools = () => {
   const debouncedSubmitPools = useCallback(
     debounce((newPools: PoolInfo[]) => {
       setToastType(toastTypes.loading);
+      const validPools = newPools.filter(isValidPool);
       createPool({
-        poolInfo: newPools,
+        poolInfo: validPools,
         onSuccess: () => {
           setToastType(toastTypes.success);
         },
@@ -51,14 +62,12 @@ const SettingsMiningPools = () => {
     [debouncedSubmitPools]
   );
 
-  if (pools.length) {
-    return (
-      <>
-        <StatusToast onClose={() => setToastType(null)} type={toastType} />
-        <MiningPools onChange={onChangePools} pools={pools} />
-      </>
-    );
-  }
+  return (
+    <>
+      <StatusToast onClose={() => setToastType(null)} type={toastType} />
+      <MiningPools onChange={onChangePools} pools={pools} />
+    </>
+  );
 };
 
 export default SettingsMiningPools;

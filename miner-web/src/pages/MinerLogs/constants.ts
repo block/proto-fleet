@@ -1,4 +1,4 @@
-export const tags = {
+export const logTypes = {
   debug: " | DEBUG | ",
   error: " | ERROR | ",
   info: " | INFO  | ",
@@ -509,5 +509,17 @@ export const mockLogs = {
     "Jun 14 16:04:22 proto-miner-001D mcdd[716]: 2024-06-14 16:04:21.994128 | INFO  | mcdd::hashboard::b1::stats_b1:693 | [B1 0] Hashrate - Actual: 21.464TH/s, Exp: 22.027TH/s, Hashrate Ratio: 0.974, Freq: 700MHz",
     "Jun 14 16:04:22 proto-miner-001D mcdd[716]: 2024-06-14 16:04:21.994509 | INFO  | mcdd::hashboard::b1::stats_b1:712 | [B1 0] Energy - Power: 748W, Efficiency: infJ/TH",
     "Jun 14 16:04:22 proto-miner-001D mcdd[716]: 2024-06-14 16:04:21.994678 | INFO  | mcdd::hashboard::b1::stats_b1:716 | [B1 0] Nonces - Valid: 2009896, Invalid: 51283, Error Rate: 2.49%",
+  ],
+};
+
+export const mockNewLogs = {
+  source: "miner_sw",
+  lines: 100,
+  content: [
+    "Jun 14 16:04:22 proto-miner-001D mcdd[716]: 2024-06-14 16:04:21.990202 | INFO  | mcdd::hashboard::b1::stats_b1:716 | [B1 1] Nonces - Valid: 1934599, Invalid: 131805, Error Rate: 6.38%",
+    "Jun 14 16:04:22 proto-miner-001D mcdd[716]: 2024-06-14 16:04:21.994128 | INFO  | mcdd::hashboard::b1::stats_b1:693 | [B1 0] Hashrate - Actual: 21.464TH/s, Exp: 22.027TH/s, Hashrate Ratio: 0.974, Freq: 700MHz",
+    "Jun 14 16:04:22 proto-miner-001D mcdd[716]: 2024-06-14 16:04:21.994509 | INFO  | mcdd::hashboard::b1::stats_b1:712 | [B1 0] Energy - Power: 748W, Efficiency: infJ/TH",
+    "Jun 14 16:04:22 proto-miner-001D mcdd[716]: 2024-06-14 16:04:21.994678 | INFO  | mcdd::hashboard::b1::stats_b1:716 | [B1 0] Nonces - Valid: 2009896, Invalid: 51283, Error Rate: 2.49%",
+    "Jun 20 14:55:33 proto-miner-008E mcdd[623]: 2024-06-20 14:55:33.560226 | INFO  | mcdd::temp::temp_control:270 | [TempCtrl] Adjusting fan speed to 98% based on max temp: 77",
   ],
 };

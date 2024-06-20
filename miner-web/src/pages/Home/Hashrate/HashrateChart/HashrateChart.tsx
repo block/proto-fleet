@@ -52,7 +52,7 @@ const HashrateChart = ({
     payload: [],
   });
   const [initChart, setInitChart] = useState(false);
-  const { isDesktop } = useWindowDimensions();
+  const { isDesktop, isTablet } = useWindowDimensions();
   const chartData = useMemo(
     () => getChartData({ hashrate1, hashrate2, hashrate3, hashrates }),
     [hashrate1, hashrate2, hashrate3, hashrates]
@@ -110,7 +110,7 @@ const HashrateChart = ({
             <TimeXAxisTick
               tooltipTime={tooltipData.payload[0]?.payload.time}
               dataPointCount={chartData.length}
-              maxTicksToShow={13}
+              maxTicksToShow={isDesktop ? 13 : (isTablet ? 10 : 5)}
             />
           }
         />

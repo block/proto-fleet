@@ -7,6 +7,7 @@ import { positions } from "common/constants";
 import { getDisplayValue } from "common/utils/stringUtils";
 
 import Popover from "components/Popover";
+import Spinner from "components/Spinner";
 
 // import { dangerTemp } from "../../constants";
 import { getRowLabel } from "../../utility";
@@ -25,18 +26,20 @@ interface AsicPopoverProps {
 const AsicPopover = ({ asic, duration, hashboardSerial }: AsicPopoverProps) => {
   const [temperatureData, setTemperatureData] = useState<ChartData[]>();
   const [hashrateData, setHashrateData] = useState<ChartData[]>();
-  const { data: asicTemperatureData } = useAsicTemperature({
-    asicID: asic.id,
-    duration,
-    hashboardSerial,
-    poll: true,
-  });
-  const { data: asicHashrateData } = useAsicHashrate({
-    asicID: asic.id,
-    duration,
-    hashboardSerial,
-    poll: true,
-  });
+  const { data: asicTemperatureData, pending: pendingAsicTemperatureData } =
+    useAsicTemperature({
+      asicID: asic.id,
+      duration,
+      hashboardSerial,
+      poll: true,
+    });
+  const { data: asicHashrateData, pending: pendingAsicHashrateData } =
+    useAsicHashrate({
+      asicID: asic.id,
+      duration,
+      hashboardSerial,
+      poll: true,
+    });
 
   useEffect(() => {
     if (asicTemperatureData?.data && asicTemperatureData.data.length) {
@@ -78,6 +81,12 @@ const AsicPopover = ({ asic, duration, hashboardSerial }: AsicPopoverProps) => {
         )} */}
       </div>
       <div className="w-[272px] h-[92px]">
+        {(pendingAsicHashrateData && !hashrateData) ||
+        (pendingAsicTemperatureData && !temperatureData) ? (
+          <div className="flex h-full items-center justify-center">
+            <Spinner />
+          </div>
+        ) : null}
         {hashrateData && temperatureData && (
           <AsicChart
             hashrateData={hashrateData}

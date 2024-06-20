@@ -11,6 +11,7 @@ import TempWidget, {
   mockTemperatureData,
 } from "components/InfoWidget/TempWidget";
 import Row from "components/Row";
+import Spinner from "components/Spinner";
 import Tabs from "components/Tab";
 
 import AsicTable from "./Asic/AsicTable";
@@ -52,7 +53,7 @@ const Hardware = () => {
   }, [tempData]);
 
   return (
-    <div className="flex flex-col space-y-6">
+    <div className="flex flex-col space-y-6 h-full">
       <div className="flex items-center">
         <div className="text-heading-300 grow">Hardware</div>
         <DurationSelector className="h-fit" onSelect={setDuration} />
@@ -63,14 +64,19 @@ const Hardware = () => {
           temp={temp}
           hashboardSerials={hashboardSerials}
           highestTemp={highestTemp}
-          loading={pendingTempData}
+          loading={pendingTempData && !temp}
         />
         <FanSpeedWidget
           fanSpeeds={coolingStatus?.fans}
-          loading={pendingCoolingStatus}
+          loading={pendingCoolingStatus && !coolingStatus?.fans?.length}
         />
       </div>
-      {!pendingHashboardsInfo && hashboardsInfo?.length && (
+      {pendingHashboardsInfo && !hashboardsInfo?.length && (
+        <div className="flex justify-center items-center h-full">
+          <Spinner />
+        </div>
+      )}
+      {hashboardsInfo?.length && (
         <Tabs>
           {hashboardsInfo.map((hashboardInfo, index) => (
             <Tabs.Tab

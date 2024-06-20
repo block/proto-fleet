@@ -73,7 +73,7 @@ export interface CoolingConfig {
    *  - Off: Fans will be set to off for immersion cooling.
    * @example "Auto"
    */
-  mode?: "Auto" | "Max" | "False";
+  mode?: "Auto" | "Max" | "Off";
 }
 
 export interface CoolingStatus {
@@ -85,7 +85,7 @@ export interface CoolingStatusCoolingstatus {
    * Parameter to show the current fan mode.
    * @example "Auto"
    */
-  fan_mode?: "Auto" | "Max" | "False";
+  fan_mode?: "Auto" | "Max" | "Off";
   /** This will show speed of all fans in the system. */
   fans?: FanInfo[];
 }

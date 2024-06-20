@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { useHashrate } from "api";
 import { HashrateResponseHashratedata } from "apiTypes";
 
+import Spinner from "components/Spinner";
+
 import { mockHashrateData } from "./constants";
 import Hashrate from "./Hashrate";
 import { Hashrates } from "./types";
@@ -19,6 +21,11 @@ const HashrateWrapper = ({ duration, hashboardSerials }: HashrateProps) => {
     HashrateResponseHashratedata["aggregates"]
   >({});
   const [hashrates, setHashrates] = useState<Hashrates>([]);
+
+  useEffect(() => {
+    setHashrates([]);
+    setAggregates({});
+  }, [duration]);
 
   useEffect(() => {
     if (hashrateData?.data && hashrateData.data.length) {
@@ -40,7 +47,11 @@ const HashrateWrapper = ({ duration, hashboardSerials }: HashrateProps) => {
           hashrates={hashrates}
           hashboardSerials={hashboardSerials}
         />
-      ) : null}
+      ) : (
+        <div className="flex h-full items-center justify-center">
+          <Spinner />
+        </div>
+      )}
     </>
   );
 };

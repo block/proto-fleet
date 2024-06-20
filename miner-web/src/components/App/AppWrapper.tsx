@@ -1,5 +1,5 @@
 import { ReactNode, useCallback, useContext, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
   ApiContext,
@@ -24,9 +24,11 @@ const AppWrapper = ({ children, title }: AppProps) => {
     useState<ReturnType<typeof setInterval>>();
   const [wakeIntervalId, setWakeIntervalId] =
     useState<ReturnType<typeof setInterval>>();
+  const [isOnboarding, setIsOnboarding] = useState(false);
   const { startMining } = useMiningStart();
   const { data: systemInfo, pending: pendingSystemInfo } = useSystemInfo();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // navigate to onboarding page if miner has not been onboarded
   useEffect(() => {
@@ -36,21 +38,35 @@ const AppWrapper = ({ children, title }: AppProps) => {
   }, [systemInfo, navigate]);
 
   useEffect(() => {
+    if (searchParams.get("onboarding")) {
+      setIsOnboarding(true);
+      setSearchParams("");
+    }
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
     if (!miningStatus) {
       getMiningStatus();
     } else if (!intervalId) {
       // on first load, if the device is booting up, check the mining status until it's running
-      // TODO: replace this with a warming up message when API tells us if device is booting up
-      if (miningStatus?.status === "Stopped") {
+      // TODO: get this from API when booting up status available
+      if (miningStatus?.status === "Stopped" && isOnboarding) {
         const newIntervalId = setInterval(() => {
           getMiningStatus({ onSuccess: setMiningStatus });
-        }, 30000);
+        }, 10000);
         setIntervalId(newIntervalId);
       }
     } else if (miningStatus?.status === "Running") {
       clearInterval(intervalId);
+      setIsOnboarding(false);
     }
-  }, [getMiningStatus, setMiningStatus, intervalId, miningStatus]);
+  }, [
+    getMiningStatus,
+    setMiningStatus,
+    intervalId,
+    miningStatus,
+    isOnboarding,
+  ]);
 
   const handleWake = () => {
     startMining();
@@ -78,6 +94,7 @@ const AppWrapper = ({ children, title }: AppProps) => {
           apiMiningStatus={miningStatus}
           onWake={handleWake}
           afterWake={afterWake}
+          isOnboarding={isOnboarding}
         >
           {children}
         </App>

@@ -37,8 +37,10 @@ const EfficiencyModal = ({
         <InfoWidget title="Current efficiency" value={efficiency && `${efficiency} J/TH`} />
       </div>
       {efficiencyValues?.length ? (
-        <div className="w-[600px] phone:w-[352px] h-[228px]">
-          <EfficiencyChart efficiencies={efficiencyValues} />
+        <div className="flex justify-center">
+          <div className="w-[600px] phone:w-[352px] h-[228px]">
+            <EfficiencyChart efficiencies={efficiencyValues} />
+          </div>
         </div>
       ) : null}
     </div>

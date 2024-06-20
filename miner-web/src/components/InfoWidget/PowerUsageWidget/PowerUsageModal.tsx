@@ -46,11 +46,13 @@ const PowerUsageModal = ({
         />
       </div>
       {powerValues && powerAggregates?.max && (
-        <div className="w-[592px] phone:w-[352px] h-[156px]">
-          <PowerUsageChart
-            powers={powerValues}
-            maxPower={powerAggregates.max}
-          />
+        <div className="flex justify-center">
+          <div className="w-[592px] phone:w-[352px] h-[156px]">
+            <PowerUsageChart
+              powers={powerValues}
+              maxPower={powerAggregates.max}
+            />
+          </div>
         </div>
       )}
     </div>

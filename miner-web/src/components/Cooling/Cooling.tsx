@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 
 import ContentHeader from "components/ContentHeader";
 import SelectRowList, { selectTypes } from "components/SelectRowList";
@@ -22,15 +22,20 @@ interface CoolingProps {
 }
 
 const Cooling = ({ mode, onChange }: CoolingProps) => {
+  const isValidMode = useMemo(
+    () => mode && Object.values(fanModes).includes(mode),
+    [mode]
+  );
+
   const [fanMode, setFanMode] = useState<FanMode | undefined>(
-    mode && Object.values(fanModes).includes(mode) ? (mode as FanMode) : undefined
+    isValidMode ? (mode as FanMode) : undefined
   );
 
   useEffect(() => {
-    if (mode && mode in fanModes) {
+    if (isValidMode) {
       setFanMode(mode as FanMode);
     }
-  }, [mode]);
+  }, [isValidMode, mode]);
 
   const handleChange = (id: string, isSelected: boolean) => {
     if (isSelected) {
@@ -61,8 +66,8 @@ const Cooling = ({ mode, onChange }: CoolingProps) => {
             text: "Fan cooled",
           },
           {
-            id: fanModes.false,
-            isSelected: fanMode === fanModes.false,
+            id: fanModes.off,
+            isSelected: fanMode === fanModes.off,
             prefixIcon: (
               <IconWrapper>
                 <ImmersionCooling />

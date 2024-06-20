@@ -7,17 +7,17 @@ import { WakingDialog, WarnWakeDialog } from "components/Power";
 
 import { Power } from "icons";
 
-interface AppProps {
+interface WakeCalloutProps {
   afterWake?: () => void;
   miningStatus?: MiningStatusMiningstatus;
   onWake: () => void;
 }
 
-const App = ({
+const WakeCallout = ({
   afterWake,
   miningStatus,
   onWake,
-}: AppProps) => {
+}: WakeCalloutProps) => {
   const [warnWake, setWarnWake] = useState(false);
   const [shouldWake, setShouldWake] = useState(false);
 
@@ -57,4 +57,4 @@ const App = ({
   );
 };
 
-export default App;
+export default WakeCallout;

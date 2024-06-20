@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Bar, BarChart, Tooltip, XAxis, YAxis } from "recharts";
 
+import { useWindowDimensions } from "common/hooks/useWindowDimensions";
+
 import {
   ChartWrapper,
   TimeXAxisTick,
@@ -22,6 +24,7 @@ const PowerUsageChart = ({ maxPower, powers }: PowerUsageChartProps) => {
     y: 0,
     payload: [],
   });
+  const { isPhone } = useWindowDimensions();
 
   return (
     <ChartWrapper>
@@ -40,7 +43,7 @@ const PowerUsageChart = ({ maxPower, powers }: PowerUsageChartProps) => {
             <TimeXAxisTick
               tooltipTime={tooltipData.payload[0]?.payload.time}
               dataPointCount={powers.length}
-              maxTicksToShow={8}
+              maxTicksToShow={isPhone ? 5 : 8}
               chartType="bar"
             />
           }

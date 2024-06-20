@@ -13,7 +13,7 @@ interface MiningPoolsProps {
 
 const MiningPools = ({ children, onChange, pools }: MiningPoolsProps) => {
   return (
-    <div className="max-w-[640px]">
+    <div className="max-w-[640px] h-full">
       <ContentHeader
         title="Mining pool"
         subtitle="Enter your mining pool details below."

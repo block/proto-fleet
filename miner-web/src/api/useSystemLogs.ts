@@ -28,7 +28,7 @@ const useSystemLogs = ({ poll }: UseSystemLogsProps) => {
       });
   }, []);
 
-  usePoll({ fetchData, poll, pollIntervalMilliseconds: 1000 });
+  usePoll({ fetchData, poll, pollIntervalMilliseconds: 5000 });
 
   return {
     pending,

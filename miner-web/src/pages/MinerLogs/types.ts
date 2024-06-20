@@ -1,8 +1,9 @@
+import { logTypes } from "./constants";
+
+export type logType = (typeof logTypes)[keyof typeof logTypes];
+
 export type LogInfo = {
-  isDebug?: boolean;
-  isError?: boolean;
-  isInfo?: boolean;
-  isWarning?: boolean;
   message: string;
+  logType: logType | null;
   timestamp: string | null;
 };

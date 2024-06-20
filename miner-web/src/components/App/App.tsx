@@ -7,11 +7,13 @@ import NavigationMenu from "components/NavigationMenu";
 import PageHeader from "components/PageHeader";
 
 import WakeCallout from "./WakeCallout";
+import WarmingUpCallout from "./WarmingUpCallout";
 
 interface AppProps {
   afterWake?: () => void;
   apiMiningStatus?: MiningStatusMiningstatus;
   children?: ReactNode;
+  isOnboarding?: boolean;
   onWake: () => void;
   title: string;
 }
@@ -19,6 +21,7 @@ interface AppProps {
 const App = ({
   afterWake,
   apiMiningStatus,
+  isOnboarding,
   children,
   onWake,
   title,
@@ -63,13 +66,17 @@ const App = ({
         <div className="w-full laptop:rounded-s-2xl desktop:laptop:rounded-s-2xl bg-surface-base">
           <PageHeader title={title} openMenu={() => setIsMenuOpen(true)} />
           <div className="w-full h-[calc(100%-56px)] overflow-y-scroll relative">
-            <div className="h-full m-14 tablet:m-6 phone:m-6 flex justify-center">
+            <div className="min-h-[calc(100%-56px-56px)] m-14 tablet:m-6 phone:m-6 flex justify-center">
               <div className="desktop:w-[928px] laptop:w-[608px] tablet:w-[584px] phone:w-[352px]">
-                <WakeCallout
-                  afterWake={afterWake}
-                  miningStatus={miningStatus}
-                  onWake={onWake}
-                />
+                {isOnboarding ? (
+                  <WarmingUpCallout />
+                ) : (
+                  <WakeCallout
+                    afterWake={afterWake}
+                    miningStatus={miningStatus}
+                    onWake={onWake}
+                  />
+                )}
                 {children}
               </div>
             </div>
