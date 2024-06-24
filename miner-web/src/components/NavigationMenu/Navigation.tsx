@@ -98,12 +98,6 @@ const Navigation = ({ macInfo, onItemClick }: NavigationProps) => {
               onClick={handleClick}
               pageName={pageName}
             />
-            <NavigationItem
-              id={navigationItems.cooling}
-              text="Cooling"
-              onClick={handleClick}
-              pageName={pageName}
-            />
           </>
         )}
       </div>

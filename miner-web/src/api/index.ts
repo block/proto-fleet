@@ -1,7 +1,6 @@
 import { api, ApiContext } from "./api";
 import { useAsicHashrate } from "./useAsicHashrate";
 import { useAsicTemperature } from "./useAsicTemperature";
-import { useCoolingMode } from "./useCoolingMode";
 import { useCoolingStatus } from "./useCoolingStatus";
 import { useCreatePool } from "./useCreatePool";
 import { useEfficiency } from "./useEfficiency";
@@ -27,7 +26,6 @@ export {
   ApiContext,
   useAsicHashrate,
   useAsicTemperature,
-  useCoolingMode,
   useCoolingStatus,
   useCreatePool,
   useEfficiency,

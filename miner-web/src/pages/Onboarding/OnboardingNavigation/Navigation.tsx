@@ -64,18 +64,6 @@ const Navigation = ({
               </div>
             ))}
           </Row>
-          <Row
-            className={clsx("", {
-              "text-text-primary/30": activeTab !== tabs.cooling,
-              "hover:cursor-not-allowed": !poolUrls.length,
-            })}
-            {...(poolUrls.length && {
-              onClick: () => handleClick(tabs.cooling),
-            })}
-            testId="cooling-tab"
-          >
-            Cooling
-          </Row>
         </div>
       </div>
       {/* TODO: add documentation and support links when available */}

@@ -3,12 +3,11 @@ import { useCallback, useState } from "react";
 import { deepClone } from "common/utils/utility";
 
 import { variants } from "components/Button";
-import Cooling, { FanMode, fanModes } from "components/Cooling";
 import MiningPools, {
   emptyPoolInfo,
   isValidPool,
   PoolInfo,
-  } from "components/MiningPools";
+} from "components/MiningPools";
 
 import { tabs } from "./constants";
 import OnboardingHeader from "./OnboardingHeader";
@@ -29,8 +28,6 @@ const Onboarding = () => {
 
   const [warnDefaultPool, setWarnDefaultPool] = useState(false);
   const [warnBackupPool, setWarnBackupPool] = useState(false);
-
-  const [fanMode, setFanMode] = useState<FanMode>(fanModes.auto);
 
   const [activeTab, setActiveTab] = useState<Tabs>(tabs.pools);
   const [settingUpMiner, setSettingUpMiner] = useState(false);
@@ -56,8 +53,8 @@ const Onboarding = () => {
         }
       }
       // move on to next step
-      setActiveTab(tabs.cooling);
       setFinalizedPoolUrls(pools.map((pool) => pool.url));
+      setSettingUpMiner(true);
     },
     [pools]
   );
@@ -74,12 +71,6 @@ const Onboarding = () => {
     }
   }, []);
 
-  const onChangeFanMode = (newFanMode: FanMode, isSelected: boolean) => {
-    if (isSelected) {
-      setFanMode(newFanMode);
-    }
-  };
-
   return (
     <div className="h-screen flex flex-col">
       {settingUpMiner ? (
@@ -87,28 +78,19 @@ const Onboarding = () => {
           <OnboardingHeader openMenu={() => setIsMenuOpen(true)} />
           <div className="h-screen flex justify-center items-center">
             <div className="w-[600px]">
-              <SettingUp fanMode={fanMode} pools={pools} />
+              <SettingUp pools={pools} />
             </div>
           </div>
         </>
       ) : (
         <>
           <OnboardingHeader
-            button={
-              activeTab === tabs.pools
-                ? {
-                    text: "Continue",
-                    onClick: () => onContinue(),
-                    variant: variants.primary,
-                    testId: "continue-button",
-                  }
-                : {
-                    text: "Finish setup",
-                    onClick: () => setSettingUpMiner(true),
-                    variant: variants.accent,
-                    testId: "finish-setup-button",
-                  }
-            }
+            button={{
+              text: "Finish setup",
+              onClick: () => onContinue(),
+              variant: variants.accent,
+              testId: "finish-setup-button",
+            }}
             openMenu={() => setIsMenuOpen(true)}
           />
           <WarnBackupPoolDialog
@@ -136,9 +118,6 @@ const Onboarding = () => {
                         />
                       </MiningPools>
                     </>
-                  )}
-                  {activeTab === tabs.cooling && (
-                    <Cooling onChange={onChangeFanMode} mode={fanMode} />
                   )}
                 </div>
               </div>

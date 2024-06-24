@@ -32,6 +32,7 @@ const SelectRowList = ({
             key={index}
             subtext={selectRow.subtext}
             text={selectRow.text}
+            disabled={selectRow.disabled}
             isSelected={selectRow.isSelected}
             onChange={handleChange}
             prefixIcon={selectRow.prefixIcon}

@@ -1,30 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createSearchParams, useNavigate } from "react-router-dom";
 
-import { useCoolingMode, useCreatePool, usePoolsInfo } from "api";
+import { useCreatePool, usePoolsInfo } from "api";
 
-import { FanMode } from "components/Cooling";
 import { isValidPool, PoolInfo } from "components/MiningPools";
 
 import { statuses } from "./constants";
 import SettingUp from "./SettingUp";
 
 interface SettingUpWrapperProps {
-  fanMode: FanMode;
   pools: PoolInfo[];
 }
 
-const SettingUpWrapper = ({ fanMode, pools }: SettingUpWrapperProps) => {
+const SettingUpWrapper = ({ pools }: SettingUpWrapperProps) => {
   const navigate = useNavigate();
   const { createPool } = useCreatePool();
-  const { setCoolingMode } = useCoolingMode();
   const { fetch: fetchPools } = usePoolsInfo();
   const [intervalId, setIntervalId] =
     useState<ReturnType<typeof setInterval>>();
   const [poolStatus, setPoolStatus] = useState<keyof typeof statuses>(
-    statuses.fetch
-  );
-  const [fanStatus, setFanStatus] = useState<keyof typeof statuses>(
     statuses.fetch
   );
 
@@ -33,7 +27,7 @@ const SettingUpWrapper = ({ fanMode, pools }: SettingUpWrapperProps) => {
       onSuccess: () => setPoolStatus(statuses.success),
       onError: (error = "") => {
         // wait for cgminer to restart before marking pools as configured
-        const message = error.toLowerCase();
+        const message = error.toLowerCase?.() || error;
         if (!/failed to connect to cgminer/.test(message)) {
           setPoolStatus(statuses.error);
         }
@@ -63,17 +57,6 @@ const SettingUpWrapper = ({ fanMode, pools }: SettingUpWrapperProps) => {
     }
   }, [createPool, getPoolStatus, poolStatus, pools]);
 
-  useEffect(() => {
-    if (fanStatus === statuses.fetch) {
-      setFanStatus(statuses.pending);
-      setCoolingMode({
-        fanMode,
-        onSuccess: () => setFanStatus(statuses.success),
-        onError: () => setFanStatus(statuses.error),
-      });
-    }
-  }, [fanMode, fanStatus, setCoolingMode]);
-
   const isConfigured = useCallback(
     (status: keyof typeof statuses) =>
       status === statuses.success || status === statuses.error,
@@ -85,18 +68,21 @@ const SettingUpWrapper = ({ fanMode, pools }: SettingUpWrapperProps) => {
   }, []);
 
   const isSetupDone = useMemo(
-    () => isConfigured(poolStatus) && isConfigured(fanStatus),
-    [fanStatus, isConfigured, poolStatus]
+    () => isConfigured(poolStatus),
+    [isConfigured, poolStatus]
   );
 
-  const handleClickContinue = useCallback(() => navigate({
-    pathname: "/",
-    search: `?${createSearchParams({ onboarding: "true" })}`,
-  }), [navigate]);
+  const handleClickContinue = useCallback(
+    () =>
+      navigate({
+        pathname: "/",
+        search: `?${createSearchParams({ onboarding: "true" })}`,
+      }),
+    [navigate]
+  );
 
   return (
     <SettingUp
-      fanStatus={fanStatus}
       poolStatus={poolStatus}
       isSetupDone={isSetupDone}
       onClickContinue={handleClickContinue}

@@ -9,7 +9,6 @@ import { statuses } from "./constants";
 import Item from "./Item";
 
 interface SettingUpProps {
-  fanStatus: keyof typeof statuses,
   isSetupDone: boolean,
   poolStatus: keyof typeof statuses,
   onClickContinue: () => void,
@@ -17,7 +16,6 @@ interface SettingUpProps {
 }
 
 const SettingUp = ({
-  fanStatus,
   isSetupDone,
   poolStatus,
   onClickContinue,
@@ -36,8 +34,8 @@ const SettingUp = ({
         status={poolStatus}
         text="mining pools"
         onClickRetry={onClickRetry}
+          divider={false}
       />
-      <Item status={fanStatus} text="fans" onClickRetry={onClickRetry} />
       <div className="flex justify-end">
         <Button
           variant={variants.accent}

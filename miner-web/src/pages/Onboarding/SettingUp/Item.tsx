@@ -7,14 +7,15 @@ import { statuses } from "./constants";
 import Error from "./Error";
 
 interface ItemProps {
+  divider?: boolean;
   onClickRetry: () => void;
   status: keyof typeof statuses;
   text: string;
 }
 
-const Item = ({ onClickRetry, status, text }: ItemProps) => {
+const Item = ({ divider = true, onClickRetry, status, text }: ItemProps) => {
   return (
-    <Row className="flex">
+    <Row className="flex" divider={divider}>
       <div className="grow">
         <div className="text-emphasis-300">Configuring your {text}</div>
         {status === statuses.error && (

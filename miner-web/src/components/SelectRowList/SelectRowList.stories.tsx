@@ -1,6 +1,6 @@
 import { ReactNode, useCallback, useEffect, useState } from "react";
 
-import { Fan, ImmersionCooling } from "icons";
+import { BaseIcon } from "common/stories/icons";
 
 import SelectRowListComponent, { SelectType } from ".";
 
@@ -13,42 +13,44 @@ const IconWrapper = ({ children }: IconWrapperProps) => {
 };
 
 interface SelectRowProps {
+  disabled: boolean;
   hasPrefixIcon: boolean;
   hasSubtext: boolean;
   type: SelectType;
 }
 
-const fanModes = {
-  auto: "Auto",
-  false: "False",
+const selectRows = {
+  one: "One",
+  two: "Two",
 } as const;
 
-type FanMode = typeof fanModes[keyof typeof fanModes];
+type SelectRow = (typeof selectRows)[keyof typeof selectRows];
 
 export const SelectRowList = ({
+  disabled,
   hasPrefixIcon,
   hasSubtext,
   type,
 }: SelectRowProps) => {
-  const [selected, setSelected] = useState<FanMode[]>([fanModes.auto]);
+  const [selected, setSelected] = useState<SelectRow[]>([selectRows.one]);
 
   useEffect(() => {
-    setSelected([fanModes.auto]);
+    setSelected([selectRows.one]);
   }, [type]);
 
   const onChange = useCallback(
     (id: string, isSelected: boolean) => {
-      const fanMode = id as FanMode;
+      const selectRow = id as SelectRow;
       if (type === "radio") {
         if (isSelected) {
-          setSelected([fanMode]);
+          setSelected([selectRow]);
         }
       } else if (type === "checkbox") {
-        if (isSelected && !selected.includes(fanMode)) {
-          setSelected([...selected, fanMode]);
-        } else if (!isSelected && selected.includes(fanMode)) {
+        if (isSelected && !selected.includes(selectRow)) {
+          setSelected([...selected, selectRow]);
+        } else if (!isSelected && selected.includes(selectRow)) {
           setSelected(
-            selected.filter((selectedFanMode) => selectedFanMode !== fanMode)
+            selected.filter((selectedRow) => selectedRow !== selectRow)
           );
         }
       }
@@ -62,27 +64,26 @@ export const SelectRowList = ({
       type={type}
       selectRows={[
         {
-          id: fanModes.auto,
-          isSelected: selected.includes(fanModes.auto),
+          id: selectRows.one,
+          isSelected: selected.includes(selectRows.one),
           prefixIcon: hasPrefixIcon && (
             <IconWrapper>
-              <Fan />
+              <BaseIcon />
             </IconWrapper>
           ),
-          text: "Fan cooled",
+          text: "Select row",
         },
         {
-          id: fanModes.false,
-          isSelected: selected.includes(fanModes.false),
+          disabled,
+          id: selectRows.two,
+          isSelected: selected.includes(selectRows.two),
           prefixIcon: hasPrefixIcon && (
             <IconWrapper>
-              <ImmersionCooling />
+              <BaseIcon />
             </IconWrapper>
           ),
-          subtext: hasSubtext
-            ? "This will disable any connected fans."
-            : undefined,
-          text: "Immersion cooled",
+          subtext: hasSubtext ? "Select row subtitle text." : undefined,
+          text: "Select row",
         },
       ]}
       onChange={onChange}
@@ -94,11 +95,15 @@ export default {
   title: "Components/Select Row List",
   component: SelectRowList,
   args: {
+    disabled: false,
     hasPrefixIcon: true,
     hasSubtext: true,
     type: "radio",
   },
   argTypes: {
+    disabled: {
+      control: "boolean",
+    },
     hasPrefixIcon: {
       control: "boolean",
     },

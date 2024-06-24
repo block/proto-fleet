@@ -6,6 +6,7 @@ import { Checkmark } from "icons";
 import { SelectType, selectTypes } from ".";
 
 export interface SelectRowProps {
+  disabled?: boolean;
   isSelected: boolean;
   onChange: (isSelected: boolean) => void;
   prefixIcon?: ReactNode;
@@ -15,6 +16,7 @@ export interface SelectRowProps {
 }
 
 const SelectRow = ({
+  disabled,
   isSelected,
   onChange,
   prefixIcon,
@@ -35,13 +37,17 @@ const SelectRow = ({
   return (
     <button
       className={clsx(
-        "rounded-xl text-text-primary bg-surface-default flex items-center cursor-pointer select-none text-left",
-        "hover:bg-surface-5 transition-[background-color] ease-in-out duration-200",
+        "rounded-xl flex items-center select-none text-left",
+        "transition-[background-color] ease-in-out duration-200",
         {
-          "border-[1.5px] border-border-primary p-4": isSelected,
-          "border border-border-primary/5 p-[16.5px]": !isSelected,
+          "border-[1.5px] border-border-primary p-4": isSelected && !disabled,
+          "border border-border-primary/5 p-[16.5px]": !isSelected || disabled,
+          "text-text-primary bg-surface-default hover:bg-surface-5 cursor-pointer":
+            !disabled,
+          "text-text-primary/50 bg-surface-5 cursor-not-allowed": disabled,
         }
       )}
+      disabled={disabled}
       onClick={() => onChange(!isSelected)}
     >
       <div className="flex items-center grow">
@@ -49,21 +55,32 @@ const SelectRow = ({
         <div className={clsx({ "ml-4": prefixIcon })}>
           <div className="text-emphasis-300">{text}</div>
           {subtext && (
-            <div className="text-200 text-text-primary/70">{subtext}</div>
+            <div
+              className={clsx("text-200", {
+                "text-text-primary/70": !disabled,
+                "text-text-primary/40": disabled,
+              })}
+            >
+              {subtext}
+            </div>
           )}
         </div>
       </div>
       <div className="ml-4 flex relative">
         <input
           className={clsx(
-            "peer appearance-none border border-border-primary/20 h-[20px] w-[20px] relative cursor-pointer",
+            "peer appearance-none border h-[20px] w-[20px] relative",
             {
               "rounded-full": isRadio,
               rounded: isCheckbox,
+              "border-border-primary/20 cursor-pointer": !disabled,
+              "border-border-primary/10 cursor-not-allowed bg-core-primary/20 opacity-[0.4]":
+                disabled,
             }
           )}
+          disabled={disabled}
           type={type}
-          checked={isSelected}
+          checked={isSelected && !disabled}
           onChange={handleChange}
         />
         <div

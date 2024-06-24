@@ -16,10 +16,6 @@ const poolUrl = "stratum+tcp://ckpool:3333";
 
 // data-testid constants
 const miningPoolTitle = "mining-pool-title";
-const coolingTitle = "cooling-title";
-const coolingTab = "cooling-tab";
-const poolsTab = "pools-tab";
-const continueButton = "continue-button";
 const testConnectionButton = "test-connection-button";
 const backupPoolAddButton = "backup-pool-1-add-button";
 const backupPoolSaveButton = "backup-pool-save-button";
@@ -57,14 +53,10 @@ describe("Onboarding", () => {
     expect(getByTestId(miningPoolTitle)).toBeInTheDocument();
   });
 
-  test("Cooling tab is initially disabled", () => {
-    expect(getByTestId(coolingTab)).toHaveClass("hover:cursor-not-allowed");
-  });
-
   test("Renders callout on clicking continue with no default pool URL inputted", () => {
     // callout has max-height of 0
     expect(getByTestId(warnDefaultPoolCallout)).toHaveClass("max-h-0");
-    fireEvent.click(getByTestId(continueButton));
+    fireEvent.click(getByTestId(finishSetupButton));
     // callout no longer has max-height of 0
     expect(getByTestId(warnDefaultPoolCallout)).not.toHaveClass("max-h-0");
   });
@@ -95,7 +87,7 @@ describe("Onboarding", () => {
     // callout has max-height of 0
     expect(getByTestId(warnDefaultPoolCallout)).toHaveClass("max-h-0");
     fireEvent.change(getByTestId(urlInput), { target: { value: poolUrl } });
-    fireEvent.click(getByTestId(continueButton));
+    fireEvent.click(getByTestId(finishSetupButton));
     // callout still has max-height of 0
     expect(getByTestId(warnDefaultPoolCallout)).toHaveClass("max-h-0");
   });
@@ -103,7 +95,7 @@ describe("Onboarding", () => {
   test("Renders warning dialog on clicking continue with no backup pools inputted", () => {
     expect(queryByTestId(warnBackupPoolDialog)).not.toBeInTheDocument();
     fireEvent.change(getByTestId(urlInput), { target: { value: poolUrl } });
-    fireEvent.click(getByTestId(continueButton));
+    fireEvent.click(getByTestId(finishSetupButton));
     expect(getByTestId(warnDefaultPoolCallout)).toBeInTheDocument();
   });
 
@@ -118,7 +110,7 @@ describe("Onboarding", () => {
     });
     // click save button
     fireEvent.click(getByTestId(backupPoolSaveButton));
-    fireEvent.click(getByTestId(continueButton));
+    fireEvent.click(getByTestId(finishSetupButton));
     expect(queryByTestId(warnBackupPoolDialog)).not.toBeInTheDocument();
   });
 
@@ -260,31 +252,10 @@ describe("Onboarding", () => {
     });
   });
 
-  test("Continues to cooling tab on inputting pool info and clicking continue", () => {
-    // input default pool URL
-    fireEvent.change(getByTestId(urlInput), { target: { value: poolUrl } });
-    fireEvent.click(getByTestId(continueButton));
-    fireEvent.click(getByTestId(continueWithoutBackupButton));
-    expect(getByTestId(coolingTitle)).toBeInTheDocument();
-    expect(getByTestId(coolingTab)).not.toHaveClass("hover:cursor-not-allowed");
-  });
-
-  test("Can switch tabs after pool info is inputted", () => {
-    fireEvent.change(getByTestId(urlInput), { target: { value: poolUrl } });
-    fireEvent.click(getByTestId(continueButton));
-    fireEvent.click(getByTestId(continueWithoutBackupButton));
-    expect(queryByTestId(miningPoolTitle)).not.toBeInTheDocument();
-    expect(getByTestId(coolingTitle)).toBeInTheDocument();
-    fireEvent.click(getByTestId(poolsTab));
-    expect(queryByTestId(coolingTitle)).not.toBeInTheDocument();
-    expect(getByTestId(miningPoolTitle)).toBeInTheDocument();
-  });
-
   test("Click on finish setup shows setting up screen", async () => {
     fireEvent.change(getByTestId(urlInput), { target: { value: poolUrl } });
-    fireEvent.click(getByTestId(continueButton));
-    fireEvent.click(getByTestId(continueWithoutBackupButton));
     fireEvent.click(getByTestId(finishSetupButton));
+    fireEvent.click(getByTestId(continueWithoutBackupButton));
     expect(getByTestId(continueToDashboardButton)).not.toHaveClass(
       "opacity-100"
     );
