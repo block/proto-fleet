@@ -4,8 +4,9 @@ import { describe, expect, test } from "vitest";
 import { getDisplayValue } from "common/utils/stringUtils";
 import { convertWtoKW } from "common/utils/utility";
 
+import { mockPowerData } from "./constants";
 import { convertAggregatePowerValues, convertPowerValues } from "./utility";
-import PowerUsageWidget, { mockPowerData } from ".";
+import PowerUsageWidget from ".";
 
 describe("PowerUsageWidget", () => {
   const powerAggregates = convertAggregatePowerValues(mockPowerData.aggregates);

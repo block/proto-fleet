@@ -5,7 +5,6 @@ import { AsicStats, HashrateResponseHashratedata } from "apiTypes";
 
 import Spinner from "components/Spinner";
 
-import { getAsics } from "../constants";
 import { getAsicsRows, getRowLabel, sortAsics } from "../utility";
 import AsicButton from "./AsicButton";
 
@@ -22,19 +21,17 @@ const AsicTable = ({
   showPopover,
   setShowPopover,
 }: AsicTableProps) => {
-  const { data, pending } = useHashboardStats(hashboardSerialNumber);
+  const { data, pending } = useHashboardStats({
+    hashboardSerialNumber,
+    poll: true,
+  });
   const [asics, setAsics] = useState<AsicStats[]>([]);
 
   useEffect(() => {
-    if (data?.asics && !asics.length) {
-      // TODO: remove else when mocks moved to swagger
-      if (data.asics.length > 1) {
-        setAsics(sortAsics(data.asics));
-      } else {
-        setAsics(sortAsics(getAsics()));
-      }
+    if (!pending && data?.asics?.length) {
+      setAsics(sortAsics(data.asics));
     }
-  }, [asics, data]);
+  }, [data, pending]);
 
   return (
     <div className="mt-6 relative h-full">

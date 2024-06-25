@@ -31,7 +31,8 @@ export const getDisplayValue = (value?: number | string | null) => {
   return separateByCommas(twoDecimalPlaces);
 };
 
-const getDateFromEpoch = (epoch: number) => {
+export const getDateFromEpoch = (epoch?: number) => {
+  if (!epoch) return new Date();
   const seconds = epoch.toString().length === 10;
   return new Date(seconds ? epoch * 1000 : epoch);
 };
@@ -55,4 +56,19 @@ export const getTimeFromEpoch = (epoch?: number) => {
 
 export const padLeft = (value: number, length: number) => {
   return value.toString().padStart(length, "0");
+};
+
+export const getShortYearFromEpoch = (epoch?: number) => {
+  if (!epoch) return "";
+  return getDateFromEpoch(epoch).getFullYear().toString().slice(-2);
+};
+
+export const getMonthFromEpoch = (epoch?: number) => {
+  if (!epoch) return "";
+  return getDateFromEpoch(epoch).getMonth() + 1;
+};
+
+export const getDayFromEpoch = (epoch?: number) => {
+  if (!epoch) return "";
+  return getDateFromEpoch(epoch).getDate();
 };

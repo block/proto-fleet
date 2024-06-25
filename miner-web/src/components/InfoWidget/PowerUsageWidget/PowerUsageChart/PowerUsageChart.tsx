@@ -41,9 +41,11 @@ const PowerUsageChart = ({ maxPower, powers }: PowerUsageChartProps) => {
           {...xAxisProps}
           tick={
             <TimeXAxisTick
-              tooltipTime={tooltipData.payload[0]?.payload.time}
+              tooltipDatetime={tooltipData.payload[0]?.payload.datetime}
               dataPointCount={powers.length}
-              maxTicksToShow={isPhone ? 5 : 8}
+              maxTicksToShow={isPhone ? 5 : 10}
+              minXPosition={75}
+              maxXPosition={isPhone ? 303 : 536}
               chartType="bar"
             />
           }

@@ -5,7 +5,7 @@ import { getDisplayValue } from "common/utils/stringUtils";
 import AsicPopoverRow from "../AsicPopoverRow";
 
 type PayloadType = {
-  payload: { time: string; temp_c?: number; hashrate_ghs?: number, value?: number };
+  payload: { datetime: number; temp_c?: number; hashrate_ghs?: number, value?: number };
 };
 
 export type TooltipData = {
@@ -49,7 +49,7 @@ const AsicChartTooltip = ({
 
   return (
     <>
-      {payload.time && (
+      {payload.datetime && (
         <div className="bg-surface-base/70 px-3 py-2 rounded-xl shadow-200 backdrop-blur-[7px] w-[180px]">
           <AsicPopoverRow
             label="Temperature"

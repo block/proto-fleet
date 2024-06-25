@@ -38,7 +38,7 @@ const EfficiencyChart = ({ efficiencies }: EfficiencyChartProps) => {
       <LineChart
         data={efficiencies}
         margin={{
-          top: 0,
+          top: 15,
           right: 30,
           left: -17,
           bottom: 5,
@@ -54,9 +54,11 @@ const EfficiencyChart = ({ efficiencies }: EfficiencyChartProps) => {
           {...xAxisProps}
           tick={
             <TimeXAxisTick
-              tooltipTime={tooltipData.payload[0]?.payload.time}
+              tooltipDatetime={tooltipData.payload[0]?.payload.datetime}
               dataPointCount={efficiencies.length}
-              maxTicksToShow={isPhone ? 5 : 8}
+              maxTicksToShow={isPhone ? 5 : 10}
+              minXPosition={85}
+              maxXPosition={isPhone ? 280 : 520}
             />
           }
         />

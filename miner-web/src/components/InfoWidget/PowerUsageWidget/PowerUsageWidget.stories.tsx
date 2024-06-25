@@ -1,15 +1,24 @@
 import { ElementType } from "react";
 import { MemoryRouter } from "react-router-dom";
 
-import { convertAggregatePowerValues, convertPowerValues } from "./utility";
-import PowerUsageWidgetComponent, { mockPowerData } from ".";
+import { Duration } from "components/DurationSelector";
+
+import { mockPowerData } from "./constants";
+import {
+  aggregatePowerValues,
+  convertAggregatePowerValues,
+  convertPowerValues,
+} from "./utility";
+import PowerUsageWidgetComponent from ".";
 
 interface PowerUsageWidgetProps {
+  duration: Duration;
   hasPowerUsage: boolean;
   loading: boolean;
 }
 
 export const PowerUsageWidget = ({
+  duration,
   hasPowerUsage,
   loading,
 }: PowerUsageWidgetProps) => {
@@ -22,7 +31,11 @@ export const PowerUsageWidget = ({
             : {}
         }
         powerValues={
-          hasPowerUsage ? convertPowerValues(mockPowerData.data) : []
+          hasPowerUsage
+            ? convertPowerValues(
+                aggregatePowerValues(mockPowerData.data, duration)
+              )
+            : []
         }
         loading={loading}
       />
@@ -33,10 +46,15 @@ export const PowerUsageWidget = ({
 export default {
   title: "Components/Info Widgets/Power Usage Widget",
   args: {
+    duration: "12h",
     hasPowerUsage: true,
     loading: false,
   },
   argTypes: {
+    duration: {
+      control: "select",
+      options: ["12h", "24h", "48h", "5d"],
+    },
     hasPowerUsage: {
       control: "boolean",
     },

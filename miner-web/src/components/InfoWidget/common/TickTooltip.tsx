@@ -5,7 +5,7 @@ import { getDisplayValue } from "common/utils/stringUtils";
 type PayloadType = {
   value: string | number;
   name: string;
-  payload: { time: string };
+  payload: { datetime: number };
 };
 
 export type TooltipData = {

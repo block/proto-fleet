@@ -1,7 +1,7 @@
 import AxisTick from "./AxisTick";
 
 export const xAxisProps = {
-  dataKey: "time",
+  dataKey: "datetime",
   axisLine: false,
   tickLine: false,
   interval: 0,

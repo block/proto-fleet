@@ -9,11 +9,11 @@ import HashrateTooltipItem from "./HashrateTooltipItem";
 type PayloadType = {
   name: string;
   payload: {
-    avgHashrate: string | number;
+    datetime: number;
     hashrate1?: string | number;
     hashrate2?: string | number;
     hashrate3?: string | number;
-    time: string;
+    totalHashrate: string | number;
   };
 };
 
@@ -55,7 +55,7 @@ const HashrateTooltip = ({
 
   return (
     <>
-      {payload.time && (
+      {payload.datetime && (
         <div className="bg-surface-base/70 pt-6 pb-4 rounded-xl shadow-200 backdrop-blur-[7px]">
           <div className="w-[269px]">
             <div className="flex space-x-2 px-6">
@@ -65,28 +65,34 @@ const HashrateTooltip = ({
                   Total Hashrate
                 </div>
                 <div className="text-heading-100 text-text-primary">
-                  {getDisplayValue(payload.avgHashrate)} TH/s
+                  {getDisplayValue(payload.totalHashrate)} TH/s
                 </div>
               </div>
             </div>
             {payload.hashrate1 || payload.hashrate2 || payload.hashrate3 ? (
               <Divider className="mt-4 mb-6" />
             ) : null}
-            <HashrateTooltipItem
-              colorClassName="bg-intent-info-fill"
-              label="Hashboard 1"
-              value={getDisplayValue(payload.hashrate1)}
-            />
-            <HashrateTooltipItem
-              colorClassName="bg-intent-success-fill"
-              label="Hashboard 2"
-              value={getDisplayValue(payload.hashrate2)}
-            />
-            <HashrateTooltipItem
-              colorClassName="bg-core-indigo"
-              label="Hashboard 3"
-              value={getDisplayValue(payload.hashrate3)}
-            />
+            {payload.hashrate1 ? (
+              <HashrateTooltipItem
+                colorClassName="bg-intent-info-fill"
+                label="Hashboard 1"
+                value={getDisplayValue(payload.hashrate1)}
+              />
+            ) : null}
+            {payload.hashrate2 ? (
+              <HashrateTooltipItem
+                colorClassName="bg-intent-success-fill"
+                label="Hashboard 2"
+                value={getDisplayValue(payload.hashrate2)}
+              />
+            ) : null}
+            {payload.hashrate3 ? (
+              <HashrateTooltipItem
+                colorClassName="bg-core-indigo"
+                label="Hashboard 3"
+                value={getDisplayValue(payload.hashrate3)}
+              />
+            ) : null}
           </div>
         </div>
       )}

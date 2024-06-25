@@ -18,10 +18,10 @@ import {
   xAxisProps,
   yAxisProps,
 } from "components/Chart";
+import { Duration } from "components/DurationSelector";
 
 import { Hashrates } from "../types";
 import {
-  getChartData,
   Hashrate1Props,
   Hashrate2Props,
   Hashrate3Props,
@@ -29,9 +29,10 @@ import {
   NullLineProps,
 } from "./constants";
 import HashrateTooltip, { TooltipData } from "./HashrateTooltip";
-import { getPoint } from "./utility";
+import { getChartData, getPoint } from "./utility";
 
 interface HashrateChartProps {
+  duration: Duration;
   hashrate1: Hashrates;
   hashrate2: Hashrates;
   hashrate3: Hashrates;
@@ -52,7 +53,7 @@ const HashrateChart = ({
     payload: [],
   });
   const [initChart, setInitChart] = useState(false);
-  const { isDesktop, isTablet } = useWindowDimensions();
+  const { isDesktop, isTablet, isPhone } = useWindowDimensions();
   const chartData = useMemo(
     () => getChartData({ hashrate1, hashrate2, hashrate3, hashrates }),
     [hashrate1, hashrate2, hashrate3, hashrates]
@@ -60,7 +61,7 @@ const HashrateChart = ({
 
   const max =
     +(highestValue || 0) ||
-    Math.max(...chartData.map((data) => data.avgHashrate));
+    Math.max(...chartData.map((data) => data.totalHashrate));
   const nearestTen = Math.round(max / 10) * 10;
   const maxDomain = nearestTen + (max < 10 ? 5 : 20);
 
@@ -92,7 +93,7 @@ const HashrateChart = ({
         data={chartData}
         margin={{
           top: 0,
-          right: 12,
+          right: 15,
           left: -17,
           bottom: 5,
         }}
@@ -108,9 +109,11 @@ const HashrateChart = ({
           tickMargin={28}
           tick={
             <TimeXAxisTick
-              tooltipTime={tooltipData.payload[0]?.payload.time}
+              tooltipDatetime={tooltipData.payload[0]?.payload.datetime}
               dataPointCount={chartData.length}
-              maxTicksToShow={isDesktop ? 13 : (isTablet ? 10 : 5)}
+              maxTicksToShow={isDesktop ? 13 : isTablet ? 10 : 5}
+              minXPosition={85}
+              maxXPosition={isPhone ? 303 : 871}
             />
           }
         />
@@ -133,32 +136,38 @@ const HashrateChart = ({
         />
         {!!tooltipData.payload.length && (
           <>
-            <Line {...LineProps} {...Hashrate1Props} />
-            <Line
-              {...LineProps}
-              {...Hashrate1Props}
-              {...NullLineProps}
-              strokeOpacity={0.5}
-            />
-            <Line {...LineProps} {...Hashrate2Props} />
-            <Line
-              {...LineProps}
-              {...Hashrate2Props}
-              {...NullLineProps}
-              strokeOpacity={0.5}
-            />
-            <Line {...LineProps} {...Hashrate3Props} />
-            <Line
-              {...LineProps}
-              {...Hashrate3Props}
-              {...NullLineProps}
-              strokeOpacity={0.8}
-            />
+            {hashrate1.length && <Line {...LineProps} {...Hashrate1Props} />}
+            {hashrate1.length && (
+              <Line
+                {...LineProps}
+                {...Hashrate1Props}
+                {...NullLineProps}
+                strokeOpacity={0.5}
+              />
+            )}
+            {hashrate2.length && <Line {...LineProps} {...Hashrate2Props} />}
+            {hashrate2.length && (
+              <Line
+                {...LineProps}
+                {...Hashrate2Props}
+                {...NullLineProps}
+                strokeOpacity={0.5}
+              />
+            )}
+            {hashrate3.length && <Line {...LineProps} {...Hashrate3Props} />}
+            {hashrate3.length && (
+              <Line
+                {...LineProps}
+                {...Hashrate3Props}
+                {...NullLineProps}
+                strokeOpacity={0.8}
+              />
+            )}
           </>
         )}
         <Line
           {...LineProps}
-          dataKey="avgHashrate"
+          dataKey="totalHashrate"
           stroke="#FF7900"
           activeDot={
             tooltipData.payload.length ? <LineDot color="#FF7900" /> : <></>

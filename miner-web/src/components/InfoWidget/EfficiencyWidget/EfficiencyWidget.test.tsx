@@ -3,8 +3,9 @@ import { describe, expect, test } from "vitest";
 
 import { getDisplayValue } from "common/utils/stringUtils";
 
+import { mockEfficiencyData } from "./constants";
 import { convertEfficiencyValues } from "./utility";
-import EfficiencyWidget, { mockEfficiencyData } from ".";
+import EfficiencyWidget from ".";
 
 describe("EfficiencyWidget", () => {
   const avgEfficiency = getDisplayValue(mockEfficiencyData.aggregates.avg);

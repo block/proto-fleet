@@ -17,19 +17,16 @@ import DurationSelector, {
   durations,
 } from "components/DurationSelector";
 import EfficiencyWidget, {
-  mockEfficiencyData,
+  aggregateEfficiencyValues,
+  convertEfficiencyValues,
+  EfficiencyValues,
 } from "components/InfoWidget/EfficiencyWidget";
-import { convertEfficiencyValues } from "components/InfoWidget/EfficiencyWidget/utility";
 import PowerUsageWidget, {
-  mockPowerData,
-} from "components/InfoWidget/PowerUsageWidget";
-import {
+  aggregatePowerValues,
   convertAggregatePowerValues,
   convertPowerValues,
-} from "components/InfoWidget/PowerUsageWidget/utility";
-import TempWidget, {
-  mockTemperatureData,
-} from "components/InfoWidget/TempWidget";
+} from "components/InfoWidget/PowerUsageWidget";
+import TempWidget from "components/InfoWidget/TempWidget";
 
 import Hashrate from "./Hashrate";
 import NoPoolsCallout from "./NoPoolsCallout";
@@ -37,10 +34,10 @@ import NoPoolsCallout from "./NoPoolsCallout";
 const Home = () => {
   const [duration, setDuration] = useState<Duration>(durations[0]);
   const [historicalEfficiency, setHistoricalEfficiency] =
-    useState<{ time: string; value: string | number }[]>();
+    useState<EfficiencyValues>();
   const [avgEfficiency, setAvgEfficiency] = useState<string | number>();
   const [historicalPower, setHistoricalPower] =
-    useState<{ time: string; value: string | number }[]>();
+    useState<{ datetime: number; value: string | number }[]>();
   const [powerAggregates, setPowerAggregates] = useState<Aggregates>();
   const [temp, setTemp] = useState<number>();
   const [highestTemp, setHighestTemp] = useState<number>();
@@ -78,35 +75,47 @@ const Home = () => {
   }, [hashboardsInfo]);
 
   useEffect(() => {
-    if (efficiencyData && efficiencyData.data?.length) {
-      // TODO: remove else when mocks moved to swagger
-      const apiData = efficiencyData.data[0].datetime
-        ? efficiencyData
-        : mockEfficiencyData;
-      setHistoricalEfficiency(convertEfficiencyValues(apiData.data));
-      setAvgEfficiency(getDisplayValue(apiData.aggregates?.avg));
+    if (
+      !pendingEfficiency &&
+      efficiencyData?.data?.length &&
+      efficiencyData.duration === duration
+    ) {
+      const aggregatedEfficiencyValues = aggregateEfficiencyValues(
+        efficiencyData.data,
+        duration
+      );
+      setHistoricalEfficiency(
+        convertEfficiencyValues(aggregatedEfficiencyValues)
+      );
+      setAvgEfficiency(getDisplayValue(efficiencyData.aggregates?.avg));
     }
-  }, [efficiencyData]);
+  }, [efficiencyData, pendingEfficiency, duration]);
 
   useEffect(() => {
-    if (powerData && powerData.data?.length) {
-      // TODO: remove else when mocks moved to swagger
-      const apiData = powerData.data[0].datetime ? powerData : mockPowerData;
-      setHistoricalPower(convertPowerValues(apiData.data));
-      setPowerAggregates(convertAggregatePowerValues(apiData.aggregates));
+    if (
+      !pendingPower &&
+      powerData?.data?.length &&
+      powerData.duration === duration
+    ) {
+      const aggregatedPowerValues = aggregatePowerValues(
+        powerData.data,
+        duration
+      );
+      setHistoricalPower(convertPowerValues(aggregatedPowerValues));
+      setPowerAggregates(convertAggregatePowerValues(powerData.aggregates));
     }
-  }, [powerData]);
+  }, [duration, pendingPower, powerData]);
 
   useEffect(() => {
-    if (tempData && tempData.data?.length) {
-      // TODO: remove else when mocks moved to swagger
-      const apiData = tempData.data[0].datetime
-        ? tempData
-        : mockTemperatureData;
-      setHighestTemp(apiData.aggregates?.max);
-      setTemp(apiData.data?.[apiData.data.length - 1].value);
+    if (
+      !pendingTempData &&
+      tempData?.data?.length &&
+      tempData.duration === duration
+    ) {
+      setHighestTemp(tempData.aggregates?.max);
+      setTemp(tempData.data?.[tempData.data.length - 1].value);
     }
-  }, [tempData]);
+  }, [duration, pendingTempData, tempData]);
 
   const noPoolsLive = useMemo(() => {
     return (

@@ -3,7 +3,8 @@ import { describe, expect, test, vi } from "vitest";
 
 import { getDisplayValue } from "common/utils/stringUtils";
 
-import TempWidget, { mockTemperatureData } from ".";
+import { mockTemperatureData } from "./constants";
+import TempWidget from ".";
 
 vi.mock("react-router-dom", () => ({
   ...vi.importActual("react-router-dom"),

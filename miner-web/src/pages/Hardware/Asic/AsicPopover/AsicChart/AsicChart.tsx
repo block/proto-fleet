@@ -30,7 +30,7 @@ const AsicChart = ({ hashrateData, temperatureData }: AsicChartProps) => {
       payload: [
         {
           payload: {
-            time: data.payload[0].payload.time,
+            datetime: data.payload[0].payload.datetime,
             temp_c: data.payload[0].payload.value,
             hashrate_ghs: data.payload[1].payload.value,
           },
@@ -55,9 +55,11 @@ const AsicChart = ({ hashrateData, temperatureData }: AsicChartProps) => {
           xAxisId="hashrate"
           tick={
             <TimeXAxisTick
-              tooltipTime={tooltipData.payload[0]?.payload.time}
+              tooltipDatetime={tooltipData.payload[0]?.payload.datetime}
               dataPointCount={hashrateData?.length}
               maxTicksToShow={5}
+              minXPosition={60}
+              maxXPosition={220}
             />
           }
         />

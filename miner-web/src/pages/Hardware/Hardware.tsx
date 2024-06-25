@@ -1,15 +1,14 @@
 import { useEffect, useState } from "react";
 
 import { useCoolingStatus, useHashboards, useTemperature } from "api";
+import { FanInfo } from "apiTypes";
 
 import DurationSelector, {
   Duration,
   durations,
 } from "components/DurationSelector";
 import FanSpeedWidget from "components/InfoWidget/FanSpeedWidget";
-import TempWidget, {
-  mockTemperatureData,
-} from "components/InfoWidget/TempWidget";
+import TempWidget from "components/InfoWidget/TempWidget";
 import Row from "components/Row";
 import Spinner from "components/Spinner";
 import Tabs from "components/Tab";
@@ -19,6 +18,7 @@ import AsicTable from "./Asic/AsicTable";
 const Hardware = () => {
   const [duration, setDuration] = useState<Duration>(durations[0]);
   const [showPopover, setShowPopover] = useState<string | undefined>(undefined);
+  const [fanSpeeds, setFanSpeeds] = useState<FanInfo[]>();
   const [temp, setTemp] = useState<number>();
   const [highestTemp, setHighestTemp] = useState<number>();
   const [hashboardSerials, setHashboardSerials] = useState<string[]>();
@@ -27,9 +27,13 @@ const Hardware = () => {
     poll: true,
   });
   const { data: hashboardsInfo, pending: pendingHashboardsInfo } =
-    useHashboards({ poll: true });
+    useHashboards();
   const { data: coolingStatus, pending: pendingCoolingStatus } =
     useCoolingStatus({ poll: true });
+
+  useEffect(() => {
+    setTemp(undefined);
+  }, [duration]);
 
   useEffect(() => {
     if (hashboardsInfo) {
@@ -42,15 +46,21 @@ const Hardware = () => {
   }, [hashboardsInfo]);
 
   useEffect(() => {
-    if (tempData && tempData.data?.length) {
-      // TODO: remove else when mocks moved to swagger
-      const apiData = tempData.data[0].datetime
-        ? tempData
-        : mockTemperatureData;
-      setHighestTemp(apiData.aggregates?.max);
-      setTemp(apiData.data?.[apiData.data.length - 1].value);
+    if (
+      !pendingTempData &&
+      tempData?.data?.length &&
+      tempData.duration === duration
+    ) {
+      setHighestTemp(tempData.aggregates?.max);
+      setTemp(tempData.data?.[tempData.data.length - 1].value);
     }
-  }, [tempData]);
+  }, [duration, pendingTempData, tempData]);
+
+  useEffect(() => {
+    if (!pendingCoolingStatus && coolingStatus?.fans?.length) {
+      setFanSpeeds(coolingStatus.fans);
+    }
+  }, [coolingStatus, pendingCoolingStatus]);
 
   return (
     <div className="flex flex-col space-y-6 h-full">
@@ -67,8 +77,8 @@ const Hardware = () => {
           loading={pendingTempData && !temp}
         />
         <FanSpeedWidget
-          fanSpeeds={coolingStatus?.fans}
-          loading={pendingCoolingStatus && !coolingStatus?.fans?.length}
+          fanSpeeds={fanSpeeds}
+          loading={pendingCoolingStatus && !fanSpeeds?.length}
         />
       </div>
       {pendingHashboardsInfo && !hashboardsInfo?.length && (

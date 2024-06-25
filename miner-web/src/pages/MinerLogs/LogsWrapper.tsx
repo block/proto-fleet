@@ -9,7 +9,6 @@ import Spinner from "components/Spinner";
 import { Dismiss } from "icons";
 import { iconSizes } from "icons/constants";
 
-import { mockLogs, mockNewLogs } from "./constants";
 import LogBadges from "./LogBadges";
 import Logs from "./Logs";
 import { LogInfo } from "./types";
@@ -56,21 +55,12 @@ const LogsWrapper = () => {
 
   useEffect(() => {
     if (logsData?.content?.length) {
-      let newLogs;
-      // TODO: remove else when mocks moved to swagger
-      if (logsData.content[0] === "string") {
-        // if no logs are stored, set initial logs
-        newLogs = storedLogs.length ? mockNewLogs.content : mockLogs.content;
-      } else {
-        newLogs = logsData.content;
-      }
-
       // after initial logs are fetched, remove duplicated logs and add them
       const uniqueLogs = storedLogs.length
-        ? newLogs.filter(
+        ? logsData.content.filter(
             (log) => !storedLogs.find((storedLog) => storedLog === log)
           )
-        : newLogs;
+        : logsData.content;
 
       const combinedLogs = [...storedLogs, ...uniqueLogs];
       formatAndSetLogsData(combinedLogs);

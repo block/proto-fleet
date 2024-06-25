@@ -1,6 +1,4 @@
-export type Hashrates =
-  | {
-      datetime: string;
-      value: number;
-    }[]
-  | undefined;
+export type Hashrates = {
+  datetime: number;
+  value: number;
+}[];

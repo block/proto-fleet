@@ -1,5 +1,13 @@
-import { mockPowerData } from "./constants";
 import PowerUsageWidget from "./PowerUsageWidget";
+import {
+  aggregatePowerValues,
+  convertAggregatePowerValues,
+  convertPowerValues,
+} from "./utility";
 
-export { mockPowerData };
+export {
+  aggregatePowerValues,
+  convertAggregatePowerValues,
+  convertPowerValues,
+};
 export default PowerUsageWidget;

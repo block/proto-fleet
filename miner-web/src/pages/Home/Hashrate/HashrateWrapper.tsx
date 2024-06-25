@@ -3,24 +3,33 @@ import { useEffect, useState } from "react";
 import { useHashrate } from "api";
 import { HashrateResponseHashratedata } from "apiTypes";
 
+import { Duration } from "components/DurationSelector";
 import Spinner from "components/Spinner";
 
-import { mockHashrateData } from "./constants";
 import Hashrate from "./Hashrate";
 import { Hashrates } from "./types";
-import { convertAggregateValues, convertHashrateValues } from "./utility";
+import {
+  aggregateHashrateValues,
+  convertAggregateValues,
+  convertHashrateValues,
+  shouldAggregateHashrateValues,
+} from "./utility";
 
 interface HashrateProps {
-  duration: HashrateResponseHashratedata["duration"];
+  duration: Duration;
   hashboardSerials?: string[];
 }
 
 const HashrateWrapper = ({ duration, hashboardSerials }: HashrateProps) => {
-  const { data: hashrateData } = useHashrate({ duration, poll: true });
+  const { data: hashrateData, pending: pendingHashrateData } = useHashrate({
+    duration,
+    poll: true,
+  });
   const [aggregates, setAggregates] = useState<
     HashrateResponseHashratedata["aggregates"]
   >({});
   const [hashrates, setHashrates] = useState<Hashrates>([]);
+  const [isAggregatingHashrates, setIsAggregatingHashrates] = useState(false);
 
   useEffect(() => {
     setHashrates([]);
@@ -28,15 +37,22 @@ const HashrateWrapper = ({ duration, hashboardSerials }: HashrateProps) => {
   }, [duration]);
 
   useEffect(() => {
-    if (hashrateData?.data && hashrateData.data.length) {
-      // TODO: remove else when mocks moved to swagger
-      const apiData = hashrateData.data[0].datetime
-        ? hashrateData
-        : mockHashrateData;
-      setAggregates(convertAggregateValues(apiData.aggregates));
-      setHashrates(convertHashrateValues(apiData.data));
+    if (
+      !pendingHashrateData &&
+      hashrateData?.data?.length &&
+      hashrateData.duration === duration
+    ) {
+      const aggregatedHashrateValues = aggregateHashrateValues(
+        hashrateData.data,
+        duration
+      );
+      setHashrates(convertHashrateValues(aggregatedHashrateValues));
+      setAggregates(convertAggregateValues(hashrateData.aggregates));
+      setIsAggregatingHashrates(
+        shouldAggregateHashrateValues(hashrateData.data, duration)
+      );
     }
-  }, [hashrateData]);
+  }, [duration, hashrateData, pendingHashrateData]);
 
   return (
     <>
@@ -46,6 +62,7 @@ const HashrateWrapper = ({ duration, hashboardSerials }: HashrateProps) => {
           duration={duration}
           hashrates={hashrates}
           hashboardSerials={hashboardSerials}
+          isAggregatingHashrates={isAggregatingHashrates}
         />
       ) : (
         <div className="flex h-full items-center justify-center">

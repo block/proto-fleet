@@ -1,14 +1,20 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { api } from "./api";
 import { Error, HashboardStatsHashboardstats } from "./types";
+import { usePoll } from "./usePoll";
 
-const useHashboardStats = (hashboardSerialNumber: string) => {
+interface UseHashboardStatsProps {
+  hashboardSerialNumber: string;
+  poll?: boolean;
+}
+
+const useHashboardStats = ({ hashboardSerialNumber, poll }: UseHashboardStatsProps) => {
   const [data, setData] = useState<HashboardStatsHashboardstats>();
   const [error, setError] = useState<Error>();
   const [pending, setPending] = useState<boolean>(false);
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
     setPending(true);
     api.getHashboardStatus(hashboardSerialNumber)
       .then((res) => {
@@ -21,6 +27,8 @@ const useHashboardStats = (hashboardSerialNumber: string) => {
         setPending(false);
       });
   }, [hashboardSerialNumber]);
+
+  usePoll({ fetchData, poll });
 
   return {
     pending,

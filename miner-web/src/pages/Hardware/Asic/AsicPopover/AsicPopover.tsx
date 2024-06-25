@@ -14,7 +14,6 @@ import { getRowLabel } from "../../utility";
 import AsicChart from "./AsicChart";
 import { ChartData } from "./AsicChart/types";
 import AsicPopoverRow from "./AsicPopoverRow";
-import { mockAsicHashrateData, mockAsicTemperatureData } from "./constants";
 import { convertHashrateValues, convertTemperatureValues } from "./utility";
 
 interface AsicPopoverProps {
@@ -42,22 +41,14 @@ const AsicPopover = ({ asic, duration, hashboardSerial }: AsicPopoverProps) => {
     });
 
   useEffect(() => {
-    if (asicTemperatureData?.data && asicTemperatureData.data.length) {
-      // TODO: remove else when mocks moved to swagger
-      const apiData = asicTemperatureData.data[0].datetime
-        ? asicTemperatureData
-        : mockAsicTemperatureData;
-      setTemperatureData(convertTemperatureValues(apiData.data));
+    if (asicTemperatureData?.data?.length) {
+      setTemperatureData(convertTemperatureValues(asicTemperatureData.data));
     }
   }, [asicTemperatureData]);
 
   useEffect(() => {
-    if (asicHashrateData?.data && asicHashrateData.data.length) {
-      // TODO: remove else when mocks moved to swagger
-      const apiData = asicHashrateData.data[0].datetime
-        ? asicHashrateData
-        : mockAsicHashrateData;
-      setHashrateData(convertHashrateValues(apiData.data));
+    if (asicHashrateData?.data?.length) {
+      setHashrateData(convertHashrateValues(asicHashrateData.data));
     }
   }, [asicHashrateData]);
 

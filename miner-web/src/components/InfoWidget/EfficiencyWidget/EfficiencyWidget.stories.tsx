@@ -3,15 +3,20 @@ import { MemoryRouter } from "react-router-dom";
 
 import { getDisplayValue } from "common/utils/stringUtils";
 
-import { convertEfficiencyValues } from "./utility";
-import EfficiencyWidgetComponent, { mockEfficiencyData } from ".";
+import { Duration } from "components/DurationSelector";
+
+import { mockEfficiencyData } from "./constants";
+import { aggregateEfficiencyValues, convertEfficiencyValues } from "./utility";
+import EfficiencyWidgetComponent from ".";
 
 interface EfficiencyWidgetProps {
+  duration: Duration;
   hasEfficiency: boolean;
   loading: boolean;
 }
 
 export const EfficiencyWidget = ({
+  duration,
   hasEfficiency,
   loading,
 }: EfficiencyWidgetProps) => {
@@ -25,7 +30,9 @@ export const EfficiencyWidget = ({
         }
         efficiencyValues={
           hasEfficiency && !loading
-            ? convertEfficiencyValues(mockEfficiencyData.data)
+            ? convertEfficiencyValues(
+                aggregateEfficiencyValues(mockEfficiencyData.data, duration)
+              )
             : []
         }
         loading={loading}
@@ -37,10 +44,15 @@ export const EfficiencyWidget = ({
 export default {
   title: "Components/Info Widgets/Efficiency Widget",
   args: {
+    duration: "12h",
     hasEfficiency: true,
     loading: false,
   },
   argTypes: {
+    duration: {
+      control: "select",
+      options: ["12h", "24h", "48h", "5d"],
+    },
     hasEfficiency: {
       control: "boolean",
     },

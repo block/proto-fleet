@@ -10,11 +10,6 @@ import { variants } from "components/Button";
 import InfoWidget from "components/InfoWidget";
 import Modal from "components/Modal";
 
-import {
-  mockHashboard1TemperatureData,
-  mockHashboard2TemperatureData,
-  mockHashboard3TemperatureData,
-} from "./constants";
 import HashboardRow from "./HashboardRow";
 
 interface TempModalProps {
@@ -37,58 +32,58 @@ const TempModal = ({
   const [hashboard2Temperature, setHashboard2Temperature] = useState<number>();
   const [hashboard3Temperature, setHashboard3Temperature] = useState<number>();
 
-  const { data: hashboard1TemperatureData, pending: pendingHashboard1Temperature } = useHashboardTemperature({
+  const {
+    data: hashboard1TemperatureData,
+    pending: pendingHashboard1Temperature,
+  } = useHashboardTemperature({
     duration,
     hashboardSerial: hashboardSerials?.[0],
     poll: true,
   });
-  const { data: hashboard2TemperatureData, pending: pendingHashboard2Temperature } = useHashboardTemperature({
+  const {
+    data: hashboard2TemperatureData,
+    pending: pendingHashboard2Temperature,
+  } = useHashboardTemperature({
     duration,
     hashboardSerial: hashboardSerials?.[1],
     poll: true,
   });
-  const { data: hashboard3TemperatureData, pending: pendingHashboard3Temperature } = useHashboardTemperature({
+  const {
+    data: hashboard3TemperatureData,
+    pending: pendingHashboard3Temperature,
+  } = useHashboardTemperature({
     duration,
     hashboardSerial: hashboardSerials?.[2],
     poll: true,
   });
 
   useEffect(() => {
-    if (
-      hashboard1TemperatureData?.data &&
-      hashboard1TemperatureData.data.length
-    ) {
-      // TODO: remove else when mocks moved to swagger
-      const apiData = hashboard1TemperatureData.data[0].datetime
-        ? hashboard1TemperatureData
-        : mockHashboard1TemperatureData;
-      setHashboard1Temperature(apiData.data?.[apiData.data.length - 1].value);
+    if (hashboard1TemperatureData?.data?.length) {
+      setHashboard1Temperature(
+        hashboard1TemperatureData.data?.[
+          hashboard1TemperatureData.data.length - 1
+        ].value
+      );
     }
   }, [hashboard1TemperatureData]);
 
   useEffect(() => {
-    if (
-      hashboard2TemperatureData?.data &&
-      hashboard2TemperatureData.data.length
-    ) {
-      // TODO: remove else when mocks moved to swagger
-      const apiData = hashboard2TemperatureData.data[0].datetime
-        ? hashboard2TemperatureData
-        : mockHashboard2TemperatureData;
-      setHashboard2Temperature(apiData.data?.[apiData.data.length - 1].value);
+    if (hashboard2TemperatureData?.data?.length) {
+      setHashboard2Temperature(
+        hashboard2TemperatureData.data?.[
+          hashboard2TemperatureData.data.length - 1
+        ].value
+      );
     }
   }, [hashboard2TemperatureData]);
 
   useEffect(() => {
-    if (
-      hashboard3TemperatureData?.data &&
-      hashboard3TemperatureData.data.length
-    ) {
-      // TODO: remove else when mocks moved to swagger
-      const apiData = hashboard3TemperatureData.data[0].datetime
-        ? hashboard3TemperatureData
-        : mockHashboard3TemperatureData;
-      setHashboard3Temperature(apiData.data?.[apiData.data.length - 1].value);
+    if (hashboard3TemperatureData?.data?.length) {
+      setHashboard3Temperature(
+        hashboard3TemperatureData.data?.[
+          hashboard3TemperatureData.data.length - 1
+        ].value
+      );
     }
   }, [hashboard3TemperatureData]);
 

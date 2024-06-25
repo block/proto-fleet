@@ -1,7 +1,8 @@
 import { ElementType } from "react";
 import { MemoryRouter } from "react-router-dom";
 
-import TempWidgetComponent, { mockTemperatureData } from ".";
+import { mockTemperatureData } from "./constants";
+import TempWidgetComponent from ".";
 
 interface TempProps {
   hasTemp: boolean;
