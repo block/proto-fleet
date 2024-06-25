@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { useWindowDimensions } from "common/hooks/useWindowDimensions";
 
@@ -16,9 +16,10 @@ interface PageHeaderProps {
 const PageHeader = ({ openMenu, title }: PageHeaderProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleClickTerminal = () => {
-    navigate("/logs");
+    navigate("/logs", { state: { from: { pathname: location.pathname } } });
   };
 
   return (

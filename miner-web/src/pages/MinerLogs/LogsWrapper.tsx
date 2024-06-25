@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { useSystemLogs } from "api";
 
@@ -22,6 +22,7 @@ import {
 
 const LogsWrapper = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { data: logsData } = useSystemLogs({ poll: true });
   const [storedLogs, setStoredLogs] = useState<string[]>([]);
   const [logs, setLogs] = useState<LogInfo[]>([]);
@@ -68,7 +69,7 @@ const LogsWrapper = () => {
   }, [logsData, storedLogs, formatAndSetLogsData]);
 
   const handleClickDismiss = () => {
-    navigate("/");
+    navigate(location.state?.from?.pathname || "/");
   };
 
   return (
