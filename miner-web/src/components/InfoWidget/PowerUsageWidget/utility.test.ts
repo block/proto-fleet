@@ -26,11 +26,11 @@ describe("aggregatePowerValues", () => {
     expect(result).toEqual(oneItemData);
   });
 
-  describe("with less than 360 data points, should return the same data", () => {
+  describe("with less than 100 data points, should return the same data", () => {
     let oneItemFromThresholdData: TimeSeriesData[] = [];
 
     beforeAll(() => {
-      oneItemFromThresholdData = data.slice(-359);
+      oneItemFromThresholdData = data.slice(-99);
     });
 
     test("for 12 hours duration", () => {
@@ -48,6 +48,60 @@ describe("aggregatePowerValues", () => {
     test("for 5 days duration", () => {
       const result = aggregatePowerValues(oneItemFromThresholdData, "5d");
       expect(result).toEqual(oneItemFromThresholdData);
+    });
+  });
+
+  describe("with less than 250 data points, should return 10 minute aggregates", () => {
+    let oneItemFromThresholdData: TimeSeriesData[] = [];
+
+    beforeAll(() => {
+      oneItemFromThresholdData = data.slice(-249);
+    });
+
+    test("for 12 hours, 24 hours, 48 hours, 5 days duration", () => {
+      const result12h = aggregatePowerValues(oneItemFromThresholdData, "12h");
+      const result24h = aggregatePowerValues(oneItemFromThresholdData, "24h");
+      const result48h = aggregatePowerValues(oneItemFromThresholdData, "48h");
+      const result5d = aggregatePowerValues(oneItemFromThresholdData, "5d");
+      expect(result12h).toHaveLength(25);
+      expect(result12h).toEqual(
+        expect.arrayContaining([
+          // 1:28:20
+          { datetime: 1718976500, value: 11.155 },
+          // 1:38:20
+          { datetime: 1718977100, value: 11.254999999999999 },
+        ])
+      );
+      expect(result24h).toEqual(result12h);
+      expect(result48h).toEqual(result12h);
+      expect(result5d).toEqual(result12h);
+    });
+  });
+
+  describe("with less than 360 data points, should return 20 minute aggregates", () => {
+    let oneItemFromThresholdData: TimeSeriesData[] = [];
+
+    beforeAll(() => {
+      oneItemFromThresholdData = data.slice(-359);
+    });
+
+    test("for 12 hours, 24 hours, 48 hours, 5 days duration", () => {
+      const result12h = aggregatePowerValues(oneItemFromThresholdData, "12h");
+      const result24h = aggregatePowerValues(oneItemFromThresholdData, "24h");
+      const result48h = aggregatePowerValues(oneItemFromThresholdData, "48h");
+      const result5d = aggregatePowerValues(oneItemFromThresholdData, "5d");
+      expect(result12h).toHaveLength(18);
+      expect(result12h).toEqual(
+        expect.arrayContaining([
+          // 11:38:20
+          { datetime: 1718969900, value: 10.105 },
+          // 1:38:20
+          { datetime: 1718971100, value: 10.305 },
+        ])
+      );
+      expect(result24h).toEqual(result12h);
+      expect(result48h).toEqual(result12h);
+      expect(result5d).toEqual(result12h);
     });
   });
 

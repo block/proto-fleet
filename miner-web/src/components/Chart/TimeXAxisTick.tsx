@@ -74,7 +74,7 @@ const TimeXAxisTick = ({
     }
   } else if (firstTick || midTick || lastTick) {
     // hide seconds from showing on xAxis
-    const time = getTimeFromEpoch(tooltipDatetime).slice(0, -3);
+    const time = getTimeFromEpoch(payload.value).slice(0, -3);
     return (
       <AxisTick
         x={x}

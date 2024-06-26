@@ -11,15 +11,12 @@ interface HashrateValueProps {
 }
 
 const getHashrateValue = ({ datetime, hashrates }: HashrateValueProps) => {
-  if (!hashrates.length) {
-    return 0;
-  }
   // ignore seconds, only match up to minute
   const matchedTime = hashrates.find(
     (hashrate) =>
       getDayFromEpoch(hashrate.datetime) === getDayFromEpoch(datetime) &&
       getTimeFromEpoch(hashrate.datetime).slice(0, -3) ===
-      getTimeFromEpoch(datetime).slice(0, -3)
+        getTimeFromEpoch(datetime).slice(0, -3)
   );
   return matchedTime?.value || 0;
 };
@@ -38,25 +35,27 @@ export const getChartData = ({
   hashrates,
 }: ChartDataProps) => {
   const chartData = hashrates.map((hashrate) => {
-    const hashrate1Value = getHashrateValue({
-      datetime: hashrate.datetime,
-      hashrates: hashrate1,
-    });
-    const hashrate2Value = getHashrateValue({
-      datetime: hashrate.datetime,
-      hashrates: hashrate2,
-    });
-    const hashrate3Value = getHashrateValue({
-      datetime: hashrate.datetime,
-      hashrates: hashrate3,
-    });
-
     return {
       datetime: hashrate.datetime,
-      hashrate1: hashrate1Value,
-      hashrate2: hashrate2Value,
-      hashrate3: hashrate3Value,
       totalHashrate: hashrate.value,
+      ...(hashrate1.length && {
+        hashrate1: getHashrateValue({
+          datetime: hashrate.datetime,
+          hashrates: hashrate1,
+        }),
+      }),
+      ...(hashrate2.length && {
+        hashrate2: getHashrateValue({
+          datetime: hashrate.datetime,
+          hashrates: hashrate2,
+        }),
+      }),
+      ...(hashrate3.length && {
+        hashrate3: getHashrateValue({
+          datetime: hashrate.datetime,
+          hashrates: hashrate3,
+        }),
+      }),
     };
   });
 

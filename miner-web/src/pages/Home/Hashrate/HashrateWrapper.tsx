@@ -12,7 +12,6 @@ import {
   aggregateHashrateValues,
   convertAggregateValues,
   convertHashrateValues,
-  shouldAggregateHashrateValues,
 } from "./utility";
 
 interface HashrateProps {
@@ -29,7 +28,6 @@ const HashrateWrapper = ({ duration, hashboardSerials }: HashrateProps) => {
     HashrateResponseHashratedata["aggregates"]
   >({});
   const [hashrates, setHashrates] = useState<Hashrates>([]);
-  const [isAggregatingHashrates, setIsAggregatingHashrates] = useState(false);
 
   useEffect(() => {
     setHashrates([]);
@@ -48,9 +46,6 @@ const HashrateWrapper = ({ duration, hashboardSerials }: HashrateProps) => {
       );
       setHashrates(convertHashrateValues(aggregatedHashrateValues));
       setAggregates(convertAggregateValues(hashrateData.aggregates));
-      setIsAggregatingHashrates(
-        shouldAggregateHashrateValues(hashrateData.data, duration)
-      );
     }
   }, [duration, hashrateData, pendingHashrateData]);
 
@@ -62,7 +57,6 @@ const HashrateWrapper = ({ duration, hashboardSerials }: HashrateProps) => {
           duration={duration}
           hashrates={hashrates}
           hashboardSerials={hashboardSerials}
-          isAggregatingHashrates={isAggregatingHashrates}
         />
       ) : (
         <div className="flex h-full items-center justify-center">

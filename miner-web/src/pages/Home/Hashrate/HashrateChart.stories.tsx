@@ -7,7 +7,7 @@ import {
   mockHashrateData3,
 } from "./constants";
 import HashrateChartComponent from "./HashrateChart";
-import { convertHashrateValues } from "./utility";
+import { aggregateHashrateValues, convertHashrateValues } from "./utility";
 
 interface HashrateProps {
   duration: Duration;
@@ -20,14 +20,26 @@ export const HashrateChart = ({ duration, hashrates }: HashrateProps) => {
       <div className="w-[928px] h-[400px]">
         <HashrateChartComponent
           duration={duration}
-          hashrate1={convertHashrateValues(mockHashrateData1.data)}
+          hashrate1={convertHashrateValues(
+            aggregateHashrateValues(mockHashrateData1.data, duration)
+          )}
           hashrate2={
-            hashrates > 1 ? convertHashrateValues(mockHashrateData2.data) : []
+            hashrates > 1
+              ? convertHashrateValues(
+                  aggregateHashrateValues(mockHashrateData2.data, duration)
+                )
+              : []
           }
           hashrate3={
-            hashrates === 3 ? convertHashrateValues(mockHashrateData3.data) : []
+            hashrates === 3
+              ? convertHashrateValues(
+                  aggregateHashrateValues(mockHashrateData3.data, duration)
+                )
+              : []
           }
-          hashrates={convertHashrateValues(mockHashrateData.data)}
+          hashrates={convertHashrateValues(
+            aggregateHashrateValues(mockHashrateData.data, duration)
+          )}
         />
       </div>
     </div>

@@ -74,17 +74,21 @@ export const getAxisTickOffset = ({
 };
 
 export const aggregateValues = (
-  data: TimeSeriesData[] = [],
+  dataToAggregate: TimeSeriesData[] = [],
   compareTimeMinutes: number
 ) => {
   let aggregatedData = [
-    { datetime: data[0].datetime, value: 0, numberOfValues: 0 },
+    { datetime: dataToAggregate[0].datetime, value: 0, numberOfValues: 0 },
   ];
-  let currentDate = getDateFromEpoch(data[0].datetime);
-  data.forEach((data) => {
-    const diffMs =
-      getDateFromEpoch(data.datetime).getTime() - currentDate.getTime();
-    const diffMins = Math.round(diffMs / 60000);
+  const currentDateEpoch = getDateFromEpoch(
+    dataToAggregate[0].datetime
+  ).setSeconds(0);
+  let currentDate = getDateFromEpoch(currentDateEpoch);
+  dataToAggregate.forEach((data) => {
+    const dateToCompareEpoch = getDateFromEpoch(data.datetime).setSeconds(0);
+    const dateToCompare = getDateFromEpoch(dateToCompareEpoch);
+    const diffMs = dateToCompare.getTime() - currentDate.getTime();
+    const diffMins = diffMs / 60000;
     if (diffMins < compareTimeMinutes) {
       aggregatedData[aggregatedData.length - 1] = {
         datetime: aggregatedData[aggregatedData.length - 1].datetime,
@@ -94,7 +98,7 @@ export const aggregateValues = (
           aggregatedData[aggregatedData.length - 1].numberOfValues + 1,
       };
     } else {
-      currentDate = getDateFromEpoch(data.datetime);
+      currentDate = getDateFromEpoch(dateToCompareEpoch);
       aggregatedData.push({
         datetime: data.datetime,
         value: +(data.value || 0),

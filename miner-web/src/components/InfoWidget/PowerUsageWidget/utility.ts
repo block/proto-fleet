@@ -30,12 +30,16 @@ export const aggregatePowerValues = (
   data: PowerResponsePowerdata["data"],
   duration: Duration
 ) => {
-  // we can continue without aggregation if we have less than 360 data points
-  if (!data?.length || data.length < 360) {
+  // we can continue without aggregation if we have less than 100 data points
+  if (!data?.length || data.length < 100) {
     return data;
   }
   let compareTimeMinutes = 0;
-  if (duration === "12h") {
+  if (data.length < 250) {
+    compareTimeMinutes = 10;
+  } else if (data.length < 360) {
+    compareTimeMinutes = 20;
+  } else if (duration === "12h") {
     compareTimeMinutes = 30;
   } else if (duration === "24h") {
     compareTimeMinutes = 60;

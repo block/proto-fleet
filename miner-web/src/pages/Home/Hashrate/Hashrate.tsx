@@ -11,14 +11,13 @@ import Spinner from "components/Spinner";
 
 import HashrateChart from "./HashrateChart";
 import { Hashrates } from "./types";
-import { convertHashrateValues } from "./utility";
+import { aggregateHashrateValues, convertHashrateValues } from "./utility";
 
 interface HashrateProps {
   aggregates: HashrateResponseHashratedata["aggregates"];
   duration: Duration;
   hashrates: Hashrates;
   hashboardSerials: string[];
-  isAggregatingHashrates: boolean;
 }
 
 const Hashrate = ({
@@ -26,7 +25,6 @@ const Hashrate = ({
   duration,
   hashrates,
   hashboardSerials,
-  isAggregatingHashrates,
 }: HashrateProps) => {
   const [hashrate1, setHashrate1] = useState<Hashrates>([]);
   const [hashrate2, setHashrate2] = useState<Hashrates>([]);
@@ -55,40 +53,49 @@ const Hashrate = ({
     setHashrate1([]);
     setHashrate2([]);
     setHashrate3([]);
-  }, [duration, isAggregatingHashrates]);
+  }, [duration]);
 
   useEffect(() => {
     if (
-      !isAggregatingHashrates &&
       !pendingHashrate1Data &&
       hashrate1Data?.data?.length &&
       hashrate1Data.duration === duration
     ) {
-      setHashrate1(convertHashrateValues(hashrate1Data.data));
+      const aggregatedHashrateValues = aggregateHashrateValues(
+        hashrate1Data.data,
+        duration
+      );
+      setHashrate1(convertHashrateValues(aggregatedHashrateValues));
     }
-  }, [duration, hashrate1Data, isAggregatingHashrates, pendingHashrate1Data]);
+  }, [duration, hashrate1Data, pendingHashrate1Data]);
 
   useEffect(() => {
     if (
-      !isAggregatingHashrates &&
       !pendingHashrate2Data &&
       hashrate2Data?.data?.length &&
       hashrate2Data.duration === duration
     ) {
-      setHashrate2(convertHashrateValues(hashrate2Data.data));
+      const aggregatedHashrateValues = aggregateHashrateValues(
+        hashrate2Data.data,
+        duration
+      );
+      setHashrate2(convertHashrateValues(aggregatedHashrateValues));
     }
-  }, [duration, hashrate2Data, isAggregatingHashrates, pendingHashrate2Data]);
+  }, [duration, hashrate2Data, pendingHashrate2Data]);
 
   useEffect(() => {
     if (
-      !isAggregatingHashrates &&
       !pendingHashrate3Data &&
       hashrate3Data?.data?.length &&
       hashrate3Data.duration === duration
     ) {
-      setHashrate3(convertHashrateValues(hashrate3Data.data));
+      const aggregatedHashrateValues = aggregateHashrateValues(
+        hashrate3Data.data,
+        duration
+      );
+      setHashrate3(convertHashrateValues(aggregatedHashrateValues));
     }
-  }, [duration, hashrate3Data, isAggregatingHashrates, pendingHashrate3Data]);
+  }, [duration, hashrate3Data, pendingHashrate3Data]);
 
   const currentValue = getDisplayValue(
     hashrates?.[hashrates.length - 1]?.value

@@ -53,6 +53,11 @@ const HashrateTooltip = ({
     [tooltipData]
   );
 
+  const hasHashrate1 = payload.hashrate1 !== undefined;
+  const hasHashrate2 = payload.hashrate2 !== undefined;
+  const hasHashrate3 = payload.hashrate3 !== undefined;
+  const hasHashrate = hasHashrate1 || hasHashrate2 || hasHashrate3;
+
   return (
     <>
       {payload.datetime && (
@@ -69,24 +74,24 @@ const HashrateTooltip = ({
                 </div>
               </div>
             </div>
-            {payload.hashrate1 || payload.hashrate2 || payload.hashrate3 ? (
+            {hasHashrate ? (
               <Divider className="mt-4 mb-6" />
             ) : null}
-            {payload.hashrate1 ? (
+            {hasHashrate1 ? (
               <HashrateTooltipItem
                 colorClassName="bg-intent-info-fill"
                 label="Hashboard 1"
                 value={getDisplayValue(payload.hashrate1)}
               />
             ) : null}
-            {payload.hashrate2 ? (
+            {hasHashrate2 ? (
               <HashrateTooltipItem
                 colorClassName="bg-intent-success-fill"
                 label="Hashboard 2"
                 value={getDisplayValue(payload.hashrate2)}
               />
             ) : null}
-            {payload.hashrate3 ? (
+            {hasHashrate3 ? (
               <HashrateTooltipItem
                 colorClassName="bg-core-indigo"
                 label="Hashboard 3"

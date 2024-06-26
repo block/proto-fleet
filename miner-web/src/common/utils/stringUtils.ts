@@ -41,7 +41,7 @@ const getHoursFromEpoch = (epoch: number) => {
   return padLeft(getDateFromEpoch(epoch).getHours(), 2);
 };
 
-const getMinutesFromEpoch = (epoch: number) => {
+export const getMinutesFromEpoch = (epoch: number) => {
   return padLeft(getDateFromEpoch(epoch).getMinutes(), 2);
 };
 
