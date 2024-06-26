@@ -9,6 +9,7 @@ import {
 } from "api";
 import { Aggregates } from "apiTypes";
 
+import { useLocalStorage } from "common/hooks/useLocalStorage";
 import { getDisplayValue } from "common/utils/stringUtils";
 
 import Divider from "components/Divider";
@@ -32,7 +33,10 @@ import Hashrate from "./Hashrate";
 import NoPoolsCallout from "./NoPoolsCallout";
 
 const Home = () => {
-  const [duration, setDuration] = useState<Duration>(durations[0]);
+  const { getItem, setItem } = useLocalStorage();
+  const [duration, setDuration] = useState<Duration>(
+    getItem("duration") || durations[0]
+  );
   const [historicalEfficiency, setHistoricalEfficiency] =
     useState<EfficiencyValues>();
   const [avgEfficiency, setAvgEfficiency] = useState<string | number>();
@@ -62,7 +66,8 @@ const Home = () => {
     setHistoricalEfficiency(undefined);
     setHistoricalPower(undefined);
     setTemp(undefined);
-  }, [duration]);
+    setItem("duration", duration);
+  }, [duration, setItem]);
 
   useEffect(() => {
     if (hashboardsInfo) {
@@ -133,7 +138,7 @@ const Home = () => {
       <div className="flex flex-col space-y-6 h-full">
         <div className="flex items-center">
           <div className="text-heading-300 grow">Home</div>
-          <DurationSelector className="h-fit" onSelect={setDuration} />
+          <DurationSelector className="h-fit" duration={duration} onSelect={setDuration} />
         </div>
 
         <div className="flex space-x-6 w-full phone:flex-col phone:space-x-0 phone:space-y-6">

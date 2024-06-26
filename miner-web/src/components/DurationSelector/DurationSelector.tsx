@@ -8,15 +8,20 @@ import "./style.css";
 
 interface DurationSelectorProps {
   className?: string;
+  duration?: Duration;
   onSelect?: (duration: Duration) => void;
 }
 
-const DurationSelector = ({ className, onSelect }: DurationSelectorProps) => {
+const DurationSelector = ({
+  className,
+  duration,
+  onSelect,
+}: DurationSelectorProps) => {
   const [selectedDuration, setSelectedDuration] = useState<Duration>(
-    durations[0]
+    duration || durations[0]
   );
   const [slidingDuration, setSlidingDuration] = useState<Duration>(
-    durations[0]
+    duration || durations[0]
   );
 
   const handleSelectDuration = (duration: Duration) => {
@@ -89,7 +94,9 @@ const DurationSelector = ({ className, onSelect }: DurationSelectorProps) => {
                 selectedDurationIndex > slidingDurationIndex,
             })}
           />
-          <div className="px-3 py-1 relative z-10">{duration.toUpperCase()}</div>
+          <div className="px-3 py-1 relative z-10 uppercase">
+            {duration}
+          </div>
         </button>
       ))}
     </div>

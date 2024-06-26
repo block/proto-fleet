@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { useCoolingStatus, useHashboards, useTemperature } from "api";
 import { FanInfo } from "apiTypes";
 
+import { useLocalStorage } from "common/hooks/useLocalStorage";
+
 import DurationSelector, {
   Duration,
   durations,
@@ -16,7 +18,10 @@ import Tabs from "components/Tab";
 import AsicTable from "./Asic/AsicTable";
 
 const Hardware = () => {
-  const [duration, setDuration] = useState<Duration>(durations[0]);
+  const { getItem, setItem } = useLocalStorage();
+  const [duration, setDuration] = useState<Duration>(
+    getItem("duration") || durations[0]
+  );
   const [showPopover, setShowPopover] = useState<string | undefined>(undefined);
   const [fanSpeeds, setFanSpeeds] = useState<FanInfo[]>();
   const [temp, setTemp] = useState<number>();
@@ -33,7 +38,8 @@ const Hardware = () => {
 
   useEffect(() => {
     setTemp(undefined);
-  }, [duration]);
+    setItem("duration", duration);
+  }, [duration, setItem]);
 
   useEffect(() => {
     if (hashboardsInfo) {
@@ -66,7 +72,7 @@ const Hardware = () => {
     <div className="flex flex-col space-y-6 h-full">
       <div className="flex items-center">
         <div className="text-heading-300 grow">Hardware</div>
-        <DurationSelector className="h-fit" onSelect={setDuration} />
+        <DurationSelector className="h-fit" duration={duration} onSelect={setDuration} />
       </div>
 
       <div className="flex space-x-6 w-full phone:flex-col phone:space-x-0 phone:space-y-6">
