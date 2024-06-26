@@ -8,6 +8,8 @@ import {
   useSystemInfo,
 } from "api";
 
+import { useLocalStorage } from "common/hooks/useLocalStorage";
+
 import Spinner from "components/Spinner";
 
 import App from "./App";
@@ -27,15 +29,21 @@ const AppWrapper = ({ children, title }: AppProps) => {
   const [isOnboarding, setIsOnboarding] = useState(false);
   const { startMining } = useMiningStart();
   const { data: systemInfo, pending: pendingSystemInfo } = useSystemInfo();
+  const { getItem, setItem } = useLocalStorage();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // navigate to onboarding page if miner has not been onboarded
   useEffect(() => {
-    if (systemInfo && "onboarded" in systemInfo && !systemInfo.onboarded) {
-      navigate("/onboarding");
+    if (systemInfo) {
+      if ("onboarded" in systemInfo && !systemInfo.onboarded) {
+        setItem("isOnboarded", false);
+        navigate("/onboarding");
+      } else {
+        setItem("isOnboarded", true);
+      }
     }
-  }, [systemInfo, navigate]);
+  }, [systemInfo, navigate, setItem]);
 
   useEffect(() => {
     if (searchParams.get("onboarding")) {
@@ -53,7 +61,7 @@ const AppWrapper = ({ children, title }: AppProps) => {
       if (miningStatus?.status === "Stopped" && isOnboarding) {
         const newIntervalId = setInterval(() => {
           getMiningStatus({ onSuccess: setMiningStatus });
-        }, 10000);
+        }, 5000);
         setIntervalId(newIntervalId);
       }
     } else if (miningStatus?.status === "Running") {
@@ -72,7 +80,7 @@ const AppWrapper = ({ children, title }: AppProps) => {
     startMining();
     const newIntervalId = setInterval(() => {
       getMiningStatus({ onSuccess: setMiningStatus });
-    }, 10000);
+    }, 5000);
     setWakeIntervalId(newIntervalId);
   };
 
@@ -84,7 +92,7 @@ const AppWrapper = ({ children, title }: AppProps) => {
 
   return (
     <>
-      {pendingSystemInfo && !systemInfo ? (
+      {!getItem("isOnboarded") && pendingSystemInfo && !systemInfo ? (
         <div className="min-h-screen flex items-center justify-center">
           <Spinner />
         </div>

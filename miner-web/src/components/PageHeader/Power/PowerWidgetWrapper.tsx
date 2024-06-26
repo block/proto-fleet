@@ -42,7 +42,7 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
 
   const handleReboot = () => {
     rebootSystem();
-    pollMiningStatus(30000);
+    pollMiningStatus(5000);
     setIsMiningStatusStale(true);
   };
 
@@ -54,7 +54,7 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
 
   const handleWake = () => {
     startMining();
-    pollMiningStatus(10000);
+    pollMiningStatus(5000);
     setIsMiningStatusStale(true);
   };
 

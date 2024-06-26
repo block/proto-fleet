@@ -16,6 +16,7 @@ import Spinner from "components/Spinner";
 import Tabs from "components/Tab";
 
 import AsicTable from "./Asic/AsicTable";
+import { sortHashboards } from "./utility";
 
 const Hardware = () => {
   const { getItem, setItem } = useLocalStorage();
@@ -72,7 +73,11 @@ const Hardware = () => {
     <div className="flex flex-col space-y-6 h-full">
       <div className="flex items-center">
         <div className="text-heading-300 grow">Hardware</div>
-        <DurationSelector className="h-fit" duration={duration} onSelect={setDuration} />
+        <DurationSelector
+          className="h-fit"
+          duration={duration}
+          onSelect={setDuration}
+        />
       </div>
 
       <div className="flex space-x-6 w-full phone:flex-col phone:space-x-0 phone:space-y-6">
@@ -94,7 +99,7 @@ const Hardware = () => {
       )}
       {hashboardsInfo?.length && (
         <Tabs>
-          {hashboardsInfo.map((hashboardInfo, index) => (
+          {sortHashboards(hashboardsInfo).map((hashboardInfo, index) => (
             <Tabs.Tab
               label={`Hashboard ${index + 1}`}
               key={hashboardInfo.hb_sn}

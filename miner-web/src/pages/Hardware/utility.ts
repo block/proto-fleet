@@ -1,4 +1,4 @@
-import { AsicStats } from "apiTypes";
+import { AsicStats, HashboardsInfoHashboardsinfo } from "apiTypes";
 
 export const sortAsics = (asics: AsicStats[]) => {
   return asics.sort((a, b) => {
@@ -7,6 +7,14 @@ export const sortAsics = (asics: AsicStats[]) => {
     }
 
     return (a.row || 0) - (b.row || 0);
+  });
+};
+
+export const sortHashboards = (hashboards: HashboardsInfoHashboardsinfo[]) => {
+  return hashboards.sort((a, b) => {
+    const aSerial = a.hb_sn || "";
+    const bSerial = b.hb_sn || "";
+    return aSerial.localeCompare(bSerial);
   });
 };
 

@@ -27,7 +27,7 @@ const FanSpeedWidget = ({ fanSpeeds, loading }: FanSpeedWidgetProps) => {
     }
 
     const total = fanSpeeds.reduce((acc, fan) => acc + (fan.rpm || 0), 0);
-    return total / fanSpeeds.length;
+    return Math.round(total / fanSpeeds.length);
   }, [fanSpeeds]);
 
   const displayFanSpeed = useMemo(

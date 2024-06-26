@@ -1,0 +1,21 @@
+@property --myColor1 {
+  syntax: '<color>';
+  initial-value: white;
+  inherits: false;
+}
+
+@property --myColor2 {
+  syntax: '<color>';
+  initial-value: transparent;
+  inherits: false;
+}
+
+.transition-gradient {
+  background: linear-gradient(to right, var(--myColor1), var(--myColor2));
+  transition: --myColor1 180ms, --myColor2 180ms;
+  transition-timing-function: ease-in-out;
+}
+
+button:hover .transition-gradient {
+  --myColor1: #f2f2f2;
+}

@@ -56,7 +56,7 @@ const HashrateWrapper = ({ duration, hashboardSerials }: HashrateProps) => {
           aggregates={aggregates}
           duration={duration}
           hashrates={hashrates}
-          hashboardSerials={hashboardSerials}
+          hashboardSerials={hashboardSerials.sort((a, b) => a.localeCompare(b))}
         />
       ) : (
         <div className="flex h-full items-center justify-center">

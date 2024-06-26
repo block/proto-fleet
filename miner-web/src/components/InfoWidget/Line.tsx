@@ -1,4 +1,7 @@
 import { LineChart, Line as RechartsLine } from "recharts";
+import clsx from "clsx";
+
+import "./style.css";
 
 interface LineProps {
   data: Record<string, number | string>[];
@@ -18,7 +21,12 @@ const Line = ({ data }: LineProps) => {
           className="hover:cursor-pointer"
         />
       </LineChart>
-      <div className="absolute bottom-0 h-full w-full pointer-events-none bg-gradient-to-r from-surface-base to-transparent" />
+      <div
+        className={clsx(
+          "absolute bottom-0 h-full w-full pointer-events-none",
+          "transition-gradient"
+        )}
+      />
     </div>
   );
 };
