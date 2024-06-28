@@ -1,5 +1,7 @@
 import { useCallback, useState } from "react";
 
+import { Granularity } from "pages/Hardware/types";
+
 import { api } from "./api";
 import { Error, TemperatureResponseTemperaturedata } from "./types";
 import { usePoll } from "./usePoll";
@@ -7,6 +9,7 @@ import { usePoll } from "./usePoll";
 interface UseAsicTemperatureProps {
   asicID?: number;
   duration: TemperatureResponseTemperaturedata["duration"];
+  granularity: Granularity;
   hashboardSerial?: string;
   poll?: boolean;
 }
@@ -14,6 +17,7 @@ interface UseAsicTemperatureProps {
 const useAsicTemperature = ({
   asicID,
   duration,
+  granularity,
   hashboardSerial,
   poll,
 }: UseAsicTemperatureProps) => {
@@ -26,7 +30,7 @@ const useAsicTemperature = ({
 
     setPending(true);
     api
-      .getAsicTemperature(hashboardSerial, asicID, { duration })
+      .getAsicTemperature(hashboardSerial, asicID, { duration, granularity })
       .then((res) => {
         setData(res?.data["temperature-data"]);
       })
@@ -36,7 +40,7 @@ const useAsicTemperature = ({
       .finally(() => {
         setPending(false);
       });
-  }, [duration, hashboardSerial, asicID]);
+  }, [duration, granularity, hashboardSerial, asicID]);
 
   usePoll({ fetchData, poll });
 

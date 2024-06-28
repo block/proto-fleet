@@ -1,6 +1,6 @@
 import { useCallback, useContext, useEffect, useState } from "react";
 
-import { ApiContext, useCreatePool } from "api";
+import { ApiContext, useCreatePools } from "api";
 
 import { debounce, deepClone } from "common/utils/utility";
 
@@ -23,7 +23,7 @@ const SettingsMiningPools = () => {
   const [toastType, setToastType] = useState<ToastType | null>(null);
 
   const { poolsInfo } = useContext(ApiContext);
-  const { createPool } = useCreatePool();
+  const { createPools } = useCreatePools();
 
   useEffect(() => {
     if (poolsInfo.length && !pools[0].url) {
@@ -41,7 +41,7 @@ const SettingsMiningPools = () => {
     debounce((newPools: PoolInfo[]) => {
       setToastType(toastTypes.loading);
       const validPools = newPools.filter(isValidPool);
-      createPool({
+      createPools({
         poolInfo: validPools,
         onSuccess: () => {
           setToastType(toastTypes.success);
@@ -51,7 +51,7 @@ const SettingsMiningPools = () => {
         },
       });
     }),
-    [createPool]
+    [createPools]
   );
 
   const onChangePools = useCallback(

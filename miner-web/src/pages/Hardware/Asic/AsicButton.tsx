@@ -6,12 +6,14 @@ import { AsicStats, HashrateResponseHashratedata } from "apiTypes";
 import { useClickOutside } from "common/hooks/useClickOutside";
 
 import { dangerTemp, warningTemp } from "../constants";
+import { Granularity } from "../types";
 import AsicPopover from "./AsicPopover";
 import { getAsicUniqueId } from "./utility";
 
 interface AsicButtonProps {
   asic: AsicStats;
   duration: HashrateResponseHashratedata["duration"];
+  granularity: Granularity;
   hashboardSerial: string;
   showPopover: string | undefined;
   setShowPopover: Dispatch<SetStateAction<string | undefined>>;
@@ -20,6 +22,7 @@ interface AsicButtonProps {
 const AsicButton = ({
   asic,
   duration,
+  granularity,
   hashboardSerial,
   showPopover,
   setShowPopover,
@@ -51,6 +54,7 @@ const AsicButton = ({
         <AsicPopover
           asic={asic}
           duration={duration}
+          granularity={granularity}
           hashboardSerial={hashboardSerial}
         />
       ) : null}

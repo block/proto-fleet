@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createSearchParams, useNavigate } from "react-router-dom";
 
-import { useCreatePool, usePoolsInfo } from "api";
+import { useCreatePools, usePoolsInfo } from "api";
 
 import { isValidPool, PoolInfo } from "components/MiningPools";
 
@@ -14,7 +14,7 @@ interface SettingUpWrapperProps {
 
 const SettingUpWrapper = ({ pools }: SettingUpWrapperProps) => {
   const navigate = useNavigate();
-  const { createPool } = useCreatePool();
+  const { createPools } = useCreatePools();
   const { fetch: fetchPools } = usePoolsInfo();
   const [intervalId, setIntervalId] =
     useState<ReturnType<typeof setInterval>>();
@@ -46,7 +46,7 @@ const SettingUpWrapper = ({ pools }: SettingUpWrapperProps) => {
     if (poolStatus === statuses.fetch) {
       setPoolStatus(statuses.pending);
       const validPools = pools.filter(isValidPool);
-      createPool({
+      createPools({
         poolInfo: validPools,
         onSuccess: () => {
           const newIntervalId = setInterval(getPoolStatus, 2500);
@@ -55,7 +55,7 @@ const SettingUpWrapper = ({ pools }: SettingUpWrapperProps) => {
         onError: () => setPoolStatus(statuses.error),
       });
     }
-  }, [createPool, getPoolStatus, poolStatus, pools]);
+  }, [createPools, getPoolStatus, poolStatus, pools]);
 
   const isConfigured = useCallback(
     (status: keyof typeof statuses) =>

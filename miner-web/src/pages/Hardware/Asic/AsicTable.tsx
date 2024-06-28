@@ -1,38 +1,32 @@
-import { Dispatch, SetStateAction, useEffect, useState } from "react";
+import { Dispatch, SetStateAction } from "react";
 
-import { useHashboardStats } from "api";
 import { AsicStats, HashrateResponseHashratedata } from "apiTypes";
 
 import Spinner from "components/Spinner";
 
-import { getAsicsRows, getRowLabel, sortAsics } from "../utility";
+import { Granularity } from "../types";
+import { getAsicsRows, getRowLabel } from "../utility";
 import AsicButton from "./AsicButton";
 
 interface AsicTableProps {
+  asics: AsicStats[];
   duration: HashrateResponseHashratedata["duration"];
+  granularity: Granularity;
   hashboardSerialNumber: string;
+  pending: boolean;
   showPopover: string | undefined;
   setShowPopover: Dispatch<SetStateAction<string | undefined>>;
 }
 
 const AsicTable = ({
+  asics,
   duration,
+  granularity,
   hashboardSerialNumber,
+  pending,
   showPopover,
   setShowPopover,
 }: AsicTableProps) => {
-  const { data, pending } = useHashboardStats({
-    hashboardSerialNumber,
-    poll: true,
-  });
-  const [asics, setAsics] = useState<AsicStats[]>([]);
-
-  useEffect(() => {
-    if (!pending && data?.asics?.length) {
-      setAsics(sortAsics(data.asics));
-    }
-  }, [data, pending]);
-
   return (
     <div className="mt-6 relative h-full">
       <div className="flex phone:overflow-x-scroll h-full">
@@ -78,6 +72,7 @@ const AsicTable = ({
                       <AsicButton
                         asic={asic}
                         duration={duration}
+                        granularity={granularity}
                         hashboardSerial={hashboardSerialNumber}
                         showPopover={showPopover}
                         setShowPopover={setShowPopover}

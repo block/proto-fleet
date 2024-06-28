@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 
-const fs = require("fs");
-const path = require("path");
-const {
+import fs from "fs";
+import path from "path";
+import {
   generateApi,
-} = require("swagger-typescript-api/src");
+} from "swagger-typescript-api/src/index.js";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url); // get the resolved path to the file
+const __dirname = path.dirname(__filename); // get the name of the directory
 
 const swaggerSchemaPath = path.resolve(
   __dirname,

@@ -1,5 +1,7 @@
 import { useCallback, useState } from "react";
 
+import { Granularity } from "pages/Hardware/types";
+
 import { api } from "./api";
 import { Error, HashrateResponseHashratedata } from "./types";
 import { usePoll } from "./usePoll";
@@ -7,6 +9,7 @@ import { usePoll } from "./usePoll";
 interface UseAsicHashrateProps {
   asicID?: number;
   duration: HashrateResponseHashratedata["duration"];
+  granularity: Granularity;
   hashboardSerial?: string;
   poll?: boolean;
 }
@@ -14,6 +17,7 @@ interface UseAsicHashrateProps {
 const useAsicHashrate = ({
   asicID,
   duration,
+  granularity,
   hashboardSerial,
   poll,
 }: UseAsicHashrateProps) => {
@@ -26,7 +30,7 @@ const useAsicHashrate = ({
 
     setPending(true);
     api
-      .getAsicHashrate(hashboardSerial, asicID, { duration })
+      .getAsicHashrate(hashboardSerial, asicID, { duration, granularity })
       .then((res) => {
         setData(res?.data["hashrate-data"]);
       })
@@ -36,7 +40,7 @@ const useAsicHashrate = ({
       .finally(() => {
         setPending(false);
       });
-  }, [duration, hashboardSerial, asicID]);
+  }, [duration, granularity, hashboardSerial, asicID]);
 
   usePoll({ fetchData, poll });
 

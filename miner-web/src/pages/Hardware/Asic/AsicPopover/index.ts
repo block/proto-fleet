@@ -1,3 +1,3 @@
-import AsicPopover from "./AsicPopover";
+import AsicPopoverWrapper from "./AsicPopoverWrapper";
 
-export default AsicPopover;
+export default AsicPopoverWrapper;

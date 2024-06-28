@@ -1,7 +1,4 @@
-import { useEffect, useState } from "react";
-
-import { useAsicHashrate, useAsicTemperature } from "api";
-import { AsicStats, HashrateResponseHashratedata } from "apiTypes";
+import { AsicStats } from "apiTypes";
 
 import { positions } from "common/constants";
 import { getDisplayValue } from "common/utils/stringUtils";
@@ -14,44 +11,22 @@ import { getRowLabel } from "../../utility";
 import AsicChart from "./AsicChart";
 import { ChartData } from "./AsicChart/types";
 import AsicPopoverRow from "./AsicPopoverRow";
-import { convertHashrateValues, convertTemperatureValues } from "./utility";
 
 interface AsicPopoverProps {
   asic: AsicStats;
-  duration: HashrateResponseHashratedata["duration"];
-  hashboardSerial: string;
+  hashrateData?: ChartData[];
+  pendingAsicHashrateData?: boolean;
+  pendingAsicTemperatureData?: boolean;
+  temperatureData?: ChartData[];
 }
 
-const AsicPopover = ({ asic, duration, hashboardSerial }: AsicPopoverProps) => {
-  const [temperatureData, setTemperatureData] = useState<ChartData[]>();
-  const [hashrateData, setHashrateData] = useState<ChartData[]>();
-  const { data: asicTemperatureData, pending: pendingAsicTemperatureData } =
-    useAsicTemperature({
-      asicID: asic.id,
-      duration,
-      hashboardSerial,
-      poll: true,
-    });
-  const { data: asicHashrateData, pending: pendingAsicHashrateData } =
-    useAsicHashrate({
-      asicID: asic.id,
-      duration,
-      hashboardSerial,
-      poll: true,
-    });
-
-  useEffect(() => {
-    if (asicTemperatureData?.data?.length) {
-      setTemperatureData(convertTemperatureValues(asicTemperatureData.data));
-    }
-  }, [asicTemperatureData]);
-
-  useEffect(() => {
-    if (asicHashrateData?.data?.length) {
-      setHashrateData(convertHashrateValues(asicHashrateData.data));
-    }
-  }, [asicHashrateData]);
-
+const AsicPopover = ({
+  asic,
+  hashrateData,
+  pendingAsicHashrateData,
+  pendingAsicTemperatureData,
+  temperatureData,
+}: AsicPopoverProps) => {
   return (
     <Popover
       position={positions["top right"]}
@@ -72,18 +47,18 @@ const AsicPopover = ({ asic, duration, hashboardSerial }: AsicPopoverProps) => {
         )} */}
       </div>
       <div className="w-[272px] h-[92px]">
-        {(pendingAsicHashrateData && !hashrateData) ||
-        (pendingAsicTemperatureData && !temperatureData) ? (
+        {(pendingAsicHashrateData && !hashrateData?.length) ||
+        (pendingAsicTemperatureData && !temperatureData?.length) ? (
           <div className="flex h-full items-center justify-center">
             <Spinner />
           </div>
         ) : null}
-        {hashrateData && temperatureData && (
+        {hashrateData?.length && temperatureData?.length ? (
           <AsicChart
             hashrateData={hashrateData}
             temperatureData={temperatureData}
           />
-        )}
+        ) : null}
       </div>
       <div>
         <AsicPopoverRow

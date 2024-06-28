@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { useCoolingStatus, useHashboards, useTemperature } from "api";
+import { useCoolingStatus, useHashboards, useMiningStatus, useTemperature } from "api";
 import { FanInfo } from "apiTypes";
 
 import { useLocalStorage } from "common/hooks/useLocalStorage";
@@ -15,7 +15,8 @@ import Row from "components/Row";
 import Spinner from "components/Spinner";
 import Tabs from "components/Tab";
 
-import AsicTable from "./Asic/AsicTable";
+import AsicTable from "./Asic/AsicTableWrapper";
+import { Granularity } from "./types";
 import { sortHashboards } from "./utility";
 
 const Hardware = () => {
@@ -28,6 +29,7 @@ const Hardware = () => {
   const [temp, setTemp] = useState<number>();
   const [highestTemp, setHighestTemp] = useState<number>();
   const [hashboardSerials, setHashboardSerials] = useState<string[]>();
+  const [granularity, setGranularity] = useState<Granularity>("1m");
   const { data: tempData, pending: pendingTempData } = useTemperature({
     duration,
     poll: true,
@@ -36,6 +38,11 @@ const Hardware = () => {
     useHashboards();
   const { data: coolingStatus, pending: pendingCoolingStatus } =
     useCoolingStatus({ poll: true });
+  const { data: miningStatus, getMiningStatus } = useMiningStatus();
+
+  useEffect(() => {
+    getMiningStatus();
+  }, [getMiningStatus]);
 
   useEffect(() => {
     setTemp(undefined);
@@ -68,6 +75,26 @@ const Hardware = () => {
       setFanSpeeds(coolingStatus.fans);
     }
   }, [coolingStatus, pendingCoolingStatus]);
+
+  useEffect(() => {
+    const rebootUptimeInSeconds = miningStatus?.reboot_uptime_s;
+    if (rebootUptimeInSeconds === undefined) return;
+
+    const oneHourInSeconds = 60 * 60;
+    const sixHoursInSeconds = oneHourInSeconds * 6;
+    if (rebootUptimeInSeconds > sixHoursInSeconds) {
+      setGranularity("15m");
+    } else if (rebootUptimeInSeconds > oneHourInSeconds) {
+      setGranularity("5m");
+    } else {
+      setGranularity("1m");
+    }
+
+    // Poll every minute to recalculate granularity
+    setTimeout(() => {
+      getMiningStatus();
+    }, 60000);
+  }, [miningStatus, getMiningStatus]);
 
   return (
     <div className="flex flex-col space-y-6 h-full">
@@ -118,6 +145,7 @@ const Hardware = () => {
               {hashboardInfo.hb_sn && (
                 <AsicTable
                   duration={duration}
+                  granularity={granularity}
                   hashboardSerialNumber={hashboardInfo.hb_sn}
                   showPopover={showPopover}
                   setShowPopover={setShowPopover}
