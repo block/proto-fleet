@@ -1,11 +1,11 @@
 import { useCallback } from "react";
 
 import { api } from "./api";
-import { MessageResponse, PoolConfig } from "./types";
+import { PoolConfig } from "./types";
 
 interface CreatePoolsProps {
-  onError?: (response: MessageResponse) => void;
-  onSuccess?: (response: MessageResponse) => void;
+  onError?: (message: string) => void;
+  onSuccess?: () => void;
   poolInfo: PoolConfig;
 }
 
@@ -14,11 +14,11 @@ const useCreatePools = () => {
     async ({ poolInfo, onSuccess, onError }: CreatePoolsProps) => {
       await api
         .createPools(poolInfo)
-        .then((data) => {
-          onSuccess?.(data?.data);
+        .then(() => {
+          onSuccess?.();
         })
         .catch((err) => {
-          onError?.(err);
+          onError?.(err?.message || err);
         })
     },
     []

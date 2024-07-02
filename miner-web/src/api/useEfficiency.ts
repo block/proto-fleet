@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { api } from "./api";
-import { EfficiencyResponseEfficiencydata, Error } from "./types";
+import { EfficiencyResponseEfficiencydata } from "./types";
 import { usePoll } from "./usePoll";
 
 interface UseEfficiencyProps {
@@ -11,7 +11,7 @@ interface UseEfficiencyProps {
 
 const useEfficiency = ({ duration, poll }: UseEfficiencyProps) => {
   const [data, setData] = useState<EfficiencyResponseEfficiencydata>();
-  const [error, setError] = useState<Error>();
+  const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
 
   const fetchData = useCallback(() => {
@@ -22,7 +22,7 @@ const useEfficiency = ({ duration, poll }: UseEfficiencyProps) => {
         setData(res?.data["efficiency-data"]);
       })
       .catch((err) => {
-        setError(err?.error || err);
+        setError(err?.error?.message || err);
       })
       .finally(() => {
         setPending(false);

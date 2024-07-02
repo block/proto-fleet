@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { api } from "./api";
-import { Error, HashboardStatsHashboardstats } from "./types";
+import { HashboardStatsHashboardstats } from "./types";
 import { usePoll } from "./usePoll";
 
 interface UseHashboardStatsProps {
@@ -11,7 +11,7 @@ interface UseHashboardStatsProps {
 
 const useHashboardStats = ({ hashboardSerialNumber, poll }: UseHashboardStatsProps) => {
   const [data, setData] = useState<HashboardStatsHashboardstats>();
-  const [error, setError] = useState<Error>();
+  const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
 
   const fetchData = useCallback(() => {
@@ -21,7 +21,7 @@ const useHashboardStats = ({ hashboardSerialNumber, poll }: UseHashboardStatsPro
         setData(res?.data["hashboard-stats"]);
       })
       .catch((err) => {
-        setError(err?.error || err);
+        setError(err?.error?.message || err);
       })
       .finally(() => {
         setPending(false);

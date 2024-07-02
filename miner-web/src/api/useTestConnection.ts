@@ -22,14 +22,7 @@ const useTestConnection = () => {
     setPending(true);
     api
       .testPoolConnection(poolInfo)
-      .then(({ data = "" }) => {
-        const passed = /connection test passed/.test(data.toLowerCase());
-        if (passed) {
-          onSuccess?.();
-        } else {
-          onError?.();
-        }
-      })
+      .then(() => onSuccess?.())
       .catch(() => onError?.())
       .finally(() => {
         setPending(false);

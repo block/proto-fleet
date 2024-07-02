@@ -124,7 +124,7 @@ const Hardware = () => {
           <Spinner />
         </div>
       )}
-      {hashboardsInfo?.length && (
+      {hashboardsInfo?.length ? (
         <Tabs>
           {sortHashboards(hashboardsInfo).map((hashboardInfo, index) => (
             <Tabs.Tab
@@ -154,7 +154,7 @@ const Hardware = () => {
             </Tabs.Tab>
           ))}
         </Tabs>
-      )}
+      ) : null}
     </div>
   );
 };

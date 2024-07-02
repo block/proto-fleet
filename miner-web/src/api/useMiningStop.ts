@@ -1,10 +1,9 @@
 import { useCallback, useState } from "react";
 
 import { api } from "./api";
-import { Error } from "./types";
 
 const useMiningStop = () => {
-  const [error, setError] = useState<Error>();
+  const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
 
   const stopMining = useCallback(() => {
@@ -12,7 +11,7 @@ const useMiningStop = () => {
     api
       .stopMining()
       .catch((err) => {
-        setError(err?.error || err);
+        setError(err?.error?.message || err);
       })
       .finally(() => {
         setPending(false);

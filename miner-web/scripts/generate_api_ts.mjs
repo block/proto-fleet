@@ -2,9 +2,7 @@
 
 import fs from "fs";
 import path from "path";
-import {
-  generateApi,
-} from "swagger-typescript-api/src/index.js";
+import { generateApi } from "swagger-typescript-api";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url); // get the resolved path to the file

@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { api } from "./api";
-import { Error, LogsResponseLogs } from "./types";
+import { LogsResponseLogs } from "./types";
 import { usePoll } from "./usePoll";
 
 interface UseSystemLogsProps {
@@ -10,7 +10,7 @@ interface UseSystemLogsProps {
 
 const useSystemLogs = ({ poll }: UseSystemLogsProps) => {
   const [data, setData] = useState<LogsResponseLogs>();
-  const [error, setError] = useState<Error>();
+  const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
 
   const fetchData = useCallback(() => {
@@ -21,7 +21,7 @@ const useSystemLogs = ({ poll }: UseSystemLogsProps) => {
         setData(res?.data["logs"]);
       })
       .catch((err) => {
-        setError(err?.error || err);
+        setError(err?.error?.message || err);
       })
       .finally(() => {
         setPending(false);

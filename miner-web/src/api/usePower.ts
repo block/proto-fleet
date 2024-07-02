@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { api } from "./api";
-import { Error, PowerResponsePowerdata } from "./types";
+import { PowerResponsePowerdata } from "./types";
 import { usePoll } from "./usePoll";
 
 interface UsePowerProps {
@@ -11,7 +11,7 @@ interface UsePowerProps {
 
 const usePower = ({ duration, poll }: UsePowerProps) => {
   const [data, setData] = useState<PowerResponsePowerdata>();
-  const [error, setError] = useState<Error>();
+  const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
 
   const fetchData = useCallback(() => {
@@ -22,7 +22,7 @@ const usePower = ({ duration, poll }: UsePowerProps) => {
         setData(res?.data["power-data"]);
       })
       .catch((err) => {
-        setError(err?.error || err);
+        setError(err?.error?.message || err);
       })
       .finally(() => {
         setPending(false);

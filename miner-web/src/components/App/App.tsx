@@ -68,7 +68,7 @@ const App = ({
           <div className="w-full h-[calc(100%-56px)] overflow-y-scroll relative">
             <div className="min-h-[calc(100%-56px-56px)] m-14 tablet:m-6 phone:m-6 flex justify-center">
               <div className="desktop:w-[928px] laptop:w-[608px] tablet:w-[584px] phone:w-[352px]">
-                {isOnboarding ? (
+                {isOnboarding && miningStatus?.status !== "Running" ? (
                   <WarmingUpCallout />
                 ) : (
                   <WakeCallout

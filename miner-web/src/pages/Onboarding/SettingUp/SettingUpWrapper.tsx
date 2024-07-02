@@ -25,10 +25,9 @@ const SettingUpWrapper = ({ pools }: SettingUpWrapperProps) => {
   const getPoolStatus = useCallback(() => {
     fetchPools({
       onSuccess: () => setPoolStatus(statuses.success),
-      onError: (error = "") => {
+      onError: (message = "") => {
         // wait for cgminer to restart before marking pools as configured
-        const message = error.toLowerCase?.() || error;
-        if (!/failed to connect to cgminer/.test(message)) {
+        if (!/failed to connect to cgminer/i.test(message)) {
           setPoolStatus(statuses.error);
         }
       },

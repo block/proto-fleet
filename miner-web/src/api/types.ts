@@ -68,12 +68,12 @@ export interface AsicStatsResponse {
 export interface CoolingConfig {
   /**
    * Parameter to define the cooling mode.  Modes:
-   *  - Auto: Fans will be controlled based on miner temperature.
-   *  - Maximum: Fans will be run at full speed regardless of temperature.
    *  - Off: Fans will be set to off for immersion cooling.
+   *  - Auto: Fans will be controlled based on miner temperature.
+   *  - Max: Fans will be run at full speed regardless of temperature.
    * @example "Auto"
    */
-  mode?: "Auto" | "Max" | "Off";
+  mode?: "Off" | "Auto" | "Max";
 }
 
 export interface CoolingStatus {
@@ -83,9 +83,9 @@ export interface CoolingStatus {
 export interface CoolingStatusCoolingstatus {
   /**
    * Parameter to show the current fan mode.
-   * @example "Auto"
+   * @example "auto"
    */
-  fan_mode?: "Auto" | "Max" | "Off";
+  fan_mode?: "auto" | "maximum" | "false";
   /** This will show speed of all fans in the system. */
   fans?: FanInfo[];
 }
@@ -101,7 +101,18 @@ export interface EfficiencyResponseEfficiencydata {
   duration?: "12h" | "24h" | "48h" | "5d";
 }
 
-export type Error = string;
+export interface Error {
+  /**
+   * Error code.
+   * @example "INCORRECT_ARGS"
+   */
+  code?: string;
+  /**
+   * Error message.
+   * @example "Arguments are incorrect for query."
+   */
+  message?: string;
+}
 
 export interface ErrorResponse {
   error?: Error;
@@ -252,7 +263,9 @@ export interface LogsResponseLogs {
   source?: string;
 }
 
-export type MessageResponse = string;
+export interface MessageResponse {
+  message?: string;
+}
 
 /** Mining statistics */
 export interface MiningStatus {
@@ -774,9 +787,9 @@ export class HttpClient<SecurityDataType = unknown> {
     [ContentType.Json]: (input: any) =>
       input !== null && (typeof input === "object" || typeof input === "string") ? JSON.stringify(input) : input,
     [ContentType.Text]: (input: any) => (input !== null && typeof input !== "string" ? JSON.stringify(input) : input),
-    [ContentType.FormData]: (input: any) =>
-      Object.keys(input || {}).reduce((formData, key) => {
-        const property = input[key];
+    [ContentType.FormData]: (input: FormData) =>
+      (Array.from(input.keys()) || []).reduce((formData, key) => {
+        const property = input.get(key);
         formData.append(
           key,
           property instanceof Blob
@@ -905,7 +918,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/pools
      */
     listPools: (params: RequestParams = {}) =>
-      this.request<PoolsList, ErrorResponse>({
+      this.request<PoolsList, MessageResponse>({
         path: `/api/v1/pools`,
         method: "GET",
         format: "json",
@@ -939,7 +952,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/pools/{id}
      */
     getPool: (id: number, params: RequestParams = {}) =>
-      this.request<PoolResponse, ErrorResponse>({
+      this.request<PoolResponse, MessageResponse>({
         path: `/api/v1/pools/${id}`,
         method: "GET",
         format: "json",
@@ -955,7 +968,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     editPool: (id: number, data: PoolConfigInner, params: RequestParams = {}) =>
-      this.request<PoolConfigResponse, ErrorResponse>({
+      this.request<PoolConfigResponse, MessageResponse>({
         path: `/api/v1/pools/${id}`,
         method: "PUT",
         body: data,
@@ -974,10 +987,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     deletePool: (id: number, params: RequestParams = {}) =>
-      this.request<void, ErrorResponse>({
+      this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/pools/${id}`,
         method: "DELETE",
         secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -989,7 +1003,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/pools/test-connection
      */
     testPoolConnection: (data: TestConnection, params: RequestParams = {}) =>
-      this.request<MessageResponse, ErrorResponse>({
+      this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/pools/test-connection`,
         method: "POST",
         body: data,
@@ -1012,10 +1026,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<void, ErrorResponse>({
+      this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/update-password`,
         method: "PUT",
         query: query,
+        format: "json",
         ...params,
       }),
 
@@ -1027,7 +1042,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/system
      */
     getSystemInfo: (params: RequestParams = {}) =>
-      this.request<SystemInfo, ErrorResponse>({
+      this.request<SystemInfo, any>({
         path: `/api/v1/system`,
         method: "GET",
         format: "json",
@@ -1042,7 +1057,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/mining
      */
     getMiningStatus: (params: RequestParams = {}) =>
-      this.request<MiningStatus, ErrorResponse>({
+      this.request<MiningStatus, MessageResponse>({
         path: `/api/v1/mining`,
         method: "GET",
         format: "json",
@@ -1057,7 +1072,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/mining/target
      */
     getMiningTarget: (params: RequestParams = {}) =>
-      this.request<MiningTarget, ErrorResponse>({
+      this.request<MiningTarget, MessageResponse>({
         path: `/api/v1/mining/target`,
         method: "GET",
         format: "json",
@@ -1073,12 +1088,29 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     editMiningTarget: (data: MiningTarget, params: RequestParams = {}) =>
-      this.request<MiningTarget, ErrorResponse>({
+      this.request<MiningTarget, MessageResponse>({
         path: `/api/v1/mining/target`,
         method: "PUT",
         body: data,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The start mining endpoint can be used to make the device start mining, into account the current power target of the system.
+     *
+     * @tags Mining
+     * @name StartMining
+     * @request POST:/api/v1/mining/start
+     * @secure
+     */
+    startMining: (params: RequestParams = {}) =>
+      this.request<MessageResponse, MessageResponse>({
+        path: `/api/v1/mining/start`,
+        method: "POST",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -1092,26 +1124,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     stopMining: (params: RequestParams = {}) =>
-      this.request<void, ErrorResponse>({
+      this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/mining/stop`,
         method: "POST",
         secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description The start mining endpoint can be used to make the device start mining, into account the current power target of the system.
-     *
-     * @tags Mining
-     * @name StartMining
-     * @request POST:/api/v1/mining/start
-     * @secure
-     */
-    startMining: (params: RequestParams = {}) =>
-      this.request<void, ErrorResponse>({
-        path: `/api/v1/mining/start`,
-        method: "POST",
-        secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -1124,10 +1141,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     rebootSystem: (params: RequestParams = {}) =>
-      this.request<void, ErrorResponse>({
+      this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/system/reboot`,
         method: "POST",
         secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -1148,430 +1166,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<void, ErrorResponse>({
+      this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/system/locate`,
         method: "POST",
         query: query,
-        ...params,
-      }),
-
-    /**
-     * @description The update system endpoint can be used to initiate a system update of the miner software.
-     *
-     * @tags System
-     * @name UpdateSystem
-     * @request POST:/api/v1/system/update
-     * @secure
-     */
-    updateSystem: (params: RequestParams = {}) =>
-      this.request<void, ErrorResponse>({
-        path: `/api/v1/system/update`,
-        method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description The get ssh endpoint returns if SSH is enabled or disabled on the control board
-     *
-     * @tags System
-     * @name GetSsh
-     * @request GET:/api/v1/system/ssh
-     */
-    getSsh: (params: RequestParams = {}) =>
-      this.request<SshResponse, ErrorResponse>({
-        path: `/api/v1/system/ssh`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The put ssh endpoint enables/disables SSH on the control board
-     *
-     * @tags System
-     * @name SetSsh
-     * @request PUT:/api/v1/system/ssh
-     * @secure
-     */
-    setSsh: (data: SshConfig, params: RequestParams = {}) =>
-      this.request<SshResponse, ErrorResponse>({
-        path: `/api/v1/system/ssh`,
-        method: "PUT",
-        body: data,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The hashboards endpoint provides information about all of the hashboards connected to the system, including firmware version, MCU, ASIC count, API version, and hardware serial numbers.
-     *
-     * @tags Hashboards
-     * @name GetAllHashboards
-     * @request GET:/api/v1/hashboards
-     */
-    getAllHashboards: (params: RequestParams = {}) =>
-      this.request<HashboardsInfo, ErrorResponse>({
-        path: `/api/v1/hashboards`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The hashboard status endpoint returns current operating statistics for a single hashboard in the system based on its serial number.
-     *
-     * @tags Hashboards
-     * @name GetHashboardStatus
-     * @request GET:/api/v1/hashboards/{hb_sn}
-     */
-    getHashboardStatus: (hbSn: string, params: RequestParams = {}) =>
-      this.request<HashboardStats, ErrorResponse>({
-        path: `/api/v1/hashboards/${hbSn}`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The hashboard logs endpoint provides the most recent log lines from the specified hashboard.
-     *
-     * @tags Hashboards
-     * @name GetHashboardLogs
-     * @request GET:/api/v1/hashboards/{hb_sn}/logs
-     */
-    getHashboardLogs: (
-      hbSn: string,
-      query?: {
-        /**
-         * The number of most recent logs to return. Maximum of 500, defaults to 100.
-         * @default 100
-         */
-        lines?: number;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<LogsResponse, ErrorResponse>({
-        path: `/api/v1/hashboards/${hbSn}/logs`,
-        method: "GET",
-        query: query,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The hashboard status endpoint returns current operating statistics for a single ASIC on the specified hashboard in the system based on serial number and ASIC ID.
-     *
-     * @tags Hashboards
-     * @name GetAsicStatus
-     * @request GET:/api/v1/hashboards/{hb_sn}/{asic_id}
-     */
-    getAsicStatus: (hbSn: string, asicId: string, params: RequestParams = {}) =>
-      this.request<AsicStatsResponse, ErrorResponse>({
-        path: `/api/v1/hashboards/${hbSn}/${asicId}`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The hashrate endpoint provides miner-level historical hashrate operation data.
-     *
-     * @tags Hashrate
-     * @name GetMinerHashrate
-     * @request GET:/api/v1/hashrate
-     */
-    getMinerHashrate: (
-      query?: {
-        /** @default "12h" */
-        duration?: "12h" | "24h" | "48h" | "5d";
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<HashrateResponse, ErrorResponse>({
-        path: `/api/v1/hashrate`,
-        method: "GET",
-        query: query,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The hashrate endpoint provides hashboard-level historical operation data.
-     *
-     * @tags Hashrate
-     * @name GetHashboardHashrate
-     * @request GET:/api/v1/hashrate/{hb_sn}
-     */
-    getHashboardHashrate: (
-      hbSn: string,
-      query?: {
-        /** @default "12h" */
-        duration?: "12h" | "24h" | "48h" | "5d";
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<HashrateResponse, ErrorResponse>({
-        path: `/api/v1/hashrate/${hbSn}`,
-        method: "GET",
-        query: query,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The hashrate endpoint provides ASIC-level historical hashrate operation data.
-     *
-     * @tags Hashrate
-     * @name GetAsicHashrate
-     * @request GET:/api/v1/hashrate/{hb_sn}/{asic_id}
-     */
-    getAsicHashrate: (
-      hbSn: string,
-      asicId: number,
-      query?: {
-        /** @default "12h" */
-        duration?: "12h" | "24h" | "48h" | "5d";
-        /** @default "1m" */
-        granularity?: "1m" | "5m" | "15m";
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<HashrateResponse, ErrorResponse>({
-        path: `/api/v1/hashrate/${hbSn}/${asicId}`,
-        method: "GET",
-        query: query,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The temperature endpoint provides miner-level historical temperature operation data.
-     *
-     * @tags Temperature
-     * @name GetMinerTemperature
-     * @request GET:/api/v1/temperature
-     */
-    getMinerTemperature: (
-      query?: {
-        /** @default "12h" */
-        duration?: "12h" | "24h" | "48h" | "5d";
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TemperatureResponse, ErrorResponse>({
-        path: `/api/v1/temperature`,
-        method: "GET",
-        query: query,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The temperature endpoint provides hashboard-level historical operation data.
-     *
-     * @tags Temperature
-     * @name GetHashboardTemperature
-     * @request GET:/api/v1/temperature/{hb_sn}
-     */
-    getHashboardTemperature: (
-      hbSn: string,
-      query?: {
-        /** @default "12h" */
-        duration?: "12h" | "24h" | "48h" | "5d";
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TemperatureResponse, ErrorResponse>({
-        path: `/api/v1/temperature/${hbSn}`,
-        method: "GET",
-        query: query,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The hashrate endpoint provides ASIC-level historical temperature operation data.
-     *
-     * @tags Temperature
-     * @name GetAsicTemperature
-     * @request GET:/api/v1/temperature/{hb_sn}/{asic_id}
-     */
-    getAsicTemperature: (
-      hbSn: string,
-      asicId: number,
-      query?: {
-        /** @default "12h" */
-        duration?: "12h" | "24h" | "48h" | "5d";
-        /** @default "1m" */
-        granularity?: "1m" | "5m" | "15m";
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TemperatureResponse, ErrorResponse>({
-        path: `/api/v1/temperature/${hbSn}/${asicId}`,
-        method: "GET",
-        query: query,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The power endpoint provides miner-level historical power operation data.
-     *
-     * @tags Power
-     * @name GetMinerPower
-     * @request GET:/api/v1/power
-     */
-    getMinerPower: (
-      query?: {
-        /** @default "12h" */
-        duration?: "12h" | "24h" | "48h" | "5d";
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<PowerResponse, ErrorResponse>({
-        path: `/api/v1/power`,
-        method: "GET",
-        query: query,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The power endpoint provides hashboard-level historical operation data.
-     *
-     * @tags Power
-     * @name GetHashboardPower
-     * @request GET:/api/v1/power/{hb_sn}
-     */
-    getHashboardPower: (
-      hbSn: string,
-      query?: {
-        /** @default "12h" */
-        duration?: "12h" | "24h" | "48h" | "5d";
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<PowerResponse, ErrorResponse>({
-        path: `/api/v1/power/${hbSn}`,
-        method: "GET",
-        query: query,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The efficiency endpoint provides miner-level historical power operation data.
-     *
-     * @tags Efficiency
-     * @name GetMinerEfficiency
-     * @request GET:/api/v1/efficiency
-     */
-    getMinerEfficiency: (
-      query?: {
-        /** @default "12h" */
-        duration?: "12h" | "24h" | "48h" | "5d";
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<EfficiencyResponse, ErrorResponse>({
-        path: `/api/v1/efficiency`,
-        method: "GET",
-        query: query,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The efficiency endpoint provides hashboard-level historical operation data.
-     *
-     * @tags Efficiency
-     * @name GetHashboardEfficiency
-     * @request GET:/api/v1/efficiency/{hb_sn}
-     */
-    getHashboardEfficiency: (
-      hbSn: string,
-      query?: {
-        /** @default "12h" */
-        duration?: "12h" | "24h" | "48h" | "5d";
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<EfficiencyResponse, ErrorResponse>({
-        path: `/api/v1/efficiency/${hbSn}`,
-        method: "GET",
-        query: query,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The cooling endpoint provides information on the cooling status of the device, including mode and current fan RPM.
-     *
-     * @tags Cooling
-     * @name GetCooling
-     * @request GET:/api/v1/cooling
-     */
-    getCooling: (params: RequestParams = {}) =>
-      this.request<CoolingStatus, ErrorResponse>({
-        path: `/api/v1/cooling`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The cooling configuration endpoint allows the user to control the fan mode.
-     *
-     * @tags Cooling
-     * @name SetCoolingMode
-     * @request PUT:/api/v1/cooling
-     * @secure
-     */
-    setCoolingMode: (data: CoolingConfig, params: RequestParams = {}) =>
-      this.request<CoolingConfig, ErrorResponse>({
-        path: `/api/v1/cooling`,
-        method: "PUT",
-        body: data,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The network GET endpoint provides information related to the network configuration of the miner including IP address, gateways, and MAC address.
-     *
-     * @tags Network
-     * @name GetNetwork
-     * @request GET:/api/v1/network
-     */
-    getNetwork: (params: RequestParams = {}) =>
-      this.request<NetworkInfo, ErrorResponse>({
-        path: `/api/v1/network`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The network PUT endpoint allows the user to change the configuration of the miner between DHCP and a static IP.
-     *
-     * @tags Network
-     * @name SetNetworkConfig
-     * @request PUT:/api/v1/network
-     * @secure
-     */
-    setNetworkConfig: (data: NetworkConfig, params: RequestParams = {}) =>
-      this.request<NetworkInfo, ErrorResponse>({
-        path: `/api/v1/network`,
-        method: "PUT",
-        body: data,
-        secure: true,
-        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -1599,10 +1197,432 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<LogsResponse, ErrorResponse>({
+      this.request<LogsResponse, MessageResponse>({
         path: `/api/v1/system/logs`,
         method: "GET",
         query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The update system endpoint can be used to initiate a system update of the miner software.
+     *
+     * @tags System
+     * @name UpdateSystem
+     * @request POST:/api/v1/system/update
+     * @secure
+     */
+    updateSystem: (params: RequestParams = {}) =>
+      this.request<MessageResponse, MessageResponse>({
+        path: `/api/v1/system/update`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The get ssh endpoint returns if SSH is enabled or disabled on the control board
+     *
+     * @tags System
+     * @name GetSsh
+     * @request GET:/api/v1/system/ssh
+     */
+    getSsh: (params: RequestParams = {}) =>
+      this.request<SshResponse, MessageResponse>({
+        path: `/api/v1/system/ssh`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The put ssh endpoint enables/disables SSH on the control board
+     *
+     * @tags System
+     * @name SetSsh
+     * @request PUT:/api/v1/system/ssh
+     * @secure
+     */
+    setSsh: (data: SshConfig, params: RequestParams = {}) =>
+      this.request<SshResponse, MessageResponse>({
+        path: `/api/v1/system/ssh`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The hashboards endpoint provides information about all of the hashboards connected to the system, including firmware version, MCU, ASIC count, API version, and hardware serial numbers.
+     *
+     * @tags Hashboards
+     * @name GetAllHashboards
+     * @request GET:/api/v1/hashboards
+     */
+    getAllHashboards: (params: RequestParams = {}) =>
+      this.request<HashboardsInfo, MessageResponse>({
+        path: `/api/v1/hashboards`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The hashboard status endpoint returns current operating statistics for a single hashboard in the system based on its serial number.
+     *
+     * @tags Hashboards
+     * @name GetHashboardStatus
+     * @request GET:/api/v1/hashboards/{hb_sn}
+     */
+    getHashboardStatus: (hbSn: string, params: RequestParams = {}) =>
+      this.request<HashboardStats, MessageResponse>({
+        path: `/api/v1/hashboards/${hbSn}`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The hashboard logs endpoint provides the most recent log lines from the specified hashboard.
+     *
+     * @tags Hashboards
+     * @name GetHashboardLogs
+     * @request GET:/api/v1/hashboards/{hb_sn}/logs
+     */
+    getHashboardLogs: (
+      hbSn: string,
+      query?: {
+        /**
+         * The number of most recent logs to return. Maximum of 500, defaults to 100.
+         * @default 100
+         */
+        lines?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<LogsResponse, MessageResponse>({
+        path: `/api/v1/hashboards/${hbSn}/logs`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The hashboard status endpoint returns current operating statistics for a single ASIC on the specified hashboard in the system based on serial number and ASIC ID.
+     *
+     * @tags Hashboards
+     * @name GetAsicStatus
+     * @request GET:/api/v1/hashboards/{hb_sn}/{asic_id}
+     */
+    getAsicStatus: (hbSn: string, asicId: string, params: RequestParams = {}) =>
+      this.request<AsicStatsResponse, MessageResponse>({
+        path: `/api/v1/hashboards/${hbSn}/${asicId}`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The hashrate endpoint provides miner-level historical hashrate operation data.
+     *
+     * @tags Hashrate
+     * @name GetMinerHashrate
+     * @request GET:/api/v1/hashrate
+     */
+    getMinerHashrate: (
+      query?: {
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<HashrateResponse, MessageResponse>({
+        path: `/api/v1/hashrate`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The hashrate endpoint provides hashboard-level historical operation data.
+     *
+     * @tags Hashrate
+     * @name GetHashboardHashrate
+     * @request GET:/api/v1/hashrate/{hb_sn}
+     */
+    getHashboardHashrate: (
+      hbSn: string,
+      query?: {
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<HashrateResponse, MessageResponse>({
+        path: `/api/v1/hashrate/${hbSn}`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The hashrate endpoint provides ASIC-level historical hashrate operation data.
+     *
+     * @tags Hashrate
+     * @name GetAsicHashrate
+     * @request GET:/api/v1/hashrate/{hb_sn}/{asic_id}
+     */
+    getAsicHashrate: (
+      hbSn: string,
+      asicId: number,
+      query?: {
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
+        /** @default "1m" */
+        granularity?: "1m" | "5m" | "15m";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<HashrateResponse, MessageResponse>({
+        path: `/api/v1/hashrate/${hbSn}/${asicId}`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The temperature endpoint provides miner-level historical temperature operation data.
+     *
+     * @tags Temperature
+     * @name GetMinerTemperature
+     * @request GET:/api/v1/temperature
+     */
+    getMinerTemperature: (
+      query?: {
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TemperatureResponse, MessageResponse>({
+        path: `/api/v1/temperature`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The temperature endpoint provides hashboard-level historical operation data.
+     *
+     * @tags Temperature
+     * @name GetHashboardTemperature
+     * @request GET:/api/v1/temperature/{hb_sn}
+     */
+    getHashboardTemperature: (
+      hbSn: string,
+      query?: {
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TemperatureResponse, MessageResponse>({
+        path: `/api/v1/temperature/${hbSn}`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The hashrate endpoint provides ASIC-level historical temperature operation data.
+     *
+     * @tags Temperature
+     * @name GetAsicTemperature
+     * @request GET:/api/v1/temperature/{hb_sn}/{asic_id}
+     */
+    getAsicTemperature: (
+      hbSn: string,
+      asicId: number,
+      query?: {
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
+        /** @default "1m" */
+        granularity?: "1m" | "5m" | "15m";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TemperatureResponse, MessageResponse>({
+        path: `/api/v1/temperature/${hbSn}/${asicId}`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The power endpoint provides miner-level historical power operation data.
+     *
+     * @tags Power
+     * @name GetMinerPower
+     * @request GET:/api/v1/power
+     */
+    getMinerPower: (
+      query?: {
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<PowerResponse, MessageResponse>({
+        path: `/api/v1/power`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The power endpoint provides hashboard-level historical operation data.
+     *
+     * @tags Power
+     * @name GetHashboardPower
+     * @request GET:/api/v1/power/{hb_sn}
+     */
+    getHashboardPower: (
+      hbSn: string,
+      query?: {
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<PowerResponse, MessageResponse>({
+        path: `/api/v1/power/${hbSn}`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The efficiency endpoint provides miner-level historical power operation data.
+     *
+     * @tags Efficiency
+     * @name GetMinerEfficiency
+     * @request GET:/api/v1/efficiency
+     */
+    getMinerEfficiency: (
+      query?: {
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<EfficiencyResponse, MessageResponse>({
+        path: `/api/v1/efficiency`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The efficiency endpoint provides hashboard-level historical operation data.
+     *
+     * @tags Efficiency
+     * @name GetHashboardEfficiency
+     * @request GET:/api/v1/efficiency/{hb_sn}
+     */
+    getHashboardEfficiency: (
+      hbSn: string,
+      query?: {
+        /** @default "12h" */
+        duration?: "12h" | "24h" | "48h" | "5d";
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<EfficiencyResponse, MessageResponse>({
+        path: `/api/v1/efficiency/${hbSn}`,
+        method: "GET",
+        query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The cooling endpoint provides information on the cooling status of the device, including mode and current fan RPM.
+     *
+     * @tags Cooling
+     * @name GetCooling
+     * @request GET:/api/v1/cooling
+     */
+    getCooling: (params: RequestParams = {}) =>
+      this.request<CoolingStatus, MessageResponse>({
+        path: `/api/v1/cooling`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The cooling configuration endpoint allows the user to control the fan mode.
+     *
+     * @tags Cooling
+     * @name SetCoolingMode
+     * @request PUT:/api/v1/cooling
+     * @secure
+     */
+    setCoolingMode: (data: CoolingConfig, params: RequestParams = {}) =>
+      this.request<CoolingConfig, MessageResponse>({
+        path: `/api/v1/cooling`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The network GET endpoint provides information related to the network configuration of the miner including IP address, gateways, and MAC address.
+     *
+     * @tags Network
+     * @name GetNetwork
+     * @request GET:/api/v1/network
+     */
+    getNetwork: (params: RequestParams = {}) =>
+      this.request<NetworkInfo, MessageResponse>({
+        path: `/api/v1/network`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The network PUT endpoint allows the user to change the configuration of the miner between DHCP and a static IP.
+     *
+     * @tags Network
+     * @name SetNetworkConfig
+     * @request PUT:/api/v1/network
+     * @secure
+     */
+    setNetworkConfig: (data: NetworkConfig, params: RequestParams = {}) =>
+      this.request<NetworkInfo, MessageResponse>({
+        path: `/api/v1/network`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -1615,7 +1635,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/notifications
      */
     getNotifications: (params: RequestParams = {}) =>
-      this.request<NotificationListResponse, ErrorResponse>({
+      this.request<NotificationListResponse, MessageResponse>({
         path: `/api/v1/notifications`,
         method: "GET",
         format: "json",
@@ -1638,10 +1658,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<void, ErrorResponse>({
+      this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/notifications`,
         method: "PUT",
         query: query,
+        format: "json",
         ...params,
       }),
   };

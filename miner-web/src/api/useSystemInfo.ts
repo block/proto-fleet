@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 
 import { api } from "./api";
-import { Error, SystemInfoSysteminfo } from "./types";
+import { SystemInfoSysteminfo } from "./types";
 
 const useSystemInfo = () => {
   const [data, setData] = useState<SystemInfoSysteminfo>();
-  const [error, setError] = useState<Error>();
+  const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
 
   useEffect(() => {
@@ -16,7 +16,7 @@ const useSystemInfo = () => {
         setData(res?.data["system-info"]);
       })
       .catch((err) => {
-        setError(err?.error || err);
+        setError(err?.error?.message || err);
       })
       .finally(() => {
         setPending(false);

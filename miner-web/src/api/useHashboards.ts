@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 
 import { api } from "./api";
-import { Error, HashboardsInfoHashboardsinfo } from "./types";
+import { HashboardsInfoHashboardsinfo } from "./types";
 
 const useHashboards = () => {
   const [data, setData] = useState<HashboardsInfoHashboardsinfo[]>();
-  const [error, setError] = useState<Error>();
+  const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
 
   useEffect(() => {
@@ -15,7 +15,7 @@ const useHashboards = () => {
         setData(res?.data["hashboards-info"]);
       })
       .catch((err) => {
-        setError(err?.error || err);
+        setError(err?.error?.message || err);
       })
       .finally(() => {
         setPending(false);

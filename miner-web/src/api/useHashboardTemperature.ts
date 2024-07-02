@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { api } from "./api";
-import { Error, TemperatureResponseTemperaturedata } from "./types";
+import { TemperatureResponseTemperaturedata } from "./types";
 import { usePoll } from "./usePoll";
 
 interface UseHashboardTemperatureProps {
@@ -16,7 +16,7 @@ const useHashboardTemperature = ({
   poll,
 }: UseHashboardTemperatureProps) => {
   const [data, setData] = useState<TemperatureResponseTemperaturedata>();
-  const [error, setError] = useState<Error>();
+  const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
 
   const fetchData = useCallback(() => {
@@ -29,7 +29,7 @@ const useHashboardTemperature = ({
         setData(res?.data["temperature-data"]);
       })
       .catch((err) => {
-        setError(err?.error || err);
+        setError(err?.error?.message || err);
       })
       .finally(() => {
         setPending(false);

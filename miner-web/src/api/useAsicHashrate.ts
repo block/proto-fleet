@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import { Granularity } from "pages/Hardware/types";
 
 import { api } from "./api";
-import { Error, HashrateResponseHashratedata } from "./types";
+import { HashrateResponseHashratedata } from "./types";
 import { usePoll } from "./usePoll";
 
 interface UseAsicHashrateProps {
@@ -22,7 +22,7 @@ const useAsicHashrate = ({
   poll,
 }: UseAsicHashrateProps) => {
   const [data, setData] = useState<HashrateResponseHashratedata>();
-  const [error, setError] = useState<Error>();
+  const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
 
   const fetchData = useCallback(() => {
@@ -35,7 +35,7 @@ const useAsicHashrate = ({
         setData(res?.data["hashrate-data"]);
       })
       .catch((err) => {
-        setError(err?.error || err);
+        setError(err?.error?.message || err);
       })
       .finally(() => {
         setPending(false);
