@@ -8,13 +8,15 @@ import { navigationItems } from "./constants";
 import MacAddressInfo, { MacAddressInfoProps } from "./MacAddressInfo";
 import NavigationItem from "./NavigationItem";
 import { NavigationItemValue } from "./types";
+import VersionInfo, { VersionInfoProps } from "./VersionInfo";
 
 interface NavigationProps {
   macInfo?: MacAddressInfoProps;
   onItemClick?: () => void;
+  versionInfo?: VersionInfoProps;
 }
 
-const Navigation = ({ macInfo, onItemClick }: NavigationProps) => {
+const Navigation = ({ macInfo, onItemClick, versionInfo }: NavigationProps) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { pathname } = useMemo(() => location, [location]);
@@ -102,6 +104,7 @@ const Navigation = ({ macInfo, onItemClick }: NavigationProps) => {
         )}
       </div>
 
+      <VersionInfo loading={versionInfo?.loading} value={versionInfo?.value} />
       <MacAddressInfo loading={macInfo?.loading} value={macInfo?.value} />
     </div>
   );

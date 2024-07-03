@@ -14,6 +14,8 @@ describe("PowerUsageWidget", () => {
   const power = getDisplayValue(
     convertWtoKW(mockPowerData.data[mockPowerData.data.length - 1].value)
   );
+  const duration = "12h";
+  const avgPowerLabel = `${duration.toUpperCase()} avg. power usage`;
   const avgPowerDisplay = `${avgPower} kW`;
   const powerDisplay = `${power} kW`;
   const powerValues = convertPowerValues(mockPowerData.data);
@@ -24,6 +26,7 @@ describe("PowerUsageWidget", () => {
         loading
         powerAggregates={powerAggregates}
         powerValues={powerValues}
+        duration={duration}
       />
     );
     expect(getByTestId("skeleton-bar")).toBeInTheDocument();
@@ -34,7 +37,7 @@ describe("PowerUsageWidget", () => {
 
   test("renders the widget in empty state", () => {
     const { getByTestId, queryByTestId, queryByText } = render(
-      <PowerUsageWidget />
+      <PowerUsageWidget duration={duration} />
     );
     expect(queryByTestId("skeleton-bar")).not.toBeInTheDocument();
     expect(getByTestId("bar")).toBeInTheDocument();
@@ -47,6 +50,7 @@ describe("PowerUsageWidget", () => {
       <PowerUsageWidget
         powerAggregates={powerAggregates}
         powerValues={powerValues}
+        duration={duration}
       />
     );
     expect(queryByTestId("skeleton-bar")).not.toBeInTheDocument();
@@ -61,6 +65,7 @@ describe("PowerUsageWidget", () => {
         loading
         powerAggregates={powerAggregates}
         powerValues={powerValues}
+        duration={duration}
       />
     );
     fireEvent.click(getByTestId("info-widget"));
@@ -68,7 +73,7 @@ describe("PowerUsageWidget", () => {
   });
 
   test("opens the modal if empty", () => {
-    const { getByTestId } = render(<PowerUsageWidget />);
+    const { getByTestId } = render(<PowerUsageWidget duration={duration} />);
     fireEvent.click(getByTestId("info-widget"));
     const modal = getByTestId("modal");
     expect(modal).toBeInTheDocument();
@@ -83,6 +88,7 @@ describe("PowerUsageWidget", () => {
       <PowerUsageWidget
         powerAggregates={powerAggregates}
         powerValues={powerValues}
+        duration={duration}
       />
     );
     fireEvent.click(getByTestId("info-widget"));
@@ -91,6 +97,7 @@ describe("PowerUsageWidget", () => {
 
     const { getByText } = within(modal);
     expect(getByText(powerDisplay)).toBeInTheDocument();
+    expect(getByText(avgPowerLabel)).toBeInTheDocument();
     expect(getByText(avgPowerDisplay)).toBeInTheDocument();
   });
 });

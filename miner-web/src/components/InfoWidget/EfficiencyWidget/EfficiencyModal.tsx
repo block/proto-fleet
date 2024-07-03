@@ -1,4 +1,5 @@
 import { variants } from "components/Button";
+import { Duration } from "components/DurationSelector";
 import InfoWidget from "components/InfoWidget";
 import Modal from "components/Modal";
 
@@ -8,6 +9,7 @@ interface PowerUsageModalProps {
   avgEfficiency?: string | number | null;
   efficiency?: string | number | null;
   efficiencyValues?: Record<string, number | string>[];
+  duration: Duration;
   onDismiss: () => void;
 }
 
@@ -15,6 +17,7 @@ const EfficiencyModal = ({
   avgEfficiency,
   efficiency,
   efficiencyValues,
+  duration,
   onDismiss,
 }: PowerUsageModalProps) => (
   <Modal
@@ -33,8 +36,14 @@ const EfficiencyModal = ({
         hashrate.
       </div>
       <div className="flex">
-        <InfoWidget title="Avg. efficiency" value={avgEfficiency && `${avgEfficiency} J/TH`} />
-        <InfoWidget title="Current efficiency" value={efficiency && `${efficiency} J/TH`} />
+        <InfoWidget
+          title="Current efficiency"
+          value={efficiency && `${efficiency} J/TH`}
+        />
+        <InfoWidget
+          title={`${duration.toUpperCase()} avg. efficiency`}
+          value={avgEfficiency && `${avgEfficiency} J/TH`}
+        />
       </div>
       {efficiencyValues?.length ? (
         <div className="flex justify-center">

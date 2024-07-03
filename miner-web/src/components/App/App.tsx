@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useState } from "react";
 
-import { ApiContext, useNetworkInfo, usePoolsInfo } from "api";
+import { ApiContext, useNetworkInfo, usePoolsInfo, useSystemInfo } from "api";
 import { MiningStatusMiningstatus } from "apiTypes";
 
 import NavigationMenu from "components/NavigationMenu";
@@ -32,6 +32,7 @@ const App = ({
     error: errorPoolsInfo,
     pending: pendingPoolsInfo,
   } = usePoolsInfo(true);
+  const { data: systemInfo, pending: pendingSystemInfo } = useSystemInfo();
   const [miningStatus, setMiningStatus] = useState<
     MiningStatusMiningstatus | undefined
   >(apiMiningStatus);
@@ -61,6 +62,10 @@ const App = ({
             }}
             isVisible={isMenuOpen}
             closeMenu={() => setIsMenuOpen(false)}
+            versionInfo={{
+              value: systemInfo?.os?.version,
+              loading: pendingSystemInfo,
+            }}
           />
         </div>
         <div className="w-full laptop:rounded-s-2xl desktop:laptop:rounded-s-2xl bg-surface-base">

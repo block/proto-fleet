@@ -3,12 +3,14 @@ import { Aggregates } from "apiTypes";
 import { getDisplayValue } from "common/utils/stringUtils";
 
 import { variants } from "components/Button";
+import { Duration } from "components/DurationSelector";
 import InfoWidget from "components/InfoWidget";
 import Modal from "components/Modal";
 
 import PowerUsageChart from "./PowerUsageChart";
 
 interface PowerUsageModalProps {
+  duration: Duration;
   onDismiss: () => void;
   powerAggregates?: Aggregates;
   powerUsage?: string | number | null;
@@ -16,6 +18,7 @@ interface PowerUsageModalProps {
 }
 
 const PowerUsageModal = ({
+  duration,
   onDismiss,
   powerAggregates,
   powerUsage,
@@ -35,14 +38,14 @@ const PowerUsageModal = ({
       <div>How much power this miner has been consuming.</div>
       <div className="flex">
         <InfoWidget
-          title="Avg. power usage"
+          title="Current power usage"
+          value={powerUsage && `${getDisplayValue(powerUsage)} kW`}
+        />
+        <InfoWidget
+          title={`${duration.toUpperCase()} avg. power usage`}
           value={
             powerAggregates?.avg && `${getDisplayValue(powerAggregates.avg)} kW`
           }
-        />
-        <InfoWidget
-          title="Current power usage"
-          value={powerUsage && `${getDisplayValue(powerUsage)} kW`}
         />
       </div>
       {powerValues && powerAggregates?.max && (

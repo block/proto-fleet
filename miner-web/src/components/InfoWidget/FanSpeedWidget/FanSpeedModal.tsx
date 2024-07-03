@@ -3,6 +3,7 @@ import { FanInfo } from "apiTypes";
 import { getDisplayValue } from "common/utils/stringUtils";
 
 import { variants } from "components/Button";
+import Header from "components/Header";
 import Modal from "components/Modal";
 
 import FanSpeedRow from "./FanSpeedRow";
@@ -43,6 +44,7 @@ const FanSpeedModal = ({
           {getDisplayValue(acceptableSpeed)} RPM for optimal hash rates.
         </div>
         <div>
+          <Header title="Current fan speeds" titleSize="text-heading-50" />
           {fanSpeeds?.map((fan, index) => {
             const speed = fan.rpm || 0;
             const lowSpeed = speed < acceptableSpeed;

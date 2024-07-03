@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useWindowDimensions } from "common/hooks/useWindowDimensions";
 import { getDisplayValue } from "common/utils/stringUtils";
 
+import { Duration } from "components/DurationSelector";
 import InfoWidget from "components/InfoWidget";
 import Line from "components/InfoWidget/Line";
 
@@ -11,12 +12,14 @@ import EfficiencyModal from "./EfficiencyModal";
 interface EfficiencyWidgetProps {
   avgEfficiency?: string | number | null;
   efficiencyValues?: Record<string, number | string>[];
+  duration: Duration,
   loading?: boolean;
 }
 
 const EfficiencyWidget = ({
   avgEfficiency,
   efficiencyValues,
+  duration,
   loading,
 }: EfficiencyWidgetProps) => {
   const [efficiency, setEfficiency] = useState<string | number>();
@@ -35,7 +38,7 @@ const EfficiencyWidget = ({
   return (
     <>
       <InfoWidget
-        title="Efficiency"
+        title="Current efficiency"
         value={efficiency && `${efficiency} J/TH`}
         loading={loading}
         hasBorder
@@ -48,6 +51,7 @@ const EfficiencyWidget = ({
           efficiency={efficiency}
           avgEfficiency={avgEfficiency}
           efficiencyValues={efficiencyValues}
+          duration={duration}
           onDismiss={() => setShowModal(false)}
         />
       )}

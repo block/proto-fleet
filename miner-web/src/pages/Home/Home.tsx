@@ -126,7 +126,8 @@ const Home = () => {
     return (
       !poolsInfoStatus.pending &&
       !poolsInfoStatus.error &&
-      !poolsInfo.find((pool) => pool?.status === "Alive")
+      // TODO: remove alive when cgminer is removed
+      !poolsInfo.find((pool) => /alive|active/i.test(pool?.status || ""))
     );
   }, [poolsInfo, poolsInfoStatus]);
 
@@ -138,18 +139,24 @@ const Home = () => {
       <div className="flex flex-col space-y-6 h-full">
         <div className="flex items-center">
           <div className="text-heading-300 grow">Home</div>
-          <DurationSelector className="h-fit" duration={duration} onSelect={setDuration} />
+          <DurationSelector
+            className="h-fit"
+            duration={duration}
+            onSelect={setDuration}
+          />
         </div>
 
         <div className="flex space-x-6 w-full phone:flex-col phone:space-x-0 phone:space-y-6">
           <EfficiencyWidget
             avgEfficiency={avgEfficiency}
             efficiencyValues={historicalEfficiency}
+            duration={duration}
             loading={pendingEfficiency && !historicalEfficiency}
           />
           <PowerUsageWidget
             powerAggregates={powerAggregates}
             powerValues={historicalPower}
+            duration={duration}
             loading={pendingPower && !historicalPower}
           />
           <TempWidget

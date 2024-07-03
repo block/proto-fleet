@@ -38,7 +38,7 @@ const FanSpeedWidget = ({ fanSpeeds, loading }: FanSpeedWidgetProps) => {
   return (
     <>
       <InfoWidget
-        title="Avg. fan speed"
+        title="Current avg. fan speed"
         value={displayFanSpeed}
         loading={loading}
         hasBorder

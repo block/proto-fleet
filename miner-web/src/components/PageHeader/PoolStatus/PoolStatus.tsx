@@ -25,7 +25,11 @@ const PoolStatus = ({
     useState<Pick<Pool, "priority" | "status" | "url">>();
   const [showPopover, setShowPopover] = useState(shouldShowPopover);
 
-  const isAlive = useCallback((pool?: Pool) => pool?.status === "Alive", []);
+  const isAlive = useCallback(
+    // TODO: remove alive when cgminer is removed
+    (pool?: Pool) => /alive|active/i.test(pool?.status || ""),
+    []
+  );
 
   useEffect(() => {
     if (poolsInfo) {

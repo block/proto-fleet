@@ -7,6 +7,7 @@ import { TemperatureResponseTemperaturedata } from "apiTypes";
 import { getDisplayValue } from "common/utils/stringUtils";
 
 import { variants } from "components/Button";
+import Header from "components/Header";
 import InfoWidget from "components/InfoWidget";
 import Modal from "components/Modal";
 
@@ -116,7 +117,7 @@ const TempModal = ({
         </div>
         <div className="flex">
           <InfoWidget
-            title="Miner temperature"
+            title="Current miner temperature"
             value={
               temp &&
               // \u00B0c is the degree symbol
@@ -124,13 +125,14 @@ const TempModal = ({
             }
           />
           <InfoWidget
-            title="Highest temperature"
+            title={`${duration?.toUpperCase()} highest temperature`}
             value={highestTemp && `${getDisplayValue(highestTemp)}\u00B0c`}
           />
         </div>
         <div>
+          <Header title="Current hashboard temperatures" titleSize="text-heading-50" />
           {/* TODO: show warning based on how many chips are overheating on this hashboard */}
-          {hashboardSerials?.[0] && (
+          {hashboardSerials?.[0] ? (
             <HashboardRow
               label="Hashboard 1"
               secondaryLabel={
@@ -143,11 +145,15 @@ const TempModal = ({
               // secondaryLabel="75.56ºc • 12 chips are over heating"
               // warn
             />
-          )}
+          ) : null}
           {hashboardSerials?.[1] ? (
             <HashboardRow
               label="Hashboard 2"
-              secondaryLabel={`${getDisplayValue(hashboard2Temperature)}\u00B0c`}
+              secondaryLabel={
+                hashboard2Temperature
+                  ? `${getDisplayValue(hashboard2Temperature)}\u00B0c`
+                  : undefined
+              }
               divider={!!hashboardSerials?.[2]}
               loading={pendingHashboard2Temperature}
             />
@@ -155,7 +161,11 @@ const TempModal = ({
           {hashboardSerials?.[2] ? (
             <HashboardRow
               label="Hashboard 3"
-              secondaryLabel={`${getDisplayValue(hashboard3Temperature)}\u00B0c`}
+              secondaryLabel={
+                hashboard3Temperature
+                  ? `${getDisplayValue(hashboard3Temperature)}\u00B0c`
+                  : undefined
+              }
               divider={false}
               className="-mb-4"
               loading={pendingHashboard3Temperature}

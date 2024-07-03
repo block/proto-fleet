@@ -5,15 +5,18 @@ import { usePreventScroll } from "common/hooks/usePreventScroll";
 
 import { MacAddressInfoProps } from "./MacAddressInfo";
 import Navigation from "./Navigation";
+import { VersionInfoProps } from "./VersionInfo";
 
 interface FloatingNavigationProps {
   closeMenu?: () => void;
   macInfo?: MacAddressInfoProps;
+  versionInfo?: VersionInfoProps;
 }
 
 const FloatingNavigation = ({
   closeMenu,
   macInfo,
+  versionInfo,
 }: FloatingNavigationProps) => {
   const [isVisible, setIsVisible] = useState(true);
   const { preventScroll } = usePreventScroll();
@@ -46,7 +49,11 @@ const FloatingNavigation = ({
           "animate-[slide-left-nav_.3s_ease-in-out]": !isVisible,
         })}
       >
-        <Navigation macInfo={macInfo} onItemClick={handleCloseMenu} />
+        <Navigation
+          macInfo={macInfo}
+          onItemClick={handleCloseMenu}
+          versionInfo={versionInfo}
+        />
       </div>
     </div>
   );

@@ -12,6 +12,8 @@ describe("EfficiencyWidget", () => {
   const efficiency = getDisplayValue(
     mockEfficiencyData.data[mockEfficiencyData.data.length - 1].value
   );
+  const duration = "12h";
+  const avgEfficiencyLabel = `${duration.toUpperCase()} avg. efficiency`;
   const avgEfficiencyDisplay = `${avgEfficiency} J/TH`;
   const efficiencyDisplay = `${efficiency} J/TH`;
   const efficiencyValues = convertEfficiencyValues(mockEfficiencyData.data);
@@ -22,6 +24,7 @@ describe("EfficiencyWidget", () => {
         loading
         avgEfficiency={avgEfficiency}
         efficiencyValues={efficiencyValues}
+        duration={duration}
       />
     );
     expect(getByTestId("skeleton-bar")).toBeInTheDocument();
@@ -32,7 +35,7 @@ describe("EfficiencyWidget", () => {
 
   test("renders the widget in empty state", () => {
     const { getByTestId, queryByTestId, queryByText } = render(
-      <EfficiencyWidget />
+      <EfficiencyWidget duration={duration} />
     );
     expect(queryByTestId("skeleton-bar")).not.toBeInTheDocument();
     expect(queryByTestId("line")).not.toBeInTheDocument();
@@ -45,6 +48,7 @@ describe("EfficiencyWidget", () => {
       <EfficiencyWidget
         avgEfficiency={avgEfficiency}
         efficiencyValues={efficiencyValues}
+        duration={duration}
       />
     );
     expect(queryByTestId("skeleton-bar")).not.toBeInTheDocument();
@@ -59,6 +63,7 @@ describe("EfficiencyWidget", () => {
         loading
         avgEfficiency={avgEfficiency}
         efficiencyValues={efficiencyValues}
+        duration={duration}
       />
     );
     fireEvent.click(getByTestId("info-widget"));
@@ -66,7 +71,7 @@ describe("EfficiencyWidget", () => {
   });
 
   test("opens the modal if empty", () => {
-    const { getByTestId } = render(<EfficiencyWidget />);
+    const { getByTestId } = render(<EfficiencyWidget duration={duration} />);
     fireEvent.click(getByTestId("info-widget"));
     const modal = getByTestId("modal");
     expect(modal).toBeInTheDocument();
@@ -81,6 +86,7 @@ describe("EfficiencyWidget", () => {
       <EfficiencyWidget
         avgEfficiency={avgEfficiency}
         efficiencyValues={efficiencyValues}
+        duration={duration}
       />
     );
     fireEvent.click(getByTestId("info-widget"));
@@ -89,6 +95,7 @@ describe("EfficiencyWidget", () => {
 
     const { getByText } = within(modal);
     expect(getByText(efficiencyDisplay)).toBeInTheDocument();
+    expect(getByText(avgEfficiencyLabel)).toBeInTheDocument();
     expect(getByText(avgEfficiencyDisplay)).toBeInTheDocument();
   });
 });

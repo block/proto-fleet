@@ -4,18 +4,21 @@ import { Aggregates } from "apiTypes";
 
 import { getDisplayValue } from "common/utils/stringUtils";
 
+import { Duration } from "components/DurationSelector";
 import InfoWidget, { Bar } from "components/InfoWidget";
 
 import { getIntensity } from "../utility";
 import PowerUsageModal from "./PowerUsageModal";
 
 interface PowerUsageWidgetProps {
+  duration: Duration;
   loading?: boolean;
   powerAggregates?: Aggregates;
   powerValues?: Record<string, number | string>[];
 }
 
 const PowerUsageWidget = ({
+  duration,
   loading,
   powerAggregates,
   powerValues,
@@ -23,10 +26,7 @@ const PowerUsageWidget = ({
   const [powerUsage, setPowerUsage] = useState<string | number>();
   const [showModal, setShowModal] = useState(false);
 
-  const intensity = useMemo(
-    () => getIntensity(powerUsage, 10),
-    [powerUsage]
-  );
+  const intensity = useMemo(() => getIntensity(powerUsage, 10), [powerUsage]);
 
   useEffect(() => {
     setPowerUsage(powerValues?.[powerValues.length - 1]?.value);
@@ -35,7 +35,7 @@ const PowerUsageWidget = ({
   return (
     <>
       <InfoWidget
-        title="Power usage"
+        title="Current power usage"
         value={powerUsage && `${getDisplayValue(powerUsage)} kW`}
         loading={loading}
         hasBorder
@@ -48,6 +48,7 @@ const PowerUsageWidget = ({
           powerUsage={powerUsage}
           powerAggregates={powerAggregates}
           powerValues={powerValues}
+          duration={duration}
         />
       )}
     </>

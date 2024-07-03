@@ -37,6 +37,7 @@ export const PowerUsageWidget = ({
               )
             : []
         }
+        duration={duration}
         loading={loading}
       />
     </div>

@@ -114,19 +114,19 @@ const Hashrate = ({
           wrapperClassName="w-full tablet:w-32"
         />
         <InfoWidget
-          title="Average"
+          title={`${duration.toUpperCase()} Average`}
           value={averageValue && `${averageValue} TH/s`}
           loading={false}
           wrapperClassName="w-full tablet:w-32"
         />
         <InfoWidget
-          title="Lowest"
+          title={`${duration.toUpperCase()} Lowest`}
           value={lowestValue && `${lowestValue} TH/s`}
           loading={false}
           wrapperClassName="w-full tablet:w-32"
         />
         <InfoWidget
-          title="Highest"
+          title={`${duration.toUpperCase()} Highest`}
           value={highestValue && `${highestValue} TH/s`}
           loading={false}
           wrapperClassName="w-full tablet:w-32"

@@ -34,7 +34,7 @@ const TempWidget = ({
   return (
     <>
       <InfoWidget
-        title="Miner temperature"
+        title="Current miner temperature"
         value={
           temp &&
           // \u00B0c is the degree symbol

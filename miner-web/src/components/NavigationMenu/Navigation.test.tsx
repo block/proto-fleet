@@ -16,6 +16,7 @@ vi.mock("react-router-dom", () => ({
 
 describe("Navigation", () => {
   const macValue = "00:11:22:33:44:55";
+  const versionValue = "1.2.3";
 
   test("renders mac info", () => {
     const { getByTestId } = render(
@@ -25,5 +26,14 @@ describe("Navigation", () => {
 
     // Assert that the controller MAC is rendered correctly
     expect(getByText(macValue)).toBeInTheDocument();
+  });
+
+  test("renders version info", () => {
+    const { getByTestId } = render(
+      <Navigation versionInfo={{ loading: false, value: versionValue }} />
+    );
+    const { getByText } = within(getByTestId("version-info-item"));
+
+    expect(getByText(versionValue)).toBeInTheDocument();
   });
 });

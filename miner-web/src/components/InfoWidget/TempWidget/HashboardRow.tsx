@@ -23,13 +23,18 @@ const HashboardRow = ({
 }: HashboardRowProps) => {
   return (
     <Row className={className} divider={divider}>
-      <div className="text-emphasis-300">{label}</div>
-      <div className={clsx("text-200", { "text-intent-warning-text": warn })}>
+      <div className="text-emphasis-300 text-text-primary/90">{label}</div>
+      <div
+        className={clsx("text-200", {
+          "text-intent-warning-text": warn,
+          "text-text-primary/70": !warn,
+        })}
+      >
         {loading ? (
-            <SkeletonBar className="w-10 mt-1" />
-          ) : (
-            <>{secondaryLabel ?? <EmptyValue className="!h-2 mt-1" />}</>
-          )}
+          <SkeletonBar className="w-10 mt-1" />
+        ) : (
+          <>{secondaryLabel ?? <EmptyValue className="!h-2 mt-1" />}</>
+        )}
       </div>
     </Row>
   );

@@ -35,6 +35,7 @@ export const EfficiencyWidget = ({
               )
             : []
         }
+        duration={duration}
         loading={loading}
       />
     </div>

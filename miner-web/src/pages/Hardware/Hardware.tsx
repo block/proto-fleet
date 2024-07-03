@@ -109,6 +109,7 @@ const Hardware = () => {
 
       <div className="flex space-x-6 w-full phone:flex-col phone:space-x-0 phone:space-y-6">
         <TempWidget
+          duration={duration}
           temp={temp}
           hashboardSerials={hashboardSerials}
           highestTemp={highestTemp}

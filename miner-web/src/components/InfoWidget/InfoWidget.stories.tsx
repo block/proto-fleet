@@ -39,14 +39,14 @@ export const InfoWidgets = ({
   return (
     <div className="flex space-x-6 w-[928px]">
       <InfoWidget
-        title="Efficiency"
+        title="Current efficiency"
         value="15.5 J/TH"
         loading={loading}
         hasBorder={hasBorder}
         stats={<Line data={data} />}
       />
       <InfoWidget
-        title="Power Usage"
+        title="Current power Usage"
         value="3.5 kW"
         loading={loading}
         hasBorder={hasBorder}
