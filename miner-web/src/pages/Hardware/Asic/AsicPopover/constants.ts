@@ -313,7 +313,8 @@ export const mockAsicHashrateData = {
       value: 146533,
     },
     {
-      datetime: 1718886488,
+      // to match temp data, change this to 1718886488
+      datetime: 1718872149,
       value: 146607,
     },
     {

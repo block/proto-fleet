@@ -16,7 +16,7 @@ interface TimeXAxisTickProps {
   maxXPosition?: number;
   minXPosition?: number;
   payload?: { value: number; index: number; offset: number };
-  tooltipDatetime: number;
+  tooltipDatetime?: number;
   visibleTicksCount?: number;
   x?: number;
   y?: number;

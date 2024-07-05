@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Line, LineChart, Tooltip, XAxis } from "recharts";
 
 import {
@@ -9,8 +9,12 @@ import {
   xAxisProps,
 } from "components/Chart";
 
+import { NullLineProps } from "pages/Home/Hashrate/HashrateChart/constants";
+
 import AsicChartTooltip, { TooltipData } from "./AsicChartTooltip";
+import { hashrateLineProps, temperatureLineProps } from "./constants";
 import { ChartData } from "./types";
+import { getChartData } from "./utility";
 
 interface AsicChartProps {
   hashrateData: ChartData[];
@@ -24,25 +28,14 @@ const AsicChart = ({ hashrateData, temperatureData }: AsicChartProps) => {
     payload: [],
   });
 
-  const onHoverChart = (data: TooltipData) => {
-    const newTooltipData = data.payload.length ? {
-      ...data,
-      payload: [
-        {
-          payload: {
-            datetime: data.payload[0].payload.datetime,
-            temp_c: data.payload[0].payload.value,
-            hashrate_ghs: data.payload[1].payload.value,
-          },
-        },
-      ],
-    } : data;
-    setTooltipData(newTooltipData);
-  };
+  const chartData = useMemo(() => {
+    return getChartData({ hashrateData, temperatureData });
+  }, [hashrateData, temperatureData]);
 
   return (
     <ChartWrapper>
       <LineChart
+        data={chartData}
         margin={{
           top: 10,
           right: 12,
@@ -52,7 +45,6 @@ const AsicChart = ({ hashrateData, temperatureData }: AsicChartProps) => {
       >
         <XAxis
           {...xAxisProps}
-          xAxisId="hashrate"
           tick={
             <TimeXAxisTick
               tooltipDatetime={tooltipData.payload[0]?.payload.datetime}
@@ -63,12 +55,11 @@ const AsicChart = ({ hashrateData, temperatureData }: AsicChartProps) => {
             />
           }
         />
-        <XAxis {...xAxisProps} xAxisId="temperature" hide />
         <Tooltip
           position={{ y: tooltipData.y - 150, x: tooltipData.x - 90 }}
           content={
             <AsicChartTooltip
-              onHover={onHoverChart}
+              onHover={setTooltipData}
               tooltipData={tooltipData}
             />
           }
@@ -76,36 +67,36 @@ const AsicChart = ({ hashrateData, temperatureData }: AsicChartProps) => {
           isAnimationActive={false}
         />
         <Line
-          type="monotone"
-          data={temperatureData}
-          xAxisId="temperature"
-          dataKey="value"
-          stroke="#FF5B00"
-          strokeWidth={2.5}
-          label={false}
-          dot={false}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          activeDot={
-            tooltipData.payload.length ? <LineDot color="#FF5B00" /> : <></>
-          }
-          isAnimationActive={false}
+          {...hashrateLineProps}
+          {...NullLineProps}
+          activeDot={<></>}
+          strokeOpacity={0.5}
         />
         <Line
-          type="monotone"
-          data={hashrateData}
-          xAxisId="hashrate"
-          dataKey="value"
-          stroke="#000"
-          strokeWidth={2.5}
-          label={false}
-          dot={false}
-          strokeLinecap="round"
-          strokeLinejoin="round"
+          {...hashrateLineProps}
           activeDot={
-            tooltipData.payload.length ? <LineDot color="#000" /> : <></>
+            tooltipData.payload[0]?.payload.hashrate_ghs !== undefined ? (
+              <LineDot color="#000" />
+            ) : (
+              <></>
+            )
           }
-          isAnimationActive={false}
+        />
+        <Line
+          {...temperatureLineProps}
+          {...NullLineProps}
+          activeDot={<></>}
+          strokeOpacity={0.5}
+        />
+        <Line
+          {...temperatureLineProps}
+          activeDot={
+            tooltipData.payload[0]?.payload.temp_c !== undefined ? (
+              <LineDot color="#FF5B00" />
+            ) : (
+              <></>
+            )
+          }
         />
       </LineChart>
     </ChartWrapper>

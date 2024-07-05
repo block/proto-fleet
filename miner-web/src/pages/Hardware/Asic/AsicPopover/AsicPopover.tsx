@@ -62,7 +62,7 @@ const AsicPopover = ({
       </div>
       <div>
         <AsicPopoverRow
-          label="Temperature"
+          label="Current temperature"
           value={
             temperatureData?.length &&
             `${getDisplayValue(temperatureData[temperatureData.length - 1].value)}º`
@@ -70,7 +70,7 @@ const AsicPopover = ({
           className="text-core-accent-fill"
         />
         <AsicPopoverRow
-          label="Hashrate"
+          label="Current hashrate"
           value={
             hashrateData?.length &&
             `${getDisplayValue(hashrateData[hashrateData.length - 1].value)} TH/s`

@@ -1,10 +1,8 @@
 import { useCallback, useState } from "react";
 
-import { deepClone } from "common/utils/utility";
-
 import { variants } from "components/Button";
 import MiningPools, {
-  emptyPoolInfo,
+  getEmptyPoolsInfo,
   isValidPool,
   PoolInfo,
 } from "components/MiningPools";
@@ -18,12 +16,7 @@ import { WarnBackupPoolDialog } from "./WarnBackupPoolDialog";
 import { WarnDefaultPoolCallout } from "./WarnDefaultPoolCallout";
 
 const Onboarding = () => {
-  // pools is an array of 3 PoolInfo objects
-  // index 0 is the default pool, then backups 1 and 2
-  // [{url: "", username: "", password: ""}, x3]
-  const [pools, setPools] = useState<PoolInfo[]>(
-    Array(3).fill(deepClone(emptyPoolInfo))
-  );
+  const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
   const [finalizedPoolUrls, setFinalizedPoolUrls] = useState<string[]>();
 
   const [warnDefaultPool, setWarnDefaultPool] = useState(false);

@@ -1,6 +1,7 @@
 import { mockHashboardStats } from "../constants";
 import AsicPopoverComponent from "./AsicPopover";
 import { mockAsicHashrateData, mockAsicTemperatureData } from "./constants";
+import { convertHashrateValues, convertTemperatureValues } from "./utility";
 
 interface AsicTableProps {
   pendingAsicHashrateData: boolean;
@@ -15,11 +16,17 @@ export const AsicPopover = ({
     <div className="relative mt-96 ml-40">
       <AsicPopoverComponent
         asic={mockHashboardStats.asics[0]}
-        hashrateData={pendingAsicHashrateData ? [] : mockAsicHashrateData.data}
+        hashrateData={
+          pendingAsicHashrateData
+            ? []
+            : convertHashrateValues(mockAsicHashrateData.data)
+        }
         pendingAsicHashrateData={pendingAsicHashrateData}
         pendingAsicTemperatureData={pendingAsicTemperatureData}
         temperatureData={
-          pendingAsicTemperatureData ? [] : mockAsicTemperatureData.data
+          pendingAsicTemperatureData
+            ? []
+            : convertTemperatureValues(mockAsicTemperatureData.data)
         }
       />
     </div>

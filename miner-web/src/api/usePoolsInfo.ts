@@ -18,7 +18,7 @@ const usePoolsInfo = (shouldFetch?: boolean) => {
     api
       .listPools()
       .then((res) => {
-        // find the highest priority pool that is alive
+        // find the highest priority pool
         // highest priority is the lowest number
         const sortedPools = res?.data["pools"]?.sort(
           (a, b) => (a.priority || 0) - (b.priority || 0)

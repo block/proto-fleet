@@ -1,0 +1,28 @@
+import { CurveType } from "recharts/types/shape/Curve";
+
+const lineProps = {
+  type: "monotone" as CurveType,
+  strokeWidth: 2.5,
+  label: false,
+  dot: false,
+  strokeLinecap: "round" as "round" | "inherit" | "butt" | "square" | undefined,
+  strokeLinejoin: "round" as
+    | "round"
+    | "inherit"
+    | "miter"
+    | "bevel"
+    | undefined,
+  isAnimationActive: false,
+};
+
+export const hashrateLineProps = {
+  ...lineProps,
+  dataKey: "hashrate_ghs",
+  stroke: "#000",
+};
+
+export const temperatureLineProps = {
+  ...lineProps,
+  dataKey: "temp_c",
+  stroke: "#FF5B00",
+};

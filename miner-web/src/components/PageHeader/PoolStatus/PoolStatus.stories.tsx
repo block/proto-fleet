@@ -76,7 +76,7 @@ export default {
     },
     poolStatus: {
       control: "select",
-      options: ["Alive", "Dead", "Disabled", "Rejecting"],
+      options: ["Active", "Alive", "Dead", "Disabled", "Rejecting"],
     },
   },
   decorators: [

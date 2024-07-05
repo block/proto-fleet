@@ -2,10 +2,10 @@ import { useCallback, useContext, useEffect, useState } from "react";
 
 import { ApiContext, useCreatePools } from "api";
 
-import { debounce, deepClone } from "common/utils/utility";
+import { debounce } from "common/utils/utility";
 
 import MiningPools, {
-  emptyPoolInfo,
+  getEmptyPoolsInfo,
   isValidPool,
   PoolInfo,
 } from "components/MiningPools";
@@ -14,12 +14,7 @@ import { ToastType, toastTypes } from "components/Toast";
 import StatusToast from "./StatusToast";
 
 const SettingsMiningPools = () => {
-  // pools is an array of 3 PoolInfo objects
-  // index 0 is the default pool, then backups 1 and 2
-  // [{url: "", username: "", password: ""}, x3]
-  const [pools, setPools] = useState<PoolInfo[]>(
-    Array(3).fill(deepClone(emptyPoolInfo))
-  );
+  const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
   const [toastType, setToastType] = useState<ToastType | null>(null);
 
   const { poolsInfo } = useContext(ApiContext);
@@ -31,6 +26,7 @@ const SettingsMiningPools = () => {
         url: poolsInfo[index]?.url || "",
         username: poolsInfo[index]?.user || "",
         password: "",
+        priority: poolsInfo[index]?.priority || index,
       }));
       setPools(newPools);
     }

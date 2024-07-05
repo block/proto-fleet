@@ -78,13 +78,23 @@ const Hardware = () => {
 
   useEffect(() => {
     const rebootUptimeInSeconds = miningStatus?.reboot_uptime_s;
-    if (rebootUptimeInSeconds === undefined) return;
+    const miningUptimeInSeconds = miningStatus?.mining_uptime_s;
+    if (rebootUptimeInSeconds === undefined && miningUptimeInSeconds === undefined) return;
+
+    let uptimeInSeconds = 0;
+    if (rebootUptimeInSeconds !== undefined && miningUptimeInSeconds !== undefined) {
+      uptimeInSeconds = Math.min(rebootUptimeInSeconds, miningUptimeInSeconds);
+    } else if (rebootUptimeInSeconds !== undefined) {
+      uptimeInSeconds = rebootUptimeInSeconds;
+    } else if (miningUptimeInSeconds !== undefined) {
+      uptimeInSeconds = miningUptimeInSeconds;
+    }
 
     const oneHourInSeconds = 60 * 60;
     const sixHoursInSeconds = oneHourInSeconds * 6;
-    if (rebootUptimeInSeconds > sixHoursInSeconds) {
+    if (uptimeInSeconds > sixHoursInSeconds) {
       setGranularity("15m");
-    } else if (rebootUptimeInSeconds > oneHourInSeconds) {
+    } else if (uptimeInSeconds > oneHourInSeconds) {
       setGranularity("5m");
     } else {
       setGranularity("1m");
