@@ -29,7 +29,12 @@ const useTemperature = ({ duration, poll }: UseTemperatureProps) => {
       });
   }, [duration]);
 
-  usePoll({ fetchData, poll });
+  usePoll({
+    data,
+    fetchData,
+    pending,
+    poll,
+  });
 
   return {
     pending,

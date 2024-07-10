@@ -2,23 +2,24 @@ import { useCallback, useState } from "react";
 
 import { api } from "./api";
 import { LogsResponseLogs } from "./types";
-import { usePoll } from "./usePoll";
 
 interface UseSystemLogsProps {
-  poll?: boolean;
+  lines: number;
 }
 
-const useSystemLogs = ({ poll }: UseSystemLogsProps) => {
+const useSystemLogs = () => {
   const [data, setData] = useState<LogsResponseLogs>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
 
-  const fetchData = useCallback(() => {
+  const fetchData = useCallback(async ({ lines }: UseSystemLogsProps) => {
     setPending(true);
-    api
-      .getSystemLogs({ lines: 500, source: "miner_sw" })
+    let logs: LogsResponseLogs | undefined;
+    await api
+      .getSystemLogs({ lines, source: "miner_sw" })
       .then((res) => {
-        setData(res?.data["logs"]);
+        logs = res?.data["logs"];
+        setData(logs);
       })
       .catch((err) => {
         setError(err?.error?.message || err);
@@ -26,11 +27,11 @@ const useSystemLogs = ({ poll }: UseSystemLogsProps) => {
       .finally(() => {
         setPending(false);
       });
+    return logs;
   }, []);
 
-  usePoll({ fetchData, poll, pollIntervalMilliseconds: 5000 });
-
   return {
+    fetchData,
     pending,
     error,
     data,

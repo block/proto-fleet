@@ -130,7 +130,10 @@ const TempModal = ({
           />
         </div>
         <div>
-          <Header title="Current hashboard temperatures" titleSize="text-heading-50" />
+          <Header
+            title="Current hashboard temperatures"
+            titleSize="text-heading-50"
+          />
           {/* TODO: show warning based on how many chips are overheating on this hashboard */}
           {hashboardSerials?.[0] ? (
             <HashboardRow

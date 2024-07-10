@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useState } from "react";
 
-import { ApiContext, useNetworkInfo, usePoolsInfo, useSystemInfo } from "api";
-import { MiningStatusMiningstatus } from "apiTypes";
+import { ApiContext, useNetworkInfo, usePoolsInfo } from "api";
+import { MiningStatusMiningstatus, SystemInfoSysteminfo } from "apiTypes";
 
 import NavigationMenu from "components/NavigationMenu";
 import PageHeader from "components/PageHeader";
@@ -15,6 +15,8 @@ interface AppProps {
   children?: ReactNode;
   isOnboarding?: boolean;
   onWake: () => void;
+  pendingSystemInfo?: boolean;
+  systemInfo?: SystemInfoSysteminfo;
   title: string;
 }
 
@@ -24,15 +26,17 @@ const App = ({
   isOnboarding,
   children,
   onWake,
+  pendingSystemInfo,
+  systemInfo,
   title,
 }: AppProps) => {
   const { data: networkInfo, pending: pendingNetworkInfo } = useNetworkInfo();
   const {
     data: poolsInfo,
     error: errorPoolsInfo,
+    fetchData: fetchPoolsInfo,
     pending: pendingPoolsInfo,
-  } = usePoolsInfo(true);
-  const { data: systemInfo, pending: pendingSystemInfo } = useSystemInfo();
+  } = usePoolsInfo();
   const [miningStatus, setMiningStatus] = useState<
     MiningStatusMiningstatus | undefined
   >(apiMiningStatus);
@@ -44,13 +48,21 @@ const App = ({
     }
   }, [apiMiningStatus]);
 
+  useEffect(() => {
+    fetchPoolsInfo({ retryOnMinerDown: true });
+  }, [fetchPoolsInfo]);
+
   return (
     <ApiContext.Provider
       value={{
         miningStatus: miningStatus || {},
         setMiningStatus,
-        poolsInfo: poolsInfo || [],
-        poolsInfoStatus: { error: !!errorPoolsInfo, pending: pendingPoolsInfo },
+        poolsInfo: poolsInfo,
+        fetchPoolsInfo,
+        poolsInfoStatus: {
+          error: errorPoolsInfo || "",
+          pending: pendingPoolsInfo,
+        },
       }}
     >
       <div className="flex h-screen bg-core-primary-fill">

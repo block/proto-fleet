@@ -12,7 +12,7 @@ const useMiningStatus = () => {
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
 
-  const getMiningStatus = useCallback(
+  const fetchData = useCallback(
     ({ onSuccess }: getMiningStatusProps = {}) => {
       setPending(true);
       api
@@ -32,10 +32,10 @@ const useMiningStatus = () => {
   );
 
   return {
+    fetchData,
     data,
     pending,
     error,
-    getMiningStatus,
   };
 };
 

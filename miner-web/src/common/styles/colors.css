@@ -4,7 +4,7 @@
   /* rgb values without the rgb wrapper as those get added in the tailwind config to handle opacity */
   html[data-theme='light'] {
     --black-100: 0 0 0; /* #000 */
-    --blue-100: 38 144 199; /* #2690C7 */
+    --blue-100: 0 150 209; /* #2690C7 */
     --gray-5: 242 242 242; /* #F2F2F2 */
     --gray-10: 229 229 229; /* #E5E5E5 */
     --gray-20: 204 204 204; /* #CCC */
@@ -17,7 +17,7 @@
 
     --text-accent: 51 18 0; /* #331200 */
     --text-critical: 116 20 13; /* #74140D */
-    --text-info: 0 75 115; /* #004B73 */
+    --text-info: 1 83 119; /* #015377 */
     --text-success: 6 63 37; /* #063F25 */
     --text-warning: 135 73 0; /* #874900 */
   }

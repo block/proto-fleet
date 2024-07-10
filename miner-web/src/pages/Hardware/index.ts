@@ -1,3 +1,3 @@
-import Hardware from "./Hardware";
+import HardwareWrapper from "./HardwareWrapper";
 
-export default Hardware;
+export default HardwareWrapper;

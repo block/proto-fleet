@@ -7,6 +7,7 @@ import ConcentricCircles from "./ConcentricCircles";
 import Dismiss from "./Dismiss";
 import Home from "./Home";
 import Info from "./Info";
+import InfoInverted from "./InfoInverted";
 import Logo from "./Logo";
 import Mining from "./Mining";
 import Pause from "./Pause";
@@ -26,6 +27,7 @@ export {
   Dismiss,
   Home,
   Info,
+  InfoInverted,
   Logo,
   Mining,
   Pause,

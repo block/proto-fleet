@@ -15,7 +15,7 @@ interface SettingUpWrapperProps {
 const SettingUpWrapper = ({ pools }: SettingUpWrapperProps) => {
   const navigate = useNavigate();
   const { createPools } = useCreatePools();
-  const { fetch: fetchPools } = usePoolsInfo();
+  const { fetchData: fetchPools } = usePoolsInfo();
   const [intervalId, setIntervalId] =
     useState<ReturnType<typeof setInterval>>();
   const [poolStatus, setPoolStatus] = useState<keyof typeof statuses>(

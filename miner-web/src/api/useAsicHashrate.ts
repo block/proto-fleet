@@ -42,7 +42,12 @@ const useAsicHashrate = ({
       });
   }, [duration, granularity, hashboardSerial, asicID]);
 
-  usePoll({ fetchData, poll });
+  usePoll({
+    data,
+    fetchData,
+    pending,
+    poll,
+  });
 
   return {
     pending,

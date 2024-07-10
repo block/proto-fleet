@@ -13,6 +13,7 @@ import { useMiningStart } from "./useMiningStart";
 import { useMiningStatus } from "./useMiningStatus";
 import { useMiningStop } from "./useMiningStop";
 import { useNetworkInfo } from "./useNetworkInfo";
+import { usePoll } from "./usePoll";
 import { usePoolsInfo } from "./usePoolsInfo";
 import { usePower } from "./usePower";
 import { useSystemInfo } from "./useSystemInfo";
@@ -38,6 +39,7 @@ export {
   useMiningStatus,
   useMiningStop,
   useNetworkInfo,
+  usePoll,
   usePoolsInfo,
   usePower,
   useSystemInfo,

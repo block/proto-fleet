@@ -36,7 +36,12 @@ const useHashboardTemperature = ({
       });
   }, [duration, hashboardSerial]);
 
-  usePoll({ fetchData, poll });
+  usePoll({
+    data,
+    fetchData,
+    pending,
+    poll,
+  });
 
   return {
     pending,

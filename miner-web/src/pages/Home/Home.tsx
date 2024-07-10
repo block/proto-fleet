@@ -127,14 +127,14 @@ const Home = () => {
       !poolsInfoStatus.pending &&
       !poolsInfoStatus.error &&
       // TODO: remove alive when cgminer is removed
-      !poolsInfo.find((pool) => /alive|active/i.test(pool?.status || ""))
+      !poolsInfo?.find((pool) => /alive|active/i.test(pool?.status || ""))
     );
   }, [poolsInfo, poolsInfoStatus]);
 
   return (
     <>
       {noPoolsLive && (
-        <NoPoolsCallout arePoolsConfigured={!!poolsInfo[0]?.url} />
+        <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} />
       )}
       <div className="flex flex-col space-y-6 h-full">
         <div className="flex items-center">

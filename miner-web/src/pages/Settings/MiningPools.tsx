@@ -16,21 +16,22 @@ import StatusToast from "./StatusToast";
 const SettingsMiningPools = () => {
   const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
   const [toastType, setToastType] = useState<ToastType | null>(null);
+  const [isStalePools, setIsStalePools] = useState(false);
 
-  const { poolsInfo } = useContext(ApiContext);
+  const { poolsInfo, poolsInfoStatus } = useContext(ApiContext);
   const { createPools } = useCreatePools();
 
   useEffect(() => {
-    if (poolsInfo.length && !pools[0].url) {
+    if (poolsInfo?.length) {
       const newPools = [...Array(3)].map((_, index) => ({
-        url: poolsInfo[index]?.url || "",
-        username: poolsInfo[index]?.user || "",
+        url: poolsInfo?.[index]?.url || "",
+        username: poolsInfo?.[index]?.user || "",
         password: "",
         priority: poolsInfo[index]?.priority || index,
       }));
       setPools(newPools);
     }
-  }, [poolsInfo, pools]);
+  }, [poolsInfo]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedSubmitPools = useCallback(
@@ -40,15 +41,35 @@ const SettingsMiningPools = () => {
       createPools({
         poolInfo: validPools,
         onSuccess: () => {
-          setToastType(toastTypes.success);
+          setIsStalePools(true);
         },
         onError: () => {
           setToastType(toastTypes.error);
         },
+        retryOnMinerDown: true,
       });
     }),
     [createPools]
   );
+
+  useEffect(() => {
+    if (
+      toastType === toastTypes.loading &&
+      isStalePools &&
+      !poolsInfoStatus.pending
+    ) {
+      if (
+        poolsInfoStatus.error &&
+        !/failed to connect to cgminer/i.test(poolsInfoStatus.error)
+      ) {
+        setToastType(toastTypes.error);
+        setIsStalePools(false);
+      } else if (poolsInfo?.length) {
+        setToastType(toastTypes.success);
+        setIsStalePools(false);
+      }
+    }
+  }, [isStalePools, poolsInfo, poolsInfoStatus, toastType]);
 
   const onChangePools = useCallback(
     (newPools: PoolInfo[]) => {
@@ -61,7 +82,11 @@ const SettingsMiningPools = () => {
   return (
     <>
       <StatusToast onClose={() => setToastType(null)} type={toastType} />
-      <MiningPools onChange={onChangePools} pools={pools} />
+      <MiningPools
+        onChange={onChangePools}
+        pools={pools}
+        loading={poolsInfoStatus.pending && !isStalePools}
+      />
     </>
   );
 };

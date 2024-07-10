@@ -1,12 +1,20 @@
-import { useCallback, useContext, useState } from "react";
+import { useCallback, useContext, useRef, useState } from "react";
 
 import {
   ApiContext,
   useMiningStart,
   useMiningStatus,
   useMiningStop,
+  useSystemLogs,
   useSystemReboot,
 } from "api";
+import { LogsResponseLogs } from "apiTypes";
+
+import {
+  formatLogs,
+  formatLogType,
+  getExportLink,
+} from "pages/MinerLogs/utility";
 
 import PowerWidget from "./PowerWidget";
 
@@ -19,7 +27,9 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
   const { stopMining } = useMiningStop();
   const { startMining } = useMiningStart();
   const { miningStatus, setMiningStatus } = useContext(ApiContext);
-  const { getMiningStatus } = useMiningStatus();
+  const { fetchData: fetchMiningStatus } = useMiningStatus();
+  const { fetchData: fetchLogs } = useSystemLogs();
+  const linkRef = useRef<HTMLAnchorElement>(null);
 
   const [intervalId, setIntervalId] =
     useState<ReturnType<typeof setInterval>>();
@@ -28,7 +38,7 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
   const pollMiningStatus = useCallback(
     (timeout: number) => {
       const newIntervalId = setInterval(() => {
-        getMiningStatus({
+        fetchMiningStatus({
           onSuccess: (newMiningStatus) => {
             setIsMiningStatusStale(false);
             setMiningStatus(newMiningStatus);
@@ -37,13 +47,34 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
       }, timeout);
       setIntervalId(newIntervalId);
     },
-    [getMiningStatus, setMiningStatus]
+    [fetchMiningStatus, setMiningStatus]
   );
 
-  const handleReboot = () => {
+  const reboot = () => {
     rebootSystem();
     pollMiningStatus(5000);
     setIsMiningStatusStale(true);
+  };
+
+  const downloadLogs = (logsData?: LogsResponseLogs) => {
+    if (logsData?.content?.length) {
+      const formattedLogs = formatLogs(logsData.content);
+      const exportLink = getExportLink([
+        "Time,Type,Message",
+        ...formattedLogs.map(
+          (log) =>
+            `${log.timestamp},${formatLogType(log.logType)},${log.message.replace(/,/g, " | ")}`
+        ),
+      ]);
+      linkRef.current?.setAttribute("href", exportLink);
+      linkRef.current?.click();
+    }
+  };
+
+  const handleReboot = async () => {
+    const logsData = await fetchLogs({ lines: 10000 });
+    downloadLogs(logsData);
+    reboot();
   };
 
   const handleSleep = () => {
@@ -64,6 +95,7 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
 
   return (
     <PowerWidget
+      linkRef={linkRef}
       miningStatus={isMiningStatusStale ? {} : miningStatus}
       onReboot={handleReboot}
       onSleep={handleSleep}

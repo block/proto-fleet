@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
 
-import { useCoolingStatus, useHashboards, useMiningStatus, useTemperature } from "api";
-import { FanInfo } from "apiTypes";
+import {
+  CoolingStatusCoolingstatus,
+  FanInfo,
+  HashboardsInfoHashboardsinfo,
+  MiningStatusMiningstatus,
+  TemperatureResponseTemperaturedata,
+} from "apiTypes";
 
 import { useLocalStorage } from "common/hooks/useLocalStorage";
 
 import DurationSelector, {
   Duration,
-  durations,
 } from "components/DurationSelector";
 import FanSpeedWidget from "components/InfoWidget/FanSpeedWidget";
 import TempWidget from "components/InfoWidget/TempWidget";
@@ -19,30 +23,36 @@ import AsicTable from "./Asic/AsicTableWrapper";
 import { Granularity } from "./types";
 import { sortHashboards } from "./utility";
 
-const Hardware = () => {
-  const { getItem, setItem } = useLocalStorage();
-  const [duration, setDuration] = useState<Duration>(
-    getItem("duration") || durations[0]
-  );
+interface HardwareProps {
+  coolingStatus?: CoolingStatusCoolingstatus;
+  duration: Duration;
+  hashboardsInfo?: HashboardsInfoHashboardsinfo[];
+  miningStatus?: MiningStatusMiningstatus;
+  pendingCoolingStatus: boolean;
+  pendingHashboardsInfo: boolean;
+  pendingTempData: boolean;
+  setDuration: (duration: Duration) => void;
+  tempData?: TemperatureResponseTemperaturedata;
+}
+
+const Hardware = ({
+  coolingStatus,
+  duration,
+  hashboardsInfo,
+  miningStatus,
+  pendingCoolingStatus,
+  pendingHashboardsInfo,
+  pendingTempData,
+  setDuration,
+  tempData,
+}: HardwareProps) => {
+  const { setItem } = useLocalStorage();
   const [showPopover, setShowPopover] = useState<string | undefined>(undefined);
   const [fanSpeeds, setFanSpeeds] = useState<FanInfo[]>();
   const [temp, setTemp] = useState<number>();
   const [highestTemp, setHighestTemp] = useState<number>();
   const [hashboardSerials, setHashboardSerials] = useState<string[]>();
   const [granularity, setGranularity] = useState<Granularity>("1m");
-  const { data: tempData, pending: pendingTempData } = useTemperature({
-    duration,
-    poll: true,
-  });
-  const { data: hashboardsInfo, pending: pendingHashboardsInfo } =
-    useHashboards();
-  const { data: coolingStatus, pending: pendingCoolingStatus } =
-    useCoolingStatus({ poll: true });
-  const { data: miningStatus, getMiningStatus } = useMiningStatus();
-
-  useEffect(() => {
-    getMiningStatus();
-  }, [getMiningStatus]);
 
   useEffect(() => {
     setTemp(undefined);
@@ -99,12 +109,7 @@ const Hardware = () => {
     } else {
       setGranularity("1m");
     }
-
-    // Poll every minute to recalculate granularity
-    setTimeout(() => {
-      getMiningStatus();
-    }, 60000);
-  }, [miningStatus, getMiningStatus]);
+  }, [miningStatus]);
 
   return (
     <div className="flex flex-col space-y-6 h-full">

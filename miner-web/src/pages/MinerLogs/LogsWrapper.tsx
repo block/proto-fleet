@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import { useSystemLogs } from "api";
+import { usePoll, useSystemLogs } from "api";
 
 import Button, { sizes, variants } from "components/Button";
 import Spinner from "components/Spinner";
@@ -23,12 +23,27 @@ import {
 const LogsWrapper = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { data: logsData } = useSystemLogs({ poll: true });
+  const {
+    data: logsData,
+    fetchData: fetchLogs,
+    pending: pendingLogs,
+  } = useSystemLogs();
   const [storedLogs, setStoredLogs] = useState<string[]>([]);
   const [logs, setLogs] = useState<LogInfo[]>([]);
   const [errorCount, setErrorCount] = useState(0);
   const [warningCount, setWarningCount] = useState(0);
   const [exportLink, setExportLink] = useState<string | null>(null);
+
+  usePoll({
+    data: logsData,
+    fetchData: () =>
+      fetchLogs({
+        lines: 1000,
+      }),
+    pending: pendingLogs,
+    poll: true,
+    pollIntervalMs: 5000,
+  });
 
   const formatAndSetLogsData = useCallback(
     (logsDataToSet: string[]) => {

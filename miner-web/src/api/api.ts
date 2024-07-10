@@ -1,6 +1,7 @@
 import { createContext } from "react";
 
 import { Api, MiningStatusMiningstatus, Pool } from "./types";
+import { FetchPoolsInfoProps } from "./usePoolsInfo";
 
 const apiHost = import.meta.env.VITE_API_BASE_URL || "";
 const { api } = new Api({ baseUrl: apiHost });
@@ -11,8 +12,13 @@ const { api } = new Api({ baseUrl: apiHost });
 export { api };
 export const ApiContext = createContext({
   miningStatus: {} as MiningStatusMiningstatus,
-  poolsInfo: [] as Pool[],
-  poolsInfoStatus: { error: false, pending: false },
+  poolsInfo: [] as Pool[] | undefined,
+  fetchPoolsInfo: ({ onSuccess, onError, retryOnMinerDown }: FetchPoolsInfoProps = {}) => {
+    void onSuccess;
+    void onError;
+    void retryOnMinerDown;
+  },
+  poolsInfoStatus: { error: "", pending: false },
   setMiningStatus: (newMiningStatus: MiningStatusMiningstatus | undefined) => {
     void newMiningStatus;
   },

@@ -1,17 +1,24 @@
 import { ReactNode } from "react";
 
 import ContentHeader from "components/ContentHeader";
+import Spinner from "components/Spinner";
 
 import Pools from "./Pools";
 import { PoolInfo } from "./types";
 
 interface MiningPoolsProps {
   children?: ReactNode;
+  loading?: boolean;
   onChange: (pools: PoolInfo[]) => void;
   pools: PoolInfo[];
 }
 
-const MiningPools = ({ children, onChange, pools }: MiningPoolsProps) => {
+const MiningPools = ({
+  children,
+  loading,
+  onChange,
+  pools,
+}: MiningPoolsProps) => {
   return (
     <div className="max-w-[640px] h-full">
       <ContentHeader
@@ -20,7 +27,7 @@ const MiningPools = ({ children, onChange, pools }: MiningPoolsProps) => {
         testId="mining-pool-title"
       />
       {children}
-      <Pools pools={pools} onChangePools={onChange} />
+      {loading ? <Spinner /> : <Pools pools={pools} onChangePools={onChange} />}
     </div>
   );
 };

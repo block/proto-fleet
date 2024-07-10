@@ -29,7 +29,12 @@ const usePower = ({ duration, poll }: UsePowerProps) => {
       });
   }, [duration]);
 
-  usePoll({ fetchData, poll });
+  usePoll({
+    data,
+    fetchData,
+    pending,
+    poll,
+  });
 
   return {
     pending,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { RefObject, useCallback, useEffect, useRef, useState } from "react";
 
 import { MiningStatusMiningstatus } from "apiTypes";
 
@@ -6,6 +6,7 @@ import { useClickOutside } from "common/hooks/useClickOutside";
 
 import {
   EnteringSleepDialog,
+  ExportingLogsDialog,
   RebootingDialog,
   WakingDialog,
   WarnRebootDialog,
@@ -23,6 +24,7 @@ interface PowerWidgetProps {
   afterReboot?: () => void;
   afterSleep?: () => void;
   afterWake?: () => void;
+  linkRef?: RefObject<HTMLAnchorElement>;
   miningStatus: MiningStatusMiningstatus;
   onReboot: () => void;
   onSleep: () => void;
@@ -34,6 +36,7 @@ const PowerWidget = ({
   afterReboot,
   afterSleep,
   afterWake,
+  linkRef,
   miningStatus,
   onReboot,
   onSleep,
@@ -44,6 +47,7 @@ const PowerWidget = ({
   const [isOpen, setIsOpen] = useState(shouldShowPopover);
   const [warnReboot, setWarnReboot] = useState(false);
   const [shouldReboot, setShouldReboot] = useState(false);
+  const [shouldExportLogs, setShouldExportLogs] = useState(false);
   const [warnSleep, setWarnSleep] = useState(false);
   const [shouldSleep, setShouldSleep] = useState(false);
   const [warnWake, setWarnWake] = useState(false);
@@ -60,9 +64,11 @@ const PowerWidget = ({
     setWarnReboot(true);
   };
 
-  const handleRebootConfirm = () => {
-    onReboot();
+  const handleRebootConfirm = async () => {
     setWarnReboot(false);
+    setShouldExportLogs(true);
+    await onReboot();
+    setShouldExportLogs(false);
     setShouldReboot(true);
   };
 
@@ -136,6 +142,7 @@ const PowerWidget = ({
         onSubmit={handleRebootConfirm}
         show={warnReboot}
       />
+      <ExportingLogsDialog show={shouldExportLogs} linkRef={linkRef} />
       <RebootingDialog show={shouldReboot} />
       <WarnSleepDialog
         onClose={() => setWarnSleep(false)}

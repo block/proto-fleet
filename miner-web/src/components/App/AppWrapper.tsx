@@ -22,7 +22,8 @@ interface AppProps {
 const AppWrapper = ({ children, title }: AppProps) => {
   const { setMiningStatus } = useContext(ApiContext);
   const [initPage, setInitPage] = useState(false);
-  const { data: miningStatus, getMiningStatus } = useMiningStatus();
+  const { data: miningStatus, fetchData: fetchMiningStatus } =
+    useMiningStatus();
   const [intervalId, setIntervalId] =
     useState<ReturnType<typeof setInterval>>();
   const [wakeIntervalId, setWakeIntervalId] =
@@ -55,7 +56,7 @@ const AppWrapper = ({ children, title }: AppProps) => {
 
   useEffect(() => {
     if (!miningStatus) {
-      getMiningStatus();
+      fetchMiningStatus();
     } else if (miningStatus?.status === "Running") {
       clearInterval(intervalId);
       setIsOnboarding(false);
@@ -63,18 +64,18 @@ const AppWrapper = ({ children, title }: AppProps) => {
       // on first load, if the device is booting up, check the mining status until it's running
       // TODO: get this from API when booting up status available
     } else if (miningStatus?.status === "Stopped" && !intervalId && !initPage) {
+      setInitPage(true);
       const newIntervalId = setInterval(() => {
-        getMiningStatus({ onSuccess: setMiningStatus });
+        fetchMiningStatus({ onSuccess: setMiningStatus });
       }, 5000);
       setIntervalId(newIntervalId);
-      setInitPage(true);
     }
-  }, [getMiningStatus, setMiningStatus, intervalId, initPage, miningStatus]);
+  }, [fetchMiningStatus, setMiningStatus, intervalId, initPage, miningStatus]);
 
   const handleWake = () => {
     startMining();
     const newIntervalId = setInterval(() => {
-      getMiningStatus({ onSuccess: setMiningStatus });
+      fetchMiningStatus({ onSuccess: setMiningStatus });
     }, 5000);
     setWakeIntervalId(newIntervalId);
   };
@@ -98,6 +99,8 @@ const AppWrapper = ({ children, title }: AppProps) => {
           onWake={handleWake}
           afterWake={afterWake}
           isOnboarding={isOnboarding}
+          systemInfo={systemInfo}
+          pendingSystemInfo={pendingSystemInfo}
         >
           {children}
         </App>

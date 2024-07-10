@@ -29,7 +29,12 @@ const useEfficiency = ({ duration, poll }: UseEfficiencyProps) => {
       });
   }, [duration]);
 
-  usePoll({ fetchData, poll });
+  usePoll({
+    data,
+    fetchData,
+    pending,
+    poll,
+  });
 
   return {
     pending,

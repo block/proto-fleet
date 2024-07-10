@@ -1,4 +1,5 @@
 import eslint from "@eslint/js";
+import { fixupPluginRules } from '@eslint/compat';
 import typescriptEslint from "@typescript-eslint/eslint-plugin";
 import typescriptEslintParser from "@typescript-eslint/parser";
 import noImport from "eslint-plugin-import";
@@ -38,15 +39,15 @@ export default [
       import: noImport,
       "jsx-a11y": jsxA11y,
       react,
-      "react-hooks": reactHooks,
+      "react-hooks": fixupPluginRules(reactHooks),
       "react-refresh": reactRefresh,
       storybook,
       "@typescript-eslint": typescriptEslint,
     },
     rules: {
+      ...reactHooks.configs.recommended.rules,
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": "error",
-      "react-hooks/exhaustive-deps": "error",
       "react-refresh/only-export-components": [
         "warn",
         { allowConstantExport: true },

@@ -6,6 +6,7 @@ import Button, { sizes, variants } from "components/Button";
 import { intents } from "./constants";
 
 interface CalloutProps {
+  className?: string;
   buttonOnClick?: () => void;
   buttonText?: string;
   intent: keyof typeof intents;
@@ -14,6 +15,7 @@ interface CalloutProps {
 }
 
 const Callout = ({
+  className,
   buttonOnClick,
   buttonText,
   intent,
@@ -44,14 +46,14 @@ const Callout = ({
   }
 
   return (
-    <div className={clsx("flex p-4 rounded-xl", bgColor, textColor)}>
+    <div className={clsx("flex p-4 rounded-xl", bgColor, textColor, className)}>
       <div className="mr-3 mt-[2px]">{prefixIcon}</div>
       <div className="flex w-full items-center justify-between">
         <div className="max-w-[600px]">
           <div className="text-300">{subtitle}</div>
         </div>
-        <div className="ml-3">
-          {buttonText && (
+        {buttonText && (
+          <div className="ml-3">
             <Button
               text={buttonText}
               textColor="text-current"
@@ -60,8 +62,8 @@ const Callout = ({
               size={sizes.textOnly}
               variant={variants.textOnly}
             />
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

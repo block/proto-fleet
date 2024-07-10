@@ -29,7 +29,12 @@ const useHashrate = ({ duration, poll }: UseHashrateProps) => {
       });
   }, [duration]);
 
-  usePoll({ fetchData, poll });
+  usePoll({
+    data,
+    fetchData,
+    pending,
+    poll,
+  });
 
   return {
     pending,

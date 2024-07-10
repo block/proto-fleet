@@ -1,19 +1,33 @@
 import { useEffect } from "react";
 
 interface UsePollProps {
+  data: any;
   fetchData: () => void;
+  pending: boolean;
   poll?: boolean;
-  pollIntervalMilliseconds?: number;
+  pollIntervalMs?: number;
 }
 
-const usePoll = ({ fetchData, poll, pollIntervalMilliseconds = 60000 }: UsePollProps) => {
+const usePoll = ({
+  data,
+  fetchData,
+  pending,
+  poll,
+  pollIntervalMs = 60000,
+}: UsePollProps) => {
   useEffect(() => {
-    fetchData();
-    if (poll) {
-      const interval = setInterval(fetchData, pollIntervalMilliseconds);
-      return () => clearInterval(interval);
+    if (!data && !pending) {
+      fetchData();
+      if (poll) {
+        const interval = setInterval(fetchData, pollIntervalMs);
+        return () => {
+          clearInterval(interval);
+        };
+      }
     }
-  }, [fetchData, poll, pollIntervalMilliseconds]);
+  // disable deps so we run and clear the interval only on mount/unmount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 };
 
 export { usePoll };
