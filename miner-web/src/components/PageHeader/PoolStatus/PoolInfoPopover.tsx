@@ -9,12 +9,13 @@ import Popover from "components/Popover";
 import { Alert, Success } from "icons";
 
 import PoolInfoRow from "./PoolInfoRow";
+import { PoolInfo } from "./types";
 import { getTexts } from "./utility";
 
 interface PoolInfoPopoverProps {
   isConnected: boolean;
   onClickViewPools: () => void;
-  poolInfo?: Pick<Pool, "priority" | "status" | "url">;
+  poolInfo?: PoolInfo;
   poolsInfo?: Pool[];
 }
 
@@ -26,7 +27,7 @@ const PoolInfoPopover = ({
 }: PoolInfoPopoverProps) => {
   const { title, subtitle, button, cardTitle } = getTexts({
     isConnected,
-    priority: poolInfo?.priority,
+    index: poolInfo?.index,
     url: poolInfo?.url,
   });
 
@@ -51,7 +52,7 @@ const PoolInfoPopover = ({
         >
           {isConnected ? (
             <PoolInfoRow
-              priority={poolInfo.priority}
+              index={poolInfo.index}
               url={poolInfo.url}
               suffixIcon={<Success className="text-intent-success-fill" />}
               hasDivider={!poolsInfo?.length}
@@ -61,7 +62,7 @@ const PoolInfoPopover = ({
               {poolsInfo?.map((pool, index) => (
                 <PoolInfoRow
                   key={pool.priority}
-                  priority={pool.priority}
+                  index={index}
                   url={pool.url}
                   suffixIcon={<Alert className="text-intent-critical-fill" />}
                   hasDivider={index < poolsInfo.length - 1}

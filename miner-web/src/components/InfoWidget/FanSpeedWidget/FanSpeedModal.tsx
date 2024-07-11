@@ -39,10 +39,11 @@ const FanSpeedModal = ({
       onDismiss={onDismiss}
     >
       <div className="space-y-6">
-        <div>
+        {/* TODO: show this when we have the value from API */}
+        {/* <div>
           Fan speeds can vary but generally should be around{" "}
           {getDisplayValue(acceptableSpeed)} RPM for optimal hash rates.
-        </div>
+        </div> */}
         <div>
           <Header title="Current fan speeds" titleSize="text-heading-50" />
           {fanSpeeds?.map((fan, index) => {

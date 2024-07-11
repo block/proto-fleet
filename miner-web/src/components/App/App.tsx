@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useState } from "react";
 
-import { ApiContext, useNetworkInfo, usePoolsInfo } from "api";
+import { ApiContext, useNetworkInfo, usePoll, usePoolsInfo } from "api";
 import { MiningStatusMiningstatus, SystemInfoSysteminfo } from "apiTypes";
 
 import NavigationMenu from "components/NavigationMenu";
@@ -48,9 +48,12 @@ const App = ({
     }
   }, [apiMiningStatus]);
 
-  useEffect(() => {
-    fetchPoolsInfo({ retryOnMinerDown: true });
-  }, [fetchPoolsInfo]);
+  usePoll({
+    data: poolsInfo,
+    fetchData: () => fetchPoolsInfo({ retryOnMinerDown: true }),
+    pending: pendingPoolsInfo,
+    poll: true,
+  });
 
   return (
     <ApiContext.Provider

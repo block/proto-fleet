@@ -6,6 +6,7 @@ import { useClickOutside } from "common/hooks/useClickOutside";
 
 import PoolInfoPopover from "./PoolInfoPopover";
 import PoolWidget from "./PoolWidget";
+import { PoolInfo } from "./types";
 
 interface PoolStatusProps {
   loading?: boolean;
@@ -21,8 +22,7 @@ const PoolStatus = ({
   shouldShowPopover = false,
 }: PoolStatusProps) => {
   const WidgetRef = useRef<HTMLDivElement>(null);
-  const [poolInfo, setPoolInfo] =
-    useState<Pick<Pool, "priority" | "status" | "url">>();
+  const [poolInfo, setPoolInfo] = useState<PoolInfo>();
   const [showPopover, setShowPopover] = useState(shouldShowPopover);
 
   const isAlive = useCallback(
@@ -36,7 +36,7 @@ const PoolStatus = ({
       const activePool = poolsInfo.find(isAlive) || poolsInfo[0];
 
       setPoolInfo({
-        priority: activePool?.priority,
+        index: poolsInfo.indexOf(activePool),
         status: activePool?.status,
         url: activePool?.url,
       });

@@ -17,9 +17,9 @@ interface FanSpeedWidgetProps {
 const FanSpeedWidget = ({ fanSpeeds, loading }: FanSpeedWidgetProps) => {
   const [showModal, setShowModal] = useState(false);
   // TODO: get max speed from API
-  const maxSpeed = 7000;
+  const maxSpeed = 6000;
   // TODO: get acceptable speed from API
-  const acceptableSpeed = 6000;
+  const acceptableSpeed = maxSpeed / 2;
 
   const avgFanSpeed = useMemo(() => {
     if (!fanSpeeds?.length) {

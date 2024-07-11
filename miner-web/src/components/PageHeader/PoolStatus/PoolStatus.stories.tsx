@@ -7,16 +7,14 @@ import { Pool } from "apiTypes";
 import PoolStatusComponent from "./PoolStatus";
 
 interface PoolStatusProps {
-  hasDefaultPool: boolean;
   loading: boolean;
-  numberOfBackupPools: number;
+  numberOfPools: number;
   poolStatus: Pool["status"];
 }
 
 export const PoolStatus = ({
-  hasDefaultPool,
   loading,
-  numberOfBackupPools,
+  numberOfPools,
   poolStatus,
 }: PoolStatusProps) => {
   return (
@@ -25,24 +23,24 @@ export const PoolStatus = ({
         poolsInfo={
           [
             {
-              ...(hasDefaultPool && {
+              ...(numberOfPools >= 1 && {
                 status: poolStatus,
                 url: "mine.ocean.xyz:1111",
-                priority: 0,
-              }),
-            },
-            {
-              ...(numberOfBackupPools >= 1 && {
-                status: poolStatus,
-                url: "mine.ocean.xyz:2222",
                 priority: 1,
               }),
             },
             {
-              ...(numberOfBackupPools === 2 && {
+              ...(numberOfPools >= 2 && {
+                status: poolStatus,
+                url: "mine.ocean.xyz:2222",
+                priority: 5,
+              }),
+            },
+            {
+              ...(numberOfPools === 3 && {
                 status: poolStatus,
                 url: "mine.ocean.xyz:3333",
-                priority: 2,
+                priority: 8,
               }),
             },
           ].filter((pool) => !!pool.url) as Pool[]
@@ -58,21 +56,17 @@ export const PoolStatus = ({
 export default {
   title: "Components/Page Header/Pool Status",
   args: {
-    hasDefaultPool: true,
     loading: false,
-    numberOfBackupPools: 2,
-    poolStatus: "Alive",
+    numberOfPools: 3,
+    poolStatus: "Active",
   },
   argTypes: {
-    hasDefaultPool: {
-      control: "boolean",
-    },
     loading: {
       control: "boolean",
     },
-    numberOfBackupPools: {
+    numberOfPools: {
       control: "select",
-      options: [0, 1, 2],
+      options: [0, 1, 2, 3],
     },
     poolStatus: {
       control: "select",
