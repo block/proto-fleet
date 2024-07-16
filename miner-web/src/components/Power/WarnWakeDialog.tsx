@@ -17,7 +17,7 @@ const WarnWakeDialog = ({ onClose, onSubmit, show }: WarnWakeDialogProps) => {
       subtitle="This miner is asleep and not hashing. Waking it up will resume normal hashing activity."
       subtitleSize="text-300"
       show={show}
-      testId="warn-wake-dialog"
+      testId="warn-wake-up-dialog"
     >
       <ButtonGroup
         className="mt-4"
@@ -28,7 +28,7 @@ const WarnWakeDialog = ({ onClose, onSubmit, show }: WarnWakeDialogProps) => {
             text: "Wake up miner",
             onClick: onSubmit,
             variant: variants.primary,
-            testId: "wake-button",
+            testId: "wake-up-button",
           },
           {
             text: "Cancel",

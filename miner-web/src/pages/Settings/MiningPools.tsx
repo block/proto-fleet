@@ -1,7 +1,8 @@
-import { useCallback, useContext, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { ApiContext, useCreatePools } from "api";
+import { useCreatePools } from "api";
 
+import { useApiContext } from "common/hooks/useApiContext";
 import { debounce } from "common/utils/utility";
 
 import MiningPools, {
@@ -18,7 +19,7 @@ const SettingsMiningPools = () => {
   const [toastType, setToastType] = useState<ToastType | null>(null);
   const [isStalePools, setIsStalePools] = useState(false);
 
-  const { poolsInfo, poolsInfoStatus } = useContext(ApiContext);
+  const { poolsInfo, poolsInfoStatus } = useApiContext();
   const { createPools } = useCreatePools();
 
   useEffect(() => {

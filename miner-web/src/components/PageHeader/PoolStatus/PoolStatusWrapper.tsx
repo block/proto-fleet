@@ -1,13 +1,13 @@
-import { useCallback, useContext } from "react";
+import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { ApiContext } from "api";
+import { useApiContext } from "common/hooks/useApiContext";
 
 import PoolStatus from "./PoolStatus";
 
 const PoolStatusWrapper = () => {
   const navigate = useNavigate();
-  const { poolsInfo, poolsInfoStatus } = useContext(ApiContext);
+  const { poolsInfo, poolsInfoStatus } = useApiContext();
 
   const handleClickViewPools = useCallback(() => {
     navigate("/settings/mining-pools");

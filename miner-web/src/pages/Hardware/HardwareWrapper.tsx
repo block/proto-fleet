@@ -27,16 +27,11 @@ const HardwareWrapper = () => {
     useHashboards();
   const { data: coolingStatus, pending: pendingCoolingStatus } =
     useCoolingStatus({ poll: true });
-  const {
-    data: miningStatus,
-    fetchData: fetchMiningStatus,
-    pending: pendingMiningStatus,
-  } = useMiningStatus();
+  const { data: miningStatus, fetchData: fetchMiningStatus } =
+    useMiningStatus();
 
   usePoll({
-    data: miningStatus,
     fetchData: fetchMiningStatus,
-    pending: pendingMiningStatus,
     poll: true,
   });
 

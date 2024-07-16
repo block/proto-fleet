@@ -33,9 +33,8 @@ const useHashboardStats = ({
   }, [hashboardSerialNumber]);
 
   usePoll({
-    data,
     fetchData,
-    pending,
+    params: hashboardSerialNumber,
     poll,
   });
 

@@ -6,6 +6,7 @@ interface WidgetWrapperProps {
   className?: string;
   isOpen?: boolean;
   onClick?: () => void;
+  testId?: string;
 }
 
 const WidgetWrapper = ({
@@ -13,6 +14,7 @@ const WidgetWrapper = ({
   className,
   isOpen,
   onClick,
+  testId,
 }: WidgetWrapperProps) => {
   return (
     <button
@@ -23,6 +25,7 @@ const WidgetWrapper = ({
         className
       )}
       onClick={onClick}
+      data-testid={testId}
     >
       {children}
     </button>

@@ -40,7 +40,7 @@ const WakeCallout = ({
         <div className="mb-10">
           <Callout
             buttonOnClick={() => setWarnWake(true)}
-            buttonText="Wake miner"
+            buttonText="Wake up miner"
             intent={intents.information}
             prefixIcon={<Power />}
             subtitle="This miner is asleep and is not hashing."

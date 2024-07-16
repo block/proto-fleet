@@ -23,11 +23,7 @@ import {
 const LogsWrapper = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const {
-    data: logsData,
-    fetchData: fetchLogs,
-    pending: pendingLogs,
-  } = useSystemLogs();
+  const { data: logsData, fetchData: fetchLogs } = useSystemLogs();
   const [storedLogs, setStoredLogs] = useState<string[]>([]);
   const [logs, setLogs] = useState<LogInfo[]>([]);
   const [errorCount, setErrorCount] = useState(0);
@@ -35,12 +31,10 @@ const LogsWrapper = () => {
   const [exportLink, setExportLink] = useState<string | null>(null);
 
   usePoll({
-    data: logsData,
     fetchData: () =>
       fetchLogs({
         lines: 1000,
       }),
-    pending: pendingLogs,
     poll: true,
     pollIntervalMs: 5000,
   });

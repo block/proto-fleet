@@ -1,6 +1,8 @@
-import { useCallback, useContext } from "react";
+import { useCallback } from "react";
 
-import { api, ApiContext } from "./api";
+import { useApiContext } from "common/hooks/useApiContext";
+
+import { api } from "./api";
 import { PoolConfig } from "./types";
 
 interface CreatePoolsProps {
@@ -11,7 +13,7 @@ interface CreatePoolsProps {
 }
 
 const useCreatePools = () => {
-  const { fetchPoolsInfo } = useContext(ApiContext);
+  const { fetchPoolsInfo } = useApiContext();
 
   const createPools = useCallback(
     async ({ poolInfo, onSuccess, onError, retryOnMinerDown }: CreatePoolsProps) => {

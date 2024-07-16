@@ -1,7 +1,6 @@
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
-  ApiContext,
   useEfficiency,
   useHashboards,
   usePower,
@@ -9,6 +8,7 @@ import {
 } from "api";
 import { Aggregates } from "apiTypes";
 
+import { useApiContext } from "common/hooks/useApiContext";
 import { useLocalStorage } from "common/hooks/useLocalStorage";
 import { getDisplayValue } from "common/utils/stringUtils";
 
@@ -60,7 +60,7 @@ const Home = () => {
     duration,
     poll: true,
   });
-  const { poolsInfo, poolsInfoStatus } = useContext(ApiContext);
+  const { poolsInfo, poolsInfoStatus } = useApiContext();
 
   useEffect(() => {
     setHistoricalEfficiency(undefined);

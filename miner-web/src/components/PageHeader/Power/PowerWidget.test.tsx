@@ -1,9 +1,24 @@
-import { fireEvent, render, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import PowerWidget from "./PowerWidget";
 
 describe("Power Widget", () => {
-  const buttonLabel = "Power";
+  const powerButton = "power-button";
+  const powerPopover = "power-popover";
+  const popoverRebootButton = "popover-reboot-button";
+  const popoverSleepButton = "popover-sleep-button";
+  const popoverWakeUpButton = "popover-wake-up-button";
+  const cancelButton = "cancel-button";
+  const rebootButton = "reboot-button";
+  const sleepButton = "sleep-button";
+  const wakeUpButton = "wake-up-button";
+  const warnRebootDialog = "warn-reboot-dialog";
+  const warnSleepDialog = "warn-sleep-dialog";
+  const warnWakeUpDialog = "warn-wake-up-dialog";
+  const rebootingDialog = "rebooting-dialog";
+  const enteringSleepDialog = "entering-sleep-dialog";
+  const wakingDialog = "waking-dialog";
+
   const PowerWidgetProps = {
     onReboot: vi.fn(),
     onSleep: vi.fn(),
@@ -12,107 +27,96 @@ describe("Power Widget", () => {
   };
 
   test("renders power widget popover with reboot and sleep if miner is running", () => {
-    const { getByTestId } = render(
+    const { getByTestId, queryByTestId } = render(
       <PowerWidget {...PowerWidgetProps} miningStatus={{ status: "Running" }} />
     );
-    let { getByText, queryByText } = within(getByTestId("power-widget"));
-    const buttonElement = getByText(buttonLabel);
+    const buttonElement = getByTestId(powerButton);
     fireEvent.click(buttonElement);
 
-    getByText = within(getByTestId("power-popover")).getByText;
-    expect(getByTestId("power-popover")).toBeInTheDocument();
-    expect(getByText("Reboot")).toBeInTheDocument();
-    expect(getByText("Sleep")).toBeInTheDocument();
-    expect(queryByText("Wake")).not.toBeInTheDocument();
+    expect(getByTestId(powerPopover)).toBeInTheDocument();
+    expect(queryByTestId(popoverRebootButton)).toBeInTheDocument();
+    expect(queryByTestId(popoverSleepButton)).toBeInTheDocument();
+    expect(queryByTestId(popoverWakeUpButton)).not.toBeInTheDocument();
   });
 
-  test("renders power widget popover with reboot and wake if miner is stopped", () => {
-    const { getByTestId } = render(
+  test("renders power widget popover with reboot and wake up if miner is stopped", () => {
+    const { getByTestId, queryByTestId } = render(
       <PowerWidget {...PowerWidgetProps} miningStatus={{ status: "Stopped" }} />
     );
-    let { getByText, queryByText } = within(getByTestId("power-widget"));
-    const buttonElement = getByText(buttonLabel);
+    const buttonElement = getByTestId(powerButton);
     fireEvent.click(buttonElement);
 
-    getByText = within(getByTestId("power-popover")).getByText;
-    expect(getByTestId("power-popover")).toBeInTheDocument();
-    expect(getByText("Reboot")).toBeInTheDocument();
-    expect(getByText("Wake")).toBeInTheDocument();
-    expect(queryByText("Sleep")).not.toBeInTheDocument();
+    expect(getByTestId(powerPopover)).toBeInTheDocument();
+    expect(getByTestId(popoverRebootButton)).toBeInTheDocument();
+    expect(getByTestId(popoverWakeUpButton)).toBeInTheDocument();
+    expect(queryByTestId(popoverSleepButton)).not.toBeInTheDocument();
   });
 
   test("closes popover on click of reboot", () => {
     const { getByTestId, queryByTestId } = render(
       <PowerWidget shouldShowPopover {...PowerWidgetProps} />
     );
-    const { getByText } = within(getByTestId("power-popover"));
-    const buttonElement = getByText("Reboot");
+    const buttonElement = getByTestId(popoverRebootButton);
     fireEvent.click(buttonElement);
-    expect(queryByTestId("power-popover")).not.toBeInTheDocument();
+    expect(queryByTestId(powerPopover)).not.toBeInTheDocument();
   });
 
   test("closes popover on click of sleep", () => {
     const { getByTestId, queryByTestId } = render(
       <PowerWidget shouldShowPopover {...PowerWidgetProps} />
     );
-    const { getByText } = within(getByTestId("power-popover"));
-    const buttonElement = getByText("Sleep");
+    const buttonElement = getByTestId(popoverSleepButton);
     fireEvent.click(buttonElement);
-    expect(queryByTestId("power-popover")).not.toBeInTheDocument();
+    expect(queryByTestId(powerPopover)).not.toBeInTheDocument();
   });
 
-  test("closes popover on click of wake", () => {
+  test("closes popover on click of wake up", () => {
     const { getByTestId, queryByTestId } = render(
       <PowerWidget shouldShowPopover {...PowerWidgetProps} miningStatus={{ status: "Stopped" }} />
     );
-    const { getByText } = within(getByTestId("power-popover"));
-    const buttonElement = getByText("Wake");
+    const buttonElement = getByTestId(popoverWakeUpButton);
     fireEvent.click(buttonElement);
-    expect(queryByTestId("power-popover")).not.toBeInTheDocument();
+    expect(queryByTestId(powerPopover)).not.toBeInTheDocument();
   });
 
   test("shows confirmation dialog on click of reboot", () => {
     const { getByTestId } = render(
       <PowerWidget shouldShowPopover {...PowerWidgetProps} />
     );
-    const { getByText } = within(getByTestId("power-popover"));
-    const buttonElement = getByText("Reboot");
+    const buttonElement = getByTestId(popoverRebootButton);
     fireEvent.click(buttonElement);
-    expect(getByTestId("warn-reboot-dialog")).toBeInTheDocument();
+    expect(getByTestId(warnRebootDialog)).toBeInTheDocument();
   });
 
   test("shows confirmation dialog on click of sleep", () => {
     const { getByTestId } = render(
       <PowerWidget shouldShowPopover {...PowerWidgetProps} />
     );
-    const { getByText } = within(getByTestId("power-popover"));
-    const buttonElement = getByText("Sleep");
+    const buttonElement = getByTestId(popoverSleepButton);
     fireEvent.click(buttonElement);
-    expect(getByTestId("warn-sleep-dialog")).toBeInTheDocument();
+    expect(getByTestId(warnSleepDialog)).toBeInTheDocument();
   });
 
-  test("shows confirmation dialog on click of wake", () => {
+  test("shows confirmation dialog on click of wake up", () => {
     const { getByTestId } = render(
       <PowerWidget shouldShowPopover {...PowerWidgetProps} miningStatus={{ status: "Stopped" }} />
     );
-    const { getByText } = within(getByTestId("power-popover"));
-    const buttonElement = getByText("Wake");
+    const buttonElement = getByTestId(popoverWakeUpButton);
     fireEvent.click(buttonElement);
-    expect(getByTestId("warn-wake-dialog")).toBeInTheDocument();
+    expect(getByTestId(warnWakeUpDialog)).toBeInTheDocument();
   });
 
   test("closes the reboot confirmation dialog on click of cancel", async () => {
     const { getByTestId, queryByTestId } = render(
       <PowerWidget shouldShowPopover {...PowerWidgetProps} />
     );
-    const { getByText } = within(getByTestId("power-popover"));
-    const buttonElement = getByText("Reboot");
+    const buttonElement = getByTestId(popoverRebootButton);
     fireEvent.click(buttonElement);
-    const cancelButtonElement = getByTestId("cancel-button");
+    const cancelButtonElement = getByTestId(cancelButton);
     fireEvent.click(cancelButtonElement);
     await waitFor(() => {
-      expect(queryByTestId("warn-reboot-dialog")).not.toBeInTheDocument();
-      expect(queryByTestId("power-popover")).not.toBeInTheDocument();
+      expect(queryByTestId(warnRebootDialog)).not.toBeInTheDocument();
+      expect(queryByTestId(powerPopover)).not.toBeInTheDocument();
     });
   });
 
@@ -120,29 +124,27 @@ describe("Power Widget", () => {
     const { getByTestId, queryByTestId } = render(
       <PowerWidget shouldShowPopover {...PowerWidgetProps} />
     );
-    const { getByText } = within(getByTestId("power-popover"));
-    const buttonElement = getByText("Sleep");
+    const buttonElement = getByTestId(popoverSleepButton);
     fireEvent.click(buttonElement);
-    const cancelButtonElement = getByTestId("cancel-button");
+    const cancelButtonElement = getByTestId(cancelButton);
     fireEvent.click(cancelButtonElement);
     await waitFor(() => {
-      expect(queryByTestId("warn-sleep-dialog")).not.toBeInTheDocument();
-      expect(queryByTestId("power-popover")).not.toBeInTheDocument();
+      expect(queryByTestId(warnSleepDialog)).not.toBeInTheDocument();
+      expect(queryByTestId(powerPopover)).not.toBeInTheDocument();
     });
   });
 
-  test("closes the wake confirmation dialog on click of cancel", async () => {
+  test("closes the wake up confirmation dialog on click of cancel", async () => {
     const { getByTestId, queryByTestId } = render(
       <PowerWidget shouldShowPopover {...PowerWidgetProps} miningStatus={{ status: "Stopped" }} />
     );
-    const { getByText } = within(getByTestId("power-popover"));
-    const buttonElement = getByText("Wake");
+    const buttonElement = getByTestId(popoverWakeUpButton);
     fireEvent.click(buttonElement);
-    const cancelButtonElement = getByTestId("cancel-button");
+    const cancelButtonElement = getByTestId(cancelButton);
     fireEvent.click(cancelButtonElement);
     await waitFor(() => {
-      expect(queryByTestId("warn-wake-dialog")).not.toBeInTheDocument();
-      expect(queryByTestId("power-popover")).not.toBeInTheDocument();
+      expect(queryByTestId(warnWakeUpDialog)).not.toBeInTheDocument();
+      expect(queryByTestId(powerPopover)).not.toBeInTheDocument();
     });
   });
 
@@ -150,14 +152,13 @@ describe("Power Widget", () => {
     const { getByTestId, queryByTestId } = render(
       <PowerWidget shouldShowPopover {...PowerWidgetProps} />
     );
-    const { getByText } = within(getByTestId("power-popover"));
-    const buttonElement = getByText("Reboot");
+    const buttonElement = getByTestId(popoverRebootButton);
     fireEvent.click(buttonElement);
-    const rebootButtonElement = getByTestId("reboot-button");
+    const rebootButtonElement = getByTestId(rebootButton);
     fireEvent.click(rebootButtonElement);
     await waitFor(() => {
-      expect(queryByTestId("warn-reboot-dialog")).not.toBeInTheDocument();
-      expect(queryByTestId("rebooting-dialog")).toBeInTheDocument();
+      expect(queryByTestId(warnRebootDialog)).not.toBeInTheDocument();
+      expect(queryByTestId(rebootingDialog)).toBeInTheDocument();
     });
   });
 
@@ -165,29 +166,27 @@ describe("Power Widget", () => {
     const { getByTestId, queryByTestId } = render(
       <PowerWidget shouldShowPopover {...PowerWidgetProps} />
     );
-    const { getByText } = within(getByTestId("power-popover"));
-    const buttonElement = getByText("Sleep");
+    const buttonElement = getByTestId(popoverSleepButton);
     fireEvent.click(buttonElement);
-    const sleepButtonElement = getByTestId("sleep-button");
+    const sleepButtonElement = getByTestId(sleepButton);
     fireEvent.click(sleepButtonElement);
     await waitFor(() => {
-      expect(queryByTestId("warn-sleep-dialog")).not.toBeInTheDocument();
-      expect(queryByTestId("entering-sleep-dialog")).toBeInTheDocument();
+      expect(queryByTestId(warnSleepDialog)).not.toBeInTheDocument();
+      expect(queryByTestId(enteringSleepDialog)).toBeInTheDocument();
     });
   });
 
-  test("shows wake dialog on confirming wake", async () => {
+  test("shows wake up dialog on confirming wake up", async () => {
     const { getByTestId, queryByTestId } = render(
       <PowerWidget shouldShowPopover {...PowerWidgetProps} miningStatus={{ status: "Stopped" }} />
     );
-    const { getByText } = within(getByTestId("power-popover"));
-    const buttonElement = getByText("Wake");
+    const buttonElement = getByTestId(popoverWakeUpButton);
     fireEvent.click(buttonElement);
-    const wakeButtonElement = getByTestId("wake-button");
+    const wakeButtonElement = getByTestId(wakeUpButton);
     fireEvent.click(wakeButtonElement);
     await waitFor(() => {
-      expect(queryByTestId("warn-wake-dialog")).not.toBeInTheDocument();
-      expect(queryByTestId("waking-dialog")).toBeInTheDocument();
+      expect(queryByTestId(warnWakeUpDialog)).not.toBeInTheDocument();
+      expect(queryByTestId(wakingDialog)).toBeInTheDocument();
     });
   });
 });

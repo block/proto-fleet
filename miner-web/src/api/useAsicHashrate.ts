@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Granularity } from "pages/Hardware/types";
 
@@ -24,6 +24,12 @@ const useAsicHashrate = ({
   const [data, setData] = useState<HashrateResponseHashratedata>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
+  const [params, setParams] = useState({
+    asicID,
+    duration,
+    granularity,
+    hashboardSerial,
+  });
 
   const fetchData = useCallback(() => {
     if (!hashboardSerial || asicID === undefined) return;
@@ -42,10 +48,20 @@ const useAsicHashrate = ({
       });
   }, [duration, granularity, hashboardSerial, asicID]);
 
+  useEffect(() => {
+    if (
+      asicID !== params.asicID ||
+      duration !== params.duration ||
+      granularity !== params.granularity ||
+      hashboardSerial !== params.hashboardSerial
+    ) {
+      setParams({ asicID, duration, granularity, hashboardSerial });
+    }
+  }, [asicID, duration, granularity, hashboardSerial, params]);
+
   usePoll({
-    data,
     fetchData,
-    pending,
+    params,
     poll,
   });
 

@@ -49,9 +49,7 @@ const App = ({
   }, [apiMiningStatus]);
 
   usePoll({
-    data: poolsInfo,
     fetchData: () => fetchPoolsInfo({ retryOnMinerDown: true }),
-    pending: pendingPoolsInfo,
     poll: true,
   });
 

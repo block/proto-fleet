@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { api } from "./api";
 import { TemperatureResponseTemperaturedata } from "./types";
@@ -18,6 +18,7 @@ const useHashboardTemperature = ({
   const [data, setData] = useState<TemperatureResponseTemperaturedata>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
+  const [params, setParams] = useState({ duration, hashboardSerial });
 
   const fetchData = useCallback(() => {
     if (!hashboardSerial) return;
@@ -36,10 +37,18 @@ const useHashboardTemperature = ({
       });
   }, [duration, hashboardSerial]);
 
+  useEffect(() => {
+    if (
+      duration !== params.duration ||
+      hashboardSerial !== params.hashboardSerial
+    ) {
+      setParams({ duration, hashboardSerial });
+    }
+  }, [duration, hashboardSerial, params]);
+
   usePoll({
-    data,
     fetchData,
-    pending,
+    params,
     poll,
   });
 

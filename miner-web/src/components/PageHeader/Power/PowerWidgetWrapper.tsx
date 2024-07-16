@@ -1,7 +1,6 @@
-import { useCallback, useContext, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import {
-  ApiContext,
   useMiningStart,
   useMiningStatus,
   useMiningStop,
@@ -9,6 +8,8 @@ import {
   useSystemReboot,
 } from "api";
 import { LogsResponseLogs } from "apiTypes";
+
+import { useApiContext } from "common/hooks/useApiContext";
 
 import {
   formatLogs,
@@ -26,7 +27,7 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
   const { rebootSystem } = useSystemReboot();
   const { stopMining } = useMiningStop();
   const { startMining } = useMiningStart();
-  const { miningStatus, setMiningStatus } = useContext(ApiContext);
+  const { miningStatus, setMiningStatus } = useApiContext();
   const { fetchData: fetchMiningStatus } = useMiningStatus();
   const { fetchData: fetchLogs } = useSystemLogs();
   const linkRef = useRef<HTMLAnchorElement>(null);

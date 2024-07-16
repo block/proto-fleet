@@ -30,9 +30,8 @@ const useHashrate = ({ duration, poll }: UseHashrateProps) => {
   }, [duration]);
 
   usePoll({
-    data,
     fetchData,
-    pending,
+    params: duration,
     poll,
   });
 

@@ -5,7 +5,7 @@ import { MiningStatusMiningstatus } from "apiTypes";
 
 import App from "./App";
 
-export const WakeMiner = () => {
+export const WakeUpMiner = () => {
   const [miningStatus, setMiningStatus] = useState<MiningStatusMiningstatus>({ status: "Stopped"});
 
   const handleWake = () => {
@@ -26,7 +26,7 @@ export const WakeMiner = () => {
 };
 
 export default {
-  title: "Pages/App/Wake Miner",
+  title: "Pages/App/Wake Up Miner",
   decorators: [
     (Story: ElementType) => (
       <MemoryRouter>

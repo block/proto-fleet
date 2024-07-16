@@ -30,9 +30,8 @@ const useEfficiency = ({ duration, poll }: UseEfficiencyProps) => {
   }, [duration]);
 
   usePoll({
-    data,
     fetchData,
-    pending,
+    params: duration,
     poll,
   });
 

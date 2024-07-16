@@ -32,7 +32,7 @@ const PowerPopover = ({
       subtitle={
         isMining
           ? "Reboot or put your miner into sleep mode."
-          : "Reboot or wake your miner."
+          : "Reboot or wake up your miner."
       }
       size={popoverSizes.small}
       buttons={[
@@ -40,11 +40,13 @@ const PowerPopover = ({
           text: "Reboot",
           onClick: onReboot,
           variant: variants.secondary,
+          testId: "popover-reboot-button",
         },
         {
-          text: isMining ? "Sleep" : "Wake",
+          text: isMining ? "Sleep" : "Wake up",
           onClick: isMining ? onSleep : onWake,
           variant: variants.secondary,
+          testId: isMining ? "popover-sleep-button" : "popover-wake-up-button",
         },
       ]}
       buttonGroupVariant={groupVariants.stack}

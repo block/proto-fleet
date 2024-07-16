@@ -1,13 +1,13 @@
-import { ReactNode, useCallback, useContext, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
-  ApiContext,
   useMiningStart,
   useMiningStatus,
   useSystemInfo,
 } from "api";
 
+import { useApiContext } from "common/hooks/useApiContext";
 import { useLocalStorage } from "common/hooks/useLocalStorage";
 
 import Spinner from "components/Spinner";
@@ -20,7 +20,7 @@ interface AppProps {
 }
 
 const AppWrapper = ({ children, title }: AppProps) => {
-  const { setMiningStatus } = useContext(ApiContext);
+  const { setMiningStatus } = useApiContext();
   const [initPage, setInitPage] = useState(false);
   const { data: miningStatus, fetchData: fetchMiningStatus } =
     useMiningStatus();

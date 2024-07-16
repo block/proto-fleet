@@ -29,9 +29,7 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
   }, []);
 
   usePoll({
-    data,
     fetchData,
-    pending,
     poll,
   });
 

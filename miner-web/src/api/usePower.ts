@@ -30,9 +30,8 @@ const usePower = ({ duration, poll }: UsePowerProps) => {
   }, [duration]);
 
   usePoll({
-    data,
     fetchData,
-    pending,
+    params: duration,
     poll,
   });
 

@@ -118,11 +118,12 @@ const PowerWidget = ({
   ]);
 
   return (
-    <div className="relative" ref={WidgetRef} data-testid="power-widget">
+    <div className="relative" ref={WidgetRef}>
       <WidgetWrapper
         onClick={() => setIsOpen((prev) => !prev)}
         className="text-text-primary/90"
         isOpen={isOpen}
+        testId="power-button"
       >
         <>
           <Power className="mr-1" width={iconSizes.xSmall} />
