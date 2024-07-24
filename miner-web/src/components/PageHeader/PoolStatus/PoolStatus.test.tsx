@@ -20,7 +20,7 @@ describe("Pool Status", () => {
   const criticalIconClass = "text-intent-critical-fill";
   const aliveDefaultPool = {
     url: defaultPoolUrl,
-    status: "Alive" as const,
+    status: "Active" as const,
     priority: 0,
   };
   const deadDefaultPool = {
@@ -30,7 +30,7 @@ describe("Pool Status", () => {
   };
   const aliveBackupPool = {
     url: backupPoolUrl,
-    status: "Alive" as const,
+    status: "Active" as const,
     priority: 1,
   };
   const deadBackupPool = {

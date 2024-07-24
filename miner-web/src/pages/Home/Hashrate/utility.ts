@@ -1,6 +1,5 @@
 import { Aggregates, HashrateResponseHashratedata } from "apiTypes";
 
-import { getDisplayValue } from "common/utils/stringUtils";
 import { convertMhSToThS } from "common/utils/utility";
 
 import { aggregateValues } from "components/Chart/utility";
@@ -23,9 +22,7 @@ export const convertAggregateValues = (
   return Object.keys(aggregates || {}).reduce(
     (acc = {}, key: string) => {
       const aggregateKey = key as keyof Aggregates;
-      const value = getDisplayValue(
-        convertMhSToThS(aggregates?.[aggregateKey])
-      );
+      const value = convertMhSToThS(aggregates?.[aggregateKey]).toFixed(2);
       if (value) acc[aggregateKey] = +value;
       return acc;
     },

@@ -19,6 +19,7 @@ import { usePower } from "./usePower";
 import { useSystemInfo } from "./useSystemInfo";
 import { useSystemLogs } from "./useSystemLogs";
 import { useSystemReboot } from "./useSystemReboot";
+import { useSystemStatus } from "./useSystemStatus";
 import { useTemperature } from "./useTemperature";
 import { TestConnectionProps, useTestConnection } from "./useTestConnection";
 
@@ -45,6 +46,7 @@ export {
   useSystemInfo,
   useSystemLogs,
   useSystemReboot,
+  useSystemStatus,
   useTemperature,
   useTestConnection,
   type TestConnectionProps,

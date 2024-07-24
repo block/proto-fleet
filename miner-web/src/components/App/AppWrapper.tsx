@@ -5,6 +5,7 @@ import {
   useMiningStart,
   useMiningStatus,
   useSystemInfo,
+  useSystemStatus,
 } from "api";
 
 import { useApiContext } from "common/hooks/useApiContext";
@@ -29,6 +30,8 @@ const AppWrapper = ({ children, title }: AppProps) => {
   const [wakeIntervalId, setWakeIntervalId] =
     useState<ReturnType<typeof setInterval>>();
   const [isOnboarding, setIsOnboarding] = useState(false);
+  const { data: systemStatus, pending: pendingSystemStatus } =
+    useSystemStatus();
   const { startMining } = useMiningStart();
   const { data: systemInfo, pending: pendingSystemInfo } = useSystemInfo();
   const { getItem, setItem } = useLocalStorage();
@@ -37,15 +40,15 @@ const AppWrapper = ({ children, title }: AppProps) => {
 
   // navigate to onboarding page if miner has not been onboarded
   useEffect(() => {
-    if (systemInfo) {
-      if ("onboarded" in systemInfo && !systemInfo.onboarded) {
+    if (!pendingSystemStatus && systemStatus?.onboarded !== undefined) {
+      if (systemStatus.onboarded) {
+        setItem("isOnboarded", true);
+      } else {
         setItem("isOnboarded", false);
         navigate("/onboarding");
-      } else {
-        setItem("isOnboarded", true);
       }
     }
-  }, [systemInfo, navigate, setItem]);
+  }, [navigate, setItem, systemStatus, pendingSystemStatus]);
 
   useEffect(() => {
     if (searchParams.get("onboarding")) {
@@ -88,7 +91,9 @@ const AppWrapper = ({ children, title }: AppProps) => {
 
   return (
     <>
-      {!getItem("isOnboarded") && pendingSystemInfo && !systemInfo ? (
+      {!getItem("isOnboarded") &&
+      pendingSystemStatus &&
+      systemStatus?.onboarded === undefined ? (
         <div className="min-h-screen flex items-center justify-center">
           <Spinner />
         </div>
