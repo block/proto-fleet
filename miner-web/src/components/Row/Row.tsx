@@ -30,7 +30,7 @@ const Row = ({
       <div className={clsx("peer", { "flex items-center": suffixIcon })}>
         <Element
           className={clsx(
-            "grow overflow-scroll w-full text-left",
+            "overflow-scroll w-full text-left",
             { "py-2": compact },
             { "py-4": !compact },
             { "px-4 -mx-4 rounded-lg": onClick },
