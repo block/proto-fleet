@@ -1,4 +1,4 @@
-import { navigationItems } from "./constants";
+import { type navigationItems } from "./constants";
 
 export type NavigationItemKey = keyof typeof navigationItems;
 export type NavigationItemValue =

@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 
-import { variants } from "components/Button";
+import { type variants } from "components/Button";
 
 export interface ButtonProps {
   className?: string;

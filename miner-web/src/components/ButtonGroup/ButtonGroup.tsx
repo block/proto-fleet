@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import clsx from "clsx";
 
-import Button, { sizes, variants } from "components/Button";
+import Button, { type sizes, variants } from "components/Button";
 
 import ButtonDivider from "./ButtonDivider";
 import { groupVariants } from "./constants";

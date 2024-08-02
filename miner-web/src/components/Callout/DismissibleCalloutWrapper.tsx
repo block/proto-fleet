@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 import clsx from "clsx";
 
-import Callout, { intents } from "components/Callout";
+import Callout, { type intents } from "components/Callout";
 
 interface DismissibleCalloutWrapperProps {
   className?: string;

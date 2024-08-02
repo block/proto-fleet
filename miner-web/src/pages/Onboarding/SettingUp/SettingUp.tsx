@@ -5,7 +5,7 @@ import Header from "components/Header";
 
 import { ArrowRight } from "icons";
 
-import { statuses } from "./constants";
+import { type statuses } from "./constants";
 import Item from "./Item";
 
 interface SettingUpProps {

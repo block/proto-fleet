@@ -25,7 +25,7 @@ export const PoolStatus = ({
             {
               ...(numberOfPools >= 1 && {
                 status: poolStatus,
-                url: "mine.ocean.xyz:1111",
+                url: "stratum+tcp://stratum.braiins.com:999999999",
                 priority: 1,
               }),
             },

@@ -17,9 +17,11 @@ const PoolInfoRow = ({ hasDivider, index, suffixIcon, url }: PoolInfoRowProps) =
         title={`${index === 0 ? "Default Pool" : `Backup Pool #${index}`}`}
         titleSize="text-emphasis-300"
         subtitle={url}
+        subtitleClassName="truncate"
         subtitleSize="text-200"
         className="!bg-transparent"
         compact
+        showSubtitleTooltip
       />
     </Row>
   );

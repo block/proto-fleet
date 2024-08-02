@@ -1,3 +1,3 @@
-import { durations } from "./constants";
+import { type durations } from "./constants";
 
 export type Duration = (typeof durations)[number];

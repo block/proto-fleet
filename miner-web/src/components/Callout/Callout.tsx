@@ -3,7 +3,7 @@ import clsx from "clsx";
 
 import Button, { sizes, variants } from "components/Button";
 
-import { intents } from "./constants";
+import { type intents } from "./constants";
 
 interface CalloutProps {
   className?: string;

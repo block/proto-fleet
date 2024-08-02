@@ -1,4 +1,4 @@
-import { logTypes } from "./constants";
+import { type logTypes } from "./constants";
 
 export type logType = (typeof logTypes)[keyof typeof logTypes];
 

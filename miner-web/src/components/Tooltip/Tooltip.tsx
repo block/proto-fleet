@@ -1,6 +1,6 @@
 import clsx from "clsx";
 
-import { positions } from "common/constants";
+import { type positions } from "common/constants";
 
 import { Question } from "icons";
 

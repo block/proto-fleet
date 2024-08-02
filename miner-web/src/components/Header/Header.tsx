@@ -16,8 +16,10 @@ interface HeaderProps {
   icon?: ReactNode;
   iconOnClick?: () => void;
   inline?: boolean;
-  subtitleSize?: string;
+  showSubtitleTooltip?: boolean;
   subtitle?: string;
+  subtitleClassName?: string;
+  subtitleSize?: string;
   testId?: string;
   title?: string;
   titleSize?: string;
@@ -32,7 +34,9 @@ const Header = ({
   icon,
   iconOnClick,
   inline = false,
+  showSubtitleTooltip,
   subtitle,
+  subtitleClassName,
   subtitleSize = "text-heading-100",
   testId,
   title,
@@ -46,7 +50,7 @@ const Header = ({
         className
       )}
     >
-      <div className={clsx({ "flex items-center": inline })}>
+      <div className={clsx("w-full", { "flex items-center": inline })}>
         {icon && iconOnClick && (
           <Button
             variant={variants.secondary}
@@ -70,7 +74,15 @@ const Header = ({
           </div>
         )}
         {subtitle && (
-          <div className={clsx("text-text-primary/70", subtitleSize)}>
+          <div
+            className={clsx(
+              "text-text-primary/70",
+              { "cursor-help": showSubtitleTooltip },
+              subtitleClassName,
+              subtitleSize
+            )}
+            title={showSubtitleTooltip ? subtitle : undefined}
+          >
             {subtitle}
           </div>
         )}

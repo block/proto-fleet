@@ -1,4 +1,4 @@
-import { info } from "./constants";
+import { type info } from "./constants";
 
 export type PoolInfo = Record<keyof typeof info, any>;
 
