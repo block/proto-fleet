@@ -6,20 +6,18 @@ import { MiningStatusMiningstatus } from "apiTypes";
 import App from "./App";
 
 export const WakeUpMiner = () => {
-  const [miningStatus, setMiningStatus] = useState<MiningStatusMiningstatus>({ status: "Stopped"});
+  const [miningStatus, setMiningStatus] = useState<MiningStatusMiningstatus>({
+    status: "Stopped",
+  });
 
   const handleWake = () => {
     setTimeout(() => {
-      setMiningStatus({ status: "Running" });
+      setMiningStatus({ status: "Mining" });
     }, 2000);
   };
 
   return (
-    <App
-      title="Page title"
-      apiMiningStatus={miningStatus}
-      onWake={handleWake}
-    >
+    <App title="Page title" apiMiningStatus={miningStatus} onWake={handleWake}>
       Page content
     </App>
   );

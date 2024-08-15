@@ -28,7 +28,7 @@ describe("Power Widget", () => {
 
   test("renders power widget popover with reboot and sleep if miner is running", () => {
     const { getByTestId, queryByTestId } = render(
-      <PowerWidget {...PowerWidgetProps} miningStatus={{ status: "Running" }} />
+      <PowerWidget {...PowerWidgetProps} miningStatus={{ status: "Mining" }} />
     );
     const buttonElement = getByTestId(powerButton);
     fireEvent.click(buttonElement);
@@ -72,7 +72,11 @@ describe("Power Widget", () => {
 
   test("closes popover on click of wake up", () => {
     const { getByTestId, queryByTestId } = render(
-      <PowerWidget shouldShowPopover {...PowerWidgetProps} miningStatus={{ status: "Stopped" }} />
+      <PowerWidget
+        shouldShowPopover
+        {...PowerWidgetProps}
+        miningStatus={{ status: "Stopped" }}
+      />
     );
     const buttonElement = getByTestId(popoverWakeUpButton);
     fireEvent.click(buttonElement);
@@ -99,7 +103,11 @@ describe("Power Widget", () => {
 
   test("shows confirmation dialog on click of wake up", () => {
     const { getByTestId } = render(
-      <PowerWidget shouldShowPopover {...PowerWidgetProps} miningStatus={{ status: "Stopped" }} />
+      <PowerWidget
+        shouldShowPopover
+        {...PowerWidgetProps}
+        miningStatus={{ status: "Stopped" }}
+      />
     );
     const buttonElement = getByTestId(popoverWakeUpButton);
     fireEvent.click(buttonElement);
@@ -136,7 +144,11 @@ describe("Power Widget", () => {
 
   test("closes the wake up confirmation dialog on click of cancel", async () => {
     const { getByTestId, queryByTestId } = render(
-      <PowerWidget shouldShowPopover {...PowerWidgetProps} miningStatus={{ status: "Stopped" }} />
+      <PowerWidget
+        shouldShowPopover
+        {...PowerWidgetProps}
+        miningStatus={{ status: "Stopped" }}
+      />
     );
     const buttonElement = getByTestId(popoverWakeUpButton);
     fireEvent.click(buttonElement);
@@ -178,7 +190,11 @@ describe("Power Widget", () => {
 
   test("shows wake up dialog on confirming wake up", async () => {
     const { getByTestId, queryByTestId } = render(
-      <PowerWidget shouldShowPopover {...PowerWidgetProps} miningStatus={{ status: "Stopped" }} />
+      <PowerWidget
+        shouldShowPopover
+        {...PowerWidgetProps}
+        miningStatus={{ status: "Stopped" }}
+      />
     );
     const buttonElement = getByTestId(popoverWakeUpButton);
     fireEvent.click(buttonElement);

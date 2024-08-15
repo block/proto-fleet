@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createSearchParams, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 import { useCreatePools, usePoolsInfo } from "api";
 
@@ -71,14 +71,7 @@ const SettingUpWrapper = ({ pools }: SettingUpWrapperProps) => {
     [isConfigured, poolStatus]
   );
 
-  const handleClickContinue = useCallback(
-    () =>
-      navigate({
-        pathname: "/",
-        search: `?${createSearchParams({ onboarding: "true" })}`,
-      }),
-    [navigate]
-  );
+  const handleClickContinue = useCallback(() => navigate("/"), [navigate]);
 
   return (
     <SettingUp

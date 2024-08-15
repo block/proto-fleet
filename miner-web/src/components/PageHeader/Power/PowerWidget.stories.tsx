@@ -6,11 +6,13 @@ import { MiningStatusMiningstatus } from "apiTypes";
 import PowerWidgetComponent from "./PowerWidget";
 
 export const PowerWidget = () => {
-  const [miningStatus, setMiningStatus] = useState<MiningStatusMiningstatus>({ status: "Running" });
+  const [miningStatus, setMiningStatus] = useState<MiningStatusMiningstatus>({
+    status: "Mining",
+  });
 
   const handleReboot = () => {
     action("rebooting")();
-    setTimeout(() => setMiningStatus({ status: "Running" }), 2000);
+    setTimeout(() => setMiningStatus({ status: "Mining" }), 2000);
   };
 
   const handleSleep = () => {
@@ -20,7 +22,7 @@ export const PowerWidget = () => {
 
   const handleWake = () => {
     action("waking up")();
-    setTimeout(() => setMiningStatus({ status: "Running" }), 2000);
+    setTimeout(() => setMiningStatus({ status: "Mining" }), 2000);
   };
 
   return (

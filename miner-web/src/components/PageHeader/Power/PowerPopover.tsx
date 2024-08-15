@@ -4,6 +4,7 @@ import { MiningStatusMiningstatus } from "apiTypes";
 
 import { positions } from "common/constants";
 
+import { isSleeping } from "components/App/utility";
 import { variants } from "components/Button";
 import { groupVariants } from "components/ButtonGroup";
 import Popover, { popoverSizes } from "components/Popover";
@@ -21,8 +22,8 @@ const PowerPopover = ({
   onSleep,
   onWake,
 }: PowerPopoverProps) => {
-  const isMining = useMemo(
-    () => !Object.keys(miningStatus).length || miningStatus?.status === "Running",
+  const isAwake = useMemo(
+    () => !isSleeping(miningStatus?.status),
     [miningStatus]
   );
 
@@ -30,7 +31,7 @@ const PowerPopover = ({
     <Popover
       title="Power"
       subtitle={
-        isMining
+        isAwake
           ? "Reboot or put your miner into sleep mode."
           : "Reboot or wake up your miner."
       }
@@ -43,10 +44,10 @@ const PowerPopover = ({
           testId: "popover-reboot-button",
         },
         {
-          text: isMining ? "Sleep" : "Wake up",
-          onClick: isMining ? onSleep : onWake,
+          text: isAwake ? "Sleep" : "Wake up",
+          onClick: isAwake ? onSleep : onWake,
           variant: variants.secondary,
-          testId: isMining ? "popover-sleep-button" : "popover-wake-up-button",
+          testId: isAwake ? "popover-sleep-button" : "popover-wake-up-button",
         },
       ]}
       buttonGroupVariant={groupVariants.stack}

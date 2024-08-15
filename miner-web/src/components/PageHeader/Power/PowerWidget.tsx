@@ -4,6 +4,7 @@ import { MiningStatusMiningstatus } from "apiTypes";
 
 import { useClickOutside } from "common/hooks/useClickOutside";
 
+import { isAwake, isSleeping, isWarmingUp } from "components/App/utility";
 import {
   EnteringSleepDialog,
   ExportingLogsDialog,
@@ -46,7 +47,9 @@ const PowerWidget = ({
   const WidgetRef = useRef<HTMLDivElement>(null);
   const [isOpen, setIsOpen] = useState(shouldShowPopover);
   const [warnReboot, setWarnReboot] = useState(false);
-  const [shouldReboot, setShouldReboot] = useState(false);
+  const [shouldReboot, setShouldReboot] = useState(
+    miningStatus.reboot_uptime_s ? isWarmingUp(miningStatus) : false
+  );
   const [shouldExportLogs, setShouldExportLogs] = useState(false);
   const [warnSleep, setWarnSleep] = useState(false);
   const [shouldSleep, setShouldSleep] = useState(false);
@@ -95,15 +98,15 @@ const PowerWidget = ({
   };
 
   useEffect(() => {
-    if (shouldReboot && miningStatus.status === "Running") {
+    if (shouldReboot && isAwake(miningStatus.status)) {
       setShouldReboot(false);
       afterReboot?.();
     }
-    if (shouldSleep && miningStatus.status === "Stopped") {
+    if (shouldSleep && isSleeping(miningStatus.status)) {
       setShouldSleep(false);
       afterSleep?.();
     }
-    if (shouldWake && miningStatus.status === "Running") {
+    if (shouldWake && isAwake(miningStatus.status)) {
       setShouldWake(false);
       afterWake?.();
     }

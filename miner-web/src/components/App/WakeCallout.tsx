@@ -7,17 +7,15 @@ import { WakingDialog, WarnWakeDialog } from "components/Power";
 
 import { Power } from "icons";
 
+import { isSleeping } from "./utility";
+
 interface WakeCalloutProps {
   afterWake?: () => void;
   miningStatus?: MiningStatusMiningstatus;
   onWake: () => void;
 }
 
-const WakeCallout = ({
-  afterWake,
-  miningStatus,
-  onWake,
-}: WakeCalloutProps) => {
+const WakeCallout = ({ afterWake, miningStatus, onWake }: WakeCalloutProps) => {
   const [warnWake, setWarnWake] = useState(false);
   const [shouldWake, setShouldWake] = useState(false);
 
@@ -28,7 +26,7 @@ const WakeCallout = ({
   }, [onWake]);
 
   useEffect(() => {
-    if (miningStatus?.status === "Running") {
+    if (!isSleeping(miningStatus?.status)) {
       setShouldWake(false);
       afterWake?.();
     }
@@ -36,7 +34,7 @@ const WakeCallout = ({
 
   return (
     <>
-      {miningStatus?.status === "Stopped" && (
+      {isSleeping(miningStatus?.status) && (
         <div className="mb-10">
           <Callout
             buttonOnClick={() => setWarnWake(true)}

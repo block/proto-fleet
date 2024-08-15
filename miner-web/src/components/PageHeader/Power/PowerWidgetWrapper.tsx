@@ -78,6 +78,11 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
     reboot();
   };
 
+  // TODO: remove this when data no longer gets cleared by reload
+  const handleAfterReboot = () => {
+    window.location.reload();
+  };
+
   const handleSleep = () => {
     stopMining();
     pollMiningStatus(2500);
@@ -101,7 +106,7 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
       onReboot={handleReboot}
       onSleep={handleSleep}
       onWake={handleWake}
-      afterReboot={handleClear}
+      afterReboot={handleAfterReboot}
       afterSleep={handleClear}
       afterWake={handleClear}
       shouldShowPopover={shouldShowPopover}

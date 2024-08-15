@@ -324,9 +324,17 @@ export interface MiningStatusMiningstatus {
   reboot_uptime_s?: number;
   /**
    * The indication will reveal whether the mining operation is currently active or has ceased
-   * @example "Running"
+   * @example "Mining"
    */
-  status?: "Stopped" | "Running" | "Degraded" | "Error";
+  status?:
+    | "Uninitialized"
+    | "PoweringOn"
+    | "Mining"
+    | "DegradedMining"
+    | "PoweringOff"
+    | "Stopped"
+    | "NoPools"
+    | "Error";
 }
 
 export interface MiningTarget {

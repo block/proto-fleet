@@ -6,11 +6,13 @@ import { MiningStatusMiningstatus } from "apiTypes";
 import App from "./App";
 
 export const WarmingUpMiner = () => {
-  const [miningStatus, setMiningStatus] = useState<MiningStatusMiningstatus>({ status: "Stopped"});
+  const [miningStatus, setMiningStatus] = useState<MiningStatusMiningstatus>({
+    status: undefined,
+  });
 
   useEffect(() => {
     setTimeout(() => {
-      setMiningStatus({ status: "Running" });
+      setMiningStatus({ status: "Mining" });
     }, 5000);
   }, []);
 
@@ -18,7 +20,6 @@ export const WarmingUpMiner = () => {
     <App
       title="Page title"
       apiMiningStatus={miningStatus}
-      isOnboarding={miningStatus.status === "Stopped"}
       onWake={() => {}}
     >
       Page content

@@ -6,6 +6,7 @@ import { MiningStatusMiningstatus, SystemInfoSysteminfo } from "apiTypes";
 import NavigationMenu from "components/NavigationMenu";
 import PageHeader from "components/PageHeader";
 
+import { isWarmingUp } from "./utility";
 import WakeCallout from "./WakeCallout";
 import WarmingUpCallout from "./WarmingUpCallout";
 
@@ -13,7 +14,6 @@ interface AppProps {
   afterWake?: () => void;
   apiMiningStatus?: MiningStatusMiningstatus;
   children?: ReactNode;
-  isOnboarding?: boolean;
   onWake: () => void;
   pendingSystemInfo?: boolean;
   systemInfo?: SystemInfoSysteminfo;
@@ -23,7 +23,6 @@ interface AppProps {
 const App = ({
   afterWake,
   apiMiningStatus,
-  isOnboarding,
   children,
   onWake,
   pendingSystemInfo,
@@ -86,7 +85,7 @@ const App = ({
           <div className="w-full h-[calc(100%-56px)] overflow-y-scroll relative">
             <div className="min-h-[calc(100%-56px-56px)] m-14 tablet:m-6 phone:m-6 flex justify-center">
               <div className="desktop:w-[928px] laptop:w-[608px] tablet:w-[584px] phone:w-[352px]">
-                {isOnboarding && miningStatus?.status !== "Running" ? (
+                {isWarmingUp(miningStatus) ? (
                   <WarmingUpCallout />
                 ) : (
                   <WakeCallout
