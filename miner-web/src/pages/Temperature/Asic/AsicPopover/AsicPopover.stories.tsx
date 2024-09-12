@@ -34,7 +34,7 @@ export const AsicPopover = ({
 };
 
 export default {
-  title: "Pages/Hardware/Asic Popover",
+  title: "Pages/Temperature/Asic Popover",
   args: {
     pendingAsicHashrateData: false,
     pendingAsicTemperatureData: false,

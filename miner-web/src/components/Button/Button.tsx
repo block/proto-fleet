@@ -67,7 +67,7 @@ const Button = ({
           "px-3 py-2": base && text,
           "p-2": base && !text,
           "px-2 py-1": compact && text,
-          "p-[6px]": compact && !text,
+          "px-2 py-[2px]": compact && !text,
         },
         // color and bg - primary
         {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { Granularity } from "pages/Hardware/types";
+import { Granularity } from "pages/Temperature/types";
 
 import { api } from "./api";
 import { TemperatureResponseTemperaturedata } from "./types";

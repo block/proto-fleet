@@ -4,42 +4,36 @@ import {
   Alert,
   AlertCompact,
   ArrowRight,
-  Caret,
   Checkmark,
   ConcentricCircles,
   Dismiss,
-  Home,
   Info,
   InfoInverted,
   Logo,
-  Mining,
+  Minus,
   Pause,
+  Plus,
   Power,
   Question,
-  Settings,
   Success,
-  Terminal,
 } from ".";
 
 const icons = {
   Alert,
   AlertCompact,
   ArrowRight,
-  Caret,
   Checkmark,
   ConcentricCircles,
   Dismiss,
-  Home,
   Info,
   InfoInverted,
   Logo,
-  Mining,
+  Minus,
   Pause,
+  Plus,
   Power,
   Question,
-  Settings,
   Success,
-  Terminal,
 };
 
 interface IconProps {
@@ -61,8 +55,10 @@ const IconWrapper = ({ Icons }: IconProps) => {
               <td className="p-4 border border-r-transparent border-border-primary/5">
                 {icon}
               </td>
-              <td className="border border-l-transparent border-border-primary/5">
-                <Icon className="m-auto" />
+              <td className="border border-l-transparent border-border-primary/5 m-auto">
+                <div className="flex justify-center">
+                  <Icon />
+                </div>
               </td>
             </Fragment>
           );

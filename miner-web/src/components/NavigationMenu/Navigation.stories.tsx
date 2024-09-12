@@ -30,6 +30,7 @@ export const NavigationSidebar = ({
         loading: versionLoading,
         value: hasVersion ? versionValue : undefined,
       }}
+      isVisible
     />
   );
 };

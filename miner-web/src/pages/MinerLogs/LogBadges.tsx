@@ -4,19 +4,14 @@ interface LogBadgesProps {
   className: string;
   count: number;
   label: string;
-  wrapperClassName: string;
 }
 
-const LogBadges = ({
-  className,
-  count,
-  label,
-  wrapperClassName,
-}: LogBadgesProps) => {
+const LogBadges = ({ className, count, label }: LogBadgesProps) => {
   return (
-    <div className={clsx("flex rounded text-heading-50", wrapperClassName)}>
-      <div className={clsx("px-2 py-1 rounded-s", className)}>{label}</div>
-      <div className="px-2 py-1 rounded-e">{count}</div>
+    <div className={clsx("rounded-lg text-emphasis-300 border", className)}>
+      <div className="px-2 py-[1px]">
+        {count} {label}
+      </div>
     </div>
   );
 };

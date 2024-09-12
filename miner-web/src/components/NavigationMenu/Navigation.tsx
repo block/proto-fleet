@@ -2,13 +2,13 @@ import { useCallback, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
-import { Caret, Home, Mining, Settings } from "icons";
+import { Logo, Minus, Plus } from "icons";
 
 import { navigationItems } from "./constants";
-import MacAddressInfo, { MacAddressInfoProps } from "./MacAddressInfo";
+import MacAddressInfo, { MacAddressInfoProps } from "./InfoItem/MacAddressInfo";
+import VersionInfo, { VersionInfoProps } from "./InfoItem/VersionInfo";
 import NavigationItem from "./NavigationItem";
 import { NavigationItemValue } from "./types";
-import VersionInfo, { VersionInfoProps } from "./VersionInfo";
 
 interface NavigationProps {
   macInfo?: MacAddressInfoProps;
@@ -32,7 +32,7 @@ const Navigation = ({ macInfo, onItemClick, versionInfo }: NavigationProps) => {
   const [showAccordionItems, setShowAccordionItems] = useState(
     pageName.startsWith("settings")
   );
-  const [showAccordionCaret, setShowAccordionCaret] = useState(false);
+  const [showAccordionExpand, setShowAccordionExpand] = useState(false);
 
   const handleClick = useCallback(
     (navigationItem: NavigationItemValue) => {
@@ -47,65 +47,75 @@ const Navigation = ({ macInfo, onItemClick, versionInfo }: NavigationProps) => {
   }, []);
 
   const handleAccordionHover = useCallback((hover: boolean) => {
-    setShowAccordionCaret(hover);
+    setShowAccordionExpand(hover);
   }, []);
 
   return (
     <div
       className={clsx(
-        "w-[240px] min-h-screen p-3 flex flex-col bg-core-primary-fill text-text-contrast/70",
+        "w-[240px] min-h-screen flex flex-col bg-surface-base text-text-primary/70 border-r border-border-primary/5",
         "tablet:min-h-[calc(100vh-16px)] tablet:z-30 tablet:absolute tablet:rounded-lg",
         "phone:min-h-[calc(100vh-16px)] phone:z-30 phone:absolute phone:rounded-lg"
       )}
     >
-      <div className="grow">
-        {/* TODO: replace with logo when ready */}
-        <div className="text-[18px] font-semibold text-text-contrast py-2 mb-3">
-          Proto
+      <div className="grow border-b border-border-primary/5">
+        <div className="h-[60px] px-3 py-2 flex items-center border-b border-border-primary/5 mb-3">
+          <Logo />
         </div>
-        <NavigationItem
-          icon={<Home />}
-          id={navigationItems.home}
-          text="Home"
-          onClick={handleClick}
-          pageName={pageName}
-        />
-        <NavigationItem
-          icon={<Mining />}
-          id={navigationItems.hardware}
-          text="Hardware"
-          onClick={handleClick}
-          pageName={pageName}
-        />
-        <NavigationItem
-          icon={<Settings />}
-          suffixIcon={
-            showAccordionCaret || showAccordionItems ? (
-              <Caret
-                className={clsx("transition-transform", {
-                  "-rotate-90": showAccordionCaret && !showAccordionItems,
-                })}
+        <div className="px-3">
+          <NavigationItem
+            id={navigationItems.home}
+            text="Home"
+            onClick={handleClick}
+            pageName={pageName}
+          />
+          <NavigationItem
+            id={navigationItems.temperature}
+            text="Temperature"
+            onClick={handleClick}
+            pageName={pageName}
+          />
+          <NavigationItem
+            id={navigationItems.logs}
+            text="Logs"
+            onClick={handleClick}
+            pageName={pageName}
+          />
+          <NavigationItem
+            suffixIcon={
+              showAccordionExpand || showAccordionItems ? (
+                showAccordionExpand && !showAccordionItems ? (
+                  <Plus />
+                ) : (
+                  <Minus />
+                )
+              ) : undefined
+            }
+            text="Settings"
+            onClick={handleAccordionClick}
+            onHover={handleAccordionHover}
+          />
+          {showAccordionItems && (
+            <>
+              <NavigationItem
+                id={navigationItems.miningPools}
+                text="Mining Pools"
+                onClick={handleClick}
+                pageName={pageName}
+                isChildItem
               />
-            ) : undefined
-          }
-          text="Settings"
-          onClick={handleAccordionClick}
-          onHover={handleAccordionHover}
-        />
-        {showAccordionItems && (
-          <>
-            <NavigationItem
-              id={navigationItems.miningPools}
-              text="Mining Pools"
-              onClick={handleClick}
-              pageName={pageName}
-            />
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
 
-      <VersionInfo loading={versionInfo?.loading} value={versionInfo?.value} />
-      <MacAddressInfo loading={macInfo?.loading} value={macInfo?.value} />
+      <div className="px-3 pb-1">
+        <VersionInfo
+          loading={versionInfo?.loading}
+          value={versionInfo?.value}
+        />
+        <MacAddressInfo loading={macInfo?.loading} value={macInfo?.value} />
+      </div>
     </div>
   );
 };

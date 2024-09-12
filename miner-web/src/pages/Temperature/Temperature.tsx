@@ -23,7 +23,7 @@ import AsicTable from "./Asic/AsicTableWrapper";
 import { Granularity } from "./types";
 import { sortHashboards } from "./utility";
 
-interface HardwareProps {
+interface TemperatureProps {
   coolingStatus?: CoolingStatusCoolingstatus;
   duration: Duration;
   hashboardsInfo?: HashboardsInfoHashboardsinfo[];
@@ -35,7 +35,7 @@ interface HardwareProps {
   tempData?: TemperatureResponseTemperaturedata;
 }
 
-const Hardware = ({
+const Temperature = ({
   coolingStatus,
   duration,
   hashboardsInfo,
@@ -45,7 +45,7 @@ const Hardware = ({
   pendingTempData,
   setDuration,
   tempData,
-}: HardwareProps) => {
+}: TemperatureProps) => {
   const { setItem } = useLocalStorage();
   const [showPopover, setShowPopover] = useState<string | undefined>(undefined);
   const [fanSpeeds, setFanSpeeds] = useState<FanInfo[]>();
@@ -114,7 +114,7 @@ const Hardware = ({
   return (
     <div className="flex flex-col space-y-6 h-full">
       <div className="flex items-center">
-        <div className="text-heading-300 grow">Hardware</div>
+        <div className="text-heading-300 grow">Temperature</div>
         <DurationSelector
           className="h-fit"
           duration={duration}
@@ -175,4 +175,4 @@ const Hardware = ({
   );
 };
 
-export default Hardware;
+export default Temperature;

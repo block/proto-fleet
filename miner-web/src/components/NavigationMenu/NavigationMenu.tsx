@@ -1,9 +1,9 @@
 import { useWindowDimensions } from "common/hooks/useWindowDimensions";
 
 import FloatingNavigation from "./FloatingNavigation";
-import { MacAddressInfoProps } from "./MacAddressInfo";
+import { MacAddressInfoProps } from "./InfoItem/MacAddressInfo";
+import { VersionInfoProps } from "./InfoItem/VersionInfo";
 import Navigation from "./Navigation";
-import { VersionInfoProps } from "./VersionInfo";
 
 interface NavigationMenuProps {
   closeMenu?: () => void;

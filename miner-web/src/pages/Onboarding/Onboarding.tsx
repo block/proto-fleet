@@ -91,7 +91,7 @@ const Onboarding = () => {
             onContinueWithoutBackup={onContinueWithoutBackup}
             show={warnBackupPool}
           />
-          <div className="mt-[66px] h-full">
+          <div className="mt-[60px] h-full">
             <OnboardingNavigation
               isVisible={isMenuOpen}
               closeMenu={() => setIsMenuOpen(false)}

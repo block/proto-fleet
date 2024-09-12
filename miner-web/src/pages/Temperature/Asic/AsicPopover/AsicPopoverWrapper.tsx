@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useAsicHashrate, useAsicTemperature } from "api";
 import { AsicStats, HashrateResponseHashratedata } from "apiTypes";
 
-import { Granularity } from "pages/Hardware/types";
+import { Granularity } from "pages/Temperature/types";
 
 // import { dangerTemp } from "../../constants";
 import { ChartData } from "./AsicChart/types";

@@ -38,7 +38,7 @@ const Navigation = ({
         "border-r border-border-primary/5 flex flex-col fixed bg-surface-base z-30",
         "desktop:w-80 laptop:w-80 tablet:w-60 phone:w-60",
         "desktop:h-[calc(100vh-66px)] laptop:h-[calc(100vh-66px)] tablet:h-[calc(100vh-16px)] phone:h-[calc(100vh-16px)]",
-        "tablet:-mt-[66px] phone:-mt-[66px]",
+        "tablet:-mt-[60px] phone:-mt-[60px] tablet:rounded-lg phone:rounded-lg",
       )}
     >
       <div className="flex-1 p-6">

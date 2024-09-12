@@ -1,8 +1,6 @@
-import { useLocation, useNavigate } from "react-router-dom";
-
 import { useWindowDimensions } from "common/hooks/useWindowDimensions";
 
-import { Pause, Terminal } from "icons";
+import { Pause } from "icons";
 
 import PoolStatus from "./PoolStatus";
 import PowerWidget from "./Power";
@@ -15,15 +13,8 @@ interface PageHeaderProps {
 
 const PageHeader = ({ openMenu, title }: PageHeaderProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  const handleClickTerminal = () => {
-    navigate("/logs", { state: { from: { pathname: location.pathname } } });
-  };
-
   return (
-    <div className="h-[56px] flex border-b border-border-primary/5 items-center">
+    <div className="h-[60px] flex border-b border-border-primary/5 items-center">
       <div className="flex grow px-4 items-center">
         <div className="flex grow">
           {(isPhone || isTablet) && (
@@ -41,11 +32,6 @@ const PageHeader = ({ openMenu, title }: PageHeaderProps) => {
           {/* <Warning errorCount={47} errorType="asic" state="critical" />
           <Warning errorCount={12} errorType="fan" state="warning" /> */}
         </div>
-      </div>
-      <div className="border-l-[1px] border-border-primary/5 px-5 h-full flex items-center">
-        <button onClick={handleClickTerminal}>
-          <Terminal />
-        </button>
       </div>
     </div>
   );

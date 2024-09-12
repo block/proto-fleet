@@ -12,9 +12,9 @@ import { useLocalStorage } from "common/hooks/useLocalStorage";
 
 import { Duration, durations } from "components/DurationSelector";
 
-import Hardware from "./Hardware";
+import Temperature from "./Temperature";
 
-const HardwareWrapper = () => {
+const TemperatureWrapper = () => {
   const { getItem } = useLocalStorage();
   const [duration, setDuration] = useState<Duration>(
     getItem("duration") || durations[0]
@@ -36,7 +36,7 @@ const HardwareWrapper = () => {
   });
 
   return (
-    <Hardware
+    <Temperature
       coolingStatus={coolingStatus}
       duration={duration}
       hashboardsInfo={hashboardsInfo}
@@ -50,4 +50,4 @@ const HardwareWrapper = () => {
   );
 };
 
-export default HardwareWrapper;
+export default TemperatureWrapper;

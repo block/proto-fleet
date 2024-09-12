@@ -3,9 +3,9 @@ import clsx from "clsx";
 
 import { usePreventScroll } from "common/hooks/usePreventScroll";
 
-import { MacAddressInfoProps } from "./MacAddressInfo";
+import { MacAddressInfoProps } from "./InfoItem/MacAddressInfo";
+import { VersionInfoProps } from "./InfoItem/VersionInfo";
 import Navigation from "./Navigation";
-import { VersionInfoProps } from "./VersionInfo";
 
 interface FloatingNavigationProps {
   closeMenu?: () => void;

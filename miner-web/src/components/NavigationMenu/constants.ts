@@ -1,5 +1,6 @@
 export const navigationItems = {
   home: "home",
-  hardware: "hardware",
+  temperature: "temperature",
+  logs: "logs",
   miningPools: "settings/mining-pools",
 } as const;

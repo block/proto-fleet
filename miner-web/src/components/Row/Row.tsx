@@ -30,11 +30,12 @@ const Row = ({
       <div className={clsx("peer", { "flex items-center": suffixIcon })}>
         <Element
           className={clsx(
-            "w-full text-left truncate",
+            "text-left truncate",
             { "py-2": compact },
             { "py-4": !compact },
-            { "px-4 -mx-4 rounded-lg": onClick },
+            { "px-4 -ml-4 rounded-lg w-[calc(100%+32px)]": onClick },
             { "hover:bg-surface-5": onClick && !isActive },
+            { "w-full": !onClick },
             className
           )}
           onClick={onClick}
@@ -47,7 +48,7 @@ const Row = ({
       {divider && (
         <Divider
           className={clsx("mt-[-1px]", {
-            "peer-hover:invisible px-4 -mx-4": onClick,
+            "peer-hover:invisible px-4": onClick,
           })}
         />
       )}

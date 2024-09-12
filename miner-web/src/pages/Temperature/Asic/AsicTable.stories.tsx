@@ -40,7 +40,7 @@ export const AsicTable = ({ pending }: AsicTableProps) => {
 };
 
 export default {
-  title: "Pages/Hardware/Asic Table",
+  title: "Pages/Temperature/Asic Table",
   args: {
     pending: false,
   },

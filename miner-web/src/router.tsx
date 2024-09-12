@@ -2,11 +2,11 @@ import { createBrowserRouter } from "react-router-dom";
 
 import App from "components/App";
 
-import Hardware from "pages/Hardware";
 import Home from "pages/Home";
 import Logs from "pages/MinerLogs";
 import Onboarding from "pages/Onboarding";
 import MiningPools from "pages/Settings/MiningPools";
+import Temperature from "pages/Temperature";
 
 
 const router = createBrowserRouter([
@@ -15,8 +15,8 @@ const router = createBrowserRouter([
     element: <App title="Home"><Home /></App>,
   },
   {
-    path: "/hardware",
-    element: <App title="Hardware"><Hardware /></App>,
+    path: "/temperature",
+    element: <App title="Temperature"><Temperature /></App>,
   },
   {
     path: "/home",
@@ -24,7 +24,7 @@ const router = createBrowserRouter([
   },
   {
     path: "/logs",
-    element: <Logs />,
+    element: <App title="Logs" fullScreen><Logs /></App>,
   },
   {
     path: "/onboarding",

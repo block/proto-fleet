@@ -15,7 +15,7 @@ const OnboardingHeader = ({ button, openMenu }: OnboardingHeaderProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
   return (
     <div className="fixed w-full bg-surface-base z-10">
-      <div className="border-b border-border-primary/5 px-6 py-3 flex items-center">
+      <div className="border-b border-border-primary/5 px-6 h-[60px] flex items-center">
         <Header
           icon={
             <>

@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useState } from "react";
+import clsx from "clsx";
 
 import { ApiContext, useNetworkInfo, usePoll, usePoolsInfo } from "api";
 import { MiningStatusMiningstatus, SystemInfoSysteminfo } from "apiTypes";
@@ -14,6 +15,7 @@ interface AppProps {
   afterWake?: () => void;
   apiMiningStatus?: MiningStatusMiningstatus;
   children?: ReactNode;
+  fullScreen?: boolean;
   onWake: () => void;
   pendingSystemInfo?: boolean;
   systemInfo?: SystemInfoSysteminfo;
@@ -24,6 +26,7 @@ const App = ({
   afterWake,
   apiMiningStatus,
   children,
+  fullScreen,
   onWake,
   pendingSystemInfo,
   systemInfo,
@@ -65,7 +68,7 @@ const App = ({
         },
       }}
     >
-      <div className="flex h-screen bg-core-primary-fill">
+      <div className="flex h-screen bg-surface-base">
         <div className="grow">
           <NavigationMenu
             macInfo={{
@@ -80,11 +83,21 @@ const App = ({
             }}
           />
         </div>
-        <div className="w-full laptop:rounded-s-2xl desktop:laptop:rounded-s-2xl bg-surface-base">
+        <div className="w-full">
           <PageHeader title={title} openMenu={() => setIsMenuOpen(true)} />
-          <div className="w-full h-[calc(100%-56px)] overflow-y-scroll relative">
-            <div className="min-h-[calc(100%-56px-56px)] m-14 tablet:m-6 phone:m-6 flex justify-center">
-              <div className="desktop:w-[928px] laptop:w-[608px] tablet:w-[584px] phone:w-[352px]">
+          <div className="w-full h-[calc(100%-60px)] overflow-y-scroll relative">
+            <div
+              className={clsx(
+                "min-h-[calc(100%-60px-60px)] flex justify-center",
+                { "m-14 tablet:m-6 phone:m-6": !fullScreen }
+              )}
+            >
+              <div
+                className={clsx({
+                  "desktop:w-[928px] laptop:w-[608px] tablet:w-[584px] phone:w-[352px]":
+                    !fullScreen,
+                })}
+              >
                 {isWarmingUp(miningStatus) ? (
                   <WarmingUpCallout />
                 ) : (

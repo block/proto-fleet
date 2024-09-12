@@ -90,7 +90,7 @@ const TempModal = ({
 
   const handleClickViewAsics = useCallback(() => {
     onDismiss();
-    navigate("/hardware");
+    navigate("/temperature");
   }, [navigate, onDismiss]);
 
   return (

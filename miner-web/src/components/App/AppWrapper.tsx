@@ -18,10 +18,11 @@ import { isMining, isWarmingUp } from "./utility";
 
 interface AppProps {
   children?: ReactNode;
+  fullScreen?: boolean;
   title: string;
 }
 
-const AppWrapper = ({ children, title }: AppProps) => {
+const AppWrapper = ({ children, fullScreen, title }: AppProps) => {
   const { setMiningStatus } = useApiContext();
   const [initPage, setInitPage] = useState(false);
   const { data: miningStatus, fetchData: fetchMiningStatus } =
@@ -106,6 +107,7 @@ const AppWrapper = ({ children, title }: AppProps) => {
           afterWake={afterWake}
           systemInfo={systemInfo}
           pendingSystemInfo={pendingSystemInfo}
+          fullScreen={fullScreen}
         >
           {children}
         </App>

@@ -57,13 +57,13 @@ const AsicModalContent = ({ onDismiss }: AsicModalContentProps) => {
           </div>
         </Row>
       ))}
-      {numberOfErrors > 8 && pathname !== `/${navigationItems.hardware}` && (
+      {numberOfErrors > 8 && pathname !== `/${navigationItems.temperature}` && (
         <Row
           className="text-emphasis-300 text-text-emphasis -mb-3"
           divider={false}
           compact
         >
-          <Link to="/hardware" onClick={onDismiss}>
+          <Link to="/temperature" onClick={onDismiss}>
             View all ASICs
           </Link>
         </Row>
