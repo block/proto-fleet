@@ -1,6 +1,8 @@
 import {
   ChangeEvent,
+  Fragment,
   KeyboardEvent,
+  RefObject,
   useCallback,
   useEffect,
   useState,
@@ -10,11 +12,17 @@ import clsx from "clsx";
 import { positions } from "common/constants";
 
 import Tooltip from "components/Tooltip";
+import { DismissCircle } from "icons";
 
 interface InputProps {
+  compact?: boolean;
+  dismiss?: boolean;
   error?: string;
+  hideLabelOnFocus?: boolean;
   id: string;
   initValue?: string;
+  inputRef?: RefObject<HTMLInputElement>;
+  keyboardShortcuts?: string[];
   label: string;
   maxLength?: number;
   onChange?: (value: string, id: string) => void;
@@ -25,9 +33,14 @@ interface InputProps {
 }
 
 const Input = ({
+  compact,
+  dismiss,
   error,
+  hideLabelOnFocus,
   id,
   initValue = "",
+  inputRef,
+  keyboardShortcuts,
   label,
   maxLength,
   onChange,
@@ -59,8 +72,8 @@ const Input = ({
   }, [error, timeoutId]);
 
   const handleChange = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
-      const newValue = (event.target as HTMLInputElement).value;
+    (event?: ChangeEvent<HTMLInputElement>) => {
+      const newValue = (event?.target as HTMLInputElement).value || "";
       setValue(newValue);
       onChange?.(newValue, id);
     },
@@ -81,27 +94,39 @@ const Input = ({
         id={id}
         data-testid={testId}
         className={clsx(
-          "peer rounded-lg w-full h-14 outline-none pt-[18px] px-4 text-300",
+          "peer rounded-lg w-full outline-none text-300 text-text-primary/90",
           "transition-[border-color] ease-in-out duration-200",
           {
             "border focus:border-[1.5px] border-border-primary/5 focus:border-border-primary":
-              !error,
+              !error && !compact,
           },
-          { "border-[1.5px] border-intent-critical-fill/50 ": error }
+          { "border-[1.5px] border-intent-critical-fill/50 ": error },
+          { "pt-[18px]": !hideLabelOnFocus },
+          { "h-14 px-4": !compact },
+          { "h-6": compact }
         )}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         maxLength={maxLength}
         autoComplete="off"
         value={value}
+        ref={inputRef}
       />
       <label
         htmlFor={id}
         className={clsx(
-          "text-text-primary/50 absolute left-[17px] transition-[top] ease-in-out duration-150ms",
-          { "top-[18px] text-300": !value.length },
+          "text-text-primary/50 absolute cursor-text",
+          { "text-300": !value.length },
+          { "left-0": compact },
+          { "left-[17px]": !compact },
+          { "top-[18px]": !value.length && !compact },
           { "top-[7px] text-200": value.length },
-          "peer-focus:top-[7px] peer-focus:text-200"
+          {
+            "transition-[top] ease-in-out duration-150ms peer-focus:top-[7px] peer-focus:text-200":
+              !hideLabelOnFocus,
+          },
+          { "peer-focus:invisible": hideLabelOnFocus },
+          { invisible: hideLabelOnFocus && value.length }
         )}
       >
         {label}
@@ -115,6 +140,27 @@ const Input = ({
           />
         </div>
       )}
+      {dismiss && value.length && !compact ? (
+        <div
+          className={clsx("absolute right-4", {
+            "top-1": compact,
+            "top-7 transform -translate-y-1/2": !compact,
+          })}
+        >
+          <DismissCircle
+            onClick={handleChange}
+            className="hover:cursor-pointer"
+            opacity="0.7"
+          />
+        </div>
+      ) : undefined}
+      {keyboardShortcuts && !value.length ? (
+        <div className="absolute right-4 top-7 transform -translate-y-1/2 flex space-x-[2px] text-300 font-semibold text-text-primary/30 bg-surface-5 rounded px-2 shadow-100">
+          {keyboardShortcuts.map((shortcut, index) => (
+            <Fragment key={index}>{shortcut}</Fragment>
+          ))}
+        </div>
+      ) : undefined}
       <div
         className={clsx(
           "text-intent-critical-fill text-200",

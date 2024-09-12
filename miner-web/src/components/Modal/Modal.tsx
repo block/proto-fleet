@@ -67,13 +67,13 @@ const Modal = ({
     [closeModal]
   );
 
-  useKeyDown({ key: "Escape", onKeyDown: closeModal });
-
-  const onClickOutside = useCallback(() => {
+  const dismissModal = useCallback(() => {
     closeModal();
   }, [closeModal]);
 
-  useClickOutside({ ref: ModalRef, onClickOutside });
+  useKeyDown({ key: "Escape", onKeyDown: dismissModal });
+
+  useClickOutside({ ref: ModalRef, onClickOutside: dismissModal });
 
   return (
     <PageOverlay show={showModal}>
@@ -91,7 +91,7 @@ const Modal = ({
         <Header
           title={title}
           icon={<Dismiss />}
-          iconOnClick={onClickOutside}
+          iconOnClick={dismissModal}
           buttons={buttons?.map((button) => ({
             ...button,
             onClick: onButtonClick(button),

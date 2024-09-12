@@ -1,22 +1,26 @@
 import { useEffect } from "react";
 
 interface CloseOnEscProps {
-  key: string;
-  onKeyDown: () => void;
+  key?: string;
+  onKeyDown: (event: KeyboardEvent) => void;
 }
 
 const useKeyDown = ({ key, onKeyDown }: CloseOnEscProps) => {
   useEffect(() => {
-    const dismissOnEsc = (event: KeyboardEvent) => {
-      if (event.key === key) {
-        onKeyDown();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (key) {
+        if (event.key === key) {
+          onKeyDown(event);
+        }
+      } else {
+        onKeyDown(event);
       }
     };
 
-    document.addEventListener("keydown", dismissOnEsc, false);
+    document.addEventListener("keydown", handleKeyDown, false);
 
     return () => {
-      document.removeEventListener("keydown", dismissOnEsc, false);
+      document.removeEventListener("keydown", handleKeyDown, false);
     };
   }, [key, onKeyDown]);
 };

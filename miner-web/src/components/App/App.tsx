@@ -88,8 +88,8 @@ const App = ({
           <div className="w-full h-[calc(100%-60px)] overflow-y-scroll relative">
             <div
               className={clsx(
-                "min-h-[calc(100%-60px-60px)] flex justify-center",
-                { "m-14 tablet:m-6 phone:m-6": !fullScreen }
+                "min-h-[calc(100%-60px-60px)]",
+                { "flex justify-center m-14 tablet:m-6 phone:m-6": !fullScreen }
               )}
             >
               <div

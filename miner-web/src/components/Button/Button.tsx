@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { MouseEvent, ReactNode } from "react";
 import clsx from "clsx";
 
 import Spinner from "components/Spinner";
@@ -11,7 +11,7 @@ interface ButtonProps {
   children?: ReactNode;
   disabled?: boolean;
   loading?: boolean;
-  onClick?: () => void;
+  onClick?: (e: MouseEvent<HTMLButtonElement>) => void;
   prefixIcon?: ReactNode;
   size?: keyof typeof sizes;
   suffixIcon?: ReactNode;
@@ -66,8 +66,8 @@ const Button = ({
         {
           "px-3 py-2": base && text,
           "p-2": base && !text,
-          "px-2 py-1": compact && text,
-          "px-2 py-[2px]": compact && !text,
+          "px-2 py-[2px]": compact && text,
+          "p-[6px]": compact && !text,
         },
         // color and bg - primary
         {
