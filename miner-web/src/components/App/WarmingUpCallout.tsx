@@ -7,7 +7,7 @@ const WarmingUpCallout = () => {
       <Callout
         intent={intents.default}
         prefixIcon={<Spinner />}
-        subtitle="Your miner is warming up. Once warmed up, it’ll start mining. This can take a few minutes."
+        title="Your miner is warming up. Once warmed up, it’ll start mining. This can take a few minutes."
       />
     </div>
   );

@@ -24,7 +24,7 @@ const router = createBrowserRouter([
   },
   {
     path: "/logs",
-    element: <App title="Logs" fullScreen><Logs /></App>,
+    element: <App title="Logs" fullScreen hideErrors><Logs /></App>,
   },
   {
     path: "/onboarding",

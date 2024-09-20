@@ -2,21 +2,29 @@ import { ReactNode, useEffect, useState } from "react";
 import clsx from "clsx";
 
 import { ApiContext, useNetworkInfo, usePoll, usePoolsInfo } from "api";
-import { MiningStatusMiningstatus, SystemInfoSysteminfo } from "apiTypes";
+import {
+  ErrorListResponse,
+  MiningStatusMiningstatus,
+  SystemInfoSysteminfo,
+} from "apiTypes";
 
 import NavigationMenu from "components/NavigationMenu";
 import PageHeader from "components/PageHeader";
 
-import { isWarmingUp } from "./utility";
+import ErrorCallout from "./ErrorCallout";
+import { isSleeping, isWarmingUp } from "./utility";
 import WakeCallout from "./WakeCallout";
 import WarmingUpCallout from "./WarmingUpCallout";
 
 interface AppProps {
   afterWake?: () => void;
+  apiErrors?: ErrorListResponse;
   apiMiningStatus?: MiningStatusMiningstatus;
   children?: ReactNode;
   fullScreen?: boolean;
-  onWake: () => void;
+  hideErrors?: boolean;
+  onWake?: () => void;
+  pendingErrors?: boolean;
   pendingSystemInfo?: boolean;
   systemInfo?: SystemInfoSysteminfo;
   title: string;
@@ -24,10 +32,13 @@ interface AppProps {
 
 const App = ({
   afterWake,
+  apiErrors,
   apiMiningStatus,
   children,
   fullScreen,
+  hideErrors,
   onWake,
+  pendingErrors,
   pendingSystemInfo,
   systemInfo,
   title,
@@ -42,6 +53,7 @@ const App = ({
   const [miningStatus, setMiningStatus] = useState<
     MiningStatusMiningstatus | undefined
   >(apiMiningStatus);
+  const [errors, setErrors] = useState(apiErrors);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -49,6 +61,12 @@ const App = ({
       setMiningStatus(apiMiningStatus);
     }
   }, [apiMiningStatus]);
+
+  useEffect(() => {
+    if (apiErrors !== undefined) {
+      setErrors(apiErrors);
+    }
+  }, [apiErrors]);
 
   usePoll({
     fetchData: () => fetchPoolsInfo({ retryOnMinerDown: true }),
@@ -58,6 +76,7 @@ const App = ({
   return (
     <ApiContext.Provider
       value={{
+        errors: { errors: errors || [], pending: !!pendingErrors },
         miningStatus: miningStatus || {},
         setMiningStatus,
         poolsInfo: poolsInfo,
@@ -87,10 +106,9 @@ const App = ({
           <PageHeader title={title} openMenu={() => setIsMenuOpen(true)} />
           <div className="w-full h-[calc(100%-60px)] overflow-y-scroll relative">
             <div
-              className={clsx(
-                "min-h-[calc(100%-60px-60px)]",
-                { "flex justify-center m-14 tablet:m-6 phone:m-6": !fullScreen }
-              )}
+              className={clsx("min-h-[calc(100%-60px-60px)]", {
+                "flex justify-center m-14 tablet:m-6 phone:m-6": !fullScreen,
+              })}
             >
               <div
                 className={clsx({
@@ -107,6 +125,9 @@ const App = ({
                     onWake={onWake}
                   />
                 )}
+                {!isWarmingUp(miningStatus) && !isSleeping(miningStatus?.status) && errors?.length && !hideErrors ? (
+                  <ErrorCallout errors={errors} />
+                ) : null}
                 {children}
               </div>
             </div>

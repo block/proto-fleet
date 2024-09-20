@@ -90,6 +90,7 @@ const Modal = ({
       >
         <Header
           title={title}
+          titleSize="text-heading-200"
           icon={<Dismiss />}
           iconOnClick={dismissModal}
           buttons={buttons?.map((button) => ({

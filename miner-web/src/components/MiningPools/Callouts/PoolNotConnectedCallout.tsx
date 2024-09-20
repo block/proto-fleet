@@ -22,7 +22,7 @@ const PoolNotConnectedCallout = ({
       intent={intents.warning}
       onDismiss={onDismiss}
       show={show}
-      subtitle={
+      title={
         <>
           We couldn’t connect with your {getPoolType(currentPoolIndex)} pool.
           <br />

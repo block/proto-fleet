@@ -2,8 +2,10 @@ import { ReactNode, useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
+  useErrors,
   useMiningStart,
   useMiningStatus,
+  usePoll,
   useSystemInfo,
   useSystemStatus,
 } from "api";
@@ -19,12 +21,14 @@ import { isMining, isWarmingUp } from "./utility";
 interface AppProps {
   children?: ReactNode;
   fullScreen?: boolean;
+  hideErrors?: boolean;
   title: string;
 }
 
-const AppWrapper = ({ children, fullScreen, title }: AppProps) => {
+const AppWrapper = ({ children, fullScreen, hideErrors, title }: AppProps) => {
   const { setMiningStatus } = useApiContext();
   const [initPage, setInitPage] = useState(false);
+  const { data: errors, fetchData: fetchErrors, pending: pendingErrors } = useErrors();
   const { data: miningStatus, fetchData: fetchMiningStatus } =
     useMiningStatus();
   const [intervalId, setIntervalId] =
@@ -49,6 +53,12 @@ const AppWrapper = ({ children, fullScreen, title }: AppProps) => {
       }
     }
   }, [navigate, setItem, systemStatus, pendingSystemStatus]);
+
+  usePoll({
+    fetchData: fetchErrors,
+    poll: true,
+    pollIntervalMs: 5000,
+  });
 
   useEffect(() => {
     if (!systemStatus?.onboarded) {
@@ -102,12 +112,15 @@ const AppWrapper = ({ children, fullScreen, title }: AppProps) => {
       ) : (
         <App
           title={title}
+          apiErrors={errors}
+          pendingErrors={pendingErrors}
           apiMiningStatus={miningStatus}
           onWake={handleWake}
           afterWake={afterWake}
           systemInfo={systemInfo}
           pendingSystemInfo={pendingSystemInfo}
           fullScreen={fullScreen}
+          hideErrors={hideErrors}
         >
           {children}
         </App>

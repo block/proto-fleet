@@ -29,7 +29,7 @@ const WarnRebootDialog = ({
       <Callout
         className="!px-3 !py-2"
         intent={intents.information}
-        subtitle="Miner logs get reset when you reboot your miner so we’ll auto-export your logs before the miner reboots."
+        title="Miner logs get reset when you reboot your miner so we’ll auto-export your logs before the miner reboots."
         prefixIcon={<InfoInverted />}
       />
       <ButtonGroup

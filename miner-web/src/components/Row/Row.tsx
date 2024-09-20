@@ -10,6 +10,7 @@ interface RowProps {
   divider?: boolean;
   isActive?: boolean;
   onClick?: () => void;
+  prefixIcon?: ReactNode;
   suffixIcon?: ReactNode;
   testId?: string;
 }
@@ -21,13 +22,15 @@ const Row = ({
   divider = true,
   isActive,
   onClick,
+  prefixIcon,
   suffixIcon,
   testId,
 }: RowProps) => {
   const Element = onClick ? "button" : "div";
   return (
     <div>
-      <div className={clsx("peer", { "flex items-center": suffixIcon })}>
+      <div className={clsx("peer", { "flex items-center": suffixIcon || prefixIcon })}>
+        <div className="mr-4">{prefixIcon}</div>
         <Element
           className={clsx(
             "text-left truncate",

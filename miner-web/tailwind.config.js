@@ -62,9 +62,9 @@ export default {
     },
     boxShadow: {
       50: "0px 0px 1px 0px rgba(0, 0, 0, 0.37)",
-      100: "0px 0px 1px 0px rgba(0, 0, 0, 0.20), 0px 2px 4px 0px rgba(0, 0, 0, 0.02), 0px 4px 8px 0px rgba(0, 0, 0, 0.02), 0px 4px 24px 0px rgba(0, 0, 0, 0.02)",
-      200: "0px 0px 1px 0px rgba(0, 0, 0, 0.20), 0px 2px 4px 0px rgba(0, 0, 0, 0.04), 0px 8px 16px 0px rgba(0, 0, 0, 0.02), 0px 12px 32px 0px rgba(0, 0, 0, 0.04)",
-      300: "0px 0px 1px 0px rgba(0, 0, 0, 0.30), 0px 4px 8px 0px rgba(0, 0, 0, 0.04), 0px 24px 32px 0px rgba(0, 0, 0, 0.02), 0px 16px 40px 0px rgba(0, 0, 0, 0.04)",
+      100: "0px 4px 24px 0px rgba(0, 0, 0, 0.02), 0px 4px 8px 0px rgba(0, 0, 0, 0.02), 0px 2px 4px 0px rgba(0, 0, 0, 0.02), 0px 0px 1px 0px rgba(0, 0, 0, 0.20)",
+      200: "0px 12px 32px 0px rgba(0, 0, 0, 0.04), 0px 8px 16px 0px rgba(0, 0, 0, 0.02), 0px 2px 4px 0px rgba(0, 0, 0, 0.04), 0px 0px 1px 0px rgba(0, 0, 0, 0.20)",
+      300: "0px 16px 40px 0px rgba(0, 0, 0, 0.04), 0px 24px 32px 0px rgba(0, 0, 0, 0.02), 0px 4px 8px 0px rgba(0, 0, 0, 0.04), 0px 0px 1px 0px rgba(0, 0, 0, 0.30)",
     },
     colors: {
       transparent: "transparent",

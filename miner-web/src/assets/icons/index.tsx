@@ -1,5 +1,4 @@
 import Alert from "./Alert";
-import AlertCompact from "./AlertCompact";
 import ArrowRight from "./ArrowRight";
 import Checkmark from "./Checkmark";
 import ConcentricCircles from "./ConcentricCircles";
@@ -14,11 +13,11 @@ import Pause from "./Pause";
 import Plus from "./Plus";
 import Power from "./Power";
 import Question from "./Question";
+import Stop from "./Stop";
 import Success from "./Success";
 
 export {
   Alert,
-  AlertCompact,
   ArrowRight,
   Checkmark,
   ConcentricCircles,
@@ -33,5 +32,6 @@ export {
   Plus,
   Power,
   Question,
+  Stop,
   Success,
 };

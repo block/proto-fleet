@@ -9,8 +9,9 @@ interface DismissibleCalloutWrapperProps {
   intent: keyof typeof intents;
   onDismiss: () => void;
   show: boolean;
-  subtitle: string | ReactNode;
+  subtitle?: string | ReactNode;
   testId?: string;
+  title: string | ReactNode;
 }
 
 const DismissibleCalloutWrapper = ({
@@ -21,6 +22,7 @@ const DismissibleCalloutWrapper = ({
   show,
   subtitle,
   testId,
+  title,
 }: DismissibleCalloutWrapperProps) => {
   return (
     <div
@@ -41,6 +43,7 @@ const DismissibleCalloutWrapper = ({
         intent={intent}
         prefixIcon={icon}
         subtitle={subtitle}
+        title={title}
       />
     </div>
   );

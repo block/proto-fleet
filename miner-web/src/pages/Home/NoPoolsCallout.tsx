@@ -16,7 +16,7 @@ const NoPoolsCallout = ({ arePoolsConfigured }: NoPoolsCalloutProps) => {
       <Callout
         intent={intents.danger}
         prefixIcon={<Alert className="text-intent-critical-text" />}
-        subtitle={
+        title={
           arePoolsConfigured
             ? "This miner has lost connection to all mining pools."
             : "No mining pools configured."

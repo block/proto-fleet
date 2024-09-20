@@ -4,6 +4,7 @@ import { ApiContext } from "api";
 
 const useApiContext = () => {
   const {
+    errors,
     fetchPoolsInfo,
     miningStatus,
     poolsInfo,
@@ -12,6 +13,7 @@ const useApiContext = () => {
   } = useContext(ApiContext);
 
   return {
+    errors,
     fetchPoolsInfo,
     miningStatus,
     poolsInfo,

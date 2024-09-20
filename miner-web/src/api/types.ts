@@ -65,6 +65,13 @@ export interface AsicStatsResponse {
   "asic-stats"?: AsicStats;
 }
 
+export interface AuthTokens {
+  /** JWT access token. */
+  access_token: string;
+  /** JWT refresh token. */
+  refresh_token: string;
+}
+
 export interface CoolingConfig {
   /**
    * Parameter to define the cooling mode.  Modes:
@@ -113,6 +120,8 @@ export interface Error {
    */
   message?: string;
 }
+
+export type ErrorListResponse = NotificationError[];
 
 export interface ErrorResponse {
   error?: Error;
@@ -374,20 +383,21 @@ export interface NetworkInfoNetworkinfo {
   netmask?: string;
 }
 
-export interface Notification {
-  /** @example "FAN1_NOT_OPERATING" */
-  code?: string;
-  /** @default false */
-  hidden?: boolean;
-  id?: number;
+export interface NotificationError {
+  asic_index?: number;
+  component_index?: number;
+  /** @example "{"FanSlow":{"fan_rpm_target":1000,"fan_rpm_tach":900}}" */
+  details?: string;
+  /** @example "FanSlow" */
+  error_code?: string;
+  error_level?: "Error" | "Warning";
+  expired_at?: number;
+  hashboard_index?: number;
+  inserted_at?: number;
   /** @example "Fan 1 is not operating correctly." */
   message?: string;
-  /** @example "error" */
-  type?: "error" | "warning" | "info";
-}
-
-export interface NotificationListResponse {
-  notifications?: Notification[];
+  /** @example "Miner" */
+  source?: "Miner" | "Hashboard" | "ASIC";
 }
 
 export interface OSInfo {
@@ -421,15 +431,11 @@ export interface OSStatus {
 
 export interface PasswordRequest {
   /**
-   * The new password for the user.
+   * The password for the user
    * @format password
+   * @minLength 8
    */
-  new_password: string;
-  /**
-   * The current password for the user.
-   * @format password
-   */
-  old_password: string;
+  password: string;
 }
 
 export interface Pool {
@@ -459,7 +465,7 @@ export interface Pool {
    */
   id?: number;
   /**
-   * The number of shares the pool interface rejected due to being too  low difficulty (did not forward to the pool).
+   * The number of shares the pool interface rejected due to being too low difficulty (did not forward to the pool).
    * @example 10
    */
   invalid?: number;
@@ -477,7 +483,7 @@ export interface Pool {
    * @example 20
    */
   rejected?: number;
-  /** The status field indicates the state of the mining pool. An "Idle"  status indiciates that the pool is available but not currently in use (due to priority). An "Active" status means that the pool is currently active. A "Dead" status indicates that the mining device is unable  to establish a connection with the pool.  */
+  /** The status field indicates the state of the mining pool. An "Idle" status indiciates that the pool is available but not currently in use (due to priority). An "Active" status means that the pool is currently active. A "Dead" status indicates that the mining device is unable to establish a connection with the pool. */
   status?: "Unknown" | "Idle" | "Active" | "Dead";
   /**
    * The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information.
@@ -552,6 +558,16 @@ export interface PowerResponsePowerdata {
   data?: TimeSeriesData[];
   /** Duration of power data returned. */
   duration?: "12h" | "24h" | "48h" | "5d";
+}
+
+export interface RefreshRequest {
+  /** The JWT refresh token to be validated. */
+  refresh_token: string;
+}
+
+export interface RefreshResponse {
+  /** A new JWT access token. */
+  access_token: string;
 }
 
 export interface SWInfo {
@@ -735,9 +751,9 @@ export class HttpClient<SecurityDataType = unknown> {
     [ContentType.Json]: (input: any) =>
       input !== null && (typeof input === "object" || typeof input === "string") ? JSON.stringify(input) : input,
     [ContentType.Text]: (input: any) => (input !== null && typeof input !== "string" ? JSON.stringify(input) : input),
-    [ContentType.FormData]: (input: FormData) =>
-      (Array.from(input.keys()) || []).reduce((formData, key) => {
-        const property = input.get(key);
+    [ContentType.FormData]: (input: any) =>
+      Object.keys(input || {}).reduce((formData, key) => {
+        const property = input[key];
         formData.append(
           key,
           property instanceof Blob
@@ -961,23 +977,73 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description The update password endpoint allows users to change the user password for the mining device.
+     * @description The password endpoint allows users to set a password during onboarding
      *
      * @tags Authentication
-     * @name UpdatePassword
-     * @request PUT:/api/v1/update-password
+     * @name SetPassword
+     * @request PUT:/api/v1/auth/password
      */
-    updatePassword: (
-      query: {
-        /** The old and new password for the user. */
-        password_request: PasswordRequest;
-      },
-      params: RequestParams = {},
-    ) =>
+    setPassword: (data: PasswordRequest, params: RequestParams = {}) =>
       this.request<MessageResponse, MessageResponse>({
-        path: `/api/v1/update-password`,
+        path: `/api/v1/auth/password`,
         method: "PUT",
-        query: query,
+        body: data,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Authenticates a user using a password and returns a JWT access and refresh token pair.
+     *
+     * @tags Authentication
+     * @name Login
+     * @request POST:/api/v1/auth/login
+     */
+    login: (data: PasswordRequest, params: RequestParams = {}) =>
+      this.request<AuthTokens, MessageResponse>({
+        path: `/api/v1/auth/login`,
+        method: "POST",
+        body: data,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Validates and blacklists JWT tokens, effectively logging out the user.
+     *
+     * @tags Authentication
+     * @name V1AuthLogoutCreate
+     * @summary User logout
+     * @request POST:/api/v1/auth/logout
+     * @secure
+     */
+    v1AuthLogoutCreate: (data: AuthTokens, params: RequestParams = {}) =>
+      this.request<MessageResponse, MessageResponse>({
+        path: `/api/v1/auth/logout`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Validates the provided refresh token and returns a new JWT access token.
+     *
+     * @tags Authentication
+     * @name V1AuthRefreshCreate
+     * @summary Refresh JWT access token
+     * @request POST:/api/v1/auth/refresh
+     */
+    v1AuthRefreshCreate: (data: RefreshRequest, params: RequestParams = {}) =>
+      this.request<RefreshResponse, MessageResponse>({
+        path: `/api/v1/auth/refresh`,
+        method: "POST",
+        body: data,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -1118,6 +1184,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags System
      * @name LocateSystem
      * @request POST:/api/v1/system/locate
+     * @secure
      */
     locateSystem: (
       query?: {
@@ -1133,6 +1200,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/system/locate`,
         method: "POST",
         query: query,
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -1591,40 +1659,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description The notifications endpoint provides alerts to be surfaced on the UI such as errors. This endpoint should be polled periodically to surface any issues that arise during mining operation.
+     * @description The errors endpoint provides alerts to be surfaced on the UI with different severity levels such as errors or warnings. This endpoint should be polled periodically to surface any issues that arise during mining operation.
      *
-     * @tags Notifications
-     * @name GetNotifications
-     * @request GET:/api/v1/notifications
+     * @tags Errors
+     * @name GetErrors
+     * @request GET:/api/v1/errors
      */
-    getNotifications: (params: RequestParams = {}) =>
-      this.request<NotificationListResponse, MessageResponse>({
-        path: `/api/v1/notifications`,
+    getErrors: (params: RequestParams = {}) =>
+      this.request<ErrorListResponse, MessageResponse>({
+        path: `/api/v1/errors`,
         method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The notifications configuration endpoint can be used to mark certain notifications as seen or dismissed by the user.
-     *
-     * @tags Notifications
-     * @name EditNotifications
-     * @request PUT:/api/v1/notifications
-     */
-    editNotifications: (
-      query: {
-        /** Hidden status of notification. */
-        hidden: boolean;
-        /** ID of notification to edit. */
-        id: number;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<MessageResponse, MessageResponse>({
-        path: `/api/v1/notifications`,
-        method: "PUT",
-        query: query,
         format: "json",
         ...params,
       }),

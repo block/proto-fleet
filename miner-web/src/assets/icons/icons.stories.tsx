@@ -2,7 +2,6 @@ import { Fragment } from "react";
 
 import {
   Alert,
-  AlertCompact,
   ArrowRight,
   Checkmark,
   ConcentricCircles,
@@ -17,12 +16,12 @@ import {
   Plus,
   Power,
   Question,
+  Stop,
   Success,
 } from ".";
 
 const icons = {
   Alert,
-  AlertCompact,
   ArrowRight,
   Checkmark,
   ConcentricCircles,
@@ -37,6 +36,7 @@ const icons = {
   Plus,
   Power,
   Question,
+  Stop,
   Success,
 };
 

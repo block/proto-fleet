@@ -12,7 +12,7 @@ import { isSleeping } from "./utility";
 interface WakeCalloutProps {
   afterWake?: () => void;
   miningStatus?: MiningStatusMiningstatus;
-  onWake: () => void;
+  onWake?: () => void;
 }
 
 const WakeCallout = ({ afterWake, miningStatus, onWake }: WakeCalloutProps) => {
@@ -21,7 +21,7 @@ const WakeCallout = ({ afterWake, miningStatus, onWake }: WakeCalloutProps) => {
 
   const handleWakeConfirm = useCallback(() => {
     setWarnWake(false);
-    onWake();
+    onWake?.();
     setShouldWake(true);
   }, [onWake]);
 
@@ -41,7 +41,7 @@ const WakeCallout = ({ afterWake, miningStatus, onWake }: WakeCalloutProps) => {
             buttonText="Wake up miner"
             intent={intents.information}
             prefixIcon={<Power />}
-            subtitle="This miner is asleep and is not hashing."
+            title="This miner is asleep and is not hashing."
           />
         </div>
       )}

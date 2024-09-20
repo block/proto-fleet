@@ -7,7 +7,7 @@ import App from "./App";
 
 export const WarmingUpMiner = () => {
   const [miningStatus, setMiningStatus] = useState<MiningStatusMiningstatus>({
-    status: undefined,
+    status: "PoweringOn",
   });
 
   useEffect(() => {

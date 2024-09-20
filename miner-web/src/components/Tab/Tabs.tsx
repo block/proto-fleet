@@ -6,14 +6,18 @@ import Tab from "./Tab";
 import "./style.css";
 
 interface TabProps {
-  props: { label: string };
+  props: {
+    className?: string;
+    label: string;
+  };
 }
 
 interface TabsProps {
   children: TabProps | TabProps[];
+  disableAnimation?: boolean;
 }
 
-const Tabs = ({ children }: TabsProps) => {
+const Tabs = ({ children, disableAnimation }: TabsProps) => {
   const childrenArray = Array.isArray(children) ? children : [children];
   const initialTab = childrenArray[0].props.label;
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -41,9 +45,9 @@ const Tabs = ({ children }: TabsProps) => {
     if (activeTab !== slidingTab) {
       setTimeout(() => {
         setActiveTab(slidingTab);
-      }, 150);
+      }, disableAnimation ? 0 : 150);
     }
-  }, [slidingTab, activeTab]);
+  }, [disableAnimation, slidingTab, activeTab]);
 
   const tabs = childrenArray?.map((child: TabProps) => (
     <div className="text-text-primary/70" key={child.props.label}>
@@ -61,9 +65,9 @@ const Tabs = ({ children }: TabsProps) => {
             "border-b-2 border-text-emphasis bottom-[-0.1rem]":
               child.props.label === activeTab,
             [`animate-tab-slide-right${distance}`]:
-            selectedTabIndex < slidingTabIndex,
+              selectedTabIndex < slidingTabIndex && !disableAnimation,
             [`animate-tab-slide-left${distance}`]:
-            selectedTabIndex > slidingTabIndex,
+              selectedTabIndex > slidingTabIndex && !disableAnimation,
           })}
         />
         <div className="relative">{child.props.label}</div>
@@ -73,9 +77,13 @@ const Tabs = ({ children }: TabsProps) => {
 
   const tabContent = childrenArray?.map((tabContent) => (
     <div
-      className={clsx("mt-6 h-full", {
-        hidden: tabContent.props.label !== activeTab,
-      })}
+      className={clsx(
+        "mt-6 h-full",
+        {
+          hidden: tabContent.props.label !== activeTab,
+        },
+        tabContent.props.className
+      )}
       key={`${tabContent.props.label}-content`}
     >
       {tabContent as ReactNode}
@@ -84,7 +92,7 @@ const Tabs = ({ children }: TabsProps) => {
 
   return (
     <>
-      <div className="flex space-x-10 phone:space-x-6 text-emphasis-400 border-b-2 border-border-primary/5 whitespace-nowrap">
+      <div className="flex space-x-6 border-b-2 border-border-primary/5 whitespace-nowrap">
         {tabs}
       </div>
       {tabContent}
