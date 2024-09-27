@@ -1,13 +1,19 @@
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import clsx from "clsx";
 
 import { ApiContext, useNetworkInfo, usePoll, usePoolsInfo } from "api";
+import { ErrorProps } from "apiResponseTypes";
 import {
   ErrorListResponse,
   MiningStatusMiningstatus,
   SystemInfoSysteminfo,
 } from "apiTypes";
 
+import { useAuthContext } from "common/hooks/useAuthContext";
+import { useNavigate } from "common/hooks/useNavigate";
+
+import LoginModal from "components/LoginModal";
 import NavigationMenu from "components/NavigationMenu";
 import PageHeader from "components/PageHeader";
 
@@ -28,6 +34,7 @@ interface AppProps {
   pendingSystemInfo?: boolean;
   systemInfo?: SystemInfoSysteminfo;
   title: string;
+  wakeError?: ErrorProps;
 }
 
 const App = ({
@@ -42,6 +49,7 @@ const App = ({
   pendingSystemInfo,
   systemInfo,
   title,
+  wakeError,
 }: AppProps) => {
   const { data: networkInfo, pending: pendingNetworkInfo } = useNetworkInfo();
   const {
@@ -55,6 +63,11 @@ const App = ({
   >(apiMiningStatus);
   const [errors, setErrors] = useState(apiErrors);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { showLoginModal, setShowLoginModal, setDismissedLoginModal } =
+    useAuthContext();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { pathname } = useMemo(() => location, [location]);
 
   useEffect(() => {
     if (apiMiningStatus !== undefined) {
@@ -73,6 +86,16 @@ const App = ({
     poll: true,
   });
 
+  const handleDismissLogin = useCallback(() => {
+    if (pathname === "/settings/mining-pools") {
+      // if user landed on mining pools page from within the app, navigate back
+      // else navigate to home
+      navigate(location.state?.from || "/home");
+    }
+    setShowLoginModal(false);
+    setDismissedLoginModal(true);
+  }, [navigate, pathname, setDismissedLoginModal, setShowLoginModal, location]);
+
   return (
     <ApiContext.Provider
       value={{
@@ -87,6 +110,12 @@ const App = ({
         },
       }}
     >
+      {showLoginModal && (
+        <LoginModal
+          onDismiss={handleDismissLogin}
+          onContinue={() => setShowLoginModal(false)}
+        />
+      )}
       <div className="flex h-screen bg-surface-base">
         <div className="grow">
           <NavigationMenu
@@ -123,9 +152,13 @@ const App = ({
                     afterWake={afterWake}
                     miningStatus={miningStatus}
                     onWake={onWake}
+                    wakeError={wakeError}
                   />
                 )}
-                {!isWarmingUp(miningStatus) && !isSleeping(miningStatus?.status) && errors?.length && !hideErrors ? (
+                {!isWarmingUp(miningStatus) &&
+                !isSleeping(miningStatus?.status) &&
+                errors?.length &&
+                !hideErrors ? (
                   <ErrorCallout errors={errors} />
                 ) : null}
                 {children}

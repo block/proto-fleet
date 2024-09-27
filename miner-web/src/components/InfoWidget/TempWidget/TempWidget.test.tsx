@@ -11,6 +11,9 @@ vi.mock("react-router-dom", () => ({
   useNavigate: () => ({
     Navigation: vi.fn(),
   }),
+  useLocation: () => ({
+    pathname: "/",
+  }),
 }));
 
 describe("TempWidget", () => {

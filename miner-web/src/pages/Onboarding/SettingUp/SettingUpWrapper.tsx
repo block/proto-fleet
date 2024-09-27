@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 import { useCreatePools, usePoolsInfo } from "api";
+import { ErrorProps } from "apiResponseTypes";
+
+import { useNavigate } from "common/hooks/useNavigate";
 
 import { isValidPool, PoolInfo } from "components/MiningPools";
 
@@ -10,9 +12,13 @@ import SettingUp from "./SettingUp";
 
 interface SettingUpWrapperProps {
   pools: PoolInfo[];
+  setCreatePoolsError: (error: ErrorProps) => void;
 }
 
-const SettingUpWrapper = ({ pools }: SettingUpWrapperProps) => {
+const SettingUpWrapper = ({
+  pools,
+  setCreatePoolsError,
+}: SettingUpWrapperProps) => {
   const navigate = useNavigate();
   const { createPools } = useCreatePools();
   const { fetchData: fetchPools } = usePoolsInfo();
@@ -43,6 +49,7 @@ const SettingUpWrapper = ({ pools }: SettingUpWrapperProps) => {
 
   useEffect(() => {
     if (poolStatus === statuses.fetch) {
+      setCreatePoolsError(undefined);
       setPoolStatus(statuses.pending);
       const validPools = pools.filter(isValidPool);
       createPools({
@@ -51,10 +58,13 @@ const SettingUpWrapper = ({ pools }: SettingUpWrapperProps) => {
           const newIntervalId = setInterval(getPoolStatus, 2500);
           setIntervalId(newIntervalId);
         },
-        onError: () => setPoolStatus(statuses.error),
+        onError: (error) => {
+          setCreatePoolsError(error);
+          setPoolStatus(statuses.error);
+        },
       });
     }
-  }, [createPools, getPoolStatus, poolStatus, pools]);
+  }, [createPools, getPoolStatus, poolStatus, pools, setCreatePoolsError]);
 
   const isConfigured = useCallback(
     (status: keyof typeof statuses) =>

@@ -24,11 +24,11 @@ import {
 import "./style.css";
 
 interface MinerStatusModalProps {
-  errors: ErrorListResponse;
+  errors?: ErrorListResponse;
   onDismiss: () => void;
 }
 
-const MinerStatusModal = ({ errors, onDismiss }: MinerStatusModalProps) => {
+const MinerStatusModal = ({ errors = [], onDismiss }: MinerStatusModalProps) => {
   const hashboardErrors = useMemo(
     () => errors.filter(isHashboardError),
     [errors]

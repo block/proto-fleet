@@ -11,7 +11,7 @@ const LogsWrapper = () => {
         lines: 1000,
       }),
     poll: true,
-    pollIntervalMs: 5000,
+    pollIntervalMs: 10000,
   });
 
   return <Logs logsData={logsData} />;

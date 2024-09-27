@@ -6,7 +6,7 @@ import MinerStatusModal from "../../MinerStatusModal/MinerStatusModal";
 import MinerStatusWidget from "./MinerStatusWidget";
 
 interface MinerStatusProps {
-  errors: ErrorListResponse;
+  errors?: ErrorListResponse;
   loading?: boolean;
 }
 
@@ -17,7 +17,7 @@ const MinerStatus = ({ errors, loading = false }: MinerStatusProps) => {
     <div className="relative">
       <MinerStatusWidget
         errors={errors}
-        loading={loading && !errors.length}
+        loading={loading && !errors}
         onClick={() => setShowModal(true)}
       />
       {showModal && (

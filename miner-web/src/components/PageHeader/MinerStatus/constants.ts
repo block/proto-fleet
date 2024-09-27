@@ -87,6 +87,9 @@ const errorDetails = {
   PoolConnectionLost: {
     PoolConnectionLost: { pool_id: 1, pool_url: "pool.com" },
   },
+  NoPoolConfigured: {
+    NoPoolConfigured: {},
+  },
 };
 
 const hashboardErrorCodes = [
@@ -215,6 +218,18 @@ export const getMockErrorList = ({
     }
     mockErrorResponse.push(fanError);
   }
+
+  // we ignore pool connection errors in the miner status widget
+  mockErrorResponse.push({
+    ...mockFanError,
+    error_code: "PoolConnectionLost",
+    error_level: ErrorLevel.error,
+  });
+  mockErrorResponse.push({
+    ...mockFanError,
+    error_code: "NoPoolConfigured",
+    error_level: ErrorLevel.error,
+  });
 
   return mockErrorResponse;
 };

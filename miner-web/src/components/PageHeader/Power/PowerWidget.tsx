@@ -1,7 +1,10 @@
 import { RefObject, useCallback, useEffect, useRef, useState } from "react";
 
+import { ErrorProps } from "apiResponseTypes";
 import { MiningStatusMiningstatus } from "apiTypes";
 
+import { useAccessToken } from "common/hooks/useAccessToken";
+import { useAuthContext } from "common/hooks/useAuthContext";
 import { useClickOutside } from "common/hooks/useClickOutside";
 
 import { isAwake, isSleeping, isWarmingUp } from "components/App/utility";
@@ -19,6 +22,7 @@ import { Power } from "icons";
 import { iconSizes } from "icons/constants";
 
 import WidgetWrapper from "../WidgetWrapper";
+import { actions } from "./constants";
 import PowerPopover from "./PowerPopover";
 
 interface PowerWidgetProps {
@@ -30,7 +34,10 @@ interface PowerWidgetProps {
   onReboot: () => void;
   onSleep: () => void;
   onWake: () => void;
+  rebootError?: ErrorProps;
+  sleepError?: ErrorProps;
   shouldShowPopover?: boolean;
+  wakeError?: ErrorProps;
 }
 
 const PowerWidget = ({
@@ -42,6 +49,9 @@ const PowerWidget = ({
   onReboot,
   onSleep,
   onWake,
+  rebootError,
+  sleepError,
+  wakeError,
   shouldShowPopover,
 }: PowerWidgetProps) => {
   const WidgetRef = useRef<HTMLDivElement>(null);
@@ -55,6 +65,13 @@ const PowerWidget = ({
   const [shouldSleep, setShouldSleep] = useState(false);
   const [warnWake, setWarnWake] = useState(false);
   const [shouldWake, setShouldWake] = useState(false);
+  const [pausedAction, setPausedAction] = useState<keyof typeof actions | null>(
+    null
+  );
+  const { dismissedLoginModal, setDismissedLoginModal } = useAuthContext();
+  const { checkAccess, hasAccess, setHasAccess } = useAccessToken(
+    !!pausedAction && !dismissedLoginModal
+  );
 
   const onClickOutside = useCallback(() => {
     setIsOpen(false);
@@ -62,9 +79,56 @@ const PowerWidget = ({
 
   useClickOutside({ ref: WidgetRef, onClickOutside });
 
+  useEffect(() => {
+    if (hasAccess && pausedAction) {
+      if (pausedAction === actions.reboot) {
+        setWarnReboot(true);
+      } else if (pausedAction === actions.sleep) {
+        setWarnSleep(true);
+      } else if (pausedAction === actions.wake) {
+        setWarnWake(true);
+      }
+      setPausedAction(null);
+    }
+  }, [hasAccess, pausedAction]);
+
+  useEffect(() => {
+    if (shouldWake && wakeError?.status === 401) {
+      setHasAccess(false);
+      setShouldWake(false);
+      setPausedAction(actions.wake);
+    }
+    if (shouldSleep && sleepError?.status === 401) {
+      setHasAccess(false);
+      setShouldSleep(false);
+      setPausedAction(actions.sleep);
+    }
+    if (shouldReboot && rebootError?.status === 401) {
+      setHasAccess(false);
+      setShouldReboot(false);
+      setPausedAction(actions.reboot);
+    }
+  }, [
+    shouldWake,
+    wakeError,
+    shouldSleep,
+    sleepError,
+    shouldReboot,
+    rebootError,
+    setHasAccess,
+  ]);
+
+  useEffect(() => {
+    if (dismissedLoginModal) {
+      setPausedAction(null);
+      setDismissedLoginModal(false);
+    }
+  }, [dismissedLoginModal, setDismissedLoginModal]);
+
   const handleRebootButton = () => {
     setIsOpen(false);
-    setWarnReboot(true);
+    setPausedAction(actions.reboot);
+    checkAccess();
   };
 
   const handleRebootConfirm = async () => {
@@ -77,7 +141,8 @@ const PowerWidget = ({
 
   const handleSleepButton = () => {
     setIsOpen(false);
-    setWarnSleep(true);
+    setPausedAction(actions.sleep);
+    checkAccess();
   };
 
   const handleSleepConfirm = () => {
@@ -88,7 +153,8 @@ const PowerWidget = ({
 
   const handleWakeButton = () => {
     setIsOpen(false);
-    setWarnWake(true);
+    setPausedAction(actions.wake);
+    checkAccess();
   };
 
   const handleWakeConfirm = () => {

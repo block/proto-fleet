@@ -1,7 +1,7 @@
 import { useCallback } from "react";
-import { useNavigate } from "react-router-dom";
 
 import { useApiContext } from "common/hooks/useApiContext";
+import { useNavigate } from "common/hooks/useNavigate";
 
 import PoolStatus from "./PoolStatus";
 

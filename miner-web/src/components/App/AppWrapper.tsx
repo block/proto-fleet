@@ -1,5 +1,4 @@
 import { ReactNode, useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 import {
   useErrors,
@@ -9,9 +8,11 @@ import {
   useSystemInfo,
   useSystemStatus,
 } from "api";
+import { ErrorProps } from "apiResponseTypes";
 
 import { useApiContext } from "common/hooks/useApiContext";
 import { useLocalStorage } from "common/hooks/useLocalStorage";
+import { useNavigate } from "common/hooks/useNavigate";
 
 import Spinner from "components/Spinner";
 
@@ -28,7 +29,11 @@ interface AppProps {
 const AppWrapper = ({ children, fullScreen, hideErrors, title }: AppProps) => {
   const { setMiningStatus } = useApiContext();
   const [initPage, setInitPage] = useState(false);
-  const { data: errors, fetchData: fetchErrors, pending: pendingErrors } = useErrors();
+  const {
+    data: errors,
+    fetchData: fetchErrors,
+    pending: pendingErrors,
+  } = useErrors();
   const { data: miningStatus, fetchData: fetchMiningStatus } =
     useMiningStatus();
   const [intervalId, setIntervalId] =
@@ -38,6 +43,7 @@ const AppWrapper = ({ children, fullScreen, hideErrors, title }: AppProps) => {
   const { data: systemStatus, pending: pendingSystemStatus } =
     useSystemStatus();
   const { startMining } = useMiningStart();
+  const [startMiningError, setStartMiningError] = useState<ErrorProps>();
   const { data: systemInfo, pending: pendingSystemInfo } = useSystemInfo();
   const { getItem, setItem } = useLocalStorage();
   const navigate = useNavigate();
@@ -45,11 +51,13 @@ const AppWrapper = ({ children, fullScreen, hideErrors, title }: AppProps) => {
   // navigate to onboarding page if miner has not been onboarded
   useEffect(() => {
     if (!pendingSystemStatus && systemStatus?.onboarded !== undefined) {
-      if (systemStatus.onboarded) {
-        setItem("isOnboarded", true);
-      } else {
+      if (!systemStatus.password_set) {
+        navigate("/auth");
+      } else if (!systemStatus.onboarded) {
         setItem("isOnboarded", false);
         navigate("/onboarding");
+      } else {
+        setItem("isOnboarded", true);
       }
     }
   }, [navigate, setItem, systemStatus, pendingSystemStatus]);
@@ -57,7 +65,7 @@ const AppWrapper = ({ children, fullScreen, hideErrors, title }: AppProps) => {
   usePoll({
     fetchData: fetchErrors,
     poll: true,
-    pollIntervalMs: 5000,
+    pollIntervalMs: 10000,
   });
 
   useEffect(() => {
@@ -88,11 +96,16 @@ const AppWrapper = ({ children, fullScreen, hideErrors, title }: AppProps) => {
   ]);
 
   const handleWake = () => {
-    startMining();
-    const newIntervalId = setInterval(() => {
-      fetchMiningStatus({ onSuccess: setMiningStatus });
-    }, 5000);
-    setWakeIntervalId(newIntervalId);
+    setStartMiningError(undefined);
+    startMining({
+      onError: setStartMiningError,
+      onSuccess: () => {
+        const newIntervalId = setInterval(() => {
+          fetchMiningStatus({ onSuccess: setMiningStatus });
+        }, 5000);
+        setWakeIntervalId(newIntervalId);
+      },
+    });
   };
 
   const afterWake = useCallback(() => {
@@ -116,6 +129,7 @@ const AppWrapper = ({ children, fullScreen, hideErrors, title }: AppProps) => {
           pendingErrors={pendingErrors}
           apiMiningStatus={miningStatus}
           onWake={handleWake}
+          wakeError={startMiningError}
           afterWake={afterWake}
           systemInfo={systemInfo}
           pendingSystemInfo={pendingSystemInfo}

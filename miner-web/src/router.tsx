@@ -2,6 +2,7 @@ import { createBrowserRouter } from "react-router-dom";
 
 import App from "components/App";
 
+import Auth from "pages/Auth";
 import Home from "pages/Home";
 import Logs from "pages/MinerLogs";
 import Onboarding from "pages/Onboarding";
@@ -13,6 +14,10 @@ const router = createBrowserRouter([
   {
     path: "/",
     element: <App title="Home"><Home /></App>,
+  },
+  {
+    path: "/auth",
+    element: <Auth />,
   },
   {
     path: "/temperature",

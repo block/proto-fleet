@@ -17,13 +17,13 @@ import Spinner from "components/Spinner";
 import WidgetWrapper from "../WidgetWrapper";
 
 interface MinerStatusWidgetProps {
-  errors: ErrorListResponse;
+  errors?: ErrorListResponse;
   loading?: boolean;
   onClick: () => void;
 }
 
 const MinerStatusWidget = ({
-  errors,
+  errors = [],
   loading = false,
   onClick,
 }: MinerStatusWidgetProps) => {

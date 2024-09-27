@@ -4,6 +4,7 @@ import { type variants } from "components/Button";
 
 export interface ButtonProps {
   className?: string;
+  disabled?: boolean;
   loading?: boolean;
   onClick?: () => void;
   variant: keyof typeof variants;

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 import { useHashboardTemperature } from "api";
 import { TemperatureResponseTemperaturedata } from "apiTypes";
 
+import { useNavigate } from "common/hooks/useNavigate";
 import { getDisplayValue } from "common/utils/stringUtils";
 
 import { variants } from "components/Button";

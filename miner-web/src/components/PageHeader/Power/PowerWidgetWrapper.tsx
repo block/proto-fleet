@@ -7,6 +7,7 @@ import {
   useSystemLogs,
   useSystemReboot,
 } from "api";
+import { ErrorProps } from "apiResponseTypes";
 import { LogsResponseLogs } from "apiTypes";
 
 import { useApiContext } from "common/hooks/useApiContext";
@@ -25,8 +26,11 @@ interface PowerWidgetWrapperProps {
 
 const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
   const { rebootSystem } = useSystemReboot();
+  const [rebootSystemError, setRebootSystemError] = useState<ErrorProps>();
   const { stopMining } = useMiningStop();
+  const [stopMiningError, setStopMiningError] = useState<ErrorProps>();
   const { startMining } = useMiningStart();
+  const [startMiningError, setStartMiningError] = useState<ErrorProps>();
   const { miningStatus, setMiningStatus } = useApiContext();
   const { fetchData: fetchMiningStatus } = useMiningStatus();
   const { fetchData: fetchLogs } = useSystemLogs();
@@ -52,9 +56,14 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
   );
 
   const reboot = () => {
-    rebootSystem();
-    pollMiningStatus(5000);
-    setIsMiningStatusStale(true);
+    setRebootSystemError(undefined);
+    rebootSystem({
+      onError: setRebootSystemError,
+      onSuccess: () => {
+        pollMiningStatus(5000);
+        setIsMiningStatusStale(true);
+      },
+    });
   };
 
   const downloadLogs = (logsData?: LogsResponseLogs) => {
@@ -84,15 +93,25 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
   };
 
   const handleSleep = () => {
-    stopMining();
-    pollMiningStatus(2500);
-    setIsMiningStatusStale(true);
+    setStopMiningError(undefined);
+    stopMining({
+      onError: setStopMiningError,
+      onSuccess: () => {
+        pollMiningStatus(2500);
+        setIsMiningStatusStale(true);
+      },
+    });
   };
 
   const handleWake = () => {
-    startMining();
-    pollMiningStatus(5000);
-    setIsMiningStatusStale(true);
+    setStartMiningError(undefined);
+    startMining({
+      onError: setStartMiningError,
+      onSuccess: () => {
+        pollMiningStatus(5000);
+        setIsMiningStatusStale(true);
+      },
+    });
   };
 
   const handleClear = () => {
@@ -104,8 +123,11 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
       linkRef={linkRef}
       miningStatus={isMiningStatusStale ? {} : miningStatus}
       onReboot={handleReboot}
+      rebootError={rebootSystemError}
       onSleep={handleSleep}
+      sleepError={stopMiningError}
       onWake={handleWake}
+      wakeError={startMiningError}
       afterReboot={handleAfterReboot}
       afterSleep={handleClear}
       afterWake={handleClear}

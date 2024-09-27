@@ -26,9 +26,7 @@ const continueEditingButton = "continue-editing-button";
 const discardChangesButton = "discard-changes-button";
 const keepBackupButton = "keep-backup-button";
 const deleteBackupButton = "delete-backup-button";
-const continueWithoutBackupButton = "continue-without-backup-button";
 const finishSetupButton = "finish-setup-button";
-const continueToDashboardButton = "continue-to-dashboard-button";
 const urlInput = "url-0-input";
 const backupUrlInput = "url-1-input";
 const validationError = "url-0-input-validation-error";
@@ -250,23 +248,5 @@ describe("Onboarding", () => {
     await waitFor(() => {
       expect(queryByTestId(backupPoolSavedUrl)).not.toBeInTheDocument();
     });
-  });
-
-  test("Click on finish setup shows setting up screen", async () => {
-    fireEvent.change(getByTestId(urlInput), { target: { value: poolUrl } });
-    fireEvent.click(getByTestId(finishSetupButton));
-    fireEvent.click(getByTestId(continueWithoutBackupButton));
-    expect(getByTestId(continueToDashboardButton)).not.toHaveClass(
-      "opacity-100"
-    );
-    // wait until setup is done and continue to dashboard button shows up
-    await waitFor(
-      () => {
-        expect(getByTestId(continueToDashboardButton)).toHaveClass(
-          "opacity-100"
-        );
-      },
-      { timeout: 3000 }
-    );
   });
 });

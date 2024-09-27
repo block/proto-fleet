@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { ErrorListResponse } from "apiTypes";
 
@@ -20,22 +20,28 @@ interface ErrorCalloutProps {
 const ErrorCallout = ({ errors }: ErrorCalloutProps) => {
   const [showModal, setShowModal] = useState(false);
 
+  const isPoolError = useCallback(
+    (error_code?: string) => /pool/i.test(error_code || ""),
+    []
+  );
+
   const hasErrors = useMemo(
-    () => errors.some((error) => isError(error.error_level)),
-    [errors]
+    () =>
+      errors.some(
+        // pool connection errors are tracked in the mining pool widget
+        (error) => isError(error.error_level) && !isPoolError(error.error_code)
+      ),
+    [errors, isPoolError]
   );
 
   const hasWarnings = useMemo(
-    () => errors.some((error) => isWarning(error.error_level)),
-    [errors]
-  );
-
-  // pool connection errors are tracked in the mining pool widget
-  const isPoolConnectionError = useMemo(
     () =>
-      errors.length === 1 &&
-      errors.some((error) => error.error_code === "PoolConnectionLost"),
-    [errors]
+      errors.some(
+        (error) =>
+          // pool connection errors are tracked in the mining pool widget
+          isWarning(error.error_level) && !isPoolError(error.error_code)
+      ),
+    [errors, isPoolError]
   );
 
   const prefixIcon = useMemo(() => {
@@ -52,7 +58,7 @@ const ErrorCallout = ({ errors }: ErrorCalloutProps) => {
 
   return (
     <div className="mb-10">
-      {!isPoolConnectionError && (
+      {(hasErrors || hasWarnings) && (
         <Callout
           buttonOnClick={() => setShowModal(true)}
           buttonText="View details"

@@ -16,7 +16,10 @@ const { api } = new Api({ baseUrl: apiHost });
 
 export { api };
 export const ApiContext = createContext({
-  errors: { errors: [] as ErrorListResponse, pending: false },
+  errors: {
+    errors: undefined as ErrorListResponse | undefined,
+    pending: false,
+  },
   miningStatus: {} as MiningStatusMiningstatus,
   poolsInfo: [] as Pool[] | undefined,
   fetchPoolsInfo: ({

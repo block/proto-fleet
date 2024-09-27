@@ -5,6 +5,7 @@ import ConcentricCircles from "./ConcentricCircles";
 import Dismiss from "./Dismiss";
 import DismissCircle from "./DismissCircle";
 import DismissTiny from "./DismissTiny";
+import Eye from "./Eye";
 import Info from "./Info";
 import InfoInverted from "./InfoInverted";
 import Logo from "./Logo";
@@ -24,6 +25,7 @@ export {
   Dismiss,
   DismissCircle,
   DismissTiny,
+  Eye,
   Info,
   InfoInverted,
   Logo,

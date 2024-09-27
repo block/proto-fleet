@@ -19,19 +19,23 @@ interface ModalButtonProps extends ButtonProps {
 
 interface ModalProps {
   children: ReactNode;
+  className?: string;
   contentHeader?: string;
-  onDismiss: (buttonClicked?: boolean) => void;
+  onDismiss?: (buttonClicked?: boolean) => void;
   buttons?: ModalButtonProps[];
   show?: boolean;
+  showHeader?: boolean;
   title?: string;
 }
 
 const Modal = ({
   children,
+  className,
   contentHeader,
   onDismiss,
   buttons,
   show = true,
+  showHeader = true,
   title,
 }: ModalProps) => {
   const [showModal, setShowModal] = useState(show);
@@ -39,6 +43,9 @@ const Modal = ({
 
   const closeModal = useCallback(
     (buttonClicked?: boolean) => {
+      if (onDismiss === undefined) {
+        return;
+      }
       setShowModal(false);
       setTimeout(() => {
         onDismiss(buttonClicked);
@@ -83,23 +90,28 @@ const Modal = ({
           {
             "animate-sliding-up": showModal,
             "animate-sliding-down": !showModal,
-          }
+          },
+          className
         )}
         ref={ModalRef}
         data-testid="modal"
       >
-        <Header
-          title={title}
-          titleSize="text-heading-200"
-          icon={<Dismiss />}
-          iconOnClick={dismissModal}
-          buttons={buttons?.map((button) => ({
-            ...button,
-            onClick: onButtonClick(button),
-          }))}
-          inline
-        />
-        <Divider className="my-6" />
+        {showHeader && (
+          <>
+            <Header
+              title={title}
+              titleSize="text-heading-200"
+              icon={<Dismiss />}
+              iconOnClick={dismissModal}
+              buttons={buttons?.map((button) => ({
+                ...button,
+                onClick: onButtonClick(button),
+              }))}
+              inline
+            />
+            <Divider className="my-6" />
+          </>
+        )}
         {contentHeader && (
           <div className="text-heading-200 text-text-primary mb-1">
             {contentHeader}

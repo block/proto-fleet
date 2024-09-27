@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "common/hooks/useNavigate";
 
 import Callout, { intents } from "components/Callout";
 

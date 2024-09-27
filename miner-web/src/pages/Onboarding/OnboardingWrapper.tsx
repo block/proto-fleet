@@ -1,9 +1,9 @@
 import { useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
 
 import { useSystemStatus } from "api";
 
 import { useLocalStorage } from "common/hooks/useLocalStorage";
+import { useNavigate } from "common/hooks/useNavigate";
 
 import Spinner from "components/Spinner";
 
@@ -21,6 +21,8 @@ const OnboardingWrapper = () => {
   useEffect(() => {
     if (isOnboarded || systemStatus?.onboarded) {
       navigate("/");
+    } else if (systemStatus?.password_set === false) {
+      navigate("/auth");
     }
   }, [isOnboarded, navigate, systemStatus]);
 

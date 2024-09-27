@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { ElementType, useState } from "react";
+import { MemoryRouter } from "react-router-dom";
 
 import MiningPoolsComponent from "./MiningPools";
 import { PoolInfo } from "./types";
@@ -45,5 +46,12 @@ export default {
     backupPool1Username: "proto_mining_sw_test_2",
     backupPool2Url: "stratum+tcp://stratum.slushpool.com:4444",
     backupPool2Username: "proto_mining_sw_test_3",
-  }
+  },
+  decorators: [
+    (Story: ElementType) => (
+      <MemoryRouter>
+        <Story />
+      </MemoryRouter>
+    ),
+  ],
 };

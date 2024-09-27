@@ -26,6 +26,7 @@
     "paths": {
       "api": ["./src/api/index.ts"],
       "apiTypes": ["src/api/types.ts"],
+      "apiResponseTypes": ["src/api/apiResponseTypes.ts"],
       "common/*": ["./src/common/*"],
       "components/*": ["./src/components/*"],
       "icons": ["./src/assets/icons"],

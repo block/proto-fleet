@@ -1,6 +1,12 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+
+import { ErrorProps } from "apiResponseTypes";
+
+import { useAccessToken } from "common/hooks/useAccessToken";
+import { useAuthContext } from "common/hooks/useAuthContext";
 
 import { variants } from "components/Button";
+import LoginModal from "components/LoginModal";
 import MiningPools, {
   getEmptyPoolsInfo,
   isValidPool,
@@ -27,6 +33,39 @@ const Onboarding = () => {
 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
+  const {
+    dismissedLoginModal,
+    setDismissedLoginModal,
+    showLoginModal,
+    setShowLoginModal,
+  } = useAuthContext();
+  const [pausedAction, setPausedAction] = useState(false);
+
+  const [createPoolsError, setCreatePoolsError] = useState<ErrorProps>();
+  const { checkAccess, hasAccess, setHasAccess } = useAccessToken(pausedAction);
+
+  useEffect(() => {
+    if (hasAccess && pausedAction) {
+      setPausedAction(false);
+      setSettingUpMiner(true);
+    }
+  }, [hasAccess, pausedAction]);
+
+  useEffect(() => {
+    if (settingUpMiner && createPoolsError?.status === 401) {
+      setHasAccess(false);
+      setSettingUpMiner(false);
+      setPausedAction(true);
+    }
+  }, [setHasAccess, settingUpMiner, createPoolsError?.status]);
+
+  useEffect(() => {
+    if (dismissedLoginModal) {
+      setPausedAction(false);
+      setDismissedLoginModal(false);
+    }
+  }, [dismissedLoginModal, setDismissedLoginModal]);
+
   const onContinue = useCallback(
     (ignoreBackupPools?: boolean) => {
       // check if default pool has been entered
@@ -47,9 +86,10 @@ const Onboarding = () => {
       }
       // move on to next step
       setFinalizedPoolUrls(pools.map((pool) => pool.url));
-      setSettingUpMiner(true);
+      setPausedAction(true);
+      checkAccess();
     },
-    [pools]
+    [pools, checkAccess]
   );
 
   const onContinueWithoutBackup = useCallback(() => {
@@ -66,12 +106,15 @@ const Onboarding = () => {
 
   return (
     <div className="h-screen flex flex-col">
+      {showLoginModal && (
+        <LoginModal onContinue={() => setShowLoginModal(false)} />
+      )}
       {settingUpMiner ? (
         <>
           <OnboardingHeader openMenu={() => setIsMenuOpen(true)} />
           <div className="h-screen flex justify-center items-center">
             <div className="w-[600px]">
-              <SettingUp pools={pools} />
+              <SettingUp pools={pools} setCreatePoolsError={setCreatePoolsError} />
             </div>
           </div>
         </>

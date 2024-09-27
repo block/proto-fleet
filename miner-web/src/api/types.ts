@@ -615,6 +615,8 @@ export interface SystemInfoSysteminfo {
 export interface SystemStatuses {
   /** @example true */
   onboarded?: boolean;
+  /** @example true */
+  password_set?: boolean;
 }
 
 export interface TemperatureResponse {

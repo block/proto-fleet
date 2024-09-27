@@ -12,10 +12,11 @@ import clsx from "clsx";
 import { positions } from "common/constants";
 
 import Tooltip from "components/Tooltip";
-import { DismissCircle } from "icons";
+import { DismissCircle, Eye } from "icons";
 
 interface InputProps {
   compact?: boolean;
+  className?: string;
   dismiss?: boolean;
   error?: string;
   hideLabelOnFocus?: boolean;
@@ -27,6 +28,7 @@ interface InputProps {
   maxLength?: number;
   onChange?: (value: string, id: string) => void;
   onKeyDown?: (key: string) => void;
+  readonly?: boolean;
   testId?: string;
   tooltip?: { header: string; body: string };
   type?: string;
@@ -34,6 +36,7 @@ interface InputProps {
 
 const Input = ({
   compact,
+  className,
   dismiss,
   error,
   hideLabelOnFocus,
@@ -45,6 +48,7 @@ const Input = ({
   maxLength,
   onChange,
   onKeyDown,
+  readonly,
   testId,
   tooltip,
   type = "text",
@@ -53,6 +57,7 @@ const Input = ({
   // keep the error state until the animation is finished
   const [validationError, setValidationError] = useState(error);
   const [timeoutId, setTimeoutId] = useState<ReturnType<typeof setTimeout>>();
+  const [inputType, setInputType] = useState(type);
 
   useEffect(() => {
     setValue(initValue);
@@ -87,23 +92,35 @@ const Input = ({
     [onKeyDown]
   );
 
+  // when eye icon is clicked, display and hide the password
+  const togglePasswordVisibility = useCallback(() => {
+    setInputType(inputType === "password" ? "text" : "password");
+  }, [inputType]);
+
   return (
     <div className="relative">
       <input
-        type={type}
+        type={inputType}
         id={id}
         data-testid={testId}
         className={clsx(
           "peer rounded-lg w-full outline-none text-300 text-text-primary/90",
           "transition-[border-color] ease-in-out duration-200",
           {
-            "border focus:border-[1.5px] border-border-primary/5 focus:border-border-primary":
-              !error && !compact,
+            "border border-border-primary/5": !error && !compact,
+          },
+          {
+            "focus:border-[1.5px] focus:border-border-primary":
+              !error && !compact && !readonly,
           },
           { "border-[1.5px] border-intent-critical-fill/50 ": error },
           { "pt-[18px]": !hideLabelOnFocus },
-          { "h-14 px-4": !compact },
-          { "h-6": compact }
+          { "h-14 pl-4": !compact },
+          { "pr-4": !compact && !tooltip && type !== "password" },
+          { "pr-10": !compact && tooltip && type !== "password" },
+          { "pr-20": !compact && tooltip && type === "password" },
+          { "h-6": compact },
+          className
         )}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
@@ -111,6 +128,7 @@ const Input = ({
         autoComplete="off"
         value={value}
         ref={inputRef}
+        readOnly={readonly}
       />
       <label
         htmlFor={id}
@@ -161,6 +179,18 @@ const Input = ({
           ))}
         </div>
       ) : undefined}
+      {type === "password" && (
+        <div
+          className={clsx("absolute", {
+            "top-1": compact,
+            "top-7 transform -translate-y-1/2": !compact,
+            "right-4": !tooltip,
+            "right-12": tooltip,
+          })}
+        >
+          <Eye onClick={togglePasswordVisibility} className="hover:cursor-pointer" />
+        </div>
+      )}
       <div
         className={clsx(
           "text-intent-critical-fill text-200",
@@ -170,9 +200,7 @@ const Input = ({
         )}
       >
         <div className="flex items-center space-x-1">
-          <svg width="6" height="6" viewBox="0 0 6 6">
-            <circle cx="3" cy="3" r="3" fill="currentColor" fillOpacity="0.2" />
-          </svg>
+          <div className="w-[10px] h-1 rounded-full bg-intent-critical-fill/20" />
           <div data-testid={`${testId}-validation-error`}>
             {validationError}
           </div>

@@ -14,7 +14,7 @@ const PageOverlay = ({
   children,
   shouldPreventScroll = true,
   show,
-  zIndex = "z-30",
+  zIndex = "z-40",
 }: PageOverlayProps) => {
   const { preventScroll } = usePreventScroll();
   useEffect(() => {

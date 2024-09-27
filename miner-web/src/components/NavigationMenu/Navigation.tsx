@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import clsx from "clsx";
+
+import { useNavigate } from "common/hooks/useNavigate";
 
 import { Logo, Minus, Plus } from "icons";
 

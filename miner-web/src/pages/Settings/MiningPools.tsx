@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { useCreatePools } from "api";
 
+import { useAccessToken } from "common/hooks/useAccessToken";
 import { useApiContext } from "common/hooks/useApiContext";
 import { debounce } from "common/utils/utility";
 
@@ -21,6 +22,8 @@ const SettingsMiningPools = () => {
 
   const { poolsInfo, poolsInfoStatus } = useApiContext();
   const { createPools } = useCreatePools();
+
+  useAccessToken();
 
   useEffect(() => {
     if (poolsInfo?.length) {
