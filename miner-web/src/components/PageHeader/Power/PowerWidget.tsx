@@ -93,32 +93,6 @@ const PowerWidget = ({
   }, [hasAccess, pausedAction]);
 
   useEffect(() => {
-    if (shouldWake && wakeError?.status === 401) {
-      setHasAccess(false);
-      setShouldWake(false);
-      setPausedAction(actions.wake);
-    }
-    if (shouldSleep && sleepError?.status === 401) {
-      setHasAccess(false);
-      setShouldSleep(false);
-      setPausedAction(actions.sleep);
-    }
-    if (shouldReboot && rebootError?.status === 401) {
-      setHasAccess(false);
-      setShouldReboot(false);
-      setPausedAction(actions.reboot);
-    }
-  }, [
-    shouldWake,
-    wakeError,
-    shouldSleep,
-    sleepError,
-    shouldReboot,
-    rebootError,
-    setHasAccess,
-  ]);
-
-  useEffect(() => {
     if (dismissedLoginModal) {
       setPausedAction(null);
       setDismissedLoginModal(false);
@@ -164,27 +138,52 @@ const PowerWidget = ({
   };
 
   useEffect(() => {
-    if (shouldReboot && isAwake(miningStatus.status)) {
-      setShouldReboot(false);
-      afterReboot?.();
+    if (shouldReboot) {
+      if (rebootError) {
+        setShouldReboot(false);
+        if (rebootError?.status === 401) {
+          setHasAccess(false);
+          setPausedAction(actions.reboot);
+        }
+        // TODO: handle other errors
+      } else if (isAwake(miningStatus.status)) {
+        setShouldReboot(false);
+        afterReboot?.();
+      }
     }
-    if (shouldSleep && isSleeping(miningStatus.status)) {
-      setShouldSleep(false);
-      afterSleep?.();
+  }, [shouldReboot, miningStatus, afterReboot, rebootError, setHasAccess]);
+
+  useEffect(() => {
+    if (shouldSleep) {
+      if (sleepError) {
+        setShouldSleep(false);
+        if (sleepError?.status === 401) {
+          setHasAccess(false);
+          setPausedAction(actions.sleep);
+        }
+        // TODO: handle other errors
+      } else if (isSleeping(miningStatus.status)) {
+        setShouldSleep(false);
+        afterSleep?.();
+      }
     }
-    if (shouldWake && isAwake(miningStatus.status)) {
-      setShouldWake(false);
-      afterWake?.();
+  }, [afterSleep, miningStatus, setHasAccess, shouldSleep, sleepError]);
+
+  useEffect(() => {
+    if (shouldWake) {
+      if (wakeError) {
+        setShouldWake(false);
+        if (wakeError?.status === 401) {
+          setHasAccess(false);
+          setPausedAction(actions.wake);
+        }
+        // TODO: handle other errors
+      } else if (isAwake(miningStatus.status)) {
+        setShouldWake(false);
+        afterWake?.();
+      }
     }
-  }, [
-    shouldReboot,
-    shouldSleep,
-    shouldWake,
-    miningStatus,
-    afterReboot,
-    afterSleep,
-    afterWake,
-  ]);
+  }, [afterWake, miningStatus.status, setHasAccess, shouldWake, wakeError]);
 
   return (
     <div className="relative" ref={WidgetRef}>

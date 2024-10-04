@@ -74,6 +74,9 @@ export const getErrorTitle = (errors: ErrorListResponse) => {
       case "PoolConnectionLost":
         title = "Your miner has lost connection to the pool";
         break;
+      case "NoPoolConfigured":
+        title = "No mining pools configured";
+        break;
     }
   }
   return title;
@@ -117,6 +120,9 @@ export const getErrorMessage = (error?: NotificationError) => {
         break;
       case "PoolConnectionLost":
         message = `Your miner has lost connection to pool ${details.pool_url}`;
+        break;
+      case "NoPoolConfigured":
+        message = "No mining pools configured";
         break;
     }
     return message;
