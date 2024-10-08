@@ -75,7 +75,7 @@ const errorDetails = {
   AsicFailure: {
     AsicFailure: { port: 1, asic_row: 1, asic_col: 3, temperature: 100.0 },
   },
-  FanSlow: { FanSlow: { fan_rpm_target: 1000, fan_rpm_tach: 900 } },
+  FanSlow: { FanSlow: { fan_rpm_target: 23, fan_rpm_tach: 300 } },
   HashboardOverCurrent: { HashboardOverCurrent: { port: 1, current: 100.0 } },
   HashboardOverheat: { HashboardOverheat: { port: 1, temperature: 100.0 } },
   HashboardOverVoltage: { HashboardOverVoltage: { port: 1, voltage: 100.0 } },

@@ -98,7 +98,7 @@ export const getErrorMessage = (error?: NotificationError) => {
         message = `Port ${details.port} Hashboard's ASIC (${getRowLabel(details.asic_row)}${details.asic_col}) experienced an unspecified failure`;
         break;
       case "FanSlow":
-        message = `Fan is running slow. Target RPM: ${details.fan_rpm_target}, Actual RPM: ${details.fan_rpm_tach}`;
+        message = `Fan is running slow. Target fan speed: ${details.fan_rpm_target}%, Actual RPM: ${details.fan_rpm_tach}`;
         break;
       case "HashboardOverCurrent":
         message = `Port ${details.port} Hashboard is drawing too much current at ${details.current}A`;
