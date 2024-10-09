@@ -92,7 +92,7 @@ export const getErrorMessage = (error?: NotificationError) => {
         message = `Port ${details.port} Hashboard's ASIC (${getRowLabel(details.asic_row)}${details.asic_col}) is overheating at ${details.temperature}°C`;
         break;
       case "AsicOverVoltage":
-        message = `Port ${details.port} Hashboard's ASIC (${getRowLabel(details.asic_row)}${details.asic_col}) is drawing too much voltage at ${details.voltage}V`;
+        message = `Port ${details.port} Hashboard's ASIC (${getRowLabel(details.asic_row)}${details.asic_col}) is drawing too much voltage at ${details.voltage}mV`;
         break;
       case "AsicFailure":
         message = `Port ${details.port} Hashboard's ASIC (${getRowLabel(details.asic_row)}${details.asic_col}) experienced an unspecified failure`;
@@ -107,13 +107,13 @@ export const getErrorMessage = (error?: NotificationError) => {
         message = `Port ${details.port} Hashboard is overheating at ${details.temperature}°C`;
         break;
       case "HashboardOverVoltage":
-        message = `Port ${details.port} Hashboard is drawing too much voltage at ${details.voltage}V`;
+        message = `Port ${details.port} Hashboard is drawing too much voltage at ${details.voltage}mV`;
         break;
       case "HashboardPowerLost":
         message = `Port ${details.port} Hashboard has lost power`;
         break;
       case "HashboardUnderVoltage":
-        message = `Port ${details.port} Hashboard does not have enough power at ${details.voltage}V`;
+        message = `Port ${details.port} Hashboard does not have enough power at ${details.voltage}mV`;
         break;
       case "HashboardUsbConnectionLost":
         message = `Port ${details.port} Hashboard has lost USB connection. Serial number: ${details.serial_number}`;

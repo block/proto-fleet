@@ -14,7 +14,6 @@ const MacAddressInfo = ({ loading, value }: MacAddressInfoProps) => {
 
   return (
     <InfoItem
-      divider={false}
       label="Mac Address"
       loading={loading}
       value={displayValue}

@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import clsx from "clsx";
 
 import { useNavigate } from "common/hooks/useNavigate";
+import Row from "components/Row";
 
 import { Logo, Minus, Plus } from "icons";
 
@@ -117,6 +118,16 @@ const Navigation = ({ macInfo, onItemClick, versionInfo }: NavigationProps) => {
           value={versionInfo?.value}
         />
         <MacAddressInfo loading={macInfo?.loading} value={macInfo?.value} />
+        <Row compact className="text-200 text-text-primary/70">
+          <a href="https://proto.xyz/docs/api/v1.1.0" target="_blank">
+            API Documentation
+          </a>
+        </Row>
+        <Row compact className="text-200 text-text-primary/70" divider={false}>
+          <a href="mailto:mining.support@block.xyz" target="_blank">
+            Contact us
+          </a>
+        </Row>
       </div>
     </div>
   );

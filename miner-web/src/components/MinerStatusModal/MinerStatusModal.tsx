@@ -28,7 +28,10 @@ interface MinerStatusModalProps {
   onDismiss: () => void;
 }
 
-const MinerStatusModal = ({ errors = [], onDismiss }: MinerStatusModalProps) => {
+const MinerStatusModal = ({
+  errors = [],
+  onDismiss,
+}: MinerStatusModalProps) => {
   const hashboardErrors = useMemo(
     () => errors.filter(isHashboardError),
     [errors]
@@ -81,7 +84,13 @@ const MinerStatusModal = ({ errors = [], onDismiss }: MinerStatusModalProps) => 
   return (
     <Modal
       buttons={[
-        // TODO: add contact support button when available
+        {
+          text: "Contact support",
+          variant: variants.secondary,
+          onClick: () => {
+            window.open("mailto:mining.support@block.xyz", "_blank");
+          },
+        },
         {
           text: "Done",
           variant: variants.primary,
@@ -98,7 +107,10 @@ const MinerStatusModal = ({ errors = [], onDismiss }: MinerStatusModalProps) => 
         <div>
           {hasErrors || hasWarnings ? (
             <Tabs disableAnimation>
-              <Tabs.Tab label="All" className="!mt-0 miner-status-tab-content-wrapper">
+              <Tabs.Tab
+                label="All"
+                className="!mt-0 miner-status-tab-content-wrapper"
+              >
                 <MinerStatusRows errors={hashboardErrors} />
                 <MinerStatusRows errors={hashboardWarnings} />
                 <MinerStatusRows errors={asicErrors} />

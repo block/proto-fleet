@@ -61,10 +61,19 @@ const ForgotPassword = ({ onDismiss }: ForgotPasswordProps) => {
           How do I reset my miner?
         </div>
         <div className="text-300 text-text-primary/70 mt-1">
-          Unplug the miner, remove the microSD card, and re-flash the firmware with the latest version.
+          Unplug the miner, remove the microSD card, and re-flash the firmware
+          with the latest version.
         </div>
       </div>
-      {/* TODO: add link to contact support when available */}
+      <Divider />
+      <div className="text-300 text-text-primary/70">
+        Still need help?{" "}
+        <span className="underline underline-offset-[3px]">
+          <a href="mailto:mining.support@block.xyz" target="_blank">
+            Contact support {"->"}
+          </a>
+        </span>
+      </div>
     </div>
   );
 };
