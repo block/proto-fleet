@@ -188,7 +188,7 @@ const Input = ({
             "right-12": tooltip,
           })}
         >
-          <Eye onClick={togglePasswordVisibility} className="hover:cursor-pointer" />
+          <Eye onClick={togglePasswordVisibility} className="hover:cursor-pointer" testId="eye-icon" />
         </div>
       )}
       <div

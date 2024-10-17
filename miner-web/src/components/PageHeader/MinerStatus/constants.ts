@@ -44,7 +44,7 @@ export const mockFanError = {
 export const storyArgs = {
   loading: false,
   hashboardStatus: "warning",
-  asicStatus: "warning & error",
+  asicStatus: "warning and error",
   fanStatus: "normal",
   hashboardErrorCode: "HashboardOverheat",
   asicErrorCode: "AsicOverVoltage",

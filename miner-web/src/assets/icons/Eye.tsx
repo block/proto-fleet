@@ -1,6 +1,6 @@
 import { IconProps } from "./types";
 
-const Eye = ({ className, onClick }: IconProps) => {
+const Eye = ({ className, onClick, testId }: IconProps) => {
   return (
     <svg
       width="16"
@@ -9,6 +9,7 @@ const Eye = ({ className, onClick }: IconProps) => {
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       onClick={onClick}
+      data-testid={testId}
     >
       <path
         fillRule="evenodd"

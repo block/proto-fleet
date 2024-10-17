@@ -56,7 +56,7 @@ const LoginForm = ({ onClickForgotPassword, onContinue, onDismiss }: LoginFormPr
   useKeyDown({ key: "Enter", onKeyDown: handleEnter });
 
   return (
-    <>
+    <div data-testid="login-form">
       <div className="text-heading-200 text-text-primary/90">
         Login required
       </div>
@@ -72,6 +72,7 @@ const LoginForm = ({ onClickForgotPassword, onContinue, onDismiss }: LoginFormPr
             "max-h-96 mb-4": apiError,
           }
         )}
+        data-testid="error"
       >
         <div className="bg-intent-critical-fill/10 text-intent-critical-text text-emphasis-300 px-3 py-2 rounded-lg">
           Invalid credentials entered.
@@ -84,6 +85,7 @@ const LoginForm = ({ onClickForgotPassword, onContinue, onDismiss }: LoginFormPr
         initValue="admin"
         readonly
         className="mb-4"
+        testId="username"
       />
 
       <Input
@@ -94,11 +96,13 @@ const LoginForm = ({ onClickForgotPassword, onContinue, onDismiss }: LoginFormPr
         initValue={values.password}
         error={errors.password}
         className="mb-2"
+        testId="password"
       />
 
       <div
         className="flex text-200 text-text-primary/50 mb-4 hover:cursor-pointer"
         onClick={onClickForgotPassword}
+        data-testid="forgot-password"
       >
         {"Forgot password ->"}
       </div>
@@ -123,7 +127,7 @@ const LoginForm = ({ onClickForgotPassword, onContinue, onDismiss }: LoginFormPr
           },
         ].filter(button => !!button.text) as ButtonProps[]}
       />
-    </>
+    </div>
   );
 };
 
