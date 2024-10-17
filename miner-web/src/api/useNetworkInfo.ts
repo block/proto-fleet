@@ -15,7 +15,7 @@ const useNetworkInfo = () => {
         setData(res?.data["network-info"]);
       })
       .catch((err) => {
-        setError(err?.error?.message || err);
+        setError(err?.error?.message ?? err);
       })
       .finally(() => {
         setPending(false);

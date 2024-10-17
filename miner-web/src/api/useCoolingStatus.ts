@@ -21,7 +21,7 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
         setData(res?.data["cooling-status"]);
       })
       .catch((err) => {
-        setError(err?.error?.message || err);
+        setError(err?.error?.message ?? err);
       })
       .finally(() => {
         setPending(false);

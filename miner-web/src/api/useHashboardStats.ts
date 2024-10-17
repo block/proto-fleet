@@ -25,7 +25,7 @@ const useHashboardStats = ({
         setData(res?.data["hashboard-stats"]);
       })
       .catch((err) => {
-        setError(err?.error?.message || err);
+        setError(err?.error?.message ?? err);
       })
       .finally(() => {
         setPending(false);

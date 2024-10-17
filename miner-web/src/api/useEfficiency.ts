@@ -22,7 +22,7 @@ const useEfficiency = ({ duration, poll }: UseEfficiencyProps) => {
         setData(res?.data["efficiency-data"]);
       })
       .catch((err) => {
-        setError(err?.error?.message || err);
+        setError(err?.error?.message ?? err);
       })
       .finally(() => {
         setPending(false);

@@ -127,7 +127,7 @@ const Home = () => {
       !poolsInfoStatus.pending &&
       !poolsInfoStatus.error &&
       // TODO: remove alive when cgminer is removed
-      !poolsInfo?.find((pool) => /alive|active/i.test(pool?.status || ""))
+      !poolsInfo?.find((pool) => /alive|active/i.test(pool?.status ?? ""))
     );
   }, [poolsInfo, poolsInfoStatus]);
 

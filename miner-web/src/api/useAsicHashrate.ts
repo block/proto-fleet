@@ -41,7 +41,7 @@ const useAsicHashrate = ({
         setData(res?.data["hashrate-data"]);
       })
       .catch((err) => {
-        setError(err?.error?.message || err);
+        setError(err?.error?.message ?? err);
       })
       .finally(() => {
         setPending(false);

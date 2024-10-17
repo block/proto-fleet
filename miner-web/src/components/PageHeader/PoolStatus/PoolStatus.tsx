@@ -27,7 +27,7 @@ const PoolStatus = ({
 
   const isAlive = useCallback(
     // TODO: remove alive when cgminer is removed
-    (pool?: Pool) => /alive|active/i.test(pool?.status || ""),
+    (pool?: Pool) => /alive|active/i.test(pool?.status ?? ""),
     []
   );
 

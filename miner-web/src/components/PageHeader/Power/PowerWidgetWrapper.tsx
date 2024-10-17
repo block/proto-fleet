@@ -57,11 +57,14 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
 
   const reboot = () => {
     setRebootSystemError(undefined);
+    setIsMiningStatusStale(true);
     rebootSystem({
-      onError: setRebootSystemError,
+      onError: (error) => {
+        setRebootSystemError(error);
+        setIsMiningStatusStale(false);
+      },
       onSuccess: () => {
         pollMiningStatus(5000);
-        setIsMiningStatusStale(true);
       },
     });
   };
@@ -94,22 +97,28 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
 
   const handleSleep = () => {
     setStopMiningError(undefined);
+    setIsMiningStatusStale(true);
     stopMining({
-      onError: setStopMiningError,
+      onError: (error) => {
+        setStopMiningError(error);
+        setIsMiningStatusStale(false);
+      },
       onSuccess: () => {
         pollMiningStatus(2500);
-        setIsMiningStatusStale(true);
       },
     });
   };
 
   const handleWake = () => {
     setStartMiningError(undefined);
+    setIsMiningStatusStale(true);
     startMining({
-      onError: setStartMiningError,
+      onError: (error) => {
+        setStartMiningError(error);
+        setIsMiningStatusStale(false);
+      },
       onSuccess: () => {
         pollMiningStatus(5000);
-        setIsMiningStatusStale(true);
       },
     });
   };

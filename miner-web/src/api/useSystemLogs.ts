@@ -22,7 +22,7 @@ const useSystemLogs = () => {
         setData(logs);
       })
       .catch((err) => {
-        setError(err?.error?.message || err);
+        setError(err?.error?.message ?? err);
       })
       .finally(() => {
         setPending(false);

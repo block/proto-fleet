@@ -99,11 +99,11 @@ const App = ({
         errors: { errors: errors || [], pending: !!pendingErrors },
         miningStatus: miningStatus || {},
         setMiningStatus,
-        poolsInfo: poolsInfo,
+        poolsInfo,
         fetchPoolsInfo,
         poolsInfoStatus: {
           error: errorPoolsInfo || "",
-          pending: pendingPoolsInfo,
+          pending: pendingPoolsInfo && !poolsInfo,
         },
       }}
     >

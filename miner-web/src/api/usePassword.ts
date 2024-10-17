@@ -18,7 +18,7 @@ const usePassword = () => {
           onSuccess?.();
         })
         .catch((err) => {
-          onError?.(err?.error?.message || err);
+          onError?.(err?.error?.message ?? err);
         });
     },
     []

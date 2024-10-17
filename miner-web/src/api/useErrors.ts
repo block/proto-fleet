@@ -16,7 +16,7 @@ const useErrors = () => {
         setData(res?.data);
       })
       .catch((err) => {
-        setError(err?.error?.message || err);
+        setError(err?.error?.message ?? err);
       })
       .finally(() => {
         setPending(false);

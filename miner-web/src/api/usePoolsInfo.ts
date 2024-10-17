@@ -17,7 +17,6 @@ const usePoolsInfo = () => {
   const fetchData = useCallback(
     ({ onSuccess, onError, retryOnMinerDown }: FetchPoolsInfoProps = {}) => {
       setPending(true);
-      setData(undefined);
       setError(undefined);
       api
         .listPools()
@@ -29,17 +28,27 @@ const usePoolsInfo = () => {
           );
           setData(sortedPools);
           onSuccess?.(sortedPools);
-        })
-        .catch((err) => {
-          const newError = err?.error?.message || err;
           if (retryOnMinerDown) {
-            // refetch pools until cgminer comes back up
-            if (/failed to connect to cgminer/i.test(newError)) {
+            // TODO: remove alive when cgminer is removed
+            const noLivePools = !sortedPools?.find((pool) =>
+              /alive|active/i.test(pool?.status ?? "")
+            );
+            // if all pools are dead, refetch pools
+            if (noLivePools) {
               setTimeout(
                 () => fetchData({ onSuccess, onError, retryOnMinerDown }),
                 5000
               );
             }
+          }
+        })
+        .catch((err) => {
+          const newError = err?.error?.message ?? err;
+          if (retryOnMinerDown) {
+            setTimeout(
+              () => fetchData({ onSuccess, onError, retryOnMinerDown }),
+              5000
+            );
           }
           setError(newError);
           onError?.(newError);
