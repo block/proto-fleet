@@ -8,19 +8,19 @@ import { ArrowRight } from "icons";
 import { type statuses } from "./constants";
 import Item from "./Item";
 
-interface SettingUpProps {
+interface OnboardingSettingUpProps {
   isSetupDone: boolean,
   poolStatus: keyof typeof statuses,
   onClickContinue: () => void,
   onClickRetry: () => void,
 }
 
-const SettingUp = ({
+const OnboardingSettingUp = ({
   isSetupDone,
   poolStatus,
   onClickContinue,
   onClickRetry,
-}: SettingUpProps) => {
+}: OnboardingSettingUpProps) => {
   return (
     <>
       <Header
@@ -56,4 +56,4 @@ const SettingUp = ({
   );
 };
 
-export default SettingUp;
+export default OnboardingSettingUp;

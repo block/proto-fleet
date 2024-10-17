@@ -8,17 +8,17 @@ import { useNavigate } from "common/hooks/useNavigate";
 import { isValidPool, PoolInfo } from "components/MiningPools";
 
 import { statuses } from "./constants";
-import SettingUp from "./SettingUp";
+import OnboardingSettingUp from "./OnboardingSettingUp";
 
-interface SettingUpWrapperProps {
+interface OnboardingSettingUpWrapperProps {
   pools: PoolInfo[];
   setCreatePoolsError: (error: ErrorProps) => void;
 }
 
-const SettingUpWrapper = ({
+const OnboardingSettingUpWrapper = ({
   pools,
   setCreatePoolsError,
-}: SettingUpWrapperProps) => {
+}: OnboardingSettingUpWrapperProps) => {
   const navigate = useNavigate();
   const { createPools } = useCreatePools();
   const { fetchData: fetchPools } = usePoolsInfo();
@@ -84,7 +84,7 @@ const SettingUpWrapper = ({
   const handleClickContinue = useCallback(() => navigate("/"), [navigate]);
 
   return (
-    <SettingUp
+    <OnboardingSettingUp
       poolStatus={poolStatus}
       isSetupDone={isSetupDone}
       onClickContinue={handleClickContinue}
@@ -93,4 +93,4 @@ const SettingUpWrapper = ({
   );
 };
 
-export default SettingUpWrapper;
+export default OnboardingSettingUpWrapper;

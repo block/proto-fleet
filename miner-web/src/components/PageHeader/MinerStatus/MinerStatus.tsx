@@ -17,7 +17,7 @@ const MinerStatus = ({ errors, loading = false }: MinerStatusProps) => {
     <div className="relative">
       <MinerStatusWidget
         errors={errors}
-        loading={loading && !errors}
+        loading={loading && !errors?.length}
         onClick={() => setShowModal(true)}
       />
       {showModal && (

@@ -1,7 +1,7 @@
 import { fireEvent, render, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import { urlValidationErrors } from "../../components/MiningPools/PoolForm/constants";
+import { urlValidationErrors } from "components/MiningPools/PoolForm/constants";
 
 import Onboarding from "./Onboarding";
 
@@ -10,6 +10,10 @@ vi.mock("react-router-dom", () => ({
   useNavigate: () => ({
     Navigation: vi.fn(),
   }),
+  useLocation: () => ({
+    pathname: "/onboarding",
+  }),
+  Link: vi.fn(),
 }));
 
 const poolUrl = "stratum+tcp://ckpool:3333";
@@ -42,7 +46,16 @@ describe("Onboarding", () => {
   let queryByTestId: typeof component.queryByTestId;
 
   beforeEach(() => {
-    component = render(<Onboarding />);
+    component = render(
+      <Onboarding
+        networkInfo={undefined}
+        pendingNetworkInfo={false}
+        systemInfo={undefined}
+        pendingSystemInfo={false}
+        settingUpMiner={false}
+        onChangeSettingUpMiner={() => vi.fn()}
+      />
+    );
     getByTestId = component.getByTestId;
     queryByTestId = component.queryByTestId;
   });

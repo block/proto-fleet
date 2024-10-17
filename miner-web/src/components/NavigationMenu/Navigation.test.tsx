@@ -1,6 +1,7 @@
 import { render, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
+import { navigationMenuTypes } from "./constants";
 import Navigation from "./Navigation";
 
 vi.mock("react-router-dom", () => ({
@@ -20,7 +21,10 @@ describe("Navigation", () => {
 
   test("renders mac info", () => {
     const { getByTestId } = render(
-      <Navigation macInfo={{ loading: false, value: macValue }} />
+      <Navigation
+        macInfo={{ loading: false, value: macValue }}
+        type={navigationMenuTypes.app}
+      />
     );
     const { getByText } = within(getByTestId("mac-address-info-item"));
 
@@ -30,7 +34,10 @@ describe("Navigation", () => {
 
   test("renders version info", () => {
     const { getByTestId } = render(
-      <Navigation versionInfo={{ loading: false, value: versionValue }} />
+      <Navigation
+        versionInfo={{ loading: false, value: versionValue }}
+        type={navigationMenuTypes.app}
+      />
     );
     const { getByText } = within(getByTestId("version-info-item"));
 

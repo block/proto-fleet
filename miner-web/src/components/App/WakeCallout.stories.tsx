@@ -17,7 +17,12 @@ export const WakeUpMiner = () => {
   };
 
   return (
-    <App title="Page title" apiMiningStatus={miningStatus} onWake={handleWake}>
+    <App
+      title="Page title"
+      apiMiningStatus={miningStatus}
+      onWake={handleWake}
+      pendingSystemInfo={false}
+    >
       Page content
     </App>
   );

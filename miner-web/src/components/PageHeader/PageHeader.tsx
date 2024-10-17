@@ -1,3 +1,5 @@
+import { ReactNode } from "react";
+
 import { useWindowDimensions } from "common/hooks/useWindowDimensions";
 
 import { Pause } from "icons";
@@ -7,11 +9,12 @@ import PoolStatus from "./PoolStatus";
 import PowerWidget from "./Power";
 
 interface PageHeaderProps {
+  customButtons?: ReactNode;
   openMenu?: () => void;
   title: string;
 }
 
-const PageHeader = ({ openMenu, title }: PageHeaderProps) => {
+const PageHeader = ({ customButtons, openMenu, title }: PageHeaderProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
   return (
     <div className="h-[60px] flex border-b border-border-primary/5 items-center">
@@ -26,9 +29,13 @@ const PageHeader = ({ openMenu, title }: PageHeaderProps) => {
           <div className="text-300 text-text-primary/70">{title}</div>
         </div>
         <div className="flex space-x-3">
-          <PowerWidget />
-          <PoolStatus />
-          <MinerStatus />
+          {customButtons || (
+            <>
+              <PowerWidget />
+              <PoolStatus />
+              <MinerStatus />
+            </>
+          )}
         </div>
       </div>
     </div>

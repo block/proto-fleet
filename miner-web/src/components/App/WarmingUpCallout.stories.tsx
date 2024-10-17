@@ -21,6 +21,7 @@ export const WarmingUpMiner = () => {
       title="Page title"
       apiMiningStatus={miningStatus}
       onWake={() => {}}
+      pendingSystemInfo={false}
     >
       Page content
     </App>

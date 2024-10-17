@@ -2,13 +2,15 @@ import { useCallback, useMemo } from "react";
 import { action } from "@storybook/addon-actions";
 
 import { statuses } from "./constants";
-import SettingUpComponent from "./SettingUp";
+import OnboardingSettingUp from "./OnboardingSettingUp";
 
-interface SettingUpProps {
+interface OnboardingSettingUpProps {
   poolStatus: keyof typeof statuses;
 }
 
-export const SettingUp = ({ poolStatus }: SettingUpProps) => {
+export const SettingUp = ({
+  poolStatus,
+}: OnboardingSettingUpProps) => {
   const isConfigured = useCallback(
     (status: keyof typeof statuses) =>
       status === statuses.success || status === statuses.error,
@@ -23,7 +25,7 @@ export const SettingUp = ({ poolStatus }: SettingUpProps) => {
   return (
     <div className="h-screen flex justify-center items-center">
       <div className="w-[600px]">
-        <SettingUpComponent
+        <OnboardingSettingUp
           poolStatus={poolStatus}
           isSetupDone={isSetupDone}
           onClickContinue={action("Continue clicked")}
@@ -35,7 +37,7 @@ export const SettingUp = ({ poolStatus }: SettingUpProps) => {
 };
 
 export default {
-  title: "Pages/Onboarding/Setting Up",
+  title: "Components/Onboarding/Setting Up",
   args: {
     poolStatus: statuses.success,
   },

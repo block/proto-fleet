@@ -1,37 +1,46 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { ErrorProps } from "apiResponseTypes";
+import { NetworkInfoNetworkinfo, SystemInfoSysteminfo } from "apiTypes";
 
 import { useAccessToken } from "common/hooks/useAccessToken";
 import { useAuthContext } from "common/hooks/useAuthContext";
 
-import { variants } from "components/Button";
-import LoginModal from "components/LoginModal";
+import AppLayout from "components/AppLayout";
+import Button, { sizes, variants } from "components/Button";
 import MiningPools, {
   getEmptyPoolsInfo,
   isValidPool,
   PoolInfo,
 } from "components/MiningPools";
+import { navigationMenuTypes } from "components/NavigationMenu";
+import OnboardingHeader from "components/OnboardingHeader";
+import SettingUp from "components/OnboardingSettingUp";
 
-import { tabs } from "./constants";
-import OnboardingHeader from "./OnboardingHeader";
-import OnboardingNavigation from "./OnboardingNavigation";
-import SettingUp from "./SettingUp";
-import { Tabs } from "./types";
 import { WarnBackupPoolDialog } from "./WarnBackupPoolDialog";
 import { WarnDefaultPoolCallout } from "./WarnDefaultPoolCallout";
 
-const Onboarding = () => {
+interface OnboardingProps {
+  networkInfo?: NetworkInfoNetworkinfo;
+  onChangeSettingUpMiner: (settingUpMiner: boolean) => void;
+  pendingNetworkInfo: boolean;
+  pendingSystemInfo: boolean;
+  settingUpMiner: boolean;
+  systemInfo?: SystemInfoSysteminfo;
+}
+
+const Onboarding = ({
+  networkInfo,
+  onChangeSettingUpMiner,
+  pendingNetworkInfo,
+  pendingSystemInfo,
+  settingUpMiner,
+  systemInfo,
+}: OnboardingProps) => {
   const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
-  const [finalizedPoolUrls, setFinalizedPoolUrls] = useState<string[]>();
 
   const [warnDefaultPool, setWarnDefaultPool] = useState(false);
   const [warnBackupPool, setWarnBackupPool] = useState(false);
-
-  const [activeTab, setActiveTab] = useState<Tabs>(tabs.pools);
-  const [settingUpMiner, setSettingUpMiner] = useState(false);
-
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const {
     dismissedLoginModal,
@@ -47,17 +56,22 @@ const Onboarding = () => {
   useEffect(() => {
     if (hasAccess && pausedAction) {
       setPausedAction(false);
-      setSettingUpMiner(true);
+      onChangeSettingUpMiner(true);
     }
-  }, [hasAccess, pausedAction]);
+  }, [hasAccess, pausedAction, onChangeSettingUpMiner]);
 
   useEffect(() => {
     if (settingUpMiner && createPoolsError?.status === 401) {
       setHasAccess(false);
-      setSettingUpMiner(false);
+      onChangeSettingUpMiner(false);
       setPausedAction(true);
     }
-  }, [setHasAccess, settingUpMiner, createPoolsError?.status]);
+  }, [
+    setHasAccess,
+    settingUpMiner,
+    createPoolsError?.status,
+    onChangeSettingUpMiner,
+  ]);
 
   useEffect(() => {
     if (dismissedLoginModal) {
@@ -84,8 +98,6 @@ const Onboarding = () => {
           return;
         }
       }
-      // move on to next step
-      setFinalizedPoolUrls(pools.map((pool) => pool.url));
       setPausedAction(true);
       checkAccess();
     },
@@ -104,64 +116,55 @@ const Onboarding = () => {
     }
   }, []);
 
-  return (
-    <div className="h-screen flex flex-col">
-      {showLoginModal && (
-        <LoginModal onContinue={() => setShowLoginModal(false)} />
-      )}
-      {settingUpMiner ? (
-        <>
-          <OnboardingHeader openMenu={() => setIsMenuOpen(true)} />
-          <div className="h-screen flex justify-center items-center">
-            <div className="w-[600px]">
-              <SettingUp pools={pools} setCreatePoolsError={setCreatePoolsError} />
-            </div>
-          </div>
-        </>
-      ) : (
-        <>
-          <OnboardingHeader
-            button={{
-              text: "Finish setup",
-              onClick: () => onContinue(),
-              variant: variants.accent,
-              testId: "finish-setup-button",
-            }}
-            openMenu={() => setIsMenuOpen(true)}
-          />
-          <WarnBackupPoolDialog
-            onAddBackupPool={() => setWarnBackupPool(false)}
-            onContinueWithoutBackup={onContinueWithoutBackup}
-            show={warnBackupPool}
-          />
-          <div className="mt-[60px] h-full">
-            <OnboardingNavigation
-              isVisible={isMenuOpen}
-              closeMenu={() => setIsMenuOpen(false)}
-              poolUrls={finalizedPoolUrls}
-              activeTab={activeTab}
-              onChangeActiveTab={setActiveTab}
+  if (settingUpMiner) {
+    return (
+      <>
+        <OnboardingHeader />
+        <div className="h-screen flex justify-center items-center">
+          <div className="w-[600px]">
+            <SettingUp
+              pools={pools}
+              setCreatePoolsError={setCreatePoolsError}
             />
-            <div className="desktop:ml-80 laptop:ml-80 h-full">
-              <div className="m-14 tablet:m-6 phone:m-6 flex justify-center h-full">
-                <div className="w-[640px]">
-                  {activeTab === tabs.pools && (
-                    <>
-                      <MiningPools onChange={onChangePools} pools={pools}>
-                        <WarnDefaultPoolCallout
-                          onDismiss={() => setWarnDefaultPool(false)}
-                          show={warnDefaultPool}
-                        />
-                      </MiningPools>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
           </div>
-        </>
-      )}
-    </div>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <AppLayout
+      customButtons={
+        <Button
+          onClick={() => onContinue()}
+          size={sizes.compact}
+          variant={variants.accent}
+          testId="finish-setup-button"
+          text="Finish setup"
+        />
+      }
+      networkInfo={networkInfo}
+      onContinueLogin={() => setShowLoginModal(false)}
+      pendingNetworkInfo={pendingNetworkInfo}
+      pendingSystemInfo={pendingSystemInfo}
+      showLoginModal={showLoginModal}
+      systemInfo={systemInfo}
+      title="Miner setup"
+      type={navigationMenuTypes.onboarding}
+    >
+      <WarnBackupPoolDialog
+        onAddBackupPool={() => setWarnBackupPool(false)}
+        onContinueWithoutBackup={onContinueWithoutBackup}
+        show={warnBackupPool}
+      />
+
+      <MiningPools onChange={onChangePools} pools={pools}>
+        <WarnDefaultPoolCallout
+          onDismiss={() => setWarnDefaultPool(false)}
+          show={warnDefaultPool}
+        />
+      </MiningPools>
+    </AppLayout>
   );
 };
 

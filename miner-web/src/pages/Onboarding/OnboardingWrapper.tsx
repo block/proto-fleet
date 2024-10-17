@@ -1,6 +1,6 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { useSystemStatus } from "api";
+import { useNetworkInfo, useSystemInfo, useSystemStatus } from "api";
 
 import { useLocalStorage } from "common/hooks/useLocalStorage";
 import { useNavigate } from "common/hooks/useNavigate";
@@ -14,8 +14,12 @@ const OnboardingWrapper = () => {
     useSystemStatus();
   const navigate = useNavigate();
   const { getItem } = useLocalStorage();
+  const { data: networkInfo, pending: pendingNetworkInfo } = useNetworkInfo();
+  const { data: systemInfo, pending: pendingSystemInfo } = useSystemInfo();
 
   const isOnboarded = useMemo(() => getItem("isOnboarded"), [getItem]);
+
+  const [settingUpMiner, setSettingUpMiner] = useState(false);
 
   // navigate to home page if miner has already been onboarded
   useEffect(() => {
@@ -35,7 +39,14 @@ const OnboardingWrapper = () => {
           <Spinner />
         </div>
       ) : (
-        <Onboarding />
+        <Onboarding
+          networkInfo={networkInfo}
+          pendingNetworkInfo={pendingNetworkInfo}
+          systemInfo={systemInfo}
+          pendingSystemInfo={pendingSystemInfo}
+          settingUpMiner={settingUpMiner}
+          onChangeSettingUpMiner={setSettingUpMiner}
+        />
       )}
     </>
   );

@@ -1,14 +1,14 @@
 import { ElementType } from "react";
 import { MemoryRouter } from "react-router-dom";
 
-import Auth from "./Auth";
+import OnboardingHeader from ".";
 
-export const SignUp = () => {
-  return <Auth />;
+export const Header = () => {
+  return <OnboardingHeader />;
 };
 
 export default {
-  title: "Pages/Sign Up",
+  title: "Components/Onboarding/Header",
   decorators: [
     (Story: ElementType) => (
       <MemoryRouter>

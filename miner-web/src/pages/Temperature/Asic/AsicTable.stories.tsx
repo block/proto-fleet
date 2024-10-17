@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { ElementType, useState } from "react";
+import { MemoryRouter } from "react-router-dom";
 
 import { HashrateResponseHashratedata } from "apiTypes";
 
@@ -40,7 +41,7 @@ export const AsicTable = ({ pending }: AsicTableProps) => {
 };
 
 export default {
-  title: "Pages/Temperature/Asic Table",
+  title: "Components/Asic Temperature/Asic Table",
   args: {
     pending: false,
   },
@@ -51,4 +52,11 @@ export default {
       },
     },
   },
+  decorators: [
+    (Story: ElementType) => (
+      <MemoryRouter>
+        <Story />
+      </MemoryRouter>
+    ),
+  ],
 };

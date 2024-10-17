@@ -47,7 +47,7 @@ export const HashrateChart = ({ duration, hashrates }: HashrateProps) => {
 };
 
 export default {
-  title: "pages/Home/Hashrate Chart",
+  title: "Components/Hashrate Chart",
   args: {
     duration: "12h",
     hashrates: 3,

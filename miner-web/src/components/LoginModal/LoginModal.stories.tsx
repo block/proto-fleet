@@ -1,11 +1,16 @@
 import { action } from "@storybook/addon-actions";
 
-import LoginModal from "./LoginModal";
+import LoginModalComponent from "./LoginModal";
 
-export const Login = () => {
-  return <LoginModal onContinue={action("continue")} onDismiss={action("dismiss modal")} />;
+export const LoginModal = () => {
+  return (
+    <LoginModalComponent
+      onContinue={action("continue")}
+      onDismiss={action("dismiss modal")}
+    />
+  );
 };
 
 export default {
-  title: "Pages/Auth/Login",
+  title: "Components/Login Modal",
 };

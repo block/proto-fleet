@@ -27,7 +27,7 @@ const InfoItem = ({
         <div className="relative text-200 text-text-primary/70">{label}</div>
         <div className="font-mono text-mono-text-50 text-text-primary/30 leading-[14px]">
           {loading ? (
-            <SkeletonBar className="w-4/5" theme="dark" />
+            <SkeletonBar className="w-2/3 !h-[14px]" />
           ) : (
             (value ?? "-")
           )}

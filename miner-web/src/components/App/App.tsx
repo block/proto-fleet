@@ -1,6 +1,5 @@
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
-import clsx from "clsx";
 
 import { ApiContext, useNetworkInfo, usePoll, usePoolsInfo } from "api";
 import { ErrorProps } from "apiResponseTypes";
@@ -13,9 +12,8 @@ import {
 import { useAuthContext } from "common/hooks/useAuthContext";
 import { useNavigate } from "common/hooks/useNavigate";
 
-import LoginModal from "components/LoginModal";
-import NavigationMenu from "components/NavigationMenu";
-import PageHeader from "components/PageHeader";
+import AppLayout from "components/AppLayout";
+import { navigationMenuTypes } from "components/NavigationMenu";
 
 import ErrorCallout from "./ErrorCallout";
 import { isSleeping, isWarmingUp } from "./utility";
@@ -31,7 +29,7 @@ interface AppProps {
   hideErrors?: boolean;
   onWake?: () => void;
   pendingErrors?: boolean;
-  pendingSystemInfo?: boolean;
+  pendingSystemInfo: boolean;
   systemInfo?: SystemInfoSysteminfo;
   title: string;
   wakeError?: ErrorProps;
@@ -62,7 +60,6 @@ const App = ({
     MiningStatusMiningstatus | undefined
   >(apiMiningStatus);
   const [errors, setErrors] = useState(apiErrors);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { showLoginModal, setShowLoginModal, setDismissedLoginModal } =
     useAuthContext();
   const navigate = useNavigate();
@@ -110,63 +107,36 @@ const App = ({
         },
       }}
     >
-      {showLoginModal && (
-        <LoginModal
-          onDismiss={handleDismissLogin}
-          onContinue={() => setShowLoginModal(false)}
-        />
-      )}
-      <div className="flex h-screen bg-surface-base">
-        <div className="grow">
-          <NavigationMenu
-            macInfo={{
-              value: networkInfo?.mac,
-              loading: pendingNetworkInfo,
-            }}
-            isVisible={isMenuOpen}
-            closeMenu={() => setIsMenuOpen(false)}
-            versionInfo={{
-              value: systemInfo?.os?.version,
-              loading: pendingSystemInfo,
-            }}
+      <AppLayout
+        fullScreen={fullScreen}
+        networkInfo={networkInfo}
+        onContinueLogin={() => setShowLoginModal(false)}
+        onDismissLogin={handleDismissLogin}
+        pendingNetworkInfo={pendingNetworkInfo}
+        pendingSystemInfo={pendingSystemInfo}
+        showLoginModal={showLoginModal}
+        systemInfo={systemInfo}
+        title={title}
+        type={navigationMenuTypes.app}
+      >
+        {isWarmingUp(miningStatus) ? (
+          <WarmingUpCallout />
+        ) : (
+          <WakeCallout
+            afterWake={afterWake}
+            miningStatus={miningStatus}
+            onWake={onWake}
+            wakeError={wakeError}
           />
-        </div>
-        <div className="w-full">
-          <PageHeader title={title} openMenu={() => setIsMenuOpen(true)} />
-          <div className="w-full h-[calc(100%-60px)] overflow-y-scroll relative">
-            <div
-              className={clsx("min-h-[calc(100%-60px-60px)]", {
-                "flex justify-center m-14 tablet:m-6 phone:m-6": !fullScreen,
-              })}
-            >
-              <div
-                className={clsx({
-                  "desktop:w-[928px] laptop:w-[608px] tablet:w-[584px] phone:w-[352px]":
-                    !fullScreen,
-                })}
-              >
-                {isWarmingUp(miningStatus) ? (
-                  <WarmingUpCallout />
-                ) : (
-                  <WakeCallout
-                    afterWake={afterWake}
-                    miningStatus={miningStatus}
-                    onWake={onWake}
-                    wakeError={wakeError}
-                  />
-                )}
-                {!isWarmingUp(miningStatus) &&
-                !isSleeping(miningStatus?.status) &&
-                errors?.length &&
-                !hideErrors ? (
-                  <ErrorCallout errors={errors} />
-                ) : null}
-                {children}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+        )}
+        {!isWarmingUp(miningStatus) &&
+        !isSleeping(miningStatus?.status) &&
+        errors?.length &&
+        !hideErrors ? (
+          <ErrorCallout errors={errors} />
+        ) : null}
+        {children}
+      </AppLayout>
     </ApiContext.Provider>
   );
 };

@@ -1,25 +1,41 @@
-import { useCallback, useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useCallback, useMemo } from "react";
+import { Link, useLocation } from "react-router-dom";
 import clsx from "clsx";
 
 import { useNavigate } from "common/hooks/useNavigate";
 import Row from "components/Row";
 
-import { Logo, Minus, Plus } from "icons";
+import { Logo } from "icons";
 
-import { navigationItems } from "./constants";
+import { navigationItems, navigationMenuTypes } from "./constants";
 import MacAddressInfo, { MacAddressInfoProps } from "./InfoItem/MacAddressInfo";
 import VersionInfo, { VersionInfoProps } from "./InfoItem/VersionInfo";
-import NavigationItem from "./NavigationItem";
-import { NavigationItemValue } from "./types";
+import {
+  AppNavigationItems,
+  OnboardingNavigationItems,
+} from "./NavigationItems";
+import { NavigationItemValue, NavigationMenuType } from "./types";
 
 interface NavigationProps {
   macInfo?: MacAddressInfoProps;
   onItemClick?: () => void;
   versionInfo?: VersionInfoProps;
+  type: NavigationMenuType;
 }
 
-const Navigation = ({ macInfo, onItemClick, versionInfo }: NavigationProps) => {
+const Navigation = ({
+  macInfo,
+  onItemClick,
+  versionInfo,
+  type,
+}: NavigationProps) => {
+  const isApp = useMemo(() => type === navigationMenuTypes.app, [type]);
+
+  const isOnboarding = useMemo(
+    () => type === navigationMenuTypes.onboarding,
+    [type]
+  );
+
   const navigate = useNavigate();
   const location = useLocation();
   const { pathname } = useMemo(() => location, [location]);
@@ -29,13 +45,9 @@ const Navigation = ({ macInfo, onItemClick, versionInfo }: NavigationProps) => {
     if (route.length) {
       return route;
     } else {
-      return "home";
+      return isApp ? navigationItems.home : navigationItems.onboarding;
     }
-  }, [pathname]);
-  const [showAccordionItems, setShowAccordionItems] = useState(
-    pageName.startsWith("settings")
-  );
-  const [showAccordionExpand, setShowAccordionExpand] = useState(false);
+  }, [pathname, isApp]);
 
   const handleClick = useCallback(
     (navigationItem: NavigationItemValue) => {
@@ -44,14 +56,6 @@ const Navigation = ({ macInfo, onItemClick, versionInfo }: NavigationProps) => {
     },
     [onItemClick, navigate]
   );
-
-  const handleAccordionClick = useCallback(() => {
-    setShowAccordionItems((prev) => !prev);
-  }, []);
-
-  const handleAccordionHover = useCallback((hover: boolean) => {
-    setShowAccordionExpand(hover);
-  }, []);
 
   return (
     <div
@@ -63,51 +67,25 @@ const Navigation = ({ macInfo, onItemClick, versionInfo }: NavigationProps) => {
     >
       <div className="grow border-b border-border-primary/5">
         <div className="h-[60px] px-3 py-2 flex items-center border-b border-border-primary/5 mb-3">
-          <Logo />
+          <Link
+            to={
+              isApp
+                ? `/${navigationItems.home}`
+                : `/${navigationItems.onboarding}`
+            }
+          >
+            <Logo className="hover:cursor-pointer" />
+          </Link>
         </div>
         <div className="px-3">
-          <NavigationItem
-            id={navigationItems.home}
-            text="Home"
-            onClick={handleClick}
-            pageName={pageName}
-          />
-          <NavigationItem
-            id={navigationItems.temperature}
-            text="Temperature"
-            onClick={handleClick}
-            pageName={pageName}
-          />
-          <NavigationItem
-            id={navigationItems.logs}
-            text="Logs"
-            onClick={handleClick}
-            pageName={pageName}
-          />
-          <NavigationItem
-            suffixIcon={
-              showAccordionExpand || showAccordionItems ? (
-                showAccordionExpand && !showAccordionItems ? (
-                  <Plus />
-                ) : (
-                  <Minus />
-                )
-              ) : undefined
-            }
-            text="Settings"
-            onClick={handleAccordionClick}
-            onHover={handleAccordionHover}
-          />
-          {showAccordionItems && (
-            <>
-              <NavigationItem
-                id={navigationItems.miningPools}
-                text="Mining Pools"
-                onClick={handleClick}
-                pageName={pageName}
-                isChildItem
-              />
-            </>
+          {isApp && (
+            <AppNavigationItems pageName={pageName} onClick={handleClick} />
+          )}
+          {isOnboarding && (
+            <OnboardingNavigationItems
+              pageName={pageName}
+              onClick={handleClick}
+            />
           )}
         </div>
       </div>
