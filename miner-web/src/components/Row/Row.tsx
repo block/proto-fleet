@@ -37,7 +37,7 @@ const Row = ({
             { "py-2": compact },
             { "py-4": !compact },
             { "px-4 -ml-4 rounded-lg w-[calc(100%+32px)]": onClick },
-            { "hover:bg-surface-5": onClick && !isActive },
+            { "hover:bg-core-primary-5": onClick && !isActive },
             { "w-full": !onClick },
             className
           )}

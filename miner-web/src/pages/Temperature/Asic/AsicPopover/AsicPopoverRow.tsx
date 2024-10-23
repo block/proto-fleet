@@ -23,8 +23,8 @@ const AsicPopoverRow = ({
       >
         <circle cx="3" cy="3" r="3" fill="currentColor" />
       </svg>
-      <div className="text-emphasis-300 text-text-primary/90 grow">{label}</div>
-      <div className="text-300 text-text-primary/90">{value ?? "-"}</div>
+      <div className="text-emphasis-300 text-text-primary grow">{label}</div>
+      <div className="text-300 text-text-primary">{value ?? "-"}</div>
     </Row>
   );
 };

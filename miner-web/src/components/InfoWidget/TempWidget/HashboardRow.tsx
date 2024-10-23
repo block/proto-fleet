@@ -23,11 +23,11 @@ const HashboardRow = ({
 }: HashboardRowProps) => {
   return (
     <Row className={className} divider={divider}>
-      <div className="text-emphasis-300 text-text-primary/90">{label}</div>
+      <div className="text-emphasis-300 text-text-primary">{label}</div>
       <div
         className={clsx("text-200", {
           "text-intent-warning-text": warn,
-          "text-text-primary/70": !warn,
+          "text-text-primary-70": !warn,
         })}
       >
         {loading ? (

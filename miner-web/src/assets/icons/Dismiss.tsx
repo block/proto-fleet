@@ -13,7 +13,7 @@ const Dismiss = ({ className, opacity = ".01", width = iconSizes.medium }: IconP
         className={className}
         preserveAspectRatio="xMidYMid meet"
       >
-        <path fill="#fff" fillOpacity={opacity} d="M0 0h20v20H0z" />
+        <path className="fill-surface-base" fillOpacity={opacity} d="M0 0h20v20H0z" />
         <path
           fillRule="evenodd"
           clipRule="evenodd"

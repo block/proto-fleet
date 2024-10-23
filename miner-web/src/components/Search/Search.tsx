@@ -5,6 +5,7 @@ import { useKeyDown } from "common/hooks/useKeyDown";
 import Input from "components/Input";
 
 interface SearchProps {
+  className?: string;
   compact?: boolean;
   initValue?: string;
   onChange: (value: string, id: string) => void;
@@ -13,7 +14,13 @@ interface SearchProps {
 
 const id = "search";
 
-const Search = ({ compact, onChange, initValue, shouldFocus }: SearchProps) => {
+const Search = ({
+  className,
+  compact,
+  onChange,
+  initValue,
+  shouldFocus,
+}: SearchProps) => {
   const [value, setValue] = useState(initValue);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -65,6 +72,7 @@ const Search = ({ compact, onChange, initValue, shouldFocus }: SearchProps) => {
     <div className="w-80 phone:w-24">
       <Input
         id={id}
+        className={className}
         label="Search"
         onChange={handleChange}
         hideLabelOnFocus

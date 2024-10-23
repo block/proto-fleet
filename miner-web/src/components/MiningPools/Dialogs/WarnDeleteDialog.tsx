@@ -15,7 +15,7 @@ interface WarnDeleteDialogProps {
 const InfoRow = ({ label, value }: { label: string; value: string }) => (
   <>
     <div className="text-emphasis-300 text-text-primary">{label}</div>
-    <div className="text-200 text-text-primary/70">{value}</div>
+    <div className="text-200 text-text-primary-70">{value}</div>
   </>
 );
 
@@ -36,7 +36,7 @@ const WarnDeleteDialog = ({
       testId="warn-delete-dialog"
     >
       {(showPoolUrl || showUsername) && (
-        <div className="border border-border-primary/5 rounded-lg px-4 py-1 mt-4">
+        <div className="border border-border-5 rounded-lg px-4 py-1 mt-4">
           {showPoolUrl && (
             <Row divider={showUsername} compact>
               <InfoRow label="Pool URL" value={poolInfo.url} />

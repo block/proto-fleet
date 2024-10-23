@@ -4,3 +4,8 @@ export const positions = {
   "bottom left": "bottom left",
   "bottom right": "bottom right",
 } as const;
+
+export const themes = {
+  light: "light",
+  dark: "dark",
+} as const;

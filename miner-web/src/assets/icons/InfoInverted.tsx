@@ -10,7 +10,12 @@ const InfoInverted = ({ className }: IconProps) => {
       fill="none"
       className={className}
     >
-      <rect width="20" height="20" fill="white" fillOpacity="0.01" />
+      <rect
+        width="20"
+        height="20"
+        className="fill-surface-base"
+        fillOpacity="0.01"
+      />
       <path
         fillRule="evenodd"
         clipRule="evenodd"

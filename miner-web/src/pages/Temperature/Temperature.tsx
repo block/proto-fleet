@@ -152,7 +152,7 @@ const Temperature = ({
                   {hashboardInfo.hb_sn &&
                     `Board ending in ${hashboardInfo.hb_sn.slice(-4)}`}
                 </div>
-                <div className="text-300 text-text-primary/50">
+                <div className="text-300 text-text-primary-50">
                   {hashboardInfo.port !== undefined
                     ? `Connected to port ${hashboardInfo.port}`
                     : null}

@@ -25,7 +25,7 @@ const BackupPoolRow = ({
       <div className="flex flex-col">
         <div>Backup pool #{backupPoolIndex}</div>
         {!!url && (
-          <div className="text-200 text-text-primary/70" data-testid={`backup-pool-${backupPoolIndex}-saved-url`}>{url}</div>
+          <div className="text-200 text-text-primary-70" data-testid={`backup-pool-${backupPoolIndex}-saved-url`}>{url}</div>
         )}
       </div>
       <Button

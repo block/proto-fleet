@@ -54,7 +54,7 @@ const FanSpeedWidget = ({ fanSpeeds, loading }: FanSpeedWidgetProps) => {
                       className="flex flex-col w-10 h-full items-center"
                       key={index}
                     >
-                      <div className="font-mono text-mono-text-50 text-text-primary/50 mb-1">
+                      <div className="font-mono text-mono-text-50 text-text-primary-50 mb-1">
                         F{index + 1}
                       </div>
                       <FanSpeedPieChart

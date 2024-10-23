@@ -1,6 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  darkMode: ["selector", '[data-theme="dark"]'],
   theme: {
     extend: {
       keyframes: {
@@ -61,63 +62,112 @@ export default {
       },
     },
     boxShadow: {
-      50: "0px 0px 1px 0px rgba(0, 0, 0, 0.37)",
-      100: "0px 4px 24px 0px rgba(0, 0, 0, 0.02), 0px 4px 8px 0px rgba(0, 0, 0, 0.02), 0px 2px 4px 0px rgba(0, 0, 0, 0.02), 0px 0px 1px 0px rgba(0, 0, 0, 0.20)",
-      200: "0px 12px 32px 0px rgba(0, 0, 0, 0.04), 0px 8px 16px 0px rgba(0, 0, 0, 0.02), 0px 2px 4px 0px rgba(0, 0, 0, 0.04), 0px 0px 1px 0px rgba(0, 0, 0, 0.20)",
-      300: "0px 16px 40px 0px rgba(0, 0, 0, 0.04), 0px 24px 32px 0px rgba(0, 0, 0, 0.02), 0px 4px 8px 0px rgba(0, 0, 0, 0.04), 0px 0px 1px 0px rgba(0, 0, 0, 0.30)",
+      50: "var(--elevation-50)",
+      100: "var(--elevation-100)",
+      200: "var(--elevation-200)",
+      300: "var(--elevation-300)",
     },
     colors: {
       transparent: "transparent",
       current: "currentColor",
-      border: {
-        primary: "rgb(var(--black-100) / <alpha-value>)",
-      },
-      core: {
-        accent: {
-          fill: "rgb(var(--orange-100) / <alpha-value>)",
-          text: "rgb(var(--text-accent))",
-        },
-        indigo: "rgb(var(--indigo-100) / <alpha-value>)",
-        primary: "rgb(var(--black-100) / <alpha-value>)",
-        "primary-fill": "rgb(var(--black-100) / <alpha-value>)",
-      },
-      grayscale: {
-        gray: "rgb(var(--black-100) / <alpha-value>)",
-      },
-      intent: {
-        critical: {
-          fill: "rgb(var(--red-100) / <alpha-value>)",
-          text: "rgb(var(--text-critical))",
-        },
-        info: {
-          fill: "rgb(var(--blue-100) / <alpha-value>)",
-          text: "rgb(var(--text-info))",
-        },
-        success: {
-          fill: "rgb(var(--green-100) / <alpha-value>)",
-          text: "rgb(var(--text-success))",
-        },
-        warning: {
-          fill: "rgb(var(--yellow-100) / <alpha-value>)",
-          text: "rgb(var(--text-warning))",
-        },
+      text: {
+        primary: "var(--typography-primary)",
+        "primary-70": "var(--typography-primary-70)",
+        "primary-50": "var(--typography-primary-50)",
+        "primary-30": "var(--typography-primary-30)",
+        contrast: "var(--typography-contrast)",
+        "contrast-70": "var(--typography-contrast-70)",
+        emphasis: "var(--typography-emphasis)",
+        accent: "var(--typography-accent)",
+        success: "var(--typography-success)",
+        warning: "var(--typography-warning)",
+        critical: "var(--typography-critical)",
       },
       surface: {
-        base: "rgb(var(--white-100))",
-        default: "rgb(var(--white-100) / 2%)",
-        overlay: "rgb(var(--black-100) / 5%)",
-        5: "rgb(var(--gray-5))",
-        10: "rgb(var(--gray-10))",
-        20: "rgb(var(--gray-20))",
+        default: "var(--surface-default)",
+        base: "var(--surface-base)",
+        // in some instances we want the base color to have different opacity
+        // to show some of the content behind the component
+        // so define rgb here instead of in the variable
+        "elevated-base": "rgb(var(--surface-elevated-base) / <alpha-value>)",
+        20: "var(--surface-20)",
+        10: "var(--surface-10)",
+        5: "var(--surface-5)",
+        overlay: "var(--surface-overlay)",
       },
-      text: {
-        accent: "rgb(var(--orange-100) / 80%)",
-        contrast: "rgb(var(--white-100) / <alpha-value>)",
-        critical: "rgb(var(--red-100))",
-        emphasis: "rgb(var(--orange-100))",
-        primary: "rgb(var(--black-100) / <alpha-value>)",
-        success: "rgb(var(--green-100))",
-        warning: "rgb(var(--yellow-100))",
+      border: {
+        primary: "var(--border-primary)",
+        20: "var(--border-20)",
+        10: "var(--border-10)",
+        5: "var(--border-5)",
+      },
+      core: {
+        primary: {
+          fill: "var(--core-primary-fill)",
+          80: "var(--core-primary-80)",
+          50: "var(--core-primary-50)",
+          20: "var(--core-primary-20)",
+          10: "var(--core-primary-10)",
+          5: "var(--core-primary-5)",
+        },
+        accent: {
+          fill: "var(--core-accent-fill)",
+          text: "var(--core-accent-text)",
+          80: "var(--core-accent-80)",
+          50: "var(--core-accent-50)",
+          20: "var(--core-accent-20)",
+          10: "var(--core-accent-10)",
+        },
+        indigo: {
+          fill: "var(--core-indigo-fill)",
+          text: "var(--core-indigo-text)",
+          80: "var(--core-indigo-80)",
+          50: "var(--core-indigo-50)",
+          20: "var(--core-indigo-20)",
+          10: "var(--core-indigo-10)",
+        },
+      },
+      intent: {
+        info: {
+          fill: "var(--intent-info-fill)",
+          text: "var(--intent-info-text)",
+          80: "var(--intent-info-80)",
+          50: "var(--intent-info-50)",
+          20: "var(--intent-info-20)",
+          10: "var(--intent-info-10)",
+        },
+        success: {
+          fill: "var(--intent-success-fill)",
+          text: "var(--intent-success-text)",
+          80: "var(--intent-success-80)",
+          50: "var(--intent-success-50)",
+          20: "var(--intent-success-20)",
+          10: "var(--intent-success-10)",
+        },
+        warning: {
+          fill: "var(--intent-warning-fill)",
+          text: "var(--intent-warning-text)",
+          80: "var(--intent-warning-80)",
+          50: "var(--intent-warning-50)",
+          20: "var(--intent-warning-20)",
+          10: "var(--intent-warning-10)",
+        },
+        critical: {
+          fill: "var(--intent-critical-fill)",
+          text: "var(--intent-critical-text)",
+          80: "var(--intent-critical-80)",
+          50: "var(--intent-critical-50)",
+          20: "var(--intent-critical-20)",
+          10: "var(--intent-critical-10)",
+        },
+      },
+      grayscale: {
+        gray: {
+          50: "var(--grayscale-gray-50)",
+          20: "var(--grayscale-gray-20)",
+          10: "var(--grayscale-gray-10)",
+          5: "var(--grayscale-gray-5)",
+        },
       },
     },
     fontFamily: {

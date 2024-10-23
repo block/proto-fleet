@@ -118,7 +118,7 @@ const Onboarding = ({
 
   if (settingUpMiner) {
     return (
-      <>
+      <div className="bg-surface-base">
         <OnboardingHeader />
         <div className="h-screen flex justify-center items-center">
           <div className="w-[600px]">
@@ -128,7 +128,7 @@ const Onboarding = ({
             />
           </div>
         </div>
-      </>
+      </div>
     );
   }
 

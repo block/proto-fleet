@@ -76,7 +76,7 @@ const AsicChart = ({ hashrateData, temperatureData }: AsicChartProps) => {
           {...hashrateLineProps}
           activeDot={
             tooltipData.payload[0]?.payload.hashrate_ghs !== undefined ? (
-              <LineDot color="#000" />
+              <LineDot fillClassName="fill-core-primary-fill" />
             ) : (
               <></>
             )
@@ -92,7 +92,7 @@ const AsicChart = ({ hashrateData, temperatureData }: AsicChartProps) => {
           {...temperatureLineProps}
           activeDot={
             tooltipData.payload[0]?.payload.temp_c !== undefined ? (
-              <LineDot color="#FF5B00" />
+              <LineDot fillClassName="fill-core-accent-fill" />
             ) : (
               <></>
             )

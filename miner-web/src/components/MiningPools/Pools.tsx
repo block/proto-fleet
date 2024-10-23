@@ -50,7 +50,7 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
         <div className="text-heading-100 text-text-primary mb-1">
           Backup pools
         </div>
-        <div className="text-300 text-text-primary/70 mb-3">
+        <div className="text-300 text-text-primary-70 mb-3">
           Backup pools will only be used if your default pool fails.
         </div>
         {[...Array(2)].map((_, index) => {

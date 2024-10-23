@@ -61,12 +61,12 @@ const HashrateTooltip = ({
   return (
     <>
       {payload.datetime && (
-        <div className="bg-surface-base/70 pt-6 pb-4 rounded-xl shadow-200 backdrop-blur-[7px]">
+        <div className="bg-surface-elevated-base/70 pt-6 pb-4 rounded-xl shadow-200 backdrop-blur-[7px]">
           <div className="w-[269px]">
             <div className="flex space-x-2 px-6">
               <div className="w-1 h-3 bg-core-accent-fill rounded-sm mt-1" />
               <div>
-                <div className="text-200 mb-1 text-text-primary/70">
+                <div className="text-200 mb-1 text-text-primary-70">
                   Total Hashrate
                 </div>
                 <div className="text-heading-100 text-text-primary">
@@ -93,7 +93,7 @@ const HashrateTooltip = ({
             ) : null}
             {hasHashrate3 ? (
               <HashrateTooltipItem
-                colorClassName="bg-core-indigo"
+                colorClassName="bg-core-indigo-fill"
                 label="Hashboard 3"
                 value={getDisplayValue(payload.hashrate3)}
               />

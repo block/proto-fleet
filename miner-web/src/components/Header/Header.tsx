@@ -45,7 +45,7 @@ const Header = ({
   return (
     <div
       className={clsx(
-        "flex justify-between bg-surface-base w-full",
+        "flex justify-between w-full",
         { "items-center": centerButton },
         className
       )}
@@ -76,7 +76,7 @@ const Header = ({
         {subtitle && (
           <div
             className={clsx(
-              "text-text-primary/70",
+              "text-text-primary-70",
               { "cursor-help": showSubtitleTooltip },
               subtitleClassName,
               subtitleSize

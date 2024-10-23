@@ -189,7 +189,7 @@ const PowerWidget = ({
     <div className="relative" ref={WidgetRef}>
       <WidgetWrapper
         onClick={() => setIsOpen((prev) => !prev)}
-        className="text-text-primary/90"
+        className="text-text-primary"
         isOpen={isOpen}
         testId="power-button"
       >

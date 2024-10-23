@@ -58,7 +58,7 @@ const PowerUsageChart = ({ maxPower, powers }: PowerUsageChartProps) => {
           padding={{ top: -5, bottom: 5 }}
         />
         <Tooltip
-          cursor={{ fill: "#fff" }}
+          cursor={{ fill: "currentColor", className: "text-surface-elevated-base" }}
           position={{ y: -45, x: tooltipData.x - 30 }}
           content={
             <TickTooltip

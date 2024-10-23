@@ -33,8 +33,8 @@ const AsicPopover = ({
       className="mb-[58px] -left-[115px] pb-3 phone:left-0 phone:top-0 phone:mb-0 h-fit"
     >
       <div className="space-y-1">
-        <div className="text-200 text-text-primary/70">ASIC</div>
-        <div className="text-heading-200 text-text-primary/90">
+        <div className="text-200 text-text-primary-70">ASIC</div>
+        <div className="text-heading-200 text-text-primary">
           {getRowLabel(asic.row || 0)}
           {(asic.column || 0) + 1}
         </div>

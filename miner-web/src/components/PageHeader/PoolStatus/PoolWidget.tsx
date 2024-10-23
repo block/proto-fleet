@@ -28,7 +28,7 @@ const PoolWidget = ({
   return (
     <WidgetWrapper
       onClick={loading ? undefined : onTogglePopover}
-      className={clsx("text-text-primary/90", {
+      className={clsx("text-text-primary", {
         "hover:cursor-progress": loading,
       })}
       isOpen={isOpen}

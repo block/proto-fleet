@@ -34,7 +34,7 @@ export const MinerStatus = ({
   return (
     <App
       title="Page title"
-      apiErrors={loading ? [] : mockErrorResponse}
+      apiErrors={loading ? undefined : mockErrorResponse}
       pendingErrors={loading}
       pendingSystemInfo={false}
     >

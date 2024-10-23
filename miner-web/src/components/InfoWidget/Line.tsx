@@ -14,11 +14,11 @@ const Line = ({ data }: LineProps) => {
         <RechartsLine
           type="monotone"
           dataKey="value"
-          stroke="#38A600"
+          stroke="currentColor"
           strokeWidth={2}
           label={false}
           dot={false}
-          className="hover:cursor-pointer"
+          className="text-intent-success-fill hover:cursor-pointer"
         />
       </LineChart>
       <div

@@ -57,10 +57,10 @@ const LoginForm = ({ onClickForgotPassword, onContinue, onDismiss }: LoginFormPr
 
   return (
     <div data-testid="login-form">
-      <div className="text-heading-200 text-text-primary/90">
+      <div className="text-heading-200 text-text-primary">
         Login required
       </div>
-      <div className="text-300 text-text-primary/70 mb-4 mt-1">
+      <div className="text-300 text-text-primary-70 mb-4 mt-1">
         Contact your system administrator if you need access.
       </div>
 
@@ -74,7 +74,7 @@ const LoginForm = ({ onClickForgotPassword, onContinue, onDismiss }: LoginFormPr
         )}
         data-testid="error"
       >
-        <div className="bg-intent-critical-fill/10 text-intent-critical-text text-emphasis-300 px-3 py-2 rounded-lg">
+        <div className="bg-intent-critical-10 text-intent-critical-text text-emphasis-300 px-3 py-2 rounded-lg">
           Invalid credentials entered.
         </div>
       </div>
@@ -100,7 +100,7 @@ const LoginForm = ({ onClickForgotPassword, onContinue, onDismiss }: LoginFormPr
       />
 
       <div
-        className="flex text-200 text-text-primary/50 mb-4 hover:cursor-pointer"
+        className="flex text-200 text-text-primary-50 mb-4 hover:cursor-pointer"
         onClick={onClickForgotPassword}
         data-testid="forgot-password"
       >

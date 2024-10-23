@@ -71,35 +71,35 @@ const Button = ({
         },
         // color and bg - primary
         {
-          "text-text-contrast bg-core-primary-fill/90 hover:bg-core-primary-fill/80":
+          "text-text-contrast bg-core-primary-fill hover:opacity-80":
             primary && !disabledState,
-          "text-text-contrast bg-core-primary-fill/40":
+          "text-text-contrast bg-core-primary-fill opacity-40":
             primary && disabledState,
         },
         // color and bg - accent
         {
-          "text-text-contrast bg-core-accent-fill hover:bg-core-accent-fill/80":
+          "text-text-contrast bg-core-accent-fill hover:opacity-80":
             accent && !disabledState,
-          "text-text-contrast bg-core-accent-fill/40": accent && disabledState,
+          "text-text-contrast bg-core-accent-fill opacity-40": accent && disabledState,
         },
         // color and bg - secondary
         {
-          "text-text-primary bg-core-primary/5 hover:bg-core-primary/20":
+          "text-text-primary bg-core-primary-10 hover:opacity-80":
             secondary && !disabledState,
-          "text-text-primary/50 bg-core-primary/5": secondary && disabledState,
+          "text-text-primary-50 bg-core-primary-5": secondary && disabledState,
         },
         // color and bg - danger
         {
-          "text-text-contrast bg-intent-critical-fill hover:bg-intent-critical-text":
+          "text-text-contrast bg-intent-critical-fill hover:bg-intent-critical-text hover:opacity-80":
             danger && !disabledState,
-          "text-text-contrast bg-intent-critical-fill/40":
+          "text-text-contrast bg-intent-critical-fill opacity-40":
             danger && disabledState,
         },
         // color and bg - secondary danger
         {
-          "text-text-critical bg-intent-critical-fill/10 hover:bg-intent-critical-fill/20":
+          "text-text-critical bg-intent-critical-10 hover:bg-intent-critical-20 hover:opacity-80":
             secondaryDanger && !disabledState,
-          "text-intent-critical-fill/80 bg-intent-critical-fill/10":
+          "text-intent-critical-80 bg-intent-critical-10":
             secondaryDanger && disabledState,
         },
         // color and bg - text only

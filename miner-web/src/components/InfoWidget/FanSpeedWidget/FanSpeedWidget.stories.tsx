@@ -29,7 +29,7 @@ export const FanSpeedWidget = ({
 export default {
   title: "Components/Info Widgets/Fan Speed Widget",
   args: {
-    fanSpeeds: [{ rpm: 3050 }, { rpm: 3049 }, { rpm: 6800 }, { rpm: 6730 }],
+    fanSpeeds: [{ rpm: 1050 }, { rpm: 3049 }, { rpm: 6800 }, { rpm: 6730 }],
     numberOfFans: 4,
     loading: false,
   },

@@ -41,10 +41,10 @@ const SelectRow = ({
         "transition-[background-color] ease-in-out duration-200",
         {
           "border-[1.5px] border-border-primary p-4": isSelected && !disabled,
-          "border border-border-primary/5 p-[16.5px]": !isSelected || disabled,
-          "text-text-primary bg-surface-default hover:bg-surface-5 cursor-pointer":
+          "border border-border-5 p-[16.5px]": !isSelected || disabled,
+          "text-text-primary bg-surface-default hover:bg-core-primary-5 cursor-pointer":
             !disabled,
-          "text-text-primary/50 bg-surface-5 cursor-not-allowed": disabled,
+          "text-text-primary-50 bg-core-primary-5 cursor-not-allowed": disabled,
         }
       )}
       disabled={disabled}
@@ -57,8 +57,8 @@ const SelectRow = ({
           {subtext && (
             <div
               className={clsx("text-200", {
-                "text-text-primary/70": !disabled,
-                "text-text-primary/40": disabled,
+                "text-text-primary-70": !disabled,
+                "text-text-primary-50": disabled,
               })}
             >
               {subtext}
@@ -73,8 +73,8 @@ const SelectRow = ({
             {
               "rounded-full": isRadio,
               rounded: isCheckbox,
-              "border-border-primary/20 cursor-pointer": !disabled,
-              "border-border-primary/10 cursor-not-allowed bg-core-primary/20 opacity-[0.4]":
+              "border-border-20 cursor-pointer": !disabled,
+              "border-border-10 cursor-not-allowed bg-core-primary-20 opacity-[0.4]":
                 disabled,
             }
           )}
@@ -85,7 +85,7 @@ const SelectRow = ({
         />
         <div
           className={clsx(
-            "hidden absolute rounded-full w-full h-full bg-core-accent-fill/80 text-text-contrast",
+            "hidden absolute rounded-full w-full h-full bg-core-accent-80 text-text-contrast",
             {
               "peer-checked:block": isRadio,
             }
@@ -102,7 +102,7 @@ const SelectRow = ({
         </div>
         <Checkmark
           className={clsx(
-            "absolute bg-core-accent-fill/80 rounded text-surface-base hidden cursor-pointer",
+            "absolute bg-core-accent-80 rounded text-surface-base hidden cursor-pointer",
             { "peer-checked:block": isCheckbox }
           )}
         />

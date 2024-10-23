@@ -11,11 +11,11 @@ const PowerUsageBar = ({ active, height, width, x }: PowerUsageBarProps) => {
       {/* gradient definitions for the filled area */}
       <defs>
         <linearGradient id="gradient" x1="0" x2="0" y2="100%">
-          <stop stopColor="#000" stopOpacity="0.1" />
+          <stop className="text-core-primary-fill" stopColor="currentColor" stopOpacity="0.1" />
           <stop offset="1" stopOpacity="0" />
         </linearGradient>
         <linearGradient id="activeGradient" x1="0" x2="0" y2="100%">
-          <stop stopColor="#FF5B00" stopOpacity="0.2" />
+          <stop className="text-core-accent-fill" stopColor="currentColor" stopOpacity="0.2" />
           <stop offset="1" stopOpacity="0" />
         </linearGradient>
       </defs>
@@ -26,7 +26,7 @@ const PowerUsageBar = ({ active, height, width, x }: PowerUsageBarProps) => {
         width={width}
         height="120px"
         stroke="none"
-        fill={active ? "#FF5B00" : "#F2F2F2"}
+        className={active ? "fill-core-accent-fill" : "fill-core-primary-5"}
         fillOpacity={active ? 0.1 : 1}
       />
       {/* border for top of filled area */}
@@ -36,7 +36,7 @@ const PowerUsageBar = ({ active, height, width, x }: PowerUsageBarProps) => {
         width={width}
         height={1}
         stroke="none"
-        fill={active ? "#FF5B00" : "#000"}
+        className={active ? "fill-core-accent-fill" : "fill-core-primary-80"}
       />
       {/* filled area */}
       <rect

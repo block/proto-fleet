@@ -6,7 +6,11 @@ interface FanSpeedPieChartProps {
   maxSpeed: number;
 }
 
-const FanSpeedPieChart = ({ acceptableSpeed, fanSpeed, maxSpeed }: FanSpeedPieChartProps) => {
+const FanSpeedPieChart = ({
+  acceptableSpeed,
+  fanSpeed,
+  maxSpeed,
+}: FanSpeedPieChartProps) => {
   const data = [
     { name: "A", value: fanSpeed, fillOpacity: 1 },
     { name: "B", value: maxSpeed - fanSpeed },
@@ -21,7 +25,12 @@ const FanSpeedPieChart = ({ acceptableSpeed, fanSpeed, maxSpeed }: FanSpeedPieCh
             cy={15}
             data={data}
             dataKey="value"
-            fill={fanSpeed < acceptableSpeed ? "#FD8A00" : "#38A600"}
+            fill="currentColor"
+            className={
+              fanSpeed < acceptableSpeed
+                ? "text-intent-warning-fill"
+                : "text-intent-success-fill"
+            }
             fillOpacity={0.5}
             innerRadius={10}
             outerRadius={20}

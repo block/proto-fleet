@@ -151,7 +151,6 @@ const Logs = ({ logsData }: LogsProps) => {
     blurSearch(e);
   }, []);
 
-
   const handleClickSearchBar = useCallback(() => {
     setFocusSearch(true);
   }, []);
@@ -170,12 +169,13 @@ const Logs = ({ logsData }: LogsProps) => {
           >
             <div
               className={clsx(
-                "flex items-center p-[15px] border-b-[1px] border-border-primary/5",
-                "focus-within:border-b-2 focus-within:border-border-primary/90"
+                "flex items-center p-[15px] border-b-[1px] border-border-5",
+                "focus-within:border-b-2 focus-within:border-border-primary"
               )}
             >
               <div className="flex space-x-4 items-center flex-grow">
                 <Search
+                  className="!bg-surface-base"
                   onChange={setSearchValue}
                   initValue={searchValue}
                   compact
@@ -189,11 +189,11 @@ const Logs = ({ logsData }: LogsProps) => {
                   className={clsx(
                     "text-text-critical",
                     {
-                      "bg-intent-critical-fill/10 border-transparent":
+                      "bg-intent-critical-10 border-transparent":
                         filterByLogType === logTypes.error,
                     },
                     {
-                      "border-intent-critical-fill/10":
+                      "border-intent-critical-10":
                         filterByLogType !== logTypes.error,
                     }
                   )}
@@ -206,11 +206,11 @@ const Logs = ({ logsData }: LogsProps) => {
                   className={clsx(
                     "text-text-warning",
                     {
-                      "bg-intent-warning-fill/10 border-transparent":
+                      "bg-intent-warning-10 border-transparent":
                         filterByLogType === logTypes.warn,
                     },
                     {
-                      "border-intent-warning-fill/10":
+                      "border-intent-warning-10":
                         filterByLogType !== logTypes.warn,
                     }
                   )}
@@ -253,7 +253,7 @@ const Logs = ({ logsData }: LogsProps) => {
                     <div
                       key={line}
                       className={clsx("flex leading-6 mb-1", {
-                        "ml-[2px] text-text-primary/70":
+                        "ml-[2px] text-text-primary-70":
                           !isError && !isWarning && !isDebug,
                         "border-l-[2px] -ml-[16px] pl-4":
                           isError || isWarning || isDebug,
@@ -280,8 +280,8 @@ const Logs = ({ logsData }: LogsProps) => {
                   );
                 })
               ) : (
-                <div className="bg-surface-5 w-full h-[189px] flex justify-center items-center rounded-2xl">
-                  <div className="font-body text-heading-100 text-text-primary/50">
+                <div className="bg-core-primary-5 w-full h-[189px] flex justify-center items-center rounded-2xl">
+                  <div className="font-body text-heading-100 text-text-primary-50">
                     {searchValue &&
                       filterByLogType === undefined &&
                       `No results match “${searchValue}”`}

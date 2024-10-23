@@ -1,9 +1,9 @@
 const config = {
   stories: ["../src/**/*.stories.@(js|jsx|mjs|ts|tsx)"],
   addons: [
-    "storybook-addon-data-theme-switcher",
     "@storybook/addon-actions",
     "@storybook/addon-controls",
+    "storybook-dark-mode",
   ],
   framework: {
     name: "@storybook/react-vite",

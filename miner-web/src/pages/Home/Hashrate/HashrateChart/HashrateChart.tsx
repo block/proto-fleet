@@ -168,9 +168,10 @@ const HashrateChart = ({
         <Line
           {...LineProps}
           dataKey="totalHashrate"
-          stroke="#FF7900"
+          stroke="currentColor"
+          className="text-intent-warning-fill"
           activeDot={
-            tooltipData.payload.length ? <LineDot color="#FF7900" /> : <></>
+            tooltipData.payload.length ? <LineDot fillClassName="fill-intent-warning-fill" /> : <></>
           }
           isAnimationActive={!initChart}
         />

@@ -55,7 +55,7 @@ const AsicChartTooltip = ({
   return (
     <>
       {payload.datetime && (
-        <div className="bg-surface-base/70 px-3 py-2 rounded-xl shadow-200 backdrop-blur-[7px] w-[180px]">
+        <div className="bg-surface-elevated-base/70 px-3 py-2 rounded-xl shadow-200 backdrop-blur-[7px] w-[180px]">
           {payload.temp_c !== undefined ? (
             <AsicPopoverRow
               label="Temperature"

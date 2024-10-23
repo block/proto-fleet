@@ -33,7 +33,10 @@ export const MinerStatus = ({
 
   return (
     <div className="w-96 flex justify-end">
-      <MinerStatusComponent errors={mockErrorResponse} loading={loading} />
+      <MinerStatusComponent
+        errors={loading ? undefined : mockErrorResponse}
+        loading={loading}
+      />
     </div>
   );
 };

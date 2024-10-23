@@ -31,8 +31,8 @@ const InfoWidget = ({
       className={clsx(
         "group text-left relative grow basis-0 flex transition-[background-color] ease-in-out duration-200",
         {
-          "p-4 border border-border-primary/5 rounded-xl": hasBorder,
-          "hover:bg-surface-5": onClick,
+          "p-4 border border-border-5 rounded-xl": hasBorder,
+          "hover:bg-core-primary-5": onClick,
         },
         wrapperClassName
       )}
@@ -42,7 +42,7 @@ const InfoWidget = ({
       <div
         className={clsx("whitespace-nowrap", { "grow mr-2": stats }, className)}
       >
-        <div className="text-heading-50 text-text-primary/50 mb-1">{title}</div>
+        <div className="text-heading-50 text-text-primary-50 mb-1">{title}</div>
         <div className="text-heading-300 text-text-primary">
           {loading ? (
             <SkeletonBar className="w-36 mt-4" />

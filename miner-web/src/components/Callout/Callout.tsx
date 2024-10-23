@@ -54,7 +54,7 @@ const Callout = ({
           {header}
         </div>
       )}
-      <div className="flex p-4 text-text-primary/70 bg-surface-base rounded-xl">
+      <div className="flex p-4 text-text-primary-70 bg-surface-elevated-base rounded-xl">
         <div
           className={clsx("mr-3", {
             "mt-1": buttonText,

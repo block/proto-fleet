@@ -84,13 +84,13 @@ const Auth = () => {
   useKeyDown({ key: "Enter", onKeyDown: handleEnter });
 
   return (
-    <div className="auth-wrapper w-full h-screen flex justify-center items-center">
+    <div className="auth-wrapper w-full h-screen flex justify-center items-center bg-surface-base">
       <div className="w-[402px] p-6 rounded-3xl shadow-200 bg-surface-base space-y-4">
         <div className="flex items-center">
           <div className="grow">
-            <Logo className="w-[78px]" />
+            <Logo className="w-[78px] text-text-primary" />
           </div>
-          <div className="uppercase text-text-primary/50 text-300 leading-4 font-semibold rounded-lg border border-border-primary/5 py-1 px-2">
+          <div className="uppercase text-text-primary-50 text-300 leading-4 font-semibold rounded-lg border border-border-5 py-1 px-2">
             MDK Beta
           </div>
         </div>
@@ -101,7 +101,7 @@ const Auth = () => {
           <div className="text-heading-200 text-text-primary">
             Create a login for this miner
           </div>
-          <div className="text-300 text-text-primary/70">
+          <div className="text-300 text-text-primary-70">
             Make sure to store your password somewhere safe. If you lose it
             you'll need to reset the miner, which will wipe all settings and
             logs.

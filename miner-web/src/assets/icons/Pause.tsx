@@ -12,7 +12,7 @@ const Pause = ({ className, onClick }: IconProps) => {
     >
       <path
         transform="rotate(90 19.6 .4)"
-        stroke="#fff"
+        className="stroke-surface-base"
         strokeOpacity=".01"
         strokeWidth=".8"
         d="M19.6.4h19.2v19.2H19.6z"

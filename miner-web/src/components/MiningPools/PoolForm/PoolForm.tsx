@@ -149,7 +149,7 @@ const PoolForm = ({
               body: "Depending on the mining pool you’re trying to connect to, you may need to enter the password you use to log in to that pool.",
             }}
           />
-          <div className="text-200 text-text-primary/50 mt-2">
+          <div className="text-200 text-text-primary-50 mt-2">
             A password might be required depending on the pool you’re connecting
             to.
           </div>

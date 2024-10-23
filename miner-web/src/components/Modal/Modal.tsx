@@ -86,7 +86,7 @@ const Modal = ({
     <PageOverlay show={showModal}>
       <div
         className={clsx(
-          "shadow-300 rounded-3xl p-6 w-[640px] h-fit bg-surface-base",
+          "shadow-300 rounded-3xl p-6 w-[640px] h-fit bg-surface-elevated-base",
           {
             "animate-sliding-up": showModal,
             "animate-sliding-down": !showModal,
@@ -117,7 +117,7 @@ const Modal = ({
             {contentHeader}
           </div>
         )}
-        <div className="text-300 text-text-primary/70">{children}</div>
+        <div className="text-300 text-text-primary-70">{children}</div>
       </div>
     </PageOverlay>
   );

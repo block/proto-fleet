@@ -42,7 +42,7 @@ const AsicTable = ({
                 .filter((asic) => asic.column === 0)
                 .map((asic) => (
                   <div
-                    className="bg-surface-5 font-mono text-mono-text-50 text-text-primary/90 px-2 py-1 rounded-lg border border-border-primary/5 text-center flex items-center h-[42px]"
+                    className="bg-core-primary-5 font-mono text-mono-text-50 text-text-primary px-2 py-1 rounded-lg border border-border-5 text-center flex items-center h-[42px]"
                     key={`asic-header-${asic.row}`}
                   >
                     {getRowLabel(asic.row || 0)}
@@ -56,7 +56,7 @@ const AsicTable = ({
                   .filter((asic) => asic.row === 0)
                   .map((asic) => (
                     <div
-                      className="bg-surface-5 font-mono text-mono-text-50 text-text-primary/90 px-2 py-1 rounded-lg border border-border-primary/5 basis-0 grow text-center"
+                      className="bg-core-primary-5 font-mono text-mono-text-50 text-text-primary px-2 py-1 rounded-lg border border-border-5 basis-0 grow text-center"
                       key={`asic-header-${asic.column}`}
                     >
                       {(asic.column || 0) + 1}

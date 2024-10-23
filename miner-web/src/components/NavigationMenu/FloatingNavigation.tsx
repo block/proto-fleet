@@ -35,10 +35,10 @@ const FloatingNavigation = ({
   }, [closeMenu]);
 
   return (
-    <div className="fixed h-screen bg-surface-base p-2 z-20">
+    <div className="fixed h-screen bg-surface-elevated-base p-2 z-20">
       <button
         className={clsx(
-          "fixed top-0 left-0 h-screen w-screen bg-border-primary/20 z-20 hover:cursor-default",
+          "fixed top-0 left-0 h-screen w-screen bg-border-20 z-20 hover:cursor-default",
           {
             "animate-[fade-in_.3s_ease-in-out]": isVisible,
             "animate-[fade-out_.31s_ease-in-out]": !isVisible,

@@ -43,14 +43,17 @@ const Tabs = ({ children, disableAnimation }: TabsProps) => {
 
   useEffect(() => {
     if (activeTab !== slidingTab) {
-      setTimeout(() => {
-        setActiveTab(slidingTab);
-      }, disableAnimation ? 0 : 150);
+      setTimeout(
+        () => {
+          setActiveTab(slidingTab);
+        },
+        disableAnimation ? 0 : 150
+      );
     }
   }, [disableAnimation, slidingTab, activeTab]);
 
   const tabs = childrenArray?.map((child: TabProps) => (
-    <div className="text-text-primary/70" key={child.props.label}>
+    <div className="text-text-primary-70" key={child.props.label}>
       <button
         onMouseDown={(e) => {
           e.preventDefault();
@@ -92,7 +95,7 @@ const Tabs = ({ children, disableAnimation }: TabsProps) => {
 
   return (
     <>
-      <div className="flex space-x-6 border-b-2 border-border-primary/5 whitespace-nowrap">
+      <div className="flex space-x-6 border-b-2 border-border-5 whitespace-nowrap">
         {tabs}
       </div>
       {tabContent}

@@ -54,7 +54,7 @@ const MinerStatusWidget = ({
   return (
     <WidgetWrapper
       onClick={loading ? undefined : onClick}
-      className={clsx("text-text-primary/90", {
+      className={clsx("text-text-primary", {
         "hover:cursor-progress": loading,
       })}
     >

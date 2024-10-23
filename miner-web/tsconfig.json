@@ -32,7 +32,10 @@
       "icons": ["./src/assets/icons"],
       "icons/*": ["./src/assets/icons/*"],
       "pages/*": ["./src/pages/*"],
-    }
+    },
+
+    "types": ["jest-dom"],
+    "typeRoots": ["node_modules/@types", "node_modules/@testing-library"]
   },
   "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]

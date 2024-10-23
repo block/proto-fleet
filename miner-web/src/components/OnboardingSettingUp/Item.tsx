@@ -19,7 +19,7 @@ const Item = ({ divider = true, onClickRetry, status, text }: ItemProps) => {
       <div className="grow">
         <div className="text-emphasis-300">Configuring your {text}</div>
         {status === statuses.error && (
-          <div className="text-200 text-text-primary/70">
+          <div className="text-200 text-text-primary-70">
             <Error text={text} onClickRetry={onClickRetry} />
           </div>
         )}

@@ -1,10 +1,10 @@
 interface LineDotProps {
-  color:string;
+  fillClassName: string;
   cx?: number;
   cy?: number;
 }
 
-const LineDot = ({ color, cx = 0, cy = 0 }: LineDotProps) => {
+const LineDot = ({ fillClassName, cx = 0, cy = 0 }: LineDotProps) => {
   return (
     <svg
       x={cx - 32.5}
@@ -15,8 +15,8 @@ const LineDot = ({ color, cx = 0, cy = 0 }: LineDotProps) => {
       fill="none"
     >
       <g filter="url(#filter0_dddd_2194_9558)">
-        <circle cx="33" cy="29" r="9" fill="white" />
-        <circle cx="33" cy="29" r="6" fill={color} />
+        <circle cx="33" cy="29" r="9" className="fill-surface-base" />
+        <circle cx="33" cy="29" r="6" className={fillClassName} />
       </g>
       <defs>
         <filter

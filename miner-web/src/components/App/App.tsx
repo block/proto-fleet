@@ -96,7 +96,10 @@ const App = ({
   return (
     <ApiContext.Provider
       value={{
-        errors: { errors: errors || [], pending: !!pendingErrors },
+        errors: {
+          errors: errors || [],
+          pending: !!(pendingErrors && !errors),
+        },
         miningStatus: miningStatus || {},
         setMiningStatus,
         poolsInfo,

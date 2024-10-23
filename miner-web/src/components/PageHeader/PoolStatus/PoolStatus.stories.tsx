@@ -21,29 +21,31 @@ export const PoolStatus = ({
     <div className="w-96 flex justify-end">
       <PoolStatusComponent
         poolsInfo={
-          [
-            {
-              ...(numberOfPools >= 1 && {
-                status: poolStatus,
-                url: "stratum+tcp://stratum.braiins.com:999999999",
-                priority: 1,
-              }),
-            },
-            {
-              ...(numberOfPools >= 2 && {
-                status: poolStatus,
-                url: "mine.ocean.xyz:2222",
-                priority: 5,
-              }),
-            },
-            {
-              ...(numberOfPools === 3 && {
-                status: poolStatus,
-                url: "mine.ocean.xyz:3333",
-                priority: 8,
-              }),
-            },
-          ].filter((pool) => !!pool.url) as Pool[]
+          loading
+            ? undefined
+            : ([
+                {
+                  ...(numberOfPools >= 1 && {
+                    status: poolStatus,
+                    url: "stratum+tcp://stratum.braiins.com:999999999",
+                    priority: 1,
+                  }),
+                },
+                {
+                  ...(numberOfPools >= 2 && {
+                    status: poolStatus,
+                    url: "mine.ocean.xyz:2222",
+                    priority: 5,
+                  }),
+                },
+                {
+                  ...(numberOfPools === 3 && {
+                    status: poolStatus,
+                    url: "mine.ocean.xyz:3333",
+                    priority: 8,
+                  }),
+                },
+              ].filter((pool) => !!pool.url) as Pool[])
         }
         loading={loading}
         onClickViewPools={action("View mining pools clicked")}

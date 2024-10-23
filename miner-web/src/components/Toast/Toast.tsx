@@ -14,7 +14,7 @@ interface ToastProps {
 
 const Toast = ({ message, onClose, type }: ToastProps) => {
   return (
-    <div className="flex items-center w-[400px] p-3 space-x-3 rounded-lg shadow-100 bg-surface-base">
+    <div className="flex items-center w-[400px] p-3 space-x-3 rounded-lg shadow-100 bg-surface-elevated-base">
       <div className="flex grow space-x-3 items-center">
         {type === toastTypes.loading && <Spinner />}
         {type === toastTypes.success && (
@@ -23,10 +23,10 @@ const Toast = ({ message, onClose, type }: ToastProps) => {
         {type === toastTypes.error && (
           <Alert className="text-intent-warning-fill" />
         )}
-        <div className="text-heading-100 text-text-primary/90">{message}</div>
+        <div className="text-heading-100 text-text-primary">{message}</div>
       </div>
       <button onClick={onClose}>
-        <Dismiss className="text-text-primary/30" width={iconSizes.small} />
+        <Dismiss className="text-text-primary-30" width={iconSizes.small} />
       </button>
     </div>
   );

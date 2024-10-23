@@ -18,11 +18,13 @@ const lineProps = {
 export const hashrateLineProps = {
   ...lineProps,
   dataKey: "hashrate_ghs",
-  stroke: "#000",
+  className: "text-core-primary-fill",
+  stroke: "currentColor",
 };
 
 export const temperatureLineProps = {
   ...lineProps,
   dataKey: "temp_c",
-  stroke: "#FF5B00",
+  className: "text-core-accent-fill",
+  stroke: "currentColor",
 };

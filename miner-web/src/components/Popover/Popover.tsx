@@ -39,7 +39,7 @@ const Popover = ({
   return (
     <div
       className={clsx(
-        "p-6 rounded-3xl shadow-200 absolute bg-surface-base/85 backdrop-blur-[7px] space-y-4 z-20 transition-opacity duration-200",
+        "p-6 rounded-3xl shadow-200 absolute bg-surface-elevated-base/85 backdrop-blur-[7px] space-y-4 z-20 transition-opacity duration-200",
         {
           "right-0 mt-2": position === positions["bottom left"],
           "bottom-0": position === positions["top right"],

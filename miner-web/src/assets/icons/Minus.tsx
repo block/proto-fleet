@@ -10,7 +10,7 @@ const Minus = ({ className }: IconProps) => {
       className={className}
     >
       <path
-        stroke="#fff"
+        className="stroke-surface-base"
         strokeOpacity=".01"
         strokeWidth=".6"
         d="M.3.3h19.4v19.4H.3z"
@@ -19,7 +19,7 @@ const Minus = ({ className }: IconProps) => {
         fillRule="evenodd"
         clipRule="evenodd"
         d="M5 10a1 1 0 0 1 1-1h8a1 1 0 1 1 0 2H6a1 1 0 0 1-1-1Z"
-        fill="#000"
+        fill="currentColor"
         fillOpacity=".3"
       />
     </svg>

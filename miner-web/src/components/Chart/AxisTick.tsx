@@ -12,9 +12,8 @@ const AxisTick = ({ payload, x, xOffset = 0, y }: AxisTickProps) => {
         x={0}
         y={0}
         textAnchor="end"
-        fill="#000"
         fillOpacity={0.5}
-        className="text-emphasis-200"
+        className="text-emphasis-200 fill-text-primary"
       >
         {payload.value}
       </text>

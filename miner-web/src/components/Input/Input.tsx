@@ -104,16 +104,16 @@ const Input = ({
         id={id}
         data-testid={testId}
         className={clsx(
-          "peer rounded-lg w-full outline-none text-300 text-text-primary/90",
+          "peer rounded-lg w-full outline-none text-300 text-text-primary bg-surface-elevated-base",
           "transition-[border-color] ease-in-out duration-200",
           {
-            "border border-border-primary/5": !error && !compact,
+            "border border-border-5": !error && !compact,
           },
           {
             "focus:border-[1.5px] focus:border-border-primary":
               !error && !compact && !readonly,
           },
-          { "border-[1.5px] border-intent-critical-fill/50 ": error },
+          { "border-[1.5px] border-intent-critical-50 ": error },
           { "pt-[18px]": !hideLabelOnFocus },
           { "h-14 pl-4": !compact },
           { "pr-4": !compact && !tooltip && type !== "password" },
@@ -133,7 +133,7 @@ const Input = ({
       <label
         htmlFor={id}
         className={clsx(
-          "text-text-primary/50 absolute cursor-text",
+          "text-text-primary-50 absolute cursor-text",
           { "text-300": !value.length },
           { "left-0": compact },
           { "left-[17px]": !compact },
@@ -173,7 +173,7 @@ const Input = ({
         </div>
       ) : undefined}
       {keyboardShortcuts && !value.length ? (
-        <div className="absolute right-4 top-7 transform -translate-y-1/2 flex space-x-[2px] text-300 font-semibold text-text-primary/30 bg-surface-5 rounded px-2 shadow-100">
+        <div className="absolute right-4 top-7 transform -translate-y-1/2 flex space-x-[2px] text-300 font-semibold text-text-primary-30 bg-core-primary-5 rounded px-2 shadow-100">
           {keyboardShortcuts.map((shortcut, index) => (
             <Fragment key={index}>{shortcut}</Fragment>
           ))}
@@ -188,7 +188,11 @@ const Input = ({
             "right-12": tooltip,
           })}
         >
-          <Eye onClick={togglePasswordVisibility} className="hover:cursor-pointer" testId="eye-icon" />
+          <Eye
+            onClick={togglePasswordVisibility}
+            className="hover:cursor-pointer"
+            testId="eye-icon"
+          />
         </div>
       )}
       <div
@@ -200,7 +204,7 @@ const Input = ({
         )}
       >
         <div className="flex items-center space-x-1">
-          <div className="w-[10px] h-1 rounded-full bg-intent-critical-fill/20" />
+          <div className="w-[10px] h-1 rounded-full bg-intent-critical-20" />
           <div data-testid={`${testId}-validation-error`}>
             {validationError}
           </div>

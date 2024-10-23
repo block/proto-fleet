@@ -20,7 +20,7 @@ const Alert = ({ className, width = iconSizes.medium }: IconProps) => {
         />
         <path
           d="M9.992 14H10M10 11V7"
-          stroke="#fff"
+          className="stroke-surface-base"
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"

@@ -78,14 +78,19 @@ const EfficiencyChart = ({ efficiencies }: EfficiencyChartProps) => {
         <Line
           type="monotone"
           dataKey="value"
-          stroke="#38A600"
+          className="text-intent-success-fill"
+          stroke="currentColor"
           strokeWidth={2.5}
           label={false}
           dot={false}
           strokeLinecap="round"
           strokeLinejoin="round"
           activeDot={
-            tooltipData.payload.length ? <LineDot color="#38A600" /> : <></>
+            tooltipData.payload.length ? (
+              <LineDot fillClassName="fill-intent-success-fill" />
+            ) : (
+              <></>
+            )
           }
         />
       </LineChart>

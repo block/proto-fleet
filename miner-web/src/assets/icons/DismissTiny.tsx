@@ -10,7 +10,7 @@ const DismissCircle = ({ className, onClick, opacity }: IconProps) => {
       className={className}
       onClick={onClick}
     >
-      <path fill="#fff" fillOpacity=".02" d="M0 0h16v16H0z" />
+      <path className="fill-surface-base" fillOpacity=".02" d="M0 0h16v16H0z" />
       <path
         fillRule="evenodd"
         clipRule="evenodd"

@@ -60,13 +60,13 @@ const Navigation = ({
   return (
     <div
       className={clsx(
-        "w-[240px] min-h-screen flex flex-col bg-surface-base text-text-primary/70 border-r border-border-primary/5",
+        "w-[240px] min-h-screen flex flex-col bg-surface-base text-text-primary-70 border-r border-border-5",
         "tablet:min-h-[calc(100vh-16px)] tablet:z-30 tablet:absolute tablet:rounded-lg",
         "phone:min-h-[calc(100vh-16px)] phone:z-30 phone:absolute phone:rounded-lg"
       )}
     >
-      <div className="grow border-b border-border-primary/5">
-        <div className="h-[60px] px-3 py-2 flex items-center border-b border-border-primary/5 mb-3">
+      <div className="grow border-b border-border-5">
+        <div className="h-[60px] px-3 py-2 flex items-center border-b border-border-5 mb-3">
           <Link
             to={
               isApp
@@ -74,7 +74,7 @@ const Navigation = ({
                 : `/${navigationItems.onboarding}`
             }
           >
-            <Logo className="hover:cursor-pointer" />
+            <Logo className="hover:cursor-pointer text-text-primary" />
           </Link>
         </div>
         <div className="px-3">
@@ -96,12 +96,12 @@ const Navigation = ({
           value={versionInfo?.value}
         />
         <MacAddressInfo loading={macInfo?.loading} value={macInfo?.value} />
-        <Row compact className="text-200 text-text-primary/70">
+        <Row compact className="text-200 text-text-primary-70">
           <a href="https://proto.xyz/docs/api/v1.1.0" target="_blank">
             API Documentation
           </a>
         </Row>
-        <Row compact className="text-200 text-text-primary/70" divider={false}>
+        <Row compact className="text-200 text-text-primary-70" divider={false}>
           <a href="mailto:mining.support@block.xyz" target="_blank">
             Contact us
           </a>

@@ -2,23 +2,210 @@
 
 @layer base {
   /* rgb values without the rgb wrapper as those get added in the tailwind config to handle opacity */
-  html[data-theme='light'] {
-    --black-100: 0 0 0; /* #000 */
+  :root {
+    --black-100: 0 0 0; /* #000000 */
     --blue-100: 0 150 209; /* #2690C7 */
+    --gray-90: 16 16 16; /* #101010 */
+    --gray-80: 32 32 32; /* #202020 */
+    --gray-70: 48 48 48; /* #303030 */
+    --gray-60: 80 80 80; /* #505050 */
+    --gray-20: 192 192 192; /* #C0C0C0 */
+    --gray-10: 224 224 224; /* #E0E0E0 */
     --gray-5: 242 242 242; /* #F2F2F2 */
-    --gray-10: 229 229 229; /* #E5E5E5 */
-    --gray-20: 204 204 204; /* #CCC */
     --green-100: 56 166 0; /* #38A600 */
+    --light-green-100: 157 211 26; /* #9DD31A */
     --indigo-100: 120 62 237;  /* #783EED */
-    --orange-100: 255 91 0; /* #FF5B00 */
+    --orange-100: 254 124 0; /* #FE7C00 */
     --red-100: 250 43 55; /* #FA2B37 */
-    --white-100: 255 255 255; /* #FFF */
+    --white-100: 255 255 255; /* #FFFFFF */
     --yellow-100: 253 138 0; /* #FD8A00 */
 
     --text-accent: 51 18 0; /* #331200 */
+    --text-accent-contrast: 249 115 42; /* #F9732A */
     --text-critical: 116 20 13; /* #74140D */
     --text-info: 1 83 119; /* #015377 */
     --text-success: 6 63 37; /* #063F25 */
     --text-warning: 135 73 0; /* #874900 */
+    --text-indigo: 55 28 109; /* #371C6D */
+  }
+  [data-theme='light'] {
+    /* typography */
+    --typography-primary: rgb(var(--black-100) / 90%);
+    --typography-primary-70: rgb(var(--black-100) / 70%);
+    --typography-primary-50: rgb(var(--black-100) / 50%);
+    --typography-primary-30: rgb(var(--black-100) / 30%);
+    --typography-contrast: rgb(var(--white-100));
+    --typography-contrast-70: rgb(var(--white-100) / 70%);
+    --typography-emphasis: rgb(var(--orange-100));
+    --typography-accent: rgb(var(--orange-100) / 80%);
+    --typography-success: rgb(var(--light-green-100));
+    --typography-warning: rgb(var(--yellow-100));
+    --typography-critical: rgb(var(--red-100));
+
+    /* surface */
+    --surface-default: rgb(var(--white-100) / 2%);
+    --surface-base: rgb(var(--white-100));
+    /* in some instances we want the elevated base color to have different opacity
+       to show some of the content behind the component
+       so define rgb in tailwind config instead of here */
+    --surface-elevated-base: var(--white-100);
+    --surface-20: rgb(var(--gray-20));
+    --surface-10: rgb(var(--gray-10));
+    --surface-5: rgb(var(--gray-5));
+    --surface-overlay: rgb(var(--black-100) / 5%);
+
+    /* border */
+    --border-primary: rgb(var(--black-100) / 90%);
+    --border-20: rgb(var(--black-100) / 20%);
+    --border-10: rgb(var(--black-100) / 10%);
+    --border-5: rgb(var(--black-100) / 5%);
+
+    /* core */
+    --core-primary-fill: rgb(var(--black-100) / 90%);
+    --core-primary-80: rgb(var(--black-100) / 80%);
+    --core-primary-50: rgb(var(--black-100) / 50%);
+    --core-primary-20: rgb(var(--black-100) / 20%);
+    --core-primary-10: rgb(var(--black-100) / 10%);
+    --core-primary-5: rgb(var(--black-100) / 5%);
+    --core-accent-fill: rgb(var(--orange-100));
+    --core-accent-text: rgb(var(--text-accent));
+    --core-accent-80: rgb(var(--orange-100) / 80%);
+    --core-accent-50: rgb(var(--orange-100) / 50%);
+    --core-accent-20: rgb(var(--orange-100) / 20%);
+    --core-accent-10: rgb(var(--orange-100) / 10%);
+    --core-indigo-fill: rgb(var(--indigo-100));
+    --core-indigo-text: rgb(var(--text-indigo));
+    --core-indigo-80: rgb(var(--indigo-100) / 80%);
+    --core-indigo-50: rgb(var(--indigo-100) / 50%);
+    --core-indigo-20: rgb(var(--indigo-100) / 20%);
+    --core-indigo-10: rgb(var(--indigo-100) / 10%);
+
+    /* intent */
+    --intent-info-fill: rgb(var(--blue-100));
+    --intent-info-text: rgb(var(--text-info));
+    --intent-info-80: rgb(var(--blue-100) / 80%);
+    --intent-info-50: rgb(var(--blue-100) / 50%);
+    --intent-info-20: rgb(var(--blue-100) / 20%);
+    --intent-info-10: rgb(var(--blue-100) / 10%);
+    --intent-success-fill: rgb(var(--green-100));
+    --intent-success-text: rgb(var(--text-success));
+    --intent-success-80: rgb(var(--green-100) / 80%);
+    --intent-success-50: rgb(var(--green-100) / 50%);
+    --intent-success-20: rgb(var(--green-100) / 20%);
+    --intent-success-10: rgb(var(--green-100) / 10%);
+    --intent-warning-fill: rgb(var(--yellow-100));
+    --intent-warning-text: rgb(var(--text-warning));
+    --intent-warning-80: rgb(var(--yellow-100) / 80%);
+    --intent-warning-50: rgb(var(--yellow-100) / 50%);
+    --intent-warning-20: rgb(var(--yellow-100) / 20%);
+    --intent-warning-10: rgb(var(--yellow-100) / 10%);
+    --intent-critical-fill: rgb(var(--red-100));
+    --intent-critical-text: rgb(var(--text-critical));
+    --intent-critical-80: rgb(var(--red-100) / 80%);
+    --intent-critical-50: rgb(var(--red-100) / 50%);
+    --intent-critical-20: rgb(var(--red-100) / 20%);
+    --intent-critical-10: rgb(var(--red-100) / 10%);
+
+    /* grayscale */
+    --grayscale-gray-50: rgb(var(--black-100) / 50%);
+    --grayscale-gray-20: rgb(var(--black-100) / 20%);
+    --grayscale-gray-10: rgb(var(--black-100) / 10%);
+    --grayscale-gray-5: rgb(var(--black-100) / 5%);
+
+    /* box shadow */
+    --elevation-50: 0px 0px 1px 0px rgba(0, 0, 0, 0.37);
+    --elevation-100: 0px 4px 24px 0px rgba(0, 0, 0, 0.02), 0px 4px 8px 0px rgba(0, 0, 0, 0.02), 0px 2px 4px 0px rgba(0, 0, 0, 0.02), 0px 0px 1px 0px rgba(0, 0, 0, 0.20);
+    --elevation-200: 0px 12px 32px 0px rgba(0, 0, 0, 0.04), 0px 8px 16px 0px rgba(0, 0, 0, 0.02), 0px 2px 4px 0px rgba(0, 0, 0, 0.04), 0px 0px 1px 0px rgba(0, 0, 0, 0.20);
+    --elevation-300: 0px 16px 40px 0px rgba(0, 0, 0, 0.04), 0px 24px 32px 0px rgba(0, 0, 0, 0.02), 0px 4px 8px 0px rgba(0, 0, 0, 0.04), 0px 0px 1px 0px rgba(0, 0, 0, 0.30);
+  }
+  [data-theme='dark'] {
+    /* typography */
+    --typography-primary: rgb(var(--white-100) / 90%);
+    --typography-primary-70: rgb(var(--white-100) / 70%);
+    --typography-primary-50: rgb(var(--white-100) / 50%);
+    --typography-primary-30: rgb(var(--white-100) / 30%);
+    --typography-contrast: rgb(var(--black-100));
+    --typography-contrast-70: rgb(var(--black-100) / 80%);
+    --typography-emphasis: rgb(var(--orange-100));
+    --typography-accent: rgb(var(--orange-100) / 80%);
+    --typography-success: rgb(var(--light-green-100));
+    --typography-warning: rgb(var(--yellow-100));
+    --typography-critical: rgb(var(--red-100));
+
+    /* surface */
+    --surface-default: rgb(var(--black-100) / 2%);
+    --surface-base: rgb(var(--gray-90));
+    /* in some instances we want the elevated base color to have different opacity
+       to show some of the content behind the component
+       so define rgb in tailwind config instead of here */
+    --surface-elevated-base: var(--gray-80);
+    --surface-20: rgb(var(--gray-80));
+    --surface-10: rgb(var(--gray-70));
+    --surface-5: rgb(var(--gray-60));
+    --surface-overlay: rgb(var(--black-100) / 5%);
+
+    /* border */
+    --border-primary: rgb(var(--white-100) / 90%);
+    --border-20: rgb(var(--white-100) / 30%);
+    --border-10: rgb(var(--white-100) / 20%);
+    --border-5: rgb(var(--white-100) / 10%);
+
+    /* core */
+    --core-primary-fill: rgb(var(--white-100) / 90%);
+    --core-primary-80: rgb(var(--white-100) / 80%);
+    --core-primary-50: rgb(var(--white-100) / 50%);
+    --core-primary-20: rgb(var(--white-100) / 20%);
+    --core-primary-10: rgb(var(--white-100) / 10%);
+    --core-primary-5: rgb(var(--white-100) / 5%);
+    --core-accent-fill: rgb(var(--orange-100));
+    --core-accent-text: rgb(var(--text-accent-contrast));
+    --core-accent-80: rgb(var(--orange-100) / 80%);
+    --core-accent-50: rgb(var(--orange-100) / 50%);
+    --core-accent-20: rgb(var(--orange-100) / 20%);
+    --core-accent-10: rgb(var(--orange-100) / 10%);
+    --core-indigo-fill: rgb(var(--indigo-100));
+    --core-indigo-text: rgb(var(--text-indigo));
+    --core-indigo-80: rgb(var(--indigo-100) / 80%);
+    --core-indigo-50: rgb(var(--indigo-100) / 50%);
+    --core-indigo-20: rgb(var(--indigo-100) / 20%);
+    --core-indigo-10: rgb(var(--indigo-100) / 10%);
+
+    /* intent */
+    --intent-info-fill: rgb(var(--blue-100));
+    --intent-info-text: rgb(var(--blue-100));
+    --intent-info-80: rgb(var(--blue-100) / 90%);
+    --intent-info-50: rgb(var(--blue-100) / 60%);
+    --intent-info-20: rgb(var(--blue-100) / 30%);
+    --intent-info-10: rgb(var(--blue-100) / 20%);
+    --intent-success-fill: rgb(var(--green-100));
+    --intent-success-text: rgb(var(--green-100));
+    --intent-success-80: rgb(var(--green-100) / 90%);
+    --intent-success-50: rgb(var(--green-100) / 60%);
+    --intent-success-20: rgb(var(--green-100) / 30%);
+    --intent-success-10: rgb(var(--green-100) / 20%);
+    --intent-warning-fill: rgb(var(--yellow-100));
+    --intent-warning-text: rgb(var(--yellow-100));
+    --intent-warning-80: rgb(var(--yellow-100) / 90%);
+    --intent-warning-50: rgb(var(--yellow-100) / 60%);
+    --intent-warning-20: rgb(var(--yellow-100) / 30%);
+    --intent-warning-10: rgb(var(--yellow-100) / 20%);
+    --intent-critical-fill: rgb(var(--red-100));
+    --intent-critical-text: rgb(var(--red-100));
+    --intent-critical-80: rgb(var(--red-100) / 90%);
+    --intent-critical-50: rgb(var(--red-100) / 60%);
+    --intent-critical-20: rgb(var(--red-100) / 30%);
+    --intent-critical-10: rgb(var(--red-100) / 20%);
+
+    /* grayscale */
+    --grayscale-gray-50: rgb(var(--black-100) / 50%);
+    --grayscale-gray-20: rgb(var(--black-100) / 20%);
+    --grayscale-gray-10: rgb(var(--black-100) / 10%);
+    --grayscale-gray-5: rgb(var(--black-100) / 5%);
+
+    /* box shadow */
+    --elevation-50: 0px 0px 1px 0px rgba(255, 255, 255, 0.50);
+    --elevation-100: 0px 4px 24px 0px rgba(0, 0, 0, 0.16), 0px 4px 8px 0px rgba(0, 0, 0, 0.16), 0px 2px 4px 0px rgba(0, 0, 0, 0.16), 0px 0px 1px 0px rgba(0, 0, 0, 0.16);
+    --elevation-200: 0px 12px 32px 0px rgba(0, 0, 0, 0.24), 0px 8px 16px 0px rgba(0, 0, 0, 0.16), 0px 2px 4px 0px rgba(0, 0, 0, 0.08), 0px 0px 1px 0px rgba(0, 0, 0, 0.24);
+    --elevation-300: 0px 16px 40px 0px rgba(0, 0, 0, 0.32), 0px 24px 32px 0px rgba(0, 0, 0, 0.16), 0px 4px 8px 0px rgba(0, 0, 0, 0.04), 0px 0px 1px 0px rgba(0, 0, 0, 0.3);
   }
 }
