@@ -78,9 +78,9 @@ const Button = ({
         },
         // color and bg - accent
         {
-          "text-text-contrast bg-core-accent-fill hover:opacity-80":
+          "text-text-base-contrast-static bg-core-accent-fill hover:opacity-80":
             accent && !disabledState,
-          "text-text-contrast bg-core-accent-fill opacity-40": accent && disabledState,
+          "text-text-base-contrast-static bg-core-accent-fill opacity-40": accent && disabledState,
         },
         // color and bg - secondary
         {
@@ -90,9 +90,9 @@ const Button = ({
         },
         // color and bg - danger
         {
-          "text-text-contrast bg-intent-critical-fill hover:bg-intent-critical-text hover:opacity-80":
+          "text-text-base-contrast-static bg-intent-critical-fill hover:bg-intent-critical-text hover:opacity-80":
             danger && !disabledState,
-          "text-text-contrast bg-intent-critical-fill opacity-40":
+          "text-text-base-contrast-static bg-intent-critical-fill opacity-40":
             danger && disabledState,
         },
         // color and bg - secondary danger

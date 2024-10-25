@@ -3,7 +3,7 @@ import clsx from "clsx";
 
 import { NetworkInfoNetworkinfo, SystemInfoSysteminfo } from "apiTypes";
 
-import LoginModal from "components/LoginModal";
+import LoginModal, { LoginSuccessToast } from "components/LoginModal";
 import NavigationMenu, { NavigationMenuType } from "components/NavigationMenu";
 import PageHeader from "components/PageHeader";
 
@@ -12,8 +12,8 @@ interface AppLayoutProps {
   customButtons?: ReactNode;
   fullScreen?: boolean;
   networkInfo?: NetworkInfoNetworkinfo;
-  onContinueLogin: () => void;
   onDismissLogin?: () => void;
+  onSuccessLogin: () => void;
   pendingNetworkInfo: boolean;
   pendingSystemInfo: boolean;
   showLoginModal: boolean;
@@ -27,8 +27,8 @@ const AppLayout = ({
   customButtons,
   fullScreen,
   networkInfo,
-  onContinueLogin,
   onDismissLogin,
+  onSuccessLogin,
   pendingNetworkInfo,
   pendingSystemInfo,
   showLoginModal,
@@ -37,11 +37,20 @@ const AppLayout = ({
   type,
 }: AppLayoutProps) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [showLoginSuccessToast, setShowLoginSuccessToast] = useState(false);
+
+  const handleOnSuccessLogin = () => {
+    onSuccessLogin();
+    setShowLoginSuccessToast(true);
+  };
 
   return (
     <>
       {showLoginModal && (
-        <LoginModal onDismiss={onDismissLogin} onContinue={onContinueLogin} />
+        <LoginModal onDismiss={onDismissLogin} onSuccess={handleOnSuccessLogin} />
+      )}
+      {showLoginSuccessToast && (
+        <LoginSuccessToast onClose={() => setShowLoginSuccessToast(false)} />
       )}
       <div className="flex h-screen bg-surface-base">
         <div className="grow">

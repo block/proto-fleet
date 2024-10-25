@@ -5,7 +5,7 @@ import LoginModalComponent from "./LoginModal";
 export const LoginModal = () => {
   return (
     <LoginModalComponent
-      onContinue={action("continue")}
+      onSuccess={action("succeeded login")}
       onDismiss={action("dismiss modal")}
     />
   );

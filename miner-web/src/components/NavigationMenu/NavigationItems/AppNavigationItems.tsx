@@ -25,24 +25,32 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
     setShowAccordionExpand(hover);
   }, []);
 
+  const handleClick = useCallback(
+    (navigationItem: NavigationItemValue) => {
+      onClick(navigationItem);
+      setShowAccordionItems(navigationItem.startsWith("settings"));
+    },
+    [onClick]
+  );
+
   return (
     <>
       <NavigationItem
         id={navigationItems.home}
         text="Home"
-        onClick={onClick}
+        onClick={handleClick}
         pageName={pageName}
       />
       <NavigationItem
         id={navigationItems.temperature}
         text="Temperature"
-        onClick={onClick}
+        onClick={handleClick}
         pageName={pageName}
       />
       <NavigationItem
         id={navigationItems.logs}
         text="Logs"
-        onClick={onClick}
+        onClick={handleClick}
         pageName={pageName}
       />
       <NavigationItem
@@ -64,7 +72,7 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
           <NavigationItem
             id={navigationItems.miningPools}
             text="Mining Pools"
-            onClick={onClick}
+            onClick={handleClick}
             pageName={pageName}
             isChildItem
           />

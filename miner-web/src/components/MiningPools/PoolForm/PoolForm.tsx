@@ -124,6 +124,7 @@ const PoolForm = ({
             body: "Enter the mining pool URL you want this miner to connect with. A mining pool URL allows this miner to communicate with the pool's server.",
           }}
           error={validationErrors.url}
+          autoFocus
         />
         <Input
           id={`${info.username} ${poolIndex}`}

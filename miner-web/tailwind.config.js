@@ -71,6 +71,8 @@ export default {
       transparent: "transparent",
       current: "currentColor",
       text: {
+        "base-static": "var(--typography-base-static)",
+        "base-contrast-static": "var(--typography-base-contrast-static)",
         primary: "var(--typography-primary)",
         "primary-70": "var(--typography-primary-70)",
         "primary-50": "var(--typography-primary-50)",

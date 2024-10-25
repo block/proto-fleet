@@ -3,7 +3,7 @@ import clsx from "clsx";
 import { iconSizes } from "./constants";
 import { IconProps } from "./types";
 
-const ConcentricCircles = ({ className, width = iconSizes.medium }: IconProps) => {
+const ConcentricCircles = ({ className, width = iconSizes.xSmall }: IconProps) => {
   return (
     <div className={clsx(width, className)} data-testid="concentric-circles">
       <svg

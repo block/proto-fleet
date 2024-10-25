@@ -42,13 +42,16 @@ const OnboardingSettingUp = ({
           size={sizes.base}
           text="Continue to dashboard"
           className={clsx(
-            "mt-6 transition-opacity ease-in-out duration-200 opacity-0",
+            "mt-6 transition-opacity ease-in-out duration-200",
             {
               "opacity-100 animate-[fade-in_.31s_ease-in-out]": isSetupDone,
+            },
+            {
+              "opacity-0 hover:opacity-0 cursor-auto": !isSetupDone,
             }
           )}
           suffixIcon={<ArrowRight />}
-          onClick={onClickContinue}
+          onClick={isSetupDone ? onClickContinue : undefined}
           testId="continue-to-dashboard-button"
         />
       </div>

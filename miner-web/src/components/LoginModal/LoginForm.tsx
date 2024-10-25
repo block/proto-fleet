@@ -7,18 +7,26 @@ import { useKeyDown } from "common/hooks/useKeyDown";
 import { deepClone } from "common/utils/utility";
 
 import { variants } from "components/Button";
-import ButtonGroup, { ButtonProps, groupVariants, sizes } from "components/ButtonGroup";
+import ButtonGroup, {
+  ButtonProps,
+  groupVariants,
+  sizes,
+} from "components/ButtonGroup";
 import Input from "components/Input";
 
 import { ids, initValues, Values } from "pages/Auth";
 
 interface LoginFormProps {
   onClickForgotPassword: () => void;
-  onContinue: () => void;
   onDismiss?: () => void;
+  onSuccess: () => void;
 }
 
-const LoginForm = ({ onClickForgotPassword, onContinue, onDismiss }: LoginFormProps) => {
+const LoginForm = ({
+  onClickForgotPassword,
+  onDismiss,
+  onSuccess,
+}: LoginFormProps) => {
   const [values, setValues] = useState<Values>(deepClone(initValues));
   const [errors, setErrors] = useState<Values>(deepClone(initValues));
   const [apiError, setApiError] = useState<string | null>(null);
@@ -39,11 +47,11 @@ const LoginForm = ({ onClickForgotPassword, onContinue, onDismiss }: LoginFormPr
     setIsSubmitting(true);
     login({
       password: values.password,
-      onSuccess: onContinue,
+      onSuccess,
       onError: () => setApiError("Invalid credentials entered."),
       onFinally: () => setIsSubmitting(false),
     });
-  }, [onContinue, login, values.password]);
+  }, [onSuccess, login, values.password]);
 
   const handleEnter = useCallback(() => {
     if (isSubmitting) {
@@ -57,21 +65,16 @@ const LoginForm = ({ onClickForgotPassword, onContinue, onDismiss }: LoginFormPr
 
   return (
     <div data-testid="login-form">
-      <div className="text-heading-200 text-text-primary">
-        Login required
-      </div>
+      <div className="text-heading-200 text-text-primary">Login required</div>
       <div className="text-300 text-text-primary-70 mb-4 mt-1">
         Contact your system administrator if you need access.
       </div>
 
       <div
-        className={clsx(
-          "transition-[max-height,margin] ease-in-out duration-500",
-          {
-            "max-h-0 overflow-hidden": !apiError,
-            "max-h-96 mb-4": apiError,
-          }
-        )}
+        className={clsx("transition-[max-height,margin] ease-in-out", {
+          "max-h-0 overflow-hidden duration-300": !apiError,
+          "max-h-96 mb-4 duration-500": apiError,
+        })}
         data-testid="error"
       >
         <div className="bg-intent-critical-10 text-intent-critical-text text-emphasis-300 px-3 py-2 rounded-lg">
@@ -79,14 +82,16 @@ const LoginForm = ({ onClickForgotPassword, onContinue, onDismiss }: LoginFormPr
         </div>
       </div>
 
-      <Input
-        id={ids.username}
-        label="Username"
-        initValue="admin"
-        readonly
-        className="mb-4"
-        testId="username"
-      />
+      <div className="bg-surface-elevated-base rounded-lg relative z-10">
+        <Input
+          id={ids.username}
+          label="Username"
+          initValue="admin"
+          disabled
+          className="mb-4"
+          testId="username"
+        />
+      </div>
 
       <Input
         id={ids.password}
@@ -97,6 +102,7 @@ const LoginForm = ({ onClickForgotPassword, onContinue, onDismiss }: LoginFormPr
         error={errors.password}
         className="mb-2"
         testId="password"
+        autoFocus
       />
 
       <div
@@ -110,22 +116,24 @@ const LoginForm = ({ onClickForgotPassword, onContinue, onDismiss }: LoginFormPr
       <ButtonGroup
         variant={groupVariants.fill}
         size={sizes.base}
-        buttons={[
-          {
-            ...(onDismiss && {
-              text: "Cancel",
-              onClick: onDismiss,
-              variant: variants.secondary,
-            }),
-          },
-          {
-            text: "Continue",
-            onClick: handleContinue,
-            variant: variants.primary,
-            disabled: isSubmitting,
-            testId: "login-button",
-          },
-        ].filter(button => !!button.text) as ButtonProps[]}
+        buttons={
+          [
+            {
+              ...(onDismiss && {
+                text: "Cancel",
+                onClick: onDismiss,
+                variant: variants.secondary,
+              }),
+            },
+            {
+              text: "Continue",
+              onClick: handleContinue,
+              variant: variants.primary,
+              disabled: isSubmitting,
+              testId: "login-button",
+            },
+          ].filter((button) => !!button.text) as ButtonProps[]
+        }
       />
     </div>
   );

@@ -113,7 +113,7 @@ const App = ({
       <AppLayout
         fullScreen={fullScreen}
         networkInfo={networkInfo}
-        onContinueLogin={() => setShowLoginModal(false)}
+        onSuccessLogin={() => setShowLoginModal(false)}
         onDismissLogin={handleDismissLogin}
         pendingNetworkInfo={pendingNetworkInfo}
         pendingSystemInfo={pendingSystemInfo}

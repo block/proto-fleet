@@ -15,8 +15,10 @@ import Tooltip from "components/Tooltip";
 import { DismissCircle, Eye } from "icons";
 
 interface InputProps {
+  autoFocus?: boolean;
   compact?: boolean;
   className?: string;
+  disabled?: boolean;
   dismiss?: boolean;
   error?: string;
   hideLabelOnFocus?: boolean;
@@ -28,16 +30,17 @@ interface InputProps {
   maxLength?: number;
   onChange?: (value: string, id: string) => void;
   onKeyDown?: (key: string) => void;
-  readonly?: boolean;
   testId?: string;
   tooltip?: { header: string; body: string };
   type?: string;
 }
 
 const Input = ({
+  autoFocus,
   compact,
   className,
   dismiss,
+  disabled,
   error,
   hideLabelOnFocus,
   id,
@@ -48,7 +51,6 @@ const Input = ({
   maxLength,
   onChange,
   onKeyDown,
-  readonly,
   testId,
   tooltip,
   type = "text",
@@ -104,14 +106,16 @@ const Input = ({
         id={id}
         data-testid={testId}
         className={clsx(
-          "peer rounded-lg w-full outline-none text-300 text-text-primary bg-surface-elevated-base",
+          "peer rounded-lg w-full outline-none text-300 text-text-primary",
           "transition-[border-color] ease-in-out duration-200",
+          { "bg-surface-base": !disabled },
+          { "bg-core-primary-5": disabled },
           {
             "border border-border-5": !error && !compact,
           },
           {
             "focus:border-[1.5px] focus:border-border-primary":
-              !error && !compact && !readonly,
+              !error && !compact && !disabled,
           },
           { "border-[1.5px] border-intent-critical-50 ": error },
           { "pt-[18px]": !hideLabelOnFocus },
@@ -128,12 +132,14 @@ const Input = ({
         autoComplete="off"
         value={value}
         ref={inputRef}
-        readOnly={readonly}
+        disabled={disabled}
+        autoFocus={autoFocus}
       />
       <label
         htmlFor={id}
         className={clsx(
-          "text-text-primary-50 absolute cursor-text",
+          "text-text-primary-50 absolute",
+          { "cursor-text": !disabled },
           { "text-300": !value.length },
           { "left-0": compact },
           { "left-[17px]": !compact },

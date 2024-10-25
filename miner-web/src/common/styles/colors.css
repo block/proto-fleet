@@ -41,6 +41,9 @@
     --typography-success: rgb(var(--light-green-100));
     --typography-warning: rgb(var(--yellow-100));
     --typography-critical: rgb(var(--red-100));
+    /* these remain black & white in both themes for button colors to stay consistent */
+    --typography-base-static: rgb(var(--black-100) / 90%);
+    --typography-base-contrast-static: rgb(var(--white-100));
 
     /* surface */
     --surface-default: rgb(var(--white-100) / 2%);
@@ -131,6 +134,9 @@
     --typography-success: rgb(var(--light-green-100));
     --typography-warning: rgb(var(--yellow-100));
     --typography-critical: rgb(var(--red-100));
+    /* these remain black & white in both themes for button colors to stay consistent */
+    --typography-base-static: rgb(var(--black-100) / 90%);
+    --typography-base-contrast-static: rgb(var(--white-100));
 
     /* surface */
     --surface-default: rgb(var(--black-100) / 2%);

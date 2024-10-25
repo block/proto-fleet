@@ -6,11 +6,11 @@ import ForgotPassword from "./ForgotPassword";
 import LoginForm from "./LoginForm";
 
 interface LoginModalProps {
-  onContinue: () => void;
   onDismiss?: () => void;
+  onSuccess: () => void;
 }
 
-const LoginModal = ({ onContinue, onDismiss }: LoginModalProps) => {
+const LoginModal = ({ onDismiss, onSuccess }: LoginModalProps) => {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
 
   return (
@@ -19,7 +19,7 @@ const LoginModal = ({ onContinue, onDismiss }: LoginModalProps) => {
         <ForgotPassword onDismiss={() => setShowForgotPassword(false)} />
       ) : (
         <LoginForm
-          onContinue={onContinue}
+          onSuccess={onSuccess}
           onDismiss={onDismiss}
           onClickForgotPassword={() => setShowForgotPassword(true)}
         />

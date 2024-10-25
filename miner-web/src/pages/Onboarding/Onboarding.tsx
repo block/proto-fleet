@@ -144,7 +144,7 @@ const Onboarding = ({
         />
       }
       networkInfo={networkInfo}
-      onContinueLogin={() => setShowLoginModal(false)}
+      onSuccessLogin={() => setShowLoginModal(false)}
       pendingNetworkInfo={pendingNetworkInfo}
       pendingSystemInfo={pendingSystemInfo}
       showLoginModal={showLoginModal}

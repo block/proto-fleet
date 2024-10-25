@@ -20,7 +20,7 @@ describe("Login Modal", () => {
   let component: ReturnType<typeof render>;
 
   beforeEach(() => {
-    component = render(<LoginModal onContinue={vi.fn} onDismiss={vi.fn} />);
+    component = render(<LoginModal onSuccess={vi.fn} onDismiss={vi.fn} />);
   });
 
   test("renders login modal with login form", () => {
@@ -43,7 +43,7 @@ describe("Login Modal", () => {
 
   test("username field is non-editable", () => {
     const { getByTestId } = component;
-    expect(getByTestId(username)).toHaveAttribute("readonly");
+    expect(getByTestId(username)).toHaveAttribute("disabled");
   });
 
   test("password field is editable", () => {
