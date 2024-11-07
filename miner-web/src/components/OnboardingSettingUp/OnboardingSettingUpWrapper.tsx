@@ -11,11 +11,13 @@ import { statuses } from "./constants";
 import OnboardingSettingUp from "./OnboardingSettingUp";
 
 interface OnboardingSettingUpWrapperProps {
+  onChangeSettingUpMiner: (settingUpMiner: boolean) => void;
   pools: PoolInfo[];
   setCreatePoolsError: (error: ErrorProps) => void;
 }
 
 const OnboardingSettingUpWrapper = ({
+  onChangeSettingUpMiner,
   pools,
   setCreatePoolsError,
 }: OnboardingSettingUpWrapperProps) => {
@@ -68,7 +70,7 @@ const OnboardingSettingUpWrapper = ({
 
   const isConfigured = useCallback(
     (status: keyof typeof statuses) =>
-      status === statuses.success || status === statuses.error,
+      status === statuses.success,
     []
   );
 
@@ -83,11 +85,17 @@ const OnboardingSettingUpWrapper = ({
 
   const handleClickContinue = useCallback(() => navigate("/"), [navigate]);
 
+  const handleClickReconfigure = useCallback(
+    () => onChangeSettingUpMiner(false),
+    [onChangeSettingUpMiner]
+  );
+
   return (
     <OnboardingSettingUp
       poolStatus={poolStatus}
       isSetupDone={isSetupDone}
       onClickContinue={handleClickContinue}
+      onClickReconfigure={handleClickReconfigure}
       onClickRetry={handleClickRetry}
     />
   );

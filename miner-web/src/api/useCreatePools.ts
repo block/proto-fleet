@@ -11,6 +11,7 @@ import { getAuthHeader } from "./constants";
 import { PoolConfig } from "./types";
 
 interface CreatePoolsProps {
+  accessTokenValue?: string;
   onError?: (err: ErrorProps) => void;
   onSuccess?: () => void;
   poolInfo: PoolConfig;
@@ -24,13 +25,17 @@ const useCreatePools = () => {
 
   const createPools = useCallback(
     async ({
+      accessTokenValue,
       poolInfo,
       onSuccess,
       onError,
       retryOnMinerDown,
     }: CreatePoolsProps) => {
       await api
-        .createPools(poolInfo, getAuthHeader(authTokens.accessToken.value))
+        .createPools(
+          poolInfo,
+          getAuthHeader(accessTokenValue || authTokens.accessToken.value)
+        )
         .then(() => {
           onSuccess?.();
         })
@@ -38,8 +43,14 @@ const useCreatePools = () => {
           handleAuthErrors({
             error,
             onError,
-            onSuccess: () => {
-              createPools({ poolInfo, onSuccess, onError, retryOnMinerDown });
+            onSuccess: (accessTokenValue) => {
+              createPools({
+                accessTokenValue,
+                poolInfo,
+                onSuccess,
+                onError,
+                retryOnMinerDown,
+              });
             },
           });
         })

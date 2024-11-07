@@ -8,7 +8,7 @@ import { useRefresh } from "../../api/useRefresh";
 interface HandleAuthErrorsProps {
   error: ErrorProps;
   onError?: (err: ErrorProps) => void;
-  onSuccess?: () => void;
+  onSuccess?: (accessToken: string) => void;
 }
 
 const useAuthErrors = () => {

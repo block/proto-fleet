@@ -9,6 +9,7 @@ import { api } from "./api";
 import { getAuthHeader } from "./constants";
 
 interface RebootSystemProps {
+  accessTokenValue?: string;
   onError?: (err: ErrorProps) => void;
   onSuccess?: () => void;
 }
@@ -19,10 +20,12 @@ const useSystemReboot = () => {
   const { handleAuthErrors } = useAuthErrors();
 
   const rebootSystem = useCallback(
-    ({ onError, onSuccess }: RebootSystemProps = {}) => {
+    ({ accessTokenValue, onError, onSuccess }: RebootSystemProps = {}) => {
       setPending(true);
       api
-        .rebootSystem(getAuthHeader(authTokens.accessToken.value))
+        .rebootSystem(
+          getAuthHeader(accessTokenValue || authTokens.accessToken.value)
+        )
         .then(() => {
           onSuccess?.();
         })
@@ -30,8 +33,8 @@ const useSystemReboot = () => {
           handleAuthErrors({
             error,
             onError,
-            onSuccess: () => {
-              rebootSystem({ onError, onSuccess });
+            onSuccess: (accessTokenValue) => {
+              rebootSystem({ accessTokenValue, onError, onSuccess });
             },
           });
         })

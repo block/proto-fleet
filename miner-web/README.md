@@ -2,7 +2,7 @@
 
 ## Overview
 
-The source code of the mining dashboard UI is included here. For ease of development in non-linux environments, there is a docker compose file to bring up the needed DB and API. Alternatively, the swagger server can be used as a proxy for the API. Learn more about the tech stack [here](#learn-more).
+The source code of the mining dashboard UI is included here. Learn more about the tech stack [here](#learn-more).
 
 ## Directory Layout
 
@@ -13,64 +13,30 @@ miner-web
 ├── public                    # Includes the favicon image of the site (used for the browser tab's icon)
 ├── scripts                   # Automated scripts to help with development
 ├── src                       # Source for the mining dashboard UI
+├── .gitignore                # Local files and folders to be ignored by git
 ├── README.md                 # This file
-├── docker-compose.yml        # Brings up the DB and API in docker containers
+├── eslint.config.js          # Linter rules for maintaining standardization in the codebase
 ├── index.html                # Root file that gets served in browser
 ├── package.json              # Includes list of libraries used and npm command definitions
+├── postcss.config.js         # Config file for postcss to add tailwind
+├── tailwind.config.js        # Tailwind config file to extend css themes
+├── tsconfig.json             # Typescript config file
 └── vite.config.ts            # Vite configuration file, used for compiling the UI code
 ```
 
 ## Getting Started
 
-### Non-linux development environment
+### 1. Setup npm
 
-- First time building the UI?
-  - See the setup guide: [Setup npm](#setup-npm)
-- First time building the DB and API?
-  - See the setup guide: [Setup docker](https://github.com/btc-mining/miner-firmware#setup-docker)
+Npm is needed to compile and run the UI code via vite. Instructions to install node and npm can be found [here](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm).
 
-
-#### 1. Install all dependencies needed by the UI:
+### 2. Install dependencies
 
 ```console
 npm install
 ```
 
-#### 2. Start the backend services in docker or use swagger
-
-<details>
-  <summary>Docker</summary>
-
-  - Stop any previous docker containers and start the DB and API ([details of what docker compose does](#docker-compose-details)):
-
-    ```console
-    docker compose down && docker compose up
-    ```
-
-    (Debug note: `miner-api-server` may try to access the DB file before `mcdd` is finished building it and throw an error. In those cases, make an arbitrary change such as adding a whitespace to a `miner-api-server` rust file and hit save to force it to rebuild successfully.)
-</details>
-
-<details>
-  <summary>Swagger</summary>
-
-  - To avoid running docker, set the api proxy to the swagger server by making this change to ```vite.config.ts```:
-
-    ```
-    -  "/api": "http://127.0.0.1:8080",
-    +  "/api": "https://virtserver.swaggerhub.com/KSHITIZ_1/MDK-API/1.0.0",
-    ```
-
-</details>
-
-#### 3. Start the frontend dev server
-
-```console
-npm run dev
-```
-
-Open [http://localhost:5173](http://localhost:5173) to see the results.
-
-#### 4. Start storybook (optional)
+### 3. Start storybook
 
 To visually test all of the components and see all the available styles in one place, run:
 
@@ -78,11 +44,44 @@ To visually test all of the components and see all the available styles in one p
 npm run storybook
 ```
 
-[http://localhost:6006](http://localhost:6006) should automatically open.
+[localhost:6006](http://localhost:6006) should automatically open.
+
+## Production build
+
+For now we need to rebuild the UI production code manually through the below step. This may be converted to a github action in the future.
+
+### 1. Compile the UI code for production
+
+```console
+  npm run build
+```
+
+## Test UI changes
+
+To test the UI changes with the database and API, either copy the resulting `dist/` folder onto a mining device you've ssh'd to or follow the steps below to test locally.
+
+There is a Yocto recipe `miner-web.bb` that copies the UI code compiled for production to the linux environment that gets served by Actix web in `main.rs` of `miner-api-server`.
+
+### 1. Compile the UI code
+
+```console
+  npm run build
+```
+
+### 2. Build the linux image and bring it up
+- Add and commit the changes to github
+- Build the linux image via github actions
+- Transfer the image to the SD card on the control board
+- Connect the board via ethernet to your router
+- Connect the board to your laptop
+
+### 3. Access the UI
+- Using tio connect to the board and find its IP address
+- Enter the IP address into your browser to access the UI
 
 ## API typescript definition file
 
-There is a `api/types.ts` file that has been automatically generated based on swagger's `MDK-API.json` file in `miner-www`. To regenerate it, run this command:
+There is a `api/types.ts` file that has been automatically generated based on swagger's `MDK-API.json` file in `miner-api-server/docs`. To regenerate it, run this command:
 
 ```sh
 node scripts/generate_api_ts.cjs
@@ -90,55 +89,7 @@ node scripts/generate_api_ts.cjs
 
 This file helps us maintain correct typing between the frontend and API and puts a wrapper around the API so we can make requests like `api.getNetwork().then(res => console.log(res))`.
 
-To allow for easier API development, `api` is exposed globally to enable making such calls in the browser's console. docker compose also runs `mcdd` and `miner-api-server` in watch mode so that any saved changes to their rust files automatically trigger a rebuild.
-  - Note that `mcdd/src/usb/pb/*` folder is ignored by watch mode. `mcdd/build.rs` makes changes to that folder which will cause an infinite loop when building mcdd in watch mode. If any changes are made to that folder, you will have to manually rebuild mcdd.
-
-## Production build
-
-For now we need to rebuild the UI production code manually through the below steps. This may be converted to a github action in the future.
-
-- First time building the UI?
-  - See the setup guide: [Setup npm](#setup-npm)
-
-#### 1. Compile the UI code for production
-
-```console
-  npm run build
-```
-
-There is a Yocto recipe `miner-web.bb` that copies the UI code compiled for production to the linux environment that gets served by Actix web in `miner-api-server/main.rs`.
-
-#### 2. Build the linux image and bring it up
-- Add and commit the changes to github
-- Build the linux image via github actions
-- Transfer the image to the SD card on the board
-- Connect the board via ethernet to your router
-- Connect the board to your laptop
-
-#### 3. Access the UI
-- Using tio connect to the board and find its IP address
-- Enter the IP address into your browser to access the UI
-
-## Prerequisites for building the UI
-
-### 1. Setup npm
-
-Npm is needed to compile and run the UI code via vite.
-- Instructions to install node and npm can be found [here](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm).
-
-### 2. Install UI dependencies
-
-  ```console
-  npm install
-  ```
-
-## Docker compose details
-
-`docker-compose.yml`:
-- brings up a bitcoin-core regtest-node
-- brings up ckpool (edit the mining difficulty in `local-testchain/ckpool.conf`).
-- brings up cgminer, mcdd and miner-api-server in watch mode
-    - executes the `scripts/start_mcdd_cgminer_miner_api_server.sh` script to build and run cgminer, mcdd, and miner-api-server
+To allow for easier development, `api` is exposed globally to enable making API calls in the browser's console.
 
 ## Learn More
 
@@ -147,3 +98,4 @@ To learn more about the tech stack, take a look at the following resources:
 - [Learn React](https://react.dev/learn) - an interactive React tutorial.
 - [Vite Documentation](https://vitejs.dev/guide/) - learn about Vite and its [list of community templates](https://github.com/vitejs/awesome-vite#templates). [template-vite-react](https://github.com/lzm0x219/template-vite-react) was used here.
 - [Tailwind](https://tailwindcss.com/docs/utility-first) - learn about Tailwind and its features.
+- [Recharts](https://release--63da8268a0da9970db6992aa.chromatic.com/?path=/docs/welcome--docs) - learn about the charting library.

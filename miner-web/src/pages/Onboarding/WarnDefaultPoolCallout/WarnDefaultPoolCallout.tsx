@@ -20,7 +20,7 @@ const WarnDefaultPoolCallout = ({
       intent={intents.danger}
       onDismiss={onDismiss}
       show={show}
-      title="A default pool is required to set up your ProtoMiner."
+      title="A default pool is required to set up your miner."
       testId="warn-default-pool-callout"
     />
   );

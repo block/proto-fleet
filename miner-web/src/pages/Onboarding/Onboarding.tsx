@@ -125,6 +125,7 @@ const Onboarding = ({
             <SettingUp
               pools={pools}
               setCreatePoolsError={setCreatePoolsError}
+              onChangeSettingUpMiner={onChangeSettingUpMiner}
             />
           </div>
         </div>

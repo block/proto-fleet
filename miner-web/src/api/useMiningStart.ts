@@ -9,6 +9,7 @@ import { api } from "./api";
 import { getAuthHeader } from "./constants";
 
 interface StartMiningProps {
+  accessTokenValue?: string;
   onError?: (err: ErrorProps) => void;
   onSuccess?: () => void;
 }
@@ -19,10 +20,12 @@ const useMiningStart = () => {
   const { handleAuthErrors } = useAuthErrors();
 
   const startMining = useCallback(
-    ({ onError, onSuccess }: StartMiningProps = {}) => {
+    ({ accessTokenValue, onError, onSuccess }: StartMiningProps = {}) => {
       setPending(true);
       api
-        .startMining(getAuthHeader(authTokens.accessToken.value))
+        .startMining(
+          getAuthHeader(accessTokenValue || authTokens.accessToken.value)
+        )
         .then(() => {
           onSuccess?.();
         })
@@ -30,8 +33,8 @@ const useMiningStart = () => {
           handleAuthErrors({
             error,
             onError,
-            onSuccess: () => {
-              startMining({ onError, onSuccess });
+            onSuccess: (accessTokenValue) => {
+              startMining({ accessTokenValue, onError, onSuccess });
             },
           });
         })

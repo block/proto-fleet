@@ -1,7 +1,7 @@
 @tailwind base;
 
 @layer base {
-  /* rgb values without the rgb wrapper as those get added in the tailwind config to handle opacity */
+  /* rgb values without the rgb wrapper as those get added in data-theme variables to handle opacity */
   :root {
     --black-100: 0 0 0; /* #000000 */
     --blue-100: 0 150 209; /* #2690C7 */

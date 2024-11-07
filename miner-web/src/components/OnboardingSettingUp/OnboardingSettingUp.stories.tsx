@@ -8,12 +8,9 @@ interface OnboardingSettingUpProps {
   poolStatus: keyof typeof statuses;
 }
 
-export const SettingUp = ({
-  poolStatus,
-}: OnboardingSettingUpProps) => {
+export const SettingUp = ({ poolStatus }: OnboardingSettingUpProps) => {
   const isConfigured = useCallback(
-    (status: keyof typeof statuses) =>
-      status === statuses.success || status === statuses.error,
+    (status: keyof typeof statuses) => status === statuses.success,
     []
   );
 
@@ -29,6 +26,7 @@ export const SettingUp = ({
           poolStatus={poolStatus}
           isSetupDone={isSetupDone}
           onClickContinue={action("Continue clicked")}
+          onClickReconfigure={action("Reconfigure clicked")}
           onClickRetry={action("Retry clicked")}
         />
       </div>
