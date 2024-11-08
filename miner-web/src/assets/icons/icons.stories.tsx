@@ -19,6 +19,9 @@ import {
   Question,
   Stop,
   Success,
+  ThemeDark,
+  ThemeLight,
+  ThemeSystem,
 } from ".";
 
 const icons = {
@@ -40,6 +43,9 @@ const icons = {
   Question,
   Stop,
   Success,
+  ThemeDark,
+  ThemeLight,
+  ThemeSystem,
 };
 
 interface IconProps {

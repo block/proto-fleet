@@ -16,6 +16,9 @@ import Power from "./Power";
 import Question from "./Question";
 import Stop from "./Stop";
 import Success from "./Success";
+import ThemeDark from "./ThemeDark";
+import ThemeLight from "./ThemeLight";
+import ThemeSystem from "./ThemeSystem";
 
 export {
   Alert,
@@ -36,4 +39,7 @@ export {
   Question,
   Stop,
   Success,
+  ThemeDark,
+  ThemeLight,
+  ThemeSystem,
 };

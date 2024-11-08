@@ -7,6 +7,7 @@ export const sizes = {
 export const variants = {
   accent: "accent",
   danger: "danger",
+  ghost: "ghost",
   primary: "primary",
   secondary: "secondary",
   secondaryDanger: "secondaryDanger",

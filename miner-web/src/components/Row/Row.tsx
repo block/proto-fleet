@@ -35,8 +35,8 @@ const Row = ({
           className={clsx(
             "text-left truncate",
             { "py-2": compact },
-            { "py-4": !compact },
-            { "px-4 -ml-4 rounded-lg w-[calc(100%+32px)]": onClick },
+            { "py-3": !compact },
+            { "px-3 -ml-3 rounded-lg w-[calc(100%+24px)]": onClick },
             { "hover:bg-core-primary-5": onClick && !isActive },
             { "w-full": !onClick },
             className

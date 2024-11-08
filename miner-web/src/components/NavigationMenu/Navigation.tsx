@@ -1,11 +1,13 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import clsx from "clsx";
 
 import { useNavigate } from "common/hooks/useNavigate";
-import Row from "components/Row";
+import Button, { sizes, variants } from "components/Button";
+import ThemeSwitcher from "components/ThemeSwitcher";
 
-import { Logo } from "icons";
+import { Logo, ThemeLight } from "icons";
+import { iconSizes } from "icons/constants";
 
 import { navigationItems, navigationMenuTypes } from "./constants";
 import MacAddressInfo, { MacAddressInfoProps } from "./InfoItem/MacAddressInfo";
@@ -49,6 +51,8 @@ const Navigation = ({
     }
   }, [pathname, isApp]);
 
+  const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
+
   const handleClick = useCallback(
     (navigationItem: NavigationItemValue) => {
       navigate(`/${navigationItem}`);
@@ -90,22 +94,50 @@ const Navigation = ({
         </div>
       </div>
 
-      <div className="px-3 pb-1">
+      <div className="px-3 pb-3">
         <VersionInfo
           loading={versionInfo?.loading}
           value={versionInfo?.value}
         />
+
         <MacAddressInfo loading={macInfo?.loading} value={macInfo?.value} />
-        <Row compact className="text-200 text-text-primary-70">
-          <a href="https://proto.xyz/docs/api/v1.1.0" target="_blank">
-            API Documentation
-          </a>
-        </Row>
-        <Row compact className="text-200 text-text-primary-70" divider={false}>
-          <a href="mailto:mining.support@block.xyz" target="_blank">
-            Contact us
-          </a>
-        </Row>
+
+        <div className="flex mt-2 space-x-2 text-emphasis-300 text-text-primary">
+          <div className="w-full">
+            <a href="https://proto.xyz/docs/api/v1.1.0" target="_blank">
+              <Button
+                variant={variants.ghost}
+                size={sizes.compact}
+                text="API"
+                className="w-full"
+              />
+            </a>
+          </div>
+          <div className="w-full">
+            <a href="mailto:mining.support@block.xyz" target="_blank">
+              <Button
+                variant={variants.ghost}
+                size={sizes.compact}
+                text="Support"
+                className="w-full"
+              />
+            </a>
+          </div>
+          <Button
+            variant={variants.ghost}
+            size={sizes.compact}
+            className="h-auto"
+            onClick={() => setShowThemeSwitcher(true)}
+          >
+            <ThemeLight
+              className="text-text-primary-30"
+              width={iconSizes.small}
+            />
+          </Button>
+          {showThemeSwitcher && (
+            <ThemeSwitcher onClickDone={() => setShowThemeSwitcher(false)} />
+          )}
+        </div>
       </div>
     </div>
   );

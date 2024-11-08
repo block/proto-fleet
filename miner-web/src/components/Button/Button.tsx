@@ -40,6 +40,7 @@ const Button = ({
   const accent = variant === variants.accent;
   const secondary = variant === variants.secondary;
   const danger = variant === variants.danger;
+  const ghost = variant === variants.ghost;
   const secondaryDanger = variant === variants.secondaryDanger;
   const textOnly = variant === variants.textOnly;
   const base = size === sizes.base;
@@ -66,7 +67,7 @@ const Button = ({
         {
           "px-3 py-2": base && text,
           "p-2": base && !text,
-          "px-2 py-[2px]": compact && text,
+          "px-3 py-[2px]": compact && text,
           "p-[6px]": compact && !text,
         },
         // color and bg - primary
@@ -80,7 +81,8 @@ const Button = ({
         {
           "text-text-base-contrast-static bg-core-accent-fill hover:opacity-80":
             accent && !disabledState,
-          "text-text-base-contrast-static bg-core-accent-fill opacity-40": accent && disabledState,
+          "text-text-base-contrast-static bg-core-accent-fill opacity-40":
+            accent && disabledState,
         },
         // color and bg - secondary
         {
@@ -94,6 +96,13 @@ const Button = ({
             danger && !disabledState,
           "text-text-base-contrast-static bg-intent-critical-fill opacity-40":
             danger && disabledState,
+        },
+        // color and bg - ghost
+        {
+          "shadow-50": ghost,
+          "text-text-primary bg-surface-default hover:bg-core-primary-5 hover:opacity-80 hover:shadow-none":
+            ghost && !disabledState,
+          "text-text-primary-50 bg-surface-default": ghost && disabledState,
         },
         // color and bg - secondary danger
         {

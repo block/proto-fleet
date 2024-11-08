@@ -87,17 +87,11 @@ Buttons.args = {
 Buttons.argTypes = {
   size: {
     control: "select",
-    options: [sizes.base, sizes.compact],
+    options: Object.keys(sizes).filter((key) => key !== "textOnly"),
   },
   variant: {
     control: "select",
-    options: [
-      variants.primary,
-      variants.accent,
-      variants.secondary,
-      variants.danger,
-      variants.secondaryDanger,
-    ],
+    options: Object.keys(variants).filter((key) => key !== "textOnly"),
   },
 };
 

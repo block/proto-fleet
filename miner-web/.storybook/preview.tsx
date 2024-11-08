@@ -2,18 +2,29 @@ import React from "react";
 import type { Preview } from "@storybook/react";
 import { useDarkMode } from "storybook-dark-mode";
 
+import { ThemeContext } from "../src/common/contexts/ThemeContext";
+import { useThemes } from "../src/common/hooks/useThemes";
+
 import "../src/index.css";
 
 export const decorators = [
   (Story) => {
     const isDark = useDarkMode();
+    const { deviceTheme, setUserSelectedTheme, getUserSelectedTheme } =
+      useThemes();
 
     React.useEffect(() => {
       const body = document.querySelector("body");
       body?.setAttribute("data-theme", isDark ? "dark" : "light");
     }, [isDark]);
 
-    return <Story />;
+    return (
+      <ThemeContext.Provider
+        value={{ deviceTheme, getUserSelectedTheme, setUserSelectedTheme }}
+      >
+        <Story />
+      </ThemeContext.Provider>
+    );
   },
 ];
 

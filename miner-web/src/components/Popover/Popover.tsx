@@ -18,11 +18,12 @@ interface PopoverProps {
   buttons?: ButtonProps[];
   children?: ReactNode;
   className?: string;
-  position: keyof typeof positions;
+  position?: keyof typeof positions;
   size?: keyof typeof popoverSizes;
   subtitle?: string;
   testId?: string;
   title?: string;
+  titleSize?: string;
 }
 
 const Popover = ({
@@ -35,6 +36,7 @@ const Popover = ({
   subtitle,
   testId,
   title,
+  titleSize = "text-heading-200",
 }: PopoverProps) => {
   return (
     <div
@@ -46,6 +48,7 @@ const Popover = ({
           "animate-slide-down-popover": position?.includes("bottom"),
           "animate-slide-up-popover": position?.includes("top"),
           "w-60": size === popoverSizes.small,
+          "w-72": size === popoverSizes.medium,
           "w-80": size === popoverSizes.normal,
         },
         className
@@ -55,7 +58,7 @@ const Popover = ({
       {(title || subtitle) && (
         <Header
           title={title}
-          titleSize="text-heading-200"
+          titleSize={titleSize}
           subtitle={subtitle}
           subtitleSize="text-300"
         />

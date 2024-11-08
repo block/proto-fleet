@@ -405,7 +405,7 @@ export interface OSInfo {
   build_datetime_utc?: string;
   /** @example "1213423223" */
   git_hash?: string;
-  /** @example "btcm-c1-p0" */
+  /** @example "c1-p0" */
   machine?: string;
   /** @example "BTCM Linux Distribution" */
   name?: string;
@@ -867,7 +867,7 @@ export class HttpClient<SecurityDataType = unknown> {
 
 /**
  * @title Mining Development Kit API
- * @version 1.0.0
+ * @version 1.1.0
  * @license MIT (https://www.mit.edu/~amini/LICENSE.md)
  * @baseUrl https://virtserver.swaggerhub.com/kkurucz/mining_development_kit_api/1.0.0
  * @contact <btcm-sw-team@squareup.com>

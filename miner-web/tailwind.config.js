@@ -62,6 +62,7 @@ export default {
       },
     },
     boxShadow: {
+      none: "0 0 #0000;",
       50: "var(--elevation-50)",
       100: "var(--elevation-100)",
       200: "var(--elevation-200)",

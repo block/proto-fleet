@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { RouterProvider } from "react-router-dom";
 
-import { themes } from "common/constants";
 import { AuthContext, AuthTokens } from "common/contexts/AuthContext";
+import { ThemeContext } from "common/contexts/ThemeContext";
 import { useLocalStorage } from "common/hooks/useLocalStorage";
+import { useThemes } from "common/hooks/useThemes";
 
 import router from "./router";
 
@@ -18,19 +19,8 @@ const Main = () => {
   });
   const [dismissedLoginModal, setDismissedLoginModal] = useState(false);
 
-  const setTheme = (isDark: boolean) => {
-    const theme = isDark ? themes.dark : themes.light;
-    document.body.setAttribute("data-theme", theme);
-  };
-
-  useEffect(() => {
-    const darkThemeMq = window.matchMedia("(prefers-color-scheme: dark)");
-    setTheme(darkThemeMq.matches);
-
-    darkThemeMq.addEventListener("change", (e) => {
-      setTheme(e.matches);
-    });
-  }, []);
+  const { deviceTheme, getUserSelectedTheme, setUserSelectedTheme } =
+    useThemes();
 
   const handleChangeAuthTokens = (newAuthTokens: AuthTokens) => {
     setAuthTokens(newAuthTokens);
@@ -56,7 +46,11 @@ const Main = () => {
         setDismissedLoginModal,
       }}
     >
-      <RouterProvider router={router} />
+      <ThemeContext.Provider
+        value={{ deviceTheme, getUserSelectedTheme, setUserSelectedTheme }}
+      >
+        <RouterProvider router={router} />
+      </ThemeContext.Provider>
     </AuthContext.Provider>
   );
 };
