@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
-    "test": "vitest"
+    "test": "vitest",
+    "upload": "scp -Crp dist/* admin@$npm_config_host:/home/admin/"
   },
   "lint-staged": {
     "src/**/*.{js,jsx,ts,tsx}": [

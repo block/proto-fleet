@@ -57,7 +57,8 @@ export default {
         gentle: "cubic-bezier(0.47, 0, 0.23, 1.38)",
       },
       animation: {
-        "sliding-down": "slide-down .3s theme('transitionTimingFunction.gentle')",
+        "sliding-down":
+          "slide-down .3s theme('transitionTimingFunction.gentle')",
         "sliding-up": "slide-up .3s theme('transitionTimingFunction.gentle')",
       },
     },
@@ -174,8 +175,8 @@ export default {
       },
     },
     fontFamily: {
-      body: ["'Inter'"],
-      mono: ["'JetBrains Mono'"],
+      body: ["'Inter'", "sans-serif"],
+      mono: ["'JetBrainsMono'", "monospace"],
     },
     fontSize: {
       "heading-300": [
@@ -196,7 +197,11 @@ export default {
       ],
       "heading-50": [
         "0.75rem", // 12px
-        { lineHeight: "1.25rem", fontWeight: "500", letterSpacing: "-0.008rem" },
+        {
+          lineHeight: "1.25rem",
+          fontWeight: "500",
+          letterSpacing: "-0.008rem",
+        },
       ],
       400: [
         "1rem", // 16px
