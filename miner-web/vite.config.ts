@@ -11,12 +11,17 @@ const root = resolve(__dirname, "src");
 
 // https://vitejs.dev/config/
 export default defineConfig(() => {
-  const apiServers = {
-    "swagger": "https://virtserver.swaggerhub.com/proto-team/mining-development-kit-api/1.0.0",
-    "local": "http://127.0.0.1:8080",
-  };
 
-  process.env.VITE_API_BASE_URL = process.env.API_SERVER ? apiServers[process.env.API_SERVER] : "";
+  // Question: Are these api servers still relevant? swagger hub endpoints appear to be down, and where would these enviorment variables be set?
+
+  // const apiServers = {
+  //   "swagger": "https://virtserver.swaggerhub.com/proto-team/mining-development-kit-api/1.0.0",
+  //   "local": "http://127.0.0.1:8080",
+  // };
+
+  // process.env.VITE_API_BASE_URL = process.env.API_SERVER ? apiServers[process.env.API_SERVER] : "";
+
+  process.env.VITE_API_BASE_URL = process.env.API_SERVER || "";
 
   return {
     plugins: [react(), splitVendorChunkPlugin()],

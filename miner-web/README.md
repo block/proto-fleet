@@ -60,22 +60,77 @@ For now we need to rebuild the UI production code manually through the below ste
 
 To test the UI changes with the database and API, either copy the resulting `dist/` folder onto a mining device you've ssh'd to or follow the steps below to test locally.
 
-There is a Yocto recipe `miner-web.bb` that copies the UI code compiled for production to the linux environment that gets served by Actix web in `main.rs` of `miner-api-server`.
+### Testing local dev build against test node in lab
 
-### 1. Compile the UI code
+#### 1. Locate test node IP
+
+- https://www.notion.so/proto-team/Test-Nodes-go-prototestnodes-4ec0b2eb74064ab8a7166cfe68ece300
+
+#### 2. Start Dev server and API Server Proxy
+
+```console
+  npm run devproxy --proxyUrl <test_node_IP>
+```
+
+#### 3. Access UI
+
+- enter vite server url in browser `http://localhost:5173`
+
+### Testing with CPU mining running on laptop
+
+#### 1. Compile the UI code
 
 ```console
   npm run build
 ```
 
-### 2. Build the linux image and bring it up
+#### 2. Run `mcdd`and `miner-api-server` on laptop
+
+```console
+cd ~/Development/miner-firmware/crates/mcdd && cargo run --release
+cd ~/Development/miner-firmware/crates/miner-api-server && cargo run -- --www-path="../../miner-web/dist"
+```
+
+#### 3. Access the UI
+
+- enter the the local ip address that miner-api-server is running on `http://127.0.0.1:8080`
+- alternatively run `npm run devproxy --proxyUrl http://127.0.0.1:8080` to start Vite server and proxy all api requests to `miner-api-server`
+
+#### 4. Gotchas
+
+- When first visiting the UI you will need to onboard and [add mining pool](https://www.notion.so/proto-team/How-to-connect-to-Block-s-pool-and-wallet-for-live-network-testing-db54d1cd5d2d4cc59bf68b8623da4c61). However after completing this step the UI will just return back to the pools view and appear like no pool was added.
+- To get past this you must change the following snippet in `miner-firmware/crates/miner-api-server/controllers/system.rs` ln 177
+
+```rust
+  HttpResponse::Ok().json(SystemStatuses {
+      // onboarded: Some(get_onboarded_status()),
+      onboarded: Some(true),
+      password_set: Some(password_status),
+  })
+```
+
+- Restart the `miner-api-server` after making this change and you should be able to access the onboarded state of the UI
+
+### Testing locally on hardware
+
+There is a Yocto recipe `miner-web.bb` that copies the UI code compiled for production to the linux environment that gets served by Actix web in `main.rs` of `miner-api-server`.
+
+#### 1. Compile the UI code
+
+```console
+  npm run build
+```
+
+#### 2. Build the linux image and bring it up
+
 - Add and commit the changes to github
 - Build the linux image via github actions
 - Transfer the image to the SD card on the control board
 - Connect the board via ethernet to your router
 - Connect the board to your laptop
 
-### 3. Access the UI
+#### 3. Access the UI
+
 - Using tio connect to the board and find its IP address
 - Enter the IP address into your browser to access the UI
 
