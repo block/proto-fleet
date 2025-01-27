@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "clsx": "2.1.1",
+    "motion": "^12.0.5",
     "path": "0.12.7",
     "react": "18.3.1",
     "react-dom": "18.3.1",
@@ -54,6 +55,7 @@
     "eslint-plugin-storybook": "0.11.0",
     "globals": "15.12.0",
     "jsdom": "25.0.1",
+    "local-cors-proxy": "^1.1.0",
     "postcss": "8.4.47",
     "storybook": "8.4.2",
     "storybook-dark-mode": "4.0.2",

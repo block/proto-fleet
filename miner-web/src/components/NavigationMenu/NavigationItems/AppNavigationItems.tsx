@@ -1,8 +1,8 @@
 import { useCallback, useState } from "react";
-
-import { Minus, Plus } from "icons";
+import { AnimatePresence, motion } from "motion/react";
 
 import { navigationItems } from "../constants";
+import MorphingPlusMinus from "../MorphingPlusMinus";
 import NavigationItem from "../NavigationItem";
 import { NavigationItemValue } from "../types";
 
@@ -56,28 +56,31 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
       <NavigationItem
         suffixIcon={
           showAccordionExpand || showAccordionItems ? (
-            showAccordionExpand && !showAccordionItems ? (
-              <Plus />
-            ) : (
-              <Minus />
-            )
+            <MorphingPlusMinus condition={showAccordionExpand && !showAccordionItems} />
           ) : undefined
         }
         text="Settings"
         onClick={handleAccordionClick}
         onHover={handleAccordionHover}
       />
-      {showAccordionItems && (
-        <>
-          <NavigationItem
-            id={navigationItems.miningPools}
-            text="Mining Pools"
-            onClick={handleClick}
-            pageName={pageName}
-            isChildItem
-          />
-        </>
-      )}
+      <AnimatePresence>
+        {showAccordionItems && (
+          <motion.div 
+            key="mining-pools"
+            initial={{ opacity: 0, y: -12 }} 
+            animate={{ opacity: 1, y: 0, transition: { duration: 0.4 }}} 
+            exit={{ opacity: 0, y: -12, transition: { duration: 0.25 } }} 
+          >
+            <NavigationItem
+              id={navigationItems.miningPools}
+              text="Mining Pools"
+              onClick={handleClick}
+              pageName={pageName}
+              isChildItem
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 };
