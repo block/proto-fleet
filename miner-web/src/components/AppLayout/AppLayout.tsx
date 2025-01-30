@@ -3,9 +3,10 @@ import clsx from "clsx";
 
 import { NetworkInfoNetworkinfo, SystemInfoSysteminfo } from "apiTypes";
 
-import LoginModal, { LoginSuccessToast } from "components/LoginModal";
+import LoginModal from "components/LoginModal";
 import NavigationMenu, { NavigationMenuType } from "components/NavigationMenu";
 import PageHeader from "components/PageHeader";
+import Toaster, { pushToast, STATUSES as TOAST_STATUSES } from "components/Toaster";
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -37,11 +38,13 @@ const AppLayout = ({
   type,
 }: AppLayoutProps) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [showLoginSuccessToast, setShowLoginSuccessToast] = useState(false);
 
   const handleOnSuccessLogin = () => {
     onSuccessLogin();
-    setShowLoginSuccessToast(true);
+    pushToast({
+      message: "You are now logged in as admin",
+      status: TOAST_STATUSES.success,
+    });
   };
 
   return (
@@ -49,9 +52,11 @@ const AppLayout = ({
       {showLoginModal && (
         <LoginModal onDismiss={onDismissLogin} onSuccess={handleOnSuccessLogin} />
       )}
-      {showLoginSuccessToast && (
-        <LoginSuccessToast onClose={() => setShowLoginSuccessToast(false)} />
-      )}
+
+      <div className="fixed right-4 bottom-7 z-10">
+        <Toaster />
+      </div>
+
       <div className="flex h-screen bg-surface-base">
         <div className="grow">
           <NavigationMenu

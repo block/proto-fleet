@@ -7,7 +7,7 @@ const MorphingPlusMinus = ({ condition }: {
 }) => {
     return (
         <div className={clsx("relative opacity-30 h-[20px] w-[20px]")}>
-            <div className={clsx(sharedCls, "h-[10px] w-[2px] transition-transform duration-300 ease-in-out", condition ? "scale-y-100" : "scale-y-0")}></div>
+            <div className={clsx(sharedCls, "h-[10px] w-[2px] transition-transform duration-300 ease-gentle", condition ? "scale-y-100" : "scale-y-0")}></div>
             <div className={clsx(sharedCls, "h-[2px] w-[10px]")}></div>
         </div>
     );

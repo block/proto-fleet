@@ -1,7 +1,8 @@
-/** @type {import('tailwindcss').Config} */
+import type { Config } from "tailwindcss"
+
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
-  darkMode: ["selector", '[data-theme="dark"]'],
+  darkMode: ["selector", "[data-theme=\"dark\"]"],
   theme: {
     extend: {
       keyframes: {
@@ -240,4 +241,4 @@ export default {
     },
   },
   plugins: [],
-};
+} satisfies Config;

@@ -1,10 +1,16 @@
-import { useCallback, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { useCallback, useState } from "react";
+
+import { cubicBezierValues } from "common/utils/cssUtils";
+import getTailwindConfig from "common/utils/getTailwindConfig";
 
 import { navigationItems } from "../constants";
 import MorphingPlusMinus from "../MorphingPlusMinus";
 import NavigationItem from "../NavigationItem";
 import { NavigationItemValue } from "../types";
+
+const gentle = getTailwindConfig("theme", "transitionTimingFunction", "gentle");
+const gentleCb = cubicBezierValues(gentle);
 
 interface AppNavigationItemsProps {
   onClick: (navigationItem: NavigationItemValue) => void;
@@ -68,8 +74,8 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
           <motion.div 
             key="mining-pools"
             initial={{ opacity: 0, y: -12 }} 
-            animate={{ opacity: 1, y: 0, transition: { duration: 0.4 }}} 
-            exit={{ opacity: 0, y: -12, transition: { duration: 0.25 } }} 
+            animate={{ opacity: 1, y: 0, transition: { duration: 0.3, ease: gentleCb } }} 
+            exit={{ opacity: 0, y: -12, transition: { duration: 0.3, ease: gentleCb } }} 
           >
             <NavigationItem
               id={navigationItems.miningPools}

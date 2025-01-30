@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useCreatePools } from "api";
 
@@ -11,18 +11,25 @@ import MiningPools, {
   isValidPool,
   PoolInfo,
 } from "components/MiningPools";
-import { ToastType, toastTypes } from "components/Toast";
 
-import StatusToast from "./StatusToast";
+import { 
+  pushToast, 
+  removeToast, 
+  STATUSES as TOAST_STATUSES, 
+  ToastStatusType
+} from "components/Toaster";
+
+import { STATUS_MESSAGES } from "./constants";
 
 const SettingsMiningPools = () => {
   const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
-  const [toastType, setToastType] = useState<ToastType | null>(null);
+  const [toastStatus, setToastStatus] = useState<ToastStatusType | null>(null);
   const [isStalePools, setIsStalePools] = useState(false);
+  const toastId = useRef<number | null>(null)
 
   const { poolsInfo, poolsInfoStatus } = useApiContext();
   const { createPools } = useCreatePools();
-
+  
   useAccessToken();
 
   useEffect(() => {
@@ -40,7 +47,13 @@ const SettingsMiningPools = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedSubmitPools = useCallback(
     debounce((newPools: PoolInfo[]) => {
-      setToastType(toastTypes.loading);
+      setToastStatus(TOAST_STATUSES.loading);
+      removeToast(toastId.current);
+      toastId.current = pushToast({
+        message: STATUS_MESSAGES.loading,
+        status: TOAST_STATUSES.loading,
+      });
+      
       const validPools = newPools.filter(isValidPool);
       createPools({
         poolInfo: validPools,
@@ -48,7 +61,12 @@ const SettingsMiningPools = () => {
           setIsStalePools(true);
         },
         onError: () => {
-          setToastType(toastTypes.error);
+          setToastStatus(TOAST_STATUSES.error);
+          removeToast(toastId.current);
+          toastId.current = pushToast({
+            message: STATUS_MESSAGES.error,
+            status: TOAST_STATUSES.error,
+          });          
         },
         retryOnMinerDown: true,
       });
@@ -58,7 +76,7 @@ const SettingsMiningPools = () => {
 
   useEffect(() => {
     if (
-      toastType === toastTypes.loading &&
+      toastStatus === TOAST_STATUSES.loading &&
       isStalePools &&
       !poolsInfoStatus.pending
     ) {
@@ -66,14 +84,25 @@ const SettingsMiningPools = () => {
         poolsInfoStatus.error &&
         !/failed to connect to cgminer/i.test(poolsInfoStatus.error)
       ) {
-        setToastType(toastTypes.error);
+        setToastStatus(TOAST_STATUSES.error);
+        removeToast(toastId.current);
+        toastId.current = pushToast({
+          message: STATUS_MESSAGES.error,
+          status: TOAST_STATUSES.error,
+        }); 
+
         setIsStalePools(false);
       } else if (poolsInfo?.length) {
-        setToastType(toastTypes.success);
+        setToastStatus(TOAST_STATUSES.success);
+        removeToast(toastId.current);
+        toastId.current = pushToast({
+          message: STATUS_MESSAGES.success,
+          status: TOAST_STATUSES.success,
+        }); 
         setIsStalePools(false);
       }
     }
-  }, [isStalePools, poolsInfo, poolsInfoStatus, toastType]);
+  }, [isStalePools, poolsInfo, poolsInfoStatus, toastStatus]);
 
   const onChangePools = useCallback(
     (newPools: PoolInfo[]) => {
@@ -84,14 +113,11 @@ const SettingsMiningPools = () => {
   );
 
   return (
-    <>
-      <StatusToast onClose={() => setToastType(null)} type={toastType} />
-      <MiningPools
-        onChange={onChangePools}
-        pools={pools}
-        loading={poolsInfoStatus.pending && !isStalePools}
-      />
-    </>
+    <MiningPools
+      onChange={onChangePools}
+      pools={pools}
+      loading={poolsInfoStatus.pending && !isStalePools}
+    />
   );
 };
 

@@ -1,16 +1,13 @@
 import { action } from "@storybook/addon-actions";
 
-import ToastComponent, { ToastType } from ".";
+import ToastComponent from "./Toast";
+import { ToastProps } from "./types";
 
-interface ToastProps {
-  type: ToastType;
-}
-
-export const Toast = ({ type }: ToastProps) => (
+export const Toast = ({ status }: ToastProps) => (
   <ToastComponent
     message="This is a toast message"
     onClose={() => { action("onClose")() }}
-    type={type}
+    status={status}
   />
 );
 

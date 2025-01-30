@@ -7,6 +7,7 @@
     "skipLibCheck": true,
 
     /* Bundler mode */
+    "allowJs": true,
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
@@ -37,6 +38,6 @@
     "types": ["jest-dom"],
     "typeRoots": ["node_modules/@types", "node_modules/@testing-library"]
   },
-  "include": ["src"],
+  "include": ["src", "tailwind.d.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

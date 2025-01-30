@@ -87,6 +87,11 @@ export default [
               group: "internal",
             },
             {
+              pattern: "motion/react",
+              group: "external",
+              position: "before",
+            },
+            {
               pattern: "pages",
               group: "internal",
             },
@@ -107,6 +112,11 @@ export default [
             },
             {
               pattern: "recharts",
+              group: "external",
+              position: "before",
+            },
+            {
+              pattern: "tailwindcss/resolveConfig",
               group: "external",
               position: "before",
             },
