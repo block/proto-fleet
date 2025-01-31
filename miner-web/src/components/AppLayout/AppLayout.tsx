@@ -53,7 +53,7 @@ const AppLayout = ({
         <LoginModal onDismiss={onDismissLogin} onSuccess={handleOnSuccessLogin} />
       )}
 
-      <div className="fixed right-4 bottom-7 z-10">
+      <div className="fixed right-4 bottom-4 z-10">
         <Toaster />
       </div>
 

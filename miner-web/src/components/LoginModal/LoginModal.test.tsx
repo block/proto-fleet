@@ -34,11 +34,11 @@ describe("Login Modal", () => {
     expect(getByTestId(forgotPasswordInstructions)).toBeInTheDocument();
   });
 
-  test("closes forgot password instructions on click of back button", () => {
+  test("closes forgot password instructions on click of back button", async () => {
     const { getByTestId, queryByTestId } = component;
     fireEvent.click(getByTestId(forgotPassword));
     fireEvent.click(getByTestId(forgotPasswordBack));
-    expect(queryByTestId(forgotPasswordInstructions)).not.toBeInTheDocument();
+    await waitFor(() => expect(queryByTestId(forgotPasswordInstructions)).not.toBeInTheDocument());
   });
 
   test("username field is non-editable", () => {

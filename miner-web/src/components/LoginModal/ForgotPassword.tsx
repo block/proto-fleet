@@ -10,7 +10,9 @@ interface ForgotPasswordProps {
 
 const ForgotPassword = ({ onDismiss }: ForgotPasswordProps) => {
   return (
-    <div className="space-y-4" data-testid="forgot-password-instructions">
+    <div className="space-y-4"
+      data-testid="forgot-password-instructions"
+    >
       <Button
         size={sizes.compact}
         variant={variants.secondary}

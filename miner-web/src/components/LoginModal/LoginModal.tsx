@@ -4,6 +4,7 @@ import Modal from "components/Modal";
 
 import ForgotPassword from "./ForgotPassword";
 import LoginForm from "./LoginForm";
+import ResizeablePanel from "./ResizeablePanel";
 
 interface LoginModalProps {
   onDismiss?: () => void;
@@ -14,16 +15,19 @@ const LoginModal = ({ onDismiss, onSuccess }: LoginModalProps) => {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
 
   return (
-    <Modal onDismiss={onDismiss} showHeader={false} className="!w-[402px]">
-      {showForgotPassword ? (
-        <ForgotPassword onDismiss={() => setShowForgotPassword(false)} />
-      ) : (
-        <LoginForm
-          onSuccess={onSuccess}
-          onDismiss={onDismiss}
-          onClickForgotPassword={() => setShowForgotPassword(true)}
-        />
-      )}
+    <Modal onDismiss={onDismiss} showHeader={false} className="!w-[402px]">    
+      <ResizeablePanel resizeOn={showForgotPassword}>
+        {showForgotPassword ? (
+          <ForgotPassword key="forgot-password" onDismiss={() => setShowForgotPassword(false)} />
+        ) : (
+          <LoginForm
+            key="login-form"
+            onSuccess={onSuccess}
+            onDismiss={onDismiss}
+            onClickForgotPassword={() => setShowForgotPassword(true)}
+          />
+        )}
+      </ResizeablePanel>
     </Modal>
   );
 };

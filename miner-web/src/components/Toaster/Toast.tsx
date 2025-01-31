@@ -55,7 +55,8 @@ const Toast = ({ message, onClose, status, index, numToasts, ttl = 4000 }: Toast
 
   return (
     <motion.div
-      className={`absolute bottom-0 right-0 pb-[${extraPaddingForHover}px]`}
+      className="absolute bottom-0 right-0"
+      style={{paddingBottom: extraPaddingForHover + "px"}}
       initial={{opacity: 0, y: initialTranslateY + extraPaddingForHover}}
       animate={{opacity: 1, scale: scale, y: yOffset + extraPaddingForHover}}
       exit={{opacity: 0, y: -initialTranslateY + yOffset + extraPaddingForHover}}
