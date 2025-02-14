@@ -11,6 +11,10 @@ node_modules
 dist-ssr
 *.local
 
+# temporary directories from build
+src/protoOS/public
+src/protoFleet/public
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

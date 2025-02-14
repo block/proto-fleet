@@ -19,11 +19,12 @@ if (!fs.existsSync(swaggerSchemaPath)) {
 }
 
 const [fileName = "types.ts"] = process.argv.slice(2);
-const fileDir = path.resolve(__dirname, "../src/api");
+const fileDir = path.resolve(__dirname, "../src/protoOS/api");
 
 generateApi({
   name: fileName,
   input: swaggerSchemaPath,
+  extractRequestParams: true,
   output: fileDir,
   addReadonly: true,
   httpClientType: "fetch",

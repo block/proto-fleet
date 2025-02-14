@@ -25,14 +25,13 @@
     /* Alias */
     "baseUrl": "./",
     "paths": {
-      "api": ["./src/api/index.ts"],
-      "apiTypes": ["src/api/types.ts"],
-      "apiResponseTypes": ["src/api/apiResponseTypes.ts"],
-      "common/*": ["./src/common/*"],
-      "components/*": ["./src/components/*"],
-      "icons": ["./src/assets/icons"],
-      "icons/*": ["./src/assets/icons/*"],
-      "pages/*": ["./src/pages/*"],
+      "@/*": ["src/*"],
+      "api": ["src/protoOS/api/index.ts"],
+      "apiTypes": ["src/protoOS/api/types.ts"],
+      "apiResponseTypes": ["src/protoOS/api/apiResponseTypes.ts"],
+      "common/*": ["src/common/*"],
+      "icons": ["src/shared/assets/icons"],
+      "icons/*": ["src/shared/assets/icons/*"]
     },
 
     "types": ["jest-dom"],

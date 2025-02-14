@@ -1,0 +1,40 @@
+import TooltipComponent from ".";
+import { positions } from "@/shared/constants";
+
+interface TooltipWrapperProps {
+  position: keyof typeof positions;
+}
+
+const TooltipWrapper = ({ position }: TooltipWrapperProps) => {
+  return (
+    <div>
+      <div className="text-heading-100 mb-2">Position: {position}</div>
+      <div className="flex w-80">
+        <TooltipComponent
+          header="Tooltip Header"
+          body="Tooltip Body"
+          position={position}
+        />
+      </div>
+    </div>
+  );
+};
+
+export const Tooltip = () => {
+  return (
+    <div className="ml-4 mt-4 flex flex-col space-y-4">
+      <div className="flex">
+        <TooltipWrapper position={positions["bottom right"]} />
+        <TooltipWrapper position={positions["bottom left"]} />
+      </div>
+      <div className="flex">
+        <TooltipWrapper position={positions["top right"]} />
+        <TooltipWrapper position={positions["top left"]} />
+      </div>
+    </div>
+  );
+};
+
+export default {
+  title: "Components (Shared)/Tooltip",
+};

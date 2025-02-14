@@ -2,43 +2,153 @@
 /// <reference types="vite/client" />
 
 import react from "@vitejs/plugin-react";
-import { defineConfig, splitVendorChunkPlugin } from "vite";
-import { resolve } from "path";
+import { defineConfig, loadEnv, splitVendorChunkPlugin } from "vite";
+import fs from "fs";
+import path, { resolve } from "path";
 import process from "process";
+import fleet from "./fleet.json";
 
 // eslint-disable-next-line no-undef
-const root = resolve(__dirname, "src");
+const _dirname = __dirname;
+const src = resolve(_dirname, "src");
 
-// https://vitejs.dev/config/
-export default defineConfig(() => {
+const MODES = ["protoFleet", "protoOS"];
 
-  // Question: Are these api servers still relevant? swagger hub endpoints appear to be down, and where would these enviorment variables be set?
+const createModeConfig = (mode) => {
+  return {
+    root: resolve(src, mode),
+    build: {
+      emptyOutDir: true,
+      outDir: resolve(_dirname, `dist/${mode}`),
+      rollupOptions: {
+        input: `src/${mode}/index.html`,
+      },
+    },
+  };
+};
 
-  // const apiServers = {
-  //   "swagger": "https://virtserver.swaggerhub.com/proto-team/mining-development-kit-api/1.0.0",
-  //   "local": "http://127.0.0.1:8080",
-  // };
+const modes = MODES.reduce((acc, curr) => {
+  return {
+    [curr]: createModeConfig(curr),
+    ...acc,
+  };
+}, {});
 
-  // process.env.VITE_API_BASE_URL = process.env.API_SERVER ? apiServers[process.env.API_SERVER] : "";
+const defaultConfig = {
+  root: src,
+};
 
-  process.env.VITE_API_BASE_URL = process.env.API_SERVER || "";
+// build will build our html file to dist/{mode}/src/{mode}/index.html
+// this will flatten the structure and bring the index.html down to the src
+const moveHtmlFiles = (mode) => {
+  return {
+    name: "move-html-files",
+    closeBundle() {
+      const srcPath = resolve(_dirname, `dist/${mode}/src/${mode}/index.html`);
+      const destPath = resolve(_dirname, `/dist/${mode}/index.html`);
+
+      if (fs.existsSync(srcPath)) {
+        fs.mkdirSync(path.dirname(destPath), { recursive: true });
+        fs.renameSync(srcPath, destPath);
+      }
+
+      // Clean up the unnecessary src directory
+      const srcDir = resolve(_dirname, `/dist/${mode}/src`);
+      if (fs.existsSync(srcDir)) {
+        fs.rmSync(srcDir, { recursive: true, force: true });
+      }
+    },
+  };
+};
+
+const copyPublicDirectory = (mode, command) => {
+  if (command !== "build") return;
+
+  const destPath = resolve(src, `${mode}/public`);
 
   return {
-    plugins: [react(), splitVendorChunkPlugin()],
+    name: "copy-public-directory",
+
+    // copy /public to src/{mode}/public
+    buildStart() {
+      const srcPath = resolve(_dirname, "public");
+      const destPath = resolve(src, `${mode}/public`);
+
+      if (fs.existsSync(srcPath)) {
+        fs.cpSync(srcPath, destPath, { recursive: true });
+      }
+    },
+
+    // remove directory from src after build
+    closeBundle() {
+      if (fs.existsSync(destPath)) {
+        fs.rmSync(destPath, { recursive: true, force: true });
+      }
+    },
+  };
+};
+
+const createFleetProxies = () => {
+  return fleet.reduce((acc, miner) => {
+    acc["/" + miner.ip] = {
+      target: "http://" + miner.ip,
+      rewrite: (path) => path.replace("/" + miner.ip, ""),
+    };
+
+    return acc;
+  }, {});
+};
+
+// https://vitejs.dev/config/
+export default defineConfig(({ mode, command }) => {
+  if (!modes[mode] && command === "build") {
+    throw new Error(
+      "Build must be run with supported mode (eg. vite build --mode protoFleet)"
+    );
+  }
+
+  let proxies = {};
+  if (mode === "protoFleet") {
+    proxies = createFleetProxies();
+  } else {
+    const env = loadEnv(mode, process.cwd(), "");
+    proxies = env.PROXY_URL
+      ? {
+          "/api/v1": {
+            target: env.PROXY_URL,
+          },
+        }
+      : {};
+  }
+
+  // eslint-disable-next-line no-console
+  console.log(proxies);
+
+  return {
+    ...(modes[mode] || defaultConfig),
+    base: "/",
+    plugins: [
+      react(),
+      splitVendorChunkPlugin(),
+      moveHtmlFiles(mode),
+      copyPublicDirectory(mode, command),
+    ],
     resolve: {
       alias: {
-        api: resolve(root, "api"),
-        apiTypes: resolve(root, "api/types.ts"),
-        common: resolve(root, "common"),
-        components: resolve(root, "components"),
-        icons: resolve(root, "assets/icons"),
-        pages: resolve(root, "pages"),
+        "@": src,
+        api: resolve(src, "api"),
+        apiTypes: resolve(src, "api/types.ts"),
+        common: resolve(src, "common"),
+        icons: resolve(src, "assets/icons"),
       },
     },
     test: {
       globals: true,
       environment: "jsdom",
-      setupFiles: ["src/common/tests/setup.ts"],
+      setupFiles: ["tests/setup.ts"],
+    },
+    server: {
+      proxy: proxies,
     },
   };
 });

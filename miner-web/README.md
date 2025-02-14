@@ -2,21 +2,27 @@
 
 ## Overview
 
-The source code of the mining dashboard UI is included here. Learn more about the tech stack [here](#learn-more).
+The source code of the mining dashboard UI (ProtoOS) and the fleet management UI (protoFLeet) is included here. Learn more about the tech stack [here](#learn-more).
 
 ## Directory Layout
 
 ```
 miner-web
 ├── .storybook                # Storybook configuration, used for visual testing of UI components
-├── dist                      # The compiled UI code for production, gets served by Actix web in miner-api-server
+├── dist                      # The compiled UI code for production
+│  ├── protoFleet             # The compile ProtoFleet app, gets served by TBD
+│  └── protoOS                # The compile ProtoOS app, gets served by Actix web in miner-api-server
 ├── public                    # Includes the favicon image of the site (used for the browser tab's icon)
 ├── scripts                   # Automated scripts to help with development
-├── src                       # Source for the mining dashboard UI
+├── src                       # Source for the mining dashboard UI and fleet management UI
+│  ├── protoFleet             # Source for the fleet management UI
+│  │  └── index.html          # Root file that gets served in browser for protoFLeet
+│  ├── protoOS                # Source for the mining dashboard UI
+│  │  └── index.html          # Root file that gets served in browser for protoOS
+│  └── shared                 # Shared source used by ProtoOS and ProtoFleet
 ├── .gitignore                # Local files and folders to be ignored by git
 ├── README.md                 # This file
 ├── eslint.config.js          # Linter rules for maintaining standardization in the codebase
-├── index.html                # Root file that gets served in browser
 ├── package.json              # Includes list of libraries used and npm command definitions
 ├── postcss.config.js         # Config file for postcss to add tailwind
 ├── tailwind.config.js        # Tailwind config file to extend css themes
@@ -52,51 +58,67 @@ For now we need to rebuild the UI production code manually through the below ste
 
 ### 1. Compile the UI code for production
 
-```console
+```bash
+  # build both ProtoOS & ProtoFleet artifacts
   npm run build
+
+    # build protoOS
+  npm run build:protoOS
+
+    # build protoFleet
+  npm run build:protoFleet
 ```
 
-## Test UI changes
+### 2. Preview production build
 
-To test the UI changes with the database and API, either copy the resulting `dist/` folder onto a mining device you've ssh'd to or follow the steps below to test locally.
+```bash
+  # preview protosOS production build
+  npm run preview:protoOS
 
-### Testing local dev build against test node in lab
-
-#### 1. Locate test node IP
-
-- https://www.notion.so/proto-team/Test-Nodes-go-prototestnodes-4ec0b2eb74064ab8a7166cfe68ece300
-
-#### 2. Start Dev server and API Server Proxy
-
-```console
-  npm run devproxy --proxyUrl <test_node_IP>
+  # preview protosFleet production build
+  npm run preview:protoFleet
 ```
 
-#### 3. Access UI
+## Dev build
 
-- enter vite server url in browser `http://localhost:5173`
+To test code changes locally, run the vite dev server with one of the following commands.
 
-### Testing with CPU mining running on laptop
+### 1. Setup Proxies
 
-#### 1. Compile the UI code
+**ProtoOS**
 
-```console
-  npm run build
+- In production the ProtoOS frontend is served from same host as the api, to run this locally we must set up a proxy to route all api requests to another server.
+- Create an `.env` file in the root of this directory and define an environment variable called `PROXY_URL`. This file is ignored by git. The proxy url could be anywhere that the MDK api is served. Some options may be:
+  - The URL of a miner-api-server running locally (ie. `http://127.0.0.1:8000`)
+  - An IP of one of the [test nodes in the lab](https://www.notion.so/proto-team/Test-Nodes-go-prototestnodes-4ec0b2eb74064ab8a7166cfe68ece300)
+  - Mock data API server like [stoplight](https://stoplight.io/mocks/proto-mining/mdk-api/656299768)
+
+```
+PROXY_URL = http://127.0.0.1:8000
 ```
 
-#### 2. Run `mcdd`and `miner-api-server` on laptop
+**ProtoFleet**
 
-```console
-cd ~/Development/miner-firmware/crates/mcdd && cargo run --release
-cd ~/Development/miner-firmware/crates/miner-api-server && cargo run -- --www-path="../../miner-web/dist"
+- Until we have a backend for protoFleet, a dummy fleet is defined in `fleet.json` which represents a collection of Miners and their IP addresses.
+- Because of CORS configuration we cannot request data from these miners directly. Vite will automatically setup proxies for each miner so that we can make requests to them at `/${minder.ip}/`
+
+### 2. Start dev server
+
+```bash
+  # start protoOS dev server
+  npm run dev:protoOS
+
+  # start protoFleet dev server
+  npm run dev:protoFleet
 ```
 
-#### 3. Access the UI
+### 3. Access the UI
 
-- enter the the local ip address that miner-api-server is running on `http://127.0.0.1:8080`
-- alternatively run `npm run devproxy --proxyUrl http://127.0.0.1:8080` to start Vite server and proxy all api requests to `miner-api-server`
+Enter vite server url in browser `http://localhost:5173`
 
-#### 4. Gotchas
+### 4. Gotchas
+
+If you are trying to run ProtoOS against miner-api-server running locally, there are is a little workaround needed to bypass the onboarding process.
 
 - When first visiting the UI you will need to onboard and [add mining pool](https://www.notion.so/proto-team/How-to-connect-to-Block-s-pool-and-wallet-for-live-network-testing-db54d1cd5d2d4cc59bf68b8623da4c61). However after completing this step the UI will just return back to the pools view and appear like no pool was added.
 - To get past this you must change the following snippet in `miner-firmware/crates/miner-api-server/controllers/system.rs` ln 177
@@ -111,17 +133,17 @@ cd ~/Development/miner-firmware/crates/miner-api-server && cargo run -- --www-pa
 
 - Restart the `miner-api-server` after making this change and you should be able to access the onboarded state of the UI
 
-### Testing locally on hardware
+## Testing locally on hardware
 
 There is a Yocto recipe `miner-web.bb` that copies the UI code compiled for production to the linux environment that gets served by Actix web in `main.rs` of `miner-api-server`.
 
-#### 1. Compile the UI code
+### 1. Compile the UI code
 
 ```console
   npm run build
 ```
 
-#### 2. Build the linux image and bring it up
+### 2. Build the linux image and bring it up
 
 - Add and commit the changes to github
 - Build the linux image via github actions
@@ -129,14 +151,14 @@ There is a Yocto recipe `miner-web.bb` that copies the UI code compiled for prod
 - Connect the board via ethernet to your router
 - Connect the board to your laptop
 
-#### 3. Access the UI
+### 3. Access the UI
 
 - Using tio connect to the board and find its IP address
 - Enter the IP address into your browser to access the UI
 
 ## API typescript definition file
 
-There is a `api/types.ts` file that has been automatically generated based on swagger's `MDK-API.json` file in `miner-api-server/docs`. To regenerate it, run this command:
+There is a `/protoOS/api/types.ts` file that has been automatically generated based on swagger's `MDK-API.json` file in `miner-api-server/docs`. To regenerate it, run this command:
 
 ```sh
 node scripts/generate_api_ts.cjs

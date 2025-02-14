@@ -2,10 +2,9 @@ import React from "react";
 import type { Preview } from "@storybook/react";
 import { useDarkMode } from "storybook-dark-mode";
 
-import { ThemeContext } from "../src/common/contexts/ThemeContext";
-import { useThemes } from "../src/common/hooks/useThemes";
+import { ThemeContext, useThemes } from "../src/shared/features/themes";
 
-import "../src/index.css";
+import "../src/shared/styles/index.css";
 
 export const decorators = [
   (Story) => {
