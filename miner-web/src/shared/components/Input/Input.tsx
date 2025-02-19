@@ -105,7 +105,7 @@ const Input = ({
         id={id}
         data-testid={testId}
         className={clsx(
-          "peer rounded-lg w-full outline-none text-300 text-text-primary",
+          "peer rounded-lg w-full outline-hidden text-300 text-text-primary",
           "transition-[border-color] ease-in-out duration-200",
           { "bg-surface-base": !disabled },
           { "bg-core-primary-5": disabled },
@@ -178,7 +178,7 @@ const Input = ({
         </div>
       ) : undefined}
       {keyboardShortcuts && !value.length ? (
-        <div className="absolute right-4 top-7 transform -translate-y-1/2 flex space-x-[2px] text-300 font-semibold text-text-primary-30 bg-core-primary-5 rounded px-2 shadow-100">
+        <div className="absolute right-4 top-7 transform -translate-y-1/2 flex space-x-[2px] text-300 font-semibold text-text-primary-30 bg-core-primary-5 rounded-sm px-2 shadow-100">
           {keyboardShortcuts.map((shortcut, index) => (
             <Fragment key={index}>{shortcut}</Fragment>
           ))}

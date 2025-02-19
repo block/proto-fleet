@@ -62,7 +62,7 @@ const HashrateTooltip = ({
         <div className="bg-surface-elevated-base/70 pt-6 pb-4 rounded-xl shadow-200 backdrop-blur-[7px]">
           <div className="w-[269px]">
             <div className="flex space-x-2 px-6">
-              <div className="w-1 h-3 bg-core-accent-fill rounded-sm mt-1" />
+              <div className="w-1 h-3 bg-core-accent-fill rounded-xs mt-1" />
               <div>
                 <div className="text-200 mb-1 text-text-primary-70">
                   Total Hashrate

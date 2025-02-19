@@ -15,7 +15,7 @@ const HashrateTooltipItem = ({
 
   return (
     <div className="flex space-x-2 px-6 items-center py-2 -mt-2">
-      <div className={clsx("w-1 h-3 rounded-sm", colorClassName)} />
+      <div className={clsx("w-1 h-3 rounded-xs", colorClassName)} />
       <div className="text-emphasis-300 text-text-primary grow">{label}</div>
       <div className="text-300 text-text-primary">{value} TH/s</div>
     </div>

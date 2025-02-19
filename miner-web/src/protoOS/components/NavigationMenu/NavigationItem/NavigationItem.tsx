@@ -45,7 +45,7 @@ const NavigationItem = ({
       onMouseOver={() => onHover?.(true)}
       onMouseOut={() => onHover?.(false)}
     >
-      <span className="flex-grow">{text}</span>
+      <span className="grow">{text}</span>
       {suffixIcon}
     </button>
   );

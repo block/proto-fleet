@@ -69,7 +69,7 @@ const OnboardingSettingUp = ({
               "opacity-100 animate-[fade-in_.31s_ease-in-out]": isSetupDone,
             },
             {
-              "opacity-0 hover:!opacity-0 cursor-auto": !isSetupDone,
+              "opacity-0 hover:opacity-0! cursor-auto": !isSetupDone,
             }
           )}
           onClick={isSetupDone ? onClickContinue : undefined}

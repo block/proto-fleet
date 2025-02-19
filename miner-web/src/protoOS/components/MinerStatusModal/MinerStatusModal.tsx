@@ -108,7 +108,7 @@ const MinerStatusModal = ({
             <Tabs disableAnimation>
               <Tabs.Tab
                 label="All"
-                className="!mt-0 miner-status-tab-content-wrapper"
+                className="mt-0! miner-status-tab-content-wrapper"
               >
                 <MinerStatusRows errors={hashboardErrors} />
                 <MinerStatusRows errors={hashboardWarnings} />
@@ -119,7 +119,7 @@ const MinerStatusModal = ({
               </Tabs.Tab>
               <Tabs.Tab
                 label={`${errorCount} ${errorCount === 1 ? "error" : "errors"}`}
-                className="!mt-0"
+                className="mt-0!"
               >
                 {errorCount ? (
                   <>
@@ -133,7 +133,7 @@ const MinerStatusModal = ({
               </Tabs.Tab>
               <Tabs.Tab
                 label={`${warningCount} ${warningCount === 1 ? "warning" : "warnings"}`}
-                className="!mt-0"
+                className="mt-0!"
               >
                 {warningCount ? (
                   <>

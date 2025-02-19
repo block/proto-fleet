@@ -74,13 +74,13 @@ describe("getDisplayValue", () => {
     expect(displayValue).toBeUndefined();
   });
 
-  test("should return the value rounded down to two decimal places", () => {
+  test("should return the value rounded-sm down to two decimal places", () => {
     const value = 5.563;
     const displayValue = getDisplayValue(value);
     expect(displayValue).toBe("5.56");
   });
 
-  test("should return the value rounded up to two decimal places", () => {
+  test("should return the value rounded-sm up to two decimal places", () => {
     const value = 5.565;
     const displayValue = getDisplayValue(value);
     expect(displayValue).toBe("5.57");
@@ -98,13 +98,13 @@ describe("getDisplayValue", () => {
     expect(displayValue).toBe("5");
   });
 
-  test("should return the value rounded up to two decimal places if third decimal place is non-zero", () => {
+  test("should return the value rounded-sm up to two decimal places if third decimal place is non-zero", () => {
     const value = 5.106;
     const displayValue = getDisplayValue(value);
     expect(displayValue).toBe("5.11");
   });
 
-  test("should return the value rounded down to one decimal place if third decimal place is non-zero but below 5", () => {
+  test("should return the value rounded-sm down to one decimal place if third decimal place is non-zero but below 5", () => {
     const value = 5.103;
     const displayValue = getDisplayValue(value);
     expect(displayValue).toBe("5.1");

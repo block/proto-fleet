@@ -172,9 +172,9 @@ const Logs = ({ logsData }: LogsProps) => {
                 "focus-within:border-b-2 focus-within:border-border-primary"
               )}
             >
-              <div className="flex space-x-4 items-center flex-grow">
+              <div className="flex space-x-4 items-center grow">
                 <Search
-                  className="!bg-surface-base"
+                  className="bg-surface-base!"
                   onChange={setSearchValue}
                   initValue={searchValue}
                   compact
@@ -234,7 +234,7 @@ const Logs = ({ logsData }: LogsProps) => {
                     size={sizes.compact}
                     prefixIcon={<DismissTiny />}
                     onClick={clearSearch}
-                    className="!rounded-full"
+                    className="rounded-full!"
                   />
                 )}
               </div>

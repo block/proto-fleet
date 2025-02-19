@@ -37,6 +37,6 @@
     "types": ["jest-dom"],
     "typeRoots": ["node_modules/@types", "node_modules/@testing-library"]
   },
-  "include": ["src", "tailwind.d.ts"],
+  "include": ["src", "tailwind.d.ts", "scripts/postcssThemeColors.cjs"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

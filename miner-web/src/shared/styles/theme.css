@@ -1,0 +1,183 @@
+$phone-max: 631px;
+$tablet-min: 632px;
+$tablet-max: 959px;
+$laptop-min: 960px;
+$laptop-max: 1279px;
+$desktop-min: 1280px; 
+
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+@custom-variant phone {
+  @media (max-width: $phone-max) {
+    @slot;
+  }
+}
+
+@custom-variant tablet {
+  @media (min-width: $tablet-min) and (max-width: $tablet-max) {
+    @slot;
+  }
+}
+
+@custom-variant laptop {
+  @media (min-width: $laptop-min) and (max-width: $tablet-max) {
+    @slot;
+  }
+}
+
+@custom-variant desktop {
+  @media (min-width: $desktop-min) {
+    @slot;
+  }
+} 
+
+@theme {
+  /*
+    tw4 only implements breakpoints mobile first (no min widths)
+    because our app was build with min and max bounds, workaround
+    is to squash all default breakpoints and define custom variants 
+    for phone, tablet, laptop, and desktop. 
+  */
+  --breakpoint-*: initial;
+  --screen-phone-max: $phone-max;
+  --screen-tablet-min: $tablet-min;
+  --screen-tablet-max: $tablet-max;
+  --screen-laptop-min: $laptop-min;
+  --screen-laptop-max: $laptop-max;
+  --screen-desktop-min: $desktop-min;
+
+  --color-*: initial;
+  @theme-colors light;
+
+  --font-*: initial;
+  --font-body: "Inter", sans-serif;
+  --font-mono: "JetBrainsMono", monospace; 
+  
+  --text-*: initial;
+  --text-heading-300: 1.75rem;
+  --text-heading-300--line-height: 2.5rem;
+  --text-heading-300--font-weight: 500;
+  --text-heading-300--letter-spacing: -0.07rem;
+  --text-heading-200: 1.25rem;
+  --text-heading-200--line-height: 1.75rem;
+  --text-heading-200--font-weight: 500;
+  --text-heading-200--letter-spacing: -0.025rem;
+  --text-heading-100: 1rem;
+  --text-heading-100--line-height: 1.5rem;
+  --text-heading-100--font-weight: 500;
+  --text-heading-100--letter-spacing: -0.02rem;
+  --text-heading-50: 0.75rem;
+  --text-heading-50--line-height: 1.25rem;
+  --text-heading-50--font-weight: 500;
+  --text-heading-50--letter-spacing: -0.008rem;
+  --text-400: 1rem;
+  --text-400--line-height: 1.5rem;
+  --text-400--font-weight: 400;
+  --text-300: 0.875rem;
+  --text-300--line-height: 1.375rem;
+  --text-300--font-weight: 400;
+  --text-200: 0.75rem;
+  --text-200--line-height: 1.25rem;
+  --text-200--font-weight: 400;
+  --text-emphasis-400: 1rem;
+  --text-emphasis-400--line-height: 1.5rem;
+  --text-emphasis-400--font-weight: 500;
+  --text-emphasis-300: 0.875rem;
+  --text-emphasis-300--line-height: 1.5rem;
+  --text-emphasis-300--font-weight: 300;
+  --text-emphasis-200: 0.75rem;
+  --text-emphasis-200--line-height: 1.25rem;
+  --text-emphasis-200--font-weight: 500;
+  --text-mono-text-50: 0.75rem;
+  --text-mono-text-50--line-height: 1rem;
+  --text-mono-text-50--font-weight: 500;
+  --text-mono-text-50--letter-spacing: -0.015rem;
+
+  --shadow-*: initial;
+  --shadow-none: 0 0 #0000;
+  --shadow-50: var(--color-elevation-50);
+  --shadow-100: var(--color-elevation-100);
+  --shadow-200: var(--color-elevation-200);
+  --shadow-300: var(--color-elevation-300);
+
+  --ease-gentle: cubic-bezier(0.47, 0, 0.23, 1.38);
+
+  --animate-slide-down: slide-down .3s var(--ease-gentle);
+  --animate-slide-up: slide-up .3s var(--ease-gentle);
+
+  @keyframes shimmer {
+    100% {
+      transform: translateX(100%),
+    }
+  }
+
+  @keyframes fade-in {
+    0% {
+      opacity: 0,
+    }
+
+
+    100% {
+      opacity: 1,
+    }
+  }
+
+  @keyframes fade-out {
+    0% {
+      opacity: 1,
+    }
+
+    100% {
+      opacity: 0,
+    }
+  }
+  @keyframes slide-down {
+    100% {
+      transform: translateY(24px) scale(0.98),
+    }
+  }
+
+  @keyframes slide-up {
+    0% {
+      transform: translateY(24px) scale(0.98),
+    }
+
+    100% {
+      transform: translateY(0) scale(1),
+    }
+  }
+
+  @keyframes slide-right-nav {
+    0% {
+      transform: translateX(-240px),
+    }
+
+    100% {
+      transform: translateX(0),
+    }
+  }
+
+  @keyframes slide-left-nav {
+    100% {
+      transform: translateX(-240px),
+    }
+  }
+
+}
+
+@layer base {
+  [data-theme="dark"] {
+    @theme-colors dark;
+  }
+
+  // breaking change from tailwind 3 to 4
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}
+
+

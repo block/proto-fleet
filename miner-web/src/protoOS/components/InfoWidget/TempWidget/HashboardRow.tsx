@@ -33,7 +33,7 @@ const HashboardRow = ({
         {loading ? (
           <SkeletonBar className="w-10 mt-1" />
         ) : (
-          <>{secondaryLabel ?? <EmptyValue className="!h-2 mt-1" />}</>
+          <>{secondaryLabel ?? <EmptyValue className="h-2! mt-1" />}</>
         )}
       </div>
     </Row>

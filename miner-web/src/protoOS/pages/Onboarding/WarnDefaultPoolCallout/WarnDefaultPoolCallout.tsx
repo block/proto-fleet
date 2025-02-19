@@ -17,7 +17,7 @@ const WarnDefaultPoolCallout = ({
 }: WarnDefaultPoolCalloutProps) => {
   return (
     <DismissibleCalloutWrapper
-      className={clsx({ "!mb-10": show })}
+      className={clsx({ "mb-10!": show })}
       icon={<Info />}
       intent={intents.danger}
       onDismiss={onDismiss}

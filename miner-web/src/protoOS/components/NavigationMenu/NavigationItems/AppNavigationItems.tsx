@@ -5,11 +5,8 @@ import { navigationItems } from "../constants";
 import MorphingPlusMinus from "../MorphingPlusMinus";
 import NavigationItem from "../NavigationItem";
 import { NavigationItemValue } from "../types";
+import useCssVariable from "@/shared/hooks/useCssVariable";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
-import getTailwindConfig from "@/shared/utils/getTailwindConfig";
-
-const gentle = getTailwindConfig("theme", "transitionTimingFunction", "gentle");
-const gentleCb = cubicBezierValues(gentle);
 
 interface AppNavigationItemsProps {
   onClick: (navigationItem: NavigationItemValue) => void;
@@ -21,6 +18,11 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
     pageName.startsWith("settings")
   );
   const [showAccordionExpand, setShowAccordionExpand] = useState(false);
+
+  const easeGentle = useCssVariable({
+    variable: "--ease-gentle",
+    transform: cubicBezierValues,
+  });
 
   const handleAccordionClick = useCallback(() => {
     setShowAccordionItems((prev) => !prev);
@@ -78,12 +80,12 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
             animate={{
               opacity: 1,
               y: 0,
-              transition: { duration: 0.3, ease: gentleCb },
+              transition: { duration: 0.3, ease: easeGentle},
             }}
             exit={{
               opacity: 0,
               y: -12,
-              transition: { duration: 0.3, ease: gentleCb },
+              transition: { duration: 0.3, ease: easeGentle},
             }}
           >
             <NavigationItem

@@ -102,7 +102,7 @@ const SelectRow = ({
         </div>
         <Checkmark
           className={clsx(
-            "absolute bg-core-accent-80 rounded text-surface-base hidden cursor-pointer",
+            "absolute bg-core-accent-80 rounded-sm text-surface-base hidden cursor-pointer",
             { "peer-checked:block": isCheckbox }
           )}
         />

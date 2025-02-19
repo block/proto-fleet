@@ -8,11 +8,8 @@ import { Alert, Dismiss, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 
 import Spinner from "@/shared/components/Spinner";
+import useCssVariable from "@/shared/hooks/useCssVariable";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
-import getTailwindConfig from "@/shared/utils/getTailwindConfig";
-
-const gentle = getTailwindConfig("theme", "transitionTimingFunction", "gentle");
-const gentleCb = cubicBezierValues(gentle);
 
 // we need to add a little extra padding on the bottom of the toast
 // so that when hovered the gaps between them are still part of the
@@ -37,6 +34,8 @@ const Toast = ({
   const [onTop, setOnTop] = useState<boolean>(
     index == undefined || numToasts == undefined || index + 1 == numToasts
   );
+
+  const easeGentle = useCssVariable({variable: "--ease-gentle", transform: cubicBezierValues});
 
   useEffect(() => {
     const toID = setTimeout(onClose, ttl);
@@ -66,7 +65,7 @@ const Toast = ({
         opacity: 0,
         y: -initialTranslateY + yOffset + extraPaddingForHover,
       }}
-      transition={{ duration: 0.3, ease: gentleCb }}
+      transition={{ duration: 0.3, ease: easeGentle}}
       variants={{ hover: { scale: 1, y: hoverYOffset + extraPaddingForHover } }}
     >
       <div className="w-[400px] p-3 space-x-3 rounded-lg shadow-100 bg-surface-elevated-base">
