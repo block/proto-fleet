@@ -1,30 +1,67 @@
-import { Link } from "react-router-dom";
+import { Link, matchPath, useLocation } from "react-router-dom";
 import { clsx } from "clsx";
 
-type Props = {
-  currentPage?: boolean;
-  items: {
-    name: string;
-    route: string;
-  }[];
+import { type NavRoute } from "@/protoFleet/routes";
+import { stripLeadingSlash } from "@/shared/utils/stringUtils";
+
+const getSecondarybNavItems = (routes: NavRoute[], pathname: string) => {
+  const currentRoute = routes.find((r) => {
+    if (!r.path) return false;
+    return matchPath(r.path, pathname);
+  });
+
+  const secondaryNavItems = routes.filter((route) => (
+    currentRoute?.secondaryNavItem && 
+    route.secondaryNavItem == currentRoute.secondaryNavItem
+  ));
+
+  return secondaryNavItems;
 };
 
-const SecondaryNavigation = ({ items, currentPage = false }: Props) => {
+type SecondaryNavigationProps = {
+  routes: NavRoute[];
+};
+
+const SecondaryNavigation = ({routes}: SecondaryNavigationProps) => {
+  const { pathname } = useLocation();
+  const items = getSecondarybNavItems(routes, pathname);
+
+  const isCurrentPath = (path: string) => {
+    const _pathname = stripLeadingSlash(pathname);
+    const _path = stripLeadingSlash(path);
+    return _pathname === _path || _pathname.startsWith(`${_path}/`)
+  };
+
+  // if current route has no secondary nav items
+  // dont render anything
+  if (items.length === 0) return null;
+
   return (
-    <div className="flex flex-col gap-2 text-text-primary-70 w-[176px] border-r border-border-5 px-2 pt-4">
-      {items.map((item, idx) => (
-        <Link
-          key={idx}
-          to={item.route}
-          className={clsx(
-            currentPage ? "bg-black" : "",
-            "px-2 rounded-md hover:text-text-primary"
-          )}
-        >
-          {item.name}
-        </Link>
-      ))}
-    </div>
+    <ul
+      data-testid="secondary-nav"
+      className="flex flex-col gap-3 text-text-primary-70 w-[176px] border-r border-border-5 px-2 pt-3"
+    >
+      {items.map((item, idx) => {
+        if (!item.path) return;
+
+        return (
+          <li key={idx}>
+            <Link
+              to={item.path}
+              className={clsx(
+                "block text-emphasis-300 py-1 px-2 rounded-lg",
+                "hover:text-text-primary",
+                isCurrentPath(item.path)
+                  ? "bg-core-primary-5 text-text-primary"
+                  : "text-text-primary-70"
+              )}
+            >
+              {item.label}
+            </Link>
+          </li>
+        );
+      })}
+    </ul>
   );
 };
 

@@ -72,3 +72,7 @@ export const getDayFromEpoch = (epoch?: number) => {
   if (!epoch) return "";
   return getDateFromEpoch(epoch).getDate();
 };
+
+export const stripLeadingSlash = (str: string) => {
+  return str.startsWith("/") ? str.substring(1) : str;
+}

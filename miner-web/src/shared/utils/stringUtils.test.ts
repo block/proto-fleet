@@ -7,6 +7,7 @@ import {
   getTimeFromEpoch,
   padLeft,
   separateByCommas,
+  stripLeadingSlash
 } from "./stringUtils";
 
 describe("addCommas", () => {
@@ -170,5 +171,17 @@ describe("padLeft", () => {
     const length = 1;
     const result = padLeft(value, length);
     expect(result).toBe("5");
+  });
+});
+
+describe("stripLeadingSlash", () => {
+  test("should strip leading slash", () => {
+    const path = "/foo/bar";
+    expect(stripLeadingSlash(path)).toBe("foo/bar");
+  });
+
+  test("not alter string without leading slash", () => {
+    const path = "foo/bar";
+    expect(stripLeadingSlash(path)).toBe("foo/bar");
   });
 });

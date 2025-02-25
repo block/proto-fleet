@@ -1,14 +1,30 @@
-import { ReactNode } from "react";
+import { useMemo } from "react";
+import { Outlet, useMatches } from "react-router-dom";
+
 import AppLayout from "@/protoFleet/components/AppLayout";
+import { getRouteMetadata } from "@/protoFleet/routes";
 
-type Props = {
-  children: ReactNode;
-  title: string;
-};
+const App = () => {  
+  const matches = useMatches();
+  const currentPath = useMemo(() => {
+    return matches[matches.length - 1]?.pathname || "/";
+  }, [matches]);
 
-const App = ({ children, title }: Props) => {
-  // TODO: need to do checks here for show login modal etc similar to ProtoOS
-  return <AppLayout title={title}>{children}</AppLayout>;
+  const metadata = useMemo(() => {
+    return getRouteMetadata(currentPath);
+  }, [currentPath]);
+
+  return (
+    <>
+      { metadata.useAppLayout ? (
+        <AppLayout title={metadata?.title || ""}>
+          <Outlet /> 
+        </AppLayout>
+      ) : (
+        <Outlet /> 
+      )}   
+    </>
+  );
 };
 
 export default App;

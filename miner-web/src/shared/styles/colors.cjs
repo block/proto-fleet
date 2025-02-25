@@ -117,19 +117,19 @@ module.exports = {
   border: {
     primary: {
       light: `rgb(${black_100} / 90%)`,
-      dark: `rgb(${black_100} / 90%)`,
+      dark: `rgb(${white_100} / 90%)`,
     },
     20: {
       light: `rgb(${black_100} / 20%)`,
-      dark: `rgb(${black_100} / 20%)`,
+      dark: `rgb(${white_100} / 20%)`,
     },
     10: {
       light: `rgb(${black_100} / 10%)`,
-      dark: `rgb(${black_100} / 10%)`,
+      dark: `rgb(${white_100} / 10%)`,
     },
     5: {
       light: `rgb(${black_100} / 5%)`,
-      dark: `rgb(${black_100} / 5%)`,
+      dark: `rgb(${white_100} / 5%)`,
     },
   },
   core: {

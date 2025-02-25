@@ -27,6 +27,7 @@ import Success from "./Success";
 import ThemeDark from "./ThemeDark";
 import ThemeLight from "./ThemeLight";
 import ThemeSystem from "./ThemeSystem";
+import type { IconProps } from "./types";
 
 export {
   Alert,
@@ -41,6 +42,7 @@ export {
   Fleet,
   Graph,
   Home,
+  type IconProps,
   Info,
   InfoInverted,
   Logo,
