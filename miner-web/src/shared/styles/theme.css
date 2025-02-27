@@ -1,50 +1,34 @@
-$phone-max: 631px;
-$tablet-min: 632px;
-$tablet-max: 959px;
-$laptop-min: 960px;
-$laptop-max: 1279px;
-$desktop-min: 1280px; 
-
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
+// TODO, tw4 implements breakpoints mobile first (no min-widths)
+// these custom variants are workaround for supporting our tw3 utility. 
+// WOuld be best to switch over to mobile first stying 
 @custom-variant phone {
-  @media (max-width: $phone-max) {
+  @media (max-width: 631px) {
     @slot;
   }
 }
 
 @custom-variant tablet {
-  @media (min-width: $tablet-min) and (max-width: $tablet-max) {
+  @media (min-width: 632px) and (max-width: 959px) {
     @slot;
   }
 }
 
 @custom-variant laptop {
-  @media (min-width: $laptop-min) and (max-width: $tablet-max) {
+  @media (min-width: 960px) and (max-width: 1279px) {
     @slot;
   }
 }
 
 @custom-variant desktop {
-  @media (min-width: $desktop-min) {
+  @media (min-width: 1280px) {
     @slot;
   }
-} 
+}
 
 @theme {
-  /*
-    tw4 only implements breakpoints mobile first (no min widths)
-    because our app was build with min and max bounds, workaround
-    is to squash all default breakpoints and define custom variants 
-    for phone, tablet, laptop, and desktop. 
-  */
   --breakpoint-*: initial;
-  --screen-phone-max: $phone-max;
-  --screen-tablet-min: $tablet-min;
-  --screen-tablet-max: $tablet-max;
-  --screen-laptop-min: $laptop-min;
-  --screen-laptop-max: $laptop-max;
-  --screen-desktop-min: $desktop-min;
 
   --color-*: initial;
   @theme-colors light;
