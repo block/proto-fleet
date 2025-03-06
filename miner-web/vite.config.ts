@@ -138,7 +138,6 @@ export default defineConfig(({ mode, command }) => {
         "@": src,
         api: resolve(src, "api"),
         apiTypes: resolve(src, "api/types.ts"),
-        common: resolve(src, "common"),
         icons: resolve(src, "assets/icons"),
       },
     },

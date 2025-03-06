@@ -1,14 +1,17 @@
 import Alert from "./Alert";
 import ArrowRight from "./ArrowRight";
 import Checkmark from "./Checkmark";
+import ChevronDown from "./ChevronDown";
 import ConcentricCircles from "./ConcentricCircles";
 import Dismiss from "./Dismiss";
 import DismissCircle from "./DismissCircle";
 import DismissCircleDark from "./DismissCircleDark";
 import DismissTiny from "./DismissTiny";
+import Ellipsis from "./Ellipsis";
 import Eye from "./Eye";
 import Fleet from "./Fleet";
 import Graph from "./Graph";
+import Grip from "./Grip";
 import Home from "./Home";
 import Info from "./Info";
 import InfoInverted from "./InfoInverted";
@@ -33,14 +36,17 @@ export {
   Alert,
   ArrowRight,
   Checkmark,
+  ChevronDown,
   ConcentricCircles,
   Dismiss,
   DismissCircle,
   DismissCircleDark,
   DismissTiny,
+  Ellipsis,
   Eye,
   Fleet,
   Graph,
+  Grip,
   Home,
   type IconProps,
   Info,

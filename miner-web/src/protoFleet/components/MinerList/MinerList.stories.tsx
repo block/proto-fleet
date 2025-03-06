@@ -1,0 +1,109 @@
+import { Miner } from "./types";
+import MinerListComponent from ".";
+
+const miners: Miner[] = [
+  {
+    ip: "172.27.244.166",
+    name: "C1-M01",
+    macAddress: "0a:04:8a:54:fa:9f",
+    hashrate: [
+      { time: 1641024000000, hashrate: 189 },
+      { time: 1641110400000, hashrate: 194 },
+      { time: 1641196800000, hashrate: 190 },
+      { time: 1641283200000, hashrate: 213.2 },
+    ],
+    efficiency: 15.5,
+    powerUsage: 3.5,
+    temperature: 65.5,
+    status: {
+      hashboard: "normal",
+      asic: "normal",
+      fans: "normal",
+      cb: "normal",
+      hashing: true,
+      offline: false,
+      asleep: false,
+      broken: false,
+    },
+  },
+  {
+    ip: "172.27.244.166",
+    name: "C1-M02",
+    macAddress: "0b:04:8a:54:fa:9f",
+    hashrate: [
+      { time: 1641024000000, hashrate: 160 },
+      { time: 1641110400000, hashrate: 163 },
+      { time: 1641196800000, hashrate: 165 },
+      { time: 1641283200000, hashrate: 150.8 },
+    ],
+    efficiency: 15.5,
+    powerUsage: 3.5,
+    temperature: 65.5,
+    status: {
+      hashboard: "warning",
+      asic: "normal",
+      fans: "normal",
+      cb: "normal",
+      hashing: true,
+      offline: false,
+      asleep: true,
+      broken: false,
+    },
+  },
+  {
+    ip: "172.27.244.166",
+    name: "C1-M03",
+    macAddress: "0c:04:8a:54:fa:9f",
+    hashrate: [
+      { time: 1641024000000, hashrate: 184 },
+      { time: 1641110400000, hashrate: 196 },
+      { time: 1641196800000, hashrate: 194 },
+      { time: 1641283200000, hashrate: 187 },
+    ],
+    efficiency: 15.5,
+    powerUsage: 3.5,
+    temperature: 65.5,
+    status: {
+      hashboard: "normal",
+      asic: "normal",
+      fans: "normal",
+      cb: "normal",
+      hashing: false,
+      offline: false,
+      asleep: false,
+      broken: true,
+    },
+  },
+  {
+    ip: "172.27.244.166",
+    name: "C1-M04",
+    macAddress: "0e:04:8a:54:fa:9f",
+    hashrate: [
+      { time: 1641024000000, hashrate: 184 },
+      { time: 1641110400000, hashrate: 196 },
+      { time: 1641196800000, hashrate: 194 },
+      { time: 1641283200000, hashrate: 152.3 },
+    ],
+    efficiency: 15.5,
+    powerUsage: 3.5,
+    temperature: 65.5,
+    status: {
+      hashboard: "normal",
+      asic: "normal",
+      fans: "normal",
+      cb: "normal",
+      hashing: true,
+      offline: true,
+      asleep: false,
+      broken: false,
+    },
+  },
+];
+
+export const MinerList = () => {
+  return <MinerListComponent title="Miners" miners={miners} />;
+};
+
+export default {
+  title: "Components (ProtoFleet)/MinerList",
+};

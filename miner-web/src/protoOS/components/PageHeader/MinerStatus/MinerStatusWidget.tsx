@@ -3,7 +3,6 @@ import clsx from "clsx";
 
 import WidgetWrapper from "../WidgetWrapper";
 import { ErrorListResponse } from "@/protoOS/api/types";
-import StatusCircle from "@/protoOS/components/MinerStatusModal/StatusCircle";
 import {
   isAsicError,
   isAsicWarning,
@@ -13,6 +12,9 @@ import {
   isHashboardWarning,
 } from "@/protoOS/components/MinerStatusModal/utility";
 import Spinner from "@/shared/components/Spinner";
+import StatusCircle, {
+  type StatusCircleProps,
+} from "@/shared/components/StatusCircle/";
 
 interface MinerStatusWidgetProps {
   errors?: ErrorListResponse;
@@ -25,29 +27,35 @@ const MinerStatusWidget = ({
   loading = false,
   onClick,
 }: MinerStatusWidgetProps) => {
-  const showHashboardError = useMemo(
-    () => errors.some(isHashboardError),
-    [errors],
-  );
-  // if there are errors, we don't need to check for warnings
-  const showHashboardWarning = useMemo(
-    () => !showHashboardError && errors.some(isHashboardWarning),
-    [errors, showHashboardError],
-  );
+  const hashboardStatus = useMemo<StatusCircleProps["status"]>(() => {
+    if (errors.some(isHashboardError)) {
+      return "error";
+    } else if (errors.some(isHashboardWarning)) {
+      return "warning";
+    }
 
-  const showAsicError = useMemo(() => errors.some(isAsicError), [errors]);
-  // if there are errors, we don't need to check for warnings
-  const showAsicWarning = useMemo(
-    () => !showAsicError && errors.some(isAsicWarning),
-    [errors, showAsicError],
-  );
+    return "normal";
+  }, [errors]);
 
-  const showFanError = useMemo(() => errors.some(isFanError), [errors]);
-  // if there are errors, we don't need to check for warnings
-  const showFanWarning = useMemo(
-    () => !showFanError && errors.some(isFanWarning),
-    [errors, showFanError],
-  );
+  const asicStatus = useMemo<StatusCircleProps["status"]>(() => {
+    if (errors.some(isAsicError)) {
+      return "error";
+    } else if (errors.some(isAsicWarning)) {
+      return "warning";
+    }
+
+    return "normal";
+  }, [errors]);
+
+  const fanStatus = useMemo<StatusCircleProps["status"]>(() => {
+    if (errors.some(isFanError)) {
+      return "error";
+    } else if (errors.some(isFanWarning)) {
+      return "warning";
+    }
+
+    return "normal";
+  }, [errors]);
 
   return (
     <WidgetWrapper
@@ -68,12 +76,9 @@ const MinerStatusWidget = ({
           ))
         ) : (
           <>
-            <StatusCircle
-              isError={showHashboardError}
-              isWarning={showHashboardWarning}
-            />
-            <StatusCircle isError={showAsicError} isWarning={showAsicWarning} />
-            <StatusCircle isError={showFanError} isWarning={showFanWarning} />
+            <StatusCircle status={hashboardStatus} />
+            <StatusCircle status={asicStatus} />
+            <StatusCircle status={fanStatus} />
           </>
         )}
         Miner status
