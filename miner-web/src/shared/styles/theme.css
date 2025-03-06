@@ -1,3 +1,29 @@
+:root {
+  --base_black_100: 0 0 0; /* #000000 */
+  --base_blue_100: 0 150 209; /* #2690C7 */
+  --base_gray_90: 16 16 16; /* #101010 */
+  --base_gray_80: 32 32 32; /* #202020 */
+  --base_gray_70: 48 48 48; /* #303030 */
+  --base_gray_60: 80 80 80; /* #505050 */
+  --base_gray_20: 192 192 192; /* #C0C0C0 */
+  --base_gray_10: 224 224 224; /* #E0E0E0 */
+  --base_gray_5: 242 242 242; /* #F2F2F2 */
+  --base_green_100: 56 166 0; /* #38A600 */
+  --base_light_green_100: 157 211 26; /* #9DD31A */
+  --base_indigo_100: 120 62 237;  /* #783EED */
+  --base_orange_100: 254 124 0; /* #FE7C00 */
+  --base_red_100: 250 43 55; /* #FA2B37 */
+  --base_white_100: 255 255 255; /* #FFFFFF */
+  --base_yellow_100: 253 138 0; /* #FD8A00 */
+  --base_text_accent: 51 18 0; /* #331200 */
+  --base_text_accent_contrast: 249 115 42; /* #F9732A ** */
+  --base_text_critical: 116 20 13; /* #74140D */
+  --base_text_info: 1 83 119; /* #015377 */
+  --base_text_success: 6 63 37; /* #063F25 */
+  --base_text_warning: 135 73 0; /* #874900 */
+  --base_text_indigo: 55 28 109; /* #371C6D */
+}
+
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
 /* TODO, tw4 implements breakpoints mobile first (no min-widths)
@@ -30,9 +56,90 @@ WOuld be best to switch over to mobile first stying  */
 @theme {
   --breakpoint-*: initial;
 
+  /**
+   * Colors : light
+   *
+   * Override default tw colors and add ProtoUI colors
+   * Light variants are defined here. Dark are defined below
+   * in the [data-theme="dark"] block
+   */
   --color-*: initial;
-  @theme-colors light;
-
+  --color-text-primary: rgb(var(--base_black_100) / 90%);
+  --color-text-primary-70: rgb(var(--base_black_100) / 70%);
+  --color-text-primary-50: rgb(var(--base_black_100) / 50%);
+  --color-text-primary-30: rgb(var(--base_black_100) / 30%);
+  --color-text-contrast: rgb(var(--base_white_100));
+  --color-text-contrast-70: rgb(var(--base_white_100) / 70%);
+  --color-text-emphasis: rgb(var(--base_orange_100));
+  --color-text-accent: rgb(var(--base_orange_100) / 80%);
+  --color-text-success: rgb(var(--base_light_green_100));
+  --color-text-warning: rgb(var(--base_yellow_100));
+  --color-text-critical: rgb(var(--base_red_100));
+  --color-text-base-static: rgb(var(--base_black_100) / 90%);
+  --color-text-base-contrast-static: rgb(var(--base_white_100));
+  --color-surface-5: rgb(var(--base_gray_5));
+  --color-surface-10: rgb(var(--base_gray_10));
+  --color-surface-20: rgb(var(--base_gray_20));
+  --color-surface-default: rgb(var(--base_white_100) / 2%);
+  --color-surface-base: rgb(var(--base_white_100));
+  --color-surface-elevated-base: var(--base_white_100);
+  --color-surface-overlay: rgb(var(--base_black_100) / 5%);
+  --color-border-5: rgb(var(--base_black_100) / 5%);
+  --color-border-10: rgb(var(--base_black_100) / 10%);
+  --color-border-20: rgb(var(--base_black_100) / 20%);
+  --color-border-primary: rgb(var(--base_black_100) / 90%);
+  --color-core-primary-fill: rgb(var(--base_black_100) / 90%);
+  --color-core-primary-80: rgb(var(--base_black_100) / 80%);
+  --color-core-primary-50: rgb(var(--base_black_100) / 50%);
+  --color-core-primary-20: rgb(var(--base_black_100) / 20%);
+  --color-core-primary-10: rgb(var(--base_black_100) / 10%);
+  --color-core-primary-5: rgb(var(--base_black_100) / 5%);
+  --color-core-accent-fill: rgb(var(--base_orange_100));
+  --color-core-accent-text: rgb(var(--base_text_accent));
+  --color-core-accent-80: rgb(var(--base_orange_100) / 80%);
+  --color-core-accent-50: rgb(var(--base_orange_100) / 50%);
+  --color-core-accent-20: rgb(var(--base_orange_100) / 20%);
+  --color-core-accent-10: rgb(var(--base_orange_100) / 10%);
+  --color-core-indigo-fill: rgb(var(--base_indigo_100));
+  --color-core-indigo-text: rgb(var(--base_text_indigo));
+  --color-core-indigo-80: rgb(var(--base_indigo_100) / 80%);
+  --color-core-indigo-50: rgb(var(--base_indigo_100) / 50%);
+  --color-core-indigo-20: rgb(var(--base_indigo_100) / 20%);
+  --color-core-indigo-10: rgb(var(--base_indigo_100) / 10%);
+  --color-intent-info-fill: rgb(var(--base_blue_100));
+  --color-intent-info-text: rgb(var(--base_text_info));
+  --color-intent-info-80: rgb(var(--base_blue_100) / 80%);
+  --color-intent-info-50: rgb(var(--base_blue_100) / 50%);
+  --color-intent-info-20: rgb(var(--base_blue_100) / 20%);
+  --color-intent-info-10: rgb(var(--base_blue_100) / 10%);
+  --color-intent-success-fill: rgb(var(--base_green_100));
+  --color-intent-success-text: rgb(var(--base_text_success));
+  --color-intent-success-80: rgb(var(--base_green_100) / 80%);
+  --color-intent-success-50: rgb(var(--base_green_100) / 50%);
+  --color-intent-success-20: rgb(var(--base_green_100) / 20%);
+  --color-intent-success-10: rgb(var(--base_green_100) / 10%);
+  --color-intent-warning-fill: rgb(var(--base_yellow_100));
+  --color-intent-warning-text: rgb(var(--base_text_warning));
+  --color-intent-warning-80: rgb(var(--base_yellow_100) / 80%);
+  --color-intent-warning-50: rgb(var(--base_yellow_100) / 50%);
+  --color-intent-warning-20: rgb(var(--base_yellow_100) / 20%);
+  --color-intent-warning-10: rgb(var(--base_yellow_100) / 10%);
+  --color-intent-critical-fill: rgb(var(--base_red_100));
+  --color-intent-critical-text: rgb(var(--base_text_critical));
+  --color-intent-critical-80: rgb(var(--base_red_100) / 80%);
+  --color-intent-critical-50: rgb(var(--base_red_100) / 50%);
+  --color-intent-critical-20: rgb(var(--base_red_100) / 20%);
+  --color-intent-critical-10: rgb(var(--base_red_100) / 10%);
+  --color-grayscale-gray-50: rgb(var(--base_black_100) / 50%);
+  --color-grayscale-gray-20: rgb(var(--base_black_100) / 20%);
+  --color-grayscale-gray-10: rgb(var(--base_black_100) / 10%);
+  --color-grayscale-gray-5: rgb(var(--base_black_100) / 5%);
+  --color-elevation-50: 0px 0px 1px 0px rgba(var(--base_black_100) / 0.37);
+  --color-elevation-100: 0px 4px 24px 0px rgba(var(--base_black_100) / 0.02), 0px 4px 8px 0px rgba(var(--base_black_100) / 0.02), 0px 2px 4px 0px rgba(var(--base_black_100) / 0.02), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.20);
+  --color-elevation-200: 0px 12px 32px 0px rgba(var(--base_black_100) / 0.04), 0px 8px 16px 0px rgba(var(--base_black_100) / 0.02), 0px 2px 4px 0px rgba(var(--base_black_100) / 0.04), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.20);
+  --color-elevation-300: 0px 16px 40px 0px rgba(var(--base_black_100) / 0.04), 0px 24px 32px 0px rgba(var(--base_black_100) / 0.02), 0px 4px 8px 0px rgba(var(--base_black_100) / 0.04), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.30);
+  
+  /* Typography */
   --font-*: initial;
   --font-body: "Inter", sans-serif;
   --font-mono: "JetBrainsMono", monospace;
@@ -77,6 +184,7 @@ WOuld be best to switch over to mobile first stying  */
   --text-mono-text-50--font-weight: 500;
   --text-mono-text-50--letter-spacing: -0.015rem;
 
+  /* shadows */
   --shadow-*: initial;
   --shadow-none: 0 0 #0000;
   --shadow-50: var(--color-elevation-50);
@@ -84,6 +192,7 @@ WOuld be best to switch over to mobile first stying  */
   --shadow-200: var(--color-elevation-200);
   --shadow-300: var(--color-elevation-300);
 
+  /* Animation */
   --ease-gentle: cubic-bezier(0.47, 0, 0.23, 1.38);
 
   --animate-slide-down: slide-down 0.3s var(--ease-gentle);
@@ -148,8 +257,85 @@ WOuld be best to switch over to mobile first stying  */
 }
 
 @layer base {
+  /**
+   * Colors : dark
+   * Overrides css variables defined in @theme
+   */
   [data-theme="dark"] {
-    @theme-colors dark;
+    --color-text-primary: rgb(var(--base_white_100) / 90%);
+    --color-text-primary-70: rgb(var(--base_white_100) / 70%);
+    --color-text-primary-50: rgb(var(--base_white_100) / 50%);
+    --color-text-primary-30: rgb(var(--base_white_100) / 30%);
+    --color-text-contrast: rgb(var(--base_black_100));
+    --color-text-contrast-70: rgb(var(--base_black_100) / 80%);
+    --color-text-emphasis: rgb(var(--base_orange_100));
+    --color-text-accent: rgb(var(--base_orange_100) / 80%);
+    --color-text-success: rgb(var(--base_light_green_100));
+    --color-text-warning: rgb(var(--base_yellow_100));
+    --color-text-critical: rgb(var(--base_red_100));
+    --color-text-base-static: rgb(var(--base_black_100) / 90%);
+    --color-text-base-contrast-static: rgb(var(--base_white_100));
+    --color-surface-5: rgb(var(--base_gray_60));
+    --color-surface-10: rgb(var(--base_gray_70));
+    --color-surface-20: rgb(var(--base_gray_80));
+    --color-surface-default: rgb(var(--base_black_100) / 2%);
+    --color-surface-base: rgb(var(--base_gray_90));
+    --color-surface-elevated-base: rgb(var(--base_gray_80));
+    --color-surface-overlay: rgb(var(--base_black_100) / 5%);
+    --color-border-5: rgb(var(--base_white_100) / 5%);
+    --color-border-10: rgb(var(--base_white_100) / 10%);
+    --color-border-20: rgb(var(--base_white_100) / 20%);
+    --color-border-primary: rgb(var(--base_white_100) / 90%);
+    --color-core-primary-fill: rgb(var(--base_white_100) / 90%);
+    --color-core-primary-80: rgb(var(--base_white_100) / 80%);
+    --color-core-primary-50: rgb(var(--base_white_100) / 50%);
+    --color-core-primary-20: rgb(var(--base_white_100) / 20%);
+    --color-core-primary-10: rgb(var(--base_white_100) / 10%);
+    --color-core-primary-5: rgb(var(--base_white_100) / 5%);
+    --color-core-accent-fill: rgb(var(--base_orange_100));
+    --color-core-accent-text: rgb(--base_text_accent_contrast);
+    --color-core-accent-80: rgb(var(--base_orange_100) / 80%);
+    --color-core-accent-50: rgb(var(--base_orange_100) / 50%);
+    --color-core-accent-20: rgb(var(--base_orange_100) / 20%);
+    --color-core-accent-10: rgb(var(--base_orange_100) / 10%);
+    --color-core-indigo-fill: rgb(var(--base_indigo_100));
+    --color-core-indigo-text: rgb(var(--base_text_indigo));
+    --color-core-indigo-80: rgb(var(--base_indigo_100) / 80%);
+    --color-core-indigo-50: rgb(var(--base_indigo_100) / 50%);
+    --color-core-indigo-20: rgb(var(--base_indigo_100) / 20%);
+    --color-core-indigo-10: rgb(var(--base_indigo_100) / 10%);
+    --color-intent-info-fill: rgb(var(--base_blue_100));
+    --color-intent-info-text: rgb(var(--base_blue_100));
+    --color-intent-info-80: rgb(var(--base_blue_100) / 90%);
+    --color-intent-info-50: rgb(var(--base_blue_100) / 60%);
+    --color-intent-info-20: rgb(var(--base_blue_100) / 30%);
+    --color-intent-info-10: rgb(var(--base_blue_100) / 20%);
+    --color-intent-success-fill: rgb(var(--base_green_100));
+    --color-intent-success-text: rgb(var(--base_green_100));
+    --color-intent-success-80: rgb(var(--base_green_100) / 90%);
+    --color-intent-success-50: rgb(var(--base_green_100) / 60%);
+    --color-intent-success-20: rgb(var(--base_green_100) / 30%);
+    --color-intent-success-10: rgb(var(--base_green_100) / 20%);
+    --color-intent-warning-fill: rgb(var(--base_yellow_100));
+    --color-intent-warning-text: rgb(var(--base_yellow_100));
+    --color-intent-warning-80: rgb(var(--base_yellow_100) / 90%);
+    --color-intent-warning-50: rgb(var(--base_yellow_100) / 60%);
+    --color-intent-warning-20: rgb(var(--base_yellow_100) / 30%);
+    --color-intent-warning-10: rgb(var(--base_yellow_100) / 20%);
+    --color-intent-critical-fill: rgb(var(--base_red_100));
+    --color-intent-critical-text: rgb(var(--base_red_100));
+    --color-intent-critical-80: rgb(var(--base_red_100) / 90%);
+    --color-intent-critical-50: rgb(var(--base_red_100) / 60%);
+    --color-intent-critical-20: rgb(var(--base_red_100) / 30%);
+    --color-intent-critical-10: rgb(var(--base_red_100) / 20%);
+    --color-grayscale-gray-50: rgb(var(--base_black_100) / 50%);
+    --color-grayscale-gray-20: rgb(var(--base_black_100) / 20%);
+    --color-grayscale-gray-10: rgb(var(--base_black_100) / 10%);
+    --color-grayscale-gray-5: rgb(var(--base_black_100) / 5%);
+    --color-elevation-50: 0px 0px 1px 0px rgba(var(--base_white_100) / 0.50);
+    --color-elevation-100: 0px 4px 24px 0px rgba(var(--base_black_100) / 0.16), 0px 4px 8px 0px rgba(var(--base_black_100) / 0.16), 0px 2px 4px 0px rgba(var(--base_black_100) / 0.16), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.16);
+    --color-elevation-200: 0px 12px 32px 0px rgba(var(--base_black_100) / 0.24), 0px 8px 16px 0px rgba(var(--base_black_100) / 0.16), 0px 2px 4px 0px rgba(var(--base_black_100) / 0.08), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.24);
+    --color-elevation-300: 0px 16px 40px 0px rgba(var(--base_black_100) / 0.32), 0px 24px 32px 0px rgba(var(--base_black_100) / 0.16), 0px 4px 8px 0px rgba(var(--base_black_100) / 0.04), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.3);
   }
 
   /* breaking change from tailwind 3 to 4 */
