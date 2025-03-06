@@ -2,20 +2,20 @@ import { useMemo } from "react";
 
 /**
  * Configuration object for `useCssVariable`
- * 
+ *
  * @param variable - Css variable name
- * @param scope - Element at which the css variable value is being queried 
+ * @param scope - Element at which the css variable value is being queried
  * @param transform - Function to transform the value of the css variable
  */
 type UseCssVariableOptions = {
-  variable: string, 
-  scope?: Element,
-  transform?: (v: string) => any,
-}
+  variable: string;
+  scope?: Element;
+  transform?: (v: string) => any;
+};
 /**
- *  Custom hook to query the value of a css variable at a given element scope.  
- * 
- * @param options - Config object 
+ *  Custom hook to query the value of a css variable at a given element scope.
+ *
+ * @param options - Config object
  * @returns value of the css variable
  */
 const useCssVariable = ({

@@ -14,7 +14,7 @@ const useNavigate = () => {
     (path: string | number) => {
       reactNavigate(path as To, { state: { from: pathname } });
     },
-    [pathname, reactNavigate]
+    [pathname, reactNavigate],
   );
 
   return navigate;

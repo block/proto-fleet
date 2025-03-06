@@ -1,7 +1,6 @@
 import MinerStatusRow from "./MinerStatusRow";
 import { ErrorListResponse } from "@/protoOS/api/types";
 
-
 interface MinerStatusRowsProps {
   errors: ErrorListResponse;
 }

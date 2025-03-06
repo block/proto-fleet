@@ -5,7 +5,10 @@ export type UseMeasureRect = Pick<
   "x" | "y" | "top" | "left" | "right" | "bottom" | "height" | "width"
 >;
 export type UseMeasureRef<E extends Element = Element> = (element: E) => void;
-export type UseMeasureResult<E extends Element = Element> = [UseMeasureRef<E>, UseMeasureRect];
+export type UseMeasureResult<E extends Element = Element> = [
+  UseMeasureRef<E>,
+  UseMeasureRect,
+];
 
 const defaultState: UseMeasureRect = {
   x: 0,
@@ -26,11 +29,12 @@ function useMeasure<E extends Element = Element>(): UseMeasureResult<E> {
     () =>
       new ResizeObserver((entries) => {
         if (entries[0]) {
-          const { x, y, width, height, top, left, bottom, right } = entries[0].contentRect;
+          const { x, y, width, height, top, left, bottom, right } =
+            entries[0].contentRect;
           setRect({ x, y, width, height, top, left, bottom, right });
         }
       }),
-    []
+    [],
   );
 
   useLayoutEffect(() => {

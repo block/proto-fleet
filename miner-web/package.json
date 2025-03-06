@@ -17,7 +17,9 @@
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "test": "vitest",
-    "upload": "scp -Crp dist/* admin@$npm_config_host:/home/admin/"
+    "upload": "scp -Crp dist/* admin@$npm_config_host:/home/admin/",
+    "format": "prettier --write \"./**/*.{js,jsx,ts,tsx,css,md}\"",
+    "format:check": "prettier --check \"./**/*.{js,jsx,ts,tsx,css,md}\""
   },
   "lint-staged": {
     "src/**/*.{js,jsx,ts,tsx}": [
@@ -50,8 +52,10 @@
     "@vitejs/plugin-react": "4.3.3",
     "concurrently": "^9.1.2",
     "eslint": "9.14.0",
+    "eslint-config-prettier": "^10.0.2",
     "eslint-plugin-import": "2.31.0",
     "eslint-plugin-jsx-a11y": "6.10.2",
+    "eslint-plugin-prettier": "^5.2.3",
     "eslint-plugin-react": "7.37.2",
     "eslint-plugin-react-hooks": "5.0.0",
     "eslint-plugin-react-refresh": "0.4.14",
@@ -59,6 +63,7 @@
     "globals": "15.12.0",
     "jsdom": "25.0.1",
     "postcss": "8.4.47",
+    "prettier": "^3.5.3",
     "storybook": "8.4.2",
     "storybook-dark-mode": "4.0.2",
     "swagger-typescript-api": "13.0.22",

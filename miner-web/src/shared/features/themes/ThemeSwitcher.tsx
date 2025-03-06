@@ -18,7 +18,7 @@ const ThemeSwitcher = ({ onClickDone }: ThemeSwitcherProps) => {
   const { deviceTheme, getUserSelectedTheme, setUserSelectedTheme } =
     useThemeContext();
   const [selectedTheme, setSelectedTheme] = useState<Themes>(
-    getUserSelectedTheme()
+    getUserSelectedTheme(),
   );
 
   const handleChange = useCallback(
@@ -29,7 +29,7 @@ const ThemeSwitcher = ({ onClickDone }: ThemeSwitcherProps) => {
         setUserSelectedTheme(theme);
       }
     },
-    [setUserSelectedTheme]
+    [setUserSelectedTheme],
   );
 
   return (

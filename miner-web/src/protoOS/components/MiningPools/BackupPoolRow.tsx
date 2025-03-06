@@ -19,7 +19,7 @@ const BackupPoolRow = ({
 }: BackupPoolRowProps) => {
   const url = useMemo(
     () => pools[backupPoolIndex]?.url,
-    [pools, backupPoolIndex]
+    [pools, backupPoolIndex],
   );
 
   return (

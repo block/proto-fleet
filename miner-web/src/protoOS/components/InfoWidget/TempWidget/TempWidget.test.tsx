@@ -30,7 +30,7 @@ describe("TempWidget", () => {
         duration="12h"
         highestTemp={highestTemp}
         hashboardSerials={hashboardSerials}
-      />
+      />,
     );
     expect(getByTestId("skeleton-bar")).toBeInTheDocument();
     expect(getByTestId("bar")).toBeInTheDocument();
@@ -53,7 +53,7 @@ describe("TempWidget", () => {
         duration="12h"
         highestTemp={highestTemp}
         hashboardSerials={hashboardSerials}
-      />
+      />,
     );
     expect(queryByTestId("skeleton-bar")).not.toBeInTheDocument();
     expect(getByTestId("bar")).toBeInTheDocument();
@@ -69,7 +69,7 @@ describe("TempWidget", () => {
         duration="12h"
         highestTemp={highestTemp}
         hashboardSerials={hashboardSerials}
-      />
+      />,
     );
     fireEvent.click(getByTestId("info-widget"));
     expect(queryByTestId("modal")).not.toBeInTheDocument();
@@ -77,7 +77,7 @@ describe("TempWidget", () => {
 
   test("opens the modal if empty", () => {
     const { getByTestId } = render(
-      <TempWidget hashboardSerials={hashboardSerials} />
+      <TempWidget hashboardSerials={hashboardSerials} />,
     );
     fireEvent.click(getByTestId("info-widget"));
     const modal = getByTestId("modal");
@@ -94,7 +94,7 @@ describe("TempWidget", () => {
         duration="12h"
         highestTemp={highestTemp}
         hashboardSerials={hashboardSerials}
-      />
+      />,
     );
     fireEvent.click(getByTestId("info-widget"));
     const modal = getByTestId("modal");

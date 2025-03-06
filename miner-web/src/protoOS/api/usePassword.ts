@@ -27,7 +27,7 @@ const usePassword = () => {
           onFinally?.();
         });
     },
-    [api]
+    [api],
   );
 
   return {

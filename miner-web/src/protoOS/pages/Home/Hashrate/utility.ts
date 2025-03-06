@@ -5,7 +5,7 @@ import { Duration } from "@/shared/components/DurationSelector";
 import { convertMhSToThS } from "@/shared/utils/utility";
 
 export const convertHashrateValues = (
-  data: HashrateResponseHashratedata["data"]
+  data: HashrateResponseHashratedata["data"],
 ) => {
   return (
     data?.map((hashrate) => ({
@@ -16,7 +16,7 @@ export const convertHashrateValues = (
 };
 
 export const convertAggregateValues = (
-  aggregates: HashrateResponseHashratedata["aggregates"]
+  aggregates: HashrateResponseHashratedata["aggregates"],
 ) => {
   return Object.keys(aggregates || {}).reduce(
     (acc = {}, key: string) => {
@@ -25,13 +25,13 @@ export const convertAggregateValues = (
       if (value) acc[aggregateKey] = +value;
       return acc;
     },
-    {} as HashrateResponseHashratedata["aggregates"]
+    {} as HashrateResponseHashratedata["aggregates"],
   );
 };
 
 export const shouldAggregateHashrateValues = (
   data: HashrateResponseHashratedata["data"],
-  duration: Duration
+  duration: Duration,
 ) => {
   // we can continue without aggregation if we have less than 360 data points
   // or if the duration is 12h or 24h as it fits on the larger chart
@@ -45,7 +45,7 @@ export const shouldAggregateHashrateValues = (
 
 export const aggregateHashrateValues = (
   data: HashrateResponseHashratedata["data"],
-  duration: Duration
+  duration: Duration,
 ) => {
   if (!shouldAggregateHashrateValues(data, duration)) {
     return data;

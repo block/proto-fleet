@@ -12,7 +12,7 @@ const getValue = ({ datetime, data }: ValueProps) => {
     (d) =>
       getDayFromEpoch(d.datetime) === getDayFromEpoch(datetime) &&
       getTimeFromEpoch(d.datetime).slice(0, -3) ===
-        getTimeFromEpoch(datetime).slice(0, -3)
+        getTimeFromEpoch(datetime).slice(0, -3),
   );
   return matchedTime?.value ?? undefined;
 };

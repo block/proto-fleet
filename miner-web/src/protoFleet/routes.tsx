@@ -9,12 +9,7 @@ import Auth from "@/protoOS/pages/Auth";
 import Onboarding from "@/protoOS/pages/Onboarding";
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 
-import {
-  Fleet,
-  Home,
-  IconProps,
-  Settings,
-} from "@/shared/assets/icons";
+import { Fleet, Home, IconProps, Settings } from "@/shared/assets/icons";
 
 type Route = RouteObject & {
   label?: string;
@@ -102,16 +97,15 @@ const routes: Route[] = [
 
 /**
  * Find the route in routeConfig that matches a pathname
- * and returns metadata associated with that route.  
- * 
- * Normally our routes would have the <App /> compomnent in then where 
- * we could pass props like title, but because we use this same config 
- * to construct the NavigationMenu and SecondaryNavigation, the reference 
- * of App would cause a circular dependency. 
+ * and returns metadata associated with that route.
+ *
+ * Normally our routes would have the <App /> compomnent in then where
+ * we could pass props like title, but because we use this same config
+ * to construct the NavigationMenu and SecondaryNavigation, the reference
+ * of App would cause a circular dependency.
  */
 
 export const getRouteMetadata = (pathname: string) => {
- 
   // find the route in routeConfig that matches a pathname
   const route = routes.find((r) => {
     if (!r.path) return false;
@@ -123,7 +117,7 @@ export const getRouteMetadata = (pathname: string) => {
 
     // only use AppLayout if route is defined and not explicitly overridden.
     // route will be undefined for the nested routes singleMinerRoutes
-    useAppLayout: route && !route?.overrideLayout
+    useAppLayout: route && !route?.overrideLayout,
   };
 };
 

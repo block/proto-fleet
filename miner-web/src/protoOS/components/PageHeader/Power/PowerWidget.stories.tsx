@@ -4,7 +4,6 @@ import { action } from "@storybook/addon-actions";
 import PowerWidgetComponent from "./PowerWidget";
 import { MiningStatusMiningstatus } from "@/protoOS/api/types";
 
-
 export const PowerWidget = () => {
   const [miningStatus, setMiningStatus] = useState<MiningStatusMiningstatus>({
     status: "Mining",

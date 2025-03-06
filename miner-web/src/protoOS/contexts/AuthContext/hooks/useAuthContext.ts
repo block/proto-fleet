@@ -9,7 +9,7 @@ const useAuthContext = () => {
     showLoginModal,
     setShowLoginModal,
     dismissedLoginModal,
-    setDismissedLoginModal, 
+    setDismissedLoginModal,
   } = useContext(AuthContext);
 
   return {

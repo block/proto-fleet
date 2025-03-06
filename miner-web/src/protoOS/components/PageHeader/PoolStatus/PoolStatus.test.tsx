@@ -41,7 +41,7 @@ describe("Pool Status", () => {
 
   test("renders loading state of pool status widget", () => {
     const { getByTestId } = render(
-      <PoolStatus loading onClickViewPools={onClickViewPools} />
+      <PoolStatus loading onClickViewPools={onClickViewPools} />,
     );
 
     expect(getByTestId("mining-pool-spinner")).toBeInTheDocument();
@@ -49,7 +49,7 @@ describe("Pool Status", () => {
 
   test("does not render popover on click if pool status widget is loading", () => {
     const { getByTestId, queryByTestId } = render(
-      <PoolStatus loading onClickViewPools={onClickViewPools} />
+      <PoolStatus loading onClickViewPools={onClickViewPools} />,
     );
     const { getByText } = within(getByTestId("pool-status-widget"));
     const buttonElement = getByText(buttonLabel);
@@ -62,7 +62,7 @@ describe("Pool Status", () => {
       <PoolStatus
         onClickViewPools={onClickViewPools}
         poolsInfo={[aliveDefaultPool]}
-      />
+      />,
     );
 
     expect(getByTestId(iconTestId)).toHaveClass(successIconClass);
@@ -73,7 +73,7 @@ describe("Pool Status", () => {
       <PoolStatus
         onClickViewPools={onClickViewPools}
         poolsInfo={[aliveDefaultPool]}
-      />
+      />,
     );
     let { getByText } = within(getByTestId("pool-status-widget"));
     const buttonElement = getByText(buttonLabel);
@@ -91,7 +91,7 @@ describe("Pool Status", () => {
       <PoolStatus
         onClickViewPools={onClickViewPools}
         poolsInfo={[deadDefaultPool, aliveBackupPool]}
-      />
+      />,
     );
     let { getByText } = within(getByTestId("pool-status-widget"));
     const buttonElement = getByText(buttonLabel);
@@ -106,7 +106,7 @@ describe("Pool Status", () => {
 
   test("renders no pools configured state of pool status widget", () => {
     const { getByTestId } = render(
-      <PoolStatus onClickViewPools={onClickViewPools} />
+      <PoolStatus onClickViewPools={onClickViewPools} />,
     );
 
     expect(getByTestId(iconTestId)).toHaveClass(criticalIconClass);
@@ -114,7 +114,7 @@ describe("Pool Status", () => {
 
   test("renders no pools configured state in the popover", () => {
     const { getByTestId } = render(
-      <PoolStatus onClickViewPools={onClickViewPools} />
+      <PoolStatus onClickViewPools={onClickViewPools} />,
     );
     const { getByText } = within(getByTestId("pool-status-widget"));
     const buttonElement = getByText(buttonLabel);
@@ -127,7 +127,7 @@ describe("Pool Status", () => {
       <PoolStatus
         onClickViewPools={onClickViewPools}
         poolsInfo={[deadDefaultPool]}
-      />
+      />,
     );
 
     expect(getByTestId(iconTestId)).toHaveClass(criticalIconClass);
@@ -138,7 +138,7 @@ describe("Pool Status", () => {
       <PoolStatus
         onClickViewPools={onClickViewPools}
         poolsInfo={[deadDefaultPool, deadBackupPool]}
-      />
+      />,
     );
     const { getByText } = within(getByTestId("pool-status-widget"));
     const buttonElement = getByText(buttonLabel);
@@ -150,10 +150,7 @@ describe("Pool Status", () => {
 
   test("closes popover on click view mining pools", () => {
     const { getByTestId, queryByTestId } = render(
-      <PoolStatus
-        onClickViewPools={onClickViewPools}
-        shouldShowPopover
-      />
+      <PoolStatus onClickViewPools={onClickViewPools} shouldShowPopover />,
     );
     const { getByText } = within(getByTestId("pool-info-popover"));
     const buttonElement = getByText("Add mining pools");

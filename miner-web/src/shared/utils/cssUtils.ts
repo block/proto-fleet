@@ -11,4 +11,4 @@ export const cubicBezierValues = (string: string) => {
     .map((value) => parseFloat(value));
 
   return values.length == 4 ? values : undefined;
-}
+};

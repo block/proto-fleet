@@ -3,6 +3,6 @@ interface ResponseErrorProps {
     message: string;
   };
   status: number;
-};
+}
 
 export type ErrorProps = ResponseErrorProps | undefined;

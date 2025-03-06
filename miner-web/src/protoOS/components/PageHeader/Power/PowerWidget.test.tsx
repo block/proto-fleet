@@ -18,7 +18,7 @@ describe("Power Widget", () => {
 
   test("renders power widget popover with reboot and sleep if miner is running", () => {
     const { getByTestId, queryByTestId } = render(
-      <PowerWidget {...PowerWidgetProps} miningStatus={{ status: "Mining" }} />
+      <PowerWidget {...PowerWidgetProps} miningStatus={{ status: "Mining" }} />,
     );
     const buttonElement = getByTestId(powerButton);
     fireEvent.click(buttonElement);
@@ -31,7 +31,10 @@ describe("Power Widget", () => {
 
   test("renders power widget popover with reboot and wake up if miner is stopped", () => {
     const { getByTestId, queryByTestId } = render(
-      <PowerWidget {...PowerWidgetProps} miningStatus={{ status: "Stopped" }} />
+      <PowerWidget
+        {...PowerWidgetProps}
+        miningStatus={{ status: "Stopped" }}
+      />,
     );
     const buttonElement = getByTestId(powerButton);
     fireEvent.click(buttonElement);
@@ -44,7 +47,7 @@ describe("Power Widget", () => {
 
   test("closes popover on click of reboot", () => {
     const { getByTestId, queryByTestId } = render(
-      <PowerWidget shouldShowPopover {...PowerWidgetProps} />
+      <PowerWidget shouldShowPopover {...PowerWidgetProps} />,
     );
     const buttonElement = getByTestId(popoverRebootButton);
     fireEvent.click(buttonElement);
@@ -53,7 +56,7 @@ describe("Power Widget", () => {
 
   test("closes popover on click of sleep", () => {
     const { getByTestId, queryByTestId } = render(
-      <PowerWidget shouldShowPopover {...PowerWidgetProps} />
+      <PowerWidget shouldShowPopover {...PowerWidgetProps} />,
     );
     const buttonElement = getByTestId(popoverSleepButton);
     fireEvent.click(buttonElement);
@@ -66,7 +69,7 @@ describe("Power Widget", () => {
         shouldShowPopover
         {...PowerWidgetProps}
         miningStatus={{ status: "Stopped" }}
-      />
+      />,
     );
     const buttonElement = getByTestId(popoverWakeUpButton);
     fireEvent.click(buttonElement);

@@ -1,6 +1,5 @@
 import { action } from "@storybook/addon-actions";
 
-
 import HeaderComponent from ".";
 import { variants } from "@/shared/components/Button";
 import { ButtonProps } from "@/shared/components/ButtonGroup";

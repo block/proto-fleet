@@ -47,7 +47,7 @@ const useLogin = () => {
           onFinally?.();
         });
     },
-    [setAuthTokens, api]
+    [setAuthTokens, api],
   );
 
   return {

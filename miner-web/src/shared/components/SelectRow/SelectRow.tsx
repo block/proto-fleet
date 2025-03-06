@@ -32,7 +32,7 @@ const SelectRow = ({
     (e: ChangeEvent<HTMLInputElement>) => {
       onChange(id, e.target.checked);
     },
-    [id, onChange]
+    [id, onChange],
   );
 
   return (
@@ -41,7 +41,7 @@ const SelectRow = ({
         "rounded-xl flex items-center select-none text-left p-3",
         "transition-[background-color] ease-in-out duration-200",
         "text-text-primary bg-surface-default hover:bg-core-primary-5 cursor-pointer",
-        className
+        className,
       )}
       onClick={() => onChange(id, !isSelected)}
     >
@@ -58,7 +58,7 @@ const SelectRow = ({
             {
               "rounded-full": isRadio,
               rounded: isCheckbox,
-            }
+            },
           )}
           type={type}
           checked={isSelected}
@@ -69,7 +69,7 @@ const SelectRow = ({
             "hidden absolute rounded-full w-full h-full bg-core-accent-80 text-text-contrast",
             {
               "peer-checked:block": isRadio,
-            }
+            },
           )}
         >
           <svg
@@ -84,7 +84,7 @@ const SelectRow = ({
         <Checkmark
           className={clsx(
             "absolute bg-core-accent-80 rounded-sm text-surface-base hidden cursor-pointer",
-            { "peer-checked:block": isCheckbox }
+            { "peer-checked:block": isCheckbox },
           )}
         />
       </div>

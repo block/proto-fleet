@@ -4,9 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import PageHeaderComponent from ".";
 
 export const PageHeader = () => {
-  return (
-    <PageHeaderComponent title="Title" />
-  );
+  return <PageHeaderComponent title="Title" />;
 };
 
 export default {

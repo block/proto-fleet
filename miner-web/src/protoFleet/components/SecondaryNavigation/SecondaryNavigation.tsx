@@ -10,10 +10,11 @@ const getSecondarybNavItems = (routes: NavRoute[], pathname: string) => {
     return matchPath(r.path, pathname);
   });
 
-  const secondaryNavItems = routes.filter((route) => (
-    currentRoute?.secondaryNavItem && 
-    route.secondaryNavItem == currentRoute.secondaryNavItem
-  ));
+  const secondaryNavItems = routes.filter(
+    (route) =>
+      currentRoute?.secondaryNavItem &&
+      route.secondaryNavItem == currentRoute.secondaryNavItem,
+  );
 
   return secondaryNavItems;
 };
@@ -22,14 +23,14 @@ type SecondaryNavigationProps = {
   routes: NavRoute[];
 };
 
-const SecondaryNavigation = ({routes}: SecondaryNavigationProps) => {
+const SecondaryNavigation = ({ routes }: SecondaryNavigationProps) => {
   const { pathname } = useLocation();
   const items = getSecondarybNavItems(routes, pathname);
 
   const isCurrentPath = (path: string) => {
     const _pathname = stripLeadingSlash(pathname);
     const _path = stripLeadingSlash(path);
-    return _pathname === _path || _pathname.startsWith(`${_path}/`)
+    return _pathname === _path || _pathname.startsWith(`${_path}/`);
   };
 
   // if current route has no secondary nav items
@@ -53,7 +54,7 @@ const SecondaryNavigation = ({routes}: SecondaryNavigationProps) => {
                 "hover:text-text-primary",
                 isCurrentPath(item.path)
                   ? "bg-core-primary-5 text-text-primary"
-                  : "text-text-primary-70"
+                  : "text-text-primary-70",
               )}
             >
               {item.label}

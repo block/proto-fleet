@@ -21,7 +21,7 @@ const PoolWidget = ({
 }: PoolWidgetProps) => {
   const isDisconnected = useMemo(
     () => !isConnected && !loading,
-    [isConnected, loading]
+    [isConnected, loading],
   );
 
   return (

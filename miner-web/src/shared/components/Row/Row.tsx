@@ -43,7 +43,7 @@ const Row = ({
             { "px-3 -ml-3 rounded-lg w-[calc(100%+24px)]": onClick },
             { "hover:bg-core-primary-5": onClick && !isActive },
             { "w-full": !onClick },
-            className
+            className,
           )}
           onClick={onClick}
           data-testid={testId}

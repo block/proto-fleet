@@ -54,7 +54,7 @@ const HashrateChart = ({
   const { isDesktop, isTablet, isPhone } = useWindowDimensions();
   const chartData = useMemo(
     () => getChartData({ hashrate1, hashrate2, hashrate3, hashrates }),
-    [hashrate1, hashrate2, hashrate3, hashrates]
+    [hashrate1, hashrate2, hashrate3, hashrates],
   );
 
   const max =
@@ -74,13 +74,13 @@ const HashrateChart = ({
   const firstVerticalPoint = isDesktop ? 130 : 105;
   const verticalGap = isDesktop ? 87.5 : 55;
   const verticalPoints = [...Array(9)].map((_, i) =>
-    getPoint(i, firstVerticalPoint, verticalGap)
+    getPoint(i, firstVerticalPoint, verticalGap),
   );
 
   const firstHorizontalPoint = 24;
   const horizontalGap = 38;
   const horizontalPoints = [...Array(9)].map((_, i) =>
-    getPoint(i, firstHorizontalPoint, horizontalGap)
+    getPoint(i, firstHorizontalPoint, horizontalGap),
   );
 
   const yAxisTickCount = maxDomain / 5 + 10;

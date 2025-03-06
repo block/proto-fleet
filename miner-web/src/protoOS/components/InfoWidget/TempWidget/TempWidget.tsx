@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 
-
 import { getIntensity } from "../utility";
 import TempModal from "./TempModal";
 import { TemperatureResponseTemperaturedata } from "@/protoOS/api/types";

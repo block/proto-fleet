@@ -28,11 +28,11 @@ export const getRandomInt = (min: number, max: number) => {
 export const getRandomFloat = (
   min: number,
   max: number,
-  precision: number = 100
+  precision: number = 100,
 ) => {
   return (
     (Math.floor(
-      Math.random() * (max * precision - min * precision) + 1 * precision
+      Math.random() * (max * precision - min * precision) + 1 * precision,
     ) +
       min * precision) /
     (1 * precision)

@@ -10,5 +10,5 @@ export {
   getAuthHeader,
   useAccessToken,
   useAuthContext,
-  useAuthErrors
-}
+  useAuthErrors,
+};

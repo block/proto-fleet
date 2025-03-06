@@ -103,7 +103,7 @@ const createFleetProxies = () => {
 export default defineConfig(({ mode, command }) => {
   if (!modes[mode] && command === "build") {
     throw new Error(
-      "Build must be run with supported mode (eg. vite build --mode protoFleet)"
+      "Build must be run with supported mode (eg. vite build --mode protoFleet)",
     );
   }
 

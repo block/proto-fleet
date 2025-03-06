@@ -5,7 +5,7 @@ import {
 import { convertMhSToThS } from "@/shared/utils/utility";
 
 export const convertTemperatureValues = (
-  data: TemperatureResponseTemperaturedata["data"]
+  data: TemperatureResponseTemperaturedata["data"],
 ) => {
   return data?.map((temperature) => ({
     datetime: temperature.datetime || 0,
@@ -14,7 +14,7 @@ export const convertTemperatureValues = (
 };
 
 export const convertHashrateValues = (
-  data: HashrateResponseHashratedata["data"]
+  data: HashrateResponseHashratedata["data"],
 ) => {
   return data?.map((hashrate) => ({
     datetime: hashrate.datetime || 0,

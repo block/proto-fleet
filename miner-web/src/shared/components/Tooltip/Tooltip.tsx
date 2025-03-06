@@ -28,7 +28,7 @@ const Tooltip = ({ header, body, position }: TooltipProps) => {
           "absolute bg-surface-base text-text-primary p-4 rounded-lg w-80 shadow-200 z-10",
           yPosition,
           xPosition,
-          peerHover
+          peerHover,
         )}
       >
         <div className="text-heading-100 text-text-primary mb-1">{header}</div>

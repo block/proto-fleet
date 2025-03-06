@@ -15,7 +15,9 @@ describe("deepClone", () => {
     const clonedArr = deepClone(arr);
 
     expect(clonedArr).toEqual(arr);
-    expect(Array.isArray(clonedArr[2]) && clonedArr[2][1]).toEqual(Array.isArray(arr[2]) && arr[2][1]);
+    expect(Array.isArray(clonedArr[2]) && clonedArr[2][1]).toEqual(
+      Array.isArray(arr[2]) && arr[2][1],
+    );
   });
   test("should create a deep copy of a string", () => {
     const str = "hello";

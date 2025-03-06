@@ -47,7 +47,7 @@ const Callout = ({
         <div
           className={clsx(
             "rounded-t-xl px-4 py-1 text-text-contrast text-emphasis-300",
-            bgColor
+            bgColor,
           )}
         >
           {header}

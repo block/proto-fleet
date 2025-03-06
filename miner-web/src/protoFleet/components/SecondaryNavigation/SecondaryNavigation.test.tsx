@@ -40,7 +40,7 @@ describe("Secondary Navigation", () => {
     const { getByTestId } = render(
       <MemoryRouter initialEntries={["/bar/foo"]}>
         <SecondaryNavigation routes={routes} />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     const navMenu = getByTestId("secondary-nav");
@@ -52,12 +52,12 @@ describe("Secondary Navigation", () => {
     const { getByText } = render(
       <MemoryRouter initialEntries={["/bar/foo"]}>
         <SecondaryNavigation routes={routes} />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     const currentItem = getByText("Bar Foo");
     await waitFor(() => {
       expect(currentItem).toHaveClass("bg-core-primary-5");
-    })
+    });
   });
 });

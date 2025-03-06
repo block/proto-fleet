@@ -49,7 +49,7 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
       }, timeout);
       setIntervalId(newIntervalId);
     },
-    [fetchMiningStatus, setMiningStatus]
+    [fetchMiningStatus, setMiningStatus],
   );
 
   const reboot = () => {
@@ -73,7 +73,7 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
         "Time,Type,Message",
         ...formattedLogs.map(
           (log) =>
-            `${log.timestamp},${formatLogType(log.logType)},${log.message.replace(/,/g, " | ")}`
+            `${log.timestamp},${formatLogType(log.logType)},${log.message.replace(/,/g, " | ")}`,
         ),
       ]);
       linkRef.current?.setAttribute("href", exportLink);

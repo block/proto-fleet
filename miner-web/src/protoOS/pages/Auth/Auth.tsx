@@ -79,12 +79,12 @@ const Auth = () => {
         }, 300);
       }
     },
-    [apiError, values]
+    [apiError, values],
   );
 
   const hasErrors = useMemo(
     () => Object.values(errors).some((err) => err.length > 0),
-    [errors]
+    [errors],
   );
 
   const disableContinue = useMemo(() => {

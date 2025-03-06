@@ -1,6 +1,5 @@
 import { ReactNode, useEffect, useState } from "react";
 
-
 import SelectRowComponent, { selectTypes } from ".";
 import { SelectType } from "@/shared/components/SelectRow/types";
 import { BaseIcon } from "@/shared/stories/icons";
@@ -34,7 +33,7 @@ export const SelectRow = ({ hasPrefixIcon, type }: SelectRowProps) => {
         setSelected([...selected, index]);
       } else if (!isSelected && selected.includes(index)) {
         setSelected(
-          selected.filter((selectedIndex) => selectedIndex !== index)
+          selected.filter((selectedIndex) => selectedIndex !== index),
         );
       }
     } else {

@@ -32,10 +32,13 @@ const Toast = ({
   // If Toast is used outside of toaster and we
   // dont have index or numToast we just assume its on top
   const [onTop, setOnTop] = useState<boolean>(
-    index == undefined || numToasts == undefined || index + 1 == numToasts
+    index == undefined || numToasts == undefined || index + 1 == numToasts,
   );
 
-  const easeGentle = useCssVariable({variable: "--ease-gentle", transform: cubicBezierValues});
+  const easeGentle = useCssVariable({
+    variable: "--ease-gentle",
+    transform: cubicBezierValues,
+  });
 
   useEffect(() => {
     const toID = setTimeout(onClose, ttl);
@@ -65,14 +68,14 @@ const Toast = ({
         opacity: 0,
         y: -initialTranslateY + yOffset + extraPaddingForHover,
       }}
-      transition={{ duration: 0.3, ease: easeGentle}}
+      transition={{ duration: 0.3, ease: easeGentle }}
       variants={{ hover: { scale: 1, y: hoverYOffset + extraPaddingForHover } }}
     >
       <div className="w-[400px] p-3 space-x-3 rounded-lg shadow-100 bg-surface-elevated-base">
         <div
           className={clsx(
             "flex transition-opacity duration-200 items-center group-hover:opacity-100",
-            onTop ? "opacity-100" : "opacity-0"
+            onTop ? "opacity-100" : "opacity-0",
           )}
         >
           <div className="flex grow space-x-3 items-center transition-opacity duration-300">

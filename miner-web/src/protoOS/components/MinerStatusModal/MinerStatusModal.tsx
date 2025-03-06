@@ -33,11 +33,11 @@ const MinerStatusModal = ({
 }: MinerStatusModalProps) => {
   const hashboardErrors = useMemo(
     () => errors.filter(isHashboardError),
-    [errors]
+    [errors],
   );
   const hashboardWarnings = useMemo(
     () => errors.filter(isHashboardWarning),
-    [errors]
+    [errors],
   );
   const asicErrors = useMemo(() => errors.filter(isAsicError), [errors]);
   const asicWarnings = useMemo(() => errors.filter(isAsicWarning), [errors]);
@@ -46,12 +46,12 @@ const MinerStatusModal = ({
 
   const errorCount = useMemo(
     () => hashboardErrors.length + asicErrors.length + fanErrors.length,
-    [hashboardErrors, asicErrors, fanErrors]
+    [hashboardErrors, asicErrors, fanErrors],
   );
 
   const warningCount = useMemo(
     () => hashboardWarnings.length + asicWarnings.length + fanWarnings.length,
-    [hashboardWarnings, asicWarnings, fanWarnings]
+    [hashboardWarnings, asicWarnings, fanWarnings],
   );
 
   const hasErrors = useMemo(() => errorCount > 0, [errorCount]);

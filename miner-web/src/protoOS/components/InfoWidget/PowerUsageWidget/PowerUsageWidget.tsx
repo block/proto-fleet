@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 
-
 import { getIntensity } from "../utility";
 import PowerUsageModal from "./PowerUsageModal";
 import { Aggregates } from "@/protoOS/api/types";

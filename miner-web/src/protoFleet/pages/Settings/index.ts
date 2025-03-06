@@ -3,9 +3,4 @@ import General from "./General";
 import Hardware from "./Hardware";
 import MiningPools from "./MiningPools";
 
-export {
-  General,
-  Hardware,
-  MiningPools,
-  Cooling,
-};
+export { General, Hardware, MiningPools, Cooling };

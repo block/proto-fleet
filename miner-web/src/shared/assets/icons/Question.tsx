@@ -9,11 +9,7 @@ const Question = ({ className }: IconProps) => {
       xmlns="http://www.w3.org/2000/svg"
       className={className}
     >
-      <path
-        className="fill-surface-base"
-        fillOpacity=".01"
-        d="M0 0h16v16H0z"
-      />
+      <path className="fill-surface-base" fillOpacity=".01" d="M0 0h16v16H0z" />
       <path
         fillRule="evenodd"
         clipRule="evenodd"

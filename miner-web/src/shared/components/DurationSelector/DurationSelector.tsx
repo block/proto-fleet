@@ -18,10 +18,10 @@ const DurationSelector = ({
   onSelect,
 }: DurationSelectorProps) => {
   const [selectedDuration, setSelectedDuration] = useState<Duration>(
-    duration || durations[0]
+    duration || durations[0],
   );
   const [slidingDuration, setSlidingDuration] = useState<Duration>(
-    duration || durations[0]
+    duration || durations[0],
   );
 
   const handleSelectDuration = (duration: Duration) => {
@@ -60,15 +60,14 @@ const DurationSelector = ({
     <div
       className={clsx(
         "flex bg-core-primary-5 rounded-[10px] w-fit p-[2px] text-200 text-text-primary-30 space-x-2",
-        className
+        className,
       )}
     >
       {durations.map((duration) => (
         <button
           key={duration}
           className={clsx("rounded-lg relative", {
-            "text-text-primary text-emphasis-200":
-              duration === slidingDuration,
+            "text-text-primary text-emphasis-200": duration === slidingDuration,
           })}
           onMouseDown={() => handleSelectDuration(duration)}
           onKeyDown={(e: KeyboardEvent<HTMLButtonElement>) =>
@@ -94,9 +93,7 @@ const DurationSelector = ({
                 selectedDurationIndex > slidingDurationIndex,
             })}
           />
-          <div className="px-3 py-1 relative z-10 uppercase">
-            {duration}
-          </div>
+          <div className="px-3 py-1 relative z-10 uppercase">{duration}</div>
         </button>
       ))}
     </div>

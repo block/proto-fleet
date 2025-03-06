@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 
-
 import { WarnBackupPoolDialog } from "./WarnBackupPoolDialog";
 import { WarnDefaultPoolCallout } from "./WarnDefaultPoolCallout";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
@@ -102,7 +101,7 @@ const Onboarding = ({
       setPausedAction(true);
       checkAccess();
     },
-    [pools, checkAccess]
+    [pools, checkAccess],
   );
 
   const onContinueWithoutBackup = useCallback(() => {

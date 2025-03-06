@@ -59,7 +59,7 @@ const PowerWidget = ({
   const [isOpen, setIsOpen] = useState(shouldShowPopover);
   const [warnReboot, setWarnReboot] = useState(false);
   const [shouldReboot, setShouldReboot] = useState(
-    miningStatus.reboot_uptime_s ? isWarmingUp(miningStatus) : false
+    miningStatus.reboot_uptime_s ? isWarmingUp(miningStatus) : false,
   );
   const [shouldExportLogs, setShouldExportLogs] = useState(false);
   const [warnSleep, setWarnSleep] = useState(false);
@@ -67,11 +67,11 @@ const PowerWidget = ({
   const [warnWake, setWarnWake] = useState(false);
   const [shouldWake, setShouldWake] = useState(false);
   const [pausedAction, setPausedAction] = useState<keyof typeof actions | null>(
-    null
+    null,
   );
   const { dismissedLoginModal, setDismissedLoginModal } = useAuthContext();
   const { checkAccess, hasAccess, setHasAccess } = useAccessToken(
-    !!pausedAction && !dismissedLoginModal
+    !!pausedAction && !dismissedLoginModal,
   );
 
   const onClickOutside = useCallback(() => {

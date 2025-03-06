@@ -49,54 +49,54 @@ export const Colors = () => {
   // typography
   const textPrimaryHex = useMemo(
     () => (isDark ? "#FFFFFF" : "#000000"),
-    [isDark]
+    [isDark],
   );
   const textContrastHex = useMemo(
     () => (isDark ? "#000000" : "#FFFFFF"),
-    [isDark]
+    [isDark],
   );
 
   // surface
   const surfaceDefaultHex = useMemo(
     () => (isDark ? "#000000" : "#FFFFFF"),
-    [isDark]
+    [isDark],
   );
   const surfaceBaseHex = useMemo(
     () => (isDark ? "#000000" : "#FFFFFF"),
-    [isDark]
+    [isDark],
   );
   const surfaceElevatedBaseHex = useMemo(
     () => (isDark ? "#101010" : "#FFFFFF"),
-    [isDark]
+    [isDark],
   );
   const surface20Hex = useMemo(
     () => (isDark ? "#202020" : "#C0C0C0"),
-    [isDark]
+    [isDark],
   );
   const surface10Hex = useMemo(
     () => (isDark ? "#303030" : "#E0E0E0"),
-    [isDark]
+    [isDark],
   );
   const surface5Hex = useMemo(() => (isDark ? "#505050" : "#F2F2F2"), [isDark]);
 
   // border
   const borderPrimaryHex = useMemo(
     () => (isDark ? "#FFFFFF" : "#000000"),
-    [isDark]
+    [isDark],
   );
 
   // core
   const corePrimaryHex = useMemo(
     () => (isDark ? "#FFFFFF" : "#000000"),
-    [isDark]
+    [isDark],
   );
   const corePrimaryFillHex = useMemo(
     () => (isDark ? "#FFFFFF" : "#000000"),
-    [isDark]
+    [isDark],
   );
   const coreAccentTextHex = useMemo(
     () => (isDark ? "#F9732A" : "#331200"),
-    [isDark]
+    [isDark],
   );
 
   return (

@@ -1,5 +1,3 @@
-
-
 import PoolInfoRow from "./PoolInfoRow";
 import { PoolInfo } from "./types";
 import { getTexts } from "./utility";

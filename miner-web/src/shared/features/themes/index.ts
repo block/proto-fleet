@@ -3,9 +3,4 @@ import { useThemes } from "./hooks/useThemes";
 import { ThemeContext } from "./ThemeContext";
 import ThemeSwitcher from "./ThemeSwitcher";
 
-export {
-  ThemeContext,
-  useThemeContext,
-  ThemeSwitcher,
-  useThemes
-}
+export { ThemeContext, useThemeContext, ThemeSwitcher, useThemes };

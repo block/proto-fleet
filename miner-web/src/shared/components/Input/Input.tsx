@@ -83,14 +83,14 @@ const Input = ({
       setValue(newValue);
       onChange?.(newValue, id);
     },
-    [onChange, id]
+    [onChange, id],
   );
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
       onKeyDown?.(e.key);
     },
-    [onKeyDown]
+    [onKeyDown],
   );
 
   // when eye icon is clicked, display and hide the password
@@ -123,7 +123,7 @@ const Input = ({
           { "pr-10": !compact && tooltip && type !== "password" },
           { "pr-20": !compact && tooltip && type === "password" },
           { "h-6": compact },
-          className
+          className,
         )}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
@@ -149,7 +149,7 @@ const Input = ({
               !hideLabelOnFocus,
           },
           { "peer-focus:invisible": hideLabelOnFocus },
-          { invisible: hideLabelOnFocus && value.length }
+          { invisible: hideLabelOnFocus && value.length },
         )}
       >
         {label}
@@ -205,7 +205,7 @@ const Input = ({
           "text-intent-critical-fill text-200",
           "transition-[opacity,max-height,margin-top] ease-in-out duration-200",
           { "opacity-0 max-h-0": !error },
-          { "opacity-100 max-h-10 mt-2": error }
+          { "opacity-100 max-h-10 mt-2": error },
         )}
       >
         <div className="flex items-center space-x-1">

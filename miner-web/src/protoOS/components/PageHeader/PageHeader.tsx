@@ -1,6 +1,5 @@
 import { ReactNode } from "react";
 
-
 import MinerStatus from "./MinerStatus";
 import PoolStatus from "./PoolStatus";
 import PowerWidget from "./Power";

@@ -4,6 +4,5 @@ export default {
       themePath: "../src/shared/styles/colors.cjs",
     },
     "@tailwindcss/postcss": {},
-  }
+  },
 };
-

@@ -45,7 +45,7 @@ const Search = ({
         onChange("", id);
       }
     },
-    [onChange]
+    [onChange],
   );
 
   const handleChange = useCallback(
@@ -53,12 +53,12 @@ const Search = ({
       setValue(value);
       onChange(value, id);
     },
-    [onChange]
+    [onChange],
   );
 
   const cmdOrCtrl = useMemo(
     () => (window.navigator.platform.match(/^Mac/) ? "⌘" : "Ctrl"),
-    []
+    [],
   );
 
   useEffect(() => {

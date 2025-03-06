@@ -5,7 +5,6 @@ import { action } from "@storybook/addon-actions";
 import PoolStatusComponent from "./PoolStatus";
 import { Pool } from "@/protoOS/api/types";
 
-
 interface PoolStatusProps {
   loading: boolean;
   numberOfPools: number;

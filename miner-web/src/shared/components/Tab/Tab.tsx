@@ -7,11 +7,7 @@ interface TabProps {
 }
 
 const Tab = ({ children }: TabProps) => {
-  return (
-    <>
-      {children}
-    </>
-  );
+  return <>{children}</>;
 };
 
 export default Tab;

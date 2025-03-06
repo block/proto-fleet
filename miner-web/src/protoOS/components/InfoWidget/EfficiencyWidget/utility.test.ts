@@ -3,7 +3,6 @@ import { beforeAll, describe, expect, test } from "vitest";
 import { aggregateEfficiencyValues } from "./utility";
 import { TimeSeriesData } from "@/protoOS/api/types";
 
-
 describe("aggregateEfficiencyValues", () => {
   const data: TimeSeriesData[] = [];
 
@@ -61,7 +60,7 @@ describe("aggregateEfficiencyValues", () => {
           { datetime: 1718969840, value: 10.02 },
           // 11:42:20
           { datetime: 1718970140, value: 10.069999999999999 },
-        ])
+        ]),
       );
     });
 
@@ -74,7 +73,7 @@ describe("aggregateEfficiencyValues", () => {
           { datetime: 1718969840, value: 10.045 },
           // 11:47:20
           { datetime: 1718970440, value: 10.145 },
-        ])
+        ]),
       );
     });
 
@@ -87,7 +86,7 @@ describe("aggregateEfficiencyValues", () => {
           { datetime: 1718969840, value: 10.095 },
           // 11:57:20
           { datetime: 1718971040, value: 10.294999999999998 },
-        ])
+        ]),
       );
     });
 

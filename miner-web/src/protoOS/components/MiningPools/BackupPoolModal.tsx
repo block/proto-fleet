@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 
-
 import { emptyPoolInfo } from "./constants";
 import { WarnDeleteDialog, WarnDiscardDialog } from "./Dialogs";
 import PoolForm from "./PoolForm";
@@ -51,7 +50,7 @@ const BackupPoolModal = ({
       }
       onDismiss();
     },
-    [changed, onDismiss]
+    [changed, onDismiss],
   );
 
   const setDraftInfo = useCallback((poolsInfo: PoolInfo[]) => {

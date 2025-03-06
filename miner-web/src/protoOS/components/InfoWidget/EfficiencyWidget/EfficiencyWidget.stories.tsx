@@ -29,7 +29,7 @@ export const EfficiencyWidget = ({
         efficiencyValues={
           hasEfficiency && !loading
             ? convertEfficiencyValues(
-                aggregateEfficiencyValues(mockEfficiencyData.data, duration)
+                aggregateEfficiencyValues(mockEfficiencyData.data, duration),
               )
             : []
         }

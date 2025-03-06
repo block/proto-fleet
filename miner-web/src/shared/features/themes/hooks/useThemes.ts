@@ -13,7 +13,7 @@ const useThemes = () => {
     (darkThemeMq: MediaQueryList | MediaQueryListEvent) => {
       return darkThemeMq.matches ? themes.dark : themes.light;
     },
-    []
+    [],
   );
 
   const getUserSelectedTheme = useCallback(() => {
@@ -33,7 +33,7 @@ const useThemes = () => {
         setAppTheme(deviceTheme);
       }
     },
-    [deviceTheme, setItem, setAppTheme]
+    [deviceTheme, setItem, setAppTheme],
   );
 
   const handleChangeDeviceTheme = useCallback(
@@ -41,10 +41,10 @@ const useThemes = () => {
       setDeviceTheme(theme);
       const userSelectedTheme = getUserSelectedTheme();
       setAppTheme(
-        userSelectedTheme === themes.system ? theme : userSelectedTheme
+        userSelectedTheme === themes.system ? theme : userSelectedTheme,
       );
     },
-    [getUserSelectedTheme, setAppTheme]
+    [getUserSelectedTheme, setAppTheme],
   );
 
   useEffect(() => {

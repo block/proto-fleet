@@ -35,7 +35,7 @@ const useAuthErrors = () => {
         onError?.(error);
       }
     },
-    [authTokens.refreshToken.value, refresh, setAuthTokens, setShowLoginModal]
+    [authTokens.refreshToken.value, refresh, setAuthTokens, setShowLoginModal],
   );
 
   return {

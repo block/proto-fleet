@@ -4,7 +4,6 @@ import { action } from "@storybook/addon-actions";
 import CalloutComponent, { intents } from ".";
 import { BaseIcon } from "@/shared/stories/icons";
 
-
 const CalloutSingleSubtitle = ({
   intent,
   hasButton,

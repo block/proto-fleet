@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 
-
 import Hashrate from "./Hashrate";
 import { Hashrates } from "./types";
 import {
@@ -41,7 +40,7 @@ const HashrateWrapper = ({ duration, hashboardSerials }: HashrateProps) => {
     ) {
       const aggregatedHashrateValues = aggregateHashrateValues(
         hashrateData.data,
-        duration
+        duration,
       );
       setHashrates(convertHashrateValues(aggregatedHashrateValues));
       setAggregates(convertAggregateValues(hashrateData.aggregates));

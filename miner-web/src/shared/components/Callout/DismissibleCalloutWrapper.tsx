@@ -33,7 +33,7 @@ const DismissibleCalloutWrapper = ({
           "mb-4": show,
           "max-h-96": show,
         },
-        className
+        className,
       )}
       data-testid={testId}
     >

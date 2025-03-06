@@ -13,7 +13,7 @@ const SkeletonBar = ({ className }: SkeletonBarProps) => {
           "before:absolute before:inset-0 before:-translate-x-full",
           "before:animate-[shimmer_2s_infinite]",
           "before:bg-linear-to-r before:from-transparent before:to-transparent",
-          "before:via-core-primary-5"
+          "before:via-core-primary-5",
         )}
       >
         <div className="h-full rounded-sm bg-core-primary-10" />

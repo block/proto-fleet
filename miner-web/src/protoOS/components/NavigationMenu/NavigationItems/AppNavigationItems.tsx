@@ -15,7 +15,7 @@ interface AppNavigationItemsProps {
 
 const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
   const [showAccordionItems, setShowAccordionItems] = useState(
-    pageName.startsWith("settings")
+    pageName.startsWith("settings"),
   );
   const [showAccordionExpand, setShowAccordionExpand] = useState(false);
 
@@ -37,7 +37,7 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
       onClick(navigationItem);
       setShowAccordionItems(navigationItem.startsWith("settings"));
     },
-    [onClick]
+    [onClick],
   );
 
   return (
@@ -80,12 +80,12 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
             animate={{
               opacity: 1,
               y: 0,
-              transition: { duration: 0.3, ease: easeGentle},
+              transition: { duration: 0.3, ease: easeGentle },
             }}
             exit={{
               opacity: 0,
               y: -12,
-              transition: { duration: 0.3, ease: easeGentle},
+              transition: { duration: 0.3, ease: easeGentle },
             }}
           >
             <NavigationItem

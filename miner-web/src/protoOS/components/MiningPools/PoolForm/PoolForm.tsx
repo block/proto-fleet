@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-
 import { PoolConnectedCallout, PoolNotConnectedCallout } from "../Callouts";
 import { info } from "../constants";
 import { PoolIndex, PoolInfo } from "../types";
@@ -36,12 +35,12 @@ const PoolForm = ({
 
   const showConnectedCallout = useMemo(
     () => showCallout && !isTestingConnection && !error,
-    [showCallout, error, isTestingConnection]
+    [showCallout, error, isTestingConnection],
   );
 
   const showNotConnectedCallout = useMemo(
     () => showCallout && !isTestingConnection && error,
-    [showCallout, error, isTestingConnection]
+    [showCallout, error, isTestingConnection],
   );
 
   useEffect(() => {
@@ -88,7 +87,7 @@ const PoolForm = ({
       poolsInfo[poolIndex][infoKey] = value;
       onChangePools(poolsInfo);
     },
-    [pools, poolIndex, onChangePools, validationErrors]
+    [pools, poolIndex, onChangePools, validationErrors],
   );
 
   const onKeyDown = useCallback(
@@ -97,7 +96,7 @@ const PoolForm = ({
         setShouldTestConnection(true);
       }
     },
-    [setShouldTestConnection]
+    [setShouldTestConnection],
   );
 
   return (

@@ -75,4 +75,4 @@ export const getDayFromEpoch = (epoch?: number) => {
 
 export const stripLeadingSlash = (str: string) => {
   return str.startsWith("/") ? str.substring(1) : str;
-}
+};

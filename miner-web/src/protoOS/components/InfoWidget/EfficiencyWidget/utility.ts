@@ -5,7 +5,7 @@ import { aggregateValues } from "@/shared/components/Chart/utility";
 import { Duration } from "@/shared/components/DurationSelector";
 
 export const convertEfficiencyValues = (
-  data: EfficiencyResponseEfficiencydata["data"]
+  data: EfficiencyResponseEfficiencydata["data"],
 ) => {
   return data?.map((data) => ({
     datetime: data.datetime || 0,
@@ -15,7 +15,7 @@ export const convertEfficiencyValues = (
 
 export const aggregateEfficiencyValues = (
   data: EfficiencyResponseEfficiencydata["data"],
-  duration: Duration
+  duration: Duration,
 ) => {
   // we can continue without aggregation if we have less than 360 data points
   if (!data?.length || data.length < 360) {

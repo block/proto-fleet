@@ -8,5 +8,5 @@ export const ACTIONS = {
   push: "push",
   update: "update",
   remove: "remove",
-  clear: "clear"
+  clear: "clear",
 } as const;

@@ -4,7 +4,7 @@ import { Outlet, useMatches } from "react-router-dom";
 import AppLayout from "@/protoFleet/components/AppLayout";
 import { getRouteMetadata } from "@/protoFleet/routes";
 
-const App = () => {  
+const App = () => {
   const matches = useMatches();
   const currentPath = useMemo(() => {
     return matches[matches.length - 1]?.pathname || "/";
@@ -16,13 +16,13 @@ const App = () => {
 
   return (
     <>
-      { metadata.useAppLayout ? (
+      {metadata.useAppLayout ? (
         <AppLayout title={metadata?.title || ""}>
-          <Outlet /> 
+          <Outlet />
         </AppLayout>
       ) : (
-        <Outlet /> 
-      )}   
+        <Outlet />
+      )}
     </>
   );
 };

@@ -1,6 +1,5 @@
 import { Dispatch, SetStateAction } from "react";
 
-
 import { getAsicsRows } from "../utility";
 import AsicButton from "./AsicButton";
 import { AsicStats, GetAsicHashrateParams } from "@/protoOS/api/types";

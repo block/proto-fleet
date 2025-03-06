@@ -50,7 +50,7 @@ const Popover = ({
           "w-72": size === popoverSizes.medium,
           "w-80": size === popoverSizes.normal,
         },
-        className
+        className,
       )}
       data-testid={testId}
     >

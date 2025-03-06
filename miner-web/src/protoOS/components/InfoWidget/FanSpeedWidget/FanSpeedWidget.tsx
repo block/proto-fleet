@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 
-
 import FanSpeedModal from "./FanSpeedModal";
 import FanSpeedPieChart from "./FanSpeedPieChart";
 import { FanInfo } from "@/protoOS/api/types";
@@ -30,7 +29,7 @@ const FanSpeedWidget = ({ fanSpeeds, loading }: FanSpeedWidgetProps) => {
 
   const displayFanSpeed = useMemo(
     () => avgFanSpeed && `${getDisplayValue(avgFanSpeed)} RPM`,
-    [avgFanSpeed]
+    [avgFanSpeed],
   );
 
   return (
@@ -62,7 +61,7 @@ const FanSpeedWidget = ({ fanSpeeds, loading }: FanSpeedWidgetProps) => {
                         maxSpeed={maxSpeed}
                       />
                     </div>
-                  )
+                  ),
               )}
             </div>
           )

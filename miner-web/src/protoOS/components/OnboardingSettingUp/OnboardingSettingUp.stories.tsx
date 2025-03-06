@@ -11,12 +11,12 @@ interface OnboardingSettingUpProps {
 export const SettingUp = ({ poolStatus }: OnboardingSettingUpProps) => {
   const isConfigured = useCallback(
     (status: keyof typeof statuses) => status === statuses.success,
-    []
+    [],
   );
 
   const isSetupDone = useMemo(
     () => isConfigured(poolStatus),
-    [isConfigured, poolStatus]
+    [isConfigured, poolStatus],
   );
 
   return (

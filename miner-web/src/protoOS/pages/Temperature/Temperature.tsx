@@ -21,7 +21,6 @@ import Spinner from "@/shared/components/Spinner";
 import Tabs from "@/shared/components/Tab";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 
-
 interface TemperatureProps {
   coolingStatus?: CoolingStatusCoolingstatus;
   duration: Duration;
@@ -64,7 +63,7 @@ const Temperature = ({
       setHashboardSerials(
         hashboardsInfo
           ?.map((hashboardInfo) => hashboardInfo.hb_sn)
-          .filter(Boolean) as string[]
+          .filter(Boolean) as string[],
       );
     }
   }, [hashboardsInfo]);

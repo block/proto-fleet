@@ -1,4 +1,3 @@
-
 import { PoolIndex } from "../types";
 import { getPoolType } from "../utility";
 import { Info } from "@/shared/assets/icons";

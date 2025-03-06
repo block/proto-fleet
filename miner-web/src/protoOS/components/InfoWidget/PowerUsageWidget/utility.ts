@@ -12,7 +12,7 @@ export const convertPowerValues = (data: PowerResponsePowerdata["data"]) => {
 };
 
 export const convertAggregatePowerValues = (
-  aggregates: PowerResponsePowerdata["aggregates"]
+  aggregates: PowerResponsePowerdata["aggregates"],
 ) => {
   return Object.keys(aggregates || {}).reduce(
     (acc = {}, key: string) => {
@@ -21,13 +21,13 @@ export const convertAggregatePowerValues = (
       if (value) acc[aggregateKey] = +value;
       return acc;
     },
-    {} as PowerResponsePowerdata["aggregates"]
+    {} as PowerResponsePowerdata["aggregates"],
   );
 };
 
 export const aggregatePowerValues = (
   data: PowerResponsePowerdata["data"],
-  duration: Duration
+  duration: Duration,
 ) => {
   // we can continue without aggregation if we have less than 100 data points
   if (!data?.length || data.length < 100) {

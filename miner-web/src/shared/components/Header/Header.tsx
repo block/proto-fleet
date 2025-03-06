@@ -47,7 +47,7 @@ const Header = ({
       className={clsx(
         "flex justify-between w-full",
         { "items-center": centerButton },
-        className
+        className,
       )}
     >
       <div className={clsx("w-full", { "flex items-center": inline })}>
@@ -79,7 +79,7 @@ const Header = ({
               "text-text-primary-70",
               { "cursor-help": showSubtitleTooltip },
               subtitleClassName,
-              subtitleSize
+              subtitleSize,
             )}
             title={showSubtitleTooltip ? subtitle : undefined}
           >

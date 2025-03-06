@@ -32,7 +32,7 @@
   animation: tabSlideRight1 0.15s forwards;
 }
 .animate-tab-slide-right2 {
-  animation: tabSlideRight2 0.20s forwards;
+  animation: tabSlideRight2 0.2s forwards;
 }
 .animate-tab-slide-right3 {
   animation: tabSlideRight3 0.25s forwards;
@@ -41,7 +41,7 @@
   animation: tabSlideLeft1 0.15s forwards;
 }
 .animate-tab-slide-left2 {
-  animation: tabSlideLeft2 0.20s forwards;
+  animation: tabSlideLeft2 0.2s forwards;
 }
 .animate-tab-slide-left3 {
   animation: tabSlideLeft3 0.25s forwards;

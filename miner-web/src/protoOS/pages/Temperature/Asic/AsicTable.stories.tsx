@@ -1,7 +1,6 @@
 import { ElementType, useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 
-
 import AsicTableComponent from "./AsicTable";
 import { mockHashboardStats } from "./constants";
 import { HashrateResponseHashratedata } from "@/protoOS/api/types";

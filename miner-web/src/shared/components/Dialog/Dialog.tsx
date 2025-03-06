@@ -73,7 +73,7 @@ const Dialog = ({
               {
                 "animate-sliding-up": show,
                 "animate-sliding-down": !show,
-              }
+              },
             )}
             data-testid={testId}
           >

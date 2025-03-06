@@ -5,7 +5,6 @@ import Onboarding from "./Onboarding";
 import { urlValidationErrors } from "@/protoOS/components/MiningPools/PoolForm/constants";
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
 
-
 vi.mock("react-router-dom", () => ({
   ...vi.importActual("react-router-dom"),
   useNavigate: () => ({
@@ -57,7 +56,7 @@ describe("Onboarding", () => {
           settingUpMiner={false}
           onChangeSettingUpMiner={() => vi.fn()}
         />
-      </MinerHostingProvider>
+      </MinerHostingProvider>,
     );
     getByTestId = component.getByTestId;
     queryByTestId = component.queryByTestId;

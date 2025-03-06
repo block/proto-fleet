@@ -7,7 +7,7 @@ import {
   getTimeFromEpoch,
   padLeft,
   separateByCommas,
-  stripLeadingSlash
+  stripLeadingSlash,
 } from "./stringUtils";
 
 describe("addCommas", () => {

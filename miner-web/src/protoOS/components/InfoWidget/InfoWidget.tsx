@@ -34,7 +34,7 @@ const InfoWidget = ({
           "p-4 border border-border-5 rounded-xl": hasBorder,
           "hover:bg-core-primary-5": onClick,
         },
-        wrapperClassName
+        wrapperClassName,
       )}
       onClick={onClick}
       data-testid="info-widget"

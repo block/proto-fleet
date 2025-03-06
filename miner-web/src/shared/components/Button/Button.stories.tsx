@@ -3,7 +3,6 @@ import { action } from "@storybook/addon-actions";
 import Button, { sizes, variants } from ".";
 import { BaseIcon, CompactIcon } from "@/shared/stories/icons";
 
-
 const onClick = action("Button clicked");
 
 interface ButtonProps {

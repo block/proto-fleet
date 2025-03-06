@@ -1,8 +1,8 @@
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
-// TODO, tw4 implements breakpoints mobile first (no min-widths)
-// these custom variants are workaround for supporting our tw3 utility. 
-// WOuld be best to switch over to mobile first stying 
+/* TODO, tw4 implements breakpoints mobile first (no min-widths)
+these custom variants are workaround for supporting our tw3 utility. 
+WOuld be best to switch over to mobile first stying  */
 @custom-variant phone {
   @media (max-width: 631px) {
     @slot;
@@ -35,8 +35,8 @@
 
   --font-*: initial;
   --font-body: "Inter", sans-serif;
-  --font-mono: "JetBrainsMono", monospace; 
-  
+  --font-mono: "JetBrainsMono", monospace;
+
   --text-*: initial;
   --text-heading-300: 1.75rem;
   --text-heading-300--line-height: 2.5rem;
@@ -86,67 +86,65 @@
 
   --ease-gentle: cubic-bezier(0.47, 0, 0.23, 1.38);
 
-  --animate-slide-down: slide-down .3s var(--ease-gentle);
-  --animate-slide-up: slide-up .3s var(--ease-gentle);
+  --animate-slide-down: slide-down 0.3s var(--ease-gentle);
+  --animate-slide-up: slide-up 0.3s var(--ease-gentle);
 
   @keyframes shimmer {
     100% {
-      transform: translateX(100%),
+      transform: translateX(100%);
     }
   }
 
   @keyframes fade-in {
     0% {
-      opacity: 0,
+      opacity: 0;
     }
 
-
     100% {
-      opacity: 1,
+      opacity: 1;
     }
   }
 
   @keyframes fade-out {
     0% {
-      opacity: 1,
+      opacity: 1;
     }
 
     100% {
-      opacity: 0,
+      opacity: 0;
     }
   }
   @keyframes slide-down {
     100% {
-      transform: translateY(24px) scale(0.98),
+      transform: translateY(24px) scale(0.98);
     }
   }
 
   @keyframes slide-up {
     0% {
-      transform: translateY(24px) scale(0.98),
+      transform: translateY(24px) scale(0.98);
     }
 
     100% {
-      transform: translateY(0) scale(1),
+      transform: translateY(0) scale(1);
     }
   }
 
   @keyframes slide-right-nav {
     0% {
-      transform: translateX(-240px),
+      transform: translateX(-240px);
     }
 
     100% {
-      transform: translateX(0),
+      transform: translateX(0);
     }
   }
 
   @keyframes slide-left-nav {
     100% {
-      transform: translateX(-240px),
+      transform: translateX(-240px);
     }
   }
-
 }
 
 @layer base {
@@ -154,7 +152,7 @@
     @theme-colors dark;
   }
 
-  // breaking change from tailwind 3 to 4
+  /* breaking change from tailwind 3 to 4 */
   *,
   ::after,
   ::before,
@@ -163,5 +161,3 @@
     border-color: var(--color-gray-200, currentColor);
   }
 }
-
-

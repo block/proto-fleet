@@ -11,7 +11,7 @@ describe("PowerUsageWidget", () => {
   const powerAggregates = convertAggregatePowerValues(mockPowerData.aggregates);
   const avgPower = getDisplayValue(powerAggregates?.avg);
   const power = getDisplayValue(
-    convertWtoKW(mockPowerData.data[mockPowerData.data.length - 1].value)
+    convertWtoKW(mockPowerData.data[mockPowerData.data.length - 1].value),
   );
   const duration = "12h";
   const avgPowerLabel = `${duration.toUpperCase()} avg. power usage`;
@@ -26,7 +26,7 @@ describe("PowerUsageWidget", () => {
         powerAggregates={powerAggregates}
         powerValues={powerValues}
         duration={duration}
-      />
+      />,
     );
     expect(getByTestId("skeleton-bar")).toBeInTheDocument();
     expect(getByTestId("bar")).toBeInTheDocument();
@@ -36,7 +36,7 @@ describe("PowerUsageWidget", () => {
 
   test("renders the widget in empty state", () => {
     const { getByTestId, queryByTestId, queryByText } = render(
-      <PowerUsageWidget duration={duration} />
+      <PowerUsageWidget duration={duration} />,
     );
     expect(queryByTestId("skeleton-bar")).not.toBeInTheDocument();
     expect(getByTestId("bar")).toBeInTheDocument();
@@ -50,7 +50,7 @@ describe("PowerUsageWidget", () => {
         powerAggregates={powerAggregates}
         powerValues={powerValues}
         duration={duration}
-      />
+      />,
     );
     expect(queryByTestId("skeleton-bar")).not.toBeInTheDocument();
     expect(getByTestId("bar")).toBeInTheDocument();
@@ -65,7 +65,7 @@ describe("PowerUsageWidget", () => {
         powerAggregates={powerAggregates}
         powerValues={powerValues}
         duration={duration}
-      />
+      />,
     );
     fireEvent.click(getByTestId("info-widget"));
     expect(queryByTestId("modal")).not.toBeInTheDocument();
@@ -88,7 +88,7 @@ describe("PowerUsageWidget", () => {
         powerAggregates={powerAggregates}
         powerValues={powerValues}
         duration={duration}
-      />
+      />,
     );
     fireEvent.click(getByTestId("info-widget"));
     const modal = getByTestId("modal");

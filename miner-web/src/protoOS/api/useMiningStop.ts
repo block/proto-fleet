@@ -28,7 +28,7 @@ const useMiningStop = () => {
       setPending(true);
       api
         .stopMining(
-          getAuthHeader(accessTokenValue || authTokens.accessToken.value)
+          getAuthHeader(accessTokenValue || authTokens.accessToken.value),
         )
         .then(() => {
           onSuccess?.();
@@ -46,7 +46,7 @@ const useMiningStop = () => {
           setPending(false);
         });
     },
-    [authTokens.accessToken.value, handleAuthErrors, api]
+    [authTokens.accessToken.value, handleAuthErrors, api],
   );
 
   return {

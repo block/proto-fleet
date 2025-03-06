@@ -23,7 +23,7 @@ const WidgetWrapper = ({
         "hover:bg-core-primary-5 transition-[background-color] ease-in-out duration-200",
         { "shadow-50 bg-surface-base": !isOpen },
         { "shadow-200 bg-core-primary-5": isOpen },
-        className
+        className,
       )}
       onClick={onClick}
       data-testid={testId}

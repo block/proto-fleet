@@ -3,7 +3,6 @@ import { beforeAll, describe, expect, test } from "vitest";
 import { aggregatePowerValues } from "./utility";
 import { TimeSeriesData } from "@/protoOS/api/types";
 
-
 describe("aggregatePowerValues", () => {
   const data: TimeSeriesData[] = [];
 
@@ -70,7 +69,7 @@ describe("aggregatePowerValues", () => {
           { datetime: 1718976500, value: 11.155 },
           // 1:38:20
           { datetime: 1718977100, value: 11.254999999999999 },
-        ])
+        ]),
       );
       expect(result24h).toEqual(result12h);
       expect(result48h).toEqual(result12h);
@@ -97,7 +96,7 @@ describe("aggregatePowerValues", () => {
           { datetime: 1718969900, value: 10.105 },
           // 1:38:20
           { datetime: 1718971100, value: 10.305 },
-        ])
+        ]),
       );
       expect(result24h).toEqual(result12h);
       expect(result48h).toEqual(result12h);
@@ -115,7 +114,7 @@ describe("aggregatePowerValues", () => {
           { datetime: 1718969840, value: 10.145 },
           // 12:07:20
           { datetime: 1718971640, value: 10.444999999999999 },
-        ])
+        ]),
       );
     });
 
@@ -128,7 +127,7 @@ describe("aggregatePowerValues", () => {
           { datetime: 1718969840, value: 10.294999999999998 },
           // 12:37:20
           { datetime: 1718973440, value: 10.895000000000001 },
-        ])
+        ]),
       );
     });
 
@@ -141,7 +140,7 @@ describe("aggregatePowerValues", () => {
           { datetime: 1718969840, value: 10.594999999999999 },
           // 13:37:20
           { datetime: 1718977040, value: 11.794999999999996 },
-        ])
+        ]),
       );
     });
 

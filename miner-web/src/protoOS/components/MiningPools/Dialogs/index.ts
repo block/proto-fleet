@@ -1,7 +1,4 @@
 import WarnDeleteDialog from "./WarnDeleteDialog";
 import WarnDiscardDialog from "./WarnDiscardDialog";
 
-export {
-  WarnDeleteDialog,
-  WarnDiscardDialog,
-};
+export { WarnDeleteDialog, WarnDiscardDialog };

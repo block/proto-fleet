@@ -39,7 +39,7 @@ const useCreatePools = () => {
       await api
         .createPools(
           poolInfo,
-          getAuthHeader(accessTokenValue || authTokens.accessToken.value)
+          getAuthHeader(accessTokenValue || authTokens.accessToken.value),
         )
         .then(() => {
           onSuccess?.();
@@ -63,7 +63,7 @@ const useCreatePools = () => {
           fetchPoolsInfo({ retryOnMinerDown });
         });
     },
-    [authTokens.accessToken.value, handleAuthErrors, fetchPoolsInfo, api]
+    [authTokens.accessToken.value, handleAuthErrors, fetchPoolsInfo, api],
   );
 
   return {

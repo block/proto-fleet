@@ -22,7 +22,7 @@ const LogBadges = ({
     <div
       className={clsx(
         "rounded-lg text-emphasis-300 border cursor-pointer whitespace-nowrap",
-        className
+        className,
       )}
       onClick={onClick}
     >

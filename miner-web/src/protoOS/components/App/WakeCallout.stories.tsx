@@ -4,7 +4,6 @@ import { MemoryRouter } from "react-router-dom";
 import App from "./App";
 import { MiningStatusMiningstatus } from "@/protoOS/api/types";
 
-
 export const WakeUpMiner = () => {
   const [miningStatus, setMiningStatus] = useState<MiningStatusMiningstatus>({
     status: "Stopped",

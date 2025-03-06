@@ -28,7 +28,7 @@ const useSystemReboot = () => {
       setPending(true);
       api
         .rebootSystem(
-          getAuthHeader(accessTokenValue || authTokens.accessToken.value)
+          getAuthHeader(accessTokenValue || authTokens.accessToken.value),
         )
         .then(() => {
           onSuccess?.();
@@ -46,7 +46,7 @@ const useSystemReboot = () => {
           setPending(false);
         });
     },
-    [authTokens.accessToken.value, handleAuthErrors, api]
+    [authTokens.accessToken.value, handleAuthErrors, api],
   );
 
   return {

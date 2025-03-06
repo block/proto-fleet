@@ -19,7 +19,7 @@ describe("FanSpeedWidget", () => {
 
   test("renders the widget in loading state", () => {
     const { getByTestId, queryByTestId, queryByText } = render(
-      <FanSpeedWidget loading fanSpeeds={fanSpeeds} />
+      <FanSpeedWidget loading fanSpeeds={fanSpeeds} />,
     );
     expect(getByTestId("skeleton-bar")).toBeInTheDocument();
     expect(queryByTestId("fan-speed-pie-chart")).not.toBeInTheDocument();
@@ -29,7 +29,7 @@ describe("FanSpeedWidget", () => {
 
   test("renders the widget in empty state", () => {
     const { getByTestId, queryByTestId, queryByText } = render(
-      <FanSpeedWidget />
+      <FanSpeedWidget />,
     );
     expect(queryByTestId("skeleton-bar")).not.toBeInTheDocument();
     expect(queryByTestId("fan-speed-pie-chart")).not.toBeInTheDocument();
@@ -39,7 +39,7 @@ describe("FanSpeedWidget", () => {
 
   test("renders the widget with value", () => {
     const { getByTestId, getByText, queryByTestId } = render(
-      <FanSpeedWidget fanSpeeds={fanSpeeds} />
+      <FanSpeedWidget fanSpeeds={fanSpeeds} />,
     );
     expect(queryByTestId("skeleton-bar")).not.toBeInTheDocument();
     expect(getByTestId("fan-speed-pie-chart")).toBeInTheDocument();
@@ -49,7 +49,7 @@ describe("FanSpeedWidget", () => {
 
   test("does not open the modal if loading", () => {
     const { getByTestId, queryByTestId } = render(
-      <FanSpeedWidget loading fanSpeeds={fanSpeeds} />
+      <FanSpeedWidget loading fanSpeeds={fanSpeeds} />,
     );
     fireEvent.click(getByTestId("info-widget"));
     expect(queryByTestId("modal")).not.toBeInTheDocument();
@@ -68,7 +68,7 @@ describe("FanSpeedWidget", () => {
 
   test("opens the modal with value", () => {
     const { getByTestId, queryAllByTestId } = render(
-      <FanSpeedWidget fanSpeeds={fanSpeeds} />
+      <FanSpeedWidget fanSpeeds={fanSpeeds} />,
     );
     fireEvent.click(getByTestId("info-widget"));
     const modal = getByTestId("modal");

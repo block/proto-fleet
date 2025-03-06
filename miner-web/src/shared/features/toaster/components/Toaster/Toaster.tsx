@@ -13,10 +13,8 @@ const Toaster = () => {
     ToastsObserver.subscribe((data) => {
       if (data.action == ACTIONS.push) {
         setToasts((prev) => [...prev, data.toast]);
-
       } else if (data.action == ACTIONS.remove) {
         setToasts((prev) => prev.filter((t) => t.id !== data.id));
-
       } else if (data.action == ACTIONS.update) {
         setToasts((prev) => {
           const index = prev.findIndex((t) => t.id == data.toast.id);
@@ -28,7 +26,6 @@ const Toaster = () => {
           clone.splice(index, 1, data.toast);
           return clone;
         });
-        
       } else if (data.action == ACTIONS.clear) {
         setToasts([]);
       }
@@ -39,7 +36,7 @@ const Toaster = () => {
     <motion.div whileHover="hover" className="group">
       <AnimatePresence>
         {toasts.map(({ message, status, id }: ToastType, idx) => (
-          <Toast 
+          <Toast
             key={id}
             message={message}
             onClose={() => removeToast(id)}
@@ -50,7 +47,7 @@ const Toaster = () => {
         ))}
       </AnimatePresence>
     </motion.div>
-  )
-}
+  );
+};
 
 export default Toaster;

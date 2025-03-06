@@ -1,7 +1,6 @@
 import Logs from "./Logs";
 import { usePoll, useSystemLogs } from "@/protoOS/api";
 
-
 const LogsWrapper = () => {
   const { data: logsData, fetchData: fetchLogs } = useSystemLogs();
 

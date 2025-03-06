@@ -3,7 +3,6 @@ import { describe, expect, test } from "vitest";
 import { getAsicsRows, sortAsics } from "./utility";
 import { AsicStats } from "@/protoOS/api/types";
 
-
 describe("sortAsics", () => {
   test("should sort the asics array in ascending order based on row then column", () => {
     const asics: AsicStats[] = [

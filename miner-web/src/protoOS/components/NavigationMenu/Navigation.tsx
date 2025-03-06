@@ -36,7 +36,7 @@ const Navigation = ({
 
   const isOnboarding = useMemo(
     () => type === navigationMenuTypes.onboarding,
-    [type]
+    [type],
   );
 
   const navigate = useNavigate();
@@ -59,7 +59,7 @@ const Navigation = ({
       navigate(`${minerRoot}/${navigationItem}`);
       onItemClick?.();
     },
-    [onItemClick, navigate, minerRoot]
+    [onItemClick, navigate, minerRoot],
   );
 
   return (
@@ -67,7 +67,7 @@ const Navigation = ({
       className={clsx(
         "w-[240px] min-h-screen flex flex-col bg-surface-base text-text-primary-70 border-r border-border-5",
         "tablet:min-h-[calc(100vh-16px)] tablet:z-30 tablet:absolute tablet:rounded-lg",
-        "phone:min-h-[calc(100vh-16px)] phone:z-30 phone:absolute phone:rounded-lg"
+        "phone:min-h-[calc(100vh-16px)] phone:z-30 phone:absolute phone:rounded-lg",
       )}
     >
       <div className="grow border-b border-border-5">

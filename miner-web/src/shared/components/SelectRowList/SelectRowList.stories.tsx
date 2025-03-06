@@ -3,7 +3,6 @@ import { ReactNode, useCallback, useEffect, useState } from "react";
 import SelectRowListComponent, { SelectType } from ".";
 import { BaseIcon } from "@/shared/stories/icons";
 
-
 interface IconWrapperProps {
   children: ReactNode;
 }
@@ -50,12 +49,12 @@ export const SelectRowList = ({
           setSelected([...selected, selectRow]);
         } else if (!isSelected && selected.includes(selectRow)) {
           setSelected(
-            selected.filter((selectedRow) => selectedRow !== selectRow)
+            selected.filter((selectedRow) => selectedRow !== selectRow),
           );
         }
       }
     },
-    [selected, type]
+    [selected, type],
   );
 
   return (

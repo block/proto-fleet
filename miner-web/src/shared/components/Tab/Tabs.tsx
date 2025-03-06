@@ -29,14 +29,14 @@ const Tabs = ({ children, disableAnimation }: TabsProps) => {
 
   const selectedTabIndex = childrenArray.indexOf(
     childrenArray?.find(
-      (child) => child?.props?.label === activeTab
-    ) as TabProps
+      (child) => child?.props?.label === activeTab,
+    ) as TabProps,
   );
 
   const slidingTabIndex = childrenArray.indexOf(
     childrenArray?.find(
-      (child) => child?.props?.label === slidingTab
-    ) as TabProps
+      (child) => child?.props?.label === slidingTab,
+    ) as TabProps,
   );
 
   const distance = Math.abs(slidingTabIndex - selectedTabIndex);
@@ -47,7 +47,7 @@ const Tabs = ({ children, disableAnimation }: TabsProps) => {
         () => {
           setActiveTab(slidingTab);
         },
-        disableAnimation ? 0 : 150
+        disableAnimation ? 0 : 150,
       );
     }
   }, [disableAnimation, slidingTab, activeTab]);
@@ -85,7 +85,7 @@ const Tabs = ({ children, disableAnimation }: TabsProps) => {
         {
           hidden: tabContent.props.label !== activeTab,
         },
-        tabContent.props.className
+        tabContent.props.className,
       )}
       key={`${tabContent.props.label}-content`}
     >

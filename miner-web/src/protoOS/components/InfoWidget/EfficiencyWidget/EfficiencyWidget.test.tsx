@@ -9,7 +9,7 @@ import { getDisplayValue } from "@/shared/utils/stringUtils";
 describe("EfficiencyWidget", () => {
   const avgEfficiency = getDisplayValue(mockEfficiencyData.aggregates.avg);
   const efficiency = getDisplayValue(
-    mockEfficiencyData.data[mockEfficiencyData.data.length - 1].value
+    mockEfficiencyData.data[mockEfficiencyData.data.length - 1].value,
   );
   const duration = "12h";
   const avgEfficiencyLabel = `${duration.toUpperCase()} avg. efficiency`;
@@ -24,7 +24,7 @@ describe("EfficiencyWidget", () => {
         avgEfficiency={avgEfficiency}
         efficiencyValues={efficiencyValues}
         duration={duration}
-      />
+      />,
     );
     expect(getByTestId("skeleton-bar")).toBeInTheDocument();
     expect(queryByTestId("line")).not.toBeInTheDocument();
@@ -34,7 +34,7 @@ describe("EfficiencyWidget", () => {
 
   test("renders the widget in empty state", () => {
     const { getByTestId, queryByTestId, queryByText } = render(
-      <EfficiencyWidget duration={duration} />
+      <EfficiencyWidget duration={duration} />,
     );
     expect(queryByTestId("skeleton-bar")).not.toBeInTheDocument();
     expect(queryByTestId("line")).not.toBeInTheDocument();
@@ -48,7 +48,7 @@ describe("EfficiencyWidget", () => {
         avgEfficiency={avgEfficiency}
         efficiencyValues={efficiencyValues}
         duration={duration}
-      />
+      />,
     );
     expect(queryByTestId("skeleton-bar")).not.toBeInTheDocument();
     expect(getByTestId("line")).toBeInTheDocument();
@@ -63,7 +63,7 @@ describe("EfficiencyWidget", () => {
         avgEfficiency={avgEfficiency}
         efficiencyValues={efficiencyValues}
         duration={duration}
-      />
+      />,
     );
     fireEvent.click(getByTestId("info-widget"));
     expect(queryByTestId("modal")).not.toBeInTheDocument();
@@ -86,7 +86,7 @@ describe("EfficiencyWidget", () => {
         avgEfficiency={avgEfficiency}
         efficiencyValues={efficiencyValues}
         duration={duration}
-      />
+      />,
     );
     fireEvent.click(getByTestId("info-widget"));
     const modal = getByTestId("modal");

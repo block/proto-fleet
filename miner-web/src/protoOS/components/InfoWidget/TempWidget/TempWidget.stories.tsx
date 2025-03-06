@@ -25,9 +25,7 @@ export const TempWidget = ({
                 .value
             : undefined
         }
-        highestTemp={
-          hasTemp ? mockTemperatureData.aggregates?.max : undefined
-        }
+        highestTemp={hasTemp ? mockTemperatureData.aggregates?.max : undefined}
         hashboardSerials={
           hasTemp ? hashboardSerials.slice(-hashboardNumber) : []
         }

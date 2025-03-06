@@ -31,7 +31,7 @@ const useMiningStatus = () => {
           setPending(false);
         });
     },
-    [api]
+    [api],
   );
 
   return {

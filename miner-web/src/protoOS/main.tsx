@@ -7,7 +7,6 @@ import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
 import { ThemeContext, useThemes } from "@/shared/features/themes";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 
-
 import "@/shared/styles/index.css";
 
 const Main = () => {

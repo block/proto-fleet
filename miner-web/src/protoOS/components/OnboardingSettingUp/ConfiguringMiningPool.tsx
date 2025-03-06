@@ -6,8 +6,6 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Row from "@/shared/components/Row";
 import Spinner from "@/shared/components/Spinner";
 
-
-
 interface ConfiguringMiningPoolProps {
   onClickReconfigure: () => void;
   onClickRetry: () => void;
@@ -21,7 +19,7 @@ const ConfiguringMiningPool = ({
 }: ConfiguringMiningPoolProps) => {
   const isLoading = useMemo(
     () => status === statuses.fetch || status === statuses.pending,
-    [status]
+    [status],
   );
 
   const isError = useMemo(() => status === statuses.error, [status]);

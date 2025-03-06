@@ -13,9 +13,7 @@ const OnboardingNavigationItems = ({
 }: OnboardingNavigationItemsProps) => {
   return (
     <>
-      <div className="text-heading-100 text-text-primary mb-1">
-        Miner setup
-      </div>
+      <div className="text-heading-100 text-text-primary mb-1">Miner setup</div>
       <div className="text-200 text-text-primary-70 mb-3">
         Complete the steps below to set up your miner.
       </div>

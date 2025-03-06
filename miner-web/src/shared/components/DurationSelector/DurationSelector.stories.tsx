@@ -1,9 +1,7 @@
 import DurationSelectorComponent from ".";
 
 export const DurationSelector = () => {
-  return (
-    <DurationSelectorComponent />
-  );
+  return <DurationSelectorComponent />;
 };
 
 export default {

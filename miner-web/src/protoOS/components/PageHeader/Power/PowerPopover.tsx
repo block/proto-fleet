@@ -23,7 +23,7 @@ const PowerPopover = ({
 }: PowerPopoverProps) => {
   const isAwake = useMemo(
     () => !isSleeping(miningStatus?.status),
-    [miningStatus]
+    [miningStatus],
   );
 
   return (

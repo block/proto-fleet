@@ -68,7 +68,7 @@ const SettingsMiningPools = () => {
         retryOnMinerDown: true,
       });
     }),
-    [createPools]
+    [createPools],
   );
 
   useEffect(() => {
@@ -106,7 +106,7 @@ const SettingsMiningPools = () => {
       setPools(newPools);
       debouncedSubmitPools(newPools);
     },
-    [debouncedSubmitPools]
+    [debouncedSubmitPools],
   );
 
   return (

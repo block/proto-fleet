@@ -33,7 +33,7 @@ const useSystemLogs = () => {
         });
       return logs;
     },
-    [api]
+    [api],
   );
 
   return {

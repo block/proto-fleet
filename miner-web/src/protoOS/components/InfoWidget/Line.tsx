@@ -24,7 +24,7 @@ const Line = ({ data }: LineProps) => {
       <div
         className={clsx(
           "absolute bottom-0 h-full w-full pointer-events-none",
-          "transition-gradient"
+          "transition-gradient",
         )}
       />
     </div>

@@ -61,7 +61,7 @@ const Hashrate = ({
     ) {
       const aggregatedHashrateValues = aggregateHashrateValues(
         hashrate1Data.data,
-        duration
+        duration,
       );
       setHashrate1(convertHashrateValues(aggregatedHashrateValues));
     }
@@ -75,7 +75,7 @@ const Hashrate = ({
     ) {
       const aggregatedHashrateValues = aggregateHashrateValues(
         hashrate2Data.data,
-        duration
+        duration,
       );
       setHashrate2(convertHashrateValues(aggregatedHashrateValues));
     }
@@ -89,14 +89,14 @@ const Hashrate = ({
     ) {
       const aggregatedHashrateValues = aggregateHashrateValues(
         hashrate3Data.data,
-        duration
+        duration,
       );
       setHashrate3(convertHashrateValues(aggregatedHashrateValues));
     }
   }, [duration, hashrate3Data, pendingHashrate3Data]);
 
   const currentValue = getDisplayValue(
-    hashrates?.[hashrates.length - 1]?.value
+    hashrates?.[hashrates.length - 1]?.value,
   );
   const averageValue = getDisplayValue(aggregates?.avg);
   const lowestValue = getDisplayValue(aggregates?.min);

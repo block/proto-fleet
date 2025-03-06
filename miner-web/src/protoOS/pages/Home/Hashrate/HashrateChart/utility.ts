@@ -16,7 +16,7 @@ const getHashrateValue = ({ datetime, hashrates }: HashrateValueProps) => {
     (hashrate) =>
       getDayFromEpoch(hashrate.datetime) === getDayFromEpoch(datetime) &&
       getTimeFromEpoch(hashrate.datetime).slice(0, -3) ===
-        getTimeFromEpoch(datetime).slice(0, -3)
+        getTimeFromEpoch(datetime).slice(0, -3),
   );
   return matchedTime?.value || 0;
 };

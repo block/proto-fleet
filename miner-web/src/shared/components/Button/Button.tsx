@@ -115,7 +115,7 @@ const Button = ({
           [textColor]: textOnly && !disabledState,
           [`${textColor}/40`]: textOnly && disabledState,
         },
-        className
+        className,
       )}
       disabled={disabledState}
       onClick={onClick}
@@ -132,7 +132,7 @@ const Button = ({
           <div
             className={clsx(
               "group-hover:border-b-2 w-full opacity-20 -mt-[2px]",
-              borderColor
+              borderColor,
             )}
           />
         )}

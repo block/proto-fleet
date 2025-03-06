@@ -1,8 +1,6 @@
 import { MouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
-
-
 import { logTypes } from "./constants";
 import LogBadges from "./LogBadges";
 import { LogInfo, logType } from "./types";
@@ -66,7 +64,7 @@ const Logs = ({ logsData }: LogsProps) => {
           `${log.timestamp} ${log.message}`
             .toLowerCase()
             .includes(searchValue.toLowerCase()) &&
-          (!filterByLogType || log.logType === filterByLogType)
+          (!filterByLogType || log.logType === filterByLogType),
       );
       newLogs = newFilteredLogs;
     }
@@ -76,7 +74,7 @@ const Logs = ({ logsData }: LogsProps) => {
       "Time,Type,Message",
       ...newLogs.map(
         (log) =>
-          `${log.timestamp},${formatLogType(log.logType)},${log.message.replace(/,/g, " | ")}`
+          `${log.timestamp},${formatLogType(log.logType)},${log.message.replace(/,/g, " | ")}`,
       ),
     ]);
     setExportLink(newExportLink);
@@ -99,7 +97,7 @@ const Logs = ({ logsData }: LogsProps) => {
       setLogs(formattedLogs);
       updateFilteredLogs();
     },
-    [storedLogs, updateFilteredLogs]
+    [storedLogs, updateFilteredLogs],
   );
 
   useEffect(() => {
@@ -107,7 +105,7 @@ const Logs = ({ logsData }: LogsProps) => {
       // after initial logs are fetched, remove duplicated logs and add them
       const uniqueLogs = storedLogs.length
         ? logsData.content.filter(
-            (log) => !storedLogs.find((storedLog) => storedLog === log)
+            (log) => !storedLogs.find((storedLog) => storedLog === log),
           )
         : logsData.content;
 
@@ -130,7 +128,7 @@ const Logs = ({ logsData }: LogsProps) => {
         setFilterByLogType(logTypes.error);
       }
     },
-    [filterByLogType]
+    [filterByLogType],
   );
 
   const toggleFilterWarningLogs = useCallback(
@@ -142,7 +140,7 @@ const Logs = ({ logsData }: LogsProps) => {
         setFilterByLogType(logTypes.warn);
       }
     },
-    [filterByLogType]
+    [filterByLogType],
   );
 
   const clearSearch = useCallback((e: MouseEvent<HTMLButtonElement>) => {
@@ -169,7 +167,7 @@ const Logs = ({ logsData }: LogsProps) => {
             <div
               className={clsx(
                 "flex items-center p-[15px] border-b-[1px] border-border-5",
-                "focus-within:border-b-2 focus-within:border-border-primary"
+                "focus-within:border-b-2 focus-within:border-border-primary",
               )}
             >
               <div className="flex space-x-4 items-center grow">
@@ -194,7 +192,7 @@ const Logs = ({ logsData }: LogsProps) => {
                     {
                       "border-intent-critical-10":
                         filterByLogType !== logTypes.error,
-                    }
+                    },
                   )}
                   selected={filterByLogType === logTypes.error}
                   onClick={toggleFilterErrorLogs}
@@ -211,7 +209,7 @@ const Logs = ({ logsData }: LogsProps) => {
                     {
                       "border-intent-warning-10":
                         filterByLogType !== logTypes.warn,
-                    }
+                    },
                   )}
                   selected={filterByLogType === logTypes.warn}
                   onClick={toggleFilterWarningLogs}

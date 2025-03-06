@@ -14,7 +14,7 @@ export const isWarmingUp = (miningStatus?: MiningStatusMiningstatus) => {
 };
 
 export const isSleeping = (
-  miningStatus: MiningStatusMiningstatus["status"]
+  miningStatus: MiningStatusMiningstatus["status"],
 ) => {
   return /PoweringOff|Stopped/i.test(miningStatus || "");
 };
@@ -25,6 +25,6 @@ export const isMining = (miningStatus: MiningStatusMiningstatus["status"]) => {
 
 export const isAwake = (miningStatus: MiningStatusMiningstatus["status"]) => {
   return /PoweringOn|Mining|DegradedMining|NoPools|Error/i.test(
-    miningStatus || ""
+    miningStatus || "",
   );
 };

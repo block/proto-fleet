@@ -4,7 +4,6 @@ import { MemoryRouter } from "react-router-dom";
 import FanSpeedWidgetComponent from ".";
 import { FanInfo } from "@/protoOS/api/types";
 
-
 interface FanSpeedWidgetProps {
   fanSpeeds: FanInfo[];
   numberOfFans: number;

@@ -13,7 +13,7 @@ describe("Button", () => {
         onClick={() => {}}
         size={sizes.base}
         variant={variants.secondary}
-      />
+      />,
     );
     const buttonElement = getByText(buttonText);
     expect(buttonElement).toBeDefined();
@@ -27,7 +27,7 @@ describe("Button", () => {
         onClick={onClickMock}
         size={sizes.base}
         variant={variants.secondary}
-      />
+      />,
     );
     const buttonElement = getByText(buttonText);
     fireEvent.click(buttonElement);

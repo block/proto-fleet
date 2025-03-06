@@ -30,7 +30,7 @@ const EfficiencyWidget = ({
 
   useEffect(() => {
     setEfficiency(
-      getDisplayValue(efficiencyValues?.[efficiencyValues.length - 1]?.value)
+      getDisplayValue(efficiencyValues?.[efficiencyValues.length - 1]?.value),
     );
   }, [efficiencyValues]);
 

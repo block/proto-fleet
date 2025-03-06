@@ -42,7 +42,7 @@ const LoginForm = ({
       setErrors(deepClone(initValues));
       setApiError(null);
     },
-    [values]
+    [values],
   );
 
   const handleContinue = useCallback(() => {

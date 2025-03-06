@@ -15,7 +15,7 @@ import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 const TemperatureWrapper = () => {
   const { getItem } = useLocalStorage();
   const [duration, setDuration] = useState<Duration>(
-    getItem("duration") || durations[0]
+    getItem("duration") || durations[0],
   );
   const { data: tempData, pending: pendingTempData } = useTemperature({
     duration,

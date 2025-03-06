@@ -1,9 +1,11 @@
 import eslint from "@eslint/js";
-import { fixupPluginRules } from '@eslint/compat';
+import { fixupPluginRules } from "@eslint/compat";
 import typescriptEslint from "@typescript-eslint/eslint-plugin";
 import typescriptEslintParser from "@typescript-eslint/parser";
 import noImport from "eslint-plugin-import";
 import jsxA11y from "eslint-plugin-jsx-a11y";
+import prettier from "eslint-plugin-prettier";
+import eslintConfigPrettier from "eslint-config-prettier";
 import react from "eslint-plugin-react";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
@@ -43,6 +45,7 @@ export default [
       "react-refresh": reactRefresh,
       storybook,
       "@typescript-eslint": typescriptEslint,
+      prettier,
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
@@ -143,6 +146,8 @@ export default [
           },
         },
       ],
+      "prettier/prettier": "error",
     },
   },
+  eslintConfigPrettier,
 ];

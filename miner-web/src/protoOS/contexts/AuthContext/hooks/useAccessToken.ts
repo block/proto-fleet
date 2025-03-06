@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuthContext } from "./useAuthContext";
 import { useRefresh } from "@/protoOS/api";
 
-
 const useAccessToken = (shouldCheckAccess = true) => {
   const { refresh } = useRefresh();
   const { authTokens, setShowLoginModal } = useAuthContext();

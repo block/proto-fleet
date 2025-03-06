@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 
-
 // import { dangerTemp } from "../../constants";
 import { ChartData } from "./AsicChart/types";
 import AsicPopover from "./AsicPopover";

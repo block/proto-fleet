@@ -5,7 +5,6 @@ import AsicTable from "./AsicTable";
 import { useHashboardStats } from "@/protoOS/api";
 import { AsicStats, GetAsicHashrateParams } from "@/protoOS/api/types";
 
-
 interface AsicTableWrapperProps {
   duration: GetAsicHashrateParams["duration"];
   granularity: GetAsicHashrateParams["granularity"];

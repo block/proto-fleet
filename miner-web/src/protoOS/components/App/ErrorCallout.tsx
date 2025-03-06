@@ -21,16 +21,16 @@ const ErrorCallout = ({ errors }: ErrorCalloutProps) => {
 
   const isPoolError = useCallback(
     (error_code?: string) => /pool/i.test(error_code || ""),
-    []
+    [],
   );
 
   const hasErrors = useMemo(
     () =>
       errors.some(
         // pool connection errors are tracked in the mining pool widget
-        (error) => isError(error.error_level) && !isPoolError(error.error_code)
+        (error) => isError(error.error_level) && !isPoolError(error.error_code),
       ),
-    [errors, isPoolError]
+    [errors, isPoolError],
   );
 
   const hasWarnings = useMemo(
@@ -38,9 +38,9 @@ const ErrorCallout = ({ errors }: ErrorCalloutProps) => {
       errors.some(
         (error) =>
           // pool connection errors are tracked in the mining pool widget
-          isWarning(error.error_level) && !isPoolError(error.error_code)
+          isWarning(error.error_level) && !isPoolError(error.error_code),
       ),
-    [errors, isPoolError]
+    [errors, isPoolError],
   );
 
   const prefixIcon = useMemo(() => {

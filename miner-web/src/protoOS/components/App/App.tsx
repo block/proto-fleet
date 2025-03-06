@@ -1,7 +1,6 @@
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 
-
 import ErrorCallout from "./ErrorCallout";
 import { isSleeping, isWarmingUp } from "./utility";
 import WakeCallout from "./WakeCallout";

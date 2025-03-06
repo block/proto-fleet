@@ -1,6 +1,5 @@
 import { useState } from "react";
 
-
 import MinerStatusModal from "../../MinerStatusModal/MinerStatusModal";
 import MinerStatusWidget from "./MinerStatusWidget";
 import { ErrorListResponse } from "@/protoOS/api/types";

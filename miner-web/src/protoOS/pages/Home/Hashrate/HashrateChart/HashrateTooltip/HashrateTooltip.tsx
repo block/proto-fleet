@@ -48,7 +48,7 @@ const HashrateTooltip = ({
 
   const payload = useMemo(
     () => tooltipData.payload[0]?.payload || {},
-    [tooltipData]
+    [tooltipData],
   );
 
   const hasHashrate1 = payload.hashrate1 !== undefined;

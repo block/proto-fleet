@@ -1,5 +1,3 @@
-
-
 import { ErrorLevel } from "./constants";
 import StatusCircle from "./StatusCircle";
 import { getErrorMessage } from "./utility";

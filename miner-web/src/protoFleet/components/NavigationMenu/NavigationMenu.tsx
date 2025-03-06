@@ -9,35 +9,36 @@ import { stripLeadingSlash } from "@/shared/utils/stringUtils";
 
 type NavigationMenuProps = {
   routes: NavRoute[];
-}
+};
 
 const NavigationMenu = ({ routes }: NavigationMenuProps) => {
   const { pathname } = useLocation();
 
   const navigationItems = useMemo(
-    () => routes
-      .filter((route) => route.navItem)
-      .map((route) => pick(route, ["label", "path", "icon"])),
-    [routes]
+    () =>
+      routes
+        .filter((route) => route.navItem)
+        .map((route) => pick(route, ["label", "path", "icon"])),
+    [routes],
   );
 
   const homeItem = useMemo(
-    () => navigationItems.find((item) => item.label === "Home"), 
-    [navigationItems]
+    () => navigationItems.find((item) => item.label === "Home"),
+    [navigationItems],
   );
 
   const isCurrentPath = (path: string) => {
     const _pathname = stripLeadingSlash(pathname);
     const _path = stripLeadingSlash(path);
-    return _pathname === _path || _pathname.startsWith(`${_path}/`)
+    return _pathname === _path || _pathname.startsWith(`${_path}/`);
   };
-  
+
   return (
     <div
       className={clsx(
         "w-[64px] min-h-screen flex flex-col bg-grayscale-gray-5 text-text-primary-70 border-r border-border-5",
         "tablet:min-h-[calc(100vh-16px)] tablet:z-30 tablet:absolute",
-        "phone:min-h-[calc(100vh-16px)] phone:z-30 phone:absolute"
+        "phone:min-h-[calc(100vh-16px)] phone:z-30 phone:absolute",
       )}
     >
       <div className="flex items-center justify-center flex-col gap-[10px]">
@@ -49,7 +50,10 @@ const NavigationMenu = ({ routes }: NavigationMenuProps) => {
           </div>
         )}
 
-        <ul data-testid="navigation-menu" className="flex items-center justify-center flex-col gap-[10px]">
+        <ul
+          data-testid="navigation-menu"
+          className="flex items-center justify-center flex-col gap-[10px]"
+        >
           {navigationItems.map((item, idx) => {
             return item.path ? (
               <li key={idx}>
@@ -60,7 +64,7 @@ const NavigationMenu = ({ routes }: NavigationMenuProps) => {
                     "hover:cursor-pointer hover:bg-core-primary-10",
                     isCurrentPath(item.path)
                       ? "bg-core-primary-10 text-text-primary"
-                      : "text-text-primary-50"
+                      : "text-text-primary-50",
                   )}
                 >
                   {item.icon

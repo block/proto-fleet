@@ -20,24 +20,24 @@ export const HashrateChart = ({ duration, hashrates }: HashrateProps) => {
         <HashrateChartComponent
           duration={duration}
           hashrate1={convertHashrateValues(
-            aggregateHashrateValues(mockHashrateData1.data, duration)
+            aggregateHashrateValues(mockHashrateData1.data, duration),
           )}
           hashrate2={
             hashrates > 1
               ? convertHashrateValues(
-                  aggregateHashrateValues(mockHashrateData2.data, duration)
+                  aggregateHashrateValues(mockHashrateData2.data, duration),
                 )
               : []
           }
           hashrate3={
             hashrates === 3
               ? convertHashrateValues(
-                  aggregateHashrateValues(mockHashrateData3.data, duration)
+                  aggregateHashrateValues(mockHashrateData3.data, duration),
                 )
               : []
           }
           hashrates={convertHashrateValues(
-            aggregateHashrateValues(mockHashrateData.data, duration)
+            aggregateHashrateValues(mockHashrateData.data, duration),
           )}
         />
       </div>

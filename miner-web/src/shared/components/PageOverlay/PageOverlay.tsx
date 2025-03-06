@@ -31,7 +31,7 @@ const PageOverlay = ({
         {
           "animate-[fade-in_.3s_ease-in-out]": show,
           "animate-[fade-out_.31s_ease-in-out]": !show,
-        }
+        },
       )}
     >
       {children}

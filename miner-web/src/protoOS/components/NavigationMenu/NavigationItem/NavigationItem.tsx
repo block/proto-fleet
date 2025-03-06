@@ -39,7 +39,7 @@ const NavigationItem = ({
           "text-text-primary-70 hover:bg-core-primary-5": !isSelected,
           "px-6": isChildItem,
           "px-2": !isChildItem,
-        }
+        },
       )}
       onClick={handleClick}
       onMouseOver={() => onHover?.(true)}

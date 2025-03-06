@@ -9,7 +9,6 @@ import { useAccessToken, useAuthContext } from "@/protoOS/contexts/AuthContext";
 import { Power } from "@/shared/assets/icons";
 import Callout, { intents } from "@/shared/components/Callout";
 
-
 interface WakeCalloutProps {
   afterWake?: () => void;
   miningStatus?: MiningStatusMiningstatus;
@@ -28,7 +27,7 @@ const WakeCallout = ({
   const [pausedAction, setPausedAction] = useState(false);
   const { dismissedLoginModal, setDismissedLoginModal } = useAuthContext();
   const { checkAccess, hasAccess, setHasAccess } = useAccessToken(
-    pausedAction && !dismissedLoginModal
+    pausedAction && !dismissedLoginModal,
   );
 
   useEffect(() => {

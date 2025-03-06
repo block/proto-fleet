@@ -4,7 +4,6 @@ import clsx from "clsx";
 import { SelectType, selectTypes } from ".";
 import { Checkmark } from "@/shared/assets/icons";
 
-
 export interface SelectRowProps {
   disabled?: boolean;
   isSelected: boolean;
@@ -31,7 +30,7 @@ const SelectRow = ({
     (e: ChangeEvent<HTMLInputElement>) => {
       onChange(e.target.checked);
     },
-    [onChange]
+    [onChange],
   );
 
   return (
@@ -45,7 +44,7 @@ const SelectRow = ({
           "text-text-primary bg-surface-default hover:bg-core-primary-5 cursor-pointer":
             !disabled,
           "text-text-primary-50 bg-core-primary-5 cursor-not-allowed": disabled,
-        }
+        },
       )}
       disabled={disabled}
       onClick={() => onChange(!isSelected)}
@@ -76,7 +75,7 @@ const SelectRow = ({
               "border-border-20 cursor-pointer": !disabled,
               "border-border-10 cursor-not-allowed bg-core-primary-20 opacity-[0.4]":
                 disabled,
-            }
+            },
           )}
           disabled={disabled}
           type={type}
@@ -88,7 +87,7 @@ const SelectRow = ({
             "hidden absolute rounded-full w-full h-full bg-core-accent-80 text-text-contrast",
             {
               "peer-checked:block": isRadio,
-            }
+            },
           )}
         >
           <svg
@@ -103,7 +102,7 @@ const SelectRow = ({
         <Checkmark
           className={clsx(
             "absolute bg-core-accent-80 rounded-sm text-surface-base hidden cursor-pointer",
-            { "peer-checked:block": isCheckbox }
+            { "peer-checked:block": isCheckbox },
           )}
         />
       </div>

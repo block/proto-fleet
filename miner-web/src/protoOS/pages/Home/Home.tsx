@@ -34,7 +34,7 @@ import { getDisplayValue } from "@/shared/utils/stringUtils";
 const Home = () => {
   const { getItem, setItem } = useLocalStorage();
   const [duration, setDuration] = useState<Duration>(
-    getItem("duration") || durations[0]
+    getItem("duration") || durations[0],
   );
   const [historicalEfficiency, setHistoricalEfficiency] =
     useState<EfficiencyValues>();
@@ -73,7 +73,7 @@ const Home = () => {
       setHashboardSerials(
         hashboardsInfo
           ?.map((hashboardInfo) => hashboardInfo.hb_sn)
-          .filter(Boolean) as string[]
+          .filter(Boolean) as string[],
       );
     }
   }, [hashboardsInfo]);
@@ -86,10 +86,10 @@ const Home = () => {
     ) {
       const aggregatedEfficiencyValues = aggregateEfficiencyValues(
         efficiencyData.data,
-        duration
+        duration,
       );
       setHistoricalEfficiency(
-        convertEfficiencyValues(aggregatedEfficiencyValues)
+        convertEfficiencyValues(aggregatedEfficiencyValues),
       );
       setAvgEfficiency(getDisplayValue(efficiencyData.aggregates?.avg));
     }
@@ -103,7 +103,7 @@ const Home = () => {
     ) {
       const aggregatedPowerValues = aggregatePowerValues(
         powerData.data,
-        duration
+        duration,
       );
       setHistoricalPower(convertPowerValues(aggregatedPowerValues));
       setPowerAggregates(convertAggregatePowerValues(powerData.aggregates));

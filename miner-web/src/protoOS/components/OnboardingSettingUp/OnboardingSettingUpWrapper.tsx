@@ -8,7 +8,6 @@ import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import { isValidPool, PoolInfo } from "@/protoOS/components/MiningPools";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
-
 interface OnboardingSettingUpWrapperProps {
   onChangeSettingUpMiner: (settingUpMiner: boolean) => void;
   pools: PoolInfo[];
@@ -26,7 +25,7 @@ const OnboardingSettingUpWrapper = ({
   const [intervalId, setIntervalId] =
     useState<ReturnType<typeof setInterval>>();
   const [poolStatus, setPoolStatus] = useState<keyof typeof statuses>(
-    statuses.fetch
+    statuses.fetch,
   );
 
   const getPoolStatus = useCallback(() => {
@@ -69,7 +68,7 @@ const OnboardingSettingUpWrapper = ({
 
   const isConfigured = useCallback(
     (status: keyof typeof statuses) => status === statuses.success,
-    []
+    [],
   );
 
   const handleClickRetry = useCallback(() => {
@@ -78,14 +77,14 @@ const OnboardingSettingUpWrapper = ({
 
   const isSetupDone = useMemo(
     () => isConfigured(poolStatus),
-    [isConfigured, poolStatus]
+    [isConfigured, poolStatus],
   );
 
   const handleClickContinue = useCallback(() => navigate("/"), [navigate]);
 
   const handleClickReconfigure = useCallback(
     () => onChangeSettingUpMiner(false),
-    [onChangeSettingUpMiner]
+    [onChangeSettingUpMiner],
   );
 
   return (

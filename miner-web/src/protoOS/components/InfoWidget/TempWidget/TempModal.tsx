@@ -61,7 +61,7 @@ const TempModal = ({
       setHashboard1Temperature(
         hashboard1TemperatureData.data?.[
           hashboard1TemperatureData.data.length - 1
-        ].value
+        ].value,
       );
     }
   }, [hashboard1TemperatureData]);
@@ -71,7 +71,7 @@ const TempModal = ({
       setHashboard2Temperature(
         hashboard2TemperatureData.data?.[
           hashboard2TemperatureData.data.length - 1
-        ].value
+        ].value,
       );
     }
   }, [hashboard2TemperatureData]);
@@ -81,7 +81,7 @@ const TempModal = ({
       setHashboard3Temperature(
         hashboard3TemperatureData.data?.[
           hashboard3TemperatureData.data.length - 1
-        ].value
+        ].value,
       );
     }
   }, [hashboard3TemperatureData]);

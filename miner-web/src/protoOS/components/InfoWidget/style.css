@@ -1,18 +1,20 @@
 @property --myColor1 {
-  syntax: '<color>';
+  syntax: "<color>";
   initial-value: white;
   inherits: false;
 }
 
 @property --myColor2 {
-  syntax: '<color>';
+  syntax: "<color>";
   initial-value: transparent;
   inherits: false;
 }
 
 [data-theme="light"] .transition-gradient {
   background: linear-gradient(to right, var(--myColor1), var(--myColor2));
-  transition: --myColor1 180ms, --myColor2 180ms;
+  transition:
+    --myColor1 180ms,
+    --myColor2 180ms;
   transition-timing-function: ease-in-out;
 }
 

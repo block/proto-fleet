@@ -41,7 +41,7 @@ const FloatingNavigation = ({
           {
             "animate-[fade-in_.3s_ease-in-out]": isVisible,
             "animate-[fade-out_.31s_ease-in-out]": !isVisible,
-          }
+          },
         )}
         onClick={handleCloseMenu}
       />

@@ -52,7 +52,7 @@ const Modal = ({
         onDismiss(buttonClicked);
       }, animationDuration);
     },
-    [onDismiss]
+    [onDismiss],
   );
 
   useEffect(() => {
@@ -72,7 +72,7 @@ const Modal = ({
       }
       button?.onClick?.();
     },
-    [closeModal]
+    [closeModal],
   );
 
   const dismissModal = useCallback(() => {
@@ -92,7 +92,7 @@ const Modal = ({
             "animate-sliding-up": showModal,
             "animate-sliding-down": !showModal,
           },
-          className
+          className,
         )}
         ref={ModalRef}
         data-testid="modal"

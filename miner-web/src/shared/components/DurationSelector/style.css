@@ -45,10 +45,10 @@
   animation: slideRightEnd1 0.15s forwards;
 }
 .animate-slide-right2 {
-  animation: slideRight2 0.20s forwards;
+  animation: slideRight2 0.2s forwards;
 }
 .animate-slide-right-end2 {
-  animation: slideRightEnd2 0.20s forwards;
+  animation: slideRightEnd2 0.2s forwards;
 }
 .animate-slide-right3 {
   animation: slideRight3 0.25s forwards;
@@ -57,7 +57,7 @@
   animation: slideLeft1 0.15s forwards;
 }
 .animate-slide-left2 {
-  animation: slideLeft2 0.20s forwards;
+  animation: slideLeft2 0.2s forwards;
 }
 .animate-slide-left3 {
   animation: slideLeft3 0.25s forwards;

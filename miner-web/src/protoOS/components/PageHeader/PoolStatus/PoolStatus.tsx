@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-
 import PoolInfoPopover from "./PoolInfoPopover";
 import PoolWidget from "./PoolWidget";
 import { PoolInfo } from "./types";
@@ -27,7 +26,7 @@ const PoolStatus = ({
   const isAlive = useCallback(
     // TODO: remove alive when cgminer is removed
     (pool?: Pool) => /alive|active/i.test(pool?.status ?? ""),
-    []
+    [],
   );
 
   useEffect(() => {
@@ -57,7 +56,7 @@ const PoolStatus = ({
 
   const isPopoverOpen = useMemo(
     () => !loading && showPopover,
-    [loading, showPopover]
+    [loading, showPopover],
   );
 
   return (

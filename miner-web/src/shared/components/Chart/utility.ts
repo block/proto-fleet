@@ -75,13 +75,13 @@ export const getAxisTickOffset = ({
 
 export const aggregateValues = (
   dataToAggregate: TimeSeriesData[] = [],
-  compareTimeMinutes: number
+  compareTimeMinutes: number,
 ) => {
   let aggregatedData = [
     { datetime: dataToAggregate[0].datetime, value: 0, numberOfValues: 0 },
   ];
   const currentDateEpoch = getDateFromEpoch(
-    dataToAggregate[0].datetime
+    dataToAggregate[0].datetime,
   ).setSeconds(0);
   let currentDate = getDateFromEpoch(currentDateEpoch);
   dataToAggregate.forEach((data) => {

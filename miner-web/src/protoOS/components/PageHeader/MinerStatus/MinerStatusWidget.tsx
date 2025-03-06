@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import clsx from "clsx";
 
-
 import WidgetWrapper from "../WidgetWrapper";
 import { ErrorListResponse } from "@/protoOS/api/types";
 import StatusCircle from "@/protoOS/components/MinerStatusModal/StatusCircle";
@@ -28,26 +27,26 @@ const MinerStatusWidget = ({
 }: MinerStatusWidgetProps) => {
   const showHashboardError = useMemo(
     () => errors.some(isHashboardError),
-    [errors]
+    [errors],
   );
   // if there are errors, we don't need to check for warnings
   const showHashboardWarning = useMemo(
     () => !showHashboardError && errors.some(isHashboardWarning),
-    [errors, showHashboardError]
+    [errors, showHashboardError],
   );
 
   const showAsicError = useMemo(() => errors.some(isAsicError), [errors]);
   // if there are errors, we don't need to check for warnings
   const showAsicWarning = useMemo(
     () => !showAsicError && errors.some(isAsicWarning),
-    [errors, showAsicError]
+    [errors, showAsicError],
   );
 
   const showFanError = useMemo(() => errors.some(isFanError), [errors]);
   // if there are errors, we don't need to check for warnings
   const showFanWarning = useMemo(
     () => !showFanError && errors.some(isFanWarning),
-    [errors, showFanError]
+    [errors, showFanError],
   );
 
   return (

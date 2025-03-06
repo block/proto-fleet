@@ -3,27 +3,23 @@ import { ACTIONS, STATUSES } from "./constants";
 
 import ToastsObserver, {
   clearToasts,
-  pushToast, 
+  pushToast,
   removeToast,
-  updateToast
+  updateToast,
 } from "./ToastsObserver";
 
-import { 
-  ToasterActionType,
-  ToastStatusType, 
-  ToastType, 
-} from "./types";
+import { ToasterActionType, ToastStatusType, ToastType } from "./types";
 
-export { 
+export {
   type ToastType,
   type ToastStatusType,
   type ToasterActionType,
-  STATUSES, 
-  ACTIONS, 
+  STATUSES,
+  ACTIONS,
   ToastsObserver,
   pushToast,
   updateToast,
   removeToast,
   clearToasts,
-  Toaster
+  Toaster,
 };

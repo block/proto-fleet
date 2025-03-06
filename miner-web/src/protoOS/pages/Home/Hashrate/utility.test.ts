@@ -157,8 +157,8 @@ describe("aggregatePowerValues", () => {
             !result1?.find(
               (r1) =>
                 getTimeFromEpoch(r1.datetime).slice(0, -3) ===
-                getTimeFromEpoch(r.datetime).slice(0, -3)
-            )
+                getTimeFromEpoch(r.datetime).slice(0, -3),
+            ),
         );
         expect(mismatchedTime).toBeUndefined();
         const mismatchedTime1 = result1?.find(
@@ -166,8 +166,8 @@ describe("aggregatePowerValues", () => {
             !result2?.find(
               (r2) =>
                 getTimeFromEpoch(r2.datetime).slice(0, -3) ===
-                getTimeFromEpoch(r1.datetime).slice(0, -3)
-            )
+                getTimeFromEpoch(r1.datetime).slice(0, -3),
+            ),
         );
         expect(mismatchedTime1).toBeUndefined();
         const mismatchedTime2 = result2?.find(
@@ -175,8 +175,8 @@ describe("aggregatePowerValues", () => {
             !result3?.find(
               (r2) =>
                 getTimeFromEpoch(r2.datetime).slice(0, -3) ===
-                getTimeFromEpoch(r1.datetime).slice(0, -3)
-            )
+                getTimeFromEpoch(r1.datetime).slice(0, -3),
+            ),
         );
         expect(mismatchedTime2).toBeUndefined();
       });
@@ -192,8 +192,8 @@ describe("aggregatePowerValues", () => {
             !result1?.find(
               (r1) =>
                 getTimeFromEpoch(r1.datetime).slice(0, -3) ===
-                getTimeFromEpoch(r.datetime).slice(0, -3)
-            )
+                getTimeFromEpoch(r.datetime).slice(0, -3),
+            ),
         );
         expect(mismatchedTime).toBeUndefined();
         const mismatchedTime1 = result1?.find(
@@ -201,8 +201,8 @@ describe("aggregatePowerValues", () => {
             !result2?.find(
               (r2) =>
                 getTimeFromEpoch(r2.datetime).slice(0, -3) ===
-                getTimeFromEpoch(r1.datetime).slice(0, -3)
-            )
+                getTimeFromEpoch(r1.datetime).slice(0, -3),
+            ),
         );
         expect(mismatchedTime1).toBeUndefined();
         const mismatchedTime2 = result2?.find(
@@ -210,8 +210,8 @@ describe("aggregatePowerValues", () => {
             !result3?.find(
               (r2) =>
                 getTimeFromEpoch(r2.datetime).slice(0, -3) ===
-                getTimeFromEpoch(r1.datetime).slice(0, -3)
-            )
+                getTimeFromEpoch(r1.datetime).slice(0, -3),
+            ),
         );
         expect(mismatchedTime2).toBeUndefined();
       });

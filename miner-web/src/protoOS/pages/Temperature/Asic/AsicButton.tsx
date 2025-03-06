@@ -1,7 +1,6 @@
 import { Dispatch, SetStateAction, useMemo, useRef } from "react";
 import clsx from "clsx";
 
-
 import { dangerTemp, warningTemp } from "../constants";
 import AsicPopover from "./AsicPopover";
 import { getAsicUniqueId } from "./utility";
@@ -44,7 +43,7 @@ const AsicButton = ({
         {
           "border-transparent": !shouldShowPopover,
           "border-intent-info-fill": shouldShowPopover,
-        }
+        },
       )}
       ref={asicRef}
     >
@@ -63,13 +62,13 @@ const AsicButton = ({
             "bg-surface-base": temp < warningTemp,
             "bg-intent-warning-50": temp >= warningTemp && temp < dangerTemp,
             "bg-intent-warning-fill": temp >= dangerTemp,
-          }
+          },
         )}
         onClick={() =>
           setShowPopover((prev) =>
             prev || asic.id === undefined
               ? undefined
-              : getAsicUniqueId(asic.id, hashboardSerial)
+              : getAsicUniqueId(asic.id, hashboardSerial),
           )
         }
       >

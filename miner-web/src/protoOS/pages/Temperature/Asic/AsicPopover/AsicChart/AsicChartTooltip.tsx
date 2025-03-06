@@ -48,7 +48,7 @@ const AsicChartTooltip = ({
 
   const payload = useMemo(
     () => tooltipData.payload[0]?.payload || {},
-    [tooltipData]
+    [tooltipData],
   );
 
   return (

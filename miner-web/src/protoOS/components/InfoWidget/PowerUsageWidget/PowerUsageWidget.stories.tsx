@@ -32,7 +32,7 @@ export const PowerUsageWidget = ({
         powerValues={
           hasPowerUsage
             ? convertPowerValues(
-                aggregatePowerValues(mockPowerData.data, duration)
+                aggregatePowerValues(mockPowerData.data, duration),
               )
             : []
         }

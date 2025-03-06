@@ -27,20 +27,20 @@ const usePoolsInfo = () => {
           // find the highest priority pool
           // highest priority is the lowest number
           const sortedPools = res?.data["pools"]?.sort(
-            (a, b) => (a.priority || 0) - (b.priority || 0)
+            (a, b) => (a.priority || 0) - (b.priority || 0),
           );
           setData(sortedPools);
           onSuccess?.(sortedPools);
           if (retryOnMinerDown) {
             // TODO: remove alive when cgminer is removed
             const noLivePools = !sortedPools?.find((pool) =>
-              /alive|active/i.test(pool?.status ?? "")
+              /alive|active/i.test(pool?.status ?? ""),
             );
             // if all pools are dead, refetch pools
             if (noLivePools) {
               setTimeout(
                 () => fetchData({ onSuccess, onError, retryOnMinerDown }),
-                5000
+                5000,
               );
             }
           }
@@ -50,7 +50,7 @@ const usePoolsInfo = () => {
           if (retryOnMinerDown) {
             setTimeout(
               () => fetchData({ onSuccess, onError, retryOnMinerDown }),
-              5000
+              5000,
             );
           }
           setError(newError);
@@ -60,7 +60,7 @@ const usePoolsInfo = () => {
           setPending(false);
         });
     },
-    [api]
+    [api],
   );
 
   return {

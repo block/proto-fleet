@@ -38,7 +38,7 @@ const useRefresh = () => {
           onError?.(err);
         });
     },
-    [authTokens, setAuthTokens, api]
+    [authTokens, setAuthTokens, api],
   );
 
   return {

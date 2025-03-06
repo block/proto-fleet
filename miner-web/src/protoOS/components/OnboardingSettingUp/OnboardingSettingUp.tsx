@@ -23,7 +23,7 @@ const OnboardingSettingUp = ({
 }: OnboardingSettingUpProps) => {
   const isLoading = useMemo(
     () => poolStatus === statuses.fetch || poolStatus === statuses.pending,
-    [poolStatus]
+    [poolStatus],
   );
 
   const isError = useMemo(() => poolStatus === statuses.error, [poolStatus]);
@@ -70,7 +70,7 @@ const OnboardingSettingUp = ({
             },
             {
               "opacity-0 hover:opacity-0! cursor-auto": !isSetupDone,
-            }
+            },
           )}
           onClick={isSetupDone ? onClickContinue : undefined}
           testId="continue-to-dashboard-button"

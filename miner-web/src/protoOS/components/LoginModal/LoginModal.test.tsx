@@ -24,7 +24,7 @@ describe("Login Modal", () => {
     component = render(
       <MinerHostingProvider>
         <LoginModal onSuccess={vi.fn} onDismiss={vi.fn} />
-      </MinerHostingProvider>
+      </MinerHostingProvider>,
     );
   });
 
@@ -43,7 +43,9 @@ describe("Login Modal", () => {
     const { getByTestId, queryByTestId } = component;
     fireEvent.click(getByTestId(forgotPassword));
     fireEvent.click(getByTestId(forgotPasswordBack));
-    await waitFor(() => expect(queryByTestId(forgotPasswordInstructions)).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(queryByTestId(forgotPasswordInstructions)).not.toBeInTheDocument(),
+    );
   });
 
   test("username field is non-editable", () => {
@@ -53,7 +55,9 @@ describe("Login Modal", () => {
 
   test("password field is editable", () => {
     const { getByTestId } = component;
-    fireEvent.change(getByTestId(password), { target: { value: validPassword } });
+    fireEvent.change(getByTestId(password), {
+      target: { value: validPassword },
+    });
     expect(getByTestId(password)).toHaveValue(validPassword);
   });
 
@@ -68,7 +72,9 @@ describe("Login Modal", () => {
 
   test("password field validation fires on less than 8 characters", async () => {
     const { getByTestId } = component;
-    fireEvent.change(getByTestId(password), { target: { value: lessThan8Characters } });
+    fireEvent.change(getByTestId(password), {
+      target: { value: lessThan8Characters },
+    });
     expect(getByTestId(error)).toHaveClass(hiddenErrorClass);
     fireEvent.click(getByTestId(loginButton));
     await waitFor(() => {
@@ -82,7 +88,9 @@ describe("Login Modal", () => {
     await waitFor(() => {
       expect(getByTestId(error)).toHaveClass(visibleErrorClass);
     });
-    fireEvent.change(getByTestId(password), { target: { value: lessThan8Characters } });
+    fireEvent.change(getByTestId(password), {
+      target: { value: lessThan8Characters },
+    });
     await waitFor(() => {
       expect(getByTestId(error)).toHaveClass(hiddenErrorClass);
     });
