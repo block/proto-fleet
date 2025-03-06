@@ -52,7 +52,7 @@ const Button = ({
     <button
       type="button"
       className={clsx(
-        "group flex items-center justify-center rounded-lg h-fit outline-0 whitespace-nowrap",
+        "group flex items-center justify-center rounded-3xl h-fit outline-0 whitespace-nowrap",
         {
           "cursor-not-allowed": disabledState,
         },
