@@ -1,0 +1,18 @@
+services:
+  mysql:
+    image: mysql
+    restart: always
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "1"
+      MYSQL_LOG_CONSOLE: "1"
+      MYSQL_INITDB_SKIP_TZINFO: "1" # Including TZ info slows down initialisation quite a bit
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: "fleet"
+    ports:
+      - "3306:3306"
+    command: --sql-mode= --log-bin --binlog-format=ROW --server-id=1 --skip-name-resolve --explicit-defaults-for-timestamp=ON
+    volumes:
+      - mysql:/var/lib/mysql
+
+volumes:
+  mysql:

@@ -1,0 +1,23 @@
+lint:
+  buf lint
+  golangci-lint run -c .golangci.yaml
+
+gen: gen-protos gen-db-queries
+
+gen-protos:
+  buf generate
+
+gen-db-queries:
+  sqlc generate
+
+db-up:
+  docker compose up -d
+
+db-down:
+  docker compose down
+
+db-clean:
+  docker compose down -v
+
+db-shell:
+  mysql -h 127.0.0.1 -u root --database fleet
