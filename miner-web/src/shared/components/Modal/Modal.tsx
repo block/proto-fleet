@@ -27,6 +27,8 @@ interface ModalProps {
   show?: boolean;
   showHeader?: boolean;
   title?: string;
+  description?: string;
+  preventClose?: boolean;
 }
 
 const Modal = ({
@@ -38,6 +40,8 @@ const Modal = ({
   show = true,
   showHeader = true,
   title,
+  description,
+  preventClose,
 }: ModalProps) => {
   const [showModal, setShowModal] = useState(show);
   const ModalRef = useRef<HTMLDivElement>(null);
@@ -101,16 +105,17 @@ const Modal = ({
           <>
             <Header
               title={title}
+              description={description}
               titleSize="text-heading-200"
-              icon={<Dismiss />}
-              iconOnClick={dismissModal}
+              icon={preventClose ? undefined : <Dismiss />}
+              iconOnClick={preventClose ? undefined : dismissModal}
               buttons={buttons?.map((button) => ({
                 ...button,
                 onClick: onButtonClick(button),
               }))}
               inline
             />
-            <Divider className="my-6" />
+            {!preventClose && <Divider className="mt-6" />}
           </>
         )}
         {contentHeader && (

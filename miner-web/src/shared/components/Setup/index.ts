@@ -1,3 +1,4 @@
 import FoundMiners from "./FoundMiners";
+import WelcomeScreen from "./WelcomeScreen";
 
-export default FoundMiners;
+export { WelcomeScreen, FoundMiners };

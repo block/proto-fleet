@@ -1,5 +1,5 @@
 import { useState } from "react";
-import FoundMinersComponent from ".";
+import { FoundMiners as FoundMinersComponent } from ".";
 
 type FoundMinersProps = {
   minersCount: number;
