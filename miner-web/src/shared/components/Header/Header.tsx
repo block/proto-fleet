@@ -23,11 +23,13 @@ interface HeaderProps {
   testId?: string;
   title?: string;
   titleSize?: string;
+  eybrow?: string;
+  description?: string;
 }
 
 const Header = ({
   buttons,
-  buttonSize = sizes.base,
+  buttonSize = sizes.compact,
   centerButton,
   className,
   compact,
@@ -41,6 +43,8 @@ const Header = ({
   testId,
   title,
   titleSize = "text-heading-100",
+  eybrow,
+  description,
 }: HeaderProps) => {
   return (
     <div
@@ -50,7 +54,7 @@ const Header = ({
         className,
       )}
     >
-      <div className={clsx("w-full", { "flex items-center": inline })}>
+      <div className={clsx("w-full", { "flex items-start": inline })}>
         {icon && iconOnClick && (
           <Button
             variant={variants.secondary}
@@ -61,31 +65,34 @@ const Header = ({
           />
         )}
         {icon && !iconOnClick && icon}
-        {title && (
-          <div
-            className={clsx("text-text-primary", titleSize, {
-              "ml-4": (icon || iconOnClick) && inline,
-              "mt-3": (icon || iconOnClick) && !inline,
-              "mb-1": subtitle && !compact,
-            })}
-            data-testid={testId}
-          >
-            {title}
-          </div>
-        )}
-        {subtitle && (
-          <div
-            className={clsx(
-              "text-text-primary-70",
-              { "cursor-help": showSubtitleTooltip },
-              subtitleClassName,
-              subtitleSize,
-            )}
-            title={showSubtitleTooltip ? subtitle : undefined}
-          >
-            {subtitle}
-          </div>
-        )}
+        <div
+          className={clsx("text-text-primary", titleSize, {
+            "ml-4": (icon || iconOnClick) && inline,
+            "mt-3": (icon || iconOnClick) && !inline,
+            "mb-1": subtitle && !compact,
+          })}
+        >
+          {eybrow && (
+            <div className="text-text-primary-70 text-200">{eybrow}</div>
+          )}
+          {title && <div data-testid={testId}>{title}</div>}
+          {subtitle && (
+            <div
+              className={clsx(
+                "text-text-primary-70",
+                { "cursor-help": showSubtitleTooltip },
+                subtitleClassName,
+                subtitleSize,
+              )}
+              title={showSubtitleTooltip ? subtitle : undefined}
+            >
+              {subtitle}
+            </div>
+          )}
+          {description && (
+            <div className="text-text-primary-70 text-300">{description}</div>
+          )}
+        </div>
       </div>
       {buttons && (
         <div className="ml-3">

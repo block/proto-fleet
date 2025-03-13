@@ -14,7 +14,10 @@ const buttons = {
 interface HeaderProps {
   button: keyof typeof buttons;
   hasIcon: boolean;
+  hasEyebrow: boolean;
   hasTitle: boolean;
+  hasSubtitle: boolean;
+  hasDescription: boolean;
   inline: boolean;
   titleSize: string;
 }
@@ -22,7 +25,10 @@ interface HeaderProps {
 export const Header = ({
   button,
   hasIcon,
+  hasEyebrow,
   hasTitle,
+  hasSubtitle,
+  hasDescription,
   inline,
   titleSize,
 }: HeaderProps) => {
@@ -51,20 +57,26 @@ export const Header = ({
       : undefined,
   };
 
+  const eyebrowProps = hasEyebrow ? { eybrow: "Eyebrow" } : {};
   const titleProps = hasTitle ? { title: "Title" } : {};
+  const subtitleProps = hasSubtitle ? { subtitle: "Subtitle" } : {};
+  const descriptionProps = hasDescription ? { description: "Description" } : {};
 
   return (
     <HeaderComponent
       {...iconProps}
       {...buttonProps}
+      {...eyebrowProps}
       {...titleProps}
+      {...subtitleProps}
+      {...descriptionProps}
       titleSize={titleSize}
       inline={inline}
     />
   );
 };
 
-const fontSizes = ["text-heading-100", "text-heading-200"];
+const fontSizes = ["text-heading-100", "text-heading-200", "text-heading-300"];
 
 export default {
   title: "Components (Shared)/Header",
@@ -72,14 +84,20 @@ export default {
   args: {
     button: buttons.both,
     hasIcon: true,
+    hasEyebrow: true,
     hasTitle: true,
+    hasSubtitle: true,
+    hasDescription: true,
     inline: true,
     titleSize: "text-heading-200",
   },
   argTypes: {
     button: { control: "select", options: Object.keys(buttons) },
     hasIcon: { control: "boolean" },
+    hasEyebrow: { control: "boolean" },
     hasTitle: { control: "boolean" },
+    hasSubtitle: { control: "boolean" },
+    hasDescription: { control: "boolean" },
     inline: { control: "boolean" },
     titleSize: { control: "select", options: fontSizes },
   },
