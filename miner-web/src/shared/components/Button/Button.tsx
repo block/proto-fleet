@@ -28,7 +28,7 @@ const Button = ({
   loading,
   onClick,
   prefixIcon,
-  size,
+  size = "base",
   suffixIcon,
   testId,
   text,

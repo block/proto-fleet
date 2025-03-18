@@ -66,7 +66,7 @@ const Header = ({
         )}
         {icon && !iconOnClick && icon}
         <div
-          className={clsx("text-text-primary", titleSize, {
+          className={clsx("text-text-primary", {
             "ml-4": (icon || iconOnClick) && inline,
             "mt-3": (icon || iconOnClick) && !inline,
             "mb-1": subtitle && !compact,
@@ -75,7 +75,11 @@ const Header = ({
           {eybrow && (
             <div className="text-text-primary-70 text-200">{eybrow}</div>
           )}
-          {title && <div data-testid={testId}>{title}</div>}
+          {title && (
+            <div className={titleSize} data-testid={testId}>
+              {title}
+            </div>
+          )}
           {subtitle && (
             <div
               className={clsx(
