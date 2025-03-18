@@ -37,7 +37,7 @@ export const TempWidget = ({
 };
 
 export default {
-  title: "Components (protoOS)/Info Widgets/Temp Widget",
+  title: "protoOS/Info Widgets/Temp Widget",
   args: {
     hasTemp: true,
     hashboardNumber: 3,

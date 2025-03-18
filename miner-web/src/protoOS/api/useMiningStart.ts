@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 
@@ -49,10 +49,7 @@ const useMiningStart = () => {
     [authTokens.accessToken.value, handleAuthErrors, api],
   );
 
-  return {
-    pending,
-    startMining,
-  };
+  return useMemo(() => ({ pending, startMining }), [pending, startMining]);
 };
 
 export { useMiningStart };

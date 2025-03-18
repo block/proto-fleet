@@ -41,9 +41,7 @@ const useRefresh = () => {
     [authTokens, setAuthTokens, api],
   );
 
-  return {
-    refresh,
-  };
+  return refresh;
 };
 
 export { useRefresh };

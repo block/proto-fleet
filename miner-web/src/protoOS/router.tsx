@@ -1,10 +1,17 @@
-import { createBrowserRouter } from "react-router-dom";
+import { createBrowserRouter, redirect } from "react-router-dom";
 
-import Home from "./pages/Home";
+import OldHome from "./pages/Home";
 import Logs from "./pages/MinerLogs";
 import MiningPools from "./pages/Settings/MiningPools";
-import Temperature from "./pages/Temperature";
+import OldTemperature from "./pages/Temperature";
 import App from "@/protoOS/components/App";
+import {
+  Efficiency,
+  Hashrate,
+  KpiLayout,
+  PowerUsage,
+  Temperature,
+} from "@/protoOS/features/kpis";
 import Auth from "@/protoOS/pages/Auth";
 import Onboarding from "@/protoOS/pages/Onboarding";
 
@@ -13,27 +20,49 @@ export const routerConfig = [
     path: "",
     element: (
       <App title="Home">
-        <Home />
+        <KpiLayout />
       </App>
     ),
+    children: [
+      {
+        index: true,
+        loader: () => redirect("hashrate"),
+      },
+      {
+        path: "hashrate",
+        element: <Hashrate />,
+      },
+      {
+        path: "efficiency",
+        element: <Efficiency />,
+      },
+      {
+        path: "power-usage",
+        element: <PowerUsage />,
+      },
+      {
+        path: "temperature",
+        element: <Temperature />,
+      },
+    ],
   },
   {
     path: "auth",
     element: <Auth />,
   },
   {
-    path: "temperature",
+    path: "old-temperature",
     element: (
       <App title="Temperature">
-        <Temperature />
+        <OldTemperature />
       </App>
     ),
   },
   {
-    path: "home",
+    path: "old-home",
     element: (
       <App title="Home">
-        <Home />
+        <OldHome />
       </App>
     ),
   },

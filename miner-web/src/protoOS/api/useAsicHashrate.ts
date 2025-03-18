@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { GetAsicHashrateParams, HashrateResponseHashratedata } from "./types";
 import { usePoll } from "./usePoll";
@@ -65,11 +65,12 @@ const useAsicHashrate = ({
     poll,
   });
 
-  return {
-    pending,
-    error,
-    data,
-  };
+  const response = useMemo(
+    () => ({ pending, error, data }),
+    [pending, error, data],
+  );
+
+  return response;
 };
 
 export { useAsicHashrate };

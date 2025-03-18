@@ -39,7 +39,7 @@ export const NavigationSidebar = ({
 };
 
 export default {
-  title: "Components (ProtoOS)/Navigation Sidebar",
+  title: "protoOS/Navigation Sidebar",
   args: {
     hasMacAddress: true,
     hasVersion: true,

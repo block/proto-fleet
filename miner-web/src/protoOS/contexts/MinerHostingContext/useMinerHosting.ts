@@ -1,8 +1,11 @@
-import { useContext } from "react";
+import { useContext, useMemo } from "react";
 import MinerHostingContext from "./MinerHostingContext";
 
 export const useMinerHosting = () => {
   const { api, minerRoot, closeButton } = useContext(MinerHostingContext);
 
-  return { api, minerRoot, closeButton };
+  return useMemo(
+    () => ({ api, minerRoot, closeButton }),
+    [api, minerRoot, closeButton],
+  );
 };

@@ -50,9 +50,7 @@ const useLogin = () => {
     [setAuthTokens, api],
   );
 
-  return {
-    login,
-  };
+  return login;
 };
 
 export { useLogin };

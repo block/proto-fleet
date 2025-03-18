@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { EfficiencyResponseEfficiencydata } from "./types";
 import { usePoll } from "./usePoll";
@@ -39,11 +39,12 @@ const useEfficiency = ({ duration, poll }: UseEfficiencyProps) => {
     poll,
   });
 
-  return {
-    pending,
-    error,
-    data,
-  };
+  const response = useMemo(
+    () => ({ pending, error, data }),
+    [pending, error, data],
+  );
+
+  return response;
 };
 
 export { useEfficiency };

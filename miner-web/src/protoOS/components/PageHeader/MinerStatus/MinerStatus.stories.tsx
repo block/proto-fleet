@@ -42,7 +42,7 @@ export const MinerStatus = ({
 };
 
 export default {
-  title: "Components (protoOS)/Page Header/Miner Status",
+  title: "protoOS/Page Header/Miner Status",
   args: storyArgs,
   argTypes: storyArgTypes,
   decorators: [

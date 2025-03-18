@@ -9,7 +9,7 @@ export const Bar = ({ intensity }: BarProps) => (
 );
 
 export default {
-  title: "Components (protoOS)/Info Widgets/Bar",
+  title: "protoOS/Info Widgets/Bar",
   args: {
     intensity: 5,
   },

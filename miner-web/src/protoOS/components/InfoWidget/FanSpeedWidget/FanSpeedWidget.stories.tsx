@@ -28,7 +28,7 @@ export const FanSpeedWidget = ({
 };
 
 export default {
-  title: "Components (protoOS)/Info Widgets/Fan Speed Widget",
+  title: "protoOS/Info Widgets/Fan Speed Widget",
   args: {
     fanSpeeds: [{ rpm: 1050 }, { rpm: 3049 }, { rpm: 6800 }, { rpm: 6730 }],
     numberOfFans: 4,

@@ -43,6 +43,8 @@ export const convertMhSToThS = (value: number = 0) => value / 1000000;
 
 export const convertWtoKW = (value: number = 0) => value / 1000;
 
+export const convertCtoF = (value: number = 0) => (value * 9) / 5 + 32;
+
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 export const getRowLabel = (row: number) => {

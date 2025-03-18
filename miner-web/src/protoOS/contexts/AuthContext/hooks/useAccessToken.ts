@@ -4,7 +4,7 @@ import { useAuthContext } from "./useAuthContext";
 import { useRefresh } from "@/protoOS/api";
 
 const useAccessToken = (shouldCheckAccess = true) => {
-  const { refresh } = useRefresh();
+  const refresh = useRefresh();
   const { authTokens, setShowLoginModal } = useAuthContext();
 
   // returns undefined if access is not needed

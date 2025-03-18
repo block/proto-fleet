@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { CoolingStatusCoolingstatus } from "./types";
 import { usePoll } from "./usePoll";
@@ -36,11 +36,7 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
     poll,
   });
 
-  return {
-    pending,
-    error,
-    data,
-  };
+  return useMemo(() => ({ pending, error, data }), [pending, error, data]);
 };
 
 export { useCoolingStatus };

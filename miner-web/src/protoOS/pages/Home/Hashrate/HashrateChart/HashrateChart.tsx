@@ -134,7 +134,7 @@ const HashrateChart = ({
         />
         {!!tooltipData.payload.length && (
           <>
-            {hashrate1.length && <Line {...LineProps} {...Hashrate1Props} />}
+            {/* {hashrate1.length && <Line {...LineProps} {...Hashrate1Props} />} */}
             {hashrate1.length && (
               <Line
                 {...LineProps}
@@ -143,7 +143,7 @@ const HashrateChart = ({
                 strokeOpacity={0.5}
               />
             )}
-            {hashrate2.length && <Line {...LineProps} {...Hashrate2Props} />}
+            {/* {hashrate2.length && <Line {...LineProps} {...Hashrate2Props} />} */}
             {hashrate2.length && (
               <Line
                 {...LineProps}
@@ -152,7 +152,7 @@ const HashrateChart = ({
                 strokeOpacity={0.5}
               />
             )}
-            {hashrate3.length && <Line {...LineProps} {...Hashrate3Props} />}
+            {/* {hashrate3.length && <Line {...LineProps} {...Hashrate3Props} />} */}
             {hashrate3.length && (
               <Line
                 {...LineProps}

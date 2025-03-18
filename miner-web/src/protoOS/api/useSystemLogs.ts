@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { LogsResponseLogs } from "./types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
@@ -36,12 +36,12 @@ const useSystemLogs = () => {
     [api],
   );
 
-  return {
-    fetchData,
-    pending,
-    error,
-    data,
-  };
+  const response = useMemo(
+    () => ({ fetchData, pending, error, data }),
+    [fetchData, pending, error, data],
+  );
+
+  return response;
 };
 
 export { useSystemLogs };

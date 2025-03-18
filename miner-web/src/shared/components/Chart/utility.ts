@@ -73,6 +73,20 @@ export const getAxisTickOffset = ({
   return xOffset;
 };
 
+/**
+ * Aggregates time series data points into time buckets and calculates the average value for each bucket.
+ *
+ * @param {TimeSeriesData[]} dataToAggregate - Array of time series data points to aggregate. Each point should have datetime and value properties.
+ * @param {number} compareTimeMinutes - Time interval in minutes that defines the size of each time bucket.
+ * @returns {TimeSeriesData[]} - Array of aggregated time series data with averaged values.
+ *
+ * @description
+ * The function works by:
+ * 1. Creating time buckets based on the specified interval (compareTimeMinutes)
+ * 2. Grouping data points that fall within the same time bucket
+ * 3. Calculating the average value for each bucket by summing values and dividing by count
+ * 4. Returns a new array with the same datetime as the first point in each bucket and the average value
+ */
 export const aggregateValues = (
   dataToAggregate: TimeSeriesData[] = [],
   compareTimeMinutes: number,

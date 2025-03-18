@@ -38,5 +38,5 @@ export const PowerWidget = () => {
 };
 
 export default {
-  title: "Components (protoOS)/Page Header/Power Widget",
+  title: "protoOS/Page Header/Power Widget",
 };

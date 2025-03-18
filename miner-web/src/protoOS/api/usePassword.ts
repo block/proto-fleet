@@ -30,9 +30,7 @@ const usePassword = () => {
     [api],
   );
 
-  return {
-    setPassword,
-  };
+  return setPassword;
 };
 
 export { usePassword };

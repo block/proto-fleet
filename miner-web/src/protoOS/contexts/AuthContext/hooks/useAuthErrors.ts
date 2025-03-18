@@ -12,7 +12,7 @@ interface HandleAuthErrorsProps {
 
 const useAuthErrors = () => {
   const { authTokens, setAuthTokens, setShowLoginModal } = useAuthContext();
-  const { refresh } = useRefresh();
+  const refresh = useRefresh();
 
   const handleAuthErrors = useCallback(
     ({ error, onError, onSuccess }: HandleAuthErrorsProps) => {

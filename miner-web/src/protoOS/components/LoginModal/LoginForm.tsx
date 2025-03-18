@@ -32,7 +32,7 @@ const LoginForm = ({
   const [values, setValues] = useState<Values>(deepClone(initValues));
   const [errors, setErrors] = useState<Values>(deepClone(initValues));
   const [apiError, setApiError] = useState<string | null>(null);
-  const { login } = useLogin();
+  const login = useLogin();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleChange = useCallback(

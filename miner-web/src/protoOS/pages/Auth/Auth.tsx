@@ -28,8 +28,8 @@ const Auth = () => {
     show: false,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { setPassword } = usePassword();
-  const { login } = useLogin();
+  const setPassword = usePassword();
+  const login = useLogin();
   const navigate = useNavigate();
 
   const validate = useCallback(() => {

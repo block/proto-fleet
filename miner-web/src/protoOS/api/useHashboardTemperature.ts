@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { TemperatureResponseTemperaturedata } from "./types";
 import { usePoll } from "./usePoll";
@@ -53,11 +53,7 @@ const useHashboardTemperature = ({
     poll,
   });
 
-  return {
-    pending,
-    error,
-    data,
-  };
+  return useMemo(() => ({ pending, error, data }), [pending, error, data]);
 };
 
 export { useHashboardTemperature };

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { TestConnection } from "./types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
@@ -14,29 +14,27 @@ const useTestConnection = () => {
   const { api } = useMinerHosting();
   const [pending, setPending] = useState(false);
 
-  const testConnection = ({
-    poolInfo,
-    onSuccess,
-    onError,
-    onFinally,
-  }: TestConnectionProps) => {
-    if (!api) return;
+  const testConnection = useCallback(
+    ({ poolInfo, onSuccess, onError, onFinally }: TestConnectionProps) => {
+      if (!api) return;
 
-    setPending(true);
-    api
-      .testPoolConnection(poolInfo)
-      .then(() => onSuccess?.())
-      .catch(() => onError?.())
-      .finally(() => {
-        setPending(false);
-        onFinally?.();
-      });
-  };
+      setPending(true);
+      api
+        .testPoolConnection(poolInfo)
+        .then(() => onSuccess?.())
+        .catch(() => onError?.())
+        .finally(() => {
+          setPending(false);
+          onFinally?.();
+        });
+    },
+    [api],
+  );
 
-  return {
-    pending,
-    testConnection,
-  };
+  return useMemo(
+    () => ({ pending, testConnection }),
+    [pending, testConnection],
+  );
 };
 
 export { useTestConnection };

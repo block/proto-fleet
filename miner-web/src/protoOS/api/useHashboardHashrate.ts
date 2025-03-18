@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { HashrateResponseHashratedata } from "./types";
+import type { ErrorResponse, HashrateResponseHashratedata } from "./types";
 import { usePoll } from "./usePoll";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 
 interface UseHashboardHashrateProps {
   duration: HashrateResponseHashratedata["duration"];
-  hashboardSerial: string;
+  hashboardSerial: string | string[];
   poll?: boolean;
 }
+
+type MultipleHashrateResponseHashratedata = {
+  [key: string]: HashrateResponseHashratedata;
+};
 
 const useHashboardHashrate = ({
   duration,
@@ -17,26 +21,56 @@ const useHashboardHashrate = ({
 }: UseHashboardHashrateProps) => {
   const { api } = useMinerHosting();
 
-  const [data, setData] = useState<HashrateResponseHashratedata>();
-  const [error, setError] = useState<string>();
+  const [data, setData] = useState<
+    HashrateResponseHashratedata | MultipleHashrateResponseHashratedata
+  >();
+  const [errors, setErrors] = useState<string[]>([]);
   const [pending, setPending] = useState<boolean>(false);
   const [params, setParams] = useState({ duration, hashboardSerial });
 
-  const fetchData = useCallback(() => {
-    if (!hashboardSerial || !api) return;
-    setPending(true);
-    api
-      .getHashboardHashrate({ hbSn: hashboardSerial, duration })
-      .then((res) => {
-        setData(res?.data["hashrate-data"]);
-      })
-      .catch((err) => {
-        setError(err?.error?.message ?? err);
-      })
-      .finally(() => {
-        setPending(false);
-      });
-  }, [duration, hashboardSerial, api]);
+  const fetchSingle = useCallback(
+    async (serial: string) => {
+      if (!hashboardSerial || !api) return;
+      setPending(true);
+
+      try {
+        const res = await api.getHashboardHashrate({ hbSn: serial, duration });
+        return res?.data["hashrate-data"];
+      } catch (err) {
+        const error = err as ErrorResponse;
+        setErrors((prev) => [
+          ...prev,
+          error?.error?.message ?? error.toString(),
+        ]);
+      }
+    },
+    [duration, api, hashboardSerial],
+  );
+
+  const fetchData = useCallback(async () => {
+    if (typeof hashboardSerial === "string") {
+      const hashRateData = await fetchSingle(hashboardSerial);
+      setData(hashRateData);
+      setPending(false);
+      return;
+    }
+
+    const fetchPromises = hashboardSerial.map(async (serial) => {
+      const hashRateData = await fetchSingle(serial);
+      return { serial, hashRateData };
+    });
+
+    Promise.all(fetchPromises).then((results) => {
+      // Update the data state with all results at once
+      const newData = results.reduce((acc, { serial, hashRateData }) => {
+        if (!hashRateData) return acc;
+        return { ...acc, [serial]: hashRateData };
+      }, {});
+
+      setData((prev) => ({ ...prev, ...newData }));
+      setPending(false);
+    });
+  }, [fetchSingle, hashboardSerial]);
 
   useEffect(() => {
     if (
@@ -53,11 +87,12 @@ const useHashboardHashrate = ({
     poll,
   });
 
-  return {
-    pending,
-    error,
-    data,
-  };
+  const response = useMemo(
+    () => ({ pending, errors, data }),
+    [pending, errors, data],
+  );
+
+  return response;
 };
 
 export { useHashboardHashrate };

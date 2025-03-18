@@ -56,23 +56,25 @@ const ErrorCallout = ({ errors }: ErrorCalloutProps) => {
   const title = useMemo(() => getErrorTitle(errors), [errors]);
 
   return (
-    <div className="mb-10">
+    <>
       {(hasErrors || hasWarnings) && (
-        <Callout
-          buttonOnClick={() => setShowModal(true)}
-          buttonText="View details"
-          intent={intents.information}
-          prefixIcon={prefixIcon}
-          title={title}
-        />
+        <div className="mb-10">
+          <Callout
+            buttonOnClick={() => setShowModal(true)}
+            buttonText="View details"
+            intent={intents.information}
+            prefixIcon={prefixIcon}
+            title={title}
+          />
+          {showModal && (
+            <MinerStatusModal
+              errors={errors}
+              onDismiss={() => setShowModal(false)}
+            />
+          )}
+        </div>
       )}
-      {showModal && (
-        <MinerStatusModal
-          errors={errors}
-          onDismiss={() => setShowModal(false)}
-        />
-      )}
-    </div>
+    </>
   );
 };
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { SystemStatuses } from "./types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
@@ -26,11 +26,7 @@ const useSystemStatus = () => {
       });
   }, [api]);
 
-  return {
-    pending,
-    error,
-    data,
-  };
+  return useMemo(() => ({ pending, error, data }), [pending, error, data]);
 };
 
 export { useSystemStatus };

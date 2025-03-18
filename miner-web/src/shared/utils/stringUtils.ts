@@ -20,7 +20,8 @@ export const getDisplayValue = (value?: number | string | null) => {
   if (value === undefined || value === null) return;
 
   const numberValue = +value;
-  if (typeof numberValue !== "number") return value;
+
+  if (isNaN(numberValue)) return value;
 
   const twoDecimalPlaces = numberValue.toFixed(2);
   const [integer, decimal] = twoDecimalPlaces.split(".");

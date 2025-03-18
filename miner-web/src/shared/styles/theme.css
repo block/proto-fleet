@@ -10,7 +10,7 @@
   --base_gray_5: 242 242 242; /* #F2F2F2 */
   --base_green_100: 56 166 0; /* #38A600 */
   --base_light_green_100: 157 211 26; /* #9DD31A */
-  --base_indigo_100: 120 62 237;  /* #783EED */
+  --base_indigo_100: 120 62 237; /* #783EED */
   --base_orange_100: 254 124 0; /* #FE7C00 */
   --base_red_100: 250 43 55; /* #FA2B37 */
   --base_white_100: 255 255 255; /* #FFFFFF */
@@ -135,10 +135,22 @@ WOuld be best to switch over to mobile first stying  */
   --color-grayscale-gray-10: rgb(var(--base_black_100) / 10%);
   --color-grayscale-gray-5: rgb(var(--base_black_100) / 5%);
   --color-elevation-50: 0px 0px 1px 0px rgba(var(--base_black_100) / 0.37);
-  --color-elevation-100: 0px 4px 24px 0px rgba(var(--base_black_100) / 0.02), 0px 4px 8px 0px rgba(var(--base_black_100) / 0.02), 0px 2px 4px 0px rgba(var(--base_black_100) / 0.02), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.20);
-  --color-elevation-200: 0px 12px 32px 0px rgba(var(--base_black_100) / 0.04), 0px 8px 16px 0px rgba(var(--base_black_100) / 0.02), 0px 2px 4px 0px rgba(var(--base_black_100) / 0.04), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.20);
-  --color-elevation-300: 0px 16px 40px 0px rgba(var(--base_black_100) / 0.04), 0px 24px 32px 0px rgba(var(--base_black_100) / 0.02), 0px 4px 8px 0px rgba(var(--base_black_100) / 0.04), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.30);
-  
+  --color-elevation-100:
+    0px 4px 24px 0px rgba(var(--base_black_100) / 0.02),
+    0px 4px 8px 0px rgba(var(--base_black_100) / 0.02),
+    0px 2px 4px 0px rgba(var(--base_black_100) / 0.02),
+    0px 0px 1px 0px rgba(var(--base_black_100) / 0.2);
+  --color-elevation-200:
+    0px 12px 32px 0px rgba(var(--base_black_100) / 0.04),
+    0px 8px 16px 0px rgba(var(--base_black_100) / 0.02),
+    0px 2px 4px 0px rgba(var(--base_black_100) / 0.04),
+    0px 0px 1px 0px rgba(var(--base_black_100) / 0.2);
+  --color-elevation-300:
+    0px 16px 40px 0px rgba(var(--base_black_100) / 0.04),
+    0px 24px 32px 0px rgba(var(--base_black_100) / 0.02),
+    0px 4px 8px 0px rgba(var(--base_black_100) / 0.04),
+    0px 0px 1px 0px rgba(var(--base_black_100) / 0.3);
+
   /* Typography */
   --font-*: initial;
   --font-body: "Inter", sans-serif;
@@ -332,10 +344,22 @@ WOuld be best to switch over to mobile first stying  */
     --color-grayscale-gray-20: rgb(var(--base_black_100) / 20%);
     --color-grayscale-gray-10: rgb(var(--base_black_100) / 10%);
     --color-grayscale-gray-5: rgb(var(--base_black_100) / 5%);
-    --color-elevation-50: 0px 0px 1px 0px rgba(var(--base_white_100) / 0.50);
-    --color-elevation-100: 0px 4px 24px 0px rgba(var(--base_black_100) / 0.16), 0px 4px 8px 0px rgba(var(--base_black_100) / 0.16), 0px 2px 4px 0px rgba(var(--base_black_100) / 0.16), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.16);
-    --color-elevation-200: 0px 12px 32px 0px rgba(var(--base_black_100) / 0.24), 0px 8px 16px 0px rgba(var(--base_black_100) / 0.16), 0px 2px 4px 0px rgba(var(--base_black_100) / 0.08), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.24);
-    --color-elevation-300: 0px 16px 40px 0px rgba(var(--base_black_100) / 0.32), 0px 24px 32px 0px rgba(var(--base_black_100) / 0.16), 0px 4px 8px 0px rgba(var(--base_black_100) / 0.04), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.3);
+    --color-elevation-50: 0px 0px 1px 0px rgba(var(--base_white_100) / 0.5);
+    --color-elevation-100:
+      0px 4px 24px 0px rgba(var(--base_black_100) / 0.16),
+      0px 4px 8px 0px rgba(var(--base_black_100) / 0.16),
+      0px 2px 4px 0px rgba(var(--base_black_100) / 0.16),
+      0px 0px 1px 0px rgba(var(--base_black_100) / 0.16);
+    --color-elevation-200:
+      0px 12px 32px 0px rgba(var(--base_black_100) / 0.24),
+      0px 8px 16px 0px rgba(var(--base_black_100) / 0.16),
+      0px 2px 4px 0px rgba(var(--base_black_100) / 0.08),
+      0px 0px 1px 0px rgba(var(--base_black_100) / 0.24);
+    --color-elevation-300:
+      0px 16px 40px 0px rgba(var(--base_black_100) / 0.32),
+      0px 24px 32px 0px rgba(var(--base_black_100) / 0.16),
+      0px 4px 8px 0px rgba(var(--base_black_100) / 0.04),
+      0px 0px 1px 0px rgba(var(--base_black_100) / 0.3);
   }
 
   /* breaking change from tailwind 3 to 4 */

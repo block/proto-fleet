@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { HashboardsInfoHashboardsinfo } from "./types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
@@ -26,11 +26,7 @@ const useHashboards = () => {
       });
   }, [api]);
 
-  return {
-    pending,
-    error,
-    data,
-  };
+  return useMemo(() => ({ pending, error, data }), [pending, error, data]);
 };
 
 export { useHashboards };

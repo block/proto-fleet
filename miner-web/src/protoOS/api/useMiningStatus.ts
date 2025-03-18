@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { MiningStatusMiningstatus } from "@/protoOS/api/types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
@@ -34,12 +34,10 @@ const useMiningStatus = () => {
     [api],
   );
 
-  return {
-    fetchData,
-    data,
-    pending,
-    error,
-  };
+  return useMemo(
+    () => ({ fetchData, data, pending, error }),
+    [fetchData, data, pending, error],
+  );
 };
 
 export { useMiningStatus };

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { HashboardStatsHashboardstats } from "./types";
 import { usePoll } from "./usePoll";
@@ -41,11 +41,7 @@ const useHashboardStats = ({
     poll,
   });
 
-  return {
-    pending,
-    error,
-    data,
-  };
+  return useMemo(() => ({ pending, error, data }), [pending, error, data]);
 };
 
 export { useHashboardStats };

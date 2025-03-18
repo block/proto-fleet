@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { Pool } from "./types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
@@ -63,12 +63,10 @@ const usePoolsInfo = () => {
     [api],
   );
 
-  return {
-    fetchData,
-    pending,
-    error,
-    data,
-  };
+  return useMemo(
+    () => ({ fetchData, pending, error, data }),
+    [fetchData, pending, error, data],
+  );
 };
 
 export { usePoolsInfo };

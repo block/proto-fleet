@@ -62,7 +62,7 @@ export const InfoWidgets = ({
 };
 
 export default {
-  title: "Components (protoOS)/Info Widgets",
+  title: "protoOS/Info Widgets",
   args: {
     hasBorder: true,
     loading: false,

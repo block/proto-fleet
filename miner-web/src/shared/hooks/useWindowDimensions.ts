@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const getWindowDimensions = () => ({
   width: window.innerWidth,
@@ -19,14 +19,17 @@ const useWindowDimensions = () => {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  return {
-    height: windowDimensions.height,
-    width: windowDimensions.width,
-    isDesktop: windowDimensions.width >= 1280,
-    isLaptop: windowDimensions.width >= 960 && windowDimensions.width < 1280,
-    isTablet: windowDimensions.width >= 632 && windowDimensions.width < 960,
-    isPhone: windowDimensions.width < 632,
-  };
+  return useMemo(
+    () => ({
+      height: windowDimensions.height,
+      width: windowDimensions.width,
+      isDesktop: windowDimensions.width >= 1280,
+      isLaptop: windowDimensions.width >= 960 && windowDimensions.width < 1280,
+      isTablet: windowDimensions.width >= 632 && windowDimensions.width < 960,
+      isPhone: windowDimensions.width < 632,
+    }),
+    [windowDimensions.height, windowDimensions.width],
+  );
 };
 
 export { useWindowDimensions };

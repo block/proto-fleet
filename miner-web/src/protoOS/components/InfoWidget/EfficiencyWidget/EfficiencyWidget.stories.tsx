@@ -41,7 +41,7 @@ export const EfficiencyWidget = ({
 };
 
 export default {
-  title: "Components (protoOS)/Info Widgets/Efficiency Widget",
+  title: "protoOS/Info Widgets/Efficiency Widget",
   args: {
     duration: "12h",
     hasEfficiency: true,

@@ -1,4 +1,5 @@
 import { Rectangle } from "recharts";
+import useCssVariable from "@/shared/hooks/useCssVariable";
 
 interface LineCursorProps {
   points?: { x: number }[];
@@ -7,6 +8,8 @@ interface LineCursorProps {
 
 const LineCursor = (props: LineCursorProps) => {
   const { points, height } = props;
+  const color = useCssVariable({ variable: "--color-core-primary-fill" });
+
   return (
     <g>
       <defs>
@@ -19,8 +22,8 @@ const LineCursor = (props: LineCursorProps) => {
           gradientUnits="userSpaceOnUse"
         >
           <stop stopOpacity="0" />
-          <stop offset="0.5" stopOpacity="0.5" />
-          <stop offset="1" stopOpacity="0" />
+          <stop offset="0.5" stopOpacity="0.5" stopColor={color} />
+          <stop offset="1" stopOpacity="0" stopColor={color} />
         </linearGradient>
       </defs>
       <Rectangle

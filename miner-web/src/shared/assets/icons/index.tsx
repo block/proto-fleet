@@ -12,6 +12,7 @@ import Eye from "./Eye";
 import Fleet from "./Fleet";
 import Graph from "./Graph";
 import Grip from "./Grip";
+import HashboardIndicator from "./HashboardIndicator";
 import Home from "./Home";
 import Info from "./Info";
 import InfoInverted from "./InfoInverted";
@@ -47,6 +48,7 @@ export {
   Fleet,
   Graph,
   Grip,
+  HashboardIndicator,
   Home,
   type IconProps,
   Info,

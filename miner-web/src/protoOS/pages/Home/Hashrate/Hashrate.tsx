@@ -28,19 +28,28 @@ const Hashrate = ({
   const [hashrate2, setHashrate2] = useState<Hashrates>([]);
   const [hashrate3, setHashrate3] = useState<Hashrates>([]);
 
-  const { data: hashrate1Data, pending: pendingHashrate1Data } =
+  const {
+    data: hashrate1Data,
+    pending: pendingHashrate1Data,
+  }: { data?: HashrateResponseHashratedata; pending: boolean } =
     useHashboardHashrate({
       duration,
       hashboardSerial: hashboardSerials[0],
       poll: true,
     });
-  const { data: hashrate2Data, pending: pendingHashrate2Data } =
+  const {
+    data: hashrate2Data,
+    pending: pendingHashrate2Data,
+  }: { data?: HashrateResponseHashratedata; pending: boolean } =
     useHashboardHashrate({
       duration,
       hashboardSerial: hashboardSerials[1],
       poll: true,
     });
-  const { data: hashrate3Data, pending: pendingHashrate3Data } =
+  const {
+    data: hashrate3Data,
+    pending: pendingHashrate3Data,
+  }: { data?: HashrateResponseHashratedata; pending: boolean } =
     useHashboardHashrate({
       duration,
       hashboardSerial: hashboardSerials[2],
@@ -98,9 +107,9 @@ const Hashrate = ({
   const currentValue = getDisplayValue(
     hashrates?.[hashrates.length - 1]?.value,
   );
-  const averageValue = getDisplayValue(aggregates?.avg);
-  const lowestValue = getDisplayValue(aggregates?.min);
-  const highestValue = getDisplayValue(aggregates?.max);
+  const averageValue = getDisplayValue(aggregates?.avg || 0);
+  const lowestValue = getDisplayValue(aggregates?.min || 0);
+  const highestValue = getDisplayValue(aggregates?.max || 0);
 
   return (
     <div className="space-y-6">
@@ -140,7 +149,7 @@ const Hashrate = ({
             hashrate2={hashrate2}
             hashrate3={hashrate3}
             hashrates={hashrates}
-            highestValue={highestValue}
+            highestValue={highestValue ? +highestValue : undefined}
           />
         ) : (
           <div className="flex justify-center items-center h-full">

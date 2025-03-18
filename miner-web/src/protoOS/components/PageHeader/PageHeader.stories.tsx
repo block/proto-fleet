@@ -8,7 +8,7 @@ export const PageHeader = () => {
 };
 
 export default {
-  title: "Components (protoOS)/Page Header",
+  title: "protoOS/Page Header",
   decorators: [
     (Story: ElementType) => (
       <MemoryRouter>

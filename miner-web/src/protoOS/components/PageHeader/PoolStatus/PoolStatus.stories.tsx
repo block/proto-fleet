@@ -55,7 +55,7 @@ export const PoolStatus = ({
 };
 
 export default {
-  title: "Components (protoOS)/Page Header/Pool Status",
+  title: "protoOS/Page Header/Pool Status",
   args: {
     loading: false,
     numberOfPools: 3,

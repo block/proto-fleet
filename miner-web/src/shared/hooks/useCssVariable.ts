@@ -20,7 +20,7 @@ type UseCssVariableOptions = {
  */
 const useCssVariable = ({
   variable,
-  scope = document.documentElement,
+  scope = document.body,
   transform,
 }: UseCssVariableOptions) => {
   const value = useMemo(() => {

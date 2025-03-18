@@ -44,7 +44,7 @@ export const PowerUsageWidget = ({
 };
 
 export default {
-  title: "Components (protoOS)/Info Widgets/Power Usage Widget",
+  title: "protoOS/Info Widgets/Power Usage Widget",
   args: {
     duration: "12h",
     hasPowerUsage: true,

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 
@@ -49,10 +49,7 @@ const useSystemReboot = () => {
     [authTokens.accessToken.value, handleAuthErrors, api],
   );
 
-  return {
-    pending,
-    rebootSystem,
-  };
+  return useMemo(() => ({ pending, rebootSystem }), [pending, rebootSystem]);
 };
 
 export { useSystemReboot };
