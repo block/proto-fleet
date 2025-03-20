@@ -3,6 +3,7 @@ import { Dispatch, SetStateAction } from "react";
 import { getAsicsRows } from "../utility";
 import AsicButton from "./AsicButton";
 import { AsicStats, GetAsicHashrateParams } from "@/protoOS/api/types";
+import { PopoverProvider } from "@/shared/components/Popover";
 import Spinner from "@/shared/components/Spinner";
 import { getRowLabel } from "@/shared/utils/utility";
 
@@ -67,15 +68,16 @@ const AsicTable = ({
                   {asics
                     .filter((asic) => asic.row === row)
                     .map((asic) => (
-                      <AsicButton
-                        asic={asic}
-                        duration={duration}
-                        granularity={granularity}
-                        hashboardSerial={hashboardSerialNumber}
-                        showPopover={showPopover}
-                        setShowPopover={setShowPopover}
-                        key={`asic-${asic.row}-${asic.column}`}
-                      />
+                      <PopoverProvider key={`asic-${asic.row}-${asic.column}`}>
+                        <AsicButton
+                          asic={asic}
+                          duration={duration}
+                          granularity={granularity}
+                          hashboardSerial={hashboardSerialNumber}
+                          showPopover={showPopover}
+                          setShowPopover={setShowPopover}
+                        />
+                      </PopoverProvider>
                     ))}
                 </div>
               ))}

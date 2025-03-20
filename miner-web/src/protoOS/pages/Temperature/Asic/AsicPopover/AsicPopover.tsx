@@ -3,6 +3,7 @@ import { ChartData } from "./AsicChart/types";
 import AsicPopoverRow from "./AsicPopoverRow";
 import { AsicStats } from "@/protoOS/api/types";
 import Popover from "@/shared/components/Popover";
+import { minimalMargin } from "@/shared/components/Popover/constants.ts";
 import Spinner from "@/shared/components/Spinner";
 import { positions } from "@/shared/constants";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
@@ -27,8 +28,9 @@ const AsicPopover = ({
 }: AsicPopoverProps) => {
   return (
     <Popover
-      position={positions["top right"]}
-      className="mb-[58px] -left-[115px] pb-3 phone:left-0 phone:top-0 phone:mb-0 h-fit"
+      className="pb-3 h-fit"
+      position={positions.top}
+      offset={minimalMargin * 3}
     >
       <div className="space-y-1">
         <div className="text-200 text-text-primary-70">ASIC</div>

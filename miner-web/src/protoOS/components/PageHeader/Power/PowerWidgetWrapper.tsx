@@ -16,6 +16,7 @@ import {
   formatLogType,
   getExportLink,
 } from "@/protoOS/pages/MinerLogs/utility";
+import { PopoverProvider } from "@/shared/components/Popover";
 
 interface PowerWidgetWrapperProps {
   shouldShowPopover?: boolean;
@@ -125,20 +126,22 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
   };
 
   return (
-    <PowerWidget
-      linkRef={linkRef}
-      miningStatus={isMiningStatusStale ? {} : miningStatus}
-      onReboot={handleReboot}
-      rebootError={rebootSystemError}
-      onSleep={handleSleep}
-      sleepError={stopMiningError}
-      onWake={handleWake}
-      wakeError={startMiningError}
-      afterReboot={handleAfterReboot}
-      afterSleep={handleClear}
-      afterWake={handleClear}
-      shouldShowPopover={shouldShowPopover}
-    />
+    <PopoverProvider>
+      <PowerWidget
+        linkRef={linkRef}
+        miningStatus={isMiningStatusStale ? {} : miningStatus}
+        onReboot={handleReboot}
+        rebootError={rebootSystemError}
+        onSleep={handleSleep}
+        sleepError={stopMiningError}
+        onWake={handleWake}
+        wakeError={startMiningError}
+        afterReboot={handleAfterReboot}
+        afterSleep={handleClear}
+        afterWake={handleClear}
+        shouldShowPopover={shouldShowPopover}
+      />
+    </PopoverProvider>
   );
 };
 

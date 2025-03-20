@@ -1,9 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 
-const getWindowDimensions = () => ({
-  width: window.innerWidth,
-  height: window.innerHeight,
-});
+interface WindowDimensions {
+  width: number;
+  height: number;
+}
+
+let windowDimensions: WindowDimensions;
+const getWindowDimensions = (windowResized = false) => {
+  if (windowResized || !windowDimensions) {
+    windowDimensions = {
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
+  }
+
+  return windowDimensions;
+};
 
 const useWindowDimensions = () => {
   const [windowDimensions, setWindowDimensions] = useState(
@@ -12,7 +24,7 @@ const useWindowDimensions = () => {
 
   useEffect(() => {
     const handleResize = () => {
-      setWindowDimensions(getWindowDimensions());
+      setWindowDimensions(getWindowDimensions(true));
     };
 
     window.addEventListener("resize", handleResize);

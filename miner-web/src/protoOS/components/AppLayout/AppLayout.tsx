@@ -71,7 +71,7 @@ const AppLayout = ({
         <Toaster />
       </div>
 
-      <div className="flex h-screen bg-surface-base">
+      <div className="flex min-h-screen bg-surface-base">
         <div className="grow">
           <NavigationMenu
             macInfo={{
@@ -93,9 +93,9 @@ const AppLayout = ({
             openMenu={() => setIsMenuOpen(true)}
             customButtons={customButtons}
           />
-          <div className="w-full h-[calc(100%-60px)] overflow-y-scroll relative">
+          <div className="w-full relative pt-[60px]">
             <div
-              className={clsx("min-h-[calc(100%-60px-60px)]", {
+              className={clsx({
                 "flex justify-center m-14 tablet:m-6 phone:m-6": !fullScreen,
               })}
             >

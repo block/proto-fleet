@@ -1,8 +1,8 @@
 import TooltipComponent from ".";
-import { positions } from "@/shared/constants";
+import { Position, positions } from "@/shared/constants";
 
 interface TooltipWrapperProps {
-  position: keyof typeof positions;
+  position: Position;
 }
 
 const TooltipWrapper = ({ position }: TooltipWrapperProps) => {

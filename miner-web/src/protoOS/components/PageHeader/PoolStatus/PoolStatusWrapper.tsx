@@ -2,6 +2,7 @@ import { useCallback } from "react";
 
 import PoolStatus from "./PoolStatus";
 import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext/useMinerStatus";
+import { PopoverProvider } from "@/shared/components/Popover";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const PoolStatusWrapper = () => {
@@ -13,11 +14,13 @@ const PoolStatusWrapper = () => {
   }, [navigate]);
 
   return (
-    <PoolStatus
-      poolsInfo={poolsInfo}
-      loading={poolsInfoStatus.pending}
-      onClickViewPools={handleClickViewPools}
-    />
+    <PopoverProvider>
+      <PoolStatus
+        poolsInfo={poolsInfo}
+        loading={poolsInfoStatus.pending}
+        onClickViewPools={handleClickViewPools}
+      />
+    </PopoverProvider>
   );
 };
 

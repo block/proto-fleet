@@ -1,4 +1,4 @@
-import { RefObject, useCallback, useEffect, useRef, useState } from "react";
+import { RefObject, useCallback, useEffect, useState } from "react";
 
 import WidgetWrapper from "../WidgetWrapper";
 import { actions } from "./constants";
@@ -24,6 +24,7 @@ import { useAccessToken, useAuthContext } from "@/protoOS/contexts/AuthContext";
 import { Power } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 
+import { usePopover } from "@/shared/components/Popover";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
 interface PowerWidgetProps {
@@ -55,7 +56,11 @@ const PowerWidget = ({
   wakeError,
   shouldShowPopover,
 }: PowerWidgetProps) => {
-  const WidgetRef = useRef<HTMLDivElement>(null);
+  const { triggerRef: WidgetRef, setIsTriggerFixed } = usePopover();
+  useEffect(() => {
+    setIsTriggerFixed(true);
+  }, [setIsTriggerFixed]);
+
   const [isOpen, setIsOpen] = useState(shouldShowPopover);
   const [warnReboot, setWarnReboot] = useState(false);
   const [shouldReboot, setShouldReboot] = useState(

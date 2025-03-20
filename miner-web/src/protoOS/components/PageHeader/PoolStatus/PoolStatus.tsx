@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import PoolInfoPopover from "./PoolInfoPopover";
 import PoolWidget from "./PoolWidget";
 import { PoolInfo } from "./types";
 import { Pool } from "@/protoOS/api/types";
+import { usePopover } from "@/shared/components/Popover";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
 interface PoolStatusProps {
@@ -19,7 +20,11 @@ const PoolStatus = ({
   poolsInfo,
   shouldShowPopover = false,
 }: PoolStatusProps) => {
-  const WidgetRef = useRef<HTMLDivElement>(null);
+  const { triggerRef: WidgetRef, setIsTriggerFixed } = usePopover();
+  useEffect(() => {
+    setIsTriggerFixed(true);
+  }, [setIsTriggerFixed]);
+
   const [poolInfo, setPoolInfo] = useState<PoolInfo>();
   const [showPopover, setShowPopover] = useState(shouldShowPopover);
 

@@ -135,7 +135,7 @@ const Home = () => {
       {noPoolsLive && (
         <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} />
       )}
-      <div className="flex flex-col space-y-6 h-full">
+      <div className="flex flex-col space-y-6">
         <div className="flex items-center">
           <div className="text-heading-300 grow">Home</div>
           <DurationSelector

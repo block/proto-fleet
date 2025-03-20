@@ -7,7 +7,8 @@ import { ThemeDark, ThemeLight, ThemeSystem } from "@/shared/assets/icons";
 
 import { variants } from "@/shared/components/Button";
 import PageOverlay from "@/shared/components/PageOverlay";
-import Popover, { popoverSizes } from "@/shared/components/Popover";
+import { popoverSizes } from "@/shared/components/Popover";
+import PopoverContent from "@/shared/components/Popover/PopoverContent.tsx";
 import SelectRow, { selectTypes } from "@/shared/components/SelectRow";
 
 interface ThemeSwitcherProps {
@@ -32,9 +33,10 @@ const ThemeSwitcher = ({ onClickDone }: ThemeSwitcherProps) => {
     [setUserSelectedTheme],
   );
 
+  // TODO should be modal instead of Popover
   return (
     <PageOverlay show>
-      <Popover
+      <PopoverContent
         title="Theme"
         buttons={[
           {
@@ -93,7 +95,7 @@ const ThemeSwitcher = ({ onClickDone }: ThemeSwitcherProps) => {
             type={selectTypes.radio}
           />
         </div>
-      </Popover>
+      </PopoverContent>
     </PageOverlay>
   );
 };

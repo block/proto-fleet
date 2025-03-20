@@ -15,7 +15,7 @@ interface PageHeaderProps {
 const PageHeader = ({ customButtons, openMenu, title }: PageHeaderProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
   return (
-    <div className="h-[60px] flex border-b border-border-5 items-center">
+    <div className="fixed top-0 left-0 right-0 z-20 bg-surface-base h-[60px] flex border-b border-border-5 items-center">
       <div className="flex grow px-4 items-center">
         <div className="flex grow">
           {(isPhone || isTablet) && (

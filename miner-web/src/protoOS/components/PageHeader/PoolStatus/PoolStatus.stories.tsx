@@ -4,6 +4,7 @@ import { action } from "@storybook/addon-actions";
 
 import PoolStatusComponent from "./PoolStatus";
 import { Pool } from "@/protoOS/api/types";
+import { PopoverProvider } from "@/shared/components/Popover";
 
 interface PoolStatusProps {
   loading: boolean;
@@ -18,38 +19,40 @@ export const PoolStatus = ({
 }: PoolStatusProps) => {
   return (
     <div className="w-96 flex justify-end">
-      <PoolStatusComponent
-        poolsInfo={
-          loading
-            ? undefined
-            : ([
-                {
-                  ...(numberOfPools >= 1 && {
-                    status: poolStatus,
-                    url: "stratum+tcp://stratum.braiins.com:999999999",
-                    priority: 1,
-                  }),
-                },
-                {
-                  ...(numberOfPools >= 2 && {
-                    status: poolStatus,
-                    url: "mine.ocean.xyz:2222",
-                    priority: 5,
-                  }),
-                },
-                {
-                  ...(numberOfPools === 3 && {
-                    status: poolStatus,
-                    url: "mine.ocean.xyz:3333",
-                    priority: 8,
-                  }),
-                },
-              ].filter((pool) => !!pool.url) as Pool[])
-        }
-        loading={loading}
-        onClickViewPools={action("View mining pools clicked")}
-        shouldShowPopover
-      />
+      <PopoverProvider>
+        <PoolStatusComponent
+          poolsInfo={
+            loading
+              ? undefined
+              : ([
+                  {
+                    ...(numberOfPools >= 1 && {
+                      status: poolStatus,
+                      url: "stratum+tcp://stratum.braiins.com:999999999",
+                      priority: 1,
+                    }),
+                  },
+                  {
+                    ...(numberOfPools >= 2 && {
+                      status: poolStatus,
+                      url: "mine.ocean.xyz:2222",
+                      priority: 5,
+                    }),
+                  },
+                  {
+                    ...(numberOfPools === 3 && {
+                      status: poolStatus,
+                      url: "mine.ocean.xyz:3333",
+                      priority: 8,
+                    }),
+                  },
+                ].filter((pool) => !!pool.url) as Pool[])
+          }
+          loading={loading}
+          onClickViewPools={action("View mining pools clicked")}
+          shouldShowPopover
+        />
+      </PopoverProvider>
     </div>
   );
 };

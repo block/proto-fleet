@@ -1,12 +1,12 @@
 import clsx from "clsx";
 
 import { Question } from "@/shared/assets/icons";
-import { type positions } from "@/shared/constants";
+import { Position } from "@/shared/constants";
 
 interface TooltipProps {
   header: string;
   body: string;
-  position: keyof typeof positions;
+  position: Position;
 }
 
 const Tooltip = ({ header, body, position }: TooltipProps) => {

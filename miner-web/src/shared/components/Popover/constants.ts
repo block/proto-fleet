@@ -3,3 +3,5 @@ export const popoverSizes = {
   medium: "medium",
   normal: "normal",
 } as const;
+
+export const minimalMargin = 8;

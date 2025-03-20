@@ -1,10 +1,11 @@
-import { Dispatch, SetStateAction, useMemo, useRef } from "react";
+import { Dispatch, SetStateAction, useMemo } from "react";
 import clsx from "clsx";
 
 import { dangerTemp, warningTemp } from "../constants";
 import AsicPopover from "./AsicPopover";
 import { getAsicUniqueId } from "./utility";
 import { AsicStats, GetAsicHashrateParams } from "@/protoOS/api/types";
+import { usePopover } from "@/shared/components/Popover";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
 interface AsicButtonProps {
@@ -24,7 +25,7 @@ const AsicButton = ({
   showPopover,
   setShowPopover,
 }: AsicButtonProps) => {
-  const asicRef = useRef<HTMLDivElement>(null);
+  const { triggerRef: asicRef } = usePopover();
   const shouldShowPopover =
     asic.id !== undefined &&
     showPopover === getAsicUniqueId(asic.id, hashboardSerial);
@@ -39,7 +40,7 @@ const AsicButton = ({
   return (
     <div
       className={clsx(
-        "basis-0 grow relative phone:static p-[2px] border-[3px] rounded-xl phone:truncate",
+        "basis-0 grow relative p-[2px] border-[3px] rounded-xl phone:truncate",
         {
           "border-transparent": !shouldShowPopover,
           "border-intent-info-fill": shouldShowPopover,

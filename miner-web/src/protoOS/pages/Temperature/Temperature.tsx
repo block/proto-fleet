@@ -118,7 +118,7 @@ const Temperature = ({
   }, [miningStatus]);
 
   return (
-    <div className="flex flex-col space-y-6 h-full">
+    <div className="flex flex-col space-y-6">
       <div className="flex items-center">
         <div className="text-heading-300 grow">Temperature</div>
         <DurationSelector

@@ -3,6 +3,7 @@ import { action } from "@storybook/addon-actions";
 
 import PowerWidgetComponent from "./PowerWidget";
 import { MiningStatusMiningstatus } from "@/protoOS/api/types";
+import { PopoverProvider } from "@/shared/components/Popover";
 
 export const PowerWidget = () => {
   const [miningStatus, setMiningStatus] = useState<MiningStatusMiningstatus>({
@@ -26,13 +27,15 @@ export const PowerWidget = () => {
 
   return (
     <div className="w-96 flex justify-end">
-      <PowerWidgetComponent
-        shouldShowPopover
-        miningStatus={miningStatus}
-        onReboot={handleReboot}
-        onSleep={handleSleep}
-        onWake={handleWake}
-      />
+      <PopoverProvider>
+        <PowerWidgetComponent
+          shouldShowPopover
+          miningStatus={miningStatus}
+          onReboot={handleReboot}
+          onSleep={handleSleep}
+          onWake={handleWake}
+        />
+      </PopoverProvider>
     </div>
   );
 };

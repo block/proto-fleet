@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useState } from "react";
 
 export type UseMeasureRect = Pick<
   DOMRectReadOnly,
@@ -7,6 +7,7 @@ export type UseMeasureRect = Pick<
 export type UseMeasureRef<E extends Element = Element> = (element: E) => void;
 export type UseMeasureResult<E extends Element = Element> = [
   UseMeasureRef<E>,
+  UseMeasureRect,
   UseMeasureRect,
 ];
 
@@ -23,7 +24,17 @@ const defaultState: UseMeasureRect = {
 
 function useMeasure<E extends Element = Element>(): UseMeasureResult<E> {
   const [element, ref] = useState<E | null>(null);
-  const [rect, setRect] = useState<UseMeasureRect>(defaultState);
+  const [contentRect, setContentRect] = useState<UseMeasureRect>(defaultState);
+  const [boundingRect, setBoundingRect] =
+    useState<UseMeasureRect>(defaultState);
+
+  const setElementBoundingRect = useCallback(() => {
+    if (element) {
+      const { x, y, width, height, top, left, bottom, right } =
+        element.getBoundingClientRect();
+      setBoundingRect({ x, y, width, height, top, left, bottom, right });
+    }
+  }, [element]);
 
   const observer = useMemo(
     () =>
@@ -31,21 +42,23 @@ function useMeasure<E extends Element = Element>(): UseMeasureResult<E> {
         if (entries[0]) {
           const { x, y, width, height, top, left, bottom, right } =
             entries[0].contentRect;
-          setRect({ x, y, width, height, top, left, bottom, right });
+          setContentRect({ x, y, width, height, top, left, bottom, right });
         }
+        setElementBoundingRect();
       }),
-    [],
+    [setElementBoundingRect],
   );
 
   useLayoutEffect(() => {
     if (!element) return;
     observer.observe(element);
+    setElementBoundingRect();
     return () => {
       observer.disconnect();
     };
-  }, [element, observer]);
+  }, [element, observer, setElementBoundingRect]);
 
-  return [ref, rect];
+  return [ref, contentRect, boundingRect];
 }
 
 export default useMeasure;

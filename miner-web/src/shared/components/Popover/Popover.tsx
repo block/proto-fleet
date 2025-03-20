@@ -1,77 +1,91 @@
-import { ReactNode } from "react";
 import clsx from "clsx";
-
-import { popoverSizes } from "./constants";
-import ButtonGroup, {
-  ButtonProps,
-  groupVariants,
-  sizes,
-} from "@/shared/components/ButtonGroup";
-import Header from "@/shared/components/Header";
-import { positions } from "@/shared/constants";
+import { createPortal } from "react-dom";
 
 import "./style.css";
 
-interface PopoverProps {
-  buttonGroupVariant?: keyof typeof groupVariants;
-  buttons?: ButtonProps[];
-  children?: ReactNode;
-  className?: string;
-  position?: keyof typeof positions;
-  size?: keyof typeof popoverSizes;
-  subtitle?: string;
-  testId?: string;
-  title?: string;
-  titleSize?: string;
-}
+import { minimalMargin, popoverSizes } from "./constants";
+import { usePopover } from "./usePopover";
+import { groupVariants } from "@/shared/components/ButtonGroup";
+import PopoverContent from "@/shared/components/Popover/PopoverContent";
+import { PopoverContentProps } from "@/shared/components/Popover/types";
+import usePopoverPosition from "@/shared/components/Popover/usePopoverPosition";
+import { Position } from "@/shared/constants";
 
+type PopoverProps = PopoverContentProps & {
+  position?: Position;
+  offset?: number;
+};
+
+/**
+ * Popover component to display a popover with optional title, subtitle, and buttons.
+ * The popover is positioned relative to a trigger element and will adjust its position to avoid overflow.
+ * To supply a trigger element, use the `usePopover` hook together with `PopoverProvider`.
+ *
+ * When supplying trigger element, you should also specify whether the trigger element has fixed position on the page.
+ * The default value is false (element is not fixed).
+ * Popover with fixed trigger element is rendered as child element of the trigger element.
+ * Otherwise, popover is rendered as child element of the body.
+ * This way we avoid usage of scroll listeners in both cases.
+ *
+ * @param {Object} props - The properties object.
+ * @param {keyof typeof groupVariants} [props.buttonGroupVariant=groupVariants.fill] - The variant of the button group.
+ * @param {ButtonProps[]} [props.buttons] - The buttons to display in the popover.
+ * @param {ReactNode} [props.children] - The content to display inside the popover.
+ * @param {string} [props.className] - Additional class names to apply to the popover.
+ * @param {Position} [props.position] - The position of the popover relative to the trigger element.
+ * @param {number} [props.offset=minimalMargin] - The offset of the popover from the trigger element.
+ * @param {keyof typeof popoverSizes} [props.size=popoverSizes.normal] - The size of the popover.
+ * @param {string} [props.subtitle] - The subtitle of the popover.
+ * @param {string} [props.testId] - The test ID for the popover.
+ * @param {string} [props.title] - The title of the popover.
+ * @param {string} [props.titleSize="text-heading-200"] - The size of the title text.
+ * @returns {JSX.Element} The rendered popover component.
+ */
 const Popover = ({
   buttonGroupVariant = groupVariants.fill,
   buttons,
   children,
   className,
   position,
+  offset = minimalMargin,
   size = popoverSizes.normal,
   subtitle,
   testId,
   title,
   titleSize = "text-heading-200",
 }: PopoverProps) => {
-  return (
+  const { triggerRef, isTriggerFixed } = usePopover();
+  const { popoverAnimation, popoverStyle, popoverRef } = usePopoverPosition(
+    triggerRef,
+    offset ?? minimalMargin,
+    isTriggerFixed,
+    position,
+  );
+
+  const popoverElement = (
     <div
-      className={clsx(
-        "p-6 rounded-3xl shadow-200 absolute bg-surface-elevated-base/85 backdrop-blur-[7px] space-y-4 z-20 transition-opacity duration-200",
-        {
-          "right-0 mt-2": position === positions["bottom left"],
-          "bottom-0": position === positions["top right"],
-          "animate-slide-down-popover": position?.includes("bottom"),
-          "animate-slide-up-popover": position?.includes("top"),
-          "w-60": size === popoverSizes.small,
-          "w-72": size === popoverSizes.medium,
-          "w-80": size === popoverSizes.normal,
-        },
-        className,
-      )}
+      ref={popoverRef}
+      className={clsx("absolute backdrop-blur-[7px] z-20", popoverAnimation)}
+      style={popoverStyle}
       data-testid={testId}
     >
-      {(title || subtitle) && (
-        <Header
-          title={title}
-          titleSize={titleSize}
-          subtitle={subtitle}
-          subtitleSize="text-300"
-        />
-      )}
-      {children}
-      {buttons && (
-        <ButtonGroup
-          buttons={buttons}
-          variant={buttonGroupVariant}
-          size={sizes.base}
-        />
-      )}
+      <PopoverContent
+        buttonGroupVariant={buttonGroupVariant}
+        buttons={buttons}
+        children={children}
+        className={className}
+        size={size}
+        subtitle={subtitle}
+        title={title}
+        titleSize={titleSize}
+      />
     </div>
   );
+
+  if (isTriggerFixed) {
+    return popoverElement;
+  }
+  return createPortal(popoverElement, document.body);
 };
 
 export default Popover;
