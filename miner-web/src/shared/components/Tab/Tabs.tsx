@@ -64,8 +64,8 @@ const Tabs = ({ children, disableAnimation }: TabsProps) => {
         })}
       >
         <div
-          className={clsx("absolute w-full h-full", {
-            "border-b-2 border-text-emphasis bottom-[-0.1rem]":
+          className={clsx("absolute h-full w-full", {
+            "bottom-[-0.1rem] border-b-2 border-text-emphasis":
               child.props.label === activeTab,
             [`animate-tab-slide-right${distance}`]:
               selectedTabIndex < slidingTabIndex && !disableAnimation,

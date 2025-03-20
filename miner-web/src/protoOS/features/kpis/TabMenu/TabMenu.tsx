@@ -31,7 +31,7 @@ const TabMenu = ({ items }: TabMenuProps) => {
   }, [location.pathname, items, minerRoot]);
 
   return (
-    <div className="flex gap-2 items-center space-x-4 rounded-3xl bg-core-primary-5 p-2 w-full flex-wrap">
+    <div className="flex w-full flex-wrap items-center gap-2 space-x-4 rounded-3xl bg-core-primary-5 p-2">
       {Object.entries(items).map(([key, { name, value, units, path }], idx) => {
         return (
           <Tab

@@ -36,23 +36,23 @@ const NavigationMenu = ({ routes }: NavigationMenuProps) => {
   return (
     <div
       className={clsx(
-        "w-[64px] min-h-screen flex flex-col bg-grayscale-gray-5 text-text-primary-70 border-r border-border-5",
-        "tablet:min-h-[calc(100vh-16px)] tablet:z-30 tablet:absolute",
-        "phone:min-h-[calc(100vh-16px)] phone:z-30 phone:absolute",
+        "flex min-h-screen w-[64px] flex-col border-r border-border-5 bg-grayscale-gray-5 text-text-primary-70",
+        "tablet:absolute tablet:z-30 tablet:min-h-[calc(100vh-16px)]",
+        "phone:absolute phone:z-30 phone:min-h-[calc(100vh-16px)]",
       )}
     >
-      <div className="flex items-center justify-center flex-col gap-[10px]">
+      <div className="flex flex-col items-center justify-center gap-[10px]">
         {homeItem && homeItem.path && (
-          <div className="h-[60px] px-3 py-2 flex items-center justify-center">
+          <div className="flex h-[60px] items-center justify-center px-3 py-2">
             <Link to={homeItem.path}>
-              <LogoAlt className="hover:cursor-pointer text-text-primary-30" />
+              <LogoAlt className="text-text-primary-30 hover:cursor-pointer" />
             </Link>
           </div>
         )}
 
         <ul
           data-testid="navigation-menu"
-          className="flex items-center justify-center flex-col gap-[10px]"
+          className="flex flex-col items-center justify-center gap-[10px]"
         >
           {navigationItems.map((item, idx) => {
             return item.path ? (
@@ -60,7 +60,7 @@ const NavigationMenu = ({ routes }: NavigationMenuProps) => {
                 <Link
                   to={item.path}
                   className={clsx(
-                    "group flex items-center justify-center w-[40px] h-[40px] rounded-lg",
+                    "group flex h-[40px] w-[40px] items-center justify-center rounded-lg",
                     "hover:cursor-pointer hover:bg-core-primary-10",
                     isCurrentPath(item.path)
                       ? "bg-core-primary-10 text-text-primary"

@@ -36,20 +36,20 @@ const SelectRow = ({
   return (
     <button
       className={clsx(
-        "rounded-xl flex items-center select-none text-left",
-        "transition-[background-color] ease-in-out duration-200",
+        "flex items-center rounded-xl text-left select-none",
+        "transition-[background-color] duration-200 ease-in-out",
         {
           "border-[1.5px] border-border-primary p-4": isSelected && !disabled,
           "border border-border-5 p-[16.5px]": !isSelected || disabled,
-          "text-text-primary bg-surface-default hover:bg-core-primary-5 cursor-pointer":
+          "cursor-pointer bg-surface-default text-text-primary hover:bg-core-primary-5":
             !disabled,
-          "text-text-primary-50 bg-core-primary-5 cursor-not-allowed": disabled,
+          "cursor-not-allowed bg-core-primary-5 text-text-primary-50": disabled,
         },
       )}
       disabled={disabled}
       onClick={() => onChange(!isSelected)}
     >
-      <div className="flex items-center grow">
+      <div className="flex grow items-center">
         {prefixIcon}
         <div className={clsx({ "ml-4": prefixIcon })}>
           <div className="text-emphasis-300">{text}</div>
@@ -65,15 +65,15 @@ const SelectRow = ({
           )}
         </div>
       </div>
-      <div className="ml-4 flex relative">
+      <div className="relative ml-4 flex">
         <input
           className={clsx(
-            "peer appearance-none border h-[20px] w-[20px] relative",
+            "peer relative h-[20px] w-[20px] appearance-none border",
             {
               "rounded-full": isRadio,
               rounded: isCheckbox,
-              "border-border-20 cursor-pointer": !disabled,
-              "border-border-10 cursor-not-allowed bg-core-primary-20 opacity-[0.4]":
+              "cursor-pointer border-border-20": !disabled,
+              "cursor-not-allowed border-border-10 bg-core-primary-20 opacity-[0.4]":
                 disabled,
             },
           )}
@@ -84,7 +84,7 @@ const SelectRow = ({
         />
         <div
           className={clsx(
-            "hidden absolute rounded-full w-full h-full bg-core-accent-80 text-text-contrast",
+            "absolute hidden h-full w-full rounded-full bg-core-accent-80 text-text-contrast",
             {
               "peer-checked:block": isRadio,
             },
@@ -101,7 +101,7 @@ const SelectRow = ({
         </div>
         <Checkmark
           className={clsx(
-            "absolute bg-core-accent-80 rounded-sm text-surface-base hidden cursor-pointer",
+            "absolute hidden cursor-pointer rounded-sm bg-core-accent-80 text-surface-base",
             { "peer-checked:block": isCheckbox },
           )}
         />

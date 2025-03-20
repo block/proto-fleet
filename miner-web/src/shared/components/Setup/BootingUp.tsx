@@ -12,7 +12,7 @@ const BootingUp = () => {
 
   return (
     <AnimatedDotsBackground connecting>
-      <div className="absolute backdrop-blur-2xl  w-[418px] h-[314px] flex gap-6 flex-col justify-center items-center top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white p-5 z-10">
+      <div className="absolute top-1/2 left-1/2 z-10 flex h-[314px] w-[418px] -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center gap-6 bg-white p-5 backdrop-blur-2xl">
         <motion.div
           animate={{ color: ["#b3b3b3", `#000`], y: ["50%", "0%"] }}
           transition={{ duration: 1, ease: easeGentle }}
@@ -20,12 +20,12 @@ const BootingUp = () => {
         >
           <LogoAlt width="w-16" />
         </motion.div>
-        <div className="grid duration-500 ">
+        <div className="grid duration-500">
           <motion.div
             animate={{ y: ["-50%", "0%"], opacity: [0, 1] }}
             exit={{ y: ["0%", "50%"], opacity: [1, 0] }}
             transition={{ duration: 1, ease: easeGentle }}
-            className="flex flex-col gap-6 items-center col-start-1 row-start-1"
+            className="col-start-1 row-start-1 flex flex-col items-center gap-6"
           >
             <p className="text-emphasis-300 text-text-primary-70">
               Your miner is booting up

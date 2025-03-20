@@ -105,8 +105,8 @@ const Input = ({
         id={id}
         data-testid={testId}
         className={clsx(
-          "peer rounded-lg w-full outline-hidden text-300 text-text-primary",
-          "transition-[border-color] ease-in-out duration-200",
+          "peer w-full rounded-lg text-300 text-text-primary outline-hidden",
+          "transition-[border-color] duration-200 ease-in-out",
           { "bg-surface-base": !disabled },
           { "bg-core-primary-5": disabled },
           {
@@ -116,7 +116,7 @@ const Input = ({
             "focus:border-[1.5px] focus:border-border-primary":
               !error && !compact && !disabled,
           },
-          { "border-[1.5px] border-intent-critical-50 ": error },
+          { "border-[1.5px] border-intent-critical-50": error },
           { "pt-[18px]": !hideLabelOnFocus },
           { "h-14 pl-4": !compact },
           { "pr-4": !compact && !tooltip && type !== "password" },
@@ -137,7 +137,7 @@ const Input = ({
       <label
         htmlFor={id}
         className={clsx(
-          "text-text-primary-50 absolute",
+          "absolute text-text-primary-50",
           { "cursor-text": !disabled },
           { "text-300": !value.length },
           { "left-0": compact },
@@ -145,7 +145,7 @@ const Input = ({
           { "top-[18px]": !value.length && !compact },
           { "top-[7px] text-200": value.length },
           {
-            "transition-[top] ease-in-out duration-150ms peer-focus:top-[7px] peer-focus:text-200":
+            "duration-150ms transition-[top] ease-in-out peer-focus:top-[7px] peer-focus:text-200":
               !hideLabelOnFocus,
           },
           { "peer-focus:invisible": hideLabelOnFocus },
@@ -155,7 +155,7 @@ const Input = ({
         {label}
       </label>
       {tooltip && (
-        <div className="absolute right-4 top-7 transform -translate-y-1/2">
+        <div className="absolute top-7 right-4 -translate-y-1/2 transform">
           <Tooltip
             header={tooltip.header}
             body={tooltip.body}
@@ -167,7 +167,7 @@ const Input = ({
         <div
           className={clsx("absolute right-4", {
             "top-1": compact,
-            "top-7 transform -translate-y-1/2": !compact,
+            "top-7 -translate-y-1/2 transform": !compact,
           })}
         >
           <DismissCircle
@@ -178,7 +178,7 @@ const Input = ({
         </div>
       ) : undefined}
       {keyboardShortcuts && !value.length ? (
-        <div className="absolute right-4 top-7 transform -translate-y-1/2 flex space-x-[2px] text-300 font-semibold text-text-primary-30 bg-core-primary-5 rounded-sm px-2 shadow-100">
+        <div className="absolute top-7 right-4 flex -translate-y-1/2 transform space-x-[2px] rounded-sm bg-core-primary-5 px-2 text-300 font-semibold text-text-primary-30 shadow-100">
           {keyboardShortcuts.map((shortcut, index) => (
             <Fragment key={index}>{shortcut}</Fragment>
           ))}
@@ -188,7 +188,7 @@ const Input = ({
         <div
           className={clsx("absolute", {
             "top-1": compact,
-            "top-7 transform -translate-y-1/2": !compact,
+            "top-7 -translate-y-1/2 transform": !compact,
             "right-4": !tooltip,
             "right-12": tooltip,
           })}
@@ -202,14 +202,14 @@ const Input = ({
       )}
       <div
         className={clsx(
-          "text-intent-critical-fill text-200",
-          "transition-[opacity,max-height,margin-top] ease-in-out duration-200",
-          { "opacity-0 max-h-0": !error },
-          { "opacity-100 max-h-10 mt-2": error },
+          "text-200 text-intent-critical-fill",
+          "transition-[opacity,max-height,margin-top] duration-200 ease-in-out",
+          { "max-h-0 opacity-0": !error },
+          { "mt-2 max-h-10 opacity-100": error },
         )}
       >
         <div className="flex items-center space-x-1">
-          <div className="w-[10px] h-1 rounded-full bg-intent-critical-20" />
+          <div className="h-1 w-[10px] rounded-full bg-intent-critical-20" />
           <div data-testid={`${testId}-validation-error`}>
             {validationError}
           </div>

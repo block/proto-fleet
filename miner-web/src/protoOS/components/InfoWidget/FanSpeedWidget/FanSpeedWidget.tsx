@@ -43,15 +43,15 @@ const FanSpeedWidget = ({ fanSpeeds, loading }: FanSpeedWidgetProps) => {
         wrapperClassName="phone:flex-col phone:space-y-4"
         stats={
           !loading && (
-            <div className="flex w-full h-[60px] space-x-3 justify-end phone:justify-normal">
+            <div className="flex h-[60px] w-full justify-end space-x-3 phone:justify-normal">
               {fanSpeeds?.map(
                 (fan, index) =>
                   fan.rpm !== undefined && (
                     <div
-                      className="flex flex-col w-10 h-full items-center"
+                      className="flex h-full w-10 flex-col items-center"
                       key={index}
                     >
-                      <div className="font-mono text-mono-text-50 text-text-primary-50 mb-1">
+                      <div className="mb-1 font-mono text-mono-text-50 text-text-primary-50">
                         F{index + 1}
                       </div>
                       <FanSpeedPieChart

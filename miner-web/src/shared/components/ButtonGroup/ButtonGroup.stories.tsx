@@ -22,7 +22,7 @@ interface Props {
 
 export const Groups = ({ size, variant }: Props) => {
   return (
-    <div className="flex flex-col space-y-4 w-[600px]">
+    <div className="flex w-[600px] flex-col space-y-4">
       <ButtonGroup buttons={[primaryButton]} variant={variant} size={size} />
       <ButtonGroup
         buttons={[primaryButton, secondaryButton]}

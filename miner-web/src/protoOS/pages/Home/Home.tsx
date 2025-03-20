@@ -137,7 +137,7 @@ const Home = () => {
       )}
       <div className="flex flex-col space-y-6">
         <div className="flex items-center">
-          <div className="text-heading-300 grow">Home</div>
+          <div className="grow text-heading-300">Home</div>
           <DurationSelector
             className="h-fit"
             duration={duration}
@@ -145,7 +145,7 @@ const Home = () => {
           />
         </div>
 
-        <div className="flex space-x-6 w-full phone:flex-col phone:space-x-0 phone:space-y-6">
+        <div className="flex w-full space-x-6 phone:flex-col phone:space-y-6 phone:space-x-0">
           <EfficiencyWidget
             avgEfficiency={avgEfficiency}
             efficiencyValues={historicalEfficiency}

@@ -6,7 +6,7 @@ import { DismissCircleDark } from "@/shared/assets/icons";
 const CloseButton = ({ id }: { id: string }) => {
   return (
     <Link
-      className="flex flex-row gap-1 items-center pl-2 text-text-primary-70 text-300"
+      className="flex flex-row items-center gap-1 pl-2 text-300 text-text-primary-70"
       to={"/miners"}
     >
       <DismissCircleDark />

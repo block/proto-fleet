@@ -10,4 +10,6 @@ export default {
   endOfLine: "lf",
   arrowParens: "always",
   jsxSingleQuote: false,
+  plugins: ["prettier-plugin-tailwindcss"],
+  tailwindStylesheet: "./src/shared/styles/index.css",
 };

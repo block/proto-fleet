@@ -68,23 +68,23 @@ const LoginForm = ({
   return (
     <div data-testid="login-form">
       <div className="text-heading-200 text-text-primary">Login required</div>
-      <div className="text-300 text-text-primary-70 mb-4 mt-1">
+      <div className="mt-1 mb-4 text-300 text-text-primary-70">
         Contact your system administrator if you need access.
       </div>
 
       <div
         className={clsx("transition-[max-height,margin] ease-in-out", {
           "max-h-0 overflow-hidden duration-300": !apiError,
-          "max-h-96 mb-4 duration-500": apiError,
+          "mb-4 max-h-96 duration-500": apiError,
         })}
         data-testid="error"
       >
-        <div className="bg-intent-critical-10 text-intent-critical-text text-emphasis-300 px-3 py-2 rounded-lg">
+        <div className="rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
           Invalid credentials entered.
         </div>
       </div>
 
-      <div className="bg-surface-elevated-base rounded-lg relative z-10">
+      <div className="relative z-10 rounded-lg bg-surface-elevated-base">
         <Input
           id={ids.username}
           label="Username"
@@ -108,7 +108,7 @@ const LoginForm = ({
       />
 
       <div
-        className="flex text-200 text-text-primary-50 mb-4 hover:cursor-pointer"
+        className="mb-4 flex text-200 text-text-primary-50 hover:cursor-pointer"
         onClick={onClickForgotPassword}
         data-testid="forgot-password"
       >

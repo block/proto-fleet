@@ -40,7 +40,7 @@ const SecondaryNavigation = ({ routes }: SecondaryNavigationProps) => {
   return (
     <ul
       data-testid="secondary-nav"
-      className="flex flex-col gap-3 text-text-primary-70 w-[176px] border-r border-border-5 px-2 pt-3"
+      className="flex w-[176px] flex-col gap-3 border-r border-border-5 px-2 pt-3 text-text-primary-70"
     >
       {items.map((item, idx) => {
         if (!item.path) return;
@@ -50,7 +50,7 @@ const SecondaryNavigation = ({ routes }: SecondaryNavigationProps) => {
             <Link
               to={item.path}
               className={clsx(
-                "block text-emphasis-300 py-1 px-2 rounded-lg",
+                "block rounded-lg px-2 py-1 text-emphasis-300",
                 "hover:text-text-primary",
                 isCurrentPath(item.path)
                   ? "bg-core-primary-5 text-text-primary"

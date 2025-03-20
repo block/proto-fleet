@@ -9,7 +9,7 @@ const Dot = (props: { connecting?: boolean }) => {
       {props.connecting ? (
         <span
           className={clsx(
-            "absolute rounded-full inline-flex animate-dot-connecting size-1",
+            "animate-dot-connecting absolute inline-flex size-1 rounded-full",
           )}
           style={{
             animationDelay: `${Math.random() * 4}s`,
@@ -18,7 +18,7 @@ const Dot = (props: { connecting?: boolean }) => {
       ) : (
         <span
           className={clsx(
-            "relative rounded-full inline-flex bg-text-primary-30 size-1",
+            "relative inline-flex size-1 rounded-full bg-text-primary-30",
             {
               "animate-dot-stale": !props.connecting,
               "!bg-core-accent-fill": props.connecting,
@@ -79,7 +79,7 @@ const AnimatedDotsBackground = ({
       {children}
       <div
         className={clsx(
-          "grid gap-10 place-items-center mx-auto",
+          "mx-auto grid place-items-center gap-10",
           `grid-cols-24 grid-rows-${rowsCount}`,
         )}
         style={{

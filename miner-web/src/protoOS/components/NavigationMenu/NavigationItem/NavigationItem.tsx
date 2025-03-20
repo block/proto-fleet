@@ -33,9 +33,9 @@ const NavigationItem = ({
   return (
     <button
       className={clsx(
-        "flex text-emphasis-300 items-center py-1 mb-3 rounded-lg w-full text-left",
+        "mb-3 flex w-full items-center rounded-lg py-1 text-left text-emphasis-300",
         {
-          "text-text-primary bg-core-primary-5": isSelected,
+          "bg-core-primary-5 text-text-primary": isSelected,
           "text-text-primary-70 hover:bg-core-primary-5": !isSelected,
           "px-6": isChildItem,
           "px-2": !isChildItem,

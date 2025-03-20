@@ -46,7 +46,7 @@ const EfficiencyModal = ({
       </div>
       {efficiencyValues?.length ? (
         <div className="flex justify-center">
-          <div className="w-[600px] phone:w-[352px] h-[228px]">
+          <div className="h-[228px] w-[600px] phone:w-[352px]">
             <EfficiencyChart efficiencies={efficiencyValues} />
           </div>
         </div>

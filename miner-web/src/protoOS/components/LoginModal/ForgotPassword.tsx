@@ -21,14 +21,14 @@ const ForgotPassword = ({ onDismiss }: ForgotPasswordProps) => {
         <div className="text-heading-200 text-text-primary">
           Forgot your password?
         </div>
-        <div className="text-300 text-text-primary-70 mt-1">
+        <div className="mt-1 text-300 text-text-primary-70">
           To reset your password, you’ll need to reset your miner back to it’s
           default settings.
         </div>
       </div>
       <Divider />
       <div>
-        <div className="text-heading-100 text-text-primary mb-2">
+        <div className="mb-2 text-heading-100 text-text-primary">
           What happens if I reset my miner?
         </div>
         <Row
@@ -49,7 +49,7 @@ const ForgotPassword = ({ onDismiss }: ForgotPasswordProps) => {
           divider={false}
         >
           You{" "}
-          <span className="underline decoration-dotted decoration-text-primary-30">
+          <span className="underline decoration-text-primary-30 decoration-dotted">
             will not lose
           </span>{" "}
           any mining rewards
@@ -57,10 +57,10 @@ const ForgotPassword = ({ onDismiss }: ForgotPasswordProps) => {
       </div>
       <Divider />
       <div>
-        <div className="text-heading-100 text-text-primary mb-2">
+        <div className="mb-2 text-heading-100 text-text-primary">
           How do I reset my miner?
         </div>
-        <div className="text-300 text-text-primary-70 mt-1">
+        <div className="mt-1 text-300 text-text-primary-70">
           Unplug the miner, remove the microSD card, and re-flash the firmware
           with the latest version.
         </div>

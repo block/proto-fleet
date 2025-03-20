@@ -91,7 +91,7 @@ const Network = ({
             initValue={values.networkName}
             error={errors.networkName}
           />
-          <div className="bg-surface-5 p-3 rounded-xl">
+          <div className="rounded-xl bg-surface-5 p-3">
             <div className="w-full">
               <Row className="flex justify-between">
                 <div className="text-emphasis-300">Network details</div>

@@ -59,15 +59,15 @@ const DurationSelector = ({
   return (
     <div
       className={clsx(
-        "flex bg-core-primary-5 rounded-3xl w-fit p-[2px] text-200 text-text-primary-30 space-x-2",
+        "flex w-fit space-x-2 rounded-3xl bg-core-primary-5 p-[2px] text-200 text-text-primary-30",
         className,
       )}
     >
       {durations.map((duration) => (
         <button
           key={duration}
-          className={clsx("rounded-3xl relative", {
-            "text-text-primary text-emphasis-200": duration === slidingDuration,
+          className={clsx("relative rounded-3xl", {
+            "text-emphasis-200 text-text-primary": duration === slidingDuration,
           })}
           onMouseDown={() => handleSelectDuration(duration)}
           onKeyDown={(e: KeyboardEvent<HTMLButtonElement>) =>
@@ -75,8 +75,8 @@ const DurationSelector = ({
           }
         >
           <div
-            className={clsx("h-full absolute transition-[width]", {
-              "bg-surface-elevated-base shadow-100 rounded-3xl":
+            className={clsx("absolute h-full transition-[width]", {
+              "rounded-3xl bg-surface-elevated-base shadow-100":
                 duration === selectedDuration,
               "w-[46px]": slidingDuration === durations[0],
               "w-12":
@@ -93,7 +93,7 @@ const DurationSelector = ({
                 selectedDurationIndex > slidingDurationIndex,
             })}
           />
-          <div className="px-3 py-1 relative z-10 uppercase">{duration}</div>
+          <div className="relative z-10 px-3 py-1 uppercase">{duration}</div>
         </button>
       ))}
     </div>

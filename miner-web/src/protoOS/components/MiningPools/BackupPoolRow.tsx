@@ -23,7 +23,7 @@ const BackupPoolRow = ({
   );
 
   return (
-    <Row className="flex justify-between items-center">
+    <Row className="flex items-center justify-between">
       <div className="flex flex-col">
         <div>Backup pool #{backupPoolIndex}</div>
         {!!url && (

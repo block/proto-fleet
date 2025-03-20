@@ -23,7 +23,7 @@ const Line = ({ data }: LineProps) => {
       </LineChart>
       <div
         className={clsx(
-          "absolute bottom-0 h-full w-full pointer-events-none",
+          "pointer-events-none absolute bottom-0 h-full w-full",
           "transition-gradient",
         )}
       />

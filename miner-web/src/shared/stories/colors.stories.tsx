@@ -31,7 +31,7 @@ interface SwatchProps {
 const Swatch = ({ className, hex }: SwatchProps) => {
   return (
     <div
-      className={`${className} h-40 w-44 p-2 rounded-xl flex flex-col shadow-200`}
+      className={`${className} flex h-40 w-44 flex-col rounded-xl p-2 shadow-200`}
     >
       <div className="grow">{hex}</div>
       {className.split(" ")[0].split("bg-")[1]}

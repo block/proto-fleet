@@ -15,8 +15,8 @@ interface HashrateProps {
 
 export const HashrateChart = ({ duration, hashrates }: HashrateProps) => {
   return (
-    <div className="flex justify-center my-8">
-      <div className="w-[928px] h-[400px]">
+    <div className="my-8 flex justify-center">
+      <div className="h-[400px] w-[928px]">
         <HashrateChartComponent
           duration={duration}
           hashrate1={convertHashrateValues(

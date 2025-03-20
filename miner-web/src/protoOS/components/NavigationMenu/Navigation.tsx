@@ -65,13 +65,13 @@ const Navigation = ({
   return (
     <div
       className={clsx(
-        "w-[240px] min-h-screen flex flex-col bg-surface-base text-text-primary-70 border-r border-border-5",
-        "tablet:min-h-[calc(100vh-16px)] tablet:z-30 tablet:absolute tablet:rounded-lg",
-        "phone:min-h-[calc(100vh-16px)] phone:z-30 phone:absolute phone:rounded-lg",
+        "flex min-h-screen w-[240px] flex-col border-r border-border-5 bg-surface-base text-text-primary-70",
+        "tablet:absolute tablet:z-30 tablet:min-h-[calc(100vh-16px)] tablet:rounded-lg",
+        "phone:absolute phone:z-30 phone:min-h-[calc(100vh-16px)] phone:rounded-lg",
       )}
     >
       <div className="grow border-b border-border-5">
-        <div className="h-[60px] px-3 py-2 flex items-center border-b border-border-5 mb-3">
+        <div className="mb-3 flex h-[60px] items-center border-b border-border-5 px-3 py-2">
           {closeButton ? (
             closeButton
           ) : (
@@ -82,7 +82,7 @@ const Navigation = ({
                   : `${minerRoot}/${navigationItems.onboarding}`
               }
             >
-              <Logo className="hover:cursor-pointer text-text-primary" />
+              <Logo className="text-text-primary hover:cursor-pointer" />
             </Link>
           )}
         </div>
@@ -107,7 +107,7 @@ const Navigation = ({
 
         <MacAddressInfo loading={macInfo?.loading} value={macInfo?.value} />
 
-        <div className="flex mt-2 space-x-2 text-emphasis-300 text-text-primary">
+        <div className="mt-2 flex space-x-2 text-emphasis-300 text-text-primary">
           <div className="w-full">
             <a href="https://proto.xyz/docs/api/v1.1.0" target="_blank">
               <Button

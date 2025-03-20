@@ -40,7 +40,7 @@ const AsicButton = ({
   return (
     <div
       className={clsx(
-        "basis-0 grow relative p-[2px] border-[3px] rounded-xl phone:truncate",
+        "relative grow basis-0 rounded-xl border-[3px] p-[2px] phone:truncate",
         {
           "border-transparent": !shouldShowPopover,
           "border-intent-info-fill": shouldShowPopover,
@@ -58,7 +58,7 @@ const AsicButton = ({
       ) : null}
       <button
         className={clsx(
-          "font-mono text-mono-text-50 text-text-primary text-center rounded-lg border border-border-5 w-full truncate",
+          "w-full truncate rounded-lg border border-border-5 text-center font-mono text-mono-text-50 text-text-primary",
           {
             "bg-surface-base": temp < warningTemp,
             "bg-intent-warning-50": temp >= warningTemp && temp < dangerTemp,

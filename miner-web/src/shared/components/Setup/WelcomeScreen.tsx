@@ -71,7 +71,7 @@ const WelcomeFlow = ({
   return (
     <>
       {!noMinersFound && (
-        <div className="absolute backdrop-blur-2xl  w-[418px] h-[314px] flex gap-6 flex-col justify-center items-center top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white p-5 z-10">
+        <div className="absolute top-1/2 left-1/2 z-10 flex h-[314px] w-[418px] -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center gap-6 bg-white p-5 backdrop-blur-2xl">
           <motion.div
             animate={{ color: ["#b3b3b3", `#000`], y: ["50%", "0%"] }}
             transition={{ duration: 1, ease: easeGentle }}
@@ -79,14 +79,14 @@ const WelcomeFlow = ({
           >
             <LogoAlt width="w-20" />
           </motion.div>
-          <div className="grid duration-500 h-[112px]">
+          <div className="grid h-[112px] duration-500">
             <AnimatePresence>
               {!searching && (
                 <motion.div
                   animate={{ y: ["-50%", "0%"], opacity: [0, 1] }}
                   exit={{ y: ["0%", "50%"], opacity: [1, 0] }}
                   transition={{ duration: 1, ease: easeGentle }}
-                  className="flex flex-col gap-6 items-center col-start-1 row-start-1"
+                  className="col-start-1 row-start-1 flex flex-col items-center gap-6"
                 >
                   <p className="text-5xl font-medium">Miner setup</p>
                   <Button onClick={handleSearch} variant="accent" size="base">
@@ -98,14 +98,14 @@ const WelcomeFlow = ({
             {searching &&
               (ipAddress ? (
                 <motion.div
-                  className="text-center col-start-1 row-start-1"
+                  className="col-start-1 row-start-1 text-center"
                   animate={{ scale: [0, 1], opacity: [0, 1] }}
                   transition={{ duration: 1, ease: easeGentle }}
                 >
-                  <p className="text-text-primary-70 ">
+                  <p className="text-text-primary-70">
                     Connecting to your miner
                   </p>
-                  <p className="text-text-primary-70 font-mono">{ipAddress}</p>
+                  <p className="font-mono text-text-primary-70">{ipAddress}</p>
                 </motion.div>
               ) : (
                 <motion.div
@@ -113,7 +113,7 @@ const WelcomeFlow = ({
                   transition={{ duration: 1, ease: easeGentle }}
                   className="text-center"
                 >
-                  <p className="text-text-primary-70 ">
+                  <p className="text-text-primary-70">
                     Searching your network for miners
                   </p>
                 </motion.div>
@@ -132,7 +132,7 @@ const WelcomeFlow = ({
           <div className="py-4">
             <NetworkInfo ipAddress={ipAddress} networkName={networkName} />
           </div>
-          <div className="flex flex-col gap-3 ">
+          <div className="flex flex-col gap-3">
             <Button
               onClick={handleRetry}
               variant="primary"

@@ -17,7 +17,7 @@ const Tab = ({ id, label, value, units, isActive, onClick }: TabProps) => {
     <button
       onClick={() => onClick && onClick(id)}
       className={clsx(
-        "w-[calc(25%-theme(spacing.2))] relative m-0 p-4 flex-1 text-left rounded-2xl phone:min-w-[calc(50%-theme(spacing.2))]",
+        "relative m-0 w-[calc(25%-theme(spacing.2))] flex-1 rounded-2xl p-4 text-left phone:min-w-[calc(50%-theme(spacing.2))]",
         isActive && "bg-surface-base shadow-100",
       )}
     >
@@ -30,7 +30,7 @@ const Tab = ({ id, label, value, units, isActive, onClick }: TabProps) => {
       />
 
       {isActive && (
-        <div className="absolute right-4 top-4 w-[6px] h-[6px]">
+        <div className="absolute top-4 right-4 h-[6px] w-[6px]">
           <StatusCircle width="w-full" status="warning" variant="simple" />
         </div>
       )}

@@ -56,7 +56,7 @@ const ThemeSwitcher = ({ onClickDone }: ThemeSwitcherProps) => {
             onChange={handleChange}
             prefixIcon={
               <div
-                className="bg-surface-5 p-[6px] rounded-lg"
+                className="rounded-lg bg-surface-5 p-[6px]"
                 data-theme={themes.light}
               >
                 <ThemeLight className="text-text-primary-70" />
@@ -71,7 +71,7 @@ const ThemeSwitcher = ({ onClickDone }: ThemeSwitcherProps) => {
             onChange={handleChange}
             prefixIcon={
               <div
-                className="bg-surface-5 p-[6px] rounded-lg"
+                className="rounded-lg bg-surface-5 p-[6px]"
                 data-theme={themes.dark}
               >
                 <ThemeDark className="text-text-primary-70" />
@@ -86,7 +86,7 @@ const ThemeSwitcher = ({ onClickDone }: ThemeSwitcherProps) => {
             onChange={handleChange}
             prefixIcon={
               <div
-                className="bg-surface-5 p-[6px] rounded-lg"
+                className="rounded-lg bg-surface-5 p-[6px]"
                 data-theme={deviceTheme}
               >
                 <ThemeSystem className="text-text-primary-70" />

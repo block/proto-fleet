@@ -93,15 +93,15 @@ const AppLayout = ({
             openMenu={() => setIsMenuOpen(true)}
             customButtons={customButtons}
           />
-          <div className="w-full relative pt-[60px]">
+          <div className="relative w-full pt-[60px]">
             <div
               className={clsx({
-                "flex justify-center m-14 tablet:m-6 phone:m-6": !fullScreen,
+                "m-14 flex justify-center phone:m-6 tablet:m-6": !fullScreen,
               })}
             >
               <div
                 className={clsx({
-                  "desktop:w-[928px] laptop:w-[608px] tablet:w-[584px] phone:w-[352px]":
+                  "phone:w-[352px] tablet:w-[584px] laptop:w-[608px] desktop:w-[928px]":
                     !fullScreen,
                 })}
               >

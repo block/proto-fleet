@@ -27,8 +27,8 @@ const FanSpeedRow = ({
   warn,
 }: FanSpeedRowProps) => {
   return (
-    <Row className="flex space-x-4 items-center" divider={divider}>
-      <div className="w-10 h-10">
+    <Row className="flex items-center space-x-4" divider={divider}>
+      <div className="h-10 w-10">
         <FanSpeedPieChart
           acceptableSpeed={acceptableSpeed}
           fanSpeed={speed}

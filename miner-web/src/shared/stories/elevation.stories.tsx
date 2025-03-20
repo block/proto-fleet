@@ -11,7 +11,7 @@ const ElevationBlock = ({ elevation }: { elevation: number }) => {
 
 export const Elevation = () => {
   return (
-    <div className="flex flex-col space-y-6 w-96">
+    <div className="flex w-96 flex-col space-y-6">
       <ElevationBlock elevation={50} />
       <ElevationBlock elevation={100} />
       <ElevationBlock elevation={200} />

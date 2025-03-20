@@ -1,7 +1,7 @@
 const Temperature = () => {
   return (
     <>
-      <div className="h-[400px] flex justify-center items-center">
+      <div className="flex h-[400px] items-center justify-center">
         Temperature Page
       </div>
     </>

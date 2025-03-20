@@ -45,7 +45,7 @@ const TickTooltip = ({
   }, [active, coordinate, onHover, payloads, tooltipData]);
 
   return (
-    <div className="bg-surface-elevated-base/70 px-3 py-2 rounded-xl shadow-200 backdrop-blur-[7px]">
+    <div className="rounded-xl bg-surface-elevated-base/70 px-3 py-2 shadow-200 backdrop-blur-[7px]">
       {tooltipData.payload.map((payload: PayloadType) => (
         <div key={payload.name}>
           <div className="text-heading-100 text-text-primary">

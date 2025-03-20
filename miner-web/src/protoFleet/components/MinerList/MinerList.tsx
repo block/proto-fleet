@@ -65,7 +65,7 @@ const MinerList = ({ title, miners = [] }: MinerListProps) => {
           <thead data-testid="miner-list-header">
             <tr className={rowClassList}>
               <th className={thClassList}>
-                <div className="w-12 overflow-hidden truncate">
+                <div className="w-12 truncate overflow-hidden">
                   <Checkbox
                     checked={allSelected}
                     onChange={(e) => handleSelectAll(e.target.checked)}
@@ -77,7 +77,7 @@ const MinerList = ({ title, miners = [] }: MinerListProps) => {
                 <th className={thClassList} key={idx}>
                   <div
                     className={clsx(
-                      "overflow-hidden truncate",
+                      "truncate overflow-hidden",
                       rowConfig[row]?.width,
                     )}
                   >
@@ -87,8 +87,8 @@ const MinerList = ({ title, miners = [] }: MinerListProps) => {
               ))}
 
               <th className={thClassList}>
-                <div className="w-12 overflow-hidden truncate">
-                  <button className="align-middle hover:cursor-pointer text-text-primary-30 hover:text-text-primary-50">
+                <div className="w-12 truncate overflow-hidden">
+                  <button className="align-middle text-text-primary-30 hover:cursor-pointer hover:text-text-primary-50">
                     <Ellipsis />
                   </button>
                 </div>
@@ -102,7 +102,7 @@ const MinerList = ({ title, miners = [] }: MinerListProps) => {
                 className={clsx(rowClassList, "hover:cursor-pointer")}
               >
                 <td className={tdClassList}>
-                  <div className="w-12 overflow-hidden truncate">
+                  <div className="w-12 truncate overflow-hidden">
                     <Checkbox
                       checked={selectedMiners.includes(miner.macAddress)}
                       onChange={(e) =>
@@ -116,7 +116,7 @@ const MinerList = ({ title, miners = [] }: MinerListProps) => {
                   <td className={tdClassList} key={j}>
                     <div
                       className={clsx(
-                        "overflow-hidden truncate",
+                        "truncate overflow-hidden",
                         rowConfig[row]?.width,
                       )}
                     >
@@ -128,7 +128,7 @@ const MinerList = ({ title, miners = [] }: MinerListProps) => {
                 ))}
 
                 <td className={tdClassList}>
-                  <div className="w-12 overflow-hidden truncate"></div>
+                  <div className="w-12 truncate overflow-hidden"></div>
                 </td>
               </tr>
             ))}

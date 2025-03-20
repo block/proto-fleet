@@ -9,7 +9,7 @@ const data = [
 
 export const Sparkline = () => {
   return (
-    <div className="w-40 h-8">
+    <div className="h-8 w-40">
       <SparklineComponent data={data} />
     </div>
   );

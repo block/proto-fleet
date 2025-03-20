@@ -10,16 +10,16 @@ type CheckboxProps = {
 
 const Checkbox = ({ onChange, checked, className = "" }: CheckboxProps) => {
   return (
-    <div className={clsx(className, "relative w-[20px] h-[20px]")}>
+    <div className={clsx(className, "relative h-[20px] w-[20px]")}>
       <input
         type="checkbox"
         checked={checked}
         onChange={(e) => {
           if (onChange) onChange(e);
         }}
-        className="peer w-full h-full appearance-none appearance-none rounded-sm border border-border-20 checked:bg-core-accent-fill checked:border-transparent"
+        className="peer h-full w-full appearance-none rounded-sm border border-border-20 checked:border-transparent checked:bg-core-accent-fill"
       />
-      <Checkmark className="absolute top-0 hidden peer-checked:block text-text-contrast w-full h-full pointer-events-none" />
+      <Checkmark className="pointer-events-none absolute top-0 hidden h-full w-full text-text-contrast peer-checked:block" />
     </div>
   );
 };

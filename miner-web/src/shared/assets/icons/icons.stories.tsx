@@ -94,10 +94,10 @@ const IconWrapper = ({ Icons }: IconProps) => {
           const Icon = icons[icon];
           return (
             <Fragment key={icon}>
-              <td className="p-4 border border-r-transparent border-border-5">
+              <td className="border border-border-5 border-r-transparent p-4">
                 {icon}
               </td>
-              <td className="border border-l-transparent border-border-5 m-auto">
+              <td className="m-auto border border-border-5 border-l-transparent">
                 <div className="flex justify-center">
                   <Icon />
                 </div>

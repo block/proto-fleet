@@ -54,7 +54,7 @@ const Stat = ({
           initial={{ opacity: 0 }}
           transition={{ duration: 0.5, ease: easeGentle }}
           className={clsx(
-            "text-text-primary overflow-ellipsis overflow-hidden whitespace-nowrap",
+            "overflow-hidden overflow-ellipsis whitespace-nowrap text-text-primary",
             size === "large" && "text-heading-300",
             size === "small" && "text-heading-200",
           )}
@@ -69,13 +69,13 @@ const Stat = ({
         <div className="relative mt-2 h-[2px] w-full">
           <div
             className={clsx(
-              "absolute w-full h-full opacity-20",
+              "absolute h-full w-full opacity-20",
               statusColors[chartStatus],
             )}
           ></div>
           <div
             className={clsx(
-              "absolute h-full w-full transition-transform ease-gentle duration-600 origin-left",
+              "absolute h-full w-full origin-left transition-transform duration-600 ease-gentle",
               statusColors[chartStatus],
             )}
             style={{ transform: `scaleX(${chartScale})` }}

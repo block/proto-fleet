@@ -43,10 +43,10 @@ export const Toaster = () => {
 
   return (
     <div>
-      <div className="z-20 fixed bottom-4 right-4">
+      <div className="fixed right-4 bottom-4 z-20">
         <ToasterComponent />
       </div>
-      <div className="absolute w-full h-full flex items-center justify-center gap-3">
+      <div className="absolute flex h-full w-full items-center justify-center gap-3">
         <Button onClick={addToast} size={sizes.base} variant={variants.primary}>
           Add Toast
         </Button>

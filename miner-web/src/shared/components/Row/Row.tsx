@@ -37,10 +37,10 @@ const Row = ({
         <div className="mr-4">{prefixIcon}</div>
         <Element
           className={clsx(
-            "text-left truncate",
+            "truncate text-left",
             { "py-2": compact },
             { "py-3": !compact },
-            { "px-3 -ml-3 rounded-lg w-[calc(100%+24px)]": onClick },
+            { "-ml-3 w-[calc(100%+24px)] rounded-lg px-3": onClick },
             { "hover:bg-core-primary-5": onClick && !isActive },
             { "w-full": !onClick },
             className,
@@ -55,7 +55,7 @@ const Row = ({
       {divider && (
         <Divider
           className={clsx("mt-[-1px]", {
-            "peer-hover:invisible px-4": onClick,
+            "px-4 peer-hover:invisible": onClick,
           })}
         />
       )}

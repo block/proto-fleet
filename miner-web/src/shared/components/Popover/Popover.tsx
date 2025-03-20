@@ -65,7 +65,7 @@ const Popover = ({
   const popoverElement = (
     <div
       ref={popoverRef}
-      className={clsx("absolute backdrop-blur-[7px] z-20", popoverAnimation)}
+      className={clsx("absolute z-20 backdrop-blur-[7px]", popoverAnimation)}
       style={popoverStyle}
       data-testid={testId}
     >

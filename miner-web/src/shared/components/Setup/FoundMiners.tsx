@@ -20,7 +20,7 @@ const FoundMiners = ({ miners }: FoundMinersProps) => {
         <Logo />
       </div>
       <div className="container mx-auto pt-20">
-        <div className="mx-auto w-fit flex flex-col gap-6">
+        <div className="mx-auto flex w-fit flex-col gap-6">
           <div>
             <Header
               inline
@@ -38,10 +38,10 @@ const FoundMiners = ({ miners }: FoundMinersProps) => {
             />
           </div>
           {miners.length === 1 && (
-            <div className="bg-surface-10  rounded-2xl px-5 pt-10 pb-7">
-              <div className="sm:w-[600px] mx-auto">
+            <div className="rounded-2xl bg-surface-10 px-5 pt-10 pb-7">
+              <div className="mx-auto sm:w-[600px]">
                 <div className="mx-auto w-fit">
-                  <img className="max-w-[228px] mb-2" src={MinerImage} />
+                  <img className="mb-2 max-w-[228px]" src={MinerImage} />
                   <div className="text-center text-heading-100 text-text-primary-50">
                     Proto Rack
                   </div>
@@ -79,7 +79,7 @@ const FoundMiners = ({ miners }: FoundMinersProps) => {
               ))}
             </div>
           </div>
-          <div className="flex gap-3 justify-end">
+          <div className="flex justify-end gap-3">
             {miners.length > 1 && (
               /* TODO: Restart search */
               <Button variant="secondary" size="base">

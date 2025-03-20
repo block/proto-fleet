@@ -36,7 +36,7 @@ export const InfoWidgets = ({
   }, [data]);
 
   return (
-    <div className="flex space-x-6 w-[928px]">
+    <div className="flex w-[928px] space-x-6">
       <InfoWidget
         title="Current efficiency"
         value="15.5 J/TH"

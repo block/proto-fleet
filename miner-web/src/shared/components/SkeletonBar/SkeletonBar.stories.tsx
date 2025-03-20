@@ -3,9 +3,9 @@ import Skeleton from ".";
 export const SkeletonBar = () => {
   return (
     <>
-      <Skeleton className="h-8! w-96 mb-4" />
-      <Skeleton className="h-8! w-72 mb-4" />
-      <Skeleton className="h-8! w-80 mb-4" />
+      <Skeleton className="mb-4 h-8! w-96" />
+      <Skeleton className="mb-4 h-8! w-72" />
+      <Skeleton className="mb-4 h-8! w-80" />
     </>
   );
 };

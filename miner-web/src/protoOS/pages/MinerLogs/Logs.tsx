@@ -157,7 +157,7 @@ const Logs = ({ logsData }: LogsProps) => {
       {logs.length ? (
         <>
           <div
-            className={clsx("fixed h-[58px] -mt-[58px] bg-surface-base", {
+            className={clsx("fixed -mt-[58px] h-[58px] bg-surface-base", {
               "w-full": isPhone || isTablet,
               "w-[calc(100%-240px)]": !isPhone && !isTablet,
             })}
@@ -166,11 +166,11 @@ const Logs = ({ logsData }: LogsProps) => {
           >
             <div
               className={clsx(
-                "flex items-center p-[15px] border-b-[1px] border-border-5",
+                "flex items-center border-b-[1px] border-border-5 p-[15px]",
                 "focus-within:border-b-2 focus-within:border-border-primary",
               )}
             >
-              <div className="flex space-x-4 items-center grow">
+              <div className="flex grow items-center space-x-4">
                 <Search
                   className="bg-surface-base!"
                   onChange={setSearchValue}
@@ -179,14 +179,14 @@ const Logs = ({ logsData }: LogsProps) => {
                   shouldFocus={focusSearch}
                 />
               </div>
-              <div className="space-x-4 flex items-center">
+              <div className="flex items-center space-x-4">
                 <LogBadges
                   label={errorCount === 1 ? "error" : "errors"}
                   count={errorCount}
                   className={clsx(
                     "text-text-critical",
                     {
-                      "bg-intent-critical-10 border-transparent":
+                      "border-transparent bg-intent-critical-10":
                         filterByLogType === logTypes.error,
                     },
                     {
@@ -203,7 +203,7 @@ const Logs = ({ logsData }: LogsProps) => {
                   className={clsx(
                     "text-text-warning",
                     {
-                      "bg-intent-warning-10 border-transparent":
+                      "border-transparent bg-intent-warning-10":
                         filterByLogType === logTypes.warn,
                     },
                     {
@@ -238,8 +238,8 @@ const Logs = ({ logsData }: LogsProps) => {
               </div>
             </div>
           </div>
-          <div className="overflow-y-scroll mt-[58px] h-[calc(100%-60px-58px)]">
-            <div className="font-mono text-mono-text-50 font-light text-text-primary p-4">
+          <div className="mt-[58px] h-[calc(100%-60px-58px)] overflow-y-scroll">
+            <div className="p-4 font-mono text-mono-text-50 font-light text-text-primary">
               {filteredLogs.length ? (
                 filteredLogs.map((log, index) => {
                   const line = padLeft(index + 1, 4);
@@ -249,16 +249,16 @@ const Logs = ({ logsData }: LogsProps) => {
                   return (
                     <div
                       key={line}
-                      className={clsx("flex leading-6 mb-1", {
+                      className={clsx("mb-1 flex leading-6", {
                         "ml-[2px] text-text-primary-70":
                           !isError && !isWarning && !isDebug,
-                        "border-l-[2px] -ml-[16px] pl-4":
+                        "-ml-[16px] border-l-[2px] pl-4":
                           isError || isWarning || isDebug,
-                        "text-text-warning border-border-text-warning":
+                        "border-border-text-warning text-text-warning":
                           isWarning,
-                        "text-text-critical border-border-text-critical":
+                        "border-border-text-critical text-text-critical":
                           isError,
-                        "text-intent-info-fill border-border-intent-info-fill":
+                        "border-border-intent-info-fill text-intent-info-fill":
                           isDebug,
                       })}
                     >
@@ -277,7 +277,7 @@ const Logs = ({ logsData }: LogsProps) => {
                   );
                 })
               ) : (
-                <div className="bg-core-primary-5 w-full h-[189px] flex justify-center items-center rounded-2xl">
+                <div className="flex h-[189px] w-full items-center justify-center rounded-2xl bg-core-primary-5">
                   <div className="font-body text-heading-100 text-text-primary-50">
                     {searchValue &&
                       filterByLogType === undefined &&
@@ -301,7 +301,7 @@ const Logs = ({ logsData }: LogsProps) => {
           </div>
         </>
       ) : (
-        <div className="flex h-[calc(100vh-65px)] w-full justify-center items-center">
+        <div className="flex h-[calc(100vh-65px)] w-full items-center justify-center">
           <Spinner />
         </div>
       )}

@@ -1,6 +1,6 @@
 const ButtonDivider = () => {
   return (
-    <div className="text-core-accent-20 text-center text-200 capitalize">.</div>
+    <div className="text-center text-200 text-core-accent-20 capitalize">.</div>
   );
 };
 

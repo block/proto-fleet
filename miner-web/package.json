@@ -67,6 +67,7 @@
     "jsdom": "26.0.0",
     "postcss": "8.5.3",
     "prettier": "^3.5.3",
+    "prettier-plugin-tailwindcss": "^0.6.11",
     "storybook": "8.6.4",
     "storybook-dark-mode": "4.0.2",
     "swagger-typescript-api": "13.0.23",

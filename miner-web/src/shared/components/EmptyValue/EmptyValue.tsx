@@ -7,10 +7,10 @@ interface EmptyValueProps {
 const EmptyValue = ({ className }: EmptyValueProps) => {
   return (
     <div
-      className={clsx("h-10 flex items-center", className)}
+      className={clsx("flex h-10 items-center", className)}
       data-testid="empty-value"
     >
-      <div className="w-6 h-1 bg-core-primary-10 rounded-xl" />
+      <div className="h-1 w-6 rounded-xl bg-core-primary-10" />
     </div>
   );
 };

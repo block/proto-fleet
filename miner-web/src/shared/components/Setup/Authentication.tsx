@@ -25,7 +25,7 @@ const WeakPasswordWarning = ({
       preventClose
       className="max-w-sm"
     >
-      <div className="flex flex-col gap-3 mt-4">
+      <div className="mt-4 flex flex-col gap-3">
         <Button
           onClick={onReturn}
           size="base"
@@ -87,7 +87,7 @@ const PasswordStrengthMeter = ({
   return (
     <div className="flex gap-1">
       <div
-        className={clsx("w-[18px] h-1 rounded-full", {
+        className={clsx("h-1 w-[18px] rounded-full", {
           "bg-core-primary-10": score === 0,
           "bg-intent-critical-fill": score > 0 && score < 50,
           "bg-intent-warning-fill": score >= 50 && score < 90,
@@ -95,14 +95,14 @@ const PasswordStrengthMeter = ({
         })}
       />
       <div
-        className={clsx("w-[18px] h-1 rounded-full", {
+        className={clsx("h-1 w-[18px] rounded-full", {
           "bg-core-primary-10": score < 50,
           "bg-intent-warning-fill": score >= 50 && score < 90,
           "bg-intent-success-fill": score >= 90,
         })}
       />
       <div
-        className={clsx("w-[18px] h-1 rounded-full", {
+        className={clsx("h-1 w-[18px] rounded-full", {
           "bg-core-primary-10": score < 90,
           "bg-intent-success-fill": score >= 90,
         })}
@@ -212,7 +212,7 @@ const Authentication = ({ submit }: AuthenticationProps) => {
             initValue={values.password}
             error={errors.password}
           />
-          <div className="flex justify-between items-center gap-5">
+          <div className="flex items-center justify-between gap-5">
             <div>
               <div className="text-200 text-text-primary-50">
                 Password strength

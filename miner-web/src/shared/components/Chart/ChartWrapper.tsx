@@ -7,7 +7,7 @@ interface ChartWrapperProps {
 
 const ChartWrapper = ({ children }: ChartWrapperProps) => {
   return (
-    <div className="flex w-full h-full">
+    <div className="flex h-full w-full">
       <ResponsiveContainer width="100%" height="100%">
         {children as ReactElement<any, string | JSXElementConstructor<any>>}
       </ResponsiveContainer>

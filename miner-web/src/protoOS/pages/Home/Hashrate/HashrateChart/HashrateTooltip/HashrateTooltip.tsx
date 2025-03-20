@@ -59,12 +59,12 @@ const HashrateTooltip = ({
   return (
     <>
       {payload.datetime && (
-        <div className="bg-surface-elevated-base/70 pt-6 pb-4 rounded-xl shadow-200 backdrop-blur-[7px]">
+        <div className="rounded-xl bg-surface-elevated-base/70 pt-6 pb-4 shadow-200 backdrop-blur-[7px]">
           <div className="w-[269px]">
             <div className="flex space-x-2 px-6">
-              <div className="w-1 h-3 bg-core-accent-fill rounded-xs mt-1" />
+              <div className="mt-1 h-3 w-1 rounded-xs bg-core-accent-fill" />
               <div>
-                <div className="text-200 mb-1 text-text-primary-70">
+                <div className="mb-1 text-200 text-text-primary-70">
                   Total Hashrate
                 </div>
                 <div className="text-heading-100 text-text-primary">

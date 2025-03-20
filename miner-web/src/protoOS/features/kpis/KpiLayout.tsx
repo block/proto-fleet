@@ -81,9 +81,9 @@ const KpiLayout = () => {
         <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} />
       )}
 
-      <div className="flex flex-col mb-4">
+      <div className="mb-4 flex flex-col">
         <div className="flex items-center pb-6">
-          <div className="text-heading-300 grow">Home</div>
+          <div className="grow text-heading-300">Home</div>
           <DurationSelector
             className="h-fit"
             duration={duration}
@@ -91,7 +91,7 @@ const KpiLayout = () => {
           />
         </div>
 
-        <div className="w-[calc(100%+12*var(--spacing))] -ml-6 pb-11 phone:w-full phone:ml-0 phone:pb-6">
+        <div className="-ml-6 w-[calc(100%+12*var(--spacing))] pb-11 phone:ml-0 phone:w-full phone:pb-6">
           <TabMenu
             hashrate={minerHashrate?.aggregates.avg}
             efficiency={minerEfficiency?.aggregates.avg}

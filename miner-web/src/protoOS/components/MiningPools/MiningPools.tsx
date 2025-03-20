@@ -19,7 +19,7 @@ const MiningPools = ({
   pools,
 }: MiningPoolsProps) => {
   return (
-    <div className="max-w-[640px] h-full">
+    <div className="h-full max-w-[640px]">
       <ContentHeader
         title="Mining pool"
         subtitle="Enter your mining pool details below."

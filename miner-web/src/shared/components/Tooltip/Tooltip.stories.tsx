@@ -8,7 +8,7 @@ interface TooltipWrapperProps {
 const TooltipWrapper = ({ position }: TooltipWrapperProps) => {
   return (
     <div>
-      <div className="text-heading-100 mb-2">Position: {position}</div>
+      <div className="mb-2 text-heading-100">Position: {position}</div>
       <div className="flex w-80">
         <TooltipComponent
           header="Tooltip Header"
@@ -22,7 +22,7 @@ const TooltipWrapper = ({ position }: TooltipWrapperProps) => {
 
 export const Tooltip = () => {
   return (
-    <div className="ml-4 mt-4 flex flex-col space-y-4">
+    <div className="mt-4 ml-4 flex flex-col space-y-4">
       <div className="flex">
         <TooltipWrapper position={positions["bottom right"]} />
         <TooltipWrapper position={positions["bottom left"]} />

@@ -11,7 +11,7 @@ const Chip = ({ loading, prefixIcon, children }: ChipProps) => {
   const prefix = loading ? <Spinner size={16} /> : prefixIcon;
 
   return (
-    <div className="flex items-center w-fit rounded border border-border-5 px-2 py-1">
+    <div className="flex w-fit items-center rounded border border-border-5 px-2 py-1">
       {prefix}
       {children && prefix && <span className="w-1" />}
       <span className="text-200">{children}</span>

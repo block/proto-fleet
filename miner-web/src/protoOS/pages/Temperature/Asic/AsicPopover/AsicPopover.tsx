@@ -28,7 +28,7 @@ const AsicPopover = ({
 }: AsicPopoverProps) => {
   return (
     <Popover
-      className="pb-3 h-fit"
+      className="h-fit pb-3"
       position={positions.top}
       offset={minimalMargin * 3}
     >
@@ -46,7 +46,7 @@ const AsicPopover = ({
           </div>
         )} */}
       </div>
-      <div className="w-[272px] h-[92px]">
+      <div className="h-[92px] w-[272px]">
         {(pendingAsicHashrateData && !hashrateData?.length) ||
         (pendingAsicTemperatureData && !temperatureData?.length) ? (
           <div className="flex h-full items-center justify-center">

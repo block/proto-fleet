@@ -113,7 +113,7 @@ const Hashrate = ({
 
   return (
     <div className="space-y-6">
-      <div className="flex space-x-6 w-full phone:flex-col phone:space-x-0 phone:space-y-6">
+      <div className="flex w-full space-x-6 phone:flex-col phone:space-y-6 phone:space-x-0">
         <InfoWidget
           title="Current hashrate"
           value={currentValue && `${currentValue} TH/s`}
@@ -152,7 +152,7 @@ const Hashrate = ({
             highestValue={highestValue ? +highestValue : undefined}
           />
         ) : (
-          <div className="flex justify-center items-center h-full">
+          <div className="flex h-full items-center justify-center">
             <Spinner />
           </div>
         )}

@@ -64,12 +64,12 @@ const OnboardingSettingUp = ({
           size={sizes.base}
           text={"Continue"}
           className={clsx(
-            "mt-6 transition-opacity ease-in-out duration-200",
+            "mt-6 transition-opacity duration-200 ease-in-out",
             {
-              "opacity-100 animate-[fade-in_.31s_ease-in-out]": isSetupDone,
+              "animate-[fade-in_.31s_ease-in-out] opacity-100": isSetupDone,
             },
             {
-              "opacity-0 hover:opacity-0! cursor-auto": !isSetupDone,
+              "cursor-auto opacity-0 hover:opacity-0!": !isSetupDone,
             },
           )}
           onClick={isSetupDone ? onClickContinue : undefined}

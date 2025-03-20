@@ -11,9 +11,9 @@ type SetupHeaderProps = {
 const SetupHeader = ({ activeStep }: SetupHeaderProps) => {
   return (
     <>
-      <div className="flex  items-center p-6">
+      <div className="flex items-center p-6">
         <Dismiss />
-        <div className="flex items-center mx-auto">
+        <div className="mx-auto flex items-center">
           {(Object.keys(steps) as Step[]).map((key, index) => (
             <div key={key} className="flex items-center text-text-primary-30">
               <div

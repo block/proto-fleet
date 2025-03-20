@@ -20,8 +20,8 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
 
   return (
     <div>
-      <div className="flex items-center mb-4">
-        <div className="text-heading-100 text-text-primary grow">
+      <div className="mb-4 flex items-center">
+        <div className="grow text-heading-100 text-text-primary">
           Default pool
         </div>
         <Button
@@ -45,10 +45,10 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
       />
 
       <div className="mt-10">
-        <div className="text-heading-100 text-text-primary mb-1">
+        <div className="mb-1 text-heading-100 text-text-primary">
           Backup pools
         </div>
-        <div className="text-300 text-text-primary-70 mb-3">
+        <div className="mb-3 text-300 text-text-primary-70">
           Backup pools will only be used if your default pool fails.
         </div>
         {[...Array(2)].map((_, index) => {

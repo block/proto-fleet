@@ -112,13 +112,13 @@ const Auth = () => {
   useKeyDown({ key: "Enter", onKeyDown: handleEnter });
 
   return (
-    <div className="auth-wrapper w-full h-screen flex justify-center items-center bg-surface-base">
-      <div className="w-[402px] p-6 rounded-3xl shadow-200 bg-surface-elevated-base space-y-4">
+    <div className="auth-wrapper flex h-screen w-full items-center justify-center bg-surface-base">
+      <div className="w-[402px] space-y-4 rounded-3xl bg-surface-elevated-base p-6 shadow-200">
         <div className="flex items-center">
           <div className="grow">
             <Logo className="w-[78px] text-text-primary" />
           </div>
-          <div className="uppercase text-text-primary-50 text-300 leading-4 font-semibold rounded-lg border border-border-5 py-1 px-2">
+          <div className="rounded-lg border border-border-5 px-2 py-1 text-300 leading-4 font-semibold text-text-primary-50 uppercase">
             MDK Beta
           </div>
         </div>
@@ -140,15 +140,15 @@ const Auth = () => {
           <div
             className={clsx("transition-[max-height,margin] ease-in-out", {
               "max-h-0 overflow-hidden duration-300": !apiError.show,
-              "max-h-96 mb-4 duration-500": apiError.show,
+              "mb-4 max-h-96 duration-500": apiError.show,
             })}
           >
-            <div className="bg-intent-critical-10 text-intent-critical-text text-emphasis-300 leading-5 px-3 py-2 rounded-lg">
+            <div className="rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 leading-5 text-intent-critical-text">
               {apiError.error}
             </div>
           </div>
 
-          <div className="bg-surface-elevated-base rounded-lg relative z-10">
+          <div className="relative z-10 rounded-lg bg-surface-elevated-base">
             <Input
               id={ids.username}
               label="Username"

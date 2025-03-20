@@ -29,9 +29,9 @@ const InfoWidget = ({
   return (
     <Element
       className={clsx(
-        "group text-left relative grow basis-0 flex transition-[background-color] ease-in-out duration-200",
+        "group relative flex grow basis-0 text-left transition-[background-color] duration-200 ease-in-out",
         {
-          "p-4 border border-border-5 rounded-xl": hasBorder,
+          "rounded-xl border border-border-5 p-4": hasBorder,
           "hover:bg-core-primary-5": onClick,
         },
         wrapperClassName,
@@ -40,12 +40,12 @@ const InfoWidget = ({
       data-testid="info-widget"
     >
       <div
-        className={clsx("whitespace-nowrap", { "grow mr-2": stats }, className)}
+        className={clsx("whitespace-nowrap", { "mr-2 grow": stats }, className)}
       >
-        <div className="text-heading-50 text-text-primary-50 mb-1">{title}</div>
+        <div className="mb-1 text-heading-50 text-text-primary-50">{title}</div>
         <div className="text-heading-300 text-text-primary">
           {loading ? (
-            <SkeletonBar className="w-36 mt-4" />
+            <SkeletonBar className="mt-4 w-36" />
           ) : (
             <>{value ?? <EmptyValue />}</>
           )}

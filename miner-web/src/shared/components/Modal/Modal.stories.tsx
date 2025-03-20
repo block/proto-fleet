@@ -25,9 +25,9 @@ export const Modal = ({
 
   return (
     <>
-      <div className="flex w-full justify-center mt-16">
+      <div className="mt-16 flex w-full justify-center">
         <div className="flex flex-col">
-          <div className="text-400 mb-2">Content behind the overlay</div>
+          <div className="mb-2 text-400">Content behind the overlay</div>
           <Button
             onClick={() => setShowModal(true)}
             text="Show Modal"

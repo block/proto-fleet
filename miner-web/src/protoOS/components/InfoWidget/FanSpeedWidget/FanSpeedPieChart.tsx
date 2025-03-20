@@ -17,7 +17,7 @@ const FanSpeedPieChart = ({
   ];
 
   return (
-    <div data-testid="fan-speed-pie-chart" className="w-full h-full">
+    <div data-testid="fan-speed-pie-chart" className="h-full w-full">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie

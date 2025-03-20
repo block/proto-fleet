@@ -52,7 +52,7 @@ const Button = ({
     <button
       type="button"
       className={clsx(
-        "group flex items-center justify-center rounded-3xl h-fit outline-0 whitespace-nowrap",
+        "group flex h-fit items-center justify-center rounded-3xl whitespace-nowrap outline-0",
         {
           "cursor-not-allowed": disabledState,
         },
@@ -71,43 +71,43 @@ const Button = ({
         },
         // color and bg - primary
         {
-          "text-text-contrast bg-core-primary-fill hover:opacity-80":
+          "bg-core-primary-fill text-text-contrast hover:opacity-80":
             primary && !disabledState,
-          "text-text-contrast bg-core-primary-fill opacity-40":
+          "bg-core-primary-fill text-text-contrast opacity-40":
             primary && disabledState,
         },
         // color and bg - accent
         {
-          "text-text-base-contrast-static bg-core-accent-fill hover:opacity-80":
+          "bg-core-accent-fill text-text-base-contrast-static hover:opacity-80":
             accent && !disabledState,
-          "text-text-base-contrast-static bg-core-accent-fill opacity-40":
+          "bg-core-accent-fill text-text-base-contrast-static opacity-40":
             accent && disabledState,
         },
         // color and bg - secondary
         {
-          "text-text-primary bg-core-primary-10 hover:opacity-80":
+          "bg-core-primary-10 text-text-primary hover:opacity-80":
             secondary && !disabledState,
-          "text-text-primary-50 bg-core-primary-5": secondary && disabledState,
+          "bg-core-primary-5 text-text-primary-50": secondary && disabledState,
         },
         // color and bg - danger
         {
-          "text-text-base-contrast-static bg-intent-critical-fill hover:bg-intent-critical-text hover:opacity-80":
+          "bg-intent-critical-fill text-text-base-contrast-static hover:bg-intent-critical-text hover:opacity-80":
             danger && !disabledState,
-          "text-text-base-contrast-static bg-intent-critical-fill opacity-40":
+          "bg-intent-critical-fill text-text-base-contrast-static opacity-40":
             danger && disabledState,
         },
         // color and bg - ghost
         {
           "shadow-50": ghost,
-          "text-text-primary bg-surface-default hover:bg-core-primary-5 hover:opacity-80 hover:shadow-none":
+          "bg-surface-default text-text-primary hover:bg-core-primary-5 hover:opacity-80 hover:shadow-none":
             ghost && !disabledState,
-          "text-text-primary-50 bg-surface-default": ghost && disabledState,
+          "bg-surface-default text-text-primary-50": ghost && disabledState,
         },
         // color and bg - secondary danger
         {
-          "text-text-critical bg-intent-critical-10 hover:bg-intent-critical-20 hover:opacity-80":
+          "bg-intent-critical-10 text-text-critical hover:bg-intent-critical-20 hover:opacity-80":
             secondaryDanger && !disabledState,
-          "text-intent-critical-80 bg-intent-critical-10":
+          "bg-intent-critical-10 text-intent-critical-80":
             secondaryDanger && disabledState,
         },
         // color and bg - text only
@@ -131,7 +131,7 @@ const Button = ({
         {textOnly && !disabledState && (
           <div
             className={clsx(
-              "group-hover:border-b-2 w-full opacity-20 -mt-[2px]",
+              "-mt-[2px] w-full opacity-20 group-hover:border-b-2",
               borderColor,
             )}
           />

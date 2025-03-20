@@ -8,7 +8,7 @@ type HashrateProps = {
 
 const Hashrate = ({ hashrate }: HashrateProps) => {
   return (
-    <div className="w-full h-full pr-6 flex flex-row relative items-center justify-between whitespace-nowrap">
+    <div className="relative flex h-full w-full flex-row items-center justify-between pr-6 whitespace-nowrap">
       <div>{hashrate[hashrate.length - 1].hashrate} TH/s</div>
       <div className="h-5 w-12">
         <Sparkline

@@ -22,7 +22,7 @@ const PopoverContent = ({
   return (
     <div
       className={clsx(
-        "p-6 rounded-3xl shadow-200 bg-surface-elevated-base/85 backdrop-blur-[7px] z-20 space-y-4 transition-opacity duration-200",
+        "z-20 space-y-4 rounded-3xl bg-surface-elevated-base/85 p-6 shadow-200 backdrop-blur-[7px] transition-opacity duration-200",
         {
           "w-60": size === popoverSizes.small,
           "w-72": size === popoverSizes.medium,

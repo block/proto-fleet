@@ -8,7 +8,7 @@ export default {
   title: "protoOS/Components/TabMenu",
   decorators: [
     (Story: any) => (
-      <div className="min-h-[100vh] w-full flex justify-center items-center">
+      <div className="flex min-h-[100vh] w-full items-center justify-center">
         <Story />
       </div>
     ),

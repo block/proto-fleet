@@ -61,7 +61,7 @@ const Toast = ({
 
   return (
     <motion.div
-      className={`absolute bottom-0 right-0 pb-[${extraPaddingForHover}px]`}
+      className={`absolute right-0 bottom-0 pb-[${extraPaddingForHover}px]`}
       initial={{ opacity: 0, y: initialTranslateY + extraPaddingForHover }}
       animate={{ opacity: 1, scale: scale, y: yOffset + extraPaddingForHover }}
       exit={{
@@ -71,14 +71,14 @@ const Toast = ({
       transition={{ duration: 0.3, ease: easeGentle }}
       variants={{ hover: { scale: 1, y: hoverYOffset + extraPaddingForHover } }}
     >
-      <div className="w-[400px] p-3 space-x-3 rounded-lg shadow-100 bg-surface-elevated-base">
+      <div className="w-[400px] space-x-3 rounded-lg bg-surface-elevated-base p-3 shadow-100">
         <div
           className={clsx(
-            "flex transition-opacity duration-200 items-center group-hover:opacity-100",
+            "flex items-center transition-opacity duration-200 group-hover:opacity-100",
             onTop ? "opacity-100" : "opacity-0",
           )}
         >
-          <div className="flex grow space-x-3 items-center transition-opacity duration-300">
+          <div className="flex grow items-center space-x-3 transition-opacity duration-300">
             {status === STATUSES.loading && <Spinner />}
             {status === STATUSES.success && (
               <Success className="text-intent-success-fill" />

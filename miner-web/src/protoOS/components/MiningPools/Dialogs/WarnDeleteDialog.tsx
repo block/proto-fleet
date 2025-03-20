@@ -38,7 +38,7 @@ const WarnDeleteDialog = ({
       testId="warn-delete-dialog"
     >
       {(showPoolUrl || showUsername) && (
-        <div className="border border-border-5 rounded-lg px-4 py-1 mt-4">
+        <div className="mt-4 rounded-lg border border-border-5 px-4 py-1">
           {showPoolUrl && (
             <Row divider={showUsername} compact>
               <InfoRow label="Pool URL" value={poolInfo.url} />

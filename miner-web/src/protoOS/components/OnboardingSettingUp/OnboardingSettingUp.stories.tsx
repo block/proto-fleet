@@ -20,7 +20,7 @@ export const SettingUp = ({ poolStatus }: OnboardingSettingUpProps) => {
   );
 
   return (
-    <div className="h-screen flex justify-center items-center">
+    <div className="flex h-screen items-center justify-center">
       <div className="w-[600px]">
         <OnboardingSettingUp
           poolStatus={poolStatus}

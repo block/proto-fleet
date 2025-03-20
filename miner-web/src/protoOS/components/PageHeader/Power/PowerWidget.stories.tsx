@@ -26,7 +26,7 @@ export const PowerWidget = () => {
   };
 
   return (
-    <div className="w-96 flex justify-end">
+    <div className="flex w-96 justify-end">
       <PopoverProvider>
         <PowerWidgetComponent
           shouldShowPopover

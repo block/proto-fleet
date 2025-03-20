@@ -49,7 +49,7 @@ const Header = ({
   return (
     <div
       className={clsx(
-        "flex justify-between w-full",
+        "flex w-full justify-between",
         { "items-center": centerButton },
         className,
       )}
@@ -73,7 +73,7 @@ const Header = ({
           })}
         >
           {eybrow && (
-            <div className="text-text-primary-70 text-200">{eybrow}</div>
+            <div className="text-200 text-text-primary-70">{eybrow}</div>
           )}
           {title && (
             <div className={titleSize} data-testid={testId}>
@@ -94,7 +94,7 @@ const Header = ({
             </div>
           )}
           {description && (
-            <div className="text-text-primary-70 text-300">{description}</div>
+            <div className="text-300 text-text-primary-70">{description}</div>
           )}
         </div>
       </div>

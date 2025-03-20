@@ -42,18 +42,18 @@ const Callout = ({
   }
 
   return (
-    <div className={clsx("shadow-100 rounded-xl", className)}>
+    <div className={clsx("rounded-xl shadow-100", className)}>
       {header && /(information|success|warning|danger)/.test(intent) && (
         <div
           className={clsx(
-            "rounded-t-xl px-4 py-1 text-text-contrast text-emphasis-300",
+            "rounded-t-xl px-4 py-1 text-emphasis-300 text-text-contrast",
             bgColor,
           )}
         >
           {header}
         </div>
       )}
-      <div className="flex p-4 text-text-primary-70 bg-surface-elevated-base rounded-xl">
+      <div className="flex rounded-xl bg-surface-elevated-base p-4 text-text-primary-70">
         <div
           className={clsx("mr-3", {
             "mt-1": buttonText,

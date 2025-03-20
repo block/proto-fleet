@@ -29,7 +29,7 @@ const StatusCircle = ({
       {variant == "simple" ? (
         <div
           className={clsx(
-            "rounded-[50%] aspect-square",
+            "aspect-square rounded-[50%]",
             !removeMargin && "mr-1",
             bgColorClass,
             width,

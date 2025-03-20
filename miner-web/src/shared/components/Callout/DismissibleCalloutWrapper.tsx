@@ -27,7 +27,7 @@ const DismissibleCalloutWrapper = ({
   return (
     <div
       className={clsx(
-        "transition-[max-height,margin] ease-in-out duration-200",
+        "transition-[max-height,margin] duration-200 ease-in-out",
         {
           "max-h-0 overflow-hidden": !show,
           "mb-4": show,

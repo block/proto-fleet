@@ -3,7 +3,7 @@ import LogsComponent from "./Logs";
 
 export const Logs = () => {
   return (
-    <div className="ml-4 w-[calc(100%-240px)] -mt-4">
+    <div className="-mt-4 ml-4 w-[calc(100%-240px)]">
       <LogsComponent logsData={mockLogs} />
     </div>
   );

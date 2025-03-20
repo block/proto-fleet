@@ -14,10 +14,10 @@ const Card = ({ children, title, type }: CardProps) => {
     <div className="rounded-xl shadow-50">
       <div
         className={clsx("rounded-t-xl px-4 py-2", {
-          "text-text-primary bg-core-primary-5": type === cardType.default,
-          "text-text-contrast bg-intent-success-fill":
+          "bg-core-primary-5 text-text-primary": type === cardType.default,
+          "bg-intent-success-fill text-text-contrast":
             type === cardType.success,
-          "text-text-contrast bg-intent-critical-fill":
+          "bg-intent-critical-fill text-text-contrast":
             type === cardType.warning,
         })}
       >

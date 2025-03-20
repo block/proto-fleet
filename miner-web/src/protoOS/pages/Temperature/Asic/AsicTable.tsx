@@ -27,21 +27,21 @@ const AsicTable = ({
   setShowPopover,
 }: AsicTableProps) => {
   return (
-    <div className="mt-6 relative h-full">
-      <div className="flex phone:overflow-x-scroll h-full">
+    <div className="relative mt-6 h-full">
+      <div className="flex h-full phone:overflow-x-scroll">
         {pending && !asics.length ? (
-          <div className="flex w-full h-full items-center justify-center">
+          <div className="flex h-full w-full items-center justify-center">
             <Spinner />
           </div>
         ) : (
           <>
-            <div className="space-y-2 mt-[34px] mr-[3px]">
+            <div className="mt-[34px] mr-[3px] space-y-2">
               {/* Row label */}
               {asics
                 .filter((asic) => asic.column === 0)
                 .map((asic) => (
                   <div
-                    className="bg-core-primary-5 font-mono text-mono-text-50 text-text-primary px-2 py-1 rounded-lg border border-border-5 text-center flex items-center h-[42px]"
+                    className="flex h-[42px] items-center rounded-lg border border-border-5 bg-core-primary-5 px-2 py-1 text-center font-mono text-mono-text-50 text-text-primary"
                     key={`asic-header-${asic.row}`}
                   >
                     {getRowLabel(asic.row || 0)}
@@ -49,13 +49,13 @@ const AsicTable = ({
                 ))}
             </div>
             <div className="w-full -space-y-[2px]">
-              <div className="flex space-x-2 mx-[5px] mb-[5px]">
+              <div className="mx-[5px] mb-[5px] flex space-x-2">
                 {/* Column label */}
                 {asics
                   .filter((asic) => asic.row === 0)
                   .map((asic) => (
                     <div
-                      className="bg-core-primary-5 font-mono text-mono-text-50 text-text-primary px-2 py-1 rounded-lg border border-border-5 basis-0 grow text-center"
+                      className="grow basis-0 rounded-lg border border-border-5 bg-core-primary-5 px-2 py-1 text-center font-mono text-mono-text-50 text-text-primary"
                       key={`asic-header-${asic.column}`}
                     >
                       {(asic.column || 0) + 1}

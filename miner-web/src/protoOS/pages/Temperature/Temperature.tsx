@@ -120,7 +120,7 @@ const Temperature = ({
   return (
     <div className="flex flex-col space-y-6">
       <div className="flex items-center">
-        <div className="text-heading-300 grow">Temperature</div>
+        <div className="grow text-heading-300">Temperature</div>
         <DurationSelector
           className="h-fit"
           duration={duration}
@@ -128,7 +128,7 @@ const Temperature = ({
         />
       </div>
 
-      <div className="flex space-x-6 w-full phone:flex-col phone:space-x-0 phone:space-y-6">
+      <div className="flex w-full space-x-6 phone:flex-col phone:space-y-6 phone:space-x-0">
         <TempWidget
           duration={duration}
           temp={temp}
@@ -142,7 +142,7 @@ const Temperature = ({
         />
       </div>
       {pendingHashboardsInfo && !hashboardsInfo?.length && (
-        <div className="flex justify-center items-center h-full">
+        <div className="flex h-full items-center justify-center">
           <Spinner />
         </div>
       )}
@@ -154,7 +154,7 @@ const Temperature = ({
               key={hashboardInfo.hb_sn}
             >
               <Row compact className="-mt-6 flex">
-                <div className="text-emphasis-300 grow">
+                <div className="grow text-emphasis-300">
                   {hashboardInfo.hb_sn &&
                     `Board ending in ${hashboardInfo.hb_sn.slice(-4)}`}
                 </div>

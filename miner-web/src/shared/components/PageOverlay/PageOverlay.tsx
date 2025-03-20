@@ -26,7 +26,7 @@ const PageOverlay = ({
   return (
     <div
       className={clsx(
-        "fixed top-0 left-0 h-screen w-screen flex justify-center items-center bg-grayscale-gray-5 m-0! p-0! overflow-hidden!",
+        "fixed top-0 left-0 m-0! flex h-screen w-screen items-center justify-center overflow-hidden! bg-grayscale-gray-5 p-0!",
         zIndex,
         {
           "animate-[fade-in_.3s_ease-in-out]": show,

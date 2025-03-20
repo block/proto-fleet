@@ -117,7 +117,7 @@ const AppWrapper = ({ children, fullScreen, hideErrors, title }: AppProps) => {
       {!getItem("isOnboarded") &&
       pendingSystemStatus &&
       systemStatus?.onboarded === undefined ? (
-        <div className="min-h-screen flex items-center justify-center">
+        <div className="flex min-h-screen items-center justify-center">
           <Spinner />
         </div>
       ) : (

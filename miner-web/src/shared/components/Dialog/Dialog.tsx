@@ -69,7 +69,7 @@ const Dialog = ({
         >
           <div
             className={clsx(
-              "shadow-200 rounded-3xl p-6 w-[360px] h-fit bg-surface-elevated-base",
+              "h-fit w-[360px] rounded-3xl bg-surface-elevated-base p-6 shadow-200",
               {
                 "animate-sliding-up": show,
                 "animate-sliding-down": !show,
@@ -77,7 +77,7 @@ const Dialog = ({
             )}
             data-testid={testId}
           >
-            {loading && <Spinner className="h-6 mb-3 text-core-accent-fill" />}
+            {loading && <Spinner className="mb-3 h-6 text-core-accent-fill" />}
             <Header
               title={title}
               subtitle={subtitle}

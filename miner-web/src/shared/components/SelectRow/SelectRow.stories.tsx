@@ -9,7 +9,7 @@ interface IconWrapperProps {
 }
 
 const IconWrapper = ({ children }: IconWrapperProps) => {
-  return <div className="bg-core-primary-5 p-[6px] rounded-lg">{children}</div>;
+  return <div className="rounded-lg bg-core-primary-5 p-[6px]">{children}</div>;
 };
 
 interface SelectRowProps {
@@ -42,7 +42,7 @@ export const SelectRow = ({ hasPrefixIcon, type }: SelectRowProps) => {
   };
 
   return (
-    <div className="flex flex-col w-80">
+    <div className="flex w-80 flex-col">
       {[...Array(5)].map((_, index) => {
         return (
           <SelectRowComponent

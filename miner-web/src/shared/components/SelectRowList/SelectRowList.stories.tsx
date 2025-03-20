@@ -8,7 +8,7 @@ interface IconWrapperProps {
 }
 
 const IconWrapper = ({ children }: IconWrapperProps) => {
-  return <div className="bg-core-primary-5 p-[6px] rounded-lg">{children}</div>;
+  return <div className="rounded-lg bg-core-primary-5 p-[6px]">{children}</div>;
 };
 
 interface SelectRowProps {

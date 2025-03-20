@@ -20,18 +20,18 @@ const Tooltip = ({ header, body, position }: TooltipProps) => {
 
   return (
     <div className="relative">
-      <Question className="cursor-help peer" />
+      <Question className="peer cursor-help" />
       <div
         className={clsx(
           "invisible opacity-0 peer-hover:visible peer-hover:opacity-100",
-          "peer-hover:transition peer-hover:transform peer-hover:duration-200",
-          "absolute bg-surface-base text-text-primary p-4 rounded-lg w-80 shadow-200 z-10",
+          "peer-hover:transform peer-hover:transition peer-hover:duration-200",
+          "absolute z-10 w-80 rounded-lg bg-surface-base p-4 text-text-primary shadow-200",
           yPosition,
           xPosition,
           peerHover,
         )}
       >
-        <div className="text-heading-100 text-text-primary mb-1">{header}</div>
+        <div className="mb-1 text-heading-100 text-text-primary">{header}</div>
         <div className="text-300 text-text-primary-70">{body}</div>
       </div>
     </div>

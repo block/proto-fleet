@@ -12,12 +12,12 @@ type Props = {
 
 const AppLayout = ({ children, title }: Props) => {
   return (
-    <div className="absolute top-0 left-0 w-full flex flex-row bg-surface-base">
+    <div className="absolute top-0 left-0 flex w-full flex-row bg-surface-base">
       <NavigationMenu routes={routes} />
-      <div className="grow flex flex-col">
+      <div className="flex grow flex-col">
         <PageHeader />
         <div>{title}</div>
-        <div className="grow relative flex flex-row">
+        <div className="relative flex grow flex-row">
           <SecondaryNavigation routes={routes} />
           <div className="grow">{children}</div>
         </div>

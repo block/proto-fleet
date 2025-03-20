@@ -9,7 +9,7 @@ const SkeletonBar = ({ className }: SkeletonBarProps) => {
     <div className={clsx("h-4", className)} data-testid="skeleton-bar">
       <div
         className={clsx(
-          "h-full relative isolate overflow-hidden rounded-sm",
+          "relative isolate h-full overflow-hidden rounded-sm",
           "before:absolute before:inset-0 before:-translate-x-full",
           "before:animate-[shimmer_2s_infinite]",
           "before:bg-linear-to-r before:from-transparent before:to-transparent",

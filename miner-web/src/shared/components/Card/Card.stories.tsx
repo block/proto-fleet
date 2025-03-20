@@ -3,7 +3,7 @@ import Row from "@/shared/components/Row";
 
 export const Card = () => {
   return (
-    <div className="space-y-4 w-80">
+    <div className="w-80 space-y-4">
       <CardComponent title="Default" type={cardType.default}>
         <Row>Row</Row>
       </CardComponent>

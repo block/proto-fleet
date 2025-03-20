@@ -46,8 +46,8 @@ export const KpiLineChart = ({
   }, [hashboards, duration]);
 
   return (
-    <div className="flex justify-center my-8">
-      <div className="w-[928px] h-[486px]">
+    <div className="my-8 flex justify-center">
+      <div className="h-[486px] w-[928px]">
         <KpiLineChartComponent
           duration={duration}
           aggregateSeries={aggregateSeriesData}

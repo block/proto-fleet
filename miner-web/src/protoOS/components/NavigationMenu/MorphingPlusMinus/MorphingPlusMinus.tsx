@@ -5,7 +5,7 @@ const sharedCls =
 
 const MorphingPlusMinus = ({ condition }: { condition: boolean }) => {
   return (
-    <div className={clsx("relative opacity-30 h-[20px] w-[20px]")}>
+    <div className={clsx("relative h-[20px] w-[20px] opacity-30")}>
       <div
         className={clsx(
           sharedCls,

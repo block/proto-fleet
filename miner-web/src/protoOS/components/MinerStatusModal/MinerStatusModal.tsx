@@ -67,7 +67,7 @@ const MinerStatusModal = ({
     }
     return (
       <Checkmark
-        className="bg-intent-success-fill rounded-full text-surface-base"
+        className="rounded-full bg-intent-success-fill text-surface-base"
         width={iconSizes.xLarge}
       />
     );
@@ -101,14 +101,14 @@ const MinerStatusModal = ({
       <div className="space-y-6">
         <div>
           <div>{icon}</div>
-          <div className="text-text-primary text-heading-300 mt-2">{title}</div>
+          <div className="mt-2 text-heading-300 text-text-primary">{title}</div>
         </div>
         <div>
           {hasErrors || hasWarnings ? (
             <Tabs disableAnimation>
               <Tabs.Tab
                 label="All"
-                className="mt-0! miner-status-tab-content-wrapper"
+                className="miner-status-tab-content-wrapper mt-0!"
               >
                 <MinerStatusRows errors={hashboardErrors} />
                 <MinerStatusRows errors={hashboardWarnings} />

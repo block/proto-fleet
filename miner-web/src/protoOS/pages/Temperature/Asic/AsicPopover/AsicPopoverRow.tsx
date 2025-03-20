@@ -19,7 +19,7 @@ const AsicPopoverRow = ({ className, label, value }: AsicPopoverRowProps) => {
       >
         <circle cx="3" cy="3" r="3" fill="currentColor" />
       </svg>
-      <div className="text-emphasis-300 text-text-primary grow">{label}</div>
+      <div className="grow text-emphasis-300 text-text-primary">{label}</div>
       <div className="text-300 text-text-primary">{value ?? "-"}</div>
     </Row>
   );
