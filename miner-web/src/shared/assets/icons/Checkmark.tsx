@@ -9,7 +9,11 @@ const Checkmark = ({
   width = iconSizes.medium,
 }: IconProps) => {
   return (
-    <div className={clsx(width, className)} onClick={onClick}>
+    <div
+      className={clsx(width, className)}
+      data-testid="checkmark"
+      onClick={onClick}
+    >
       <svg
         width="100%"
         height="100%"

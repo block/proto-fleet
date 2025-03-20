@@ -3,6 +3,8 @@ import { Fragment } from "react";
 import {
   Alert,
   ArrowRight,
+  BankAccount,
+  Bitcoin,
   Checkmark,
   ChevronDown,
   ConcentricCircles,
@@ -13,6 +15,7 @@ import {
   Ellipsis,
   Eye,
   Fleet,
+  Globe,
   Graph,
   Grip,
   HashboardIndicator,
@@ -39,6 +42,8 @@ import {
 const icons = {
   Alert,
   ArrowRight,
+  BankAccount,
+  Bitcoin,
   Checkmark,
   ChevronDown,
   ConcentricCircles,
@@ -49,6 +54,7 @@ const icons = {
   Ellipsis,
   Eye,
   Fleet,
+  Globe,
   Graph,
   Grip,
   HashboardIndicator,

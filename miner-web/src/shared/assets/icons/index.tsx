@@ -1,5 +1,7 @@
 import Alert from "./Alert";
 import ArrowRight from "./ArrowRight";
+import BankAccount from "./BankAccount";
+import Bitcoin from "./Bitcoin";
 import Checkmark from "./Checkmark";
 import ChevronDown from "./ChevronDown";
 import ConcentricCircles from "./ConcentricCircles";
@@ -10,6 +12,7 @@ import DismissTiny from "./DismissTiny";
 import Ellipsis from "./Ellipsis";
 import Eye from "./Eye";
 import Fleet from "./Fleet";
+import Globe from "./Globe";
 import Graph from "./Graph";
 import Grip from "./Grip";
 import HashboardIndicator from "./HashboardIndicator";
@@ -36,6 +39,8 @@ import type { IconProps } from "./types";
 export {
   Alert,
   ArrowRight,
+  BankAccount,
+  Bitcoin,
   Checkmark,
   ChevronDown,
   ConcentricCircles,
@@ -45,6 +50,7 @@ export {
   DismissTiny,
   Ellipsis,
   Eye,
+  Globe,
   Fleet,
   Graph,
   Grip,
