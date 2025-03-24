@@ -7,7 +7,7 @@ export type StatProps = {
   units?: string;
   icon?: ReactNode;
   headingLevel?: number;
-  size: "small" | "large";
+  size: "small" | "medium" | "large";
   chartPercentage?: number;
   chartStatus?: "neutral" | "warning" | "critical" | "success";
 };

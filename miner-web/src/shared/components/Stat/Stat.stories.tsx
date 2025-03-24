@@ -48,7 +48,7 @@ Stat.args = {
 Stat.argTypes = {
   size: {
     control: "select",
-    options: ["small", "large"],
+    options: ["small", "medium", "large"],
   },
   chartStatus: {
     control: "select",

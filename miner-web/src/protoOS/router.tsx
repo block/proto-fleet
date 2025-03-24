@@ -7,6 +7,7 @@ import OldTemperature from "./pages/Temperature";
 import App from "@/protoOS/components/App";
 import {
   Efficiency,
+  HashboardTemperature,
   Hashrate,
   KpiLayout,
   PowerUsage,
@@ -19,7 +20,7 @@ export const routerConfig = [
   {
     path: "",
     element: (
-      <App title="Home">
+      <App fullScreen title="Home">
         <KpiLayout />
       </App>
     ),
@@ -45,6 +46,10 @@ export const routerConfig = [
         element: <Temperature />,
       },
     ],
+  },
+  {
+    path: "temperature/:serial",
+    element: <HashboardTemperature />,
   },
   {
     path: "auth",

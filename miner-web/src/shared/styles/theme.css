@@ -8,6 +8,7 @@
   --base_gray_20: 192 192 192; /* #C0C0C0 */
   --base_gray_10: 224 224 224; /* #E0E0E0 */
   --base_gray_5: 242 242 242; /* #F2F2F2 */
+  --base_gray_2: 250 250 250; /* #F2F2F2 */
   --base_green_100: 56 166 0; /* #38A600 */
   --base_light_green_100: 157 211 26; /* #9DD31A */
   --base_indigo_100: 120 62 237; /* #783EED */
@@ -77,6 +78,7 @@ WOuld be best to switch over to mobile first stying  */
   --color-text-critical: rgb(var(--base_red_100));
   --color-text-base-static: rgb(var(--base_black_100) / 90%);
   --color-text-base-contrast-static: rgb(var(--base_white_100));
+  --color-surface-2: rgb(var(--base_gray_2));
   --color-surface-5: rgb(var(--base_gray_5));
   --color-surface-10: rgb(var(--base_gray_10));
   --color-surface-20: rgb(var(--base_gray_20));
@@ -94,6 +96,7 @@ WOuld be best to switch over to mobile first stying  */
   --color-core-primary-20: rgb(var(--base_black_100) / 20%);
   --color-core-primary-10: rgb(var(--base_black_100) / 10%);
   --color-core-primary-5: rgb(var(--base_black_100) / 5%);
+  --color-core-primary-2: rgb(var(--base_black_100) / 2%);
   --color-core-accent-fill: rgb(var(--base_orange_100));
   --color-core-accent-text: rgb(var(--base_text_accent));
   --color-core-accent-80: rgb(var(--base_orange_100) / 80%);
@@ -287,6 +290,7 @@ WOuld be best to switch over to mobile first stying  */
     --color-text-critical: rgb(var(--base_red_100));
     --color-text-base-static: rgb(var(--base_black_100) / 90%);
     --color-text-base-contrast-static: rgb(var(--base_white_100));
+    --color-surface-2: rgb(var(--base_gray_50));
     --color-surface-5: rgb(var(--base_gray_60));
     --color-surface-10: rgb(var(--base_gray_70));
     --color-surface-20: rgb(var(--base_gray_80));
@@ -304,6 +308,7 @@ WOuld be best to switch over to mobile first stying  */
     --color-core-primary-20: rgb(var(--base_white_100) / 20%);
     --color-core-primary-10: rgb(var(--base_white_100) / 10%);
     --color-core-primary-5: rgb(var(--base_white_100) / 5%);
+    --color-core-primary-2: rgb(var(--base_white_100) / 2%);
     --color-core-accent-fill: rgb(var(--base_orange_100));
     --color-core-accent-text: rgb(--base_text_accent_contrast);
     --color-core-accent-80: rgb(var(--base_orange_100) / 80%);

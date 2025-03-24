@@ -91,12 +91,7 @@ const useHashboardEfficiency = ({
     poll,
   });
 
-  const response = useMemo(
-    () => ({ pending, errors, data }),
-    [pending, errors, data],
-  );
-
-  return response;
+  return useMemo(() => ({ pending, errors, data }), [pending, errors, data]);
 };
 
 export { useHashboardEfficiency };

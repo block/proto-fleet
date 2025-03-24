@@ -40,7 +40,7 @@ const Stat = ({
         role="heading"
         aria-level={headingLevel}
         className={clsx(
-          "text-heading-50 transition-opacity duration-500",
+          "text-heading-50 text-text-primary-50 transition-opacity duration-500",
           value === undefined ? "opacity-30" : "opacity-100",
         )}
       >
@@ -56,7 +56,8 @@ const Stat = ({
           className={clsx(
             "overflow-hidden overflow-ellipsis whitespace-nowrap text-text-primary",
             size === "large" && "text-heading-300",
-            size === "small" && "text-heading-200",
+            size === "medium" && "text-heading-200",
+            size === "small" && "text-heading-100",
           )}
         >
           {getDisplayValue(value)}{" "}

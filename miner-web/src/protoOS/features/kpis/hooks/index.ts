@@ -2,6 +2,9 @@ import useProcessedEfficiency from "./useProcessedEfficiency";
 import useProcessedHashboardEfficiencies from "./useProcessedHashboardEfficiencies";
 import useProcessedHashboardHashrates from "./useProcessedHashboardHashrates";
 import useProcessedHashboardPowerUsages from "./useProcessedHashboardPowerUsage";
+import useProcessedHashboardTemperature, {
+  type HbTemperature,
+} from "./useProcessedHashboardTemperature";
 import useProcessedHashrate from "./useProcessedHashrate";
 import useProcessedPowerUsage from "./useProcessedPowerUsage";
 import useProcessedTemperature from "./useProcessedTemperature";
@@ -14,4 +17,6 @@ export {
   useProcessedHashboardHashrates,
   useProcessedHashboardPowerUsages,
   useProcessedHashboardEfficiencies,
+  useProcessedHashboardTemperature,
+  type HbTemperature,
 };

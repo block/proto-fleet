@@ -57,7 +57,10 @@ const TempModal = ({
   });
 
   useEffect(() => {
-    if (hashboard1TemperatureData?.data?.length) {
+    if (
+      Array.isArray(hashboard1TemperatureData?.data) &&
+      hashboard1TemperatureData?.data?.length
+    ) {
       setHashboard1Temperature(
         hashboard1TemperatureData.data?.[
           hashboard1TemperatureData.data.length - 1
@@ -67,7 +70,10 @@ const TempModal = ({
   }, [hashboard1TemperatureData]);
 
   useEffect(() => {
-    if (hashboard2TemperatureData?.data?.length) {
+    if (
+      Array.isArray(hashboard2TemperatureData?.data) &&
+      hashboard2TemperatureData?.data?.length
+    ) {
       setHashboard2Temperature(
         hashboard2TemperatureData.data?.[
           hashboard2TemperatureData.data.length - 1
@@ -77,7 +83,10 @@ const TempModal = ({
   }, [hashboard2TemperatureData]);
 
   useEffect(() => {
-    if (hashboard3TemperatureData?.data?.length) {
+    if (
+      Array.isArray(hashboard3TemperatureData?.data) &&
+      hashboard3TemperatureData?.data?.length
+    ) {
       setHashboard3Temperature(
         hashboard3TemperatureData.data?.[
           hashboard3TemperatureData.data.length - 1

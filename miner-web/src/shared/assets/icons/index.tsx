@@ -11,6 +11,7 @@ import DismissCircleDark from "./DismissCircleDark";
 import DismissTiny from "./DismissTiny";
 import Ellipsis from "./Ellipsis";
 import Eye from "./Eye";
+import FanIndicator from "./FanIndicator";
 import Fleet from "./Fleet";
 import Globe from "./Globe";
 import Graph from "./Graph";
@@ -50,6 +51,7 @@ export {
   DismissTiny,
   Ellipsis,
   Eye,
+  FanIndicator,
   Globe,
   Fleet,
   Graph,

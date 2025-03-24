@@ -72,7 +72,7 @@ const AppLayout = ({
       </div>
 
       <div className="flex min-h-screen bg-surface-base">
-        <div className="grow">
+        <div className="fixed top-0 left-0 z-40 h-screen grow overflow-hidden">
           <NavigationMenu
             macInfo={{
               value: networkInfo?.mac,
@@ -93,7 +93,7 @@ const AppLayout = ({
             openMenu={() => setIsMenuOpen(true)}
             customButtons={customButtons}
           />
-          <div className="relative w-full pt-[60px]">
+          <div className="relative w-full pt-[60px] pl-60 phone:pl-0 tablet:pl-0">
             <div
               className={clsx({
                 "m-14 flex justify-center phone:m-6 tablet:m-6": !fullScreen,
