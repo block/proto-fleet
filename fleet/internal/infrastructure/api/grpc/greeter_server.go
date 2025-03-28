@@ -1,12 +1,13 @@
-package api
+package grpc
 
 import (
-	"connectrpc.com/connect"
 	"context"
 	"fmt"
-	greetv1 "github.com/btc-mining/miner-firmware/fleet/api/gen/greet/v1"
-	"github.com/btc-mining/miner-firmware/fleet/api/gen/greet/v1/greetv1connect"
 	"log"
+
+	"connectrpc.com/connect"
+	greetv1 "github.com/btc-mining/miner-firmware/fleet/generated/grpc/greet/v1"
+	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/greet/v1/greetv1connect"
 )
 
 type GreetServer struct{}

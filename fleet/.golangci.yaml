@@ -2,7 +2,6 @@ run:
   go: '1.24'
   timeout: 15m
   tests: true
-  max-same-issues: 50
   modules-download-mode: readonly
   allow-parallel-runners: true
   allow-serial-runners: true
@@ -64,8 +63,6 @@ linters:
     - tenv # deprecated
 
 linters-settings:
-  govet:
-    use-installed-packages: true
   dupl:
     threshold: 100
   goconst:
@@ -76,9 +73,6 @@ linters-settings:
   gocritic:
     disabled-checks:
       - ifElseChain
-  depguard:
-    list-type: blacklist
-    include-go-root: true
 
   forbidigo:
     forbid:
@@ -105,8 +99,9 @@ linters-settings:
       - github.com/btc-mining/miner-firmware/*
 
 issues:
-  max-per-linter: 0
-  max-same: 0
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
   exclude-use-default: false
   exclude-rules:
     - path: _test\.go
@@ -136,5 +131,5 @@ issues:
     - 'should have comment or be unexported'
     - '`ctx` is unused' # method signatures shouldnt change because they need to log something.
     - 'parameter ''ctx'' seems to be unused'
-  skip-dirs:
-    - gen
+  exclude-dirs:
+    - generated

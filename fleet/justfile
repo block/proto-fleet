@@ -2,13 +2,31 @@ lint:
   buf lint
   golangci-lint run -c .golangci.yaml
 
+build-all:
+    go build -v ./...
+
+install:
+    go install -v ./cmd/fleetd
+
+run: db-up install
+     ../.hermit/go/bin/fleetd
+
+test:
+    go test ./...
+
+format:
+  goimports -w .
+
 gen: gen-protos gen-db-queries
 
 gen-protos:
   buf generate
 
+  goimports -w generated/grpc
+
 gen-db-queries:
   sqlc generate
+  goimports -w generated/sqlc
 
 db-up:
   docker compose up -d

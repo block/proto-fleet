@@ -1,8 +1,9 @@
 version: "2"
 sql:
   - engine: "mysql"
-    queries: "files/queries"
-    schema: "files/migrations"
+    queries: "internal/db/queries"
+    schema: "internal/db/migrations"
     gen:
       go:
-        out: "db/sqlc"
+        out: "generated/sqlc"
+        emit_prepared_queries: true
