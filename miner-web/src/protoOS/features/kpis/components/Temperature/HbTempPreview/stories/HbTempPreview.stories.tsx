@@ -1,6 +1,6 @@
 import { type ElementType, useEffect, useState } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { criticalTemp } from "../../constants";
+import { criticalTemp } from "../../../../constants";
 import HbTempPreviewComponent from "../HbTempPreview";
 import { asics, hbData } from "./mocks";
 

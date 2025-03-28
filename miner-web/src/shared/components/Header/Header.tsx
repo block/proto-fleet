@@ -11,10 +11,13 @@ interface HeaderProps {
   buttons?: ButtonProps[];
   buttonSize?: keyof typeof sizes;
   centerButton?: boolean;
+  children?: ReactNode;
   className?: string;
   compact?: boolean;
   icon?: ReactNode;
   iconOnClick?: () => void;
+  iconTextColor?: string;
+  iconVariant?: keyof typeof variants;
   inline?: boolean;
   showSubtitleTooltip?: boolean;
   subtitle?: string;
@@ -32,9 +35,12 @@ const Header = ({
   buttonSize = sizes.compact,
   centerButton,
   className,
+  children,
   compact,
   icon,
   iconOnClick,
+  iconTextColor,
+  iconVariant = variants.secondary,
   inline = false,
   showSubtitleTooltip,
   subtitle,
@@ -57,7 +63,8 @@ const Header = ({
       <div className={clsx("w-full", { "flex items-start": inline })}>
         {icon && iconOnClick && (
           <Button
-            variant={variants.secondary}
+            textColor={iconTextColor}
+            variant={iconVariant}
             size={sizes.base}
             prefixIcon={icon}
             onClick={iconOnClick}
@@ -98,6 +105,7 @@ const Header = ({
           )}
         </div>
       </div>
+      {children}
       {buttons && (
         <div className="ml-3">
           <ButtonGroup

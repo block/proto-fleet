@@ -1,9 +1,7 @@
 import { createBrowserRouter, redirect } from "react-router-dom";
 
-import OldHome from "./pages/Home";
 import Logs from "./pages/MinerLogs";
 import MiningPools from "./pages/Settings/MiningPools";
-import OldTemperature from "./pages/Temperature";
 import App from "@/protoOS/components/App";
 import {
   Efficiency,
@@ -54,22 +52,6 @@ export const routerConfig = [
   {
     path: "auth",
     element: <Auth />,
-  },
-  {
-    path: "old-temperature",
-    element: (
-      <App title="Temperature">
-        <OldTemperature />
-      </App>
-    ),
-  },
-  {
-    path: "old-home",
-    element: (
-      <App title="Home">
-        <OldHome />
-      </App>
-    ),
   },
   {
     path: "logs",

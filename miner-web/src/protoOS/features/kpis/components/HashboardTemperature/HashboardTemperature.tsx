@@ -1,13 +1,196 @@
-import { Link } from "react-router-dom";
-import { useMinerHosting } from "@/protoOS/api";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import Stats, { type StatsProps } from "../Stats";
+import AsicTable from "./Asic/AsicTableWrapper";
+import HashboardSelector from "./HashboardSelector";
+import {
+  useHashboards,
+  useHashboardStats,
+  useHashboardTemperature,
+  useMinerHosting,
+} from "@/protoOS/api";
+import { Aggregates, HashboardStatsHashboardstats } from "@/protoOS/api/types";
+import { useGranularity } from "@/protoOS/features/kpis/hooks";
+import { Dismiss } from "@/shared/assets/icons";
+import { Duration } from "@/shared/components/DurationSelector";
+import Header from "@/shared/components/Header";
+import { PopoverProvider } from "@/shared/components/Popover";
+import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
+import { convertWtoKW } from "@/shared/utils/utility";
 
-const HashboardTemperature = () => {
-  // const { serial } = useParams<{ serial: string }>();
+const getStats = (
+  avgHashboardTemp: Aggregates["avg"],
+  avgAsicTemp: HashboardStatsHashboardstats["avg_asic_temp_c"],
+  powerUsage: HashboardStatsHashboardstats["power_usage_watts"],
+): StatsProps["stats"] => {
+  return [
+    {
+      label: "Hashboard avg. temp",
+      value: avgHashboardTemp,
+      units: "ºC",
+    },
+    {
+      label: "Current avg. ASIC temp",
+      value: avgAsicTemp,
+      units: "ºC",
+    },
+    {
+      label: "Power usage",
+      value: powerUsage ? convertWtoKW(powerUsage) : undefined,
+      units: "kW",
+    },
+  ];
+};
+
+const containerPadX = "px-14 tablet:px-10 phone:px-6";
+const containerMarginX = "mx-14 tablet:mx-10 phone:mx-6";
+
+type HashboardTemperatureProps = {
+  serial: string;
+};
+
+const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
+  const { getItem } = useLocalStorage();
+  const [avgAsicTemp, setAvgAsicTemp] = useState<number | undefined>(undefined);
+  const [powerUsage, setPowerUsage] = useState<number | undefined>(undefined);
+  const [avgHashboardTemp, setAvgHashboardTemp] = useState<number | undefined>(
+    undefined,
+  );
+
+  const [showPopover, setShowPopover] = useState<string | undefined>(undefined);
   const { minerRoot } = useMinerHosting();
+  const [hashboardList, setHashboardList] = useState<
+    { serial: string; name: string }[]
+  >([]);
+
+  const navigate = useNavigate();
+  const granularity = useGranularity();
+
+  const close = () => {
+    navigate(minerRoot + `/temperature`);
+  };
+
+  // TODO: Data that doesnt change often like hashboard serials
+  // should be cached in the context, data store or local storage
+  // [DASH-228]
+  const { data: hashboardsInfo } = useHashboards();
+  useEffect(() => {
+    if (hashboardsInfo) {
+      setHashboardList(
+        hashboardsInfo.map((hashboardInfo, index) => ({
+          serial: hashboardInfo.hb_sn || "", // TODO: hb_sn can be undefined?
+          name: "Hashboard " + (index + 1),
+        })),
+      );
+    }
+  }, [hashboardsInfo]);
+
+  // TODO: We need to add a cacheing strategy where we can show stale data thats less
+  // than a predermined ttl while we wait for the next poll to come in.
+  // [DASH-228]
+  const duration = getItem("duration") as Duration;
+  const hbTemperature = useHashboardTemperature({
+    hashboardSerial: serial,
+    duration: duration,
+    poll: true,
+  });
+
+  // fetch hashboard stats for average asic temp and power usage
+  const hbStats = useHashboardStats({
+    hashboardSerialNumber: serial,
+    poll: true,
+  });
+
+  // Updates average hashboard temperature
+  // unset the state when the serial changes showing the loading state
+  useEffect(() => {
+    if (
+      !hbTemperature?.data ||
+      hbTemperature?.data?.hashboardSerial !== serial
+    ) {
+      setAvgHashboardTemp(undefined);
+      return;
+    }
+
+    const aggregates = hbTemperature.data?.aggregates as Aggregates;
+    setAvgHashboardTemp(aggregates?.avg);
+  }, [hbTemperature, serial]);
+
+  // Updates average asic temp and power usage
+  // unset the state when the serial changes showing the loading state
+  useEffect(() => {
+    if (!hbStats?.data || hbStats?.data.hb_sn !== serial) {
+      setAvgAsicTemp(undefined);
+      setPowerUsage(undefined);
+      return;
+    }
+
+    setAvgAsicTemp(hbStats?.data?.avg_asic_temp_c);
+    setPowerUsage(hbStats?.data?.power_usage_watts);
+  }, [hbStats, serial]);
+
   return (
-    <div className="flex min-h-[100vh] w-full flex-col items-center justify-center gap-4 bg-surface-base">
-      <h2 className="text-lg font-semibold">Under Construction 🚧</h2>
-      <Link to={minerRoot + `/temperature`}>Close</Link>
+    <div className="min-h-[100vh] w-full bg-surface-base">
+      <Header
+        className="fixed z-10 h-16 items-center border-b border-border-5 bg-surface-base px-4"
+        centerButton={true}
+        icon={<Dismiss width="w-3.5" />}
+        iconVariant="textOnly"
+        iconTextColor="text-text-primary"
+        iconOnClick={close}
+        inline={true}
+        title="Hashboards"
+        titleSize="text-heading-200"
+        buttons={[
+          {
+            text: "Done",
+            variant: "primary",
+            onClick: close,
+          },
+        ]}
+      />
+      <div className={`pt-24 pb-8 ${containerPadX}`}>
+        <PopoverProvider>
+          <HashboardSelector
+            hashboardList={hashboardList}
+            currentHashboard={serial}
+          />
+        </PopoverProvider>
+      </div>
+      <div className="max-w-screen overflow-visible overflow-x-auto">
+        <div className={`${containerPadX} phone:mx-6 phone:!px-0`}>
+          <Stats
+            stats={getStats(avgHashboardTemp, avgAsicTemp, powerUsage)}
+            size="medium"
+            gap="gap-10"
+            padding="pb-4"
+            wrap="flex-wrap phone:flex-nowrap"
+            statWidth="w-[calc(100%/4-3*theme(spacing.10)/6)] tablet:w-[calc(100%/3-2*theme(spacing.10)/3)] phone:min-w-64"
+          />
+        </div>
+      </div>
+      <div className={`${containerPadX} pt-4`}>
+        {serial && (
+          <div className="before:w-ful relative flex items-center justify-between font-mono text-mono-text-50 text-text-primary-50 before:absolute before:top-[50%] before:left-0 before:h-[1px] before:w-full before:bg-border-5">
+            <div className="relative bg-surface-base pr-4">Front</div>
+            <div className="relative bg-surface-base px-4">{serial}</div>
+            <div className="relative bg-surface-base pl-4">Rear</div>
+          </div>
+        )}
+      </div>
+      {serial && (
+        <div className="max-w-screen overflow-visible overflow-x-auto">
+          <div className={`relative ${containerMarginX} mb-5 min-w-[450px]`}>
+            <AsicTable
+              duration={duration}
+              granularity={granularity}
+              hashboardSerialNumber={serial}
+              showPopover={showPopover}
+              setShowPopover={setShowPopover}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

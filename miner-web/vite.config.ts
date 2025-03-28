@@ -17,6 +17,7 @@ const MODES = ["protoFleet", "protoOS"];
 const createModeConfig = (mode) => {
   return {
     root: resolve(src, mode),
+    publicDir: resolve(_dirname, "public"),
     build: {
       emptyOutDir: true,
       outDir: resolve(_dirname, `dist/${mode}`),

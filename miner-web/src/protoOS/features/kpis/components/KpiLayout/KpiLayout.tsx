@@ -21,6 +21,9 @@ import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 const KpiLayout = () => {
   const { getItem, setItem } = useLocalStorage();
   const [hashboardSerials, setHashboardSerials] = useState<string[]>();
+
+  // set HashboardSerials to local storage
+
   const { data: hashboardsInfo } = useHashboards();
   const { poolsInfo, poolsInfoStatus } = useMinerStatus();
   const [duration, setDuration] = useState<Duration>(

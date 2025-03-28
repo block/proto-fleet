@@ -1,3 +1,4 @@
-import Stats from "./Stats";
+import Stats, { type StatsProps } from "./Stats";
 
 export default Stats;
+export type { StatsProps };

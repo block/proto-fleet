@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
-import { criticalTemp } from "../constants";
+import { criticalTemp } from "../../../constants";
 import AsicTablePreview from "./AsicTablePreview";
 import { useMinerHosting } from "@/protoOS/api";
 import { type Aggregates, type AsicStats } from "@/protoOS/api/types";

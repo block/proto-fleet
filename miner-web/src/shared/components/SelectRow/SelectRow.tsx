@@ -10,6 +10,7 @@ export interface SelectRowProps {
   className?: string;
   id: string;
   isSelected: boolean;
+  divider?: boolean;
   onChange: (id: string, isSelected: boolean) => void;
   prefixIcon?: ReactNode;
   text: string;
@@ -21,6 +22,7 @@ const SelectRow = ({
   id,
   isSelected,
   onChange,
+  divider = true,
   prefixIcon,
   text,
   type,
@@ -44,6 +46,7 @@ const SelectRow = ({
         className,
       )}
       onClick={() => onChange(id, !isSelected)}
+      divider={divider}
     >
       <div className="flex grow items-center">
         {prefixIcon}

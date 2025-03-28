@@ -1,7 +1,0 @@
-export const getIntensity = (
-  value?: number | string | null,
-  max?: number | string,
-) => {
-  if (!value || !max) return 0;
-  return Math.round((+value * 10) / +max);
-};

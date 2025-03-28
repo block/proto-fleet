@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 
+import { usePoll } from "./usePoll";
 import { MiningStatusMiningstatus } from "@/protoOS/api/types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 
@@ -7,7 +8,11 @@ interface getMiningStatusProps {
   onSuccess?: (res?: MiningStatusMiningstatus) => void;
 }
 
-const useMiningStatus = () => {
+type UseMiningStatusProps = {
+  poll?: boolean;
+};
+
+const useMiningStatus = ({ poll = false }: UseMiningStatusProps) => {
   const { api } = useMinerHosting();
   const [data, setData] = useState<MiningStatusMiningstatus>();
   const [error, setError] = useState<string>();
@@ -33,6 +38,11 @@ const useMiningStatus = () => {
     },
     [api],
   );
+
+  usePoll({
+    fetchData,
+    poll,
+  });
 
   return useMemo(
     () => ({ fetchData, data, pending, error }),

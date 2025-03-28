@@ -30,7 +30,7 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
   const { startMining } = useMiningStart();
   const [startMiningError, setStartMiningError] = useState<ErrorProps>();
   const { miningStatus, setMiningStatus } = useMinerStatus();
-  const { fetchData: fetchMiningStatus } = useMiningStatus();
+  const { fetchData: fetchMiningStatus } = useMiningStatus({ poll: false });
   const { fetchData: fetchLogs } = useSystemLogs();
   const linkRef = useRef<HTMLAnchorElement>(null);
 

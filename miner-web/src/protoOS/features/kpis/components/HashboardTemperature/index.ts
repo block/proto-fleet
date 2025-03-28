@@ -1,3 +1,3 @@
-import HashboardTemperature from "./HashboardTemperature";
+import HashboardTemperatureWrapper from "./HashboardTemperatureWrapper";
 
-export default HashboardTemperature;
+export default HashboardTemperatureWrapper;

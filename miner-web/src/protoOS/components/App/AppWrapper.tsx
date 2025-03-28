@@ -32,8 +32,9 @@ const AppWrapper = ({ children, fullScreen, hideErrors, title }: AppProps) => {
     fetchData: fetchErrors,
     pending: pendingErrors,
   } = useErrors();
-  const { data: miningStatus, fetchData: fetchMiningStatus } =
-    useMiningStatus();
+  const { data: miningStatus, fetchData: fetchMiningStatus } = useMiningStatus({
+    poll: false,
+  });
   const [intervalId, setIntervalId] =
     useState<ReturnType<typeof setInterval>>();
   const [wakeIntervalId, setWakeIntervalId] =

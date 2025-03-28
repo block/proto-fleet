@@ -14,8 +14,12 @@ interface UseHashboardTemperatureProps {
   poll?: boolean;
 }
 
+type TemperatureResponseWithSerial = TemperatureResponseTemperaturedata & {
+  hashboardSerial: string;
+};
+
 type MultipleTemperatureResponseTemperaturedata = {
-  [key: string]: TemperatureResponseTemperaturedata;
+  [key: string]: TemperatureResponseWithSerial;
 };
 
 const useHashboardTemperature = ({
@@ -26,8 +30,7 @@ const useHashboardTemperature = ({
   const { api } = useMinerHosting();
 
   const [data, setData] = useState<
-    | TemperatureResponseTemperaturedata
-    | MultipleTemperatureResponseTemperaturedata
+    TemperatureResponseWithSerial | MultipleTemperatureResponseTemperaturedata
   >();
   const [errors, setErrors] = useState<string[]>([]);
   const [pending, setPending] = useState<boolean>(false);
@@ -59,7 +62,7 @@ const useHashboardTemperature = ({
   const fetchData = useCallback(async () => {
     if (typeof hashboardSerial === "string") {
       const temperatureData = await fetchSingle(hashboardSerial);
-      setData(temperatureData);
+      setData({ ...temperatureData, hashboardSerial: hashboardSerial });
       setPending(false);
       return;
     }
@@ -73,7 +76,10 @@ const useHashboardTemperature = ({
       // Update the data state with all results at once
       const newData = results.reduce((acc, { serial, temperatureData }) => {
         if (!temperatureData) return acc;
-        return { ...acc, [serial]: temperatureData };
+        return {
+          ...acc,
+          [serial]: { ...temperatureData, hashboardSerial: serial },
+        };
       }, {});
 
       setData((prev) => ({ ...prev, ...newData }));

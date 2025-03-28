@@ -4,6 +4,7 @@ import BankAccount from "./BankAccount";
 import Bitcoin from "./Bitcoin";
 import Checkmark from "./Checkmark";
 import ChevronDown from "./ChevronDown";
+import ChevronUpDown from "./ChevronUpDown";
 import ConcentricCircles from "./ConcentricCircles";
 import Dismiss from "./Dismiss";
 import DismissCircle from "./DismissCircle";
@@ -44,6 +45,7 @@ export {
   Bitcoin,
   Checkmark,
   ChevronDown,
+  ChevronUpDown,
   ConcentricCircles,
   Dismiss,
   DismissCircle,

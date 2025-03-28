@@ -1,3 +1,5 @@
+import useAsicColor from "./useAsicColor";
+import useGranularity from "./useGranularity";
 import useProcessedEfficiency from "./useProcessedEfficiency";
 import useProcessedHashboardEfficiencies from "./useProcessedHashboardEfficiencies";
 import useProcessedHashboardHashrates from "./useProcessedHashboardHashrates";
@@ -10,6 +12,8 @@ import useProcessedPowerUsage from "./useProcessedPowerUsage";
 import useProcessedTemperature from "./useProcessedTemperature";
 
 export {
+  useAsicColor,
+  useGranularity,
   useProcessedHashrate,
   useProcessedEfficiency,
   useProcessedPowerUsage,

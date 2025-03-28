@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
+import { dangerFanspeed, maxFanSpeed, warningFanspeed } from "../../constants";
 import { useProcessedHashboardTemperature } from "../../hooks";
 import { type OutletContext } from "../../types";
 import Stats from "../Stats";
-import { dangerFanspeed, maxFanSpeed, warningFanspeed } from "./constants";
 import HbTempPreview from "./HbTempPreview";
 import { useCoolingStatus } from "@/protoOS/api";
 import { type FanInfo } from "@/protoOS/api/types";

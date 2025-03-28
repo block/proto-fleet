@@ -1,10 +1,14 @@
 import clsx from "clsx";
 import Stat, { type StatProps } from "@/shared/components/Stat";
 
-type StatsProps = {
-  stats: StatProps[];
+type StatsPropsWithOptSize = Omit<StatProps, "size"> &
+  Partial<Pick<StatProps, "size">>;
+
+export type StatsProps = {
+  stats: StatsPropsWithOptSize[];
   size?: StatProps["size"];
   gap?: string;
+  wrap?: string;
   padding?: string;
   statWidth?: string;
 };
@@ -12,6 +16,7 @@ type StatsProps = {
 const Stats = ({
   stats,
   size = "medium",
+  wrap,
   statWidth,
   gap,
   padding,
@@ -19,7 +24,8 @@ const Stats = ({
   return (
     <div
       className={clsx(
-        "flex w-full flex-row flex-wrap",
+        "flex w-full flex-row",
+        wrap || "flex-wrap",
         gap || "gap-2 gap-y-4",
         padding || "pb-8 phone:pb-6",
       )}
