@@ -29,7 +29,7 @@ gen-db-queries:
   goimports -w generated/sqlc
 
 db-up:
-  docker compose up -d
+  docker compose up --wait
 
 db-down:
   docker compose down

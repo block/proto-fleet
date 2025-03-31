@@ -23,9 +23,9 @@ type DBConfig struct {
 	InitialConnectionTimeoutInSeconds int64  `help:"Timeout in seconds for initial connection" default:"2" env:"INITIAL_CONNECTION_TIMEOUT"`
 }
 
-// NewDatabaseConnection creates a driver for the database and ensures the database is alive.
-func NewDatabaseConnection(config *DBConfig) (*sql.DB, error) {
-	connection, err := connectToDatabase(config)
+// ConnectAndMigrate creates a driver for the database, ensures the database is alive, and runs migrations if needed.
+func ConnectAndMigrate(config *DBConfig) (*sql.DB, error) {
+	connection, err := ConnectToDatabase(config)
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +35,7 @@ func NewDatabaseConnection(config *DBConfig) (*sql.DB, error) {
 		return nil, err
 	}
 
-	err = migrateDatabase(connection, config)
+	err = MigrateDatabase(connection, config)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +43,7 @@ func NewDatabaseConnection(config *DBConfig) (*sql.DB, error) {
 	return connection, nil
 }
 
-func connectToDatabase(config *DBConfig) (*sql.DB, error) {
+func ConnectToDatabase(config *DBConfig) (*sql.DB, error) {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?parseTime=true", config.Username, config.Password, config.Address, config.Name)
 
 	conn, err := sql.Open("mysql", dsn)
@@ -66,7 +66,7 @@ func verifyDatabaseConnectionEstablished(connection *sql.DB, config *DBConfig) e
 	return nil
 }
 
-func migrateDatabase(connection *sql.DB, config *DBConfig) error {
+func MigrateDatabase(connection *sql.DB, config *DBConfig) error {
 	slog.Info("Migrating database", slog.String("addr", config.Address), slog.String("db", config.Name))
 
 	fs, err := iofs.New(migrations.Migrations, ".")

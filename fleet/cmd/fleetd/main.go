@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"connectrpc.com/connect"
+
 	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/authors/v1/authorsv1connect"
 	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/greet/v1/greetv1connect"
 
@@ -39,7 +40,7 @@ func main() {
 
 func start(config *Config) error {
 
-	databaseConnection, err := db.NewDatabaseConnection(&config.DB)
+	databaseConnection, err := db.ConnectAndMigrate(&config.DB)
 	if err != nil {
 		return err
 	}
