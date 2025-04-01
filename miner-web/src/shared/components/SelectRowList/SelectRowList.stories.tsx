@@ -1,6 +1,7 @@
 import { ReactNode, useCallback, useEffect, useState } from "react";
 
-import SelectRowListComponent, { SelectType } from ".";
+import SelectRowListComponent from ".";
+import { SelectType } from "@/shared/constants";
 import { BaseIcon } from "@/shared/stories/icons";
 
 interface IconWrapperProps {

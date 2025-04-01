@@ -9,7 +9,8 @@ import { variants } from "@/shared/components/Button";
 import PageOverlay from "@/shared/components/PageOverlay";
 import { popoverSizes } from "@/shared/components/Popover";
 import PopoverContent from "@/shared/components/Popover/PopoverContent.tsx";
-import SelectRow, { selectTypes } from "@/shared/components/SelectRow";
+import SelectRow from "@/shared/components/SelectRow";
+import { selectTypes } from "@/shared/constants";
 
 interface ThemeSwitcherProps {
   onClickDone: () => void;

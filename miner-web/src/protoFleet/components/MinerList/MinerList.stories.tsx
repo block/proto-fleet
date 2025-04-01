@@ -1,5 +1,6 @@
 import { Miner } from "./types";
 import MinerListComponent from ".";
+import { Toaster as ToasterComponent } from "@/shared/features/toaster";
 
 const miners: Miner[] = [
   {
@@ -101,7 +102,14 @@ const miners: Miner[] = [
 ];
 
 export const MinerList = () => {
-  return <MinerListComponent title="Miners" miners={miners} />;
+  return (
+    <div>
+      <div className="fixed right-4 bottom-4 z-30">
+        <ToasterComponent />
+      </div>
+      <MinerListComponent title="Miners" miners={miners} />
+    </div>
+  );
 };
 
 export default {

@@ -8,6 +8,7 @@ import PageOverlay, {
 import Spinner from "@/shared/components/Spinner";
 
 interface DialogProps {
+  className?: string;
   children?: ReactNode;
   loading?: boolean;
   preventScroll?: boolean;
@@ -20,6 +21,7 @@ interface DialogProps {
 }
 
 const Dialog = ({
+  className,
   children,
   loading,
   preventScroll,
@@ -74,6 +76,7 @@ const Dialog = ({
                 "animate-sliding-up": show,
                 "animate-sliding-down": !show,
               },
+              className,
             )}
             data-testid={testId}
           >

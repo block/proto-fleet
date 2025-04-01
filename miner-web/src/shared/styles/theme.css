@@ -133,10 +133,6 @@ WOuld be best to switch over to mobile first stying  */
   --color-intent-critical-50: rgb(var(--base_red_100) / 50%);
   --color-intent-critical-20: rgb(var(--base_red_100) / 20%);
   --color-intent-critical-10: rgb(var(--base_red_100) / 10%);
-  --color-grayscale-gray-50: rgb(var(--base_black_100) / 50%);
-  --color-grayscale-gray-20: rgb(var(--base_black_100) / 20%);
-  --color-grayscale-gray-10: rgb(var(--base_black_100) / 10%);
-  --color-grayscale-gray-5: rgb(var(--base_black_100) / 5%);
   --color-elevation-50: 0px 0px 1px 0px rgba(var(--base_black_100) / 0.37);
   --color-elevation-100:
     0px 4px 24px 0px rgba(var(--base_black_100) / 0.02),
@@ -153,6 +149,15 @@ WOuld be best to switch over to mobile first stying  */
     0px 24px 32px 0px rgba(var(--base_black_100) / 0.02),
     0px 4px 8px 0px rgba(var(--base_black_100) / 0.04),
     0px 0px 1px 0px rgba(var(--base_black_100) / 0.3);
+
+  /* Common colors for light and dark mode */
+  --color-grayscale-white-90: rgb(var(--base_white_100) / 90%);
+  --color-grayscale-white-10: rgb(var(--base_white_100) / 10%);
+  --color-grayscale-gray-87: rgb(var(--base_black_100) / 87%);
+  --color-grayscale-gray-50: rgb(var(--base_black_100) / 50%);
+  --color-grayscale-gray-20: rgb(var(--base_black_100) / 20%);
+  --color-grayscale-gray-10: rgb(var(--base_black_100) / 10%);
+  --color-grayscale-gray-5: rgb(var(--base_black_100) / 5%);
 
   /* Typography */
   --font-*: initial;
@@ -345,10 +350,6 @@ WOuld be best to switch over to mobile first stying  */
     --color-intent-critical-50: rgb(var(--base_red_100) / 60%);
     --color-intent-critical-20: rgb(var(--base_red_100) / 30%);
     --color-intent-critical-10: rgb(var(--base_red_100) / 20%);
-    --color-grayscale-gray-50: rgb(var(--base_black_100) / 50%);
-    --color-grayscale-gray-20: rgb(var(--base_black_100) / 20%);
-    --color-grayscale-gray-10: rgb(var(--base_black_100) / 10%);
-    --color-grayscale-gray-5: rgb(var(--base_black_100) / 5%);
     --color-elevation-50: 0px 0px 1px 0px rgba(var(--base_white_100) / 0.5);
     --color-elevation-100:
       0px 4px 24px 0px rgba(var(--base_black_100) / 0.16),
@@ -367,12 +368,17 @@ WOuld be best to switch over to mobile first stying  */
       0px 0px 1px 0px rgba(var(--base_black_100) / 0.3);
   }
 
-  /* breaking change from tailwind 3 to 4 */
+  /* breaking changes from tailwind 3 to 4 */
   *,
   ::after,
   ::before,
   ::backdrop,
   ::file-selector-button {
     border-color: var(--color-gray-200, currentColor);
+  }
+
+  button,
+  [role="button"] {
+    cursor: pointer;
   }
 }

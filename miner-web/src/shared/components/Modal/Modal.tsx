@@ -2,7 +2,7 @@ import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { Dismiss } from "@/shared/assets/icons";
-import { variants } from "@/shared/components/Button";
+import { sizes, variants } from "@/shared/components/Button";
 
 import { ButtonProps } from "@/shared/components/ButtonGroup";
 import Divider from "@/shared/components/Divider";
@@ -23,9 +23,11 @@ interface ModalProps {
   className?: string;
   contentHeader?: string;
   onDismiss?: (buttonClicked?: boolean) => void;
+  buttonSize?: keyof typeof sizes;
   buttons?: ModalButtonProps[];
   show?: boolean;
   showHeader?: boolean;
+  scrolledHeader?: boolean;
   title?: string;
   description?: string;
   preventClose?: boolean;
@@ -36,9 +38,11 @@ const Modal = ({
   className,
   contentHeader,
   onDismiss,
+  buttonSize,
   buttons,
   show = true,
   showHeader = true,
+  scrolledHeader = true,
   title,
   description,
   preventClose,
@@ -109,13 +113,18 @@ const Modal = ({
               titleSize="text-heading-200"
               icon={preventClose ? undefined : <Dismiss />}
               iconOnClick={preventClose ? undefined : dismissModal}
+              buttonSize={buttonSize}
               buttons={buttons?.map((button) => ({
                 ...button,
                 onClick: onButtonClick(button),
               }))}
               inline
             />
-            {!preventClose && <Divider className="mt-6" />}
+            {scrolledHeader ? (
+              !preventClose && <Divider className="mt-6" />
+            ) : (
+              <div className="mt-6" />
+            )}
           </>
         )}
         {contentHeader && (

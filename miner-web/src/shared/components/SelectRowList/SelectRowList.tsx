@@ -1,7 +1,7 @@
 import clsx from "clsx";
 
 import SelectRow, { SelectRowProps } from "./SelectRow";
-import { SelectType } from ".";
+import { SelectType } from "@/shared/constants";
 
 interface SelectRows extends Omit<SelectRowProps, "onChange" | "type"> {
   id: string;

@@ -8,3 +8,10 @@ export const positions = {
 } as const;
 
 export type Position = keyof typeof positions;
+
+export const selectTypes = {
+  checkbox: "checkbox",
+  radio: "radio",
+} as const;
+
+export type SelectType = keyof typeof selectTypes;

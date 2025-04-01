@@ -1,10 +1,10 @@
 import { ChangeEvent, ReactNode, useCallback, useMemo } from "react";
 import clsx from "clsx";
 
-import { SelectType, selectTypes } from ".";
 import { Checkmark } from "@/shared/assets/icons";
 
 import Row from "@/shared/components/Row";
+import { SelectType, selectTypes } from "@/shared/constants";
 
 export interface SelectRowProps {
   className?: string;

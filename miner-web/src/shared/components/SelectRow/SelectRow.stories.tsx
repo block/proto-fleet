@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useState } from "react";
 
-import SelectRowComponent, { selectTypes } from ".";
-import { SelectType } from "@/shared/components/SelectRow/types";
+import SelectRowComponent from ".";
+import { SelectType, selectTypes } from "@/shared/constants";
 import { BaseIcon } from "@/shared/stories/icons";
 
 interface IconWrapperProps {

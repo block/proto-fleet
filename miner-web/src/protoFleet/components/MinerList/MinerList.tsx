@@ -5,6 +5,7 @@ import { rowTitles } from "./constants";
 import Filters from "./Filters";
 import rowConfig from "./rowConfig";
 import { type Miner, type RowName } from "./types";
+import ActionBar from "@/protoFleet/components/ActionBar";
 import { Ellipsis } from "@/shared/assets/icons";
 import Checkbox from "@/shared/components/Checkbox";
 
@@ -135,6 +136,7 @@ const MinerList = ({ title, miners = [] }: MinerListProps) => {
           </tbody>
         </table>
       </div>
+      <ActionBar selectedMiners={selectedMiners} />
     </div>
   );
 };

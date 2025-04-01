@@ -9,6 +9,7 @@ export interface ButtonProps {
   onClick?: () => void;
   variant: keyof typeof variants;
   suffixIcon?: ReactNode;
+  prefixIcon?: ReactNode;
   testId?: string;
   text?: string;
 }

@@ -101,7 +101,9 @@ const Header = ({
             </div>
           )}
           {description && (
-            <div className="text-300 text-text-primary-70">{description}</div>
+            <div className="mt-1 text-300 text-text-primary-70">
+              {description}
+            </div>
           )}
         </div>
       </div>
