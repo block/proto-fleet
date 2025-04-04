@@ -53,13 +53,19 @@ describe("Stat", () => {
     const { rerender } = render(
       <Stat label="Hashrate" value={"value"} size="large" />,
     );
-    expect(screen.getByText("value")).toHaveClass("text-heading-300");
+    expect(screen.getByText("value").parentElement).toHaveClass(
+      "text-heading-300",
+    );
 
     rerender(<Stat label="Hashrate" value={"value"} size="medium" />);
-    expect(screen.getByText("value")).toHaveClass("text-heading-200");
+    expect(screen.getByText("value").parentElement).toHaveClass(
+      "text-heading-200",
+    );
 
     rerender(<Stat label="Hashrate" value={"value"} size="small" />);
-    expect(screen.getByText("value")).toHaveClass("text-heading-100");
+    expect(screen.getByText("value").parentElement).toHaveClass(
+      "text-heading-100",
+    );
   });
 
   it("renders chart with correct status color", async () => {

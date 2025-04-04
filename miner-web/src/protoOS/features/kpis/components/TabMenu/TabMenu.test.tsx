@@ -78,22 +78,24 @@ describe("TabMenu", () => {
       </MemoryRouter>,
     );
 
-    const tab1 = screen.getByText("Tab 1").closest("button");
+    const activeIndicator = screen.getByTestId("active-indicator");
     const tab2 = screen
       .getByText("Tab 2")
       .closest("button") as HTMLButtonElement;
 
     // Initially, the first tab should be active
-    expect(tab1).toHaveClass("bg-surface-base");
-    expect(tab2).not.toHaveClass("bg-surface-base");
+    expect(activeIndicator).toHaveStyle({
+      transform: "translate3d(calc(0% + 2 * var(--spacing) * 0), 0, 0)",
+    });
 
     // Click on the second tab
     fireEvent.click(tab2);
 
     // Now, the second tab should be active
     waitFor(() => {
-      expect(tab1).not.toHaveClass("bg-surface-base");
-      expect(tab2).toHaveClass("bg-surface-base");
+      expect(activeIndicator).toHaveStyle({
+        transform: "translate3d(calc(100% + 2 * var(--spacing) * 0), 0, 0)",
+      });
     });
   });
 });

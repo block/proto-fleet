@@ -17,11 +17,11 @@ type SparklineProps = {
 };
 
 const Sparkline = ({ data, threshold = 2 }: SparklineProps) => {
-  const gray = useCssVariable({ variable: "--color-core-primary-10" });
-  const critical = useCssVariable({ variable: "--color-text-critical" });
-  const success = useCssVariable({ variable: "--color-text-success" });
-  const warning = useCssVariable({ variable: "--color-text-warning" });
-  const neutral = useCssVariable({ variable: "--color-text-primary-30" });
+  const gray = useCssVariable("--color-core-primary-10");
+  const critical = useCssVariable("--color-text-critical");
+  const success = useCssVariable("--color-text-success");
+  const warning = useCssVariable("--color-text-warning");
+  const neutral = useCssVariable("--color-text-primary-30");
 
   const { lineColor, startValue, minValue, maxValue } = useMemo(() => {
     const _data = data.sort((d) => d.time);

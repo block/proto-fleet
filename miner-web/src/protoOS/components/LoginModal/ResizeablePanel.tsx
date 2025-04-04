@@ -11,10 +11,7 @@ type Props = {
 
 const ResizeablePanel = ({ children, resizeOn }: Props) => {
   const [ref, { height }] = useMeasure<HTMLDivElement>();
-  const easeGentle = useCssVariable({
-    variable: "--ease-gentle",
-    transform: cubicBezierValues,
-  });
+  const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
   return (
     <motion.div

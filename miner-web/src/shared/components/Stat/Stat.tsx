@@ -21,11 +21,7 @@ const Stat = ({
 }: StatProps) => {
   // initially set scale to 0 for animation
   const [chartScale, setChartScale] = useState<number>(0);
-
-  const easeGentle = useCssVariable({
-    variable: "--ease-gentle",
-    transform: cubicBezierValues,
-  });
+  const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
   useEffect(() => {
     if (!chartPercentage) return;
@@ -47,21 +43,28 @@ const Stat = ({
         {label}
       </div>
       {value === undefined ? (
-        <SkeletonBar className="h-7 py-1" />
+        <SkeletonBar
+          className={clsx(
+            "py-1",
+            size === "large" && "h-10",
+            size === "medium" && "h-7",
+            size === "small" && "h-5",
+          )}
+        />
       ) : (
         <motion.div
           animate={{ opacity: 1 }}
           initial={{ opacity: 0 }}
           transition={{ duration: 0.5, ease: easeGentle }}
           className={clsx(
-            "overflow-hidden overflow-ellipsis whitespace-nowrap text-text-primary",
+            "overflow-hidden overflow-ellipsis whitespace-nowrap text-text-primary-30",
             size === "large" && "text-heading-300",
             size === "medium" && "text-heading-200",
             size === "small" && "text-heading-100",
           )}
         >
-          {getDisplayValue(value)}{" "}
-          {units && <span className="text-text-primary-30">{units}</span>}
+          <span className="text-text-primary">{getDisplayValue(value)}</span>{" "}
+          {units && units}
         </motion.div>
       )}
       {icon && <div className="absolute top-0 right-0">{icon}</div>}

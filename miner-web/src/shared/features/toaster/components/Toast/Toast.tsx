@@ -35,10 +35,7 @@ const Toast = ({
     index == undefined || numToasts == undefined || index + 1 == numToasts,
   );
 
-  const easeGentle = useCssVariable({
-    variable: "--ease-gentle",
-    transform: cubicBezierValues,
-  });
+  const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
   useEffect(() => {
     const toID = setTimeout(onClose, ttl);

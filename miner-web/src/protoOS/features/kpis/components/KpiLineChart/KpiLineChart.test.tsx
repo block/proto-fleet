@@ -2,6 +2,23 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import KpiChart from "./KpiLineChart";
 
+// Mock SVG elements for tests
+vi.mock("@/shared/components/Chart/AxisTick", () => ({
+  default: ({ payload }: any) => (
+    <div data-testid="axis-tick" className="test-axis-tick">
+      <span data-testid="axis-value">{payload.value}</span>
+    </div>
+  ),
+}));
+
+vi.mock("@/shared/components/Chart/TimeXAxisTick", () => ({
+  default: ({ payload }: any) => (
+    <div data-testid="time-x-axis-tick">
+      <span data-testid="time-value">{payload?.value}</span>
+    </div>
+  ),
+}));
+
 // Mock the recharts components
 vi.mock("recharts", () => {
   const OriginalModule = vi.importActual("recharts");
@@ -27,9 +44,9 @@ vi.mock("recharts", () => {
         {activeDot && <div data-testid={`dot-${dataKey}`}>{activeDot}</div>}
       </div>
     ),
-    CartesianGrid: () => <div data-testid="cartesian-grid" />,
     XAxis: ({ tick }: any) => <div data-testid="x-axis">{tick}</div>,
     YAxis: () => <div data-testid="y-axis" />,
+    Rectangle: () => <div data-testid="rectangle" />,
   };
 });
 
@@ -121,7 +138,6 @@ describe("KpiLineChart", () => {
 
     expect(screen.getByTestId("responsive-container")).toBeInTheDocument();
     expect(screen.getByTestId("line-chart")).toBeInTheDocument();
-    expect(screen.getByTestId("cartesian-grid")).toBeInTheDocument();
     expect(screen.getByTestId("x-axis")).toBeInTheDocument();
     expect(screen.getByTestId("y-axis")).toBeInTheDocument();
     expect(screen.getByTestId("tooltip")).toBeInTheDocument();

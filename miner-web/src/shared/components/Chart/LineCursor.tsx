@@ -8,7 +8,7 @@ interface LineCursorProps {
 
 const LineCursor = (props: LineCursorProps) => {
   const { points, height } = props;
-  const color = useCssVariable({ variable: "--color-core-primary-fill" });
+  const color = useCssVariable("--color-core-primary-fill");
 
   return (
     <g>

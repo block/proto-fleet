@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { Outlet } from "react-router-dom";
+import NoPoolsCallout from "../NoPoolsCallout";
+import { useHashboards } from "@/protoOS/api";
+import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
+import TabMenu from "@/protoOS/features/kpis/components/TabMenu";
 import {
   useProcessedEfficiency,
   useProcessedHashrate,
   useProcessedPowerUsage,
   useProcessedTemperature,
-} from "../../hooks";
-import { type OutletContext } from "../../types";
-import NoPoolsCallout from "../NoPoolsCallout";
-import { useHashboards } from "@/protoOS/api";
-import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
-import TabMenu from "@/protoOS/features/kpis/components/TabMenu";
+} from "@/protoOS/features/kpis/hooks";
+import { type OutletContext } from "@/protoOS/features/kpis/types";
 import DurationSelector, {
   Duration,
   durations,
@@ -79,12 +79,12 @@ const KpiLayout = () => {
   }, [poolsInfo, poolsInfoStatus]);
 
   return (
-    <div className="p-14 phone:p-6 tablet:p-10">
+    <div className="px-14 pt-14 phone:px-6 phone:pt-6 tablet:px-10 tablet:pt-10">
       {noPoolsLive && (
         <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} />
       )}
 
-      <div className="mb-4 flex flex-col">
+      <div className="relative mb-4 flex h-[calc(100vh-theme(spacing.36))] min-h-[800px] flex-col phone:min-h-[1000px]">
         <div className="flex items-center pb-6">
           <div className="grow text-heading-300">Home</div>
           <DurationSelector
@@ -94,11 +94,22 @@ const KpiLayout = () => {
           />
         </div>
 
-        <div className="-ml-6 w-[calc(100%+12*var(--spacing))] pb-11 phone:ml-0 phone:w-full phone:pb-6">
+        <div className="pb-11 phone:pb-6">
           <TabMenu
-            hashrate={minerHashrate?.aggregates.avg}
-            efficiency={minerEfficiency?.aggregates.avg}
-            powerUsage={minerPowerUsage?.aggregates.avg}
+            hashrate={
+              minerHashrate?.hashrate[minerHashrate?.hashrate?.length - 1]
+                ?.value
+            }
+            efficiency={
+              minerEfficiency?.efficiency[
+                minerEfficiency?.efficiency?.length - 1
+              ]?.value
+            }
+            powerUsage={
+              minerPowerUsage?.powerUsage[
+                minerPowerUsage?.powerUsage?.length - 1
+              ]?.value
+            }
             temperature={
               minerTemperature?.temperature[
                 minerTemperature?.temperature?.length - 1
@@ -110,7 +121,7 @@ const KpiLayout = () => {
         {outletContext ? (
           <Outlet context={outletContext} />
         ) : (
-          <div className="flex h-full items-center justify-center">
+          <div className="flex h-full flex-1 items-center justify-center">
             <Spinner />
           </div>
         )}

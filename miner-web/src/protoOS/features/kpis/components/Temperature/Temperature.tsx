@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
+import clsx from "clsx";
 import { dangerFanspeed, maxFanSpeed, warningFanspeed } from "../../constants";
 import { useProcessedHashboardTemperature } from "../../hooks";
 import { type OutletContext } from "../../types";
@@ -75,6 +76,14 @@ const Temperature = () => {
   useEffect(() => {
     if (!pendingCoolingStatus || coolingStatus?.fans) {
       setFanSpeeds(coolingStatus?.fans);
+
+      // TODO: Helfpul for faking an R2, but need to rm later
+      setFanSpeeds(
+        coolingStatus?.fans?.concat([
+          coolingStatus?.fans[0],
+          coolingStatus?.fans[1],
+        ]),
+      );
     }
   }, [coolingStatus, pendingCoolingStatus]);
 
@@ -83,15 +92,17 @@ const Temperature = () => {
       {fanSpeeds && (
         <Stats
           size="medium"
-          gap="gap-x-6 gap-y-6"
-          statWidth={
+          grid={clsx(
             fanSpeeds.length < 6
-              ? "w-[calc(100%/4-3*theme(spacing.6)/4)] phone:w-[calc(100%/2-theme(spacing.6)/2)]"
-              : "w-[calc(100%/6-5*theme(spacing.6)/6)] \
-                laptop:w-[calc(100%/3-2*theme(spacing.6)/3)] \
-                tablet:w-[calc(100%/3-2*theme(spacing.6)/3)] \
-                phone:w-[calc(100%/2-theme(spacing.6)/2)]"
-          }
+              ? "grid-cols-4 phone:grid-cols-2"
+              : "grid-cols-6 tablet:grid-cols-3 phone:grid-cols-2",
+          )}
+          gap={clsx(
+            "gap-y-6",
+            fanSpeeds.length < 6
+              ? "gap-x-10 phone:gap-x-6"
+              : "gap-x-6 phone:gap-x-6",
+          )}
           stats={fanSpeeds
             .map((fanSpeed, index) =>
               getFanStats(

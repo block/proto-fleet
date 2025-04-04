@@ -5,10 +5,7 @@ import useCssVariable from "@/shared/hooks/useCssVariable";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
 
 const BootingUp = () => {
-  const easeGentle = useCssVariable({
-    variable: "--ease-gentle",
-    transform: cubicBezierValues,
-  });
+  const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
   return (
     <AnimatedDotsBackground connecting>

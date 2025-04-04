@@ -63,10 +63,7 @@ const WelcomeFlow = ({
   // TODO: Get IP address from the miner
   ipAddress = "127.43.9424",
 }: WelcomeFlowProps) => {
-  const easeGentle = useCssVariable({
-    variable: "--ease-gentle",
-    transform: cubicBezierValues,
-  });
+  const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
   return (
     <>

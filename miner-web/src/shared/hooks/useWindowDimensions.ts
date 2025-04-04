@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import useCssVariable from "./useCssVariable";
 
 interface WindowDimensions {
   width: number;
@@ -18,6 +19,10 @@ const getWindowDimensions = (windowResized = false) => {
 };
 
 const useWindowDimensions = () => {
+  const phoneMaxWidth = useCssVariable("--phone-max-width");
+  const tabletMaxWidth = useCssVariable("--tablet-max-width");
+  const laptopMaxWidth = useCssVariable("--laptop-max-width");
+
   const [windowDimensions, setWindowDimensions] = useState(
     getWindowDimensions(),
   );
@@ -35,12 +40,22 @@ const useWindowDimensions = () => {
     () => ({
       height: windowDimensions.height,
       width: windowDimensions.width,
-      isDesktop: windowDimensions.width >= 1280,
-      isLaptop: windowDimensions.width >= 960 && windowDimensions.width < 1280,
-      isTablet: windowDimensions.width >= 632 && windowDimensions.width < 960,
-      isPhone: windowDimensions.width < 632,
+      isDesktop: windowDimensions.width > laptopMaxWidth,
+      isLaptop:
+        windowDimensions.width > tabletMaxWidth &&
+        windowDimensions.width <= laptopMaxWidth,
+      isTablet:
+        windowDimensions.width > phoneMaxWidth &&
+        windowDimensions.width <= tabletMaxWidth,
+      isPhone: windowDimensions.width <= phoneMaxWidth,
     }),
-    [windowDimensions.height, windowDimensions.width],
+    [
+      windowDimensions.height,
+      windowDimensions.width,
+      laptopMaxWidth,
+      phoneMaxWidth,
+      tabletMaxWidth,
+    ],
   );
 };
 

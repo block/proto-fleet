@@ -43,6 +43,7 @@ const TimeXAxisTick = ({
     !lastTick &&
     index % showEveryNthTick === 0 &&
     index < visibleTicksCount - showEveryNthTick;
+
   if (tooltipDatetime) {
     if (tooltipDatetime === payload.value) {
       const date = `${getMonthFromEpoch(tooltipDatetime)}/${getDayFromEpoch(tooltipDatetime)}/${getShortYearFromEpoch(tooltipDatetime)}`;
@@ -50,6 +51,7 @@ const TimeXAxisTick = ({
       const time = getTimeFromEpoch(tooltipDatetime).slice(0, -3);
       const max = maxXPosition || x;
       const min = minXPosition || x;
+
       return (
         <AxisTick
           x={Math.max(Math.min(x, max), min)}

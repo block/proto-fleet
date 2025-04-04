@@ -49,17 +49,15 @@ const PowerUsage = () => {
   return (
     <>
       {aggregates && <Stats stats={getStats(aggregates)} />}
-      <div className="h-[400px]">
-        <KpiLineChart
-          duration={duration}
-          series={hbPowerUsages}
-          units="kW"
-          aggregateSeries={{
-            name: "Total Power Usage",
-            data: totalPowerUsage,
-          }}
-        />
-      </div>
+      <KpiLineChart
+        duration={duration}
+        series={hbPowerUsages}
+        units="kW"
+        aggregateSeries={{
+          name: "Total Power Usage",
+          data: totalPowerUsage,
+        }}
+      />
     </>
   );
 };

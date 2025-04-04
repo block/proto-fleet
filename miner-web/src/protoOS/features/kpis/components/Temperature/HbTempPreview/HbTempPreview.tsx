@@ -90,9 +90,9 @@ const HbTempPreview = ({ hbData, asics }: HbTempPreviewProps) => {
         <Stats
           stats={getStats(hbData.aggregates)}
           size="small"
+          grid="grid-cols-3"
           gap="gap-2"
           padding="pb-4"
-          statWidth="w-[calc(100%/3-theme(spacing.4)/3)]"
         />
         <AsicTablePreview asics={asics} />
       </div>

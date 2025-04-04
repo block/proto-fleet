@@ -23,6 +23,13 @@
   --base_text_success: 6 63 37; /* #063F25 */
   --base_text_warning: 135 73 0; /* #874900 */
   --base_text_indigo: 55 28 109; /* #371C6D */
+
+  /* Breakpoints: TODO: would be great to find solution where these
+  dont need to be hardcoded to match tailwind breakpoints
+  because you cannot use custom properties in media queries */
+  --phone-max-width: 631;
+  --tablet-max-width: 959;
+  --laptop-max-width: 1279;
 }
 
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));

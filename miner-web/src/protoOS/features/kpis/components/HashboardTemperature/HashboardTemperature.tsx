@@ -164,8 +164,6 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
             size="medium"
             gap="gap-10"
             padding="pb-4"
-            wrap="flex-wrap phone:flex-nowrap"
-            statWidth="w-[calc(100%/4-3*theme(spacing.10)/6)] tablet:w-[calc(100%/3-2*theme(spacing.10)/3)] phone:min-w-64"
           />
         </div>
       </div>

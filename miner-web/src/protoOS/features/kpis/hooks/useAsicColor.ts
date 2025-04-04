@@ -6,15 +6,9 @@ import useCssVariable from "@/shared/hooks/useCssVariable";
 import { map } from "@/shared/utils/math";
 
 const useAsicColor = (asic: AsicStats) => {
-  const warningColor = useCssVariable({
-    variable: "--color-intent-warning-fill",
-  });
-  const dangerColor = useCssVariable({
-    variable: "--color-intent-critical-fill",
-  });
-  const defaultColor = useCssVariable({
-    variable: "--color-core-primary-2",
-  });
+  const warningColor = useCssVariable("--color-intent-warning-fill");
+  const dangerColor = useCssVariable("--color-intent-critical-fill");
+  const defaultColor = useCssVariable("--color-core-primary-2");
 
   const backgroundColor = useMemo(() => {
     if (asic?.temp_c === undefined || asic.temp_c < warningTemp) {

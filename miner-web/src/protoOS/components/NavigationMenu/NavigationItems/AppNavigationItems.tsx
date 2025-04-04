@@ -19,10 +19,7 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
   );
   const [showAccordionExpand, setShowAccordionExpand] = useState(false);
 
-  const easeGentle = useCssVariable({
-    variable: "--ease-gentle",
-    transform: cubicBezierValues,
-  });
+  const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
   const handleAccordionClick = useCallback(() => {
     setShowAccordionItems((prev) => !prev);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { themes } from "../constants";
 import { ThemeColors, Themes } from "../types";
@@ -58,11 +58,14 @@ const useThemes = () => {
     });
   }, [getDeviceTheme, handleChangeDeviceTheme]);
 
-  return {
-    deviceTheme,
-    getUserSelectedTheme,
-    setUserSelectedTheme,
-  };
+  return useMemo(
+    () => ({
+      deviceTheme,
+      getUserSelectedTheme,
+      setUserSelectedTheme,
+    }),
+    [deviceTheme, getUserSelectedTheme, setUserSelectedTheme],
+  );
 };
 
 export { useThemes };

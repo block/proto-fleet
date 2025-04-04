@@ -57,17 +57,15 @@ const Hashrate = () => {
         <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
       )}
 
-      <div className="h-[400px]">
-        <KpiLineChart
-          duration={duration}
-          series={hbHashrates}
-          units="TH/s"
-          aggregateSeries={{
-            name: "Total Hashrate",
-            data: totalHashrates,
-          }}
-        />
-      </div>
+      <KpiLineChart
+        duration={duration}
+        series={hbHashrates}
+        units="TH/s"
+        aggregateSeries={{
+          name: "Total Hashrate",
+          data: totalHashrates,
+        }}
+      />
     </>
   );
 };

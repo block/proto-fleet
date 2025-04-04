@@ -17,7 +17,7 @@ export default {
   decorators: [
     (Story: any) => (
       <MemoryRouter initialEntries={["/hashrate"]}>
-        <div className="flex min-h-[100vh] w-full items-center justify-center">
+        <div className="flex min-h-[100vh] w-full items-center justify-center px-16">
           <Story />
         </div>
       </MemoryRouter>

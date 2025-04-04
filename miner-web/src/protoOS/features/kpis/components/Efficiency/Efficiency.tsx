@@ -57,17 +57,15 @@ const Efficiency = () => {
       {aggregates && (
         <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
       )}
-      <div className="h-[486px]">
-        <KpiLineChart
-          duration={duration}
-          series={hbEfficiencies}
-          units="J/TH"
-          aggregateSeries={{
-            name: "Total Efficiency",
-            data: totalEfficiency,
-          }}
-        />
-      </div>
+      <KpiLineChart
+        duration={duration}
+        series={hbEfficiencies}
+        units="J/TH"
+        aggregateSeries={{
+          name: "Total Efficiency",
+          data: totalEfficiency,
+        }}
+      />
     </>
   );
 };
