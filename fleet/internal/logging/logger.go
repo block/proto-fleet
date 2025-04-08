@@ -7,7 +7,7 @@ import (
 
 type LoggingConfig struct {
 	Level slog.Level `help:"Log level" default:"debug" env:"LEVEL"`
-	JSON  bool       `help:"Log level" default:"true" env:"JSON"`
+	JSON  bool       `help:"Log level" default:"false" env:"JSON"`
 }
 
 func InitLogger(config LoggingConfig) {

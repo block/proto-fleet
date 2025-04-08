@@ -1,4 +1,23 @@
 services:
+  fleet-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "4000:8080"
+    environment:
+      AUTH_SECRET_KEY: "00000000000000000000000000000000000000000000"
+      AUTH_EXPIRATION_PERIOD: "15m"
+      DB_NAME: "fleet"
+      DB_USERNAME: "root"
+      DB_PASSWORD: ""
+      DB_ADDRESS: "mysql:3306"
+      HTTP_STATIC_ASSET_PATH: "/app/static/"
+      HTTP_LISTEN_ADDRESS: ":8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: always
   mysql:
     image: mysql
     restart: always
@@ -14,9 +33,11 @@ services:
     volumes:
       - mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD", 'mysqladmin', 'ping', '-h', 'localhost', '-u', 'root' ]
-      start_interval: '1s'
-      start_period: '20s'
+      test: ["CMD-SHELL", "mysql --host=localhost --user=root --execute='SELECT 1;'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
 volumes:
   mysql:

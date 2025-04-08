@@ -7,11 +7,13 @@ import (
 	"os"
 
 	"connectrpc.com/connect"
-
+	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/auth/v1/authv1connect"
 	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/authors/v1/authorsv1connect"
 	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/greet/v1/greetv1connect"
+	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/onboarding/v1/onboardingv1connect"
 
 	"github.com/btc-mining/miner-firmware/fleet/internal/application"
+	"github.com/btc-mining/miner-firmware/fleet/internal/domain"
 	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/api"
 	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/api/grpc"
 	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/db"
@@ -24,10 +26,13 @@ type Config struct {
 	DB      db.DBConfig           `embed:"" prefix:"db" envprefix:"DB_"`
 	Logging logging.LoggingConfig `embed:"" prefix:"logging" envprefix:"LOGGING_"`
 	HTTP    api.HTTPConfig        `embed:"" prefix:"http" envprefix:"HTTP_"`
+	Auth    domain.AuthConfig     `embed:"" prefix:"auth" envprefix:"AUTH_"`
 }
 
 func main() {
-	config := parseConfig()
+	config := &Config{}
+
+	_ = kong.Parse(config, kong.Name("fleetd"))
 
 	logging.InitLogger(config.Logging)
 
@@ -40,37 +45,32 @@ func main() {
 
 func start(config *Config) error {
 
-	databaseConnection, err := db.ConnectAndMigrate(&config.DB)
+	conn, err := db.ConnectAndMigrate(&config.DB)
 	if err != nil {
 		return err
 	}
+	// initialize domain services
+	tokenSvc, err := domain.NewTokenService(config.Auth)
+	if err != nil {
+		return err
+	}
+	authSvc := domain.NewAuthService(tokenSvc)
+	// initialize use cases
+	authorUseCases := application.NewAuthorUseCases(conn)
+	authUseCases := application.NewAuthUseCases(conn, authSvc)
 
-	requestHandlers := grpcHandlers(
-		application.NewAuthorUseCases(databaseConnection),
-	)
-
-	return api.RunServer(&config.HTTP, requestHandlers)
-}
-
-func parseConfig() *Config {
-	config := Config{}
-
-	_ = kong.Parse(&config, kong.Name("fleetd"))
-
-	return &config
-}
-
-func grpcHandlers(
-	authorUseCases *application.AuthorUseCases,
-) []api.HandlerWithPath {
 	interceptors := connect.WithInterceptors(
 		grpc.ErrorLoggingInterceptor(),
 	)
 
-	return []api.HandlerWithPath{
+	requestHandlers := []api.HandlerWithPath{
 		grpcHandler(greetv1connect.NewGreetServiceHandler(&grpc.GreetServer{}, interceptors)),
 		grpcHandler(authorsv1connect.NewAuthorsServiceHandler(grpc.NewAuthorsServer(authorUseCases), interceptors)),
+		grpcHandler(authv1connect.NewAuthServiceHandler(grpc.NewAuthServer(authUseCases), interceptors)),
+		grpcHandler(onboardingv1connect.NewOnboardingServiceHandler(grpc.NewOnboardingServer(authUseCases), interceptors)),
 	}
+
+	return api.RunServer(&config.HTTP, requestHandlers)
 }
 
 func grpcHandler(path string, handler http.Handler) api.HandlerWithPath {

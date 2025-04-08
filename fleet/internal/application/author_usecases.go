@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 
+	"github.com/btc-mining/miner-firmware/fleet/generated/sqlc"
 	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/db"
 
 	"github.com/btc-mining/miner-firmware/fleet/internal/domain"
@@ -20,8 +21,8 @@ func NewAuthorUseCases(db *sql.DB) *AuthorUseCases {
 }
 
 func (uc AuthorUseCases) Create(ctx context.Context, name string, bio string) (*domain.Author, error) {
-	return db.WithTransaction(ctx, uc.db, func(tx *sql.Tx) (*domain.Author, error) {
-		return domain.CreateAuthor(ctx, tx, &domain.CreateAuthorRequest{
+	return db.WithTransaction(ctx, uc.db, func(sq *sqlc.Queries) (*domain.Author, error) {
+		return domain.CreateAuthor(ctx, sq, &domain.CreateAuthorRequest{
 			Name: name,
 			Bio:  bio,
 		})
@@ -29,7 +30,7 @@ func (uc AuthorUseCases) Create(ctx context.Context, name string, bio string) (*
 }
 
 func (uc AuthorUseCases) FindAll(ctx context.Context) ([]*domain.Author, error) {
-	return db.WithTransaction(ctx, uc.db, func(tx *sql.Tx) ([]*domain.Author, error) {
-		return domain.FindAllAuthors(ctx, tx)
+	return db.WithTransaction(ctx, uc.db, func(sq *sqlc.Queries) ([]*domain.Author, error) {
+		return domain.FindAllAuthors(ctx, sq)
 	})
 }

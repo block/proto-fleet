@@ -14,7 +14,7 @@ import (
 	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/db"
 )
 
-// GetTestDB creates a test database connection and returns a DiModule for testing.
+// GetTestDB creates a test database connection and returns a sql.DB ref for testing.
 // The database connection will be closed when the test completes.
 func GetTestDB(t *testing.T) *sql.DB {
 	t.Helper()

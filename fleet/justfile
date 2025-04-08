@@ -21,7 +21,6 @@ gen: gen-protos gen-db-queries
 
 gen-protos:
   buf generate
-
   goimports -w generated/grpc
 
 gen-db-queries:

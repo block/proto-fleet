@@ -1,0 +1,112 @@
+package domain
+
+import (
+	"testing"
+	"time"
+
+	"github.com/alecthomas/assert/v2"
+)
+
+var testConfig = AuthConfig{
+	SecretKey:        "test-secret-key-that-is-long-enough", // Ensure valid length for testing
+	ExpirationPeriod: time.Minute * 5,                       // Short expiration for testing
+}
+
+// Test: Generate JWT and verify it
+func TestGenerateJWT(t *testing.T) {
+	tokenService, err := NewTokenService(testConfig)
+	assert.NoError(t, err, "NewTokenService should not return an error")
+
+	userID := "12345"
+	token, err := tokenService.GenerateJWT(userID)
+	assert.NoError(t, err, "GenerateJWT should not return an error")
+	assert.NotZero(t, token, "Generated token should not be empty")
+
+	// Verify token
+	claims, err := tokenService.VerifyJWT(token)
+	assert.NoError(t, err, "VerifyJWT should not return an error")
+	assert.Equal(t, userID, claims.UserID, "UserID in token should match input")
+}
+
+// Test: Verify valid token
+func TestVerifyJWT_ValidToken(t *testing.T) {
+	tokenService, err := NewTokenService(testConfig)
+	assert.NoError(t, err, "NewTokenService should not return an error")
+
+	userID := "67890"
+	token, err := tokenService.GenerateJWT(userID)
+	assert.NoError(t, err, "GenerateJWT should not return an error")
+
+	claims, err := tokenService.VerifyJWT(token)
+	assert.NoError(t, err, "VerifyJWT should not return an error for a valid token")
+	assert.Equal(t, userID, claims.UserID, "Decoded UserID should match the original")
+}
+
+// Test: Verify invalid token
+func TestVerifyJWT_InvalidToken(t *testing.T) {
+	tokenService, err := NewTokenService(testConfig)
+	assert.NoError(t, err, "NewTokenService should not return an error")
+
+	invalidToken := "invalid.token.string"
+	claims, err := tokenService.VerifyJWT(invalidToken)
+	assert.Error(t, err, "VerifyJWT should return an error for an invalid token")
+	assert.Zero(t, claims, "Claims should be nil for an invalid token")
+}
+
+// Test: Verify expired token
+func TestVerifyJWT_ExpiredToken(t *testing.T) {
+	expiredConfig := AuthConfig{
+		SecretKey:        testConfig.SecretKey,
+		ExpirationPeriod: -time.Minute, // Negative duration to force expiration
+	}
+	tokenService, err := NewTokenService(expiredConfig)
+	assert.NoError(t, err, "NewTokenService should not return an error")
+
+	userID := "expiredUser"
+	token, err := tokenService.GenerateJWT(userID)
+	assert.NoError(t, err, "GenerateJWT should not return an error")
+
+	claims, err := tokenService.VerifyJWT(token)
+	assert.Error(t, err, "VerifyJWT should return an error for an expired token")
+	assert.Zero(t, claims, "Claims should be nil for an expired token")
+}
+
+// Test: Verify tampered token
+func TestVerifyJWT_TamperedToken(t *testing.T) {
+	tokenService, err := NewTokenService(testConfig)
+	assert.NoError(t, err, "NewTokenService should not return an error")
+
+	userID := "tamperedUser"
+	token, err := tokenService.GenerateJWT(userID)
+	assert.NoError(t, err, "GenerateJWT should not return an error")
+
+	// Modify token (tamper with it)
+	tamperedToken := token[:len(token)-1] + "X"
+	claims, err := tokenService.VerifyJWT(tamperedToken)
+	assert.Error(t, err, "VerifyJWT should return an error for a tampered token")
+	assert.Zero(t, claims, "Claims should be nil for a tampered token")
+}
+
+// Test: NewTokenService should reject short secret key
+func TestNewTokenService_InvalidSecret(t *testing.T) {
+	invalidConfig := AuthConfig{
+		SecretKey:        "short-key", // Short secret key for testing
+		ExpirationPeriod: time.Minute * 5,
+	}
+
+	_, err := NewTokenService(invalidConfig)
+	assert.Error(t, err, "Expected error for short secret key")
+	assert.Equal(t, "secret key must be at least 32 bytes long", err.Error(), "Error message should match expected")
+}
+
+// Test: NewTokenService with valid secret key
+func TestNewTokenService_ValidSecret(t *testing.T) {
+	validConfig := AuthConfig{
+		SecretKey:        "valid-secret-key-that-is-long-enough",
+		ExpirationPeriod: time.Minute * 5,
+	}
+
+	tokenService, err := NewTokenService(validConfig)
+	assert.NoError(t, err, "NewTokenService should not return an error for valid secret key")
+	assert.NotZero(t, tokenService, "TokenService instance should be created successfully")
+}

@@ -15,3 +15,11 @@ type Author struct {
 	Bio       sql.NullString
 	CreatedAt time.Time
 }
+
+type User struct {
+	ID           int64
+	UserID       string
+	Username     string
+	PasswordHash string
+	CreatedAt    time.Time
+}

@@ -22,12 +22,11 @@ type CreateAuthorRequest struct {
 	Bio  string
 }
 
-func CreateAuthor(ctx context.Context, tx *sql.Tx, author *CreateAuthorRequest) (*Author, error) {
-	queries := sqlc.New(tx)
+func CreateAuthor(ctx context.Context, q *sqlc.Queries, author *CreateAuthorRequest) (*Author, error) {
 	if author.Name == "" {
 		return nil, errors.New("Author name is required")
 	}
-	result, err := queries.CreateAuthor(ctx, sqlc.CreateAuthorParams{
+	result, err := q.CreateAuthor(ctx, sqlc.CreateAuthorParams{
 		Name: author.Name,
 		Bio: sql.NullString{
 			String: author.Bio,
@@ -43,7 +42,7 @@ func CreateAuthor(ctx context.Context, tx *sql.Tx, author *CreateAuthorRequest) 
 		return nil, fmt.Errorf("error fetching LastInsertId: %w", err)
 	}
 
-	dbAuthor, err := queries.FindAuthorByID(ctx, id)
+	dbAuthor, err := q.FindAuthorByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -55,9 +54,8 @@ func CreateAuthor(ctx context.Context, tx *sql.Tx, author *CreateAuthorRequest) 
 	}, nil
 }
 
-func FindAllAuthors(ctx context.Context, tx *sql.Tx) ([]*Author, error) {
-	queries := sqlc.New(tx)
-	rows, err := queries.FindAllAuthors(ctx)
+func FindAllAuthors(ctx context.Context, q *sqlc.Queries) ([]*Author, error) {
+	rows, err := q.FindAllAuthors(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -73,9 +71,8 @@ func FindAllAuthors(ctx context.Context, tx *sql.Tx) ([]*Author, error) {
 	return results, nil
 }
 
-func UpdateAuthor(ctx context.Context, tx *sql.Tx, author *Author) (*Author, error) {
-	queries := sqlc.New(tx)
-	_, err := queries.UpdateAuthor(ctx, sqlc.UpdateAuthorParams{
+func UpdateAuthor(ctx context.Context, q *sqlc.Queries, author *Author) (*Author, error) {
+	_, err := q.UpdateAuthor(ctx, sqlc.UpdateAuthorParams{
 		ID:   author.ID,
 		Name: author.Name,
 		Bio: sql.NullString{
@@ -87,7 +84,7 @@ func UpdateAuthor(ctx context.Context, tx *sql.Tx, author *Author) (*Author, err
 		return nil, err
 	}
 
-	dbAuthor, err := queries.FindAuthorByID(context.Background(), author.ID)
+	dbAuthor, err := q.FindAuthorByID(context.Background(), author.ID)
 	if err != nil {
 		return nil, err
 	}

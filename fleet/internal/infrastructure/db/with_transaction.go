@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
+	"github.com/btc-mining/miner-firmware/fleet/generated/sqlc"
 )
 
-func WithTransaction[T any](ctx context.Context, db *sql.DB, action func(tx *sql.Tx) (T, error)) (T, error) {
+func WithTransaction[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error)) (T, error) {
 	var zero T
 
 	// TODO Which transaction isolation to use?
@@ -17,7 +19,8 @@ func WithTransaction[T any](ctx context.Context, db *sql.DB, action func(tx *sql
 
 	defer tx.Rollback()
 
-	result, err := action(tx)
+	sq := sqlc.New(tx)
+	result, err := action(sq)
 	if err != nil {
 		return zero, err
 	}
@@ -30,11 +33,11 @@ func WithTransaction[T any](ctx context.Context, db *sql.DB, action func(tx *sql
 	return result, nil
 }
 
-func WithVoidTransaction(ctx context.Context, db *sql.DB, action func(tx *sql.Tx) error) error {
-	_, err := WithTransaction(ctx, db, func(tx *sql.Tx) (any, error) {
+func WithVoidTransaction(ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) error) error {
+	_, err := WithTransaction(ctx, db, func(sq *sqlc.Queries) (any, error) {
 		var emptyResult any
 
-		return emptyResult, action(tx)
+		return emptyResult, action(sq)
 	})
 
 	return err
