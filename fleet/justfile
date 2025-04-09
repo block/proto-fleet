@@ -1,5 +1,4 @@
 lint:
-  buf lint
   golangci-lint run -c .golangci.yaml
 
 build-all:
@@ -17,11 +16,7 @@ test:
 format:
   goimports -w .
 
-gen: gen-protos gen-db-queries
-
-gen-protos:
-  buf generate
-  goimports -w generated/grpc
+gen: gen-db-queries
 
 gen-db-queries:
   sqlc generate

@@ -1,0 +1,18 @@
+default: 
+  just --list
+
+lint: 
+  buf lint
+
+gen: lint gen-protos fmt-web fmt-go
+
+gen-protos: 
+  buf generate
+
+[working-directory: '../fleet']
+fmt-web:
+  goimports -w generated/grpc
+
+[working-directory: '../miner-web']
+fmt-go:
+  npm run format

@@ -1,11 +1,15 @@
 version: v2
 plugins:
   - local: protoc-gen-go
-    out: generated/grpc
+    out: ../fleet/generated/grpc
     opt: paths=source_relative
   - local: protoc-gen-connect-go
-    out: generated/grpc
+    out: ../fleet/generated/grpc
     opt: paths=source_relative
+  - local: protoc-gen-es
+    out: ../miner-web/src/protoFleet/api/generated
+    include_imports: true
+    opt: target=ts
 managed:
   enabled: true
   override:
