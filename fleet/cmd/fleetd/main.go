@@ -16,6 +16,7 @@ import (
 	"github.com/btc-mining/miner-firmware/fleet/internal/domain"
 	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/api"
 	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/api/grpc"
+	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/api/grpc/middleware"
 	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/db"
 	"github.com/btc-mining/miner-firmware/fleet/internal/logging"
 
@@ -43,6 +44,11 @@ func main() {
 	}
 }
 
+var unauthenticatedProcedures = []string{
+	authv1connect.AuthServiceAuthenticateProcedure,
+	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
+}
+
 func start(config *Config) error {
 
 	conn, err := db.ConnectAndMigrate(&config.DB)
@@ -55,6 +61,9 @@ func start(config *Config) error {
 		return err
 	}
 	authSvc := domain.NewAuthService(tokenSvc)
+
+	authMiddleware := middleware.NewAuthMiddleware(tokenSvc, unauthenticatedProcedures)
+
 	// initialize use cases
 	authorUseCases := application.NewAuthorUseCases(conn)
 	authUseCases := application.NewAuthUseCases(conn, authSvc)
@@ -70,7 +79,7 @@ func start(config *Config) error {
 		grpcHandler(onboardingv1connect.NewOnboardingServiceHandler(grpc.NewOnboardingServer(authUseCases), interceptors)),
 	}
 
-	return api.RunServer(&config.HTTP, requestHandlers)
+	return api.RunServer(&config.HTTP, requestHandlers, authMiddleware)
 }
 
 func grpcHandler(path string, handler http.Handler) api.HandlerWithPath {
