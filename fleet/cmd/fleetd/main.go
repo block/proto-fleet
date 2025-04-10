@@ -8,8 +8,6 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/auth/v1/authv1connect"
-	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/authors/v1/authorsv1connect"
-	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/greet/v1/greetv1connect"
 	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/onboarding/v1/onboardingv1connect"
 
 	"github.com/btc-mining/miner-firmware/fleet/internal/application"
@@ -65,7 +63,6 @@ func start(config *Config) error {
 	authMiddleware := middleware.NewAuthMiddleware(tokenSvc, unauthenticatedProcedures)
 
 	// initialize use cases
-	authorUseCases := application.NewAuthorUseCases(conn)
 	authUseCases := application.NewAuthUseCases(conn, authSvc)
 
 	interceptors := connect.WithInterceptors(
@@ -73,8 +70,6 @@ func start(config *Config) error {
 	)
 
 	requestHandlers := []api.HandlerWithPath{
-		grpcHandler(greetv1connect.NewGreetServiceHandler(&grpc.GreetServer{}, interceptors)),
-		grpcHandler(authorsv1connect.NewAuthorsServiceHandler(grpc.NewAuthorsServer(authorUseCases), interceptors)),
 		grpcHandler(authv1connect.NewAuthServiceHandler(grpc.NewAuthServer(authUseCases), interceptors)),
 		grpcHandler(onboardingv1connect.NewOnboardingServiceHandler(grpc.NewOnboardingServer(authUseCases), interceptors)),
 	}

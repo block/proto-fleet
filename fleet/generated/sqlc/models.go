@@ -5,16 +5,8 @@
 package sqlc
 
 import (
-	"database/sql"
 	"time"
 )
-
-type Author struct {
-	ID        int64
-	Name      string
-	Bio       sql.NullString
-	CreatedAt time.Time
-}
 
 type User struct {
 	ID           int64

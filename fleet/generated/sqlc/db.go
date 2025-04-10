@@ -24,65 +24,25 @@ func New(db DBTX) *Queries {
 func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	q := Queries{db: db}
 	var err error
-	if q.createAuthorStmt, err = db.PrepareContext(ctx, createAuthor); err != nil {
-		return nil, fmt.Errorf("error preparing query CreateAuthor: %w", err)
-	}
 	if q.createUserStmt, err = db.PrepareContext(ctx, createUser); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateUser: %w", err)
 	}
-	if q.deleteAuthorStmt, err = db.PrepareContext(ctx, deleteAuthor); err != nil {
-		return nil, fmt.Errorf("error preparing query DeleteAuthor: %w", err)
-	}
-	if q.findAllAuthorsStmt, err = db.PrepareContext(ctx, findAllAuthors); err != nil {
-		return nil, fmt.Errorf("error preparing query FindAllAuthors: %w", err)
-	}
-	if q.findAuthorByIDStmt, err = db.PrepareContext(ctx, findAuthorByID); err != nil {
-		return nil, fmt.Errorf("error preparing query FindAuthorByID: %w", err)
-	}
 	if q.getUserByUsernameStmt, err = db.PrepareContext(ctx, getUserByUsername); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserByUsername: %w", err)
-	}
-	if q.updateAuthorStmt, err = db.PrepareContext(ctx, updateAuthor); err != nil {
-		return nil, fmt.Errorf("error preparing query UpdateAuthor: %w", err)
 	}
 	return &q, nil
 }
 
 func (q *Queries) Close() error {
 	var err error
-	if q.createAuthorStmt != nil {
-		if cerr := q.createAuthorStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing createAuthorStmt: %w", cerr)
-		}
-	}
 	if q.createUserStmt != nil {
 		if cerr := q.createUserStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createUserStmt: %w", cerr)
 		}
 	}
-	if q.deleteAuthorStmt != nil {
-		if cerr := q.deleteAuthorStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing deleteAuthorStmt: %w", cerr)
-		}
-	}
-	if q.findAllAuthorsStmt != nil {
-		if cerr := q.findAllAuthorsStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing findAllAuthorsStmt: %w", cerr)
-		}
-	}
-	if q.findAuthorByIDStmt != nil {
-		if cerr := q.findAuthorByIDStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing findAuthorByIDStmt: %w", cerr)
-		}
-	}
 	if q.getUserByUsernameStmt != nil {
 		if cerr := q.getUserByUsernameStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getUserByUsernameStmt: %w", cerr)
-		}
-	}
-	if q.updateAuthorStmt != nil {
-		if cerr := q.updateAuthorStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing updateAuthorStmt: %w", cerr)
 		}
 	}
 	return err
@@ -124,25 +84,15 @@ func (q *Queries) queryRow(ctx context.Context, stmt *sql.Stmt, query string, ar
 type Queries struct {
 	db                    DBTX
 	tx                    *sql.Tx
-	createAuthorStmt      *sql.Stmt
 	createUserStmt        *sql.Stmt
-	deleteAuthorStmt      *sql.Stmt
-	findAllAuthorsStmt    *sql.Stmt
-	findAuthorByIDStmt    *sql.Stmt
 	getUserByUsernameStmt *sql.Stmt
-	updateAuthorStmt      *sql.Stmt
 }
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
 		db:                    tx,
 		tx:                    tx,
-		createAuthorStmt:      q.createAuthorStmt,
 		createUserStmt:        q.createUserStmt,
-		deleteAuthorStmt:      q.deleteAuthorStmt,
-		findAllAuthorsStmt:    q.findAllAuthorsStmt,
-		findAuthorByIDStmt:    q.findAuthorByIDStmt,
 		getUserByUsernameStmt: q.getUserByUsernameStmt,
-		updateAuthorStmt:      q.updateAuthorStmt,
 	}
 }

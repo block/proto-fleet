@@ -16,11 +16,11 @@ import (
 )
 
 type DBConfig struct {
-	Name                              string `help:"Name of the database" default:"fleet" env:"NAME"`
-	Username                          string `help:"Username to database" default:"root" env:"USERNAME"`
-	Password                          string `help:"Password to database" env:"PASSWORD"`
-	Address                           string `help:"Address of the database, including port" default:"127.0.0.1:3306" env:"ADDRESS"`
-	InitialConnectionTimeoutInSeconds int64  `help:"Timeout in seconds for initial connection" default:"2" env:"INITIAL_CONNECTION_TIMEOUT"`
+	Name                     string        `help:"Name of the database" default:"fleet" env:"NAME"`
+	Username                 string        `help:"Username to database" default:"root" env:"USERNAME"`
+	Password                 string        `help:"Password to database" env:"PASSWORD"`
+	Address                  string        `help:"Address of the database, including port" default:"127.0.0.1:3306" env:"ADDRESS"`
+	InitialConnectionTimeout time.Duration `help:"Timeout for initial connection" default:"2s" env:"INITIAL_CONNECTION_TIMEOUT"`
 }
 
 // ConnectAndMigrate creates a driver for the database, ensures the database is alive, and runs migrations if needed.
@@ -55,7 +55,7 @@ func ConnectToDatabase(config *DBConfig) (*sql.DB, error) {
 }
 
 func verifyDatabaseConnectionEstablished(connection *sql.DB, config *DBConfig) error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(config.InitialConnectionTimeoutInSeconds)*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), config.InitialConnectionTimeout)
 	defer cancel()
 
 	err := connection.PingContext(ctx)
