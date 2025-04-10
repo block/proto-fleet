@@ -53,6 +53,7 @@ const Popover = ({
   testId,
   title,
   titleSize = "text-heading-200",
+  closePopover = () => {},
 }: PopoverProps) => {
   const { triggerRef, isTriggerFixed } = usePopover();
   const { popoverAnimation, popoverStyle, popoverRef } = usePopoverPosition(
@@ -81,6 +82,7 @@ const Popover = ({
         subtitle={subtitle}
         title={title}
         titleSize={titleSize}
+        closePopover={closePopover}
       />
     </div>
   );

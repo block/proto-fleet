@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import clsx from "clsx";
 import ButtonGroup, {
   groupVariants,
@@ -6,6 +7,7 @@ import ButtonGroup, {
 import Header from "@/shared/components/Header";
 import { popoverSizes } from "@/shared/components/Popover/constants.ts";
 import { PopoverContentProps } from "@/shared/components/Popover/types";
+import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
 // TODO content of this component can be moved to Popover when ThemeSwitcher does not use this component anymore
 const PopoverContent = ({
@@ -17,10 +19,19 @@ const PopoverContent = ({
   subtitle,
   testId,
   title,
+  closePopover = () => {},
   titleSize = "text-heading-200",
 }: PopoverContentProps) => {
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useClickOutside({
+    ref: popoverRef,
+    onClickOutside: closePopover,
+  });
+
   return (
     <div
+      ref={popoverRef}
       className={clsx(
         "z-20 space-y-4 rounded-3xl bg-surface-elevated-base/85 p-6 shadow-200 backdrop-blur-[7px] transition-opacity duration-200",
         {

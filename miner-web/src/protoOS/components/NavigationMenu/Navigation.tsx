@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import clsx from "clsx";
 
@@ -11,10 +11,8 @@ import {
 } from "./NavigationItems";
 import { NavigationItemValue, NavigationMenuType } from "./types";
 import { useMinerHosting } from "@/protoOS/api";
-import { Logo, ThemeLight } from "@/shared/assets/icons";
-import { iconSizes } from "@/shared/assets/icons/constants";
+import { Logo } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import ThemeSwitcher from "@/shared/features/themes/ThemeSwitcher";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 interface NavigationProps {
@@ -51,8 +49,6 @@ const Navigation = ({
       return isApp ? navigationItems.home : navigationItems.onboarding;
     }
   }, [pathname, isApp]);
-
-  const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
 
   const handleClick = useCallback(
     (navigationItem: NavigationItemValue) => {
@@ -128,20 +124,6 @@ const Navigation = ({
               />
             </a>
           </div>
-          <Button
-            variant={variants.ghost}
-            size={sizes.compact}
-            className="h-auto"
-            onClick={() => setShowThemeSwitcher(true)}
-          >
-            <ThemeLight
-              className="text-text-primary-30"
-              width={iconSizes.small}
-            />
-          </Button>
-          {showThemeSwitcher && (
-            <ThemeSwitcher onClickDone={() => setShowThemeSwitcher(false)} />
-          )}
         </div>
       </div>
     </div>

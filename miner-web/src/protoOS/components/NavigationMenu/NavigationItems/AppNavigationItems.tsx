@@ -80,6 +80,13 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
             }}
           >
             <NavigationItem
+              id={navigationItems.general}
+              text="General"
+              onClick={handleClick}
+              pageName={pageName}
+              isChildItem
+            />
+            <NavigationItem
               id={navigationItems.miningPools}
               text="Mining Pools"
               onClick={handleClick}

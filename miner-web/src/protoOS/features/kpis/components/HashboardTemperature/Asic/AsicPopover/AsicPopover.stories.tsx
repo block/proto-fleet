@@ -19,6 +19,7 @@ export const AsicPopover = ({
   return (
     <div ref={triggerRef} className="relative mt-96 ml-40">
       <AsicPopoverComponent
+        closePopover={() => {}}
         asic={mockHashboardStats.asics[0]}
         hashrateData={
           pendingAsicHashrateData

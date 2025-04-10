@@ -6,7 +6,8 @@ import AsicPopover from "./AsicPopover";
 import { getAsicUniqueId } from "./utility";
 import { AsicStats, GetAsicHashrateParams } from "@/protoOS/api/types";
 import { usePopover } from "@/shared/components/Popover";
-import { useClickOutside } from "@/shared/hooks/useClickOutside";
+import { TEMP_UNITS, usePreferences } from "@/shared/features/preferences";
+import { convertCtoF } from "@/shared/utils/utility";
 
 interface AsicButtonProps {
   asic: AsicStats;
@@ -26,16 +27,14 @@ const AsicButton = ({
   setShowPopover,
 }: AsicButtonProps) => {
   const { triggerRef: asicRef } = usePopover();
+  const { temperatureUnits } = usePreferences();
+  const isFahrenheit = temperatureUnits === TEMP_UNITS.fahrenheit;
+
   const shouldShowPopover =
     asic.id !== undefined &&
     showPopover === getAsicUniqueId(asic.id, hashboardSerial);
 
   const backgroundColor = useAsicColor(asic);
-
-  useClickOutside({
-    ref: asicRef,
-    onClickOutside: () => setShowPopover(undefined),
-  });
 
   return (
     <div
@@ -54,6 +53,7 @@ const AsicButton = ({
           duration={duration}
           granularity={granularity}
           hashboardSerial={hashboardSerial}
+          closePopover={() => setShowPopover(undefined)}
         />
       ) : null}
       <button
@@ -68,7 +68,12 @@ const AsicButton = ({
         }
       >
         <div className="bg-transparent hover:bg-surface-overlay">
-          <div className="px-1 py-3">{asic.temp_c}º</div>
+          <div className="px-1 py-3">
+            {asic.temp_c && isFahrenheit
+              ? convertCtoF(asic.temp_c)
+              : asic.temp_c}
+            º
+          </div>
         </div>
       </button>
     </div>

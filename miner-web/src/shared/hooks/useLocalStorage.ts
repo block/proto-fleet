@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 const useLocalStorage = () => {
   const setItem = useCallback((key: string, value: any) => {
@@ -10,10 +10,13 @@ const useLocalStorage = () => {
     return localStorageValue ? JSON.parse(localStorageValue) : undefined;
   }, []);
 
-  return {
-    setItem,
-    getItem,
-  };
+  return useMemo(
+    () => ({
+      setItem,
+      getItem,
+    }),
+    [setItem, getItem],
+  );
 };
 
 export { useLocalStorage };

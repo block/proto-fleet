@@ -1,5 +1,7 @@
 import { memo, useMemo } from "react";
 import TabMenu from "./TabMenu";
+import { TEMP_UNITS, usePreferences } from "@/shared/features/preferences";
+import { convertCtoF } from "@/shared/utils/utility";
 
 type TabMenuWrapperProps = {
   hashrate?: number;
@@ -8,9 +10,11 @@ type TabMenuWrapperProps = {
   temperature?: number;
 };
 
-// Use memo to prevent unnecessary re-renders of the TabMenuWrapper
 const TabMenuWrapper = memo(
   ({ hashrate, efficiency, powerUsage, temperature }: TabMenuWrapperProps) => {
+    const { temperatureUnits } = usePreferences();
+    const isFahrenheit = temperatureUnits === TEMP_UNITS.fahrenheit;
+
     const tabItems = useMemo(
       () => ({
         hashrate: {
@@ -33,12 +37,15 @@ const TabMenuWrapper = memo(
         },
         temperature: {
           name: "Temperature",
-          value: temperature,
-          units: "ºC",
+          value:
+            isFahrenheit && temperature
+              ? convertCtoF(temperature)
+              : temperature,
+          units: isFahrenheit ? "ºF" : "ºC",
           path: "/temperature",
         },
       }),
-      [hashrate, efficiency, powerUsage, temperature],
+      [hashrate, efficiency, powerUsage, temperature, isFahrenheit],
     );
 
     return <TabMenu items={tabItems} />;

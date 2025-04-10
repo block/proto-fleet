@@ -77,3 +77,25 @@ export const getDayFromEpoch = (epoch?: number) => {
 export const stripLeadingSlash = (str: string) => {
   return str.startsWith("/") ? str.substring(1) : str;
 };
+
+export const convertToSentenceCase = (str: string) => {
+  return str
+    .split(/[.?!]\s*/) // Split on periods, question marks, or exclamation points followed by optional spaces
+    .map((sentence, index, array) => {
+      const separator = str.match(/[.?!]\s*/g)?.[index] || ". ";
+      return (
+        sentence.charAt(0).toUpperCase() +
+        sentence.slice(1) +
+        (index < array.length - 1 ? separator.trim() : "")
+      );
+    })
+    .join(" ")
+    .trim(); // Rejoin sentences with their original separators
+};
+
+export const convertToTitleCase = (str: string) => {
+  return str
+    .split(/[\s_]+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+};

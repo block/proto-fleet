@@ -1,7 +1,7 @@
 import clsx from "clsx";
 
 const sharedCls =
-  "absolute top-1/2 left-1/2 bg-[var(--typography-primary-70)] -translate-x-1/2 -translate-y-1/2";
+  "bg-text-primary absolute top-1/2 left-1/2 bg-[var(--typography-primary-70)] -translate-x-1/2 -translate-y-1/2";
 
 const MorphingPlusMinus = ({ condition }: { condition: boolean }) => {
   return (

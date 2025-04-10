@@ -2,6 +2,7 @@ import { Logo } from "@/shared/assets/icons";
 import MinerImage from "@/shared/assets/images/miner.png";
 import Button from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
+import Picture from "@/shared/components/Picture";
 import Row from "@/shared/components/Row";
 
 type FoundMinersProps = {
@@ -41,7 +42,7 @@ const FoundMiners = ({ miners }: FoundMinersProps) => {
             <div className="rounded-2xl bg-surface-10 px-5 pt-10 pb-7">
               <div className="mx-auto sm:w-[600px]">
                 <div className="mx-auto w-fit">
-                  <img className="mb-2 max-w-[228px]" src={MinerImage} />
+                  <Picture className="mb-2 max-w-[228px]" image={MinerImage} />
                   <div className="text-center text-heading-100 text-text-primary-50">
                     Proto Rack
                   </div>

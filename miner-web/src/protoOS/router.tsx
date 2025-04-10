@@ -1,7 +1,5 @@
-import { createBrowserRouter, redirect } from "react-router-dom";
+import { createBrowserRouter, Outlet, redirect } from "react-router-dom";
 
-import Logs from "./pages/MinerLogs";
-import MiningPools from "./pages/Settings/MiningPools";
 import App from "@/protoOS/components/App";
 import {
   Efficiency,
@@ -11,7 +9,10 @@ import {
   PowerUsage,
   Temperature,
 } from "@/protoOS/features/kpis";
+
+import { General, MiningPools } from "@/protoOS/features/settings";
 import Auth from "@/protoOS/pages/Auth";
+import Logs from "@/protoOS/pages/MinerLogs";
 import Onboarding from "@/protoOS/pages/Onboarding";
 
 export const routerConfig = [
@@ -66,12 +67,27 @@ export const routerConfig = [
     element: <Onboarding />,
   },
   {
-    path: "settings/mining-pools",
+    path: "settings",
+    // TODO: look into modifying App to use Outlet instead of children
     element: (
       <App title="Settings">
-        <MiningPools />
+        <Outlet />
       </App>
     ),
+    children: [
+      {
+        index: true,
+        loader: () => redirect("general"),
+      },
+      {
+        path: "general",
+        element: <General />,
+      },
+      {
+        path: "mining-pools",
+        element: <MiningPools />,
+      },
+    ],
   },
 ];
 

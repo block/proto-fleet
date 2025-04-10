@@ -8,32 +8,40 @@ import { type Aggregates, type AsicStats } from "@/protoOS/api/types";
 import Stats from "@/protoOS/features/kpis/components/Stats";
 import { type HbTemperature } from "@/protoOS/features/kpis/hooks";
 import { type StatProps } from "@/shared/components/Stat";
+import {
+  TEMP_UNITS,
+  type TemperatureUnits,
+  usePreferences,
+} from "@/shared/features/preferences/";
+import { convertCtoF } from "@/shared/utils/utility";
 
 type HbTempPreviewProps = {
   hbData: HbTemperature;
   asics?: AsicStats[];
 };
 
-const getStats = (stats: Aggregates): StatProps[] => {
+const getStats = (stats: Aggregates, units: TemperatureUnits): StatProps[] => {
   const { avg, max, min } = stats;
+  const isFahrenheit = units === TEMP_UNITS.fahrenheit;
+  const unitLabel = isFahrenheit ? "ºF" : "ºC";
 
   return [
     {
       label: "Average",
-      value: avg,
-      units: "ºC",
+      value: isFahrenheit && avg ? convertCtoF(avg) : avg,
+      units: unitLabel,
       size: "small",
     },
     {
       label: "Highest",
-      value: max,
-      units: "ºC",
+      value: isFahrenheit && max ? convertCtoF(max) : max,
+      units: unitLabel,
       size: "small",
     },
     {
       label: "Lowest",
-      value: min,
-      units: "ºC",
+      value: isFahrenheit && min ? convertCtoF(min) : min,
+      units: unitLabel,
       size: "small",
     },
   ];
@@ -42,6 +50,7 @@ const getStats = (stats: Aggregates): StatProps[] => {
 const HbTempPreview = ({ hbData, asics }: HbTempPreviewProps) => {
   const [isOverheating, setIsOverheating] = useState<boolean>(false);
   const { minerRoot } = useMinerHosting();
+  const { temperatureUnits } = usePreferences();
 
   useEffect(() => {
     if (!hbData.data || !hbData.data.length) return;
@@ -88,7 +97,7 @@ const HbTempPreview = ({ hbData, asics }: HbTempPreviewProps) => {
 
       <div className="p-4">
         <Stats
-          stats={getStats(hbData.aggregates)}
+          stats={getStats(hbData.aggregates, temperatureUnits)}
           size="small"
           grid="grid-cols-3"
           gap="gap-2"

@@ -7,6 +7,7 @@ import fs from "fs";
 import path, { resolve } from "path";
 import process from "process";
 import fleet from "./fleet.json";
+import { responsiveImagePlugin } from "./vitePlugins/responsiveImagePlugin";
 
 // eslint-disable-next-line no-undef
 const _dirname = __dirname;
@@ -130,6 +131,7 @@ export default defineConfig(({ mode, command }) => {
     base: "/",
     plugins: [
       react(),
+      responsiveImagePlugin(),
       splitVendorChunkPlugin(),
       moveHtmlFiles(mode),
       copyPublicDirectory(mode, command),

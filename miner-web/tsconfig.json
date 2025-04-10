@@ -29,7 +29,6 @@
       "api": ["src/protoOS/api/index.ts"],
       "apiTypes": ["src/protoOS/api/types.ts"],
       "apiResponseTypes": ["src/protoOS/api/apiResponseTypes.ts"],
-      "common/*": ["src/common/*"],
       "icons": ["src/shared/assets/icons"],
       "icons/*": ["src/shared/assets/icons/*"]
     },
@@ -37,6 +36,6 @@
     "types": ["jest-dom"],
     "typeRoots": ["node_modules/@types", "node_modules/@testing-library"]
   },
-  "include": ["src", "tailwind.d.ts", "scripts/postcssThemeColors.cjs"],
+  "include": ["src", "tailwind.d.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

@@ -2,6 +2,7 @@ export const navigationItems = {
   home: "",
   logs: "logs",
   miningPools: "settings/mining-pools",
+  general: "settings/general",
   onboarding: "onboarding",
 } as const;
 

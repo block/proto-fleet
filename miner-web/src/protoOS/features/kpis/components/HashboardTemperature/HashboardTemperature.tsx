@@ -15,24 +15,38 @@ import { Dismiss } from "@/shared/assets/icons";
 import { Duration } from "@/shared/components/DurationSelector";
 import Header from "@/shared/components/Header";
 import { PopoverProvider } from "@/shared/components/Popover";
+import {
+  TEMP_UNITS,
+  TemperatureUnits,
+  usePreferences,
+} from "@/shared/features/preferences";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 import { convertWtoKW } from "@/shared/utils/utility";
+import { convertCtoF } from "@/shared/utils/utility";
 
 const getStats = (
   avgHashboardTemp: Aggregates["avg"],
   avgAsicTemp: HashboardStatsHashboardstats["avg_asic_temp_c"],
   powerUsage: HashboardStatsHashboardstats["power_usage_watts"],
+  units: TemperatureUnits,
 ): StatsProps["stats"] => {
+  const isFahrenheit = units === TEMP_UNITS.fahrenheit;
+  const unit = isFahrenheit ? "ºF" : "ºC";
+
   return [
     {
       label: "Hashboard avg. temp",
-      value: avgHashboardTemp,
-      units: "ºC",
+      value:
+        isFahrenheit && avgHashboardTemp
+          ? convertCtoF(avgHashboardTemp)
+          : avgHashboardTemp,
+      units: unit,
     },
     {
       label: "Current avg. ASIC temp",
-      value: avgAsicTemp,
-      units: "ºC",
+      value:
+        isFahrenheit && avgAsicTemp ? convertCtoF(avgAsicTemp) : avgAsicTemp,
+      units: unit,
     },
     {
       label: "Power usage",
@@ -51,6 +65,7 @@ type HashboardTemperatureProps = {
 
 const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   const { getItem } = useLocalStorage();
+  const { temperatureUnits } = usePreferences();
   const [avgAsicTemp, setAvgAsicTemp] = useState<number | undefined>(undefined);
   const [powerUsage, setPowerUsage] = useState<number | undefined>(undefined);
   const [avgHashboardTemp, setAvgHashboardTemp] = useState<number | undefined>(
@@ -160,7 +175,12 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
       <div className="max-w-screen overflow-visible overflow-x-auto">
         <div className={`${containerPadX} phone:mx-6 phone:!px-0`}>
           <Stats
-            stats={getStats(avgHashboardTemp, avgAsicTemp, powerUsage)}
+            stats={getStats(
+              avgHashboardTemp,
+              avgAsicTemp,
+              powerUsage,
+              temperatureUnits,
+            )}
             size="medium"
             gap="gap-10"
             padding="pb-4"

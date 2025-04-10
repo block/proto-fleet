@@ -1,7 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 
-import { themes } from "./constants";
-import { useThemeContext } from "./hooks/useThemeContext";
+import { THEMES } from "./constants";
+import usePreferences from "./hooks/usePreferences";
 import { Themes } from "./types";
 import { ThemeDark, ThemeLight, ThemeSystem } from "@/shared/assets/icons";
 
@@ -17,27 +17,23 @@ interface ThemeSwitcherProps {
 }
 
 const ThemeSwitcher = ({ onClickDone }: ThemeSwitcherProps) => {
-  const { deviceTheme, getUserSelectedTheme, setUserSelectedTheme } =
-    useThemeContext();
-  const [selectedTheme, setSelectedTheme] = useState<Themes>(
-    getUserSelectedTheme(),
-  );
+  const { theme, setTheme } = usePreferences();
 
   const handleChange = useCallback(
     (id: string, isSelected: boolean) => {
       const theme = id as Themes;
       if (isSelected) {
-        setSelectedTheme(theme);
-        setUserSelectedTheme(theme);
+        setTheme(theme);
       }
     },
-    [setUserSelectedTheme],
+    [setTheme],
   );
 
   // TODO should be modal instead of Popover
   return (
     <PageOverlay show>
       <PopoverContent
+        closePopover={onClickDone}
         title="Theme"
         buttons={[
           {
@@ -51,14 +47,29 @@ const ThemeSwitcher = ({ onClickDone }: ThemeSwitcherProps) => {
       >
         <div className="-mt-3">
           <SelectRow
-            id={themes.light}
-            text="Light"
-            isSelected={selectedTheme === themes.light}
+            id={THEMES.system}
+            text="System"
+            isSelected={theme === THEMES.system}
             onChange={handleChange}
             prefixIcon={
               <div
                 className="rounded-lg bg-surface-5 p-[6px]"
-                data-theme={themes.light}
+                data-theme={theme}
+              >
+                <ThemeSystem className="text-text-primary-70" />
+              </div>
+            }
+            type={selectTypes.radio}
+          />
+          <SelectRow
+            id={THEMES.light}
+            text="Light"
+            isSelected={theme === THEMES.light}
+            onChange={handleChange}
+            prefixIcon={
+              <div
+                className="rounded-lg bg-surface-5 p-[6px]"
+                data-theme={THEMES.light}
               >
                 <ThemeLight className="text-text-primary-70" />
               </div>
@@ -66,31 +77,16 @@ const ThemeSwitcher = ({ onClickDone }: ThemeSwitcherProps) => {
             type={selectTypes.radio}
           />
           <SelectRow
-            id={themes.dark}
+            id={THEMES.dark}
             text="Dark"
-            isSelected={selectedTheme === themes.dark}
+            isSelected={theme === THEMES.dark}
             onChange={handleChange}
             prefixIcon={
               <div
                 className="rounded-lg bg-surface-5 p-[6px]"
-                data-theme={themes.dark}
+                data-theme={THEMES.dark}
               >
                 <ThemeDark className="text-text-primary-70" />
-              </div>
-            }
-            type={selectTypes.radio}
-          />
-          <SelectRow
-            id={themes.system}
-            text="Device default"
-            isSelected={selectedTheme === themes.system}
-            onChange={handleChange}
-            prefixIcon={
-              <div
-                className="rounded-lg bg-surface-5 p-[6px]"
-                data-theme={deviceTheme}
-              >
-                <ThemeSystem className="text-text-primary-70" />
               </div>
             }
             type={selectTypes.radio}

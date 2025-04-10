@@ -4,7 +4,7 @@ import { RouterProvider } from "react-router-dom";
 import router from "./router";
 import { AuthContext, AuthTokens } from "@/protoOS/contexts/AuthContext";
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
-import { ThemeContext, useThemes } from "@/shared/features/themes";
+import { PreferencesProvider } from "@/shared/features/preferences/PreferencesContext";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 
 import "@/shared/styles/index.css";
@@ -17,9 +17,6 @@ const Main = () => {
     refreshToken: getItem("refreshToken") || { value: "", expiry: new Date() },
   });
   const [dismissedLoginModal, setDismissedLoginModal] = useState(false);
-
-  const { deviceTheme, getUserSelectedTheme, setUserSelectedTheme } =
-    useThemes();
 
   const handleChangeAuthTokens = (newAuthTokens: AuthTokens) => {
     setAuthTokens(newAuthTokens);
@@ -46,11 +43,9 @@ const Main = () => {
           setDismissedLoginModal,
         }}
       >
-        <ThemeContext.Provider
-          value={{ deviceTheme, getUserSelectedTheme, setUserSelectedTheme }}
-        >
+        <PreferencesProvider>
           <RouterProvider router={router} />
-        </ThemeContext.Provider>
+        </PreferencesProvider>
       </AuthContext.Provider>
     </MinerHostingProvider>
   );

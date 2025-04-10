@@ -1,9 +1,11 @@
 import { MemoryRouter } from "react-router-dom";
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { HbTemperature } from "../../../hooks";
 import HbTempPreview from "./HbTempPreview"; // Adjust the import path as necessary
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
+import { TEMP_UNITS, usePreferences } from "@/shared/features/preferences/";
+import { convertCtoF } from "@/shared/utils/utility";
 
 const mockHbData: HbTemperature = {
   name: "Hashboard 1",
@@ -35,6 +37,24 @@ const createMockAsics = (temp = 80) => {
     }));
 };
 
+vi.mock("@/shared/features/preferences/", async () => {
+  const actual = await vi.importActual("@/shared/features/preferences/");
+  return {
+    ...actual,
+    usePreferences: vi.fn(() => ({
+      temperatureUnits: "celsius",
+      theme: "light", // Mock theme
+      setTheme: vi.fn(), // Mock setTheme function
+    })),
+  };
+});
+
+beforeEach(() => {
+  (usePreferences as Mock).mockReturnValue({
+    temperatureUnits: "celsius",
+  });
+});
+
 describe("HbTempPreview", () => {
   it("renders the component with correct initial state", () => {
     render(
@@ -53,6 +73,44 @@ describe("HbTempPreview", () => {
       "hover:bg-intent-critical-20",
     );
     expect(screen.getByTestId("asic-table-preview")).toBeInTheDocument();
+  });
+
+  it("renders stats with correct units when temperatureUnits is set to 'fahrenheit'", () => {
+    (usePreferences as Mock).mockReturnValue({
+      temperatureUnits: TEMP_UNITS.fahrenheit,
+    });
+
+    const hbData = {
+      name: "Hashboard 1",
+      serial: "12345",
+      aggregates: {
+        avg: 50,
+        max: 60,
+        min: 40,
+      },
+      data: [{ value: 55 }],
+    };
+
+    render(
+      <MemoryRouter>
+        <MinerHostingProvider>
+          <HbTempPreview hbData={hbData} asics={createMockAsics()} />
+        </MinerHostingProvider>
+      </MemoryRouter>,
+    );
+
+    // Verify that the stats render with Fahrenheit units
+    const avgStat = screen.getByText(`${convertCtoF(50)}`);
+    const maxStat = screen.getByText(`${convertCtoF(60)}`);
+    const minStat = screen.getByText(`${convertCtoF(40)}`);
+    const unitF = screen.getAllByText("ºF");
+    const unitC = screen.queryAllByText("ºC");
+
+    expect(avgStat).toBeInTheDocument();
+    expect(maxStat).toBeInTheDocument();
+    expect(minStat).toBeInTheDocument();
+    expect(unitF.length).toBe(3);
+    expect(unitC.length).toBe(0);
   });
 
   it("renders spinner if there is no asic data", () => {

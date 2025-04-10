@@ -12,6 +12,7 @@ interface AsicPopoverWrapperProps {
   duration: GetAsicTemperatureParams["duration"];
   granularity: GetAsicTemperatureParams["granularity"];
   hashboardSerial: string;
+  closePopover: () => void;
 }
 
 const AsicPopoverWrapper = ({
@@ -19,6 +20,7 @@ const AsicPopoverWrapper = ({
   duration,
   granularity,
   hashboardSerial,
+  closePopover,
 }: AsicPopoverWrapperProps) => {
   const [temperatureData, setTemperatureData] = useState<ChartData[]>();
   const [hashrateData, setHashrateData] = useState<ChartData[]>();
@@ -58,6 +60,7 @@ const AsicPopoverWrapper = ({
       pendingAsicHashrateData={pendingAsicHashrateData}
       pendingAsicTemperatureData={pendingAsicTemperatureData}
       temperatureData={temperatureData}
+      closePopover={closePopover}
     />
   );
 };

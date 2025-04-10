@@ -1,7 +1,9 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, it, test } from "vitest";
 
 import {
   addCommas,
+  convertToSentenceCase,
+  convertToTitleCase,
   getDisplayValue,
   getMacAddressDisplay,
   getTimeFromEpoch,
@@ -183,5 +185,45 @@ describe("stripLeadingSlash", () => {
   test("not alter string without leading slash", () => {
     const path = "foo/bar";
     expect(stripLeadingSlash(path)).toBe("foo/bar");
+  });
+});
+
+describe("convertToSentenceCase", () => {
+  it("should capitalize the first letter of the first word in each sentence", () => {
+    const input = "hello world. how are you? i'm fine!";
+    const expected = "Hello world. How are you? I'm fine!";
+    expect(convertToSentenceCase(input)).toBe(expected);
+  });
+
+  it("should handle strings with no punctuation", () => {
+    const input = "hello world";
+    const expected = "Hello world";
+    expect(convertToSentenceCase(input)).toBe(expected);
+  });
+
+  it("should handle empty strings", () => {
+    const input = "";
+    const expected = "";
+    expect(convertToSentenceCase(input)).toBe(expected);
+  });
+});
+
+describe("convertToTitleCase", () => {
+  it("should capitalize the first letter of each word", () => {
+    const input = "hello world";
+    const expected = "Hello World";
+    expect(convertToTitleCase(input)).toBe(expected);
+  });
+
+  it("should handle strings with underscores and extra spaces", () => {
+    const input = "hello_world  how_are you";
+    const expected = "Hello World How Are You";
+    expect(convertToTitleCase(input)).toBe(expected);
+  });
+
+  it("should handle empty strings", () => {
+    const input = "";
+    const expected = "";
+    expect(convertToTitleCase(input)).toBe(expected);
   });
 });

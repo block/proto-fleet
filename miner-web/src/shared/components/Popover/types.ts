@@ -12,4 +12,5 @@ export type PopoverContentProps = {
   testId?: string;
   title?: string;
   titleSize?: string;
+  closePopover?: () => void;
 };

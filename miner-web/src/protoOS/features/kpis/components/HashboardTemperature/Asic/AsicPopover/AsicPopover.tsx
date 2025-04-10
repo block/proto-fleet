@@ -1,11 +1,13 @@
 import AsicChart from "./AsicChart";
 import { ChartData } from "./AsicChart/types";
 import AsicPopoverRow from "./AsicPopoverRow";
+import { convertAndFormatTemperature } from "./utility";
 import { AsicStats } from "@/protoOS/api/types";
 import Popover from "@/shared/components/Popover";
 import { minimalMargin } from "@/shared/components/Popover/constants.ts";
 import Spinner from "@/shared/components/Spinner";
 import { positions } from "@/shared/constants";
+import { usePreferences } from "@/shared/features/preferences";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 
 // import { dangerTemp } from "../../constants";
@@ -17,6 +19,7 @@ interface AsicPopoverProps {
   pendingAsicHashrateData?: boolean;
   pendingAsicTemperatureData?: boolean;
   temperatureData?: ChartData[];
+  closePopover: () => void;
 }
 
 const AsicPopover = ({
@@ -25,12 +28,16 @@ const AsicPopover = ({
   pendingAsicHashrateData,
   pendingAsicTemperatureData,
   temperatureData,
+  closePopover,
 }: AsicPopoverProps) => {
+  const { temperatureUnits } = usePreferences();
+
   return (
     <Popover
       className="h-fit pb-3"
       position={positions.top}
       offset={minimalMargin * 3}
+      closePopover={closePopover}
     >
       <div className="space-y-1">
         <div className="text-200 text-text-primary-70">ASIC</div>
@@ -65,7 +72,7 @@ const AsicPopover = ({
           label="Current temperature"
           value={
             temperatureData?.length &&
-            `${getDisplayValue(temperatureData[temperatureData.length - 1].value)}º`
+            `${convertAndFormatTemperature(temperatureData[temperatureData.length - 1].value, temperatureUnits)}º`
           }
           className="text-core-accent-fill"
         />
