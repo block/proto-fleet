@@ -10,7 +10,7 @@ import {
   Temperature,
 } from "@/protoOS/features/kpis";
 
-import { General, MiningPools } from "@/protoOS/features/settings";
+import { General, Hardware, MiningPools } from "@/protoOS/features/settings";
 import Auth from "@/protoOS/pages/Auth";
 import Logs from "@/protoOS/pages/MinerLogs";
 import Onboarding from "@/protoOS/pages/Onboarding";
@@ -86,6 +86,10 @@ export const routerConfig = [
       {
         path: "mining-pools",
         element: <MiningPools />,
+      },
+      {
+        path: "hardware",
+        element: <Hardware />,
       },
     ],
   },

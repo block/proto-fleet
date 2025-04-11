@@ -13,6 +13,9 @@ interface RowProps {
   prefixIcon?: ReactNode;
   suffixIcon?: ReactNode;
   testId?: string;
+  attributes?: {
+    [key: string]: string;
+  };
 }
 
 const Row = ({
@@ -25,10 +28,11 @@ const Row = ({
   prefixIcon,
   suffixIcon,
   testId,
+  attributes,
 }: RowProps) => {
   const Element = onClick ? "button" : "div";
   return (
-    <div>
+    <div {...attributes} className="w-full">
       <div
         className={clsx("peer", {
           "flex items-center": suffixIcon || prefixIcon,

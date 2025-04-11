@@ -3,10 +3,12 @@ import ArrowLeftCompact from "./ArrowLeftCompact";
 import ArrowRight from "./ArrowRight";
 import BankAccount from "./BankAccount";
 import Bitcoin from "./Bitcoin";
+import C1Chip from "./C1Chip";
 import Checkmark from "./Checkmark";
 import ChevronDown from "./ChevronDown";
 import ChevronUpDown from "./ChevronUpDown";
 import ConcentricCircles from "./ConcentricCircles";
+import ControlBoard from "./ControlBoard";
 import Curtail from "./Curtail";
 import Dismiss from "./Dismiss";
 import DismissCircle from "./DismissCircle";
@@ -55,10 +57,12 @@ export {
   ArrowRight,
   BankAccount,
   Bitcoin,
+  C1Chip,
   Checkmark,
   ChevronDown,
   ChevronUpDown,
   ConcentricCircles,
+  ControlBoard,
   Curtail,
   Dismiss,
   DismissCircle,

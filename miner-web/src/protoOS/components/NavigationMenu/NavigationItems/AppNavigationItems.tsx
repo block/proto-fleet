@@ -66,7 +66,6 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
       <AnimatePresence>
         {showAccordionItems && (
           <motion.div
-            key="mining-pools"
             initial={{ opacity: 0, y: -12 }}
             animate={{
               opacity: 1,
@@ -89,6 +88,13 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
             <NavigationItem
               id={navigationItems.miningPools}
               text="Mining Pools"
+              onClick={handleClick}
+              pageName={pageName}
+              isChildItem
+            />
+            <NavigationItem
+              id={navigationItems.hardware}
+              text="Hardware"
               onClick={handleClick}
               pageName={pageName}
               isChildItem
