@@ -2,8 +2,8 @@ import { ElementType, useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 
 import MiningPoolsComponent from "./MiningPools";
-import { PoolInfo } from "./types";
-import { getEmptyPoolsInfo } from "./utility";
+import { PoolInfo } from "@/shared/components/MiningPools/types";
+import { getEmptyPoolsInfo } from "@/shared/components/MiningPools/utility";
 
 interface MiningPoolsProps {
   defaultPoolUrl: string;
@@ -34,7 +34,13 @@ export const MiningPools = ({
     setPools(newPools);
   };
 
-  return <MiningPoolsComponent onChange={onChangePools} pools={pools} />;
+  return (
+    <MiningPoolsComponent
+      title="Mining pools"
+      onChange={onChangePools}
+      pools={pools}
+    />
+  );
 };
 
 export default {

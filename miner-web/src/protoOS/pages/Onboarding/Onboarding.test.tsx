@@ -2,8 +2,8 @@ import { fireEvent, render, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import Onboarding from "./Onboarding";
-import { urlValidationErrors } from "@/protoOS/components/MiningPools/PoolForm/constants";
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
+import { urlValidationErrors } from "@/shared/components/MiningPools/PoolForm/constants";
 
 vi.mock("react-router-dom", () => ({
   ...vi.importActual("react-router-dom"),

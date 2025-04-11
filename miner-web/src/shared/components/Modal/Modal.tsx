@@ -27,10 +27,10 @@ interface ModalProps {
   buttons?: ModalButtonProps[];
   show?: boolean;
   showHeader?: boolean;
-  scrolledHeader?: boolean;
   title?: string;
   description?: string;
   preventClose?: boolean;
+  divider?: boolean;
 }
 
 const Modal = ({
@@ -42,10 +42,10 @@ const Modal = ({
   buttons,
   show = true,
   showHeader = true,
-  scrolledHeader = true,
   title,
   description,
   preventClose,
+  divider = true,
 }: ModalProps) => {
   const [showModal, setShowModal] = useState(show);
   const ModalRef = useRef<HTMLDivElement>(null);
@@ -120,11 +120,8 @@ const Modal = ({
               }))}
               inline
             />
-            {scrolledHeader ? (
-              !preventClose && <Divider className="mt-6" />
-            ) : (
-              <div className="mt-6" />
-            )}
+            {!preventClose && divider && <Divider className="mt-6" />}
+            {(preventClose || !divider) && <div className="mt-6" />}
           </>
         )}
         {contentHeader && (

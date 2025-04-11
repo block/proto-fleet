@@ -1,11 +1,15 @@
 import { useState } from "react";
 
-import BackupPoolModal from "./BackupPoolModal";
-import BackupPoolRow from "./BackupPoolRow";
-import PoolForm from "./PoolForm";
-import { BackupPoolIndex, PoolIndex, PoolInfo } from "./types";
 import { useTestConnection } from "@/protoOS/api";
+import BackupPoolModalWrapper from "@/protoOS/components/MiningPools/BackupPoolModalWrapper";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import BackupPoolRow from "@/shared/components/MiningPools/BackupPoolRow";
+import PoolForm from "@/shared/components/MiningPools/PoolForm";
+import {
+  BackupPoolIndex,
+  PoolIndex,
+  PoolInfo,
+} from "@/shared/components/MiningPools/types";
 
 interface PoolsProps {
   onChangePools: (pools: PoolInfo[]) => void;
@@ -68,7 +72,7 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
       {[...Array(2)].map((_, index) => {
         const backupPoolIndex = (index + 1) as BackupPoolIndex;
         return (
-          <BackupPoolModal
+          <BackupPoolModalWrapper
             key={backupPoolIndex}
             onChangePools={onChangePools}
             onDismiss={() => setCurrentPoolIndex(0)}

@@ -159,7 +159,11 @@ const Onboarding = ({
         show={warnBackupPool}
       />
 
-      <MiningPools onChange={onChangePools} pools={pools}>
+      <MiningPools
+        title="Add your mining pool"
+        onChange={onChangePools}
+        pools={pools}
+      >
         <WarnDefaultPoolCallout
           onDismiss={() => setWarnDefaultPool(false)}
           show={warnDefaultPool}

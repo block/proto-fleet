@@ -9,22 +9,22 @@ import Input from "@/shared/components/Input";
 import { deepClone } from "@/shared/utils/utility";
 
 interface PoolFormProps {
-  isTestingConnection: boolean;
   onChangePools: (pools: PoolInfo[]) => void;
   poolIndex: PoolIndex;
   pools: PoolInfo[];
   setShouldTestConnection: (shouldTestConnection: boolean) => void;
   shouldTestConnection: boolean;
+  isTestingConnection: boolean;
   testConnection: (args: TestConnectionProps) => void;
 }
 
 const PoolForm = ({
-  isTestingConnection,
   onChangePools,
   poolIndex,
   pools,
   setShouldTestConnection,
   shouldTestConnection,
+  isTestingConnection,
   testConnection,
 }: PoolFormProps) => {
   const [showCallout, setShowCallout] = useState(false);
@@ -32,6 +32,7 @@ const PoolForm = ({
   const [validationErrors, setValidationErrors] = useState<
     Partial<Record<keyof typeof info, string>>
   >({});
+  const [showOptionalPassword, setShowOptionalPassword] = useState(false);
 
   const showConnectedCallout = useMemo(
     () => showCallout && !isTestingConnection && !error,
@@ -137,24 +138,34 @@ const PoolForm = ({
             body: "Use the username that you created when setting up your mining pool.",
           }}
         />
-        <div>
-          <Input
-            id={`${info.password} ${poolIndex}`}
-            label="Password"
-            type="password"
-            onChange={onChange}
-            onKeyDown={onKeyDown}
-            initValue={pools[poolIndex].password}
-            tooltip={{
-              header: "Password",
-              body: "Depending on the mining pool you’re trying to connect to, you may need to enter the password you use to log in to that pool.",
-            }}
-          />
-          <div className="mt-2 text-200 text-text-primary-50">
-            A password might be required depending on the pool you’re connecting
-            to.
+        {!showOptionalPassword && !pools[poolIndex].password && (
+          <button
+            onClick={() => setShowOptionalPassword(true)}
+            className="text-200 text-text-primary-50 underline"
+          >
+            Add an optional password
+          </button>
+        )}
+        {(showOptionalPassword || pools[poolIndex].password) && (
+          <div>
+            <Input
+              id={`${info.password} ${poolIndex}`}
+              label="Password"
+              type="password"
+              onChange={onChange}
+              onKeyDown={onKeyDown}
+              initValue={pools[poolIndex].password}
+              tooltip={{
+                header: "Password",
+                body: "Depending on the mining pool you’re trying to connect to, you may need to enter the password you use to log in to that pool.",
+              }}
+            />
+            <div className="mt-2 text-200 text-text-primary-50">
+              A password might be required depending on the pool you’re
+              connecting to.
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </>
   );

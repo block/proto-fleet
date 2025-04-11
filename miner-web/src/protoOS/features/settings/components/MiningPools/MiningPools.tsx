@@ -111,6 +111,7 @@ const SettingsMiningPools = () => {
 
   return (
     <MiningPools
+      title="Mining Pools"
       onChange={onChangePools}
       pools={pools}
       loading={poolsInfoStatus.pending && !isStalePools}

@@ -4,7 +4,7 @@ import { emptyPoolInfo } from "./constants";
 import { WarnDeleteDialog, WarnDiscardDialog } from "./Dialogs";
 import PoolForm from "./PoolForm";
 import { PoolIndex, PoolInfo } from "./types";
-import { useTestConnection } from "@/protoOS/api";
+import { TestConnectionProps } from "@/protoOS/api";
 import { variants } from "@/shared/components/Button";
 import Modal from "@/shared/components/Modal";
 import { animationDuration } from "@/shared/components/PageOverlay";
@@ -16,6 +16,9 @@ interface BackupPoolProps {
   poolIndex: PoolIndex;
   pools: PoolInfo[];
   show: boolean;
+  isTestingConnection: boolean;
+  // TODO: Update props to match both ProtoOS and ProtoFleet API if needed. Could make a generic type for this as well.
+  testConnection: (args: TestConnectionProps) => void;
 }
 
 const BackupPoolModal = ({
@@ -24,13 +27,14 @@ const BackupPoolModal = ({
   poolIndex,
   pools,
   show,
+  isTestingConnection,
+  testConnection,
 }: BackupPoolProps) => {
   const [draftPoolInfo, setDraftPoolInfo] = useState(deepClone(pools));
   const [changed, setChanged] = useState(false);
   const [warnDiscard, setWarnDiscard] = useState(false);
   const [warnDelete, setWarnDelete] = useState(false);
   const [shouldTestConnection, setShouldTestConnection] = useState(false);
-  const { testConnection, pending: isTestingConnection } = useTestConnection();
 
   useEffect(() => {
     setWarnDelete(false);
@@ -109,6 +113,7 @@ const BackupPoolModal = ({
           ]}
           contentHeader={`Backup pool #${poolIndex}`}
           onDismiss={closeModal}
+          divider={false}
         >
           <div className="mb-6">
             Backup pools are only used to mine if your default pool is

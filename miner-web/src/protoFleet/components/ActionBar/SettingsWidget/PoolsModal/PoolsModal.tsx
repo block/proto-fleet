@@ -51,7 +51,7 @@ const PoolsModal = ({
   return (
     <Modal
       className="visible"
-      scrolledHeader={false}
+      divider={false}
       buttonSize={sizes.base}
       buttons={[
         !poolsChanged
