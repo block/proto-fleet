@@ -2,8 +2,10 @@ package domain
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/btc-mining/miner-firmware/fleet/generated/sqlc"
@@ -26,10 +28,10 @@ type Token string
 type UserID string
 
 var (
-	ErrUserNotFound        = errors.New("user not found")
-	ErrAdminAlreadyCreated = errors.New("admin already created")
-	ErrInvalidInput        = errors.New("invalid input")
+	ErrInvalidInput = errors.New("invalid input")
 )
+
+const adminRoleName = "SUPER_ADMIN"
 
 type AuthService struct {
 	tokenSvc *TokenService
@@ -70,9 +72,11 @@ func (s *AuthService) CreateAdminUser(ctx context.Context, q *sqlc.Queries, req 
 	if err != nil {
 		return "", fmt.Errorf("error generating password: %w", err)
 	}
-	userID := uuid.New().String()
-	_, err = q.CreateUser(ctx, sqlc.CreateUserParams{
-		UserID:       userID,
+
+	// create user
+	externalUserID := uuid.New().String()
+	result, err := q.CreateUser(ctx, sqlc.CreateUserParams{
+		UserID:       externalUserID,
 		Username:     req.Username,
 		PasswordHash: string(hashedPassword),
 		CreatedAt:    time.Now(),
@@ -80,6 +84,58 @@ func (s *AuthService) CreateAdminUser(ctx context.Context, q *sqlc.Queries, req 
 	if err != nil {
 		return "", err
 	}
+	userInternalID, err := result.LastInsertId()
+	if err != nil {
+		return "", fmt.Errorf("error creating user: %w", err)
+	}
 
-	return UserID(userID), nil
+	// create organization
+	orgName := generateDefaultOrgName()
+	externalOrgID := uuid.New().String()
+	orgResult, err := q.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
+		Name:  orgName,
+		OrgID: externalOrgID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("error creating org: %w", err)
+	}
+	orgID, err := orgResult.LastInsertId()
+	if err != nil {
+		return "", fmt.Errorf("error fetching org id: %w", err)
+	}
+
+	// create role
+	roleResult, err := q.UpsertRole(ctx, sqlc.UpsertRoleParams{
+		Name: adminRoleName,
+		Description: sql.NullString{
+			String: "Super admin role",
+			Valid:  true,
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("error creating role: %w", err)
+	}
+	roleID, err := roleResult.LastInsertId()
+	if err != nil {
+		return "", fmt.Errorf("error fetching role id: %w", err)
+	}
+
+	// associate user with organization and role
+	err = q.CreateUserOrganization(ctx, sqlc.CreateUserOrganizationParams{
+		UserID:         userInternalID,
+		RoleID:         roleID,
+		OrganizationID: orgID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("error associating user with org and role: %w", err)
+	}
+	return UserID(externalUserID), nil
+}
+
+// generateDefaultOrgName returns a default organization name with a random suffix
+func generateDefaultOrgName() string {
+	seed := time.Now().UnixNano()
+	r := rand.New(rand.NewSource(seed))
+	suffix := r.Intn(9000) + 1000 // generates a 4-digit number (1000–9999)
+	return fmt.Sprintf("Organization %d", suffix)
 }

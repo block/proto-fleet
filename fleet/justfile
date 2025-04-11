@@ -1,3 +1,5 @@
+set dotenv-load
+
 default:
   just --list
   
@@ -36,3 +38,9 @@ db-clean:
 
 db-shell:
   mysql -h 127.0.0.1 -u root --database fleet
+
+db-migrate:
+  migrate -database mysql://root:@tcp/fleet -path internal/db/migrations up
+
+db-migrate-clean:
+  migrate -database mysql://root:@tcp/fleet -path internal/db/migrations down

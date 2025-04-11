@@ -30,6 +30,9 @@ func (uc AuthUseCases) AuthenticateUser(ctx context.Context, username string, pa
 	})
 }
 
+// CreateAdminUser usecase is only valid on first admin creation.
+// The use case will create the SUPER_ADMIN role, a Default organization,
+// and assign the created user to the admin role in the organization.
 func (uc AuthUseCases) CreateAdminUser(ctx context.Context, username string, password string) (domain.UserID, error) {
 	return db.WithTransaction(ctx, uc.db, func(sq *sqlc.Queries) (domain.UserID, error) {
 		return uc.authUserSvc.CreateAdminUser(ctx, sq, &domain.CreateAdminUserRequest{

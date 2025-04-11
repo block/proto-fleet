@@ -5,8 +5,27 @@
 package sqlc
 
 import (
+	"database/sql"
 	"time"
 )
+
+type Organization struct {
+	ID        int64
+	OrgID     string
+	Name      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt sql.NullTime
+}
+
+type Role struct {
+	ID          int64
+	Name        string
+	Description sql.NullString
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	DeletedAt   sql.NullTime
+}
 
 type User struct {
 	ID           int64
@@ -14,4 +33,16 @@ type User struct {
 	Username     string
 	PasswordHash string
 	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	DeletedAt    sql.NullTime
+}
+
+type UserOrganization struct {
+	ID             int64
+	UserID         int64
+	OrganizationID int64
+	RoleID         int64
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	DeletedAt      sql.NullTime
 }

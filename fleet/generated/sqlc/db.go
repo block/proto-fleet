@@ -24,25 +24,193 @@ func New(db DBTX) *Queries {
 func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	q := Queries{db: db}
 	var err error
+	if q.createOrganizationStmt, err = db.PrepareContext(ctx, createOrganization); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateOrganization: %w", err)
+	}
 	if q.createUserStmt, err = db.PrepareContext(ctx, createUser); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateUser: %w", err)
 	}
+	if q.createUserOrganizationStmt, err = db.PrepareContext(ctx, createUserOrganization); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateUserOrganization: %w", err)
+	}
+	if q.getOrganizationByIDStmt, err = db.PrepareContext(ctx, getOrganizationByID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOrganizationByID: %w", err)
+	}
+	if q.getOrganizationByNameStmt, err = db.PrepareContext(ctx, getOrganizationByName); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOrganizationByName: %w", err)
+	}
+	if q.getOrganizationByOrgIDStmt, err = db.PrepareContext(ctx, getOrganizationByOrgID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOrganizationByOrgID: %w", err)
+	}
+	if q.getOrganizationsForUserStmt, err = db.PrepareContext(ctx, getOrganizationsForUser); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOrganizationsForUser: %w", err)
+	}
+	if q.getRoleByIDStmt, err = db.PrepareContext(ctx, getRoleByID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRoleByID: %w", err)
+	}
+	if q.getRoleByNameStmt, err = db.PrepareContext(ctx, getRoleByName); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRoleByName: %w", err)
+	}
 	if q.getUserByUsernameStmt, err = db.PrepareContext(ctx, getUserByUsername); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserByUsername: %w", err)
+	}
+	if q.getUserRoleInOrganizationStmt, err = db.PrepareContext(ctx, getUserRoleInOrganization); err != nil {
+		return nil, fmt.Errorf("error preparing query GetUserRoleInOrganization: %w", err)
+	}
+	if q.getUsersForOrganizationStmt, err = db.PrepareContext(ctx, getUsersForOrganization); err != nil {
+		return nil, fmt.Errorf("error preparing query GetUsersForOrganization: %w", err)
+	}
+	if q.listOrganizationsStmt, err = db.PrepareContext(ctx, listOrganizations); err != nil {
+		return nil, fmt.Errorf("error preparing query ListOrganizations: %w", err)
+	}
+	if q.listRolesStmt, err = db.PrepareContext(ctx, listRoles); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRoles: %w", err)
+	}
+	if q.softDeleteOrganizationStmt, err = db.PrepareContext(ctx, softDeleteOrganization); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteOrganization: %w", err)
+	}
+	if q.softDeleteRoleStmt, err = db.PrepareContext(ctx, softDeleteRole); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteRole: %w", err)
+	}
+	if q.softDeleteUserFromOrganizationStmt, err = db.PrepareContext(ctx, softDeleteUserFromOrganization); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteUserFromOrganization: %w", err)
+	}
+	if q.undeleteOrganizationStmt, err = db.PrepareContext(ctx, undeleteOrganization); err != nil {
+		return nil, fmt.Errorf("error preparing query UndeleteOrganization: %w", err)
+	}
+	if q.undeleteRoleStmt, err = db.PrepareContext(ctx, undeleteRole); err != nil {
+		return nil, fmt.Errorf("error preparing query UndeleteRole: %w", err)
+	}
+	if q.updateOrganizationStmt, err = db.PrepareContext(ctx, updateOrganization); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateOrganization: %w", err)
+	}
+	if q.updateRoleStmt, err = db.PrepareContext(ctx, updateRole); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateRole: %w", err)
+	}
+	if q.updateUserRoleStmt, err = db.PrepareContext(ctx, updateUserRole); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateUserRole: %w", err)
+	}
+	if q.upsertRoleStmt, err = db.PrepareContext(ctx, upsertRole); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertRole: %w", err)
 	}
 	return &q, nil
 }
 
 func (q *Queries) Close() error {
 	var err error
+	if q.createOrganizationStmt != nil {
+		if cerr := q.createOrganizationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createOrganizationStmt: %w", cerr)
+		}
+	}
 	if q.createUserStmt != nil {
 		if cerr := q.createUserStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createUserStmt: %w", cerr)
 		}
 	}
+	if q.createUserOrganizationStmt != nil {
+		if cerr := q.createUserOrganizationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createUserOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.getOrganizationByIDStmt != nil {
+		if cerr := q.getOrganizationByIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOrganizationByIDStmt: %w", cerr)
+		}
+	}
+	if q.getOrganizationByNameStmt != nil {
+		if cerr := q.getOrganizationByNameStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOrganizationByNameStmt: %w", cerr)
+		}
+	}
+	if q.getOrganizationByOrgIDStmt != nil {
+		if cerr := q.getOrganizationByOrgIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOrganizationByOrgIDStmt: %w", cerr)
+		}
+	}
+	if q.getOrganizationsForUserStmt != nil {
+		if cerr := q.getOrganizationsForUserStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOrganizationsForUserStmt: %w", cerr)
+		}
+	}
+	if q.getRoleByIDStmt != nil {
+		if cerr := q.getRoleByIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRoleByIDStmt: %w", cerr)
+		}
+	}
+	if q.getRoleByNameStmt != nil {
+		if cerr := q.getRoleByNameStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRoleByNameStmt: %w", cerr)
+		}
+	}
 	if q.getUserByUsernameStmt != nil {
 		if cerr := q.getUserByUsernameStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getUserByUsernameStmt: %w", cerr)
+		}
+	}
+	if q.getUserRoleInOrganizationStmt != nil {
+		if cerr := q.getUserRoleInOrganizationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getUserRoleInOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.getUsersForOrganizationStmt != nil {
+		if cerr := q.getUsersForOrganizationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getUsersForOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.listOrganizationsStmt != nil {
+		if cerr := q.listOrganizationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listOrganizationsStmt: %w", cerr)
+		}
+	}
+	if q.listRolesStmt != nil {
+		if cerr := q.listRolesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRolesStmt: %w", cerr)
+		}
+	}
+	if q.softDeleteOrganizationStmt != nil {
+		if cerr := q.softDeleteOrganizationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.softDeleteRoleStmt != nil {
+		if cerr := q.softDeleteRoleStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteRoleStmt: %w", cerr)
+		}
+	}
+	if q.softDeleteUserFromOrganizationStmt != nil {
+		if cerr := q.softDeleteUserFromOrganizationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteUserFromOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.undeleteOrganizationStmt != nil {
+		if cerr := q.undeleteOrganizationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing undeleteOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.undeleteRoleStmt != nil {
+		if cerr := q.undeleteRoleStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing undeleteRoleStmt: %w", cerr)
+		}
+	}
+	if q.updateOrganizationStmt != nil {
+		if cerr := q.updateOrganizationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.updateRoleStmt != nil {
+		if cerr := q.updateRoleStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateRoleStmt: %w", cerr)
+		}
+	}
+	if q.updateUserRoleStmt != nil {
+		if cerr := q.updateUserRoleStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateUserRoleStmt: %w", cerr)
+		}
+	}
+	if q.upsertRoleStmt != nil {
+		if cerr := q.upsertRoleStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertRoleStmt: %w", cerr)
 		}
 	}
 	return err
@@ -82,17 +250,59 @@ func (q *Queries) queryRow(ctx context.Context, stmt *sql.Stmt, query string, ar
 }
 
 type Queries struct {
-	db                    DBTX
-	tx                    *sql.Tx
-	createUserStmt        *sql.Stmt
-	getUserByUsernameStmt *sql.Stmt
+	db                                 DBTX
+	tx                                 *sql.Tx
+	createOrganizationStmt             *sql.Stmt
+	createUserStmt                     *sql.Stmt
+	createUserOrganizationStmt         *sql.Stmt
+	getOrganizationByIDStmt            *sql.Stmt
+	getOrganizationByNameStmt          *sql.Stmt
+	getOrganizationByOrgIDStmt         *sql.Stmt
+	getOrganizationsForUserStmt        *sql.Stmt
+	getRoleByIDStmt                    *sql.Stmt
+	getRoleByNameStmt                  *sql.Stmt
+	getUserByUsernameStmt              *sql.Stmt
+	getUserRoleInOrganizationStmt      *sql.Stmt
+	getUsersForOrganizationStmt        *sql.Stmt
+	listOrganizationsStmt              *sql.Stmt
+	listRolesStmt                      *sql.Stmt
+	softDeleteOrganizationStmt         *sql.Stmt
+	softDeleteRoleStmt                 *sql.Stmt
+	softDeleteUserFromOrganizationStmt *sql.Stmt
+	undeleteOrganizationStmt           *sql.Stmt
+	undeleteRoleStmt                   *sql.Stmt
+	updateOrganizationStmt             *sql.Stmt
+	updateRoleStmt                     *sql.Stmt
+	updateUserRoleStmt                 *sql.Stmt
+	upsertRoleStmt                     *sql.Stmt
 }
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
-		db:                    tx,
-		tx:                    tx,
-		createUserStmt:        q.createUserStmt,
-		getUserByUsernameStmt: q.getUserByUsernameStmt,
+		db:                                 tx,
+		tx:                                 tx,
+		createOrganizationStmt:             q.createOrganizationStmt,
+		createUserStmt:                     q.createUserStmt,
+		createUserOrganizationStmt:         q.createUserOrganizationStmt,
+		getOrganizationByIDStmt:            q.getOrganizationByIDStmt,
+		getOrganizationByNameStmt:          q.getOrganizationByNameStmt,
+		getOrganizationByOrgIDStmt:         q.getOrganizationByOrgIDStmt,
+		getOrganizationsForUserStmt:        q.getOrganizationsForUserStmt,
+		getRoleByIDStmt:                    q.getRoleByIDStmt,
+		getRoleByNameStmt:                  q.getRoleByNameStmt,
+		getUserByUsernameStmt:              q.getUserByUsernameStmt,
+		getUserRoleInOrganizationStmt:      q.getUserRoleInOrganizationStmt,
+		getUsersForOrganizationStmt:        q.getUsersForOrganizationStmt,
+		listOrganizationsStmt:              q.listOrganizationsStmt,
+		listRolesStmt:                      q.listRolesStmt,
+		softDeleteOrganizationStmt:         q.softDeleteOrganizationStmt,
+		softDeleteRoleStmt:                 q.softDeleteRoleStmt,
+		softDeleteUserFromOrganizationStmt: q.softDeleteUserFromOrganizationStmt,
+		undeleteOrganizationStmt:           q.undeleteOrganizationStmt,
+		undeleteRoleStmt:                   q.undeleteRoleStmt,
+		updateOrganizationStmt:             q.updateOrganizationStmt,
+		updateRoleStmt:                     q.updateRoleStmt,
+		updateUserRoleStmt:                 q.updateUserRoleStmt,
+		upsertRoleStmt:                     q.upsertRoleStmt,
 	}
 }

@@ -30,7 +30,7 @@ type TokenService struct {
 // NewTokenService validates and creates a TokenService instance
 func NewTokenService(cfg AuthConfig) (*TokenService, error) {
 	if len(cfg.SecretKey) < MinSecretKeyLength {
-		return nil, errors.New("secret key must be at least 32 bytes long")
+		return nil, fmt.Errorf("secret key must be at least 32 bytes long: len=%d", len(cfg.SecretKey))
 	}
 
 	// Ensure default expiration period

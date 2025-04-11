@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -89,14 +90,15 @@ func TestVerifyJWT_TamperedToken(t *testing.T) {
 
 // Test: NewTokenService should reject short secret key
 func TestNewTokenService_InvalidSecret(t *testing.T) {
+	shortKey := "short-key"
 	invalidConfig := AuthConfig{
-		SecretKey:        "short-key", // Short secret key for testing
+		SecretKey:        shortKey,
 		ExpirationPeriod: time.Minute * 5,
 	}
 
 	_, err := NewTokenService(invalidConfig)
 	assert.Error(t, err, "Expected error for short secret key")
-	assert.Equal(t, "secret key must be at least 32 bytes long", err.Error(), "Error message should match expected")
+	assert.Equal(t, fmt.Sprintf("secret key must be at least 32 bytes long: len=%d", len(shortKey)), err.Error(), "Error message should match expected")
 }
 
 // Test: NewTokenService with valid secret key

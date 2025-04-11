@@ -1,0 +1,1 @@
+drop TABLE user_organization;
