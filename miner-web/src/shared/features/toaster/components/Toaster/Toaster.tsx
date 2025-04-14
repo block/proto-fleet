@@ -35,7 +35,7 @@ const Toaster = () => {
   return (
     <motion.div whileHover="hover" className="group">
       <AnimatePresence>
-        {toasts.map(({ message, status, id }: ToastType, idx) => (
+        {toasts.map(({ message, status, id, ttl }: ToastType, idx) => (
           <Toast
             key={id}
             message={message}
@@ -43,6 +43,7 @@ const Toaster = () => {
             status={status}
             index={idx}
             numToasts={toasts.length}
+            ttl={ttl}
           />
         ))}
       </AnimatePresence>

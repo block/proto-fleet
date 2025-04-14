@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import { useAuthContext } from "./useAuthContext";
 import { useRefresh } from "@/protoOS/api";
@@ -38,9 +38,12 @@ const useAuthErrors = () => {
     [authTokens.refreshToken.value, refresh, setAuthTokens, setShowLoginModal],
   );
 
-  return {
-    handleAuthErrors,
-  };
+  return useMemo(
+    () => ({
+      handleAuthErrors,
+    }),
+    [handleAuthErrors],
+  );
 };
 
 export { useAuthErrors };

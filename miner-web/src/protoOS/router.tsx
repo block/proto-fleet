@@ -9,8 +9,12 @@ import {
   PowerUsage,
   Temperature,
 } from "@/protoOS/features/kpis";
-
-import { General, Hardware, MiningPools } from "@/protoOS/features/settings";
+import {
+  Cooling,
+  General,
+  Hardware,
+  MiningPools,
+} from "@/protoOS/features/settings";
 import Auth from "@/protoOS/pages/Auth";
 import Logs from "@/protoOS/pages/MinerLogs";
 import Onboarding from "@/protoOS/pages/Onboarding";
@@ -90,6 +94,10 @@ export const routerConfig = [
       {
         path: "hardware",
         element: <Hardware />,
+      },
+      {
+        path: "cooling",
+        element: <Cooling />,
       },
     ],
   },

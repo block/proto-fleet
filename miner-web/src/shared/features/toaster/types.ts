@@ -8,6 +8,7 @@ export type ToastType = {
   message: string;
   status: ToastStatusType;
   id: number;
+  ttl?: number | false;
 };
 
 // Props interface Toast component accepts
@@ -15,5 +16,5 @@ export type ToastProps = Omit<ToastType, "id"> & {
   onClose: () => void;
   index?: number;
   numToasts?: number;
-  ttl?: number;
+  ttl?: number | false;
 };

@@ -13,7 +13,7 @@ export interface SelectRowProps {
   divider?: boolean;
   onChange: (id: string, isSelected: boolean) => void;
   prefixIcon?: ReactNode;
-  text: string;
+  text: string | ReactNode;
   type: SelectType;
 }
 

@@ -38,10 +38,12 @@ const Toast = ({
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
   useEffect(() => {
-    const toID = setTimeout(onClose, ttl);
-    return () => {
-      clearTimeout(toID);
-    };
+    if (ttl !== false) {
+      const toID = setTimeout(onClose, ttl);
+      return () => {
+        clearTimeout(toID);
+      };
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ttl]);
 
