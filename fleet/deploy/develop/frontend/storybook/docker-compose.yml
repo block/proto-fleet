@@ -1,0 +1,27 @@
+name: protofleet-develop-${LABEL}-frontend-storybook
+
+services:
+  frontend:
+    container_name: "protofleet-develop-${LABEL}-frontend-storybook"
+    image: ${IMAGE}
+    restart: unless-stopped
+    expose:
+      - "80"
+    labels:
+      - "traefik.http.services.protofleet-develop-${LABEL}-frontend-storybook.loadbalancer.server.port=80"
+
+      - "traefik.http.routers.protofleet-develop-${LABEL}-frontend-storybook.rule=Host(`storybook.${LABEL}.develop.fleetdev.proto.xyz`)"
+      - "traefik.http.routers.protofleet-develop-${LABEL}-frontend-storybook.entrypoints=websecure"
+      - "traefik.http.routers.protofleet-develop-${LABEL}-frontend-storybook.service=protofleet-develop-${LABEL}-frontend-storybook"
+      - "traefik.http.routers.protofleet-develop-${LABEL}-frontend-storybook.middlewares=protofleet-develop-primary_auth@docker"
+    networks:
+      - traefik
+    logging:
+      driver: "json-file"
+      options:
+        max-size: 100m
+
+networks:
+  traefik:
+    name: protofleet-develop-traefik_traefik
+    external: true

@@ -1,0 +1,46 @@
+name: protofleet-develop-traefik
+
+services:
+  traefik:
+    container_name: "protofleet-develop-traefik"
+    image: traefik:v3.3.4
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "./volumes/traefik/etc:/etc/traefik:rw"
+    command:
+      - "--api=true"
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.network=protofleet-develop-traefik_traefik"
+
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.websecure.http.tls.certResolver=cert-resolver"
+
+      # TODO Add a correct email
+      - "--certificatesresolvers.cert-resolver.acme.email=info@fleetdev.proto.xyz"
+      - "--certificatesresolvers.cert-resolver.acme.storage=/etc/traefik/acme.json"
+      - "--certificatesresolvers.cert-resolver.acme.tlsChallenge=true"
+    labels:
+      - "traefik.http.routers.protofleet-develop-traefik_dashboard.rule=Host(`traefik.develop.fleetdev.proto.xyz`)"
+      - "traefik.http.routers.protofleet-develop-traefik_dashboard.entrypoints=websecure"
+      - "traefik.http.routers.protofleet-develop-traefik_dashboard.middlewares=protofleet-develop-primary_auth@docker"
+      - "traefik.http.routers.protofleet-develop-traefik_dashboard.service=api@internal"
+
+      - "traefik.http.middlewares.protofleet-develop-primary_auth.basicauth.users=admin:$$2y$$05$$CNQe49aV.8A6S5saKIbGXeldykf.zZv4Nz0c3YfWg1OW3gzgjgrGC"
+    networks:
+      - traefik
+    logging:
+      driver: "json-file"
+      options:
+        max-size: 100m
+
+networks:
+  traefik:

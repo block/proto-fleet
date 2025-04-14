@@ -1,0 +1,21 @@
+FROM golang:1.24.2-alpine AS build
+
+WORKDIR /build
+
+COPY fleet/go.mod fleet/go.sum ./
+
+RUN go mod download
+
+COPY fleet ./
+
+RUN CGO_ENABLED=0 go build -v ./cmd/fleetd
+
+FROM alpine:3.21.3
+
+WORKDIR /app
+
+COPY --from=build /build/fleetd ./fleetd
+
+EXPOSE 8080
+
+ENTRYPOINT ["./fleetd"]

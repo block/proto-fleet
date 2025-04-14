@@ -1,0 +1,30 @@
+name: protofleet-develop-${LABEL}-frontend-dashboard
+
+services:
+  frontend:
+    container_name: "protofleet-develop-${LABEL}-frontend-dashboard"
+    image: ${IMAGE}
+    restart: unless-stopped
+    expose:
+      - "80"
+    environment:
+      BACKEND_ADDRESS: ${BACKEND_ADDRESS}
+    labels:
+      - "traefik.http.services.protofleet-develop-${LABEL}-frontend-dashboard.loadbalancer.server.port=80"
+
+      - "traefik.http.routers.protofleet-develop-${LABEL}-frontend-dashboard.rule=Host(`dashboard.${LABEL}.develop.fleetdev.proto.xyz`)"
+      - "traefik.http.routers.protofleet-develop-${LABEL}-frontend-dashboard.entrypoints=websecure"
+      - "traefik.http.routers.protofleet-develop-${LABEL}-frontend-dashboard.service=protofleet-develop-${LABEL}-frontend-dashboard"
+      - "traefik.http.routers.protofleet-develop-${LABEL}-frontend-dashboard.middlewares=protofleet-develop-primary_auth@docker"
+    networks:
+      - traefik
+    logging:
+      driver: "json-file"
+      options:
+        max-size: 100m
+
+networks:
+  traefik:
+    name: protofleet-develop-traefik_traefik
+    external: true
+

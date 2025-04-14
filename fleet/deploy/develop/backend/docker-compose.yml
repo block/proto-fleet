@@ -1,0 +1,65 @@
+name: protofleet-develop-${LABEL}-backend
+
+services:
+  backend:
+    container_name: "protofleet-develop-${LABEL}-backend"
+    image: ${IMAGE}
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+        restart: true
+    environment:
+      DB_PASSWORD: "swinging.marsh.front.grief"
+      DB_ADDRESS: "protofleet-develop-${LABEL}-backend-mysql:3306"
+      HTTP_LISTEN_ADDRESS: ":8080"
+      AUTH_SECRET_KEY: "59a27e9f7b571c5cb7b5e93838ac7ab8"
+      AUTH_EXPIRATION_PERIOD: "1000000h"
+    expose:
+      - "8080"
+    labels:
+      - "traefik.http.services.protofleet-develop-${LABEL}-backend.loadbalancer.server.port=8080"
+
+      - "traefik.http.routers.protofleet-develop-${LABEL}-backend.rule=Host(`backend.${LABEL}.develop.fleetdev.proto.xyz`)"
+      - "traefik.http.routers.protofleet-develop-${LABEL}-backend.entrypoints=websecure"
+      - "traefik.http.routers.protofleet-develop-${LABEL}-backend.service=protofleet-develop-${LABEL}-backend"
+    networks:
+      - traefik
+      - mysql
+    logging:
+      driver: "json-file"
+      options:
+        max-size: 100m
+
+  mysql:
+    container_name: "protofleet-develop-${LABEL}-backend-mysql"
+    image: mysql:8.4.4
+    restart: unless-stopped
+    environment:
+      MYSQL_LOG_CONSOLE: "1"
+      MYSQL_INITDB_SKIP_TZINFO: "1" # Including TZ info slows down initialisation quite a bit
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_ROOT_PASSWORD: "swinging.marsh.front.grief"
+      MYSQL_DATABASE: "fleet"
+    expose:
+      - "3306"
+    labels:
+      - "traefik.enabled=false"
+    volumes:
+      - "./volumes/mysql:/var/lib/mysql"
+    command: --sql-mode= --log-bin --binlog-format=ROW --server-id=1 --skip-name-resolve --explicit-defaults-for-timestamp=ON
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-p$MYSQL_ROOT_PASSWORD" ]
+    networks:
+      - mysql
+    logging:
+      driver: "json-file"
+      options:
+        max-size: 100m
+
+networks:
+  mysql:
+  traefik:
+    name: protofleet-develop-traefik_traefik
+    external: true
+

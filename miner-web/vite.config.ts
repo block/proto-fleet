@@ -103,7 +103,11 @@ const createFleetProxies = () => {
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode, command }) => {
-  if (!modes[mode] && command === "build") {
+  if (
+    !modes[mode] &&
+    command === "build" &&
+    process.env.BUILD_STORYBOOK != "1"
+  ) {
     throw new Error(
       "Build must be run with supported mode (eg. vite build --mode protoFleet)",
     );
