@@ -12,4 +12,6 @@ export interface ButtonProps {
   prefixIcon?: ReactNode;
   testId?: string;
   text?: string;
+  textColor?: string;
+  borderColor?: string;
 }

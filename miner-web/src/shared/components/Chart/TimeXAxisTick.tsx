@@ -5,7 +5,7 @@ import {
   getMonthFromEpoch,
   getShortYearFromEpoch,
   getTimeFromEpoch,
-} from "@/shared/utils/stringUtils";
+} from "@/shared/utils/datetime";
 
 interface TimeXAxisTickProps {
   chartType?: "line" | "bar";

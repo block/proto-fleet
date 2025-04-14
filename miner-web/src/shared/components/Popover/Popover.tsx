@@ -67,7 +67,7 @@ const Popover = ({
     <div
       ref={popoverRef}
       className={clsx(
-        "absolute z-20 rounded-3xl backdrop-blur-[7px]",
+        "absolute z-50 rounded-3xl backdrop-blur-[7px]",
         popoverAnimation,
       )}
       style={popoverStyle}

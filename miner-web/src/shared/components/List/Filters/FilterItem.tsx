@@ -1,11 +1,9 @@
-import { type FilterType } from "./Filters";
-import Button from "@/shared/components/Button";
-import StatusCircle, {
-  StatusCircleProps,
-} from "@/shared/components/StatusCircle";
+import Button, { sizes } from "@/shared/components/Button";
+import StatusCircle from "@/shared/components/StatusCircle";
+import { StatusCircleStatus } from "@/shared/components/StatusCircle/constants";
 
-type FilterItemProps = {
-  status?: StatusCircleProps["status"];
+type FilterItemProps<FilterType> = {
+  status?: StatusCircleStatus;
   count?: number;
   filter: FilterType;
   title: string;
@@ -13,17 +11,17 @@ type FilterItemProps = {
   setActiveFilter: (filter: FilterType) => void;
 };
 
-const FilterItem = ({
+const FilterItem = <FilterType,>({
   status,
   count,
   filter,
   title,
   activeFilter,
   setActiveFilter,
-}: FilterItemProps) => {
+}: FilterItemProps<FilterType>) => {
   return (
     <Button
-      size="compact"
+      size={sizes.compact}
       variant={activeFilter === filter ? "primary" : "ghost"}
       onClick={() => setActiveFilter(filter)}
       prefixIcon={

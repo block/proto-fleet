@@ -1,8 +1,6 @@
-import { Miner } from "./types";
-import MinerListComponent from ".";
-import { Toaster as ToasterComponent } from "@/shared/features/toaster";
+import { Miner } from "@/protoFleet/components/MinerList/types";
 
-const miners: Miner[] = [
+export const miners: Miner[] = [
   {
     ip: "172.27.244.166",
     name: "C1-M01",
@@ -100,18 +98,3 @@ const miners: Miner[] = [
     },
   },
 ];
-
-export const MinerList = () => {
-  return (
-    <div>
-      <div className="fixed right-4 bottom-4 z-30">
-        <ToasterComponent />
-      </div>
-      <MinerListComponent title="Miners" miners={miners} />
-    </div>
-  );
-};
-
-export default {
-  title: "Components (ProtoFleet)/MinerList",
-};

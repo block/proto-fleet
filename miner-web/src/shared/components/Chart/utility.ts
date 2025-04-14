@@ -1,6 +1,6 @@
 import { TimeSeriesData } from "@/protoOS/api/types";
 
-import { getDateFromEpoch } from "@/shared/utils/stringUtils";
+import { getDateFromEpoch } from "@/shared/utils/datetime";
 
 interface AxisTickOffsetProps {
   chartType?: "line" | "bar";

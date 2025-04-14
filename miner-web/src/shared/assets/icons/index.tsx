@@ -34,6 +34,7 @@ import Logo from "./Logo";
 import LogoAlt from "./LogoAlt";
 import Logs from "./Logs";
 import Minus from "./Minus";
+import Notification from "./Notification";
 import Pause from "./Pause";
 import Plus from "./Plus";
 import Power from "./Power";
@@ -89,6 +90,7 @@ export {
   LogoAlt,
   Logs,
   Minus,
+  Notification,
   Pause,
   Plus,
   Power,

@@ -1,6 +1,6 @@
 import { TimeSeries } from "./types";
 import { TimeSeriesData } from "@/protoOS/api/types";
-import { getDayFromEpoch, getTimeFromEpoch } from "@/shared/utils/stringUtils";
+import { getDayFromEpoch, getTimeFromEpoch } from "@/shared/utils/datetime";
 
 export const getPoint = (index: number, firstPoint: number, gap: number) => {
   return firstPoint + index * gap;

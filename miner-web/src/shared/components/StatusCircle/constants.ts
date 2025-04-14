@@ -5,6 +5,8 @@ export const statuses = {
   inactive: "inactive",
 } as const;
 
+export type StatusCircleStatus = keyof typeof statuses;
+
 export const variants = {
   primary: "primary",
   simple: "simple",

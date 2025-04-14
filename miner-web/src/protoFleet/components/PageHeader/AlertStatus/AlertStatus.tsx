@@ -1,34 +1,55 @@
-import { Alert, Checkmark } from "@/shared/assets/icons";
+import { useMemo, useState } from "react";
+import AlertsModal from "@/protoFleet/components/AlertsModal";
+import { type Alert as AlertType } from "@/protoFleet/components/AlertsModal/types";
+import { Alert } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Chip from "@/shared/components/Chip";
 
 interface AlertStatusProps {
-  alertsCount?: number;
+  alerts: AlertType[];
   loading?: boolean;
 }
 
-const AlertStatus = ({ alertsCount, loading = false }: AlertStatusProps) => {
+const AlertStatus = ({ alerts, loading = false }: AlertStatusProps) => {
+  const [showModal, setShowModal] = useState(false);
+
+  const numberOfAlerts = useMemo(() => {
+    return alerts.length;
+  }, [alerts]);
+
   const text = () => {
     if (loading) return "Alerts";
-    if (alertsCount === 0) return "No alerts";
 
-    return alertsCount + " Alerts";
+    return numberOfAlerts + " Alerts";
   };
 
   // TODO some alerts probably have higher severity, then icon should be red
   const icon = () => {
     const color =
-      (alertsCount ?? 0) > 0 ? "text-text-warning" : "text-text-success";
+      (numberOfAlerts ?? 0) > 0 ? "text-text-warning" : "text-text-success";
 
-    if (alertsCount === 0)
-      return <Checkmark className={color} width={iconSizes.small} />;
     return <Alert className={color} width={iconSizes.small} />;
   };
 
+  if (numberOfAlerts === 0) return null;
+
   return (
-    <Chip loading={loading} prefixIcon={icon()}>
-      {text()}
-    </Chip>
+    <>
+      <Chip
+        loading={loading}
+        prefixIcon={icon()}
+        onClick={() => setShowModal(true)}
+      >
+        {text()}
+      </Chip>
+      {showModal && (
+        <AlertsModal
+          show={showModal}
+          alerts={alerts}
+          onDismiss={() => setShowModal(false)}
+        />
+      )}
+    </>
   );
 };
 

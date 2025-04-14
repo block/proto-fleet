@@ -4,18 +4,27 @@ import { action } from "@storybook/addon-actions";
 import CalloutComponent, { intents } from ".";
 import { BaseIcon } from "@/shared/stories/icons";
 
+interface CalloutArgs {
+  hasButton: boolean;
+  hasShortSubtitle: boolean;
+  hasSubtitle: boolean;
+  dismissible: boolean;
+}
+
 const CalloutSingleSubtitle = ({
   intent,
   hasButton,
   hasSubtitle,
   header,
   subtitle,
+  dismissible,
 }: {
   intent: keyof typeof intents;
   hasSubtitle: boolean;
   hasButton: boolean;
   header?: string;
   subtitle?: "long" | "short";
+  dismissible: boolean;
 }) => {
   const sub = useMemo(() => {
     if (!hasSubtitle) {
@@ -36,6 +45,8 @@ const CalloutSingleSubtitle = ({
       title="Title"
       header={header}
       prefixIcon={<BaseIcon />}
+      dismissible={dismissible}
+      onDismiss={action("Dismiss callout")}
     />
   );
 };
@@ -44,11 +55,8 @@ export const Callout = ({
   hasButton,
   hasShortSubtitle,
   hasSubtitle,
-}: {
-  hasButton: boolean;
-  hasShortSubtitle: boolean;
-  hasSubtitle: boolean;
-}) => {
+  dismissible,
+}: CalloutArgs) => {
   return (
     <div className="flex flex-col space-y-4">
       <CalloutSingleSubtitle
@@ -56,6 +64,7 @@ export const Callout = ({
         subtitle={hasShortSubtitle ? "short" : "long"}
         hasButton={hasButton}
         hasSubtitle={hasSubtitle}
+        dismissible={dismissible}
       />
 
       <CalloutSingleSubtitle
@@ -64,6 +73,7 @@ export const Callout = ({
         subtitle={hasShortSubtitle ? "short" : "long"}
         hasButton={hasButton}
         hasSubtitle={hasSubtitle}
+        dismissible={dismissible}
       />
 
       <CalloutSingleSubtitle
@@ -72,6 +82,7 @@ export const Callout = ({
         subtitle={hasShortSubtitle ? "short" : "long"}
         hasButton={hasButton}
         hasSubtitle={hasSubtitle}
+        dismissible={dismissible}
       />
 
       <CalloutSingleSubtitle
@@ -80,6 +91,7 @@ export const Callout = ({
         subtitle={hasShortSubtitle ? "short" : "long"}
         hasButton={hasButton}
         hasSubtitle={hasSubtitle}
+        dismissible={dismissible}
       />
 
       <CalloutSingleSubtitle
@@ -88,6 +100,7 @@ export const Callout = ({
         subtitle={hasShortSubtitle ? "short" : "long"}
         hasButton={hasButton}
         hasSubtitle={hasSubtitle}
+        dismissible={dismissible}
       />
     </div>
   );
@@ -99,16 +112,6 @@ export default {
     hasButton: true,
     hasShortSubtitle: true,
     hasSubtitle: true,
-  },
-  argTypes: {
-    hasButton: {
-      control: "boolean",
-    },
-    hasShortSubtitle: {
-      control: "boolean",
-    },
-    hasSubtitle: {
-      control: "boolean",
-    },
+    dismissible: false,
   },
 };

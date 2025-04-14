@@ -1,0 +1,18 @@
+import MinerListComponent from "../index";
+import { miners } from "@/protoFleet/components/MinerList/stories/mocks";
+import { Toaster as ToasterComponent } from "@/shared/features/toaster";
+
+export const MinerList = () => {
+  return (
+    <div>
+      <div className="fixed right-4 bottom-4 z-30">
+        <ToasterComponent />
+      </div>
+      <MinerListComponent title="Miners" miners={miners} />
+    </div>
+  );
+};
+
+export default {
+  title: "Components (ProtoFleet)/MinerList",
+};

@@ -1,25 +1,24 @@
-import { render } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import AlertStatus from "./AlertStatus";
+import { alerts } from "@/protoFleet/components/AlertsModal/stories/mocks";
 
 describe("Alert Status", () => {
   const alertIconTestId = "alert";
-  const checkmarkIconTestId = "checkmark";
+  const modalTestId = "modal";
 
-  const successClass = "text-text-success";
   const warningClass = "text-text-warning";
 
-  test("renders checkmark when there are no alerts", () => {
-    const { getByTestId } = render(
-      <AlertStatus loading={false} alertsCount={0} />,
-    );
+  test("does not render when there are no alerts", () => {
+    const { container } = render(<AlertStatus loading={false} alerts={[]} />);
 
-    expect(getByTestId(checkmarkIconTestId)).toHaveClass(successClass);
+    expect(container.firstChild).toBeNull();
   });
 
   test("renders alert when there are some alerts", () => {
     const { getByTestId } = render(
-      <AlertStatus loading={false} alertsCount={10} />,
+      <AlertStatus loading={false} alerts={alerts} />,
     );
 
     expect(getByTestId(alertIconTestId)).toHaveClass(warningClass);
@@ -27,10 +26,23 @@ describe("Alert Status", () => {
 
   test("does not render icon when loading", () => {
     const { queryByTestId } = render(
-      <AlertStatus loading={true} alertsCount={undefined} />,
+      <AlertStatus loading={true} alerts={alerts} />,
     );
 
-    expect(queryByTestId(checkmarkIconTestId)).toBeNull();
     expect(queryByTestId(alertIconTestId)).toBeNull();
+  });
+
+  test("opens modal when status chip is clicked", () => {
+    const { queryByTestId, getByTestId, getByText } = render(
+      <MemoryRouter>
+        <AlertStatus loading={false} alerts={alerts} />
+      </MemoryRouter>,
+    );
+
+    expect(queryByTestId(modalTestId)).not.toBeInTheDocument();
+
+    fireEvent.click(getByText(`${alerts.length} Alerts`));
+
+    expect(getByTestId(modalTestId)).toBeInTheDocument();
   });
 });

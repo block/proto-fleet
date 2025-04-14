@@ -32,46 +32,8 @@ export const getDisplayValue = (value?: number | string | null) => {
   return separateByCommas(twoDecimalPlaces);
 };
 
-export const getDateFromEpoch = (epoch?: number) => {
-  if (!epoch) return new Date();
-  const seconds = epoch.toString().length === 10;
-  return new Date(seconds ? epoch * 1000 : epoch);
-};
-
-const getHoursFromEpoch = (epoch: number) => {
-  return padLeft(getDateFromEpoch(epoch).getHours(), 2);
-};
-
-export const getMinutesFromEpoch = (epoch: number) => {
-  return padLeft(getDateFromEpoch(epoch).getMinutes(), 2);
-};
-
-const getSecondsFromEpoch = (epoch: number) => {
-  return padLeft(getDateFromEpoch(epoch).getSeconds(), 2);
-};
-
-export const getTimeFromEpoch = (epoch?: number) => {
-  if (!epoch) return "";
-  return `${getHoursFromEpoch(epoch)}:${getMinutesFromEpoch(epoch)}:${getSecondsFromEpoch(epoch)}`;
-};
-
 export const padLeft = (value: number, length: number) => {
   return value.toString().padStart(length, "0");
-};
-
-export const getShortYearFromEpoch = (epoch?: number) => {
-  if (!epoch) return "";
-  return getDateFromEpoch(epoch).getFullYear().toString().slice(-2);
-};
-
-export const getMonthFromEpoch = (epoch?: number) => {
-  if (!epoch) return "";
-  return getDateFromEpoch(epoch).getMonth() + 1;
-};
-
-export const getDayFromEpoch = (epoch?: number) => {
-  if (!epoch) return "";
-  return getDateFromEpoch(epoch).getDate();
 };
 
 export const stripLeadingSlash = (str: string) => {

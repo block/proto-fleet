@@ -5,5 +5,5 @@ export const DurationSelector = () => {
 };
 
 export default {
-  title: "Components (Shared)/Duration Selector",
+  title: "Components (Shared)/Segmented Control/Duration Selector",
 };

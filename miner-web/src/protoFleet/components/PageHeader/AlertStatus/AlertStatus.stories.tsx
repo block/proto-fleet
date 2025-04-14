@@ -1,21 +1,36 @@
+import { ElementType } from "react";
+import { MemoryRouter } from "react-router-dom";
 import AlertStatusComponent from "./AlertStatus";
+import { alerts } from "@/protoFleet/components/AlertsModal/stories/mocks";
 
 interface AlertStatusArgs {
   loading: boolean;
-  alertsCount: number;
+  numberOfAlerts: number;
 }
 
-export const AlertStatus = ({ loading, alertsCount }: AlertStatusArgs) => {
-  return <AlertStatusComponent loading={loading} alertsCount={alertsCount} />;
+export const AlertStatus = ({ loading, numberOfAlerts }: AlertStatusArgs) => {
+  return (
+    <AlertStatusComponent
+      loading={loading}
+      alerts={alerts.slice(0, numberOfAlerts)}
+    />
+  );
 };
 
 export default {
   title: "Components (protoFleet)/Page Header/Alert Status",
+  decorators: [
+    (Story: ElementType) => (
+      <MemoryRouter>
+        <Story />
+      </MemoryRouter>
+    ),
+  ],
   args: {
     loading: false,
-    alertsCount: 0,
+    numberOfAlerts: 1,
   },
   argTypes: {
-    alertsCount: { control: { type: "number", min: 0, max: 1000, step: 1 } },
+    numberOfAlerts: { control: { type: "range", min: 0, max: 5, step: 1 } },
   },
 };

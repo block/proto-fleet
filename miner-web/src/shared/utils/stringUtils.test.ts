@@ -6,7 +6,6 @@ import {
   convertToTitleCase,
   getDisplayValue,
   getMacAddressDisplay,
-  getTimeFromEpoch,
   padLeft,
   separateByCommas,
   stripLeadingSlash,
@@ -135,28 +134,6 @@ describe("getDisplayValue", () => {
     const value = 12345.0;
     const displayValue = getDisplayValue(value);
     expect(displayValue).toBe("12,345");
-  });
-});
-
-// since epoch gets converted to local timestamp, check general format rather than exact time
-const expectedTimestamp = new RegExp(/^[0-9]{2}:[0-9]{2}:[0-9]{2}$/);
-
-describe("getTimeFromEpoch", () => {
-  test("should return the formatted timestamp when epoch is provided in seconds", () => {
-    const epoch = 1634567890;
-    const result = getTimeFromEpoch(epoch);
-    expect(result).toMatch(expectedTimestamp);
-  });
-
-  test("should return the formatted timestamp when epoch is provided in miliseconds", () => {
-    const epoch = 1634567890000;
-    const result = getTimeFromEpoch(epoch);
-    expect(result).toMatch(expectedTimestamp);
-  });
-
-  test("should return an empty string when epoch is not provided", () => {
-    const result = getTimeFromEpoch();
-    expect(result).toBe("");
   });
 });
 

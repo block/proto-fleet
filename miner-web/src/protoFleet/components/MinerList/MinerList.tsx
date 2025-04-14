@@ -1,142 +1,99 @@
-import { useState } from "react";
-import clsx from "clsx";
+import { useMemo } from "react";
 
-import { rowTitles } from "./constants";
-import Filters from "./Filters";
-import rowConfig from "./rowConfig";
-import { type Miner, type RowName } from "./types";
-import ActionBar from "@/protoFleet/components/ActionBar";
-import { Ellipsis } from "@/shared/assets/icons";
-import Checkbox from "@/shared/components/Checkbox";
+import {
+  minerCols,
+  minerColTitles,
+  type MinerFilterState,
+  minerFilterStates,
+} from "./constants";
+import minerColConfig from "./minerColConfig";
+import { type Miner, MinerStatusKey } from "./types";
+import MinerListActionBar from "@/protoFleet/components/MinerList/MinerListActionBar";
+import List from "@/shared/components/List";
+import { defaultListFilter } from "@/shared/components/List/constants";
+import { FilterItem } from "@/shared/components/List/Filters/types";
+import { statuses } from "@/shared/components/StatusCircle/constants";
 
 type MinerListProps = {
   title: string;
   miners: Miner[];
 };
 
-const cellClassList = "py-4 text-left";
-const thClassList = cellClassList + " text-emphasis-300";
-const tdClassList = cellClassList + " text-300";
-const rowClassList = "border-b border-border-5";
-
 // TODO: move this to state when we
 // implement row customization
-const activeRows: RowName[] = [
-  "name",
-  "macAddress",
-  "status",
-  "hashrate",
-  "efficiency",
-  "powerUsage",
-  "temperature",
-];
+const activeCols = [
+  minerCols.name,
+  minerCols.macAddress,
+  minerCols.status,
+  minerCols.hashrate,
+  minerCols.efficiency,
+  minerCols.powerUsage,
+  minerCols.temperature,
+] as (keyof Miner)[];
 
 const MinerList = ({ title, miners = [] }: MinerListProps) => {
-  const [selectedMiners, setSelectedMiners] = useState<string[]>([]);
-  const [filteredMiners, setFilteredMiners] = useState<Miner[]>(miners);
+  const filters = useMemo(() => {
+    const countMiners = (status: MinerFilterState) => {
+      return miners.filter((m) => m.status[status as MinerStatusKey] === true)
+        .length;
+    };
 
-  const handleSelectAll = (checked: boolean) => {
-    if (checked) {
-      setSelectedMiners(miners.map((miner) => miner.macAddress));
-    } else {
-      setSelectedMiners([]);
-    }
+    return [
+      {
+        title: "All miners",
+        value: defaultListFilter,
+        count: miners.length,
+      },
+      {
+        title: "Hashing",
+        value: minerFilterStates.hashing,
+        count: countMiners(minerFilterStates.hashing),
+        status: statuses.normal,
+      },
+      {
+        title: "Broken",
+        value: minerFilterStates.broken,
+        count: countMiners(minerFilterStates.broken),
+        status: statuses.error,
+      },
+      {
+        title: "Offline",
+        value: minerFilterStates.offline,
+        count: countMiners(minerFilterStates.offline),
+        status: statuses.warning,
+      },
+      {
+        title: "Asleep",
+        value: minerFilterStates.asleep,
+        count: countMiners(minerFilterStates.asleep),
+        status: statuses.inactive,
+      },
+    ] as FilterItem<MinerFilterState>[];
+  }, [miners]);
+
+  const filterMiner = (item: Miner, activeFilter: MinerFilterState) => {
+    return (
+      item.status[activeFilter as keyof Miner["status"]] === true ||
+      activeFilter === defaultListFilter
+    );
   };
-
-  const handleSelectMiner = (macAddress: string, checked: boolean) => {
-    setSelectedMiners((prev) => {
-      if (checked && !prev.includes(macAddress)) {
-        return [...prev, macAddress];
-      } else if (!checked) {
-        return prev.filter((addr) => addr !== macAddress);
-      }
-      return prev;
-    });
-  };
-
-  const allSelected =
-    miners.length > 0 && selectedMiners.length === miners.length;
 
   return (
     <div>
       <h2 className="text-heading-300">{title}</h2>
-      <Filters miners={miners} setFilteredMiners={setFilteredMiners} />
-      <div className="overflow-x-auto">
-        <table className="min-w-full table-fixed border-collapse">
-          <thead data-testid="miner-list-header">
-            <tr className={rowClassList}>
-              <th className={thClassList}>
-                <div className="w-12 truncate overflow-hidden">
-                  <Checkbox
-                    checked={allSelected}
-                    onChange={(e) => handleSelectAll(e.target.checked)}
-                  />
-                </div>
-              </th>
-
-              {activeRows.map((row, idx) => (
-                <th className={thClassList} key={idx}>
-                  <div
-                    className={clsx(
-                      "truncate overflow-hidden",
-                      rowConfig[row]?.width,
-                    )}
-                  >
-                    {rowTitles[row as keyof typeof rowTitles]}
-                  </div>
-                </th>
-              ))}
-
-              <th className={thClassList}>
-                <div className="w-12 truncate overflow-hidden">
-                  <button className="align-middle text-text-primary-30 hover:cursor-pointer hover:text-text-primary-50">
-                    <Ellipsis />
-                  </button>
-                </div>
-              </th>
-            </tr>
-          </thead>
-          <tbody data-testid="miner-list-body">
-            {filteredMiners.map((miner, i) => (
-              <tr
-                key={i}
-                className={clsx(rowClassList, "hover:cursor-pointer")}
-              >
-                <td className={tdClassList}>
-                  <div className="w-12 truncate overflow-hidden">
-                    <Checkbox
-                      checked={selectedMiners.includes(miner.macAddress)}
-                      onChange={(e) =>
-                        handleSelectMiner(miner.macAddress, e.target.checked)
-                      }
-                    />
-                  </div>
-                </td>
-
-                {activeRows.map((row, j) => (
-                  <td className={tdClassList} key={j}>
-                    <div
-                      className={clsx(
-                        "truncate overflow-hidden",
-                        rowConfig[row]?.width,
-                      )}
-                    >
-                      {rowConfig[row]?.component
-                        ? rowConfig[row].component(miner, selectedMiners)
-                        : miner[row].toString()}
-                    </div>
-                  </td>
-                ))}
-
-                <td className={tdClassList}>
-                  <div className="w-12 truncate overflow-hidden"></div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <ActionBar selectedMiners={selectedMiners} />
+      <List<Miner, Miner["macAddress"], MinerFilterState>
+        activeCols={activeCols}
+        colTitles={minerColTitles}
+        colConfig={minerColConfig}
+        filters={filters}
+        filterItem={filterMiner}
+        items={miners}
+        itemKey="macAddress"
+        itemSelectable
+        renderActionBar={(selectedItems) => (
+          <MinerListActionBar selectedMiners={selectedItems} />
+        )}
+      />
     </div>
   );
 };

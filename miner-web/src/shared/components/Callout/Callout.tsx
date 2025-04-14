@@ -1,8 +1,13 @@
-import { ReactNode } from "react";
+import { ReactNode, useMemo } from "react";
 import clsx from "clsx";
 
 import { type intents } from "./constants";
-import Button, { sizes, variants } from "@/shared/components/Button";
+import { DismissTiny } from "@/shared/assets/icons";
+import { sizes, variants } from "@/shared/components/Button";
+import ButtonGroup, {
+  ButtonProps,
+  groupVariants,
+} from "@/shared/components/ButtonGroup";
 
 interface CalloutProps {
   className?: string;
@@ -13,6 +18,8 @@ interface CalloutProps {
   prefixIcon: ReactNode;
   subtitle?: string | ReactNode;
   title: string | ReactNode;
+  dismissible?: boolean;
+  onDismiss?: () => void;
 }
 
 const Callout = ({
@@ -24,6 +31,8 @@ const Callout = ({
   prefixIcon,
   subtitle,
   title,
+  dismissible = false,
+  onDismiss,
 }: CalloutProps) => {
   let bgColor;
   switch (intent) {
@@ -40,6 +49,31 @@ const Callout = ({
       bgColor = "bg-intent-critical-fill";
       break;
   }
+
+  const buttons = useMemo(() => {
+    const result = [] as ButtonProps[];
+    if (buttonText) {
+      result.push({
+        text: buttonText,
+        textColor: "text-current",
+        borderColor: "border-current",
+        onClick: buttonOnClick,
+        variant:
+          dismissible && onDismiss ? variants.primary : variants.secondary,
+      });
+    }
+
+    if (dismissible && onDismiss) {
+      result.push({
+        prefixIcon: <DismissTiny />,
+        textColor: "text-current",
+        borderColor: "border-current",
+        onClick: onDismiss,
+        variant: variants.secondary,
+      });
+    }
+    return result;
+  }, [buttonOnClick, buttonText, dismissible, onDismiss]);
 
   return (
     <div className={clsx("rounded-xl shadow-100", className)}>
@@ -67,15 +101,13 @@ const Callout = ({
             <div className="text-emphasis-300">{title}</div>
             {subtitle && <div className="text-300">{subtitle}</div>}
           </div>
-          {buttonText && (
+          {buttons.length !== 0 && (
             <div className="ml-4">
-              <Button
-                text={buttonText}
-                textColor="text-current"
-                borderColor="border-current"
-                onClick={buttonOnClick}
+              <ButtonGroup
+                variant={groupVariants.rightAligned}
                 size={sizes.compact}
-                variant={variants.secondary}
+                buttons={buttons}
+                sortButtons={false}
               />
             </div>
           )}

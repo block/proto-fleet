@@ -21,6 +21,7 @@ interface ModalButtonProps extends ButtonProps {
 interface ModalProps {
   children: ReactNode;
   className?: string;
+  bodyClassName?: string;
   contentHeader?: string;
   onDismiss?: (buttonClicked?: boolean) => void;
   buttonSize?: keyof typeof sizes;
@@ -36,6 +37,7 @@ interface ModalProps {
 const Modal = ({
   children,
   className,
+  bodyClassName,
   contentHeader,
   onDismiss,
   buttonSize,
@@ -129,7 +131,9 @@ const Modal = ({
             {contentHeader}
           </div>
         )}
-        <div className="text-300 text-text-primary-70">{children}</div>
+        <div className={clsx("text-300 text-text-primary-70", bodyClassName)}>
+          {children}
+        </div>
       </div>
     </PageOverlay>
   );

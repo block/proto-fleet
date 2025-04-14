@@ -1,17 +1,27 @@
 import { ReactNode } from "react";
+import clsx from "clsx";
 import Spinner from "@/shared/components/Spinner";
 
 interface ChipProps {
   loading?: boolean;
   prefixIcon?: ReactNode;
   children?: ReactNode;
+  onClick?: () => void;
 }
 
-const Chip = ({ loading, prefixIcon, children }: ChipProps) => {
+const Chip = ({ loading, prefixIcon, children, onClick }: ChipProps) => {
   const prefix = loading ? <Spinner size={16} /> : prefixIcon;
 
   return (
-    <div className="flex w-fit items-center rounded border border-border-5 px-2 py-1">
+    <div
+      className={clsx(
+        "flex w-fit items-center rounded border border-border-5 px-2 py-1",
+        {
+          "cursor-pointer": onClick,
+        },
+      )}
+      onClick={() => onClick && onClick()}
+    >
       {prefix}
       {children && prefix && <span className="w-1" />}
       <span className="text-200">{children}</span>

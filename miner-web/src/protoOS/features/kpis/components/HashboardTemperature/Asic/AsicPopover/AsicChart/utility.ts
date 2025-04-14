@@ -1,5 +1,5 @@
 import { ChartData } from "./types";
-import { getDayFromEpoch, getTimeFromEpoch } from "@/shared/utils/stringUtils";
+import { getDayFromEpoch, getTimeFromEpoch } from "@/shared/utils/datetime";
 
 interface ValueProps {
   datetime: number;

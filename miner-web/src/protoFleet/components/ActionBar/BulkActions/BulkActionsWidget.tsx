@@ -3,10 +3,9 @@ import { clsx } from "clsx";
 import { DeviceAction } from "../DeviceWidget/constants";
 import { PerformanceAction } from "../PerformanceWidget/constants";
 import { BulkAction } from "../types";
+import BulkActionConfirmDialog from "@/protoFleet/components/ActionBar/BulkActions/BulkActionConfirmDialog";
 import { SettingsAction } from "@/protoFleet/components/ActionBar/SettingsWidget/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import ButtonGroup, { groupVariants } from "@/shared/components/ButtonGroup";
-import Dialog from "@/shared/components/Dialog";
 import { usePopover } from "@/shared/components/Popover";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
@@ -66,11 +65,10 @@ const BulkActionsWidget = <ActionType extends Key>({
   return (
     <div className="relative" ref={triggerRef}>
       <Button
-        className={clsx(
-          "text-grayscale-white-90!",
-          { "bg-grayscale-white-10!": !isOpen },
-          { "bg-core-accent-fill!": isOpen },
-        )}
+        className={clsx("text-grayscale-white-90!", {
+          "bg-grayscale-white-10!": !isOpen,
+          "bg-core-accent-fill!": isOpen,
+        })}
         size={sizes.compact}
         variant={variants.secondary}
         prefixIcon={buttonIcon}
@@ -83,39 +81,16 @@ const BulkActionsWidget = <ActionType extends Key>({
       {actions
         .filter((action) => action.requiresConfirmation)
         .map((action) => {
-          const confirmation = action.confirmation!;
+          if (action.confirmation === undefined) return null;
           return (
-            <Dialog
+            <BulkActionConfirmDialog
               key={action.action}
-              className="visible"
-              title={confirmation.title}
-              preventScroll
-              titleSize="text-heading-200"
-              subtitle={confirmation.subtitle}
-              subtitleSize="text-300"
+              actionConfirmation={action.confirmation}
               show={currentAction === action.action && showWarnDialog}
+              onConfirmation={handleConfirmation}
+              onCancel={handleCancel}
               testId={testId + "-dialog"}
-            >
-              <ButtonGroup
-                className="mt-4"
-                variant={groupVariants.stack}
-                size={sizes.base}
-                buttons={[
-                  {
-                    text: confirmation.confirmAction.title,
-                    onClick: handleConfirmation,
-                    variant: confirmation.confirmAction.variant,
-                    testId: confirmation.testId,
-                  },
-                  {
-                    text: "Cancel",
-                    onClick: handleCancel,
-                    variant: variants.secondary,
-                    testId: "cancel-button",
-                  },
-                ]}
-              />
-            </Dialog>
+            />
           );
         })}
     </div>
