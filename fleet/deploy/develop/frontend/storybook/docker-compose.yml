@@ -13,7 +13,6 @@ services:
       - "traefik.http.routers.protofleet-develop-${LABEL}-frontend-storybook.rule=Host(`storybook.${LABEL}.develop.fleetdev.proto.xyz`)"
       - "traefik.http.routers.protofleet-develop-${LABEL}-frontend-storybook.entrypoints=websecure"
       - "traefik.http.routers.protofleet-develop-${LABEL}-frontend-storybook.service=protofleet-develop-${LABEL}-frontend-storybook"
-      - "traefik.http.routers.protofleet-develop-${LABEL}-frontend-storybook.middlewares=protofleet-develop-primary_auth@docker"
     networks:
       - traefik
     logging:

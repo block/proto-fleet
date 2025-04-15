@@ -31,10 +31,7 @@ services:
     labels:
       - "traefik.http.routers.protofleet-develop-traefik_dashboard.rule=Host(`traefik.develop.fleetdev.proto.xyz`)"
       - "traefik.http.routers.protofleet-develop-traefik_dashboard.entrypoints=websecure"
-      - "traefik.http.routers.protofleet-develop-traefik_dashboard.middlewares=protofleet-develop-primary_auth@docker"
       - "traefik.http.routers.protofleet-develop-traefik_dashboard.service=api@internal"
-
-      - "traefik.http.middlewares.protofleet-develop-primary_auth.basicauth.users=admin:$$2y$$05$$CNQe49aV.8A6S5saKIbGXeldykf.zZv4Nz0c3YfWg1OW3gzgjgrGC"
     networks:
       - traefik
     logging:
