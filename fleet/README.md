@@ -27,6 +27,14 @@ The service automatically runs database migrations on startup.
 Migration files are managed using [golang-migrate](https://github.com/golang-migrate).
 Migrations are located in `internal/db/migrations`.
 
+#### Creating new migration files
+
+Migration files are generated with sequential prefix. Instead of manualy creating the sequence and up/down migration files you can run the following command. Replace `<migration_name>` with the name of your migration e.g. `create_signals_table`
+
+```
+just nm <migration_name>
+```
+
 ### Code Generation
 
 All code generation can be done by running `just gen`.
@@ -81,36 +89,4 @@ The service will:
 
 ### HTTP API
 
-The service responds to both gRPC requests and HTTP requests. To interact via HTTP
-
-**Add an author**
-
-```
-curl \
---header "Content-Type: application/json" \
---data '{"name":"Stephen King", "bio":"horror"}' \
-http://localhost:8080/authors.v1.AuthorsService/Add
-```
-
-**List authors**
-
-```
-curl \
---header "Content-Type: application/json" \
---data '{}' \
-http://localhost:8080/authors.v1.AuthorsService/List
-```
-
-### gRPC API
-
-To interact using the gRPC API
-
-```
-grpcurl \
--protoset <(buf build -o -) -plaintext \
--d '{"name": "Jane"}' \
-localhost:8080 greet.v1.GreetService/Greet
-{
-  "greeting": "Hello, Jane!"
-}
-```
+The service responds to both gRPC requests and HTTP requests. To interact via HTTP see [testing.http](testing.http) NB: You can make requests from this file directly if you are using [GoLand](https://blog.jetbrains.com/idea/2021/10/intellij-idea-2021-3-eap-6-enhanced-http-client-kotlin-support-for-cdi-and-more/#:~:text=Like%20in%20ordinary%20HTTP%20requests,proto%20files.)

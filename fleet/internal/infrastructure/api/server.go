@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"connectrpc.com/authn"
+	"connectrpc.com/grpcreflect"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 )
@@ -17,7 +18,7 @@ type HTTPConfig struct {
 	StaticAssetPath   string        `help:"Static asset path" env:"STATIC_ASSET_PATH"`
 }
 
-func RunServer(config *HTTPConfig, requestHandlers []HandlerWithPath, authMiddleware *authn.Middleware) error {
+func RunServer(config *HTTPConfig, requestHandlers []HandlerWithPath, authMiddleware *authn.Middleware, reflectEnabledServices []string) error {
 
 	slog.Info("starting fleet", slog.String("addr", config.Address))
 
@@ -28,15 +29,22 @@ func RunServer(config *HTTPConfig, requestHandlers []HandlerWithPath, authMiddle
 
 	mux.HandleFunc("/health", HealthHandler)
 
+	if len(reflectEnabledServices) != 0 {
+		slog.Debug("enabling reflection", "services", reflectEnabledServices)
+		reflector := grpcreflect.NewStaticReflector(reflectEnabledServices...)
+		mux.Handle(grpcreflect.NewHandlerV1(reflector))
+		mux.Handle(grpcreflect.NewHandlerV1Alpha(reflector))
+	}
+
+	for _, requestHandler := range requestHandlers {
+		mux.Handle(requestHandler.Path, requestHandler.Handler)
+	}
+
 	var handler http.Handler = mux
 	if authMiddleware != nil {
 		handler = authMiddleware.Wrap(handler)
 	}
 	handler = h2c.NewHandler(handler, &http2.Server{})
-
-	for _, requestHandler := range requestHandlers {
-		mux.Handle(requestHandler.Path, requestHandler.Handler)
-	}
 
 	httpServer := http.Server{
 		Addr:              config.Address,

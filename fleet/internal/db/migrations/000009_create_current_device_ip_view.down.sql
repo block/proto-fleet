@@ -1,0 +1,1 @@
+DROP VIEW v_current_device_ip;

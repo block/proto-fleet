@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package pairing.v1;
+
+// Device represents a discovered network device
+message Device {
+  string ip_address = 1;
+  string mac_address = 2;
+  string hostname = 3;
+  map<string, string> metadata = 4;
+  int64 discovered_at = 6;
+}
+
+// Request for discovering devices using mDNS
+message MDNSModeRequest {
+  string service_type = 1;  // e.g., "_fleet._tcp"
+  int32 timeout_seconds = 2;
+}
+
+// Request for discovering devices using Nmap
+message NmapModeRequest {
+  string target = 1;  // IP, hostname, subnet, or IP range
+  repeated string ports = 2;  // Specific ports to scan
+  bool fast_scan = 3; // ignored if ports are set
+}
+
+// Request for discovering devices using IP range
+message IPRangeModeRequest {
+  string start_ip = 1;
+  string end_ip = 2;
+  repeated string ports = 3;
+  int32 timeout_seconds = 4;
+}
+
+// Request for discovering devices from a list of IPs
+message IPListModeRequest {
+  repeated string ip_addresses = 1;
+  repeated string ports = 2;
+  int32 timeout_seconds = 3;
+}
+
+
+message DiscoverRequest {
+  oneof mode {
+    IPListModeRequest ip_list = 1;
+    IPRangeModeRequest ip_range = 2;
+    MDNSModeRequest mdns = 3;
+    NmapModeRequest nmap = 4;
+  }
+}
+
+message DiscoverResponse {
+  repeated Device devices = 1;
+  string error = 2;
+}
+
+message PairRequest {
+  string pairing_token = 1;
+  repeated string device_id = 2;
+}
+
+message PairResponse {
+}
+
+// Service definition
+service PairingService {
+  rpc Discover(DiscoverRequest) returns (stream DiscoverResponse);
+  rpc Pair(PairRequest) returns (PairResponse);
+}

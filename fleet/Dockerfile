@@ -18,8 +18,11 @@ RUN go build -o out/ -v ./...
 
 FROM alpine:latest AS runner
 
-# Create a non-root user
-RUN adduser -D appuser
+# Update package cache
+RUN apk update
+
+# Install Nmap
+RUN apk add --no-cache nmap
 
 # Set the working directory
 WORKDIR /app
@@ -29,9 +32,6 @@ COPY --from=builder /app/out/fleetd /app/fleetd
 COPY --from=builder /app/static /app/static
 
 RUN chmod 755 /app/fleetd
-
-# Switch to non-root user
-USER appuser
 
 # Expose the port your application listens on
 EXPOSE 8080

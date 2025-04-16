@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/auth/v1/authv1connect"
 	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/onboarding/v1/onboardingv1connect"
+	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/pairing/v1/pairingv1connect"
 
 	"github.com/btc-mining/miner-firmware/fleet/internal/application"
 	"github.com/btc-mining/miner-firmware/fleet/internal/domain"
@@ -43,8 +44,14 @@ func main() {
 }
 
 var unauthenticatedProcedures = []string{
+	"/health",
+	"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
 	authv1connect.AuthServiceAuthenticateProcedure,
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
+}
+
+var reflectEnabledServices = []string{
+	pairingv1connect.PairingServiceName,
 }
 
 func start(config *Config) error {
@@ -59,6 +66,7 @@ func start(config *Config) error {
 		return err
 	}
 	authSvc := domain.NewAuthService(tokenSvc)
+	pairingSvc := domain.NewPairingService()
 
 	authMiddleware := middleware.NewAuthMiddleware(tokenSvc, unauthenticatedProcedures)
 
@@ -72,9 +80,10 @@ func start(config *Config) error {
 	requestHandlers := []api.HandlerWithPath{
 		grpcHandler(authv1connect.NewAuthServiceHandler(grpc.NewAuthServer(authUseCases), interceptors)),
 		grpcHandler(onboardingv1connect.NewOnboardingServiceHandler(grpc.NewOnboardingServer(authUseCases), interceptors)),
+		grpcHandler(pairingv1connect.NewPairingServiceHandler(grpc.NewDeviceDiscoveryHandler(pairingSvc), interceptors)),
 	}
 
-	return api.RunServer(&config.HTTP, requestHandlers, authMiddleware)
+	return api.RunServer(&config.HTTP, requestHandlers, authMiddleware, reflectEnabledServices)
 }
 
 func grpcHandler(path string, handler http.Handler) api.HandlerWithPath {

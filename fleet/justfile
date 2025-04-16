@@ -1,46 +1,73 @@
 set dotenv-load
 
+# list available recipies 
 default:
   just --list
   
+# lint project files
 lint:
   golangci-lint run -c .golangci.yaml
 
+# build fleet project
 build-all:
     go build -v ./...
 
+# install fleet 
 install:
     go install -v ./cmd/fleetd
 
+# run the local server
 run: db-up install
      ../.hermit/go/bin/fleetd
 
-test:
-    go test ./...
+# run local server in docker compose with watch enabled on the fleet service
+dev: start
+  docker compose up --watch fleet-api
 
+# start services in docker compose 
+start:
+  docker compose up --wait
+
+# stop services in docker
+stop:
+  docker compose down
+
+# run all tests 
+test:
+    go test ./... -skip ./generated/...
+
+# format project files
 format:
   goimports -w .
 
+# run all code gen tasks
 gen: gen-db-queries
 
+# generate query via sqlc 
 gen-db-queries:
   sqlc generate
   goimports -w generated/sqlc
 
+# start db
 db-up:
-  docker compose up --wait
+  docker compose up --wait mysql
 
-db-down:
-  docker compose down
-
-db-clean:
-  docker compose down -v
-
-db-shell:
-  mysql -h 127.0.0.1 -u root --database fleet
-
+# run a db migration
 db-migrate:
   migrate -database mysql://root:@tcp/fleet -path internal/db/migrations up
 
-db-migrate-clean:
+# stop the db
+db-down:
+  docker compose down mysql
+
+# tear down the db by running down migrations
+db-clean:
   migrate -database mysql://root:@tcp/fleet -path internal/db/migrations down
+
+# launch mysql shell for interacting with the db started via db-up
+db-shell:
+  mysql -h 127.0.0.1 -u root --database fleet
+
+# create a new migration
+nm name:
+  migrate create -ext sql -dir internal/db/migrations -seq {{name}}

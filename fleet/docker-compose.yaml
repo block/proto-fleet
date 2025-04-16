@@ -3,6 +3,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    develop:
+      watch:
+        - action: rebuild
+          path: .
     ports:
       - "4000:8080"
     environment:
@@ -14,10 +18,36 @@ services:
       DB_ADDRESS: "mysql:3306"
       HTTP_STATIC_ASSET_PATH: "/app/static/"
       HTTP_LISTEN_ADDRESS: ":8080"
+      LOGGING_LEVEL: "DEBUG"
     depends_on:
       mysql:
         condition: service_healthy
     restart: always
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+  mms-1:
+    build:
+      context: ..
+      dockerfile: docker/sim/Dockerfile
+    ports:
+      - "4100:8080"
+    environment:
+      PORT: 8080
+    networks:
+      - fleet-network
+  mms-2:
+    build:
+      context: ..
+      dockerfile: docker/sim/Dockerfile
+    ports:
+      - "4200:8080"
+    environment:
+      PORT: 8080
+    networks:
+      - fleet-network
   mysql:
     image: mysql
     restart: always
@@ -33,11 +63,25 @@ services:
     volumes:
       - mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "mysql --host=localhost --user=root --execute='SELECT 1;'"]
+      test:
+        [
+          "CMD-SHELL",
+          "mysql --host=localhost --user=root --execute='SELECT 1;'",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
+    networks:
+      - fleet-network
 
 volumes:
   mysql:
+
+networks:
+  fleet-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: "192.168.2.0/24"
+          gateway: "192.168.2.1"

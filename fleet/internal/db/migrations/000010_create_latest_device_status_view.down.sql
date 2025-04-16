@@ -1,0 +1,1 @@
+DROP VIEW v_latest_device_status;

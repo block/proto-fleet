@@ -1,0 +1,53 @@
+### Run health chcek
+GET http://localhost:4000/health
+
+### Run mdns discovery
+GRPC localhost:4000/pairing.v1.PairingService/Discover
+
+{
+  "mdns": {
+    "service_type": "_tcp",
+    "timeout_seconds": 120
+  }
+}
+
+### Run nmap discovery
+GRPC localhost:4000/pairing.v1.PairingService/Discover
+
+{
+  "nmap": {
+    "target": "192.168.2.0/24",
+    "ports": [
+      "8080"
+    ],
+    "fast_scan": false
+  }
+}
+
+### Run ip range discovery
+
+GRPC localhost:4000/pairing.v1.PairingService/Discover
+
+{
+  "ip_range": {
+    "start_ip": "192.168.2.1",
+    "end_ip": "192.168.2.254",
+    "ports": [
+      "8080"
+    ]
+  }
+}
+
+### Run ip list discovery
+
+GRPC localhost:4000/pairing.v1.PairingService/Discover
+
+{
+  "ip_list": {
+    "ip_addresses": ["192.168.2.2", "192.168.2.3", "192.168.2.4", "192.168.2.5", "192.168.2.6" ],
+    "ports": [
+      "8080"
+    ]
+  }
+}
+

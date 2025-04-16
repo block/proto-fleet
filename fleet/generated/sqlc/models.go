@@ -6,8 +6,143 @@ package sqlc
 
 import (
 	"database/sql"
+	"database/sql/driver"
+	"fmt"
 	"time"
 )
+
+type DevicePairingPairingStatus string
+
+const (
+	DevicePairingPairingStatusPENDING  DevicePairingPairingStatus = "PENDING"
+	DevicePairingPairingStatusPAIRED   DevicePairingPairingStatus = "PAIRED"
+	DevicePairingPairingStatusUNPAIRED DevicePairingPairingStatus = "UNPAIRED"
+	DevicePairingPairingStatusFAILED   DevicePairingPairingStatus = "FAILED"
+)
+
+func (e *DevicePairingPairingStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = DevicePairingPairingStatus(s)
+	case string:
+		*e = DevicePairingPairingStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for DevicePairingPairingStatus: %T", src)
+	}
+	return nil
+}
+
+type NullDevicePairingPairingStatus struct {
+	DevicePairingPairingStatus DevicePairingPairingStatus
+	Valid                      bool // Valid is true if DevicePairingPairingStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullDevicePairingPairingStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.DevicePairingPairingStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.DevicePairingPairingStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullDevicePairingPairingStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.DevicePairingPairingStatus), nil
+}
+
+type DeviceStatusStatus string
+
+const (
+	DeviceStatusStatusONLINE      DeviceStatusStatus = "ONLINE"
+	DeviceStatusStatusOFFLINE     DeviceStatusStatus = "OFFLINE"
+	DeviceStatusStatusMAINTENANCE DeviceStatusStatus = "MAINTENANCE"
+	DeviceStatusStatusERROR       DeviceStatusStatus = "ERROR"
+)
+
+func (e *DeviceStatusStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = DeviceStatusStatus(s)
+	case string:
+		*e = DeviceStatusStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for DeviceStatusStatus: %T", src)
+	}
+	return nil
+}
+
+type NullDeviceStatusStatus struct {
+	DeviceStatusStatus DeviceStatusStatus
+	Valid              bool // Valid is true if DeviceStatusStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullDeviceStatusStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.DeviceStatusStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.DeviceStatusStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullDeviceStatusStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.DeviceStatusStatus), nil
+}
+
+type Device struct {
+	ID               int64
+	DeviceIdentifier sql.NullString
+	MacAddress       string
+	DeviceName       sql.NullString
+	Manufacturer     sql.NullString
+	Model            sql.NullString
+	SerialNumber     sql.NullString
+	FirstDiscovered  sql.NullTime
+	LastSeen         sql.NullTime
+	IsActive         sql.NullBool
+	CreatedAt        sql.NullTime
+	UpdatedAt        sql.NullTime
+}
+
+type DeviceIpAssignment struct {
+	ID           int64
+	DeviceID     int64
+	IpAddress    string
+	AssignedAt   sql.NullTime
+	UnassignedAt sql.NullTime
+	IsCurrent    sql.NullBool
+	CreatedAt    sql.NullTime
+}
+
+type DevicePairing struct {
+	ID            int64
+	DeviceID      int64
+	PairingToken  sql.NullString
+	PairingStatus DevicePairingPairingStatus
+	PairedAt      sql.NullTime
+	UnpairedAt    sql.NullTime
+	CreatedAt     sql.NullTime
+	UpdatedAt     sql.NullTime
+}
+
+type DeviceStatus struct {
+	ID              int64
+	DeviceID        int64
+	Status          DeviceStatusStatus
+	StatusTimestamp sql.NullTime
+	StatusDetails   sql.NullString
+	CreatedAt       sql.NullTime
+}
 
 type Organization struct {
 	ID        int64
@@ -45,4 +180,20 @@ type UserOrganization struct {
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	DeletedAt      sql.NullTime
+}
+
+type VCurrentDeviceIp struct {
+	ID         int64
+	MacAddress string
+	DeviceName sql.NullString
+	IpAddress  sql.NullString
+}
+
+type VLatestDeviceStatus struct {
+	ID              int64
+	MacAddress      string
+	DeviceName      sql.NullString
+	Status          NullDeviceStatusStatus
+	StatusTimestamp sql.NullTime
+	StatusDetails   sql.NullString
 }
