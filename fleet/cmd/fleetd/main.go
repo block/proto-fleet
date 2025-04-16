@@ -34,7 +34,7 @@ func main() {
 
 	_ = kong.Parse(config, kong.Name("fleetd"))
 
-	logging.InitLogger(config.Logging)
+	logging.InitLogger(config.Log)
 
 	err := start(config)
 	if err != nil {

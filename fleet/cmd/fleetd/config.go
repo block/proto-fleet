@@ -13,8 +13,8 @@ type HTTPConfig struct {
 	StaticAssetPath   string        `help:"Static asset path" env:"STATIC_ASSET_PATH"`
 }
 type Config struct {
-	DB      db.Config      `embed:"" prefix:"db" envprefix:"DB_"`
-	Logging logging.Config `embed:"" prefix:"logging" envprefix:"LOGGING_"`
-	HTTP    HTTPConfig     `embed:"" prefix:"http" envprefix:"HTTP_"`
-	Auth    auth2.Config   `embed:"" prefix:"auth" envprefix:"AUTH_"`
+	DB   db.Config      `embed:"" prefix:"db" envprefix:"DB_"`
+	Log  logging.Config `embed:"" prefix:"logging" envprefix:"LOG_"`
+	HTTP HTTPConfig     `embed:"" prefix:"http" envprefix:"HTTP_"`
+	Auth auth2.Config   `embed:"" prefix:"auth" envprefix:"AUTH_"`
 }

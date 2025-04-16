@@ -32,7 +32,7 @@ Migrations are located in `internal/db/migrations`.
 Migration files are generated with sequential prefix. Instead of manualy creating the sequence and up/down migration files you can run the following command. Replace `<migration_name>` with the name of your migration e.g. `create_signals_table`
 
 ```
-just nm <migration_name>
+just new-migration <migration_name>
 ```
 
 ### Code Generation

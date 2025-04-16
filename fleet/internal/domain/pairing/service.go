@@ -44,7 +44,6 @@ type Device struct {
 	MacAddress      string
 	DiscoveryMethod string
 	DiscoveredAt    int64
-	Metadata        map[string]string
 	IPAddress       string
 }
 type MDNSDiscoveryRequest struct {
@@ -106,16 +105,10 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *MDNSDiscoveryRequest)
 				device := &Device{
 					Hostname:     entry.HostName,
 					DiscoveredAt: time.Now().Unix(),
-					Metadata:     make(map[string]string),
 				}
 
 				if len(entry.AddrIPv4) > 0 {
 					device.IPAddress = entry.AddrIPv4[0].String()
-				}
-
-				// Add metadata from TXT records
-				for key, value := range entry.Text {
-					device.Metadata[string(rune(key))] = value
 				}
 
 				resultChan <- &DiscoveryResponse{
@@ -184,7 +177,6 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, req *NmapDiscoveryReques
 
 			device := &Device{
 				DiscoveredAt: time.Now().Unix(),
-				Metadata:     make(map[string]string),
 			}
 
 			for _, addr := range host.Addresses {
@@ -197,10 +189,6 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, req *NmapDiscoveryReques
 
 			if len(host.Hostnames) > 0 {
 				device.Hostname = host.Hostnames[0].Name
-			}
-
-			if host.Status.State != "" {
-				device.Metadata["state"] = host.Status.State
 			}
 
 			select {
@@ -249,7 +237,6 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, req *IPRangeDiscovery
 					device := &Device{
 						IPAddress:    ipAddr,
 						DiscoveredAt: time.Now().Unix(),
-						Metadata:     make(map[string]string),
 					}
 
 					// Try to resolve hostname
@@ -260,8 +247,6 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, req *IPRangeDiscovery
 						// Check if host is reachable
 						if conn, err := net.DialTimeout("tcp", net.JoinHostPort(ipAddr, port), time.Duration(req.TimeoutSeconds)*time.Second); err == nil {
 							_ = conn.Close()
-							device.Metadata["status"] = "online"
-
 							select {
 							case resultChan <- &DiscoveryResponse{
 								Devices: []*Device{device},
@@ -305,7 +290,6 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, req *IPListDiscoveryRe
 					device := &Device{
 						IPAddress:    ipAddr,
 						DiscoveredAt: time.Now().Unix(),
-						Metadata:     make(map[string]string),
 					}
 
 					// Try to resolve hostname
@@ -316,7 +300,6 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, req *IPListDiscoveryRe
 						// Check if host is reachable
 						if conn, err := net.DialTimeout("tcp", net.JoinHostPort(ipAddr, port), time.Duration(req.TimeoutSeconds)*time.Second); err == nil {
 							_ = conn.Close()
-							device.Metadata["status"] = "online"
 
 							select {
 							case resultChan <- &DiscoveryResponse{

@@ -18,9 +18,6 @@ RUN go build -o out/ -v ./...
 
 FROM alpine:latest AS runner
 
-# Update package cache
-RUN apk update
-
 # Install Nmap
 RUN apk add --no-cache nmap
 
