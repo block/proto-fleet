@@ -30,7 +30,7 @@ const Logs = ({ logsData }: LogsProps) => {
   const [storedLogs, setStoredLogs] = useState<string[]>([]);
   const [logs, setLogs] = useState<LogInfo[]>([]);
   const [filteredLogs, setFilteredLogs] = useState<LogInfo[]>([]);
-  const [filterByLogType, setFilterByLogType] = useState<logType>();
+  const [filterByLogType, setFilterByLogType] = useState<logType[]>([]);
   const [focusSearch, setFocusSearch] = useState(false);
   const [errorCount, setErrorCount] = useState(0);
   const [warningCount, setWarningCount] = useState(0);
@@ -52,6 +52,9 @@ const Logs = ({ logsData }: LogsProps) => {
       if (!initPage && messagesEndRef.current) {
         setInitPage(true);
         messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+      } else if (messagesEndRef.current) {
+        // auto-scroll to bottom when new logs come in
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
       }
     }
   }, [filteredLogs, initPage]);
@@ -64,10 +67,12 @@ const Logs = ({ logsData }: LogsProps) => {
           `${log.timestamp} ${log.message}`
             .toLowerCase()
             .includes(searchValue.toLowerCase()) &&
-          (!filterByLogType || log.logType === filterByLogType),
+          (!filterByLogType.length ||
+            filterByLogType.includes(log.logType as logType)),
       );
       newLogs = newFilteredLogs;
     }
+
     setFilteredLogs(newLogs);
 
     const newExportLink = getExportLink([
@@ -79,6 +84,12 @@ const Logs = ({ logsData }: LogsProps) => {
     ]);
     setExportLink(newExportLink);
   }, [searchValue, logs, filterByLogType]);
+
+  // when switching between filters reset the Init Page state so that the page
+  // doesnt animate a long scroll to the bottom with filter change
+  useEffect(() => {
+    setInitPage(false);
+  }, [filterByLogType, searchValue]);
 
   useEffect(() => {
     updateFilteredLogs();
@@ -119,29 +130,16 @@ const Logs = ({ logsData }: LogsProps) => {
     setFocusSearch(false);
   };
 
-  const toggleFilterErrorLogs = useCallback(
-    (e: MouseEvent<HTMLDivElement>) => {
+  const createToggleFilter = (logType: logType) => {
+    return (e: MouseEvent<HTMLDivElement>) => {
       blurSearch(e);
-      if (filterByLogType === logTypes.error) {
-        setFilterByLogType(undefined);
+      if (filterByLogType?.includes(logType)) {
+        setFilterByLogType((prev) => prev.filter((type) => type !== logType));
       } else {
-        setFilterByLogType(logTypes.error);
+        setFilterByLogType((prev) => [...prev, logType]);
       }
-    },
-    [filterByLogType],
-  );
-
-  const toggleFilterWarningLogs = useCallback(
-    (e: MouseEvent<HTMLDivElement>) => {
-      blurSearch(e);
-      if (filterByLogType === logTypes.warn) {
-        setFilterByLogType(undefined);
-      } else {
-        setFilterByLogType(logTypes.warn);
-      }
-    },
-    [filterByLogType],
-  );
+    };
+  };
 
   const clearSearch = useCallback((e: MouseEvent<HTMLButtonElement>) => {
     setSearchValue("");
@@ -187,15 +185,16 @@ const Logs = ({ logsData }: LogsProps) => {
                     "text-text-critical",
                     {
                       "border-transparent bg-intent-critical-10":
-                        filterByLogType === logTypes.error,
+                        filterByLogType?.includes(logTypes.error),
                     },
                     {
-                      "border-intent-critical-10":
-                        filterByLogType !== logTypes.error,
+                      "border-intent-critical-10": !filterByLogType?.includes(
+                        logTypes.error,
+                      ),
                     },
                   )}
-                  selected={filterByLogType === logTypes.error}
-                  onClick={toggleFilterErrorLogs}
+                  selected={filterByLogType?.includes(logTypes.error) || false}
+                  onClick={createToggleFilter(logTypes.error)}
                 />
                 <LogBadges
                   label={warningCount === 1 ? "warning" : "warnings"}
@@ -204,15 +203,16 @@ const Logs = ({ logsData }: LogsProps) => {
                     "text-text-warning",
                     {
                       "border-transparent bg-intent-warning-10":
-                        filterByLogType === logTypes.warn,
+                        filterByLogType?.includes(logTypes.warn),
                     },
                     {
-                      "border-intent-warning-10":
-                        filterByLogType !== logTypes.warn,
+                      "border-intent-warning-10": !filterByLogType?.includes(
+                        logTypes.warn,
+                      ),
                     },
                   )}
-                  selected={filterByLogType === logTypes.warn}
-                  onClick={toggleFilterWarningLogs}
+                  selected={filterByLogType?.includes(logTypes.warn) || false}
+                  onClick={createToggleFilter(logTypes.warn)}
                 />
                 <a
                   href={exportLink || ""}
@@ -280,19 +280,19 @@ const Logs = ({ logsData }: LogsProps) => {
                 <div className="flex h-[189px] w-full items-center justify-center rounded-2xl bg-core-primary-5">
                   <div className="font-body text-heading-100 text-text-primary-50">
                     {searchValue &&
-                      filterByLogType === undefined &&
+                      filterByLogType.length === 0 &&
                       `No results match “${searchValue}”`}
                     {searchValue &&
-                      filterByLogType === logTypes.error &&
+                      filterByLogType.includes(logTypes.error) &&
                       `No errors match “${searchValue}”`}
                     {searchValue &&
-                      filterByLogType === logTypes.warn &&
+                      filterByLogType.includes(logTypes.warn) &&
                       `No warnings match “${searchValue}”`}
                     {!searchValue &&
-                      filterByLogType === logTypes.error &&
+                      filterByLogType.includes(logTypes.error) &&
                       "No errors found"}
                     {!searchValue &&
-                      filterByLogType === logTypes.warn &&
+                      filterByLogType.includes(logTypes.warn) &&
                       "No warnings found"}
                   </div>
                 </div>
