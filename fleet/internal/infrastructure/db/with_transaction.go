@@ -33,7 +33,7 @@ func WithTransaction[T any](ctx context.Context, db *sql.DB, action func(q *sqlc
 	return result, nil
 }
 
-func WithVoidTransaction(ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) error) error {
+func WithTransactionNoResult(ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) error) error {
 	_, err := WithTransaction(ctx, db, func(sq *sqlc.Queries) (any, error) {
 		var emptyResult any
 

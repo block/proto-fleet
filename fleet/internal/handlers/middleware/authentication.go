@@ -2,14 +2,15 @@ package middleware
 
 import (
 	"context"
+	"github.com/btc-mining/miner-firmware/fleet/internal/domain/auth"
+	"github.com/btc-mining/miner-firmware/fleet/internal/domain/token"
 	"log/slog"
 	"net/http"
 
 	"connectrpc.com/authn"
-	"github.com/btc-mining/miner-firmware/fleet/internal/domain"
 )
 
-func NewAuthMiddleware(ts *domain.TokenService, allowedProcedures []string) *authn.Middleware {
+func NewAuthMiddleware(ts *token.Service, allowedProcedures []string) *authn.Middleware {
 
 	allowList := make(map[string]struct{})
 	for _, item := range allowedProcedures {
@@ -19,8 +20,8 @@ func NewAuthMiddleware(ts *domain.TokenService, allowedProcedures []string) *aut
 	return authn.NewMiddleware(func(_ context.Context, r *http.Request) (any, error) {
 		// Infer the procedure from the request URL.
 		procedure, _ := authn.InferProcedure(r.URL)
-		// Extract the bearer token from the Authorization header.
-		token, ok := authn.BearerToken(r)
+		// Extract the bearer bearerToken from the Authorization header.
+		bearerToken, ok := authn.BearerToken(r)
 		if !ok {
 			// We'll allow unauthenticated access to the ping procedure.
 			if _, ok := allowList[procedure]; ok {
@@ -31,13 +32,13 @@ func NewAuthMiddleware(ts *domain.TokenService, allowedProcedures []string) *aut
 			err.Meta().Set("WWW-Authenticate", "Bearer")
 			return "", err
 		}
-		claims, err := ts.VerifyJWT(token)
+		claims, err := ts.VerifyJWT(bearerToken)
 		if err != nil {
-			slog.Warn("invalid token", slog.String("procedure", procedure))
-			return "", authn.Errorf("error validating token: %w", err)
+			slog.Warn("invalid bearerToken", slog.String("procedure", procedure))
+			return "", authn.Errorf("error validating bearerToken: %w", err)
 		}
 		// The request is authenticated. middle ware will make
 		// the UserID available in the context automatically.
-		return domain.UserID(claims.UserID), nil
+		return auth.UserID(claims.UserID), nil
 	})
 }

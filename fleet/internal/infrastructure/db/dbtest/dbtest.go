@@ -22,7 +22,7 @@ func GetTestDB(t *testing.T) *sql.DB {
 	// Parse the DB config from environment variables the same way we would when
 	// running the server.
 	cli := struct {
-		DB db.DBConfig `envprefix:"DB_" embed:""`
+		DB db.Config `envprefix:"DB_" embed:""`
 	}{}
 	parser, err := kong.New(&cli)
 	assert.NoError(t, err)

@@ -5,12 +5,12 @@ import (
 	"os"
 )
 
-type LoggingConfig struct {
+type Config struct {
 	Level slog.Level `help:"Log level" default:"debug" env:"LEVEL"`
 	JSON  bool       `help:"Log level" default:"false" env:"JSON"`
 }
 
-func InitLogger(config LoggingConfig) {
+func InitLogger(config Config) {
 	logOptions := &slog.HandlerOptions{Level: config.Level}
 	var logger *slog.Logger
 	if config.JSON {

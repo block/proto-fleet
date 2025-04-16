@@ -1,62 +1,62 @@
-package grpc
+package pairing
 
 import (
 	"context"
 	"errors"
+	"github.com/btc-mining/miner-firmware/fleet/internal/domain/pairing"
 
 	"connectrpc.com/connect"
 	pb "github.com/btc-mining/miner-firmware/fleet/generated/grpc/pairing/v1"
 	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/pairing/v1/pairingv1connect"
-	"github.com/btc-mining/miner-firmware/fleet/internal/domain"
 )
 
-// DeviceDiscoveryHandler handles the Connect-RPC endpoints
-type DeviceDiscoveryHandler struct {
-	discoveryService *domain.PairingService
+// Handler handles the Connect-RPC endpoints
+type Handler struct {
+	pairingSvc *pairing.Service
 }
 
-var _ pairingv1connect.PairingServiceHandler = &DeviceDiscoveryHandler{}
+var _ pairingv1connect.PairingServiceHandler = &Handler{}
 
-// NewDeviceDiscoveryHandler creates a new instance of DeviceDiscoveryHandler
-func NewDeviceDiscoveryHandler(discoveryService *domain.PairingService) *DeviceDiscoveryHandler {
-	return &DeviceDiscoveryHandler{
-		discoveryService: discoveryService,
+// NewHandler creates a new instance of Handler
+func NewHandler(pairingSvc *pairing.Service) *Handler {
+	return &Handler{
+		pairingSvc: pairingSvc,
 	}
 }
 
 // Discover implements pairingv1connect.DeviceDiscoveryServiceHandler.
-func (h *DeviceDiscoveryHandler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRequest], s *connect.ServerStream[pb.DiscoverResponse]) error {
-	var resultChan <-chan *domain.DiscoveryResponse
+func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRequest], s *connect.ServerStream[pb.DiscoverResponse]) error {
+	var resultChan <-chan *pairing.DiscoveryResponse
 	var err error
 	switch r.Msg.Mode.(type) {
 	case *pb.DiscoverRequest_IpList:
-		req := &domain.IPListDiscoveryRequest{
+		req := &pairing.IPListDiscoveryRequest{
 			IPAddresses:    r.Msg.GetIpList().IpAddresses,
 			Ports:          r.Msg.GetIpList().Ports,
 			TimeoutSeconds: r.Msg.GetIpList().TimeoutSeconds,
 		}
-		resultChan, err = h.discoveryService.DiscoverWithIPList(ctx, req)
+		resultChan, err = h.pairingSvc.DiscoverWithIPList(ctx, req)
 	case *pb.DiscoverRequest_IpRange:
-		req := &domain.IPRangeDiscoveryRequest{
+		req := &pairing.IPRangeDiscoveryRequest{
 			StartIP:        r.Msg.GetIpRange().StartIp,
 			EndIP:          r.Msg.GetIpRange().EndIp,
 			Ports:          r.Msg.GetIpRange().Ports,
 			TimeoutSeconds: r.Msg.GetIpRange().TimeoutSeconds,
 		}
-		resultChan, err = h.discoveryService.DiscoverWithIPRange(ctx, req)
+		resultChan, err = h.pairingSvc.DiscoverWithIPRange(ctx, req)
 	case *pb.DiscoverRequest_Nmap:
-		req := &domain.NmapDiscoveryRequest{
+		req := &pairing.NmapDiscoveryRequest{
 			Target:   r.Msg.GetNmap().Target,
 			Ports:    r.Msg.GetNmap().Ports,
 			FastScan: r.Msg.GetNmap().FastScan,
 		}
-		resultChan, err = h.discoveryService.DiscoverWithNmap(ctx, req)
+		resultChan, err = h.pairingSvc.DiscoverWithNmap(ctx, req)
 	case *pb.DiscoverRequest_Mdns:
-		req := &domain.MDNSDiscoveryRequest{
+		req := &pairing.MDNSDiscoveryRequest{
 			ServiceType:    r.Msg.GetMdns().ServiceType,
 			TimeoutSeconds: r.Msg.GetMdns().TimeoutSeconds,
 		}
-		resultChan, err = h.discoveryService.DiscoverWithMDNS(ctx, req)
+		resultChan, err = h.pairingSvc.DiscoverWithMDNS(ctx, req)
 	default:
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("unsupported mode"))
 	}
@@ -81,7 +81,7 @@ func (h *DeviceDiscoveryHandler) Discover(ctx context.Context, r *connect.Reques
 	}
 }
 
-func toDiscoveryResponse(d []*domain.Device) *pb.DiscoverResponse {
+func toDiscoveryResponse(d []*pairing.Device) *pb.DiscoverResponse {
 	var devices []*pb.Device
 	for _, d := range d {
 		devices = append(devices, &pb.Device{
@@ -98,6 +98,6 @@ func toDiscoveryResponse(d []*domain.Device) *pb.DiscoverResponse {
 }
 
 // Pair implements pairingv1connect.PairingServiceHandler.
-func (h *DeviceDiscoveryHandler) Pair(context.Context, *connect.Request[pb.PairRequest]) (*connect.Response[pb.PairResponse], error) {
+func (h *Handler) Pair(context.Context, *connect.Request[pb.PairRequest]) (*connect.Response[pb.PairResponse], error) {
 	panic("unimplemented")
 }

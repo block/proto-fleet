@@ -1,6 +1,9 @@
 package middleware_test
 
 import (
+	"github.com/btc-mining/miner-firmware/fleet/internal/domain/token"
+	"github.com/btc-mining/miner-firmware/fleet/internal/handlers/middleware"
+	"github.com/btc-mining/miner-firmware/fleet/internal/handlers/ping"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,14 +14,11 @@ import (
 
 	pingv1 "github.com/btc-mining/miner-firmware/fleet/generated/grpc/ping/v1"
 	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/ping/v1/pingv1connect"
-	"github.com/btc-mining/miner-firmware/fleet/internal/domain"
-	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/api/grpc"
-	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/api/grpc/middleware"
 )
 
 func TestAuthMiddleware(t *testing.T) {
 
-	tokenSvc, _ := domain.NewTokenService(domain.AuthConfig{
+	tokenSvc, _ := token.NewService(token.Config{
 		SecretKey:        "000000000000000000000000000000000000",
 		ExpirationPeriod: time.Hour * 24,
 	})
@@ -31,7 +31,7 @@ func TestAuthMiddleware(t *testing.T) {
 
 		// Setup test server
 		mux := http.NewServeMux()
-		path, handler := pingv1connect.NewPingServiceHandler(grpc.PingServer{})
+		path, handler := pingv1connect.NewPingServiceHandler(ping.Handler{})
 		mux.Handle(path, handler)
 
 		middleware := middleware.NewAuthMiddleware(tokenSvc, allowList)
@@ -60,7 +60,7 @@ func TestAuthMiddleware(t *testing.T) {
 
 		// Setup test server
 		mux := http.NewServeMux()
-		path, handler := pingv1connect.NewPingServiceHandler(grpc.PingServer{})
+		path, handler := pingv1connect.NewPingServiceHandler(ping.Handler{})
 		mux.Handle(path, handler)
 
 		middleware := middleware.NewAuthMiddleware(tokenSvc, []string{})
@@ -88,7 +88,7 @@ func TestAuthMiddleware(t *testing.T) {
 
 		// Setup test server
 		mux := http.NewServeMux()
-		path, handler := pingv1connect.NewPingServiceHandler(grpc.PingServer{})
+		path, handler := pingv1connect.NewPingServiceHandler(ping.Handler{})
 		mux.Handle(path, handler)
 
 		middleware := middleware.NewAuthMiddleware(tokenSvc, allowList)
@@ -125,7 +125,7 @@ func TestAuthMiddleware(t *testing.T) {
 
 		// Setup test server
 		mux := http.NewServeMux()
-		path, handler := pingv1connect.NewPingServiceHandler(grpc.PingServer{})
+		path, handler := pingv1connect.NewPingServiceHandler(ping.Handler{})
 		mux.Handle(path, handler)
 
 		middleware := middleware.NewAuthMiddleware(tokenSvc, allowList)

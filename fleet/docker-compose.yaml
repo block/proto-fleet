@@ -49,7 +49,7 @@ services:
     networks:
       - fleet-network
   mysql:
-    image: mysql
+    image: mysql:8.4.4
     restart: always
     environment:
       MYSQL_ALLOW_EMPTY_PASSWORD: "1"
@@ -63,11 +63,7 @@ services:
     volumes:
       - mysql:/var/lib/mysql
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "mysql --host=localhost --user=root --execute='SELECT 1;'",
-        ]
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
       interval: 10s
       timeout: 5s
       retries: 5

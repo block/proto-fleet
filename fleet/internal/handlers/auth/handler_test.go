@@ -1,6 +1,10 @@
-package grpc_test
+package auth_test
 
 import (
+	authDomain "github.com/btc-mining/miner-firmware/fleet/internal/domain/auth"
+	"github.com/btc-mining/miner-firmware/fleet/internal/domain/token"
+	"github.com/btc-mining/miner-firmware/fleet/internal/handlers/auth"
+	"github.com/btc-mining/miner-firmware/fleet/internal/handlers/onboarding"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,30 +19,26 @@ import (
 	authv1 "github.com/btc-mining/miner-firmware/fleet/generated/grpc/auth/v1"
 	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/auth/v1/authv1connect"
 
-	"github.com/btc-mining/miner-firmware/fleet/internal/application"
-	"github.com/btc-mining/miner-firmware/fleet/internal/domain"
-	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/api/grpc"
 	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/db/dbtest"
 )
 
 func TestAuthServer_Authenticate(t *testing.T) {
-	tokenSvc, _ := domain.NewTokenService(domain.AuthConfig{
+	tokenSvc, _ := token.NewService(token.Config{
 		SecretKey:        "000000000000000000000000000000000000",
 		ExpirationPeriod: time.Hour * 24,
 	})
-	authSvc := domain.NewAuthService(tokenSvc)
 
 	t.Run("should authenticate successfully on valid credentials", func(t *testing.T) {
 		// Setup dependencies
 		conn := dbtest.GetTestDB(t)
-		authUseCases := application.NewAuthUseCases(conn, authSvc)
+		authSvc := authDomain.NewService(conn, tokenSvc)
 
 		// Setup test server
 		mux := http.NewServeMux()
-		onboardingServer := grpc.NewOnboardingServer(authUseCases)
+		onboardingServer := onboarding.NewHandler(authSvc)
 		mux.Handle(onboardingv1connect.NewOnboardingServiceHandler(onboardingServer))
 
-		authServer := grpc.NewAuthServer(authUseCases)
+		authServer := auth.NewHandler(authSvc)
 		mux.Handle(authv1connect.NewAuthServiceHandler(authServer))
 
 		testServer := httptest.NewServer(mux)
@@ -79,14 +79,14 @@ func TestAuthServer_Authenticate(t *testing.T) {
 	t.Run("should fail on invalid credentials", func(t *testing.T) {
 		// Setup dependencies
 		conn := dbtest.GetTestDB(t)
-		authUseCases := application.NewAuthUseCases(conn, authSvc)
+		authSvc := authDomain.NewService(conn, tokenSvc)
 
 		// Setup test server
 		mux := http.NewServeMux()
-		onboardingServer := grpc.NewOnboardingServer(authUseCases)
+		onboardingServer := onboarding.NewHandler(authSvc)
 		mux.Handle(onboardingv1connect.NewOnboardingServiceHandler(onboardingServer))
 
-		authServer := grpc.NewAuthServer(authUseCases)
+		authServer := auth.NewHandler(authSvc)
 		mux.Handle(authv1connect.NewAuthServiceHandler(authServer))
 
 		testServer := httptest.NewServer(mux)

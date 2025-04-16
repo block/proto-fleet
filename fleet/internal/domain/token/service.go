@@ -1,4 +1,4 @@
-package domain
+package token
 
 import (
 	"errors"
@@ -12,23 +12,18 @@ var TokenSigningMethod = jwt.SigningMethodHS256
 
 const MinSecretKeyLength = 32 // 32 bytes for HS256 security
 
-type AuthConfig struct {
-	SecretKey        string        `help:"Secret key for signing the JWT" env:"SECRET_KEY"`
-	ExpirationPeriod time.Duration `help:"Expiration period duration for the JWT" env:"EXPIRATION_PERIOD"`
-}
-
 // Claims struct for JWT payload
 type Claims struct {
 	UserID string `json:"user_id"`
 	jwt.RegisteredClaims
 }
 
-type TokenService struct {
-	cfg AuthConfig
+type Service struct {
+	cfg Config
 }
 
-// NewTokenService validates and creates a TokenService instance
-func NewTokenService(cfg AuthConfig) (*TokenService, error) {
+// NewService validates and creates a Service instance
+func NewService(cfg Config) (*Service, error) {
 	if len(cfg.SecretKey) < MinSecretKeyLength {
 		return nil, fmt.Errorf("secret key must be at least 32 bytes long: len=%d", len(cfg.SecretKey))
 	}
@@ -38,11 +33,11 @@ func NewTokenService(cfg AuthConfig) (*TokenService, error) {
 		return nil, errors.New("expiration period value is required. e.g. '30m'")
 	}
 
-	return &TokenService{cfg: cfg}, nil
+	return &Service{cfg: cfg}, nil
 }
 
 // GenerateJWT creates a JWT token
-func (ts *TokenService) GenerateJWT(userID string) (string, error) {
+func (ts *Service) GenerateJWT(userID string) (string, error) {
 	claims := Claims{
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -59,7 +54,7 @@ func (ts *TokenService) GenerateJWT(userID string) (string, error) {
 }
 
 // VerifyJWT validates the token and extracts claims
-func (ts *TokenService) VerifyJWT(tokenString string) (*Claims, error) {
+func (ts *Service) VerifyJWT(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(_ *jwt.Token) (any, error) {
 		return []byte(ts.cfg.SecretKey), nil
 	}, jwt.WithValidMethods([]string{TokenSigningMethod.Alg()}))

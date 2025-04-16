@@ -1,7 +1,10 @@
-package grpc_test
+package onboarding_test
 
 import (
 	"database/sql"
+	"github.com/btc-mining/miner-firmware/fleet/internal/domain/auth"
+	"github.com/btc-mining/miner-firmware/fleet/internal/domain/token"
+	"github.com/btc-mining/miner-firmware/fleet/internal/handlers/onboarding"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,28 +19,24 @@ import (
 	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/btc-mining/miner-firmware/fleet/generated/sqlc"
 
-	"github.com/btc-mining/miner-firmware/fleet/internal/application"
-	"github.com/btc-mining/miner-firmware/fleet/internal/domain"
-	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/api/grpc"
 	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/db"
 	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/db/dbtest"
 )
 
-func TestOnboardingServer_CreateAdminLogin(t *testing.T) {
-	tokenSvc, _ := domain.NewTokenService(domain.AuthConfig{
+func TestHandler_CreateAdminLogin(t *testing.T) {
+	tokenSvc, _ := token.NewService(token.Config{
 		SecretKey:        "000000000000000000000000000000000000",
 		ExpirationPeriod: time.Hour * 24,
 	})
-	authSvc := domain.NewAuthService(tokenSvc)
 
 	t.Run("should create an admin user", func(t *testing.T) {
 		// Setup dependencies
 		conn := dbtest.GetTestDB(t)
-		authUseCases := application.NewAuthUseCases(conn, authSvc)
+		authSvc := auth.NewService(conn, tokenSvc)
 
 		// Setup test server
 		mux := http.NewServeMux()
-		server := grpc.NewOnboardingServer(authUseCases)
+		server := onboarding.NewHandler(authSvc)
 		path, handler := onboardingv1connect.NewOnboardingServiceHandler(server)
 		mux.Handle(path, handler)
 		testServer := httptest.NewServer(mux)
@@ -70,11 +69,11 @@ func TestOnboardingServer_CreateAdminLogin(t *testing.T) {
 	t.Run("should fail on create an admin user when username not set", func(t *testing.T) {
 		// Setup dependencies
 		conn := dbtest.GetTestDB(t)
-		authUseCases := application.NewAuthUseCases(conn, authSvc)
+		authSvc := auth.NewService(conn, tokenSvc)
 
 		// Setup test server
 		mux := http.NewServeMux()
-		server := grpc.NewOnboardingServer(authUseCases)
+		server := onboarding.NewHandler(authSvc)
 		path, handler := onboardingv1connect.NewOnboardingServiceHandler(server)
 		mux.Handle(path, handler)
 		testServer := httptest.NewServer(mux)
@@ -100,11 +99,11 @@ func TestOnboardingServer_CreateAdminLogin(t *testing.T) {
 	t.Run("should fail on create an admin user when password not set", func(t *testing.T) {
 		// Setup dependencies
 		conn := dbtest.GetTestDB(t)
-		authUseCases := application.NewAuthUseCases(conn, authSvc)
+		authSvc := auth.NewService(conn, tokenSvc)
 
 		// Setup test server
 		mux := http.NewServeMux()
-		server := grpc.NewOnboardingServer(authUseCases)
+		server := onboarding.NewHandler(authSvc)
 		path, handler := onboardingv1connect.NewOnboardingServiceHandler(server)
 		mux.Handle(path, handler)
 		testServer := httptest.NewServer(mux)
@@ -128,7 +127,7 @@ func TestOnboardingServer_CreateAdminLogin(t *testing.T) {
 }
 
 func assertRoleAndOrgCreated(t *testing.T, conn *sql.DB, username string) error {
-	return db.WithVoidTransaction(t.Context(), conn, func(q *sqlc.Queries) error {
+	return db.WithTransactionNoResult(t.Context(), conn, func(q *sqlc.Queries) error {
 		dbUser, err := q.GetUserByUsername(t.Context(), username)
 		assert.NoError(t, err)
 		dbOrgs, err := q.GetOrganizationsForUser(t.Context(), dbUser.ID)

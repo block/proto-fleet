@@ -1,22 +1,23 @@
-package domain
+package token_test
 
 import (
 	"fmt"
+	"github.com/btc-mining/miner-firmware/fleet/internal/domain/token"
 	"testing"
 	"time"
 
 	"github.com/alecthomas/assert/v2"
 )
 
-var testConfig = AuthConfig{
+var testConfig = token.Config{
 	SecretKey:        "test-secret-key-that-is-long-enough", // Ensure valid length for testing
 	ExpirationPeriod: time.Minute * 5,                       // Short expiration for testing
 }
 
 // Test: Generate JWT and verify it
 func TestGenerateJWT(t *testing.T) {
-	tokenService, err := NewTokenService(testConfig)
-	assert.NoError(t, err, "NewTokenService should not return an error")
+	tokenService, err := token.NewService(testConfig)
+	assert.NoError(t, err, "NewService should not return an error")
 
 	userID := "12345"
 	token, err := tokenService.GenerateJWT(userID)
@@ -31,8 +32,8 @@ func TestGenerateJWT(t *testing.T) {
 
 // Test: Verify valid token
 func TestVerifyJWT_ValidToken(t *testing.T) {
-	tokenService, err := NewTokenService(testConfig)
-	assert.NoError(t, err, "NewTokenService should not return an error")
+	tokenService, err := token.NewService(testConfig)
+	assert.NoError(t, err, "NewService should not return an error")
 
 	userID := "67890"
 	token, err := tokenService.GenerateJWT(userID)
@@ -45,8 +46,8 @@ func TestVerifyJWT_ValidToken(t *testing.T) {
 
 // Test: Verify invalid token
 func TestVerifyJWT_InvalidToken(t *testing.T) {
-	tokenService, err := NewTokenService(testConfig)
-	assert.NoError(t, err, "NewTokenService should not return an error")
+	tokenService, err := token.NewService(testConfig)
+	assert.NoError(t, err, "NewService should not return an error")
 
 	invalidToken := "invalid.token.string"
 	claims, err := tokenService.VerifyJWT(invalidToken)
@@ -56,12 +57,12 @@ func TestVerifyJWT_InvalidToken(t *testing.T) {
 
 // Test: Verify expired token
 func TestVerifyJWT_ExpiredToken(t *testing.T) {
-	expiredConfig := AuthConfig{
+	expiredConfig := token.Config{
 		SecretKey:        testConfig.SecretKey,
 		ExpirationPeriod: -time.Minute, // Negative duration to force expiration
 	}
-	tokenService, err := NewTokenService(expiredConfig)
-	assert.NoError(t, err, "NewTokenService should not return an error")
+	tokenService, err := token.NewService(expiredConfig)
+	assert.NoError(t, err, "NewService should not return an error")
 
 	userID := "expiredUser"
 	token, err := tokenService.GenerateJWT(userID)
@@ -74,41 +75,52 @@ func TestVerifyJWT_ExpiredToken(t *testing.T) {
 
 // Test: Verify tampered token
 func TestVerifyJWT_TamperedToken(t *testing.T) {
-	tokenService, err := NewTokenService(testConfig)
-	assert.NoError(t, err, "NewTokenService should not return an error")
+	tokenService, err := token.NewService(testConfig)
+	assert.NoError(t, err, "NewService should not return an error")
 
 	userID := "tamperedUser"
 	token, err := tokenService.GenerateJWT(userID)
 	assert.NoError(t, err, "GenerateJWT should not return an error")
 
 	// Modify token (tamper with it)
-	tamperedToken := token[:len(token)-1] + "X"
+	tamperedToken := flipLastBit(token)
 	claims, err := tokenService.VerifyJWT(tamperedToken)
 	assert.Error(t, err, "VerifyJWT should return an error for a tampered token")
 	assert.Zero(t, claims, "Claims should be nil for a tampered token")
 }
 
-// Test: NewTokenService should reject short secret key
+// Test: NewService should reject short secret key
 func TestNewTokenService_InvalidSecret(t *testing.T) {
 	shortKey := "short-key"
-	invalidConfig := AuthConfig{
+	invalidConfig := token.Config{
 		SecretKey:        shortKey,
 		ExpirationPeriod: time.Minute * 5,
 	}
 
-	_, err := NewTokenService(invalidConfig)
+	_, err := token.NewService(invalidConfig)
 	assert.Error(t, err, "Expected error for short secret key")
 	assert.Equal(t, fmt.Sprintf("secret key must be at least 32 bytes long: len=%d", len(shortKey)), err.Error(), "Error message should match expected")
 }
 
-// Test: NewTokenService with valid secret key
+// Test: NewService with valid secret key
 func TestNewTokenService_ValidSecret(t *testing.T) {
-	validConfig := AuthConfig{
+	validConfig := token.Config{
 		SecretKey:        "valid-secret-key-that-is-long-enough",
 		ExpirationPeriod: time.Minute * 5,
 	}
 
-	tokenService, err := NewTokenService(validConfig)
-	assert.NoError(t, err, "NewTokenService should not return an error for valid secret key")
-	assert.NotZero(t, tokenService, "TokenService instance should be created successfully")
+	tokenService, err := token.NewService(validConfig)
+	assert.NoError(t, err, "NewService should not return an error for valid secret key")
+	assert.NotZero(t, tokenService, "Service instance should be created successfully")
+}
+
+func flipLastBit(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+	bytes := []byte(s)
+	lastByte := bytes[len(bytes)-1]
+	lastByte ^= 1
+	bytes[len(bytes)-1] = lastByte
+	return string(bytes)
 }

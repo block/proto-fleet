@@ -54,7 +54,7 @@ db-up:
 
 # run a db migration
 db-migrate:
-  migrate -database mysql://root:@tcp/fleet -path internal/db/migrations up
+  migrate -database mysql://root:@tcp/fleet -path migrations up
 
 # stop the db
 db-down:
@@ -62,7 +62,7 @@ db-down:
 
 # tear down the db by running down migrations
 db-clean:
-  migrate -database mysql://root:@tcp/fleet -path internal/db/migrations down
+  migrate -database mysql://root:@tcp/fleet -path migrations down
 
 # launch mysql shell for interacting with the db started via db-up
 db-shell:
@@ -70,4 +70,4 @@ db-shell:
 
 # create a new migration
 nm name:
-  migrate create -ext sql -dir internal/db/migrations -seq {{name}}
+  migrate create -ext sql -dir migrations -seq {{name}}

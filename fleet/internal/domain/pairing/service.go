@@ -1,4 +1,4 @@
-package domain
+package pairing
 
 import (
 	"context"
@@ -13,13 +13,13 @@ import (
 	"github.com/grandcat/zeroconf"
 )
 
-// PairingService handles the core device discovery functionality
-type PairingService struct {
+// Service handles the core device discovery functionality
+type Service struct {
 }
 
-// NewPairingService creates a new instance of PairingService
-func NewPairingService() *PairingService {
-	return &PairingService{}
+// NewService creates a new instance of Service
+func NewService() *Service {
+	return &Service{}
 }
 
 // Helper function to convert IP string to uint32 for range comparison
@@ -73,7 +73,7 @@ type DiscoveryResponse struct {
 }
 
 // DiscoverWithMDNS discovers devices using mDNS
-func (s *PairingService) DiscoverWithMDNS(ctx context.Context, r *MDNSDiscoveryRequest) (<-chan *DiscoveryResponse, error) {
+func (s *Service) DiscoverWithMDNS(ctx context.Context, r *MDNSDiscoveryRequest) (<-chan *DiscoveryResponse, error) {
 	resultChan := make(chan *DiscoveryResponse)
 
 	resolver, err := zeroconf.NewResolver(nil)
@@ -132,7 +132,7 @@ func (s *PairingService) DiscoverWithMDNS(ctx context.Context, r *MDNSDiscoveryR
 }
 
 // DiscoverWithNmap discovers devices using Nmap
-func (s *PairingService) DiscoverWithNmap(ctx context.Context, req *NmapDiscoveryRequest) (<-chan *DiscoveryResponse, error) {
+func (s *Service) DiscoverWithNmap(ctx context.Context, req *NmapDiscoveryRequest) (<-chan *DiscoveryResponse, error) {
 	resultChan := make(chan *DiscoveryResponse)
 
 	go func() {
@@ -217,7 +217,7 @@ func (s *PairingService) DiscoverWithNmap(ctx context.Context, req *NmapDiscover
 }
 
 // DiscoverWithIPRange discovers devices using IP range
-func (s *PairingService) DiscoverWithIPRange(ctx context.Context, req *IPRangeDiscoveryRequest) (<-chan *DiscoveryResponse, error) {
+func (s *Service) DiscoverWithIPRange(ctx context.Context, req *IPRangeDiscoveryRequest) (<-chan *DiscoveryResponse, error) {
 	resultChan := make(chan *DiscoveryResponse)
 	startIP, err := ipToUint32(req.StartIP)
 	if err != nil {
@@ -281,7 +281,7 @@ func (s *PairingService) DiscoverWithIPRange(ctx context.Context, req *IPRangeDi
 }
 
 // DiscoverWithIPList discovers devices from a list of IPs
-func (s *PairingService) DiscoverWithIPList(ctx context.Context, req *IPListDiscoveryRequest) (<-chan *DiscoveryResponse, error) {
+func (s *Service) DiscoverWithIPList(ctx context.Context, req *IPListDiscoveryRequest) (<-chan *DiscoveryResponse, error) {
 	resultChan := make(chan *DiscoveryResponse)
 
 	go func() {
