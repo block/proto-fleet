@@ -5,7 +5,6 @@ import AsicButton from "./AsicButton";
 import { AsicStats, GetAsicHashrateParams } from "@/protoOS/api/types";
 import { PopoverProvider } from "@/shared/components/Popover";
 import Spinner from "@/shared/components/Spinner";
-import { getRowLabel } from "@/shared/utils/utility";
 
 interface AsicTableProps {
   asics: AsicStats[];
@@ -37,35 +36,7 @@ const AsicTable = ({
           </div>
         ) : (
           <>
-            <div className="mr-[3px] space-y-2">
-              <div className="mb-[8px] h-[26px] rounded-lg border border-border-5 bg-core-primary-5"></div>
-
-              {/* Row label */}
-              {asics
-                .filter((asic) => asic.column === 0)
-                .map((asic) => (
-                  <div
-                    className="flex h-[42px] items-center rounded-lg border border-border-5 bg-core-primary-5 px-2 py-1 text-center font-mono text-mono-text-50 text-text-primary"
-                    key={`asic-header-${asic.row}`}
-                  >
-                    {getRowLabel(asic.row || 0)}
-                  </div>
-                ))}
-            </div>
             <div className="w-full -space-y-[2px]">
-              <div className="mb-[3px] ml-[5px] flex space-x-2">
-                {/* Column label */}
-                {asics
-                  .filter((asic) => asic.row === 0)
-                  .map((asic) => (
-                    <div
-                      className="grow basis-0 rounded-lg border border-border-5 bg-core-primary-5 px-2 py-1 text-center font-mono text-mono-text-50 text-text-primary"
-                      key={`asic-header-${asic.column}`}
-                    >
-                      {(asic.column || 0) + 1}
-                    </div>
-                  ))}
-              </div>
               {/* Individual ASICs */}
               {getAsicsRows(asics).map((row) => (
                 <div className="-mr-[4px] flex" key={`asic-${row}`}>

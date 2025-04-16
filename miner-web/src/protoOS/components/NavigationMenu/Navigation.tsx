@@ -12,7 +12,6 @@ import {
 import { NavigationItemValue, NavigationMenuType } from "./types";
 import { useMinerHosting } from "@/protoOS/api";
 import { Logo } from "@/shared/assets/icons";
-import Button, { sizes, variants } from "@/shared/components/Button";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 interface NavigationProps {
@@ -102,29 +101,6 @@ const Navigation = ({
         />
 
         <MacAddressInfo loading={macInfo?.loading} value={macInfo?.value} />
-
-        <div className="mt-2 flex space-x-2 text-emphasis-300 text-text-primary">
-          <div className="w-full">
-            <a href="https://proto.xyz/docs/api/v1.1.0" target="_blank">
-              <Button
-                variant={variants.ghost}
-                size={sizes.compact}
-                text="API"
-                className="w-full"
-              />
-            </a>
-          </div>
-          <div className="w-full">
-            <a href="mailto:mining.support@block.xyz" target="_blank">
-              <Button
-                variant={variants.ghost}
-                size={sizes.compact}
-                text="Support"
-                className="w-full"
-              />
-            </a>
-          </div>
-        </div>
       </div>
     </div>
   );

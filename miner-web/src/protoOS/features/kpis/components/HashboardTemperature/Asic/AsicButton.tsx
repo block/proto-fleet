@@ -7,6 +7,7 @@ import { getAsicUniqueId } from "./utility";
 import { AsicStats, GetAsicHashrateParams } from "@/protoOS/api/types";
 import { usePopover } from "@/shared/components/Popover";
 import { TEMP_UNITS, usePreferences } from "@/shared/features/preferences";
+import { getDisplayValue } from "@/shared/utils/stringUtils";
 import { convertCtoF } from "@/shared/utils/utility";
 
 interface AsicButtonProps {
@@ -70,8 +71,8 @@ const AsicButton = ({
         <div className="bg-transparent hover:bg-surface-overlay">
           <div className="px-1 py-3">
             {asic.temp_c && isFahrenheit
-              ? convertCtoF(asic.temp_c)
-              : asic.temp_c}
+              ? getDisplayValue(convertCtoF(asic.temp_c))
+              : getDisplayValue(asic.temp_c)}
             º
           </div>
         </div>

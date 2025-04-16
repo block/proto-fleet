@@ -78,12 +78,12 @@ const Temperature = () => {
       setFanSpeeds(coolingStatus?.fans);
 
       // TODO: Helfpul for faking an R2, but need to rm later
-      setFanSpeeds(
-        coolingStatus?.fans?.concat([
-          coolingStatus?.fans[0],
-          coolingStatus?.fans[1],
-        ]),
-      );
+      // setFanSpeeds(
+      //   coolingStatus?.fans?.concat([
+      //     coolingStatus?.fans[0],
+      //     coolingStatus?.fans[1],
+      //   ]),
+      // );
     }
   }, [coolingStatus, pendingCoolingStatus]);
 

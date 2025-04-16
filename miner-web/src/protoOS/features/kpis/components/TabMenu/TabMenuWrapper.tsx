@@ -32,7 +32,7 @@ const TabMenuWrapper = memo(
         powerUsage: {
           name: "Power Usage",
           value: powerUsage,
-          units: "kw/H",
+          units: "kW",
           path: "/power-usage",
         },
         temperature: {

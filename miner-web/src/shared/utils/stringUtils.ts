@@ -23,13 +23,9 @@ export const getDisplayValue = (value?: number | string | null) => {
 
   if (isNaN(numberValue)) return value;
 
-  const twoDecimalPlaces = numberValue.toFixed(2);
-  const [integer, decimal] = twoDecimalPlaces.split(".");
+  const oneDecimalPlaces = numberValue.toFixed(1);
 
-  if (decimal === "00") return separateByCommas(integer);
-  if (decimal[1] === "0") return `${separateByCommas(integer)}.${decimal[0]}`;
-
-  return separateByCommas(twoDecimalPlaces);
+  return separateByCommas(oneDecimalPlaces);
 };
 
 export const padLeft = (value: number, length: number) => {

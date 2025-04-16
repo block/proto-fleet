@@ -16,19 +16,19 @@ const getStats = (stats: StatsArgs = {}): StatProps[] => {
     {
       label: "Average",
       value: avg,
-      units: "kW/h",
+      units: "kW",
       size: "small",
     },
     {
       label: "Highest",
       value: max,
-      units: "kW/h",
+      units: "kW",
       size: "small",
     },
     {
       label: "Lowest",
       value: min,
-      units: "kW/h",
+      units: "kW",
       size: "small",
     },
   ];

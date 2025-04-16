@@ -5,6 +5,7 @@ import { HbTemperature } from "../../../hooks";
 import HbTempPreview from "./HbTempPreview"; // Adjust the import path as necessary
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
 import { TEMP_UNITS, usePreferences } from "@/shared/features/preferences/";
+import { getDisplayValue } from "@/shared/utils/stringUtils";
 import { convertCtoF } from "@/shared/utils/utility";
 
 const mockHbData: HbTemperature = {
@@ -100,17 +101,17 @@ describe("HbTempPreview", () => {
     );
 
     // Verify that the stats render with Fahrenheit units
-    const avgStat = screen.getByText(`${convertCtoF(50)}`);
-    const maxStat = screen.getByText(`${convertCtoF(60)}`);
-    const minStat = screen.getByText(`${convertCtoF(40)}`);
+    const avgStat = screen.getByText(`${getDisplayValue(convertCtoF(50))}`);
+    const maxStat = screen.getByText(`${getDisplayValue(convertCtoF(60))}`);
+    const minStat = screen.getByText(`${getDisplayValue(convertCtoF(40))}`);
     const unitF = screen.getAllByText("ºF");
     const unitC = screen.queryAllByText("ºC");
 
     expect(avgStat).toBeInTheDocument();
     expect(maxStat).toBeInTheDocument();
     expect(minStat).toBeInTheDocument();
-    expect(unitF.length).toBe(3);
-    expect(unitC.length).toBe(0);
+    expect(unitF.length).toBe(3.0);
+    expect(unitC.length).toBe(0.0);
   });
 
   it("renders spinner if there is no asic data", () => {

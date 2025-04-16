@@ -10,6 +10,8 @@ import {
   isFanWarning,
   isHashboardError,
   isHashboardWarning,
+  isPSUError,
+  isPSUWarning,
 } from "./utility";
 import { ErrorListResponse } from "@/protoOS/api/types";
 
@@ -39,6 +41,8 @@ const MinerStatusModal = ({
     () => errors.filter(isHashboardWarning),
     [errors],
   );
+  const psuErrors = useMemo(() => errors.filter(isPSUError), [errors]);
+  const psuWarnings = useMemo(() => errors.filter(isPSUWarning), [errors]);
   const asicErrors = useMemo(() => errors.filter(isAsicError), [errors]);
   const asicWarnings = useMemo(() => errors.filter(isAsicWarning), [errors]);
   const fanErrors = useMemo(() => errors.filter(isFanError), [errors]);
@@ -99,9 +103,9 @@ const MinerStatusModal = ({
       onDismiss={onDismiss}
     >
       <div className="space-y-6">
-        <div>
+        <div className="mt-6 flex flex-col gap-2">
           <div>{icon}</div>
-          <div className="mt-2 text-heading-300 text-text-primary">{title}</div>
+          <div className="text-heading-300 text-text-primary">{title}</div>
         </div>
         <div>
           {hasErrors || hasWarnings ? (
@@ -112,10 +116,12 @@ const MinerStatusModal = ({
               >
                 <MinerStatusRows errors={hashboardErrors} />
                 <MinerStatusRows errors={hashboardWarnings} />
-                <MinerStatusRows errors={asicErrors} />
-                <MinerStatusRows errors={asicWarnings} />
                 <MinerStatusRows errors={fanErrors} />
                 <MinerStatusRows errors={fanWarnings} />
+                <MinerStatusRows errors={psuErrors} />
+                <MinerStatusRows errors={psuWarnings} />
+                {/* <MinerStatusRows errors={asicErrors} />
+                <MinerStatusRows errors={asicWarnings} /> */}
               </Tabs.Tab>
               <Tabs.Tab
                 label={`${errorCount} ${errorCount === 1 ? "error" : "errors"}`}
@@ -124,8 +130,9 @@ const MinerStatusModal = ({
                 {errorCount ? (
                   <>
                     <MinerStatusRows errors={hashboardErrors} />
-                    <MinerStatusRows errors={asicErrors} />
                     <MinerStatusRows errors={fanErrors} />
+                    <MinerStatusRows errors={psuErrors} />
+                    {/* <MinerStatusRows errors={asicErrors} /> */}
                   </>
                 ) : (
                   <div className="mt-3">No errors</div>
@@ -138,8 +145,9 @@ const MinerStatusModal = ({
                 {warningCount ? (
                   <>
                     <MinerStatusRows errors={hashboardWarnings} />
-                    <MinerStatusRows errors={asicWarnings} />
                     <MinerStatusRows errors={fanWarnings} />
+                    <MinerStatusRows errors={psuErrors} />
+                    {/* <MinerStatusRows errors={asicWarnings} /> */}
                   </>
                 ) : (
                   <div className="mt-3">No warnings</div>
@@ -150,8 +158,9 @@ const MinerStatusModal = ({
             <>
               <Divider />
               <MinerStatusRow label="Hashboards" />
-              <MinerStatusRow label="ASICs" />
               <MinerStatusRow label="Fans" />
+              <MinerStatusRow label="PSU" />
+              {/* <MinerStatusRow label="ASICs" /> */}
             </>
           )}
         </div>

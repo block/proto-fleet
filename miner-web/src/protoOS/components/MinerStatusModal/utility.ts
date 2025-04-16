@@ -18,6 +18,9 @@ const isAsicErrorCode = (error_code: NotificationError["error_code"]) =>
 const isFanErrorCode = (error_code: NotificationError["error_code"]) =>
   /fan/i.test(error_code || "");
 
+const isPSUErrorCode = (error_code: NotificationError["error_code"]) =>
+  /psu/i.test(error_code || "");
+
 export const isHashboardError = (error: NotificationError) =>
   isHashboardErrorCode(error.error_code) && isError(error.error_level);
 
@@ -35,6 +38,12 @@ export const isFanError = (error: NotificationError) =>
 
 export const isFanWarning = (error: NotificationError) =>
   isFanErrorCode(error.error_code) && isWarning(error.error_level);
+
+export const isPSUWarning = (error: NotificationError) =>
+  isPSUErrorCode(error.error_code) && isWarning(error.error_level);
+
+export const isPSUError = (error: NotificationError) =>
+  isPSUErrorCode(error.error_code) && isError(error.error_level);
 
 export const getErrorTitle = (errors: ErrorListResponse) => {
   let title = "Your miner is not functioning properly";
