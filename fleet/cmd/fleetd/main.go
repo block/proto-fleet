@@ -100,11 +100,15 @@ func start(config *Config) error {
 	}
 
 	handler = h2c.NewHandler(handler, &http2.Server{})
-	_ = http.Server{
+	server := http.Server{
 		Addr:              config.HTTP.Address,
 		Handler:           handler,
 		ReadHeaderTimeout: config.HTTP.ReadHeaderTimeout,
 	}
 
+	err = server.ListenAndServe()
+	if err != nil {
+		return fmt.Errorf("server shutting down: %+v", err)
+	}
 	return nil
 }

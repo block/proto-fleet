@@ -22,7 +22,7 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-    restart: always
+    restart: unless-stopped
     networks:
       - fleet-network
     cap_add:
