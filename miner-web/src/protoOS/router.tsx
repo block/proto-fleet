@@ -15,9 +15,13 @@ import {
   Hardware,
   MiningPools,
 } from "@/protoOS/features/settings";
-import Auth from "@/protoOS/pages/Auth";
 import Logs from "@/protoOS/pages/MinerLogs";
 import Onboarding from "@/protoOS/pages/Onboarding";
+import AuthenticationPage from "@/protoOS/pages/Onboarding/Authentication";
+import MiningPoolPage from "@/protoOS/pages/Onboarding/MiningPool/MiningPool";
+import NetworkPage from "@/protoOS/pages/Onboarding/Network";
+import Verify from "@/protoOS/pages/Onboarding/Verify";
+import Welcome from "@/protoOS/pages/Onboarding/Welcome";
 
 export const routerConfig = [
   {
@@ -55,10 +59,6 @@ export const routerConfig = [
     element: <HashboardTemperature />,
   },
   {
-    path: "auth",
-    element: <Auth />,
-  },
-  {
     path: "logs",
     element: (
       <App title="Logs" fullScreen hideErrors>
@@ -69,6 +69,26 @@ export const routerConfig = [
   {
     path: "onboarding",
     element: <Onboarding />,
+  },
+  {
+    path: "onboarding/welcome",
+    element: <Welcome />,
+  },
+  {
+    path: "onboarding/verify",
+    element: <Verify />,
+  },
+  {
+    path: "onboarding/network",
+    element: <NetworkPage />,
+  },
+  {
+    path: "onboarding/authentication",
+    element: <AuthenticationPage />,
+  },
+  {
+    path: "onboarding/mining-pool",
+    element: <MiningPoolPage />,
   },
   {
     path: "settings",

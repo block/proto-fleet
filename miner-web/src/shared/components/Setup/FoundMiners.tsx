@@ -10,15 +10,16 @@ type FoundMinersProps = {
     macAddress: string;
     controllerSerial: string;
   }[];
+  handleContinueSetup: () => void;
 };
 
-const FoundMiners = ({ miners }: FoundMinersProps) => {
+const FoundMiners = ({ miners, handleContinueSetup }: FoundMinersProps) => {
   // TODO: Get real data from API
 
   return (
     <>
-      <div>
-        <Logo />
+      <div className="p-6">
+        <Logo width="w-[86px]" />
       </div>
       <div className="container mx-auto pt-20">
         <div className="mx-auto flex w-fit flex-col gap-6">
@@ -88,7 +89,7 @@ const FoundMiners = ({ miners }: FoundMinersProps) => {
               </Button>
             )}
             {/* TODO: Add navigation to next step */}
-            <Button variant="primary" size="base">
+            <Button onClick={handleContinueSetup} variant="primary" size="base">
               Continue setup
             </Button>
           </div>

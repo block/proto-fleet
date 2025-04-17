@@ -4,7 +4,10 @@ import Button from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
-import { initValues } from "@/shared/components/Setup/authentication.constants";
+import {
+  initErrors,
+  initValues,
+} from "@/shared/components/Setup/authentication.constants";
 import { Values } from "@/shared/components/Setup/authentication.types";
 import { useKeyDown } from "@/shared/hooks/useKeyDown";
 import { deepClone } from "@/shared/utils/utility";
@@ -112,18 +115,18 @@ const PasswordStrengthMeter = ({
 };
 
 type AuthenticationProps = {
-  submit: () => void;
+  submit: (password: string) => void;
 };
 
 const Authentication = ({ submit }: AuthenticationProps) => {
   const [values, setValues] = useState<Values>(deepClone(initValues));
-  const [errors, setErrors] = useState<Values>(deepClone(initValues));
+  const [errors, setErrors] = useState<Values>(deepClone(initErrors));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [score, setScore] = useState(0);
   const [showWeakPasswordWarning, setShowWeakPasswordWarning] = useState(false);
 
   const validate = useCallback(() => {
-    let newErrors: Values = deepClone(initValues);
+    let newErrors: Values = deepClone(initErrors);
 
     if (values.username.length === 0) {
       newErrors.username = "A username is required";
@@ -151,20 +154,20 @@ const Authentication = ({ submit }: AuthenticationProps) => {
 
         setIsSubmitting(true);
         try {
-          submit();
+          submit(values.password);
         } catch {
           setIsSubmitting(false);
         }
       }
     },
-    [validate, submit, score],
+    [validate, submit, score, values.password],
   );
 
   const handleChange = useCallback(
     (value: string, id: string) => {
       setValues({ ...values, [id]: value.trim() });
       // clear error if the user starts typing
-      setErrors(deepClone(initValues));
+      setErrors(deepClone(initErrors));
     },
     [values],
   );
@@ -200,6 +203,7 @@ const Authentication = ({ submit }: AuthenticationProps) => {
           onChange={handleChange}
           id="username"
           label="Username"
+          disabled
           initValue={values.username}
           error={errors.username}
         />

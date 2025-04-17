@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import "./style.css";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 const Dot = (props: { connecting?: boolean }) => {
   return (
@@ -44,38 +45,42 @@ const AnimatedDotsBackground = ({
 }: AnimatedDotsBackgroundProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const [columnsCount, setColumnsCount] = useState(15);
-  const [rowsCount, setRowsCount] = useState(15);
+  const PIXELS_BETWEEN_DOTS = 40;
+  const DOT_SIZE = 4;
+  const PADDING = 40;
+
+  const { width, height } = useWindowDimensions();
+
+  const [columnsCount, setColumnsCount] = useState(
+    Math.ceil((width - PADDING) / PIXELS_BETWEEN_DOTS),
+  );
+  const [rowsCount, setRowsCount] = useState(
+    Math.ceil(height / (PIXELS_BETWEEN_DOTS + DOT_SIZE)),
+  );
 
   useEffect(() => {
-    setTimeout(() => {
-      updateSize();
-    }, 0);
+    updateSize();
 
     function updateSize() {
       if (!containerRef.current) return;
 
-      const { width } = containerRef.current.getBoundingClientRect();
-      const windowHeight = window.innerHeight;
-
-      const PIXELS_BETWEEN_DOTS = 40;
-      const DOT_SIZE = 4;
-      const PADDING = 40;
-      const maxRows = Math.ceil(
-        windowHeight / (PIXELS_BETWEEN_DOTS + DOT_SIZE),
-      );
+      const maxRows = Math.ceil(height / (PIXELS_BETWEEN_DOTS + DOT_SIZE));
+      const maxCols = Math.ceil((width - PADDING) / PIXELS_BETWEEN_DOTS);
 
       setRowsCount(maxRows);
-      setColumnsCount(Math.ceil((width - PADDING) / PIXELS_BETWEEN_DOTS));
+      setColumnsCount(maxCols);
     }
 
     window.addEventListener("resize", updateSize);
 
     return () => window.removeEventListener("resize", updateSize);
-  }, []);
+  }, [height, width]);
 
   return (
-    <div ref={containerRef} className="relative h-full max-h-svh w-full p-5">
+    <div
+      ref={containerRef}
+      className="relative h-svh w-full overflow-hidden p-5"
+    >
       {children}
       <div
         className={clsx(

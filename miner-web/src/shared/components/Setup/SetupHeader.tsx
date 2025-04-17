@@ -10,7 +10,7 @@ type SetupHeaderProps = {
 
 const SetupHeader = ({ activeStep }: SetupHeaderProps) => {
   return (
-    <>
+    <div className="mb-20">
       <div className="flex items-center p-6">
         <Dismiss />
         <div className="mx-auto flex items-center">
@@ -34,7 +34,7 @@ const SetupHeader = ({ activeStep }: SetupHeaderProps) => {
         <div className="size-5"></div>
       </div>
       <Divider />
-    </>
+    </div>
   );
 };
 

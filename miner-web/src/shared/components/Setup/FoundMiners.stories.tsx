@@ -15,7 +15,10 @@ export const FoundMiners = ({ minersCount }: FoundMinersProps) => {
 
   return (
     <div>
-      <FoundMinersComponent miners={miners.slice(0, minersCount)} />
+      <FoundMinersComponent
+        handleContinueSetup={() => {}}
+        miners={miners.slice(0, minersCount)}
+      />
     </div>
   );
 };

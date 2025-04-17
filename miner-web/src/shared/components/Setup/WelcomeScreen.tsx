@@ -1,5 +1,4 @@
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
 import { LogoAlt } from "@/shared/assets/icons";
 import AnimatedDotsBackground from "@/shared/components/Animation";
 import Button from "@/shared/components/Button";
@@ -153,25 +152,19 @@ const WelcomeFlow = ({
   );
 };
 
-const WelcomeScreen = () => {
-  const [searching, setSearching] = useState(false);
-  const [noMinersFound, setNoMinersFound] = useState(false);
+type WelcomeScreenProps = {
+  handleRetry: () => void;
+  handleSearch: () => void;
+  searching: boolean;
+  noMinersFound: boolean;
+};
 
-  function handleSearch() {
-    setSearching(true);
-
-    // TODO: Replace with actual search logic
-    setTimeout(() => {
-      setSearching(false);
-      setNoMinersFound(true);
-    }, 5000);
-  }
-
-  function handleRetry() {
-    setNoMinersFound(false);
-    handleSearch();
-  }
-
+const WelcomeScreen = ({
+  handleRetry,
+  handleSearch,
+  searching,
+  noMinersFound,
+}: WelcomeScreenProps) => {
   return (
     <AnimatedDotsBackground connecting={searching}>
       <WelcomeFlow
