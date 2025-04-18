@@ -2,68 +2,122 @@ syntax = "proto3";
 
 package pairing.v1;
 
-// Device represents a discovered network device
+// Device represents a discovered network device that can be paired with the system
 message Device {
+  // IPv4 address of the device
   string ip_address = 1;
+
+  // MAC address of the device (format: XX:XX:XX:XX:XX:XX)
   string mac_address = 2;
+
+  // Hostname of the device if available
   string hostname = 3;
-  map<string, string> metadata = 4;
+
+  // Port number where the device's service is running
+  string port = 5;
+
+  // Unix timestamp when the device was discovered
   int64 discovered_at = 6;
 }
 
-// Request for discovering devices using mDNS
+// Configuration for mDNS-based device discovery
 message MDNSModeRequest {
-  string service_type = 1;  // e.g., "_fleet._tcp"
-  int32 timeout_seconds = 2;
-}
+  // Service type to discover (e.g., "_fleet._tcp")
+  // Format: _servicename._protocol
+  string service_type = 1;
 
-// Request for discovering devices using Nmap
-message NmapModeRequest {
-  string target = 1;  // IP, hostname, subnet, or IP range
-  repeated string ports = 2;  // Specific ports to scan
-  bool fast_scan = 3; // ignored if ports are set
-}
+  // Domain to search in (typically "local")
+  string domain = 2;
 
-// Request for discovering devices using IP range
-message IPRangeModeRequest {
-  string start_ip = 1;
-  string end_ip = 2;
-  repeated string ports = 3;
-  int32 timeout_seconds = 4;
-}
-
-// Request for discovering devices from a list of IPs
-message IPListModeRequest {
-  repeated string ip_addresses = 1;
-  repeated string ports = 2;
+  // How long to search for devices, in seconds
   int32 timeout_seconds = 3;
 }
 
+// Configuration for Nmap-based network scanning discovery
+message NmapModeRequest {
+  // Target specification for scan
+  // Can be: single IP (192.168.1.1), hostname (device.local),
+  // subnet (192.168.1.0/24), or IP range (192.168.1.1-10)
+  string target = 1;
 
+  // Specific ports to scan
+  // If specified, fast_scan is ignored
+  repeated string ports = 2;
+
+  // Whether to perform a fast scan (fewer ports, quicker results)
+  // Ignored if specific ports are provided
+  bool fast_scan = 3;
+}
+
+// Configuration for IP range-based device discovery
+message IPRangeModeRequest {
+  // Starting IP address of the range to scan
+  string start_ip = 1;
+
+  // Ending IP address of the range to scan
+  string end_ip = 2;
+
+  // Ports to check on each IP address
+  repeated string ports = 3;
+
+  // Maximum time to spend scanning, in seconds
+  int32 timeout_seconds = 4;
+}
+
+// Configuration for discovering devices from a specific list of IP addresses
+message IPListModeRequest {
+  // List of IP addresses to check
+  repeated string ip_addresses = 1;
+
+  // Ports to check on each IP address
+  repeated string ports = 2;
+
+  // Maximum time to spend scanning, in seconds
+  int32 timeout_seconds = 3;
+}
+
+// Request message for device discovery, supporting multiple discovery modes
 message DiscoverRequest {
+  // Only one discovery mode can be active at a time
   oneof mode {
-    IPListModeRequest ip_list = 1;
-    IPRangeModeRequest ip_range = 2;
-    MDNSModeRequest mdns = 3;
-    NmapModeRequest nmap = 4;
+    IPListModeRequest ip_list = 1;    // Discover from list of IPs
+    IPRangeModeRequest ip_range = 2;  // Discover in IP range
+    MDNSModeRequest mdns = 3;         // Discover using mDNS
+    NmapModeRequest nmap = 4;         // Discover using Nmap
   }
 }
 
+// Response message containing discovered devices or errors
 message DiscoverResponse {
+  // List of devices discovered in this response
   repeated Device devices = 1;
+
+  // Error message if discovery failed
+  // Empty if discovery was successful
   string error = 2;
 }
 
+// Request to pair with discovered devices
 message PairRequest {
+  // Authentication token for pairing
   string pairing_token = 1;
+
+  // List of device IDs to pair with
+  // Device IDs are typically MAC addresses or unique identifiers
   repeated string device_id = 2;
 }
 
+// Response to pairing request
+// Empty message as success/failure is indicated by gRPC status
 message PairResponse {
 }
 
-// Service definition
+// Service for discovering and pairing with network devices
 service PairingService {
+  // Discovers devices on the network using the specified discovery mode
+  // Streams results as devices are found
   rpc Discover(DiscoverRequest) returns (stream DiscoverResponse);
+
+  // Initiates pairing with one or more discovered devices
   rpc Pair(PairRequest) returns (PairResponse);
 }

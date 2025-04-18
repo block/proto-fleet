@@ -20,36 +20,46 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_pairing_v1_pairing: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChhwYWlyaW5nL3YxL3BhaXJpbmcucHJvdG8SCnBhaXJpbmcudjEivwEKBkRldmljZRISCgppcF9hZGRyZXNzGAEgASgJEhMKC21hY19hZGRyZXNzGAIgASgJEhAKCGhvc3RuYW1lGAMgASgJEjIKCG1ldGFkYXRhGAQgAygLMiAucGFpcmluZy52MS5EZXZpY2UuTWV0YWRhdGFFbnRyeRIVCg1kaXNjb3ZlcmVkX2F0GAYgASgDGi8KDU1ldGFkYXRhRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASJACg9NRE5TTW9kZVJlcXVlc3QSFAoMc2VydmljZV90eXBlGAEgASgJEhcKD3RpbWVvdXRfc2Vjb25kcxgCIAEoBSJDCg9ObWFwTW9kZVJlcXVlc3QSDgoGdGFyZ2V0GAEgASgJEg0KBXBvcnRzGAIgAygJEhEKCWZhc3Rfc2NhbhgDIAEoCCJeChJJUFJhbmdlTW9kZVJlcXVlc3QSEAoIc3RhcnRfaXAYASABKAkSDgoGZW5kX2lwGAIgASgJEg0KBXBvcnRzGAMgAygJEhcKD3RpbWVvdXRfc2Vjb25kcxgEIAEoBSJRChFJUExpc3RNb2RlUmVxdWVzdBIUCgxpcF9hZGRyZXNzZXMYASADKAkSDQoFcG9ydHMYAiADKAkSFwoPdGltZW91dF9zZWNvbmRzGAMgASgFItkBCg9EaXNjb3ZlclJlcXVlc3QSMAoHaXBfbGlzdBgBIAEoCzIdLnBhaXJpbmcudjEuSVBMaXN0TW9kZVJlcXVlc3RIABIyCghpcF9yYW5nZRgCIAEoCzIeLnBhaXJpbmcudjEuSVBSYW5nZU1vZGVSZXF1ZXN0SAASKwoEbWRucxgDIAEoCzIbLnBhaXJpbmcudjEuTUROU01vZGVSZXF1ZXN0SAASKwoEbm1hcBgEIAEoCzIbLnBhaXJpbmcudjEuTm1hcE1vZGVSZXF1ZXN0SABCBgoEbW9kZSJGChBEaXNjb3ZlclJlc3BvbnNlEiMKB2RldmljZXMYASADKAsyEi5wYWlyaW5nLnYxLkRldmljZRINCgVlcnJvchgCIAEoCSI3CgtQYWlyUmVxdWVzdBIVCg1wYWlyaW5nX3Rva2VuGAEgASgJEhEKCWRldmljZV9pZBgCIAMoCSIOCgxQYWlyUmVzcG9uc2UylAEKDlBhaXJpbmdTZXJ2aWNlEkcKCERpc2NvdmVyEhsucGFpcmluZy52MS5EaXNjb3ZlclJlcXVlc3QaHC5wYWlyaW5nLnYxLkRpc2NvdmVyUmVzcG9uc2UwARI5CgRQYWlyEhcucGFpcmluZy52MS5QYWlyUmVxdWVzdBoYLnBhaXJpbmcudjEuUGFpclJlc3BvbnNlQrcBCg5jb20ucGFpcmluZy52MUIMUGFpcmluZ1Byb3RvUAFaTmdpdGh1Yi5jb20vYnRjLW1pbmluZy9taW5lci1maXJtd2FyZS9mbGVldC9nZW5lcmF0ZWQvZ3JwYy9wYWlyaW5nL3YxO3BhaXJpbmd2MaICA1BYWKoCClBhaXJpbmcuVjHKAgpQYWlyaW5nXFYx4gIWUGFpcmluZ1xWMVxHUEJNZXRhZGF0YeoCC1BhaXJpbmc6OlYxYgZwcm90bzM",
+    "ChhwYWlyaW5nL3YxL3BhaXJpbmcucHJvdG8SCnBhaXJpbmcudjEiaAoGRGV2aWNlEhIKCmlwX2FkZHJlc3MYASABKAkSEwoLbWFjX2FkZHJlc3MYAiABKAkSEAoIaG9zdG5hbWUYAyABKAkSDAoEcG9ydBgFIAEoCRIVCg1kaXNjb3ZlcmVkX2F0GAYgASgDIlAKD01ETlNNb2RlUmVxdWVzdBIUCgxzZXJ2aWNlX3R5cGUYASABKAkSDgoGZG9tYWluGAIgASgJEhcKD3RpbWVvdXRfc2Vjb25kcxgDIAEoBSJDCg9ObWFwTW9kZVJlcXVlc3QSDgoGdGFyZ2V0GAEgASgJEg0KBXBvcnRzGAIgAygJEhEKCWZhc3Rfc2NhbhgDIAEoCCJeChJJUFJhbmdlTW9kZVJlcXVlc3QSEAoIc3RhcnRfaXAYASABKAkSDgoGZW5kX2lwGAIgASgJEg0KBXBvcnRzGAMgAygJEhcKD3RpbWVvdXRfc2Vjb25kcxgEIAEoBSJRChFJUExpc3RNb2RlUmVxdWVzdBIUCgxpcF9hZGRyZXNzZXMYASADKAkSDQoFcG9ydHMYAiADKAkSFwoPdGltZW91dF9zZWNvbmRzGAMgASgFItkBCg9EaXNjb3ZlclJlcXVlc3QSMAoHaXBfbGlzdBgBIAEoCzIdLnBhaXJpbmcudjEuSVBMaXN0TW9kZVJlcXVlc3RIABIyCghpcF9yYW5nZRgCIAEoCzIeLnBhaXJpbmcudjEuSVBSYW5nZU1vZGVSZXF1ZXN0SAASKwoEbWRucxgDIAEoCzIbLnBhaXJpbmcudjEuTUROU01vZGVSZXF1ZXN0SAASKwoEbm1hcBgEIAEoCzIbLnBhaXJpbmcudjEuTm1hcE1vZGVSZXF1ZXN0SABCBgoEbW9kZSJGChBEaXNjb3ZlclJlc3BvbnNlEiMKB2RldmljZXMYASADKAsyEi5wYWlyaW5nLnYxLkRldmljZRINCgVlcnJvchgCIAEoCSI3CgtQYWlyUmVxdWVzdBIVCg1wYWlyaW5nX3Rva2VuGAEgASgJEhEKCWRldmljZV9pZBgCIAMoCSIOCgxQYWlyUmVzcG9uc2UylAEKDlBhaXJpbmdTZXJ2aWNlEkcKCERpc2NvdmVyEhsucGFpcmluZy52MS5EaXNjb3ZlclJlcXVlc3QaHC5wYWlyaW5nLnYxLkRpc2NvdmVyUmVzcG9uc2UwARI5CgRQYWlyEhcucGFpcmluZy52MS5QYWlyUmVxdWVzdBoYLnBhaXJpbmcudjEuUGFpclJlc3BvbnNlQrcBCg5jb20ucGFpcmluZy52MUIMUGFpcmluZ1Byb3RvUAFaTmdpdGh1Yi5jb20vYnRjLW1pbmluZy9taW5lci1maXJtd2FyZS9mbGVldC9nZW5lcmF0ZWQvZ3JwYy9wYWlyaW5nL3YxO3BhaXJpbmd2MaICA1BYWKoCClBhaXJpbmcuVjHKAgpQYWlyaW5nXFYx4gIWUGFpcmluZ1xWMVxHUEJNZXRhZGF0YeoCC1BhaXJpbmc6OlYxYgZwcm90bzM",
   );
 
 /**
- * Device represents a discovered network device
+ * Device represents a discovered network device that can be paired with the system
  *
  * @generated from message pairing.v1.Device
  */
 export type Device = Message<"pairing.v1.Device"> & {
   /**
+   * IPv4 address of the device
+   *
    * @generated from field: string ip_address = 1;
    */
   ipAddress: string;
 
   /**
+   * MAC address of the device (format: XX:XX:XX:XX:XX:XX)
+   *
    * @generated from field: string mac_address = 2;
    */
   macAddress: string;
 
   /**
+   * Hostname of the device if available
+   *
    * @generated from field: string hostname = 3;
    */
   hostname: string;
 
   /**
-   * @generated from field: map<string, string> metadata = 4;
+   * Port number where the device's service is running
+   *
+   * @generated from field: string port = 5;
    */
-  metadata: { [key: string]: string };
+  port: string;
 
   /**
+   * Unix timestamp when the device was discovered
+   *
    * @generated from field: int64 discovered_at = 6;
    */
   discoveredAt: bigint;
@@ -64,20 +74,30 @@ export const DeviceSchema: GenMessage<Device> =
   messageDesc(file_pairing_v1_pairing, 0);
 
 /**
- * Request for discovering devices using mDNS
+ * Configuration for mDNS-based device discovery
  *
  * @generated from message pairing.v1.MDNSModeRequest
  */
 export type MDNSModeRequest = Message<"pairing.v1.MDNSModeRequest"> & {
   /**
-   * e.g., "_fleet._tcp"
+   * Service type to discover (e.g., "_fleet._tcp")
+   * Format: _servicename._protocol
    *
    * @generated from field: string service_type = 1;
    */
   serviceType: string;
 
   /**
-   * @generated from field: int32 timeout_seconds = 2;
+   * Domain to search in (typically "local")
+   *
+   * @generated from field: string domain = 2;
+   */
+  domain: string;
+
+  /**
+   * How long to search for devices, in seconds
+   *
+   * @generated from field: int32 timeout_seconds = 3;
    */
   timeoutSeconds: number;
 };
@@ -91,13 +111,15 @@ export const MDNSModeRequestSchema: GenMessage<MDNSModeRequest> =
   messageDesc(file_pairing_v1_pairing, 1);
 
 /**
- * Request for discovering devices using Nmap
+ * Configuration for Nmap-based network scanning discovery
  *
  * @generated from message pairing.v1.NmapModeRequest
  */
 export type NmapModeRequest = Message<"pairing.v1.NmapModeRequest"> & {
   /**
-   * IP, hostname, subnet, or IP range
+   * Target specification for scan
+   * Can be: single IP (192.168.1.1), hostname (device.local),
+   * subnet (192.168.1.0/24), or IP range (192.168.1.1-10)
    *
    * @generated from field: string target = 1;
    */
@@ -105,13 +127,15 @@ export type NmapModeRequest = Message<"pairing.v1.NmapModeRequest"> & {
 
   /**
    * Specific ports to scan
+   * If specified, fast_scan is ignored
    *
    * @generated from field: repeated string ports = 2;
    */
   ports: string[];
 
   /**
-   * ignored if ports are set
+   * Whether to perform a fast scan (fewer ports, quicker results)
+   * Ignored if specific ports are provided
    *
    * @generated from field: bool fast_scan = 3;
    */
@@ -127,27 +151,35 @@ export const NmapModeRequestSchema: GenMessage<NmapModeRequest> =
   messageDesc(file_pairing_v1_pairing, 2);
 
 /**
- * Request for discovering devices using IP range
+ * Configuration for IP range-based device discovery
  *
  * @generated from message pairing.v1.IPRangeModeRequest
  */
 export type IPRangeModeRequest = Message<"pairing.v1.IPRangeModeRequest"> & {
   /**
+   * Starting IP address of the range to scan
+   *
    * @generated from field: string start_ip = 1;
    */
   startIp: string;
 
   /**
+   * Ending IP address of the range to scan
+   *
    * @generated from field: string end_ip = 2;
    */
   endIp: string;
 
   /**
+   * Ports to check on each IP address
+   *
    * @generated from field: repeated string ports = 3;
    */
   ports: string[];
 
   /**
+   * Maximum time to spend scanning, in seconds
+   *
    * @generated from field: int32 timeout_seconds = 4;
    */
   timeoutSeconds: number;
@@ -162,22 +194,28 @@ export const IPRangeModeRequestSchema: GenMessage<IPRangeModeRequest> =
   messageDesc(file_pairing_v1_pairing, 3);
 
 /**
- * Request for discovering devices from a list of IPs
+ * Configuration for discovering devices from a specific list of IP addresses
  *
  * @generated from message pairing.v1.IPListModeRequest
  */
 export type IPListModeRequest = Message<"pairing.v1.IPListModeRequest"> & {
   /**
+   * List of IP addresses to check
+   *
    * @generated from field: repeated string ip_addresses = 1;
    */
   ipAddresses: string[];
 
   /**
+   * Ports to check on each IP address
+   *
    * @generated from field: repeated string ports = 2;
    */
   ports: string[];
 
   /**
+   * Maximum time to spend scanning, in seconds
+   *
    * @generated from field: int32 timeout_seconds = 3;
    */
   timeoutSeconds: number;
@@ -192,15 +230,21 @@ export const IPListModeRequestSchema: GenMessage<IPListModeRequest> =
   messageDesc(file_pairing_v1_pairing, 4);
 
 /**
+ * Request message for device discovery, supporting multiple discovery modes
+ *
  * @generated from message pairing.v1.DiscoverRequest
  */
 export type DiscoverRequest = Message<"pairing.v1.DiscoverRequest"> & {
   /**
+   * Only one discovery mode can be active at a time
+   *
    * @generated from oneof pairing.v1.DiscoverRequest.mode
    */
   mode:
     | {
         /**
+         * Discover from list of IPs
+         *
          * @generated from field: pairing.v1.IPListModeRequest ip_list = 1;
          */
         value: IPListModeRequest;
@@ -208,6 +252,8 @@ export type DiscoverRequest = Message<"pairing.v1.DiscoverRequest"> & {
       }
     | {
         /**
+         * Discover in IP range
+         *
          * @generated from field: pairing.v1.IPRangeModeRequest ip_range = 2;
          */
         value: IPRangeModeRequest;
@@ -215,6 +261,8 @@ export type DiscoverRequest = Message<"pairing.v1.DiscoverRequest"> & {
       }
     | {
         /**
+         * Discover using mDNS
+         *
          * @generated from field: pairing.v1.MDNSModeRequest mdns = 3;
          */
         value: MDNSModeRequest;
@@ -222,6 +270,8 @@ export type DiscoverRequest = Message<"pairing.v1.DiscoverRequest"> & {
       }
     | {
         /**
+         * Discover using Nmap
+         *
          * @generated from field: pairing.v1.NmapModeRequest nmap = 4;
          */
         value: NmapModeRequest;
@@ -239,15 +289,22 @@ export const DiscoverRequestSchema: GenMessage<DiscoverRequest> =
   messageDesc(file_pairing_v1_pairing, 5);
 
 /**
+ * Response message containing discovered devices or errors
+ *
  * @generated from message pairing.v1.DiscoverResponse
  */
 export type DiscoverResponse = Message<"pairing.v1.DiscoverResponse"> & {
   /**
+   * List of devices discovered in this response
+   *
    * @generated from field: repeated pairing.v1.Device devices = 1;
    */
   devices: Device[];
 
   /**
+   * Error message if discovery failed
+   * Empty if discovery was successful
+   *
    * @generated from field: string error = 2;
    */
   error: string;
@@ -262,15 +319,22 @@ export const DiscoverResponseSchema: GenMessage<DiscoverResponse> =
   messageDesc(file_pairing_v1_pairing, 6);
 
 /**
+ * Request to pair with discovered devices
+ *
  * @generated from message pairing.v1.PairRequest
  */
 export type PairRequest = Message<"pairing.v1.PairRequest"> & {
   /**
+   * Authentication token for pairing
+   *
    * @generated from field: string pairing_token = 1;
    */
   pairingToken: string;
 
   /**
+   * List of device IDs to pair with
+   * Device IDs are typically MAC addresses or unique identifiers
+   *
    * @generated from field: repeated string device_id = 2;
    */
   deviceId: string[];
@@ -285,6 +349,9 @@ export const PairRequestSchema: GenMessage<PairRequest> =
   messageDesc(file_pairing_v1_pairing, 7);
 
 /**
+ * Response to pairing request
+ * Empty message as success/failure is indicated by gRPC status
+ *
  * @generated from message pairing.v1.PairResponse
  */
 export type PairResponse = Message<"pairing.v1.PairResponse"> & {};
@@ -298,12 +365,15 @@ export const PairResponseSchema: GenMessage<PairResponse> =
   messageDesc(file_pairing_v1_pairing, 8);
 
 /**
- * Service definition
+ * Service for discovering and pairing with network devices
  *
  * @generated from service pairing.v1.PairingService
  */
 export const PairingService: GenService<{
   /**
+   * Discovers devices on the network using the specified discovery mode
+   * Streams results as devices are found
+   *
    * @generated from rpc pairing.v1.PairingService.Discover
    */
   discover: {
@@ -312,6 +382,8 @@ export const PairingService: GenService<{
     output: typeof DiscoverResponseSchema;
   };
   /**
+   * Initiates pairing with one or more discovered devices
+   *
    * @generated from rpc pairing.v1.PairingService.Pair
    */
   pair: {

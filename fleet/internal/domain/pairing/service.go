@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/networking"
+	"log/slog"
 	"net"
 	"strings"
 	"sync"
@@ -46,8 +48,12 @@ type Device struct {
 	DiscoveredAt    int64
 	IPAddress       string
 }
+type NetworkInfo struct {
+	networking.NetworkInfo
+}
 type MDNSDiscoveryRequest struct {
 	ServiceType    string
+	Domain         string
 	TimeoutSeconds int32
 }
 type NmapDiscoveryRequest struct {
@@ -71,35 +77,47 @@ type DiscoveryResponse struct {
 	Devices []*Device
 }
 
+func (s *Service) GetLocalNetworkInfo(_ context.Context) (*NetworkInfo, error) {
+	info, err := networking.GetLocalNetworkInfo()
+	if err != nil {
+		return nil, err
+	}
+	return &NetworkInfo{info}, nil
+}
+
 // DiscoverWithMDNS discovers devices using mDNS
 func (s *Service) DiscoverWithMDNS(ctx context.Context, r *MDNSDiscoveryRequest) (<-chan *DiscoveryResponse, error) {
-	resultChan := make(chan *DiscoveryResponse)
+	// Use buffered channels to prevent blocking
+	resultChan := make(chan *DiscoveryResponse, 10)
+	entries := make(chan *zeroconf.ServiceEntry, 10)
 
+	// Initialize resolver
 	resolver, err := zeroconf.NewResolver(nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize resolver: %v", err)
 	}
 
-	entries := make(chan *zeroconf.ServiceEntry)
+	// Create timeout context
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(r.TimeoutSeconds)*time.Second)
 
+	// Start goroutine for processing entries
 	go func() {
-		defer cancel()
+		// Ensure cleanup
 		defer close(resultChan)
-
-		err := resolver.Browse(timeoutCtx, r.ServiceType, "local.", entries)
-		if err != nil {
-			resultChan <- &DiscoveryResponse{
-				Error: fmt.Sprintf("failed to browse: %v", err),
-			}
-			return
-		}
-
+		defer cancel()
+		slog.Debug("DiscoverWithMDNS: discovering mdns...")
 		for {
 			select {
-			case entry := <-entries:
-				if entry == nil {
+			case entry, ok := <-entries:
+				if !ok {
+					slog.Debug("DiscoverWithMDNS: not ok")
 					return
+				}
+
+				slog.Debug("DiscoverWithMDNS", "entry", entry)
+				if entry == nil {
+					slog.Debug("DiscoverWithMDNS: empty entry")
+					continue
 				}
 
 				device := &Device{
@@ -108,15 +126,52 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *MDNSDiscoveryRequest)
 				}
 
 				if len(entry.AddrIPv4) > 0 {
-					device.IPAddress = entry.AddrIPv4[0].String()
+					ipAddr := entry.AddrIPv4[0].String()
+					device.IPAddress = ipAddr
+					device.MacAddress = networking.GetMacAddress(ipAddr)
 				}
 
-				resultChan <- &DiscoveryResponse{
+				if device.MacAddress == "" || device.IPAddress == "" {
+					continue
+				}
+
+				// Try to resolve hostname
+				if names, err := net.LookupAddr(device.IPAddress); err == nil && len(names) > 0 {
+					device.Hostname = names[0]
+				}
+
+				// Handle context cancellation during send
+				select {
+				case resultChan <- &DiscoveryResponse{
 					Devices: []*Device{device},
+				}:
+				case <-timeoutCtx.Done():
+					slog.Debug("DiscoverWithMDNS: timed out")
+					return
 				}
 
 			case <-timeoutCtx.Done():
+				slog.Debug("DiscoverWithMDNS: discovering done")
 				return
+			}
+		}
+	}()
+
+	domain := "local."
+	if r.Domain != "" {
+		domain = r.Domain
+	}
+	// Start browsing in a separate goroutine
+	go func() {
+		slog.Debug("DiscoverWithMDNS: browsing")
+		err := resolver.Browse(timeoutCtx, r.ServiceType, domain, entries)
+		if err != nil {
+			select {
+			case resultChan <- &DiscoveryResponse{
+				Error: fmt.Sprintf("failed to browse: %v", err),
+			}:
+			case <-timeoutCtx.Done():
+				// Context is done, don't send error
 			}
 		}
 	}()
@@ -182,13 +237,22 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, req *NmapDiscoveryReques
 			for _, addr := range host.Addresses {
 				if addr.AddrType == "ipv4" {
 					device.IPAddress = addr.Addr
-				} else if addr.AddrType == "mac" {
-					device.MacAddress = addr.Addr
 				}
 			}
 
-			if len(host.Hostnames) > 0 {
-				device.Hostname = host.Hostnames[0].Name
+			if len(device.IPAddress) == 0 {
+				continue
+			}
+
+			device.MacAddress = networking.GetMacAddress(device.IPAddress)
+
+			if device.MacAddress == "" {
+				continue
+			}
+
+			// Try to resolve hostname
+			if names, err := net.LookupAddr(device.IPAddress); err == nil && len(names) > 0 {
+				device.Hostname = names[0]
 			}
 
 			select {
@@ -237,6 +301,11 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, req *IPRangeDiscovery
 					device := &Device{
 						IPAddress:    ipAddr,
 						DiscoveredAt: time.Now().Unix(),
+						MacAddress:   networking.GetMacAddress(ipAddr),
+					}
+
+					if device.MacAddress == "" {
+						return
 					}
 
 					// Try to resolve hostname
@@ -290,8 +359,12 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, req *IPListDiscoveryRe
 					device := &Device{
 						IPAddress:    ipAddr,
 						DiscoveredAt: time.Now().Unix(),
+						MacAddress:   networking.GetMacAddress(ipAddr),
 					}
 
+					if device.MacAddress == "" {
+						return
+					}
 					// Try to resolve hostname
 					if names, err := net.LookupAddr(ipAddr); err == nil && len(names) > 0 {
 						device.Hostname = names[0]

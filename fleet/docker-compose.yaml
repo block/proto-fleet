@@ -38,6 +38,9 @@ services:
       PORT: 8080
     networks:
       - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
   mms-2:
     build:
       context: ..
@@ -48,6 +51,9 @@ services:
       PORT: 8080
     networks:
       - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
   mysql:
     image: mysql:8.4.4
     restart: always

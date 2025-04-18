@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/btc-mining/miner-firmware/fleet/internal/domain/pairing"
+	"log/slog"
 
 	"connectrpc.com/connect"
 	pb "github.com/btc-mining/miner-firmware/fleet/generated/grpc/pairing/v1"
@@ -26,6 +27,7 @@ func NewHandler(pairingSvc *pairing.Service) *Handler {
 
 // Discover implements pairingv1connect.DeviceDiscoveryServiceHandler.
 func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRequest], s *connect.ServerStream[pb.DiscoverResponse]) error {
+	slog.Debug("Discover: handling discover request", "payload", r.Msg)
 	var resultChan <-chan *pairing.DiscoveryResponse
 	var err error
 	switch r.Msg.Mode.(type) {
@@ -54,6 +56,7 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	case *pb.DiscoverRequest_Mdns:
 		req := &pairing.MDNSDiscoveryRequest{
 			ServiceType:    r.Msg.GetMdns().ServiceType,
+			Domain:         r.Msg.GetMdns().Domain,
 			TimeoutSeconds: r.Msg.GetMdns().TimeoutSeconds,
 		}
 		resultChan, err = h.pairingSvc.DiscoverWithMDNS(ctx, req)

@@ -3,13 +3,18 @@ package main
 import (
 	"connectrpc.com/grpcreflect"
 	"fmt"
+	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
+	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/networkinfo/v1/networkinfov1connect"
 	authDomain "github.com/btc-mining/miner-firmware/fleet/internal/domain/auth"
+	fleetmanagementDomain "github.com/btc-mining/miner-firmware/fleet/internal/domain/fleetmanagement"
 	pairingDomain "github.com/btc-mining/miner-firmware/fleet/internal/domain/pairing"
 	tokenDomain "github.com/btc-mining/miner-firmware/fleet/internal/domain/token"
 	"github.com/btc-mining/miner-firmware/fleet/internal/handlers/auth"
+	"github.com/btc-mining/miner-firmware/fleet/internal/handlers/fleetmanagement"
 	"github.com/btc-mining/miner-firmware/fleet/internal/handlers/health"
 	"github.com/btc-mining/miner-firmware/fleet/internal/handlers/interceptors"
 	"github.com/btc-mining/miner-firmware/fleet/internal/handlers/middleware"
+	"github.com/btc-mining/miner-firmware/fleet/internal/handlers/networkinfo"
 	"github.com/btc-mining/miner-firmware/fleet/internal/handlers/onboarding"
 	"github.com/btc-mining/miner-firmware/fleet/internal/handlers/pairing"
 	"github.com/btc-mining/miner-firmware/fleet/internal/handlers/static"
@@ -48,6 +53,11 @@ var unauthenticatedProcedures = []string{
 	"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
 	authv1connect.AuthServiceAuthenticateProcedure,
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
+
+	// TODO remove the following before beta
+	pairingv1connect.PairingServiceDiscoverProcedure,
+	networkinfov1connect.NetworkInfoServiceGetNetworkInfoProcedure,
+	fleetmanagementv1connect.FleetManagementServiceSetDefaultPoolProcedure,
 }
 
 var reflectEnabledServices = []string{
@@ -68,8 +78,9 @@ func start(config *Config) error {
 	}
 	authSvc := authDomain.NewService(conn, tokenSvc)
 	pairingSvc := pairingDomain.NewService()
+	fleetMgmtSvc := fleetmanagementDomain.NewService(conn)
 
-	// init middle ware
+	// init middleware
 	authMiddleware := middleware.NewAuthMiddleware(tokenSvc, unauthenticatedProcedures)
 
 	// init interceptors
@@ -93,6 +104,8 @@ func start(config *Config) error {
 	mux.Handle(authv1connect.NewAuthServiceHandler(auth.NewHandler(authSvc), li))
 	mux.Handle(onboardingv1connect.NewOnboardingServiceHandler(onboarding.NewHandler(authSvc), li))
 	mux.Handle(pairingv1connect.NewPairingServiceHandler(pairing.NewHandler(pairingSvc), li))
+	mux.Handle(networkinfov1connect.NewNetworkInfoServiceHandler(networkinfo.NewHandler(pairingSvc), li))
+	mux.Handle(fleetmanagementv1connect.NewFleetManagementServiceHandler(fleetmanagement.NewHandler(fleetMgmtSvc), li))
 
 	var handler http.Handler = mux
 	if authMiddleware != nil {

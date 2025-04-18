@@ -5,7 +5,7 @@ import (
 	"github.com/btc-mining/miner-firmware/fleet/internal/domain/auth"
 
 	"connectrpc.com/connect"
-	authv1 "github.com/btc-mining/miner-firmware/fleet/generated/grpc/onboarding/v1"
+	pb "github.com/btc-mining/miner-firmware/fleet/generated/grpc/onboarding/v1"
 	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/onboarding/v1/onboardingv1connect"
 )
 
@@ -22,7 +22,7 @@ func NewHandler(authSvc *auth.Service) *Handler {
 }
 
 // CreateAdminLogin authenticates a user and returns a JWT token
-func (s *Handler) CreateAdminLogin(ctx context.Context, r *connect.Request[authv1.CreateAdminLoginRequest]) (*connect.Response[authv1.CreateAdminLoginResponse], error) {
+func (s *Handler) CreateAdminLogin(ctx context.Context, r *connect.Request[pb.CreateAdminLoginRequest]) (*connect.Response[pb.CreateAdminLoginResponse], error) {
 	userID, err := s.authSvc.CreateAdminUser(ctx, &auth.CreateAdminUserRequest{
 		Username: r.Msg.Username,
 		Password: r.Msg.Password,
@@ -30,7 +30,7 @@ func (s *Handler) CreateAdminLogin(ctx context.Context, r *connect.Request[authv
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(&authv1.CreateAdminLoginResponse{
+	return connect.NewResponse(&pb.CreateAdminLoginResponse{
 		UserId: string(userID),
 	}), nil
 }

@@ -6,8 +6,9 @@ GRPC localhost:4000/pairing.v1.PairingService/Discover
 
 {
   "mdns": {
-    "service_type": "_tcp",
-    "timeout_seconds": 120
+    "service_type": "_http._tcp",
+    "domain": "fleet_fleet-network.",
+    "timeout_seconds": 15
   }
 }
 
@@ -51,3 +52,23 @@ GRPC localhost:4000/pairing.v1.PairingService/Discover
   }
 }
 
+### Run network info
+
+GRPC localhost:4000/networkinfo.v1.NetworkInfoService/GetNetworkInfo
+
+{
+
+}
+
+### Run UpdateDefaultPool
+
+GRPC localhost:4000/fleetmanagement.v1.FleetManagementService/SetDefaultPool
+
+{
+  "pool_config": {
+    "url": "https://example.com",
+    "username": "alice",
+    "password": "secret",
+    "worker_name": "default"
+  }
+}

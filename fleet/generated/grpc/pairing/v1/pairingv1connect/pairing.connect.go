@@ -42,7 +42,10 @@ const (
 
 // PairingServiceClient is a client for the pairing.v1.PairingService service.
 type PairingServiceClient interface {
+	// Discovers devices on the network using the specified discovery mode
+	// Streams results as devices are found
 	Discover(context.Context, *connect.Request[v1.DiscoverRequest]) (*connect.ServerStreamForClient[v1.DiscoverResponse], error)
+	// Initiates pairing with one or more discovered devices
 	Pair(context.Context, *connect.Request[v1.PairRequest]) (*connect.Response[v1.PairResponse], error)
 }
 
@@ -87,7 +90,10 @@ func (c *pairingServiceClient) Pair(ctx context.Context, req *connect.Request[v1
 
 // PairingServiceHandler is an implementation of the pairing.v1.PairingService service.
 type PairingServiceHandler interface {
+	// Discovers devices on the network using the specified discovery mode
+	// Streams results as devices are found
 	Discover(context.Context, *connect.Request[v1.DiscoverRequest], *connect.ServerStream[v1.DiscoverResponse]) error
+	// Initiates pairing with one or more discovered devices
 	Pair(context.Context, *connect.Request[v1.PairRequest]) (*connect.Response[v1.PairResponse], error)
 }
 

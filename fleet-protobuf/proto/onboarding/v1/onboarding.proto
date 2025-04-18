@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package onboarding.v1;
 
-
-
 service OnboardingService {
     rpc CreateAdminLogin(CreateAdminLoginRequest) returns (CreateAdminLoginResponse);
 }
