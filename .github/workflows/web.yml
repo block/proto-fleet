@@ -1,0 +1,98 @@
+name: Web
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/web.yml
+      - "miner-web/**"
+  push:
+    branches: main
+    paths:
+      - .github/workflows/web.yml
+      - "miner-web/**"
+    tags:
+      - "web-*"
+
+jobs:
+  build-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          cache: npm
+          cache-dependency-path: miner-web/package-lock.json
+
+      # hack needed to avoid npm install from failing
+      - run: mkdir -p .hermit/node/lib
+
+      - name: Install NPM dependencies
+        working-directory: miner-web
+        run: |
+          rm -rf package-lock.json
+          npm install
+
+      - name: NPM build
+        working-directory: miner-web
+        run: npm run build
+
+      - name: NPM test
+        working-directory: miner-web
+        run: npm run test
+
+      - name: Upload web dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: |
+            miner-web/dist/*
+
+  release-publish:
+    name: Publish Release
+    needs: [build-test]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref_name, 'web-')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: .github/artifacts
+
+      - name: Get version from tag
+        id: tag
+        run: |
+          echo "version=$(echo "${{github.ref_name}}" | sed 's/web-//')" >> $GITHUB_OUTPUT
+          echo "previous=$(git tag --list "web-*" --no-column --no-contains ${{ github.ref }} | sort -V | tail -n 1)" >> $GITHUB_OUTPUT
+
+      - name: Zip all and version artifacts
+        working-directory: .github/artifacts
+        run: find . -maxdepth 1 -type d ! -name . -exec sh -c 'zip -r "{}-${{ steps.tag.outputs.version }}.zip" "{}"' \;
+
+      - name: Build release notes
+        id: build_changelog
+        uses: mikepenz/release-changelog-builder-action@v5
+        with:
+          configuration: .github/release-configs/web.json
+          fromTag: ${{ steps.tag.outputs.previous }}
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Proto Web (${{ steps.tag.outputs.version }})
+          body: ${{steps.build_changelog.outputs.changelog}}
+          files: |
+            .github/artifacts/*.zip

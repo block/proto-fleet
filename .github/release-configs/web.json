@@ -1,0 +1,37 @@
+{
+    "template": "#{{CHANGELOG}}\n**Full Changelog**: ${{RELEASE_DIFF}}",
+    "pr_template": "- #${{NUMBER}} ${{TITLE}} by @${{AUTHOR}}",
+    "empty_template": "This release has no changes. See the previous release for notes.",
+    "categories": [
+      {
+        "title": "## 🚀 Changelog",
+        "labels": [
+          "web"
+        ],
+        "exclude_labels": [
+          "dependencies",
+          "versions"
+        ],
+        "empty_content": "- no changes"
+      },
+      {
+        "title": "## 📦 Dependencies",
+        "labels": [
+          "web",
+          "dependencies"
+        ],
+        "empty_content": "- no new dependencies",
+        "exhaustive": true
+      }
+    ],
+    "tag_resolver": {
+      "method": "semver",
+      "filter": {
+        "pattern": "web-(.+)",
+        "method": "match",
+        "flags": "gu"
+      }
+    },
+    "max_pull_requests": 1000
+  }
+  
