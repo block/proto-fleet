@@ -1,16 +1,14 @@
 import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import clsx from "clsx";
-import { dangerFanspeed, maxFanSpeed, warningFanspeed } from "../../constants";
-import { useProcessedHashboardTemperature } from "../../hooks";
 import { type OutletContext } from "../../types";
 import Stats from "../Stats";
-import HbTempPreview from "./HbTempPreview";
+import HbBayPreview from "./HbBayPreview";
 import { useCoolingStatus } from "@/protoOS/api";
 import { type FanInfo } from "@/protoOS/api/types";
+import { useProcessedHashboardTemperature } from "@/protoOS/features/kpis/hooks";
 import { FanIndicator } from "@/shared/assets/icons";
 import { type StatProps } from "@/shared/components/Stat";
-import { map } from "@/shared/utils/math";
 
 const getFanStats = (
   fanSpeed: FanInfo | undefined,
@@ -41,23 +39,6 @@ const getFanStats = (
     value: fanSpeed.rpm,
     units: "RPM",
     icon: <FanIndicator {...fanProps} />,
-
-    // TODO: adjust mapped values when we have actual calibration data
-    // for now, we map 85% - 100% maxSpeed to 0 - 100% on chart
-    // because otherwide all of the charts appear very close to 100%
-    chartPercentage: map(
-      fanSpeed.rpm || 0,
-      maxFanSpeed * 0.85,
-      maxFanSpeed,
-      0,
-      100,
-    ),
-    chartStatus:
-      fanSpeed.rpm! < dangerFanspeed
-        ? "critical"
-        : fanSpeed.rpm! < warningFanspeed
-          ? "warning"
-          : "neutral",
   } as StatProps;
 };
 
@@ -115,10 +96,15 @@ const Temperature = () => {
             .filter((stat) => stat !== null)}
         />
       )}
-      <div className="flex flex-wrap gap-x-6 gap-y-6">
-        {hbTempData.map((hbData, index) => (
-          <HbTempPreview key={index} hbData={hbData} />
-        ))}
+
+      <div className="flex flex-col gap-4">
+        {Array.from({ length: Math.ceil(hbTempData.length / 3) }).map(
+          (_, groupIndex) => (
+            <HbBayPreview
+              data={hbTempData.slice(groupIndex * 3, groupIndex * 3 + 3)}
+            />
+          ),
+        )}
       </div>
     </>
   );

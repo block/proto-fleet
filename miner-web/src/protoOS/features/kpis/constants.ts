@@ -1,4 +1,5 @@
-export const warningTemp = 70;
+// TODO: This should come from a safety limits API in MDK
+export const warningTemp = 65;
 export const dangerTemp = 82;
 export const criticalTemp = 90;
 export const maxFanSpeed = 6000;

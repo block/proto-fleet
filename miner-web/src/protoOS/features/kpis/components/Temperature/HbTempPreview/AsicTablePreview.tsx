@@ -19,10 +19,13 @@ const AsicTablePreview = ({ asics }: AsicTablePreviewProps) => {
             <Spinner />
           </div>
         ) : (
-          <div className="w-full" data-testid="asic-table-preview">
+          <div
+            className="flex w-full flex-col gap-1"
+            data-testid="asic-table-preview"
+          >
             {/* Individual ASICs */}
             {getAsicsRows(asics).map((row) => (
-              <div className="mb-1 flex gap-1" key={`asic-${row}`}>
+              <div className="flex gap-1" key={`asic-${row}`}>
                 {asics
                   .filter((asic) => asic.row === row)
                   .map((asic) => (

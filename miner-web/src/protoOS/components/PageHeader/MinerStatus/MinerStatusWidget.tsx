@@ -4,12 +4,14 @@ import clsx from "clsx";
 import WidgetWrapper from "../WidgetWrapper";
 import { ErrorListResponse } from "@/protoOS/api/types";
 import {
-  isAsicError,
-  isAsicWarning,
+  isControlBoardError,
+  isControlBoardWarning,
   isFanError,
   isFanWarning,
   isHashboardError,
   isHashboardWarning,
+  isPSUError,
+  isPSUWarning,
 } from "@/protoOS/components/MinerStatusModal/utility";
 import Spinner from "@/shared/components/Spinner";
 import StatusCircle, {
@@ -27,33 +29,22 @@ const MinerStatusWidget = ({
   loading = false,
   onClick,
 }: MinerStatusWidgetProps) => {
-  const hashboardStatus = useMemo<StatusCircleProps["status"]>(() => {
-    if (errors.some(isHashboardError)) {
+  const status = useMemo<StatusCircleProps["status"]>(() => {
+    if (
+      errors.some(
+        isFanError || isControlBoardError || isHashboardError || isPSUError,
+      )
+    )
       return "error";
-    } else if (errors.some(isHashboardWarning)) {
+    if (
+      errors.some(
+        isFanWarning ||
+          isControlBoardWarning ||
+          isHashboardWarning ||
+          isPSUWarning,
+      )
+    )
       return "warning";
-    }
-
-    return "normal";
-  }, [errors]);
-
-  const asicStatus = useMemo<StatusCircleProps["status"]>(() => {
-    if (errors.some(isAsicError)) {
-      return "error";
-    } else if (errors.some(isAsicWarning)) {
-      return "warning";
-    }
-
-    return "normal";
-  }, [errors]);
-
-  const fanStatus = useMemo<StatusCircleProps["status"]>(() => {
-    if (errors.some(isFanError)) {
-      return "error";
-    } else if (errors.some(isFanWarning)) {
-      return "warning";
-    }
-
     return "normal";
   }, [errors]);
 
@@ -76,9 +67,7 @@ const MinerStatusWidget = ({
           ))
         ) : (
           <>
-            <StatusCircle status={hashboardStatus} />
-            <StatusCircle status={asicStatus} />
-            <StatusCircle status={fanStatus} />
+            <StatusCircle status={status} />
           </>
         )}
         Miner status

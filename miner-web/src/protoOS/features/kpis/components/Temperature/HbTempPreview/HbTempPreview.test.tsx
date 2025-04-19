@@ -67,16 +67,13 @@ describe("HbTempPreview", () => {
     );
 
     expect(screen.getByText("Hashboard 1")).toBeInTheDocument();
-    expect(screen.getByText("Average")).toBeInTheDocument();
-    expect(screen.getByText("Highest")).toBeInTheDocument();
-    expect(screen.getByText("Lowest")).toBeInTheDocument();
     expect(screen.getByTestId("hb-temp-preview")).not.toHaveClass(
       "hover:bg-intent-critical-20",
     );
     expect(screen.getByTestId("asic-table-preview")).toBeInTheDocument();
   });
 
-  it("renders stats with correct units when temperatureUnits is set to 'fahrenheit'", () => {
+  it("renders temperature with correct units when temperatureUnits is set to 'fahrenheit'", () => {
     (usePreferences as Mock).mockReturnValue({
       temperatureUnits: TEMP_UNITS.fahrenheit,
     });
@@ -95,23 +92,16 @@ describe("HbTempPreview", () => {
     render(
       <MemoryRouter>
         <MinerHostingProvider>
-          <HbTempPreview hbData={hbData} asics={createMockAsics()} />
+          <HbTempPreview hbData={hbData} />
         </MinerHostingProvider>
       </MemoryRouter>,
     );
 
     // Verify that the stats render with Fahrenheit units
-    const avgStat = screen.getByText(`${getDisplayValue(convertCtoF(50))}`);
-    const maxStat = screen.getByText(`${getDisplayValue(convertCtoF(60))}`);
-    const minStat = screen.getByText(`${getDisplayValue(convertCtoF(40))}`);
-    const unitF = screen.getAllByText("ºF");
-    const unitC = screen.queryAllByText("ºC");
-
-    expect(avgStat).toBeInTheDocument();
-    expect(maxStat).toBeInTheDocument();
-    expect(minStat).toBeInTheDocument();
-    expect(unitF.length).toBe(3.0);
-    expect(unitC.length).toBe(0.0);
+    const temp = screen.getByText(
+      `${getDisplayValue(convertCtoF(55)) + " ºF"}`,
+    );
+    expect(temp).toBeInTheDocument();
   });
 
   it("renders spinner if there is no asic data", () => {
@@ -147,6 +137,5 @@ describe("HbTempPreview", () => {
     expect(screen.getByTestId("hb-temp-preview")).toHaveClass(
       "hover:bg-intent-critical-20",
     );
-    expect(screen.getByText("Overheating")).toBeInTheDocument();
   });
 });

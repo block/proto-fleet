@@ -23,6 +23,7 @@ import Fleet from "./Fleet";
 import Globe from "./Globe";
 import Graph from "./Graph";
 import Grip from "./Grip";
+import Hashboard from "./Hashboard";
 import HashboardIndicator from "./HashboardIndicator";
 import Home from "./Home";
 import Info from "./Info";
@@ -78,6 +79,7 @@ export {
   Globe,
   Graph,
   Grip,
+  Hashboard,
   HashboardIndicator,
   Home,
   type IconProps,

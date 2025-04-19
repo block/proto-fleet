@@ -1,11 +1,11 @@
 import { useMemo } from "react";
-
+import { R2_ICONS } from "./icons";
 import MinerStatusRow from "./MinerStatusRow";
 import MinerStatusRows from "./MinerStatusRows";
 import {
   getErrorTitle,
-  isAsicError,
-  isAsicWarning,
+  isControlBoardError,
+  isControlBoardWarning,
   isFanError,
   isFanWarning,
   isHashboardError,
@@ -43,19 +43,33 @@ const MinerStatusModal = ({
   );
   const psuErrors = useMemo(() => errors.filter(isPSUError), [errors]);
   const psuWarnings = useMemo(() => errors.filter(isPSUWarning), [errors]);
-  const asicErrors = useMemo(() => errors.filter(isAsicError), [errors]);
-  const asicWarnings = useMemo(() => errors.filter(isAsicWarning), [errors]);
   const fanErrors = useMemo(() => errors.filter(isFanError), [errors]);
   const fanWarnings = useMemo(() => errors.filter(isFanWarning), [errors]);
+  const controlBoardErrors = useMemo(
+    () => errors.filter(isControlBoardError),
+    [errors],
+  );
+  const controlBoardWarnings = useMemo(
+    () => errors.filter(isControlBoardWarning),
+    [errors],
+  );
 
   const errorCount = useMemo(
-    () => hashboardErrors.length + asicErrors.length + fanErrors.length,
-    [hashboardErrors, asicErrors, fanErrors],
+    () =>
+      hashboardErrors.length +
+      psuErrors.length +
+      fanErrors.length +
+      controlBoardErrors.length,
+    [hashboardErrors, psuErrors, fanErrors, controlBoardErrors],
   );
 
   const warningCount = useMemo(
-    () => hashboardWarnings.length + asicWarnings.length + fanWarnings.length,
-    [hashboardWarnings, asicWarnings, fanWarnings],
+    () =>
+      hashboardWarnings.length +
+      psuWarnings.length +
+      fanWarnings.length +
+      controlBoardWarnings.length,
+    [hashboardWarnings, psuWarnings, fanWarnings, controlBoardWarnings],
   );
 
   const hasErrors = useMemo(() => errorCount > 0, [errorCount]);
@@ -97,6 +111,7 @@ const MinerStatusModal = ({
         {
           text: "Done",
           variant: variants.primary,
+          onClick: onDismiss,
         },
       ]}
       title="Miner status"
@@ -114,14 +129,26 @@ const MinerStatusModal = ({
                 label="All"
                 className="miner-status-tab-content-wrapper mt-0!"
               >
-                <MinerStatusRows errors={hashboardErrors} />
-                <MinerStatusRows errors={hashboardWarnings} />
-                <MinerStatusRows errors={fanErrors} />
-                <MinerStatusRows errors={fanWarnings} />
-                <MinerStatusRows errors={psuErrors} />
-                <MinerStatusRows errors={psuWarnings} />
-                {/* <MinerStatusRows errors={asicErrors} />
-                <MinerStatusRows errors={asicWarnings} /> */}
+                <MinerStatusRows errors={fanErrors} icon={R2_ICONS.fan} />
+                <MinerStatusRows errors={fanWarnings} icon={R2_ICONS.fan} />
+                <MinerStatusRows
+                  errors={hashboardErrors}
+                  icon={R2_ICONS.hashboard}
+                />
+                <MinerStatusRows
+                  errors={hashboardWarnings}
+                  icon={R2_ICONS.hashboard}
+                />
+                <MinerStatusRows
+                  errors={controlBoardErrors}
+                  icon={R2_ICONS.controlBoard}
+                />
+                <MinerStatusRows
+                  errors={controlBoardWarnings}
+                  icon={R2_ICONS.controlBoard}
+                />
+                <MinerStatusRows errors={psuErrors} icon={R2_ICONS.psu} />
+                <MinerStatusRows errors={psuWarnings} icon={R2_ICONS.psu} />
               </Tabs.Tab>
               <Tabs.Tab
                 label={`${errorCount} ${errorCount === 1 ? "error" : "errors"}`}
@@ -129,10 +156,16 @@ const MinerStatusModal = ({
               >
                 {errorCount ? (
                   <>
-                    <MinerStatusRows errors={hashboardErrors} />
-                    <MinerStatusRows errors={fanErrors} />
-                    <MinerStatusRows errors={psuErrors} />
-                    {/* <MinerStatusRows errors={asicErrors} /> */}
+                    <MinerStatusRows errors={fanErrors} icon={R2_ICONS.fan} />
+                    <MinerStatusRows
+                      errors={hashboardErrors}
+                      icon={R2_ICONS.hashboard}
+                    />
+                    <MinerStatusRows
+                      errors={controlBoardErrors}
+                      icon={R2_ICONS.controlBoard}
+                    />
+                    <MinerStatusRows errors={psuErrors} icon={R2_ICONS.psu} />
                   </>
                 ) : (
                   <div className="mt-3">No errors</div>
@@ -144,10 +177,16 @@ const MinerStatusModal = ({
               >
                 {warningCount ? (
                   <>
-                    <MinerStatusRows errors={hashboardWarnings} />
-                    <MinerStatusRows errors={fanWarnings} />
-                    <MinerStatusRows errors={psuErrors} />
-                    {/* <MinerStatusRows errors={asicWarnings} /> */}
+                    <MinerStatusRows errors={fanWarnings} icon={R2_ICONS.fan} />
+                    <MinerStatusRows
+                      errors={hashboardWarnings}
+                      icon={R2_ICONS.hashboard}
+                    />
+                    <MinerStatusRows
+                      errors={controlBoardWarnings}
+                      icon={R2_ICONS.controlBoard}
+                    />
+                    <MinerStatusRows errors={psuWarnings} icon={R2_ICONS.psu} />
                   </>
                 ) : (
                   <div className="mt-3">No warnings</div>
@@ -157,10 +196,13 @@ const MinerStatusModal = ({
           ) : (
             <>
               <Divider />
-              <MinerStatusRow label="Hashboards" />
-              <MinerStatusRow label="Fans" />
-              <MinerStatusRow label="PSU" />
-              {/* <MinerStatusRow label="ASICs" /> */}
+              <MinerStatusRow label="Fans" icon={R2_ICONS.fan} />
+              <MinerStatusRow label="Hashboards" icon={R2_ICONS.hashboard} />
+              <MinerStatusRow
+                label="Control board"
+                icon={R2_ICONS.controlBoard}
+              />
+              <MinerStatusRow label="PSU" icon={R2_ICONS.psu} />
             </>
           )}
         </div>
