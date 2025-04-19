@@ -1,0 +1,22 @@
+automation:
+  - changed-files:
+      - any-glob-to-any-file: .github/**
+
+web:
+  - changed-files:
+      - any-glob-to-any-file: miner-web/**
+
+fleet:
+  - changed-files:
+      - any-glob-to-any-file: miner-web/**
+      - any-glob-to-any-file: fleet/**
+      - any-glob-to-any-file: fleet-protobuf/**
+
+fleet-api:
+  - changed-files:
+      - any-glob-to-any-file: fleet/**
+      - any-glob-to-any-file: fleet-protobuf/**
+
+tooling:
+  - changed-files:
+      - any-glob-to-any-file: bin/**
