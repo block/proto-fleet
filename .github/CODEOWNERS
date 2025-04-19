@@ -1,0 +1,11 @@
+# Note that the order is important - the last matching pattern takes the most
+# precedence!
+
+# Sub-project maintainers
+/bin                        @Gussy
+/fleet                      @mcharles-square @negarn @flesher @mightyguava
+/fleet-protobuf             @mcharles-square @negarn @flesher @mightyguava
+/miner-web                  @mcharles-square @negarn @flesher @mightyguava
+
+# All individual files in the root directory
+/.*                         @Gussy
