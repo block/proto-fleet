@@ -1,0 +1,86 @@
+name: ProtoFleet Backend tests
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/protofleet-backend-tests.yml"
+      - "fleet/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/protofleet-backend-tests.yml"
+      - "fleet/**"
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fleet
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@v1.1.4
+
+      - name: Configure cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Compile project
+        run: just build-all
+
+      - name: Start database
+        run: just db-up
+
+      - name: Run tests
+        run: just test
+
+  linter:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@v1.1.4
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          working-directory: fleet
+
+  generated-code-check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fleet
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@v1.1.4
+
+      - name: Install buf deps
+        run: npm install -g @bufbuild/buf @bufbuild/protoc-gen-es
+
+      - name: Generate code
+        run: just gen
+
+      - name: Check if committed generated code is up-to-date
+        run: >
+          git diff --quiet || {
+            echo -e "\033[0;31mNewly generated code does not match the committed code. Run 'just gen', then commit and push the changes.\033[0m" 1>&2;
+            echo -e "\n\n";
+            git diff --exit-code
+          }

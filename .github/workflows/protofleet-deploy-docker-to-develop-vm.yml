@@ -1,0 +1,89 @@
+# This VM with Docker Compose deployment is meant to be used only for development and testing of the ProtoFleet on-premise version.
+
+name: ProtoFleet Deploy Docker to Develop VM
+
+on:
+  workflow_call:
+    inputs:
+      docker-image-tag:
+        required: true
+        type: string
+        description: The tag for the Docker image to be deployed.
+      docker-build-working-directory:
+        required: true
+        type: string
+        description: The working directory where the Docker build will be executed.
+      source-build-directory:
+        required: true
+        type: string
+        description: The path to the deploy directory with Dockerfile and Docker Compose file used for building the Docker image.
+      target-directory:
+        required: true
+        type: string
+        description: The directory on the target server where the `docker-compose.yml` file will be deployed.
+      docker-compose-parameters:
+        required: false
+        type: string
+        default: "{}"
+        description: 'Additional parameters passed to the Docker Compose file. Use JSON format: `{ "ARG1"="X", "ARG2"="Y"}` which results in replacements of `${ARG1} and ${ARG2}` in the Docker Compose file.'
+
+permissions:
+  # Needed for aws-actions/configure-aws-credentials
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup AWS SSH
+        uses: ./.github/actions/aws-ssh-setup
+        with:
+          aws-instance-id: "i-0e47edcb1574765b0"
+          aws-instance-connect-endpoint-id: "eice-0e5cdfd8da57023b2"
+          aws-instance-ip: "34.193.182.49"
+          aws-instance-user: "ubuntu"
+          aws-region: "us-east-1"
+          aws-role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Deploy_Develop"
+
+      - name: Build Docker image
+        shell: bash
+        run: docker build -f "${{ inputs.source-build-directory }}/Dockerfile" -t "${{ inputs.docker-image-tag }}" ${{ inputs.docker-build-working-directory }}
+
+      - name: Publish Docker image
+        id: publish-docker-image
+        uses: ./.github/actions/docker-image-publish
+        with:
+          docker-image-tag: ${{ inputs.docker-image-tag }}
+
+      - name: Write Docker image tag to Docker Compose file
+        shell: bash
+        run: sed -i 's#${IMAGE}#${{ steps.publish-docker-image.outputs.docker-image-remote-tag }}#g' "${{ inputs.source-build-directory }}/docker-compose.yml"
+
+      - name: Derive Docker image label
+        shell: bash
+        run: echo "DOCKER_IMAGE_LABEL=$(echo "${{ inputs.docker-image-tag }}" | cut -d':' -f 2)" >> $GITHUB_ENV
+
+      - name: Write Docker image label to Docker Compose file
+        shell: bash
+        run: sed -i 's#${LABEL}#${{ env.DOCKER_IMAGE_LABEL }}#g' "${{ inputs.source-build-directory }}/docker-compose.yml"
+
+      - name: Write additional parameters to Docker Compose file
+        shell: bash
+        run: |
+          json='${{ inputs.docker-compose-parameters }}'
+
+          echo "$json" | jq -r 'keys[]' | while read key; do
+            value=$(echo "$json" | jq -r --arg k "$key" '.[$k]')
+
+            sed -i "s^\${$key}^$value^g" "${{ inputs.source-build-directory }}/docker-compose.yml"
+          done
+
+      - name: Deploy
+        uses: ./.github/actions/docker-compose-deploy
+        with:
+          source-directory: "${{ inputs.source-build-directory }}"
+          target-directory: "${{ inputs.target-directory }}"

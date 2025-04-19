@@ -1,0 +1,147 @@
+name: ProtoFleet Deploy Clean Up
+
+on:
+  schedule:
+    - cron: "15 5 * * *"
+  workflow_dispatch:
+
+env:
+  # Maximum value is 100
+  MAX_ACTIVE_PR_DEPLOYMENTS: 100
+  # After how many days since last update is the PR no longer consider active
+  PR_IS_STALE_AFTER_DAYS: 14
+
+permissions:
+  # Needed for aws-actions/configure-aws-credentials
+  id-token: write
+  contents: read
+  pull-requests: read
+
+jobs:
+  get-active-pr-numbers:
+    runs-on: ubuntu-latest
+    outputs:
+      active-pr-numbers: ${{ steps.find-active-prs.outputs.result }}
+    steps:
+      - name: Find active PRs
+        uses: actions/github-script@v7
+        id: find-active-prs
+        with:
+          script: |
+            const prs = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              // Because of fetching only a single page, the per_page controls how many PRs can have active deployments
+              per_page: ${{ env.MAX_ACTIVE_PR_DEPLOYMENTS }},
+              sort: "updated",
+              direction: "desc"
+            })
+
+            const prIsStaleAfterMillis = ${{ env.PR_IS_STALE_AFTER_DAYS }} * 24 * 60 * 60 * 1000
+
+            return prs.data.filter(pr => new Date() - new Date(pr.updated_at) < prIsStaleAfterMillis).map(pr => pr.number).join("|")
+
+  delete-stale-docker-resources-in-ec2:
+    runs-on: ubuntu-latest
+    needs: get-active-pr-numbers
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup AWS SSH
+        uses: ./.github/actions/protofleet/aws-ssh-setup
+        with:
+          aws-instance-id: "i-0e47edcb1574765b0"
+          aws-instance-connect-endpoint-id: "eice-0e5cdfd8da57023b2"
+          aws-instance-ip: "34.193.182.49"
+          aws-instance-user: "ubuntu"
+          aws-region: "us-east-1"
+          aws-role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Deploy_Develop"
+
+      - name: Find deployed PRs
+        shell: bash
+        run: echo DEPLOYED_PR_NUMBERS="$(~/ssh_to_ec2 'ls docker/protofleet/pr | paste -sd "|"')" >> $GITHUB_ENV
+
+      - name: Determine which PR deployments to remove
+        shell: bash
+        run: |
+          PARSED_ACTIVE_PR_NUMBERS=$(echo ${{ needs.get-active-pr-numbers.outputs.active-pr-numbers }} | tr "|" "\n")
+          PARSED_DEPLOYED_PR_NUMBERS=$(echo "$DEPLOYED_PR_NUMBERS" | tr "|" "\n")
+
+          PARSED_REMOVED_PR_NUMBERS="$(echo "$PARSED_DEPLOYED_PR_NUMBERS" | grep -vxFf <(echo "$PARSED_ACTIVE_PR_NUMBERS") || true)"
+
+          if [[ -n "$PARSED_REMOVED_PR_NUMBERS" ]]; then
+            echo REMOVED_PR_NUMBERS="$(echo "$PARSED_REMOVED_PR_NUMBERS" | tr "\n" "|" | sed 's/|$//')" >> $GITHUB_ENV
+          fi
+
+      - name: Remove deployments
+        shell: bash
+        run: |
+          if [[ -n "$REMOVED_PR_NUMBERS" ]]; then
+            for PR in $(echo "$REMOVED_PR_NUMBERS" | tr "|" "\n"); do
+              ~/ssh_to_ec2 "
+                sudo find \"docker/protofleet/pr/$PR\" -name docker-compose.yml -exec sudo docker compose -f {} down \;
+
+                if [[ \"\$(dirname \"/home/ubuntu/docker/protofleet/pr/$PR\")\" == \"/home/ubuntu/docker/protofleet/pr\" ]]; then
+                  sudo rm -rf \"/home/ubuntu/docker/protofleet/pr/$PR\"
+                else
+                  echo Cannot delete data of PR \\\"\"$PR\"\\\" because the resolved deployment directory has an unexpected path. >&2
+                  exit 1
+                fi
+              "
+            done
+          fi
+
+      - name: Prune Docker
+        shell: bash
+        run: ~/ssh_to_ec2 'sudo docker system prune -f'
+
+  delete-unused-docker-images:
+    runs-on: ubuntu-latest
+    needs: get-active-pr-numbers
+    strategy:
+      matrix:
+        repository:
+          [
+            protofleet/backend-develop,
+            protofleet/frontend-dashboard-develop,
+            protofleet/frontend-storybook-develop,
+          ]
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: "us-east-1"
+          role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Develop_CleanUp"
+
+      - name: Delete unused Docker Images
+        shell: bash
+        run: |
+          ACTIVE_PR_NUMBERS=${{ needs.get-active-pr-numbers.outputs.active-pr-numbers }}
+
+          EXIT_CODE=0
+
+          IMAGES=$(aws ecr list-images --repository-name "${{ matrix.repository }}" --query 'imageIds[*]' --output json || EXIT_CODE=$?)
+
+          for row in $(echo "$IMAGES" | jq -r '.[] | @base64'); do 
+            IMAGE=$(echo $row | base64 --decode)
+            HAS_TAG=$(echo "$IMAGE" | jq 'has ("imageTag")')
+            IMAGE_DIGEST=$(echo "$IMAGE" | jq '.imageDigest')
+
+            if [[ "$HAS_TAG" == "true" ]]; then
+              TAG=$(echo "$IMAGE" | jq '.imageTag')
+              
+              if [[ "$TAG" == pr-* ]]; then
+                PR_NUMBER="${${TAG#pr-}%%-*}"
+                
+                if [[ ! *"|$PR_NUMBER|"* == "|$ACTIVE_PR_NUMBERS|" ]]; then
+                  aws ecr batch-delete-image --repository-name "${{ matrix.repository }}" --image-ids imageDigest=$IMAGE_DIGEST || EXIT_CODE=$?
+                fi
+              fi
+            else
+              aws ecr batch-delete-image --repository-name "${{ matrix.repository }}" --image-ids imageDigest=$IMAGE_DIGEST || EXIT_CODE=$?
+            fi
+          done
+
+          exit "$EXIT_CODE"

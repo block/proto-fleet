@@ -1,0 +1,43 @@
+# This VM with Docker Compose deployment is meant to be used only for development and testing of the ProtoFleet on-premise version.
+
+name: ProtoFleet Deploy Develop Traefik
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/protofleet-deploy-develop-traefik.yml"
+      - "fleet/deploy/develop/traefik/**"
+  workflow_dispatch:
+
+permissions:
+  # Needed for aws-actions/configure-aws-credentials
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: "${{ github.workflow }}-deploy"
+      cancel-in-progress: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup AWS SSH
+        uses: ./.github/actions/protofleet/aws-ssh-setup
+        with:
+          aws-instance-id: "i-0e47edcb1574765b0"
+          aws-instance-connect-endpoint-id: "eice-0e5cdfd8da57023b2"
+          aws-instance-ip: "34.193.182.49"
+          aws-instance-user: "ubuntu"
+          aws-region: "us-east-1"
+          aws-role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Deploy_Develop"
+
+      - name: Deploy Traefik
+        uses: ./.github/actions/protofleet/docker-compose-deploy
+        with:
+          source-directory: "fleet/deploy/develop/traefik"
+          target-directory: "docker/protofleet/develop/traefik"

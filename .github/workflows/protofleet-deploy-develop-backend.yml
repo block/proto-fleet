@@ -1,0 +1,26 @@
+# This VM with Docker Compose deployment is meant to be used only for development and testing of the ProtoFleet on-premise version.
+
+name: ProtoFleet Deploy Develop Backend
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/protofleet-deploy-develop-backend.yml"
+      - "fleet/**"
+      - "!fleet/deploy/**"
+      - "fleet/deploy/develop/backend/**"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    uses: "./.github/workflows/protofleet-deploy-docker-to-develop-vm.yml"
+    concurrency:
+      group: "${{ github.workflow }}-deploy"
+      cancel-in-progress: true
+    with:
+      docker-build-working-directory: "."
+      docker-image-tag: "protofleet/backend-develop:main"
+      source-build-directory: "fleet/deploy/develop/backend"
+      target-directory: "docker/protofleet/develop/backend"
