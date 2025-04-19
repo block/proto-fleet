@@ -1,0 +1,46 @@
+# This VM with Docker Compose deployment is meant to be used only for development and testing of the ProtoFleet on-premise version.
+
+name: Publish Docker Image
+description: This workflow automates the process of pushing a Docker image to AWS ECR and pulling it from an EC2 instance.
+
+inputs:
+  docker-image-tag:
+    description: The tag of the Docker image that you want to publish to AWS ECR. This should be in the format `repository:tag`.
+    required: true
+
+outputs:
+  docker-image-remote-tag:
+    description: The remote tag of the Docker image deployed to AWS ECR in the format `registry/repository:tag`.
+    value: "${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-image-tag }}"
+
+runs:
+  using: composite
+  steps:
+  - name: Login locally to AWS ECR
+    id: login-ecr
+    uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076
+
+  - name: Parse ECR Region
+    shell: bash
+    run: |
+      echo "ECR_REGION=$(echo '${{ steps.login-ecr.outputs.registry }}' | cut -d'.' -f 4)" >> $GITHUB_ENV 
+
+  - name: Login to AWS ECR in EC2 instance
+    shell: bash
+    run: |
+      ~/ssh_to_ec2 '
+        aws ecr get-login-password --region "${{ env.ECR_REGION }}" | \
+        sudo docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}'
+
+  - name: Push Docker image to ECR
+    shell: bash
+    run: |
+      docker tag ${{ inputs.docker-image-tag }} ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-image-tag }} || exit $?
+      
+      docker push ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-image-tag }}
+
+  - name: Pull Docker image from EC2 instance
+    shell: bash
+    run: |
+      ~/ssh_to_ec2 'sudo docker pull ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-image-tag }}'
+

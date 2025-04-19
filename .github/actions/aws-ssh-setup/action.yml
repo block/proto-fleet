@@ -1,0 +1,112 @@
+# This VM with Docker Compose deployment is meant to be used only for development and testing of the ProtoFleet on-premise version.
+
+name: Setup AWS SSH
+description: This workflow sets up SSH access to an AWS EC2 instance using AWS SSM and EC2 Instance Connect.
+
+inputs:
+  aws-instance-id:
+    description: The ID of the AWS EC2 instance to which you want to connect.
+    required: true
+  aws-instance-connect-endpoint-id:
+    description: The ID of the AWS Instance Connect endpoint used to establish the SSH connection.
+    required: true
+  aws-instance-ip:
+    description: The IP address of the AWS EC2 instance.
+    required: true
+  aws-instance-user:
+    description: The username to use for SSH access to the AWS EC2 instance.
+    required: true
+  aws-region:
+    description: The AWS region where the EC2 instance is located.
+    required: true
+  aws-role-to-assume:
+    description: The IAM role to assume for AWS API access and permissions.
+    required: true
+
+runs:
+  using: composite
+  steps:
+  - name: Configure AWS credentials
+    uses: aws-actions/configure-aws-credentials@010d0da01d0b5a38af31e9c3470dbfdabdecca3a  # v4
+    with:
+      aws-region: ${{ inputs.aws-region }}
+      role-to-assume: ${{ inputs.aws-role-to-assume }}
+
+  - name: Generate SSH key
+    shell: bash
+    run: ssh-keygen -f ~/.ssh/aws_ssh_key -N ""
+
+  - name: Configure SSH profile
+    shell: bash
+    run: |
+      cat >> ~/.ssh/config <<END
+      Host aws-instance
+        HostName ${{ inputs.aws-instance-ip }}
+        User ${{ inputs.aws-instance-user }}
+        IdentityFile ~/.ssh/aws_ssh_key
+        ProxyCommand aws ec2-instance-connect open-tunnel --instance-id "${{ inputs.aws-instance-id }}" --instance-connect-endpoint-id "${{ inputs.aws-instance-connect-endpoint-id }}"
+        ControlMaster no
+        IdentitiesOnly yes
+      END
+
+  - name: Create send_ssh_public_key
+    shell: bash
+    run: |
+      cat > ~/send_ssh_public_key <<END
+      #!/bin/bash
+      aws ec2-instance-connect send-ssh-public-key --instance-id "${{ inputs.aws-instance-id }}" --instance-os-user "${{ inputs.aws-instance-user }}" --ssh-public-key "file://~/.ssh/aws_ssh_key.pub" --no-cli-pager
+      END
+      
+      chmod +x ~/send_ssh_public_key
+
+  - name: Create ssh_to_ec2 function
+    shell: bash
+    run: |      
+      cat > ~/ssh_to_ec2 <<END
+      #!/bin/bash
+      for i in \$(seq 0 1); do
+        ~/send_ssh_public_key 1>&2 && ssh aws-instance "\$@"
+    
+        if [ \$? -eq 0 ]; then
+          exit 0
+        fi
+      done
+      
+      ~/send_ssh_public_key 1>&2 && ssh aws-instance "\$@"
+      END
+      
+      chmod +x ~/ssh_to_ec2
+
+  - name: Create scp_to_ec2 function
+    shell: bash
+    run: |
+      cat > ~/scp_to_ec2 <<END
+      #!/bin/bash
+      for i in \$(seq 0 1); do
+        ~/send_ssh_public_key 1>&2 && scp "\$1" aws-instance:"\${@:2}"
+      
+        if [ \$? -eq 0 ]; then
+          exit 0
+        fi
+      done
+      
+      ~/send_ssh_public_key 1>&2 && scp "\$1" aws-instance:"\${@:2}"
+      END
+      
+      chmod +x ~/scp_to_ec2
+
+  - name: Fetch SSH server public key
+    shell: bash
+    run: |
+      COMMAND_ID=$(aws ssm send-command --instance-ids "${{ inputs.aws-instance-id }}" --document-name "AWS-RunShellScript" --parameters commands="ssh-keyscan localhost" --output text --query "Command.CommandId")
+      
+      STATUS="Pending"
+      
+      while [[ "$STATUS" == "Pending" || "$STATUS" == "InProgress" ]]; do
+        sleep 1
+      
+        STATUS=$(aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "${{ inputs.aws-instance-id }}" --output text --query "Status")
+      done
+      
+      aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "${{ inputs.aws-instance-id }}" --output text --query "StandardOutputContent" | \
+      sed "s/localhost/${{ inputs.aws-instance-ip }}/g" >> ~/.ssh/known_hosts
