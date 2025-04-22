@@ -6,9 +6,9 @@ on:
   pull_request:
     paths:
       - ".github/workflows/protofleet-deploy-pr-backend.yml"
-      - "fleet/**"
-      - "!fleet/deploy/**"
-      - "fleet/deploy/develop/backend/**"
+      - "server/**"
+      - "!server/deploy/**"
+      - "server/deploy/develop/backend/**"
 
 permissions:
   # Needed for aws-actions/configure-aws-credentials
@@ -22,7 +22,7 @@ jobs:
     with:
       docker-build-working-directory: "."
       docker-image-tag: "protofleet/backend-develop:pr-${{ github.event.number }}"
-      source-build-directory: "fleet/deploy/develop/backend"
+      source-build-directory: "server/deploy/develop/backend"
       target-directory: "docker/protofleet/pr/${{ github.event.number }}/backend"
 
   report-backend-url:
@@ -38,7 +38,7 @@ jobs:
     with:
       docker-build-working-directory: "."
       docker-image-tag: "protofleet/frontend-dashboard-develop:pr-${{ github.event.number }}-pr"
-      source-build-directory: "fleet/deploy/develop/frontend/dashboard"
+      source-build-directory: "server/deploy/develop/frontend/dashboard"
       target-directory: "docker/protofleet/pr/${{ github.event.number }}/frontend/dashboard-pr"
       docker-compose-parameters: '{ "BACKEND_ADDRESS": "https://backend.pr-${{ github.event.number }}.develop.fleetdev.proto.xyz" }'
 
@@ -49,4 +49,3 @@ jobs:
       component-name: Dashboard (connected to this PR's backend)
       deployment-domain: "dashboard.pr-${{ github.event.number }}-pr.develop.fleetdev.proto.xyz"
       pr-number: ${{ github.event.number }}
-

@@ -4,12 +4,12 @@ on:
   pull_request:
     paths:
       - .github/workflows/web.yml
-      - "miner-web/**"
+      - "client/**"
   push:
     branches: main
     paths:
       - .github/workflows/web.yml
-      - "miner-web/**"
+      - "client/**"
     tags:
       - "web-*"
 
@@ -29,23 +29,23 @@ jobs:
         uses: actions/setup-node@v4
         with:
           cache: npm
-          cache-dependency-path: miner-web/package-lock.json
+          cache-dependency-path: client/package-lock.json
 
       # hack needed to avoid npm install from failing
       - run: mkdir -p .hermit/node/lib
 
       - name: Install NPM dependencies
-        working-directory: miner-web
+        working-directory: client
         run: |
           rm -rf package-lock.json
           npm install
 
       - name: NPM build
-        working-directory: miner-web
+        working-directory: client
         run: npm run build
 
       - name: NPM test
-        working-directory: miner-web
+        working-directory: client
         run: npm run test
 
       - name: Upload web dist
@@ -53,7 +53,7 @@ jobs:
         with:
           name: web
           path: |
-            miner-web/dist/*
+            client/dist/*
 
   release-publish:
     name: Publish Release

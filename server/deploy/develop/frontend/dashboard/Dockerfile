@@ -12,19 +12,19 @@ COPY bin bin/
 
 RUN chmod +x bin/activate-hermit
 
-COPY miner-web/package*.json ./
+COPY client/package*.json ./
 
 RUN source bin/activate-hermit && npm clean-install
 
-COPY miner-web ./
+COPY client ./
 
-RUN source bin/activate-hermit && npm run build-storybook
+RUN source bin/activate-hermit && npm run build:protoFleet
 
-FROM nginx:1.27.4-alpine
+FROM nginx:1.27.5-alpine
 
 WORKDIR /app
 
-COPY --from=build /build/storybook-static /usr/share/nginx/html
+COPY --from=build /build/dist/protoFleet /usr/share/nginx/html
 
 EXPOSE 80
 

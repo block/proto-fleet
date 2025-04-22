@@ -2,20 +2,17 @@ automation:
   - changed-files:
       - any-glob-to-any-file: .github/**
 
-web:
+client:
   - changed-files:
-      - any-glob-to-any-file: miner-web/**
+      - any-glob-to-any-file: client/**
 
-fleet:
+server:
   - changed-files:
-      - any-glob-to-any-file: miner-web/**
-      - any-glob-to-any-file: fleet/**
-      - any-glob-to-any-file: fleet-protobuf/**
+      - any-glob-to-any-file: server/**
 
-fleet-api:
+shared:
   - changed-files:
-      - any-glob-to-any-file: fleet/**
-      - any-glob-to-any-file: fleet-protobuf/**
+      - any-glob-to-any-file: proto/**
 
 tooling:
   - changed-files:

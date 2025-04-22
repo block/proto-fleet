@@ -2,10 +2,10 @@
 # precedence!
 
 # Sub-project maintainers
-/bin                        @Gussy
-/fleet                      @mcharles-square @negarn @flesher @mightyguava
-/fleet-protobuf             @mcharles-square @negarn @flesher @mightyguava
-/miner-web                  @mcharles-square @negarn @flesher @mightyguava
+/bin                        @Gussy @mcharles-square
+/client                     @mcharles-square @negarn @flesher @mightyguava
+/proto                      @mcharles-square @negarn @flesher @mightyguava
+/server                     @mcharles-square @negarn @flesher @mightyguava
 
 # All individual files in the root directory
-/.*                         @Gussy
+/.*                         @Gussy @mcharles-square

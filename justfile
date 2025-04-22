@@ -9,10 +9,10 @@ gen: lint gen-protos fmt-web fmt-go
 gen-protos: 
   buf generate
 
-[working-directory: '../fleet']
+[working-directory: 'server']
 fmt-web:
   goimports -w generated/grpc
 
-[working-directory: '../miner-web']
+[working-directory: 'client']
 fmt-go:
   npm run format
