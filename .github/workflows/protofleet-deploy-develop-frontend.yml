@@ -8,8 +8,8 @@ on:
       - main
     paths:
       - ".github/workflows/protofleet-deploy-develop-frontend.yml"
-      - "miner-web/**"
-      - "fleet/deploy/develop/frontend/**"
+      - "client/**"
+      - "server/deploy/develop/frontend/**"
   workflow_dispatch:
 
 jobs:
@@ -21,7 +21,7 @@ jobs:
     with:
       docker-build-working-directory: "."
       docker-image-tag: "protofleet/frontend-dashboard-develop:main"
-      source-build-directory: "fleet/deploy/develop/frontend/dashboard"
+      source-build-directory: "server/deploy/develop/frontend/dashboard"
       target-directory: "docker/protofleet/develop/frontend/dashboard"
       docker-compose-parameters: '{ "BACKEND_ADDRESS": "https://backend.main.develop.fleetdev.proto.xyz" }'
 
@@ -33,5 +33,5 @@ jobs:
     with:
       docker-build-working-directory: "."
       docker-image-tag: "protofleet/frontend-storybook-develop:main"
-      source-build-directory: "fleet/deploy/develop/frontend/storybook"
+      source-build-directory: "server/deploy/develop/frontend/storybook"
       target-directory: "docker/protofleet/develop/frontend/storybook"

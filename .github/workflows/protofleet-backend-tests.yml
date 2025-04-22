@@ -4,13 +4,13 @@ on:
   pull_request:
     paths:
       - ".github/workflows/protofleet-backend-tests.yml"
-      - "fleet/**"
+      - "server/**"
   push:
     branches:
       - main
     paths:
       - ".github/workflows/protofleet-backend-tests.yml"
-      - "fleet/**"
+      - "server/**"
   workflow_dispatch:
 
 jobs:
@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: fleet
+        working-directory: server
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -57,13 +57,13 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          working-directory: fleet
+          working-directory: server
 
   generated-code-check:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: fleet
+        working-directory: server
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

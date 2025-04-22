@@ -7,7 +7,7 @@ The source code of the mining dashboard UI (ProtoOS) and the fleet management UI
 ## Directory Layout
 
 ```
-miner-web
+client
 ├── .storybook                # Storybook configuration, used for visual testing of UI components
 ├── dist                      # The compiled UI code for production
 │  ├── protoFleet             # The compile ProtoFleet app, gets served by TBD

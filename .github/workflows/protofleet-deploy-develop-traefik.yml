@@ -8,7 +8,7 @@ on:
       - main
     paths:
       - ".github/workflows/protofleet-deploy-develop-traefik.yml"
-      - "fleet/deploy/develop/traefik/**"
+      - "server/deploy/develop/traefik/**"
   workflow_dispatch:
 
 permissions:
@@ -39,5 +39,5 @@ jobs:
       - name: Deploy Traefik
         uses: ./.github/actions/protofleet/docker-compose-deploy
         with:
-          source-directory: "fleet/deploy/develop/traefik"
+          source-directory: "server/deploy/develop/traefik"
           target-directory: "docker/protofleet/develop/traefik"

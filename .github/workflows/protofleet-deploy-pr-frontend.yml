@@ -6,8 +6,8 @@ on:
   pull_request:
     paths:
       - ".github/workflows/protofleet-deploy-pr-frontend.yml"
-      - "miner-web/**"
-      - "fleet/deploy/develop/frontend/**"
+      - "client/**"
+      - "server/deploy/develop/frontend/**"
 
 permissions:
   # Needed for aws-actions/configure-aws-credentials
@@ -21,7 +21,7 @@ jobs:
     with:
       docker-build-working-directory: "."
       docker-image-tag: "protofleet/frontend-dashboard-develop:pr-${{ github.event.number }}-main"
-      source-build-directory: "fleet/deploy/develop/frontend/dashboard"
+      source-build-directory: "server/deploy/develop/frontend/dashboard"
       target-directory: "docker/protofleet/pr/${{ github.event.number }}/frontend/dashboard-main"
       docker-compose-parameters: '{ "BACKEND_ADDRESS": "https://backend.main.develop.fleetdev.proto.xyz" }'
 
@@ -38,7 +38,7 @@ jobs:
     with:
       docker-build-working-directory: "."
       docker-image-tag: "protofleet/frontend-storybook-develop:pr-${{ github.event.number }}"
-      source-build-directory: "fleet/deploy/develop/frontend/storybook"
+      source-build-directory: "server/deploy/develop/frontend/storybook"
       target-directory: "docker/protofleet/pr/${{ github.event.number }}/frontend/storybook"
 
   report-storybook-url:
