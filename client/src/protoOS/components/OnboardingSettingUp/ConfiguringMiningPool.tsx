@@ -3,8 +3,8 @@ import { useMemo } from "react";
 import { statuses } from "./constants";
 import { Alert, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
-import Spinner from "@/shared/components/Spinner";
 
 interface ConfiguringMiningPoolProps {
   onClickReconfigure: () => void;
@@ -27,7 +27,8 @@ const ConfiguringMiningPool = ({
   const isSuccess = useMemo(() => status === statuses.success, [status]);
 
   const prefixIcon = useMemo(() => {
-    if (isLoading) return <Spinner className="opacity-30" />;
+    if (isLoading)
+      return <ProgressCircular className="opacity-30" indeterminate />;
     if (isSuccess) return <Success className="text-text-success" />;
     if (isError) return <Alert className="text-text-warning" />;
   }, [isError, isLoading, isSuccess]);

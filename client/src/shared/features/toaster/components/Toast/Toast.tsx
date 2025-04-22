@@ -2,12 +2,12 @@ import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import clsx from "clsx";
 
-import { STATUSES } from "../../constants";
+import { defaultTtl, STATUSES } from "../../constants";
 import { type ToastProps } from "../../types";
 import { Alert, Dismiss, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 
-import Spinner from "@/shared/components/Spinner";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
 
@@ -23,7 +23,7 @@ const Toast = ({
   status,
   index,
   numToasts,
-  ttl = 4000,
+  ttl = defaultTtl,
 }: ToastProps) => {
   const [yOffset, setYOffset] = useState<number>(0);
   const [hoverYOffset, setHoverYOffset] = useState<number>(0);
@@ -70,7 +70,7 @@ const Toast = ({
       transition={{ duration: 0.3, ease: easeGentle }}
       variants={{ hover: { scale: 1, y: hoverYOffset + extraPaddingForHover } }}
     >
-      <div className="w-[400px] space-x-3 rounded-lg bg-surface-elevated-base p-3 shadow-100">
+      <div className="w-100 space-x-3 rounded-lg bg-surface-elevated-base p-3 shadow-100">
         <div
           className={clsx(
             "flex items-center transition-opacity duration-200 group-hover:opacity-100",
@@ -78,7 +78,7 @@ const Toast = ({
           )}
         >
           <div className="flex grow items-center space-x-3 transition-opacity duration-300">
-            {status === STATUSES.loading && <Spinner />}
+            {status === STATUSES.loading && <ProgressCircular indeterminate />}
             {status === STATUSES.success && (
               <Success className="text-intent-success-fill" />
             )}

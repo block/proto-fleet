@@ -82,6 +82,7 @@ const PerformanceWidget = ({
     const id = pushToast({
       message: loadingMessages[currentAction],
       status: TOAST_STATUSES.loading,
+      longRunning: true,
     });
     // TODO call API according to currentAction
     simulateAPICall(() => {

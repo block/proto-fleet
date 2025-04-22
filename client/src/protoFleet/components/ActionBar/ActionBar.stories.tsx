@@ -38,7 +38,7 @@ export const ActionBar = ({
 
   return (
     <div>
-      <div className="fixed right-4 bottom-4 z-30">
+      <div className="fixed right-4 bottom-4 z-30 phone:right-2 phone:bottom-2">
         <ToasterComponent />
       </div>
       <ActionBarComponent

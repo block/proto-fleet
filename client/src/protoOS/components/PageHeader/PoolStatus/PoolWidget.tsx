@@ -4,7 +4,7 @@ import clsx from "clsx";
 import WidgetWrapper from "../WidgetWrapper";
 import { ConcentricCircles } from "@/shared/assets/icons";
 
-import Spinner from "@/shared/components/Spinner";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 
 interface PoolWidgetProps {
   loading: boolean;
@@ -34,8 +34,9 @@ const PoolWidget = ({
     >
       <>
         {loading ? (
-          <Spinner
+          <ProgressCircular
             className="mr-1"
+            indeterminate
             dataTestId="mining-pool-spinner"
             size={14}
           />

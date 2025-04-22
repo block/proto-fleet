@@ -1,7 +1,7 @@
 import { getAsicsRows } from "../utility"; //TODO
 import AsicCell from "./AsicCell";
 import { AsicStats } from "@/protoOS/api/types";
-import Spinner from "@/shared/components/Spinner";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 
 interface AsicTablePreviewProps {
   asics?: AsicStats[];
@@ -16,7 +16,7 @@ const AsicTablePreview = ({ asics }: AsicTablePreviewProps) => {
             data-testid="asic-loader"
             className="flex h-full w-full items-center justify-center pb-4"
           >
-            <Spinner />
+            <ProgressCircular indeterminate />
           </div>
         ) : (
           <div

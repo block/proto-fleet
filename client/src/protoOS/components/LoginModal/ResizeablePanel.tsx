@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "motion/react";
 import { ReactNode } from "react";
+import clsx from "clsx";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 import useMeasure from "@/shared/hooks/useMeasure";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
@@ -7,9 +8,10 @@ import { cubicBezierValues } from "@/shared/utils/cssUtils";
 type Props = {
   children: ReactNode;
   resizeOn: any;
+  className?: string;
 };
 
-const ResizeablePanel = ({ children, resizeOn }: Props) => {
+const ResizeablePanel = ({ children, resizeOn, className }: Props) => {
   const [ref, { height }] = useMeasure<HTMLDivElement>();
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
@@ -28,7 +30,7 @@ const ResizeablePanel = ({ children, resizeOn }: Props) => {
           exit={{ opacity: 0, transition: { duration: 0.2, ease: easeGentle } }}
           transition={{ duration: 0.5, delay: 0.1 }}
         >
-          <div ref={ref} className="absolute">
+          <div ref={ref} className={clsx("absolute", className)}>
             {children}
           </div>
         </motion.div>

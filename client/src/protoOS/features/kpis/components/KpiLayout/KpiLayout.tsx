@@ -15,7 +15,7 @@ import DurationSelector, {
   Duration,
   durations,
 } from "@/shared/components/DurationSelector";
-import Spinner from "@/shared/components/Spinner";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 
 const KpiLayout = () => {
@@ -122,7 +122,7 @@ const KpiLayout = () => {
           <Outlet context={outletContext} />
         ) : (
           <div className="flex h-full flex-1 items-center justify-center">
-            <Spinner />
+            <ProgressCircular indeterminate />
           </div>
         )}
       </div>

@@ -13,7 +13,7 @@ import {
   isPSUError,
   isPSUWarning,
 } from "@/protoOS/components/MinerStatusModal/utility";
-import Spinner from "@/shared/components/Spinner";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import StatusCircle, {
   type StatusCircleProps,
 } from "@/shared/components/StatusCircle/";
@@ -58,8 +58,9 @@ const MinerStatusWidget = ({
       <>
         {loading ? (
           [...Array(3)].map((_, index) => (
-            <Spinner
+            <ProgressCircular
               className="mr-1"
+              indeterminate
               dataTestId="miner-status-spinner"
               size={14}
               key={index}

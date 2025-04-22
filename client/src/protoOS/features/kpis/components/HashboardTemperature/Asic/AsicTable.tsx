@@ -4,7 +4,7 @@ import { getAsicsRows } from "../../Temperature/utility";
 import AsicButton from "./AsicButton";
 import { AsicStats, GetAsicHashrateParams } from "@/protoOS/api/types";
 import { PopoverProvider } from "@/shared/components/Popover";
-import Spinner from "@/shared/components/Spinner";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 
 interface AsicTableProps {
   asics: AsicStats[];
@@ -31,7 +31,7 @@ const AsicTable = ({
         {pending && !asics.length ? (
           <div className="flex h-full w-full max-w-[calc(100vw-theme(spacing.3))] items-center justify-center">
             <div className="py-10">
-              <Spinner />
+              <ProgressCircular indeterminate />
             </div>
           </div>
         ) : (

@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import clsx from "clsx";
-import Spinner from "@/shared/components/Spinner";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 
 interface ChipProps {
   loading?: boolean;
@@ -10,7 +10,11 @@ interface ChipProps {
 }
 
 const Chip = ({ loading, prefixIcon, children, onClick }: ChipProps) => {
-  const prefix = loading ? <Spinner size={16} /> : prefixIcon;
+  const prefix = loading ? (
+    <ProgressCircular indeterminate size={16} />
+  ) : (
+    prefixIcon
+  );
 
   return (
     <div

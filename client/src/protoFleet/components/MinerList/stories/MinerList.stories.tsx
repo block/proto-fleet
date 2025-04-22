@@ -5,7 +5,7 @@ import { Toaster as ToasterComponent } from "@/shared/features/toaster";
 export const MinerList = () => {
   return (
     <div>
-      <div className="fixed right-4 bottom-4 z-30">
+      <div className="fixed right-4 bottom-4 z-30 phone:right-2 phone:bottom-2">
         <ToasterComponent />
       </div>
       <MinerListComponent title="Miners" miners={miners} />

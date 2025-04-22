@@ -13,7 +13,7 @@ import {
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 
 import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
-import Spinner from "@/shared/components/Spinner";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
@@ -117,7 +117,7 @@ const AppWrapper = ({ children, fullScreen, hideErrors, title }: AppProps) => {
       pendingSystemStatus &&
       systemStatus?.onboarded === undefined ? (
         <div className="flex min-h-screen items-center justify-center">
-          <Spinner />
+          <ProgressCircular indeterminate />
         </div>
       ) : (
         <App

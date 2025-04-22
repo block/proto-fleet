@@ -4,9 +4,9 @@ import { useHashboards, useSystemInfo } from "@/protoOS/api";
 import R1Image from "@/shared/assets/images/R1.png";
 import R2Image from "@/shared/assets/images/R2.png";
 import Picture from "@/shared/components/Picture";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
 import SkeletonBar from "@/shared/components/SkeletonBar";
-import Spinner from "@/shared/components/Spinner";
 import {
   TemperatureUnitsSwitcher,
   ThemeSwitcher,
@@ -58,7 +58,7 @@ const General = () => {
             </div>
           </motion.div>
         ) : (
-          <Spinner />
+          <ProgressCircular indeterminate />
         )}
       </div>
       <div className="mb-10">

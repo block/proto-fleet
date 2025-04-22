@@ -9,6 +9,8 @@ export type ToastType = {
   status: ToastStatusType;
   id: number;
   ttl?: number | false;
+  longRunning?: boolean;
+  progress?: number;
 };
 
 // Props interface Toast component accepts

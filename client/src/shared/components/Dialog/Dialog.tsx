@@ -5,7 +5,7 @@ import Header from "@/shared/components/Header";
 import PageOverlay, {
   animationDuration,
 } from "@/shared/components/PageOverlay";
-import Spinner from "@/shared/components/Spinner";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 
 interface DialogProps {
   className?: string;
@@ -80,7 +80,12 @@ const Dialog = ({
             )}
             data-testid={testId}
           >
-            {loading && <Spinner className="mb-3 h-6 text-core-accent-fill" />}
+            {loading && (
+              <ProgressCircular
+                indeterminate
+                className="mb-3 h-6 text-core-accent-fill"
+              />
+            )}
             <Header
               title={title}
               subtitle={subtitle}

@@ -3,7 +3,7 @@ import { ToastType } from "./types";
 
 type UpdateProps = {
   action: typeof ACTIONS.update;
-  toast: ToastType;
+  toast: Partial<ToastType>;
 };
 
 type RemoveProps = {
@@ -60,7 +60,7 @@ const pushToast = (toast: ToastTypeWithoutId) => {
   return id;
 };
 
-const updateToast = (id: number, toast: ToastTypeWithoutId) => {
+const updateToast = (id: number, toast: Partial<ToastTypeWithoutId>) => {
   ToastsObserver.notify({
     action: ACTIONS.update,
     toast: { ...toast, id },

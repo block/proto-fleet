@@ -1,13 +1,29 @@
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { ACTIONS } from "../../constants";
+import { ACTIONS, STATUSES } from "../../constants";
 import ToastsObserver, { removeToast } from "../../ToastsObserver";
 import { type ToastType } from "../../types";
+import GroupedToaster from "../GroupedToaster";
 import Toast from "../Toast";
 
 const Toaster = () => {
   const [toasts, setToasts] = useState<ToastType[]>([]);
+
+  const basicToasts = useMemo(() => {
+    return toasts.filter(
+      (toast) =>
+        !toast.longRunning &&
+        (toast.status === STATUSES.success || toast.status === STATUSES.error),
+    );
+  }, [toasts]);
+
+  const actionToasts = useMemo(() => {
+    return toasts.filter(
+      (toast) =>
+        toast.longRunning === true || toast.status === STATUSES.loading,
+    );
+  }, [toasts]);
 
   useEffect(() => {
     ToastsObserver.subscribe((data) => {
@@ -22,8 +38,10 @@ const Toaster = () => {
             return prev;
           }
 
+          // perform patch of original toast
+          const updatedToast = { ...prev[index], ...data.toast };
           const clone = [...prev];
-          clone.splice(index, 1, data.toast);
+          clone.splice(index, 1, updatedToast);
           return clone;
         });
       } else if (data.action == ACTIONS.clear) {
@@ -33,21 +51,24 @@ const Toaster = () => {
   }, []);
 
   return (
-    <motion.div whileHover="hover" className="group">
-      <AnimatePresence>
-        {toasts.map(({ message, status, id, ttl }: ToastType, idx) => (
-          <Toast
-            key={id}
-            message={message}
-            onClose={() => removeToast(id)}
-            status={status}
-            index={idx}
-            numToasts={toasts.length}
-            ttl={ttl}
-          />
-        ))}
-      </AnimatePresence>
-    </motion.div>
+    <>
+      <motion.div whileHover="hover" className="group absolute -top-5 right-0">
+        <AnimatePresence>
+          {basicToasts.map(({ message, status, id, ttl }: ToastType, idx) => (
+            <Toast
+              key={id}
+              message={message}
+              onClose={() => removeToast(id)}
+              status={status}
+              index={idx}
+              numToasts={basicToasts.length}
+              ttl={ttl}
+            />
+          ))}
+        </AnimatePresence>
+      </motion.div>
+      <GroupedToaster toasts={actionToasts} />
+    </>
   );
 };
 

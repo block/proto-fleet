@@ -4,9 +4,9 @@ import {
   ControlBoard,
   HashboardIndicator,
 } from "@/shared/assets/icons";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
 import SkeletonBar from "@/shared/components/SkeletonBar";
-import Spinner from "@/shared/components/Spinner";
 
 const Hardware = () => {
   const { data: hashboards } = useHashboards();
@@ -69,7 +69,7 @@ const Hardware = () => {
           </>
         ) : (
           <div className="flex justify-center">
-            <Spinner className="my-5" />
+            <ProgressCircular className="my-5" indeterminate />
           </div>
         )}
       </div>

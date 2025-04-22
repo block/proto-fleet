@@ -3,7 +3,7 @@ import { ReactNode } from "react";
 import Pools from "./Pools";
 import ContentHeader from "@/shared/components/ContentHeader";
 import { PoolInfo } from "@/shared/components/MiningPools/types";
-import Spinner from "@/shared/components/Spinner";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 
 interface MiningPoolsProps {
   title: string;
@@ -28,7 +28,11 @@ const MiningPools = ({
         testId="mining-pool-title"
       />
       {children}
-      {loading ? <Spinner /> : <Pools pools={pools} onChangePools={onChange} />}
+      {loading ? (
+        <ProgressCircular indeterminate />
+      ) : (
+        <Pools pools={pools} onChangePools={onChange} />
+      )}
     </div>
   );
 };

@@ -2,7 +2,7 @@ import { MouseEvent, ReactNode } from "react";
 import clsx from "clsx";
 
 import { sizes, variants } from "./constants";
-import Spinner from "@/shared/components/Spinner";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 
 interface ButtonProps {
   borderColor?: string;
@@ -45,7 +45,7 @@ const Button = ({
   const base = size === sizes.base;
   const compact = size === sizes.compact;
   const gap = compact ? "w-2" : "w-3";
-  const prefix = loading ? <Spinner /> : prefixIcon;
+  const prefix = loading ? <ProgressCircular indeterminate /> : prefixIcon;
   const disabledState = disabled || loading;
 
   return (

@@ -1,4 +1,5 @@
 export const STATUSES = {
+  queued: "queued",
   loading: "loading",
   success: "success",
   error: "error",
@@ -10,3 +11,5 @@ export const ACTIONS = {
   remove: "remove",
   clear: "clear",
 } as const;
+
+export const defaultTtl = 4000;

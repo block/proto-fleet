@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import Auth from "./Auth";
 import { useSystemStatus } from "@/protoOS/api";
 
-import Spinner from "@/shared/components/Spinner";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const AuthWrapper = () => {
@@ -27,7 +27,7 @@ const AuthWrapper = () => {
     <>
       {pendingSystemStatus && systemStatus?.password_set === undefined ? (
         <div className="flex min-h-screen items-center justify-center">
-          <Spinner />
+          <ProgressCircular indeterminate />
         </div>
       ) : (
         <Auth />

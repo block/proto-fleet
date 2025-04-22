@@ -5,7 +5,7 @@ import { convertAndFormatTemperature } from "./utility";
 import { AsicStats } from "@/protoOS/api/types";
 import Popover from "@/shared/components/Popover";
 import { minimalMargin } from "@/shared/components/Popover/constants.ts";
-import Spinner from "@/shared/components/Spinner";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import { positions } from "@/shared/constants";
 import { usePreferences } from "@/shared/features/preferences";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
@@ -57,7 +57,7 @@ const AsicPopover = ({
         {(pendingAsicHashrateData && !hashrateData?.length) ||
         (pendingAsicTemperatureData && !temperatureData?.length) ? (
           <div className="flex h-full items-center justify-center">
-            <Spinner />
+            <ProgressCircular indeterminate />
           </div>
         ) : null}
         {hashrateData?.length && temperatureData?.length ? (

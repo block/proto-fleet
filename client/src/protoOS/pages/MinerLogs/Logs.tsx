@@ -14,8 +14,8 @@ import { LogsResponseLogs } from "@/protoOS/api/types";
 import { DismissTiny } from "@/shared/assets/icons";
 
 import Button, { sizes, variants } from "@/shared/components/Button";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import Search from "@/shared/components/Search";
-import Spinner from "@/shared/components/Spinner";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 import { padLeft } from "@/shared/utils/stringUtils";
@@ -302,7 +302,7 @@ const Logs = ({ logsData }: LogsProps) => {
         </>
       ) : (
         <div className="flex h-[calc(100vh-65px)] w-full items-center justify-center">
-          <Spinner />
+          <ProgressCircular indeterminate />
         </div>
       )}
     </>

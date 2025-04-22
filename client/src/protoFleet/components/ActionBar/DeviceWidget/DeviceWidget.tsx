@@ -39,6 +39,7 @@ const DeviceWidget = ({ numberOfMiners, setHidden }: DeviceWidgetProps) => {
       const id = pushToast({
         message: message,
         status: TOAST_STATUSES.loading,
+        longRunning: true,
       });
       // TODO call API
       simulateAPICall(() => {
@@ -54,6 +55,7 @@ const DeviceWidget = ({ numberOfMiners, setHidden }: DeviceWidgetProps) => {
       const id = pushToast({
         message: "Downloading logs",
         status: TOAST_STATUSES.loading,
+        longRunning: true,
       });
       // TODO call API
       simulateAPICall(() => {
@@ -169,6 +171,7 @@ const DeviceWidget = ({ numberOfMiners, setHidden }: DeviceWidgetProps) => {
     const id = pushToast({
       message: loadingMessages[currentAction],
       status: TOAST_STATUSES.loading,
+      longRunning: true,
     });
     // TODO call API according to currentAction
     simulateAPICall(() => {

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import Onboarding from "./Onboarding";
 import { useNetworkInfo, useSystemInfo, useSystemStatus } from "@/protoOS/api";
 
-import Spinner from "@/shared/components/Spinner";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
@@ -34,7 +34,7 @@ const OnboardingWrapper = () => {
       pendingSystemStatus &&
       systemStatus?.onboarded === undefined ? (
         <div className="flex min-h-screen items-center justify-center">
-          <Spinner />
+          <ProgressCircular indeterminate />
         </div>
       ) : (
         <Onboarding
