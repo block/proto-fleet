@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/btc-mining/miner-firmware/fleet/generated/sqlc"
+	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 )
 
 func WithTransaction[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error)) (T, error) {

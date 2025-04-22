@@ -1,9 +1,9 @@
 package main
 
 import (
-	auth2 "github.com/btc-mining/miner-firmware/fleet/internal/domain/token"
-	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/db"
-	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/logging"
+	auth2 "github.com/btc-mining/proto-fleet/server/internal/domain/token"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/logging"
 	"time"
 )
 

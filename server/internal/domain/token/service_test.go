@@ -2,7 +2,7 @@ package token_test
 
 import (
 	"fmt"
-	"github.com/btc-mining/miner-firmware/fleet/internal/domain/token"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"testing"
 	"time"
 

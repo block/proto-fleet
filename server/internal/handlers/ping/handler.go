@@ -7,8 +7,8 @@ import (
 	"io"
 
 	"connectrpc.com/connect"
-	pingv1 "github.com/btc-mining/miner-firmware/fleet/generated/grpc/ping/v1"
-	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/ping/v1/pingv1connect"
+	pingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/ping/v1"
+	"github.com/btc-mining/proto-fleet/server/generated/grpc/ping/v1/pingv1connect"
 )
 
 // Handler stub implementation intended for testing

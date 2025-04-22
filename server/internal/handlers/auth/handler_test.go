@@ -1,10 +1,10 @@
 package auth_test
 
 import (
-	authDomain "github.com/btc-mining/miner-firmware/fleet/internal/domain/auth"
-	"github.com/btc-mining/miner-firmware/fleet/internal/domain/token"
-	"github.com/btc-mining/miner-firmware/fleet/internal/handlers/auth"
-	"github.com/btc-mining/miner-firmware/fleet/internal/handlers/onboarding"
+	authDomain "github.com/btc-mining/proto-fleet/server/internal/domain/auth"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
+	"github.com/btc-mining/proto-fleet/server/internal/handlers/auth"
+	"github.com/btc-mining/proto-fleet/server/internal/handlers/onboarding"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,13 +13,13 @@ import (
 	"connectrpc.com/connect"
 	"github.com/alecthomas/assert/v2"
 
-	onboardingv1 "github.com/btc-mining/miner-firmware/fleet/generated/grpc/onboarding/v1"
-	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/onboarding/v1/onboardingv1connect"
+	onboardingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1"
+	"github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 
-	authv1 "github.com/btc-mining/miner-firmware/fleet/generated/grpc/auth/v1"
-	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/auth/v1/authv1connect"
+	authv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1"
+	"github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 
-	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/db/dbtest"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db/dbtest"
 )
 
 func TestAuthServer_Authenticate(t *testing.T) {

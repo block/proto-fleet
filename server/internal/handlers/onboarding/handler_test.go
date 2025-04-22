@@ -2,9 +2,9 @@ package onboarding_test
 
 import (
 	"database/sql"
-	"github.com/btc-mining/miner-firmware/fleet/internal/domain/auth"
-	"github.com/btc-mining/miner-firmware/fleet/internal/domain/token"
-	"github.com/btc-mining/miner-firmware/fleet/internal/handlers/onboarding"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
+	"github.com/btc-mining/proto-fleet/server/internal/handlers/onboarding"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,12 +15,12 @@ import (
 	"github.com/alecthomas/assert/v2"
 	"github.com/google/uuid"
 
-	onboardingv1 "github.com/btc-mining/miner-firmware/fleet/generated/grpc/onboarding/v1"
-	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/onboarding/v1/onboardingv1connect"
-	"github.com/btc-mining/miner-firmware/fleet/generated/sqlc"
+	onboardingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1"
+	"github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
+	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 
-	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/db"
-	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/db/dbtest"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db/dbtest"
 )
 
 func TestHandler_CreateAdminLogin(t *testing.T) {

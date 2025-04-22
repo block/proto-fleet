@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/networking"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	"log/slog"
 	"net"
 	"strings"

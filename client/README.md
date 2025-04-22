@@ -121,7 +121,7 @@ Enter vite server url in browser `http://localhost:5173`
 If you are trying to run ProtoOS against miner-api-server running locally, there are is a little workaround needed to bypass the onboarding process.
 
 - When first visiting the UI you will need to onboard and [add mining pool](https://www.notion.so/proto-team/How-to-connect-to-Block-s-pool-and-wallet-for-live-network-testing-db54d1cd5d2d4cc59bf68b8623da4c61). However after completing this step the UI will just return back to the pools view and appear like no pool was added.
-- To get past this you must change the following snippet in `miner-firmware/crates/miner-api-server/controllers/system.rs` ln 177
+- To get past this you must change the following snippet in `proto-fleet/crates/miner-api-server/controllers/system.rs` ln 177
 
 ```rust
   HttpResponse::Ok().json(SystemStatuses {

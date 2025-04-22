@@ -3,9 +3,9 @@ package networkinfo
 import (
 	"connectrpc.com/connect"
 	"context"
-	pb "github.com/btc-mining/miner-firmware/fleet/generated/grpc/networkinfo/v1"
-	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/networkinfo/v1/networkinfov1connect"
-	"github.com/btc-mining/miner-firmware/fleet/internal/domain/pairing"
+	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/networkinfo/v1"
+	"github.com/btc-mining/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 )
 
 // Handler handles the Connect-RPC endpoints

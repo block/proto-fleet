@@ -3,11 +3,11 @@ package auth
 import (
 	"context"
 	"fmt"
-	"github.com/btc-mining/miner-firmware/fleet/internal/domain/auth"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"
 
 	"connectrpc.com/connect"
-	pb "github.com/btc-mining/miner-firmware/fleet/generated/grpc/auth/v1"
-	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/auth/v1/authv1connect"
+	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1"
+	"github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 )
 
 // Handler handles authentication requests

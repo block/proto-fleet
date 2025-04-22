@@ -11,7 +11,7 @@ import (
 	strings "strings"
 
 	connect "connectrpc.com/connect"
-	v1 "github.com/btc-mining/miner-firmware/fleet/generated/grpc/auth/v1"
+	v1 "github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are

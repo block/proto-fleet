@@ -2,11 +2,11 @@ FROM golang:1.24.2-alpine AS build
 
 WORKDIR /build
 
-COPY fleet/go.mod fleet/go.sum ./
+COPY server/go.mod server/go.sum ./
 
 RUN go mod download
 
-COPY fleet ./
+COPY server ./
 
 RUN CGO_ENABLED=0 go build -v ./cmd/fleetd
 

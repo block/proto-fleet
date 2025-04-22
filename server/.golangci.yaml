@@ -94,9 +94,9 @@ linters-settings:
     # It's less necessary to wrap those errors.
     ignorePackageGlobs:
       # It's expected that all errors returned by packages which start with
-      # github.com/btc-mining/miner-firmware already have their errors wrapped
+      # github.com/btc-mining/proto-fleet already have their errors wrapped
       # and so do not need to be re-wrapped.
-      - github.com/btc-mining/miner-firmware/*
+      - github.com/btc-mining/proto-fleet/*
 
 issues:
   max-issues-per-linter: 0

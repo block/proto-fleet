@@ -7,7 +7,7 @@ on:
     paths:
       - ".github/workflows/protofleet-deploy-pr-frontend.yml"
       - "client/**"
-      - "server/deploy/develop/frontend/**"
+      - "deploy/develop/frontend/**"
 
 permissions:
   # Needed for aws-actions/configure-aws-credentials
@@ -21,7 +21,7 @@ jobs:
     with:
       docker-build-working-directory: "."
       docker-image-tag: "protofleet/frontend-dashboard-develop:pr-${{ github.event.number }}-main"
-      source-build-directory: "server/deploy/develop/frontend/dashboard"
+      source-build-directory: "deploy/develop/frontend/dashboard"
       target-directory: "docker/protofleet/pr/${{ github.event.number }}/frontend/dashboard-main"
       docker-compose-parameters: '{ "BACKEND_ADDRESS": "https://backend.main.develop.fleetdev.proto.xyz" }'
 
@@ -38,7 +38,7 @@ jobs:
     with:
       docker-build-working-directory: "."
       docker-image-tag: "protofleet/frontend-storybook-develop:pr-${{ github.event.number }}"
-      source-build-directory: "server/deploy/develop/frontend/storybook"
+      source-build-directory: "deploy/develop/frontend/storybook"
       target-directory: "docker/protofleet/pr/${{ github.event.number }}/frontend/storybook"
 
   report-storybook-url:

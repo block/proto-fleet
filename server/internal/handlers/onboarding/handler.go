@@ -2,11 +2,11 @@ package onboarding
 
 import (
 	"context"
-	"github.com/btc-mining/miner-firmware/fleet/internal/domain/auth"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"
 
 	"connectrpc.com/connect"
-	pb "github.com/btc-mining/miner-firmware/fleet/generated/grpc/onboarding/v1"
-	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/onboarding/v1/onboardingv1connect"
+	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1"
+	"github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 )
 
 // Handler handles authentication requests

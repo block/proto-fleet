@@ -3,12 +3,12 @@ package pairing
 import (
 	"context"
 	"errors"
-	"github.com/btc-mining/miner-firmware/fleet/internal/domain/pairing"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	"log/slog"
 
 	"connectrpc.com/connect"
-	pb "github.com/btc-mining/miner-firmware/fleet/generated/grpc/pairing/v1"
-	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/pairing/v1/pairingv1connect"
+	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 )
 
 // Handler handles the Connect-RPC endpoints

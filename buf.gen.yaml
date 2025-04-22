@@ -14,4 +14,4 @@ managed:
   enabled: true
   override:
     - file_option: go_package_prefix
-      value: github.com/btc-mining/miner-firmware/fleet/generated/grpc
+      value: github.com/btc-mining/proto-fleet/server/generated/grpc

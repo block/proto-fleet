@@ -50,7 +50,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup AWS SSH
-        uses: ./.github/actions/protofleet/aws-ssh-setup
+        uses: ./.github/actions/aws-ssh-setup
         with:
           aws-instance-id: "i-0e47edcb1574765b0"
           aws-instance-connect-endpoint-id: "eice-0e5cdfd8da57023b2"

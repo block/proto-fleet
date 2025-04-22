@@ -9,8 +9,8 @@ on:
     paths:
       - ".github/workflows/protofleet-deploy-develop-backend.yml"
       - "server/**"
-      - "!server/deploy/**"
-      - "server/deploy/develop/backend/**"
+      - "!deploy/**"
+      - "deploy/develop/backend/**"
   workflow_dispatch:
 
 jobs:
@@ -22,5 +22,5 @@ jobs:
     with:
       docker-build-working-directory: "."
       docker-image-tag: "protofleet/backend-develop:main"
-      source-build-directory: "server/deploy/develop/backend"
+      source-build-directory: "deploy/develop/backend"
       target-directory: "docker/protofleet/develop/backend"

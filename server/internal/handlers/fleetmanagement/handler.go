@@ -3,9 +3,9 @@ package fleetmanagement
 import (
 	"connectrpc.com/connect"
 	"context"
-	pb "github.com/btc-mining/miner-firmware/fleet/generated/grpc/fleetmanagement/v1"
-	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
-	"github.com/btc-mining/miner-firmware/fleet/internal/domain/fleetmanagement"
+	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	"github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
 )
 
 // Handler handles the Connect-RPC endpoints

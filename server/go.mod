@@ -1,4 +1,4 @@
-module github.com/btc-mining/miner-firmware/fleet
+module github.com/btc-mining/proto-fleet/server
 
 go 1.24.2
 

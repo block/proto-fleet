@@ -8,7 +8,7 @@ on:
       - main
     paths:
       - ".github/workflows/protofleet-deploy-develop-traefik.yml"
-      - "server/deploy/develop/traefik/**"
+      - "deploy/develop/traefik/**"
   workflow_dispatch:
 
 permissions:
@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup AWS SSH
-        uses: ./.github/actions/protofleet/aws-ssh-setup
+        uses: ./.github/actions/aws-ssh-setup
         with:
           aws-instance-id: "i-0e47edcb1574765b0"
           aws-instance-connect-endpoint-id: "eice-0e5cdfd8da57023b2"
@@ -37,7 +37,7 @@ jobs:
           aws-role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Deploy_Develop"
 
       - name: Deploy Traefik
-        uses: ./.github/actions/protofleet/docker-compose-deploy
+        uses: ./.github/actions/docker-compose-deploy
         with:
-          source-directory: "server/deploy/develop/traefik"
+          source-directory: "deploy/develop/traefik"
           target-directory: "docker/protofleet/develop/traefik"

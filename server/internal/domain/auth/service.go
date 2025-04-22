@@ -5,11 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/btc-mining/miner-firmware/fleet/internal/domain/token"
-	"github.com/btc-mining/miner-firmware/fleet/internal/infrastructure/db"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"time"
 
-	"github.com/btc-mining/miner-firmware/fleet/generated/sqlc"
+	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )

@@ -2,8 +2,8 @@ package middleware
 
 import (
 	"context"
-	"github.com/btc-mining/miner-firmware/fleet/internal/domain/auth"
-	"github.com/btc-mining/miner-firmware/fleet/internal/domain/token"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"log/slog"
 	"net/http"
 

@@ -1,9 +1,9 @@
 package middleware_test
 
 import (
-	"github.com/btc-mining/miner-firmware/fleet/internal/domain/token"
-	"github.com/btc-mining/miner-firmware/fleet/internal/handlers/middleware"
-	"github.com/btc-mining/miner-firmware/fleet/internal/handlers/ping"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
+	"github.com/btc-mining/proto-fleet/server/internal/handlers/middleware"
+	"github.com/btc-mining/proto-fleet/server/internal/handlers/ping"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,8 +12,8 @@ import (
 	"connectrpc.com/connect"
 	"github.com/alecthomas/assert/v2"
 
-	pingv1 "github.com/btc-mining/miner-firmware/fleet/generated/grpc/ping/v1"
-	"github.com/btc-mining/miner-firmware/fleet/generated/grpc/ping/v1/pingv1connect"
+	pingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/ping/v1"
+	"github.com/btc-mining/proto-fleet/server/generated/grpc/ping/v1/pingv1connect"
 )
 
 func TestAuthMiddleware(t *testing.T) {
