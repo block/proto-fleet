@@ -12,9 +12,11 @@ Home for all proto mining frontend and backend web code.
 
 ### setup
 
-Run the blow command to install the proto
+Run the below commands to install the connectrpc dependencies
 
 ```
+[ -n "$(go env GOBIN)" ] && export PATH="$(go env GOBIN):${PATH}"
+[ -n "$(go env GOPATH)" ] && export PATH="$(go env GOPATH)/bin:${PATH}"
 npm install -g @bufbuild/buf @bufbuild/protoc-gen-es
 ```
 
