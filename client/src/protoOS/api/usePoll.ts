@@ -11,7 +11,7 @@ const usePoll = ({
   fetchData,
   params,
   poll,
-  pollIntervalMs = 60000,
+  pollIntervalMs = 10 * 1000,
 }: UsePollProps) => {
   useEffect(() => {
     fetchData();

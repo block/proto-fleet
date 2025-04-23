@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import KpiChart from "./KpiLineChart";
 
@@ -129,7 +129,6 @@ describe("KpiLineChart", () => {
   it("renders the component with necessary chart elements", () => {
     render(
       <KpiChart
-        duration="12h"
         series={mockSeries}
         aggregateSeries={mockAggregateSeries}
         units="W"
@@ -148,7 +147,6 @@ describe("KpiLineChart", () => {
   it("does not show series lines when tooltip has no data (not hovered)", () => {
     render(
       <KpiChart
-        duration="12h"
         series={mockSeries}
         aggregateSeries={mockAggregateSeries}
         units="W"
@@ -169,7 +167,6 @@ describe("KpiLineChart", () => {
   it("shows series lines when tooltip has data (chart is hovered)", () => {
     render(
       <KpiChart
-        duration="12h"
         series={mockSeries}
         aggregateSeries={mockAggregateSeries}
         units="W"
@@ -186,8 +183,10 @@ describe("KpiLineChart", () => {
     expect(screen.getByTestId("tooltip-payload-count").textContent).toBe("1");
 
     // Series lines should now be visible
-    expect(screen.getByTestId("line-series1")).toBeInTheDocument();
-    expect(screen.getByTestId("line-series2")).toBeInTheDocument();
+    waitFor(() => {
+      expect(screen.getByTestId("line-series1")).toBeInTheDocument();
+      expect(screen.getByTestId("line-series2")).toBeInTheDocument();
+    });
 
     // And the aggregate line should still be present
     expect(screen.getByTestId("line-total")).toBeInTheDocument();
@@ -199,7 +198,6 @@ describe("KpiLineChart", () => {
   it("hides series lines when unhovered", () => {
     render(
       <KpiChart
-        duration="12h"
         series={mockSeries}
         aggregateSeries={mockAggregateSeries}
         units="W"
@@ -210,8 +208,10 @@ describe("KpiLineChart", () => {
     fireEvent.click(screen.getByTestId("tooltip-hover-button"));
 
     // Verify series lines are shown
-    expect(screen.getByTestId("line-series1")).toBeInTheDocument();
-    expect(screen.getByTestId("line-series2")).toBeInTheDocument();
+    waitFor(() => {
+      expect(screen.getByTestId("line-series1")).toBeInTheDocument();
+      expect(screen.getByTestId("line-series2")).toBeInTheDocument();
+    });
 
     // Now simulate an unhover
     fireEvent.click(screen.getByTestId("tooltip-unhover-button"));
@@ -227,7 +227,6 @@ describe("KpiLineChart", () => {
   it("passes units to the tooltip", () => {
     render(
       <KpiChart
-        duration="12h"
         series={mockSeries}
         aggregateSeries={mockAggregateSeries}
         units="W"

@@ -58,7 +58,6 @@ const Efficiency = () => {
         <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
       )}
       <KpiLineChart
-        duration={duration}
         series={hbEfficiencies}
         units="J/TH"
         aggregateSeries={{

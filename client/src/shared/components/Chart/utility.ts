@@ -91,6 +91,12 @@ export const aggregateValues = (
   dataToAggregate: TimeSeriesData[] = [],
   compareTimeMinutes: number,
 ) => {
+  // if data is empty, we have not received any data from the server
+  // so no need to aggregate data
+  if (dataToAggregate.length === 0) {
+    return dataToAggregate;
+  }
+
   let aggregatedData = [
     { datetime: dataToAggregate[0].datetime, value: 0, numberOfValues: 0 },
   ];

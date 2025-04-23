@@ -101,6 +101,7 @@ const Temperature = () => {
         {Array.from({ length: Math.ceil(hbTempData.length / 3) }).map(
           (_, groupIndex) => (
             <HbBayPreview
+              key={groupIndex}
               data={hbTempData.slice(groupIndex * 3, groupIndex * 3 + 3)}
             />
           ),

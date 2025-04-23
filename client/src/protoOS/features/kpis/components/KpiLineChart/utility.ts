@@ -38,6 +38,14 @@ type GetChartDataArgs = {
   units?: string;
 };
 
+export type ChartData = {
+  datetime?: TimeSeriesData["datetime"];
+  aggregateName: string;
+  units?: string;
+} & {
+  [key: string]: number | string | undefined;
+};
+
 /**
  * Converts inidividual series data points into one object with all series data points at each timestamp
  * @param series - Array of TimeSeries data points
@@ -66,7 +74,7 @@ export const getChartData = ({
         aggregateName: aggregateSeries.name,
         units,
         [aggregateSeries.name]: totalPoint.value,
-      } as any,
+      } as ChartData,
     );
   });
 

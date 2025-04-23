@@ -50,7 +50,6 @@ const PowerUsage = () => {
     <>
       {aggregates && <Stats stats={getStats(aggregates)} />}
       <KpiLineChart
-        duration={duration}
         series={hbPowerUsages}
         units="kW"
         aggregateSeries={{

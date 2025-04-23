@@ -44,19 +44,101 @@ export const convertAggregateValues = (
   }, {} as Aggregates);
 };
 
-export const downsample = (data: TimeSeriesData[], duration: Duration) => {
-  // we can continue without aggregation if we have less than 360 data points
-  // or if the duration is 12h or 24h as it fits on the larger chart
-  if (!data?.length || data.length <= 360 || duration === "12h") {
+const durationStringToSeconds = (duration: Duration): number => {
+  const unit = duration.slice(-1);
+  const value = parseInt(duration.slice(0, -1), 10);
+
+  if (isNaN(value)) return 0;
+
+  switch (unit) {
+    case "h":
+      return value * 60 * 60;
+    case "d":
+      return value * 24 * 60 * 60;
+    default:
+      return 0;
+  }
+};
+
+const addDurationStartValue = (ts: TimeSeriesData[], duration: Duration) => {
+  if (ts.length === 0) {
+    return ts;
+  }
+
+  const mostRecent = ts[ts.length - 1].datetime;
+  const modified = ts;
+
+  if (
+    mostRecent &&
+    mostRecent > Date.now() / 1000 - durationStringToSeconds(duration)
+  ) {
+    modified.unshift({
+      datetime: mostRecent - durationStringToSeconds(duration),
+      value: 0,
+    });
+  }
+
+  return modified;
+};
+
+const insertDownTimeData = (
+  data: TimeSeriesData[],
+  duration: Duration,
+  compareTimeMinutes: number,
+) => {
+  // if data is empty, we have not received any data from the server
+  // so no need to insert down time data
+  if (data.length === 0) {
     return data;
   }
 
+  const filledData: TimeSeriesData[] = [];
+  data = addDurationStartValue(data, duration);
+  for (let i = 0; i < data.length - 1; i++) {
+    const current = data[i];
+    const next = data[i + 1];
+    filledData.push(current);
+
+    if (!next.datetime || !current.datetime) {
+      continue;
+    }
+
+    const timeDifference = (next.datetime - current.datetime) / 60;
+    if (timeDifference > compareTimeMinutes) {
+      const numberOfPoints = Math.floor(timeDifference / compareTimeMinutes);
+      for (let j = 1; j <= numberOfPoints; j++) {
+        filledData.push({
+          datetime: current.datetime + j * compareTimeMinutes * 60,
+          value: 0,
+        });
+      }
+    }
+  }
+  filledData.push(data[data.length - 1]);
+  return filledData;
+};
+
+export const downsample = (
+  data: TimeSeriesData[],
+  duration: Duration,
+  insertDownTime: Boolean = true,
+) => {
+  const numDataPoints = 180;
   let compareTimeMinutes = 10;
-  if (duration === "48h") {
-    compareTimeMinutes = 10;
+  if (duration === "12h") {
+    compareTimeMinutes = (12 * 60) / numDataPoints;
+  } else if (duration === "24h") {
+    compareTimeMinutes = (24 * 60) / numDataPoints;
+  } else if (duration === "48h") {
+    compareTimeMinutes = (48 * 60) / numDataPoints;
   } else if (duration === "5d") {
-    compareTimeMinutes = 60;
+    compareTimeMinutes = (5 * 24 * 60) / numDataPoints;
   }
 
-  return aggregateValues(data, compareTimeMinutes);
+  return aggregateValues(
+    insertDownTime
+      ? insertDownTimeData(data, duration, compareTimeMinutes)
+      : data,
+    compareTimeMinutes,
+  );
 };

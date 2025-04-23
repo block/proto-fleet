@@ -58,7 +58,6 @@ const Hashrate = () => {
       )}
 
       <KpiLineChart
-        duration={duration}
         series={hbHashrates}
         units="TH/s"
         aggregateSeries={{

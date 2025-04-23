@@ -5,7 +5,7 @@ import { lineColors, lineProps } from "./constants";
 
 import KpiTooltip, { type TooltipData } from "./KpiTooltip";
 import { type TimeSeries } from "./types";
-import { getChartData } from "./utility";
+import { type ChartData, getChartData } from "./utility";
 import {
   ChartWrapper,
   LineCursor,
@@ -14,13 +14,13 @@ import {
   xAxisProps,
   yAxisProps,
 } from "@/shared/components/Chart";
-import { Duration } from "@/shared/components/DurationSelector";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 import useMeasure from "@/shared/hooks/useMeasure";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
+const ANIMATION_DURATION = 1500;
+
 interface KpiChartProps {
-  duration: Duration;
   series: TimeSeries[];
   units?: string;
   aggregateSeries: TimeSeries;
@@ -43,35 +43,59 @@ const KpiChart = ({
   const corePrimary5 = useCssVariable("--color-core-primary-5");
   const corePrimary20 = useCssVariable("--color-core-primary-20");
 
-  const [initChart, setInitChart] = useState(false);
+  const [shouldAnimate, setShouldAnimate] = useState(true);
   const { isDesktop, isTablet, isLaptop, isPhone } = useWindowDimensions();
-  const chartData = useMemo(
-    () => getChartData({ series, aggregateSeries, units }),
-    [series, aggregateSeries, units],
-  );
+  const [chartData, setChartData] = useState<ChartData[] | null>(null);
+  const [maxDomain, setMaxDomain] = useState<number>(0);
 
-  // TODO: another perf bottleneck because were iterating over all data again
-  // were already iterating each item in getChartData so we could just return
-  // max here as well and it would be memoized
-  const max =
-    +(highestValue || 0) ||
-    Math.max(...chartData.map((data) => data[aggregateSeries.name])) * 1.1;
+  // initialize animation flags and chart data
+  useEffect(() => {
+    setShouldAnimate(true);
+    setChartData(() =>
+      getChartData({
+        series,
+        aggregateSeries,
+        units,
+      }),
+    );
+    setTimeout(() => {
+      setShouldAnimate(false);
+    }, ANIMATION_DURATION);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const nearestTen = Math.round(max / 10) * 10;
-  const maxDomain = nearestTen + (max < 10 ? 5 : 20);
+  // any time we receive new data update the chart data
+  // except for during an animation
+  useEffect(() => {
+    if (shouldAnimate) {
+      return;
+    }
+
+    setChartData(
+      getChartData({
+        series,
+        aggregateSeries,
+        units,
+      }),
+    );
+  }, [series, aggregateSeries, units, shouldAnimate]);
 
   useEffect(() => {
-    setTimeout(() => {
-      // the chart should only animate on first render
-      // animation takes around 1.5s
-      setInitChart(true);
-    }, 1500);
-  }, []);
+    if (!chartData?.length) return;
+    const max =
+      +(highestValue || 0) ||
+      Math.max(...chartData.map((data) => +(data[aggregateSeries.name] || 0))) *
+        1.1;
+
+    const nearestTen = Math.round(max / 10) * 10;
+    setMaxDomain(nearestTen + (max < 10 ? 5 : 20));
+  }, [chartData, highestValue, aggregateSeries.name]);
 
   const yAxisTickCount = maxDomain / 5 + 10;
 
   const gridDots = useMemo(() => {
-    if (!chartData.length || !chartRect.width || !chartRect.height) return null;
+    if (!chartData?.length || !chartRect.width || !chartRect.height)
+      return null;
 
     const spacing = 20;
     const verticalLines: number[] = [];
@@ -134,86 +158,93 @@ const KpiChart = ({
   return (
     <div ref={chartRef} className="min-h-100 flex-1">
       <ChartWrapper className="mb-10 h-full w-full">
-        <LineChart
-          data={chartData}
-          margin={{
-            top: 0,
-            right: 0,
-            left: -17,
-            bottom: 5,
-          }}
-        >
-          {gridDots}
+        {chartData?.length ? (
+          <LineChart
+            data={chartData || []}
+            margin={{
+              top: 0,
+              right: 0,
+              left: -17,
+              bottom: 5,
+            }}
+          >
+            {gridDots}
 
-          <XAxis
-            {...xAxisProps}
-            tickMargin={28}
-            axisLine={{ stroke: corePrimary5, strokeWidth: 1 }}
-            dataKey="datetime"
-            tick={
-              <TimeXAxisTick
-                tooltipDatetime={tooltipData.payload[0]?.payload.datetime}
-                dataPointCount={chartData.length}
-                maxTicksToShow={
-                  isDesktop ? 13 : isLaptop ? 10 : isTablet ? 8 : 6
-                }
-                minXPosition={85}
-                maxXPosition={isPhone ? 303 : 871}
-              />
-            }
-          />
+            <XAxis
+              {...xAxisProps}
+              tickMargin={28}
+              axisLine={{ stroke: corePrimary5, strokeWidth: 1 }}
+              dataKey="datetime"
+              scale="time"
+              tick={
+                <TimeXAxisTick
+                  tooltipDatetime={tooltipData.payload[0]?.payload.datetime}
+                  dataPointCount={chartData?.length || 0}
+                  maxTicksToShow={
+                    isDesktop ? 13 : isLaptop ? 10 : isTablet ? 8 : 6
+                  }
+                  minXPosition={85}
+                  maxXPosition={isPhone ? 303 : 871}
+                />
+              }
+            />
 
-          <YAxis
-            {...yAxisProps}
-            axisLine={{ stroke: corePrimary5, strokeWidth: 1 }}
-            domain={[0, maxDomain]}
-            tickCount={Math.min(15, yAxisTickCount)}
-          />
+            <YAxis
+              {...yAxisProps}
+              axisLine={{ stroke: corePrimary5, strokeWidth: 1 }}
+              domain={[0, maxDomain]}
+              tickCount={Math.min(15, yAxisTickCount)}
+            />
 
-          <Tooltip
-            position={{ y: tooltipData.y - 150, x: tooltipData.x - 290 }}
-            content={
-              <KpiTooltip
-                onHover={setTooltipData}
-                tooltipData={tooltipData}
-                units={units}
-              />
-            }
-            cursor={<LineCursor />}
-            isAnimationActive={false}
-          />
-          {!!tooltipData.payload.length && (
-            <>
-              {series.map((seriesItem, index) => {
-                if (seriesItem.data.length) {
-                  return (
-                    <Line
-                      {...lineProps}
-                      dataKey={seriesItem.name}
-                      key={index}
-                      isAnimationActive={false}
-                      stroke={lineColors[index % lineColors.length]}
-                    />
-                  );
-                }
-              })}
-            </>
-          )}
-          <Line
-            {...lineProps}
-            dataKey={aggregateSeries.name}
-            stroke="currentColor"
-            className="text-intent-warning-fill"
-            activeDot={
-              tooltipData.payload.length ? (
-                <LineDot fillClassName="fill-intent-warning-fill" />
-              ) : (
-                <></>
-              )
-            }
-            isAnimationActive={!initChart}
-          />
-        </LineChart>
+            <Tooltip
+              position={{ y: tooltipData.y - 150, x: tooltipData.x - 290 }}
+              content={
+                <KpiTooltip
+                  onHover={setTooltipData}
+                  tooltipData={tooltipData}
+                  units={units}
+                />
+              }
+              cursor={<LineCursor />}
+              isAnimationActive={false}
+            />
+            {!!tooltipData.payload.length && !shouldAnimate && (
+              <>
+                {series.map((seriesItem, index) => {
+                  if (seriesItem.data.length) {
+                    return (
+                      <Line
+                        {...lineProps}
+                        dataKey={seriesItem.name}
+                        key={index}
+                        isAnimationActive={false}
+                        stroke={lineColors[index % lineColors.length]}
+                      />
+                    );
+                  }
+                })}
+              </>
+            )}
+
+            <Line
+              {...lineProps}
+              dataKey={aggregateSeries.name}
+              stroke="currentColor"
+              className="text-intent-warning-fill"
+              activeDot={
+                tooltipData.payload.length ? (
+                  <LineDot fillClassName="fill-intent-warning-fill" />
+                ) : (
+                  <></>
+                )
+              }
+              isAnimationActive={shouldAnimate}
+              animationDuration={ANIMATION_DURATION}
+            />
+          </LineChart>
+        ) : (
+          <></>
+        )}
       </ChartWrapper>
     </div>
   );
