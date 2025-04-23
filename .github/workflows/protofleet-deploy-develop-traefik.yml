@@ -19,8 +19,19 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - instance-subdomain: develop
+            instance-id: i-0e47edcb1574765b0
+          - instance-subdomain: miner-1.miner
+            instance-id: i-01211e1ce58bbae8b
+          - instance-subdomain: miner-2.miner
+            instance-id: i-089d02537ba8dc14b
+          - instance-subdomain: miner-3.miner
+            instance-id: i-0c75c04f06ec1d3c4
     concurrency:
-      group: "${{ github.workflow }}-deploy"
+      group: "${{ github.workflow }}-deploy-${{ matrix.instance-subdomain }}"
       cancel-in-progress: true
     steps:
       - name: Checkout code
@@ -29,12 +40,15 @@ jobs:
       - name: Setup AWS SSH
         uses: ./.github/actions/aws-ssh-setup
         with:
-          aws-instance-id: "i-0e47edcb1574765b0"
+          aws-instance-id: "${{ matrix.instance-id }}"
           aws-instance-connect-endpoint-id: "eice-0e5cdfd8da57023b2"
-          aws-instance-ip: "34.193.182.49"
           aws-instance-user: "ubuntu"
           aws-region: "us-east-1"
           aws-role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Deploy_Develop"
+
+      - name: Write VM subdomain to Docker Compose file
+        shell: bash
+        run: sed -i 's#${VM_SUBDOMAIN}#${{ matrix.instance-subdomain }}#g' "deploy/develop/traefik/docker-compose.yml"
 
       - name: Deploy Traefik
         uses: ./.github/actions/docker-compose-deploy

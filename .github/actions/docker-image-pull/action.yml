@@ -1,0 +1,35 @@
+# This VM with Docker Compose deployment is meant to be used only for development and testing of the ProtoFleet on-premise version.
+
+name: Pull Docker Image
+description: This workflow automates the process of pulling a Docker image stored in AWS ECR from an EC2 instance.
+
+inputs:
+  docker-image-remote-tag:
+    description: The remote tag of the Docker image that you want to pull from AWS ECR. This should be in the format `registry/repository:tag`.
+    required: true
+
+runs:
+  using: composite
+  steps:
+  - name: Parse ECR Registry
+    shell: bash
+    run: |
+      echo "ECR_REGISTRY=$(echo '${{ inputs.docker-image-remote-tag }}' | cut -d'/' -f 1)" >> $GITHUB_ENV
+
+  - name: Parse ECR Region
+    shell: bash
+    run: |
+      echo "ECR_REGION=$(echo "$ECR_REGISTRY" | cut -d'.' -f 4)" >> $GITHUB_ENV 
+
+  - name: Login to AWS ECR in EC2 instance
+    shell: bash
+    run: |
+      ~/ssh_to_ec2 '
+        aws ecr get-login-password --region "${{ env.ECR_REGION }}" | \
+        sudo docker login --username AWS --password-stdin "${{ env.ECR_REGISTRY }}"'
+
+  - name: Pull Docker image from EC2 instance
+    shell: bash
+    run: |
+      ~/ssh_to_ec2 'sudo docker pull ${{ inputs.docker-image-remote-tag }}'
+

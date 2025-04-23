@@ -54,7 +54,6 @@ jobs:
         with:
           aws-instance-id: "i-0e47edcb1574765b0"
           aws-instance-connect-endpoint-id: "eice-0e5cdfd8da57023b2"
-          aws-instance-ip: "34.193.182.49"
           aws-instance-user: "ubuntu"
           aws-region: "us-east-1"
           aws-role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Deploy_Develop"

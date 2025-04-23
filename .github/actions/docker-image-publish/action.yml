@@ -11,36 +11,18 @@ inputs:
 outputs:
   docker-image-remote-tag:
     description: The remote tag of the Docker image deployed to AWS ECR in the format `registry/repository:tag`.
-    value: "${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-image-tag }}"
+    value: "${{ steps.push-docker-image.outputs.docker-image-remote-tag }}"
 
 runs:
   using: composite
   steps:
-  - name: Login locally to AWS ECR
-    id: login-ecr
-    uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076
+  - name: Push Docker image
+    id: push-docker-image
+    uses: ./.github/actions/docker-image-push
+    with:
+      docker-image-tag: ${{ inputs.docker-image-tag }}
 
-  - name: Parse ECR Region
-    shell: bash
-    run: |
-      echo "ECR_REGION=$(echo '${{ steps.login-ecr.outputs.registry }}' | cut -d'.' -f 4)" >> $GITHUB_ENV 
-
-  - name: Login to AWS ECR in EC2 instance
-    shell: bash
-    run: |
-      ~/ssh_to_ec2 '
-        aws ecr get-login-password --region "${{ env.ECR_REGION }}" | \
-        sudo docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}'
-
-  - name: Push Docker image to ECR
-    shell: bash
-    run: |
-      docker tag ${{ inputs.docker-image-tag }} ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-image-tag }} || exit $?
-      
-      docker push ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-image-tag }}
-
-  - name: Pull Docker image from EC2 instance
-    shell: bash
-    run: |
-      ~/ssh_to_ec2 'sudo docker pull ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-image-tag }}'
-
+  - name: Pull Docker image
+    uses: ./.github/actions/docker-image-pull
+    with:
+      docker-image-remote-tag: ${{ steps.push-docker-image.outputs.docker-image-remote-tag }}
