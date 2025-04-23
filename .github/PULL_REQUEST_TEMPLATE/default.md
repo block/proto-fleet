@@ -1,84 +1,56 @@
-## [DASH-xyz] PR Title/Description
+# [DASH-_number_] PR Title
 
-### Summary
+## Description
 
-_Prompt: Quick summary & intent of changes in this PR_
+<!-- Provide a brief description of the changes in this PR -->
 
-_e.g. This PR implements/fixes/improves XYZ_FEATURE. It is needed because XYZ_REASON_
+## Type of Change
 
-### Changes
+<!-- Mark the appropriate option with an 'x' -->
 
-_Prompt: If detail other than your commit messages would be helpful, summarize your changes here_
+- [ ] 🛠 Bug fix
+- [ ] ✨ New feature
+- [ ] 📝 Documentation update
+- [ ] 🔄 Refactor
+- [ ] 🎨 Style
+- [ ] ⚡ Performance improvements
+- [ ] 🧪 Test updates
+- [ ] 🔧 Configuration change
+- [ ] 🏗 Infrastructure change
 
-- Changelist
+## Testing
 
-### Affected Components
+<!-- Describe the testing you have performed -->
 
-_Prompt: remove the ones that have been modified in the below list_
+- [ ] Unit tests added/updated
+- [ ] Integration tests added/updated
+- [ ] Manual testing performed
 
-- EC FW Binary
-  - B1, B2, MC2 Eval
-- Control Board Linux Image
-  - C1, C2, All
-  - MCDD, miner-api-server, mfgtool, kernel drivers, DTS
-- Build Tools
-  - yocto, invoke task(s) [builder, flash]
-- CI/Github Workflow
-- Development Workflow
+### Test Instructions
 
-### PR Testing
+<!-- Provide steps for testing your changes -->
 
-_Prompt: List the testing that you performed on your PR, and specify the hardware setup_
+1.
+2.
+3.
 
-- [ ] PR tested locally on **B1, B2, C1, C2, D1 Rig, R1 Rig**
-  - Test Case/Test Suite (e.g. Pool Mining, Run EC Calibration)
-- [ ] Testing not required, no effect.
+## Screenshots/Recordings
 
-### Testing/Sample Output
+<!-- If applicable, add screenshots or recordings to help explain your changes -->
 
-_Prompt (1): You can list your testing output here, i.e. logs, or screenshots, or links to test results_
+## Dependencies
 
-_Test Invocation_
-`command`
-
-_Output_
-
-```
-UNCOLLAPSED TEST OUTPUT GOES HERE
-UNCOLLAPSED TEST OUTPUT GOES HERE
-UNCOLLAPSED TEST OUTPUT GOES HERE
-```
-
-_Prompt (2): If your testing logs or output is very long, then you can use the below section that will auto-collapse_
-
-_Lengthy Output (Collapsed)_
-
-<details>
-  <summary>(see more)</summary>
-
-```
-COLLAPSIBLE TEST OUTPUT GOES HERE
-COLLAPSIBLE TEST OUTPUT GOES HERE
-COLLAPSIBLE TEST OUTPUT GOES HERE
-COLLAPSIBLE TEST OUTPUT GOES HERE
-```
-
-</details>
-
-### Follow-Up Work (tickets/TODOs resulting from PR)
-
-_Prompt: (Optional) list the related or follow-up tickets below_
-
-- [DASH-xyz]
-
-### Related PRs (if any)
-
-_Prompt: (Optional) capture the related precursor PRs or dependent PRs below_
+<!-- List any dependencies that are required for this change -->
 
 -
 
-### Related Documentation (if any)
+## Breaking Changes
 
-_Prompt: (Optional) list any related design docs or RFCs related to this PR below_
+<!-- List any breaking changes and migration instructions if applicable -->
 
--
+- [ ] No breaking changes
+- [ ] ## Breaking changes:
+
+## Additional Notes
+
+<!-- Add any additional notes or context about the PR here -->
