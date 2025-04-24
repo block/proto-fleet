@@ -92,7 +92,7 @@ const Dialog = ({
               titleSize={titleSize}
               subtitleSize={subtitleSize}
             />
-            <div className="mt-4">{children}</div>
+            {children && <div className="mt-4">{children}</div>}
           </div>
         </PageOverlay>
       )}
