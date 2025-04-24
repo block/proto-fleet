@@ -1,4 +1,11 @@
-import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ComponentType,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useLocation } from "react-router-dom";
 
 import ErrorCallout from "./ErrorCallout";
@@ -13,6 +20,8 @@ import {
   SystemInfoSysteminfo,
 } from "@/protoOS/api/types";
 import AppLayout from "@/protoOS/components/AppLayout";
+import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultContentLayout";
+import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
 import { useAuthContext } from "@/protoOS/contexts/AuthContext";
 import { MinerStatusContext } from "@/protoOS/contexts/MinerStatusContext";
@@ -23,7 +32,6 @@ interface AppProps {
   apiErrors?: ErrorListResponse;
   apiMiningStatus?: MiningStatusMiningstatus;
   children?: ReactNode;
-  fullScreen?: boolean;
   hideErrors?: boolean;
   onWake?: () => void;
   pendingErrors?: boolean;
@@ -31,6 +39,7 @@ interface AppProps {
   systemInfo?: SystemInfoSysteminfo;
   title: string;
   wakeError?: ErrorProps;
+  ContentLayout?: ComponentType<ContentLayoutProps>;
 }
 
 const App = ({
@@ -38,7 +47,6 @@ const App = ({
   apiErrors,
   apiMiningStatus,
   children,
-  fullScreen,
   hideErrors,
   onWake,
   pendingErrors,
@@ -46,6 +54,7 @@ const App = ({
   systemInfo,
   title,
   wakeError,
+  ContentLayout = DefaultContentLayout,
 }: AppProps) => {
   const { data: networkInfo, pending: pendingNetworkInfo } = useNetworkInfo();
   const {
@@ -112,7 +121,6 @@ const App = ({
       }}
     >
       <AppLayout
-        fullScreen={fullScreen}
         networkInfo={networkInfo}
         onSuccessLogin={() => setShowLoginModal(false)}
         onDismissLogin={handleDismissLogin}
@@ -122,6 +130,7 @@ const App = ({
         systemInfo={systemInfo}
         title={title}
         type={navigationMenuTypes.app}
+        ContentLayout={ContentLayout}
       >
         {isWarmingUp(miningStatus) ? (
           <WarmingUpCallout />

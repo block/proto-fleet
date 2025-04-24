@@ -1,6 +1,7 @@
 import { createBrowserRouter, Outlet, redirect } from "react-router-dom";
 
 import App from "@/protoOS/components/App";
+import FullScreenContentLayout from "@/protoOS/components/ContentLayout/FullScreenContentLayout";
 import {
   Efficiency,
   HashboardTemperature,
@@ -26,11 +27,7 @@ import Welcome from "@/protoOS/pages/Onboarding/Welcome";
 export const routerConfig = [
   {
     path: "",
-    element: (
-      <App fullScreen title="Home">
-        <KpiLayout />
-      </App>
-    ),
+    element: <App title="Home" ContentLayout={KpiLayout} />,
     children: [
       {
         index: true,
@@ -61,7 +58,7 @@ export const routerConfig = [
   {
     path: "logs",
     element: (
-      <App title="Logs" fullScreen hideErrors>
+      <App title="Logs" hideErrors ContentLayout={FullScreenContentLayout}>
         <Logs />
       </App>
     ),

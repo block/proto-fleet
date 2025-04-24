@@ -1,4 +1,10 @@
-import { ReactNode, useCallback, useEffect, useState } from "react";
+import {
+  ComponentType,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 
 import App from "./App";
 import { isMining, isWarmingUp } from "./utility";
@@ -12,6 +18,8 @@ import {
 } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 
+import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultContentLayout";
+import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
@@ -22,9 +30,15 @@ interface AppProps {
   fullScreen?: boolean;
   hideErrors?: boolean;
   title: string;
+  ContentLayout?: ComponentType<ContentLayoutProps>;
 }
 
-const AppWrapper = ({ children, fullScreen, hideErrors, title }: AppProps) => {
+const AppWrapper = ({
+  children,
+  hideErrors,
+  title,
+  ContentLayout = DefaultContentLayout,
+}: AppProps) => {
   const { setMiningStatus } = useMinerStatus();
   const [initPage, setInitPage] = useState(false);
   const {
@@ -130,8 +144,8 @@ const AppWrapper = ({ children, fullScreen, hideErrors, title }: AppProps) => {
           afterWake={afterWake}
           systemInfo={systemInfo}
           pendingSystemInfo={pendingSystemInfo}
-          fullScreen={fullScreen}
           hideErrors={hideErrors}
+          ContentLayout={ContentLayout}
         >
           {children}
         </App>

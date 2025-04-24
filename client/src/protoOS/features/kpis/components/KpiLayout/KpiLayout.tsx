@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Outlet } from "react-router-dom";
 import NoPoolsCallout from "../NoPoolsCallout";
 import { useHashboards } from "@/protoOS/api";
+import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
 import TabMenu from "@/protoOS/features/kpis/components/TabMenu";
 import {
@@ -18,7 +19,7 @@ import DurationSelector, {
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 
-const KpiLayout = () => {
+const KpiLayout = ({ children }: ContentLayoutProps) => {
   const { getItem, setItem } = useLocalStorage();
   const [hashboardSerials, setHashboardSerials] = useState<string[]>();
 
@@ -80,6 +81,8 @@ const KpiLayout = () => {
 
   return (
     <div className="px-14 pt-14 phone:px-6 phone:pt-6 tablet:px-10 tablet:pt-10">
+      {children}
+
       {noPoolsLive && (
         <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} />
       )}

@@ -1,11 +1,12 @@
-import { ReactNode, useState } from "react";
-import clsx from "clsx";
+import { ComponentType, ReactNode, useState } from "react";
 
 import {
   NetworkInfoNetworkinfo,
   SystemInfoSysteminfo,
 } from "@/protoOS/api/types";
 
+import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultContentLayout";
+import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import LoginModal from "@/protoOS/components/LoginModal";
 
 import NavigationMenu, {
@@ -22,7 +23,6 @@ import {
 interface AppLayoutProps {
   children: ReactNode;
   customButtons?: ReactNode;
-  fullScreen?: boolean;
   networkInfo?: NetworkInfoNetworkinfo;
   onDismissLogin?: () => void;
   onSuccessLogin: () => void;
@@ -32,12 +32,12 @@ interface AppLayoutProps {
   systemInfo?: SystemInfoSysteminfo;
   title: string;
   type: NavigationMenuType;
+  ContentLayout?: ComponentType<ContentLayoutProps>;
 }
 
 const AppLayout = ({
   children,
   customButtons,
-  fullScreen,
   networkInfo,
   onDismissLogin,
   onSuccessLogin,
@@ -47,6 +47,7 @@ const AppLayout = ({
   systemInfo,
   title,
   type,
+  ContentLayout = DefaultContentLayout,
 }: AppLayoutProps) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -94,20 +95,7 @@ const AppLayout = ({
             customButtons={customButtons}
           />
           <div className="relative w-full pt-[60px] pl-60 phone:pl-0 tablet:pl-0">
-            <div
-              className={clsx({
-                "m-14 flex justify-center phone:m-6 tablet:m-6": !fullScreen,
-              })}
-            >
-              <div
-                className={clsx({
-                  "phone:w-[352px] tablet:w-[584px] laptop:w-[608px] desktop:w-[928px]":
-                    !fullScreen,
-                })}
-              >
-                {children}
-              </div>
-            </div>
+            <ContentLayout>{children}</ContentLayout>
           </div>
         </div>
       </div>
