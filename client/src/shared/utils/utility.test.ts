@@ -75,6 +75,33 @@ describe("debounce", () => {
     // Reset the timers
     vi.useRealTimers();
   });
+
+  test("should not call the callback if cancelled", () => {
+    vi.useFakeTimers();
+
+    const callback = vi.fn();
+    const debouncedFn = debounce(callback);
+
+    // Call the debounced function multiple times within the debounce interval
+    debouncedFn();
+    debouncedFn();
+    debouncedFn();
+
+    // The callback should not have been called yet
+    expect(callback).not.toBeCalled();
+
+    // Cancel debounce
+    debouncedFn.cancel();
+
+    // Fast-forward time by 500ms
+    vi.advanceTimersByTime(500);
+
+    // The callback should have been called only once
+    expect(callback).toBeCalledTimes(0);
+
+    // Reset the timers
+    vi.useRealTimers();
+  });
 });
 
 describe("getRowLabel", () => {

@@ -1,4 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import clsx from "clsx";
+import { SimpleErrorProps } from "apiResponseTypes";
 import MiningPools, {
   getEmptyPoolsInfo,
   isValidPool,
@@ -8,8 +10,13 @@ import SettingUp from "@/protoOS/components/OnboardingSettingUp";
 import { useAccessToken } from "@/protoOS/contexts/AuthContext";
 import { WarnBackupPoolDialog } from "@/protoOS/pages/Onboarding/WarnBackupPoolDialog";
 import { WarnDefaultPoolCallout } from "@/protoOS/pages/Onboarding/WarnDefaultPoolCallout";
+import { Alert } from "@/shared/assets/icons";
 import AnimatedDotsBackground from "@/shared/components/Animation";
 import Button from "@/shared/components/Button";
+import {
+  DismissibleCalloutWrapper,
+  intents,
+} from "@/shared/components/Callout";
 import { SetupHeader } from "@/shared/components/Setup";
 
 const MiningPoolPage = () => {
@@ -23,7 +30,15 @@ const MiningPoolPage = () => {
 
   const [pausedAction, setPausedAction] = useState(false);
 
+  const [createPoolsError, setCreatePoolsError] = useState<SimpleErrorProps>();
   const { checkAccess } = useAccessToken(pausedAction);
+
+  useEffect(() => {
+    if (settingUpMiner && createPoolsError?.status === 422) {
+      setSettingUpMiner(false);
+      setPausedAction(true);
+    }
+  }, [createPoolsError?.status, settingUpMiner]);
 
   const onContinue = useCallback(
     (ignoreBackupPools?: boolean) => {
@@ -46,6 +61,8 @@ const MiningPoolPage = () => {
       setPausedAction(true);
       checkAccess();
 
+      // have to reset the error here, otherwise it would cause an infinite cycle
+      setCreatePoolsError(undefined);
       setSettingUpMiner(true);
     },
     [pools, checkAccess],
@@ -70,7 +87,7 @@ const MiningPoolPage = () => {
           <div className="w-[600px]">
             <SettingUp
               pools={pools}
-              setCreatePoolsError={() => {}}
+              setCreatePoolsError={setCreatePoolsError}
               onChangeSettingUpMiner={setSettingUpMiner}
             />
           </div>
@@ -87,7 +104,6 @@ const MiningPoolPage = () => {
         onContinueWithoutBackup={onContinueWithoutBackup}
         show={warnBackupPool}
       />
-
       <div className="mx-auto max-w-[640px]">
         <MiningPools
           title="Add your mining pool"
@@ -97,6 +113,17 @@ const MiningPoolPage = () => {
           <WarnDefaultPoolCallout
             onDismiss={() => setWarnDefaultPool(false)}
             show={warnDefaultPool}
+          />
+          <DismissibleCalloutWrapper
+            className={clsx({
+              "mb-10!": createPoolsError?.error !== undefined,
+            })}
+            icon={<Alert />}
+            // TODO intent here has no effect, because callout doesn't have a header
+            intent={intents.danger}
+            show={createPoolsError?.error !== undefined}
+            title={createPoolsError?.error}
+            onDismiss={() => setCreatePoolsError(undefined)}
           />
         </MiningPools>
         <Button

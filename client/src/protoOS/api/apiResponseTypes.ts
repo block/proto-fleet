@@ -6,3 +6,11 @@ interface ResponseErrorProps {
 }
 
 export type ErrorProps = ResponseErrorProps | undefined;
+
+// TODO BE error messages should be consistent across all EPs
+interface ResponseSimpleErrorProps {
+  error: string;
+  status: number;
+}
+
+export type SimpleErrorProps = ResponseSimpleErrorProps | undefined;

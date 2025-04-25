@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 
 import { PoolConfig } from "./types";
-import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
+import { SimpleErrorProps } from "@/protoOS/api/apiResponseTypes";
 
 import {
   getAuthHeader,
@@ -13,7 +13,7 @@ import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext/useMinerSt
 
 interface CreatePoolsProps {
   accessTokenValue?: string;
-  onError?: (err: ErrorProps) => void;
+  onError?: (err: SimpleErrorProps) => void;
   onSuccess?: () => void;
   poolInfo: PoolConfig;
   retryOnMinerDown?: boolean;
@@ -47,6 +47,7 @@ const useCreatePools = () => {
         .catch((error) => {
           handleAuthErrors({
             error,
+            // @ts-ignore
             onError,
             onSuccess: (accessTokenValue) => {
               createPools({

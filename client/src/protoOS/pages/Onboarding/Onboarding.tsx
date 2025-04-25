@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 
+import clsx from "clsx";
 import { WarnBackupPoolDialog } from "./WarnBackupPoolDialog";
 import { WarnDefaultPoolCallout } from "./WarnDefaultPoolCallout";
-import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
+import { SimpleErrorProps } from "@/protoOS/api/apiResponseTypes";
 import {
   NetworkInfoNetworkinfo,
   SystemInfoSysteminfo,
@@ -18,7 +19,12 @@ import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
 import OnboardingHeader from "@/protoOS/components/OnboardingHeader";
 import SettingUp from "@/protoOS/components/OnboardingSettingUp";
 import { useAccessToken, useAuthContext } from "@/protoOS/contexts/AuthContext";
+import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import {
+  DismissibleCalloutWrapper,
+  intents,
+} from "@/shared/components/Callout";
 
 interface OnboardingProps {
   networkInfo?: NetworkInfoNetworkinfo;
@@ -49,23 +55,30 @@ const Onboarding = ({
     setShowLoginModal,
   } = useAuthContext();
   const [pausedAction, setPausedAction] = useState(false);
+  const [waitingForAuth, setWaitingForAuth] = useState(false);
 
-  const [createPoolsError, setCreatePoolsError] = useState<ErrorProps>();
+  const [createPoolsError, setCreatePoolsError] = useState<SimpleErrorProps>();
   const { checkAccess, hasAccess, setHasAccess } = useAccessToken(pausedAction);
 
   useEffect(() => {
-    if (hasAccess && pausedAction) {
+    if (hasAccess && pausedAction && waitingForAuth) {
       setPausedAction(false);
+      // have to reset the error here, otherwise it would cause an infinite cycle
+      setCreatePoolsError(undefined);
       onChangeSettingUpMiner(true);
     }
-  }, [hasAccess, pausedAction, onChangeSettingUpMiner]);
+  }, [hasAccess, pausedAction, onChangeSettingUpMiner, waitingForAuth]);
 
   useEffect(() => {
-    if (settingUpMiner && createPoolsError?.status === 401) {
-      setHasAccess(false);
+    const status = createPoolsError?.status;
+    if (settingUpMiner && (status === 401 || status === 422)) {
+      if (status === 401) {
+        setHasAccess(false);
+      }
       onChangeSettingUpMiner(false);
       setPausedAction(true);
     }
+    setWaitingForAuth(false);
   }, [
     setHasAccess,
     settingUpMiner,
@@ -99,6 +112,7 @@ const Onboarding = ({
         }
       }
       setPausedAction(true);
+      setWaitingForAuth(true);
       checkAccess();
     },
     [pools, checkAccess],
@@ -158,7 +172,6 @@ const Onboarding = ({
         onContinueWithoutBackup={onContinueWithoutBackup}
         show={warnBackupPool}
       />
-
       <MiningPools
         title="Add your mining pool"
         onChange={onChangePools}
@@ -167,6 +180,17 @@ const Onboarding = ({
         <WarnDefaultPoolCallout
           onDismiss={() => setWarnDefaultPool(false)}
           show={warnDefaultPool}
+        />
+        <DismissibleCalloutWrapper
+          className={clsx({
+            "mb-10!": createPoolsError?.error !== undefined,
+          })}
+          icon={<Alert />}
+          // TODO intent here has no effect, because callout doesn't have a header
+          intent={intents.danger}
+          show={createPoolsError?.error !== undefined}
+          title={createPoolsError?.error}
+          onDismiss={() => setCreatePoolsError(undefined)}
         />
       </MiningPools>
     </AppLayout>

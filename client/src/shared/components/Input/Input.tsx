@@ -32,6 +32,8 @@ interface InputProps {
   testId?: string;
   tooltip?: { header: string; body: string };
   type?: string;
+  onFocus?: () => void;
+  onBlur?: () => void;
 }
 
 const Input = ({
@@ -53,6 +55,8 @@ const Input = ({
   testId,
   tooltip,
   type = "text",
+  onFocus,
+  onBlur,
 }: InputProps) => {
   const [value, setValue] = useState(initValue);
   // keep the error state until the animation is finished
@@ -133,6 +137,8 @@ const Input = ({
         ref={inputRef}
         disabled={disabled}
         autoFocus={autoFocus}
+        onFocus={onFocus}
+        onBlur={onBlur}
       />
       <label
         htmlFor={id}

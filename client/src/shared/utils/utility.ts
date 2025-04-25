@@ -10,7 +10,15 @@ export const deepClone = (obj: any) => {
 
 export const debounce = (callback: (...args: any) => void) => {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  return (...args: any) => {
+
+  const cancel = () => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = undefined;
+    }
+  };
+
+  const debounced = (...args: any) => {
     const context = this;
     if (timeoutId) clearTimeout(timeoutId);
     timeoutId = setTimeout(() => {
@@ -18,6 +26,9 @@ export const debounce = (callback: (...args: any) => void) => {
       callback.apply(context, args);
     }, 500);
   };
+
+  debounced.cancel = cancel;
+  return debounced;
 };
 
 export const getRandomInt = (min: number, max: number) => {

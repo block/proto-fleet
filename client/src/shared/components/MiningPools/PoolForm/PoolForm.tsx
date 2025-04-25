@@ -16,6 +16,8 @@ interface PoolFormProps {
   shouldTestConnection: boolean;
   isTestingConnection: boolean;
   testConnection: (args: TestConnectionProps) => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
 }
 
 const PoolForm = ({
@@ -26,6 +28,8 @@ const PoolForm = ({
   shouldTestConnection,
   isTestingConnection,
   testConnection,
+  onFocus,
+  onBlur,
 }: PoolFormProps) => {
   const [showCallout, setShowCallout] = useState(false);
   const [error, setError] = useState(false);
@@ -125,7 +129,8 @@ const PoolForm = ({
             body: "Enter the mining pool URL you want this miner to connect with. A mining pool URL allows this miner to communicate with the pool's server.",
           }}
           error={validationErrors.url}
-          autoFocus
+          onFocus={onFocus}
+          onBlur={onBlur}
         />
         <Input
           id={`${info.username} ${poolIndex}`}
@@ -137,6 +142,8 @@ const PoolForm = ({
             header: "Username",
             body: "Use the username that you created when setting up your mining pool.",
           }}
+          onFocus={onFocus}
+          onBlur={onBlur}
         />
         {!showOptionalPassword && !pools[poolIndex].password && (
           <button
@@ -159,6 +166,8 @@ const PoolForm = ({
                 header: "Password",
                 body: "Depending on the mining pool you’re trying to connect to, you may need to enter the password you use to log in to that pool.",
               }}
+              onFocus={onFocus}
+              onBlur={onBlur}
             />
             <div className="mt-2 text-200 text-text-primary-50">
               A password might be required depending on the pool you’re

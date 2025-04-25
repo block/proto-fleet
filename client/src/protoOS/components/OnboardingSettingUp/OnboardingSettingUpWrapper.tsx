@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { statuses } from "./constants";
 import OnboardingSettingUp from "./OnboardingSettingUp";
 import { useCreatePools, usePoolsInfo } from "@/protoOS/api";
-import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
+import { SimpleErrorProps } from "@/protoOS/api/apiResponseTypes";
 
 import { isValidPool, PoolInfo } from "@/protoOS/components/MiningPools";
 import { useNavigate } from "@/shared/hooks/useNavigate";
@@ -11,7 +11,7 @@ import { useNavigate } from "@/shared/hooks/useNavigate";
 interface OnboardingSettingUpWrapperProps {
   onChangeSettingUpMiner: (settingUpMiner: boolean) => void;
   pools: PoolInfo[];
-  setCreatePoolsError: (error: ErrorProps) => void;
+  setCreatePoolsError: (error: SimpleErrorProps) => void;
 }
 
 const OnboardingSettingUpWrapper = ({

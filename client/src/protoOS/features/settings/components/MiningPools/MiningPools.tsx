@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import clsx from "clsx";
+import { SimpleErrorProps } from "apiResponseTypes";
 import { STATUS_MESSAGES } from "./constants";
 import { useCreatePools } from "@/protoOS/api";
 
@@ -10,6 +12,11 @@ import MiningPools, {
 } from "@/protoOS/components/MiningPools";
 import { useAccessToken } from "@/protoOS/contexts/AuthContext";
 import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
+import { Alert } from "@/shared/assets/icons";
+import {
+  DismissibleCalloutWrapper,
+  intents,
+} from "@/shared/components/Callout";
 import {
   pushToast,
   removeToast,
@@ -26,6 +33,7 @@ const SettingsMiningPools = () => {
 
   const { poolsInfo, poolsInfoStatus } = useMinerStatus();
   const { createPools } = useCreatePools();
+  const [createPoolsError, setCreatePoolsError] = useState<SimpleErrorProps>();
 
   useAccessToken();
 
@@ -55,9 +63,11 @@ const SettingsMiningPools = () => {
       createPools({
         poolInfo: validPools,
         onSuccess: () => {
+          setCreatePoolsError(undefined);
           setIsStalePools(true);
         },
-        onError: () => {
+        onError: (error) => {
+          setCreatePoolsError(error);
           setToastStatus(TOAST_STATUSES.error);
           removeToast(toastId.current);
           toastId.current = pushToast({
@@ -115,7 +125,19 @@ const SettingsMiningPools = () => {
       onChange={onChangePools}
       pools={pools}
       loading={poolsInfoStatus.pending && !isStalePools}
-    />
+    >
+      <DismissibleCalloutWrapper
+        className={clsx({
+          "mb-10!": createPoolsError?.error !== undefined,
+        })}
+        icon={<Alert />}
+        // TODO intent here has no effect, because callout doesn't have a header
+        intent={intents.danger}
+        show={createPoolsError?.error !== undefined}
+        title={createPoolsError?.error}
+        onDismiss={() => setCreatePoolsError(undefined)}
+      />
+    </MiningPools>
   );
 };
 
