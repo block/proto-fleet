@@ -11,7 +11,7 @@ import {
   Temperature,
 } from "@/protoOS/features/kpis";
 import {
-  Cooling,
+  // Cooling,
   General,
   Hardware,
   MiningPools,
@@ -89,7 +89,6 @@ export const routerConfig = [
   },
   {
     path: "settings",
-    // TODO: look into modifying App to use Outlet instead of children
     element: (
       <App title="Settings">
         <Outlet />
@@ -112,10 +111,10 @@ export const routerConfig = [
         path: "hardware",
         element: <Hardware />,
       },
-      {
-        path: "cooling",
-        element: <Cooling />,
-      },
+      // {
+      //   path: "cooling",
+      //   element: <Cooling />,
+      // },
     ],
   },
 ];

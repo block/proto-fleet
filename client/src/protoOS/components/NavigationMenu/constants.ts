@@ -4,7 +4,7 @@ export const navigationItems = {
   miningPools: "settings/mining-pools",
   general: "settings/general",
   hardware: "settings/hardware",
-  cooling: "settings/cooling",
+  // cooling: "settings/cooling",
   onboarding: "onboarding",
 } as const;
 

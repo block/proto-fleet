@@ -99,13 +99,13 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
               pageName={pageName}
               isChildItem
             />
-            <NavigationItem
+            {/* <NavigationItem
               id={navigationItems.cooling}
               text="Cooling"
               onClick={handleClick}
               pageName={pageName}
               isChildItem
-            />
+            /> */}
           </motion.div>
         )}
       </AnimatePresence>
