@@ -18,6 +18,7 @@ services:
       DB_ADDRESS: "mysql:3306"
       HTTP_STATIC_ASSET_PATH: "/app/static/"
       HTTP_LISTEN_ADDRESS: ":8080"
+      HTTP_SUPPRESS_CORS: "true"
       LOG_LEVEL: "DEBUG"
     depends_on:
       mysql:

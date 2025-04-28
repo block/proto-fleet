@@ -19,6 +19,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/pairing"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/static"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/logging"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/server"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"log/slog"
@@ -81,7 +82,10 @@ func start(config *Config) error {
 	fleetMgmtSvc := fleetmanagementDomain.NewService(conn)
 
 	// init middleware
-	authMiddleware := middleware.NewAuthMiddleware(tokenSvc, unauthenticatedProcedures)
+	middlewares := []server.Middleware{
+		middleware.NewAuthMiddleware(tokenSvc, unauthenticatedProcedures),
+		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
+	}
 
 	// init interceptors
 	li := connect.WithInterceptors(
@@ -108,18 +112,18 @@ func start(config *Config) error {
 	mux.Handle(fleetmanagementv1connect.NewFleetManagementServiceHandler(fleetmanagement.NewHandler(fleetMgmtSvc), li))
 
 	var handler http.Handler = mux
-	if authMiddleware != nil {
-		handler = authMiddleware.Wrap(handler)
+	for _, m := range middlewares {
+		handler = m.Wrap(handler)
 	}
 
 	handler = h2c.NewHandler(handler, &http2.Server{})
-	server := http.Server{
+	httpServer := http.Server{
 		Addr:              config.HTTP.Address,
 		Handler:           handler,
 		ReadHeaderTimeout: config.HTTP.ReadHeaderTimeout,
 	}
 
-	err = server.ListenAndServe()
+	err = httpServer.ListenAndServe()
 	if err != nil {
 		return fmt.Errorf("server shutting down: %+v", err)
 	}

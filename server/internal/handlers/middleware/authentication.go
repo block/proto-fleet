@@ -4,20 +4,30 @@ import (
 	"context"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/server"
 	"log/slog"
 	"net/http"
 
 	"connectrpc.com/authn"
 )
 
-func NewAuthMiddleware(ts *token.Service, allowedProcedures []string) *authn.Middleware {
+type AuthMiddleware struct {
+	auth *authn.Middleware
+}
 
+func (c AuthMiddleware) Wrap(handler http.Handler) http.Handler {
+	return c.auth.Wrap(handler)
+}
+
+var _ server.Middleware = AuthMiddleware{}
+
+func NewAuthMiddleware(ts *token.Service, allowedProcedures []string) *AuthMiddleware {
 	allowList := make(map[string]struct{})
 	for _, item := range allowedProcedures {
 		allowList[item] = struct{}{}
 	}
 
-	return authn.NewMiddleware(func(_ context.Context, r *http.Request) (any, error) {
+	middleware := authn.NewMiddleware(func(_ context.Context, r *http.Request) (any, error) {
 		// Infer the procedure from the request URL.
 		procedure, _ := authn.InferProcedure(r.URL)
 		// Extract the bearer bearerToken from the Authorization header.
@@ -41,4 +51,6 @@ func NewAuthMiddleware(ts *token.Service, allowedProcedures []string) *authn.Mid
 		// the UserID available in the context automatically.
 		return auth.UserID(claims.UserID), nil
 	})
+
+	return &AuthMiddleware{auth: middleware}
 }
