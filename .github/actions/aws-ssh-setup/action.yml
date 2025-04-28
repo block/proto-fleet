@@ -92,6 +92,24 @@ runs:
       
       chmod +x ~/scp_to_ec2
 
+  - name: Create rsync_to_ec2 function
+    shell: bash
+    run: |
+      cat > ~/rsync_to_ec2 <<END
+      #!/bin/bash
+      for i in \$(seq 0 1); do
+        ~/send_ssh_public_key 1>&2 && rsync -avz -e ssh "\$1" aws-instance:"\${@:2}"
+      
+        if [ \$? -eq 0 ]; then
+          exit 0
+        fi
+      done
+      
+      ~/send_ssh_public_key 1>&2 && rsync -avz -e ssh "\$1" aws-instance:"\${@:2}"
+      END
+      
+      chmod +x ~/rsync_to_ec2
+
   - name: Fetch SSH server public key
     shell: bash
     run: |

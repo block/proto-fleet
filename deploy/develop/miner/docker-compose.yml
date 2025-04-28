@@ -1,0 +1,36 @@
+name: miner-sim
+
+services:
+  miner-sim:
+    container_name: "miner-sim"
+    image: ${IMAGE}
+    restart: unless-stopped
+    expose:
+      - "8080"
+    privileged: true
+    labels:
+      - "traefik.http.services.miner-sim-${MINER_NAME}.loadbalancer.server.port=8080"
+
+      - "traefik.http.routers.miner-sim-${MINER_NAME}.rule=Host(`${MINER_NAME}.miner.fleetdev.proto.xyz`)"
+      - "traefik.http.routers.miner-sim-${MINER_NAME}.entrypoints=websecure"
+      - "traefik.http.routers.miner-sim-${MINER_NAME}.service=miner-sim-${MINER_NAME}"
+    environment:
+      MCDD__DATABASE__PATH: "/app/mcdd_data"
+      MCDD__DATABASE__DELETE_ON_EXIT: "false"
+    volumes:
+      - "./volumes/log:/app/log"
+      - "./volumes/mcdd/config:/app/crates/mcdd/config"
+      - "./volumes/mcdd/data:/app/mcdd_data"
+      - "./volumes/miner-api/etc:/etc/miner-api-server"
+      - "./volumes/miner-api/config:/app/crates/miner-api-server/config"
+    networks:
+      - traefik
+    logging:
+      driver: "json-file"
+      options:
+        max-size: 100m
+
+networks:
+  traefik:
+    name: protofleet-develop-traefik_traefik
+    external: true
