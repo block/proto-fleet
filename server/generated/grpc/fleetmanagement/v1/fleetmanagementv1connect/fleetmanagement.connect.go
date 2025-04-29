@@ -37,6 +37,9 @@ const (
 	// FleetManagementServiceSetDefaultPoolProcedure is the fully-qualified name of the
 	// FleetManagementService's SetDefaultPool RPC.
 	FleetManagementServiceSetDefaultPoolProcedure = "/fleetmanagement.v1.FleetManagementService/SetDefaultPool"
+	// FleetManagementServiceListPairedMinersProcedure is the fully-qualified name of the
+	// FleetManagementService's ListPairedMiners RPC.
+	FleetManagementServiceListPairedMinersProcedure = "/fleetmanagement.v1.FleetManagementService/ListPairedMiners"
 )
 
 // FleetManagementServiceClient is a client for the fleetmanagement.v1.FleetManagementService
@@ -46,6 +49,10 @@ type FleetManagementServiceClient interface {
 	// This will be used as the base configuration for new miners
 	// or when resetting miners to default settings
 	SetDefaultPool(context.Context, *connect.Request[v1.SetDefaultPoolRequest]) (*connect.Response[v1.SetDefaultPoolResponse], error)
+	// Lists all miners that have been paired with the fleet management system
+	// Supports pagination for handling large fleets efficiently
+	// Returns a sorted list of miners (typically by device_identifier)
+	ListPairedMiners(context.Context, *connect.Request[v1.ListPairedMinersRequest]) (*connect.Response[v1.ListPairedMinersResponse], error)
 }
 
 // NewFleetManagementServiceClient constructs a client for the
@@ -63,17 +70,28 @@ func NewFleetManagementServiceClient(httpClient connect.HTTPClient, baseURL stri
 			baseURL+FleetManagementServiceSetDefaultPoolProcedure,
 			opts...,
 		),
+		listPairedMiners: connect.NewClient[v1.ListPairedMinersRequest, v1.ListPairedMinersResponse](
+			httpClient,
+			baseURL+FleetManagementServiceListPairedMinersProcedure,
+			opts...,
+		),
 	}
 }
 
 // fleetManagementServiceClient implements FleetManagementServiceClient.
 type fleetManagementServiceClient struct {
-	setDefaultPool *connect.Client[v1.SetDefaultPoolRequest, v1.SetDefaultPoolResponse]
+	setDefaultPool   *connect.Client[v1.SetDefaultPoolRequest, v1.SetDefaultPoolResponse]
+	listPairedMiners *connect.Client[v1.ListPairedMinersRequest, v1.ListPairedMinersResponse]
 }
 
 // SetDefaultPool calls fleetmanagement.v1.FleetManagementService.SetDefaultPool.
 func (c *fleetManagementServiceClient) SetDefaultPool(ctx context.Context, req *connect.Request[v1.SetDefaultPoolRequest]) (*connect.Response[v1.SetDefaultPoolResponse], error) {
 	return c.setDefaultPool.CallUnary(ctx, req)
+}
+
+// ListPairedMiners calls fleetmanagement.v1.FleetManagementService.ListPairedMiners.
+func (c *fleetManagementServiceClient) ListPairedMiners(ctx context.Context, req *connect.Request[v1.ListPairedMinersRequest]) (*connect.Response[v1.ListPairedMinersResponse], error) {
+	return c.listPairedMiners.CallUnary(ctx, req)
 }
 
 // FleetManagementServiceHandler is an implementation of the
@@ -83,6 +101,10 @@ type FleetManagementServiceHandler interface {
 	// This will be used as the base configuration for new miners
 	// or when resetting miners to default settings
 	SetDefaultPool(context.Context, *connect.Request[v1.SetDefaultPoolRequest]) (*connect.Response[v1.SetDefaultPoolResponse], error)
+	// Lists all miners that have been paired with the fleet management system
+	// Supports pagination for handling large fleets efficiently
+	// Returns a sorted list of miners (typically by device_identifier)
+	ListPairedMiners(context.Context, *connect.Request[v1.ListPairedMinersRequest]) (*connect.Response[v1.ListPairedMinersResponse], error)
 }
 
 // NewFleetManagementServiceHandler builds an HTTP handler from the service implementation. It
@@ -96,10 +118,17 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 		svc.SetDefaultPool,
 		opts...,
 	)
+	fleetManagementServiceListPairedMinersHandler := connect.NewUnaryHandler(
+		FleetManagementServiceListPairedMinersProcedure,
+		svc.ListPairedMiners,
+		opts...,
+	)
 	return "/fleetmanagement.v1.FleetManagementService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case FleetManagementServiceSetDefaultPoolProcedure:
 			fleetManagementServiceSetDefaultPoolHandler.ServeHTTP(w, r)
+		case FleetManagementServiceListPairedMinersProcedure:
+			fleetManagementServiceListPairedMinersHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -111,4 +140,8 @@ type UnimplementedFleetManagementServiceHandler struct{}
 
 func (UnimplementedFleetManagementServiceHandler) SetDefaultPool(context.Context, *connect.Request[v1.SetDefaultPoolRequest]) (*connect.Response[v1.SetDefaultPoolResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.SetDefaultPool is not implemented"))
+}
+
+func (UnimplementedFleetManagementServiceHandler) ListPairedMiners(context.Context, *connect.Request[v1.ListPairedMinersRequest]) (*connect.Response[v1.ListPairedMinersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.ListPairedMiners is not implemented"))
 }

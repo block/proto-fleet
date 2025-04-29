@@ -33,6 +33,18 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createUserOrganizationStmt, err = db.PrepareContext(ctx, createUserOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateUserOrganization: %w", err)
 	}
+	if q.deactivateOldIPAssignmentsStmt, err = db.PrepareContext(ctx, deactivateOldIPAssignments); err != nil {
+		return nil, fmt.Errorf("error preparing query DeactivateOldIPAssignments: %w", err)
+	}
+	if q.getDeviceByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceByDeviceIdentifier); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceByDeviceIdentifier: %w", err)
+	}
+	if q.getDeviceByIDStmt, err = db.PrepareContext(ctx, getDeviceByID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceByID: %w", err)
+	}
+	if q.getDeviceByIdentifierStmt, err = db.PrepareContext(ctx, getDeviceByIdentifier); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceByIdentifier: %w", err)
+	}
 	if q.getOrganizationByIDStmt, err = db.PrepareContext(ctx, getOrganizationByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrganizationByID: %w", err)
 	}
@@ -51,6 +63,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getRoleByNameStmt, err = db.PrepareContext(ctx, getRoleByName); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRoleByName: %w", err)
 	}
+	if q.getTotalPairedDevicesStmt, err = db.PrepareContext(ctx, getTotalPairedDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query GetTotalPairedDevices: %w", err)
+	}
 	if q.getUserByUsernameStmt, err = db.PrepareContext(ctx, getUserByUsername); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserByUsername: %w", err)
 	}
@@ -62,6 +77,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listOrganizationsStmt, err = db.PrepareContext(ctx, listOrganizations); err != nil {
 		return nil, fmt.Errorf("error preparing query ListOrganizations: %w", err)
+	}
+	if q.listPairedDevicesStmt, err = db.PrepareContext(ctx, listPairedDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query ListPairedDevices: %w", err)
 	}
 	if q.listRolesStmt, err = db.PrepareContext(ctx, listRoles); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRoles: %w", err)
@@ -90,6 +108,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateUserRoleStmt, err = db.PrepareContext(ctx, updateUserRole); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateUserRole: %w", err)
 	}
+	if q.upsertDeviceStmt, err = db.PrepareContext(ctx, upsertDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertDevice: %w", err)
+	}
+	if q.upsertDeviceIPAssignmentStmt, err = db.PrepareContext(ctx, upsertDeviceIPAssignment); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertDeviceIPAssignment: %w", err)
+	}
+	if q.upsertDevicePairingStmt, err = db.PrepareContext(ctx, upsertDevicePairing); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertDevicePairing: %w", err)
+	}
 	if q.upsertRoleStmt, err = db.PrepareContext(ctx, upsertRole); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertRole: %w", err)
 	}
@@ -111,6 +138,26 @@ func (q *Queries) Close() error {
 	if q.createUserOrganizationStmt != nil {
 		if cerr := q.createUserOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createUserOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.deactivateOldIPAssignmentsStmt != nil {
+		if cerr := q.deactivateOldIPAssignmentsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deactivateOldIPAssignmentsStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceByDeviceIdentifierStmt != nil {
+		if cerr := q.getDeviceByDeviceIdentifierStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceByDeviceIdentifierStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceByIDStmt != nil {
+		if cerr := q.getDeviceByIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceByIDStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceByIdentifierStmt != nil {
+		if cerr := q.getDeviceByIdentifierStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceByIdentifierStmt: %w", cerr)
 		}
 	}
 	if q.getOrganizationByIDStmt != nil {
@@ -143,6 +190,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getRoleByNameStmt: %w", cerr)
 		}
 	}
+	if q.getTotalPairedDevicesStmt != nil {
+		if cerr := q.getTotalPairedDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getTotalPairedDevicesStmt: %w", cerr)
+		}
+	}
 	if q.getUserByUsernameStmt != nil {
 		if cerr := q.getUserByUsernameStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getUserByUsernameStmt: %w", cerr)
@@ -161,6 +213,11 @@ func (q *Queries) Close() error {
 	if q.listOrganizationsStmt != nil {
 		if cerr := q.listOrganizationsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listOrganizationsStmt: %w", cerr)
+		}
+	}
+	if q.listPairedDevicesStmt != nil {
+		if cerr := q.listPairedDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listPairedDevicesStmt: %w", cerr)
 		}
 	}
 	if q.listRolesStmt != nil {
@@ -206,6 +263,21 @@ func (q *Queries) Close() error {
 	if q.updateUserRoleStmt != nil {
 		if cerr := q.updateUserRoleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateUserRoleStmt: %w", cerr)
+		}
+	}
+	if q.upsertDeviceStmt != nil {
+		if cerr := q.upsertDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertDeviceStmt: %w", cerr)
+		}
+	}
+	if q.upsertDeviceIPAssignmentStmt != nil {
+		if cerr := q.upsertDeviceIPAssignmentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertDeviceIPAssignmentStmt: %w", cerr)
+		}
+	}
+	if q.upsertDevicePairingStmt != nil {
+		if cerr := q.upsertDevicePairingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertDevicePairingStmt: %w", cerr)
 		}
 	}
 	if q.upsertRoleStmt != nil {
@@ -255,16 +327,22 @@ type Queries struct {
 	createOrganizationStmt             *sql.Stmt
 	createUserStmt                     *sql.Stmt
 	createUserOrganizationStmt         *sql.Stmt
+	deactivateOldIPAssignmentsStmt     *sql.Stmt
+	getDeviceByDeviceIdentifierStmt    *sql.Stmt
+	getDeviceByIDStmt                  *sql.Stmt
+	getDeviceByIdentifierStmt          *sql.Stmt
 	getOrganizationByIDStmt            *sql.Stmt
 	getOrganizationByNameStmt          *sql.Stmt
 	getOrganizationByOrgIDStmt         *sql.Stmt
 	getOrganizationsForUserStmt        *sql.Stmt
 	getRoleByIDStmt                    *sql.Stmt
 	getRoleByNameStmt                  *sql.Stmt
+	getTotalPairedDevicesStmt          *sql.Stmt
 	getUserByUsernameStmt              *sql.Stmt
 	getUserRoleInOrganizationStmt      *sql.Stmt
 	getUsersForOrganizationStmt        *sql.Stmt
 	listOrganizationsStmt              *sql.Stmt
+	listPairedDevicesStmt              *sql.Stmt
 	listRolesStmt                      *sql.Stmt
 	softDeleteOrganizationStmt         *sql.Stmt
 	softDeleteRoleStmt                 *sql.Stmt
@@ -274,6 +352,9 @@ type Queries struct {
 	updateOrganizationStmt             *sql.Stmt
 	updateRoleStmt                     *sql.Stmt
 	updateUserRoleStmt                 *sql.Stmt
+	upsertDeviceStmt                   *sql.Stmt
+	upsertDeviceIPAssignmentStmt       *sql.Stmt
+	upsertDevicePairingStmt            *sql.Stmt
 	upsertRoleStmt                     *sql.Stmt
 }
 
@@ -284,16 +365,22 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createOrganizationStmt:             q.createOrganizationStmt,
 		createUserStmt:                     q.createUserStmt,
 		createUserOrganizationStmt:         q.createUserOrganizationStmt,
+		deactivateOldIPAssignmentsStmt:     q.deactivateOldIPAssignmentsStmt,
+		getDeviceByDeviceIdentifierStmt:    q.getDeviceByDeviceIdentifierStmt,
+		getDeviceByIDStmt:                  q.getDeviceByIDStmt,
+		getDeviceByIdentifierStmt:          q.getDeviceByIdentifierStmt,
 		getOrganizationByIDStmt:            q.getOrganizationByIDStmt,
 		getOrganizationByNameStmt:          q.getOrganizationByNameStmt,
 		getOrganizationByOrgIDStmt:         q.getOrganizationByOrgIDStmt,
 		getOrganizationsForUserStmt:        q.getOrganizationsForUserStmt,
 		getRoleByIDStmt:                    q.getRoleByIDStmt,
 		getRoleByNameStmt:                  q.getRoleByNameStmt,
+		getTotalPairedDevicesStmt:          q.getTotalPairedDevicesStmt,
 		getUserByUsernameStmt:              q.getUserByUsernameStmt,
 		getUserRoleInOrganizationStmt:      q.getUserRoleInOrganizationStmt,
 		getUsersForOrganizationStmt:        q.getUsersForOrganizationStmt,
 		listOrganizationsStmt:              q.listOrganizationsStmt,
+		listPairedDevicesStmt:              q.listPairedDevicesStmt,
 		listRolesStmt:                      q.listRolesStmt,
 		softDeleteOrganizationStmt:         q.softDeleteOrganizationStmt,
 		softDeleteRoleStmt:                 q.softDeleteRoleStmt,
@@ -303,6 +390,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateOrganizationStmt:             q.updateOrganizationStmt,
 		updateRoleStmt:                     q.updateRoleStmt,
 		updateUserRoleStmt:                 q.updateUserRoleStmt,
+		upsertDeviceStmt:                   q.upsertDeviceStmt,
+		upsertDeviceIPAssignmentStmt:       q.upsertDeviceIPAssignmentStmt,
+		upsertDevicePairingStmt:            q.upsertDevicePairingStmt,
 		upsertRoleStmt:                     q.upsertRoleStmt,
 	}
 }

@@ -2,14 +2,21 @@ package pairing
 
 import (
 	"context"
+	"database/sql"
 	"encoding/binary"
 	"fmt"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	"log/slog"
 	"net"
 	"strings"
 	"sync"
 	"time"
+
+	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
+	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/Ullaakut/nmap"
 	"github.com/grandcat/zeroconf"
@@ -17,11 +24,15 @@ import (
 
 // Service handles the core device discovery functionality
 type Service struct {
+	conn *sql.DB
+	cfg  Config
 }
 
-// NewService creates a new instance of Service
-func NewService() *Service {
-	return &Service{}
+func NewService(conn *sql.DB, cfg Config) *Service {
+	return &Service{
+		conn: conn,
+		cfg:  cfg,
+	}
 }
 
 // Helper function to convert IP string to uint32 for range comparison
@@ -41,40 +52,8 @@ func uint32ToIP(n uint32) string {
 	return ip.String()
 }
 
-type Device struct {
-	Hostname        string
-	MacAddress      string
-	DiscoveryMethod string
-	DiscoveredAt    int64
-	IPAddress       string
-}
 type NetworkInfo struct {
 	networking.NetworkInfo
-}
-type MDNSDiscoveryRequest struct {
-	ServiceType    string
-	Domain         string
-	TimeoutSeconds int32
-}
-type NmapDiscoveryRequest struct {
-	Target   string
-	Ports    []string
-	FastScan bool
-}
-type IPListDiscoveryRequest struct {
-	IPAddresses    []string
-	Ports          []string
-	TimeoutSeconds int32
-}
-type IPRangeDiscoveryRequest struct {
-	StartIP        string
-	EndIP          string
-	Ports          []string
-	TimeoutSeconds int32
-}
-type DiscoveryResponse struct {
-	Error   string
-	Devices []*Device
 }
 
 func (s *Service) GetLocalNetworkInfo(_ context.Context) (*NetworkInfo, error) {
@@ -86,92 +65,68 @@ func (s *Service) GetLocalNetworkInfo(_ context.Context) (*NetworkInfo, error) {
 }
 
 // DiscoverWithMDNS discovers devices using mDNS
-func (s *Service) DiscoverWithMDNS(ctx context.Context, r *MDNSDiscoveryRequest) (<-chan *DiscoveryResponse, error) {
-	// Use buffered channels to prevent blocking
-	resultChan := make(chan *DiscoveryResponse, 10)
-	entries := make(chan *zeroconf.ServiceEntry, 10)
+func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (<-chan *pb.DiscoverResponse, error) {
+	resultChan := make(chan *pb.DiscoverResponse)
 
-	// Initialize resolver
 	resolver, err := zeroconf.NewResolver(nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize resolver: %v", err)
 	}
 
-	// Create timeout context
+	entries := make(chan *zeroconf.ServiceEntry)
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(r.TimeoutSeconds)*time.Second)
 
-	// Start goroutine for processing entries
 	go func() {
-		// Ensure cleanup
-		defer close(resultChan)
 		defer cancel()
-		slog.Debug("DiscoverWithMDNS: discovering mdns...")
+		defer close(resultChan)
+
+		err := resolver.Browse(timeoutCtx, r.ServiceType, "local.", entries)
+		if err != nil {
+			resultChan <- &pb.DiscoverResponse{
+				Error: fmt.Sprintf("failed to browse: %v", err),
+			}
+			return
+		}
+
 		for {
 			select {
-			case entry, ok := <-entries:
-				if !ok {
-					slog.Debug("DiscoverWithMDNS: not ok")
+			case entry := <-entries:
+				if entry == nil {
 					return
 				}
 
-				slog.Debug("DiscoverWithMDNS", "entry", entry)
-				if entry == nil {
-					slog.Debug("DiscoverWithMDNS: empty entry")
-					continue
-				}
-
-				device := &Device{
-					Hostname:     entry.HostName,
+				device := &pb.Device{
 					DiscoveredAt: time.Now().Unix(),
 				}
 
 				if len(entry.AddrIPv4) > 0 {
-					ipAddr := entry.AddrIPv4[0].String()
-					device.IPAddress = ipAddr
-					device.MacAddress = networking.GetMacAddress(ipAddr)
+					device.IpAddress = entry.AddrIPv4[0].String()
+					device.MacAddress = networking.GetMacAddress(device.IpAddress)
 				}
 
-				if device.MacAddress == "" || device.IPAddress == "" {
+				if device.MacAddress == "" {
 					continue
 				}
+				portStr := fmt.Sprintf("%d", entry.Port)
+				// Check if host is reachable
+				if err := checkDeviceReachability(device.IpAddress, portStr, time.Second); err == nil {
+					device.Port = portStr
+					err := s.saveDevice(ctx, device)
+					if err != nil {
+						slog.Warn("error saving", "error", err)
+						continue
+					}
 
-				// Try to resolve hostname
-				if names, err := net.LookupAddr(device.IPAddress); err == nil && len(names) > 0 {
-					device.Hostname = names[0]
+					select {
+					case resultChan <- &pb.DiscoverResponse{
+						Devices: []*pb.Device{device},
+					}:
+					case <-ctx.Done():
+						return
+					}
 				}
-
-				// Handle context cancellation during send
-				select {
-				case resultChan <- &DiscoveryResponse{
-					Devices: []*Device{device},
-				}:
-				case <-timeoutCtx.Done():
-					slog.Debug("DiscoverWithMDNS: timed out")
-					return
-				}
-
 			case <-timeoutCtx.Done():
-				slog.Debug("DiscoverWithMDNS: discovering done")
 				return
-			}
-		}
-	}()
-
-	domain := "local."
-	if r.Domain != "" {
-		domain = r.Domain
-	}
-	// Start browsing in a separate goroutine
-	go func() {
-		slog.Debug("DiscoverWithMDNS: browsing")
-		err := resolver.Browse(timeoutCtx, r.ServiceType, domain, entries)
-		if err != nil {
-			select {
-			case resultChan <- &DiscoveryResponse{
-				Error: fmt.Sprintf("failed to browse: %v", err),
-			}:
-			case <-timeoutCtx.Done():
-				// Context is done, don't send error
 			}
 		}
 	}()
@@ -180,28 +135,28 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *MDNSDiscoveryRequest)
 }
 
 // DiscoverWithNmap discovers devices using Nmap
-func (s *Service) DiscoverWithNmap(ctx context.Context, req *NmapDiscoveryRequest) (<-chan *DiscoveryResponse, error) {
-	resultChan := make(chan *DiscoveryResponse)
+func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (<-chan *pb.DiscoverResponse, error) {
+	resultChan := make(chan *pb.DiscoverResponse)
 
 	go func() {
 		defer close(resultChan)
 
 		var scanner *nmap.Scanner
 		var err error
-		if len(req.Ports) == 0 && req.FastScan {
+		if len(r.Ports) == 0 && r.FastScan {
 			scanner, err = nmap.NewScanner(
-				nmap.WithTargets(req.Target),
+				nmap.WithTargets(r.Target),
 				nmap.WithFastMode(),
 			)
 		} else {
 			scanner, err = nmap.NewScanner(
-				nmap.WithTargets(req.Target),
-				nmap.WithPorts(strings.Join(req.Ports, ",")),
+				nmap.WithTargets(r.Target),
+				nmap.WithPorts(strings.Join(r.Ports, ",")),
 			)
 		}
 
 		if err != nil {
-			resultChan <- &DiscoveryResponse{
+			resultChan <- &pb.DiscoverResponse{
 				Error: fmt.Sprintf("failed to create scanner: %v", err),
 			}
 			return
@@ -209,7 +164,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, req *NmapDiscoveryReques
 
 		result, _, err := scanner.Run()
 		if err != nil {
-			resultChan <- &DiscoveryResponse{
+			resultChan <- &pb.DiscoverResponse{
 				Error: fmt.Sprintf("scan failed: %v", err),
 			}
 			return
@@ -230,37 +185,40 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, req *NmapDiscoveryReques
 				continue
 			}
 
-			device := &Device{
+			device := &pb.Device{
 				DiscoveredAt: time.Now().Unix(),
 			}
 
 			for _, addr := range host.Addresses {
 				if addr.AddrType == "ipv4" {
-					device.IPAddress = addr.Addr
+					device.IpAddress = addr.Addr
+					device.MacAddress = networking.GetMacAddress(device.IpAddress)
 				}
 			}
-
-			if len(device.IPAddress) == 0 {
-				continue
-			}
-
-			device.MacAddress = networking.GetMacAddress(device.IPAddress)
 
 			if device.MacAddress == "" {
 				continue
 			}
 
-			// Try to resolve hostname
-			if names, err := net.LookupAddr(device.IPAddress); err == nil && len(names) > 0 {
-				device.Hostname = names[0]
-			}
+			for _, port := range host.Ports {
+				portStr := fmt.Sprintf("%d", port.ID)
+				// Check if host is reachable
+				if err := checkDeviceReachability(device.IpAddress, portStr, time.Second); err == nil {
+					device.Port = portStr
+					err := s.saveDevice(ctx, device)
+					if err != nil {
+						slog.Warn("error saving", "error", err)
+						continue
+					}
 
-			select {
-			case resultChan <- &DiscoveryResponse{
-				Devices: []*Device{device},
-			}:
-			case <-ctx.Done():
-				return
+					select {
+					case resultChan <- &pb.DiscoverResponse{
+						Devices: []*pb.Device{device},
+					}:
+					case <-ctx.Done():
+						return
+					}
+				}
 			}
 		}
 	}()
@@ -269,13 +227,13 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, req *NmapDiscoveryReques
 }
 
 // DiscoverWithIPRange discovers devices using IP range
-func (s *Service) DiscoverWithIPRange(ctx context.Context, req *IPRangeDiscoveryRequest) (<-chan *DiscoveryResponse, error) {
-	resultChan := make(chan *DiscoveryResponse)
-	startIP, err := ipToUint32(req.StartIP)
+func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequest) (<-chan *pb.DiscoverResponse, error) {
+	resultChan := make(chan *pb.DiscoverResponse)
+	startIP, err := ipToUint32(r.StartIp)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing start ip: %v", err)
 	}
-	endIP, err := ipToUint32(req.EndIP)
+	endIP, err := ipToUint32(r.EndIp)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing end ip: %v", err)
 	}
@@ -298,8 +256,8 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, req *IPRangeDiscovery
 					defer wg.Done()
 					defer func() { <-semaphore }() // Release semaphore
 
-					device := &Device{
-						IPAddress:    ipAddr,
+					device := &pb.Device{
+						IpAddress:    ipAddr,
 						DiscoveredAt: time.Now().Unix(),
 						MacAddress:   networking.GetMacAddress(ipAddr),
 					}
@@ -308,17 +266,19 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, req *IPRangeDiscovery
 						return
 					}
 
-					// Try to resolve hostname
-					if names, err := net.LookupAddr(ipAddr); err == nil && len(names) > 0 {
-						device.Hostname = names[0]
-					}
-					for _, port := range req.Ports {
+					for _, port := range r.Ports {
 						// Check if host is reachable
-						if conn, err := net.DialTimeout("tcp", net.JoinHostPort(ipAddr, port), time.Duration(req.TimeoutSeconds)*time.Second); err == nil {
-							_ = conn.Close()
+						if err := checkDeviceReachability(ipAddr, port, time.Duration(r.TimeoutSeconds)*time.Second); err == nil {
+							device.Port = port
+							err := s.saveDevice(ctx, device)
+							if err != nil {
+								slog.Warn("error saving", "error", err)
+								continue
+							}
+
 							select {
-							case resultChan <- &DiscoveryResponse{
-								Devices: []*Device{device},
+							case resultChan <- &pb.DiscoverResponse{
+								Devices: []*pb.Device{device},
 							}:
 							case <-ctx.Done():
 							}
@@ -335,8 +295,8 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, req *IPRangeDiscovery
 }
 
 // DiscoverWithIPList discovers devices from a list of IPs
-func (s *Service) DiscoverWithIPList(ctx context.Context, req *IPListDiscoveryRequest) (<-chan *DiscoveryResponse, error) {
-	resultChan := make(chan *DiscoveryResponse)
+func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeRequest) (<-chan *pb.DiscoverResponse, error) {
+	resultChan := make(chan *pb.DiscoverResponse)
 
 	go func() {
 		defer close(resultChan)
@@ -344,7 +304,7 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, req *IPListDiscoveryRe
 		var wg sync.WaitGroup
 		semaphore := make(chan struct{}, 10) // Limit concurrent goroutines
 
-		for _, ip := range req.IPAddresses {
+		for _, ip := range r.IpAddresses {
 			select {
 			case <-ctx.Done():
 				return
@@ -356,8 +316,8 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, req *IPListDiscoveryRe
 					defer wg.Done()
 					defer func() { <-semaphore }() // Release semaphore
 
-					device := &Device{
-						IPAddress:    ipAddr,
+					device := &pb.Device{
+						IpAddress:    ipAddr,
 						DiscoveredAt: time.Now().Unix(),
 						MacAddress:   networking.GetMacAddress(ipAddr),
 					}
@@ -365,18 +325,20 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, req *IPListDiscoveryRe
 					if device.MacAddress == "" {
 						return
 					}
-					// Try to resolve hostname
-					if names, err := net.LookupAddr(ipAddr); err == nil && len(names) > 0 {
-						device.Hostname = names[0]
-					}
-					for _, port := range req.Ports {
+
+					for _, port := range r.Ports {
 						// Check if host is reachable
-						if conn, err := net.DialTimeout("tcp", net.JoinHostPort(ipAddr, port), time.Duration(req.TimeoutSeconds)*time.Second); err == nil {
-							_ = conn.Close()
+						if err := checkDeviceReachability(ipAddr, port, time.Duration(r.TimeoutSeconds)*time.Second); err == nil {
+							device.Port = port
+							err := s.saveDevice(ctx, device)
+							if err != nil {
+								slog.Warn("error saving", "error", err)
+								continue
+							}
 
 							select {
-							case resultChan <- &DiscoveryResponse{
-								Devices: []*Device{device},
+							case resultChan <- &pb.DiscoverResponse{
+								Devices: []*pb.Device{device},
 							}:
 							case <-ctx.Done():
 							}
@@ -390,4 +352,107 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, req *IPListDiscoveryRe
 	}()
 
 	return resultChan, nil
+}
+
+// checkDeviceReachability attempts to connect to a host on specified ports with timeout
+func checkDeviceReachability(host string, port string, timeout time.Duration) error {
+	address := fmt.Sprintf("%s:%s", host, port)
+	// TODO the check should call api on the miner
+	conn, err := net.DialTimeout("tcp", address, timeout)
+	if err != nil {
+		return fmt.Errorf("failed to check host: address=%s %w", address, err)
+	}
+	defer func(conn net.Conn) {
+		_ = conn.Close()
+	}(conn)
+	return nil
+}
+
+func (s *Service) saveDevice(ctx context.Context, device *pb.Device) error {
+	return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
+		// Upsert device
+		result, err := q.UpsertDevice(ctx, sqlc.UpsertDeviceParams{
+			DeviceIdentifier: uuid.NewString(),
+			MacAddress:       device.MacAddress,
+			SerialNumber:     sql.NullString{String: device.SerialNumber, Valid: len(device.SerialNumber) > 0},
+			IsActive:         sql.NullBool{Bool: true, Valid: true},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to upsert device: %w", err)
+		}
+
+		// Get device ID (either from insert or existing record)
+		deviceID, err := result.LastInsertId()
+		if err != nil {
+			return fmt.Errorf("failed to upsert device: %w", err)
+		}
+
+		dbDevice, err := q.GetDeviceByID(ctx, deviceID)
+		if err != nil {
+			return fmt.Errorf("failed to fetch device: id=%d %w", deviceID, err)
+		}
+		device.DeviceIdentifier = dbDevice.DeviceIdentifier
+
+		// Deactivate old IP assignments
+		err = q.DeactivateOldIPAssignments(ctx, sqlc.DeactivateOldIPAssignmentsParams{
+			DeviceID:  deviceID,
+			IpAddress: device.IpAddress,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to deactivate old IP assignments: %w", err)
+		}
+
+		// Upsert new IP assignment
+		_, err = q.UpsertDeviceIPAssignment(ctx, sqlc.UpsertDeviceIPAssignmentParams{
+			DeviceID:  deviceID,
+			IpAddress: device.IpAddress,
+			Port:      device.Port,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to upsert IP assignment: %w", err)
+		}
+
+		return nil
+	})
+}
+
+func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairResponse, error) {
+	err := db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
+		// Create pairing records for each device
+		for _, dID := range r.DeviceIdentifiers {
+			device, err := q.GetDeviceByDeviceIdentifier(ctx, dID)
+			if err != nil {
+				return fmt.Errorf("failed get device device_identifier=%s: %w", dID, err)
+			}
+			pairingToken, err := s.generatePairingToken(&device)
+			if err != nil {
+				return fmt.Errorf("failed generate pairing token for device device_identifier=%s: %w", dID, err)
+			}
+			_, err = q.UpsertDevicePairing(ctx, sqlc.UpsertDevicePairingParams{
+				DeviceID:      device.ID,
+				PairingToken:  sql.NullString{Valid: true, String: pairingToken},
+				PairingStatus: "PAIRED",
+			})
+			if err != nil {
+				return fmt.Errorf("failed to create pairing for device device_identifier=%s: %w", dID, err)
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return &pb.PairResponse{}, nil
+}
+
+func (s *Service) generatePairingToken(device *sqlc.Device) (string, error) {
+	// TODO remove defaulting to mac when we start getting serial no from miner
+	deviceKey := device.SerialNumber.String
+	if deviceKey == "" {
+		deviceKey = device.MacAddress
+	}
+	bytes, err := bcrypt.GenerateFromPassword(fmt.Appendf(nil, "%s:%s", s.cfg.SecretKey, deviceKey), 14)
+	return string(bytes), err
 }

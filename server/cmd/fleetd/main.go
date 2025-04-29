@@ -1,8 +1,12 @@
 package main
 
 import (
-	"connectrpc.com/grpcreflect"
 	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+
+	"connectrpc.com/grpcreflect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	authDomain "github.com/btc-mining/proto-fleet/server/internal/domain/auth"
@@ -22,9 +26,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/server"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
-	"log/slog"
-	"net/http"
-	"os"
 
 	"connectrpc.com/connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
@@ -54,11 +55,6 @@ var unauthenticatedProcedures = []string{
 	"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
 	authv1connect.AuthServiceAuthenticateProcedure,
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
-
-	// TODO remove the following before beta
-	pairingv1connect.PairingServiceDiscoverProcedure,
-	networkinfov1connect.NetworkInfoServiceGetNetworkInfoProcedure,
-	fleetmanagementv1connect.FleetManagementServiceSetDefaultPoolProcedure,
 }
 
 var reflectEnabledServices = []string{
@@ -78,7 +74,7 @@ func start(config *Config) error {
 		return err
 	}
 	authSvc := authDomain.NewService(conn, tokenSvc)
-	pairingSvc := pairingDomain.NewService()
+	pairingSvc := pairingDomain.NewService(conn, config.Pairing)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(conn)
 
 	// init middleware

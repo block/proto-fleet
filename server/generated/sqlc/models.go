@@ -101,23 +101,22 @@ func (ns NullDeviceStatusStatus) Value() (driver.Value, error) {
 
 type Device struct {
 	ID               int64
-	DeviceIdentifier sql.NullString
+	DeviceIdentifier string
 	MacAddress       string
-	DeviceName       sql.NullString
-	Manufacturer     sql.NullString
-	Model            sql.NullString
 	SerialNumber     sql.NullString
 	FirstDiscovered  sql.NullTime
 	LastSeen         sql.NullTime
 	IsActive         sql.NullBool
 	CreatedAt        sql.NullTime
 	UpdatedAt        sql.NullTime
+	DeletedAt        sql.NullTime
 }
 
 type DeviceIpAssignment struct {
 	ID           int64
 	DeviceID     int64
 	IpAddress    string
+	Port         string
 	AssignedAt   sql.NullTime
 	UnassignedAt sql.NullTime
 	IsCurrent    sql.NullBool
@@ -183,17 +182,19 @@ type UserOrganization struct {
 }
 
 type VCurrentDeviceIp struct {
-	ID         int64
-	MacAddress string
-	DeviceName sql.NullString
-	IpAddress  sql.NullString
+	ID               int64
+	DeviceIdentifier string
+	MacAddress       string
+	SerialNumber     sql.NullString
+	IpAddress        sql.NullString
 }
 
 type VLatestDeviceStatus struct {
-	ID              int64
-	MacAddress      string
-	DeviceName      sql.NullString
-	Status          NullDeviceStatusStatus
-	StatusTimestamp sql.NullTime
-	StatusDetails   sql.NullString
+	ID               int64
+	DeviceIdentifier string
+	MacAddress       string
+	SerialNumber     sql.NullString
+	Status           NullDeviceStatusStatus
+	StatusTimestamp  sql.NullTime
+	StatusDetails    sql.NullString
 }

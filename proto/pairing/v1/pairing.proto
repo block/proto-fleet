@@ -4,17 +4,20 @@ package pairing.v1;
 
 // Device represents a discovered network device that can be paired with the system
 message Device {
+  // unique identifier of the device
+  string device_identifier = 1;
+
   // IPv4 address of the device
-  string ip_address = 1;
-
-  // MAC address of the device (format: XX:XX:XX:XX:XX:XX)
-  string mac_address = 2;
-
-  // Hostname of the device if available
-  string hostname = 3;
+  string ip_address = 2;
 
   // Port number where the device's service is running
-  string port = 5;
+  string port = 3;
+
+  // MAC address of the device (format: XX:XX:XX:XX:XX:XX)
+  string mac_address = 4;
+
+  // Serial number of the control board of the unit
+  string serial_number = 5;
 
   // Unix timestamp when the device was discovered
   int64 discovered_at = 6;
@@ -99,12 +102,8 @@ message DiscoverResponse {
 
 // Request to pair with discovered devices
 message PairRequest {
-  // Authentication token for pairing
-  string pairing_token = 1;
-
-  // List of device IDs to pair with
-  // Device IDs are typically MAC addresses or unique identifiers
-  repeated string device_id = 2;
+  // List of device identifiers to pair with
+  repeated string device_identifiers = 1;
 }
 
 // Response to pairing request

@@ -83,7 +83,7 @@ func TestVerifyJWT_TamperedToken(t *testing.T) {
 	assert.NoError(t, err, "GenerateJWT should not return an error")
 
 	// Modify token (tamper with it)
-	tamperedToken := flipLastBit(token)
+	tamperedToken := flipBits(token)
 	claims, err := tokenService.VerifyJWT(tamperedToken)
 	assert.Error(t, err, "VerifyJWT should return an error for a tampered token")
 	assert.Zero(t, claims, "Claims should be nil for a tampered token")
@@ -114,13 +114,10 @@ func TestNewTokenService_ValidSecret(t *testing.T) {
 	assert.NotZero(t, tokenService, "Service instance should be created successfully")
 }
 
-func flipLastBit(s string) string {
-	if len(s) == 0 {
-		return s
+func flipBits(input string) string {
+	bytes := []byte(input)
+	for i := range bytes {
+		bytes[i] = ^bytes[i]
 	}
-	bytes := []byte(s)
-	lastByte := bytes[len(bytes)-1]
-	lastByte ^= 1
-	bytes[len(bytes)-1] = lastByte
 	return string(bytes)
 }

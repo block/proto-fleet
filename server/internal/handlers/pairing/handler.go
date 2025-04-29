@@ -3,8 +3,9 @@ package pairing
 import (
 	"context"
 	"errors"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	"log/slog"
+
+	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 
 	"connectrpc.com/connect"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
@@ -28,38 +29,17 @@ func NewHandler(pairingSvc *pairing.Service) *Handler {
 // Discover implements pairingv1connect.DeviceDiscoveryServiceHandler.
 func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRequest], s *connect.ServerStream[pb.DiscoverResponse]) error {
 	slog.Debug("Discover: handling discover request", "payload", r.Msg)
-	var resultChan <-chan *pairing.DiscoveryResponse
+	var resultChan <-chan *pb.DiscoverResponse
 	var err error
 	switch r.Msg.Mode.(type) {
 	case *pb.DiscoverRequest_IpList:
-		req := &pairing.IPListDiscoveryRequest{
-			IPAddresses:    r.Msg.GetIpList().IpAddresses,
-			Ports:          r.Msg.GetIpList().Ports,
-			TimeoutSeconds: r.Msg.GetIpList().TimeoutSeconds,
-		}
-		resultChan, err = h.pairingSvc.DiscoverWithIPList(ctx, req)
+		resultChan, err = h.pairingSvc.DiscoverWithIPList(ctx, r.Msg.GetIpList())
 	case *pb.DiscoverRequest_IpRange:
-		req := &pairing.IPRangeDiscoveryRequest{
-			StartIP:        r.Msg.GetIpRange().StartIp,
-			EndIP:          r.Msg.GetIpRange().EndIp,
-			Ports:          r.Msg.GetIpRange().Ports,
-			TimeoutSeconds: r.Msg.GetIpRange().TimeoutSeconds,
-		}
-		resultChan, err = h.pairingSvc.DiscoverWithIPRange(ctx, req)
+		resultChan, err = h.pairingSvc.DiscoverWithIPRange(ctx, r.Msg.GetIpRange())
 	case *pb.DiscoverRequest_Nmap:
-		req := &pairing.NmapDiscoveryRequest{
-			Target:   r.Msg.GetNmap().Target,
-			Ports:    r.Msg.GetNmap().Ports,
-			FastScan: r.Msg.GetNmap().FastScan,
-		}
-		resultChan, err = h.pairingSvc.DiscoverWithNmap(ctx, req)
+		resultChan, err = h.pairingSvc.DiscoverWithNmap(ctx, r.Msg.GetNmap())
 	case *pb.DiscoverRequest_Mdns:
-		req := &pairing.MDNSDiscoveryRequest{
-			ServiceType:    r.Msg.GetMdns().ServiceType,
-			Domain:         r.Msg.GetMdns().Domain,
-			TimeoutSeconds: r.Msg.GetMdns().TimeoutSeconds,
-		}
-		resultChan, err = h.pairingSvc.DiscoverWithMDNS(ctx, req)
+		resultChan, err = h.pairingSvc.DiscoverWithMDNS(ctx, r.Msg.GetMdns())
 	default:
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("unsupported mode"))
 	}
@@ -74,8 +54,10 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 			if !ok {
 				return nil
 			}
-
-			if err := s.Send(toDiscoveryResponse(result.Devices)); err != nil {
+			res := &pb.DiscoverResponse{
+				Devices: result.Devices,
+			}
+			if err := s.Send(res); err != nil {
 				return connect.NewError(connect.CodeInternal, err)
 			}
 		case <-ctx.Done():
@@ -84,23 +66,11 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	}
 }
 
-func toDiscoveryResponse(d []*pairing.Device) *pb.DiscoverResponse {
-	var devices []*pb.Device
-	for _, d := range d {
-		devices = append(devices, &pb.Device{
-			IpAddress:    d.IPAddress,
-			MacAddress:   d.MacAddress,
-			Hostname:     d.Hostname,
-			DiscoveredAt: d.DiscoveredAt,
-		})
-	}
-	res := &pb.DiscoverResponse{
-		Devices: devices,
-	}
-	return res
-}
-
 // Pair implements pairingv1connect.PairingServiceHandler.
-func (h *Handler) Pair(context.Context, *connect.Request[pb.PairRequest]) (*connect.Response[pb.PairResponse], error) {
-	panic("unimplemented")
+func (h *Handler) Pair(ctx context.Context, r *connect.Request[pb.PairRequest]) (*connect.Response[pb.PairResponse], error) {
+	resp, err := h.pairingSvc.PairDevices(ctx, r.Msg)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(resp), nil
 }

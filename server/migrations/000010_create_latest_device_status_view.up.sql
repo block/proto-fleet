@@ -1,8 +1,9 @@
 CREATE VIEW v_latest_device_status AS
 SELECT 
     d.id,
+    d.device_identifier,
     d.mac_address,
-    d.device_name,
+    d.serial_number,
     ds.status,
     ds.status_timestamp,
     ds.status_details

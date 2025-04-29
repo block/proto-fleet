@@ -1,8 +1,9 @@
 package fleetmanagement
 
 import (
-	"connectrpc.com/connect"
 	"context"
+
+	"connectrpc.com/connect"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
@@ -19,15 +20,20 @@ func NewHandler(fleetMgmtSvc *fleetmanagement.Service) *Handler {
 	return &Handler{fleetMgmtSvc: fleetMgmtSvc}
 }
 
-func (h Handler) SetDefaultPool(ctx context.Context, r *connect.Request[pb.SetDefaultPoolRequest]) (*connect.Response[pb.SetDefaultPoolResponse], error) {
-	err := h.fleetMgmtSvc.UpdateDefaultPool(ctx, fleetmanagement.UpdateDefaultPoolRequest{
-		URL:        r.Msg.PoolConfig.Url,
-		Username:   r.Msg.PoolConfig.Username,
-		Password:   r.Msg.PoolConfig.Password,
-		WorkerName: r.Msg.PoolConfig.WorkerName,
-	})
+func (h *Handler) SetDefaultPool(ctx context.Context, r *connect.Request[pb.SetDefaultPoolRequest]) (*connect.Response[pb.SetDefaultPoolResponse], error) {
+	err := h.fleetMgmtSvc.UpdateDefaultPool(ctx, r.Msg)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return &connect.Response[pb.SetDefaultPoolResponse]{}, nil
+}
+
+// ListPairedMiners implements fleetmanagementv1connect.FleetManagementServiceHandler.
+func (h *Handler) ListPairedMiners(ctx context.Context, r *connect.Request[pb.ListPairedMinersRequest]) (*connect.Response[pb.ListPairedMinersResponse], error) {
+	result, err := h.fleetMgmtSvc.ListPairedMiners(ctx, r.Msg)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+
+	return connect.NewResponse(result), nil
 }

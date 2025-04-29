@@ -30,10 +30,53 @@ message SetDefaultPoolRequest {
 message SetDefaultPoolResponse {
 }
 
+// Request to list paired miners with pagination support
+message ListPairedMinersRequest {
+  // Maximum number of miners to return in a single response
+  // Server may return fewer miners than specified
+  int32 page_size = 1;
+
+  // A pagination cursor returned by a previous call to this endpoint.
+  // Provide this cursor to retrieve the next set of results for the original query.
+  // Leave empty for first request
+  string cursor = 2;
+}
+
+// Response containing a list of paired miners with pagination support
+message ListPairedMinersResponse {
+  // List of paired miners for the current page
+  repeated PairedDevice miners = 1;
+
+  // The pagination cursor to be used in a subsequent request.
+  // If empty, this is the final response.
+  string cursor = 2;
+
+  // Total number of miners available across all pages
+  int32 total_miners = 3;
+}
+
+// Represents a miner that has been paired with the fleet management system
+message PairedDevice {
+  // Unique identifier for the device within the fleet
+  string device_identifier = 1;
+
+  // Manufacturer-assigned serial number
+  string serial_number = 2;
+
+  // Physical MAC address of the device
+  // Format: XX:XX:XX:XX:XX:XX
+  string mac_address = 3;
+}
+
 // Service for managing fleet-wide settings and configurations
 service FleetManagementService {
   // Sets the default pool configuration for the fleet
   // This will be used as the base configuration for new miners
   // or when resetting miners to default settings
   rpc SetDefaultPool(SetDefaultPoolRequest) returns (SetDefaultPoolResponse);
+
+  // Lists all miners that have been paired with the fleet management system
+  // Supports pagination for handling large fleets efficiently
+  // Returns a sorted list of miners (typically by device_identifier)
+  rpc ListPairedMiners(ListPairedMinersRequest) returns (ListPairedMinersResponse);
 }

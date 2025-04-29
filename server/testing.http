@@ -1,8 +1,25 @@
 ### Run health chcek
-GET http://localhost:4000/health
+GET {{host}}/health
+
+### Onboarding: Create Admin User
+GRPC {{host}}/onboarding.v1.OnboardingService/CreateAdminLogin
+
+{
+  "username": "mcharles@block.xyz",
+  "password": "00000000000000000000000000000000000000000000"
+}
+
+### Authenticate
+GRPC {{host}}/auth.v1.AuthService/Authenticate
+
+{
+  "username": "mcharles@block.xyz",
+  "password": "00000000000000000000000000000000000000000000"
+}
 
 ### Run mdns discovery
-GRPC localhost:4000/pairing.v1.PairingService/Discover
+GRPC {{host}}/pairing.v1.PairingService/Discover
+Authorization: Bearer {{auth_token}}
 
 {
   "mdns": {
@@ -13,7 +30,8 @@ GRPC localhost:4000/pairing.v1.PairingService/Discover
 }
 
 ### Run nmap discovery
-GRPC localhost:4000/pairing.v1.PairingService/Discover
+GRPC {{host}}/pairing.v1.PairingService/Discover
+Authorization: Bearer {{auth_token}}
 
 {
   "nmap": {
@@ -27,21 +45,23 @@ GRPC localhost:4000/pairing.v1.PairingService/Discover
 
 ### Run ip range discovery
 
-GRPC localhost:4000/pairing.v1.PairingService/Discover
+GRPC {{host}}/pairing.v1.PairingService/Discover
+Authorization: Bearer {{auth_token}}
 
 {
   "ip_range": {
-    "start_ip": "192.168.2.1",
-    "end_ip": "192.168.2.254",
+    "start_ip": "10.0.0.248",
+    "end_ip": "10.0.0.250",
     "ports": [
-      "8080"
+      "80"
     ]
   }
 }
 
 ### Run ip list discovery
 
-GRPC localhost:4000/pairing.v1.PairingService/Discover
+GRPC {{host}}/pairing.v1.PairingService/Discover
+Authorization: Bearer {{auth_token}}
 
 {
   "ip_list": {
@@ -52,9 +72,26 @@ GRPC localhost:4000/pairing.v1.PairingService/Discover
   }
 }
 
+### run pairing query
+GRPC {{host}}/pairing.v1.PairingService/Pair
+Authorization: Bearer {{auth_token}}
+
+{
+  "device_identifier": ["43f9baf4-65e7-4611-a363-2de4d2294cc0", "83037515-ae70-4519-b527-de79f31001b0" ]
+}
+
+### list paired devices
+GRPC {{host}}/fleetmanagement.v1.FleetManagementService/ListPairedMiners
+Authorization: Bearer {{auth_token}}
+
+{
+  "page_size": 10
+}
+
 ### Run network info
 
-GRPC localhost:4000/networkinfo.v1.NetworkInfoService/GetNetworkInfo
+GRPC {{host}}/networkinfo.v1.NetworkInfoService/GetNetworkInfo
+Authorization: Bearer {{auth_token}}
 
 {
 
@@ -62,7 +99,8 @@ GRPC localhost:4000/networkinfo.v1.NetworkInfoService/GetNetworkInfo
 
 ### Run UpdateDefaultPool
 
-GRPC localhost:4000/fleetmanagement.v1.FleetManagementService/SetDefaultPool
+GRPC {{host}}/fleetmanagement.v1.FleetManagementService/SetDefaultPool
+Authorization: Bearer {{auth_token}}
 
 {
   "pool_config": {

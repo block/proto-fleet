@@ -20,7 +20,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_fleetmanagement_v1_fleetmanagement: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "CihmbGVldG1hbmFnZW1lbnQvdjEvZmxlZXRtYW5hZ2VtZW50LnByb3RvEhJmbGVldG1hbmFnZW1lbnQudjEiUgoKUG9vbENvbmZpZxILCgN1cmwYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSEAoIcGFzc3dvcmQYAyABKAkSEwoLd29ya2VyX25hbWUYBCABKAkiTAoVU2V0RGVmYXVsdFBvb2xSZXF1ZXN0EjMKC3Bvb2xfY29uZmlnGAEgASgLMh4uZmxlZXRtYW5hZ2VtZW50LnYxLlBvb2xDb25maWciGAoWU2V0RGVmYXVsdFBvb2xSZXNwb25zZTKBAQoWRmxlZXRNYW5hZ2VtZW50U2VydmljZRJnCg5TZXREZWZhdWx0UG9vbBIpLmZsZWV0bWFuYWdlbWVudC52MS5TZXREZWZhdWx0UG9vbFJlcXVlc3QaKi5mbGVldG1hbmFnZW1lbnQudjEuU2V0RGVmYXVsdFBvb2xSZXNwb25zZUL3AQoWY29tLmZsZWV0bWFuYWdlbWVudC52MUIURmxlZXRtYW5hZ2VtZW50UHJvdG9QAVpeZ2l0aHViLmNvbS9idGMtbWluaW5nL21pbmVyLWZpcm13YXJlL2ZsZWV0L2dlbmVyYXRlZC9ncnBjL2ZsZWV0bWFuYWdlbWVudC92MTtmbGVldG1hbmFnZW1lbnR2MaICA0ZYWKoCEkZsZWV0bWFuYWdlbWVudC5WMcoCEkZsZWV0bWFuYWdlbWVudFxWMeICHkZsZWV0bWFuYWdlbWVudFxWMVxHUEJNZXRhZGF0YeoCE0ZsZWV0bWFuYWdlbWVudDo6VjFiBnByb3RvMw",
+    "CihmbGVldG1hbmFnZW1lbnQvdjEvZmxlZXRtYW5hZ2VtZW50LnByb3RvEhJmbGVldG1hbmFnZW1lbnQudjEiUgoKUG9vbENvbmZpZxILCgN1cmwYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSEAoIcGFzc3dvcmQYAyABKAkSEwoLd29ya2VyX25hbWUYBCABKAkiTAoVU2V0RGVmYXVsdFBvb2xSZXF1ZXN0EjMKC3Bvb2xfY29uZmlnGAEgASgLMh4uZmxlZXRtYW5hZ2VtZW50LnYxLlBvb2xDb25maWciGAoWU2V0RGVmYXVsdFBvb2xSZXNwb25zZSI8ChdMaXN0UGFpcmVkTWluZXJzUmVxdWVzdBIRCglwYWdlX3NpemUYASABKAUSDgoGY3Vyc29yGAIgASgJInIKGExpc3RQYWlyZWRNaW5lcnNSZXNwb25zZRIwCgZtaW5lcnMYASADKAsyIC5mbGVldG1hbmFnZW1lbnQudjEuUGFpcmVkRGV2aWNlEg4KBmN1cnNvchgCIAEoCRIUCgx0b3RhbF9taW5lcnMYAyABKAUiVQoMUGFpcmVkRGV2aWNlEhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEhUKDXNlcmlhbF9udW1iZXIYAiABKAkSEwoLbWFjX2FkZHJlc3MYAyABKAky8AEKFkZsZWV0TWFuYWdlbWVudFNlcnZpY2USZwoOU2V0RGVmYXVsdFBvb2wSKS5mbGVldG1hbmFnZW1lbnQudjEuU2V0RGVmYXVsdFBvb2xSZXF1ZXN0GiouZmxlZXRtYW5hZ2VtZW50LnYxLlNldERlZmF1bHRQb29sUmVzcG9uc2USbQoQTGlzdFBhaXJlZE1pbmVycxIrLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0UGFpcmVkTWluZXJzUmVxdWVzdBosLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0UGFpcmVkTWluZXJzUmVzcG9uc2VC9QEKFmNvbS5mbGVldG1hbmFnZW1lbnQudjFCFEZsZWV0bWFuYWdlbWVudFByb3RvUAFaXGdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvZmxlZXRtYW5hZ2VtZW50L3YxO2ZsZWV0bWFuYWdlbWVudHYxogIDRlhYqgISRmxlZXRtYW5hZ2VtZW50LlYxygISRmxlZXRtYW5hZ2VtZW50XFYx4gIeRmxlZXRtYW5hZ2VtZW50XFYxXEdQQk1ldGFkYXRh6gITRmxlZXRtYW5hZ2VtZW50OjpWMWIGcHJvdG8z",
   );
 
 /**
@@ -109,6 +109,114 @@ export const SetDefaultPoolResponseSchema: GenMessage<SetDefaultPoolResponse> =
   messageDesc(file_fleetmanagement_v1_fleetmanagement, 2);
 
 /**
+ * Request to list paired miners with pagination support
+ *
+ * @generated from message fleetmanagement.v1.ListPairedMinersRequest
+ */
+export type ListPairedMinersRequest =
+  Message<"fleetmanagement.v1.ListPairedMinersRequest"> & {
+    /**
+     * Maximum number of miners to return in a single response
+     * Server may return fewer miners than specified
+     *
+     * @generated from field: int32 page_size = 1;
+     */
+    pageSize: number;
+
+    /**
+     * A pagination cursor returned by a previous call to this endpoint.
+     * Provide this cursor to retrieve the next set of results for the original query.
+     * Leave empty for first request
+     *
+     * @generated from field: string cursor = 2;
+     */
+    cursor: string;
+  };
+
+/**
+ * Describes the message fleetmanagement.v1.ListPairedMinersRequest.
+ * Use `create(ListPairedMinersRequestSchema)` to create a new message.
+ */
+export const ListPairedMinersRequestSchema: GenMessage<ListPairedMinersRequest> =
+  /*@__PURE__*/
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 3);
+
+/**
+ * Response containing a list of paired miners with pagination support
+ *
+ * @generated from message fleetmanagement.v1.ListPairedMinersResponse
+ */
+export type ListPairedMinersResponse =
+  Message<"fleetmanagement.v1.ListPairedMinersResponse"> & {
+    /**
+     * List of paired miners for the current page
+     *
+     * @generated from field: repeated fleetmanagement.v1.PairedDevice miners = 1;
+     */
+    miners: PairedDevice[];
+
+    /**
+     * The pagination cursor to be used in a subsequent request.
+     * If empty, this is the final response.
+     *
+     * @generated from field: string cursor = 2;
+     */
+    cursor: string;
+
+    /**
+     * Total number of miners available across all pages
+     *
+     * @generated from field: int32 total_miners = 3;
+     */
+    totalMiners: number;
+  };
+
+/**
+ * Describes the message fleetmanagement.v1.ListPairedMinersResponse.
+ * Use `create(ListPairedMinersResponseSchema)` to create a new message.
+ */
+export const ListPairedMinersResponseSchema: GenMessage<ListPairedMinersResponse> =
+  /*@__PURE__*/
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 4);
+
+/**
+ * Represents a miner that has been paired with the fleet management system
+ *
+ * @generated from message fleetmanagement.v1.PairedDevice
+ */
+export type PairedDevice = Message<"fleetmanagement.v1.PairedDevice"> & {
+  /**
+   * Unique identifier for the device within the fleet
+   *
+   * @generated from field: string device_identifier = 1;
+   */
+  deviceIdentifier: string;
+
+  /**
+   * Manufacturer-assigned serial number
+   *
+   * @generated from field: string serial_number = 2;
+   */
+  serialNumber: string;
+
+  /**
+   * Physical MAC address of the device
+   * Format: XX:XX:XX:XX:XX:XX
+   *
+   * @generated from field: string mac_address = 3;
+   */
+  macAddress: string;
+};
+
+/**
+ * Describes the message fleetmanagement.v1.PairedDevice.
+ * Use `create(PairedDeviceSchema)` to create a new message.
+ */
+export const PairedDeviceSchema: GenMessage<PairedDevice> =
+  /*@__PURE__*/
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 5);
+
+/**
  * Service for managing fleet-wide settings and configurations
  *
  * @generated from service fleetmanagement.v1.FleetManagementService
@@ -125,5 +233,17 @@ export const FleetManagementService: GenService<{
     methodKind: "unary";
     input: typeof SetDefaultPoolRequestSchema;
     output: typeof SetDefaultPoolResponseSchema;
+  };
+  /**
+   * Lists all miners that have been paired with the fleet management system
+   * Supports pagination for handling large fleets efficiently
+   * Returns a sorted list of miners (typically by device_identifier)
+   *
+   * @generated from rpc fleetmanagement.v1.FleetManagementService.ListPairedMiners
+   */
+  listPairedMiners: {
+    methodKind: "unary";
+    input: typeof ListPairedMinersRequestSchema;
+    output: typeof ListPairedMinersResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_fleetmanagement_v1_fleetmanagement, 0);

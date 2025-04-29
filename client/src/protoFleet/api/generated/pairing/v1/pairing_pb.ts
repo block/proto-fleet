@@ -20,7 +20,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_pairing_v1_pairing: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChhwYWlyaW5nL3YxL3BhaXJpbmcucHJvdG8SCnBhaXJpbmcudjEiaAoGRGV2aWNlEhIKCmlwX2FkZHJlc3MYASABKAkSEwoLbWFjX2FkZHJlc3MYAiABKAkSEAoIaG9zdG5hbWUYAyABKAkSDAoEcG9ydBgFIAEoCRIVCg1kaXNjb3ZlcmVkX2F0GAYgASgDIlAKD01ETlNNb2RlUmVxdWVzdBIUCgxzZXJ2aWNlX3R5cGUYASABKAkSDgoGZG9tYWluGAIgASgJEhcKD3RpbWVvdXRfc2Vjb25kcxgDIAEoBSJDCg9ObWFwTW9kZVJlcXVlc3QSDgoGdGFyZ2V0GAEgASgJEg0KBXBvcnRzGAIgAygJEhEKCWZhc3Rfc2NhbhgDIAEoCCJeChJJUFJhbmdlTW9kZVJlcXVlc3QSEAoIc3RhcnRfaXAYASABKAkSDgoGZW5kX2lwGAIgASgJEg0KBXBvcnRzGAMgAygJEhcKD3RpbWVvdXRfc2Vjb25kcxgEIAEoBSJRChFJUExpc3RNb2RlUmVxdWVzdBIUCgxpcF9hZGRyZXNzZXMYASADKAkSDQoFcG9ydHMYAiADKAkSFwoPdGltZW91dF9zZWNvbmRzGAMgASgFItkBCg9EaXNjb3ZlclJlcXVlc3QSMAoHaXBfbGlzdBgBIAEoCzIdLnBhaXJpbmcudjEuSVBMaXN0TW9kZVJlcXVlc3RIABIyCghpcF9yYW5nZRgCIAEoCzIeLnBhaXJpbmcudjEuSVBSYW5nZU1vZGVSZXF1ZXN0SAASKwoEbWRucxgDIAEoCzIbLnBhaXJpbmcudjEuTUROU01vZGVSZXF1ZXN0SAASKwoEbm1hcBgEIAEoCzIbLnBhaXJpbmcudjEuTm1hcE1vZGVSZXF1ZXN0SABCBgoEbW9kZSJGChBEaXNjb3ZlclJlc3BvbnNlEiMKB2RldmljZXMYASADKAsyEi5wYWlyaW5nLnYxLkRldmljZRINCgVlcnJvchgCIAEoCSI3CgtQYWlyUmVxdWVzdBIVCg1wYWlyaW5nX3Rva2VuGAEgASgJEhEKCWRldmljZV9pZBgCIAMoCSIOCgxQYWlyUmVzcG9uc2UylAEKDlBhaXJpbmdTZXJ2aWNlEkcKCERpc2NvdmVyEhsucGFpcmluZy52MS5EaXNjb3ZlclJlcXVlc3QaHC5wYWlyaW5nLnYxLkRpc2NvdmVyUmVzcG9uc2UwARI5CgRQYWlyEhcucGFpcmluZy52MS5QYWlyUmVxdWVzdBoYLnBhaXJpbmcudjEuUGFpclJlc3BvbnNlQrcBCg5jb20ucGFpcmluZy52MUIMUGFpcmluZ1Byb3RvUAFaTmdpdGh1Yi5jb20vYnRjLW1pbmluZy9taW5lci1maXJtd2FyZS9mbGVldC9nZW5lcmF0ZWQvZ3JwYy9wYWlyaW5nL3YxO3BhaXJpbmd2MaICA1BYWKoCClBhaXJpbmcuVjHKAgpQYWlyaW5nXFYx4gIWUGFpcmluZ1xWMVxHUEJNZXRhZGF0YeoCC1BhaXJpbmc6OlYxYgZwcm90bzM",
+    "ChhwYWlyaW5nL3YxL3BhaXJpbmcucHJvdG8SCnBhaXJpbmcudjEiiAEKBkRldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRISCgppcF9hZGRyZXNzGAIgASgJEgwKBHBvcnQYAyABKAkSEwoLbWFjX2FkZHJlc3MYBCABKAkSFQoNc2VyaWFsX251bWJlchgFIAEoCRIVCg1kaXNjb3ZlcmVkX2F0GAYgASgDIlAKD01ETlNNb2RlUmVxdWVzdBIUCgxzZXJ2aWNlX3R5cGUYASABKAkSDgoGZG9tYWluGAIgASgJEhcKD3RpbWVvdXRfc2Vjb25kcxgDIAEoBSJDCg9ObWFwTW9kZVJlcXVlc3QSDgoGdGFyZ2V0GAEgASgJEg0KBXBvcnRzGAIgAygJEhEKCWZhc3Rfc2NhbhgDIAEoCCJeChJJUFJhbmdlTW9kZVJlcXVlc3QSEAoIc3RhcnRfaXAYASABKAkSDgoGZW5kX2lwGAIgASgJEg0KBXBvcnRzGAMgAygJEhcKD3RpbWVvdXRfc2Vjb25kcxgEIAEoBSJRChFJUExpc3RNb2RlUmVxdWVzdBIUCgxpcF9hZGRyZXNzZXMYASADKAkSDQoFcG9ydHMYAiADKAkSFwoPdGltZW91dF9zZWNvbmRzGAMgASgFItkBCg9EaXNjb3ZlclJlcXVlc3QSMAoHaXBfbGlzdBgBIAEoCzIdLnBhaXJpbmcudjEuSVBMaXN0TW9kZVJlcXVlc3RIABIyCghpcF9yYW5nZRgCIAEoCzIeLnBhaXJpbmcudjEuSVBSYW5nZU1vZGVSZXF1ZXN0SAASKwoEbWRucxgDIAEoCzIbLnBhaXJpbmcudjEuTUROU01vZGVSZXF1ZXN0SAASKwoEbm1hcBgEIAEoCzIbLnBhaXJpbmcudjEuTm1hcE1vZGVSZXF1ZXN0SABCBgoEbW9kZSJGChBEaXNjb3ZlclJlc3BvbnNlEiMKB2RldmljZXMYASADKAsyEi5wYWlyaW5nLnYxLkRldmljZRINCgVlcnJvchgCIAEoCSIpCgtQYWlyUmVxdWVzdBIaChJkZXZpY2VfaWRlbnRpZmllcnMYASADKAkiDgoMUGFpclJlc3BvbnNlMpQBCg5QYWlyaW5nU2VydmljZRJHCghEaXNjb3ZlchIbLnBhaXJpbmcudjEuRGlzY292ZXJSZXF1ZXN0GhwucGFpcmluZy52MS5EaXNjb3ZlclJlc3BvbnNlMAESOQoEUGFpchIXLnBhaXJpbmcudjEuUGFpclJlcXVlc3QaGC5wYWlyaW5nLnYxLlBhaXJSZXNwb25zZUK1AQoOY29tLnBhaXJpbmcudjFCDFBhaXJpbmdQcm90b1ABWkxnaXRodWIuY29tL2J0Yy1taW5pbmcvcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL3BhaXJpbmcvdjE7cGFpcmluZ3YxogIDUFhYqgIKUGFpcmluZy5WMcoCClBhaXJpbmdcVjHiAhZQYWlyaW5nXFYxXEdQQk1ldGFkYXRh6gILUGFpcmluZzo6VjFiBnByb3RvMw",
   );
 
 /**
@@ -30,32 +30,39 @@ export const file_pairing_v1_pairing: GenFile =
  */
 export type Device = Message<"pairing.v1.Device"> & {
   /**
+   * unique identifier of the device
+   *
+   * @generated from field: string device_identifier = 1;
+   */
+  deviceIdentifier: string;
+
+  /**
    * IPv4 address of the device
    *
-   * @generated from field: string ip_address = 1;
+   * @generated from field: string ip_address = 2;
    */
   ipAddress: string;
 
   /**
+   * Port number where the device's service is running
+   *
+   * @generated from field: string port = 3;
+   */
+  port: string;
+
+  /**
    * MAC address of the device (format: XX:XX:XX:XX:XX:XX)
    *
-   * @generated from field: string mac_address = 2;
+   * @generated from field: string mac_address = 4;
    */
   macAddress: string;
 
   /**
-   * Hostname of the device if available
+   * Serial number of the control board of the unit
    *
-   * @generated from field: string hostname = 3;
+   * @generated from field: string serial_number = 5;
    */
-  hostname: string;
-
-  /**
-   * Port number where the device's service is running
-   *
-   * @generated from field: string port = 5;
-   */
-  port: string;
+  serialNumber: string;
 
   /**
    * Unix timestamp when the device was discovered
@@ -325,19 +332,11 @@ export const DiscoverResponseSchema: GenMessage<DiscoverResponse> =
  */
 export type PairRequest = Message<"pairing.v1.PairRequest"> & {
   /**
-   * Authentication token for pairing
+   * List of device identifiers to pair with
    *
-   * @generated from field: string pairing_token = 1;
+   * @generated from field: repeated string device_identifiers = 1;
    */
-  pairingToken: string;
-
-  /**
-   * List of device IDs to pair with
-   * Device IDs are typically MAC addresses or unique identifiers
-   *
-   * @generated from field: repeated string device_id = 2;
-   */
-  deviceId: string[];
+  deviceIdentifiers: string[];
 };
 
 /**

@@ -1,10 +1,12 @@
 package main
 
 import (
-	auth2 "github.com/btc-mining/proto-fleet/server/internal/domain/token"
+	"time"
+
+	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/logging"
-	"time"
 )
 
 type HTTPConfig struct {
@@ -14,8 +16,9 @@ type HTTPConfig struct {
 	SuppressCors      bool          `help:"Suppress CORS" default:"false" env:"SUPPRESS_CORS"`
 }
 type Config struct {
-	DB   db.Config      `embed:"" prefix:"db" envprefix:"DB_"`
-	Log  logging.Config `embed:"" prefix:"logging" envprefix:"LOG_"`
-	HTTP HTTPConfig     `embed:"" prefix:"http" envprefix:"HTTP_"`
-	Auth auth2.Config   `embed:"" prefix:"auth" envprefix:"AUTH_"`
+	DB      db.Config      `embed:"" prefix:"db" envprefix:"DB_"`
+	Log     logging.Config `embed:"" prefix:"logging" envprefix:"LOG_"`
+	HTTP    HTTPConfig     `embed:"" prefix:"http" envprefix:"HTTP_"`
+	Auth    token.Config   `embed:"" prefix:"auth" envprefix:"AUTH_"`
+	Pairing pairing.Config `embed:"" prefix:"pairing" envprefix:"PAIRING_"`
 }

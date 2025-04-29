@@ -20,6 +20,7 @@ services:
       HTTP_LISTEN_ADDRESS: ":8080"
       HTTP_SUPPRESS_CORS: "true"
       LOG_LEVEL: "DEBUG"
+      PAIRING_SECRET_KEY: "00000000000000000000000000000000000000000000"
     depends_on:
       mysql:
         condition: service_healthy
@@ -31,7 +32,7 @@ services:
       - NET_RAW
   mms-1:
     build:
-      context: ..
+      context: ../miner-firmware
       dockerfile: docker/sim/Dockerfile
     ports:
       - "4100:8080"
@@ -44,7 +45,7 @@ services:
       - NET_RAW
   mms-2:
     build:
-      context: ..
+      context: ../miner-firmware
       dockerfile: docker/sim/Dockerfile
     ports:
       - "4200:8080"
@@ -70,7 +71,7 @@ services:
     volumes:
       - mysql:/var/lib/mysql
     healthcheck:
-      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
       timeout: 5s
       retries: 5
