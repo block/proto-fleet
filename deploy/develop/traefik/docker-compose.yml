@@ -8,6 +8,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "2121:2121"
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "./volumes/traefik/etc:/etc/traefik:rw"
@@ -26,6 +27,9 @@ services:
 
       - "--entrypoints.websecure.address=:443"
       - "--entrypoints.websecure.http.tls.certResolver=cert-resolver"
+
+      - "--entrypoints.miner-grpc.address=:2121"
+      - "--entrypoints.miner-grpc.http.tls.certResolver=cert-resolver"
 
       # TODO Add a correct email
       - "--certificatesresolvers.cert-resolver.acme.email=info@fleetdev.proto.xyz"

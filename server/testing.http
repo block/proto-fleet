@@ -110,3 +110,35 @@ Authorization: Bearer {{auth_token}}
     "worker_name": "default"
   }
 }
+
+### Stop remote mining via Fleet
+
+GRPC {{host}}/fleetmanagement.v1.FleetManagementService/StopMining
+Authorization: Bearer {{auth_token}}
+
+{
+  "miner_url": "https://miner-1.miner.fleetdev.proto.xyz:2121"
+}
+
+### Stop local mining via Fleet
+
+GRPC {{host}}/fleetmanagement.v1.FleetManagementService/StopMining
+Authorization: Bearer {{auth_token}}
+
+{
+"miner_url": "http://localhost:2121"
+}
+
+###
+
+GRPC grpcs://miner-1.miner.fleetdev.proto.xyz:2121/miner_command_api.MinerCommandApi/StartMining
+
+{
+}
+
+###
+
+GRPC localhost:2121/miner_command_api.MinerCommandApi/StartMining
+
+{
+}

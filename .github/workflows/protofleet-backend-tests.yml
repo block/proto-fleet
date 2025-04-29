@@ -65,8 +65,18 @@ jobs:
       run:
         working-directory: server
     steps:
+      - name: Create GitHub App token
+        id: create_token
+        uses: tibdex/github-app-token@v2.1.0
+        with:
+          app_id: ${{ secrets.GH_APP_ID }}
+          private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          token: "${{ steps.create_token.outputs.token }}"
+          submodules: true
 
       - name: Activate hermit
         uses: cashapp/activate-hermit@v1.1.4

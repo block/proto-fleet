@@ -6,14 +6,21 @@ services:
     image: ${IMAGE}
     restart: unless-stopped
     expose:
+      - "2121"
       - "8080"
     privileged: true
     labels:
       - "traefik.http.services.miner-sim-${MINER_NAME}.loadbalancer.server.port=8080"
+      - "traefik.http.services.miner-sim-${MINER_NAME}-grpc.loadbalancer.server.port=2121"
+      - "traefik.http.services.miner-sim-${MINER_NAME}-grpc.loadbalancer.server.scheme=h2c"
 
       - "traefik.http.routers.miner-sim-${MINER_NAME}.rule=Host(`${MINER_NAME}.miner.fleetdev.proto.xyz`)"
       - "traefik.http.routers.miner-sim-${MINER_NAME}.entrypoints=websecure"
       - "traefik.http.routers.miner-sim-${MINER_NAME}.service=miner-sim-${MINER_NAME}"
+
+      - "traefik.http.routers.miner-sim-${MINER_NAME}-grpc.rule=Host(`${MINER_NAME}.miner.fleetdev.proto.xyz`)"
+      - "traefik.http.routers.miner-sim-${MINER_NAME}-grpc.entrypoints=miner-grpc"
+      - "traefik.http.routers.miner-sim-${MINER_NAME}-grpc.service=miner-sim-${MINER_NAME}-grpc"
     environment:
       MCDD__DATABASE__PATH: "/app/mcdd_data"
       MCDD__DATABASE__DELETE_ON_EXIT: "false"

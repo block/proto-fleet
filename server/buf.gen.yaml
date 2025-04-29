@@ -1,0 +1,30 @@
+version: v2
+plugins:
+  - local: protoc-gen-go
+    out: generated/miner-api
+    opt: module=github.com/btc-mining/proto-fleet/server/generated/miner-api
+  - local: protoc-gen-connect-go
+    out: generated/miner-api
+    opt: module=github.com/btc-mining/proto-fleet/server/generated/miner-api
+managed:
+  enabled: true
+  override:
+    - file_option: go_package
+      value: github.com/btc-mining/proto-fleet/server/generated/miner-api/mfgtool_api
+      path: mfgtool_api.proto
+    - file_option: go_package
+      value: github.com/btc-mining/proto-fleet/server/generated/miner-api/mfgtool_test_commands
+      path: mfgtool_test_commands.proto
+    - file_option: go_package
+      value: github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api
+      path: miner_command_api.proto
+    - file_option: go_package
+      value: github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api
+      path: miner_common_api.proto
+    - file_option: go_package
+      value: github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api
+      path: miner_data_api.proto
+    - file_option: go_package
+      value: github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_debug_api
+      path: miner_debug_api.proto
+

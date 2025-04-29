@@ -41,12 +41,17 @@ format:
   goimports -w .
 
 # run all code gen tasks
-gen: gen-db-queries
+gen: gen-db-queries gen-miner-protos
 
 # generate query via sqlc 
 gen-db-queries:
   sqlc generate
   goimports -w generated/sqlc
+
+# generate miner protobuf code
+gen-miner-protos:
+  buf generate
+  goimports -w generated/miner-api
 
 # start db
 db-up:
