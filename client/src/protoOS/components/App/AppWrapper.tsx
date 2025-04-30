@@ -22,6 +22,7 @@ import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultCont
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import { BootingUp } from "@/shared/components/Setup";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
@@ -57,7 +58,11 @@ const AppWrapper = ({
     useSystemStatus();
   const { startMining } = useMiningStart();
   const [startMiningError, setStartMiningError] = useState<ErrorProps>();
-  const { data: systemInfo, pending: pendingSystemInfo } = useSystemInfo();
+  const {
+    data: systemInfo,
+    processedData: processedSystemInfo,
+    pending: pendingSystemInfo,
+  } = useSystemInfo({ poll: true });
   const { getItem, setItem } = useLocalStorage();
   const navigate = useNavigate();
 
@@ -127,29 +132,45 @@ const AppWrapper = ({
 
   return (
     <>
-      {!getItem("isOnboarded") &&
-      pendingSystemStatus &&
-      systemStatus?.onboarded === undefined ? (
-        <div className="flex min-h-screen items-center justify-center">
-          <ProgressCircular indeterminate />
-        </div>
-      ) : (
-        <App
-          title={title}
-          apiErrors={errors}
-          pendingErrors={pendingErrors}
-          apiMiningStatus={miningStatus}
-          onWake={handleWake}
-          wakeError={startMiningError}
-          afterWake={afterWake}
-          systemInfo={systemInfo}
-          pendingSystemInfo={pendingSystemInfo}
-          hideErrors={hideErrors}
-          ContentLayout={ContentLayout}
-        >
-          {children}
-        </App>
-      )}
+      {(() => {
+        if (
+          (pendingSystemInfo && processedSystemInfo === undefined) ||
+          !processedSystemInfo?.isWebServerRunning ||
+          !processedSystemInfo.isMiningDriverRunning
+        ) {
+          return <BootingUp />;
+        }
+
+        if (
+          !getItem("isOnboarded") &&
+          pendingSystemStatus &&
+          systemStatus?.onboarded === undefined
+        ) {
+          return (
+            <div className="flex min-h-screen items-center justify-center">
+              <ProgressCircular indeterminate />
+            </div>
+          );
+        }
+
+        return (
+          <App
+            title={title}
+            apiErrors={errors}
+            pendingErrors={pendingErrors}
+            apiMiningStatus={miningStatus}
+            onWake={handleWake}
+            wakeError={startMiningError}
+            afterWake={afterWake}
+            systemInfo={systemInfo}
+            pendingSystemInfo={pendingSystemInfo}
+            hideErrors={hideErrors}
+            ContentLayout={ContentLayout}
+          >
+            {children}
+          </App>
+        );
+      })()}
     </>
   );
 };

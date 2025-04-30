@@ -10,7 +10,7 @@ import SkeletonBar from "@/shared/components/SkeletonBar";
 
 const Hardware = () => {
   const { data: hashboards } = useHashboards();
-  const { data: systemInfo } = useSystemInfo();
+  const { data: systemInfo } = useSystemInfo({ poll: false });
 
   // TODO: still need to figure out what exactly this is and what API to use
   const ChipType = "MC2";

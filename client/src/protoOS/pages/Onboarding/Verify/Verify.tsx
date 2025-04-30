@@ -4,7 +4,7 @@ import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const Verify = () => {
   const { data: networkInfo } = useNetworkInfo();
-  const { data: systemInfo } = useSystemInfo();
+  const { data: systemInfo } = useSystemInfo({ poll: false });
 
   const navigate = useNavigate();
 

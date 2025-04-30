@@ -21,7 +21,7 @@ const General = () => {
   const [model, setModel] = useState<string>();
   const { theme, temperatureUnits } = usePreferences();
 
-  const { data: systemInfo } = useSystemInfo();
+  const { data: systemInfo } = useSystemInfo({ poll: false });
   const { data: hashboards, pending } = useHashboards();
 
   useEffect(() => {

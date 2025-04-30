@@ -13,7 +13,9 @@ const OnboardingWrapper = () => {
   const navigate = useNavigate();
   const { getItem } = useLocalStorage();
   const { data: networkInfo, pending: pendingNetworkInfo } = useNetworkInfo();
-  const { data: systemInfo, pending: pendingSystemInfo } = useSystemInfo();
+  const { data: systemInfo, pending: pendingSystemInfo } = useSystemInfo({
+    poll: false,
+  });
 
   const isOnboarded = useMemo(() => getItem("isOnboarded"), [getItem]);
 
