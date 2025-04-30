@@ -106,7 +106,7 @@ func TestAuthMiddleware(t *testing.T) {
 			Text: "Hello",
 		})
 
-		token, err := tokenSvc.GenerateJWT("user_123")
+		token, _, err := tokenSvc.GenerateJWT("user_123")
 		assert.NoError(t, err)
 
 		req.Header().Set(

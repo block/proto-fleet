@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	authv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1"
+	onboardingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"time"
@@ -13,20 +15,6 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
-
-type AuthenticateUserRequest struct {
-	Username string
-	Password string
-}
-
-type CreateAdminUserRequest struct {
-	Username string
-	Password string
-}
-
-type Token string
-
-type UserID string
 
 var (
 	ErrInvalidInput = errors.New("invalid input")
@@ -46,36 +34,39 @@ func NewService(conn *sql.DB, tokenSvc *token.Service) *Service {
 	}
 }
 
-func (s *Service) AuthenticateUser(ctx context.Context, req *AuthenticateUserRequest) (Token, error) {
+func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.AuthenticateRequest) (*authv1.AuthenticateResponse, error) {
 	user, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (sqlc.GetUserByUsernameRow, error) {
 		return q.GetUserByUsername(ctx, req.Username)
 	})
 
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// Compare hashed passwords
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		return "", fmt.Errorf("error validating password: %w", err)
+		return nil, fmt.Errorf("error validating password: %w", err)
 	}
 
 	// Generate and return JWT authToken
-	authToken, err := s.tokenSvc.GenerateJWT(user.UserID)
+	authToken, exp, err := s.tokenSvc.GenerateJWT(user.UserID)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return Token(authToken), err
+	return &authv1.AuthenticateResponse{
+		Token:       authToken,
+		TokenExpiry: exp,
+	}, err
 }
 
-func (s *Service) CreateAdminUser(ctx context.Context, req *CreateAdminUserRequest) (UserID, error) {
+func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateAdminLoginRequest) (*onboardingv1.CreateAdminLoginResponse, error) {
 	if len(req.Username) == 0 || len(req.Password) == 0 {
-		return "", ErrInvalidInput
+		return nil, ErrInvalidInput
 	}
 	// generate salted password hash
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		return "", fmt.Errorf("error generating password: %w", err)
+		return nil, fmt.Errorf("error generating password: %w", err)
 	}
 
 	externalUserID := uuid.New().String()
@@ -137,9 +128,11 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *CreateAdminUserReque
 	})
 
 	if err != nil {
-		return "", fmt.Errorf("error associating user with org and role: %w", err)
+		return nil, fmt.Errorf("error associating user with org and role: %w", err)
 	}
-	return UserID(externalUserID), nil
+	return &onboardingv1.CreateAdminLoginResponse{
+		UserId: externalUserID,
+	}, nil
 }
 
 // generateDefaultOrgName returns a default organization name suffixed with the first 8 chars or the orgID

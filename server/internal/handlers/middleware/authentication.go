@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/server"
 	"log/slog"
@@ -50,7 +49,7 @@ func NewAuthMiddleware(ts *token.Service, allowedProcedures []string) *AuthMiddl
 		}
 		// The request is authenticated. middle ware will make
 		// the UserID available in the context automatically.
-		return auth.UserID(claims.UserID), nil
+		return claims.UserID, nil
 	})
 
 	return &AuthMiddleware{auth: middleware}

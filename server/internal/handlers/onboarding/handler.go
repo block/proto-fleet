@@ -23,14 +23,9 @@ func NewHandler(authSvc *auth.Service) *Handler {
 
 // CreateAdminLogin authenticates a user and returns a JWT token
 func (s *Handler) CreateAdminLogin(ctx context.Context, r *connect.Request[pb.CreateAdminLoginRequest]) (*connect.Response[pb.CreateAdminLoginResponse], error) {
-	userID, err := s.authSvc.CreateAdminUser(ctx, &auth.CreateAdminUserRequest{
-		Username: r.Msg.Username,
-		Password: r.Msg.Password,
-	})
+	resp, err := s.authSvc.CreateAdminUser(ctx, r.Msg)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(&pb.CreateAdminLoginResponse{
-		UserId: string(userID),
-	}), nil
+	return connect.NewResponse(resp), nil
 }

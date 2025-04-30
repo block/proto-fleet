@@ -41,6 +41,8 @@ const (
 
 // AuthServiceClient is a client for the auth.v1.AuthService service.
 type AuthServiceClient interface {
+	// Authenticate validates user credentials and returns an authentication token
+	// Returns a token and its expiration timestamp if authentication is successful
 	Authenticate(context.Context, *connect.Request[v1.AuthenticateRequest]) (*connect.Response[v1.AuthenticateResponse], error)
 }
 
@@ -74,6 +76,8 @@ func (c *authServiceClient) Authenticate(ctx context.Context, req *connect.Reque
 
 // AuthServiceHandler is an implementation of the auth.v1.AuthService service.
 type AuthServiceHandler interface {
+	// Authenticate validates user credentials and returns an authentication token
+	// Returns a token and its expiration timestamp if authentication is successful
 	Authenticate(context.Context, *connect.Request[v1.AuthenticateRequest]) (*connect.Response[v1.AuthenticateResponse], error)
 }
 

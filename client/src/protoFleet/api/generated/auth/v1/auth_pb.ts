@@ -20,7 +20,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_auth_v1_auth: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChJhdXRoL3YxL2F1dGgucHJvdG8SB2F1dGgudjEiOQoTQXV0aGVudGljYXRlUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRIQCghwYXNzd29yZBgCIAEoCSIlChRBdXRoZW50aWNhdGVSZXNwb25zZRINCgV0b2tlbhgBIAEoCTJaCgtBdXRoU2VydmljZRJLCgxBdXRoZW50aWNhdGUSHC5hdXRoLnYxLkF1dGhlbnRpY2F0ZVJlcXVlc3QaHS5hdXRoLnYxLkF1dGhlbnRpY2F0ZVJlc3BvbnNlQp0BCgtjb20uYXV0aC52MUIJQXV0aFByb3RvUAFaRmdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvYXV0aC92MTthdXRodjGiAgNBWFiqAgdBdXRoLlYxygIHQXV0aFxWMeICE0F1dGhcVjFcR1BCTWV0YWRhdGHqAghBdXRoOjpWMWIGcHJvdG8z",
+    "ChJhdXRoL3YxL2F1dGgucHJvdG8SB2F1dGgudjEiOQoTQXV0aGVudGljYXRlUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRIQCghwYXNzd29yZBgCIAEoCSI7ChRBdXRoZW50aWNhdGVSZXNwb25zZRINCgV0b2tlbhgBIAEoCRIUCgx0b2tlbl9leHBpcnkYAiABKAMyWgoLQXV0aFNlcnZpY2USSwoMQXV0aGVudGljYXRlEhwuYXV0aC52MS5BdXRoZW50aWNhdGVSZXF1ZXN0Gh0uYXV0aC52MS5BdXRoZW50aWNhdGVSZXNwb25zZUKdAQoLY29tLmF1dGgudjFCCUF1dGhQcm90b1ABWkZnaXRodWIuY29tL2J0Yy1taW5pbmcvcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2F1dGgvdjE7YXV0aHYxogIDQVhYqgIHQXV0aC5WMcoCB0F1dGhcVjHiAhNBdXRoXFYxXEdQQk1ldGFkYXRh6gIIQXV0aDo6VjFiBnByb3RvMw",
   );
 
 /**
@@ -28,11 +28,15 @@ export const file_auth_v1_auth: GenFile =
  */
 export type AuthenticateRequest = Message<"auth.v1.AuthenticateRequest"> & {
   /**
+   * Username of the user attempting to authenticate
+   *
    * @generated from field: string username = 1;
    */
   username: string;
 
   /**
+   * Password for the user account
+   *
    * @generated from field: string password = 2;
    */
   password: string;
@@ -51,9 +55,18 @@ export const AuthenticateRequestSchema: GenMessage<AuthenticateRequest> =
  */
 export type AuthenticateResponse = Message<"auth.v1.AuthenticateResponse"> & {
   /**
+   * Authentication token for subsequent requests
+   *
    * @generated from field: string token = 1;
    */
   token: string;
+
+  /**
+   * Unix timestamp indicating when the token will expire
+   *
+   * @generated from field: int64 token_expiry = 2;
+   */
+  tokenExpiry: bigint;
 };
 
 /**
@@ -65,10 +78,15 @@ export const AuthenticateResponseSchema: GenMessage<AuthenticateResponse> =
   messageDesc(file_auth_v1_auth, 1);
 
 /**
+ * AuthService provides authentication-related RPC methods
+ *
  * @generated from service auth.v1.AuthService
  */
 export const AuthService: GenService<{
   /**
+   * Authenticate validates user credentials and returns an authentication token
+   * Returns a token and its expiration timestamp if authentication is successful
+   *
    * @generated from rpc auth.v1.AuthService.Authenticate
    */
   authenticate: {

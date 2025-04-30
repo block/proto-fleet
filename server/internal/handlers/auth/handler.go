@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"fmt"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"
 
 	"connectrpc.com/connect"
@@ -24,12 +23,9 @@ func NewHandler(authSvc *auth.Service) *Handler {
 
 // Authenticate authenticates a user and returns a JWT token
 func (s *Handler) Authenticate(ctx context.Context, req *connect.Request[pb.AuthenticateRequest]) (*connect.Response[pb.AuthenticateResponse], error) {
-	token, err := s.authSvc.AuthenticateUser(ctx, &auth.AuthenticateUserRequest{
-		Username: req.Msg.Username,
-		Password: req.Msg.Password,
-	})
+	resp, err := s.authSvc.AuthenticateUser(ctx, req.Msg)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(&pb.AuthenticateResponse{Token: fmt.Sprintf("%v", token)}), nil
+	return connect.NewResponse(resp), nil
 }

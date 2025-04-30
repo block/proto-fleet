@@ -37,20 +37,21 @@ func NewService(cfg Config) (*Service, error) {
 }
 
 // GenerateJWT creates a JWT token
-func (ts *Service) GenerateJWT(userID string) (string, error) {
+func (ts *Service) GenerateJWT(userID string) (string, int64, error) {
+	exp := jwt.NewNumericDate(time.Now().Add(ts.cfg.ExpirationPeriod))
 	claims := Claims{
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ts.cfg.ExpirationPeriod)),
+			ExpiresAt: exp,
 		},
 	}
 
 	token := jwt.NewWithClaims(TokenSigningMethod, claims)
 	signedToken, err := token.SignedString([]byte(ts.cfg.SecretKey))
 	if err != nil {
-		return "", fmt.Errorf("error signing token: %w", err)
+		return "", 0, fmt.Errorf("error signing token: %w", err)
 	}
-	return signedToken, nil
+	return signedToken, exp.Unix(), nil
 }
 
 // VerifyJWT validates the token and extracts claims

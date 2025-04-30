@@ -2,17 +2,25 @@ syntax = "proto3";
 
 package auth.v1;
 
-
-
+// AuthService provides authentication-related RPC methods
 service AuthService {
+    // Authenticate validates user credentials and returns an authentication token
+    // Returns a token and its expiration timestamp if authentication is successful
     rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse);
 }
 
 message AuthenticateRequest {
+    // Username of the user attempting to authenticate
     string username = 1;
+
+    // Password for the user account
     string password = 2;
 }
 
 message AuthenticateResponse {
+    // Authentication token for subsequent requests
     string token = 1;
+
+    // Unix timestamp indicating when the token will expire
+    int64 token_expiry = 2;
 }

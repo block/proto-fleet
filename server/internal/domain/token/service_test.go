@@ -20,14 +20,16 @@ func TestGenerateJWT(t *testing.T) {
 	assert.NoError(t, err, "NewService should not return an error")
 
 	userID := "12345"
-	token, err := tokenService.GenerateJWT(userID)
+	token, exp, err := tokenService.GenerateJWT(userID)
 	assert.NoError(t, err, "GenerateJWT should not return an error")
 	assert.NotZero(t, token, "Generated token should not be empty")
+	assert.NotZero(t, exp, "Token expiry should not be empty")
 
 	// Verify token
 	claims, err := tokenService.VerifyJWT(token)
 	assert.NoError(t, err, "VerifyJWT should not return an error")
 	assert.Equal(t, userID, claims.UserID, "UserID in token should match input")
+	assert.Equal(t, claims.ExpiresAt.Unix(), exp, "Token expiry in claim should match returned exp")
 }
 
 // Test: Verify valid token
@@ -36,7 +38,7 @@ func TestVerifyJWT_ValidToken(t *testing.T) {
 	assert.NoError(t, err, "NewService should not return an error")
 
 	userID := "67890"
-	token, err := tokenService.GenerateJWT(userID)
+	token, _, err := tokenService.GenerateJWT(userID)
 	assert.NoError(t, err, "GenerateJWT should not return an error")
 
 	claims, err := tokenService.VerifyJWT(token)
@@ -65,7 +67,7 @@ func TestVerifyJWT_ExpiredToken(t *testing.T) {
 	assert.NoError(t, err, "NewService should not return an error")
 
 	userID := "expiredUser"
-	token, err := tokenService.GenerateJWT(userID)
+	token, _, err := tokenService.GenerateJWT(userID)
 	assert.NoError(t, err, "GenerateJWT should not return an error")
 
 	claims, err := tokenService.VerifyJWT(token)
@@ -79,7 +81,7 @@ func TestVerifyJWT_TamperedToken(t *testing.T) {
 	assert.NoError(t, err, "NewService should not return an error")
 
 	userID := "tamperedUser"
-	token, err := tokenService.GenerateJWT(userID)
+	token, _, err := tokenService.GenerateJWT(userID)
 	assert.NoError(t, err, "GenerateJWT should not return an error")
 
 	// Modify token (tamper with it)
