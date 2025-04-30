@@ -1,6 +1,7 @@
 import StatusCircle from "../StatusCircle";
 import StatComponent, { type StatProps } from ".";
 import { HashboardIndicator } from "@/shared/assets/icons";
+import { chartStatus } from "@/shared/components/Stat/constants";
 
 const icons = {
   hashboardIndicator: <HashboardIndicator activeHashboard={2} />,
@@ -52,7 +53,7 @@ Stat.argTypes = {
   },
   chartStatus: {
     control: "select",
-    options: ["success", "warning", "critical", "neutral"],
+    options: Object.values(chartStatus),
   },
   iconType: {
     control: "select",

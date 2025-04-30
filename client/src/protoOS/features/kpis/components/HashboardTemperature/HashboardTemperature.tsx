@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import Stats, { type StatsProps } from "../Stats";
 import AsicTable from "./Asic/AsicTableWrapper";
 import HashboardSelector from "./HashboardSelector";
 import {
@@ -15,6 +14,9 @@ import { Dismiss } from "@/shared/assets/icons";
 import { Duration } from "@/shared/components/DurationSelector";
 import Header from "@/shared/components/Header";
 import { PopoverProvider } from "@/shared/components/Popover";
+import Stats, {
+  type StatsProps,
+} from "@/shared/features/kpis/components/Stats";
 import {
   TEMP_UNITS,
   TemperatureUnits,

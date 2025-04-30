@@ -1,6 +1,15 @@
+export const chartStatus = {
+  neutral: "neutral",
+  warning: "warning",
+  critical: "critical",
+  success: "success",
+};
+
+export type ChartStatus = keyof typeof chartStatus;
+
 export const statusColors = {
-  neutral: "bg-text-primary-50",
-  warning: "bg-core-accent-fill",
-  critical: "bg-intent-critical-fill",
-  success: "bg-intent-success-fill",
+  [chartStatus.neutral]: "bg-text-primary-50",
+  [chartStatus.warning]: "bg-core-accent-fill",
+  [chartStatus.critical]: "bg-intent-critical-fill",
+  [chartStatus.success]: "bg-intent-success-fill",
 } as const;

@@ -2,7 +2,11 @@ import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import clsx from "clsx";
 import SkeletonBar from "../SkeletonBar";
-import { statusColors } from "./constants";
+import {
+  ChartStatus,
+  chartStatus as chartStatusConstants,
+  statusColors,
+} from "./constants";
 import { type StatProps } from "./types";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
@@ -17,7 +21,7 @@ const Stat = ({
   icon,
   headingLevel = 3,
   chartPercentage,
-  chartStatus = "neutral",
+  chartStatus = chartStatusConstants.neutral as ChartStatus,
 }: StatProps) => {
   // initially set scale to 0 for animation
   const [chartScale, setChartScale] = useState<number>(0);
@@ -68,8 +72,8 @@ const Stat = ({
         </motion.div>
       )}
       {icon && <div className="absolute top-0 right-0">{icon}</div>}
-      {text && <div className="text-300 text-text-primary-30">{text}</div>}
-      {chartPercentage && (
+      {text && <div className="mt-1 text-300 text-text-primary-50">{text}</div>}
+      {chartPercentage !== undefined && (
         <div className="relative mt-2 h-[2px] w-full">
           <div
             className={clsx(
@@ -83,6 +87,7 @@ const Stat = ({
               statusColors[chartStatus],
             )}
             style={{ transform: `scaleX(${chartScale})` }}
+            data-testid="stat-chart"
           ></div>
         </div>
       )}

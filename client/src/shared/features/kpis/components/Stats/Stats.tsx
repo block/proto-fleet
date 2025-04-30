@@ -23,7 +23,7 @@ const Stats = ({ stats, size = "medium", gap, padding, grid }: StatsProps) => {
       )}
     >
       {stats.map((stat) => (
-        <div key={stat.label}>
+        <div key={stat.label ?? stat.value}>
           <Stat {...stat} size={size} />
         </div>
       ))}

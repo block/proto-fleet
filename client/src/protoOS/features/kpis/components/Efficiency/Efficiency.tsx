@@ -4,8 +4,8 @@ import { useProcessedHashboardEfficiencies } from "../../hooks";
 import { type OutletContext } from "../../types";
 import KpiLineChart from "../KpiLineChart";
 import { Aggregates } from "@/protoOS/api/types";
-import Stats from "@/protoOS/features/kpis/components/Stats";
 import { type StatProps } from "@/shared/components/Stat";
+import Stats from "@/shared/features/kpis/components/Stats";
 
 type StatsArgs = Aggregates & { lowestPerformer?: string };
 

@@ -32,7 +32,7 @@ describe("Stat", () => {
     render(<Stat label="Hashrate" value={"value"} text={text} size="small" />);
 
     expect(screen.getByText(text)).toBeInTheDocument();
-    expect(screen.getByText(text)).toHaveClass("text-text-primary-30");
+    expect(screen.getByText(text)).toHaveClass("text-text-primary-50");
   });
 
   it("renders icon when provided", () => {
