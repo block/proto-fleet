@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Outlet, useMatches } from "react-router-dom";
 
 import AppLayout from "@/protoFleet/components/AppLayout";
+import { useAccessToken } from "@/protoFleet/contexts/AuthContext";
 import { getRouteMetadata } from "@/protoFleet/routes";
 
 const App = () => {
@@ -13,6 +14,8 @@ const App = () => {
   const metadata = useMemo(() => {
     return getRouteMetadata(currentPath);
   }, [currentPath]);
+
+  useAccessToken(true, currentPath);
 
   return (
     <>

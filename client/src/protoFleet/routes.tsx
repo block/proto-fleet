@@ -5,7 +5,8 @@ import SingleMinerWrapper from "./components/SingleMinerWrapper";
 import HomePage from "./pages/Home";
 import Miners from "./pages/Miners";
 import { Cooling, General, Hardware, MiningPools } from "./pages/Settings";
-import Auth from "@/protoOS/pages/Auth";
+import Auth from "@/protoFleet/pages/Auth";
+import Signup from "@/protoFleet/pages/Signup";
 import Onboarding from "@/protoOS/pages/Onboarding";
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 
@@ -86,6 +87,11 @@ const routes: Route[] = [
   {
     path: "/auth",
     element: <Auth />,
+    overrideLayout: true,
+  },
+  {
+    path: "/signup",
+    element: <Signup />,
     overrideLayout: true,
   },
   {

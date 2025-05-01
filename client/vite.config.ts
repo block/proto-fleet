@@ -133,6 +133,7 @@ export default defineConfig(({ mode, command }) => {
   return {
     ...(modes[mode] || defaultConfig),
     base: "/",
+    envDir: process.cwd(),
     plugins: [
       react(),
       responsiveImagePlugin(),
