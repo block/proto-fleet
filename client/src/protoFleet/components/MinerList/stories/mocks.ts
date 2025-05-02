@@ -2,6 +2,9 @@ import { Miner } from "@/protoFleet/components/MinerList/types";
 
 export const miners: Miner[] = [
   {
+    $typeName: "fleetmanagement.v1.PairedDevice",
+    deviceIdentifier: "uuid:123456789",
+    serialNumber: "123456789",
     ip: "172.27.244.166",
     name: "C1-M01",
     macAddress: "0a:04:8a:54:fa:9f",
@@ -26,6 +29,9 @@ export const miners: Miner[] = [
     },
   },
   {
+    $typeName: "fleetmanagement.v1.PairedDevice",
+    deviceIdentifier: "uuid:1234567890",
+    serialNumber: "123456780",
     ip: "172.27.244.166",
     name: "C1-M02",
     macAddress: "0b:04:8a:54:fa:9f",
@@ -50,6 +56,9 @@ export const miners: Miner[] = [
     },
   },
   {
+    $typeName: "fleetmanagement.v1.PairedDevice",
+    deviceIdentifier: "uuid:123456781",
+    serialNumber: "123456781",
     ip: "172.27.244.166",
     name: "C1-M03",
     macAddress: "0c:04:8a:54:fa:9f",
@@ -74,6 +83,9 @@ export const miners: Miner[] = [
     },
   },
   {
+    $typeName: "fleetmanagement.v1.PairedDevice",
+    deviceIdentifier: "uuid:123456782",
+    serialNumber: "123456782",
     ip: "172.27.244.166",
     name: "C1-M04",
     macAddress: "0e:04:8a:54:fa:9f",

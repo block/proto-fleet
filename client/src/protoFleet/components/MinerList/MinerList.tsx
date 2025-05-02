@@ -7,7 +7,7 @@ import {
   minerFilterStates,
 } from "./constants";
 import minerColConfig from "./minerColConfig";
-import { type Miner, MinerStatusKey } from "./types";
+import { type Miner, type MinerStatusKey } from "./types";
 import MinerListActionBar from "@/protoFleet/components/MinerList/MinerListActionBar";
 import List from "@/shared/components/List";
 import { defaultListFilter } from "@/shared/components/List/constants";
@@ -34,8 +34,9 @@ const activeCols = [
 const MinerList = ({ title, miners = [] }: MinerListProps) => {
   const filters = useMemo(() => {
     const countMiners = (status: MinerFilterState) => {
-      return miners.filter((m) => m.status[status as MinerStatusKey] === true)
-        .length;
+      return miners.filter(
+        (m) => m.status && m.status[status as MinerStatusKey] === true,
+      ).length;
     };
 
     return [
@@ -73,7 +74,7 @@ const MinerList = ({ title, miners = [] }: MinerListProps) => {
 
   const filterMiner = (item: Miner, activeFilter: MinerFilterState) => {
     return (
-      item.status[activeFilter as keyof Miner["status"]] === true ||
+      item.status?.[activeFilter as keyof Miner["status"]] === true ||
       activeFilter === defaultListFilter
     );
   };

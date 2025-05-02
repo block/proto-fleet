@@ -17,8 +17,9 @@ interface FiltersArgs {
 export const Filters = ({ numberOfFilters }: FiltersArgs) => {
   const filters = useMemo(() => {
     const countMiners = (status: MinerFilterState) => {
-      return miners.filter((m) => m.status[status as MinerStatusKey] === true)
-        .length;
+      return miners.filter(
+        (m) => m.status && m.status[status as MinerStatusKey] === true,
+      ).length;
     };
 
     return [

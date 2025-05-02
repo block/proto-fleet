@@ -1,4 +1,4 @@
-import { Miner } from "@/protoFleet/components/MinerList/types";
+import { type Miner } from "./types";
 import { ColTitles } from "@/shared/components/List/types";
 
 export const minerCols = {

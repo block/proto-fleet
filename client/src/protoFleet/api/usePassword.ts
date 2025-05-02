@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 
+import { onboardingClient } from "@/protoFleet/api/clients";
 import { CreateAdminLoginRequest } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
-import { onboardingServiceClient } from "@/protoFleet/api/onboarding-service-client";
 
 interface PasswordProps {
   onError?: (message: string) => void;
@@ -13,7 +13,7 @@ interface PasswordProps {
 const usePassword = () => {
   const setPassword = useCallback(
     async ({ password, onSuccess, onError, onFinally }: PasswordProps) => {
-      await onboardingServiceClient
+      await onboardingClient
         .createAdminLogin({ username: "admin", password })
         .then(() => {
           onSuccess?.();

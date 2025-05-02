@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 
-import { authServiceClient } from "@/protoFleet/api/auth-service-client";
+import { authClient } from "@/protoFleet/api/clients";
 import type { AuthenticateRequest } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { useAuthContext } from "@/protoFleet/contexts/AuthContext";
 
@@ -16,7 +16,7 @@ const useLogin = () => {
 
   const login = useCallback(
     async ({ password, onSuccess, onError, onFinally }: LoginProps) => {
-      await authServiceClient
+      await authClient
         .authenticate({ username: "admin", password })
         .then((res) => {
           const accessTokenValue = res.token;

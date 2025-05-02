@@ -6,7 +6,6 @@ import { defineConfig, loadEnv, splitVendorChunkPlugin } from "vite";
 import fs from "fs";
 import path, { resolve } from "path";
 import process from "process";
-import fleet from "./fleet.json";
 import { responsiveImagePlugin } from "./vitePlugins/responsiveImagePlugin";
 
 // eslint-disable-next-line no-undef
@@ -90,17 +89,6 @@ const copyPublicDirectory = (mode, command) => {
   };
 };
 
-const createFleetProxies = () => {
-  return fleet.reduce((acc, miner) => {
-    acc["/" + miner.ip] = {
-      target: "http://" + miner.ip,
-      rewrite: (path) => path.replace("/" + miner.ip, ""),
-    };
-
-    return acc;
-  }, {});
-};
-
 // https://vitejs.dev/config/
 export default defineConfig(({ mode, command }) => {
   if (
@@ -114,10 +102,18 @@ export default defineConfig(({ mode, command }) => {
   }
 
   let proxies = {};
+  const env = loadEnv(mode, process.cwd(), "");
   if (mode === "protoFleet") {
-    proxies = createFleetProxies();
+    let proxyUrl = env.PROXY_URL || "http://localhost:4000";
+    proxies = {
+      "/fleetmanagement.v1.FleetManagementService": {
+        target: proxyUrl,
+      },
+      "/auth.v1.AuthService": {
+        target: proxyUrl,
+      },
+    };
   } else {
-    const env = loadEnv(mode, process.cwd(), "");
     proxies = env.PROXY_URL
       ? {
           "/api/v1": {
