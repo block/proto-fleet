@@ -1,0 +1,128 @@
+import { useCallback, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { create } from "@bufbuild/protobuf";
+import { SetDefaultPoolRequestSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import useFleet from "@/protoFleet/api/useFleet";
+import { statuses } from "@/protoOS/components/OnboardingSettingUp/constants";
+import OnboardingSettingUp from "@/protoOS/components/OnboardingSettingUp/OnboardingSettingUp";
+import { WarnDefaultPoolCallout } from "@/protoOS/pages/Onboarding/WarnDefaultPoolCallout";
+import AnimatedDotsBackground from "@/shared/components/Animation";
+import Button from "@/shared/components/Button";
+import PoolForm from "@/shared/components/MiningPools/PoolForm";
+import { PoolInfo } from "@/shared/components/MiningPools/types";
+import {
+  getEmptyPoolsInfo,
+  isValidPool,
+} from "@/shared/components/MiningPools/utility";
+import { SetupHeader } from "@/shared/components/Setup";
+import {
+  protoFleetSteps,
+  steps,
+} from "@/shared/components/Setup/setupHeader.constants";
+
+// TODO we can probably share more code with ProtoOS
+const MiningPoolPage = () => {
+  const navigate = useNavigate();
+  const { setDefaultPool } = useFleet();
+
+  const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
+  const [settingUpMiner, setSettingUpMiner] = useState(false);
+  const [poolStatus, setPoolStatus] = useState<keyof typeof statuses>(
+    statuses.pending,
+  );
+
+  const [warnDefaultPool, setWarnDefaultPool] = useState(false);
+
+  const onContinue = useCallback(() => {
+    // check if default pool has been entered
+    const noValidDefaultPool = !isValidPool(pools[0]);
+    if (noValidDefaultPool) {
+      setWarnDefaultPool(true);
+      return;
+    }
+
+    setSettingUpMiner(true);
+    const defaultPool = pools[0];
+    const defaultPoolRequest = create(SetDefaultPoolRequestSchema, {
+      poolConfig: {
+        url: defaultPool.url,
+        username: defaultPool.username,
+        password: defaultPool.password,
+      },
+    });
+    setDefaultPool({
+      defaultPoolRequest,
+      onSuccess: () => setPoolStatus(statuses.success),
+      onError: () => setPoolStatus(statuses.error),
+    });
+  }, [pools, setDefaultPool]);
+
+  const onChangePools = useCallback((newPools: PoolInfo[]) => {
+    setPools(newPools);
+    if (isValidPool(newPools[0])) {
+      setWarnDefaultPool(false);
+    }
+  }, []);
+
+  const handleClickRetry = useCallback(() => {
+    setPoolStatus(statuses.fetch);
+  }, []);
+
+  const handleClickContinue = useCallback(() => navigate("/"), [navigate]);
+
+  const handleClickReconfigure = useCallback(
+    () => setSettingUpMiner(false),
+    [setSettingUpMiner],
+  );
+
+  if (settingUpMiner) {
+    return (
+      <AnimatedDotsBackground>
+        <div className="absolute top-1/2 left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 bg-surface-base p-4">
+          <div className="w-[600px]">
+            <OnboardingSettingUp
+              poolStatus={poolStatus}
+              isSetupDone={poolStatus === statuses.success}
+              onClickContinue={handleClickContinue}
+              onClickReconfigure={handleClickReconfigure}
+              onClickRetry={handleClickRetry}
+            />
+          </div>
+        </div>
+      </AnimatedDotsBackground>
+    );
+  }
+
+  // TODO support connection test
+  // TODO support backup pools
+  return (
+    <div>
+      <SetupHeader steps={protoFleetSteps} activeStep={steps.miningPool} />
+      <div className="mx-auto max-w-[640px]">
+        <div className="mb-4 flex items-center">
+          <div className="grow text-heading-100 text-text-primary">
+            Default pool
+          </div>
+        </div>
+        <WarnDefaultPoolCallout
+          onDismiss={() => setWarnDefaultPool(false)}
+          show={warnDefaultPool}
+        />
+        <PoolForm
+          poolIndex={0}
+          pools={pools}
+          onChangePools={onChangePools}
+          shouldTestConnection={false}
+          testConnection={() => {}}
+          isTestingConnection={false}
+          setShouldTestConnection={() => {}}
+        />
+        <Button onClick={onContinue} variant="primary" className="mt-4 ml-auto">
+          Continue
+        </Button>
+      </div>
+    </div>
+  );
+};
+
+export default MiningPoolPage;

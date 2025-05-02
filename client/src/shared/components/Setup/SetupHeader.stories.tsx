@@ -1,4 +1,5 @@
 import { SetupHeader as SetupHeaderComponent } from ".";
+import { protoFleetSteps } from "@/shared/components/Setup/setupHeader.constants";
 import { Step } from "@/shared/components/Setup/setupHeader.types";
 
 type SetupHeaderProps = {
@@ -8,7 +9,7 @@ type SetupHeaderProps = {
 export const SetupHeader = ({ activeStep }: SetupHeaderProps) => {
   return (
     <div>
-      <SetupHeaderComponent activeStep={activeStep} />
+      <SetupHeaderComponent steps={protoFleetSteps} activeStep={activeStep} />
     </div>
   );
 };

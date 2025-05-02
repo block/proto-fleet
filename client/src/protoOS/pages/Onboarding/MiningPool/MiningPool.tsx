@@ -18,6 +18,7 @@ import {
   intents,
 } from "@/shared/components/Callout";
 import { SetupHeader } from "@/shared/components/Setup";
+import { protoOSSteps } from "@/shared/components/Setup/setupHeader.constants";
 
 const MiningPoolPage = () => {
   const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
@@ -98,7 +99,7 @@ const MiningPoolPage = () => {
 
   return (
     <div>
-      <SetupHeader activeStep="miningPool" />
+      <SetupHeader steps={protoOSSteps} activeStep="miningPool" />
       <WarnBackupPoolDialog
         onAddBackupPool={() => setWarnBackupPool(false)}
         onContinueWithoutBackup={onContinueWithoutBackup}

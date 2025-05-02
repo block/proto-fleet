@@ -112,6 +112,15 @@ export default defineConfig(({ mode, command }) => {
       "/auth.v1.AuthService": {
         target: proxyUrl,
       },
+      "/onboarding.v1.OnboardingService": {
+        target: proxyUrl,
+      },
+      "/networkinfo.v1.NetworkInfoService": {
+        target: proxyUrl,
+      },
+      "/pairing.v1.PairingService": {
+        target: proxyUrl,
+      },
     };
   } else {
     proxies = env.PROXY_URL

@@ -6,8 +6,12 @@ import HomePage from "./pages/Home";
 import Miners from "./pages/Miners";
 import { Cooling, General, Hardware, MiningPools } from "./pages/Settings";
 import Auth from "@/protoFleet/pages/Auth";
+import AuthenticationPage from "@/protoFleet/pages/Onboarding/Authentication";
+import MinersPage from "@/protoFleet/pages/Onboarding/Miners";
+import MiningPoolPage from "@/protoFleet/pages/Onboarding/MiningPool";
+import NetworkPage from "@/protoFleet/pages/Onboarding/Network";
+import WelcomePage from "@/protoFleet/pages/Onboarding/Welcome";
 import Signup from "@/protoFleet/pages/Signup";
-import Onboarding from "@/protoOS/pages/Onboarding";
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 
 import { Fleet, Home, IconProps, Settings } from "@/shared/assets/icons";
@@ -96,7 +100,32 @@ const routes: Route[] = [
   },
   {
     path: "/onboarding",
-    element: <Onboarding />,
+    overrideLayout: true,
+    loader: () => redirect("/onboarding/welcome"),
+  },
+  {
+    path: "/onboarding/welcome",
+    element: <WelcomePage />,
+    overrideLayout: true,
+  },
+  {
+    path: "/onboarding/authentication",
+    element: <AuthenticationPage />,
+    overrideLayout: true,
+  },
+  {
+    path: "/onboarding/network",
+    element: <NetworkPage />,
+    overrideLayout: true,
+  },
+  {
+    path: "/onboarding/miners",
+    element: <MinersPage />,
+    overrideLayout: true,
+  },
+  {
+    path: "/onboarding/mining-pool",
+    element: <MiningPoolPage />,
     overrideLayout: true,
   },
 ];

@@ -1,3 +1,4 @@
+import AddMiners from "./AddMiners";
 import Authentication from "./Authentication";
 import BootingUp from "./BootingUp";
 import FoundMiners from "./FoundMiners";
@@ -12,4 +13,5 @@ export {
   Network,
   SetupHeader,
   WelcomeScreen,
+  AddMiners,
 };

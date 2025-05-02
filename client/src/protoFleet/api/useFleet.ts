@@ -1,17 +1,29 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
 import {
   type ListPairedMinersRequest,
   type ListPairedMinersResponse,
+  SetDefaultPoolRequest,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  getAuthHeader,
+  useAuthContext,
+} from "@/protoFleet/contexts/AuthContext";
 
 type FetchPairedMinersArgs = {
   pageSize?: ListPairedMinersRequest["pageSize"];
   cursor?: ListPairedMinersRequest["cursor"];
 };
 
+interface SetDefaultPoolProps {
+  defaultPoolRequest: SetDefaultPoolRequest;
+  onSuccess: () => void;
+  onError?: (error: string) => void;
+}
+
 const useFleet = () => {
-  const accessToken = localStorage.getItem("accessToken");
+  const { authTokens } = useAuthContext();
+
   const [miners, setMiners] = useState<ListPairedMinersResponse["miners"]>([]);
   const [cursor, setCursor] = useState<ListPairedMinersResponse["cursor"]>("");
   const [totalMiners, setTotalMiners] =
@@ -24,11 +36,7 @@ const useFleet = () => {
       try {
         const response = await fleetManagementClient.listPairedMiners(
           { pageSize, cursor },
-          {
-            headers: {
-              Authorization: `Bearer ${accessToken && JSON.parse(accessToken).value}`,
-            },
-          },
+          getAuthHeader(authTokens),
         );
 
         const { miners, cursor: newCursor, totalMiners } = response;
@@ -40,14 +48,28 @@ const useFleet = () => {
         throw error;
       }
     },
-    [cursor, accessToken, setMiners, setCursor, setTotalMiners],
+    [cursor, authTokens, setMiners, setCursor, setTotalMiners],
   );
 
   useEffect(() => {
     fetchPairedMiners({ pageSize: 100 });
   }, [fetchPairedMiners]);
 
-  return miners;
+  const setDefaultPool = useCallback(
+    async ({ defaultPoolRequest, onSuccess, onError }: SetDefaultPoolProps) => {
+      await fleetManagementClient
+        .setDefaultPool(defaultPoolRequest, getAuthHeader(authTokens))
+        .then(() => {
+          onSuccess();
+        })
+        .catch((err) => {
+          onError?.(err?.error?.message ?? err);
+        });
+    },
+    [authTokens],
+  );
+
+  return useMemo(() => ({ miners, setDefaultPool }), [miners, setDefaultPool]);
 };
 
 export default useFleet;

@@ -9,7 +9,7 @@ import { useKeyDown } from "@/shared/hooks/useKeyDown";
 import { deepClone } from "@/shared/utils/utility";
 
 type NetworkProps = {
-  submit: () => void;
+  submit: (networkName: string) => void;
   networkName: string;
   ipRange: string;
   gateway: string;
@@ -40,12 +40,13 @@ const Network = ({
     if (!hasValidationErrors) {
       setIsSubmitting(true);
       try {
-        submit();
+        submit(values.networkName);
       } catch {
+        // TODO submit is not awaited, cannot catch error
         setIsSubmitting(false);
       }
     }
-  }, [validate, submit]);
+  }, [validate, submit, values.networkName]);
 
   const handleChange = useCallback(
     (value: string, id: string) => {

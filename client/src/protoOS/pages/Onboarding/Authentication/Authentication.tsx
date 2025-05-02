@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useLogin, usePassword, useSystemStatus } from "@/protoOS/api";
 import { Authentication, SetupHeader } from "@/shared/components/Setup";
+import { protoOSSteps } from "@/shared/components/Setup/setupHeader.constants";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const AuthenticationPage = () => {
@@ -34,7 +35,7 @@ const AuthenticationPage = () => {
 
   return (
     <div>
-      <SetupHeader activeStep="authentication" />
+      <SetupHeader steps={protoOSSteps} activeStep="authentication" />
       <Authentication submit={submit} />
     </div>
   );

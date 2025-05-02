@@ -9,7 +9,7 @@ export const FoundMiners = ({ minersCount }: FoundMinersProps) => {
   const [miners] = useState([
     ...Array.from({ length: 1000 }, (_, i) => ({
       macAddress: `0d:04:8a:54:fa:${(i + 10).toString(16).padStart(2, "0")}`,
-      controllerSerial: `5440...88${(i + 10).toString().padStart(2, "0")}`,
+      serialNumber: `5440...88${(i + 10).toString().padStart(2, "0")}`,
     })),
   ]);
 

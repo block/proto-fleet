@@ -8,14 +8,12 @@ import Row from "@/shared/components/Row";
 type FoundMinersProps = {
   miners: {
     macAddress: string;
-    controllerSerial: string;
+    serialNumber: string;
   }[];
   handleContinueSetup: () => void;
 };
 
 const FoundMiners = ({ miners, handleContinueSetup }: FoundMinersProps) => {
-  // TODO: Get real data from API
-
   return (
     <>
       <div className="p-6">
@@ -69,12 +67,12 @@ const FoundMiners = ({ miners, handleContinueSetup }: FoundMinersProps) => {
                 <div key={index} className="flex w-full justify-around">
                   <div className="w-full">
                     <Row>
-                      <div>{miner.controllerSerial}</div>
+                      <div className="h-6">{miner.serialNumber}</div>
                     </Row>
                   </div>
                   <div className="w-full">
                     <Row>
-                      <div>{miner.macAddress}</div>
+                      <div className="h-6">{miner.macAddress}</div>
                     </Row>
                   </div>
                 </div>
@@ -88,7 +86,6 @@ const FoundMiners = ({ miners, handleContinueSetup }: FoundMinersProps) => {
                 Restart miner search
               </Button>
             )}
-            {/* TODO: Add navigation to next step */}
             <Button onClick={handleContinueSetup} variant="primary" size="base">
               Continue setup
             </Button>

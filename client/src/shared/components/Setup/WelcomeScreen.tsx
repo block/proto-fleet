@@ -43,25 +43,14 @@ const NetworkInfo = ({ ipAddress, networkName }: NetworkInfoProps) => {
   );
 };
 
-type WelcomeFlowProps = {
-  searching: boolean;
-  handleSearch: () => void;
-  noMinersFound: boolean;
-  handleRetry: () => void;
-  networkName?: string;
-  ipAddress?: string;
-};
-
 const WelcomeFlow = ({
   searching,
   handleSearch,
   noMinersFound,
   handleRetry,
-  // TODO: Get network name from the miner
-  networkName = "WBurg-Wifi-5G",
-  // TODO: Get IP address from the miner
-  ipAddress = "127.43.9424",
-}: WelcomeFlowProps) => {
+  networkName,
+  ipAddress,
+}: WelcomeScreenProps) => {
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
   return (
@@ -126,7 +115,11 @@ const WelcomeFlow = ({
           className="max-w-sm"
         >
           <div className="py-4">
-            <NetworkInfo ipAddress={ipAddress} networkName={networkName} />
+            {/*TODO we dont have network name*/}
+            <NetworkInfo
+              ipAddress={ipAddress ?? ""}
+              networkName={networkName ?? ""}
+            />
           </div>
           <div className="flex flex-col gap-3">
             <Button
@@ -153,10 +146,12 @@ const WelcomeFlow = ({
 };
 
 type WelcomeScreenProps = {
-  handleRetry: () => void;
-  handleSearch: () => void;
   searching: boolean;
+  handleSearch: () => void;
   noMinersFound: boolean;
+  handleRetry: () => void;
+  networkName?: string;
+  ipAddress?: string;
 };
 
 const WelcomeScreen = ({
@@ -164,6 +159,9 @@ const WelcomeScreen = ({
   handleSearch,
   searching,
   noMinersFound,
+  // TODO: Get network name from the miner
+  networkName = "WBurg-Wifi-5G",
+  ipAddress,
 }: WelcomeScreenProps) => {
   return (
     <AnimatedDotsBackground connecting={searching}>
@@ -172,6 +170,8 @@ const WelcomeScreen = ({
         handleSearch={handleSearch}
         handleRetry={handleRetry}
         noMinersFound={noMinersFound}
+        networkName={networkName}
+        ipAddress={ipAddress}
       />
     </AnimatedDotsBackground>
   );

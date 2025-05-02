@@ -17,7 +17,7 @@ const Verify = () => {
       miners={[
         {
           macAddress: networkInfo?.mac || "Pending",
-          controllerSerial: systemInfo?.cb_sn || "Pending",
+          serialNumber: systemInfo?.cb_sn || "Pending",
         },
       ]}
       handleContinueSetup={handleContinue}
