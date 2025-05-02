@@ -1,5 +1,6 @@
 /* eslint-disable */
 /* tslint:disable */
+// @ts-nocheck
 /*
  * ---------------------------------------------------------------
  * ## THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API        ##
@@ -70,6 +71,21 @@ export interface AuthTokens {
   access_token: string;
   /** JWT refresh token. */
   refresh_token: string;
+}
+
+export interface ChangePasswordRequest {
+  /**
+   * The current password for authentication
+   * @format password
+   * @minLength 8
+   */
+  current_password: string;
+  /**
+   * The new password to set
+   * @format password
+   * @minLength 8
+   */
+  new_password: string;
 }
 
 export interface CoolingConfig {
@@ -144,6 +160,11 @@ export interface FanInfo {
    * @example 0
    */
   id?: number;
+  /**
+   * The fan's set speed as a percentage from 0 to 100.
+   * @example 55
+   */
+  percentage?: number;
   /**
    * The fan's current rotations per minute (RPM).
    * @example 1200
@@ -340,6 +361,11 @@ export interface HashboardsInfoHashboardsinfo {
    */
   port?: number;
   /**
+   * The physical slot where the hashboard is inserted in the system.
+   * @example 1
+   */
+  slot?: number;
+  /**
    * Number of temperature sensors on the hashboard.
    * @example 3
    */
@@ -471,6 +497,8 @@ export interface NetworkConfigNetworkconfig {
   dhcp?: boolean;
   /** @example "172.27.244.177" */
   gateway?: string;
+  /** @example "proto-miner-1" */
+  hostname?: string;
   /** @example "172.27.244.179" */
   ip?: string;
   /** @example "255.255.255.240" */
@@ -486,6 +514,8 @@ export interface NetworkInfoNetworkinfo {
   dhcp?: boolean;
   /** @example "172.27.244.177" */
   gateway?: string;
+  /** @example "proto-miner-1" */
+  hostname?: string;
   /** @example "172.27.244.179" */
   ip?: string;
   /** @example "82:11:D2:94:0D:6D" */
@@ -556,6 +586,11 @@ export interface Pool {
    */
   accepted?: number;
   /**
+   * The difficulty of best share submitted to the pool.
+   * @example 65355
+   */
+  best_difficulty_share?: number;
+  /**
    * The number of mined blocks seen during mining (not necessarily found by miner).
    * @example 10
    */
@@ -571,6 +606,16 @@ export interface Pool {
    */
   current_works?: number;
   /**
+   * The total difficulty of all accepted shares by the pool.
+   * @example 65355
+   */
+  difficulty_accepted_shares?: number;
+  /**
+   * The total difficulty of all rejected shares by the pool.
+   * @example 134000
+   */
+  difficulty_rejected_shares?: number;
+  /**
    * Each pool has a unique ID from 0 to 2, with 0 representing the highest priority and 2 representing the lowest priority.
    * @example 0
    */
@@ -580,6 +625,16 @@ export interface Pool {
    * @example 10
    */
   invalid?: number;
+  /**
+   * The difficulty of the last share submitted to the pool.
+   * @example 134000
+   */
+  last_share_difficulty?: number;
+  /**
+   * The time (Unix epoch seconds) of the last share submitted to the pool.
+   * @example 65355
+   */
+  last_share_time?: number;
   /**
    * The number of notify messages (new jobs) received from the pool.
    * @example 10
@@ -740,6 +795,18 @@ export interface SystemStatuses {
   password_set?: boolean;
 }
 
+export interface TelemetryConfig {
+  /** Enable or disable telemetry */
+  enabled: boolean;
+}
+
+export interface TelemetryResponse {
+  /** Whether telemetry is currently enabled */
+  enabled: boolean;
+  /** Status message about telemetry */
+  message: string;
+}
+
 export interface TemperatureResponse {
   "temperature-data"?: TemperatureResponseTemperaturedata;
 }
@@ -828,7 +895,8 @@ export enum ContentType {
 }
 
 export class HttpClient<SecurityDataType = unknown> {
-  public baseUrl: string = "";
+  public baseUrl: string =
+    "https://virtserver.swaggerhub.com/kkurucz/mining_development_kit_api/1.0.0";
   private securityData: SecurityDataType | null = null;
   private securityWorker?: ApiConfig<SecurityDataType>["securityWorker"];
   private abortControllers = new Map<CancelToken, AbortController>();
@@ -1147,6 +1215,25 @@ export class Api<
         path: `/api/v1/auth/password`,
         method: "PUT",
         body: data,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Change the current password to a new password. Requires the current password for verification.
+     *
+     * @tags Authentication
+     * @name ChangePassword
+     * @request POST:/api/v1/auth/change-password
+     * @secure
+     */
+    changePassword: (data: ChangePasswordRequest, params: RequestParams = {}) =>
+      this.request<MessageResponse, MessageResponse>({
+        path: `/api/v1/auth/change-password`,
+        method: "POST",
+        body: data,
+        secure: true,
         type: ContentType.Json,
         format: "json",
         ...params,
@@ -1752,6 +1839,38 @@ export class Api<
       this.request<ErrorListResponse, MessageResponse>({
         path: `/api/v1/errors`,
         method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the current telemetry status.
+     *
+     * @tags System
+     * @name GetTelemetry
+     * @request GET:/api/v1/system/telemetry
+     */
+    getTelemetry: (params: RequestParams = {}) =>
+      this.request<TelemetryResponse, MessageResponse>({
+        path: `/api/v1/system/telemetry`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Configure telemetry settings.
+     *
+     * @tags System
+     * @name SetTelemetry
+     * @request PUT:/api/v1/system/telemetry
+     */
+    setTelemetry: (data: TelemetryConfig, params: RequestParams = {}) =>
+      this.request<TelemetryResponse, MessageResponse>({
+        path: `/api/v1/system/telemetry`,
+        method: "PUT",
+        body: data,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

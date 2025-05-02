@@ -35,7 +35,7 @@ const Stat = ({
   }, [chartPercentage]);
 
   return (
-    <div className="relative">
+    <div className="relative grid gap-y-1">
       <div
         role="heading"
         aria-level={headingLevel}
@@ -72,7 +72,7 @@ const Stat = ({
         </motion.div>
       )}
       {icon && <div className="absolute top-0 right-0">{icon}</div>}
-      {text && <div className="mt-1 text-300 text-text-primary-50">{text}</div>}
+      {text && <div className="mt-1 text-300 text-text-primary-70">{text}</div>}
       {chartPercentage !== undefined && (
         <div className="relative mt-2 h-[2px] w-full">
           <div

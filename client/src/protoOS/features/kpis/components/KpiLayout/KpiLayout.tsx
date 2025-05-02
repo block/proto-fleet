@@ -97,7 +97,7 @@ const KpiLayout = ({ children }: ContentLayoutProps) => {
           />
         </div>
 
-        <div className="pb-11 phone:pb-6">
+        <div className="pb-6 phone:pb-6">
           <TabMenu
             hashrate={
               minerHashrate?.hashrate[minerHashrate?.hashrate?.length - 1]

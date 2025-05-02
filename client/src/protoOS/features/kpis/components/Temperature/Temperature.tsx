@@ -36,8 +36,9 @@ const getFanStats = (
 
   return {
     label: label,
-    value: fanSpeed.rpm,
-    units: "RPM",
+    value: fanSpeed.percentage,
+    text: `${fanSpeed.rpm} RPM`,
+    units: "%",
     icon: <FanIndicator {...fanProps} />,
   } as StatProps;
 };
@@ -78,12 +79,15 @@ const Temperature = () => {
               ? "grid-cols-4 phone:grid-cols-2"
               : "grid-cols-6 tablet:grid-cols-3 phone:grid-cols-2",
           )}
+          // use padding and negative margin instead of gap-x to create even spacing around divider
           gap={clsx(
             "gap-y-6",
             fanSpeeds.length < 6
-              ? "gap-x-10 phone:gap-x-6"
-              : "gap-x-6 phone:gap-x-6",
+              ? "*:px-10 -mx-10 phone:*:px-6 phone:-mx-6"
+              : "*:px-10 -mx-10 phone:*:px-6 phone:-mx-6",
           )}
+          padding="pb-4"
+          divide="divide-x divide-border-5"
           stats={fanSpeeds
             .map((fanSpeed, index) =>
               getFanStats(

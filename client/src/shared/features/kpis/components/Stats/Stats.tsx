@@ -10,16 +10,25 @@ export type StatsProps = {
   grid?: string;
   gap?: string;
   padding?: string;
+  divide?: string;
 };
 
-const Stats = ({ stats, size = "medium", gap, padding, grid }: StatsProps) => {
+const Stats = ({
+  stats,
+  size = "medium",
+  gap,
+  padding,
+  grid,
+  divide,
+}: StatsProps) => {
   return (
     <div
       className={clsx(
         "grid",
         grid || "grid-cols-4 phone:grid-cols-2",
         gap || "gap-x-10 gap-y-4 phone:gap-x-2",
-        padding || "pb-8 phone:pb-6",
+        padding || "pt-4 pb-8 phone:pb-6",
+        divide,
       )}
     >
       {stats.map((stat) => (

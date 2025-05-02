@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename); // get the name of the directory
 
 const swaggerSchemaPath = path.resolve(
   __dirname,
-  "../../crates/miner-api-server/docs/MDK-API.json"
+  "../../miner-firmware/crates/miner-api-server/docs/MDK-API.json"
 );
 
 if (!fs.existsSync(swaggerSchemaPath)) {
