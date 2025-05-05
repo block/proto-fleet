@@ -1,4 +1,5 @@
-import { TimeSeries } from "./types";
+import { hashboardColors } from "./constants";
+import { TimeSeries, TimeSeriesWithSerial } from "./types";
 import { TimeSeriesData } from "@/protoOS/api/types";
 import { getDayFromEpoch, getTimeFromEpoch } from "@/shared/utils/datetime";
 
@@ -33,7 +34,7 @@ const getChartValue = ({ datetime, values }: GetChartValueArgs) => {
 };
 
 type GetChartDataArgs = {
-  series: TimeSeries[];
+  series: TimeSeriesWithSerial[];
   aggregateSeries: TimeSeries;
   units?: string;
 };
@@ -61,7 +62,7 @@ export const getChartData = ({
     return series.reduce(
       (acc, curr) => {
         if (curr.data.length) {
-          acc[curr.name] = getChartValue({
+          acc[curr.serial] = getChartValue({
             datetime: totalPoint.datetime,
             values: curr.data,
           });
@@ -79,4 +80,25 @@ export const getChartData = ({
   });
 
   return chartData || [];
+};
+
+export const getHashboardColor = (
+  slot: number,
+  bay: number,
+  baySlotIndex: number,
+  bayCount: number,
+) => {
+  if (bayCount === 1) {
+    return {
+      text: hashboardColors[(slot - 1) % hashboardColors.length]?.text,
+      line: hashboardColors[(slot - 1) % hashboardColors.length]?.colors[0],
+    };
+  }
+
+  return {
+    text: hashboardColors[(bay - 1) % hashboardColors.length].text,
+    line: hashboardColors[(bay - 1) % hashboardColors.length].colors[
+      baySlotIndex
+    ],
+  };
 };

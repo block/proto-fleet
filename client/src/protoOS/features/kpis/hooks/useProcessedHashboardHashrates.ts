@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { convertionFns, convertValues, downsample } from "./utility";
 import { useHashboardHashrate } from "@/protoOS/api";
 import { TimeSeriesData } from "@/protoOS/api/types";
+import useHashboardLocationStore from "@/protoOS/store/useHashboardLocationStore";
 import { Duration } from "@/shared/components/DurationSelector";
 
 type HbHashRate = {
   name: string;
+  serial: string;
   data: TimeSeriesData[];
 };
 
@@ -25,6 +27,9 @@ const useProcessedHashboardHashrates = ({
 }: UseProcessedHashboardHashratesProps) => {
   const [hashrates, setHashrates] = useState<HbHashRate[]>([]);
   const [lowestPerformer, setLowestPerformer] = useState<string>();
+  const getSlotByHbSn = useHashboardLocationStore(
+    (state) => state.getSlotByHbSn,
+  );
 
   // Fetch individual hashrate data for each hashboard
   const { data: hbHashrateData, pending: pending } = useHashboardHashrate({
@@ -42,41 +47,48 @@ const useProcessedHashboardHashrates = ({
     );
     if (!durationsMatch) return;
 
-    const reducedData = Object.entries(hbHashrateData).reduce(
-      (acc, [key, value], idx) => {
-        void key;
-        const name = "Hashboard " + (idx + 1);
+    const entries = Object.entries(hbHashrateData);
+    const reducedData = entries
+      .sort(
+        (a, b) =>
+          (getSlotByHbSn(a[0]) ?? entries.length) -
+          (getSlotByHbSn(b[0]) ?? entries.length),
+      )
+      .reduce(
+        (acc, [key, value]) => {
+          const name = "Hashboard " + getSlotByHbSn(key);
 
-        if (acc.lowestPerformer === null) {
-          acc.lowestPerformer = {
-            name,
-            avgHashrate: value.aggregates?.avg,
-          };
-        } else if (value.aggregates?.avg < acc.lowestPerformer.avgHashrate) {
-          acc.lowestPerformer = {
-            name,
-            avgHashrate: value.aggregates?.avg,
-          };
-        }
+          if (acc.lowestPerformer === null) {
+            acc.lowestPerformer = {
+              name,
+              avgHashrate: value.aggregates?.avg,
+            };
+          } else if (value.aggregates?.avg < acc.lowestPerformer.avgHashrate) {
+            acc.lowestPerformer = {
+              name,
+              avgHashrate: value.aggregates?.avg,
+            };
+          }
 
-        acc.hashrates.push({
-          name,
-          data: convertValues(
-            downsample(value.data, duration),
-            convertionFns.hashrate,
-          ),
-        });
-        return acc;
-      },
-      {
-        lowestPerformer: null,
-        hashrates: [] as HbHashRate[],
-      } as ReducedData,
-    );
+          acc.hashrates.push({
+            name,
+            serial: key,
+            data: convertValues(
+              downsample(value.data, duration),
+              convertionFns.hashrate,
+            ),
+          });
+          return acc;
+        },
+        {
+          lowestPerformer: null,
+          hashrates: [] as HbHashRate[],
+        } as ReducedData,
+      );
 
     setLowestPerformer(reducedData.lowestPerformer?.name);
     setHashrates(reducedData.hashrates);
-  }, [duration, hbHashrateData, pending]);
+  }, [duration, hbHashrateData, pending, getSlotByHbSn]);
 
   return useMemo(() => {
     return {

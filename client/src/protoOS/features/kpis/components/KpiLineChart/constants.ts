@@ -23,3 +23,30 @@ export const nullLineProps = {
 };
 
 export const lineColors = ["#00A4FB", "#38A600", "#783EED"];
+
+export const hashboardColors = [
+  {
+    text: "--color-intent-info-text",
+    colors: [
+      "--color-intent-info-fill",
+      "--color-intent-info-80",
+      "--color-intent-info-60",
+    ],
+  },
+  {
+    text: "--color-core-indigo-text",
+    colors: [
+      "--color-core-indigo-fill",
+      "--color-core-indigo-80",
+      "--color-core-indigo-60",
+    ],
+  },
+  {
+    text: "--color-intent-success-text",
+    colors: [
+      "--color-intent-success-fill",
+      "--color-intent-success-80",
+      "--color-intent-success-60",
+    ],
+  },
+];

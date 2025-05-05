@@ -23,8 +23,6 @@ const KpiLayout = ({ children }: ContentLayoutProps) => {
   const { getItem, setItem } = useLocalStorage();
   const [hashboardSerials, setHashboardSerials] = useState<string[]>();
 
-  // set HashboardSerials to local storage
-
   const { data: hashboardsInfo } = useHashboards();
   const { poolsInfo, poolsInfoStatus } = useMinerStatus();
   const [duration, setDuration] = useState<Duration>(
@@ -44,7 +42,12 @@ const KpiLayout = ({ children }: ContentLayoutProps) => {
     if (hashboardsInfo) {
       setHashboardSerials(
         hashboardsInfo
-          ?.map((hashboardInfo) => hashboardInfo.hb_sn)
+          ?.sort(
+            (a, b) =>
+              (a.slot || hashboardsInfo.length) -
+              (b.slot || hashboardsInfo.length),
+          )
+          .map((hashboardInfo) => hashboardInfo.hb_sn)
           .filter(Boolean) as string[],
       );
     }

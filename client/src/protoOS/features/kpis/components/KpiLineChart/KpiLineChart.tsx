@@ -1,11 +1,12 @@
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Line, LineChart, ReferenceDot, Tooltip, XAxis, YAxis } from "recharts";
 
-import { lineColors, lineProps } from "./constants";
+import { lineProps } from "./constants";
 
 import KpiTooltip, { type TooltipData } from "./KpiTooltip";
-import { type TimeSeries } from "./types";
-import { type ChartData, getChartData } from "./utility";
+import { type TimeSeries, type TimeSeriesWithSerial } from "./types";
+import { type ChartData, getChartData, getHashboardColor } from "./utility";
+import useHashboardLocationStore from "@/protoOS/store/useHashboardLocationStore";
 import {
   ChartWrapper,
   LineCursor,
@@ -21,7 +22,7 @@ import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 const ANIMATION_DURATION = 1500;
 
 interface KpiChartProps {
-  series: TimeSeries[];
+  series: TimeSeriesWithSerial[];
   units?: string;
   aggregateSeries: TimeSeries;
   highestValue?: string | number;
@@ -47,6 +48,37 @@ const KpiChart = ({
   const { isDesktop, isTablet, isLaptop, isPhone } = useWindowDimensions();
   const [chartData, setChartData] = useState<ChartData[] | null>(null);
   const [maxDomain, setMaxDomain] = useState<number>(0);
+  const getSlotByHbSn = useHashboardLocationStore(
+    (state) => state.getSlotByHbSn,
+  );
+  const getBayByHbSn = useHashboardLocationStore((state) => state.getBayByHbSn);
+  const getBayCount = useHashboardLocationStore((state) => state.getBayCount);
+  const getBaySlotIndexByHbSn = useHashboardLocationStore(
+    (state) => state.getBaySlotIndexByHbSn,
+  );
+
+  type HbColorMap = {
+    [key: string]: {
+      line: string;
+      text: string;
+    };
+  };
+
+  const [hbColorMap, setHbColorMap] = useState<HbColorMap>({});
+  useEffect(() => {
+    const colors = series.reduce((acc, { serial }) => {
+      acc[serial] = getHashboardColor(
+        getSlotByHbSn(serial) ?? 1,
+        getBayByHbSn(serial) ?? 1,
+        getBaySlotIndexByHbSn(serial) ?? 1,
+        getBayCount(),
+      );
+
+      return acc;
+    }, {} as HbColorMap);
+
+    setHbColorMap(colors);
+  }, [series, getBayByHbSn, getBayCount, getSlotByHbSn, getBaySlotIndexByHbSn]);
 
   // initialize animation flags and chart data
   useEffect(() => {
@@ -215,10 +247,10 @@ const KpiChart = ({
                     return (
                       <Line
                         {...lineProps}
-                        dataKey={seriesItem.name}
+                        dataKey={seriesItem.serial}
                         key={index}
                         isAnimationActive={false}
-                        stroke={lineColors[index % lineColors.length]}
+                        stroke={`var(${hbColorMap[seriesItem.serial]?.line})`}
                       />
                     );
                   }

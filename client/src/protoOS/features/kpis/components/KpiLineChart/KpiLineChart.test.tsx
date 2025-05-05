@@ -103,6 +103,7 @@ vi.mock("./KpiTooltip", () => ({
 const mockSeries = [
   {
     name: "series1",
+    serial: "hashboard1",
     data: [
       { datetime: 1234567890, value: 42 },
       { datetime: 1234567891, value: 43 },
@@ -110,6 +111,7 @@ const mockSeries = [
   },
   {
     name: "series2",
+    serial: "hashboard2",
     data: [
       { datetime: 1234567890, value: 12 },
       { datetime: 1234567891, value: 13 },

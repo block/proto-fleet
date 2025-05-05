@@ -10,6 +10,7 @@ import {
 } from "@/protoOS/api";
 import { Aggregates, HashboardStatsHashboardstats } from "@/protoOS/api/types";
 import { useGranularity } from "@/protoOS/features/kpis/hooks";
+import useHashboardLocationStore from "@/protoOS/store/useHashboardLocationStore";
 import { Dismiss } from "@/shared/assets/icons";
 import { Duration } from "@/shared/components/DurationSelector";
 import Header from "@/shared/components/Header";
@@ -73,6 +74,9 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   const [avgHashboardTemp, setAvgHashboardTemp] = useState<number | undefined>(
     undefined,
   );
+  const getSlotByHbSn = useHashboardLocationStore(
+    (state) => state.getSlotByHbSn,
+  );
 
   const [showPopover, setShowPopover] = useState<string | undefined>(undefined);
   const { minerRoot } = useMinerHosting();
@@ -94,13 +98,20 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   useEffect(() => {
     if (hashboardsInfo) {
       setHashboardList(
-        hashboardsInfo.map((hashboardInfo, index) => ({
-          serial: hashboardInfo.hb_sn || "", // TODO: hb_sn can be undefined?
-          name: "Hashboard " + (index + 1),
-        })),
+        hashboardsInfo
+          .filter((hashboardInfo) => hashboardInfo.hb_sn !== undefined)
+          .sort(
+            (a, b) =>
+              (getSlotByHbSn(a.hb_sn as string) ?? Number.MAX_SAFE_INTEGER) -
+              (getSlotByHbSn(b.hb_sn as string) ?? Number.MAX_SAFE_INTEGER),
+          )
+          .map((hashboardInfo) => ({
+            serial: hashboardInfo.hb_sn as string,
+            name: "Hashboard " + getSlotByHbSn(hashboardInfo.hb_sn as string),
+          })),
       );
     }
-  }, [hashboardsInfo]);
+  }, [hashboardsInfo, getSlotByHbSn]);
 
   // TODO: We need to add a cacheing strategy where we can show stale data thats less
   // than a predermined ttl while we wait for the next poll to come in.

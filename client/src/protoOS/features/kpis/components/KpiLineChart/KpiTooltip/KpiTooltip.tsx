@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 
-import { lineColors } from "../constants";
 import KpiTooltipItem from "./KpiTooltipItem";
+import useHashboardLocationStore from "@/protoOS/store/useHashboardLocationStore";
 import Divider from "@/shared/components/Divider";
 import { omit } from "@/shared/utils/object";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
@@ -38,6 +38,11 @@ const KpiTooltip = ({
   tooltipData,
   units,
 }: KpiTooltipProps) => {
+  const getSlotByHbSn = useHashboardLocationStore(
+    (state) => state.getSlotByHbSn,
+  );
+  const getBayByHbSn = useHashboardLocationStore((state) => state.getBayByHbSn);
+
   useEffect(() => {
     const x = coordinate.x < 310 ? coordinate.x + 310 : coordinate.x;
     if (active && payloads && payloads.length > 0 && x !== tooltipData.x) {
@@ -56,7 +61,15 @@ const KpiTooltip = ({
     payload.aggregateName,
   ]);
 
-  const hasPartials = Object.keys(partials).length > 0;
+  const entries = Object.entries(partials);
+  const sorted = entries.sort((a, b) => {
+    return (
+      (getSlotByHbSn(a[0]) ?? entries.length) -
+      (getSlotByHbSn(b[0]) ?? entries.length)
+    );
+  });
+
+  const hasPartials = Object.keys(sorted).length > 0;
 
   return (
     <>
@@ -64,7 +77,6 @@ const KpiTooltip = ({
         <div className="rounded-xl bg-surface-elevated-base/70 pt-6 pb-4 shadow-200 backdrop-blur-[7px]">
           <div className="w-[269px]">
             <div className="flex space-x-2 px-6">
-              <div className="mt-1 h-3 w-1 rounded-xs bg-core-accent-fill" />
               <div>
                 <div className="mb-1 text-200 text-text-primary-70">
                   {payload.aggregateName}
@@ -78,14 +90,19 @@ const KpiTooltip = ({
 
             {hasPartials ? <Divider className="mt-4 mb-6" /> : null}
 
-            {Object.keys(partials).map((name, idx) => {
+            {sorted.map(([serial], idx) => {
               return (
                 <KpiTooltipItem
                   key={idx}
-                  color={lineColors[idx % lineColors.length]}
-                  label={name}
+                  currentPartial={idx}
+                  totalPartials={Object.keys(partials).length}
+                  serial={serial}
                   units={units}
-                  value={getDisplayValue(payload[name])}
+                  bayDivider={
+                    sorted[idx - 1] !== undefined &&
+                    getBayByHbSn(serial) !== getBayByHbSn(sorted[idx - 1]?.[0])
+                  }
+                  value={getDisplayValue(payload[serial])}
                 />
               );
             })}

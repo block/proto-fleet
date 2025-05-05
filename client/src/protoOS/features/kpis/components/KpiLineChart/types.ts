@@ -4,3 +4,7 @@ export type TimeSeries = {
   name: string;
   data: TimeSeriesData[];
 };
+
+export type TimeSeriesWithSerial = TimeSeries & {
+  serial: string;
+};

@@ -4,12 +4,14 @@ import clsx from "clsx";
 import { IconProps } from "./types";
 
 type HashboardIndicatorProps = IconProps & {
+  color?: string;
   activeHashboard?: number;
   totalHashboards?: number;
 };
 
 const HashboardIndicator = ({
   className,
+  color,
   activeHashboard = 0,
   totalHashboards = 9,
 }: HashboardIndicatorProps) => {
@@ -32,9 +34,15 @@ const HashboardIndicator = ({
           <Fragment key={"hb-slot-" + index}>
             <div
               className={clsx("h-3 w-0.5 rounded-[1px]", {
-                "bg-text-primary": activeHashboard === index,
+                "bg-text-primary": activeHashboard === index && !color,
                 "bg-core-primary-20": activeHashboard !== index,
               })}
+              style={{
+                backgroundColor:
+                  color && activeHashboard === index
+                    ? `var(${color})`
+                    : undefined,
+              }}
             />
             {renderDivider && (
               <div className="h-4.5 w-[1px] bg-core-primary-20" />

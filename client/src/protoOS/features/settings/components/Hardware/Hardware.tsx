@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useHashboards, useSystemInfo } from "@/protoOS/api";
 import {
   C1Chip,
@@ -11,6 +12,12 @@ import SkeletonBar from "@/shared/components/SkeletonBar";
 const Hardware = () => {
   const { data: hashboards } = useHashboards();
   const { data: systemInfo } = useSystemInfo({ poll: false });
+
+  const sortedHashboards = useMemo(() => {
+    return hashboards?.sort(
+      (a, b) => (a.slot || hashboards.length) - (b.slot || hashboards.length),
+    );
+  }, [hashboards]);
 
   // TODO: still need to figure out what exactly this is and what API to use
   const ChipType = "MC2";
@@ -54,7 +61,7 @@ const Hardware = () => {
               <h4 className="w-46 text-emphasis-300">Hashboard</h4>
               <h4 className="text-emphasis-300">Serial Number</h4>
             </Row>
-            {hashboards.map((hashboard, index) => (
+            {sortedHashboards?.map((hashboard, index) => (
               <Row key={index} className="flex" attributes={{ role: "row" }}>
                 <div className="w-22 text-300">
                   <HashboardIndicator

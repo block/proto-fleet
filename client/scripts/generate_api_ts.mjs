@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename); // get the name of the directory
 
 const swaggerSchemaPath = path.resolve(
   __dirname,
-  "../../miner-firmware/crates/miner-api-server/docs/MDK-API.json"
+  "../../miner-firmware/crates/miner-api-server/docs/MDK-API.json",
 );
 
 if (!fs.existsSync(swaggerSchemaPath)) {
@@ -22,7 +22,7 @@ const [fileName = "types.ts"] = process.argv.slice(2);
 const fileDir = path.resolve(__dirname, "../src/protoOS/api");
 
 generateApi({
-  name: fileName,
+  fileName,
   input: swaggerSchemaPath,
   extractRequestParams: true,
   output: fileDir,
@@ -35,7 +35,7 @@ generateApi({
 
   fileContent = fileContent.replace(
     /public baseUrl: string = ".*";/g,
-    'public baseUrl: string = "";'
+    'public baseUrl: string = "";',
   );
 
   fs.writeFileSync(filePath, fileContent, "utf-8");

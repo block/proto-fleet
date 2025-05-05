@@ -44,6 +44,7 @@ export const KpiLineChart = ({
       (data, index) => ({
         name: "Hashboard Data " + (index + 1),
         data: processData(data.data, duration),
+        serial: index.toString(),
       }),
     );
 

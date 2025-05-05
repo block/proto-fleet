@@ -7,6 +7,7 @@ import {
 } from "./utility";
 import { useHashboardTemperature } from "@/protoOS/api";
 import { Aggregates, TimeSeriesData } from "@/protoOS/api/types";
+import useHashboardLocationStore from "@/protoOS/store/useHashboardLocationStore";
 import { Duration } from "@/shared/components/DurationSelector";
 
 export type HbTemperature = {
@@ -26,6 +27,9 @@ const useProcessedHashboardTemperature = ({
   duration,
 }: UseProcessedHashboardTemperatureProps) => {
   const [temperatures, setTemperatures] = useState<HbTemperature[]>([]);
+  const getSlotByHbSn = useHashboardLocationStore(
+    (state) => state.getSlotByHbSn,
+  );
 
   // Fetch individual Power data for each hashboard
   const { data: hbTemperatures, pending } = useHashboardTemperature({
@@ -43,10 +47,15 @@ const useProcessedHashboardTemperature = ({
     );
     if (!durationsMatch) return;
 
-    const downsampledHBTemperatures = Object.entries(hbTemperatures).reduce(
-      (acc, [key, value], idx) => {
-        void key;
-        const name = "Hashboard " + (idx + 1);
+    const entries = Object.entries(hbTemperatures);
+    const downsampledHBTemperatures = entries
+      .sort(
+        (a, b) =>
+          (getSlotByHbSn(a[0]) ?? entries.length) -
+          (getSlotByHbSn(b[0]) ?? entries.length),
+      )
+      .reduce((acc, [key, value]) => {
+        const name = "Hashboard " + getSlotByHbSn(key);
         acc.push({
           name,
           serial: key,
@@ -60,12 +69,10 @@ const useProcessedHashboardTemperature = ({
           ),
         });
         return acc;
-      },
-      [] as HbTemperature[],
-    );
+      }, [] as HbTemperature[]);
 
     setTemperatures(downsampledHBTemperatures);
-  }, [duration, hbTemperatures, pending]);
+  }, [duration, hbTemperatures, pending, getSlotByHbSn]);
 
   return temperatures;
 };
