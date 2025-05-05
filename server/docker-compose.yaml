@@ -34,16 +34,10 @@ services:
     build:
       context: ../miner-firmware
       dockerfile: docker/sim/Dockerfile
-    entrypoint: /bin/bash
-    command: >
-      -c "cd /app/crates/miner-api-server/config 
-      && IP=\$$(hostname -i) 
-      && /app/miner-api-server --ip-addr \$$IP --port \$$PORT -f . -w /app/miner-web/dist/protoOS"
     ports:
       - "4100:8080"
       - "2121:2121"
-    environment:
-      PORT: 8080
+    privileged: true
     networks:
       - fleet-network
     cap_add:
@@ -53,16 +47,10 @@ services:
     build:
       context: ../miner-firmware
       dockerfile: docker/sim/Dockerfile
-    entrypoint: /bin/bash
-    command: >
-      -c "cd /app/crates/miner-api-server/config 
-      && IP=\$$(hostname -i) 
-      && /app/miner-api-server --ip-addr \$$IP --port \$$PORT -f . -w /app/miner-web/dist/protoOS"
     ports:
       - "4200:8080"
       - "2122:2121"
-    environment:
-      PORT: 8080
+    privileged: true
     networks:
       - fleet-network
     cap_add:
