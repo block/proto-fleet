@@ -68,20 +68,6 @@ message PairedDevice {
   string mac_address = 3;
 }
 
-// Request to stop mining on a specific miner
-message StopMiningRequest {
-  // URL of the miner server to stop mining on
-  string miner_url = 1;
-}
-
-// Response from stop mining request
-message StopMiningResponse {
-  // Whether the operation was successful
-  bool success = 1;
-  // Error message if the operation failed
-  string error_message = 2;
-}
-
 // Service for managing fleet-wide settings and configurations
 service FleetManagementService {
   // Sets the default pool configuration for the fleet
@@ -93,8 +79,4 @@ service FleetManagementService {
   // Supports pagination for handling large fleets efficiently
   // Returns a sorted list of miners (typically by device_identifier)
   rpc ListPairedMiners(ListPairedMinersRequest) returns (ListPairedMinersResponse);
-
-// TODO This is a placeholder endpoint - replace with an actual implementation
-  // Stops mining on a specific miner
-  rpc StopMining(StopMiningRequest) returns (StopMiningResponse);
 }

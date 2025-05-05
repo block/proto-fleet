@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package minercommand.v1;
+
+// Request to stop mining on specific miners
+message StopMiningRequest {
+  // List of device identifiers to stop mining on
+  repeated string device_identifiers = 1;
+}
+
+// Response from stop mining request
+message StopMiningResponse {
+}
+
+// Request to start mining on specific miners
+message StartMiningRequest {
+  // List of device identifiers to start mining on
+  repeated string device_identifiers = 1;
+}
+
+// Response from start mining request
+message StartMiningResponse {
+}
+
+// Service for executing Miner commands
+service MinerCommandService {
+  // Stops mining on specified miners
+  // The operation is attempted on all miners even if some fail
+  rpc StopMining(StopMiningRequest) returns (StopMiningResponse);
+
+  // Starts mining on specified miners
+  // The operation is attempted on all miners even if some fail
+  rpc StartMining(StartMiningRequest) returns (StartMiningResponse);
+}

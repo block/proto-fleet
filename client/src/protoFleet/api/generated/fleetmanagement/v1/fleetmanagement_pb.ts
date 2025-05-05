@@ -20,7 +20,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_fleetmanagement_v1_fleetmanagement: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "CihmbGVldG1hbmFnZW1lbnQvdjEvZmxlZXRtYW5hZ2VtZW50LnByb3RvEhJmbGVldG1hbmFnZW1lbnQudjEiUgoKUG9vbENvbmZpZxILCgN1cmwYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSEAoIcGFzc3dvcmQYAyABKAkSEwoLd29ya2VyX25hbWUYBCABKAkiTAoVU2V0RGVmYXVsdFBvb2xSZXF1ZXN0EjMKC3Bvb2xfY29uZmlnGAEgASgLMh4uZmxlZXRtYW5hZ2VtZW50LnYxLlBvb2xDb25maWciGAoWU2V0RGVmYXVsdFBvb2xSZXNwb25zZSI8ChdMaXN0UGFpcmVkTWluZXJzUmVxdWVzdBIRCglwYWdlX3NpemUYASABKAUSDgoGY3Vyc29yGAIgASgJInIKGExpc3RQYWlyZWRNaW5lcnNSZXNwb25zZRIwCgZtaW5lcnMYASADKAsyIC5mbGVldG1hbmFnZW1lbnQudjEuUGFpcmVkRGV2aWNlEg4KBmN1cnNvchgCIAEoCRIUCgx0b3RhbF9taW5lcnMYAyABKAUiVQoMUGFpcmVkRGV2aWNlEhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEhUKDXNlcmlhbF9udW1iZXIYAiABKAkSEwoLbWFjX2FkZHJlc3MYAyABKAkiJgoRU3RvcE1pbmluZ1JlcXVlc3QSEQoJbWluZXJfdXJsGAEgASgJIjwKElN0b3BNaW5pbmdSZXNwb25zZRIPCgdzdWNjZXNzGAEgASgIEhUKDWVycm9yX21lc3NhZ2UYAiABKAkyzQIKFkZsZWV0TWFuYWdlbWVudFNlcnZpY2USZwoOU2V0RGVmYXVsdFBvb2wSKS5mbGVldG1hbmFnZW1lbnQudjEuU2V0RGVmYXVsdFBvb2xSZXF1ZXN0GiouZmxlZXRtYW5hZ2VtZW50LnYxLlNldERlZmF1bHRQb29sUmVzcG9uc2USbQoQTGlzdFBhaXJlZE1pbmVycxIrLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0UGFpcmVkTWluZXJzUmVxdWVzdBosLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0UGFpcmVkTWluZXJzUmVzcG9uc2USWwoKU3RvcE1pbmluZxIlLmZsZWV0bWFuYWdlbWVudC52MS5TdG9wTWluaW5nUmVxdWVzdBomLmZsZWV0bWFuYWdlbWVudC52MS5TdG9wTWluaW5nUmVzcG9uc2VC9QEKFmNvbS5mbGVldG1hbmFnZW1lbnQudjFCFEZsZWV0bWFuYWdlbWVudFByb3RvUAFaXGdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvZmxlZXRtYW5hZ2VtZW50L3YxO2ZsZWV0bWFuYWdlbWVudHYxogIDRlhYqgISRmxlZXRtYW5hZ2VtZW50LlYxygISRmxlZXRtYW5hZ2VtZW50XFYx4gIeRmxlZXRtYW5hZ2VtZW50XFYxXEdQQk1ldGFkYXRh6gITRmxlZXRtYW5hZ2VtZW50OjpWMWIGcHJvdG8z",
+    "CihmbGVldG1hbmFnZW1lbnQvdjEvZmxlZXRtYW5hZ2VtZW50LnByb3RvEhJmbGVldG1hbmFnZW1lbnQudjEiUgoKUG9vbENvbmZpZxILCgN1cmwYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSEAoIcGFzc3dvcmQYAyABKAkSEwoLd29ya2VyX25hbWUYBCABKAkiTAoVU2V0RGVmYXVsdFBvb2xSZXF1ZXN0EjMKC3Bvb2xfY29uZmlnGAEgASgLMh4uZmxlZXRtYW5hZ2VtZW50LnYxLlBvb2xDb25maWciGAoWU2V0RGVmYXVsdFBvb2xSZXNwb25zZSI8ChdMaXN0UGFpcmVkTWluZXJzUmVxdWVzdBIRCglwYWdlX3NpemUYASABKAUSDgoGY3Vyc29yGAIgASgJInIKGExpc3RQYWlyZWRNaW5lcnNSZXNwb25zZRIwCgZtaW5lcnMYASADKAsyIC5mbGVldG1hbmFnZW1lbnQudjEuUGFpcmVkRGV2aWNlEg4KBmN1cnNvchgCIAEoCRIUCgx0b3RhbF9taW5lcnMYAyABKAUiVQoMUGFpcmVkRGV2aWNlEhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEhUKDXNlcmlhbF9udW1iZXIYAiABKAkSEwoLbWFjX2FkZHJlc3MYAyABKAky8AEKFkZsZWV0TWFuYWdlbWVudFNlcnZpY2USZwoOU2V0RGVmYXVsdFBvb2wSKS5mbGVldG1hbmFnZW1lbnQudjEuU2V0RGVmYXVsdFBvb2xSZXF1ZXN0GiouZmxlZXRtYW5hZ2VtZW50LnYxLlNldERlZmF1bHRQb29sUmVzcG9uc2USbQoQTGlzdFBhaXJlZE1pbmVycxIrLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0UGFpcmVkTWluZXJzUmVxdWVzdBosLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0UGFpcmVkTWluZXJzUmVzcG9uc2VC9QEKFmNvbS5mbGVldG1hbmFnZW1lbnQudjFCFEZsZWV0bWFuYWdlbWVudFByb3RvUAFaXGdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvZmxlZXRtYW5hZ2VtZW50L3YxO2ZsZWV0bWFuYWdlbWVudHYxogIDRlhYqgISRmxlZXRtYW5hZ2VtZW50LlYxygISRmxlZXRtYW5hZ2VtZW50XFYx4gIeRmxlZXRtYW5hZ2VtZW50XFYxXEdQQk1ldGFkYXRh6gITRmxlZXRtYW5hZ2VtZW50OjpWMWIGcHJvdG8z",
   );
 
 /**
@@ -217,59 +217,6 @@ export const PairedDeviceSchema: GenMessage<PairedDevice> =
   messageDesc(file_fleetmanagement_v1_fleetmanagement, 5);
 
 /**
- * Request to stop mining on a specific miner
- *
- * @generated from message fleetmanagement.v1.StopMiningRequest
- */
-export type StopMiningRequest =
-  Message<"fleetmanagement.v1.StopMiningRequest"> & {
-    /**
-     * URL of the miner server to stop mining on
-     *
-     * @generated from field: string miner_url = 1;
-     */
-    minerUrl: string;
-  };
-
-/**
- * Describes the message fleetmanagement.v1.StopMiningRequest.
- * Use `create(StopMiningRequestSchema)` to create a new message.
- */
-export const StopMiningRequestSchema: GenMessage<StopMiningRequest> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 6);
-
-/**
- * Response from stop mining request
- *
- * @generated from message fleetmanagement.v1.StopMiningResponse
- */
-export type StopMiningResponse =
-  Message<"fleetmanagement.v1.StopMiningResponse"> & {
-    /**
-     * Whether the operation was successful
-     *
-     * @generated from field: bool success = 1;
-     */
-    success: boolean;
-
-    /**
-     * Error message if the operation failed
-     *
-     * @generated from field: string error_message = 2;
-     */
-    errorMessage: string;
-  };
-
-/**
- * Describes the message fleetmanagement.v1.StopMiningResponse.
- * Use `create(StopMiningResponseSchema)` to create a new message.
- */
-export const StopMiningResponseSchema: GenMessage<StopMiningResponse> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 7);
-
-/**
  * Service for managing fleet-wide settings and configurations
  *
  * @generated from service fleetmanagement.v1.FleetManagementService
@@ -298,16 +245,5 @@ export const FleetManagementService: GenService<{
     methodKind: "unary";
     input: typeof ListPairedMinersRequestSchema;
     output: typeof ListPairedMinersResponseSchema;
-  };
-  /**
-   * TODO This is a placeholder endpoint - replace with an actual implementation
-   * Stops mining on a specific miner
-   *
-   * @generated from rpc fleetmanagement.v1.FleetManagementService.StopMining
-   */
-  stopMining: {
-    methodKind: "unary";
-    input: typeof StopMiningRequestSchema;
-    output: typeof StopMiningResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_fleetmanagement_v1_fleetmanagement, 0);

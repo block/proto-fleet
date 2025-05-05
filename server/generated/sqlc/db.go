@@ -45,6 +45,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDeviceByIdentifierStmt, err = db.PrepareContext(ctx, getDeviceByIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceByIdentifier: %w", err)
 	}
+	if q.getMinerApiNetworkInfoByDeviceIDStmt, err = db.PrepareContext(ctx, getMinerApiNetworkInfoByDeviceID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMinerApiNetworkInfoByDeviceID: %w", err)
+	}
 	if q.getOrganizationByIDStmt, err = db.PrepareContext(ctx, getOrganizationByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrganizationByID: %w", err)
 	}
@@ -158,6 +161,11 @@ func (q *Queries) Close() error {
 	if q.getDeviceByIdentifierStmt != nil {
 		if cerr := q.getDeviceByIdentifierStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceByIdentifierStmt: %w", cerr)
+		}
+	}
+	if q.getMinerApiNetworkInfoByDeviceIDStmt != nil {
+		if cerr := q.getMinerApiNetworkInfoByDeviceIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMinerApiNetworkInfoByDeviceIDStmt: %w", cerr)
 		}
 	}
 	if q.getOrganizationByIDStmt != nil {
@@ -322,77 +330,79 @@ func (q *Queries) queryRow(ctx context.Context, stmt *sql.Stmt, query string, ar
 }
 
 type Queries struct {
-	db                                 DBTX
-	tx                                 *sql.Tx
-	createOrganizationStmt             *sql.Stmt
-	createUserStmt                     *sql.Stmt
-	createUserOrganizationStmt         *sql.Stmt
-	deactivateOldIPAssignmentsStmt     *sql.Stmt
-	getDeviceByDeviceIdentifierStmt    *sql.Stmt
-	getDeviceByIDStmt                  *sql.Stmt
-	getDeviceByIdentifierStmt          *sql.Stmt
-	getOrganizationByIDStmt            *sql.Stmt
-	getOrganizationByNameStmt          *sql.Stmt
-	getOrganizationByOrgIDStmt         *sql.Stmt
-	getOrganizationsForUserStmt        *sql.Stmt
-	getRoleByIDStmt                    *sql.Stmt
-	getRoleByNameStmt                  *sql.Stmt
-	getTotalPairedDevicesStmt          *sql.Stmt
-	getUserByUsernameStmt              *sql.Stmt
-	getUserRoleInOrganizationStmt      *sql.Stmt
-	getUsersForOrganizationStmt        *sql.Stmt
-	listOrganizationsStmt              *sql.Stmt
-	listPairedDevicesStmt              *sql.Stmt
-	listRolesStmt                      *sql.Stmt
-	softDeleteOrganizationStmt         *sql.Stmt
-	softDeleteRoleStmt                 *sql.Stmt
-	softDeleteUserFromOrganizationStmt *sql.Stmt
-	undeleteOrganizationStmt           *sql.Stmt
-	undeleteRoleStmt                   *sql.Stmt
-	updateOrganizationStmt             *sql.Stmt
-	updateRoleStmt                     *sql.Stmt
-	updateUserRoleStmt                 *sql.Stmt
-	upsertDeviceStmt                   *sql.Stmt
-	upsertDeviceIPAssignmentStmt       *sql.Stmt
-	upsertDevicePairingStmt            *sql.Stmt
-	upsertRoleStmt                     *sql.Stmt
+	db                                   DBTX
+	tx                                   *sql.Tx
+	createOrganizationStmt               *sql.Stmt
+	createUserStmt                       *sql.Stmt
+	createUserOrganizationStmt           *sql.Stmt
+	deactivateOldIPAssignmentsStmt       *sql.Stmt
+	getDeviceByDeviceIdentifierStmt      *sql.Stmt
+	getDeviceByIDStmt                    *sql.Stmt
+	getDeviceByIdentifierStmt            *sql.Stmt
+	getMinerApiNetworkInfoByDeviceIDStmt *sql.Stmt
+	getOrganizationByIDStmt              *sql.Stmt
+	getOrganizationByNameStmt            *sql.Stmt
+	getOrganizationByOrgIDStmt           *sql.Stmt
+	getOrganizationsForUserStmt          *sql.Stmt
+	getRoleByIDStmt                      *sql.Stmt
+	getRoleByNameStmt                    *sql.Stmt
+	getTotalPairedDevicesStmt            *sql.Stmt
+	getUserByUsernameStmt                *sql.Stmt
+	getUserRoleInOrganizationStmt        *sql.Stmt
+	getUsersForOrganizationStmt          *sql.Stmt
+	listOrganizationsStmt                *sql.Stmt
+	listPairedDevicesStmt                *sql.Stmt
+	listRolesStmt                        *sql.Stmt
+	softDeleteOrganizationStmt           *sql.Stmt
+	softDeleteRoleStmt                   *sql.Stmt
+	softDeleteUserFromOrganizationStmt   *sql.Stmt
+	undeleteOrganizationStmt             *sql.Stmt
+	undeleteRoleStmt                     *sql.Stmt
+	updateOrganizationStmt               *sql.Stmt
+	updateRoleStmt                       *sql.Stmt
+	updateUserRoleStmt                   *sql.Stmt
+	upsertDeviceStmt                     *sql.Stmt
+	upsertDeviceIPAssignmentStmt         *sql.Stmt
+	upsertDevicePairingStmt              *sql.Stmt
+	upsertRoleStmt                       *sql.Stmt
 }
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
-		db:                                 tx,
-		tx:                                 tx,
-		createOrganizationStmt:             q.createOrganizationStmt,
-		createUserStmt:                     q.createUserStmt,
-		createUserOrganizationStmt:         q.createUserOrganizationStmt,
-		deactivateOldIPAssignmentsStmt:     q.deactivateOldIPAssignmentsStmt,
-		getDeviceByDeviceIdentifierStmt:    q.getDeviceByDeviceIdentifierStmt,
-		getDeviceByIDStmt:                  q.getDeviceByIDStmt,
-		getDeviceByIdentifierStmt:          q.getDeviceByIdentifierStmt,
-		getOrganizationByIDStmt:            q.getOrganizationByIDStmt,
-		getOrganizationByNameStmt:          q.getOrganizationByNameStmt,
-		getOrganizationByOrgIDStmt:         q.getOrganizationByOrgIDStmt,
-		getOrganizationsForUserStmt:        q.getOrganizationsForUserStmt,
-		getRoleByIDStmt:                    q.getRoleByIDStmt,
-		getRoleByNameStmt:                  q.getRoleByNameStmt,
-		getTotalPairedDevicesStmt:          q.getTotalPairedDevicesStmt,
-		getUserByUsernameStmt:              q.getUserByUsernameStmt,
-		getUserRoleInOrganizationStmt:      q.getUserRoleInOrganizationStmt,
-		getUsersForOrganizationStmt:        q.getUsersForOrganizationStmt,
-		listOrganizationsStmt:              q.listOrganizationsStmt,
-		listPairedDevicesStmt:              q.listPairedDevicesStmt,
-		listRolesStmt:                      q.listRolesStmt,
-		softDeleteOrganizationStmt:         q.softDeleteOrganizationStmt,
-		softDeleteRoleStmt:                 q.softDeleteRoleStmt,
-		softDeleteUserFromOrganizationStmt: q.softDeleteUserFromOrganizationStmt,
-		undeleteOrganizationStmt:           q.undeleteOrganizationStmt,
-		undeleteRoleStmt:                   q.undeleteRoleStmt,
-		updateOrganizationStmt:             q.updateOrganizationStmt,
-		updateRoleStmt:                     q.updateRoleStmt,
-		updateUserRoleStmt:                 q.updateUserRoleStmt,
-		upsertDeviceStmt:                   q.upsertDeviceStmt,
-		upsertDeviceIPAssignmentStmt:       q.upsertDeviceIPAssignmentStmt,
-		upsertDevicePairingStmt:            q.upsertDevicePairingStmt,
-		upsertRoleStmt:                     q.upsertRoleStmt,
+		db:                                   tx,
+		tx:                                   tx,
+		createOrganizationStmt:               q.createOrganizationStmt,
+		createUserStmt:                       q.createUserStmt,
+		createUserOrganizationStmt:           q.createUserOrganizationStmt,
+		deactivateOldIPAssignmentsStmt:       q.deactivateOldIPAssignmentsStmt,
+		getDeviceByDeviceIdentifierStmt:      q.getDeviceByDeviceIdentifierStmt,
+		getDeviceByIDStmt:                    q.getDeviceByIDStmt,
+		getDeviceByIdentifierStmt:            q.getDeviceByIdentifierStmt,
+		getMinerApiNetworkInfoByDeviceIDStmt: q.getMinerApiNetworkInfoByDeviceIDStmt,
+		getOrganizationByIDStmt:              q.getOrganizationByIDStmt,
+		getOrganizationByNameStmt:            q.getOrganizationByNameStmt,
+		getOrganizationByOrgIDStmt:           q.getOrganizationByOrgIDStmt,
+		getOrganizationsForUserStmt:          q.getOrganizationsForUserStmt,
+		getRoleByIDStmt:                      q.getRoleByIDStmt,
+		getRoleByNameStmt:                    q.getRoleByNameStmt,
+		getTotalPairedDevicesStmt:            q.getTotalPairedDevicesStmt,
+		getUserByUsernameStmt:                q.getUserByUsernameStmt,
+		getUserRoleInOrganizationStmt:        q.getUserRoleInOrganizationStmt,
+		getUsersForOrganizationStmt:          q.getUsersForOrganizationStmt,
+		listOrganizationsStmt:                q.listOrganizationsStmt,
+		listPairedDevicesStmt:                q.listPairedDevicesStmt,
+		listRolesStmt:                        q.listRolesStmt,
+		softDeleteOrganizationStmt:           q.softDeleteOrganizationStmt,
+		softDeleteRoleStmt:                   q.softDeleteRoleStmt,
+		softDeleteUserFromOrganizationStmt:   q.softDeleteUserFromOrganizationStmt,
+		undeleteOrganizationStmt:             q.undeleteOrganizationStmt,
+		undeleteRoleStmt:                     q.undeleteRoleStmt,
+		updateOrganizationStmt:               q.updateOrganizationStmt,
+		updateRoleStmt:                       q.updateRoleStmt,
+		updateUserRoleStmt:                   q.updateUserRoleStmt,
+		upsertDeviceStmt:                     q.upsertDeviceStmt,
+		upsertDeviceIPAssignmentStmt:         q.upsertDeviceIPAssignmentStmt,
+		upsertDevicePairingStmt:              q.upsertDevicePairingStmt,
+		upsertRoleStmt:                       q.upsertRoleStmt,
 	}
 }

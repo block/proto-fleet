@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
+	commandDomain "github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,6 +16,7 @@ import (
 	pairingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/auth"
+	"github.com/btc-mining/proto-fleet/server/internal/handlers/command"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/fleetmanagement"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/health"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/interceptors"
@@ -76,6 +79,7 @@ func start(config *Config) error {
 	authSvc := authDomain.NewService(conn, tokenSvc)
 	pairingSvc := pairingDomain.NewService(conn, config.Pairing)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(conn)
+	commandSvc := commandDomain.NewService(conn)
 
 	// init middleware
 	middlewares := []server.Middleware{
@@ -106,6 +110,7 @@ func start(config *Config) error {
 	mux.Handle(pairingv1connect.NewPairingServiceHandler(pairing.NewHandler(pairingSvc), li))
 	mux.Handle(networkinfov1connect.NewNetworkInfoServiceHandler(networkinfo.NewHandler(pairingSvc), li))
 	mux.Handle(fleetmanagementv1connect.NewFleetManagementServiceHandler(fleetmanagement.NewHandler(fleetMgmtSvc), li))
+	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
 
 	var handler http.Handler = mux
 	for _, m := range middlewares {
