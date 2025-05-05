@@ -15,10 +15,13 @@ _client-init:
 lint: 
   buf lint
 
-gen: lint gen-protos fmt-client fmt-server
+gen: lint gen-protos gen-server fmt-client fmt-server
 
 gen-protos: 
   buf generate
+
+gen-server:
+    cd server; just gen
 
 [working-directory: 'server']
 fmt-client:

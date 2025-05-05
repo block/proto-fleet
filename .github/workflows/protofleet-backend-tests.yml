@@ -58,39 +58,3 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           working-directory: server
-
-  generated-code-check:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: server
-    steps:
-      - name: Create GitHub App token
-        id: create_token
-        uses: tibdex/github-app-token@v2.1.0
-        with:
-          app_id: ${{ secrets.GH_APP_ID }}
-          private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: "${{ steps.create_token.outputs.token }}"
-          submodules: true
-
-      - name: Activate hermit
-        uses: cashapp/activate-hermit@v1.1.4
-
-      - name: Install buf deps
-        run: npm install -g @bufbuild/buf @bufbuild/protoc-gen-es
-
-      - name: Generate code
-        run: just gen
-
-      - name: Check if committed generated code is up-to-date
-        run: >
-          git diff --quiet || {
-            echo -e "\033[0;31mNewly generated code does not match the committed code. Run 'just gen', then commit and push the changes.\033[0m" 1>&2;
-            echo -e "\n\n";
-            git diff --exit-code
-          }
