@@ -1,5 +1,5 @@
 -- name: GetUserByUsername :one
-SELECT id, user_id, username, password_hash
+SELECT *
 FROM user
 WHERE username = ?;
 

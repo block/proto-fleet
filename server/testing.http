@@ -97,18 +97,57 @@ Authorization: Bearer {{auth_token}}
 
 }
 
-### Run UpdateDefaultPool
+### Run Create Pool
+
+GRPC {{host}}/fleetmanagement.v1.FleetManagementService/CreatePool
+Authorization: Bearer {{auth_token}}
+
+{
+  "pool_config": {
+    "url": "https://example.xyz",
+    "username": "bob",
+    "password": "secret",
+    "pool_name": "backup"
+  }
+}
+
+### Run Set Default Pool
 
 GRPC {{host}}/fleetmanagement.v1.FleetManagementService/SetDefaultPool
 Authorization: Bearer {{auth_token}}
 
 {
-  "pool_config": {
-    "url": "https://example.com",
-    "username": "alice",
-    "password": "secret",
-    "worker_name": "default"
-  }
+  "pool_id": "10"
+}
+
+### Run List Pool
+
+GRPC {{host}}/fleetmanagement.v1.FleetManagementService/ListPools
+Authorization: Bearer {{auth_token}}
+
+{
+}
+
+### Run Update Pool Priority
+
+GRPC {{host}}/fleetmanagement.v1.FleetManagementService/UpdatePoolPriority
+Authorization: Bearer {{auth_token}}
+
+{
+  "pool_priorities": [
+    { "priority": 1, "id": "9"},
+    { "priority": 2, "id": "10"}
+  ]
+}
+
+### Run Update Pool
+
+GRPC {{host}}/fleetmanagement.v1.FleetManagementService/UpdatePool
+Authorization: Bearer {{auth_token}}
+
+{
+  "id": "9",
+  "pool_name": "default default"
 }
 
 ### Stop mining
@@ -156,4 +195,12 @@ GRPC grpcs://miner-1.miner.fleetdev.proto.xyz:2121/miner_command_api.MinerComman
 GRPC localhost:2121/miner_command_api.MinerCommandApi/StartMining
 
 {
+}
+
+### Onboarding: Create Admin User
+GRPC {{host}}/onboarding.v1.OnboardingService/GetFleetOnboardingStatus
+Authorization: Bearer {{auth_token}}
+
+{
+
 }

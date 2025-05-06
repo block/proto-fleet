@@ -1,14 +1,16 @@
 package auth_test
 
 import (
-	authDomain "github.com/btc-mining/proto-fleet/server/internal/domain/auth"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
-	"github.com/btc-mining/proto-fleet/server/internal/handlers/auth"
-	"github.com/btc-mining/proto-fleet/server/internal/handlers/onboarding"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	authDomain "github.com/btc-mining/proto-fleet/server/internal/domain/auth"
+	onboardingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/onboarding"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
+	"github.com/btc-mining/proto-fleet/server/internal/handlers/auth"
+	"github.com/btc-mining/proto-fleet/server/internal/handlers/onboarding"
 
 	"connectrpc.com/connect"
 	"github.com/alecthomas/assert/v2"
@@ -32,10 +34,11 @@ func TestAuthServer_Authenticate(t *testing.T) {
 		// Setup dependencies
 		conn := dbtest.GetTestDB(t)
 		authSvc := authDomain.NewService(conn, tokenSvc)
+		onboardingSvc := onboardingDomain.NewService(conn)
 
 		// Setup test server
 		mux := http.NewServeMux()
-		onboardingServer := onboarding.NewHandler(authSvc)
+		onboardingServer := onboarding.NewHandler(authSvc, onboardingSvc)
 		mux.Handle(onboardingv1connect.NewOnboardingServiceHandler(onboardingServer))
 
 		authServer := auth.NewHandler(authSvc)
@@ -83,10 +86,11 @@ func TestAuthServer_Authenticate(t *testing.T) {
 		// Setup dependencies
 		conn := dbtest.GetTestDB(t)
 		authSvc := authDomain.NewService(conn, tokenSvc)
+		onboardingSvc := onboardingDomain.NewService(conn)
 
 		// Setup test server
 		mux := http.NewServeMux()
-		onboardingServer := onboarding.NewHandler(authSvc)
+		onboardingServer := onboarding.NewHandler(authSvc, onboardingSvc)
 		mux.Handle(onboardingv1connect.NewOnboardingServiceHandler(onboardingServer))
 
 		authServer := auth.NewHandler(authSvc)

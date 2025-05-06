@@ -4,13 +4,29 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
+	"connectrpc.com/authn"
 	"connectrpc.com/connect"
+
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
+	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
+)
+
+var (
+	ErrForbidden = errors.New("forbidden")
+	ErrInternal  = errors.New("internal error")
+)
+
+type PoolStatus string
+
+const (
+	defaultPoolPriority int32 = 10
 )
 
 type Service struct {
@@ -21,13 +37,6 @@ func NewService(conn *sql.DB) *Service {
 	return &Service{
 		conn: conn,
 	}
-}
-
-func (s *Service) UpdateDefaultPool(_ context.Context, r *pb.SetDefaultPoolRequest) error {
-	slog.Debug("updating pool", "url", r.PoolConfig.Url, "username", r.PoolConfig.Username)
-
-	// TODO actually store default pool in db
-	return nil
 }
 
 func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRequest) (*pb.ListPairedMinersResponse, error) {
@@ -104,6 +113,226 @@ func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRe
 		return resp, nil
 
 	})
+}
+
+func (s *Service) UpdateDefaultPool(ctx context.Context, poolID int64) (*pb.Pool, error) {
+	return s.UpdatePool(ctx, &pb.UpdatePoolRequest{
+		Id:        poolID,
+		IsDefault: true,
+	})
+}
+
+func (s *Service) DeletePool(ctx context.Context, id int64) error {
+	claims, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
+	if !ok {
+		return ErrForbidden
+	}
+	return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
+		return q.SoftDeletePool(ctx, sqlc.SoftDeletePoolParams{
+			ID:    id,
+			OrgID: claims.OrgID,
+		})
+	})
+}
+
+func (s *Service) UpdatePoolPriority(ctx context.Context, priorities []*pb.PoolPriority) ([]*pb.Pool, error) {
+	claims, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
+	if !ok {
+		return nil, ErrForbidden
+	}
+
+	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]*pb.Pool, error) {
+		var pools []*pb.Pool
+		for _, p := range priorities {
+			err := q.UpdatePoolPriority(ctx, sqlc.UpdatePoolPriorityParams{
+				OrgID:        claims.OrgID,
+				ID:           p.Id,
+				PoolPriority: p.Priority,
+			})
+			if err != nil {
+				return nil, ErrInternal
+			}
+			pool, err := q.GetPool(ctx, sqlc.GetPoolParams{OrgID: claims.OrgID, ID: p.Id})
+			if err != nil {
+				return nil, ErrInternal
+			}
+			poolDto, err := toPoolDto(&pool)
+			if err != nil {
+				return nil, err
+			}
+			pools = append(pools, poolDto)
+		}
+		return pools, nil
+	})
+}
+
+func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.Pool, error) {
+	claims, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
+	if !ok {
+		return nil, ErrForbidden
+	}
+	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (*pb.Pool, error) {
+		pool, err := q.GetPool(ctx, sqlc.GetPoolParams{
+			OrgID: claims.OrgID,
+			ID:    r.Id,
+		})
+		if err != nil {
+			return nil, ErrInternal
+		}
+		if r.PoolName != "" {
+			pool.PoolName = r.PoolName
+		}
+		if r.IsDefault {
+			pool.IsDefault = sql.NullBool{Bool: r.IsDefault, Valid: true}
+			// unset any other default pool
+			err := q.UnsetDefaultPool(ctx, sqlc.UnsetDefaultPoolParams{
+				OrgID:     claims.OrgID,
+				UpdatedAt: time.Now(),
+			})
+			if err != nil {
+				return nil, ErrInternal
+			}
+		}
+		if r.Url != "" {
+			pool.Url = r.Url
+		}
+		if r.Username != "" {
+			pool.Username = r.Username
+		}
+		if r.Password != "" {
+			// TODO encrypt password
+			pool.PasswordEnc = r.Password
+		}
+		err = q.UpdatePool(ctx, sqlc.UpdatePoolParams{
+			PoolName:     pool.PoolName,
+			Url:          pool.Url,
+			Username:     pool.Username,
+			PoolPriority: pool.PoolPriority,
+			PoolStatus:   pool.PoolStatus,
+			IsDefault:    pool.IsDefault,
+			UpdatedAt:    time.Now(),
+			OrgID:        claims.OrgID,
+			ID:           pool.ID,
+		})
+		if err != nil {
+			return nil, ErrInternal
+		}
+		return toPoolDto(&pool)
+	})
+}
+
+func (s *Service) CreatePool(ctx context.Context, r *pb.PoolConfig) (*pb.Pool, error) {
+	claims, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
+	if !ok {
+		return nil, ErrForbidden
+	}
+	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (*pb.Pool, error) {
+		pools, err := q.ListPools(ctx, claims.OrgID)
+
+		if err != nil {
+			slog.Error("error getting list of pools", "org_id", claims.OrgID, "error", err)
+			return nil, ErrInternal
+		}
+		result, err := q.CreatePool(ctx, sqlc.CreatePoolParams{
+			PoolName: r.PoolName,
+			Url:      r.Url,
+			Username: r.Username,
+			// TODO encrypt password
+			PasswordEnc:  r.Password,
+			PoolStatus:   sqlc.PoolPoolStatusUNKNOWN,
+			PoolPriority: defaultPoolPriority,
+			IsDefault:    sql.NullBool{Valid: true, Bool: len(pools) == 0},
+			CreatedAt:    time.Now(),
+
+			OrgID: claims.OrgID,
+		})
+
+		if err != nil {
+			slog.Error("error saving pool", "org_id", claims.OrgID, "pool_name", r.PoolName, "error", err)
+			return nil, ErrInternal
+		}
+		poolID, err := result.LastInsertId()
+
+		if err != nil {
+			slog.Error("error getting id of created pool", "org_id", claims.OrgID, "pool_name", r.PoolName, "error", err)
+			return nil, ErrInternal
+		}
+		pool, err := q.GetPool(ctx, sqlc.GetPoolParams{
+			OrgID: claims.OrgID,
+			ID:    poolID,
+		})
+		if err != nil {
+			slog.Error("error getting created pool", "org_id", claims.OrgID, "pool_id", poolID, "error", err)
+			return nil, ErrInternal
+		}
+		return toPoolDto(&pool)
+	})
+}
+
+func (s *Service) ListPools(ctx context.Context) ([]*pb.Pool, error) {
+	claims, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
+	if !ok {
+		return nil, ErrForbidden
+	}
+	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]*pb.Pool, error) {
+		result, err := q.ListPools(ctx, claims.OrgID)
+		if err != nil {
+			return nil, ErrInternal
+		}
+		var pools []*pb.Pool
+		for _, p := range result {
+			poolDto, err := toPoolDto(&p)
+			if err != nil {
+				return nil, err
+			}
+			pools = append(pools, poolDto)
+		}
+		return pools, nil
+	})
+}
+
+func toPoolDto(pool *sqlc.Pool) (*pb.Pool, error) {
+	return &pb.Pool{
+		PoolId:       pool.ID,
+		PoolName:     pool.PoolName,
+		Url:          pool.Url,
+		Username:     pool.Username,
+		PoolPriority: pool.PoolPriority,
+		PoolStatus:   convertToProtoStatus(pool.PoolStatus),
+		IsDefault:    pool.IsDefault.Valid && pool.IsDefault.Bool,
+	}, nil
+}
+
+// Convert internal status to proto status
+func convertToProtoStatus(status sqlc.PoolPoolStatus) pb.PoolConnectionStatus {
+	switch status {
+	case sqlc.PoolPoolStatusUNKNOWN:
+		return pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_UNSPECIFIED
+	case sqlc.PoolPoolStatusIDLE:
+		return pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_IDLE
+	case sqlc.PoolPoolStatusACTIVE:
+		return pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_ACTIVE
+	case sqlc.PoolPoolStatusDEAD:
+		return pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_DEAD
+	default:
+		return pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_UNSPECIFIED
+	}
+}
+
+// Convert proto status to internal status
+func convertFromProtoStatus(status pb.PoolConnectionStatus) sqlc.PoolPoolStatus {
+	switch status {
+	case pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_UNSPECIFIED:
+		return sqlc.PoolPoolStatusUNKNOWN
+	case pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_IDLE:
+		return sqlc.PoolPoolStatusIDLE
+	case pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_ACTIVE:
+		return sqlc.PoolPoolStatusACTIVE
+	case pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_DEAD:
+		return sqlc.PoolPoolStatusDEAD
+	default:
+		return sqlc.PoolPoolStatusUNKNOWN
+	}
 }
 
 type Cursor struct {

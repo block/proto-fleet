@@ -1,10 +1,11 @@
 package middleware
 
 import (
+	"net/http"
+
 	connectcors "connectrpc.com/cors"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/server"
 	"github.com/rs/cors"
-	"net/http"
 )
 
 type CORSMiddleware struct {

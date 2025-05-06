@@ -37,6 +37,21 @@ const (
 	// FleetManagementServiceSetDefaultPoolProcedure is the fully-qualified name of the
 	// FleetManagementService's SetDefaultPool RPC.
 	FleetManagementServiceSetDefaultPoolProcedure = "/fleetmanagement.v1.FleetManagementService/SetDefaultPool"
+	// FleetManagementServiceListPoolsProcedure is the fully-qualified name of the
+	// FleetManagementService's ListPools RPC.
+	FleetManagementServiceListPoolsProcedure = "/fleetmanagement.v1.FleetManagementService/ListPools"
+	// FleetManagementServiceCreatePoolProcedure is the fully-qualified name of the
+	// FleetManagementService's CreatePool RPC.
+	FleetManagementServiceCreatePoolProcedure = "/fleetmanagement.v1.FleetManagementService/CreatePool"
+	// FleetManagementServiceUpdatePoolProcedure is the fully-qualified name of the
+	// FleetManagementService's UpdatePool RPC.
+	FleetManagementServiceUpdatePoolProcedure = "/fleetmanagement.v1.FleetManagementService/UpdatePool"
+	// FleetManagementServiceUpdatePoolPriorityProcedure is the fully-qualified name of the
+	// FleetManagementService's UpdatePoolPriority RPC.
+	FleetManagementServiceUpdatePoolPriorityProcedure = "/fleetmanagement.v1.FleetManagementService/UpdatePoolPriority"
+	// FleetManagementServiceDeletePoolProcedure is the fully-qualified name of the
+	// FleetManagementService's DeletePool RPC.
+	FleetManagementServiceDeletePoolProcedure = "/fleetmanagement.v1.FleetManagementService/DeletePool"
 	// FleetManagementServiceListPairedMinersProcedure is the fully-qualified name of the
 	// FleetManagementService's ListPairedMiners RPC.
 	FleetManagementServiceListPairedMinersProcedure = "/fleetmanagement.v1.FleetManagementService/ListPairedMiners"
@@ -48,10 +63,25 @@ type FleetManagementServiceClient interface {
 	// Sets the default pool configuration for the fleet
 	// This will be used as the base configuration for new miners
 	// or when resetting miners to default settings
+	// Any existing default pool will be replaced with this configuration
 	SetDefaultPool(context.Context, *connect.Request[v1.SetDefaultPoolRequest]) (*connect.Response[v1.SetDefaultPoolResponse], error)
+	// Lists all configured mining pools
+	// Returns pools ordered by priority (highest priority first)
+	ListPools(context.Context, *connect.Request[v1.ListPoolsRequest]) (*connect.Response[v1.ListPoolsResponse], error)
+	// Creates a new mining pool configuration
+	// First pool created will be set as the default pool
+	// The new pool will be assigned the lowest priority by default
+	CreatePool(context.Context, *connect.Request[v1.CreatePoolRequest]) (*connect.Response[v1.CreatePoolResponse], error)
+	// Updates an existing pool's configuration
+	// Can modify connection details and default status
+	UpdatePool(context.Context, *connect.Request[v1.UpdatePoolRequest]) (*connect.Response[v1.UpdatePoolResponse], error)
+	// Updates priorities for multiple pools in a single operation
+	// All specified priorities are updated atomically
+	UpdatePoolPriority(context.Context, *connect.Request[v1.UpdatePoolPriorityRequest]) (*connect.Response[v1.UpdatePoolPriorityResponse], error)
+	// Deletes a pool configuration
+	DeletePool(context.Context, *connect.Request[v1.DeletePoolRequest]) (*connect.Response[v1.DeletePoolResponse], error)
 	// Lists all miners that have been paired with the fleet management system
 	// Supports pagination for handling large fleets efficiently
-	// Returns a sorted list of miners (typically by device_identifier)
 	ListPairedMiners(context.Context, *connect.Request[v1.ListPairedMinersRequest]) (*connect.Response[v1.ListPairedMinersResponse], error)
 }
 
@@ -70,6 +100,31 @@ func NewFleetManagementServiceClient(httpClient connect.HTTPClient, baseURL stri
 			baseURL+FleetManagementServiceSetDefaultPoolProcedure,
 			opts...,
 		),
+		listPools: connect.NewClient[v1.ListPoolsRequest, v1.ListPoolsResponse](
+			httpClient,
+			baseURL+FleetManagementServiceListPoolsProcedure,
+			opts...,
+		),
+		createPool: connect.NewClient[v1.CreatePoolRequest, v1.CreatePoolResponse](
+			httpClient,
+			baseURL+FleetManagementServiceCreatePoolProcedure,
+			opts...,
+		),
+		updatePool: connect.NewClient[v1.UpdatePoolRequest, v1.UpdatePoolResponse](
+			httpClient,
+			baseURL+FleetManagementServiceUpdatePoolProcedure,
+			opts...,
+		),
+		updatePoolPriority: connect.NewClient[v1.UpdatePoolPriorityRequest, v1.UpdatePoolPriorityResponse](
+			httpClient,
+			baseURL+FleetManagementServiceUpdatePoolPriorityProcedure,
+			opts...,
+		),
+		deletePool: connect.NewClient[v1.DeletePoolRequest, v1.DeletePoolResponse](
+			httpClient,
+			baseURL+FleetManagementServiceDeletePoolProcedure,
+			opts...,
+		),
 		listPairedMiners: connect.NewClient[v1.ListPairedMinersRequest, v1.ListPairedMinersResponse](
 			httpClient,
 			baseURL+FleetManagementServiceListPairedMinersProcedure,
@@ -80,13 +135,43 @@ func NewFleetManagementServiceClient(httpClient connect.HTTPClient, baseURL stri
 
 // fleetManagementServiceClient implements FleetManagementServiceClient.
 type fleetManagementServiceClient struct {
-	setDefaultPool   *connect.Client[v1.SetDefaultPoolRequest, v1.SetDefaultPoolResponse]
-	listPairedMiners *connect.Client[v1.ListPairedMinersRequest, v1.ListPairedMinersResponse]
+	setDefaultPool     *connect.Client[v1.SetDefaultPoolRequest, v1.SetDefaultPoolResponse]
+	listPools          *connect.Client[v1.ListPoolsRequest, v1.ListPoolsResponse]
+	createPool         *connect.Client[v1.CreatePoolRequest, v1.CreatePoolResponse]
+	updatePool         *connect.Client[v1.UpdatePoolRequest, v1.UpdatePoolResponse]
+	updatePoolPriority *connect.Client[v1.UpdatePoolPriorityRequest, v1.UpdatePoolPriorityResponse]
+	deletePool         *connect.Client[v1.DeletePoolRequest, v1.DeletePoolResponse]
+	listPairedMiners   *connect.Client[v1.ListPairedMinersRequest, v1.ListPairedMinersResponse]
 }
 
 // SetDefaultPool calls fleetmanagement.v1.FleetManagementService.SetDefaultPool.
 func (c *fleetManagementServiceClient) SetDefaultPool(ctx context.Context, req *connect.Request[v1.SetDefaultPoolRequest]) (*connect.Response[v1.SetDefaultPoolResponse], error) {
 	return c.setDefaultPool.CallUnary(ctx, req)
+}
+
+// ListPools calls fleetmanagement.v1.FleetManagementService.ListPools.
+func (c *fleetManagementServiceClient) ListPools(ctx context.Context, req *connect.Request[v1.ListPoolsRequest]) (*connect.Response[v1.ListPoolsResponse], error) {
+	return c.listPools.CallUnary(ctx, req)
+}
+
+// CreatePool calls fleetmanagement.v1.FleetManagementService.CreatePool.
+func (c *fleetManagementServiceClient) CreatePool(ctx context.Context, req *connect.Request[v1.CreatePoolRequest]) (*connect.Response[v1.CreatePoolResponse], error) {
+	return c.createPool.CallUnary(ctx, req)
+}
+
+// UpdatePool calls fleetmanagement.v1.FleetManagementService.UpdatePool.
+func (c *fleetManagementServiceClient) UpdatePool(ctx context.Context, req *connect.Request[v1.UpdatePoolRequest]) (*connect.Response[v1.UpdatePoolResponse], error) {
+	return c.updatePool.CallUnary(ctx, req)
+}
+
+// UpdatePoolPriority calls fleetmanagement.v1.FleetManagementService.UpdatePoolPriority.
+func (c *fleetManagementServiceClient) UpdatePoolPriority(ctx context.Context, req *connect.Request[v1.UpdatePoolPriorityRequest]) (*connect.Response[v1.UpdatePoolPriorityResponse], error) {
+	return c.updatePoolPriority.CallUnary(ctx, req)
+}
+
+// DeletePool calls fleetmanagement.v1.FleetManagementService.DeletePool.
+func (c *fleetManagementServiceClient) DeletePool(ctx context.Context, req *connect.Request[v1.DeletePoolRequest]) (*connect.Response[v1.DeletePoolResponse], error) {
+	return c.deletePool.CallUnary(ctx, req)
 }
 
 // ListPairedMiners calls fleetmanagement.v1.FleetManagementService.ListPairedMiners.
@@ -100,10 +185,25 @@ type FleetManagementServiceHandler interface {
 	// Sets the default pool configuration for the fleet
 	// This will be used as the base configuration for new miners
 	// or when resetting miners to default settings
+	// Any existing default pool will be replaced with this configuration
 	SetDefaultPool(context.Context, *connect.Request[v1.SetDefaultPoolRequest]) (*connect.Response[v1.SetDefaultPoolResponse], error)
+	// Lists all configured mining pools
+	// Returns pools ordered by priority (highest priority first)
+	ListPools(context.Context, *connect.Request[v1.ListPoolsRequest]) (*connect.Response[v1.ListPoolsResponse], error)
+	// Creates a new mining pool configuration
+	// First pool created will be set as the default pool
+	// The new pool will be assigned the lowest priority by default
+	CreatePool(context.Context, *connect.Request[v1.CreatePoolRequest]) (*connect.Response[v1.CreatePoolResponse], error)
+	// Updates an existing pool's configuration
+	// Can modify connection details and default status
+	UpdatePool(context.Context, *connect.Request[v1.UpdatePoolRequest]) (*connect.Response[v1.UpdatePoolResponse], error)
+	// Updates priorities for multiple pools in a single operation
+	// All specified priorities are updated atomically
+	UpdatePoolPriority(context.Context, *connect.Request[v1.UpdatePoolPriorityRequest]) (*connect.Response[v1.UpdatePoolPriorityResponse], error)
+	// Deletes a pool configuration
+	DeletePool(context.Context, *connect.Request[v1.DeletePoolRequest]) (*connect.Response[v1.DeletePoolResponse], error)
 	// Lists all miners that have been paired with the fleet management system
 	// Supports pagination for handling large fleets efficiently
-	// Returns a sorted list of miners (typically by device_identifier)
 	ListPairedMiners(context.Context, *connect.Request[v1.ListPairedMinersRequest]) (*connect.Response[v1.ListPairedMinersResponse], error)
 }
 
@@ -118,6 +218,31 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 		svc.SetDefaultPool,
 		opts...,
 	)
+	fleetManagementServiceListPoolsHandler := connect.NewUnaryHandler(
+		FleetManagementServiceListPoolsProcedure,
+		svc.ListPools,
+		opts...,
+	)
+	fleetManagementServiceCreatePoolHandler := connect.NewUnaryHandler(
+		FleetManagementServiceCreatePoolProcedure,
+		svc.CreatePool,
+		opts...,
+	)
+	fleetManagementServiceUpdatePoolHandler := connect.NewUnaryHandler(
+		FleetManagementServiceUpdatePoolProcedure,
+		svc.UpdatePool,
+		opts...,
+	)
+	fleetManagementServiceUpdatePoolPriorityHandler := connect.NewUnaryHandler(
+		FleetManagementServiceUpdatePoolPriorityProcedure,
+		svc.UpdatePoolPriority,
+		opts...,
+	)
+	fleetManagementServiceDeletePoolHandler := connect.NewUnaryHandler(
+		FleetManagementServiceDeletePoolProcedure,
+		svc.DeletePool,
+		opts...,
+	)
 	fleetManagementServiceListPairedMinersHandler := connect.NewUnaryHandler(
 		FleetManagementServiceListPairedMinersProcedure,
 		svc.ListPairedMiners,
@@ -127,6 +252,16 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 		switch r.URL.Path {
 		case FleetManagementServiceSetDefaultPoolProcedure:
 			fleetManagementServiceSetDefaultPoolHandler.ServeHTTP(w, r)
+		case FleetManagementServiceListPoolsProcedure:
+			fleetManagementServiceListPoolsHandler.ServeHTTP(w, r)
+		case FleetManagementServiceCreatePoolProcedure:
+			fleetManagementServiceCreatePoolHandler.ServeHTTP(w, r)
+		case FleetManagementServiceUpdatePoolProcedure:
+			fleetManagementServiceUpdatePoolHandler.ServeHTTP(w, r)
+		case FleetManagementServiceUpdatePoolPriorityProcedure:
+			fleetManagementServiceUpdatePoolPriorityHandler.ServeHTTP(w, r)
+		case FleetManagementServiceDeletePoolProcedure:
+			fleetManagementServiceDeletePoolHandler.ServeHTTP(w, r)
 		case FleetManagementServiceListPairedMinersProcedure:
 			fleetManagementServiceListPairedMinersHandler.ServeHTTP(w, r)
 		default:
@@ -140,6 +275,26 @@ type UnimplementedFleetManagementServiceHandler struct{}
 
 func (UnimplementedFleetManagementServiceHandler) SetDefaultPool(context.Context, *connect.Request[v1.SetDefaultPoolRequest]) (*connect.Response[v1.SetDefaultPoolResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.SetDefaultPool is not implemented"))
+}
+
+func (UnimplementedFleetManagementServiceHandler) ListPools(context.Context, *connect.Request[v1.ListPoolsRequest]) (*connect.Response[v1.ListPoolsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.ListPools is not implemented"))
+}
+
+func (UnimplementedFleetManagementServiceHandler) CreatePool(context.Context, *connect.Request[v1.CreatePoolRequest]) (*connect.Response[v1.CreatePoolResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.CreatePool is not implemented"))
+}
+
+func (UnimplementedFleetManagementServiceHandler) UpdatePool(context.Context, *connect.Request[v1.UpdatePoolRequest]) (*connect.Response[v1.UpdatePoolResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.UpdatePool is not implemented"))
+}
+
+func (UnimplementedFleetManagementServiceHandler) UpdatePoolPriority(context.Context, *connect.Request[v1.UpdatePoolPriorityRequest]) (*connect.Response[v1.UpdatePoolPriorityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.UpdatePoolPriority is not implemented"))
+}
+
+func (UnimplementedFleetManagementServiceHandler) DeletePool(context.Context, *connect.Request[v1.DeletePoolRequest]) (*connect.Response[v1.DeletePoolResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.DeletePool is not implemented"))
 }
 
 func (UnimplementedFleetManagementServiceHandler) ListPairedMiners(context.Context, *connect.Request[v1.ListPairedMinersRequest]) (*connect.Response[v1.ListPairedMinersResponse], error) {

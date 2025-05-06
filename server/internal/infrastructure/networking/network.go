@@ -2,11 +2,12 @@ package networking
 
 import (
 	"fmt"
-	"github.com/j-keck/arping"
-	"github.com/jackpal/gateway"
 	"net"
 	"strings"
 	"time"
+
+	"github.com/j-keck/arping"
+	"github.com/jackpal/gateway"
 )
 
 type NetworkInfo struct {

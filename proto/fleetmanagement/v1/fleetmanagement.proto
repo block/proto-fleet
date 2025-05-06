@@ -5,39 +5,168 @@ package fleetmanagement.v1;
 // PoolConfig defines the connection details for a mining pool
 message PoolConfig {
   // Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")
+  // Required field that specifies the endpoint for connecting to the pool
   string url = 1;
 
   // Username or wallet address for pool authentication
+  // Required field that identifies the user/wallet receiving mining rewards
   string username = 2;
 
   // Password for pool authentication
+  // May be optional depending on pool requirements, often used for worker identification
   string password = 3;
 
-  // Worker name to identify this mining instance on the pool
-  // Format typically: workername.rigname
-  string worker_name = 4;
+  // Pool name to identify this pool
+  // Human-readable identifier for the pool within the fleet management system
+  string pool_name = 4;
 }
 
-// Request to set the default pool configuration for the fleet
-// This configuration will be used for new miners or when resetting to defaults
+// Request to set an existing pool as the default for the fleet
+// This pool will be used for new miners or when resetting to defaults
 message SetDefaultPoolRequest {
-  // New default pool configuration to be applied
-  PoolConfig pool_config = 1;
+  // ID of the existing pool to set as default
+  // Must reference a valid pool_id from a previously created pool
+  int64 pool_id = 1;
 }
 
 // Response to setting default pool configuration
 // Empty message as success/failure is indicated by gRPC status
 message SetDefaultPoolResponse {
+  // The updated default pool with all current values
+  Pool pool = 1;
+}
+
+enum PoolConnectionStatus {
+  POOL_CONNECTION_STATUS_UNSPECIFIED = 0;
+  POOL_CONNECTION_STATUS_IDLE = 1;
+  POOL_CONNECTION_STATUS_ACTIVE = 2;
+  POOL_CONNECTION_STATUS_DEAD = 3;
+}
+
+// Pool defines a configured mining pool with its connection details and status
+message Pool {
+  // Unique identifier for the pool within the system
+  int64 pool_id = 1;
+
+  // Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")
+  // Endpoint for connecting to the pool
+  string url = 2;
+
+  // Username or wallet address for pool authentication
+  // Identifies the user/wallet receiving mining rewards
+  string username = 3;
+
+  // Pool name to identify this pool
+  // Human-readable identifier for the pool within the fleet management system
+  string pool_name = 4;
+
+  // Priority of this pool (lower number = higher priority)
+  // Determines the order in which miners will try to connect to pools
+  int32 pool_priority = 5;
+
+  // Current status of the pool
+  // Indicates the operational state of the pool connection
+  PoolConnectionStatus pool_status = 6;
+
+  // Flag indicating whether the pool is the default pool
+  // Default pool is used for new miners and when resetting to defaults
+  bool is_default = 7;
+}
+
+// Request to retrieve all configured mining pools
+message ListPoolsRequest {
+  // Empty request as all pools are returned
+}
+
+// Response containing all configured mining pools
+message ListPoolsResponse {
+  // List of all configured pools, ordered by priority
+  repeated Pool pools = 1;
+}
+
+// Request to create a new mining pool configuration
+message CreatePoolRequest {
+  // Pool configuration details for the new pool
+  // Must contain all required connection information
+  PoolConfig pool_config = 1;
+}
+
+// Response after creating a new mining pool
+message CreatePoolResponse {
+  // The newly created pool with system-assigned ID and default values
+  Pool pool = 1;
+}
+
+// Request to update an existing pool's configuration
+message UpdatePoolRequest {
+  // Unique identifier of the pool to update
+  int64 id = 1;
+
+  // New pool name (optional, leave empty to keep current value)
+  string pool_name = 2;
+
+  // New pool URL (optional, leave empty to keep current value)
+  string url = 3;
+
+  // New username (optional, leave empty to keep current value)
+  string username = 4;
+
+  // New password (optional, leave empty to keep current value)
+  string password = 5;
+
+  // Whether this pool should be set as the default
+  // Setting to true will unset any previous default pool
+  bool is_default = 6;
+}
+
+// Response after updating a pool's configuration
+message UpdatePoolResponse {
+  // The updated pool with all current values
+  Pool pool = 1;
+}
+
+// Defines a pool's priority for ordering
+message PoolPriority {
+  // Unique identifier of the pool
+  int64 id = 1;
+
+  // New priority value (lower number = higher priority)
+  int32 priority = 2;
+}
+
+// Request to update priorities for multiple pools at once
+message UpdatePoolPriorityRequest {
+  // List of pools with their new priorities
+  // All specified pools will have their priorities updated atomically
+  repeated PoolPriority pool_priorities = 1;
+}
+
+// Response after updating pool priorities
+message UpdatePoolPriorityResponse {
+  // List of all pools with their updated priorities
+  repeated Pool pools = 1;
+}
+
+// Request to delete a mining pool configuration
+message DeletePoolRequest {
+  // Unique identifier of the pool to delete
+  int64 id = 1;
+}
+
+// Response after deleting a pool configuration
+message DeletePoolResponse {
+  // Empty response as success/failure is indicated by gRPC status
 }
 
 // Request to list paired miners with pagination support
 message ListPairedMinersRequest {
   // Maximum number of miners to return in a single response
   // Server may return fewer miners than specified
+  // If not specified, a server-defined default will be used
   int32 page_size = 1;
 
-  // A pagination cursor returned by a previous call to this endpoint.
-  // Provide this cursor to retrieve the next set of results for the original query.
+  // A pagination cursor returned by a previous call to this endpoint
+  // Provide this cursor to retrieve the next set of results for the original query
   // Leave empty for first request
   string cursor = 2;
 }
@@ -45,26 +174,31 @@ message ListPairedMinersRequest {
 // Response containing a list of paired miners with pagination support
 message ListPairedMinersResponse {
   // List of paired miners for the current page
+  // Ordered by device_identifier by default
   repeated PairedDevice miners = 1;
 
-  // The pagination cursor to be used in a subsequent request.
-  // If empty, this is the final response.
+  // The pagination cursor to be used in a subsequent request
+  // If empty, this is the final page of results
   string cursor = 2;
 
   // Total number of miners available across all pages
+  // Useful for UI pagination controls
   int32 total_miners = 3;
 }
 
 // Represents a miner that has been paired with the fleet management system
 message PairedDevice {
   // Unique identifier for the device within the fleet
+  // Used as the primary reference for the device in API calls
   string device_identifier = 1;
 
   // Manufacturer-assigned serial number
+  // Useful for physical identification and warranty purposes
   string serial_number = 2;
 
   // Physical MAC address of the device
   // Format: XX:XX:XX:XX:XX:XX
+  // Used for network identification
   string mac_address = 3;
 }
 
@@ -73,10 +207,30 @@ service FleetManagementService {
   // Sets the default pool configuration for the fleet
   // This will be used as the base configuration for new miners
   // or when resetting miners to default settings
+  // Any existing default pool will be replaced with this configuration
   rpc SetDefaultPool(SetDefaultPoolRequest) returns (SetDefaultPoolResponse);
+
+  // Lists all configured mining pools
+  // Returns pools ordered by priority (highest priority first)
+  rpc ListPools(ListPoolsRequest) returns (ListPoolsResponse);
+
+  // Creates a new mining pool configuration
+  // First pool created will be set as the default pool
+  // The new pool will be assigned the lowest priority by default
+  rpc CreatePool(CreatePoolRequest) returns (CreatePoolResponse);
+
+  // Updates an existing pool's configuration
+  // Can modify connection details and default status
+  rpc UpdatePool(UpdatePoolRequest) returns (UpdatePoolResponse);
+
+  // Updates priorities for multiple pools in a single operation
+  // All specified priorities are updated atomically
+  rpc UpdatePoolPriority(UpdatePoolPriorityRequest) returns (UpdatePoolPriorityResponse);
+
+  // Deletes a pool configuration
+  rpc DeletePool(DeletePoolRequest) returns (DeletePoolResponse);
 
   // Lists all miners that have been paired with the fleet management system
   // Supports pagination for handling large fleets efficiently
-  // Returns a sorted list of miners (typically by device_identifier)
   rpc ListPairedMiners(ListPairedMinersRequest) returns (ListPairedMinersResponse);
 }

@@ -2,9 +2,10 @@ package token_test
 
 import (
 	"fmt"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"testing"
 	"time"
+
+	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 
 	"github.com/alecthomas/assert/v2"
 )
@@ -14,13 +15,15 @@ var testConfig = token.Config{
 	ExpirationPeriod: time.Minute * 5,                       // Short expiration for testing
 }
 
+var userID int64 = 12345
+var orgID int64 = 1
+
 // Test: Generate JWT and verify it
 func TestGenerateJWT(t *testing.T) {
 	tokenService, err := token.NewService(testConfig)
 	assert.NoError(t, err, "NewService should not return an error")
 
-	userID := "12345"
-	token, exp, err := tokenService.GenerateJWT(userID)
+	token, exp, err := tokenService.GenerateJWT(userID, orgID)
 	assert.NoError(t, err, "GenerateJWT should not return an error")
 	assert.NotZero(t, token, "Generated token should not be empty")
 	assert.NotZero(t, exp, "Token expiry should not be empty")
@@ -37,8 +40,7 @@ func TestVerifyJWT_ValidToken(t *testing.T) {
 	tokenService, err := token.NewService(testConfig)
 	assert.NoError(t, err, "NewService should not return an error")
 
-	userID := "67890"
-	token, _, err := tokenService.GenerateJWT(userID)
+	token, _, err := tokenService.GenerateJWT(userID, orgID)
 	assert.NoError(t, err, "GenerateJWT should not return an error")
 
 	claims, err := tokenService.VerifyJWT(token)
@@ -66,8 +68,7 @@ func TestVerifyJWT_ExpiredToken(t *testing.T) {
 	tokenService, err := token.NewService(expiredConfig)
 	assert.NoError(t, err, "NewService should not return an error")
 
-	userID := "expiredUser"
-	token, _, err := tokenService.GenerateJWT(userID)
+	token, _, err := tokenService.GenerateJWT(userID, orgID)
 	assert.NoError(t, err, "GenerateJWT should not return an error")
 
 	claims, err := tokenService.VerifyJWT(token)
@@ -80,8 +81,7 @@ func TestVerifyJWT_TamperedToken(t *testing.T) {
 	tokenService, err := token.NewService(testConfig)
 	assert.NoError(t, err, "NewService should not return an error")
 
-	userID := "tamperedUser"
-	token, _, err := tokenService.GenerateJWT(userID)
+	token, _, err := tokenService.GenerateJWT(userID, orgID)
 	assert.NoError(t, err, "GenerateJWT should not return an error")
 
 	// Modify token (tamper with it)

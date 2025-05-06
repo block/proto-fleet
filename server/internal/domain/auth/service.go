@@ -5,11 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
+
 	authv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1"
 	onboardingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
-	"time"
 
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/google/uuid"
@@ -17,10 +18,11 @@ import (
 )
 
 var (
-	ErrInvalidInput = errors.New("invalid input")
+	ErrInvalidInput            = errors.New("invalid input")
+	ErrUnsupportedUserMultiOrg = errors.New("unsupported user multi org")
 )
 
-const adminRoleName = "SUPER_ADMIN"
+const AdminRoleName = "SUPER_ADMIN"
 
 type Service struct {
 	conn     *sql.DB
@@ -35,21 +37,37 @@ func NewService(conn *sql.DB, tokenSvc *token.Service) *Service {
 }
 
 func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.AuthenticateRequest) (*authv1.AuthenticateResponse, error) {
-	user, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (sqlc.GetUserByUsernameRow, error) {
-		return q.GetUserByUsername(ctx, req.Username)
+	type UserOrgResult struct {
+		User sqlc.User
+		Org  sqlc.Organization
+	}
+	result, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (UserOrgResult, error) {
+		u, err := q.GetUserByUsername(ctx, req.Username)
+		if err != nil {
+			return UserOrgResult{}, err
+		}
+		o, err := q.GetOrganizationsForUser(ctx, u.ID)
+		if err != nil {
+			return UserOrgResult{}, err
+		}
+		if len(o) != 1 {
+			return UserOrgResult{}, ErrUnsupportedUserMultiOrg
+		}
+		return UserOrgResult{
+			User: u,
+			Org:  o[0],
+		}, nil
 	})
-
 	if err != nil {
 		return nil, err
 	}
 
 	// Compare hashed passwords
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(result.User.PasswordHash), []byte(req.Password)); err != nil {
 		return nil, fmt.Errorf("error validating password: %w", err)
 	}
-
 	// Generate and return JWT authToken
-	authToken, exp, err := s.tokenSvc.GenerateJWT(user.UserID)
+	authToken, exp, err := s.tokenSvc.GenerateJWT(result.User.ID, result.Org.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +122,7 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 
 		// create role
 		roleResult, err := q.UpsertRole(ctx, sqlc.UpsertRoleParams{
-			Name: adminRoleName,
+			Name: AdminRoleName,
 			Description: sql.NullString{
 				String: "Super admin role",
 				Valid:  true,

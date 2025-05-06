@@ -1,20 +1,21 @@
 package command
 
 import (
-	"connectrpc.com/connect"
 	"context"
 	"crypto/tls"
 	"database/sql"
 	"fmt"
+	"net"
+	"net/http"
+	"strings"
+
+	"connectrpc.com/connect"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api"
 	minerPb "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api/miner_command_apiconnect"
 	minerPbCommon "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"golang.org/x/net/http2"
-	"net"
-	"net/http"
-	"strings"
 
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 )

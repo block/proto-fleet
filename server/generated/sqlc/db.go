@@ -27,6 +27,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createOrganizationStmt, err = db.PrepareContext(ctx, createOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateOrganization: %w", err)
 	}
+	if q.createPoolStmt, err = db.PrepareContext(ctx, createPool); err != nil {
+		return nil, fmt.Errorf("error preparing query CreatePool: %w", err)
+	}
 	if q.createUserStmt, err = db.PrepareContext(ctx, createUser); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateUser: %w", err)
 	}
@@ -60,6 +63,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getOrganizationsForUserStmt, err = db.PrepareContext(ctx, getOrganizationsForUser); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrganizationsForUser: %w", err)
 	}
+	if q.getPoolStmt, err = db.PrepareContext(ctx, getPool); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPool: %w", err)
+	}
 	if q.getRoleByIDStmt, err = db.PrepareContext(ctx, getRoleByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRoleByID: %w", err)
 	}
@@ -68,6 +74,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getTotalPairedDevicesStmt, err = db.PrepareContext(ctx, getTotalPairedDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTotalPairedDevices: %w", err)
+	}
+	if q.getTotalPoolsStmt, err = db.PrepareContext(ctx, getTotalPools); err != nil {
+		return nil, fmt.Errorf("error preparing query GetTotalPools: %w", err)
 	}
 	if q.getUserByUsernameStmt, err = db.PrepareContext(ctx, getUserByUsername); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserByUsername: %w", err)
@@ -84,11 +93,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listPairedDevicesStmt, err = db.PrepareContext(ctx, listPairedDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ListPairedDevices: %w", err)
 	}
+	if q.listPoolsStmt, err = db.PrepareContext(ctx, listPools); err != nil {
+		return nil, fmt.Errorf("error preparing query ListPools: %w", err)
+	}
 	if q.listRolesStmt, err = db.PrepareContext(ctx, listRoles); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRoles: %w", err)
 	}
 	if q.softDeleteOrganizationStmt, err = db.PrepareContext(ctx, softDeleteOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteOrganization: %w", err)
+	}
+	if q.softDeletePoolStmt, err = db.PrepareContext(ctx, softDeletePool); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeletePool: %w", err)
 	}
 	if q.softDeleteRoleStmt, err = db.PrepareContext(ctx, softDeleteRole); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteRole: %w", err)
@@ -102,8 +117,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.undeleteRoleStmt, err = db.PrepareContext(ctx, undeleteRole); err != nil {
 		return nil, fmt.Errorf("error preparing query UndeleteRole: %w", err)
 	}
+	if q.unsetDefaultPoolStmt, err = db.PrepareContext(ctx, unsetDefaultPool); err != nil {
+		return nil, fmt.Errorf("error preparing query UnsetDefaultPool: %w", err)
+	}
 	if q.updateOrganizationStmt, err = db.PrepareContext(ctx, updateOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateOrganization: %w", err)
+	}
+	if q.updatePoolStmt, err = db.PrepareContext(ctx, updatePool); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdatePool: %w", err)
+	}
+	if q.updatePoolPriorityStmt, err = db.PrepareContext(ctx, updatePoolPriority); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdatePoolPriority: %w", err)
 	}
 	if q.updateRoleStmt, err = db.PrepareContext(ctx, updateRole); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateRole: %w", err)
@@ -131,6 +155,11 @@ func (q *Queries) Close() error {
 	if q.createOrganizationStmt != nil {
 		if cerr := q.createOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.createPoolStmt != nil {
+		if cerr := q.createPoolStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createPoolStmt: %w", cerr)
 		}
 	}
 	if q.createUserStmt != nil {
@@ -188,6 +217,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getOrganizationsForUserStmt: %w", cerr)
 		}
 	}
+	if q.getPoolStmt != nil {
+		if cerr := q.getPoolStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPoolStmt: %w", cerr)
+		}
+	}
 	if q.getRoleByIDStmt != nil {
 		if cerr := q.getRoleByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRoleByIDStmt: %w", cerr)
@@ -201,6 +235,11 @@ func (q *Queries) Close() error {
 	if q.getTotalPairedDevicesStmt != nil {
 		if cerr := q.getTotalPairedDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getTotalPairedDevicesStmt: %w", cerr)
+		}
+	}
+	if q.getTotalPoolsStmt != nil {
+		if cerr := q.getTotalPoolsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getTotalPoolsStmt: %w", cerr)
 		}
 	}
 	if q.getUserByUsernameStmt != nil {
@@ -228,6 +267,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listPairedDevicesStmt: %w", cerr)
 		}
 	}
+	if q.listPoolsStmt != nil {
+		if cerr := q.listPoolsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listPoolsStmt: %w", cerr)
+		}
+	}
 	if q.listRolesStmt != nil {
 		if cerr := q.listRolesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listRolesStmt: %w", cerr)
@@ -236,6 +280,11 @@ func (q *Queries) Close() error {
 	if q.softDeleteOrganizationStmt != nil {
 		if cerr := q.softDeleteOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing softDeleteOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.softDeletePoolStmt != nil {
+		if cerr := q.softDeletePoolStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeletePoolStmt: %w", cerr)
 		}
 	}
 	if q.softDeleteRoleStmt != nil {
@@ -258,9 +307,24 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing undeleteRoleStmt: %w", cerr)
 		}
 	}
+	if q.unsetDefaultPoolStmt != nil {
+		if cerr := q.unsetDefaultPoolStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing unsetDefaultPoolStmt: %w", cerr)
+		}
+	}
 	if q.updateOrganizationStmt != nil {
 		if cerr := q.updateOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.updatePoolStmt != nil {
+		if cerr := q.updatePoolStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updatePoolStmt: %w", cerr)
+		}
+	}
+	if q.updatePoolPriorityStmt != nil {
+		if cerr := q.updatePoolPriorityStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updatePoolPriorityStmt: %w", cerr)
 		}
 	}
 	if q.updateRoleStmt != nil {
@@ -333,6 +397,7 @@ type Queries struct {
 	db                                   DBTX
 	tx                                   *sql.Tx
 	createOrganizationStmt               *sql.Stmt
+	createPoolStmt                       *sql.Stmt
 	createUserStmt                       *sql.Stmt
 	createUserOrganizationStmt           *sql.Stmt
 	deactivateOldIPAssignmentsStmt       *sql.Stmt
@@ -344,21 +409,28 @@ type Queries struct {
 	getOrganizationByNameStmt            *sql.Stmt
 	getOrganizationByOrgIDStmt           *sql.Stmt
 	getOrganizationsForUserStmt          *sql.Stmt
+	getPoolStmt                          *sql.Stmt
 	getRoleByIDStmt                      *sql.Stmt
 	getRoleByNameStmt                    *sql.Stmt
 	getTotalPairedDevicesStmt            *sql.Stmt
+	getTotalPoolsStmt                    *sql.Stmt
 	getUserByUsernameStmt                *sql.Stmt
 	getUserRoleInOrganizationStmt        *sql.Stmt
 	getUsersForOrganizationStmt          *sql.Stmt
 	listOrganizationsStmt                *sql.Stmt
 	listPairedDevicesStmt                *sql.Stmt
+	listPoolsStmt                        *sql.Stmt
 	listRolesStmt                        *sql.Stmt
 	softDeleteOrganizationStmt           *sql.Stmt
+	softDeletePoolStmt                   *sql.Stmt
 	softDeleteRoleStmt                   *sql.Stmt
 	softDeleteUserFromOrganizationStmt   *sql.Stmt
 	undeleteOrganizationStmt             *sql.Stmt
 	undeleteRoleStmt                     *sql.Stmt
+	unsetDefaultPoolStmt                 *sql.Stmt
 	updateOrganizationStmt               *sql.Stmt
+	updatePoolStmt                       *sql.Stmt
+	updatePoolPriorityStmt               *sql.Stmt
 	updateRoleStmt                       *sql.Stmt
 	updateUserRoleStmt                   *sql.Stmt
 	upsertDeviceStmt                     *sql.Stmt
@@ -372,6 +444,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		db:                                   tx,
 		tx:                                   tx,
 		createOrganizationStmt:               q.createOrganizationStmt,
+		createPoolStmt:                       q.createPoolStmt,
 		createUserStmt:                       q.createUserStmt,
 		createUserOrganizationStmt:           q.createUserOrganizationStmt,
 		deactivateOldIPAssignmentsStmt:       q.deactivateOldIPAssignmentsStmt,
@@ -383,21 +456,28 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getOrganizationByNameStmt:            q.getOrganizationByNameStmt,
 		getOrganizationByOrgIDStmt:           q.getOrganizationByOrgIDStmt,
 		getOrganizationsForUserStmt:          q.getOrganizationsForUserStmt,
+		getPoolStmt:                          q.getPoolStmt,
 		getRoleByIDStmt:                      q.getRoleByIDStmt,
 		getRoleByNameStmt:                    q.getRoleByNameStmt,
 		getTotalPairedDevicesStmt:            q.getTotalPairedDevicesStmt,
+		getTotalPoolsStmt:                    q.getTotalPoolsStmt,
 		getUserByUsernameStmt:                q.getUserByUsernameStmt,
 		getUserRoleInOrganizationStmt:        q.getUserRoleInOrganizationStmt,
 		getUsersForOrganizationStmt:          q.getUsersForOrganizationStmt,
 		listOrganizationsStmt:                q.listOrganizationsStmt,
 		listPairedDevicesStmt:                q.listPairedDevicesStmt,
+		listPoolsStmt:                        q.listPoolsStmt,
 		listRolesStmt:                        q.listRolesStmt,
 		softDeleteOrganizationStmt:           q.softDeleteOrganizationStmt,
+		softDeletePoolStmt:                   q.softDeletePoolStmt,
 		softDeleteRoleStmt:                   q.softDeleteRoleStmt,
 		softDeleteUserFromOrganizationStmt:   q.softDeleteUserFromOrganizationStmt,
 		undeleteOrganizationStmt:             q.undeleteOrganizationStmt,
 		undeleteRoleStmt:                     q.undeleteRoleStmt,
+		unsetDefaultPoolStmt:                 q.unsetDefaultPoolStmt,
 		updateOrganizationStmt:               q.updateOrganizationStmt,
+		updatePoolStmt:                       q.updatePoolStmt,
+		updatePoolPriorityStmt:               q.updatePoolPriorityStmt,
 		updateRoleStmt:                       q.updateRoleStmt,
 		updateUserRoleStmt:                   q.updateUserRoleStmt,
 		upsertDeviceStmt:                     q.upsertDeviceStmt,

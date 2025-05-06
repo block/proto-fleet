@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
 import {
+  type CreatePoolRequest,
   type ListPairedMinersRequest,
   type ListPairedMinersResponse,
-  SetDefaultPoolRequest,
+  type SetDefaultPoolRequest,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
   getAuthHeader,
@@ -17,6 +18,12 @@ type FetchPairedMinersArgs = {
 
 interface SetDefaultPoolProps {
   defaultPoolRequest: SetDefaultPoolRequest;
+  onSuccess: () => void;
+  onError?: (error: string) => void;
+}
+
+interface CreatePoolProps {
+  createPoolRequest: CreatePoolRequest;
   onSuccess: () => void;
   onError?: (error: string) => void;
 }
@@ -69,7 +76,24 @@ const useFleet = () => {
     [authTokens],
   );
 
-  return useMemo(() => ({ miners, setDefaultPool }), [miners, setDefaultPool]);
+  const createPool = useCallback(
+    async ({ createPoolRequest, onSuccess, onError }: CreatePoolProps) => {
+      await fleetManagementClient
+        .createPool(createPoolRequest, getAuthHeader(authTokens))
+        .then(() => {
+          onSuccess();
+        })
+        .catch((err) => {
+          onError?.(err?.error?.message ?? err);
+        });
+    },
+    [authTokens],
+  );
+
+  return useMemo(
+    () => ({ miners, setDefaultPool, createPool }),
+    [miners, setDefaultPool, createPool],
+  );
 };
 
 export default useFleet;

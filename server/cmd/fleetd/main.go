@@ -2,17 +2,26 @@ package main
 
 import (
 	"fmt"
-	"github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
-	commandDomain "github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	"log/slog"
 	"net/http"
 	"os"
 
+	"connectrpc.com/connect"
 	"connectrpc.com/grpcreflect"
+	"github.com/alecthomas/kong"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
+
+	"github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
+	"github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
+	"github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
+	"github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	authDomain "github.com/btc-mining/proto-fleet/server/internal/domain/auth"
+	commandDomain "github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	fleetmanagementDomain "github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
+	onboardingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/auth"
@@ -25,18 +34,9 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/onboarding"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/pairing"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/static"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/logging"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/server"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
-
-	"connectrpc.com/connect"
-	"github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
-	"github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
-	"github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
-
-	"github.com/alecthomas/kong"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 )
 
 func main() {
@@ -80,6 +80,7 @@ func start(config *Config) error {
 	pairingSvc := pairingDomain.NewService(conn, config.Pairing)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(conn)
 	commandSvc := commandDomain.NewService(conn)
+	onboardingSvc := onboardingDomain.NewService(conn)
 
 	// init middleware
 	middlewares := []server.Middleware{
@@ -106,7 +107,7 @@ func start(config *Config) error {
 	}
 
 	mux.Handle(authv1connect.NewAuthServiceHandler(auth.NewHandler(authSvc), li))
-	mux.Handle(onboardingv1connect.NewOnboardingServiceHandler(onboarding.NewHandler(authSvc), li))
+	mux.Handle(onboardingv1connect.NewOnboardingServiceHandler(onboarding.NewHandler(authSvc, onboardingSvc), li))
 	mux.Handle(pairingv1connect.NewPairingServiceHandler(pairing.NewHandler(pairingSvc), li))
 	mux.Handle(networkinfov1connect.NewNetworkInfoServiceHandler(networkinfo.NewHandler(pairingSvc), li))
 	mux.Handle(fleetmanagementv1connect.NewFleetManagementServiceHandler(fleetmanagement.NewHandler(fleetMgmtSvc), li))

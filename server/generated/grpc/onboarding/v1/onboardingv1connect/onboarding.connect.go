@@ -37,11 +37,15 @@ const (
 	// OnboardingServiceCreateAdminLoginProcedure is the fully-qualified name of the OnboardingService's
 	// CreateAdminLogin RPC.
 	OnboardingServiceCreateAdminLoginProcedure = "/onboarding.v1.OnboardingService/CreateAdminLogin"
+	// OnboardingServiceGetFleetOnboardingStatusProcedure is the fully-qualified name of the
+	// OnboardingService's GetFleetOnboardingStatus RPC.
+	OnboardingServiceGetFleetOnboardingStatusProcedure = "/onboarding.v1.OnboardingService/GetFleetOnboardingStatus"
 )
 
 // OnboardingServiceClient is a client for the onboarding.v1.OnboardingService service.
 type OnboardingServiceClient interface {
 	CreateAdminLogin(context.Context, *connect.Request[v1.CreateAdminLoginRequest]) (*connect.Response[v1.CreateAdminLoginResponse], error)
+	GetFleetOnboardingStatus(context.Context, *connect.Request[v1.GetFleetOnboardingStatusRequest]) (*connect.Response[v1.GetFleetOnboardingStatusResponse], error)
 }
 
 // NewOnboardingServiceClient constructs a client for the onboarding.v1.OnboardingService service.
@@ -59,12 +63,18 @@ func NewOnboardingServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			baseURL+OnboardingServiceCreateAdminLoginProcedure,
 			opts...,
 		),
+		getFleetOnboardingStatus: connect.NewClient[v1.GetFleetOnboardingStatusRequest, v1.GetFleetOnboardingStatusResponse](
+			httpClient,
+			baseURL+OnboardingServiceGetFleetOnboardingStatusProcedure,
+			opts...,
+		),
 	}
 }
 
 // onboardingServiceClient implements OnboardingServiceClient.
 type onboardingServiceClient struct {
-	createAdminLogin *connect.Client[v1.CreateAdminLoginRequest, v1.CreateAdminLoginResponse]
+	createAdminLogin         *connect.Client[v1.CreateAdminLoginRequest, v1.CreateAdminLoginResponse]
+	getFleetOnboardingStatus *connect.Client[v1.GetFleetOnboardingStatusRequest, v1.GetFleetOnboardingStatusResponse]
 }
 
 // CreateAdminLogin calls onboarding.v1.OnboardingService.CreateAdminLogin.
@@ -72,9 +82,15 @@ func (c *onboardingServiceClient) CreateAdminLogin(ctx context.Context, req *con
 	return c.createAdminLogin.CallUnary(ctx, req)
 }
 
+// GetFleetOnboardingStatus calls onboarding.v1.OnboardingService.GetFleetOnboardingStatus.
+func (c *onboardingServiceClient) GetFleetOnboardingStatus(ctx context.Context, req *connect.Request[v1.GetFleetOnboardingStatusRequest]) (*connect.Response[v1.GetFleetOnboardingStatusResponse], error) {
+	return c.getFleetOnboardingStatus.CallUnary(ctx, req)
+}
+
 // OnboardingServiceHandler is an implementation of the onboarding.v1.OnboardingService service.
 type OnboardingServiceHandler interface {
 	CreateAdminLogin(context.Context, *connect.Request[v1.CreateAdminLoginRequest]) (*connect.Response[v1.CreateAdminLoginResponse], error)
+	GetFleetOnboardingStatus(context.Context, *connect.Request[v1.GetFleetOnboardingStatusRequest]) (*connect.Response[v1.GetFleetOnboardingStatusResponse], error)
 }
 
 // NewOnboardingServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -88,10 +104,17 @@ func NewOnboardingServiceHandler(svc OnboardingServiceHandler, opts ...connect.H
 		svc.CreateAdminLogin,
 		opts...,
 	)
+	onboardingServiceGetFleetOnboardingStatusHandler := connect.NewUnaryHandler(
+		OnboardingServiceGetFleetOnboardingStatusProcedure,
+		svc.GetFleetOnboardingStatus,
+		opts...,
+	)
 	return "/onboarding.v1.OnboardingService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case OnboardingServiceCreateAdminLoginProcedure:
 			onboardingServiceCreateAdminLoginHandler.ServeHTTP(w, r)
+		case OnboardingServiceGetFleetOnboardingStatusProcedure:
+			onboardingServiceGetFleetOnboardingStatusHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -103,4 +126,8 @@ type UnimplementedOnboardingServiceHandler struct{}
 
 func (UnimplementedOnboardingServiceHandler) CreateAdminLogin(context.Context, *connect.Request[v1.CreateAdminLoginRequest]) (*connect.Response[v1.CreateAdminLoginResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("onboarding.v1.OnboardingService.CreateAdminLogin is not implemented"))
+}
+
+func (UnimplementedOnboardingServiceHandler) GetFleetOnboardingStatus(context.Context, *connect.Request[v1.GetFleetOnboardingStatusRequest]) (*connect.Response[v1.GetFleetOnboardingStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("onboarding.v1.OnboardingService.GetFleetOnboardingStatus is not implemented"))
 }

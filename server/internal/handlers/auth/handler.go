@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+
 	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"
 
 	"connectrpc.com/connect"

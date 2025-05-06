@@ -5,11 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
+
 	"github.com/btc-mining/proto-fleet/server/migrations"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/mysql"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-	"log/slog"
 )
 
 // ConnectAndMigrate creates a driver for the database, ensures the database is alive, and runs migrations if needed.

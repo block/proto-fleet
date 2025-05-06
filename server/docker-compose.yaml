@@ -11,7 +11,7 @@ services:
       - "4000:8080"
     environment:
       AUTH_SECRET_KEY: "00000000000000000000000000000000000000000000"
-      AUTH_EXPIRATION_PERIOD: "15m"
+      AUTH_EXPIRATION_PERIOD: "168h"
       DB_NAME: "fleet"
       DB_USERNAME: "root"
       DB_PASSWORD: ""

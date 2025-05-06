@@ -1,13 +1,14 @@
 package middleware_test
 
 import (
-	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
-	"github.com/btc-mining/proto-fleet/server/internal/handlers/middleware"
-	"github.com/btc-mining/proto-fleet/server/internal/handlers/ping"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
+	"github.com/btc-mining/proto-fleet/server/internal/handlers/middleware"
+	"github.com/btc-mining/proto-fleet/server/internal/handlers/ping"
 
 	"connectrpc.com/connect"
 	"github.com/alecthomas/assert/v2"
@@ -34,8 +35,8 @@ func TestAuthMiddleware(t *testing.T) {
 		path, handler := pingv1connect.NewPingServiceHandler(ping.Handler{})
 		mux.Handle(path, handler)
 
-		middleware := middleware.NewAuthMiddleware(tokenSvc, allowList)
-		testServer := httptest.NewServer(middleware.Wrap(mux))
+		authMiddleware := middleware.NewAuthMiddleware(tokenSvc, allowList)
+		testServer := httptest.NewServer(authMiddleware.Wrap(mux))
 		defer testServer.Close()
 
 		// Create client
@@ -63,8 +64,8 @@ func TestAuthMiddleware(t *testing.T) {
 		path, handler := pingv1connect.NewPingServiceHandler(ping.Handler{})
 		mux.Handle(path, handler)
 
-		middleware := middleware.NewAuthMiddleware(tokenSvc, []string{})
-		testServer := httptest.NewServer(middleware.Wrap(mux))
+		authMiddleware := middleware.NewAuthMiddleware(tokenSvc, []string{})
+		testServer := httptest.NewServer(authMiddleware.Wrap(mux))
 		defer testServer.Close()
 
 		// Create client
@@ -91,8 +92,8 @@ func TestAuthMiddleware(t *testing.T) {
 		path, handler := pingv1connect.NewPingServiceHandler(ping.Handler{})
 		mux.Handle(path, handler)
 
-		middleware := middleware.NewAuthMiddleware(tokenSvc, allowList)
-		testServer := httptest.NewServer(middleware.Wrap(mux))
+		authMiddleware := middleware.NewAuthMiddleware(tokenSvc, allowList)
+		testServer := httptest.NewServer(authMiddleware.Wrap(mux))
 		defer testServer.Close()
 
 		// Create client
@@ -106,12 +107,12 @@ func TestAuthMiddleware(t *testing.T) {
 			Text: "Hello",
 		})
 
-		token, _, err := tokenSvc.GenerateJWT("user_123")
+		jwt, _, err := tokenSvc.GenerateJWT(123, 1)
 		assert.NoError(t, err)
 
 		req.Header().Set(
 			"Authorization",
-			"Bearer "+token,
+			"Bearer "+jwt,
 		)
 
 		resp, err := client.Ping(t.Context(), req)
@@ -128,8 +129,8 @@ func TestAuthMiddleware(t *testing.T) {
 		path, handler := pingv1connect.NewPingServiceHandler(ping.Handler{})
 		mux.Handle(path, handler)
 
-		middleware := middleware.NewAuthMiddleware(tokenSvc, allowList)
-		testServer := httptest.NewServer(middleware.Wrap(mux))
+		authMiddleware := middleware.NewAuthMiddleware(tokenSvc, allowList)
+		testServer := httptest.NewServer(authMiddleware.Wrap(mux))
 		defer testServer.Close()
 
 		// Create client

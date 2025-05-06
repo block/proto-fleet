@@ -2,14 +2,16 @@ package onboarding_test
 
 import (
 	"database/sql"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
-	"github.com/btc-mining/proto-fleet/server/internal/handlers/onboarding"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"
+	onboardingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/onboarding"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
+	"github.com/btc-mining/proto-fleet/server/internal/handlers/onboarding"
 
 	"connectrpc.com/connect"
 	"github.com/alecthomas/assert/v2"
@@ -33,10 +35,11 @@ func TestHandler_CreateAdminLogin(t *testing.T) {
 		// Setup dependencies
 		conn := dbtest.GetTestDB(t)
 		authSvc := auth.NewService(conn, tokenSvc)
+		onboardingSvc := onboardingDomain.NewService(conn)
 
 		// Setup test server
 		mux := http.NewServeMux()
-		server := onboarding.NewHandler(authSvc)
+		server := onboarding.NewHandler(authSvc, onboardingSvc)
 		path, handler := onboardingv1connect.NewOnboardingServiceHandler(server)
 		mux.Handle(path, handler)
 		testServer := httptest.NewServer(mux)
@@ -70,10 +73,11 @@ func TestHandler_CreateAdminLogin(t *testing.T) {
 		// Setup dependencies
 		conn := dbtest.GetTestDB(t)
 		authSvc := auth.NewService(conn, tokenSvc)
+		onboardingSvc := onboardingDomain.NewService(conn)
 
 		// Setup test server
 		mux := http.NewServeMux()
-		server := onboarding.NewHandler(authSvc)
+		server := onboarding.NewHandler(authSvc, onboardingSvc)
 		path, handler := onboardingv1connect.NewOnboardingServiceHandler(server)
 		mux.Handle(path, handler)
 		testServer := httptest.NewServer(mux)
@@ -100,10 +104,11 @@ func TestHandler_CreateAdminLogin(t *testing.T) {
 		// Setup dependencies
 		conn := dbtest.GetTestDB(t)
 		authSvc := auth.NewService(conn, tokenSvc)
+		onboardingSvc := onboardingDomain.NewService(conn)
 
 		// Setup test server
 		mux := http.NewServeMux()
-		server := onboarding.NewHandler(authSvc)
+		server := onboarding.NewHandler(authSvc, onboardingSvc)
 		path, handler := onboardingv1connect.NewOnboardingServiceHandler(server)
 		mux.Handle(path, handler)
 		testServer := httptest.NewServer(mux)

@@ -8,13 +8,14 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var TokenSigningMethod = jwt.SigningMethodHS256
+var signingMethod = jwt.SigningMethodHS256
 
-const MinSecretKeyLength = 32 // 32 bytes for HS256 security
+const minSecretKeyLength = 32 // 32 bytes for HS256 security
 
 // Claims struct for JWT payload
 type Claims struct {
-	UserID string `json:"user_id"`
+	UserID int64 `json:"user_id"`
+	OrgID  int64 `json:"org_id"`
 	jwt.RegisteredClaims
 }
 
@@ -24,7 +25,7 @@ type Service struct {
 
 // NewService validates and creates a Service instance
 func NewService(cfg Config) (*Service, error) {
-	if len(cfg.SecretKey) < MinSecretKeyLength {
+	if len(cfg.SecretKey) < minSecretKeyLength {
 		return nil, fmt.Errorf("secret key must be at least 32 bytes long: len=%d", len(cfg.SecretKey))
 	}
 
@@ -37,16 +38,17 @@ func NewService(cfg Config) (*Service, error) {
 }
 
 // GenerateJWT creates a JWT token
-func (ts *Service) GenerateJWT(userID string) (string, int64, error) {
+func (ts *Service) GenerateJWT(userID, orgID int64) (string, int64, error) {
 	exp := jwt.NewNumericDate(time.Now().Add(ts.cfg.ExpirationPeriod))
 	claims := Claims{
 		UserID: userID,
+		OrgID:  orgID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: exp,
 		},
 	}
 
-	token := jwt.NewWithClaims(TokenSigningMethod, claims)
+	token := jwt.NewWithClaims(signingMethod, claims)
 	signedToken, err := token.SignedString([]byte(ts.cfg.SecretKey))
 	if err != nil {
 		return "", 0, fmt.Errorf("error signing token: %w", err)
@@ -58,7 +60,7 @@ func (ts *Service) GenerateJWT(userID string) (string, int64, error) {
 func (ts *Service) VerifyJWT(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(_ *jwt.Token) (any, error) {
 		return []byte(ts.cfg.SecretKey), nil
-	}, jwt.WithValidMethods([]string{TokenSigningMethod.Alg()}))
+	}, jwt.WithValidMethods([]string{signingMethod.Alg()}))
 
 	if err != nil {
 		return nil, fmt.Errorf("error parsing claims: %w", err)

@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
-import { SetDefaultPoolRequestSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { CreatePoolRequestSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import useFleet from "@/protoFleet/api/useFleet";
 import { statuses } from "@/protoOS/components/OnboardingSettingUp/constants";
 import OnboardingSettingUp from "@/protoOS/components/OnboardingSettingUp/OnboardingSettingUp";
@@ -23,7 +23,7 @@ import {
 // TODO we can probably share more code with ProtoOS
 const MiningPoolPage = () => {
   const navigate = useNavigate();
-  const { setDefaultPool } = useFleet();
+  const { createPool } = useFleet();
 
   const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
   const [settingUpMiner, setSettingUpMiner] = useState(false);
@@ -43,19 +43,19 @@ const MiningPoolPage = () => {
 
     setSettingUpMiner(true);
     const defaultPool = pools[0];
-    const defaultPoolRequest = create(SetDefaultPoolRequestSchema, {
+    const createPoolRequest = create(CreatePoolRequestSchema, {
       poolConfig: {
         url: defaultPool.url,
         username: defaultPool.username,
         password: defaultPool.password,
       },
     });
-    setDefaultPool({
-      defaultPoolRequest,
+    createPool({
+      createPoolRequest,
       onSuccess: () => setPoolStatus(statuses.success),
       onError: () => setPoolStatus(statuses.error),
     });
-  }, [pools, setDefaultPool]);
+  }, [pools, createPool]);
 
   const onChangePools = useCallback((newPools: PoolInfo[]) => {
     setPools(newPools);
