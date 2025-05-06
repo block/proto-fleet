@@ -1,5 +1,5 @@
 import AlertStatus from "./AlertStatus";
-import { alerts } from "@/protoFleet/components/AlertsModal/stories/mocks";
+import { alerts } from "@/protoFleet/features/fleetManagement/components/AlertsModal/stories/mocks";
 
 const AlertStatusWrapper = () => {
   // TODO load alerts from API

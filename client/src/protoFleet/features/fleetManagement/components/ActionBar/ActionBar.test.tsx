@@ -2,7 +2,7 @@ import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import DeviceWidget from "./DeviceWidget";
 import ActionBar from ".";
-import PerformanceWidget from "@/protoFleet/components/ActionBar/PerformanceWidget";
+import PerformanceWidget from "@/protoFleet/features/fleetManagement/components/ActionBar/PerformanceWidget";
 
 describe("Action Bar", () => {
   const actionBarTestId = "action-bar";

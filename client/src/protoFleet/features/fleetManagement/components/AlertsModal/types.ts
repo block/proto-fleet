@@ -1,5 +1,5 @@
-import { AlertType } from "@/protoFleet/components/AlertsModal/constants";
-import { MinerStatus } from "@/protoFleet/components/MinerList/types";
+import { AlertType } from "@/protoFleet/features/fleetManagement/components/AlertsModal/constants";
+import { MinerStatus } from "@/protoFleet/features/fleetManagement/types";
 
 export type Alert = {
   minerName: string;

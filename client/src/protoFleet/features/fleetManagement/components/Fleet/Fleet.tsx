@@ -1,7 +1,7 @@
 import useFleet from "@/protoFleet/api/useFleet";
-import MinerList from "@/protoFleet/components/MinerList";
+import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
 
-const Miners = () => {
+const Fleet = () => {
   const { miners } = useFleet();
   return (
     <>
@@ -10,4 +10,4 @@ const Miners = () => {
   );
 };
 
-export default Miners;
+export default Fleet;

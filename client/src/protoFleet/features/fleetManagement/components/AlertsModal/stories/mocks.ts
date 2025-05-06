@@ -1,5 +1,5 @@
-import { alertTypes } from "@/protoFleet/components/AlertsModal/constants";
-import type { Alert } from "@/protoFleet/components/AlertsModal/types";
+import { alertTypes } from "@/protoFleet/features/fleetManagement/components/AlertsModal/constants";
+import type { Alert } from "@/protoFleet/features/fleetManagement/components/AlertsModal/types";
 
 const now = new Date();
 

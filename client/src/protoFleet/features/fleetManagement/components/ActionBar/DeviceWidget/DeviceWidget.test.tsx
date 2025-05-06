@@ -1,6 +1,6 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
-import { deviceActions } from "../DeviceWidget/constants";
+import { deviceActions } from "./constants";
 import DeviceWidget from ".";
 
 describe("Device widget", () => {

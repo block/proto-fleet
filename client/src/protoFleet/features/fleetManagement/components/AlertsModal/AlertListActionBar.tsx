@@ -1,6 +1,6 @@
 import { useState } from "react";
-import ActionBar from "@/protoFleet/components/ActionBar";
-import BulkActionConfirmDialog from "@/protoFleet/components/ActionBar/BulkActions/BulkActionConfirmDialog";
+import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
+import BulkActionConfirmDialog from "@/protoFleet/features/fleetManagement/components/ActionBar/BulkActions/BulkActionConfirmDialog";
 import { variants } from "@/shared/components/Button";
 import ButtonGroup, {
   groupVariants,

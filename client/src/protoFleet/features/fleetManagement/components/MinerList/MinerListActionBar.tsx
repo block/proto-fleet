@@ -1,7 +1,7 @@
-import ActionBar from "@/protoFleet/components/ActionBar";
-import DeviceWidget from "@/protoFleet/components/ActionBar/DeviceWidget";
-import PerformanceWidget from "@/protoFleet/components/ActionBar/PerformanceWidget";
-import SettingsWidget from "@/protoFleet/components/ActionBar/SettingsWidget";
+import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
+import DeviceWidget from "@/protoFleet/features/fleetManagement/components/ActionBar/DeviceWidget";
+import PerformanceWidget from "@/protoFleet/features/fleetManagement/components/ActionBar/PerformanceWidget";
+import SettingsWidget from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget";
 
 interface MinerListActionBarProps {
   selectedMiners: string[];

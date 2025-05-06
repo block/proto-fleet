@@ -1,6 +1,6 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
-import MinerListActionBar from "@/protoFleet/components/MinerList/MinerListActionBar";
+import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 
 describe("Miner list action bar", () => {
   const actionBarTestId = "action-bar";

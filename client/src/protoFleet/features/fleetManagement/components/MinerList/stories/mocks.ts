@@ -1,4 +1,4 @@
-import { Miner } from "@/protoFleet/components/MinerList/types";
+import { Miner } from "@/protoFleet/features/fleetManagement/components/MinerList/types";
 
 export const miners: Miner[] = [
   {

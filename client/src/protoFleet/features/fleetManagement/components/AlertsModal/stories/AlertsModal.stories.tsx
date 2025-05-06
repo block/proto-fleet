@@ -1,7 +1,7 @@
 import { ElementType } from "react";
 import { MemoryRouter } from "react-router-dom";
 import AlertsModalComponent from "../AlertsModal";
-import { alerts } from "@/protoFleet/components/AlertsModal/stories/mocks";
+import { alerts } from "@/protoFleet/features/fleetManagement/components/AlertsModal/stories/mocks";
 
 interface AlertsModalArgs {
   numberOfAlerts: number;

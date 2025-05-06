@@ -2,87 +2,24 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import Filters from "./Filters";
 import {
-  MinerFilterState,
-  minerFilterStates,
-} from "@/protoFleet/components/MinerList/constants";
-import { Miner } from "@/protoFleet/components/MinerList/types";
-import { defaultListFilter } from "@/shared/components/List/constants";
-import { statuses } from "@/shared/components/StatusCircle";
+  testFilters,
+  TestFilterState,
+  TestItem,
+  testItems,
+} from "@/shared/components/List/mocks/data";
 
 describe("Filters", () => {
-  const filters = [
-    {
-      title: "All miners",
-      value: defaultListFilter,
-      count: 3,
-    },
-    {
-      title: "Hashing",
-      value: minerFilterStates.hashing,
-      count: 1,
-      status: statuses.normal,
-    },
-    {
-      title: "Broken",
-      value: minerFilterStates.broken,
-      count: 1,
-      status: statuses.error,
-    },
-    {
-      title: "Offline",
-      value: minerFilterStates.offline,
-      count: 1,
-      status: statuses.warning,
-    },
-    {
-      title: "Asleep",
-      value: minerFilterStates.asleep,
-      count: 0,
-      status: statuses.inactive,
-    },
-  ];
-
-  const mockMiners = [
-    {
-      name: "Miner 1",
-      status: {
-        hashing: true,
-        broken: false,
-        offline: false,
-        asleep: false,
-      },
-    },
-    {
-      name: "Miner 2",
-      status: {
-        hashing: false,
-        broken: true,
-        offline: false,
-        asleep: false,
-      },
-    },
-    {
-      name: "Miner 3",
-      status: {
-        hashing: false,
-        broken: false,
-        offline: true,
-        asleep: false,
-      },
-    },
-  ];
-
   it("renders filter buttons for all filters", () => {
     const handleFiltering = vi.fn();
     render(
-      <Filters<Miner, MinerFilterState>
-        filterItems={filters}
-        items={mockMiners as Miner[]}
+      <Filters<TestItem, TestFilterState>
+        filterItems={testFilters}
+        items={testItems}
         onFilter={handleFiltering}
       />,
     );
 
-    for (const filterItem of filters) {
+    for (const filterItem of testFilters) {
       const filterButton = screen.getByText(filterItem.title);
       expect(filterButton).toBeInTheDocument();
       expect(filterButton.closest("button")).toHaveTextContent(
@@ -94,14 +31,14 @@ describe("Filters", () => {
   it("calls onFilter with the correct filter when a filter is clicked", () => {
     const handleFiltering = vi.fn();
     render(
-      <Filters<Miner, MinerFilterState>
-        filterItems={filters}
-        items={mockMiners as Miner[]}
+      <Filters<TestItem, TestFilterState>
+        filterItems={testFilters}
+        items={testItems}
         onFilter={handleFiltering}
       />,
     );
 
-    for (const filterItem of filters) {
+    for (const filterItem of testFilters) {
       fireEvent.click(screen.getByText(filterItem.title));
       expect(handleFiltering).toHaveBeenCalledWith(filterItem.value);
     }
@@ -110,52 +47,52 @@ describe("Filters", () => {
   it("renders without crashing when no filters are provided", () => {
     const handleFiltering = vi.fn();
     render(
-      <Filters<Miner, MinerFilterState>
+      <Filters<TestItem, TestFilterState>
         filterItems={[]}
-        items={mockMiners as Miner[]}
+        items={testItems}
         onFilter={handleFiltering}
       />,
     );
 
-    expect(screen.queryByText("All miners")).not.toBeInTheDocument();
+    expect(screen.queryByText("All Items")).not.toBeInTheDocument();
   });
 
   it("renders without crashing when no items are provided", () => {
     const handleFiltering = vi.fn();
     render(
-      <Filters<Miner, MinerFilterState>
-        filterItems={filters}
+      <Filters<TestItem, TestFilterState>
+        filterItems={testFilters}
         items={[]}
         onFilter={handleFiltering}
       />,
     );
 
-    expect(screen.getByText("All miners")).toBeInTheDocument();
+    expect(screen.getByText("All Items")).toBeInTheDocument();
   });
 
   it("changes active filter when clicking filter buttons", () => {
     const handleFiltering = vi.fn();
     render(
-      <Filters<Miner, MinerFilterState>
-        filterItems={filters}
-        items={mockMiners as Miner[]}
+      <Filters<TestItem, TestFilterState>
+        filterItems={testFilters}
+        items={testItems}
         onFilter={handleFiltering}
       />,
     );
 
-    // Initially "All Miners" should be active
-    expect(screen.getByText("All miners").closest("button")).toHaveClass(
+    // Initially "All Items" should be active
+    expect(screen.getByText("All Items").closest("button")).toHaveClass(
       "bg-core-primary-fill",
     );
 
-    // Click "Hashing" filter
-    fireEvent.click(screen.getByText("Hashing"));
+    // Click "Active" filter
+    fireEvent.click(screen.getByText("Active"));
 
-    // "Hashing" should now be active and "All miners" should be inactive
-    expect(screen.getByText("Hashing").closest("button")).toHaveClass(
+    // "Active" should now be active and "All Items" should be inactive
+    expect(screen.getByText("Active").closest("button")).toHaveClass(
       "bg-core-primary-fill",
     );
-    expect(screen.getByText("All miners").closest("button")).toHaveClass(
+    expect(screen.getByText("All Items").closest("button")).toHaveClass(
       "bg-surface-default",
     );
   });
@@ -163,14 +100,14 @@ describe("Filters", () => {
   it("displays correct count for each filter status", () => {
     const handleFiltering = vi.fn();
     render(
-      <Filters<Miner, MinerFilterState>
-        filterItems={filters}
-        items={mockMiners as Miner[]}
+      <Filters<TestItem, TestFilterState>
+        filterItems={testFilters}
+        items={testItems}
         onFilter={handleFiltering}
       />,
     );
 
-    for (const filterItem of filters) {
+    for (const filterItem of testFilters) {
       expect(
         screen.getByText(filterItem.title).querySelector("span")?.innerHTML,
       ).toEqual(filterItem.count.toString());

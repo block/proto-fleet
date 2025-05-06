@@ -7,8 +7,9 @@ import {
   minerFilterStates,
 } from "./constants";
 import minerColConfig from "./minerColConfig";
-import { type Miner, type MinerStatusKey } from "./types";
-import MinerListActionBar from "@/protoFleet/components/MinerList/MinerListActionBar";
+import { type Miner } from "./types";
+import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
+import { type MinerStatusKey } from "@/protoFleet/features/fleetManagement/types";
 import List from "@/shared/components/List";
 import { defaultListFilter } from "@/shared/components/List/constants";
 import { FilterItem } from "@/shared/components/List/Filters/types";

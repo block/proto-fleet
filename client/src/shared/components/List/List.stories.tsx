@@ -1,16 +1,14 @@
 import { action } from "@storybook/addon-actions";
 import ListComponent from ".";
-import alertColConfig from "@/protoFleet/components/AlertsModal/alertColConfig";
-import AlertListActionBar from "@/protoFleet/components/AlertsModal/AlertListActionBar";
+import testColConfig from "@/shared/components/List/mocks/colConfig";
 import {
-  alertCols,
-  alertColTitles,
-  AlertType,
-  alertTypes,
-} from "@/protoFleet/components/AlertsModal/constants";
-import { alerts } from "@/protoFleet/components/AlertsModal/stories/mocks";
-import { Alert } from "@/protoFleet/components/AlertsModal/types";
-import { defaultListFilter } from "@/shared/components/List/constants";
+  testCols,
+  testColTitles,
+  testFilters,
+  TestFilterState,
+  TestItem,
+  testItems,
+} from "@/shared/components/List/mocks/data";
 
 interface ListArgs {
   numberOfItems: number;
@@ -21,42 +19,24 @@ interface ListArgs {
 }
 
 const activeCols = [
-  alertCols.name,
-  alertCols.status,
-  alertCols.error,
-  alertCols.timestamp,
-] as (keyof Alert)[];
-
-const filters = [
-  {
-    title: "All alerts",
-    value: defaultListFilter,
-    count: alerts.length,
-  },
-  {
-    title: "Control board",
-    value: alertTypes.controlBoard,
-    count: 1,
-  },
-  {
-    title: "Fan",
-    value: alertTypes.fan,
-    count: 1,
-  },
-];
+  testCols.name,
+  testCols.status,
+  testCols.value,
+  testCols.timestamp,
+] as (keyof TestItem)[];
 
 const actions = [
   {
-    title: "Archive",
-    actionHandler: action("Archive"),
+    title: "Action 1",
+    actionHandler: action("Action 1"),
   },
   {
-    title: "View miner",
-    actionHandler: action("View miner"),
+    title: "Action 2",
+    actionHandler: action("Action 2"),
   },
   {
-    title: "Reboot miner",
-    actionHandler: action("Reboot miner"),
+    title: "Action 3",
+    actionHandler: action("Action 3"),
   },
 ];
 
@@ -68,19 +48,16 @@ export const List = ({
   disabled,
 }: ListArgs) => {
   return (
-    <ListComponent<Alert, Alert["minerMacAddress"], AlertType>
+    <ListComponent<TestItem, TestItem["id"], TestFilterState>
       activeCols={activeCols.slice(0, numberOfColumns)}
-      colTitles={alertColTitles}
-      colConfig={alertColConfig}
-      filters={filters}
-      items={alerts.slice(0, numberOfItems)}
-      itemKey="minerMacAddress"
+      colTitles={testColTitles}
+      colConfig={testColConfig}
+      filters={testFilters.slice(0, 3)}
+      items={testItems.slice(0, numberOfItems)}
+      itemKey="id"
       actions={actions.slice(0, numberOfItemActions)}
       itemSelectable={itemSelectable}
       disabled={disabled}
-      renderActionBar={(selectedItems) => (
-        <AlertListActionBar selectedAlerts={selectedItems} />
-      )}
       noDataElement={
         <div className="flex h-64 w-full items-center justify-center rounded-2xl bg-core-primary-5">
           No data found

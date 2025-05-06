@@ -2,7 +2,7 @@ import { MemoryRouter } from "react-router-dom";
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import AlertStatus from "./AlertStatus";
-import { alerts } from "@/protoFleet/components/AlertsModal/stories/mocks";
+import { alerts } from "@/protoFleet/features/fleetManagement/components/AlertsModal/stories/mocks";
 
 describe("Alert Status", () => {
   const alertIconTestId = "alert";

@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import { Alert } from "./types";
-import alertColConfig from "@/protoFleet/components/AlertsModal/alertColConfig";
-import AlertListActionBar from "@/protoFleet/components/AlertsModal/AlertListActionBar";
-import ConfirmArchiveDialog from "@/protoFleet/components/AlertsModal/ConfirmArchiveDialog";
+import alertColConfig from "@/protoFleet/features/fleetManagement/components/AlertsModal/alertColConfig";
+import AlertListActionBar from "@/protoFleet/features/fleetManagement/components/AlertsModal/AlertListActionBar";
+import ConfirmArchiveDialog from "@/protoFleet/features/fleetManagement/components/AlertsModal/ConfirmArchiveDialog";
 import {
   alertCols,
   alertColTitles,
@@ -10,7 +10,7 @@ import {
   alertTypes,
   AlertView,
   alertViews,
-} from "@/protoFleet/components/AlertsModal/constants";
+} from "@/protoFleet/features/fleetManagement/components/AlertsModal/constants";
 import { Notification } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";

@@ -1,4 +1,4 @@
-import { type Miner } from "../types";
+import { type Miner } from "@/protoFleet/features/fleetManagement/components/MinerList/types";
 
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import Sparkline from "@/shared/components/Sparkline";
@@ -11,7 +11,7 @@ const Hashrate = ({ hashrate }: HashrateProps) => {
   return (
     <div className="relative flex h-full w-full flex-row items-center justify-between pr-6 whitespace-nowrap">
       {hashrate ? (
-        <div>hashrate[hashrate.length - 1].hashrate TH/s</div>
+        <div>{hashrate[hashrate.length - 1].hashrate} TH/s</div>
       ) : (
         <SkeletonBar className="w-full" />
       )}

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import AlertsModal from "@/protoFleet/components/AlertsModal";
-import { type Alert as AlertType } from "@/protoFleet/components/AlertsModal/types";
+import AlertsModal from "@/protoFleet/features/fleetManagement/components/AlertsModal";
+import { type Alert as AlertType } from "@/protoFleet/features/fleetManagement/components/AlertsModal/types";
 import { Alert } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Chip from "@/shared/components/Chip";

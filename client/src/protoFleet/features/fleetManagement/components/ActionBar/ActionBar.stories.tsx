@@ -1,7 +1,7 @@
 import ActionBarComponent from ".";
-import DeviceWidget from "@/protoFleet/components/ActionBar/DeviceWidget";
-import PerformanceWidget from "@/protoFleet/components/ActionBar/PerformanceWidget";
-import SettingsWidget from "@/protoFleet/components/ActionBar/SettingsWidget";
+import DeviceWidget from "@/protoFleet/features/fleetManagement/components/ActionBar/DeviceWidget";
+import PerformanceWidget from "@/protoFleet/features/fleetManagement/components/ActionBar/PerformanceWidget";
+import SettingsWidget from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget";
 import { Toaster as ToasterComponent } from "@/shared/features/toaster";
 
 interface ActionBarArgs {

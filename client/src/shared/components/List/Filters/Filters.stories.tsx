@@ -1,65 +1,16 @@
-import { useMemo } from "react";
 import FiltersComponent from "./index";
-import {
-  MinerFilterState,
-  minerFilterStates,
-} from "@/protoFleet/components/MinerList/constants";
-import { miners } from "@/protoFleet/components/MinerList/stories/mocks";
-import { MinerStatusKey } from "@/protoFleet/components/MinerList/types";
-import { defaultListFilter } from "@/shared/components/List/constants";
-import { FilterItem } from "@/shared/components/List/Filters/types";
-import { statuses } from "@/shared/components/StatusCircle";
+import { testFilters, testItems } from "@/shared/components/List/mocks/data";
 
 interface FiltersArgs {
   numberOfFilters: number;
 }
 
 export const Filters = ({ numberOfFilters }: FiltersArgs) => {
-  const filters = useMemo(() => {
-    const countMiners = (status: MinerFilterState) => {
-      return miners.filter(
-        (m) => m.status && m.status[status as MinerStatusKey] === true,
-      ).length;
-    };
-
-    return [
-      {
-        title: "All miners",
-        value: defaultListFilter,
-        count: miners.length,
-      },
-      {
-        title: "Hashing",
-        value: minerFilterStates.hashing,
-        count: countMiners(minerFilterStates.hashing),
-        status: statuses.normal,
-      },
-      {
-        title: "Broken",
-        value: minerFilterStates.broken,
-        count: countMiners(minerFilterStates.broken),
-        status: statuses.error,
-      },
-      {
-        title: "Offline",
-        value: minerFilterStates.offline,
-        count: countMiners(minerFilterStates.offline),
-        status: statuses.warning,
-      },
-      {
-        title: "Asleep",
-        value: minerFilterStates.asleep,
-        count: countMiners(minerFilterStates.asleep),
-        status: statuses.inactive,
-      },
-    ] as FilterItem<MinerFilterState>[];
-  }, []);
-
   return (
     <FiltersComponent
       className="gap-4 py-4"
-      filterItems={filters.slice(0, numberOfFilters)}
-      items={miners}
+      filterItems={testFilters.slice(0, numberOfFilters)}
+      items={testItems}
       onFilter={() => {}}
     />
   );

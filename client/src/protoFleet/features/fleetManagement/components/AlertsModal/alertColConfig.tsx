@@ -1,6 +1,6 @@
 import { alertCols } from "./constants";
 import { type Alert } from "./types";
-import MinerStatus from "@/protoFleet/components/MinerList/MinerStatus";
+import MinerStatus from "@/protoFleet/features/fleetManagement/components/MinerList/MinerStatus";
 import { ColConfig } from "@/shared/components/List/types";
 import { getRelativeTimeFromEpoch } from "@/shared/utils/datetime";
 

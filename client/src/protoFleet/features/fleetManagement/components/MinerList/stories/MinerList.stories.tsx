@@ -1,5 +1,5 @@
 import MinerListComponent from "../index";
-import { miners } from "@/protoFleet/components/MinerList/stories/mocks";
+import { miners } from "@/protoFleet/features/fleetManagement/components/MinerList/stories/mocks";
 import { Toaster as ToasterComponent } from "@/shared/features/toaster";
 
 export const MinerList = () => {

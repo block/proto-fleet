@@ -1,4 +1,3 @@
-import { type PairedDevice } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { type StatusCircleStatus } from "@/shared/components/StatusCircle/constants";
 
 export type MinerStatus = {
@@ -15,13 +14,3 @@ export type MinerStatus = {
 };
 
 export type MinerStatusKey = keyof MinerStatus;
-
-export type Miner = PairedDevice & {
-  name?: string;
-  status?: MinerStatus;
-  hashrate?: { time: number; hashrate: number }[];
-  efficiency?: number;
-  powerUsage?: number;
-  temperature?: number;
-  ip?: string;
-};

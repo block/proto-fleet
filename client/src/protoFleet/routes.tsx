@@ -2,8 +2,8 @@ import { createElement, type ReactNode } from "react";
 import { matchPath, redirect, type RouteObject } from "react-router-dom";
 
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
+import Miners from "./features/fleetManagement/components/Fleet";
 import HomePage from "./pages/Home";
-import Miners from "./pages/Miners";
 import { Cooling, General, Hardware, MiningPools } from "./pages/Settings";
 import Auth from "@/protoFleet/pages/Auth";
 import AuthenticationPage from "@/protoFleet/pages/Onboarding/Authentication";
