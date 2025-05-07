@@ -32,6 +32,27 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (sql.Res
 	)
 }
 
+const getUserById = `-- name: GetUserById :one
+SELECT id, user_id, username, password_hash, created_at, updated_at, deleted_at
+FROM user
+WHERE id = ?
+`
+
+func (q *Queries) GetUserById(ctx context.Context, id int64) (User, error) {
+	row := q.queryRow(ctx, q.getUserByIdStmt, getUserById, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const getUserByUsername = `-- name: GetUserByUsername :one
 SELECT id, user_id, username, password_hash, created_at, updated_at, deleted_at
 FROM user
@@ -51,4 +72,22 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.DeletedAt,
 	)
 	return i, err
+}
+
+const updateUserPassword = `-- name: UpdateUserPassword :exec
+UPDATE user
+SET password_hash = ?,
+    updated_at = ?
+WHERE id = ?
+`
+
+type UpdateUserPasswordParams struct {
+	PasswordHash string
+	UpdatedAt    time.Time
+	ID           int64
+}
+
+func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
+	_, err := q.exec(ctx, q.updateUserPasswordStmt, updateUserPassword, arg.PasswordHash, arg.UpdatedAt, arg.ID)
+	return err
 }

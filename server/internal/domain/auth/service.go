@@ -1,10 +1,12 @@
 package auth
 
 import (
+	"connectrpc.com/authn"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	authv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1"
@@ -18,6 +20,8 @@ import (
 )
 
 var (
+	ErrForbidden               = errors.New("forbidden")
+	ErrInternal                = errors.New("internal error")
 	ErrInvalidInput            = errors.New("invalid input")
 	ErrUnsupportedUserMultiOrg = errors.New("unsupported user multi org")
 )
@@ -151,6 +155,47 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 	return &onboardingv1.CreateAdminLoginResponse{
 		UserId: externalUserID,
 	}, nil
+}
+
+func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRequest) error {
+	claims, ok := authn.GetInfo(ctx).(token.Claims)
+	if !ok {
+		return ErrForbidden
+	}
+	return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
+		user, err := q.GetUserById(ctx, claims.UserID)
+		if err != nil {
+			slog.Error("error getting user by id", "user_id", claims.UserID, "error", err)
+			return ErrForbidden
+		}
+
+		if err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(r.CurrentPassword)); err != nil {
+			// invalid password case
+			return ErrForbidden
+		}
+
+		if r.CurrentPassword == r.NewPassword {
+			// New password matches the current password
+			return ErrInvalidInput
+		}
+
+		// generate salted password hash
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(r.NewPassword), bcrypt.DefaultCost)
+		if err != nil {
+			slog.Error("error generating hash of new password", "user_id", claims.UserID, "error", err)
+			return ErrInternal
+		}
+
+		if err = q.UpdateUserPassword(ctx, sqlc.UpdateUserPasswordParams{
+			ID:           user.ID,
+			PasswordHash: string(hashedPassword),
+			UpdatedAt:    time.Now(),
+		}); err != nil {
+			slog.Error("error updating password", "user_id", claims.UserID, "error", err)
+			return ErrInternal
+		}
+		return nil
+	})
 }
 
 // generateDefaultOrgName returns a default organization name suffixed with the first 8 chars or the orgID

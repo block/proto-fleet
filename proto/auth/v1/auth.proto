@@ -2,11 +2,16 @@ syntax = "proto3";
 
 package auth.v1;
 
-// AuthService provides authentication-related RPC methods
+// AuthService provides authentication and user credential management functionality
 service AuthService {
     // Authenticate validates user credentials and returns an authentication token
     // Returns a token and its expiration timestamp if authentication is successful
     rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse);
+
+    // UpdatePassword changes a user's password after verifying their current password
+    // Returns an error if the current password is incorrect
+    // The user must be authenticated to use this endpoint
+    rpc UpdatePassword(UpdatePasswordRequest) returns (UpdatePasswordResponse);
 }
 
 message AuthenticateRequest {
@@ -19,8 +24,25 @@ message AuthenticateRequest {
 
 message AuthenticateResponse {
     // Authentication token for subsequent requests
+    // Bearer token that should be included in the Authorization header
+    // Format: "Bearer {token}"
     string token = 1;
 
-    // Unix timestamp indicating when the token will expire
+    // Unix timestamp (in seconds) indicating when the token will expire
+    // Clients should request a new token before this time to maintain sessions
     int64 token_expiry = 2;
+}
+
+message UpdatePasswordRequest {
+    // Current password for the user account
+    // Must match the user's existing password
+    string current_password = 1;
+
+    // New password for the user account
+    string new_password = 2;
+}
+
+message UpdatePasswordResponse {
+    // Empty response as success/failure is indicated by gRPC status
+    // A successful response indicates the password was changed
 }

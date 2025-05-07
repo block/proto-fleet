@@ -78,6 +78,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getTotalPoolsStmt, err = db.PrepareContext(ctx, getTotalPools); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTotalPools: %w", err)
 	}
+	if q.getUserByIdStmt, err = db.PrepareContext(ctx, getUserById); err != nil {
+		return nil, fmt.Errorf("error preparing query GetUserById: %w", err)
+	}
 	if q.getUserByUsernameStmt, err = db.PrepareContext(ctx, getUserByUsername); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserByUsername: %w", err)
 	}
@@ -131,6 +134,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.updateRoleStmt, err = db.PrepareContext(ctx, updateRole); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateRole: %w", err)
+	}
+	if q.updateUserPasswordStmt, err = db.PrepareContext(ctx, updateUserPassword); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateUserPassword: %w", err)
 	}
 	if q.updateUserRoleStmt, err = db.PrepareContext(ctx, updateUserRole); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateUserRole: %w", err)
@@ -242,6 +248,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getTotalPoolsStmt: %w", cerr)
 		}
 	}
+	if q.getUserByIdStmt != nil {
+		if cerr := q.getUserByIdStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getUserByIdStmt: %w", cerr)
+		}
+	}
 	if q.getUserByUsernameStmt != nil {
 		if cerr := q.getUserByUsernameStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getUserByUsernameStmt: %w", cerr)
@@ -332,6 +343,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateRoleStmt: %w", cerr)
 		}
 	}
+	if q.updateUserPasswordStmt != nil {
+		if cerr := q.updateUserPasswordStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateUserPasswordStmt: %w", cerr)
+		}
+	}
 	if q.updateUserRoleStmt != nil {
 		if cerr := q.updateUserRoleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateUserRoleStmt: %w", cerr)
@@ -414,6 +430,7 @@ type Queries struct {
 	getRoleByNameStmt                    *sql.Stmt
 	getTotalPairedDevicesStmt            *sql.Stmt
 	getTotalPoolsStmt                    *sql.Stmt
+	getUserByIdStmt                      *sql.Stmt
 	getUserByUsernameStmt                *sql.Stmt
 	getUserRoleInOrganizationStmt        *sql.Stmt
 	getUsersForOrganizationStmt          *sql.Stmt
@@ -432,6 +449,7 @@ type Queries struct {
 	updatePoolStmt                       *sql.Stmt
 	updatePoolPriorityStmt               *sql.Stmt
 	updateRoleStmt                       *sql.Stmt
+	updateUserPasswordStmt               *sql.Stmt
 	updateUserRoleStmt                   *sql.Stmt
 	upsertDeviceStmt                     *sql.Stmt
 	upsertDeviceIPAssignmentStmt         *sql.Stmt
@@ -461,6 +479,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRoleByNameStmt:                    q.getRoleByNameStmt,
 		getTotalPairedDevicesStmt:            q.getTotalPairedDevicesStmt,
 		getTotalPoolsStmt:                    q.getTotalPoolsStmt,
+		getUserByIdStmt:                      q.getUserByIdStmt,
 		getUserByUsernameStmt:                q.getUserByUsernameStmt,
 		getUserRoleInOrganizationStmt:        q.getUserRoleInOrganizationStmt,
 		getUsersForOrganizationStmt:          q.getUsersForOrganizationStmt,
@@ -479,6 +498,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updatePoolStmt:                       q.updatePoolStmt,
 		updatePoolPriorityStmt:               q.updatePoolPriorityStmt,
 		updateRoleStmt:                       q.updateRoleStmt,
+		updateUserPasswordStmt:               q.updateUserPasswordStmt,
 		updateUserRoleStmt:                   q.updateUserRoleStmt,
 		upsertDeviceStmt:                     q.upsertDeviceStmt,
 		upsertDeviceIPAssignmentStmt:         q.upsertDeviceIPAssignmentStmt,

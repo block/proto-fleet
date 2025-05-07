@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"
 
@@ -29,4 +30,18 @@ func (s *Handler) Authenticate(ctx context.Context, req *connect.Request[pb.Auth
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(resp), nil
+}
+
+// UpdatePassword updates the password of the currently logged-in user
+func (s *Handler) UpdatePassword(ctx context.Context, r *connect.Request[pb.UpdatePasswordRequest]) (*connect.Response[pb.UpdatePasswordResponse], error) {
+	err := s.authSvc.UpdatePassword(ctx, r.Msg)
+
+	if errors.Is(err, auth.ErrForbidden) {
+		return nil, connect.NewError(connect.CodeUnauthenticated, err)
+	} else if errors.Is(err, auth.ErrInvalidInput) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	} else if err != nil {
+		return nil, connect.NewError(connect.CodeUnknown, err)
+	}
+	return connect.NewResponse(&pb.UpdatePasswordResponse{}), nil
 }

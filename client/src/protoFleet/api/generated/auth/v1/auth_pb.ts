@@ -20,7 +20,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_auth_v1_auth: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChJhdXRoL3YxL2F1dGgucHJvdG8SB2F1dGgudjEiOQoTQXV0aGVudGljYXRlUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRIQCghwYXNzd29yZBgCIAEoCSI7ChRBdXRoZW50aWNhdGVSZXNwb25zZRINCgV0b2tlbhgBIAEoCRIUCgx0b2tlbl9leHBpcnkYAiABKAMyWgoLQXV0aFNlcnZpY2USSwoMQXV0aGVudGljYXRlEhwuYXV0aC52MS5BdXRoZW50aWNhdGVSZXF1ZXN0Gh0uYXV0aC52MS5BdXRoZW50aWNhdGVSZXNwb25zZUKdAQoLY29tLmF1dGgudjFCCUF1dGhQcm90b1ABWkZnaXRodWIuY29tL2J0Yy1taW5pbmcvcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2F1dGgvdjE7YXV0aHYxogIDQVhYqgIHQXV0aC5WMcoCB0F1dGhcVjHiAhNBdXRoXFYxXEdQQk1ldGFkYXRh6gIIQXV0aDo6VjFiBnByb3RvMw",
+    "ChJhdXRoL3YxL2F1dGgucHJvdG8SB2F1dGgudjEiOQoTQXV0aGVudGljYXRlUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRIQCghwYXNzd29yZBgCIAEoCSI7ChRBdXRoZW50aWNhdGVSZXNwb25zZRINCgV0b2tlbhgBIAEoCRIUCgx0b2tlbl9leHBpcnkYAiABKAMiRwoVVXBkYXRlUGFzc3dvcmRSZXF1ZXN0EhgKEGN1cnJlbnRfcGFzc3dvcmQYASABKAkSFAoMbmV3X3Bhc3N3b3JkGAIgASgJIhgKFlVwZGF0ZVBhc3N3b3JkUmVzcG9uc2UyrQEKC0F1dGhTZXJ2aWNlEksKDEF1dGhlbnRpY2F0ZRIcLmF1dGgudjEuQXV0aGVudGljYXRlUmVxdWVzdBodLmF1dGgudjEuQXV0aGVudGljYXRlUmVzcG9uc2USUQoOVXBkYXRlUGFzc3dvcmQSHi5hdXRoLnYxLlVwZGF0ZVBhc3N3b3JkUmVxdWVzdBofLmF1dGgudjEuVXBkYXRlUGFzc3dvcmRSZXNwb25zZUKdAQoLY29tLmF1dGgudjFCCUF1dGhQcm90b1ABWkZnaXRodWIuY29tL2J0Yy1taW5pbmcvcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2F1dGgvdjE7YXV0aHYxogIDQVhYqgIHQXV0aC5WMcoCB0F1dGhcVjHiAhNBdXRoXFYxXEdQQk1ldGFkYXRh6gIIQXV0aDo6VjFiBnByb3RvMw",
   );
 
 /**
@@ -56,13 +56,16 @@ export const AuthenticateRequestSchema: GenMessage<AuthenticateRequest> =
 export type AuthenticateResponse = Message<"auth.v1.AuthenticateResponse"> & {
   /**
    * Authentication token for subsequent requests
+   * Bearer token that should be included in the Authorization header
+   * Format: "Bearer {token}"
    *
    * @generated from field: string token = 1;
    */
   token: string;
 
   /**
-   * Unix timestamp indicating when the token will expire
+   * Unix timestamp (in seconds) indicating when the token will expire
+   * Clients should request a new token before this time to maintain sessions
    *
    * @generated from field: int64 token_expiry = 2;
    */
@@ -78,7 +81,52 @@ export const AuthenticateResponseSchema: GenMessage<AuthenticateResponse> =
   messageDesc(file_auth_v1_auth, 1);
 
 /**
- * AuthService provides authentication-related RPC methods
+ * @generated from message auth.v1.UpdatePasswordRequest
+ */
+export type UpdatePasswordRequest = Message<"auth.v1.UpdatePasswordRequest"> & {
+  /**
+   * Current password for the user account
+   * Must match the user's existing password
+   *
+   * @generated from field: string current_password = 1;
+   */
+  currentPassword: string;
+
+  /**
+   * New password for the user account
+   *
+   * @generated from field: string new_password = 2;
+   */
+  newPassword: string;
+};
+
+/**
+ * Describes the message auth.v1.UpdatePasswordRequest.
+ * Use `create(UpdatePasswordRequestSchema)` to create a new message.
+ */
+export const UpdatePasswordRequestSchema: GenMessage<UpdatePasswordRequest> =
+  /*@__PURE__*/
+  messageDesc(file_auth_v1_auth, 2);
+
+/**
+ * Empty response as success/failure is indicated by gRPC status
+ * A successful response indicates the password was changed
+ *
+ * @generated from message auth.v1.UpdatePasswordResponse
+ */
+export type UpdatePasswordResponse =
+  Message<"auth.v1.UpdatePasswordResponse"> & {};
+
+/**
+ * Describes the message auth.v1.UpdatePasswordResponse.
+ * Use `create(UpdatePasswordResponseSchema)` to create a new message.
+ */
+export const UpdatePasswordResponseSchema: GenMessage<UpdatePasswordResponse> =
+  /*@__PURE__*/
+  messageDesc(file_auth_v1_auth, 3);
+
+/**
+ * AuthService provides authentication and user credential management functionality
  *
  * @generated from service auth.v1.AuthService
  */
@@ -93,5 +141,17 @@ export const AuthService: GenService<{
     methodKind: "unary";
     input: typeof AuthenticateRequestSchema;
     output: typeof AuthenticateResponseSchema;
+  };
+  /**
+   * UpdatePassword changes a user's password after verifying their current password
+   * Returns an error if the current password is incorrect
+   * The user must be authenticated to use this endpoint
+   *
+   * @generated from rpc auth.v1.AuthService.UpdatePassword
+   */
+  updatePassword: {
+    methodKind: "unary";
+    input: typeof UpdatePasswordRequestSchema;
+    output: typeof UpdatePasswordResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_auth_v1_auth, 0);
