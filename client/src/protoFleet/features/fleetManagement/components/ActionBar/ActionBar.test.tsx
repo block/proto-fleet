@@ -73,7 +73,7 @@ describe("Action Bar", () => {
         renderActions={(numberOfItems) => (
           <>
             <DeviceWidget
-              numberOfMiners={numberOfItems}
+              selectedMiners={Array(numberOfItems).fill("MinerId")}
               setHidden={setHiddenMock}
             />
             <PerformanceWidget

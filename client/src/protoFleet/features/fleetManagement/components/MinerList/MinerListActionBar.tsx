@@ -14,7 +14,7 @@ const MinerListActionBar = ({ selectedMiners }: MinerListActionBarProps) => {
       selectedItems={selectedMiners}
       renderActions={(numberOfItems, setHidden) => (
         <>
-          <DeviceWidget numberOfMiners={numberOfItems} setHidden={setHidden} />
+          <DeviceWidget selectedMiners={selectedMiners} setHidden={setHidden} />
           <PerformanceWidget
             numberOfMiners={numberOfItems}
             setHidden={setHidden}

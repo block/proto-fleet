@@ -37,6 +37,7 @@ import Logs from "./Logs";
 import Minus from "./Minus";
 import Notification from "./Notification";
 import Pause from "./Pause";
+import Play from "./Play";
 import Plus from "./Plus";
 import Power from "./Power";
 import Question from "./Question";
@@ -94,6 +95,7 @@ export {
   Minus,
   Notification,
   Pause,
+  Play,
   Plus,
   Power,
   Question,

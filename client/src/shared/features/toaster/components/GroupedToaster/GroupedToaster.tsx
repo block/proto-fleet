@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { removeToast } from "../../ToastsObserver";
 import { type ToastType } from "../../types";
@@ -7,6 +7,7 @@ import ResizeablePanel from "@/protoOS/components/LoginModal/ResizeablePanel";
 import Button, { variants } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import GroupedToast from "@/shared/features/toaster/components/GroupedToaster/GroupedToast";
+import { defaultTtl, STATUSES } from "@/shared/features/toaster/constants";
 
 interface GroupedToasterProps {
   toasts: ToastType[];
@@ -14,6 +15,44 @@ interface GroupedToasterProps {
 
 const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const timeoutId = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // When user doesn't expand the toaster, the toasts would never get removed
+  useEffect(() => {
+    const clearTimeoutWithCheck = () => {
+      if (timeoutId.current !== null) {
+        clearTimeout(timeoutId.current);
+        timeoutId.current = null;
+      }
+    };
+
+    if (toasts.length === 0 || isExpanded) {
+      clearTimeoutWithCheck();
+    }
+
+    if (toasts.length !== 0 && !isExpanded) {
+      clearTimeoutWithCheck();
+
+      timeoutId.current = setTimeout(
+        () => {
+          toasts.forEach((toast) => {
+            if (
+              toast.status !== STATUSES.success &&
+              toast.status !== STATUSES.error
+            )
+              return;
+
+            removeToast(toast.id);
+          });
+        },
+        toasts[0].ttl !== false && toasts[0].ttl !== undefined
+          ? toasts[0].ttl
+          : defaultTtl,
+      );
+    }
+
+    return clearTimeoutWithCheck;
+  }, [toasts, isExpanded]);
 
   if (toasts.length === 0) return null;
 

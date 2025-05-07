@@ -1,10 +1,17 @@
 import { useMemo, useState } from "react";
+import { create } from "@bufbuild/protobuf";
 import BulkActionsWidget, { BulkActionsPopover } from "../BulkActions";
 import { BulkAction } from "../types";
 import { DeviceAction, deviceActions } from "./constants";
 import {
+  StartMiningRequestSchema,
+  StopMiningRequestSchema,
+} from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
+import {
   ArrowLeftCompact,
   LEDIndicator,
+  Play,
   Power,
   Reboot,
   Rectangle,
@@ -20,12 +27,16 @@ import {
 } from "@/shared/features/toaster";
 
 interface DeviceWidgetProps {
-  numberOfMiners: number;
+  selectedMiners: string[];
   setHidden: (hidden: boolean) => void;
 }
 
-const DeviceWidget = ({ numberOfMiners, setHidden }: DeviceWidgetProps) => {
+const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
+  const { startMining, stopMining } = useMinerCommand();
+
   const [currentAction, setCurrentAction] = useState<DeviceAction | null>(null);
+
+  const numberOfMiners = useMemo(() => selectedMiners.length, [selectedMiners]);
 
   // TODO remove later
   const simulateAPICall = (callback: () => void) => {
@@ -78,6 +89,11 @@ const DeviceWidget = ({ numberOfMiners, setHidden }: DeviceWidgetProps) => {
 
     const handleShutDown = () => {
       setCurrentAction(deviceActions.shutdown);
+      setHidden(true);
+    };
+
+    const handleWakeUp = () => {
+      setCurrentAction(deviceActions.wakeUp);
       setHidden(true);
     };
 
@@ -146,6 +162,22 @@ const DeviceWidget = ({ numberOfMiners, setHidden }: DeviceWidgetProps) => {
           testId: "shutdown-confirm-button",
         },
       },
+      {
+        action: deviceActions.wakeUp,
+        title: "Wake up",
+        icon: <Play className="opacity-30" />,
+        actionHandler: handleWakeUp,
+        requiresConfirmation: true,
+        confirmation: {
+          title: `Wake up ${numberOfMiners} miners?`,
+          subtitle: "These miners will wake up and start hashing.",
+          confirmAction: {
+            title: "Wake up",
+            variant: variants.primary,
+          },
+          testId: "wake-up-confirm-button",
+        },
+      },
     ] as BulkAction<DeviceAction>[];
   }, [numberOfMiners, setHidden]);
 
@@ -153,11 +185,13 @@ const DeviceWidget = ({ numberOfMiners, setHidden }: DeviceWidgetProps) => {
     [deviceActions.factoryReset]: "Resetting miners",
     [deviceActions.reboot]: "Rebooting miners",
     [deviceActions.shutdown]: "Shutting down miners",
+    [deviceActions.wakeUp]: "Waking up miners",
   };
   const successMessages = {
     [deviceActions.factoryReset]: "Reset miners",
     [deviceActions.reboot]: "Rebooted miners",
     [deviceActions.shutdown]: "Shut down miners",
+    [deviceActions.wakeUp]: "Woke up miners",
   };
   const handleConfirmation = () => {
     setHidden(false);
@@ -173,14 +207,53 @@ const DeviceWidget = ({ numberOfMiners, setHidden }: DeviceWidgetProps) => {
       status: TOAST_STATUSES.loading,
       longRunning: true,
     });
-    // TODO call API according to currentAction
-    simulateAPICall(() => {
-      updateToast(id, {
-        message: successMessages[currentAction],
-        status: TOAST_STATUSES.success,
-      });
-    });
+
+    // TODO call API for rest of the actions
+    switch (currentAction) {
+      case deviceActions.shutdown: {
+        const stopMiningRequest = create(StopMiningRequestSchema, {
+          deviceIdentifiers: selectedMiners,
+        });
+        stopMining({
+          stopMiningRequest: stopMiningRequest,
+          onSuccess: () => handleSuccess(deviceActions.shutdown, id),
+          onError: handleError.bind(this, id),
+        });
+        break;
+      }
+      case deviceActions.wakeUp: {
+        const startMiningRequest = create(StartMiningRequestSchema, {
+          deviceIdentifiers: selectedMiners,
+        });
+        startMining({
+          startMiningRequest: startMiningRequest,
+          onSuccess: () => handleSuccess(deviceActions.wakeUp, id),
+          onError: handleError.bind(this, id),
+        });
+        break;
+      }
+    }
     setCurrentAction(null);
+  };
+
+  const handleSuccess = (action: DeviceAction, originalToastId: number) => {
+    if (
+      action === deviceActions.blinkLEDs ||
+      action === deviceActions.downloadLogs
+    )
+      return;
+
+    updateToast(originalToastId, {
+      message: successMessages[action],
+      status: TOAST_STATUSES.success,
+    });
+  };
+
+  const handleError = (originalToastId: number, error: string) => {
+    updateToast(originalToastId, {
+      message: error,
+      status: TOAST_STATUSES.error,
+    });
   };
 
   return (

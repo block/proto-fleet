@@ -16,7 +16,7 @@ export const DeviceWidget = ({ numberOfMiners }: DeviceWidgetArgs) => {
       })}
     >
       <DeviceWidgetComponent
-        numberOfMiners={numberOfMiners}
+        selectedMiners={Array(numberOfMiners).fill("MinerId")}
         setHidden={setHidden}
       />
     </div>

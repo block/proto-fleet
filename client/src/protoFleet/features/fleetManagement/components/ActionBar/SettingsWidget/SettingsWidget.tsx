@@ -44,7 +44,7 @@ const SettingsWidget = ({ numberOfMiners, setHidden }: SettingsWidgetProps) => {
       {
         action: settingsActions.coolingMode,
         title: "Cooling mode",
-        icon: <Fan />,
+        icon: <Fan className="opacity-30" />,
         actionHandler: handleCoolingMode,
         requiresConfirmation: false,
       },

@@ -14,11 +14,13 @@ describe("Device widget", () => {
     deviceActions.factoryReset,
     deviceActions.reboot,
     deviceActions.shutdown,
+    deviceActions.wakeUp,
   ];
   const actionsWithConfirmation = [
     deviceActions.factoryReset,
     deviceActions.reboot,
     deviceActions.shutdown,
+    deviceActions.wakeUp,
   ];
   const isActionWithConfirmation = (
     action: string,
@@ -27,7 +29,7 @@ describe("Device widget", () => {
   };
 
   const deviceWidgetProps = {
-    numberOfMiners: 1,
+    selectedMiners: ["MinerId"],
     setHidden: vi.fn(),
   };
 
@@ -95,7 +97,10 @@ describe("Device widget", () => {
   test("confirmation dialog renders correct number of miners", async () => {
     const numberOfMiners = 12;
     const { getByTestId, getByText } = render(
-      <DeviceWidget {...deviceWidgetProps} numberOfMiners={numberOfMiners} />,
+      <DeviceWidget
+        {...deviceWidgetProps}
+        selectedMiners={Array(numberOfMiners).fill("MinerId")}
+      />,
     );
 
     const buttonElement = getByTestId(deviceButton);

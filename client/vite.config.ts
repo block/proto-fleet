@@ -121,6 +121,9 @@ export default defineConfig(({ mode, command }) => {
       "/pairing.v1.PairingService": {
         target: proxyUrl,
       },
+      "/minercommand.v1.MinerCommandService": {
+        target: proxyUrl,
+      },
     };
   } else {
     proxies = env.PROXY_URL

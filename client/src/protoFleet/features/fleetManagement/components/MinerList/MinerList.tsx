@@ -83,14 +83,14 @@ const MinerList = ({ title, miners = [] }: MinerListProps) => {
   return (
     <div>
       <h2 className="text-heading-300">{title}</h2>
-      <List<Miner, Miner["macAddress"], MinerFilterState>
+      <List<Miner, Miner["deviceIdentifier"], MinerFilterState>
         activeCols={activeCols}
         colTitles={minerColTitles}
         colConfig={minerColConfig}
         filters={filters}
         filterItem={filterMiner}
         items={miners}
-        itemKey="macAddress"
+        itemKey="deviceIdentifier"
         itemSelectable
         renderActionBar={(selectedItems) => (
           <MinerListActionBar selectedMiners={selectedItems} />

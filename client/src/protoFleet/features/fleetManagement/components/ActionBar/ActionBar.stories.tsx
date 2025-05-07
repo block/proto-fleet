@@ -20,7 +20,7 @@ export const ActionBar = ({
     return [
       <DeviceWidget
         key="device-widget"
-        numberOfMiners={numberOfItems}
+        selectedMiners={Array(numberOfMiners).fill("MinerId")}
         setHidden={setHidden}
       />,
       <PerformanceWidget
