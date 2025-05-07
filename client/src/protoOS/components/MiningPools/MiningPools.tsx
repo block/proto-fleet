@@ -21,7 +21,7 @@ const MiningPools = ({
   pools,
 }: MiningPoolsProps) => {
   return (
-    <div className="container mx-auto h-full max-w-[640px]">
+    <>
       <ContentHeader
         title={title}
         subtitle="Enter your mining pool details below."
@@ -33,7 +33,7 @@ const MiningPools = ({
       ) : (
         <Pools pools={pools} onChangePools={onChange} />
       )}
-    </div>
+    </>
   );
 };
 

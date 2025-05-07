@@ -2,6 +2,7 @@ import { createBrowserRouter, Outlet, redirect } from "react-router-dom";
 
 import App from "@/protoOS/components/App";
 import FullScreenContentLayout from "@/protoOS/components/ContentLayout/FullScreenContentLayout";
+import SettingsContentLayout from "@/protoOS/components/ContentLayout/SettingsContentLayout";
 import {
   Efficiency,
   HashboardTemperature,
@@ -90,7 +91,7 @@ export const routerConfig = [
   {
     path: "settings",
     element: (
-      <App title="Settings">
+      <App title="Settings" ContentLayout={SettingsContentLayout}>
         <Outlet />
       </App>
     ),

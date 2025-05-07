@@ -10,6 +10,7 @@ import {
 } from "@/protoOS/api/types";
 
 import AppLayout from "@/protoOS/components/AppLayout";
+import SettingsContentLayout from "@/protoOS/components/ContentLayout/SettingsContentLayout";
 import MiningPools, {
   getEmptyPoolsInfo,
   isValidPool,
@@ -166,6 +167,7 @@ const Onboarding = ({
       systemInfo={systemInfo}
       title="Miner setup"
       type={navigationMenuTypes.onboarding}
+      ContentLayout={SettingsContentLayout}
     >
       <WarnBackupPoolDialog
         onAddBackupPool={() => setWarnBackupPool(false)}

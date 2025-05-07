@@ -106,34 +106,34 @@ export const getErrorMessage = (error?: NotificationError) => {
     const details = JSON.parse(error.details || "{}")[error.error_code];
     switch (error.error_code) {
       case "AsicOverheat":
-        message = `Port ${details.port} Hashboard's ASIC (${getRowLabel(details.asic_row)}${details.asic_col}) is overheating at ${details.temperature}°C`;
+        message = `Slot ${details.hb_slot} Hashboard's ASIC (${getRowLabel(details.asic_row)}${details.asic_col}) is overheating at ${details.temperature}°C`;
         break;
       case "AsicOverVoltage":
-        message = `Port ${details.port} Hashboard's ASIC (${getRowLabel(details.asic_row)}${details.asic_col}) is drawing too much voltage at ${details.voltage}mV`;
+        message = `Slot ${details.hb_slot} Hashboard's ASIC (${getRowLabel(details.asic_row)}${details.asic_col}) is drawing too much voltage at ${details.voltage}mV`;
         break;
       case "AsicFailure":
-        message = `Port ${details.port} Hashboard's ASIC (${getRowLabel(details.asic_row)}${details.asic_col}) experienced an unspecified failure`;
+        message = `Slot ${details.hb_slot} Hashboard's ASIC (${getRowLabel(details.asic_row)}${details.asic_col}) experienced an unspecified failure`;
         break;
       case "FanSlow":
         message = `Fan is running slow. Target fan speed: ${details.fan_rpm_target}%, Actual RPM: ${details.fan_rpm_tach}`;
         break;
       case "HashboardOverCurrent":
-        message = `Port ${details.port} Hashboard is drawing too much current at ${details.current}A`;
+        message = `Slot ${details.hb_slot} Hashboard is drawing too much current at ${details.current}A`;
         break;
       case "HashboardOverheat":
-        message = `Port ${details.port} Hashboard is overheating at ${details.temperature}°C`;
+        message = `Slot ${details.hb_slot} Hashboard is overheating at ${details.temperature}°C`;
         break;
       case "HashboardOverVoltage":
-        message = `Port ${details.port} Hashboard is drawing too much voltage at ${details.voltage}mV`;
+        message = `Slot ${details.hb_slot} Hashboard is drawing too much voltage at ${details.voltage}mV`;
         break;
       case "HashboardPowerLost":
-        message = `Port ${details.port} Hashboard has lost power`;
+        message = `Slot ${details.hb_slot} Hashboard has lost power`;
         break;
       case "HashboardUnderVoltage":
-        message = `Port ${details.port} Hashboard does not have enough power at ${details.voltage}mV`;
+        message = `Slot ${details.hb_slot} Hashboard does not have enough power at ${details.voltage}mV`;
         break;
       case "HashboardUsbConnectionLost":
-        message = `Port ${details.port} Hashboard has lost USB connection. Serial number: ${details.serial_number}`;
+        message = `Slot ${details.hb_slot} Hashboard has lost USB connection. Serial number: ${details.serial_number}`;
         break;
       case "PoolConnectionLost":
         message = `Your miner has lost connection to pool ${details.pool_url}`;
