@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 import clsx from "clsx";
-import { WarnBackupPoolDialog } from "./WarnBackupPoolDialog";
-import { WarnDefaultPoolCallout } from "./WarnDefaultPoolCallout";
+import { WarnBackupPoolDialog } from "../WarnBackupPoolDialog";
+import { WarnDefaultPoolCallout } from "../WarnDefaultPoolCallout";
 import { SimpleErrorProps } from "@/protoOS/api/apiResponseTypes";
 import {
   NetworkInfoNetworkinfo,

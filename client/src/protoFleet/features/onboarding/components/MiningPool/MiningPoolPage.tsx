@@ -5,7 +5,7 @@ import { CreatePoolRequestSchema } from "@/protoFleet/api/generated/fleetmanagem
 import useFleet from "@/protoFleet/api/useFleet";
 import { statuses } from "@/protoOS/components/OnboardingSettingUp/constants";
 import OnboardingSettingUp from "@/protoOS/components/OnboardingSettingUp/OnboardingSettingUp";
-import { WarnDefaultPoolCallout } from "@/protoOS/pages/Onboarding/WarnDefaultPoolCallout";
+import { WarnDefaultPoolCallout } from "@/protoOS/features/onboarding/components/WarnDefaultPoolCallout";
 import AnimatedDotsBackground from "@/shared/components/Animation";
 import Button from "@/shared/components/Button";
 import PoolForm from "@/shared/components/MiningPools/PoolForm";

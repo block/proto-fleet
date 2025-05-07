@@ -1,3 +1,4 @@
+import clsx from "clsx";
 import { Logo } from "@/shared/assets/icons";
 import MinerImage from "@/shared/assets/images/miner.png";
 import Button from "@/shared/components/Button";
@@ -10,16 +11,27 @@ type FoundMinersProps = {
     macAddress: string;
     serialNumber: string;
   }[];
+  className?: string;
+  showLogo?: boolean;
   handleContinueSetup: () => void;
+  handleRestartSearch: () => void;
 };
 
-const FoundMiners = ({ miners, handleContinueSetup }: FoundMinersProps) => {
+const FoundMiners = ({
+  miners,
+  className = "pt-20",
+  showLogo = true,
+  handleContinueSetup,
+  handleRestartSearch,
+}: FoundMinersProps) => {
   return (
     <>
-      <div className="p-6">
-        <Logo width="w-[86px]" />
-      </div>
-      <div className="container mx-auto pt-20">
+      {showLogo && (
+        <div className="p-6">
+          <Logo width="w-[86px]" />
+        </div>
+      )}
+      <div className={clsx("container mx-auto", className)}>
         <div className="mx-auto flex w-fit flex-col gap-6">
           <div>
             <Header
@@ -81,8 +93,11 @@ const FoundMiners = ({ miners, handleContinueSetup }: FoundMinersProps) => {
           </div>
           <div className="flex justify-end gap-3">
             {miners.length > 1 && (
-              /* TODO: Restart search */
-              <Button variant="secondary" size="base">
+              <Button
+                variant="secondary"
+                size="base"
+                onClick={handleRestartSearch}
+              >
                 Restart miner search
               </Button>
             )}

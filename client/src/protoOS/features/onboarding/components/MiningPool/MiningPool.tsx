@@ -8,8 +8,8 @@ import MiningPools, {
 } from "@/protoOS/components/MiningPools";
 import SettingUp from "@/protoOS/components/OnboardingSettingUp";
 import { useAccessToken } from "@/protoOS/contexts/AuthContext";
-import { WarnBackupPoolDialog } from "@/protoOS/pages/Onboarding/WarnBackupPoolDialog";
-import { WarnDefaultPoolCallout } from "@/protoOS/pages/Onboarding/WarnDefaultPoolCallout";
+import { WarnBackupPoolDialog } from "@/protoOS/features/onboarding/components/WarnBackupPoolDialog";
+import { WarnDefaultPoolCallout } from "@/protoOS/features/onboarding/components/WarnDefaultPoolCallout";
 import { Alert } from "@/shared/assets/icons";
 import AnimatedDotsBackground from "@/shared/components/Animation";
 import Button from "@/shared/components/Button";

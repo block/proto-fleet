@@ -8,6 +8,10 @@ import {
 } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
+import {
+  defaultDiscoveryPorts,
+  defaultTimeout,
+} from "@/protoFleet/features/onboarding/constants";
 import DialogComponent from "@/shared/components/Dialog";
 import { AddMiners, FoundMiners, SetupHeader } from "@/shared/components/Setup";
 import {
@@ -43,7 +47,7 @@ const MinersPage = () => {
     [discover],
   );
 
-  const handleScanNetwork = useCallback(() => {
+  /*const handleIPRangeDiscovery = useCallback(() => {
     if (!networkInfo) return;
 
     const discoverRequest = create(DiscoverRequestSchema, {
@@ -53,9 +57,24 @@ const MinersPage = () => {
           startIp: networkInfo.localIp,
           // TODO fix endIp
           endIp: "192.168.2.255",
-          // TODO where to get ports?
-          ports: ["8080", "2121", "2122", "4100", "4200"],
-          timeoutSeconds: 10,
+          ports: defaultDiscoveryPorts,
+          timeoutSeconds: defaultTimeout,
+        },
+      },
+    });
+    handleDiscover(discoverRequest);
+  }, [handleDiscover, networkInfo]);*/
+
+  const handleNmapDiscovery = useCallback(() => {
+    if (!networkInfo) return;
+
+    const discoverRequest = create(DiscoverRequestSchema, {
+      mode: {
+        case: "nmap",
+        value: {
+          target: networkInfo.subnet,
+          ports: defaultDiscoveryPorts,
+          fastScan: false,
         },
       },
     });
@@ -63,19 +82,32 @@ const MinersPage = () => {
   }, [handleDiscover, networkInfo]);
 
   useEffect(() => {
-    handleScanNetwork();
-  }, [handleScanNetwork]);
+    handleNmapDiscovery();
+  }, [handleNmapDiscovery]);
 
-  const handleDiscoverIpList = useCallback(
+  const handleMdnsDiscovery = useCallback(() => {
+    const discoverRequest = create(DiscoverRequestSchema, {
+      mode: {
+        case: "mdns",
+        value: {
+          serviceType: "_fleet._tcp",
+          domain: "local",
+          timeoutSeconds: defaultTimeout,
+        },
+      },
+    });
+    handleDiscover(discoverRequest);
+  }, [handleDiscover]);
+
+  const handleIpListDiscovery = useCallback(
     (ipAddresses: string[]) => {
       const discoverRequest = create(DiscoverRequestSchema, {
         mode: {
           case: "ipList",
           value: {
             ipAddresses: ipAddresses,
-            // TODO where to get ports?
-            ports: ["8080", "2121", "2122", "4100", "4200"],
-            timeoutSeconds: 10,
+            ports: defaultDiscoveryPorts,
+            timeoutSeconds: defaultTimeout,
           },
         },
       });
@@ -100,23 +132,33 @@ const MinersPage = () => {
     });
   }
 
+  function handleRestart() {
+    setFoundMiners([]);
+  }
+
   return (
     <div>
-      <SetupHeader steps={protoFleetSteps} activeStep={steps.miners} />
-      <AddMiners
-        onScanModeDiscover={handleScanNetwork}
-        onIpListModeDiscover={handleDiscoverIpList}
-      />
       <DialogComponent
         title="Pairing the found miners"
         subtitle="This may take a few seconds"
         loading
         show={pairingPending}
       />
-      {!discoverPending && foundMiners.length > 0 && (
+      <SetupHeader steps={protoFleetSteps} activeStep={steps.miners} />
+      {discoverPending || foundMiners.length === 0 ? (
+        <AddMiners
+          loading={discoverPending}
+          onScanModeDiscover={handleNmapDiscovery}
+          onMdnsModeDiscover={handleMdnsDiscovery}
+          onIpListModeDiscover={handleIpListDiscovery}
+        />
+      ) : (
         <FoundMiners
           miners={foundMiners}
+          className="pt-0"
+          showLogo={false}
           handleContinueSetup={handleContinue}
+          handleRestartSearch={handleRestart}
         />
       )}
     </div>

@@ -12,18 +12,20 @@ import {
   Temperature,
 } from "@/protoOS/features/kpis";
 import {
+  Authentication,
+  MiningPool,
+  Network,
+  Onboarding,
+  Verify,
+  Welcome,
+} from "@/protoOS/features/onboarding";
+import {
   // Cooling,
   General,
   Hardware,
   MiningPools,
 } from "@/protoOS/features/settings";
 import Logs from "@/protoOS/pages/MinerLogs";
-import Onboarding from "@/protoOS/pages/Onboarding";
-import AuthenticationPage from "@/protoOS/pages/Onboarding/Authentication";
-import MiningPoolPage from "@/protoOS/pages/Onboarding/MiningPool/MiningPool";
-import NetworkPage from "@/protoOS/pages/Onboarding/Network";
-import Verify from "@/protoOS/pages/Onboarding/Verify";
-import Welcome from "@/protoOS/pages/Onboarding/Welcome";
 
 export const routerConfig = [
   {
@@ -78,15 +80,15 @@ export const routerConfig = [
   },
   {
     path: "onboarding/network",
-    element: <NetworkPage />,
+    element: <Network />,
   },
   {
     path: "onboarding/authentication",
-    element: <AuthenticationPage />,
+    element: <Authentication />,
   },
   {
     path: "onboarding/mining-pool",
-    element: <MiningPoolPage />,
+    element: <MiningPool />,
   },
   {
     path: "settings",

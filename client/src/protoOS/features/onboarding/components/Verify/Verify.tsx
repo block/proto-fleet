@@ -21,6 +21,7 @@ const Verify = () => {
         },
       ]}
       handleContinueSetup={handleContinue}
+      handleRestartSearch={() => {}}
     />
   );
 };

@@ -5,7 +5,7 @@ const Auth = () => {
   const navigate = useNavigate();
 
   return (
-    <div className="items-center-safe·justify-center-safe·flex·h-screen·w-full">
+    <div className="items-center-safe justify-center-safe flex h-screen w-full p-10">
       <LoginForm
         onSuccess={() => navigate("/")}
         onClickForgotPassword={() => navigate("/signup")}

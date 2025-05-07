@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { action } from "@storybook/addon-actions";
 import { FoundMiners as FoundMinersComponent } from ".";
 
 type FoundMinersProps = {
@@ -16,8 +17,9 @@ export const FoundMiners = ({ minersCount }: FoundMinersProps) => {
   return (
     <div>
       <FoundMinersComponent
-        handleContinueSetup={() => {}}
         miners={miners.slice(0, minersCount)}
+        handleContinueSetup={action("continue setup")}
+        handleRestartSearch={action("restart search")}
       />
     </div>
   );

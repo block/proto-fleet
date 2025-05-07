@@ -2,16 +2,21 @@ import { useState } from "react";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import { minerDiscoveryModes } from "@/shared/components/Setup/miners.constants";
 
 interface AddMinerProps {
+  loading: boolean;
   onScanModeDiscover: () => void;
+  onMdnsModeDiscover: () => void;
   onIpListModeDiscover: (ipAddresses: string[]) => void;
 }
 
 const AddMiners = ({
+  loading,
   onScanModeDiscover,
+  onMdnsModeDiscover,
   onIpListModeDiscover,
 }: AddMinerProps) => {
   const [selectedMode, setSelectedMode] = useState<string>(
@@ -24,6 +29,9 @@ const AddMiners = ({
     switch (selectedKey) {
       case minerDiscoveryModes.scan:
         onScanModeDiscover();
+        break;
+      case minerDiscoveryModes.mdns:
+        onMdnsModeDiscover();
         break;
       default:
         break;
@@ -57,12 +65,22 @@ const AddMiners = ({
             title: "Scan network",
           },
           {
+            key: minerDiscoveryModes.mdns,
+            title: "mDNS scan",
+          },
+          {
             key: minerDiscoveryModes.ipList,
             title: "Specify IP addresses",
           },
         ]}
         onSelect={handleSelect}
       />
+      {loading && selectedMode !== minerDiscoveryModes.ipList && (
+        <div className="flex grow items-center space-x-3">
+          <ProgressCircular indeterminate />
+          <span className="text-emphasis-300">Discovery in progress...</span>
+        </div>
+      )}
       {selectedMode === minerDiscoveryModes.ipList && (
         <div className="space-y-4">
           {ipAddresses.map((ipAddress, index) => (
@@ -77,6 +95,7 @@ const AddMiners = ({
           <Button
             variant={variants.primary}
             size={sizes.base}
+            loading={loading}
             onClick={() =>
               onIpListModeDiscover(
                 ipAddresses.filter((address) => address !== ""),
