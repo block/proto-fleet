@@ -22,6 +22,20 @@ export const Input = () => {
         onChange={(value) => action("onChange password")(value)}
         type="password"
       />
+      <InputComponent
+        id="disabled"
+        label="Disabled"
+        onChange={(value) => action("onChange disabled")(value)}
+        type="disabled"
+        disabled
+      />
+      <InputComponent
+        id="error"
+        label="Error field"
+        onChange={(value) => action("onChange error")(value)}
+        type="error"
+        error="This is an error message"
+      />
     </div>
   );
 };

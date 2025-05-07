@@ -110,17 +110,20 @@ const Input = ({
         data-testid={testId}
         className={clsx(
           "peer w-full rounded-lg text-300 text-text-primary outline-hidden",
-          "transition-[border-color] duration-200 ease-in-out",
+          "transition duration-200 ease-in-out",
           { "bg-surface-base": !disabled },
           { "bg-core-primary-5": disabled },
           {
             "border border-border-5": !error && !compact,
           },
           {
-            "focus:border-[1.5px] focus:border-border-primary":
+            "border border-border-20 focus:ring-4 focus:ring-surface-10":
               !error && !compact && !disabled,
           },
-          { "border-[1.5px] border-intent-critical-50": error },
+          {
+            "border border-intent-critical-50 focus:ring-4 focus:ring-intent-critical-20":
+              error,
+          },
           { "pt-[18px]": !hideLabelOnFocus },
           { "h-14 pl-4": !compact },
           { "pr-4": !compact && !tooltip && type !== "password" },
