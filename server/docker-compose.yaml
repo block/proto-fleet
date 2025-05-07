@@ -38,6 +38,8 @@ services:
       - "4100:8080"
       - "2121:2121"
     privileged: true
+    environment:
+      MFG_SERIAL_NUMBER: local-mms-1
     networks:
       - fleet-network
     cap_add:
@@ -51,6 +53,8 @@ services:
       - "4200:8080"
       - "2122:2121"
     privileged: true
+    environment:
+      MFG_SERIAL_NUMBER: local-mms-2
     networks:
       - fleet-network
     cap_add:

@@ -24,6 +24,7 @@ services:
     environment:
       MCDD__DATABASE__PATH: "/app/mcdd_data"
       MCDD__DATABASE__DELETE_ON_EXIT: "false"
+      MFG_SERIAL_NUMBER: "${MFG_SERIAL_NUMBER}"
     volumes:
       - "./volumes/log:/app/log"
       - "./volumes/mcdd/config:/app/crates/mcdd/config"

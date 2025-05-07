@@ -96,6 +96,10 @@ jobs:
         shell: bash
         run: sed -i 's#${MINER_NAME}#${{ matrix.miner-name }}#g' "deploy/develop/miner/docker-compose.yml"
 
+      - name: Write Miner serial number to Docker Compose file
+        shell: bash
+        run: sed -i 's#${MFG_SERIAL_NUMBER}#develop-${{ matrix.miner-name }}#g' "deploy/develop/miner/docker-compose.yml"
+
       - name: Copy over initial Miner API config
         shell: bash
         run: ~/rsync_to_ec2 "miner-firmware/crates/miner-api-server/config" "docker/protofleet/develop/${{ matrix.miner-name }}/initial-config/miner-api"
