@@ -21,12 +21,14 @@ import { deepClone } from "@/shared/utils/utility";
 
 interface LoginFormProps {
   onClickForgotPassword: () => void;
+  onClickCreateAccount?: () => void;
   onDismiss?: () => void;
   onSuccess: () => void;
 }
 
 const LoginForm = ({
   onClickForgotPassword,
+  onClickCreateAccount,
   onDismiss,
   onSuccess,
 }: LoginFormProps) => {
@@ -109,11 +111,19 @@ const LoginForm = ({
       />
 
       <div
-        className="mb-4 flex text-200 text-text-primary-50 hover:cursor-pointer"
+        className="mp-2 flex text-200 text-text-primary-50 hover:cursor-pointer"
         onClick={onClickForgotPassword}
         data-testid="forgot-password"
       >
         {"Forgot password ->"}
+      </div>
+
+      <div
+        className="mb-4 flex text-200 text-text-primary-50 hover:cursor-pointer"
+        onClick={onClickCreateAccount}
+        data-testid="create-account"
+      >
+        {"Create an account ->"}
       </div>
 
       <ButtonGroup

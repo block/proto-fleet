@@ -122,6 +122,4 @@ export const routerConfig = [
   },
 ];
 
-const router = createBrowserRouter(routerConfig);
-
-export default router;
+export const createRouter = () => createBrowserRouter(routerConfig);

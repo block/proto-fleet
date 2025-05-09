@@ -112,7 +112,7 @@ const Signup = () => {
 
   return (
     <div className="flex h-screen w-full items-center justify-center bg-surface-base">
-      <div className="w-[402px] space-y-4 rounded-3xl bg-surface-elevated-base p-6 shadow-200">
+      <div className="w-100 space-y-4 rounded-3xl bg-surface-elevated-base p-6 shadow-200">
         <div className="flex items-center">
           <div className="grow">
             <Logo className="w-[78px] text-text-primary" />

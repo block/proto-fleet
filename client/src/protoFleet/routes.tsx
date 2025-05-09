@@ -24,6 +24,7 @@ type Route = RouteObject & {
   icon?: (i: IconProps) => ReactNode;
   navItem?: boolean;
   secondaryNavItem?: string;
+  requireAuth?: boolean;
 };
 
 export type NavRoute = Omit<Route, "element">;
@@ -103,16 +104,19 @@ const routes: Route[] = [
   {
     path: "/onboarding",
     overrideLayout: true,
+    requireAuth: false,
     loader: () => redirect("/onboarding/welcome"),
   },
   {
     path: "/onboarding/welcome",
     element: <WelcomePage />,
+    requireAuth: false,
     overrideLayout: true,
   },
   {
     path: "/onboarding/authentication",
     element: <AuthenticationPage />,
+    requireAuth: false,
     overrideLayout: true,
   },
   {
@@ -151,6 +155,7 @@ export const getRouteMetadata = (pathname: string) => {
 
   return {
     title: route?.label || "",
+    requireAuth: route?.requireAuth,
 
     // only use AppLayout if route is defined and not explicitly overridden.
     // route will be undefined for the nested routes singleMinerRoutes

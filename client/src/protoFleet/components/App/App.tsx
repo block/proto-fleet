@@ -3,6 +3,7 @@ import { Outlet, useMatches } from "react-router-dom";
 
 import AppLayout from "@/protoFleet/components/AppLayout";
 import { useAccessToken } from "@/protoFleet/contexts/AuthContext";
+import { useCompleteOnboarding } from "@/protoFleet/features/onboarding";
 import { getRouteMetadata } from "@/protoFleet/routes";
 
 const App = () => {
@@ -15,7 +16,12 @@ const App = () => {
     return getRouteMetadata(currentPath);
   }, [currentPath]);
 
-  useAccessToken(true, currentPath);
+  const requireAuth = useMemo(() => {
+    return !(metadata?.requireAuth === false);
+  }, [metadata]);
+
+  useAccessToken(requireAuth, currentPath);
+  useCompleteOnboarding();
 
   return (
     <>

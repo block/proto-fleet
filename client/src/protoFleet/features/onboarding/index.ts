@@ -1,3 +1,4 @@
+import useCompleteOnboarding from "./hooks/useCompleteOnboarding";
 import AuthenticationPage from "@/protoFleet/features/onboarding/components/Authentication";
 import MinersPage from "@/protoFleet/features/onboarding/components/Miners";
 import MiningPoolPage from "@/protoFleet/features/onboarding/components/MiningPool";
@@ -10,4 +11,5 @@ export {
   MiningPoolPage,
   NetworkPage,
   WelcomePage,
+  useCompleteOnboarding,
 };

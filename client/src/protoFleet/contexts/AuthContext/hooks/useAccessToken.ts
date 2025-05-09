@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { useAuthContext } from "./useAuthContext";
 
@@ -9,7 +10,7 @@ const useAccessToken = (shouldCheckAccess = true, currentPath?: string) => {
   // returns true if access token is valid
   // returns false if refresh token is invalid
   const [hasAccess, setHasAccess] = useState<boolean | undefined>(undefined);
-  //const navigate = useNavigate();
+  const navigate = useNavigate();
 
   const dateNow = new Date();
   const dateAccessToken = new Date(authTokens.accessToken.expiry);
@@ -29,10 +30,9 @@ const useAccessToken = (shouldCheckAccess = true, currentPath?: string) => {
       return;
     } else {
       setHasAccess(false);
-      // TODO: redirect to auth page, now is conflicting with onboarding
-      //navigate("/auth");
+      navigate("/auth");
     }
-  }, [isValidAccessToken, shouldCheckAccess, currentPath]);
+  }, [isValidAccessToken, shouldCheckAccess, currentPath, navigate]);
 
   useEffect(() => {
     checkAccess();

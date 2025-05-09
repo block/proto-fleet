@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { RouterProvider } from "react-router-dom";
 
-import router from "./router";
+import { createRouter } from "./router";
 import { AuthContext, AuthTokens } from "@/protoOS/contexts/AuthContext";
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
 import { PreferencesProvider } from "@/shared/features/preferences/PreferencesContext";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 
 import "@/shared/styles/index.css";
+
+const router = createRouter();
 
 const Main = () => {
   const [showLoginModal, setShowLoginModal] = useState(false);
