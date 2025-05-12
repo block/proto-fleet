@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"fmt"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/minerclient"
 	"log/slog"
 	"net"
 	"strings"
@@ -24,14 +25,16 @@ import (
 
 // Service handles the core device discovery functionality
 type Service struct {
-	conn *sql.DB
-	cfg  Config
+	conn        *sql.DB
+	minerClient *minerclient.Service
+	cfg         Config
 }
 
-func NewService(conn *sql.DB, cfg Config) *Service {
+func NewService(conn *sql.DB, minerClient *minerclient.Service, cfg Config) *Service {
 	return &Service{
-		conn: conn,
-		cfg:  cfg,
+		conn:        conn,
+		minerClient: minerClient,
+		cfg:         cfg,
 	}
 }
 
@@ -95,36 +98,18 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 					return
 				}
 
-				device := &pb.Device{
-					DiscoveredAt: time.Now().Unix(),
-				}
-
-				if len(entry.AddrIPv4) > 0 {
-					device.IpAddress = entry.AddrIPv4[0].String()
-					device.MacAddress = networking.GetMacAddress(device.IpAddress)
-				}
-
-				if device.MacAddress == "" {
+				if len(entry.AddrIPv4) == 0 {
 					continue
 				}
-				portStr := fmt.Sprintf("%d", entry.Port)
-				// Check if host is reachable
-				if err := checkDeviceReachability(device.IpAddress, portStr, time.Second); err == nil {
-					device.Port = portStr
-					err := s.saveDevice(ctx, device)
-					if err != nil {
-						slog.Warn("error saving", "error", err)
-						continue
-					}
 
-					select {
-					case resultChan <- &pb.DiscoverResponse{
-						Devices: []*pb.Device{device},
-					}:
-					case <-ctx.Done():
-						return
-					}
+				ipAddress := entry.AddrIPv4[0].String()
+				portStr := fmt.Sprintf("%d", entry.Port)
+
+				err := s.discoverDevice(ctx, ipAddress, portStr, resultChan)
+				if err != nil {
+					slog.Debug("device discovery failed", "error", err)
 				}
+
 			case <-timeoutCtx.Done():
 				return
 			}
@@ -185,39 +170,23 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 				continue
 			}
 
-			device := &pb.Device{
-				DiscoveredAt: time.Now().Unix(),
-			}
-
+			var ipAddress string
 			for _, addr := range host.Addresses {
 				if addr.AddrType == "ipv4" {
-					device.IpAddress = addr.Addr
-					device.MacAddress = networking.GetMacAddress(device.IpAddress)
+					ipAddress = addr.Addr
+					break
 				}
 			}
 
-			if device.MacAddress == "" {
+			if ipAddress == "" {
 				continue
 			}
 
 			for _, port := range host.Ports {
 				portStr := fmt.Sprintf("%d", port.ID)
-				// Check if host is reachable
-				if err := checkDeviceReachability(device.IpAddress, portStr, time.Second); err == nil {
-					device.Port = portStr
-					err := s.saveDevice(ctx, device)
-					if err != nil {
-						slog.Warn("error saving", "error", err)
-						continue
-					}
-
-					select {
-					case resultChan <- &pb.DiscoverResponse{
-						Devices: []*pb.Device{device},
-					}:
-					case <-ctx.Done():
-						return
-					}
+				err := s.discoverDevice(ctx, ipAddress, portStr, resultChan)
+				if err != nil {
+					slog.Debug("device discovery failed", "error", err)
 				}
 			}
 		}
@@ -256,32 +225,10 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 					defer wg.Done()
 					defer func() { <-semaphore }() // Release semaphore
 
-					device := &pb.Device{
-						IpAddress:    ipAddr,
-						DiscoveredAt: time.Now().Unix(),
-						MacAddress:   networking.GetMacAddress(ipAddr),
-					}
-
-					if device.MacAddress == "" {
-						return
-					}
-
 					for _, port := range r.Ports {
-						// Check if host is reachable
-						if err := checkDeviceReachability(ipAddr, port, time.Duration(r.TimeoutSeconds)*time.Second); err == nil {
-							device.Port = port
-							err := s.saveDevice(ctx, device)
-							if err != nil {
-								slog.Warn("error saving", "error", err)
-								continue
-							}
-
-							select {
-							case resultChan <- &pb.DiscoverResponse{
-								Devices: []*pb.Device{device},
-							}:
-							case <-ctx.Done():
-							}
+						err := s.discoverDevice(ctx, ipAddr, port, resultChan)
+						if err != nil {
+							slog.Debug("device discovery failed", "error", err)
 						}
 					}
 				}(uint32ToIP(ip))
@@ -316,32 +263,10 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 					defer wg.Done()
 					defer func() { <-semaphore }() // Release semaphore
 
-					device := &pb.Device{
-						IpAddress:    ipAddr,
-						DiscoveredAt: time.Now().Unix(),
-						MacAddress:   networking.GetMacAddress(ipAddr),
-					}
-
-					if device.MacAddress == "" {
-						return
-					}
-
 					for _, port := range r.Ports {
-						// Check if host is reachable
-						if err := checkDeviceReachability(ipAddr, port, time.Duration(r.TimeoutSeconds)*time.Second); err == nil {
-							device.Port = port
-							err := s.saveDevice(ctx, device)
-							if err != nil {
-								slog.Warn("error saving", "error", err)
-								continue
-							}
-
-							select {
-							case resultChan <- &pb.DiscoverResponse{
-								Devices: []*pb.Device{device},
-							}:
-							case <-ctx.Done():
-							}
+						err := s.discoverDevice(ctx, ipAddr, port, resultChan)
+						if err != nil {
+							slog.Debug("device discovery failed", "error", err)
 						}
 					}
 				}(ip)
@@ -354,17 +279,54 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 	return resultChan, nil
 }
 
-// checkDeviceReachability attempts to connect to a host on specified ports with timeout
-func checkDeviceReachability(host string, port string, timeout time.Duration) error {
-	address := fmt.Sprintf("%s:%s", host, port)
-	// TODO the check should call api on the miner
-	conn, err := net.DialTimeout("tcp", address, timeout)
+func (s *Service) discoverDevice(ctx context.Context, ipAddress string, port string, resultChan chan<- *pb.DiscoverResponse) error {
+	deviceInfo, err := s.getDevicePairingInformation(ctx, ipAddress, port)
 	if err != nil {
-		return fmt.Errorf("failed to check host: address=%s %w", address, err)
+		return fmt.Errorf("device validation failed: %w", err)
 	}
-	defer func(conn net.Conn) {
-		_ = conn.Close()
-	}(conn)
+
+	err = s.processDiscoveredDevice(ctx, deviceInfo, resultChan)
+	if err != nil {
+		return fmt.Errorf("device processing failed: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Service) getDevicePairingInformation(ctx context.Context, ipAddress string, port string) (*pb.Device, error) {
+	minerURL := net.JoinHostPort(ipAddress, port)
+
+	pairingInfo, err := s.minerClient.GetPairingInfo(ctx, minerURL)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(pairingInfo.Msg.CbSn) == 0 {
+		return nil, fmt.Errorf("miner at '%s' does not have a serial number which is required for pairing", minerURL)
+	}
+
+	return &pb.Device{
+		IpAddress:    ipAddress,
+		Port:         port,
+		MacAddress:   pairingInfo.Msg.Mac,
+		SerialNumber: pairingInfo.Msg.CbSn,
+		DiscoveredAt: time.Now().Unix(),
+	}, nil
+}
+
+func (s *Service) processDiscoveredDevice(ctx context.Context, device *pb.Device, resultChan chan<- *pb.DiscoverResponse) error {
+	err := s.saveDevice(ctx, device)
+	if err != nil {
+		return fmt.Errorf("error saving device: %w", err)
+	}
+
+	select {
+	case resultChan <- &pb.DiscoverResponse{
+		Devices: []*pb.Device{device},
+	}:
+	case <-ctx.Done():
+	}
+
 	return nil
 }
 
@@ -448,11 +410,7 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 }
 
 func (s *Service) generatePairingToken(device *sqlc.Device) (string, error) {
-	// TODO remove defaulting to mac when we start getting serial no from miner
 	deviceKey := device.SerialNumber.String
-	if deviceKey == "" {
-		deviceKey = device.MacAddress
-	}
 	bytes, err := bcrypt.GenerateFromPassword(fmt.Appendf(nil, "%s:%s", s.cfg.SecretKey, deviceKey), 14)
 	return string(bytes), err
 }

@@ -3,10 +3,7 @@ package networking
 import (
 	"fmt"
 	"net"
-	"strings"
-	"time"
 
-	"github.com/j-keck/arping"
 	"github.com/jackpal/gateway"
 )
 
@@ -64,16 +61,4 @@ func GetLocalNetworkInfo() (NetworkInfo, error) {
 	}
 
 	return emptyNetworkInfo, fmt.Errorf("no suitable network interface found")
-}
-
-// GetMacAddress returns MAC lowercased or empty string
-func GetMacAddress(ip string) string {
-	// Timeout of 1 second for the ARP request
-	arping.SetTimeout(time.Second)
-
-	hwAddr, _, err := arping.Ping(net.ParseIP(ip))
-	if err != nil {
-		return ""
-	}
-	return strings.ToLower(hwAddr.String())
 }

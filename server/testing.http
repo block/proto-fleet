@@ -37,7 +37,7 @@ Authorization: Bearer {{auth_token}}
   "nmap": {
     "target": "192.168.2.0/24",
     "ports": [
-      "8080"
+      "2121"
     ],
     "fast_scan": false
   }
@@ -53,7 +53,7 @@ Authorization: Bearer {{auth_token}}
     "start_ip": "10.0.0.248",
     "end_ip": "10.0.0.250",
     "ports": [
-      "80"
+      "2121"
     ]
   }
 }
@@ -65,9 +65,9 @@ Authorization: Bearer {{auth_token}}
 
 {
   "ip_list": {
-    "ip_addresses": ["192.168.2.2", "192.168.2.3", "192.168.2.4", "192.168.2.5", "192.168.2.6" ],
+    "ip_addresses": [ "mms-1", "mms-2", "miner-1.miner.fleetdev.proto.xyz", "miner-2.miner.fleetdev.proto.xyz", "miner-3.miner.fleetdev.proto.xyz" ],
     "ports": [
-      "8080"
+      "2121"
     ]
   }
 }

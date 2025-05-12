@@ -27,4 +27,7 @@ managed:
     - file_option: go_package
       value: github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_debug_api
       path: miner_debug_api.proto
+    - file_option: go_package
+      value: github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api
+      path: miner_system_api.proto
 

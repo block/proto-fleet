@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/minerclient"
 	"log/slog"
 	"net/http"
 	"os"
@@ -76,10 +77,11 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
+	minerClient := minerclient.NewService()
 	authSvc := authDomain.NewService(conn, tokenSvc)
-	pairingSvc := pairingDomain.NewService(conn, config.Pairing)
+	pairingSvc := pairingDomain.NewService(conn, minerClient, config.Pairing)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(conn)
-	commandSvc := commandDomain.NewService(conn)
+	commandSvc := commandDomain.NewService(conn, minerClient)
 	onboardingSvc := onboardingDomain.NewService(conn)
 
 	// init middleware
