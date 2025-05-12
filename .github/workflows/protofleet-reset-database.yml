@@ -1,0 +1,60 @@
+name: Reset Develop Backend Database
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_deployment:
+        description: 'Target deployment to reset'
+        required: true
+        type: choice
+        options:
+          - main
+          - pr
+      pr_number:
+        description: 'PR number (required only for PR deployments)'
+        required: false
+        type: number
+
+permissions:
+  # Needed for aws-actions/configure-aws-credentials
+  id-token: write
+  contents: read
+
+jobs:
+  reset-database:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate inputs
+        if: github.event.inputs.target_deployment == 'pr' && github.event.inputs.pr_number == ''
+        run: |
+          echo "Error: PR number is required when targeting PR deployment"
+          exit 1
+
+      - name: Set target directory
+        run: |
+          if [ "${{ github.event.inputs.target_deployment }}" = "main" ]; then
+            echo "TARGET_DIRECTORY='docker/protofleet/develop/backend'" >> $GITHUB_ENV
+          else
+            echo "TARGET_DIRECTORY='docker/protofleet/pr/${{ github.event.inputs.pr_number }}/backend'" >> $GITHUB_ENV
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup AWS SSH
+        uses: ./.github/actions/aws-ssh-setup
+        with:
+          aws-instance-id: "i-0e47edcb1574765b0"
+          aws-instance-connect-endpoint-id: "eice-0e5cdfd8da57023b2"
+          aws-instance-user: "ubuntu"
+          aws-region: "us-east-1"
+          aws-role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Deploy_Develop"
+
+      - name: Stop backend containers
+        run: ~/ssh_to_ec2 'cd "${{ env.TARGET_DIRECTORY }}"; sudo docker compose down'
+
+      - name: Delete MySQL volume
+        run: ~/ssh_to_ec2 'sudo rm -rf "${{ env.TARGET_DIRECTORY }}/volumes/mysql"'
+
+      - name: Start backend containers
+        run: ~/ssh_to_ec2 'cd "${{ env.TARGET_DIRECTORY }}"; sudo docker compose up -d'

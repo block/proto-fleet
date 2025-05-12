@@ -45,6 +45,27 @@ services:
       driver: "json-file"
       options:
         max-size: 100m
+  portainer:
+    container_name: "protofleet-develop-portainer"
+    image: portainer/portainer-ce:2.27.5
+    restart: unless-stopped
+    expose:
+      - "9000"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "./volumes/portainer:/data"
+    labels:
+      - "traefik.http.services.protofleet-develop-portainer.loadbalancer.server.port=9000"
+
+      - "traefik.http.routers.protofleet-develop-portainer.rule=Host(`portainer.${VM_SUBDOMAIN}.fleetdev.proto.xyz`)"
+      - "traefik.http.routers.protofleet-develop-portainer.entrypoints=websecure"
+      - "traefik.http.routers.protofleet-develop-portainer.service=protofleet-develop-portainer"
+    networks:
+      - traefik
+    logging:
+      driver: "json-file"
+      options:
+        max-size: 100m
 
 networks:
   traefik:
