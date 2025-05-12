@@ -25,10 +25,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Validate inputs
-        if: github.event.inputs.target_deployment == 'pr' && github.event.inputs.pr_number == ''
         run: |
-          echo "Error: PR number is required when targeting PR deployment"
-          exit 1
+          if [[ "${{ github.event.inputs.target_deployment }}" == "main" ]]; then
+            if [[ -n "${{ github.event.inputs.pr_number }}" ]]; then
+              echo "Error: PR number should not be set when targeting main deployment"
+              exit 1
+            fi
+          elif [[ "${{ github.event.inputs.target_deployment }}" == "pr" ]]; then
+            if [[ ! "${{ github.event.inputs.pr_number }}" =~ ^[0-9]+$ ]]; then
+              echo "Error: PR number must be a valid number"
+              exit 1
+            fi
+          else
+            echo "Error: target_deployment must be either 'main' or 'pr'"
+            exit 1
+          fi
 
       - name: Set target directory
         run: |
