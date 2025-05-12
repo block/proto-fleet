@@ -147,7 +147,7 @@ Authorization: Bearer {{auth_token}}
 
 {
   "id": "9",
-  "pool_name": "default default"
+  "password": "default default"
 }
 
 ### Stop mining

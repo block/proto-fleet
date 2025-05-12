@@ -199,9 +199,9 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 		if r.Username != "" {
 			pool.Username = r.Username
 		}
-		if r.Password != "" {
+		if r.Password != nil {
 			// TODO encrypt password
-			pool.PasswordEnc = r.Password
+			pool.PasswordEnc = r.Password.Value
 		}
 		err = q.UpdatePool(ctx, sqlc.UpdatePoolParams{
 			PoolName:     pool.PoolName,
@@ -233,12 +233,16 @@ func (s *Service) CreatePool(ctx context.Context, r *pb.PoolConfig) (*pb.Pool, e
 			slog.Error("error getting list of pools", "org_id", claims.OrgID, "error", err)
 			return nil, ErrInternal
 		}
-		result, err := q.CreatePool(ctx, sqlc.CreatePoolParams{
-			PoolName: r.PoolName,
-			Url:      r.Url,
-			Username: r.Username,
+		password := ""
+		if r.Password != nil {
 			// TODO encrypt password
-			PasswordEnc:  r.Password,
+			password = r.Password.Value
+		}
+		result, err := q.CreatePool(ctx, sqlc.CreatePoolParams{
+			PoolName:     r.PoolName,
+			Url:          r.Url,
+			Username:     r.Username,
+			PasswordEnc:  password,
 			PoolStatus:   sqlc.PoolPoolStatusUNKNOWN,
 			PoolPriority: defaultPoolPriority,
 			IsDefault:    sql.NullBool{Valid: true, Bool: len(pools) == 0},

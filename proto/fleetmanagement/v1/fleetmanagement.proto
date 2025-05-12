@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package fleetmanagement.v1;
 
+import "google/protobuf/wrappers.proto";
+
 // PoolConfig defines the connection details for a mining pool
 message PoolConfig {
   // Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")
@@ -14,7 +16,7 @@ message PoolConfig {
 
   // Password for pool authentication
   // May be optional depending on pool requirements, often used for worker identification
-  string password = 3;
+  google.protobuf.StringValue password = 3;
 
   // Pool name to identify this pool
   // Human-readable identifier for the pool within the fleet management system
@@ -112,7 +114,7 @@ message UpdatePoolRequest {
   string username = 4;
 
   // New password (optional, leave empty to keep current value)
-  string password = 5;
+  google.protobuf.StringValue password = 5;
 
   // Whether this pool should be set as the default
   // Setting to true will unset any previous default pool
