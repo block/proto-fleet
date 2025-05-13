@@ -2,12 +2,12 @@ import { useCallback, useMemo, useState } from "react";
 
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import {
   getAuthHeader,
   useAuthContext,
   useAuthErrors,
-} from "@/protoOS/contexts/AuthContext";
-import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+} from "@/protoOS/features/auth/contexts/AuthContext";
 
 interface StartMiningProps {
   accessTokenValue?: string;

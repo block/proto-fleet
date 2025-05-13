@@ -5,7 +5,10 @@ import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import { MiningStatusMiningstatus } from "@/protoOS/api/types";
 
 import { WakingDialog, WarnWakeDialog } from "@/protoOS/components/Power";
-import { useAccessToken, useAuthContext } from "@/protoOS/contexts/AuthContext";
+import {
+  useAccessToken,
+  useAuthContext,
+} from "@/protoOS/features/auth/contexts/AuthContext";
 import { Power } from "@/shared/assets/icons";
 import Callout, { intents } from "@/shared/components/Callout";
 

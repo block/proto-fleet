@@ -1,4 +1,4 @@
-import LoginForm from "@/protoFleet/components/LoginModal/LoginForm";
+import LoginForm from "@/protoFleet/features/auth/components/LoginModal/LoginForm";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const Auth = () => {

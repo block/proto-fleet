@@ -7,12 +7,12 @@ import {
   HttpResponse,
 } from "./types";
 import { usePoll } from "./usePoll";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import {
   getAuthHeader,
   useAuthContext,
   useAuthErrors,
-} from "@/protoOS/contexts/AuthContext";
-import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+} from "@/protoOS/features/auth/contexts/AuthContext";
 
 interface UseCoolingStatusProps {
   poll?: boolean;

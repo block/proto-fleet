@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { onboardingClient } from "@/protoFleet/api/clients";
 import type { FleetOnboardingStatus } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
-import { useAuthContext } from "@/protoFleet/contexts/AuthContext";
-import { getAuthHeader } from "@/protoFleet/contexts/AuthContext";
+import { useAuthContext } from "@/protoFleet/features/auth/contexts/AuthContext";
+import { getAuthHeader } from "@/protoFleet/features/auth/contexts/AuthContext";
 
 const useOnboardedStatus = () => {
   const { authTokens } = useAuthContext();

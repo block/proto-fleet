@@ -10,8 +10,8 @@ import MiningPools, {
   isValidPool,
   PoolInfo,
 } from "@/protoOS/components/MiningPools";
-import { useAccessToken } from "@/protoOS/contexts/AuthContext";
 import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
+import { useAccessToken } from "@/protoOS/features/auth/contexts/AuthContext";
 import { Alert } from "@/shared/assets/icons";
 import {
   DismissibleCalloutWrapper,

@@ -20,7 +20,10 @@ import {
   WarnSleepDialog,
   WarnWakeDialog,
 } from "@/protoOS/components/Power";
-import { useAccessToken, useAuthContext } from "@/protoOS/contexts/AuthContext";
+import {
+  useAccessToken,
+  useAuthContext,
+} from "@/protoOS/features/auth/contexts/AuthContext";
 import { Power } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 

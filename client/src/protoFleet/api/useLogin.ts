@@ -2,7 +2,7 @@ import { useCallback } from "react";
 
 import { authClient } from "@/protoFleet/api/clients";
 import type { AuthenticateRequest } from "@/protoFleet/api/generated/auth/v1/auth_pb";
-import { useAuthContext } from "@/protoFleet/contexts/AuthContext";
+import { useAuthContext } from "@/protoFleet/features/auth/contexts/AuthContext";
 
 interface LoginProps {
   onError?: (message: string) => void;

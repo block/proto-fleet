@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { useAuthContext } from "./useAuthContext";
 
-const useAccessToken = (shouldCheckAccess = true, currentPath?: string) => {
+const useIsAuthenticated = (shouldCheckAccess = true, currentPath?: string) => {
   const { authTokens } = useAuthContext();
 
   // returns undefined if access is not needed
@@ -41,4 +41,4 @@ const useAccessToken = (shouldCheckAccess = true, currentPath?: string) => {
   return { checkAccess, hasAccess, setHasAccess };
 };
 
-export { useAccessToken };
+export { useIsAuthenticated };

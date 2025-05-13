@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Outlet, useMatches } from "react-router-dom";
 
 import AppLayout from "@/protoFleet/components/AppLayout";
-import { useAccessToken } from "@/protoFleet/contexts/AuthContext";
+import { useIsAuthenticated } from "@/protoFleet/features/auth/contexts/AuthContext";
 import { useCompleteOnboarding } from "@/protoFleet/features/onboarding";
 import { getRouteMetadata } from "@/protoFleet/routes";
 
@@ -20,7 +20,7 @@ const App = () => {
     return !(metadata?.requireAuth === false);
   }, [metadata]);
 
-  useAccessToken(requireAuth, currentPath);
+  useIsAuthenticated(requireAuth, currentPath);
   useCompleteOnboarding();
 
   return (

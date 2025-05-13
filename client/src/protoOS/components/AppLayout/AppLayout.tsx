@@ -7,13 +7,13 @@ import {
 
 import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
-import LoginModal from "@/protoOS/components/LoginModal";
 
 import NavigationMenu, {
   NavigationMenuType,
 } from "@/protoOS/components/NavigationMenu";
 
 import PageHeader from "@/protoOS/components/PageHeader";
+import LoginModal from "@/protoOS/features/auth/components/LoginModal";
 import {
   pushToast,
   STATUSES as TOAST_STATUSES,

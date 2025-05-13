@@ -19,7 +19,10 @@ import MiningPools, {
 import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
 import OnboardingHeader from "@/protoOS/components/OnboardingHeader";
 import SettingUp from "@/protoOS/components/OnboardingSettingUp";
-import { useAccessToken, useAuthContext } from "@/protoOS/contexts/AuthContext";
+import {
+  useAccessToken,
+  useAuthContext,
+} from "@/protoOS/features/auth/contexts/AuthContext";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import {

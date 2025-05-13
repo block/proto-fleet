@@ -9,7 +9,7 @@ import {
 import {
   getAuthHeader,
   useAuthContext,
-} from "@/protoFleet/contexts/AuthContext";
+} from "@/protoFleet/features/auth/contexts/AuthContext";
 
 interface DiscoverMinersProps {
   discoverRequest: DiscoverRequest;

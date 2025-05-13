@@ -3,13 +3,13 @@ import { useCallback } from "react";
 import { PoolConfig } from "./types";
 import { SimpleErrorProps } from "@/protoOS/api/apiResponseTypes";
 
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext/useMinerStatus";
 import {
   getAuthHeader,
   useAuthContext,
   useAuthErrors,
-} from "@/protoOS/contexts/AuthContext";
-import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext/useMinerStatus";
+} from "@/protoOS/features/auth/contexts/AuthContext";
 
 interface CreatePoolsProps {
   accessTokenValue?: string;

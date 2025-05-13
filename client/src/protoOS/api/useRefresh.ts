@@ -3,8 +3,8 @@ import { useCallback } from "react";
 import { ErrorProps } from "./apiResponseTypes";
 import { RefreshRequest } from "./types";
 
-import { useAuthContext } from "@/protoOS/contexts/AuthContext";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { useAuthContext } from "@/protoOS/features/auth/contexts/AuthContext";
 
 import { accessTokenExpiryTime } from "@/shared/utils/utility";
 

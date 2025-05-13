@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import App from "./App";
 import { FleetOnboardingStatus } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
-import { AuthContext } from "@/protoFleet/contexts/AuthContext";
+import { AuthContext } from "@/protoFleet/features/auth/contexts/AuthContext";
 
 // Mock the API call for onboarding status
 let mockedOnboardingStatus: FleetOnboardingStatus | null = null;

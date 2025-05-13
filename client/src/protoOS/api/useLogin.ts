@@ -1,8 +1,8 @@
 import { useCallback } from "react";
 
 import { PasswordRequest } from "./types";
-import { useAuthContext } from "@/protoOS/contexts/AuthContext";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { useAuthContext } from "@/protoOS/features/auth/contexts/AuthContext";
 import {
   accessTokenExpiryTime,
   refreshTokenExpiryTime,

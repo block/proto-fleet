@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { removeToast } from "../../ToastsObserver";
 import { type ToastType } from "../../types";
-import ResizeablePanel from "@/protoOS/components/LoginModal/ResizeablePanel";
+import ResizeablePanel from "@/protoOS/features/auth/components/LoginModal/ResizeablePanel";
 import Button, { variants } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import GroupedToast from "@/shared/features/toaster/components/GroupedToaster/GroupedToast";

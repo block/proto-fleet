@@ -23,8 +23,8 @@ import AppLayout from "@/protoOS/components/AppLayout";
 import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
-import { useAuthContext } from "@/protoOS/contexts/AuthContext";
 import { MinerStatusContext } from "@/protoOS/contexts/MinerStatusContext";
+import { useAuthContext } from "@/protoOS/features/auth/contexts/AuthContext";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 interface AppProps {

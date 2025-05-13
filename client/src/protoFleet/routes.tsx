@@ -5,6 +5,7 @@ import SingleMinerWrapper from "./components/SingleMinerWrapper";
 import Miners from "./features/fleetManagement/components/Fleet";
 import HomePage from "./pages/Home";
 import { Cooling, General, Hardware, MiningPools } from "./pages/Settings";
+import Auth from "@/protoFleet/features/auth/pages/Auth";
 import {
   AuthenticationPage,
   MinersPage,
@@ -12,7 +13,6 @@ import {
   NetworkPage,
   WelcomePage,
 } from "@/protoFleet/features/onboarding";
-import Auth from "@/protoFleet/pages/Auth";
 import Signup from "@/protoFleet/pages/Signup";
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 

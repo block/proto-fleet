@@ -7,7 +7,7 @@ import MiningPools, {
   PoolInfo,
 } from "@/protoOS/components/MiningPools";
 import SettingUp from "@/protoOS/components/OnboardingSettingUp";
-import { useAccessToken } from "@/protoOS/contexts/AuthContext";
+import { useAccessToken } from "@/protoOS/features/auth/contexts/AuthContext";
 import { WarnBackupPoolDialog } from "@/protoOS/features/onboarding/components/WarnBackupPoolDialog";
 import { WarnDefaultPoolCallout } from "@/protoOS/features/onboarding/components/WarnDefaultPoolCallout";
 import { Alert } from "@/shared/assets/icons";
