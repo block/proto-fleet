@@ -9,6 +9,9 @@ services:
       mysql:
         condition: service_healthy
         restart: true
+      influxdb:
+        condition: service_healthy
+        restart: true
     environment:
       DB_PASSWORD: "swinging.marsh.front.grief"
       DB_ADDRESS: "protofleet-develop-${LABEL}-backend-mysql:3306"
@@ -27,7 +30,7 @@ services:
       - "traefik.http.routers.protofleet-develop-${LABEL}-backend.service=protofleet-develop-${LABEL}-backend"
     networks:
       - traefik
-      - mysql
+      - backend
     logging:
       driver: "json-file"
       options:
@@ -53,14 +56,40 @@ services:
     healthcheck:
       test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-p$MYSQL_ROOT_PASSWORD" ]
     networks:
-      - mysql
+      - backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: 100m
+
+  influxdb:
+    container_name: "protofleet-develop-${LABEL}-backend-influxdb"
+    image: influxdb:1.11.8
+    restart: unless-stopped
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: "00000000000000000000000000000000000000000000"
+      DOCKER_INFLUXDB_INIT_ORG: fleet
+      DOCKER_INFLUXDB_INIT_BUCKET: fleet
+    expose:
+      - "8086"
+    labels:
+      - "traefik.enabled=false"
+    volumes:
+      - "./volumes/influxdb/data:/var/lib/influxdb2"
+      - "./volumes/influxdb/config:/etc/influxdb2"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/ping"]
+    networks:
+      - backend
     logging:
       driver: "json-file"
       options:
         max-size: 100m
 
 networks:
-  mysql:
+  backend:
   traefik:
     name: protofleet-develop-traefik_traefik
     external: true

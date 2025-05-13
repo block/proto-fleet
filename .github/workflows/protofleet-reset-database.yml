@@ -14,6 +14,16 @@ on:
         description: 'PR number (required only for PR deployments)'
         required: false
         type: number
+      reset_mysql:
+        description: 'Reset MySQL database'
+        required: true
+        type: boolean
+        default: true
+      reset_influxdb:
+        description: 'Reset InfluxDB database'
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   # Needed for aws-actions/configure-aws-credentials
@@ -41,6 +51,11 @@ jobs:
             exit 1
           fi
 
+          if [[ "${{ github.event.inputs.reset_mysql }}" != "true" ]] && [[ "${{ github.event.inputs.reset_influxdb }}" != "true" ]]; then
+            echo "Error: At least one database must be selected for reset"
+            exit 1
+          fi
+
       - name: Set target directory
         run: |
           if [ "${{ github.event.inputs.target_deployment }}" = "main" ]; then
@@ -65,7 +80,12 @@ jobs:
         run: ~/ssh_to_ec2 'cd "${{ env.TARGET_DIRECTORY }}"; sudo docker compose down'
 
       - name: Delete MySQL volume
+        if: ${{ github.event.inputs.reset_mysql == 'true' }}
         run: ~/ssh_to_ec2 'sudo rm -rf "${{ env.TARGET_DIRECTORY }}/volumes/mysql"'
+
+      - name: Delete InfluxDB volume
+        if: ${{ github.event.inputs.reset_influxdb == 'true' }}
+        run: ~/ssh_to_ec2 'sudo rm -rf "${{ env.TARGET_DIRECTORY }}/volumes/influxdb"'
 
       - name: Start backend containers
         run: ~/ssh_to_ec2 'cd "${{ env.TARGET_DIRECTORY }}"; sudo docker compose up -d'
