@@ -14,10 +14,6 @@ import {
 } from "@/protoFleet/features/onboarding/constants";
 import DialogComponent from "@/shared/components/Dialog";
 import { AddMiners, FoundMiners, SetupHeader } from "@/shared/components/Setup";
-import {
-  protoFleetSteps,
-  steps,
-} from "@/shared/components/Setup/setupHeader.constants";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const MinersPage = () => {
@@ -144,7 +140,7 @@ const MinersPage = () => {
         loading
         show={pairingPending}
       />
-      <SetupHeader steps={protoFleetSteps} activeStep={steps.miners} />
+      <SetupHeader />
       {discoverPending || foundMiners.length === 0 ? (
         <AddMiners
           loading={discoverPending}

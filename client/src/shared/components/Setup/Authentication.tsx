@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
+import { Success } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
@@ -115,11 +116,18 @@ const PasswordStrengthMeter = ({
 };
 
 type AuthenticationProps = {
+  headline: string;
+  description: string;
   submit: (password: string) => void;
 };
 
-const Authentication = ({ submit }: AuthenticationProps) => {
+const Authentication = ({
+  headline,
+  description,
+  submit,
+}: AuthenticationProps) => {
   const [values, setValues] = useState<Values>(deepClone(initValues));
+  const [passwordsMatch, setPasswordsMatch] = useState<boolean>(false);
   const [errors, setErrors] = useState<Values>(deepClone(initErrors));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [score, setScore] = useState(0);
@@ -172,6 +180,17 @@ const Authentication = ({ submit }: AuthenticationProps) => {
     [values],
   );
 
+  useEffect(() => {
+    if (
+      values.password === values.confirmPassword &&
+      values.password.length > 0
+    ) {
+      setPasswordsMatch(true);
+    } else {
+      setPasswordsMatch(false);
+    }
+  }, [values]);
+
   const hasErrors = useMemo(
     () => Object.values(errors).some((err) => err.length > 0),
     [errors],
@@ -195,9 +214,9 @@ const Authentication = ({ submit }: AuthenticationProps) => {
     <div className="container mx-auto max-w-xl">
       <div className="flex flex-col gap-6">
         <Header
-          title="Create an admin login for your miners"
+          title={headline}
           titleSize="text-heading-300"
-          description="This password is required to modify performance settings or mining pool configurations for this miner."
+          description={description}
         />
         <Input
           onChange={handleChange}
@@ -236,6 +255,11 @@ const Authentication = ({ submit }: AuthenticationProps) => {
           type="password"
           initValue={values.confirmPassword}
           error={errors.confirmPassword}
+          statusIcon={
+            passwordsMatch ? (
+              <Success className="text-intent-success-fill" />
+            ) : undefined
+          }
         />
         {showWeakPasswordWarning && !isSubmitting && (
           <WeakPasswordWarning

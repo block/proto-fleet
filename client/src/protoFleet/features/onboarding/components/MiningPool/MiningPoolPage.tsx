@@ -15,10 +15,6 @@ import {
   isValidPool,
 } from "@/shared/components/MiningPools/utility";
 import { SetupHeader } from "@/shared/components/Setup";
-import {
-  protoFleetSteps,
-  steps,
-} from "@/shared/components/Setup/setupHeader.constants";
 
 // TODO we can probably share more code with ProtoOS
 const MiningPoolPage = () => {
@@ -97,7 +93,7 @@ const MiningPoolPage = () => {
   // TODO support backup pools
   return (
     <div>
-      <SetupHeader steps={protoFleetSteps} activeStep={steps.miningPool} />
+      <SetupHeader />
       <div className="mx-auto max-w-[640px]">
         <div className="mb-4 flex items-center">
           <div className="grow text-heading-100 text-text-primary">

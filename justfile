@@ -29,3 +29,7 @@ fmt-client:
 [working-directory: 'client']
 fmt-server:
   npm run format
+
+[working-directory: 'server']
+clean-build: 
+  docker-compose down --rmi all --volumes && docker-compose up --build -d

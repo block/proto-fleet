@@ -99,8 +99,12 @@ PROXY_URL = http://127.0.0.1:8000
 
 **ProtoFleet**
 
-- Until we have a backend for protoFleet, a dummy fleet is defined in `fleet.json` which represents a collection of Miners and their IP addresses.
-- Because of CORS configuration we cannot request data from these miners directly. Vite will automatically setup proxies for each miner so that we can make requests to them at `/${minder.ip}/`
+- Build and start the docker containers to run the backend locally
+  - `cd ../server`
+  - `docker-compose down --rmi all --volumes && docker-compose up --build -d` // stops all current containers and removes volumes, builds fresh images and starts all containers in the background
+  - Now you will have the server running, mysql running and 2 or more miner emulators running locally
+- Because of CORS we cannot makes request directly from our dev server to the docker backend. Instead specify your docker server url in `.env` file. `PROXY_URL="http://localhost:4000"`. Vite will proxy all api paths listed in `vite.config.ts` to the protoFleet server
+- If you are implementing a new API endpoint you may need to add the path to the `vite.config.ts`
 
 ### 2. Start dev server
 
@@ -115,23 +119,6 @@ PROXY_URL = http://127.0.0.1:8000
 ### 3. Access the UI
 
 Enter vite server url in browser `http://localhost:5173`
-
-### 4. Gotchas
-
-If you are trying to run ProtoOS against miner-api-server running locally, there are is a little workaround needed to bypass the onboarding process.
-
-- When first visiting the UI you will need to onboard and [add mining pool](https://www.notion.so/proto-team/How-to-connect-to-Block-s-pool-and-wallet-for-live-network-testing-db54d1cd5d2d4cc59bf68b8623da4c61). However after completing this step the UI will just return back to the pools view and appear like no pool was added.
-- To get past this you must change the following snippet in `proto-fleet/crates/miner-api-server/controllers/system.rs` ln 177
-
-```rust
-  HttpResponse::Ok().json(SystemStatuses {
-      // onboarded: Some(get_onboarded_status()),
-      onboarded: Some(true),
-      password_set: Some(password_status),
-  })
-```
-
-- Restart the `miner-api-server` after making this change and you should be able to access the onboarded state of the UI
 
 ## Testing locally on hardware
 

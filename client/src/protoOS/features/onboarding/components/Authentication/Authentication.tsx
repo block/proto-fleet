@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { useLogin, usePassword, useSystemStatus } from "@/protoOS/api";
 import { Authentication, SetupHeader } from "@/shared/components/Setup";
-import { protoOSSteps } from "@/shared/components/Setup/setupHeader.constants";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const AuthenticationPage = () => {
@@ -35,8 +34,12 @@ const AuthenticationPage = () => {
 
   return (
     <div>
-      <SetupHeader steps={protoOSSteps} activeStep="authentication" />
-      <Authentication submit={submit} />
+      <SetupHeader />
+      <Authentication
+        submit={submit}
+        headline="Create an admin login for your miners"
+        description="This password is required to modify performance settings or mining pool configurations for this miner."
+      />
     </div>
   );
 };

@@ -17,7 +17,7 @@
     "preview:protoOS": "vite preview --mode protoOS",
     "preview:protoFleet": "vite preview --mode protoFleet",
     "storybook": "storybook dev -p 6006",
-    "build-storybook": "BUILD_STORYBOOK=1 storybook build",
+    "build-storybook": "tsc --noEmit && BUILD_STORYBOOK=1 storybook build",
     "test": "vitest",
     "upload": "scp -Crp dist/* admin@$npm_config_host:/home/admin/",
     "format": "prettier --list-different --write \"./**/*.{js,jsx,ts,tsx,css,md}\"",

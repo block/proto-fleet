@@ -1,9 +1,5 @@
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import { Network, SetupHeader } from "@/shared/components/Setup";
-import {
-  protoFleetSteps,
-  steps,
-} from "@/shared/components/Setup/setupHeader.constants";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const NetworkPage = () => {
@@ -26,7 +22,7 @@ const NetworkPage = () => {
 
   return (
     <div>
-      <SetupHeader steps={protoFleetSteps} activeStep={steps.network} />
+      <SetupHeader />
       <Network
         submit={handleSubmit}
         // TODO no network name

@@ -1,10 +1,6 @@
 import { useLogin } from "@/protoFleet/api/useLogin";
 import { usePassword } from "@/protoFleet/api/usePassword";
 import { Authentication, SetupHeader } from "@/shared/components/Setup";
-import {
-  protoFleetSteps,
-  steps,
-} from "@/shared/components/Setup/setupHeader.constants";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const AuthenticationPage = () => {
@@ -28,8 +24,12 @@ const AuthenticationPage = () => {
 
   return (
     <div>
-      <SetupHeader steps={protoFleetSteps} activeStep={steps.authentication} />
-      <Authentication submit={submit} />
+      <SetupHeader />
+      <Authentication
+        submit={submit}
+        headline="Set up your admin login"
+        description="Your admin login will be used to manage and make changes to this network’s miners, miner settings, and security configurations."
+      />
     </div>
   );
 };

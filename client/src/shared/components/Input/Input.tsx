@@ -2,6 +2,7 @@ import {
   ChangeEvent,
   Fragment,
   KeyboardEvent,
+  ReactNode,
   RefObject,
   useCallback,
   useEffect,
@@ -32,6 +33,7 @@ interface InputProps {
   testId?: string;
   tooltip?: { header: string; body: string };
   type?: string;
+  statusIcon?: ReactNode;
   onFocus?: () => void;
   onBlur?: () => void;
 }
@@ -55,6 +57,7 @@ const Input = ({
   testId,
   tooltip,
   type = "text",
+  statusIcon,
   onFocus,
   onBlur,
 }: InputProps) => {
@@ -202,11 +205,15 @@ const Input = ({
             "right-12": tooltip,
           })}
         >
-          <Eye
-            onClick={togglePasswordVisibility}
-            className="hover:cursor-pointer"
-            testId="eye-icon"
-          />
+          {statusIcon ? (
+            statusIcon
+          ) : (
+            <Eye
+              onClick={togglePasswordVisibility}
+              className="hover:cursor-pointer"
+              testId="eye-icon"
+            />
+          )}
         </div>
       )}
       <div
