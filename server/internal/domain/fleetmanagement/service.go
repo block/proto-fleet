@@ -117,7 +117,7 @@ func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRe
 
 func (s *Service) UpdateDefaultPool(ctx context.Context, poolID int64) (*pb.Pool, error) {
 	return s.UpdatePool(ctx, &pb.UpdatePoolRequest{
-		Id:        poolID,
+		PoolId:    poolID,
 		IsDefault: true,
 	})
 }
@@ -146,13 +146,13 @@ func (s *Service) UpdatePoolPriority(ctx context.Context, priorities []*pb.PoolP
 		for _, p := range priorities {
 			err := q.UpdatePoolPriority(ctx, sqlc.UpdatePoolPriorityParams{
 				OrgID:        claims.OrgID,
-				ID:           p.Id,
+				ID:           p.PoolId,
 				PoolPriority: p.Priority,
 			})
 			if err != nil {
 				return nil, ErrInternal
 			}
-			pool, err := q.GetPool(ctx, sqlc.GetPoolParams{OrgID: claims.OrgID, ID: p.Id})
+			pool, err := q.GetPool(ctx, sqlc.GetPoolParams{OrgID: claims.OrgID, ID: p.PoolId})
 			if err != nil {
 				return nil, ErrInternal
 			}
@@ -174,7 +174,7 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (*pb.Pool, error) {
 		pool, err := q.GetPool(ctx, sqlc.GetPoolParams{
 			OrgID: claims.OrgID,
-			ID:    r.Id,
+			ID:    r.PoolId,
 		})
 		if err != nil {
 			return nil, ErrInternal

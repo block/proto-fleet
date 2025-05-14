@@ -14,7 +14,7 @@ _client-init:
 lint: 
   buf lint
 
-gen: lint gen-protos gen-server fmt-client fmt-server
+gen: _server-init _client-init lint gen-protos gen-server fmt-client fmt-server
 
 gen-protos: 
   PATH="$PATH:$(pwd)/client/node_modules/@bufbuild/protoc-gen-es/bin" buf generate

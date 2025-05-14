@@ -55,6 +55,12 @@ const (
 	// FleetManagementServiceListPairedMinersProcedure is the fully-qualified name of the
 	// FleetManagementService's ListPairedMiners RPC.
 	FleetManagementServiceListPairedMinersProcedure = "/fleetmanagement.v1.FleetManagementService/ListPairedMiners"
+	// FleetManagementServiceListMinersProcedure is the fully-qualified name of the
+	// FleetManagementService's ListMiners RPC.
+	FleetManagementServiceListMinersProcedure = "/fleetmanagement.v1.FleetManagementService/ListMiners"
+	// FleetManagementServiceStreamMinerUpdatesProcedure is the fully-qualified name of the
+	// FleetManagementService's StreamMinerUpdates RPC.
+	FleetManagementServiceStreamMinerUpdatesProcedure = "/fleetmanagement.v1.FleetManagementService/StreamMinerUpdates"
 )
 
 // FleetManagementServiceClient is a client for the fleetmanagement.v1.FleetManagementService
@@ -83,6 +89,11 @@ type FleetManagementServiceClient interface {
 	// Lists all miners that have been paired with the fleet management system
 	// Supports pagination for handling large fleets efficiently
 	ListPairedMiners(context.Context, *connect.Request[v1.ListPairedMinersRequest]) (*connect.Response[v1.ListPairedMinersResponse], error)
+	// List all miners in the fleet optionally with their telemetry data
+	// Returns a paginated list of miners with their operational status and metrics
+	ListMiners(context.Context, *connect.Request[v1.ListMinersRequest]) (*connect.Response[v1.ListMinersResponse], error)
+	// Stream real-time measurement updates for miners
+	StreamMinerUpdates(context.Context, *connect.Request[v1.StreamMinerUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamMinerUpdatesResponse], error)
 }
 
 // NewFleetManagementServiceClient constructs a client for the
@@ -130,6 +141,16 @@ func NewFleetManagementServiceClient(httpClient connect.HTTPClient, baseURL stri
 			baseURL+FleetManagementServiceListPairedMinersProcedure,
 			opts...,
 		),
+		listMiners: connect.NewClient[v1.ListMinersRequest, v1.ListMinersResponse](
+			httpClient,
+			baseURL+FleetManagementServiceListMinersProcedure,
+			opts...,
+		),
+		streamMinerUpdates: connect.NewClient[v1.StreamMinerUpdatesRequest, v1.StreamMinerUpdatesResponse](
+			httpClient,
+			baseURL+FleetManagementServiceStreamMinerUpdatesProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -142,6 +163,8 @@ type fleetManagementServiceClient struct {
 	updatePoolPriority *connect.Client[v1.UpdatePoolPriorityRequest, v1.UpdatePoolPriorityResponse]
 	deletePool         *connect.Client[v1.DeletePoolRequest, v1.DeletePoolResponse]
 	listPairedMiners   *connect.Client[v1.ListPairedMinersRequest, v1.ListPairedMinersResponse]
+	listMiners         *connect.Client[v1.ListMinersRequest, v1.ListMinersResponse]
+	streamMinerUpdates *connect.Client[v1.StreamMinerUpdatesRequest, v1.StreamMinerUpdatesResponse]
 }
 
 // SetDefaultPool calls fleetmanagement.v1.FleetManagementService.SetDefaultPool.
@@ -179,6 +202,16 @@ func (c *fleetManagementServiceClient) ListPairedMiners(ctx context.Context, req
 	return c.listPairedMiners.CallUnary(ctx, req)
 }
 
+// ListMiners calls fleetmanagement.v1.FleetManagementService.ListMiners.
+func (c *fleetManagementServiceClient) ListMiners(ctx context.Context, req *connect.Request[v1.ListMinersRequest]) (*connect.Response[v1.ListMinersResponse], error) {
+	return c.listMiners.CallUnary(ctx, req)
+}
+
+// StreamMinerUpdates calls fleetmanagement.v1.FleetManagementService.StreamMinerUpdates.
+func (c *fleetManagementServiceClient) StreamMinerUpdates(ctx context.Context, req *connect.Request[v1.StreamMinerUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamMinerUpdatesResponse], error) {
+	return c.streamMinerUpdates.CallServerStream(ctx, req)
+}
+
 // FleetManagementServiceHandler is an implementation of the
 // fleetmanagement.v1.FleetManagementService service.
 type FleetManagementServiceHandler interface {
@@ -205,6 +238,11 @@ type FleetManagementServiceHandler interface {
 	// Lists all miners that have been paired with the fleet management system
 	// Supports pagination for handling large fleets efficiently
 	ListPairedMiners(context.Context, *connect.Request[v1.ListPairedMinersRequest]) (*connect.Response[v1.ListPairedMinersResponse], error)
+	// List all miners in the fleet optionally with their telemetry data
+	// Returns a paginated list of miners with their operational status and metrics
+	ListMiners(context.Context, *connect.Request[v1.ListMinersRequest]) (*connect.Response[v1.ListMinersResponse], error)
+	// Stream real-time measurement updates for miners
+	StreamMinerUpdates(context.Context, *connect.Request[v1.StreamMinerUpdatesRequest], *connect.ServerStream[v1.StreamMinerUpdatesResponse]) error
 }
 
 // NewFleetManagementServiceHandler builds an HTTP handler from the service implementation. It
@@ -248,6 +286,16 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 		svc.ListPairedMiners,
 		opts...,
 	)
+	fleetManagementServiceListMinersHandler := connect.NewUnaryHandler(
+		FleetManagementServiceListMinersProcedure,
+		svc.ListMiners,
+		opts...,
+	)
+	fleetManagementServiceStreamMinerUpdatesHandler := connect.NewServerStreamHandler(
+		FleetManagementServiceStreamMinerUpdatesProcedure,
+		svc.StreamMinerUpdates,
+		opts...,
+	)
 	return "/fleetmanagement.v1.FleetManagementService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case FleetManagementServiceSetDefaultPoolProcedure:
@@ -264,6 +312,10 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 			fleetManagementServiceDeletePoolHandler.ServeHTTP(w, r)
 		case FleetManagementServiceListPairedMinersProcedure:
 			fleetManagementServiceListPairedMinersHandler.ServeHTTP(w, r)
+		case FleetManagementServiceListMinersProcedure:
+			fleetManagementServiceListMinersHandler.ServeHTTP(w, r)
+		case FleetManagementServiceStreamMinerUpdatesProcedure:
+			fleetManagementServiceStreamMinerUpdatesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -299,4 +351,12 @@ func (UnimplementedFleetManagementServiceHandler) DeletePool(context.Context, *c
 
 func (UnimplementedFleetManagementServiceHandler) ListPairedMiners(context.Context, *connect.Request[v1.ListPairedMinersRequest]) (*connect.Response[v1.ListPairedMinersResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.ListPairedMiners is not implemented"))
+}
+
+func (UnimplementedFleetManagementServiceHandler) ListMiners(context.Context, *connect.Request[v1.ListMinersRequest]) (*connect.Response[v1.ListMinersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.ListMiners is not implemented"))
+}
+
+func (UnimplementedFleetManagementServiceHandler) StreamMinerUpdates(context.Context, *connect.Request[v1.StreamMinerUpdatesRequest], *connect.ServerStream[v1.StreamMinerUpdatesResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.StreamMinerUpdates is not implemented"))
 }

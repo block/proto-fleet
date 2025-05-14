@@ -76,9 +76,19 @@ func (h *Handler) UpdatePoolPriority(ctx context.Context, r *connect.Request[pb.
 }
 
 func (h *Handler) DeletePool(ctx context.Context, r *connect.Request[pb.DeletePoolRequest]) (*connect.Response[pb.DeletePoolResponse], error) {
-	err := h.fleetMgmtSvc.DeletePool(ctx, r.Msg.Id)
+	err := h.fleetMgmtSvc.DeletePool(ctx, r.Msg.PoolId)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(&pb.DeletePoolResponse{}), nil
+}
+
+func (h *Handler) ListMiners(ctx context.Context, _ *connect.Request[pb.ListMinersRequest]) (*connect.Response[pb.ListMinersResponse], error) {
+	// TODO implement me
+	panic("unimplemented")
+}
+
+func (h *Handler) StreamMinerUpdates(ctx context.Context, _ *connect.Request[pb.StreamMinerUpdatesRequest], _ *connect.ServerStream[pb.StreamMinerUpdatesResponse]) error {
+	// TODO implement me
+	panic("unimplemented")
 }

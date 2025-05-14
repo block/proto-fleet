@@ -3,6 +3,7 @@ plugins:
   - local: protoc-gen-go
     out: server/generated/grpc
     opt: paths=source_relative
+    include_imports: true
   - local: protoc-gen-connect-go
     out: server/generated/grpc
     opt: paths=source_relative
@@ -12,6 +13,9 @@ plugins:
     opt: target=ts
 managed:
   enabled: true
+  disable:
+    # Don't modify any files in buf.build/googleapis/googleapis
+    - module: buf.build/googleapis/googleapis
   override:
     - file_option: go_package_prefix
       value: github.com/btc-mining/proto-fleet/server/generated/grpc

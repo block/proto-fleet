@@ -36,9 +36,7 @@ jobs:
 
       - name: Install NPM dependencies
         working-directory: client
-        run: |
-          rm -rf package-lock.json
-          npm install
+        run: npm clean-install
 
       - name: NPM build
         working-directory: client
