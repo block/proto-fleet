@@ -77,19 +77,21 @@ const MiningPoolPage = () => {
 
   if (settingUpMiner) {
     return (
-      <AnimatedDotsBackground>
-        <div className="absolute top-1/2 left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 bg-surface-base p-4">
-          <div className="w-[600px]">
-            <OnboardingSettingUp
-              poolStatus={poolStatus}
-              isSetupDone={poolStatus === statuses.success}
-              onClickContinue={handleClickContinue}
-              onClickReconfigure={handleClickReconfigure}
-              onClickRetry={handleClickRetry}
-            />
+      <div className="h-svh w-full">
+        <AnimatedDotsBackground>
+          <div className="absolute top-1/2 left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 bg-surface-base p-4">
+            <div className="w-[600px]">
+              <OnboardingSettingUp
+                poolStatus={poolStatus}
+                isSetupDone={poolStatus === statuses.success}
+                onClickContinue={handleClickContinue}
+                onClickReconfigure={handleClickReconfigure}
+                onClickRetry={handleClickRetry}
+              />
+            </div>
           </div>
-        </div>
-      </AnimatedDotsBackground>
+        </AnimatedDotsBackground>
+      </div>
     );
   }
 

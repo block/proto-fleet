@@ -15,6 +15,7 @@ import {
   STEPS,
 } from "@/protoFleet/features/onboarding/constants";
 import DialogComponent from "@/shared/components/Dialog";
+import Header from "@/shared/components/Header";
 import {
   AddMiners,
   FoundMiners,
@@ -28,6 +29,7 @@ const MinersPage = () => {
 
   const { discoverPending, discover, pairingPending, pair } = useMinerPairing();
   const [foundMiners, setFoundMiners] = useState<Device[]>([]);
+  const [rescan, setRescan] = useState<boolean>(false);
 
   function processDiscoveredMiners(devices: Device[]) {
     setFoundMiners((prevMiners) => [...prevMiners, ...devices]);
@@ -68,6 +70,7 @@ const MinersPage = () => {
   }, [handleDiscover, networkInfo]);*/
 
   const handleNmapDiscovery = useCallback(() => {
+    void rescan;
     if (!networkInfo) return;
 
     const discoverRequest = create(DiscoverRequestSchema, {
@@ -81,7 +84,7 @@ const MinersPage = () => {
       },
     });
     handleDiscover(discoverRequest);
-  }, [handleDiscover, networkInfo]);
+  }, [handleDiscover, networkInfo, rescan]);
 
   useEffect(() => {
     handleNmapDiscovery();
@@ -135,7 +138,7 @@ const MinersPage = () => {
   }
 
   function handleRestart() {
-    setFoundMiners([]);
+    setRescan((prev) => !prev);
   }
 
   return (
@@ -146,21 +149,25 @@ const MinersPage = () => {
         loading
         show={pairingPending}
       />
-      {discoverPending || foundMiners.length === 0 ? (
-        <AddMiners
-          loading={discoverPending}
-          onScanModeDiscover={handleNmapDiscovery}
-          onMdnsModeDiscover={handleMdnsDiscovery}
-          onIpListModeDiscover={handleIpListDiscovery}
-        />
-      ) : (
-        <FoundMiners
-          miners={foundMiners}
-          className="pt-0"
-          handleContinueSetup={handleContinue}
-          handleRestartSearch={handleRestart}
-        />
-      )}
+      <Header
+        title="Add miners"
+        titleSize="text-heading-300"
+        description="Scan your network or upload a list of miner IP addresses to add them to your fleet."
+        inline
+      />
+      <AddMiners
+        loading={discoverPending}
+        onScanModeDiscover={handleNmapDiscovery}
+        onMdnsModeDiscover={handleMdnsDiscovery}
+        onIpListModeDiscover={handleIpListDiscovery}
+        scanResults={
+          <FoundMiners
+            miners={foundMiners}
+            handleContinueSetup={handleContinue}
+            handleRestartSearch={handleRestart}
+          />
+        }
+      />
     </OnboardingLayout>
   );
 };

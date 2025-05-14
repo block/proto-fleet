@@ -1,6 +1,7 @@
 import AddMiners from "./AddMiners";
 import Authentication from "./Authentication";
 import BootingUp from "./BootingUp";
+import FoundMiner from "./FoundMiner";
 import FoundMiners from "./FoundMiners";
 import Network from "./Network";
 import OnboardingLayout from "./OnboardingLayout";
@@ -11,6 +12,7 @@ export {
   Authentication,
   BootingUp,
   FoundMiners,
+  FoundMiner,
   Network,
   OnboardingLayout,
   SetupHeader,

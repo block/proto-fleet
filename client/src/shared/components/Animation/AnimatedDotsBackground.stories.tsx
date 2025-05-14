@@ -7,7 +7,7 @@ interface ButtonProps {
 export const AnimatedDots = ({ connecting }: ButtonProps) => {
   return (
     <div className="flex flex-col space-y-4">
-      <div className="flex space-x-2">
+      <div className="flex h-svh w-full space-x-2">
         <AnimatedDotsBackground connecting={connecting} />
       </div>
     </div>

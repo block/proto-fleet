@@ -164,16 +164,18 @@ const WelcomeScreen = ({
   ipAddress,
 }: WelcomeScreenProps) => {
   return (
-    <AnimatedDotsBackground connecting={searching}>
-      <WelcomeFlow
-        searching={searching}
-        handleSearch={handleSearch}
-        handleRetry={handleRetry}
-        noMinersFound={noMinersFound}
-        networkName={networkName}
-        ipAddress={ipAddress}
-      />
-    </AnimatedDotsBackground>
+    <div className="h-svh w-full">
+      <AnimatedDotsBackground connecting={searching}>
+        <WelcomeFlow
+          searching={searching}
+          handleSearch={handleSearch}
+          handleRetry={handleRetry}
+          noMinersFound={noMinersFound}
+          networkName={networkName}
+          ipAddress={ipAddress}
+        />
+      </AnimatedDotsBackground>
+    </div>
   );
 };
 

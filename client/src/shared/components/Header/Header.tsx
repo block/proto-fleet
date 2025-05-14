@@ -27,7 +27,7 @@ interface HeaderProps {
   title?: string;
   titleSize?: string;
   eybrow?: string;
-  description?: string;
+  description?: string | ReactNode;
 }
 
 const Header = ({

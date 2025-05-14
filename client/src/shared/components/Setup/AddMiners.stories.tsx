@@ -9,6 +9,11 @@ export const AddMiners = () => {
         onScanModeDiscover={action("scan mode discovery")}
         onMdnsModeDiscover={action("mdns mode discovery")}
         onIpListModeDiscover={action("IP list mode discovery")}
+        scanResults={
+          <div>
+            <p>Scan results</p>
+          </div>
+        }
       />
     </div>
   );

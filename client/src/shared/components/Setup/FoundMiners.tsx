@@ -1,17 +1,28 @@
-import MinerImage from "@/shared/assets/images/miner.png";
-import Button from "@/shared/components/Button";
+import { useEffect, useMemo, useState } from "react";
+import clsx from "clsx";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
-import Picture from "@/shared/components/Picture";
 import Row from "@/shared/components/Row";
 
+type Miner = {
+  deviceIdentifier: string;
+  macAddress: string;
+};
+
 type FoundMinersProps = {
-  miners: {
-    macAddress: string;
-    serialNumber: string;
-  }[];
+  miners: Miner[];
   className?: string;
   handleContinueSetup: () => void;
   handleRestartSearch: () => void;
+};
+
+type MinersByModel = {
+  [key: string]: MinersByModelItem;
+};
+
+type MinersByModelItem = {
+  model: string;
+  miners: (Miner & { model: string; selected: boolean })[];
 };
 
 const FoundMiners = ({
@@ -20,81 +31,114 @@ const FoundMiners = ({
   handleContinueSetup,
   handleRestartSearch,
 }: FoundMinersProps) => {
+  const [minersByModel, setMinersByModel] = useState<MinersByModel>({});
+
+  useEffect(() => {
+    const getUpdatedMinersByModel = (prev: MinersByModel) => {
+      const _minersByModel: MinersByModel = { ...prev };
+
+      // TODO: Until MDK gives us the model name we'll just set them all to "Proto Rig"
+      const minersWithModel = miners.map((miner) => ({
+        ...miner,
+        model: "Proto Rig",
+      }));
+
+      minersWithModel.forEach((miner) => {
+        if (!_minersByModel[miner.model]) {
+          _minersByModel[miner.model] = {
+            model: miner.model,
+            miners: [{ ...miner, selected: true }],
+          };
+
+          return;
+
+          // if miner is already in our state dont add it again
+          // so that we dont have duplicates, and can maintain the selected state
+        } else if (
+          _minersByModel[miner.model].miners.find(
+            (m) => m.deviceIdentifier === miner.deviceIdentifier,
+          )
+        ) {
+          return;
+        }
+
+        _minersByModel[miner.model].miners.push({ ...miner, selected: true });
+      });
+      return _minersByModel;
+    };
+
+    setMinersByModel((prev) => getUpdatedMinersByModel(prev));
+  }, [miners]);
+
+  const totalSelected = useMemo(() => {
+    return Object.values(minersByModel).reduce(
+      (acc, model) =>
+        acc + model.miners.filter((miner) => miner.selected).length,
+      0,
+    );
+  }, [minersByModel]);
+
   return (
-    <div className={className}>
-      <div className="mx-auto flex flex-col gap-6">
-        <div>
+    <div className={clsx("mx-auto flex flex-col gap-6", className)}>
+      <div className="rounded-3xl border-1 border-core-primary-5 p-6">
+        <div className="mb-4">
           <Header
             inline
-            title={
-              miners.length === 1
-                ? "Is this the miner you want to set up?"
-                : `We found ${miners.length} Proto miners on your network`
-            }
-            titleSize="text-heading-300"
+            title={`${miners.length} miners found on your network`}
+            titleSize="text-heading-200"
             description={
-              miners.length === 1
-                ? "If this matches the hashboard serial found on your packaging, continue to set up."
-                : "Review the serial numbers below. If these match the materials on your packaging, continue to setup."
+              <>
+                Select the miners that you want to configure now.
+                <br className="phone:hidden" />
+                You can always add more miners to this network later.
+              </>
             }
           />
         </div>
-        {miners.length === 1 && (
-          <div className="rounded-2xl bg-surface-10 px-5 pt-10 pb-7">
-            <div className="mx-auto sm:w-[600px]">
-              <div className="mx-auto w-fit">
-                <Picture className="mb-2 max-w-[228px]" image={MinerImage} />
-                <div className="text-center text-heading-100 text-text-primary-50">
-                  Proto Rack
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
         <div>
-          <div className="flex w-full justify-around">
-            <div className="w-full">
-              <Row>
-                <div>Controller Serial</div>
-              </Row>
+          <Row className="grid grid-cols-3">
+            <div className="text-emphasis-300 text-text-primary-50">Model</div>
+
+            <div className="text-emphasis-300 text-text-primary-50">
+              Discovered
             </div>
-            <div className="w-full">
-              <Row>
-                <div>Mac Address</div>
-              </Row>
+
+            <div className="text-emphasis-300 text-text-primary-50">
+              Selected to add
             </div>
-          </div>
-          <div className="max-h-[500px] overflow-y-auto">
-            {miners.map((miner, index) => (
-              <div key={index} className="flex w-full justify-around">
-                <div className="w-full">
-                  <Row>
-                    <div className="h-6">{miner.serialNumber}</div>
-                  </Row>
-                </div>
-                <div className="w-full">
-                  <Row>
-                    <div className="h-6">{miner.macAddress}</div>
-                  </Row>
-                </div>
+          </Row>
+          {Object.values(minersByModel).map((model, index) => (
+            <Row key={index} divider={false} className="grid grid-cols-3">
+              <div className="h-6 text-emphasis-300">{model.model}</div>
+
+              <div className="h-6 text-emphasis-300">{model.miners.length}</div>
+
+              <div className="h-6 text-emphasis-300">
+                <Button variant={variants.secondary} size={sizes.compact}>
+                  {model.miners.filter((miner) => miner.selected).length} miners
+                </Button>
               </div>
-            ))}
-          </div>
+            </Row>
+          ))}
         </div>
-        <div className="flex justify-end gap-3">
-          {miners.length > 1 && (
-            <Button
-              variant="secondary"
-              size="base"
-              onClick={handleRestartSearch}
-            >
-              Restart miner search
-            </Button>
-          )}
-          <Button onClick={handleContinueSetup} variant="primary" size="base">
-            Continue setup
+      </div>
+      <div className="flex justify-end gap-3">
+        {miners.length > 1 && (
+          <Button
+            variant={variants.secondary}
+            size={sizes.base}
+            onClick={handleRestartSearch}
+          >
+            Restart miner search
           </Button>
-        </div>
+        )}
+        <Button
+          onClick={handleContinueSetup}
+          variant={variants.primary}
+          size={sizes.base}
+        >
+          Continue with {totalSelected} miners
+        </Button>
       </div>
     </div>
   );

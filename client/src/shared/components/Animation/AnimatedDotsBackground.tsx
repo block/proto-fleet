@@ -37,25 +37,27 @@ const Dot = (props: { connecting?: boolean }) => {
 type AnimatedDotsBackgroundProps = {
   connecting?: boolean;
   children?: ReactNode;
+  padding?: number;
+  spacing?: number;
+  dotSize?: number;
 };
 
 const AnimatedDotsBackground = ({
   connecting,
   children,
+  padding = 40,
+  spacing = 40,
+  dotSize = 4,
 }: AnimatedDotsBackgroundProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const PIXELS_BETWEEN_DOTS = 40;
-  const DOT_SIZE = 4;
-  const PADDING = 40;
-
-  const { width, height } = useWindowDimensions();
+  const { width: wnWidth, height: wnHeight } = useWindowDimensions();
 
   const [columnsCount, setColumnsCount] = useState(
-    Math.ceil((width - PADDING) / PIXELS_BETWEEN_DOTS),
+    Math.ceil((wnWidth - padding) / spacing),
   );
   const [rowsCount, setRowsCount] = useState(
-    Math.ceil(height / (PIXELS_BETWEEN_DOTS + DOT_SIZE)),
+    Math.ceil(wnHeight / (spacing + dotSize)),
   );
 
   useEffect(() => {
@@ -64,8 +66,12 @@ const AnimatedDotsBackground = ({
     function updateSize() {
       if (!containerRef.current) return;
 
-      const maxRows = Math.ceil(height / (PIXELS_BETWEEN_DOTS + DOT_SIZE));
-      const maxCols = Math.ceil((width - PADDING) / PIXELS_BETWEEN_DOTS);
+      const containerWidth = containerRef.current.offsetWidth;
+      const containerHeight = containerRef.current.offsetHeight;
+
+      const maxRows = Math.ceil(containerHeight / (spacing + dotSize));
+
+      const maxCols = Math.ceil((containerWidth - padding) / spacing);
 
       setRowsCount(maxRows);
       setColumnsCount(maxCols);
@@ -74,12 +80,12 @@ const AnimatedDotsBackground = ({
     window.addEventListener("resize", updateSize);
 
     return () => window.removeEventListener("resize", updateSize);
-  }, [height, width]);
+  }, [dotSize, padding, spacing]);
 
   return (
     <div
       ref={containerRef}
-      className="relative h-svh w-full overflow-hidden p-5"
+      className="relative h-full w-full overflow-visible p-0.5"
     >
       {children}
       <div

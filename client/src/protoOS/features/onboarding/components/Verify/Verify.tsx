@@ -1,5 +1,5 @@
 import { useNetworkInfo, useSystemInfo } from "@/protoOS/api";
-import { FoundMiners, OnboardingLayout } from "@/shared/components/Setup";
+import { FoundMiner, OnboardingLayout } from "@/shared/components/Setup";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const Verify = () => {
@@ -14,15 +14,12 @@ const Verify = () => {
 
   return (
     <OnboardingLayout>
-      <FoundMiners
-        miners={[
-          {
-            macAddress: networkInfo?.mac || "Pending",
-            serialNumber: systemInfo?.cb_sn || "Pending",
-          },
-        ]}
+      <FoundMiner
+        miner={{
+          macAddress: networkInfo?.mac || "Pending",
+          serialNumber: systemInfo?.cb_sn || "Pending",
+        }}
         handleContinueSetup={handleContinue}
-        handleRestartSearch={() => {}}
       />
     </OnboardingLayout>
   );

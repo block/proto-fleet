@@ -1,8 +1,7 @@
-import { useState } from "react";
+import { ReactNode, useState } from "react";
+import AnimatedDotsBackground from "../Animation";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
-import ProgressCircular from "@/shared/components/ProgressCircular";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import { minerDiscoveryModes } from "@/shared/components/Setup/miners.constants";
 
@@ -11,6 +10,7 @@ interface AddMinerProps {
   onScanModeDiscover: () => void;
   onMdnsModeDiscover: () => void;
   onIpListModeDiscover: (ipAddresses: string[]) => void;
+  scanResults: ReactNode;
 }
 
 const AddMiners = ({
@@ -18,6 +18,7 @@ const AddMiners = ({
   onScanModeDiscover,
   onMdnsModeDiscover,
   onIpListModeDiscover,
+  scanResults,
 }: AddMinerProps) => {
   const [selectedMode, setSelectedMode] = useState<string>(
     minerDiscoveryModes.scan,
@@ -51,12 +52,6 @@ const AddMiners = ({
 
   return (
     <div>
-      <Header
-        title="Add miners"
-        titleSize="text-heading-300"
-        description="Scan your network or upload a list of miner IP addresses to add them to your fleet."
-        inline
-      />
       <SegmentedControl
         className="my-4"
         segments={[
@@ -65,22 +60,30 @@ const AddMiners = ({
             title: "Scan network",
           },
           {
-            key: minerDiscoveryModes.mdns,
-            title: "mDNS scan",
-          },
-          {
             key: minerDiscoveryModes.ipList,
             title: "Specify IP addresses",
           },
         ]}
         onSelect={handleSelect}
       />
-      {loading && selectedMode !== minerDiscoveryModes.ipList && (
-        <div className="flex grow items-center space-x-3">
-          <ProgressCircular indeterminate />
-          <span className="text-emphasis-300">Discovery in progress...</span>
-        </div>
-      )}
+
+      {selectedMode !== minerDiscoveryModes.ipList &&
+        (loading ? (
+          <div className="grow rounded-3xl border-1 border-core-primary-5">
+            <div className="p-6">
+              <h2 className="text-heading-200">Scanning your network</h2>
+              <p className="text-300 text-text-primary-70">
+                This may take a few seconds.
+              </p>
+            </div>
+            <div className="h-74 px-6 pb-6">
+              <AnimatedDotsBackground connecting={true} padding={0} />
+            </div>
+          </div>
+        ) : (
+          scanResults
+        ))}
+
       {selectedMode === minerDiscoveryModes.ipList && (
         <div className="space-y-4">
           {ipAddresses.map((ipAddress, index) => (

@@ -82,17 +82,19 @@ const MiningPoolPage = () => {
 
   if (settingUpMiner) {
     return (
-      <AnimatedDotsBackground>
-        <div className="absolute top-1/2 left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 bg-surface-base p-4">
-          <div className="w-[600px]">
-            <SettingUp
-              pools={pools}
-              setCreatePoolsError={setCreatePoolsError}
-              onChangeSettingUpMiner={setSettingUpMiner}
-            />
+      <div className="h-svh w-full">
+        <AnimatedDotsBackground>
+          <div className="absolute top-1/2 left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 bg-surface-base p-4">
+            <div className="w-[600px]">
+              <SettingUp
+                pools={pools}
+                setCreatePoolsError={setCreatePoolsError}
+                onChangeSettingUpMiner={setSettingUpMiner}
+              />
+            </div>
           </div>
-        </div>
-      </AnimatedDotsBackground>
+        </AnimatedDotsBackground>
+      </div>
     );
   }
 
