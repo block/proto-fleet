@@ -60,8 +60,8 @@ describe("App", () => {
           element: <div data-testid="miners-page">Miners Page Content</div>,
         },
         {
-          path: "onboarding/welcome",
-          element: <div data-testid="welcome-page">Welcome Page Content</div>,
+          path: "welcome",
+          element: <div data-testid="landing-page">Landing Page Content</div>,
         },
         {
           path: "onboarding/miners",
@@ -131,9 +131,9 @@ describe("App", () => {
       isValidToken = false;
       renderWithRouter("/");
 
-      // Should redirect to auth page with invalid token
+      // Should redirect to landing page with invalid token
       await waitFor(() => {
-        expect(screen.getByTestId("auth-page")).toBeInTheDocument();
+        expect(screen.getByTestId("landing-page")).toBeInTheDocument();
       });
     });
 

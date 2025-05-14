@@ -15,6 +15,9 @@ const Block = ({ label, typography }: BlockProps) => {
 export const Typography = () => {
   return (
     <div className="space-y-2">
+      <Block typography="text-display-300" label="Display 300" />
+      <Block typography="text-display-200" label="Display 200" />
+      <Block typography="text-display-100" label="Display 100" />
       <Block typography="text-heading-300" label="Heading 300" />
       <Block typography="text-heading-200" label="Heading 200" />
       <Block typography="text-400" label="Text 400" />

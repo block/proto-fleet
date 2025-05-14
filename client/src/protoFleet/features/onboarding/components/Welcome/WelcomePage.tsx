@@ -5,7 +5,7 @@ const WelcomePage = () => {
   const navigate = useNavigate();
 
   function handleSearch() {
-    navigate("/onboarding/authentication");
+    navigate("/onboarding/auth");
   }
 
   return (

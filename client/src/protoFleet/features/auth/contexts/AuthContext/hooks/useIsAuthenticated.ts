@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 
+import { useNavigate } from "react-router-dom";
 import { useAuthContext } from "./useAuthContext";
 
 const useIsAuthenticated = (shouldCheckAccess = true, currentPath?: string) => {
@@ -21,7 +21,12 @@ const useIsAuthenticated = (shouldCheckAccess = true, currentPath?: string) => {
       return;
     }
 
-    if (currentPath === "/auth" || currentPath === "/signup") {
+    if (
+      currentPath === "/auth" ||
+      currentPath === "/signup" ||
+      currentPath === "/onboarding/welcome" ||
+      currentPath === "/onboarding/auth"
+    ) {
       return;
     }
 
@@ -30,9 +35,9 @@ const useIsAuthenticated = (shouldCheckAccess = true, currentPath?: string) => {
       return;
     } else {
       setHasAccess(false);
-      navigate("/auth");
+      navigate("/welcome");
     }
-  }, [isValidAccessToken, shouldCheckAccess, currentPath, navigate]);
+  }, [shouldCheckAccess, currentPath, isValidAccessToken, navigate]);
 
   useEffect(() => {
     checkAccess();

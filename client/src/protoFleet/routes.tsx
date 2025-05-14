@@ -8,6 +8,7 @@ import { Cooling, General, Hardware, MiningPools } from "./pages/Settings";
 import Auth from "@/protoFleet/features/auth/pages/Auth";
 import {
   AuthenticationPage,
+  LandingPage,
   MinersPage,
   SecurityPage,
   SettingsPage,
@@ -102,6 +103,11 @@ const routes: Route[] = [
     overrideLayout: true,
   },
   {
+    path: "/welcome",
+    element: <LandingPage />,
+    overrideLayout: true,
+  },
+  {
     path: "/onboarding",
     overrideLayout: true,
     requireAuth: false,
@@ -114,7 +120,7 @@ const routes: Route[] = [
     overrideLayout: true,
   },
   {
-    path: "/onboarding/authentication",
+    path: "/onboarding/auth",
     element: <AuthenticationPage />,
     requireAuth: false,
     overrideLayout: true,

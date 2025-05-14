@@ -162,11 +162,13 @@ WOuld be best to switch over to mobile first stying  */
 
   /* Common colors for light and dark mode */
   --color-grayscale-white-90: rgb(var(--base_white_100) / 90%);
+  --color-grayscale-white-20: rgb(var(--base_white_100) / 20%);
   --color-grayscale-white-10: rgb(var(--base_white_100) / 10%);
   --color-grayscale-gray-87: rgb(var(--base_black_100) / 87%);
   --color-grayscale-gray-50: rgb(var(--base_black_100) / 50%);
   --color-grayscale-gray-20: rgb(var(--base_black_100) / 20%);
   --color-grayscale-gray-10: rgb(var(--base_black_100) / 10%);
+  --color-grayscale-gray-15: rgb(var(--base_black_100) / 15%);
   --color-grayscale-gray-5: rgb(var(--base_black_100) / 5%);
 
   /* Typography */
@@ -175,6 +177,18 @@ WOuld be best to switch over to mobile first stying  */
   --font-mono: "JetBrainsMono", monospace;
 
   --text-*: initial;
+  --text-display-300: 4rem;
+  --text-display-300--line-height: 4.5rem;
+  --text-display-300--font-weight: 500;
+  --text-display-300--letter-spacing: -0.12rem;
+  --text-display-200: 3rem;
+  --text-display-200--line-height: 3.5rem;
+  --text-display-200--font-weight: 500;
+  --text-display-200--letter-spacing: -0.09rem;
+  --text-display-100: 2.5rem;
+  --text-display-100--line-height: 3rem;
+  --text-display-100--font-weight: 400;
+  --text-display-100--letter-spacing: -0.075rem;
   --text-heading-300: 1.75rem;
   --text-heading-300--line-height: 2.5rem;
   --text-heading-300--font-weight: 500;
