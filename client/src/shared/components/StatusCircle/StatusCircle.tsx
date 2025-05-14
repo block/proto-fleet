@@ -2,6 +2,7 @@ import clsx from "clsx";
 
 import { StatusCircleProps } from "./types";
 import { ConcentricCircles } from "@/shared/assets/icons";
+import { iconSizes } from "@/shared/assets/icons/constants";
 
 const statusColors = {
   normal: "intent-success-fill",
@@ -32,7 +33,7 @@ const StatusCircle = ({
             "aspect-square rounded-[50%]",
             !removeMargin && "mr-1",
             bgColorClass,
-            width,
+            width || iconSizes.xSmall,
           )}
         />
       ) : (

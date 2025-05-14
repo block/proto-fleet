@@ -1,5 +1,5 @@
 import { useNetworkInfo } from "@/protoOS/api";
-import { Network } from "@/shared/components/Setup";
+import { Network, OnboardingLayout } from "@/shared/components/Setup";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const NetworkPage = () => {
@@ -7,8 +7,7 @@ const NetworkPage = () => {
   const navigate = useNavigate();
 
   return (
-    <div>
-      {/* <SetupHeader activeStep="network" /> */}
+    <OnboardingLayout>
       <Network
         submit={() => {
           // TODO: Send network info to the API
@@ -20,7 +19,7 @@ const NetworkPage = () => {
         ipRange={networkInfo?.ip || "Pending"}
         gateway={networkInfo?.gateway || "Pending"}
       />
-    </div>
+    </OnboardingLayout>
   );
 };
 

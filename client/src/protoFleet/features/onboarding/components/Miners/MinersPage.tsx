@@ -11,9 +11,15 @@ import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import {
   defaultDiscoveryPorts,
   defaultTimeout,
+  STEP_KEYS,
+  STEPS,
 } from "@/protoFleet/features/onboarding/constants";
 import DialogComponent from "@/shared/components/Dialog";
-import { AddMiners, FoundMiners, SetupHeader } from "@/shared/components/Setup";
+import {
+  AddMiners,
+  FoundMiners,
+  OnboardingLayout,
+} from "@/shared/components/Setup";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const MinersPage = () => {
@@ -119,7 +125,7 @@ const MinersPage = () => {
     pair({
       pairRequest: pairRequest,
       onSuccess: () => {
-        navigate("/onboarding/network");
+        navigate("/onboarding/security");
       },
       onError: (error) => {
         // TODO handle error
@@ -133,14 +139,13 @@ const MinersPage = () => {
   }
 
   return (
-    <div>
+    <OnboardingLayout steps={STEPS} currentStep={STEP_KEYS.miners}>
       <DialogComponent
         title="Pairing the found miners"
         subtitle="This may take a few seconds"
         loading
         show={pairingPending}
       />
-      <SetupHeader />
       {discoverPending || foundMiners.length === 0 ? (
         <AddMiners
           loading={discoverPending}
@@ -152,12 +157,11 @@ const MinersPage = () => {
         <FoundMiners
           miners={foundMiners}
           className="pt-0"
-          showLogo={false}
           handleContinueSetup={handleContinue}
           handleRestartSearch={handleRestart}
         />
       )}
-    </div>
+    </OnboardingLayout>
   );
 };
 

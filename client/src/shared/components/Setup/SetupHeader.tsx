@@ -3,8 +3,8 @@ import Divider from "@/shared/components/Divider";
 
 const SetupHeader = () => {
   return (
-    <div className="mb-8">
-      <div className="flex items-center p-6">
+    <div>
+      <div className="flex h-16 items-center pl-6">
         <Logo width="w-22" />
       </div>
       <Divider />

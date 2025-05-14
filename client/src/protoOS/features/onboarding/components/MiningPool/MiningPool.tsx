@@ -17,7 +17,7 @@ import {
   DismissibleCalloutWrapper,
   intents,
 } from "@/shared/components/Callout";
-import { SetupHeader } from "@/shared/components/Setup";
+import { OnboardingLayout } from "@/shared/components/Setup";
 
 const MiningPoolPage = () => {
   const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
@@ -97,14 +97,13 @@ const MiningPoolPage = () => {
   }
 
   return (
-    <div>
-      <SetupHeader />
+    <OnboardingLayout>
       <WarnBackupPoolDialog
         onAddBackupPool={() => setWarnBackupPool(false)}
         onContinueWithoutBackup={onContinueWithoutBackup}
         show={warnBackupPool}
       />
-      <div className="mx-auto max-w-[640px]">
+      <div className="w-full">
         <MiningPools
           title="Add your mining pool"
           onChange={onChangePools}
@@ -136,7 +135,7 @@ const MiningPoolPage = () => {
           Continue
         </Button>
       </div>
-    </div>
+    </OnboardingLayout>
   );
 };
 

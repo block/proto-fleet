@@ -7,7 +7,7 @@ const ONBOARDING_ROUTES = {
   devicePaired: "/onboarding/miners",
   // // TODO: networkConfigured is always false currently
   // networkConfigured: "/onboarding/network",
-  poolConfigured: "/onboarding/mining-pool",
+  poolConfigured: "/onboarding/settings",
 };
 
 const useCompleteOnboarding = () => {

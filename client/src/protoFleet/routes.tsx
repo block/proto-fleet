@@ -9,8 +9,8 @@ import Auth from "@/protoFleet/features/auth/pages/Auth";
 import {
   AuthenticationPage,
   MinersPage,
-  MiningPoolPage,
-  NetworkPage,
+  SecurityPage,
+  SettingsPage,
   WelcomePage,
 } from "@/protoFleet/features/onboarding";
 import Signup from "@/protoFleet/pages/Signup";
@@ -120,18 +120,18 @@ const routes: Route[] = [
     overrideLayout: true,
   },
   {
-    path: "/onboarding/network",
-    element: <NetworkPage />,
-    overrideLayout: true,
-  },
-  {
     path: "/onboarding/miners",
     element: <MinersPage />,
     overrideLayout: true,
   },
   {
-    path: "/onboarding/mining-pool",
-    element: <MiningPoolPage />,
+    path: "/onboarding/security",
+    element: <SecurityPage />,
+    overrideLayout: true,
+  },
+  {
+    path: "/onboarding/settings",
+    element: <SettingsPage />,
     overrideLayout: true,
   },
 ];

@@ -1,6 +1,6 @@
 import { useLogin } from "@/protoFleet/api/useLogin";
 import { usePassword } from "@/protoFleet/api/usePassword";
-import { Authentication, SetupHeader } from "@/shared/components/Setup";
+import { Authentication, OnboardingLayout } from "@/shared/components/Setup";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const AuthenticationPage = () => {
@@ -23,14 +23,13 @@ const AuthenticationPage = () => {
   }
 
   return (
-    <div>
-      <SetupHeader />
+    <OnboardingLayout>
       <Authentication
         submit={submit}
         headline="Set up your admin login"
         description="Your admin login will be used to manage and make changes to this network’s miners, miner settings, and security configurations."
       />
-    </div>
+    </OnboardingLayout>
   );
 };
 

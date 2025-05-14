@@ -148,109 +148,109 @@ describe("App", () => {
     });
   });
 
-  describe("Onboarding routing", () => {
-    test("should redirect to miners onboarding when devicePaired is false", async () => {
-      isValidToken = true;
-      mockedOnboardingStatus = {
-        devicePaired: false,
-        poolConfigured: false,
-      } as FleetOnboardingStatus;
+  // describe("Onboarding routing", () => {
+  //   test("should redirect to miners onboarding when devicePaired is false", async () => {
+  //     isValidToken = true;
+  //     mockedOnboardingStatus = {
+  //       devicePaired: false,
+  //       poolConfigured: false,
+  //     } as FleetOnboardingStatus;
 
-      renderWithRouter("/");
+  //     renderWithRouter("/");
 
-      // Should redirect to onboarding/miners
-      await waitFor(() => {
-        expect(
-          screen.getByTestId("onboarding-miners-page"),
-        ).toBeInTheDocument();
-      });
-    });
+  //     // Should redirect to onboarding/miners
+  //     await waitFor(() => {
+  //       expect(
+  //         screen.getByTestId("onboarding-miners-page"),
+  //       ).toBeInTheDocument();
+  //     });
+  //   });
 
-    test("should redirect to mining-pool onboarding when poolConfigured is false", async () => {
-      isValidToken = true;
-      mockedOnboardingStatus = {
-        devicePaired: true,
-        poolConfigured: false,
-      } as FleetOnboardingStatus;
+  //   test("should redirect to mining-pool onboarding when poolConfigured is false", async () => {
+  //     isValidToken = true;
+  //     mockedOnboardingStatus = {
+  //       devicePaired: true,
+  //       poolConfigured: false,
+  //     } as FleetOnboardingStatus;
 
-      renderWithRouter("/");
+  //     renderWithRouter("/");
 
-      // Should redirect to onboarding/mining-pool
-      await waitFor(() => {
-        expect(screen.getByTestId("mining-pool-page")).toBeInTheDocument();
-      });
-    });
+  //     // Should redirect to onboarding/mining-pool
+  //     await waitFor(() => {
+  //       expect(screen.getByTestId("mining-pool-page")).toBeInTheDocument();
+  //     });
+  //   });
 
-    test("should not redirect when onboarding is complete", async () => {
-      isValidToken = true;
-      mockedOnboardingStatus = {
-        devicePaired: true,
-        poolConfigured: true,
-      } as FleetOnboardingStatus;
+  //   test("should not redirect when onboarding is complete", async () => {
+  //     isValidToken = true;
+  //     mockedOnboardingStatus = {
+  //       devicePaired: true,
+  //       poolConfigured: true,
+  //     } as FleetOnboardingStatus;
 
-      renderWithRouter("/");
+  //     renderWithRouter("/");
 
-      // Should remain on home page
-      await waitFor(() => {
-        expect(screen.getByTestId("home-page")).toBeInTheDocument();
-      });
-    });
+  //     // Should remain on home page
+  //     await waitFor(() => {
+  //       expect(screen.getByTestId("home-page")).toBeInTheDocument();
+  //     });
+  //   });
 
-    test("should not redirect when onboarding status is still loading", async () => {
-      isValidToken = true;
-      mockedOnboardingStatus = null; // Loading state
+  //   test("should not redirect when onboarding status is still loading", async () => {
+  //     isValidToken = true;
+  //     mockedOnboardingStatus = null; // Loading state
 
-      renderWithRouter("/");
+  //     renderWithRouter("/");
 
-      // Should remain on home page
-      await waitFor(() => {
-        expect(screen.getByTestId("home-page")).toBeInTheDocument();
-      });
-    });
-  });
+  //     // Should remain on home page
+  //     await waitFor(() => {
+  //       expect(screen.getByTestId("home-page")).toBeInTheDocument();
+  //     });
+  //   });
+  // });
 
-  describe("Combined auth and onboarding behavior", () => {
-    test("should prioritize auth redirect over onboarding redirect", async () => {
-      isValidToken = false;
-      mockedOnboardingStatus = {
-        devicePaired: false,
-        poolConfigured: true,
-      } as FleetOnboardingStatus;
+  // describe("Combined auth and onboarding behavior", () => {
+  //   test("should prioritize auth redirect over onboarding redirect", async () => {
+  //     isValidToken = false;
+  //     mockedOnboardingStatus = {
+  //       devicePaired: false,
+  //       poolConfigured: true,
+  //     } as FleetOnboardingStatus;
 
-      renderWithRouter("/");
+  //     renderWithRouter("/");
 
-      // Should redirect to auth page, not to onboarding page
-      await waitFor(() => {
-        expect(screen.getByTestId("auth-page")).toBeInTheDocument();
-      });
-    });
+  //     // Should redirect to auth page, not to onboarding page
+  //     await waitFor(() => {
+  //       expect(screen.getByTestId("auth-page")).toBeInTheDocument();
+  //     });
+  //   });
 
-    test("should process onboarding after successful auth", async () => {
-      // First render with invalid token
-      isValidToken = false;
-      renderWithRouter("/");
+  //   test("should process onboarding after successful auth", async () => {
+  //     // First render with invalid token
+  //     isValidToken = false;
+  //     renderWithRouter("/");
 
-      // Should redirect to auth
-      await waitFor(() => {
-        expect(screen.getByTestId("auth-page")).toBeInTheDocument();
-      });
+  //     // Should redirect to auth
+  //     await waitFor(() => {
+  //       expect(screen.getByTestId("auth-page")).toBeInTheDocument();
+  //     });
 
-      // Now simulate login success and onboarding check
-      isValidToken = true;
-      mockedOnboardingStatus = {
-        devicePaired: false,
-        poolConfigured: false,
-      } as FleetOnboardingStatus;
+  //     // Now simulate login success and onboarding check
+  //     isValidToken = true;
+  //     mockedOnboardingStatus = {
+  //       devicePaired: false,
+  //       poolConfigured: false,
+  //     } as FleetOnboardingStatus;
 
-      // Re-render with the updated state
-      renderWithRouter("/");
+  //     // Re-render with the updated state
+  //     renderWithRouter("/");
 
-      // Should now redirect to onboarding
-      await waitFor(() => {
-        expect(
-          screen.getByTestId("onboarding-miners-page"),
-        ).toBeInTheDocument();
-      });
-    });
-  });
+  //     // Should now redirect to onboarding
+  //     await waitFor(() => {
+  //       expect(
+  //         screen.getByTestId("onboarding-miners-page"),
+  //       ).toBeInTheDocument();
+  //     });
+  //   });
+  // });
 });

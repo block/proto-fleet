@@ -3,7 +3,7 @@ import { Outlet, useMatches } from "react-router-dom";
 
 import AppLayout from "@/protoFleet/components/AppLayout";
 import { useIsAuthenticated } from "@/protoFleet/features/auth/contexts/AuthContext";
-import { useCompleteOnboarding } from "@/protoFleet/features/onboarding";
+// import { useCompleteOnboarding } from "@/protoFleet/features/onboarding";
 import { getRouteMetadata } from "@/protoFleet/routes";
 
 const App = () => {
@@ -21,7 +21,10 @@ const App = () => {
   }, [metadata]);
 
   useIsAuthenticated(requireAuth, currentPath);
-  useCompleteOnboarding();
+
+  // TODO: Unsure on if we want want to call this hook here or not
+  // This effects the UX for onboarding. Do we want to let users go back previously completed steps?
+  // useCompleteOnboarding();
 
   return (
     <>

@@ -78,51 +78,49 @@ const Network = ({
 
   return (
     <>
-      <div className="container mx-auto max-w-xl">
-        <div className="flex flex-col gap-6">
-          <Header
-            title="Give your network a nickname"
-            titleSize="text-heading-300"
-            description="Proto uses your local network to connect to miners. Give your network a nickname so it’s easier to identify what network your miner is connected to."
-          />
-          <Input
-            onChange={handleChange}
-            id="networkName"
-            label="Network"
-            initValue={values.networkName}
-            error={errors.networkName}
-          />
-          <div className="rounded-xl bg-surface-5 p-3">
-            <div className="w-full">
-              <Row className="flex justify-between">
-                <div className="text-emphasis-300">Network details</div>
-              </Row>
-            </div>
-
-            <div className="w-full text-300">
-              <Row className="flex justify-between">
-                <div>Network Name</div>
-                <div>{networkName}</div>
-              </Row>
-              <Row className="flex justify-between">
-                <div>IP Range</div>
-                <div>{ipRange}</div>
-              </Row>
-              <Row divider={false} className="flex justify-between">
-                <div>Gateway</div>
-                <div>{gateway}</div>
-              </Row>
-            </div>
+      <div className="flex flex-col gap-6">
+        <Header
+          title="Give your network a nickname"
+          titleSize="text-heading-300"
+          description="Proto uses your local network to connect to miners. Give your network a nickname so it’s easier to identify what network your miner is connected to."
+        />
+        <Input
+          onChange={handleChange}
+          id="networkName"
+          label="Network"
+          initValue={values.networkName}
+          error={errors.networkName}
+        />
+        <div className="rounded-xl bg-surface-5 p-3">
+          <div className="w-full">
+            <Row className="flex justify-between">
+              <div className="text-emphasis-300">Network details</div>
+            </Row>
           </div>
-          <Button
-            onClick={handleContinue}
-            className="ml-auto"
-            variant="primary"
-            loading={isSubmitting}
-          >
-            Continue
-          </Button>
+
+          <div className="w-full text-300">
+            <Row className="flex justify-between">
+              <div>Network Name</div>
+              <div>{networkName}</div>
+            </Row>
+            <Row className="flex justify-between">
+              <div>IP Range</div>
+              <div>{ipRange}</div>
+            </Row>
+            <Row divider={false} className="flex justify-between">
+              <div>Gateway</div>
+              <div>{gateway}</div>
+            </Row>
+          </div>
         </div>
+        <Button
+          onClick={handleContinue}
+          className="ml-auto"
+          variant="primary"
+          loading={isSubmitting}
+        >
+          Continue
+        </Button>
       </div>
     </>
   );

@@ -211,72 +211,70 @@ const Authentication = ({
   useKeyDown({ key: "Enter", onKeyDown: handleEnter });
 
   return (
-    <div className="container mx-auto max-w-xl">
-      <div className="flex flex-col gap-6">
-        <Header
-          title={headline}
-          titleSize="text-heading-300"
-          description={description}
-        />
+    <div className="flex flex-col gap-6">
+      <Header
+        title={headline}
+        titleSize="text-heading-300"
+        description={description}
+      />
+      <Input
+        onChange={handleChange}
+        id="username"
+        label="Username"
+        disabled
+        initValue={values.username}
+        error={errors.username}
+      />
+      <div className="space-y-2">
         <Input
           onChange={handleChange}
-          id="username"
-          label="Username"
-          disabled
-          initValue={values.username}
-          error={errors.username}
-        />
-        <div className="space-y-2">
-          <Input
-            onChange={handleChange}
-            id="password"
-            label="Password"
-            type="password"
-            initValue={values.password}
-            error={errors.password}
-          />
-          <div className="flex items-center justify-between gap-5">
-            <div>
-              <div className="text-200 text-text-primary-50">
-                Password strength
-              </div>
-            </div>
-            <PasswordStrengthMeter
-              score={score}
-              onSetScore={setScore}
-              password={values.password}
-            />
-          </div>
-        </div>
-        <Input
-          onChange={handleChange}
-          id="confirmPassword"
-          label="Confirm password"
+          id="password"
+          label="Password"
           type="password"
-          initValue={values.confirmPassword}
-          error={errors.confirmPassword}
-          statusIcon={
-            passwordsMatch ? (
-              <Success className="text-intent-success-fill" />
-            ) : undefined
-          }
+          initValue={values.password}
+          error={errors.password}
         />
-        {showWeakPasswordWarning && !isSubmitting && (
-          <WeakPasswordWarning
-            onReturn={() => setShowWeakPasswordWarning(false)}
-            onContinue={() => handleContinue(true)}
+        <div className="flex items-center justify-between gap-5">
+          <div>
+            <div className="text-200 text-text-primary-50">
+              Password strength
+            </div>
+          </div>
+          <PasswordStrengthMeter
+            score={score}
+            onSetScore={setScore}
+            password={values.password}
           />
-        )}
-        <Button
-          onClick={() => handleContinue(false)}
-          className="ml-auto"
-          size="base"
-          variant="primary"
-          loading={isSubmitting}
-        >
-          Continue
-        </Button>
+        </div>
       </div>
+      <Input
+        onChange={handleChange}
+        id="confirmPassword"
+        label="Confirm password"
+        type="password"
+        initValue={values.confirmPassword}
+        error={errors.confirmPassword}
+        statusIcon={
+          passwordsMatch ? (
+            <Success className="text-intent-success-fill" />
+          ) : undefined
+        }
+      />
+      {showWeakPasswordWarning && !isSubmitting && (
+        <WeakPasswordWarning
+          onReturn={() => setShowWeakPasswordWarning(false)}
+          onContinue={() => handleContinue(true)}
+        />
+      )}
+      <Button
+        onClick={() => handleContinue(false)}
+        className="ml-auto"
+        size="base"
+        variant="primary"
+        loading={isSubmitting}
+      >
+        Continue
+      </Button>
     </div>
   );
 };

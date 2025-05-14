@@ -50,7 +50,7 @@ const AddMiners = ({
   }
 
   return (
-    <div className="container mx-auto max-w-[640px]">
+    <div>
       <Header
         title="Add miners"
         titleSize="text-heading-300"

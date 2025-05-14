@@ -3,9 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import { CreatePoolRequestSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import useFleet from "@/protoFleet/api/useFleet";
+import { STEP_KEYS, STEPS } from "@/protoFleet/features/onboarding/constants";
+
+// TODO: should not be importing from protoOS
 import { statuses } from "@/protoOS/components/OnboardingSettingUp/constants";
 import OnboardingSettingUp from "@/protoOS/components/OnboardingSettingUp/OnboardingSettingUp";
 import { WarnDefaultPoolCallout } from "@/protoOS/features/onboarding/components/WarnDefaultPoolCallout";
+
 import AnimatedDotsBackground from "@/shared/components/Animation";
 import Button from "@/shared/components/Button";
 import PoolForm from "@/shared/components/MiningPools/PoolForm";
@@ -14,7 +18,7 @@ import {
   getEmptyPoolsInfo,
   isValidPool,
 } from "@/shared/components/MiningPools/utility";
-import { SetupHeader } from "@/shared/components/Setup";
+import { OnboardingLayout } from "@/shared/components/Setup";
 
 // TODO we can probably share more code with ProtoOS
 const MiningPoolPage = () => {
@@ -92,8 +96,7 @@ const MiningPoolPage = () => {
   // TODO support connection test
   // TODO support backup pools
   return (
-    <div>
-      <SetupHeader />
+    <OnboardingLayout steps={STEPS} currentStep={STEP_KEYS.settings}>
       <div className="mx-auto max-w-[640px]">
         <div className="mb-4 flex items-center">
           <div className="grow text-heading-100 text-text-primary">
@@ -117,7 +120,7 @@ const MiningPoolPage = () => {
           Continue
         </Button>
       </div>
-    </div>
+    </OnboardingLayout>
   );
 };
 
