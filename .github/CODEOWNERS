@@ -2,10 +2,10 @@
 # precedence!
 
 # Sub-project maintainers
-/bin                        @Gussy @mcharles-square
-/client                     @mcharles-square @negarn @flesher @mightyguava
-/proto                      @mcharles-square @negarn @flesher @mightyguava
-/server                     @mcharles-square @negarn @flesher @mightyguava
+/bin                        @Gussy @mcharles-square @briano-block
+/client                     @mcharles-square @negarn @flesher @mightyguava @briano-block
+/proto                      @mcharles-square @negarn @flesher @mightyguava @briano-block
+/server                     @mcharles-square @negarn @flesher @mightyguava @briano-block
 
 # All individual files in the root directory
-/.*                         @Gussy @mcharles-square
+/.*                         @Gussy @mcharles-square @briano-block
