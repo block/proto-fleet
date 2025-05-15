@@ -39,7 +39,7 @@ const SelectRow = ({
         "flex items-center rounded-xl text-left select-none",
         "transition-[background-color] duration-200 ease-in-out",
         {
-          "border-[1.5px] border-border-primary p-4": isSelected && !disabled,
+          "border border-border-20 p-4 shadow-100": isSelected && !disabled,
           "border border-border-5 p-[16.5px]": !isSelected || disabled,
           "cursor-pointer bg-surface-default text-text-primary hover:bg-core-primary-5":
             !disabled,

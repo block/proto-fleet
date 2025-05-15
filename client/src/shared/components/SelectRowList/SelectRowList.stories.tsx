@@ -1,4 +1,5 @@
 import { ReactNode, useCallback, useEffect, useState } from "react";
+import type { StoryObj } from "@storybook/react";
 
 import SelectRowListComponent from ".";
 import { SelectType } from "@/shared/constants";
@@ -26,7 +27,7 @@ const selectRows = {
 
 type SelectRow = (typeof selectRows)[keyof typeof selectRows];
 
-export const SelectRowList = ({
+const SelectRowListForStory = ({
   disabled,
   hasPrefixIcon,
   hasSubtext,
@@ -91,9 +92,11 @@ export const SelectRowList = ({
   );
 };
 
+export const SelectRowList: StoryObj<typeof SelectRowListForStory> = {};
+
 export default {
   title: "Components (Shared)/Select Row List",
-  component: SelectRowList,
+  component: SelectRowListForStory,
   args: {
     disabled: false,
     hasPrefixIcon: true,
