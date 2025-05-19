@@ -118,18 +118,25 @@ const PasswordStrengthMeter = ({
 type AuthenticationProps = {
   headline: string;
   description: string;
-  submit: (password: string) => void;
+  submit:
+    | ((password: string) => void)
+    | ((currentPassword: string, newPassword: string) => void);
+  isUpdateMode?: boolean;
+  isSubmitting: boolean;
+  setIsSubmitting: (isSubmitting: boolean) => void;
 };
 
 const Authentication = ({
   headline,
   description,
   submit,
+  isUpdateMode = false,
+  isSubmitting,
+  setIsSubmitting,
 }: AuthenticationProps) => {
   const [values, setValues] = useState<Values>(deepClone(initValues));
   const [passwordsMatch, setPasswordsMatch] = useState<boolean>(false);
   const [errors, setErrors] = useState<Values>(deepClone(initErrors));
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [score, setScore] = useState(0);
   const [showWeakPasswordWarning, setShowWeakPasswordWarning] = useState(false);
 
@@ -138,6 +145,12 @@ const Authentication = ({
 
     if (values.username.length === 0) {
       newErrors.username = "A username is required";
+    }
+    if (
+      isUpdateMode &&
+      (!values.currentPassword || values.currentPassword.length === 0)
+    ) {
+      newErrors.currentPassword = "Current password is required";
     }
     if (values.password.length === 0) {
       newErrors.password = "A password is required";
@@ -148,7 +161,13 @@ const Authentication = ({
 
     setErrors(newErrors);
     return Object.values(newErrors).some((err) => err.length > 0);
-  }, [values.username, values.password, values.confirmPassword]);
+  }, [
+    values.username,
+    values.password,
+    values.confirmPassword,
+    values.currentPassword,
+    isUpdateMode,
+  ]);
 
   const handleContinue = useCallback(
     (forcedWeakPassword: boolean) => {
@@ -162,19 +181,35 @@ const Authentication = ({
 
         setIsSubmitting(true);
         try {
-          submit(values.password);
+          if (isUpdateMode) {
+            if (!values.currentPassword) return;
+
+            (submit as (currentPassword: string, newPassword: string) => void)(
+              values.currentPassword,
+              values.password,
+            );
+          } else {
+            (submit as (password: string) => void)(values.password);
+          }
         } catch {
           setIsSubmitting(false);
         }
       }
     },
-    [validate, submit, score, values.password],
+    [
+      validate,
+      score,
+      setIsSubmitting,
+      isUpdateMode,
+      values.currentPassword,
+      values.password,
+      submit,
+    ],
   );
 
   const handleChange = useCallback(
     (value: string, id: string) => {
       setValues({ ...values, [id]: value.trim() });
-      // clear error if the user starts typing
       setErrors(deepClone(initErrors));
     },
     [values],
@@ -225,6 +260,16 @@ const Authentication = ({
         initValue={values.username}
         error={errors.username}
       />
+      {isUpdateMode && (
+        <Input
+          onChange={handleChange}
+          id="currentPassword"
+          label="Current password"
+          type="password"
+          initValue={values.currentPassword}
+          error={errors.currentPassword}
+        />
+      )}
       <div className="space-y-2">
         <Input
           onChange={handleChange}

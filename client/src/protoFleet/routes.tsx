@@ -4,7 +4,6 @@ import { matchPath, redirect, type RouteObject } from "react-router-dom";
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
 import Miners from "./features/fleetManagement/components/Fleet";
 import HomePage from "./pages/Home";
-import { Cooling, General, Hardware, MiningPools } from "./pages/Settings";
 import Auth from "@/protoFleet/features/auth/pages/Auth";
 import {
   AuthenticationPage,
@@ -14,6 +13,13 @@ import {
   SettingsPage,
   WelcomePage,
 } from "@/protoFleet/features/onboarding";
+import {
+  Authentication as AuthSettings,
+  Cooling,
+  General,
+  Hardware,
+  MiningPools,
+} from "@/protoFleet/features/settings";
 import Signup from "@/protoFleet/pages/Signup";
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 
@@ -67,6 +73,12 @@ const routes: Route[] = [
     icon: Settings,
     navItem: true,
     loader: () => redirect("/settings/general"),
+  },
+  {
+    path: "settings/authentication",
+    label: "Authentication",
+    secondaryNavItem: "/settings",
+    element: <AuthSettings />,
   },
   {
     path: "settings/general",
