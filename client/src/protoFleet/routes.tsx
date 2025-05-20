@@ -17,7 +17,6 @@ import {
   Authentication as AuthSettings,
   Cooling,
   General,
-  Hardware,
   MiningPools,
 } from "@/protoFleet/features/settings";
 import Signup from "@/protoFleet/pages/Signup";
@@ -85,12 +84,6 @@ const routes: Route[] = [
     label: "General",
     secondaryNavItem: "/settings",
     element: <General />,
-  },
-  {
-    path: "settings/hardware",
-    label: "Hardware",
-    secondaryNavItem: "/settings",
-    element: <Hardware />,
   },
   {
     path: "settings/mining-pools",
