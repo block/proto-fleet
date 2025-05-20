@@ -37,8 +37,8 @@ const NavigationMenu = ({ routes }: NavigationMenuProps) => {
     <div
       className={clsx(
         "flex min-h-screen w-[64px] flex-col border-r border-border-5 bg-grayscale-gray-5 text-text-primary-70",
-        "tablet:absolute tablet:z-30 tablet:min-h-[calc(100vh-16px)]",
-        "phone:absolute phone:z-30 phone:min-h-[calc(100vh-16px)]",
+        // "tablet:absolute tablet:z-30 tablet:min-h-[calc(100vh-16px)]",
+        // "phone:absolute phone:z-30 phone:min-h-[calc(100vh-16px)]",
       )}
     >
       <div className="flex flex-col items-center justify-center gap-[10px]">

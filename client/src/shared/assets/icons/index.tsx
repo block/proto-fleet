@@ -34,6 +34,7 @@ import Lock from "./Lock";
 import Logo from "./Logo";
 import LogoAlt from "./LogoAlt";
 import Logs from "./Logs";
+import Menu from "./Menu";
 import Minus from "./Minus";
 import Notification from "./Notification";
 import Pause from "./Pause";
@@ -92,6 +93,7 @@ export {
   Logo,
   LogoAlt,
   Logs,
+  Menu,
   Minus,
   Notification,
   Pause,

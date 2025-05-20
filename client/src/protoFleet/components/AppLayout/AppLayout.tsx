@@ -19,7 +19,9 @@ const AppLayout = ({ children }: Props) => {
       </div>
 
       <div className="absolute top-0 left-0 flex w-full flex-row bg-surface-base">
-        <NavigationMenu routes={routes} />
+        <div className="max-sm:hidden">
+          <NavigationMenu routes={routes} />
+        </div>
         <div className="flex grow flex-col">
           <PageHeader />
           <div className="relative flex grow flex-row">
