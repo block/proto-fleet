@@ -1,3 +1,3 @@
-import Verify from "./Verify";
+import VerifyWrapper from "./VerifyWrapper";
 
-export default Verify;
+export default VerifyWrapper;

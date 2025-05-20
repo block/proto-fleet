@@ -2,7 +2,7 @@ import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { Dismiss } from "@/shared/assets/icons";
-import { sizes, variants } from "@/shared/components/Button";
+import { sizes as buttonSizes, variants } from "@/shared/components/Button";
 
 import { ButtonProps } from "@/shared/components/ButtonGroup";
 import Divider from "@/shared/components/Divider";
@@ -18,13 +18,15 @@ interface ModalButtonProps extends ButtonProps {
   dismissModalOnClick?: boolean;
 }
 
+type ModalSizes = "small" | "large";
+
 interface ModalProps {
   children: ReactNode;
   className?: string;
   bodyClassName?: string;
   contentHeader?: string;
   onDismiss?: (buttonClicked?: boolean) => void;
-  buttonSize?: keyof typeof sizes;
+  buttonSize?: keyof typeof buttonSizes;
   buttons?: ModalButtonProps[];
   show?: boolean;
   showHeader?: boolean;
@@ -32,6 +34,7 @@ interface ModalProps {
   description?: string;
   preventClose?: boolean;
   divider?: boolean;
+  size?: ModalSizes;
 }
 
 const Modal = ({
@@ -44,6 +47,7 @@ const Modal = ({
   buttons,
   show = true,
   showHeader = true,
+  size = "small",
   title,
   description,
   preventClose,
@@ -91,16 +95,22 @@ const Modal = ({
 
   useKeyDown({ key: "Escape", onKeyDown: dismissModal });
 
-  useClickOutside({ ref: ModalRef, onClickOutside: dismissModal });
+  useClickOutside({
+    ref: ModalRef,
+    onClickOutside: dismissModal,
+    ignoreSelectors: [".popover-content"], // Ignore clicks inside popovers
+  });
 
   return (
     <PageOverlay show={showModal}>
       <div
         className={clsx(
-          "h-fit w-[640px] rounded-3xl bg-surface-elevated-base p-6 shadow-300",
+          "h-fit w-[80%] max-w-[640px] rounded-3xl bg-surface-elevated-base p-6 shadow-300",
           {
             "animate-sliding-up": showModal,
             "animate-sliding-down": !showModal,
+            "max-w-[640px]": size === "small",
+            "max-w-[1024px]": size === "large",
           },
           className,
         )}

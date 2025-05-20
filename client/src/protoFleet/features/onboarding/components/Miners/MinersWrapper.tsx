@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { create } from "@bufbuild/protobuf";
+import Miners from "./Miners";
 import {
   Device,
   DiscoverRequest,
@@ -14,13 +15,8 @@ import {
   STEP_KEYS,
   STEPS,
 } from "@/protoFleet/features/onboarding/constants";
-import DialogComponent from "@/shared/components/Dialog";
-import Header from "@/shared/components/Header";
-import {
-  AddMiners,
-  FoundMiners,
-  OnboardingLayout,
-} from "@/shared/components/Setup";
+import { OnboardingLayout } from "@/shared/components/Setup";
+
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const MinersPage = () => {
@@ -50,24 +46,6 @@ const MinersPage = () => {
     },
     [discover],
   );
-
-  /*const handleIPRangeDiscovery = useCallback(() => {
-    if (!networkInfo) return;
-
-    const discoverRequest = create(DiscoverRequestSchema, {
-      mode: {
-        case: "ipRange",
-        value: {
-          startIp: networkInfo.localIp,
-          // TODO fix endIp
-          endIp: "192.168.2.255",
-          ports: defaultDiscoveryPorts,
-          timeoutSeconds: defaultTimeout,
-        },
-      },
-    });
-    handleDiscover(discoverRequest);
-  }, [handleDiscover, networkInfo]);*/
 
   const handleNmapDiscovery = useCallback(() => {
     void rescan;
@@ -143,30 +121,15 @@ const MinersPage = () => {
 
   return (
     <OnboardingLayout steps={STEPS} currentStep={STEP_KEYS.miners}>
-      <DialogComponent
-        title="Pairing the found miners"
-        subtitle="This may take a few seconds"
-        loading
-        show={pairingPending}
-      />
-      <Header
-        title="Add miners"
-        titleSize="text-heading-300"
-        description="Scan your network or upload a list of miner IP addresses to add them to your fleet."
-        inline
-      />
-      <AddMiners
+      <Miners
+        foundMiners={foundMiners}
         loading={discoverPending}
+        pairingPending={pairingPending}
         onScanModeDiscover={handleNmapDiscovery}
         onMdnsModeDiscover={handleMdnsDiscovery}
         onIpListModeDiscover={handleIpListDiscovery}
-        scanResults={
-          <FoundMiners
-            miners={foundMiners}
-            handleContinueSetup={handleContinue}
-            handleRestartSearch={handleRestart}
-          />
-        }
+        onContinue={handleContinue}
+        onRestart={handleRestart}
       />
     </OnboardingLayout>
   );

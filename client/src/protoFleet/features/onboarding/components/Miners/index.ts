@@ -1,3 +1,3 @@
-import MinersPage from "./MinersPage";
+import MinersWrapper from "./MinersWrapper";
 
-export default MinersPage;
+export default MinersWrapper;

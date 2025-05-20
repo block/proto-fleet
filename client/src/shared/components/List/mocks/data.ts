@@ -1,3 +1,5 @@
+import { defaultListFilter } from "@/shared/components/List/constants";
+import { FilterItem } from "@/shared/components/List/Filters/types";
 import { ColTitles } from "@/shared/components/List/types";
 import { statuses } from "@/shared/components/StatusCircle";
 
@@ -75,13 +77,17 @@ export const testItems: TestItem[] = [
   },
 ];
 
-export const testFilters = [
+export const testFilters: FilterItem<
+  TestFilterState | typeof defaultListFilter
+>[] = [
   {
+    type: "button",
     title: "All Items",
-    value: "all",
+    value: defaultListFilter,
     count: testItems.length,
   },
   {
+    type: "button",
     title: "Active",
     value: testFilterStates.active,
     count: testItems.filter((item) => item.status === testFilterStates.active)
@@ -89,6 +95,7 @@ export const testFilters = [
     status: statuses.normal,
   },
   {
+    type: "button",
     title: "Inactive",
     value: testFilterStates.inactive,
     count: testItems.filter((item) => item.status === testFilterStates.inactive)
@@ -96,6 +103,7 @@ export const testFilters = [
     status: statuses.inactive,
   },
   {
+    type: "button",
     title: "Warning",
     value: testFilterStates.warning,
     count: testItems.filter((item) => item.status === testFilterStates.warning)
@@ -103,10 +111,25 @@ export const testFilters = [
     status: statuses.warning,
   },
   {
+    type: "button",
     title: "Error",
     value: testFilterStates.error,
     count: testItems.filter((item) => item.status === testFilterStates.error)
       .length,
     status: statuses.error,
+  },
+
+  // Adding an example dropdown filter for testing
+  {
+    type: "dropdown",
+    title: "Value Range",
+    value: "valueRange",
+    options: [
+      { id: "all", label: "All Values" },
+      { id: "low", label: "Low (0-200)" },
+      { id: "medium", label: "Medium (201-400)" },
+      { id: "high", label: "High (401+)" },
+    ],
+    defaultOptionId: "all",
   },
 ];

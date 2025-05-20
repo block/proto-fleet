@@ -2,28 +2,30 @@ import Button, { sizes } from "@/shared/components/Button";
 import StatusCircle from "@/shared/components/StatusCircle";
 import { StatusCircleStatus } from "@/shared/components/StatusCircle/constants";
 
-type FilterItemProps<FilterType> = {
+type ButtonFilterProps<FilterType> = {
   status?: StatusCircleStatus;
   count?: number;
   filter: FilterType;
   title: string;
   activeFilters: FilterType[];
   setActiveFilter: (filter: FilterType) => void;
+  size?: keyof typeof sizes;
 };
 
-const FilterItem = <FilterType,>({
+const ButtonFilter = <FilterType,>({
   status,
   count,
   filter,
   title,
   activeFilters,
   setActiveFilter,
-}: FilterItemProps<FilterType>) => {
+  size = sizes.compact,
+}: ButtonFilterProps<FilterType>) => {
   const isActive = activeFilters.includes(filter);
 
   return (
     <Button
-      size={sizes.compact}
+      size={size}
       variant={isActive ? "primary" : "ghost"}
       onClick={() => setActiveFilter(filter)}
       prefixIcon={
@@ -43,4 +45,4 @@ const FilterItem = <FilterType,>({
   );
 };
 
-export default FilterItem;
+export default ButtonFilter;

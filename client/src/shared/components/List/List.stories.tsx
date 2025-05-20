@@ -1,5 +1,6 @@
 import { action } from "@storybook/addon-actions";
 import ListComponent from ".";
+import { defaultListFilter } from "@/shared/components/List/constants";
 import testColConfig from "@/shared/components/List/mocks/colConfig";
 import {
   testCols,
@@ -47,12 +48,50 @@ export const List = ({
   itemSelectable,
   disabled,
 }: ListArgs) => {
+  // Filter function that supports both button and dropdown filters
+  const filterItem = (
+    item: TestItem,
+    activeButtonFilters: (TestFilterState | typeof defaultListFilter)[],
+    dropdownFilters?: Record<string, string>,
+  ) => {
+    // Check button filters first
+    if (!activeButtonFilters.includes(defaultListFilter)) {
+      // If "all" isn't selected, item must match at least one active filter
+      const matchesStatus = activeButtonFilters.some(
+        (filter) => item.status === filter,
+      );
+
+      if (!matchesStatus) {
+        return false;
+      }
+    }
+
+    // Then check dropdown filters
+    if (dropdownFilters && dropdownFilters["valueRange"]) {
+      const valueRange = dropdownFilters["valueRange"];
+
+      if (valueRange === "low" && item.value > 200) {
+        return false;
+      } else if (
+        valueRange === "medium" &&
+        (item.value <= 200 || item.value > 400)
+      ) {
+        return false;
+      } else if (valueRange === "high" && item.value <= 400) {
+        return false;
+      }
+    }
+
+    return true;
+  };
+
   return (
     <ListComponent<TestItem, TestItem["id"], TestFilterState>
       activeCols={activeCols.slice(0, numberOfColumns)}
       colTitles={testColTitles}
       colConfig={testColConfig}
-      filters={testFilters.slice(0, 3)}
+      filters={testFilters}
+      filterItem={filterItem}
       items={testItems.slice(0, numberOfItems)}
       itemKey="id"
       actions={actions.slice(0, numberOfItemActions)}

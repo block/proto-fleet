@@ -42,29 +42,34 @@ const MinerList = ({ title, miners = [] }: MinerListProps) => {
 
     return [
       {
+        type: "button",
         title: "All miners",
         value: defaultListFilter,
         count: miners.length,
       },
       {
+        type: "button",
         title: "Hashing",
         value: minerFilterStates.hashing,
         count: countMiners(minerFilterStates.hashing),
         status: statuses.normal,
       },
       {
+        type: "button",
         title: "Broken",
         value: minerFilterStates.broken,
         count: countMiners(minerFilterStates.broken),
         status: statuses.error,
       },
       {
+        type: "button",
         title: "Offline",
         value: minerFilterStates.offline,
         count: countMiners(minerFilterStates.offline),
         status: statuses.warning,
       },
       {
+        type: "button",
         title: "Asleep",
         value: minerFilterStates.asleep,
         count: countMiners(minerFilterStates.asleep),
@@ -73,11 +78,24 @@ const MinerList = ({ title, miners = [] }: MinerListProps) => {
     ] as FilterItem<MinerFilterState>[];
   }, [miners]);
 
-  const filterMiner = (item: Miner, activeFilter: MinerFilterState) => {
-    return (
-      item.status?.[activeFilter as keyof Miner["status"]] === true ||
-      activeFilter === defaultListFilter
-    );
+  const filterMiner = (
+    item: Miner,
+    activeButtonFilters: (MinerFilterState | typeof defaultListFilter)[],
+  ) => {
+    // If "All miners" filter is active, show all miners
+    if (activeButtonFilters.includes(defaultListFilter)) {
+      return true;
+    }
+
+    // Check if miner matches any of the active button filters
+    for (const filter of activeButtonFilters) {
+      if (item.status?.[filter as keyof Miner["status"]] === true) {
+        return true;
+      }
+    }
+
+    // If no filter matched, don't show the miner
+    return false;
   };
 
   return (

@@ -1,16 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { Dispatch, SetStateAction, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
+import FoundMinersModal from "./FoundMinersModal";
+import type { MinerWithModel } from "./types";
+import { type Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import Row from "@/shared/components/Row";
 
-type Miner = {
-  deviceIdentifier: string;
-  macAddress: string;
-};
-
 type FoundMinersProps = {
-  miners: Miner[];
+  miners: Device[];
+  deselectedMiners: Device["deviceIdentifier"][];
+  setDeselectedMiners: Dispatch<SetStateAction<Device["deviceIdentifier"][]>>;
   className?: string;
   handleContinueSetup: () => void;
   handleRestartSearch: () => void;
@@ -22,16 +22,19 @@ type MinersByModel = {
 
 type MinersByModelItem = {
   model: string;
-  miners: (Miner & { model: string; selected: boolean })[];
+  miners: MinerWithModel[];
 };
 
 const FoundMiners = ({
   miners,
+  deselectedMiners,
+  setDeselectedMiners,
   className,
   handleContinueSetup,
   handleRestartSearch,
 }: FoundMinersProps) => {
   const [minersByModel, setMinersByModel] = useState<MinersByModel>({});
+  const [showModal, setShowModal] = useState<boolean>(false);
 
   useEffect(() => {
     const getUpdatedMinersByModel = (prev: MinersByModel) => {
@@ -47,7 +50,7 @@ const FoundMiners = ({
         if (!_minersByModel[miner.model]) {
           _minersByModel[miner.model] = {
             model: miner.model,
-            miners: [{ ...miner, selected: true }],
+            miners: [miner],
           };
 
           return;
@@ -62,7 +65,7 @@ const FoundMiners = ({
           return;
         }
 
-        _minersByModel[miner.model].miners.push({ ...miner, selected: true });
+        _minersByModel[miner.model].miners.push(miner);
       });
       return _minersByModel;
     };
@@ -70,12 +73,23 @@ const FoundMiners = ({
     setMinersByModel((prev) => getUpdatedMinersByModel(prev));
   }, [miners]);
 
-  const totalSelected = useMemo(() => {
-    return Object.values(minersByModel).reduce(
-      (acc, model) =>
-        acc + model.miners.filter((miner) => miner.selected).length,
-      0,
+  // flatten minersByModel into list of miners sorted by model and add selected state
+  const sortedMinersWithSelection = useMemo(() => {
+    const miners = Object.values(minersByModel).flatMap(
+      (model) => model.miners,
     );
+    return miners.map((miner) => ({
+      ...miner,
+      selected: !deselectedMiners.includes(miner.deviceIdentifier),
+    }));
+  }, [minersByModel, deselectedMiners]);
+
+  const totalSelected = useMemo(() => {
+    return sortedMinersWithSelection.filter((miner) => miner.selected).length;
+  }, [sortedMinersWithSelection]);
+
+  const models = useMemo(() => {
+    return Object.keys(minersByModel).map((model) => model);
   }, [minersByModel]);
 
   return (
@@ -84,7 +98,7 @@ const FoundMiners = ({
         <div className="mb-4">
           <Header
             inline
-            title={`${miners.length} miners found on your network`}
+            title={`${sortedMinersWithSelection.length} miners found on your network`}
             titleSize="text-heading-200"
             description={
               <>
@@ -114,8 +128,18 @@ const FoundMiners = ({
               <div className="h-6 text-emphasis-300">{model.miners.length}</div>
 
               <div className="h-6 text-emphasis-300">
-                <Button variant={variants.secondary} size={sizes.compact}>
-                  {model.miners.filter((miner) => miner.selected).length} miners
+                <Button
+                  variant={variants.secondary}
+                  size={sizes.compact}
+                  onClick={() => setShowModal(true)}
+                >
+                  {
+                    model.miners.filter(
+                      (miner) =>
+                        !deselectedMiners.includes(miner.deviceIdentifier),
+                    ).length
+                  }{" "}
+                  miners
                 </Button>
               </div>
             </Row>
@@ -140,6 +164,14 @@ const FoundMiners = ({
           Continue with {totalSelected} miners
         </Button>
       </div>
+      {showModal && (
+        <FoundMinersModal
+          setDeselectedMiners={setDeselectedMiners}
+          miners={sortedMinersWithSelection}
+          models={models}
+          onDismiss={() => setShowModal(false)}
+        />
+      )}
     </div>
   );
 };

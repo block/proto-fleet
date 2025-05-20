@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { MouseEvent, useRef } from "react";
 import clsx from "clsx";
 import ButtonGroup, {
   groupVariants,
@@ -29,11 +29,16 @@ const PopoverContent = ({
     onClickOutside: closePopover,
   });
 
+  // Stop propagation to prevent modal close
+  const handleClick = (e: MouseEvent) => {
+    e.stopPropagation();
+  };
+
   return (
     <div
       ref={popoverRef}
       className={clsx(
-        "z-20 space-y-4 rounded-3xl bg-surface-elevated-base/85 p-6 shadow-200 backdrop-blur-[7px] transition-opacity duration-200",
+        "popover-content z-20 space-y-4 rounded-3xl bg-surface-elevated-base/85 p-6 shadow-200 backdrop-blur-[7px] transition-opacity duration-200",
         {
           "w-60": size === popoverSizes.small,
           "w-72": size === popoverSizes.medium,
@@ -42,6 +47,7 @@ const PopoverContent = ({
         className,
       )}
       data-testid={testId}
+      onClick={handleClick}
     >
       {(title || subtitle) && (
         <Header

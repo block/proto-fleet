@@ -12,9 +12,10 @@ import {
   alertViews,
 } from "@/protoFleet/features/fleetManagement/components/AlertsModal/constants";
 import { Notification } from "@/shared/assets/icons";
-import { variants } from "@/shared/components/Button";
+import { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import { defaultListFilter } from "@/shared/components/List/constants";
+import { FilterItem } from "@/shared/components/List/Filters/types";
 import Modal from "@/shared/components/Modal";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import { useNavigate } from "@/shared/hooks/useNavigate";
@@ -77,41 +78,51 @@ const AlertsModal = ({ show, alerts, onDismiss }: AlertsModalProps) => {
 
     return [
       {
+        type: "button",
         title: "All alerts",
         value: defaultListFilter,
         count: alerts.length,
       },
       {
+        type: "button",
         title: "Control board",
         value: alertTypes.controlBoard,
         count: countAlerts(alertTypes.controlBoard),
       },
       {
+        type: "button",
         title: "Fan",
         value: alertTypes.fan,
         count: countAlerts(alertTypes.fan),
       },
       {
+        type: "button",
         title: "Hashboard",
         value: alertTypes.hashboard,
         count: countAlerts(alertTypes.hashboard),
       },
       {
+        type: "button",
         title: "PSU",
         value: alertTypes.psu,
         count: countAlerts(alertTypes.psu),
       },
       {
+        type: "button",
         title: "Pool",
         value: alertTypes.pool,
         count: countAlerts(alertTypes.pool),
       },
-    ];
+    ] as FilterItem<AlertType>[];
   }, [alerts]);
 
-  const filterAlert = (item: Alert, activeFilter: AlertType) => {
+  const filterAlert = (
+    item: Alert,
+    activeButtonFilters: (AlertType | typeof defaultListFilter)[],
+  ) => {
     return (
-      item.alertType === activeFilter || activeFilter === defaultListFilter
+      activeButtonFilters.includes(defaultListFilter) ||
+      activeButtonFilters.some((filter) => item.alertType === filter)
     );
   };
 
@@ -193,6 +204,7 @@ const AlertsModal = ({ show, alerts, onDismiss }: AlertsModalProps) => {
         colConfig={alertColConfig}
         filters={filters}
         filterItem={filterAlert}
+        filterSize={sizes.compact}
         items={alerts}
         itemKey="minerMacAddress"
         actions={listActions}

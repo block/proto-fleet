@@ -1,25 +1,38 @@
-import { ReactNode, useState } from "react";
-import AnimatedDotsBackground from "../Animation";
+import { useState } from "react";
+import FoundMiners from "./FoundMiners";
+import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
+import AnimatedDotsBackground from "@/shared/components/Animation";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Dialog from "@/shared/components/Dialog";
+import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import { minerDiscoveryModes } from "@/shared/components/Setup/miners.constants";
 
-interface AddMinerProps {
+interface MinersProps {
   loading: boolean;
+  pairingPending: boolean;
+  foundMiners: Device[];
   onScanModeDiscover: () => void;
   onMdnsModeDiscover: () => void;
   onIpListModeDiscover: (ipAddresses: string[]) => void;
-  scanResults: ReactNode;
+  onContinue: () => void;
+  onRestart: () => void;
 }
 
-const AddMiners = ({
+const Miners = ({
   loading,
+  pairingPending,
+  foundMiners,
   onScanModeDiscover,
   onMdnsModeDiscover,
   onIpListModeDiscover,
-  scanResults,
-}: AddMinerProps) => {
+  onContinue,
+  onRestart,
+}: MinersProps) => {
+  const [deselectedMiners, setDeselectedMiners] = useState<
+    Device["deviceIdentifier"][]
+  >([]);
   const [selectedMode, setSelectedMode] = useState<string>(
     minerDiscoveryModes.scan,
   );
@@ -52,6 +65,18 @@ const AddMiners = ({
 
   return (
     <div>
+      <Dialog
+        title="Pairing the found miners"
+        subtitle="This may take a few seconds"
+        loading
+        show={pairingPending}
+      />
+      <Header
+        title="Add miners"
+        titleSize="text-heading-300"
+        description="Scan your network or upload a list of miner IP addresses to add them to your fleet."
+        inline
+      />
       <SegmentedControl
         className="my-4"
         segments={[
@@ -81,7 +106,13 @@ const AddMiners = ({
             </div>
           </div>
         ) : (
-          scanResults
+          <FoundMiners
+            miners={foundMiners}
+            deselectedMiners={deselectedMiners}
+            setDeselectedMiners={setDeselectedMiners}
+            handleContinueSetup={onContinue}
+            handleRestartSearch={onRestart}
+          />
         ))}
 
       {selectedMode === minerDiscoveryModes.ipList && (
@@ -113,4 +144,4 @@ const AddMiners = ({
   );
 };
 
-export default AddMiners;
+export default Miners;

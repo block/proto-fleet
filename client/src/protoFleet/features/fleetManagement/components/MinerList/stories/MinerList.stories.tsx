@@ -1,4 +1,4 @@
-import MinerListComponent from "../index";
+import MinerListComponent from "../MinerList";
 import { miners } from "@/protoFleet/features/fleetManagement/components/MinerList/stories/mocks";
 import { Toaster as ToasterComponent } from "@/shared/features/toaster";
 
