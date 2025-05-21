@@ -2,23 +2,22 @@ import { useCallback, useMemo, useState } from "react";
 import Button from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
-import Row from "@/shared/components/Row";
 import { initValues } from "@/shared/components/Setup/network.constants";
 import { Values } from "@/shared/components/Setup/network.types";
+import NetworkDetails from "@/shared/components/Setup/NetworkDetails";
 import { useKeyDown } from "@/shared/hooks/useKeyDown";
 import { deepClone } from "@/shared/utils/utility";
 
 type NetworkProps = {
   submit: (networkName: string) => void;
-  networkName: string;
-  ipRange: string;
+  // Subnet mask or CIDR notation for the network
+  subnet: string;
   gateway: string;
 };
 
 const Network = ({
   submit,
-  networkName = "Bathhouse Williamsburg",
-  ipRange = "192.168.1.0/24",
+  subnet = "192.168.1.0/24",
   gateway = "192.168.1.1",
 }: NetworkProps) => {
   const [values, setValues] = useState<Values>(deepClone(initValues));
@@ -91,28 +90,7 @@ const Network = ({
           initValue={values.networkName}
           error={errors.networkName}
         />
-        <div className="rounded-xl bg-surface-5 p-3">
-          <div className="w-full">
-            <Row className="flex justify-between">
-              <div className="text-emphasis-300">Network details</div>
-            </Row>
-          </div>
-
-          <div className="w-full text-300">
-            <Row className="flex justify-between">
-              <div>Network Name</div>
-              <div>{networkName}</div>
-            </Row>
-            <Row className="flex justify-between">
-              <div>IP Range</div>
-              <div>{ipRange}</div>
-            </Row>
-            <Row divider={false} className="flex justify-between">
-              <div>Gateway</div>
-              <div>{gateway}</div>
-            </Row>
-          </div>
-        </div>
+        <NetworkDetails gateway={gateway} subnet={subnet} />
         <Button
           onClick={handleContinue}
           className="ml-auto"

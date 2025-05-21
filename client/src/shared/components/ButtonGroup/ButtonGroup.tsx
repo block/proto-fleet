@@ -27,6 +27,7 @@ const ButtonGroup = ({
   const parentClasses = ["flex"];
 
   const fill = variant === groupVariants.fill;
+  const justifyBetween = variant === groupVariants.justifyBetween;
   const leftAligned = variant === groupVariants.leftAligned;
   const rightAligned = variant === groupVariants.rightAligned;
   const stack = variant === groupVariants.stack;
@@ -36,6 +37,13 @@ const ButtonGroup = ({
 
   if (fill) {
     parentClasses.push(...["w-full", horizontalGap]);
+    if (sortButtons) {
+      sortedButtons = sortPrimaryButtonLast(buttons);
+    }
+  }
+
+  if (justifyBetween) {
+    parentClasses.push(...["w-full justify-between", horizontalGap]);
     if (sortButtons) {
       sortedButtons = sortPrimaryButtonLast(buttons);
     }

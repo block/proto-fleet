@@ -7,7 +7,6 @@ import HomePage from "./pages/Home";
 import Auth from "@/protoFleet/features/auth/pages/Auth";
 import {
   AuthenticationPage,
-  LandingPage,
   MinersPage,
   SecurityPage,
   SettingsPage,
@@ -100,26 +99,17 @@ const routes: Route[] = [
   {
     path: "/auth",
     element: <Auth />,
+    requireAuth: false,
     overrideLayout: true,
   },
   {
     path: "/signup",
     element: <Signup />,
+    requireAuth: false,
     overrideLayout: true,
   },
   {
     path: "/welcome",
-    element: <LandingPage />,
-    overrideLayout: true,
-  },
-  {
-    path: "/onboarding",
-    overrideLayout: true,
-    requireAuth: false,
-    loader: () => redirect("/onboarding/welcome"),
-  },
-  {
-    path: "/onboarding/welcome",
     element: <WelcomePage />,
     requireAuth: false,
     overrideLayout: true,

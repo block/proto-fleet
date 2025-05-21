@@ -31,8 +31,7 @@ vi.mock("@/protoFleet/routes", () => ({
         : pathname.includes("onboarding")
           ? "Onboarding"
           : "Home",
-    requireAuth:
-      pathname !== "/auth" && !pathname.includes("/onboarding/welcome"),
+    requireAuth: pathname !== "/auth" && !pathname.includes("/welcome"),
     useAppLayout:
       !pathname.includes("/auth") && !pathname.includes("/onboarding"),
   })),

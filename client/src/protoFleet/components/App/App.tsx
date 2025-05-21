@@ -20,7 +20,7 @@ const App = () => {
     return !(metadata?.requireAuth === false);
   }, [metadata]);
 
-  useIsAuthenticated(requireAuth, currentPath);
+  useIsAuthenticated(requireAuth);
 
   // TODO: Unsure on if we want want to call this hook here or not
   // This effects the UX for onboarding. Do we want to let users go back previously completed steps?

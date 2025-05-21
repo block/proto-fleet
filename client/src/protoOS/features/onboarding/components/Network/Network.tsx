@@ -13,10 +13,7 @@ const NetworkPage = () => {
           // TODO: Send network info to the API
           navigate("/onboarding/authentication");
         }}
-        // What should we show here?
-        networkName={"Pending"}
-        // What should we show here?
-        ipRange={networkInfo?.ip || "Pending"}
+        subnet={networkInfo?.ip || "Pending"}
         gateway={networkInfo?.gateway || "Pending"}
       />
     </OnboardingLayout>

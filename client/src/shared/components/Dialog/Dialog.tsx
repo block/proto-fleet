@@ -18,6 +18,8 @@ interface DialogProps {
   testId?: string;
   title: string;
   titleSize?: string;
+  headerClassName?: string;
+  animate?: boolean;
 }
 
 const Dialog = ({
@@ -31,19 +33,24 @@ const Dialog = ({
   testId,
   title,
   titleSize = "text-heading-100",
+  headerClassName,
+  animate = true,
 }: DialogProps) => {
   const [showDialog, setShowDialog] = useState(show);
 
   useEffect(() => {
     if (!show) {
       // Wait for the animation to finish before hiding the dialog
-      setTimeout(() => {
-        setShowDialog(show);
-      }, animationDuration);
+      setTimeout(
+        () => {
+          setShowDialog(show);
+        },
+        animate ? animationDuration : 0,
+      );
     } else {
       setShowDialog(show);
     }
-  }, [show]);
+  }, [animate, show]);
 
   useEffect(() => {
     let timeoutId: ReturnType<typeof setTimeout>;
@@ -51,15 +58,18 @@ const Dialog = ({
       setShowDialog(true);
     } else {
       // Wait for the animation to finish before hiding the dialog
-      timeoutId = setTimeout(() => {
-        setShowDialog(false);
-      }, animationDuration);
+      timeoutId = setTimeout(
+        () => {
+          setShowDialog(false);
+        },
+        animate ? animationDuration : 0,
+      );
     }
     return () => {
       // clear timeout if the component is unmounted before the timeout
       clearTimeout(timeoutId);
     };
-  }, [show]);
+  }, [animate, show]);
 
   return (
     <>
@@ -68,13 +78,14 @@ const Dialog = ({
           zIndex="z-40"
           shouldPreventScroll={preventScroll}
           show={show}
+          animate={animate}
         >
           <div
             className={clsx(
               "h-fit w-[360px] rounded-3xl bg-surface-elevated-base p-6 shadow-200",
               {
-                "animate-sliding-up": show,
-                "animate-sliding-down": !show,
+                "animate-sliding-up": animate && show,
+                "animate-sliding-down": animate && !show,
               },
               className,
             )}
@@ -87,6 +98,7 @@ const Dialog = ({
               />
             )}
             <Header
+              className={headerClassName}
               title={title}
               subtitle={subtitle}
               titleSize={titleSize}

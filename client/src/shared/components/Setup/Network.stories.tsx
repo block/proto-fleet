@@ -1,12 +1,15 @@
 import { Network as NetworkComponent } from ".";
 
-export const Network = () => {
+interface NetworkArgs {
+  subnet: string;
+}
+
+export const Network = ({ subnet }: NetworkArgs) => {
   return (
     <div>
       <NetworkComponent
         submit={() => {}}
-        networkName="Bathhouse Williamsburg"
-        ipRange="192.168.1.0/24"
+        subnet={subnet}
         gateway="192.168.1.1"
       />
     </div>
@@ -15,6 +18,13 @@ export const Network = () => {
 
 export default {
   title: "Components (Shared)/Setup/Network",
-  args: {},
-  argTypes: {},
+  args: {
+    subnet: "192.168.1.0/24",
+  },
+  argTypes: {
+    subnet: {
+      control: "select",
+      options: ["192.168.1.0/24", "255.255.255.0"],
+    },
+  },
 };
