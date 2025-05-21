@@ -3,6 +3,7 @@ export const statuses = {
   warning: "warning",
   normal: "normal",
   inactive: "inactive",
+  pending: "pending",
 } as const;
 
 export type StatusCircleStatus = keyof typeof statuses;

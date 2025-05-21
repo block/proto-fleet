@@ -7,9 +7,9 @@ import {
   minerFilterStates,
 } from "./constants";
 import minerColConfig from "./minerColConfig";
-import { type Miner } from "./types";
+
+import { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
-import { type MinerStatusKey } from "@/protoFleet/features/fleetManagement/types";
 import List from "@/shared/components/List";
 import { defaultListFilter } from "@/shared/components/List/constants";
 import { FilterItem } from "@/shared/components/List/Filters/types";
@@ -17,7 +17,7 @@ import { statuses } from "@/shared/components/StatusCircle/constants";
 
 type MinerListProps = {
   title: string;
-  miners: Miner[];
+  miners: MinerStateSnapshot[];
 };
 
 // TODO: move this to state when we
@@ -30,13 +30,16 @@ const activeCols = [
   minerCols.efficiency,
   minerCols.powerUsage,
   minerCols.temperature,
-] as (keyof Miner)[];
+] as (keyof MinerStateSnapshot)[];
 
 const MinerList = ({ title, miners = [] }: MinerListProps) => {
   const filters = useMemo(() => {
     const countMiners = (status: MinerFilterState) => {
+      // TODO: need to determine what properties need to be added to MinerStateSnapshot to support our filters
+      void status;
       return miners.filter(
-        (m) => m.status && m.status[status as MinerStatusKey] === true,
+        () => true,
+        // (m) => m.status && m.status[status as MinerStatusKey] === true,
       ).length;
     };
 
@@ -79,29 +82,32 @@ const MinerList = ({ title, miners = [] }: MinerListProps) => {
   }, [miners]);
 
   const filterMiner = (
-    item: Miner,
+    item: MinerStateSnapshot,
     activeButtonFilters: (MinerFilterState | typeof defaultListFilter)[],
   ) => {
-    // If "All miners" filter is active, show all miners
     if (activeButtonFilters.includes(defaultListFilter)) {
       return true;
     }
 
-    // Check if miner matches any of the active button filters
     for (const filter of activeButtonFilters) {
-      if (item.status?.[filter as keyof Miner["status"]] === true) {
+      if (
+        item.status?.[filter as keyof MinerStateSnapshot["status"]] === true
+      ) {
         return true;
       }
     }
 
-    // If no filter matched, don't show the miner
     return false;
   };
 
   return (
     <div>
       <h2 className="text-heading-300">{title}</h2>
-      <List<Miner, Miner["deviceIdentifier"], MinerFilterState>
+      <List<
+        MinerStateSnapshot,
+        MinerStateSnapshot["deviceIdentifier"],
+        MinerFilterState
+      >
         activeCols={activeCols}
         colTitles={minerColTitles}
         colConfig={minerColConfig}

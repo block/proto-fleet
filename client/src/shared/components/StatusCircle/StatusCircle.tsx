@@ -9,6 +9,7 @@ const statusColors = {
   error: "intent-critical-fill",
   warning: "intent-warning-fill",
   inactive: "grayscale-gray-50",
+  pending: "intent-info-fill",
 };
 
 const StatusCircle = ({

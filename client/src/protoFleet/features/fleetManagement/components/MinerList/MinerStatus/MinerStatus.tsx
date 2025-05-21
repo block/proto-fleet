@@ -1,40 +1,47 @@
-import StatusCircle, {
-  type StatusCircleProps,
-} from "@/shared/components/StatusCircle";
+import {
+  ComponentStatus,
+  type MinerComponentStatus,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import StatusCircle, { statuses } from "@/shared/components/StatusCircle";
 
 type MinerStatusProps = {
   isSelected?: boolean;
-  status: {
-    hashboard: StatusCircleProps["status"];
-    asic: StatusCircleProps["status"];
-    fans: StatusCircleProps["status"];
-    cb: StatusCircleProps["status"];
-  };
+  status: MinerComponentStatus;
+};
+
+// maps ComponentStatus to the status that StatusCircle uses
+const statusMap = {
+  [ComponentStatus.UNSPECIFIED]: statuses.inactive,
+  [ComponentStatus.OK]: statuses.normal,
+  [ComponentStatus.WARNING]: statuses.warning,
+  [ComponentStatus.ERROR]: statuses.error,
+  [ComponentStatus.OFFLINE]: statuses.inactive,
+  [ComponentStatus.PENDING]: statuses.pending,
 };
 
 const MinerStatus = ({ isSelected = false, status }: MinerStatusProps) => {
   return (
     <div className="flex flex-row opacity-70">
       <StatusCircle
-        status={status.hashboard}
+        status={statusMap[status.hashBoards]}
         variant="simple"
         width="w-[6px]"
         isSelected={isSelected}
       />
       <StatusCircle
-        status={status.asic}
+        status={statusMap[status.psu]}
         variant="simple"
         width="w-[6px]"
         isSelected={isSelected}
       />
       <StatusCircle
-        status={status.fans}
+        status={statusMap[status.fans]}
         variant="simple"
         width="w-[6px]"
         isSelected={isSelected}
       />
       <StatusCircle
-        status={status.cb}
+        status={statusMap[status.controlBoard]}
         variant="simple"
         width="w-[6px]"
         isSelected={isSelected}

@@ -1,13 +1,16 @@
 import { minerCols } from "./constants";
 import Hashrate from "./Hashrate";
 import MinerStatus from "./MinerStatus";
-import { type Miner } from "./types";
+import {
+  ComponentStatus,
+  type MinerStateSnapshot,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { type ColConfig } from "@/shared/components/List/types";
 import SkeletonBar from "@/shared/components/SkeletonBar";
-import { statuses } from "@/shared/components/StatusCircle/constants";
+import { getDisplayValue } from "@/shared/utils/stringUtils";
 
-type MinerKeyValueType = Miner["macAddress"];
-const minerColConfig: ColConfig<Miner, MinerKeyValueType> = {
+type MinerKeyValueType = MinerStateSnapshot["macAddress"];
+const minerColConfig: ColConfig<MinerStateSnapshot, MinerKeyValueType> = {
   [minerCols.name]: {
     width: "w-24",
   },
@@ -15,16 +18,20 @@ const minerColConfig: ColConfig<Miner, MinerKeyValueType> = {
     width: "w-38",
   },
   [minerCols.status]: {
-    component: (item: Miner, selectedItems: MinerKeyValueType[]) => {
+    component: (
+      item: MinerStateSnapshot,
+      selectedItems: MinerKeyValueType[],
+    ) => {
       return (
         <MinerStatus
           isSelected={selectedItems.includes(item.macAddress)}
           status={
             item.status ?? {
-              hashboard: statuses.inactive,
-              cb: statuses.inactive,
-              fans: statuses.inactive,
-              asic: statuses.inactive,
+              $typeName: "fleetmanagement.v1.MinerComponentStatus",
+              hashBoards: ComponentStatus.UNSPECIFIED,
+              controlBoard: ComponentStatus.UNSPECIFIED,
+              fans: ComponentStatus.UNSPECIFIED,
+              psu: ComponentStatus.UNSPECIFIED,
             }
           }
         />
@@ -33,18 +40,21 @@ const minerColConfig: ColConfig<Miner, MinerKeyValueType> = {
     width: "w-17",
   },
   [minerCols.hashrate]: {
-    component: (item: Miner, selectedItems: MinerKeyValueType[]) => {
+    component: (
+      item: MinerStateSnapshot,
+      selectedItems: MinerKeyValueType[],
+    ) => {
       void selectedItems;
       return <Hashrate hashrate={item.hashrate} />;
     },
     width: "w-41",
   },
   [minerCols.efficiency]: {
-    component: (item: Miner) => {
+    component: (item: MinerStateSnapshot) => {
       return (
         <>
           {item.efficiency ? (
-            <>{item.efficiency} J/TH</>
+            <>{getDisplayValue(item.efficiency[0].value)} J/TH</>
           ) : (
             <SkeletonBar className="w-full pr-10" />
           )}
@@ -54,11 +64,11 @@ const minerColConfig: ColConfig<Miner, MinerKeyValueType> = {
     width: "w-38",
   },
   [minerCols.powerUsage]: {
-    component: (item: Miner) => {
+    component: (item: MinerStateSnapshot) => {
       return (
         <>
           {item.powerUsage ? (
-            <>{item.powerUsage} kW</>
+            <>{getDisplayValue(item.powerUsage[0].value)} kW</>
           ) : (
             <SkeletonBar className="w-full pr-10" />
           )}
@@ -68,11 +78,11 @@ const minerColConfig: ColConfig<Miner, MinerKeyValueType> = {
     width: "w-38",
   },
   [minerCols.temperature]: {
-    component: (item: Miner) => {
+    component: (item: MinerStateSnapshot) => {
       return (
         <>
           {item.temperature ? (
-            <>{item.temperature} °C</>
+            <>{getDisplayValue(item.temperature[0].value)} °C</>
           ) : (
             <SkeletonBar className="w-full pr-10" />
           )}

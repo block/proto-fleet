@@ -1,112 +1,208 @@
-import { Miner } from "@/protoFleet/features/fleetManagement/components/MinerList/types";
+import {
+  ComponentStatus,
+  type Measurement,
+  type MinerStateSnapshot,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
-export const miners: Miner[] = [
+export const miners: MinerStateSnapshot[] = [
   {
-    $typeName: "fleetmanagement.v1.PairedDevice",
+    $typeName: "fleetmanagement.v1.MinerStateSnapshot",
     deviceIdentifier: "uuid:123456789",
     serialNumber: "123456789",
-    ip: "172.27.244.166",
     name: "C1-M01",
+    ipAddress: "0123456789",
     macAddress: "0a:04:8a:54:fa:9f",
     hashrate: [
-      { time: 1641024000000, hashrate: 189 },
-      { time: 1641110400000, hashrate: 194 },
-      { time: 1641196800000, hashrate: 190 },
-      { time: 1641283200000, hashrate: 213.2 },
+      {
+        timestamp: { seconds: BigInt(1641024000), nanos: 0 },
+        value: 189,
+      } as Measurement,
+      {
+        timestamp: { seconds: BigInt(1641110400), nanos: 0 },
+        value: 194,
+      } as Measurement,
+      {
+        timestamp: { seconds: BigInt(1641196800), nanos: 0 },
+        value: 190,
+      } as Measurement,
+      {
+        timestamp: { seconds: BigInt(1641283200), nanos: 0 },
+        value: 213.2,
+      } as Measurement,
     ],
-    efficiency: 15.5,
-    powerUsage: 3.5,
-    temperature: 65.5,
+    efficiency: [
+      {
+        timestamp: { seconds: BigInt(2), nanos: 0 },
+        value: 15.5,
+      } as Measurement,
+    ],
+    powerUsage: [
+      {
+        timestamp: { seconds: BigInt(2), nanos: 0 },
+        value: 3.5,
+      } as Measurement,
+    ],
+    temperature: [
+      {
+        timestamp: { seconds: BigInt(2), nanos: 0 },
+        value: 65.5,
+      } as Measurement,
+    ],
     status: {
-      hashboard: "normal",
-      asic: "normal",
-      fans: "normal",
-      cb: "normal",
-      hashing: true,
-      offline: false,
-      asleep: false,
-      broken: false,
-    },
+      hashBoards: ComponentStatus.OK,
+      psu: ComponentStatus.OK,
+      fans: ComponentStatus.OK,
+      controlBoard: ComponentStatus.OK,
+    } as MinerStateSnapshot["status"],
   },
   {
-    $typeName: "fleetmanagement.v1.PairedDevice",
+    $typeName: "fleetmanagement.v1.MinerStateSnapshot",
     deviceIdentifier: "uuid:1234567890",
     serialNumber: "123456780",
-    ip: "172.27.244.166",
     name: "C1-M02",
     macAddress: "0b:04:8a:54:fa:9f",
+    ipAddress: "0123456781",
     hashrate: [
-      { time: 1641024000000, hashrate: 160 },
-      { time: 1641110400000, hashrate: 163 },
-      { time: 1641196800000, hashrate: 165 },
-      { time: 1641283200000, hashrate: 150.8 },
+      {
+        timestamp: { seconds: BigInt(1641024000), nanos: 0 },
+        value: 160,
+      } as Measurement,
+      {
+        timestamp: { seconds: BigInt(1641110400), nanos: 0 },
+        value: 163,
+      } as Measurement,
+      {
+        timestamp: { seconds: BigInt(1641196800), nanos: 0 },
+        value: 165,
+      } as Measurement,
+      {
+        timestamp: { seconds: BigInt(1641283200), nanos: 0 },
+        value: 150.8,
+      } as Measurement,
     ],
-    efficiency: 15.5,
-    powerUsage: 3.5,
-    temperature: 65.5,
+    efficiency: [
+      {
+        timestamp: { seconds: BigInt(2), nanos: 0 },
+        value: 15.5,
+      } as Measurement,
+    ],
+    powerUsage: [
+      {
+        timestamp: { seconds: BigInt(2), nanos: 0 },
+        value: 3.5,
+      } as Measurement,
+    ],
+    temperature: [
+      {
+        timestamp: { seconds: BigInt(2), nanos: 0 },
+        value: 65.5,
+      } as Measurement,
+    ],
     status: {
-      hashboard: "warning",
-      asic: "normal",
-      fans: "normal",
-      cb: "normal",
-      hashing: true,
-      offline: false,
-      asleep: true,
-      broken: false,
-    },
+      hashBoards: ComponentStatus.WARNING,
+      psu: ComponentStatus.OK,
+      fans: ComponentStatus.OK,
+      controlBoard: ComponentStatus.OK,
+    } as MinerStateSnapshot["status"],
   },
   {
-    $typeName: "fleetmanagement.v1.PairedDevice",
+    $typeName: "fleetmanagement.v1.MinerStateSnapshot",
     deviceIdentifier: "uuid:123456781",
     serialNumber: "123456781",
-    ip: "172.27.244.166",
+    ipAddress: "172.27.244.166",
     name: "C1-M03",
     macAddress: "0c:04:8a:54:fa:9f",
     hashrate: [
-      { time: 1641024000000, hashrate: 184 },
-      { time: 1641110400000, hashrate: 196 },
-      { time: 1641196800000, hashrate: 194 },
-      { time: 1641283200000, hashrate: 187 },
+      {
+        timestamp: { seconds: BigInt(1641024000), nanos: 0 },
+        value: 184,
+      } as Measurement,
+      {
+        timestamp: { seconds: BigInt(1641110400), nanos: 0 },
+        value: 196,
+      } as Measurement,
+      {
+        timestamp: { seconds: BigInt(1641196800), nanos: 0 },
+        value: 194,
+      } as Measurement,
+      {
+        timestamp: { seconds: BigInt(1641283200), nanos: 0 },
+        value: 187,
+      } as Measurement,
     ],
-    efficiency: 15.5,
-    powerUsage: 3.5,
-    temperature: 65.5,
+    efficiency: [
+      {
+        timestamp: { seconds: BigInt(2), nanos: 0 },
+        value: 15.5,
+      } as Measurement,
+    ],
+    powerUsage: [
+      {
+        timestamp: { seconds: BigInt(2), nanos: 0 },
+        value: 3.5,
+      } as Measurement,
+    ],
+    temperature: [
+      {
+        timestamp: { seconds: BigInt(2), nanos: 0 },
+        value: 65.5,
+      } as Measurement,
+    ],
     status: {
-      hashboard: "normal",
-      asic: "normal",
-      fans: "normal",
-      cb: "normal",
-      hashing: false,
-      offline: false,
-      asleep: false,
-      broken: true,
-    },
+      hashBoards: ComponentStatus.OK,
+      psu: ComponentStatus.OK,
+      fans: ComponentStatus.OK,
+      controlBoard: ComponentStatus.OK,
+    } as MinerStateSnapshot["status"],
   },
   {
-    $typeName: "fleetmanagement.v1.PairedDevice",
+    $typeName: "fleetmanagement.v1.MinerStateSnapshot",
     deviceIdentifier: "uuid:123456782",
     serialNumber: "123456782",
-    ip: "172.27.244.166",
+    ipAddress: "172.27.244.166",
     name: "C1-M04",
     macAddress: "0e:04:8a:54:fa:9f",
     hashrate: [
-      { time: 1641024000000, hashrate: 184 },
-      { time: 1641110400000, hashrate: 196 },
-      { time: 1641196800000, hashrate: 194 },
-      { time: 1641283200000, hashrate: 152.3 },
+      {
+        timestamp: { seconds: BigInt(1641024000), nanos: 0 },
+        value: 184,
+      } as Measurement,
+      {
+        timestamp: { seconds: BigInt(1641110400), nanos: 0 },
+        value: 196,
+      } as Measurement,
+      {
+        timestamp: { seconds: BigInt(1641196800), nanos: 0 },
+        value: 194,
+      } as Measurement,
+      {
+        timestamp: { seconds: BigInt(1641283200), nanos: 0 },
+        value: 152.3,
+      } as Measurement,
     ],
-    efficiency: 15.5,
-    powerUsage: 3.5,
-    temperature: 65.5,
+    efficiency: [
+      {
+        timestamp: { seconds: BigInt(2), nanos: 0 },
+        value: 15.5,
+      } as Measurement,
+    ],
+    powerUsage: [
+      {
+        timestamp: { seconds: BigInt(2), nanos: 0 },
+        value: 3.5,
+      } as Measurement,
+    ],
+    temperature: [
+      {
+        timestamp: { seconds: BigInt(2), nanos: 0 },
+        value: 65.5,
+      } as Measurement,
+    ],
     status: {
-      hashboard: "normal",
-      asic: "normal",
-      fans: "normal",
-      cb: "normal",
-      hashing: true,
-      offline: true,
-      asleep: false,
-      broken: false,
-    },
+      hashBoards: ComponentStatus.OK,
+      psu: ComponentStatus.OK,
+      fans: ComponentStatus.OK,
+      controlBoard: ComponentStatus.OK,
+    } as MinerStateSnapshot["status"],
   },
 ];

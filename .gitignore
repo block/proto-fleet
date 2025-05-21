@@ -1,4 +1,5 @@
 .hermit/
 .idea
+.DS_Store
 
 **private.env**

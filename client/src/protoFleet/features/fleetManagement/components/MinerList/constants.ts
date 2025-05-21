@@ -1,4 +1,4 @@
-import { type Miner } from "./types";
+import { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { ColTitles } from "@/shared/components/List/types";
 
 export const minerCols = {
@@ -19,7 +19,7 @@ export const minerColTitles = {
   [minerCols.efficiency]: "Efficiency",
   [minerCols.powerUsage]: "Power Usage",
   [minerCols.temperature]: "Temperature",
-} as ColTitles<keyof Miner>;
+} as ColTitles<keyof MinerStateSnapshot>;
 
 export const minerFilterStates = {
   hashing: "hashing",

@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
 import {
   type CreatePoolRequest,
-  type ListPairedMinersRequest,
-  type ListPairedMinersResponse,
+  DataMode,
+  type ListMinerStateSnapshotsRequest,
+  type ListMinerStateSnapshotsResponse,
+  MeasurementConfig_MeasurementType,
   type SetDefaultPoolRequest,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
@@ -12,8 +14,8 @@ import {
 } from "@/protoFleet/features/auth/contexts/AuthContext";
 
 type FetchPairedMinersArgs = {
-  pageSize?: ListPairedMinersRequest["pageSize"];
-  cursor?: ListPairedMinersRequest["cursor"];
+  pageSize?: ListMinerStateSnapshotsRequest["pageSize"];
+  cursor?: ListMinerStateSnapshotsRequest["cursor"];
 };
 
 interface SetDefaultPoolProps {
@@ -31,18 +33,40 @@ interface CreatePoolProps {
 const useFleet = () => {
   const { authTokens } = useAuthContext();
 
-  const [miners, setMiners] = useState<ListPairedMinersResponse["miners"]>([]);
-  const [cursor, setCursor] = useState<ListPairedMinersResponse["cursor"]>("");
+  const [miners, setMiners] = useState<
+    ListMinerStateSnapshotsResponse["miners"]
+  >([]);
+  const [cursor, setCursor] =
+    useState<ListMinerStateSnapshotsResponse["cursor"]>("");
   const [totalMiners, setTotalMiners] =
-    useState<ListPairedMinersResponse["totalMiners"]>();
+    useState<ListMinerStateSnapshotsResponse["totalMiners"]>();
 
   void totalMiners; // not using this yet, but keeping it for potential future use
 
   const fetchPairedMiners = useCallback(
     async ({ pageSize }: FetchPairedMinersArgs) => {
       try {
-        const response = await fleetManagementClient.listPairedMiners(
-          { pageSize, cursor },
+        const response = await fleetManagementClient.listMinerStateSnapshots(
+          {
+            pageSize,
+            cursor,
+            measurementConfigs: [
+              {
+                measurementType: MeasurementConfig_MeasurementType.HASHRATE,
+                dataMode: DataMode.TIME_SERIES,
+                timeSeriesConfig: {
+                  timeSelection: {
+                    case: "lookbackPeriod",
+                    value: {
+                      seconds: BigInt(600),
+                      nanos: 0,
+                    },
+                  },
+                  resolution: 100,
+                },
+              },
+            ],
+          },
           getAuthHeader(authTokens),
         );
 
