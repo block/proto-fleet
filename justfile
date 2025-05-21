@@ -9,7 +9,7 @@ _server-init:
 
 [working-directory: 'client']
 _client-init:
-  npm install
+  npm clean-install
 
 lint: 
   buf lint
@@ -17,7 +17,7 @@ lint:
 gen: _server-init _client-init lint gen-protos gen-server fmt-client fmt-server
 
 gen-protos: 
-  PATH="$PATH:$(pwd)/client/node_modules/@bufbuild/protoc-gen-es/bin" buf generate
+  PATH="$(pwd)/client/node_modules/.bin:$PATH" buf generate
 
 gen-server:
     cd server; just gen

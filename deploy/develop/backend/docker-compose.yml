@@ -54,7 +54,15 @@ services:
       - "./volumes/mysql:/var/lib/mysql"
     command: --sql-mode= --log-bin --binlog-format=ROW --server-id=1 --skip-name-resolve --explicit-defaults-for-timestamp=ON
     healthcheck:
-      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-p$MYSQL_ROOT_PASSWORD" ]
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-p$MYSQL_ROOT_PASSWORD",
+        ]
     networks:
       - backend
     logging:
@@ -93,4 +101,3 @@ networks:
   traefik:
     name: protofleet-develop-traefik_traefik
     external: true
-

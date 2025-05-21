@@ -9,6 +9,7 @@ services:
       - "80"
     environment:
       BACKEND_ADDRESS: ${BACKEND_ADDRESS}
+      API_PROXY_URL: ${BACKEND_ADDRESS}/
     labels:
       - "traefik.http.services.protofleet-develop-${LABEL}-frontend-dashboard.loadbalancer.server.port=80"
 
@@ -26,4 +27,3 @@ networks:
   traefik:
     name: protofleet-develop-traefik_traefik
     external: true
-

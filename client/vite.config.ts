@@ -106,23 +106,9 @@ export default defineConfig(({ mode, command }) => {
   if (mode === "protoFleet") {
     let proxyUrl = env.PROXY_URL || "http://localhost:4000";
     proxies = {
-      "/fleetmanagement.v1.FleetManagementService": {
+      "/api-proxy": {
         target: proxyUrl,
-      },
-      "/auth.v1.AuthService": {
-        target: proxyUrl,
-      },
-      "/onboarding.v1.OnboardingService": {
-        target: proxyUrl,
-      },
-      "/networkinfo.v1.NetworkInfoService": {
-        target: proxyUrl,
-      },
-      "/pairing.v1.PairingService": {
-        target: proxyUrl,
-      },
-      "/minercommand.v1.MinerCommandService": {
-        target: proxyUrl,
+        rewrite: (path: string) => path.replace(/^\/api-proxy/, ""),
       },
     };
   } else {
@@ -164,6 +150,7 @@ export default defineConfig(({ mode, command }) => {
     },
     server: {
       proxy: proxies,
+      historyApiFallback: true,
     },
   };
 });
