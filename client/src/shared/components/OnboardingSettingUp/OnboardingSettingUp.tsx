@@ -2,9 +2,9 @@ import { useMemo } from "react";
 import clsx from "clsx";
 
 import ConfiguringMiningPool from "./ConfiguringMiningPool";
-import { statuses } from "./constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
+import { statuses } from "@/shared/constants/statuses";
 
 interface OnboardingSettingUpProps {
   isSetupDone: boolean;

@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 
-import { statuses } from "./constants";
 import { Alert, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
+import { statuses } from "@/shared/constants/statuses";
 
 interface ConfiguringMiningPoolProps {
   onClickReconfigure: () => void;

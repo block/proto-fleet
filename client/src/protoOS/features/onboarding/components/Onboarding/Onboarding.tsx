@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
 import clsx from "clsx";
-import { WarnBackupPoolDialog } from "../WarnBackupPoolDialog";
-import { WarnDefaultPoolCallout } from "../WarnDefaultPoolCallout";
 import { SimpleErrorProps } from "@/protoOS/api/apiResponseTypes";
 import {
   NetworkInfoNetworkinfo,
@@ -29,6 +27,8 @@ import {
   DismissibleCalloutWrapper,
   intents,
 } from "@/shared/components/Callout";
+import { WarnBackupPoolDialog } from "@/shared/components/MiningPools/WarnBackupPoolDialog";
+import { WarnDefaultPoolCallout } from "@/shared/components/MiningPools/WarnDefaultPoolCallout";
 
 interface OnboardingProps {
   networkInfo?: NetworkInfoNetworkinfo;

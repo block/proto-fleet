@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { statuses } from "./constants";
-import OnboardingSettingUp from "./OnboardingSettingUp";
 import { useCreatePools, usePoolsInfo } from "@/protoOS/api";
 import { SimpleErrorProps } from "@/protoOS/api/apiResponseTypes";
 
 import { isValidPool, PoolInfo } from "@/protoOS/components/MiningPools";
+import OnboardingSettingUp from "@/shared/components/OnboardingSettingUp/OnboardingSettingUp";
+import { statuses } from "@/shared/constants/statuses";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 interface OnboardingSettingUpWrapperProps {

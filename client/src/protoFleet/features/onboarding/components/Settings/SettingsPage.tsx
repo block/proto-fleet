@@ -5,11 +5,6 @@ import { CreatePoolRequestSchema } from "@/protoFleet/api/generated/fleetmanagem
 import useFleet from "@/protoFleet/api/useFleet";
 import { STEP_KEYS, STEPS } from "@/protoFleet/features/onboarding/constants";
 
-// TODO: should not be importing from protoOS
-import { statuses } from "@/protoOS/components/OnboardingSettingUp/constants";
-import OnboardingSettingUp from "@/protoOS/components/OnboardingSettingUp/OnboardingSettingUp";
-import { WarnDefaultPoolCallout } from "@/protoOS/features/onboarding/components/WarnDefaultPoolCallout";
-
 import AnimatedDotsBackground from "@/shared/components/Animation";
 import Button from "@/shared/components/Button";
 import PoolForm from "@/shared/components/MiningPools/PoolForm";
@@ -18,7 +13,10 @@ import {
   getEmptyPoolsInfo,
   isValidPool,
 } from "@/shared/components/MiningPools/utility";
+import { WarnDefaultPoolCallout } from "@/shared/components/MiningPools/WarnDefaultPoolCallout";
+import OnboardingSettingUp from "@/shared/components/OnboardingSettingUp/OnboardingSettingUp";
 import { OnboardingLayout } from "@/shared/components/Setup";
+import { statuses } from "@/shared/constants/statuses";
 
 // TODO we can probably share more code with ProtoOS
 const MiningPoolPage = () => {

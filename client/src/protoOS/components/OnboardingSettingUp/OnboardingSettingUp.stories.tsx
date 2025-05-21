@@ -1,8 +1,8 @@
 import { useCallback, useMemo } from "react";
 import { action } from "@storybook/addon-actions";
 
-import { statuses } from "./constants";
-import OnboardingSettingUp from "./OnboardingSettingUp";
+import OnboardingSettingUp from "@/shared/components/OnboardingSettingUp/OnboardingSettingUp";
+import { statuses } from "@/shared/constants/statuses";
 
 interface OnboardingSettingUpProps {
   poolStatus: keyof typeof statuses;

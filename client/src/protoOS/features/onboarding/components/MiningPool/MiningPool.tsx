@@ -8,8 +8,6 @@ import MiningPools, {
 } from "@/protoOS/components/MiningPools";
 import SettingUp from "@/protoOS/components/OnboardingSettingUp";
 import { useAccessToken } from "@/protoOS/features/auth/contexts/AuthContext";
-import { WarnBackupPoolDialog } from "@/protoOS/features/onboarding/components/WarnBackupPoolDialog";
-import { WarnDefaultPoolCallout } from "@/protoOS/features/onboarding/components/WarnDefaultPoolCallout";
 import { Alert } from "@/shared/assets/icons";
 import AnimatedDotsBackground from "@/shared/components/Animation";
 import Button from "@/shared/components/Button";
@@ -17,6 +15,8 @@ import {
   DismissibleCalloutWrapper,
   intents,
 } from "@/shared/components/Callout";
+import { WarnBackupPoolDialog } from "@/shared/components/MiningPools/WarnBackupPoolDialog";
+import { WarnDefaultPoolCallout } from "@/shared/components/MiningPools/WarnDefaultPoolCallout";
 import { OnboardingLayout } from "@/shared/components/Setup";
 
 const MiningPoolPage = () => {
