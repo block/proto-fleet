@@ -154,6 +154,9 @@ type Device struct {
 	CreatedAt        sql.NullTime
 	UpdatedAt        sql.NullTime
 	DeletedAt        sql.NullTime
+	Model            sql.NullString
+	Manufacturer     sql.NullString
+	OrgID            int64
 }
 
 type DeviceIpAssignment struct {

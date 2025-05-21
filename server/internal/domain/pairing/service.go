@@ -1,10 +1,12 @@
 package pairing
 
 import (
+	"connectrpc.com/authn"
 	"context"
 	"database/sql"
 	"encoding/binary"
 	"fmt"
+	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/minerclient"
 	"log/slog"
 	"net"
@@ -310,6 +312,9 @@ func (s *Service) getDevicePairingInformation(ctx context.Context, ipAddress str
 		Port:         port,
 		MacAddress:   pairingInfo.Msg.Mac,
 		SerialNumber: pairingInfo.Msg.CbSn,
+		// TODO(DASH-331) Fetch model and manufacturer from miner
+		Model:        "Proto Rig",
+		Manufacturer: "Block, Inc",
 		DiscoveredAt: time.Now().Unix(),
 	}, nil
 }
@@ -331,12 +336,19 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, device *pb.Device
 }
 
 func (s *Service) saveDevice(ctx context.Context, device *pb.Device) error {
+	claims, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
+	if !ok {
+		return fmt.Errorf("invalid token")
+	}
 	return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
 		// Upsert device
 		result, err := q.UpsertDevice(ctx, sqlc.UpsertDeviceParams{
+			OrgID:            claims.OrgID,
 			DeviceIdentifier: uuid.NewString(),
 			MacAddress:       device.MacAddress,
 			SerialNumber:     sql.NullString{String: device.SerialNumber, Valid: len(device.SerialNumber) > 0},
+			Model:            sql.NullString{String: device.Model, Valid: len(device.Model) > 0},
+			Manufacturer:     sql.NullString{String: device.Manufacturer, Valid: len(device.Manufacturer) > 0},
 			IsActive:         sql.NullBool{Bool: true, Valid: true},
 		})
 		if err != nil {
@@ -349,7 +361,7 @@ func (s *Service) saveDevice(ctx context.Context, device *pb.Device) error {
 			return fmt.Errorf("failed to upsert device: %w", err)
 		}
 
-		dbDevice, err := q.GetDeviceByID(ctx, deviceID)
+		dbDevice, err := q.GetDeviceByID(ctx, sqlc.GetDeviceByIDParams{ID: deviceID, OrgID: claims.OrgID})
 		if err != nil {
 			return fmt.Errorf("failed to fetch device: id=%d %w", deviceID, err)
 		}
@@ -379,10 +391,17 @@ func (s *Service) saveDevice(ctx context.Context, device *pb.Device) error {
 }
 
 func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairResponse, error) {
+	claims, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
+	if !ok {
+		return nil, fmt.Errorf("invalid token")
+	}
 	err := db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
 		// Create pairing records for each device
 		for _, dID := range r.DeviceIdentifiers {
-			device, err := q.GetDeviceByDeviceIdentifier(ctx, dID)
+			device, err := q.GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
+				DeviceIdentifier: dID,
+				OrgID:            claims.OrgID,
+			})
 			if err != nil {
 				return fmt.Errorf("failed get device device_identifier=%s: %w", dID, err)
 			}

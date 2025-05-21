@@ -80,7 +80,7 @@ func start(config *Config) error {
 	minerClient := minerclient.NewService()
 	authSvc := authDomain.NewService(conn, tokenSvc)
 	pairingSvc := pairingDomain.NewService(conn, minerClient, config.Pairing)
-	fleetMgmtSvc := fleetmanagementDomain.NewService(conn)
+	fleetMgmtSvc := fleetmanagementDomain.NewService(conn, fleetmanagementDomain.NewMockTelemetryCollector())
 	commandSvc := commandDomain.NewService(conn, minerClient)
 	onboardingSvc := onboardingDomain.NewService(conn)
 

@@ -33,15 +33,21 @@ func (q *Queries) DeactivateOldIPAssignments(ctx context.Context, arg Deactivate
 }
 
 const getDeviceByDeviceIdentifier = `-- name: GetDeviceByDeviceIdentifier :one
-SELECT id, device_identifier, mac_address, serial_number, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at
+SELECT id, device_identifier, mac_address, serial_number, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, model, manufacturer, org_id
 FROM device
 WHERE device_identifier = ?
+  AND org_id = ?
   AND deleted_at IS NULL
     LIMIT 1
 `
 
-func (q *Queries) GetDeviceByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (Device, error) {
-	row := q.queryRow(ctx, q.getDeviceByDeviceIdentifierStmt, getDeviceByDeviceIdentifier, deviceIdentifier)
+type GetDeviceByDeviceIdentifierParams struct {
+	DeviceIdentifier string
+	OrgID            int64
+}
+
+func (q *Queries) GetDeviceByDeviceIdentifier(ctx context.Context, arg GetDeviceByDeviceIdentifierParams) (Device, error) {
+	row := q.queryRow(ctx, q.getDeviceByDeviceIdentifierStmt, getDeviceByDeviceIdentifier, arg.DeviceIdentifier, arg.OrgID)
 	var i Device
 	err := row.Scan(
 		&i.ID,
@@ -54,20 +60,29 @@ func (q *Queries) GetDeviceByDeviceIdentifier(ctx context.Context, deviceIdentif
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Model,
+		&i.Manufacturer,
+		&i.OrgID,
 	)
 	return i, err
 }
 
 const getDeviceByID = `-- name: GetDeviceByID :one
-SELECT id, device_identifier, mac_address, serial_number, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at
+SELECT id, device_identifier, mac_address, serial_number, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, model, manufacturer, org_id
 FROM device
 WHERE id = ?
-AND deleted_at IS NULL
+  AND org_id = ?
+  AND deleted_at IS NULL
 LIMIT 1
 `
 
-func (q *Queries) GetDeviceByID(ctx context.Context, id int64) (Device, error) {
-	row := q.queryRow(ctx, q.getDeviceByIDStmt, getDeviceByID, id)
+type GetDeviceByIDParams struct {
+	ID    int64
+	OrgID int64
+}
+
+func (q *Queries) GetDeviceByID(ctx context.Context, arg GetDeviceByIDParams) (Device, error) {
+	row := q.queryRow(ctx, q.getDeviceByIDStmt, getDeviceByID, arg.ID, arg.OrgID)
 	var i Device
 	err := row.Scan(
 		&i.ID,
@@ -80,6 +95,9 @@ func (q *Queries) GetDeviceByID(ctx context.Context, id int64) (Device, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Model,
+		&i.Manufacturer,
+		&i.OrgID,
 	)
 	return i, err
 }
@@ -88,42 +106,54 @@ const getDeviceByIdentifier = `-- name: GetDeviceByIdentifier :one
 SELECT id, device_identifier
 FROM device
 WHERE device_identifier = ?
+    AND org_id = ?
 LIMIT 1
 `
+
+type GetDeviceByIdentifierParams struct {
+	DeviceIdentifier string
+	OrgID            int64
+}
 
 type GetDeviceByIdentifierRow struct {
 	ID               int64
 	DeviceIdentifier string
 }
 
-func (q *Queries) GetDeviceByIdentifier(ctx context.Context, deviceIdentifier string) (GetDeviceByIdentifierRow, error) {
-	row := q.queryRow(ctx, q.getDeviceByIdentifierStmt, getDeviceByIdentifier, deviceIdentifier)
+func (q *Queries) GetDeviceByIdentifier(ctx context.Context, arg GetDeviceByIdentifierParams) (GetDeviceByIdentifierRow, error) {
+	row := q.queryRow(ctx, q.getDeviceByIdentifierStmt, getDeviceByIdentifier, arg.DeviceIdentifier, arg.OrgID)
 	var i GetDeviceByIdentifierRow
 	err := row.Scan(&i.ID, &i.DeviceIdentifier)
 	return i, err
 }
 
 const getMinerApiNetworkInfoByDeviceID = `-- name: GetMinerApiNetworkInfoByDeviceID :one
-SELECT 
+SELECT
     dia.ip_address,
     dia.port
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 JOIN device_ip_assignment dia ON d.id = dia.device_id
 WHERE d.device_identifier = ?
+    AND d.org_id = ?
     AND d.deleted_at IS NULL
     AND dp.pairing_status = 'PAIRED'
     AND dia.is_current = TRUE
 LIMIT 1
 `
 
+type GetMinerApiNetworkInfoByDeviceIDParams struct {
+	DeviceIdentifier string
+	OrgID            int64
+}
+
 type GetMinerApiNetworkInfoByDeviceIDRow struct {
 	IpAddress string
 	Port      string
 }
 
-func (q *Queries) GetMinerApiNetworkInfoByDeviceID(ctx context.Context, deviceIdentifier string) (GetMinerApiNetworkInfoByDeviceIDRow, error) {
-	row := q.queryRow(ctx, q.getMinerApiNetworkInfoByDeviceIDStmt, getMinerApiNetworkInfoByDeviceID, deviceIdentifier)
+func (q *Queries) GetMinerApiNetworkInfoByDeviceID(ctx context.Context, arg GetMinerApiNetworkInfoByDeviceIDParams) (GetMinerApiNetworkInfoByDeviceIDRow, error) {
+	row := q.queryRow(ctx, q.getMinerApiNetworkInfoByDeviceIDStmt, getMinerApiNetworkInfoByDeviceID, arg.DeviceIdentifier, arg.OrgID)
 	var i GetMinerApiNetworkInfoByDeviceIDRow
 	err := row.Scan(&i.IpAddress, &i.Port)
 	return i, err
@@ -149,11 +179,14 @@ SELECT
     d.device_identifier,
     d.mac_address,
     d.serial_number,
+    d.model,
+    d.manufacturer,
     dp.id as cursor_id,
     d.id as device_id
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 WHERE dp.pairing_status = 'PAIRED'
+    AND d.org_id = ?
     AND d.deleted_at IS NULL
     AND (
         -- If cursor provided, filter by it, otherwise return all
@@ -166,6 +199,7 @@ LIMIT ?
 `
 
 type ListPairedDevicesParams struct {
+	OrgID          int64
 	CursorID       sql.NullInt64
 	DeviceCursorID sql.NullInt64
 	Limit          int32
@@ -175,12 +209,15 @@ type ListPairedDevicesRow struct {
 	DeviceIdentifier string
 	MacAddress       string
 	SerialNumber     sql.NullString
+	Model            sql.NullString
+	Manufacturer     sql.NullString
 	CursorID         int64
 	DeviceID         int64
 }
 
 func (q *Queries) ListPairedDevices(ctx context.Context, arg ListPairedDevicesParams) ([]ListPairedDevicesRow, error) {
 	rows, err := q.query(ctx, q.listPairedDevicesStmt, listPairedDevices,
+		arg.OrgID,
 		arg.CursorID,
 		arg.CursorID,
 		arg.CursorID,
@@ -198,6 +235,8 @@ func (q *Queries) ListPairedDevices(ctx context.Context, arg ListPairedDevicesPa
 			&i.DeviceIdentifier,
 			&i.MacAddress,
 			&i.SerialNumber,
+			&i.Model,
+			&i.Manufacturer,
 			&i.CursorID,
 			&i.DeviceID,
 		); err != nil {
@@ -214,13 +253,102 @@ func (q *Queries) ListPairedDevices(ctx context.Context, arg ListPairedDevicesPa
 	return items, nil
 }
 
+const listPairedMinersWithStatus = `-- name: ListPairedMinersWithStatus :many
+SELECT
+    d.device_identifier,
+    d.mac_address,
+    d.serial_number,
+    d.model,
+    d.manufacturer,
+    ds.status as device_status,
+    ds.status_timestamp,
+    ds.status_details,
+    dia.ip_address,
+    dia.port
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN device_status ds ON d.id = ds.device_id
+LEFT JOIN device_ip_assignment dia ON d.id = dia.device_id
+WHERE dp.pairing_status = 'PAIRED'
+    AND d.deleted_at IS NULL
+    AND d.org_id = ?
+    AND (? = '' OR d.device_identifier > ?)
+ORDER BY d.device_identifier
+LIMIT ?
+`
+
+type ListPairedMinersWithStatusParams struct {
+	OrgID            int64
+	Column2          interface{}
+	DeviceIdentifier string
+	Limit            int32
+}
+
+type ListPairedMinersWithStatusRow struct {
+	DeviceIdentifier string
+	MacAddress       string
+	SerialNumber     sql.NullString
+	Model            sql.NullString
+	Manufacturer     sql.NullString
+	DeviceStatus     NullDeviceStatusStatus
+	StatusTimestamp  sql.NullTime
+	StatusDetails    sql.NullString
+	IpAddress        sql.NullString
+	Port             sql.NullString
+}
+
+func (q *Queries) ListPairedMinersWithStatus(ctx context.Context, arg ListPairedMinersWithStatusParams) ([]ListPairedMinersWithStatusRow, error) {
+	rows, err := q.query(ctx, q.listPairedMinersWithStatusStmt, listPairedMinersWithStatus,
+		arg.OrgID,
+		arg.Column2,
+		arg.DeviceIdentifier,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPairedMinersWithStatusRow
+	for rows.Next() {
+		var i ListPairedMinersWithStatusRow
+		if err := rows.Scan(
+			&i.DeviceIdentifier,
+			&i.MacAddress,
+			&i.SerialNumber,
+			&i.Model,
+			&i.Manufacturer,
+			&i.DeviceStatus,
+			&i.StatusTimestamp,
+			&i.StatusDetails,
+			&i.IpAddress,
+			&i.Port,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertDevice = `-- name: UpsertDevice :execresult
 INSERT INTO device (
+    org_id,
     device_identifier,
     mac_address,
     serial_number,
+    model,
+    manufacturer,
     is_active
 ) VALUES (
+    ?,
+    ?,
+    ?,
     ?,
     ?,
     ?,
@@ -231,21 +359,30 @@ ON DUPLICATE KEY UPDATE
     is_active = VALUES(is_active),
     last_seen = CURRENT_TIMESTAMP(6),
     deleted_at = NULL,
+    model = VALUES(model),
+    manufacturer = VALUES(manufacturer),
+    org_id = VALUES(org_id),
     id = LAST_INSERT_ID(id)
 `
 
 type UpsertDeviceParams struct {
+	OrgID            int64
 	DeviceIdentifier string
 	MacAddress       string
 	SerialNumber     sql.NullString
+	Model            sql.NullString
+	Manufacturer     sql.NullString
 	IsActive         sql.NullBool
 }
 
 func (q *Queries) UpsertDevice(ctx context.Context, arg UpsertDeviceParams) (sql.Result, error) {
 	return q.exec(ctx, q.upsertDeviceStmt, upsertDevice,
+		arg.OrgID,
 		arg.DeviceIdentifier,
 		arg.MacAddress,
 		arg.SerialNumber,
+		arg.Model,
+		arg.Manufacturer,
 		arg.IsActive,
 	)
 }

@@ -2,7 +2,8 @@
 GET {{host}}/health
 
 ### Onboarding: Create Admin User
-GRPC {{host}}/onboarding.v1.OnboardingService/CreateAdminLogin
+POST {{host}}/onboarding.v1.OnboardingService/CreateAdminLogin
+Content-Type: application/json
 
 {
   "username": "mcharles@block.xyz",
@@ -10,7 +11,8 @@ GRPC {{host}}/onboarding.v1.OnboardingService/CreateAdminLogin
 }
 
 ### Authenticate
-GRPC {{host}}/auth.v1.AuthService/Authenticate
+POST {{host}}/auth.v1.AuthService/Authenticate
+Content-Type: application/json
 
 {
   "username": "mcharles@block.xyz",
@@ -18,8 +20,9 @@ GRPC {{host}}/auth.v1.AuthService/Authenticate
 }
 
 ### Run mdns discovery
-GRPC {{host}}/pairing.v1.PairingService/Discover
+POST {{host}}/pairing.v1.PairingService/Discover
 Authorization: Bearer {{auth_token}}
+Content-Type: application/json
 
 {
   "mdns": {
@@ -30,8 +33,10 @@ Authorization: Bearer {{auth_token}}
 }
 
 ### Run nmap discovery
-GRPC {{host}}/pairing.v1.PairingService/Discover
+
+POST {{host}}/pairing.v1.PairingService/Discover
 Authorization: Bearer {{auth_token}}
+Content-Type: application/json
 
 {
   "nmap": {
@@ -45,8 +50,9 @@ Authorization: Bearer {{auth_token}}
 
 ### Run ip range discovery
 
-GRPC {{host}}/pairing.v1.PairingService/Discover
+POST {{host}}/pairing.v1.PairingService/Discover
 Authorization: Bearer {{auth_token}}
+Content-Type: application/json
 
 {
   "ip_range": {
@@ -60,8 +66,9 @@ Authorization: Bearer {{auth_token}}
 
 ### Run ip list discovery
 
-GRPC {{host}}/pairing.v1.PairingService/Discover
+POST {{host}}/pairing.v1.PairingService/Discover
 Authorization: Bearer {{auth_token}}
+Content-Type: application/json
 
 {
   "ip_list": {
@@ -73,25 +80,54 @@ Authorization: Bearer {{auth_token}}
 }
 
 ### run pairing query
-GRPC {{host}}/pairing.v1.PairingService/Pair
+
+POST {{host}}/pairing.v1.PairingService/Pair
 Authorization: Bearer {{auth_token}}
+Content-Type: application/json
 
 {
-  "device_identifier": ["43f9baf4-65e7-4611-a363-2de4d2294cc0", "83037515-ae70-4519-b527-de79f31001b0" ]
+  "device_identifiers": ["c9ea3eea-60b6-414f-9207-88bf3a1154d2", "eb6993d9-85c4-4ed9-865b-7833aac82af4" ]
 }
 
-### list paired devices
-GRPC {{host}}/fleetmanagement.v1.FleetManagementService/ListPairedMiners
+### list paired miners
+
+POST {{host}}/fleetmanagement.v1.FleetManagementService/ListPairedMiners
 Authorization: Bearer {{auth_token}}
+Content-Type: application/json
 
 {
   "page_size": 10
 }
 
+### list paired miner state snapshots
+
+POST {{host}}/fleetmanagement.v1.FleetManagementService/ListMinerStateSnapshots
+Authorization: Bearer {{auth_token}}
+Content-Type: application/json
+
+{
+  "page_size": 10
+}
+
+### stream miner updates
+
+POST {{host}}/fleetmanagement.v1.FleetManagementService/StreamMinerUpdates HTTP/2
+Authorization: Bearer {{auth_token}}
+Content-Type: application/grpc+json; charset=utf-8
+Accept: application/grpc+json
+
+{
+  "device_identifiers": ["eb6993d9-85c4-4ed9-865b-7833aac82af4", "c9ea3eea-60b6-414f-9207-88bf3a1154d2"],
+  "measurement_types": [1, 2, 3, 4],
+  "include_status_updates": true,
+  "heartbeat_interval_seconds": 5
+}
+
 ### Run network info
 
-GRPC {{host}}/networkinfo.v1.NetworkInfoService/GetNetworkInfo
+POST {{host}}/networkinfo.v1.NetworkInfoService/GetNetworkInfo
 Authorization: Bearer {{auth_token}}
+Content-Type: application/json
 
 {
 
@@ -99,8 +135,9 @@ Authorization: Bearer {{auth_token}}
 
 ### Run Create Pool
 
-GRPC {{host}}/fleetmanagement.v1.FleetManagementService/CreatePool
+POST {{host}}/fleetmanagement.v1.FleetManagementService/CreatePool
 Authorization: Bearer {{auth_token}}
+Content-Type: application/json
 
 {
   "pool_config": {
@@ -113,8 +150,9 @@ Authorization: Bearer {{auth_token}}
 
 ### Run Set Default Pool
 
-GRPC {{host}}/fleetmanagement.v1.FleetManagementService/SetDefaultPool
+POST {{host}}/fleetmanagement.v1.FleetManagementService/SetDefaultPool
 Authorization: Bearer {{auth_token}}
+Content-Type: application/json
 
 {
   "pool_id": "10"
@@ -122,16 +160,18 @@ Authorization: Bearer {{auth_token}}
 
 ### Run List Pool
 
-GRPC {{host}}/fleetmanagement.v1.FleetManagementService/ListPools
+POST {{host}}/fleetmanagement.v1.FleetManagementService/ListPools
 Authorization: Bearer {{auth_token}}
+Content-Type: application/json
 
 {
 }
 
 ### Run Update Pool Priority
 
-GRPC {{host}}/fleetmanagement.v1.FleetManagementService/UpdatePoolPriority
+POST {{host}}/fleetmanagement.v1.FleetManagementService/UpdatePoolPriority
 Authorization: Bearer {{auth_token}}
+Content-Type: application/json
 
 {
   "pool_priorities": [
@@ -142,8 +182,9 @@ Authorization: Bearer {{auth_token}}
 
 ### Run Update Pool
 
-GRPC {{host}}/fleetmanagement.v1.FleetManagementService/UpdatePool
+POST {{host}}/fleetmanagement.v1.FleetManagementService/UpdatePool
 Authorization: Bearer {{auth_token}}
+Content-Type: application/json
 
 {
   "id": "9",
@@ -152,8 +193,9 @@ Authorization: Bearer {{auth_token}}
 
 ### Stop mining
 
-GRPC {{host}}/minercommand.v1.MinerCommandService/StopMining
+POST {{host}}/minercommand.v1.MinerCommandService/StopMining
 Authorization: Bearer {{auth_token}}
+Content-Type: application/json
 
 {
   "device_identifiers": [
@@ -165,8 +207,9 @@ Authorization: Bearer {{auth_token}}
 
 ### Start mining
 
-GRPC {{host}}/minercommand.v1.MinerCommandService/StartMining
+POST {{host}}/minercommand.v1.MinerCommandService/StartMining
 Authorization: Bearer {{auth_token}}
+Content-Type: application/json
 
 {
   "device_identifiers": [
@@ -178,28 +221,35 @@ Authorization: Bearer {{auth_token}}
 
 ###
 
-GRPC grpcs://miner-1.miner.fleetdev.proto.xyz:2121/miner_command_api.MinerCommandApi/StopMining
+POST https://miner-1.miner.fleetdev.proto.xyz:2121/miner_command_api.MinerCommandApi/StopMining
+Authorization: Bearer {{auth_token}}
+Content-Type: application/json
 
 {
 }
 
 ###
 
-GRPC grpcs://miner-1.miner.fleetdev.proto.xyz:2121/miner_command_api.MinerCommandApi/StartMining
+POST https://miner-1.miner.fleetdev.proto.xyz:2121/miner_command_api.MinerCommandApi/StartMining
+Authorization: Bearer {{auth_token}}
+Content-Type: application/json
 
 {
 }
 
 ###
 
-GRPC localhost:2121/miner_command_api.MinerCommandApi/StartMining
+POST localhost:2121/miner_command_api.MinerCommandApi/StartMining
+Authorization: Bearer {{auth_token}}
+Content-Type: application/json
 
 {
 }
 
 ### Onboarding: Create Admin User
-GRPC {{host}}/onboarding.v1.OnboardingService/GetFleetOnboardingStatus
+POST {{host}}/onboarding.v1.OnboardingService/GetFleetOnboardingStatus
 Authorization: Bearer {{auth_token}}
+Content-Type: application/json
 
 {
 

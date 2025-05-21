@@ -1,6 +1,7 @@
 package command
 
 import (
+	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"context"
 	"database/sql"
@@ -8,6 +9,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api"
 	minerPbCommon "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
+	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"net"
 	"strings"
@@ -108,8 +110,12 @@ func (s *Service) executeMinerCommand(ctx context.Context, deviceIDs []string, c
 
 // getMinerURL retrieves connection details for a single miner
 func (s *Service) getMinerURL(ctx context.Context, deviceID string) (string, error) {
+	claims, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
+	if !ok {
+		return "", fmt.Errorf("invalid token")
+	}
 	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (string, error) {
-		minerInfo, err := q.GetMinerApiNetworkInfoByDeviceID(ctx, deviceID)
+		minerInfo, err := q.GetMinerApiNetworkInfoByDeviceID(ctx, sqlc.GetMinerApiNetworkInfoByDeviceIDParams{OrgID: claims.OrgID, DeviceIdentifier: deviceID})
 		if err != nil {
 			return "", fmt.Errorf("failed to get miner info for miner %s: %w", deviceID, err)
 		}

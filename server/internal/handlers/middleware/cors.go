@@ -3,7 +3,6 @@ package middleware
 import (
 	"net/http"
 
-	connectcors "connectrpc.com/cors"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/server"
 	"github.com/rs/cors"
 )
@@ -23,10 +22,10 @@ func NewCORSMiddleware(suppressCors bool) *CORSMiddleware {
 
 	if suppressCors {
 		middleware = cors.New(cors.Options{
-			AllowedOrigins: []string{"*"},
-			AllowedMethods: connectcors.AllowedMethods(),
-			AllowedHeaders: connectcors.AllowedHeaders(),
-			ExposedHeaders: connectcors.ExposedHeaders(),
+			AllowedOrigins:   []string{"*"},
+			AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
+			AllowedHeaders:   []string{"Authorization", "Content-Type", "Accept", "Connect-Protocol-Version"},
+			AllowCredentials: true,
 		})
 	} else {
 		middleware = cors.New(cors.Options{})

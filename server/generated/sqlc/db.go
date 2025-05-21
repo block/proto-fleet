@@ -96,6 +96,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listPairedDevicesStmt, err = db.PrepareContext(ctx, listPairedDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ListPairedDevices: %w", err)
 	}
+	if q.listPairedMinersWithStatusStmt, err = db.PrepareContext(ctx, listPairedMinersWithStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query ListPairedMinersWithStatus: %w", err)
+	}
 	if q.listPoolsStmt, err = db.PrepareContext(ctx, listPools); err != nil {
 		return nil, fmt.Errorf("error preparing query ListPools: %w", err)
 	}
@@ -278,6 +281,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listPairedDevicesStmt: %w", cerr)
 		}
 	}
+	if q.listPairedMinersWithStatusStmt != nil {
+		if cerr := q.listPairedMinersWithStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listPairedMinersWithStatusStmt: %w", cerr)
+		}
+	}
 	if q.listPoolsStmt != nil {
 		if cerr := q.listPoolsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listPoolsStmt: %w", cerr)
@@ -436,6 +444,7 @@ type Queries struct {
 	getUsersForOrganizationStmt          *sql.Stmt
 	listOrganizationsStmt                *sql.Stmt
 	listPairedDevicesStmt                *sql.Stmt
+	listPairedMinersWithStatusStmt       *sql.Stmt
 	listPoolsStmt                        *sql.Stmt
 	listRolesStmt                        *sql.Stmt
 	softDeleteOrganizationStmt           *sql.Stmt
@@ -485,6 +494,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getUsersForOrganizationStmt:          q.getUsersForOrganizationStmt,
 		listOrganizationsStmt:                q.listOrganizationsStmt,
 		listPairedDevicesStmt:                q.listPairedDevicesStmt,
+		listPairedMinersWithStatusStmt:       q.listPairedMinersWithStatusStmt,
 		listPoolsStmt:                        q.listPoolsStmt,
 		listRolesStmt:                        q.listRolesStmt,
 		softDeleteOrganizationStmt:           q.softDeleteOrganizationStmt,

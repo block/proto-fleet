@@ -4,7 +4,6 @@ package fleetmanagement.v1;
 
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
-import "google/type/interval.proto";
 import "google/protobuf/wrappers.proto";
 
 // Service for managing fleet-wide settings and configurations
@@ -41,7 +40,7 @@ service FleetManagementService {
 
   // List all miners in the fleet optionally with their telemetry data
   // Returns a paginated list of miners with their operational status and metrics
-  rpc ListMiners(ListMinersRequest) returns (ListMinersResponse);
+  rpc ListMinerStateSnapshots(ListMinerStateSnapshotsRequest) returns (ListMinerStateSnapshotsResponse);
 
   // Stream real-time measurement updates for miners
   rpc StreamMinerUpdates(StreamMinerUpdatesRequest) returns (stream StreamMinerUpdatesResponse);
@@ -288,6 +287,9 @@ message MinerStateSnapshot {
   // Timestamp when this snapshot was captured
   // For time series data, this represents when the most recent data was collected
   google.protobuf.Timestamp  timestamp = 10;
+
+  string ip_address = 11;
+
 }
 
 // Status information for all major components in a miner
@@ -332,7 +334,7 @@ message Measurement {
   google.protobuf.Timestamp timestamp = 1;
 
   // Numeric value of the measurement
-  float value = 2;
+  double value = 2;
 
   // Unit of measurement
   MeasurementUnit unit = 3;
@@ -391,7 +393,7 @@ message MeasurementConfig {
 }
 
 // Request to list miners with their telemetry data
-message ListMinersRequest {
+message ListMinerStateSnapshotsRequest {
   // Maximum number of miners to return in a single response
   // Server may return fewer miners than specified
   // If not specified, a server-defined default will be used
@@ -422,7 +424,7 @@ message ListMinersRequest {
 message TimeSeriesConfig {
   oneof time_selection {
     google.protobuf.Duration lookback_period = 1;
-    google.type.Interval interval = 2;
+    TimeInterval interval = 2;
   }
 
   // Time resolution for time series data in seconds
@@ -430,6 +432,18 @@ message TimeSeriesConfig {
   // If not specified when data_mode is TIME_SERIES, defaults to a server determined value
   // Server may adjust this to a supported value
   int32 resolution = 3;
+}
+
+// Represents a time interval with start and end timestamps
+// Similar to google.type.Interval but defined within the project
+message TimeInterval {
+  // Optional. Inclusive start of the interval.
+  // If specified, only data at or after this timestamp will be included
+  google.protobuf.Timestamp start_time = 1;
+
+  // Optional. Exclusive end of the interval.
+  // If specified, only data before this timestamp will be included
+  google.protobuf.Timestamp end_time = 2;
 }
 
 // Determines whether to return current snapshot or historical time series data
@@ -454,7 +468,7 @@ message MinerFilter {
 }
 
 // Response containing a list of miners with their telemetry
-message ListMinersResponse {
+message ListMinerStateSnapshotsResponse {
   // List of miners with their telemetry data
   // Contains either snapshot or time series data based on the request
   repeated MinerStateSnapshot miners = 1;

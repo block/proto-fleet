@@ -21,6 +21,12 @@ message Device {
 
   // Unix timestamp when the device was discovered
   int64 discovered_at = 6;
+
+  // Model name/number of the device
+  string model = 7;
+
+  // Name of the device manufacturer
+  string manufacturer = 8;
 }
 
 // Configuration for mDNS-based device discovery

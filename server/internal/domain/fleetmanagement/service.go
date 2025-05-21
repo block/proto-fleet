@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 
@@ -30,12 +32,14 @@ const (
 )
 
 type Service struct {
-	conn *sql.DB
+	conn      *sql.DB
+	telemetry TelemetryCollector
 }
 
-func NewService(conn *sql.DB) *Service {
+func NewService(conn *sql.DB, t TelemetryCollector) *Service {
 	return &Service{
-		conn: conn,
+		conn:      conn,
+		telemetry: t,
 	}
 }
 
@@ -366,4 +370,151 @@ func decodeCursor(encoded string) (Cursor, error) {
 	}
 
 	return cursor, nil
+}
+
+// ListMinerStateSnapshots returns a paginated list of miners with their operational status and metrics
+func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMinerStateSnapshotsRequest) (*pb.ListMinerStateSnapshotsResponse, error) {
+	claims, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
+	if !ok {
+		return nil, ErrForbidden
+	}
+
+	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (*pb.ListMinerStateSnapshotsResponse, error) {
+		// Get paired miners with their basic info
+		miners, err := q.ListPairedMinersWithStatus(ctx, sqlc.ListPairedMinersWithStatusParams{
+			OrgID: claims.OrgID,
+			Limit: req.PageSize,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list miners: %v", err)
+		}
+
+		// Convert to state snapshots
+		var snapshots []*pb.MinerStateSnapshot
+		for _, miner := range miners {
+			// Get latest telemetry data for the miner
+			telemetry, err := s.telemetry.GetMinerTelemetry(ctx, miner.DeviceIdentifier, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
+			if err != nil {
+				slog.Error("failed to get telemetry for miner", "device_id", miner.DeviceIdentifier, "error", err)
+				continue
+			}
+
+			// Get component status
+			status, err := s.telemetry.GetMinerComponentStatus(ctx, miner.DeviceIdentifier)
+			if err != nil {
+				slog.Error("failed to get component status for miner", "device_id", miner.DeviceIdentifier, "error", err)
+				continue
+			}
+
+			snapshot := &pb.MinerStateSnapshot{
+				DeviceIdentifier: miner.DeviceIdentifier,
+				Name:             miner.Model.String,
+				MacAddress:       miner.MacAddress,
+				SerialNumber:     miner.SerialNumber.String,
+				IpAddress:        miner.IpAddress.String,
+				PowerUsage:       telemetry.PowerUsage,
+				Temperature:      telemetry.Temperature,
+				Hashrate:         telemetry.Hashrate,
+				Efficiency:       telemetry.Efficiency,
+				Status:           status,
+				Timestamp:        telemetry.Timestamp,
+			}
+			snapshots = append(snapshots, snapshot)
+		}
+
+		// Get total count
+		total, err := q.GetTotalPairedDevices(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get total count: %v", err)
+		}
+
+		// Handle case where no miners are returned
+		var cursor string
+		if len(miners) > 0 {
+			cursor = miners[len(miners)-1].DeviceIdentifier // Use last device ID as cursor
+		} else {
+			cursor = "" // No miners, so cursor is empty
+		}
+		return &pb.ListMinerStateSnapshotsResponse{
+			Miners:      snapshots,
+			Cursor:      cursor,
+			TotalMiners: int32(total), //nolint:gosec
+		}, nil
+	})
+}
+
+// StreamMinerUpdates streams real-time measurement updates for miners
+func (s *Service) StreamMinerUpdates(ctx context.Context, req *pb.StreamMinerUpdatesRequest) (<-chan *pb.StreamMinerUpdatesResponse, error) {
+	_, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
+	if !ok {
+		return nil, ErrForbidden
+	}
+
+	responseChan := make(chan *pb.StreamMinerUpdatesResponse, 100)
+
+	// Start measurement stream
+	measurementChan, err := s.telemetry.StreamMeasurements(ctx, req.DeviceIdentifiers, req.MeasurementTypes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start measurement stream: %v", err)
+	}
+
+	// Start status stream if requested
+	var statusChan <-chan *pb.StreamMinerUpdatesResponse
+	if req.IncludeStatusUpdates {
+		statusChan, err = s.telemetry.StreamComponentStatus(ctx, req.DeviceIdentifiers)
+		if err != nil {
+			return nil, fmt.Errorf("failed to start status stream: %v", err)
+		}
+	}
+
+	// Start goroutine to handle all streams
+	go func() {
+		defer close(responseChan)
+
+		// Create a ticker for heartbeats if requested
+		var heartbeatTicker *time.Ticker
+		if req.HeartbeatIntervalSeconds > 0 {
+			heartbeatTicker = time.NewTicker(time.Duration(req.HeartbeatIntervalSeconds) * time.Second)
+			defer heartbeatTicker.Stop()
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case measurement := <-measurementChan:
+				select {
+				case <-ctx.Done():
+					return
+				case responseChan <- measurement:
+				}
+			case status := <-statusChan:
+				select {
+				case <-ctx.Done():
+					return
+				case responseChan <- status:
+				}
+			}
+			// Include heartbeatTicker case only if it is initialized
+			if heartbeatTicker != nil {
+				select {
+				case <-heartbeatTicker.C:
+					resp := &pb.StreamMinerUpdatesResponse{
+						Timestamp: timestamppb.Now(),
+						Update: &pb.StreamMinerUpdatesResponse_Heartbeat{
+							Heartbeat: &pb.Heartbeat{},
+						},
+					}
+					select {
+					case <-ctx.Done():
+						return
+					case responseChan <- resp:
+					}
+				default:
+				}
+			}
+		}
+	}()
+
+	return responseChan, nil
 }
