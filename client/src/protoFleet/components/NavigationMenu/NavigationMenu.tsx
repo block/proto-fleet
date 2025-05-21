@@ -2,8 +2,10 @@ import { createElement, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import clsx from "clsx";
 
+import { useAuthContext } from "@/protoFleet/features/auth/contexts/AuthContext";
 import { NavRoute } from "@/protoFleet/routes";
 import { LogoAlt } from "@/shared/assets/icons";
+import { ArrowLeftCompact } from "@/shared/assets/icons";
 import { pick } from "@/shared/utils/object";
 import { stripLeadingSlash } from "@/shared/utils/stringUtils";
 
@@ -13,6 +15,7 @@ type NavigationMenuProps = {
 
 const NavigationMenu = ({ routes }: NavigationMenuProps) => {
   const { pathname } = useLocation();
+  const { setAuthTokens } = useAuthContext();
 
   const navigationItems = useMemo(
     () =>
@@ -36,7 +39,7 @@ const NavigationMenu = ({ routes }: NavigationMenuProps) => {
   return (
     <div
       className={clsx(
-        "flex min-h-screen w-[64px] flex-col border-r border-border-5 bg-grayscale-gray-5 text-text-primary-70",
+        "flex min-h-screen w-[64px] flex-col items-center justify-between border-r border-border-5 bg-grayscale-gray-5 text-text-primary-70",
         // "tablet:absolute tablet:z-30 tablet:min-h-[calc(100vh-16px)]",
         // "phone:absolute phone:z-30 phone:min-h-[calc(100vh-16px)]",
       )}
@@ -78,6 +81,18 @@ const NavigationMenu = ({ routes }: NavigationMenuProps) => {
             ) : null;
           })}
         </ul>
+      </div>
+      <div className="pb-3">
+        <button
+          onClick={() => {
+            setAuthTokens({
+              accessToken: { value: "", expiry: new Date() },
+            });
+          }}
+          className="group flex h-[40px] w-[40px] items-center justify-center rounded-lg hover:cursor-pointer hover:bg-core-primary-10"
+        >
+          <ArrowLeftCompact className="text-text-primary-50 transition-transform duration-200 ease-gentle group-hover:scale-105" />
+        </button>
       </div>
     </div>
   );
