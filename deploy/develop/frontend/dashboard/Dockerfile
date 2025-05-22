@@ -20,29 +20,41 @@ COPY client ./
 
 RUN source bin/activate-hermit && npm run build:protoFleet
 
-FROM nginx:1.27.5-alpine
+FROM httpd:2.4-alpine
 
 WORKDIR /app
 
-# Install envsubst if not already present
-RUN apk add --no-cache bash gettext
+# Install additional packages
+RUN apk add --no-cache \
+    bash \
+    gettext \
+    openssl 
 
-# Remove default nginx configuration
-RUN rm /etc/nginx/conf.d/default.conf
+# Generate self-signed certificate for HTTP/2 (requires SSL)
+RUN mkdir -p /usr/local/apache2/ssl && \
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout /usr/local/apache2/ssl/server.key \
+    -out /usr/local/apache2/ssl/server.crt \
+    -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
+
+# Remove default httpd configuration
+RUN rm -f /usr/local/apache2/conf/httpd.conf
 
 # Create templates directory
-RUN mkdir -p /etc/nginx/templates/
+RUN mkdir -p /usr/local/apache2/conf/templates/
 
 # Copy the template file
-COPY deploy/develop/frontend/dashboard/nginx.conf.template /etc/nginx/templates/
+COPY deploy/develop/frontend/dashboard/httpd.conf.template /usr/local/apache2/conf/templates/
 
 # Copy startup script and explicitly set permissions
 COPY deploy/develop/frontend/dashboard/docker-entrypoint.sh /app/
 RUN chmod +x /app/docker-entrypoint.sh
 
-COPY --from=build /build/dist/protoFleet /usr/share/nginx/html
+# Copy website files to Apache's document root
+COPY --from=build /build/dist/protoFleet /usr/local/apache2/htdocs/
 
-EXPOSE 80
+# Expose both HTTP and HTTPS ports
+EXPOSE 80 443
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["httpd-foreground"]

@@ -7,6 +7,7 @@ services:
     restart: unless-stopped
     expose:
       - "80"
+      - "443"
     environment:
       BACKEND_ADDRESS: ${BACKEND_ADDRESS}
       API_PROXY_URL: ${BACKEND_ADDRESS}/

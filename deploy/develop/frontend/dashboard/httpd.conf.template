@@ -1,0 +1,155 @@
+ServerRoot "/usr/local/apache2"
+
+# Listen for both HTTP and HTTPS
+Listen 80
+Listen 443
+
+# Load necessary modules
+LoadModule mpm_event_module modules/mod_mpm_event.so
+LoadModule authn_file_module modules/mod_authn_file.so
+LoadModule authn_core_module modules/mod_authn_core.so
+LoadModule authz_host_module modules/mod_authz_host.so
+LoadModule authz_groupfile_module modules/mod_authz_groupfile.so
+LoadModule authz_user_module modules/mod_authz_user.so
+LoadModule authz_core_module modules/mod_authz_core.so
+LoadModule access_compat_module modules/mod_access_compat.so
+LoadModule auth_basic_module modules/mod_auth_basic.so
+LoadModule reqtimeout_module modules/mod_reqtimeout.so
+LoadModule filter_module modules/mod_filter.so
+LoadModule mime_module modules/mod_mime.so
+LoadModule log_config_module modules/mod_log_config.so
+LoadModule env_module modules/mod_env.so
+LoadModule headers_module modules/mod_headers.so
+LoadModule setenvif_module modules/mod_setenvif.so
+LoadModule version_module modules/mod_version.so
+LoadModule proxy_module modules/mod_proxy.so
+LoadModule proxy_http_module modules/mod_proxy_http.so
+LoadModule proxy_http2_module modules/mod_proxy_http2.so
+LoadModule proxy_wstunnel_module modules/mod_proxy_wstunnel.so
+LoadModule unixd_module modules/mod_unixd.so
+LoadModule status_module modules/mod_status.so
+LoadModule autoindex_module modules/mod_autoindex.so
+LoadModule dir_module modules/mod_dir.so
+LoadModule alias_module modules/mod_alias.so
+LoadModule rewrite_module modules/mod_rewrite.so
+LoadModule ssl_module modules/mod_ssl.so
+LoadModule http2_module modules/mod_http2.so
+
+<IfModule unixd_module>
+    User daemon
+    Group daemon
+</IfModule>
+
+ServerAdmin you@example.com
+ServerName localhost
+
+# Enable HTTP/2 protocol
+Protocols h2 h2c http/1.1
+
+<Directory />
+    AllowOverride none
+    Require all denied
+</Directory>
+
+DocumentRoot "/usr/local/apache2/htdocs"
+<Directory "/usr/local/apache2/htdocs">
+    Options Indexes FollowSymLinks
+    AllowOverride None
+    Require all granted
+
+    # Enable SPA routing - redirect all requests to index.html except for files that exist
+    RewriteEngine On
+    RewriteBase /
+    RewriteRule ^index\.html$ - [L]
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule . /index.html [L]
+</Directory>
+
+# Configure API proxy
+ProxyRequests Off
+ProxyPreserveHost On
+
+# Configure timeouts for long-lived connections (gRPC streaming)
+ProxyTimeout 3600
+Timeout 3600
+KeepAlive On
+KeepAliveTimeout 3600
+MaxKeepAliveRequests 10000
+
+# Proxy for API requests
+# Enable HTTP/2 for backend connections if supported
+SSLProxyEngine On
+SSLProxyCheckPeerName off
+SSLProxyCheckPeerExpire off
+
+# Use HTTP/2 for proxy if available (without the problematic directive)
+<Proxy ${API_PROXY_URL}>
+    # Set protocol preference for outgoing connections
+    SetEnv proxy-initial-not-pooled 1
+    SetEnv force-proxy-request-1.0 0
+    SetEnv proxy-nokeepalive 0
+</Proxy>
+
+ProxyPass /api/ ${API_PROXY_URL}
+ProxyPassReverse /api/ ${API_PROXY_URL}
+
+<IfModule dir_module>
+    DirectoryIndex index.html
+</IfModule>
+
+<FilesMatch "^\\.ht">
+    Require all denied
+</FilesMatch>
+
+# HTTP Server
+<VirtualHost *:80>
+    ServerName localhost
+    
+    # Optionally redirect all HTTP to HTTPS
+    # Uncomment the following lines if you want to force HTTPS
+    # RewriteEngine On
+    # RewriteRule ^(.*)$ https://%{HTTP_HOST}$1 [R=301,L]
+</VirtualHost>
+
+# HTTPS Server with HTTP/2
+<VirtualHost *:443>
+    ServerName localhost
+    
+    # Enable HTTP/2
+    Protocols h2 http/1.1
+    
+    # SSL Configuration
+    SSLEngine on
+    SSLCertificateFile "/usr/local/apache2/ssl/server.crt"
+    SSLCertificateKeyFile "/usr/local/apache2/ssl/server.key"
+    
+    # Modern SSL configuration
+    SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
+    SSLHonorCipherOrder on
+    SSLCompression off
+    SSLSessionTickets off
+</VirtualHost>
+
+ErrorLog /proc/self/fd/2
+LogLevel warn
+
+<IfModule log_config_module>
+    LogFormat "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-Agent}i\"" combined
+    LogFormat "%h %l %u %t \"%r\" %>s %b" common
+    CustomLog /proc/self/fd/1 combined
+</IfModule>
+
+<IfModule mime_module>
+    TypesConfig conf/mime.types
+    AddType application/x-compress .Z
+    AddType application/x-gzip .gz .tgz
+</IfModule>
+
+# Additional HTTP/2 settings
+<IfModule http2_module>
+    
+    # Window size
+    H2WindowSize 65535
+    
+</IfModule>
