@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/minerclient"
 	"log/slog"
 	"net/http"
 	"os"
+
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/minerclient"
 
 	"connectrpc.com/connect"
 	"connectrpc.com/grpcreflect"
@@ -93,6 +94,7 @@ func start(config *Config) error {
 	// init interceptors
 	li := connect.WithInterceptors(
 		interceptors.ErrorLoggingInterceptor(),
+		interceptors.RequestLoggingInterceptor(config.Log.Level == slog.LevelDebug),
 	)
 
 	// setup rpc handlers

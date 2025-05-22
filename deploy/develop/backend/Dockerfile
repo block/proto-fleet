@@ -16,6 +16,6 @@ WORKDIR /app
 
 COPY --from=build /build/fleetd ./fleetd
 
-EXPOSE 8080
+EXPOSE 80
 
 ENTRYPOINT ["./fleetd"]

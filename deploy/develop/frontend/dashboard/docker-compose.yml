@@ -10,7 +10,7 @@ services:
       - "443"
     environment:
       BACKEND_ADDRESS: ${BACKEND_ADDRESS}
-      API_PROXY_URL: ${BACKEND_ADDRESS}/
+      API_PROXY_URL: ${API_PROXY_URL}/
     labels:
       - "traefik.http.services.protofleet-develop-${LABEL}-frontend-dashboard.loadbalancer.server.port=80"
 

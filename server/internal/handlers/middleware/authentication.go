@@ -32,7 +32,6 @@ func NewAuthMiddleware(ts *token.Service, allowedProcedures []string) *AuthMiddl
 		procedure, _ := authn.InferProcedure(r.URL)
 		// Extract the bearer bearerToken from the Authorization header.
 		bearerToken, ok := authn.BearerToken(r)
-		slog.Debug("bearer token", slog.String("token", bearerToken))
 		if !ok {
 			// We'll allow unauthenticated access to the ping procedure.
 			if _, ok := allowList[procedure]; ok {

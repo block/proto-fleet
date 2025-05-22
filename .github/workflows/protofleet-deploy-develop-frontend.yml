@@ -23,7 +23,11 @@ jobs:
       docker-image-tag: "protofleet/frontend-dashboard-develop:main"
       source-build-directory: "deploy/develop/frontend/dashboard"
       target-directory: "docker/protofleet/develop/frontend/dashboard"
-      docker-compose-parameters: '{ "BACKEND_ADDRESS": "https://backend.main.develop.fleetdev.proto.xyz" }'
+      docker-compose-parameters: |
+        { 
+          "BACKEND_ADDRESS": "https://backend.main.develop.fleetdev.proto.xyz",
+          "API_PROXY_URL": "http://protofleet-develop-main-backend"
+        }
 
   deploy-storybook:
     uses: "./.github/workflows/protofleet-deploy-docker-to-develop-vm.yml"

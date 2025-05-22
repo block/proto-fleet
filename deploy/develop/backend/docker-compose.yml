@@ -15,15 +15,15 @@ services:
     environment:
       DB_PASSWORD: "swinging.marsh.front.grief"
       DB_ADDRESS: "protofleet-develop-${LABEL}-backend-mysql:3306"
-      HTTP_LISTEN_ADDRESS: ":8080"
+      HTTP_LISTEN_ADDRESS: ":80"
       AUTH_SECRET_KEY: "00000000000000000000000000000000000000000000"
       AUTH_EXPIRATION_PERIOD: "1000000h"
       LOG_LEVEL: "DEBUG"
       PAIRING_SECRET_KEY: "00000000000000000000000000000000000000000000"
     expose:
-      - "8080"
+      - "80"
     labels:
-      - "traefik.http.services.protofleet-develop-${LABEL}-backend.loadbalancer.server.port=8080"
+      - "traefik.http.services.protofleet-develop-${LABEL}-backend.loadbalancer.server.port=80"
 
       - "traefik.http.routers.protofleet-develop-${LABEL}-backend.rule=Host(`backend.${LABEL}.develop.fleetdev.proto.xyz`)"
       - "traefik.http.routers.protofleet-develop-${LABEL}-backend.entrypoints=websecure"

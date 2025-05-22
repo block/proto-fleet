@@ -40,7 +40,11 @@ jobs:
       docker-image-tag: "protofleet/frontend-dashboard-develop:pr-${{ github.event.number }}-pr"
       source-build-directory: "deploy/develop/frontend/dashboard"
       target-directory: "docker/protofleet/pr/${{ github.event.number }}/frontend/dashboard-pr"
-      docker-compose-parameters: '{ "BACKEND_ADDRESS": "https://backend.pr-${{ github.event.number }}.develop.fleetdev.proto.xyz" }'
+      docker-compose-parameters: |
+        { 
+          "BACKEND_ADDRESS": "https://backend.pr-${{ github.event.number }}.develop.fleetdev.proto.xyz",
+          "API_PROXY_URL": "http://protofleet-develop-pr-${{ github.event.number }}-backend"
+        }
 
   report-dashboard-url:
     uses: "./.github/workflows/protofleet-report-pr-deployment.yml"
