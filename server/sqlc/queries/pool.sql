@@ -8,6 +8,7 @@ WHERE org_id = ?
 SELECT *
 FROM pool
 WHERE org_id = ?
+  AND deleted_at IS NULL
 ORDER BY pool_priority ASC;
 
 -- name: CreatePool :execresult

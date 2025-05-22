@@ -92,6 +92,7 @@ const listPools = `-- name: ListPools :many
 SELECT id, org_id, pool_name, url, username, password_enc, pool_status, pool_priority, is_default, created_at, updated_at, deleted_at
 FROM pool
 WHERE org_id = ?
+  AND deleted_at IS NULL
 ORDER BY pool_priority ASC
 `
 
