@@ -60,6 +60,7 @@ var unauthenticatedProcedures = []string{
 	"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
 	authv1connect.AuthServiceAuthenticateProcedure,
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
+	networkinfov1connect.NetworkInfoServiceGetNetworkInfoProcedure,
 }
 
 var reflectEnabledServices = []string{
