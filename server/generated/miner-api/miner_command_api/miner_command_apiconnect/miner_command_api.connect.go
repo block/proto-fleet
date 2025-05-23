@@ -79,7 +79,7 @@ const (
 type MinerCommandApiClient interface {
 	StartMining(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_command_api.CommandResponse], error)
 	StopMining(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_command_api.CommandResponse], error)
-	SetPowerTarget(context.Context, *connect.Request[miner_command_api.PowerTargetRequest]) (*connect.Response[miner_command_api.PowerTargetResponse], error)
+	SetPowerTarget(context.Context, *connect.Request[miner_command_api.PowerTargetRequest]) (*connect.Response[miner_data_api.PowerTargetResponse], error)
 	SetCoolingMode(context.Context, *connect.Request[miner_command_api.CoolingModeRequest]) (*connect.Response[miner_data_api.CoolingModeResponse], error)
 	AddPools(context.Context, *connect.Request[miner_command_api.PoolsRequest]) (*connect.Response[miner_command_api.CommandResponse], error)
 	RemovePools(context.Context, *connect.Request[miner_command_api.PoolsRequest]) (*connect.Response[miner_command_api.CommandResponse], error)
@@ -106,7 +106,7 @@ func NewMinerCommandApiClient(httpClient connect.HTTPClient, baseURL string, opt
 			baseURL+MinerCommandApiStopMiningProcedure,
 			opts...,
 		),
-		setPowerTarget: connect.NewClient[miner_command_api.PowerTargetRequest, miner_command_api.PowerTargetResponse](
+		setPowerTarget: connect.NewClient[miner_command_api.PowerTargetRequest, miner_data_api.PowerTargetResponse](
 			httpClient,
 			baseURL+MinerCommandApiSetPowerTargetProcedure,
 			opts...,
@@ -138,7 +138,7 @@ func NewMinerCommandApiClient(httpClient connect.HTTPClient, baseURL string, opt
 type minerCommandApiClient struct {
 	startMining    *connect.Client[miner_common_api.EmptyRequest, miner_command_api.CommandResponse]
 	stopMining     *connect.Client[miner_common_api.EmptyRequest, miner_command_api.CommandResponse]
-	setPowerTarget *connect.Client[miner_command_api.PowerTargetRequest, miner_command_api.PowerTargetResponse]
+	setPowerTarget *connect.Client[miner_command_api.PowerTargetRequest, miner_data_api.PowerTargetResponse]
 	setCoolingMode *connect.Client[miner_command_api.CoolingModeRequest, miner_data_api.CoolingModeResponse]
 	addPools       *connect.Client[miner_command_api.PoolsRequest, miner_command_api.CommandResponse]
 	removePools    *connect.Client[miner_command_api.PoolsRequest, miner_command_api.CommandResponse]
@@ -156,7 +156,7 @@ func (c *minerCommandApiClient) StopMining(ctx context.Context, req *connect.Req
 }
 
 // SetPowerTarget calls miner_command_api.MinerCommandApi.SetPowerTarget.
-func (c *minerCommandApiClient) SetPowerTarget(ctx context.Context, req *connect.Request[miner_command_api.PowerTargetRequest]) (*connect.Response[miner_command_api.PowerTargetResponse], error) {
+func (c *minerCommandApiClient) SetPowerTarget(ctx context.Context, req *connect.Request[miner_command_api.PowerTargetRequest]) (*connect.Response[miner_data_api.PowerTargetResponse], error) {
 	return c.setPowerTarget.CallUnary(ctx, req)
 }
 
@@ -184,7 +184,7 @@ func (c *minerCommandApiClient) EditPool(ctx context.Context, req *connect.Reque
 type MinerCommandApiHandler interface {
 	StartMining(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_command_api.CommandResponse], error)
 	StopMining(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_command_api.CommandResponse], error)
-	SetPowerTarget(context.Context, *connect.Request[miner_command_api.PowerTargetRequest]) (*connect.Response[miner_command_api.PowerTargetResponse], error)
+	SetPowerTarget(context.Context, *connect.Request[miner_command_api.PowerTargetRequest]) (*connect.Response[miner_data_api.PowerTargetResponse], error)
 	SetCoolingMode(context.Context, *connect.Request[miner_command_api.CoolingModeRequest]) (*connect.Response[miner_data_api.CoolingModeResponse], error)
 	AddPools(context.Context, *connect.Request[miner_command_api.PoolsRequest]) (*connect.Response[miner_command_api.CommandResponse], error)
 	RemovePools(context.Context, *connect.Request[miner_command_api.PoolsRequest]) (*connect.Response[miner_command_api.CommandResponse], error)
@@ -265,7 +265,7 @@ func (UnimplementedMinerCommandApiHandler) StopMining(context.Context, *connect.
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_command_api.MinerCommandApi.StopMining is not implemented"))
 }
 
-func (UnimplementedMinerCommandApiHandler) SetPowerTarget(context.Context, *connect.Request[miner_command_api.PowerTargetRequest]) (*connect.Response[miner_command_api.PowerTargetResponse], error) {
+func (UnimplementedMinerCommandApiHandler) SetPowerTarget(context.Context, *connect.Request[miner_command_api.PowerTargetRequest]) (*connect.Response[miner_data_api.PowerTargetResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_command_api.MinerCommandApi.SetPowerTarget is not implemented"))
 }
 

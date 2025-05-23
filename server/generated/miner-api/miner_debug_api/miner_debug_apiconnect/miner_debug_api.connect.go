@@ -144,6 +144,12 @@ const (
 	// MinerDebugApiResetHashboardErrorStatsProcedure is the fully-qualified name of the MinerDebugApi's
 	// ResetHashboardErrorStats RPC.
 	MinerDebugApiResetHashboardErrorStatsProcedure = "/miner_debug_api.MinerDebugApi/ResetHashboardErrorStats"
+	// MinerDebugApiGetPsuErrorStatsProcedure is the fully-qualified name of the MinerDebugApi's
+	// GetPsuErrorStats RPC.
+	MinerDebugApiGetPsuErrorStatsProcedure = "/miner_debug_api.MinerDebugApi/GetPsuErrorStats"
+	// MinerDebugApiResetPsuErrorStatsProcedure is the fully-qualified name of the MinerDebugApi's
+	// ResetPsuErrorStats RPC.
+	MinerDebugApiResetPsuErrorStatsProcedure = "/miner_debug_api.MinerDebugApi/ResetPsuErrorStats"
 	// MinerDebugApiSetHardwareErrorProcedure is the fully-qualified name of the MinerDebugApi's
 	// SetHardwareError RPC.
 	MinerDebugApiSetHardwareErrorProcedure = "/miner_debug_api.MinerDebugApi/SetHardwareError"
@@ -192,6 +198,8 @@ type MinerDebugApiClient interface {
 	ResetMinerErrorStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	GetHashboardErrorStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.HashboardErrorStatsList], error)
 	ResetHashboardErrorStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	GetPsuErrorStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.PsuErrorStatsList], error)
+	ResetPsuErrorStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	SetHardwareError(context.Context, *connect.Request[miner_debug_api.SetHardwareErrorRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 }
 
@@ -365,6 +373,16 @@ func NewMinerDebugApiClient(httpClient connect.HTTPClient, baseURL string, opts 
 			baseURL+MinerDebugApiResetHashboardErrorStatsProcedure,
 			opts...,
 		),
+		getPsuErrorStats: connect.NewClient[miner_common_api.EmptyRequest, miner_debug_api.PsuErrorStatsList](
+			httpClient,
+			baseURL+MinerDebugApiGetPsuErrorStatsProcedure,
+			opts...,
+		),
+		resetPsuErrorStats: connect.NewClient[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse](
+			httpClient,
+			baseURL+MinerDebugApiResetPsuErrorStatsProcedure,
+			opts...,
+		),
 		setHardwareError: connect.NewClient[miner_debug_api.SetHardwareErrorRequest, miner_common_api.ApiResultResponse](
 			httpClient,
 			baseURL+MinerDebugApiSetHardwareErrorProcedure,
@@ -407,6 +425,8 @@ type minerDebugApiClient struct {
 	resetMinerErrorStats            *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
 	getHashboardErrorStats          *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.HashboardErrorStatsList]
 	resetHashboardErrorStats        *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	getPsuErrorStats                *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.PsuErrorStatsList]
+	resetPsuErrorStats              *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
 	setHardwareError                *connect.Client[miner_debug_api.SetHardwareErrorRequest, miner_common_api.ApiResultResponse]
 }
 
@@ -572,6 +592,16 @@ func (c *minerDebugApiClient) ResetHashboardErrorStats(ctx context.Context, req 
 	return c.resetHashboardErrorStats.CallUnary(ctx, req)
 }
 
+// GetPsuErrorStats calls miner_debug_api.MinerDebugApi.GetPsuErrorStats.
+func (c *minerDebugApiClient) GetPsuErrorStats(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.PsuErrorStatsList], error) {
+	return c.getPsuErrorStats.CallUnary(ctx, req)
+}
+
+// ResetPsuErrorStats calls miner_debug_api.MinerDebugApi.ResetPsuErrorStats.
+func (c *minerDebugApiClient) ResetPsuErrorStats(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return c.resetPsuErrorStats.CallUnary(ctx, req)
+}
+
 // SetHardwareError calls miner_debug_api.MinerDebugApi.SetHardwareError.
 func (c *minerDebugApiClient) SetHardwareError(ctx context.Context, req *connect.Request[miner_debug_api.SetHardwareErrorRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
 	return c.setHardwareError.CallUnary(ctx, req)
@@ -620,6 +650,8 @@ type MinerDebugApiHandler interface {
 	ResetMinerErrorStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	GetHashboardErrorStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.HashboardErrorStatsList], error)
 	ResetHashboardErrorStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	GetPsuErrorStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.PsuErrorStatsList], error)
+	ResetPsuErrorStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	SetHardwareError(context.Context, *connect.Request[miner_debug_api.SetHardwareErrorRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 }
 
@@ -789,6 +821,16 @@ func NewMinerDebugApiHandler(svc MinerDebugApiHandler, opts ...connect.HandlerOp
 		svc.ResetHashboardErrorStats,
 		opts...,
 	)
+	minerDebugApiGetPsuErrorStatsHandler := connect.NewUnaryHandler(
+		MinerDebugApiGetPsuErrorStatsProcedure,
+		svc.GetPsuErrorStats,
+		opts...,
+	)
+	minerDebugApiResetPsuErrorStatsHandler := connect.NewUnaryHandler(
+		MinerDebugApiResetPsuErrorStatsProcedure,
+		svc.ResetPsuErrorStats,
+		opts...,
+	)
 	minerDebugApiSetHardwareErrorHandler := connect.NewUnaryHandler(
 		MinerDebugApiSetHardwareErrorProcedure,
 		svc.SetHardwareError,
@@ -860,6 +902,10 @@ func NewMinerDebugApiHandler(svc MinerDebugApiHandler, opts ...connect.HandlerOp
 			minerDebugApiGetHashboardErrorStatsHandler.ServeHTTP(w, r)
 		case MinerDebugApiResetHashboardErrorStatsProcedure:
 			minerDebugApiResetHashboardErrorStatsHandler.ServeHTTP(w, r)
+		case MinerDebugApiGetPsuErrorStatsProcedure:
+			minerDebugApiGetPsuErrorStatsHandler.ServeHTTP(w, r)
+		case MinerDebugApiResetPsuErrorStatsProcedure:
+			minerDebugApiResetPsuErrorStatsHandler.ServeHTTP(w, r)
 		case MinerDebugApiSetHardwareErrorProcedure:
 			minerDebugApiSetHardwareErrorHandler.ServeHTTP(w, r)
 		default:
@@ -997,6 +1043,14 @@ func (UnimplementedMinerDebugApiHandler) GetHashboardErrorStats(context.Context,
 
 func (UnimplementedMinerDebugApiHandler) ResetHashboardErrorStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.ResetHashboardErrorStats is not implemented"))
+}
+
+func (UnimplementedMinerDebugApiHandler) GetPsuErrorStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.PsuErrorStatsList], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.GetPsuErrorStats is not implemented"))
+}
+
+func (UnimplementedMinerDebugApiHandler) ResetPsuErrorStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.ResetPsuErrorStats is not implemented"))
 }
 
 func (UnimplementedMinerDebugApiHandler) SetHardwareError(context.Context, *connect.Request[miner_debug_api.SetHardwareErrorRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {

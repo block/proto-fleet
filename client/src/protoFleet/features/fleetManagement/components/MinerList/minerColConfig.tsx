@@ -54,7 +54,12 @@ const minerColConfig: ColConfig<MinerStateSnapshot, MinerKeyValueType> = {
       return (
         <>
           {item.efficiency ? (
-            <>{getDisplayValue(item.efficiency[0].value)} J/TH</>
+            <>
+              {getDisplayValue(
+                item.efficiency[item.efficiency.length - 1].value,
+              )}{" "}
+              J/TH
+            </>
           ) : (
             <SkeletonBar className="w-full pr-10" />
           )}
@@ -68,7 +73,12 @@ const minerColConfig: ColConfig<MinerStateSnapshot, MinerKeyValueType> = {
       return (
         <>
           {item.powerUsage ? (
-            <>{getDisplayValue(item.powerUsage[0].value)} kW</>
+            <>
+              {getDisplayValue(
+                item.powerUsage[item.powerUsage.length - 1].value,
+              )}{" "}
+              kW
+            </>
           ) : (
             <SkeletonBar className="w-full pr-10" />
           )}
@@ -82,7 +92,12 @@ const minerColConfig: ColConfig<MinerStateSnapshot, MinerKeyValueType> = {
       return (
         <>
           {item.temperature ? (
-            <>{getDisplayValue(item.temperature[0].value)} °C</>
+            <>
+              {getDisplayValue(
+                item.temperature[item.temperature.length - 1].value,
+              )}{" "}
+              °C
+            </>
           ) : (
             <SkeletonBar className="w-full pr-10" />
           )}

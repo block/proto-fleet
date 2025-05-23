@@ -62,6 +62,9 @@ const (
 	// MinerDataApiGetMiningStatusProcedure is the fully-qualified name of the MinerDataApi's
 	// GetMiningStatus RPC.
 	MinerDataApiGetMiningStatusProcedure = "/miner_data_api.MinerDataApi/GetMiningStatus"
+	// MinerDataApiGetPowerTargetProcedure is the fully-qualified name of the MinerDataApi's
+	// GetPowerTarget RPC.
+	MinerDataApiGetPowerTargetProcedure = "/miner_data_api.MinerDataApi/GetPowerTarget"
 	// MinerDataApiGetHardwareInfoProcedure is the fully-qualified name of the MinerDataApi's
 	// GetHardwareInfo RPC.
 	MinerDataApiGetHardwareInfoProcedure = "/miner_data_api.MinerDataApi/GetHardwareInfo"
@@ -85,6 +88,7 @@ type MinerDataApiClient interface {
 	GetSoftwareInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.SoftwareInfoResponse], error)
 	GetCoolingMode(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.CoolingModeResponse], error)
 	GetMiningStatus(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.MiningStatusResponse], error)
+	GetPowerTarget(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PowerTargetResponse], error)
 	GetHardwareInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.HardwareInfoResponse], error)
 	GetHashboardStatus(context.Context, *connect.Request[miner_data_api.HashboardStatusRequest]) (*connect.Response[miner_data_api.HashboardStatusResponse], error)
 	GetAsicStatus(context.Context, *connect.Request[miner_data_api.AsicStatusRequest]) (*connect.Response[miner_data_api.AsicStatusResponse], error)
@@ -116,6 +120,11 @@ func NewMinerDataApiClient(httpClient connect.HTTPClient, baseURL string, opts .
 		getMiningStatus: connect.NewClient[miner_common_api.EmptyRequest, miner_data_api.MiningStatusResponse](
 			httpClient,
 			baseURL+MinerDataApiGetMiningStatusProcedure,
+			opts...,
+		),
+		getPowerTarget: connect.NewClient[miner_common_api.EmptyRequest, miner_data_api.PowerTargetResponse](
+			httpClient,
+			baseURL+MinerDataApiGetPowerTargetProcedure,
 			opts...,
 		),
 		getHardwareInfo: connect.NewClient[miner_common_api.EmptyRequest, miner_data_api.HardwareInfoResponse](
@@ -156,6 +165,7 @@ type minerDataApiClient struct {
 	getSoftwareInfo    *connect.Client[miner_common_api.EmptyRequest, miner_data_api.SoftwareInfoResponse]
 	getCoolingMode     *connect.Client[miner_common_api.EmptyRequest, miner_data_api.CoolingModeResponse]
 	getMiningStatus    *connect.Client[miner_common_api.EmptyRequest, miner_data_api.MiningStatusResponse]
+	getPowerTarget     *connect.Client[miner_common_api.EmptyRequest, miner_data_api.PowerTargetResponse]
 	getHardwareInfo    *connect.Client[miner_common_api.EmptyRequest, miner_data_api.HardwareInfoResponse]
 	getHashboardStatus *connect.Client[miner_data_api.HashboardStatusRequest, miner_data_api.HashboardStatusResponse]
 	getAsicStatus      *connect.Client[miner_data_api.AsicStatusRequest, miner_data_api.AsicStatusResponse]
@@ -177,6 +187,11 @@ func (c *minerDataApiClient) GetCoolingMode(ctx context.Context, req *connect.Re
 // GetMiningStatus calls miner_data_api.MinerDataApi.GetMiningStatus.
 func (c *minerDataApiClient) GetMiningStatus(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.MiningStatusResponse], error) {
 	return c.getMiningStatus.CallUnary(ctx, req)
+}
+
+// GetPowerTarget calls miner_data_api.MinerDataApi.GetPowerTarget.
+func (c *minerDataApiClient) GetPowerTarget(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PowerTargetResponse], error) {
+	return c.getPowerTarget.CallUnary(ctx, req)
 }
 
 // GetHardwareInfo calls miner_data_api.MinerDataApi.GetHardwareInfo.
@@ -214,6 +229,7 @@ type MinerDataApiHandler interface {
 	GetSoftwareInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.SoftwareInfoResponse], error)
 	GetCoolingMode(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.CoolingModeResponse], error)
 	GetMiningStatus(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.MiningStatusResponse], error)
+	GetPowerTarget(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PowerTargetResponse], error)
 	GetHardwareInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.HardwareInfoResponse], error)
 	GetHashboardStatus(context.Context, *connect.Request[miner_data_api.HashboardStatusRequest]) (*connect.Response[miner_data_api.HashboardStatusResponse], error)
 	GetAsicStatus(context.Context, *connect.Request[miner_data_api.AsicStatusRequest]) (*connect.Response[miner_data_api.AsicStatusResponse], error)
@@ -241,6 +257,11 @@ func NewMinerDataApiHandler(svc MinerDataApiHandler, opts ...connect.HandlerOpti
 	minerDataApiGetMiningStatusHandler := connect.NewUnaryHandler(
 		MinerDataApiGetMiningStatusProcedure,
 		svc.GetMiningStatus,
+		opts...,
+	)
+	minerDataApiGetPowerTargetHandler := connect.NewUnaryHandler(
+		MinerDataApiGetPowerTargetProcedure,
+		svc.GetPowerTarget,
 		opts...,
 	)
 	minerDataApiGetHardwareInfoHandler := connect.NewUnaryHandler(
@@ -281,6 +302,8 @@ func NewMinerDataApiHandler(svc MinerDataApiHandler, opts ...connect.HandlerOpti
 			minerDataApiGetCoolingModeHandler.ServeHTTP(w, r)
 		case MinerDataApiGetMiningStatusProcedure:
 			minerDataApiGetMiningStatusHandler.ServeHTTP(w, r)
+		case MinerDataApiGetPowerTargetProcedure:
+			minerDataApiGetPowerTargetHandler.ServeHTTP(w, r)
 		case MinerDataApiGetHardwareInfoProcedure:
 			minerDataApiGetHardwareInfoHandler.ServeHTTP(w, r)
 		case MinerDataApiGetHashboardStatusProcedure:
@@ -312,6 +335,10 @@ func (UnimplementedMinerDataApiHandler) GetCoolingMode(context.Context, *connect
 
 func (UnimplementedMinerDataApiHandler) GetMiningStatus(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.MiningStatusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_data_api.MinerDataApi.GetMiningStatus is not implemented"))
+}
+
+func (UnimplementedMinerDataApiHandler) GetPowerTarget(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PowerTargetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_data_api.MinerDataApi.GetPowerTarget is not implemented"))
 }
 
 func (UnimplementedMinerDataApiHandler) GetHardwareInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.HardwareInfoResponse], error) {
