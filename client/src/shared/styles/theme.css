@@ -306,6 +306,7 @@ WOuld be best to switch over to mobile first stying  */
    * Overrides css variables defined in @theme
    */
   [data-theme="dark"] {
+    --color-core-primary-fill: rgb(var(--base_white_100) / 90%);
     --color-text-primary: rgb(var(--base_white_100) / 90%);
     --color-text-primary-70: rgb(var(--base_white_100) / 70%);
     --color-text-primary-50: rgb(var(--base_white_100) / 50%);
@@ -340,6 +341,13 @@ WOuld be best to switch over to mobile first stying  */
       0px 24px 32px 0px rgba(var(--base_black_100) / 0.16),
       0px 4px 8px 0px rgba(var(--base_black_100) / 0.04),
       0px 0px 1px 0px rgba(var(--base_black_100) / 0.3);
+    --color-core-primary-fill: rgb(var(--base_white_100) / 90%);
+    --color-core-primary-80: rgb(var(--base_white_100) / 80%);
+    --color-core-primary-50: rgb(var(--base_white_100) / 50%);
+    --color-core-primary-20: rgb(var(--base_white_100) / 20%);
+    --color-core-primary-10: rgb(var(--base_white_100) / 10%);
+    --color-core-primary-5: rgb(var(--base_white_100) / 5%);
+    --color-core-primary-2: rgb(var(--base_white_100) / 2%);
   }
 
   /* breaking changes from tailwind 3 to 4 */

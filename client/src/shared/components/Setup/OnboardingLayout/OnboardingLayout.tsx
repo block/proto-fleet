@@ -27,7 +27,7 @@ const OnboardingLayout = ({
   const onboardingStatus = useOnboardedStatus();
 
   return (
-    <div>
+    <div className="min-h-screen bg-surface-base">
       <SetupHeader />
       <div className="relative px-6 pt-6 tablet:flex tablet:flex-row">
         {steps && currentStep && (
