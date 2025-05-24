@@ -8,6 +8,7 @@ export const Input = () => {
       <InputComponent
         id="poolUrl"
         label="Pool URL"
+        hideLabelOnFocus={true}
         onChange={(value) => action("onChange pool url")(value)}
         maxLength={2083}
       />
@@ -35,6 +36,13 @@ export const Input = () => {
         onChange={(value) => action("onChange error")(value)}
         type="error"
         error="This is an error message"
+      />
+      <InputComponent
+        id="power-target"
+        label="Power target"
+        onChange={(value) => action("onChange power target")(value)}
+        type="number"
+        units="kW"
       />
     </div>
   );

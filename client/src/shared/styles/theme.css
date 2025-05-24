@@ -363,4 +363,14 @@ WOuld be best to switch over to mobile first stying  */
   [role="button"] {
     cursor: pointer;
   }
+
+  .no-spinner {
+    -moz-appearance: textfield;
+  }
+
+  .no-spinner::-webkit-outer-spin-button,
+  .no-spinner::-webkit-inner-spin-button {
+    margin: 0;
+    -webkit-appearance: none;
+  }
 }

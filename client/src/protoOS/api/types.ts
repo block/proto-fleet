@@ -484,6 +484,29 @@ export interface MiningStatusMiningstatus {
 }
 
 export interface MiningTarget {
+  /**
+   * The performance mode the miner will operate in. Modes:
+   *  - MaximumHashrate: Will run at the power target to maximum hashrate.
+   *  - Efficiency: Will run at or below the power target to optimize J/TH.
+   * @example "MaximumHashrate"
+   */
+  performance_mode?: "MaximumHashrate" | "Efficiency";
+  /** @example 3000 */
+  power_target_watts?: number;
+}
+
+export interface MiningTargetResponse {
+  /**
+   * The performance mode the miner will operate in. Modes:
+   *  - MaximumHashrate: Will run at the power target to maximum hashrate.
+   *  - Efficiency: Will run at or below the power target to optimize J/TH.
+   * @example "MaximumHashrate"
+   */
+  performance_mode?: "MaximumHashrate" | "Efficiency";
+  /** @example 3000 */
+  power_target_max_watts?: number;
+  /** @example 400 */
+  power_target_min_watts?: number;
   /** @example 3000 */
   power_target_watts?: number;
 }
@@ -780,6 +803,7 @@ export interface SystemInfoSysteminfo {
     | "STM32MP151F"
     | "STM32MP131F"
     | "unknown";
+  sw_update_status?: UpdateStatus;
   /**
    * @format int64
    * @example 300
@@ -841,6 +865,65 @@ export interface TimeSeriesData {
   datetime?: number;
   /** Value of data requested at the given datetime. */
   value?: number;
+}
+
+export interface UpdateStatus {
+  /**
+   * Current boot partition
+   * @example "0"
+   */
+  boot_partition?: string;
+  /**
+   * Current software version
+   * @example "1.0.0"
+   */
+  current_version?: string;
+  /**
+   * Error message if status is 'error'
+   * @example "Download failed"
+   */
+  error?: string;
+  /**
+   * Human-readable message about the update status
+   * @example "Update available"
+   */
+  message?: string;
+  /**
+   * Version of the available update
+   * @example "1.1.0"
+   */
+  new_version?: string;
+  /**
+   * Progress percentage for downloading or installing (0-100)
+   * @example 75
+   */
+  progress?: number;
+  /**
+   * Release notes for the available update
+   * @example {"title":"Version 1.1.0","description":"Bug fixes and performance improvements"}
+   */
+  release_notes?: object;
+  /**
+   * Current status of the software update process
+   * @example "available"
+   */
+  status?:
+    | "unknown"
+    | "checking"
+    | "available"
+    | "current"
+    | "downloading"
+    | "downloaded"
+    | "installing"
+    | "installed"
+    | "confirming"
+    | "success"
+    | "error";
+  /**
+   * Timestamp of the last status update
+   * @example "2023-04-21 12:34:56"
+   */
+  timestamp?: string;
 }
 
 export type QueryParamsType = Record<string | number, any>;
@@ -1347,7 +1430,7 @@ export class Api<
      * @request GET:/api/v1/mining/target
      */
     getMiningTarget: (params: RequestParams = {}) =>
-      this.request<MiningTarget, MessageResponse>({
+      this.request<MiningTargetResponse, MessageResponse>({
         path: `/api/v1/mining/target`,
         method: "GET",
         format: "json",
@@ -1363,7 +1446,7 @@ export class Api<
      * @secure
      */
     editMiningTarget: (data: MiningTarget, params: RequestParams = {}) =>
-      this.request<MiningTarget, MessageResponse>({
+      this.request<MiningTargetResponse, MessageResponse>({
         path: `/api/v1/mining/target`,
         method: "PUT",
         body: data,
@@ -1459,7 +1542,7 @@ export class Api<
       }),
 
     /**
-     * @description The update system endpoint can be used to initiate a system update of the miner software.
+     * @description The update system endpoint can be used to initiate a system update of the miner software. This will download the update and automatically install it when download completes.
      *
      * @tags System
      * @name UpdateSystem
@@ -1469,6 +1552,23 @@ export class Api<
     updateSystem: (params: RequestParams = {}) =>
       this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/system/update`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The install system endpoint can be used to install a previously downloaded system update. This is only needed if you want to manually control the installation timing, as the update endpoint will automatically install updates after downloading.
+     *
+     * @tags System
+     * @name InstallSystem
+     * @request POST:/api/v1/system/install
+     * @secure
+     */
+    installSystem: (params: RequestParams = {}) =>
+      this.request<MessageResponse, MessageResponse>({
+        path: `/api/v1/system/install`,
         method: "POST",
         secure: true,
         format: "json",

@@ -6,10 +6,12 @@ import {
   RefObject,
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import clsx from "clsx";
 
+import useValueWidth from "./useValueWidth";
 import { DismissCircle, Eye } from "@/shared/assets/icons";
 import Tooltip from "@/shared/components/Tooltip";
 import { positions } from "@/shared/constants";
@@ -23,7 +25,7 @@ interface InputProps {
   error?: string;
   hideLabelOnFocus?: boolean;
   id: string;
-  initValue?: string;
+  initValue?: string | number;
   inputRef?: RefObject<HTMLInputElement>;
   keyboardShortcuts?: string[];
   label: string;
@@ -36,7 +38,15 @@ interface InputProps {
   statusIcon?: ReactNode;
   onFocus?: () => void;
   onBlur?: () => void;
+  units?: string;
 }
+
+const length = (value: string | number) => {
+  if (typeof value === "string") {
+    return value.length;
+  }
+  return String(value).length;
+};
 
 const Input = ({
   autoFocus,
@@ -60,12 +70,16 @@ const Input = ({
   statusIcon,
   onFocus,
   onBlur,
+  units,
 }: InputProps) => {
   const [value, setValue] = useState(initValue);
   // keep the error state until the animation is finished
   const [validationError, setValidationError] = useState(error);
   const [timeoutId, setTimeoutId] = useState<ReturnType<typeof setTimeout>>();
   const [inputType, setInputType] = useState(type);
+  const [focused, setFocused] = useState(false);
+  const fallbackRef = useRef<HTMLInputElement>(null);
+  const valueWidth = useValueWidth(value, inputRef || fallbackRef, units);
 
   useEffect(() => {
     setValue(initValue);
@@ -107,61 +121,85 @@ const Input = ({
 
   return (
     <div className="relative">
-      <input
-        type={inputType}
-        id={id}
-        data-testid={testId}
-        className={clsx(
-          "peer w-full rounded-lg text-300 text-text-primary outline-hidden",
-          "transition duration-200 ease-in-out",
-          { "bg-surface-base": !disabled },
-          { "bg-core-primary-5": disabled },
-          {
-            "border border-border-5": !error && !compact,
-          },
-          {
-            "border border-border-20 focus:ring-4 focus:ring-surface-10":
-              !error && !compact && !disabled,
-          },
-          {
-            "border border-intent-critical-50 focus:ring-4 focus:ring-intent-critical-20":
-              error,
-          },
-          { "pt-[18px]": !hideLabelOnFocus },
-          { "h-14 pl-4": !compact },
-          { "pr-4": !compact && !tooltip && type !== "password" },
-          { "pr-10": !compact && tooltip && type !== "password" },
-          { "pr-20": !compact && tooltip && type === "password" },
-          { "h-6": compact },
-          className,
+      <div className="relative">
+        <input
+          type={inputType}
+          id={id}
+          data-testid={testId}
+          className={clsx(
+            "peer w-full rounded-lg text-300 text-text-primary outline-hidden",
+            "transition duration-200 ease-in-out",
+            { "bg-surface-base": !disabled },
+            { "bg-core-primary-5": disabled },
+            {
+              "border border-border-5": !error && !compact,
+            },
+            {
+              "border border-border-20 focus:ring-4 focus:ring-surface-10":
+                !error && !compact && !disabled,
+            },
+            {
+              "border border-intent-critical-50 focus:ring-4 focus:ring-intent-critical-20":
+                error,
+            },
+            { "pt-[18px]": !hideLabelOnFocus },
+            { "h-14 pl-4": !compact },
+            { "pr-4": !compact && !tooltip && type !== "password" },
+            { "pr-10": !compact && tooltip && type !== "password" },
+            { "pr-20": !compact && tooltip && type === "password" },
+            { "h-6": compact },
+            { "no-spinner": type === "number" },
+            className,
+          )}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          maxLength={maxLength}
+          autoComplete="off"
+          value={value}
+          ref={inputRef || fallbackRef}
+          disabled={disabled}
+          autoFocus={autoFocus}
+          onFocus={() => {
+            onFocus && onFocus();
+            setFocused(true);
+          }}
+          onBlur={() => {
+            onBlur && onBlur();
+            setFocused(false);
+          }}
+        />
+        {units && valueWidth !== undefined && value && (
+          <span
+            className={clsx(
+              "pointer-events-none absolute bottom-0 left-0 flex items-center text-300 text-text-primary-70",
+              {
+                "pt-[18px]": !hideLabelOnFocus,
+                "h-14 pl-4": !compact,
+                "h-6": compact,
+              },
+            )}
+            style={{ transform: `translateX(${valueWidth + 4}px)` }}
+          >
+            {units}
+          </span>
         )}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        maxLength={maxLength}
-        autoComplete="off"
-        value={value}
-        ref={inputRef}
-        disabled={disabled}
-        autoFocus={autoFocus}
-        onFocus={onFocus}
-        onBlur={onBlur}
-      />
+      </div>
       <label
         htmlFor={id}
         className={clsx(
           "absolute text-text-primary-50",
           { "cursor-text": !disabled },
-          { "text-300": !value.length },
+          { "text-300": !(length(value) || focused) },
           { "left-0": compact },
           { "left-[17px]": !compact },
-          { "top-[18px]": !value.length && !compact },
-          { "top-[7px] text-200": value.length },
+          { "top-[18px]": !(length(value) || focused) && !compact },
+          { "top-[7px] text-200": length(value) || focused },
           {
             "duration-150ms transition-[top] ease-in-out peer-focus:top-[7px] peer-focus:text-200":
               !hideLabelOnFocus,
           },
           { "peer-focus:invisible": hideLabelOnFocus },
-          { invisible: hideLabelOnFocus && value.length },
+          { invisible: hideLabelOnFocus && (length(value) || focused) },
         )}
       >
         {label}
@@ -175,7 +213,7 @@ const Input = ({
           />
         </div>
       )}
-      {dismiss && value.length && !compact ? (
+      {dismiss && length(value) && !compact ? (
         <div
           className={clsx("absolute right-4", {
             "top-1": compact,
@@ -189,7 +227,7 @@ const Input = ({
           />
         </div>
       ) : undefined}
-      {keyboardShortcuts && !value.length ? (
+      {keyboardShortcuts && !length(value) ? (
         <div className="absolute top-7 right-4 flex -translate-y-1/2 transform space-x-[2px] rounded-sm bg-core-primary-5 px-2 text-300 font-semibold text-text-primary-30 shadow-100">
           {keyboardShortcuts.map((shortcut, index) => (
             <Fragment key={index}>{shortcut}</Fragment>

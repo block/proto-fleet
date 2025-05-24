@@ -15,6 +15,7 @@ import { useLogin } from "./useLogin";
 import { useMiningStart } from "./useMiningStart";
 import { useMiningStatus } from "./useMiningStatus";
 import { useMiningStop } from "./useMiningStop";
+import { useMiningTarget } from "./useMiningTarget";
 import { useNetworkInfo } from "./useNetworkInfo";
 import { usePassword } from "./usePassword";
 import { usePoll } from "./usePoll";
@@ -47,6 +48,7 @@ export {
   useMiningStart,
   useMiningStatus,
   useMiningStop,
+  useMiningTarget,
   useNetworkInfo,
   usePassword,
   usePoll,

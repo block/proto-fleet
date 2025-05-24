@@ -3,6 +3,7 @@ import { ReactNode } from "react";
 import MinerStatus from "./MinerStatus";
 import PoolStatus from "./PoolStatus";
 import PowerWidget from "./Power";
+import PowerTarget from "./PowerTarget";
 import { Pause } from "@/shared/assets/icons";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
@@ -29,9 +30,10 @@ const PageHeader = ({ customButtons, openMenu, title }: PageHeaderProps) => {
         <div className="flex space-x-3">
           {customButtons || (
             <>
-              <PowerWidget />
+              <PowerTarget />
               <PoolStatus />
               <MinerStatus />
+              <PowerWidget />
             </>
           )}
         </div>

@@ -7,6 +7,7 @@ interface WidgetWrapperProps {
   isOpen?: boolean;
   onClick?: () => void;
   testId?: string;
+  contrast?: boolean;
 }
 
 const WidgetWrapper = ({
@@ -15,16 +16,23 @@ const WidgetWrapper = ({
   isOpen,
   onClick,
   testId,
+  contrast = false,
 }: WidgetWrapperProps) => {
+  const baseClasses =
+    "flex h-7 items-center rounded-2xl px-2 py-1 text-heading-50 whitespace-nowrap transition-[background-color] duration-200 ease-in-out";
+  const bgColor = contrast
+    ? "bg-core-primary-80 text-text-contrast"
+    : "bg-surface-base text-text-primary";
+  const hoverBgColor = contrast
+    ? "hover:bg-core-primary-fill"
+    : "hover:bg-core-primary-5";
+  const isOpenClasses = isOpen
+    ? "shadow-200"
+    : `${bgColor} text-text-contrast shadow-50`;
+
   return (
     <button
-      className={clsx(
-        "flex items-center rounded-md px-2 py-1 text-heading-50 whitespace-nowrap",
-        "transition-[background-color] duration-200 ease-in-out hover:bg-core-primary-5",
-        { "bg-surface-base shadow-50": !isOpen },
-        { "bg-core-primary-5 shadow-200": isOpen },
-        className,
-      )}
+      className={clsx(baseClasses, hoverBgColor, isOpenClasses, className)}
       onClick={onClick}
       data-testid={testId}
     >

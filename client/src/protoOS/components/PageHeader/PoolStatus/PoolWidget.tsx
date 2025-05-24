@@ -48,7 +48,7 @@ const PoolWidget = ({
             })}
           />
         )}
-        Mining pool
+        Pool
       </>
     </WidgetWrapper>
   );

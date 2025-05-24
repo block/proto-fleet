@@ -71,7 +71,7 @@ const MinerStatusWidget = ({
             <StatusCircle status={status} />
           </>
         )}
-        Miner status
+        Status
       </>
     </WidgetWrapper>
   );

@@ -203,8 +203,7 @@ const PowerWidget = ({
         testId="power-button"
       >
         <>
-          <Power className="mr-1" width={iconSizes.xSmall} />
-          Power
+          <Power width={iconSizes.xSmall} />
         </>
       </WidgetWrapper>
       {isOpen && (
