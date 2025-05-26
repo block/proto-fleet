@@ -1,7 +1,9 @@
 import { padLeft } from "@/shared/utils/stringUtils";
 
 export const deepClone = (obj: any) => {
-  const stringify = JSON.stringify(obj);
+  const stringify = JSON.stringify(obj, (_, value) =>
+    typeof value === "bigint" ? Number(value) : value,
+  );
   if (!stringify) {
     return obj;
   }

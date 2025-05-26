@@ -10,26 +10,28 @@ import Modal from "@/shared/components/Modal";
 import { animationDuration } from "@/shared/components/PageOverlay";
 import { deepClone } from "@/shared/utils/utility";
 
-interface BackupPoolProps {
+interface PoolModalProps {
   onChangePools: (pools: PoolInfo[]) => void;
   onDismiss: () => void;
   poolIndex: PoolIndex;
   pools: PoolInfo[];
   show: boolean;
+  isDefault?: boolean;
   isTestingConnection: boolean;
   // TODO: Update props to match both ProtoOS and ProtoFleet API if needed. Could make a generic type for this as well.
   testConnection: (args: TestConnectionProps) => void;
 }
 
-const BackupPoolModal = ({
+const PoolModal = ({
   onChangePools,
   onDismiss,
   poolIndex,
   pools,
   show,
+  isDefault = false,
   isTestingConnection,
   testConnection,
-}: BackupPoolProps) => {
+}: PoolModalProps) => {
   const [draftPoolInfo, setDraftPoolInfo] = useState(deepClone(pools));
   const [changed, setChanged] = useState(false);
   const [warnDiscard, setWarnDiscard] = useState(false);
@@ -91,15 +93,15 @@ const BackupPoolModal = ({
               text: pools[poolIndex].url ? "Save" : "Add",
               onClick: onSubmit,
               variant: variants.primary,
-              testId: "backup-pool-save-button",
+              testId: "pool-save-button",
             },
-            ...(pools[poolIndex].url
+            ...(pools[poolIndex].url && !isDefault
               ? [
                   {
                     text: "Delete",
                     onClick: () => setWarnDelete(true),
                     variant: variants.secondary,
-                    testId: "backup-pool-delete-button",
+                    testId: "pool-delete-button",
                   },
                 ]
               : []),
@@ -111,13 +113,16 @@ const BackupPoolModal = ({
               className: "whitespace-nowrap overflow-clip",
             },
           ]}
-          contentHeader={`Backup pool #${poolIndex}`}
+          contentHeader={
+            isDefault ? "Default mining pool" : `Backup pool #${poolIndex}`
+          }
           onDismiss={closeModal}
           divider={false}
         >
           <div className="mb-6">
-            Backup pools are only used to mine if your default pool is
-            unavailable.
+            {isDefault
+              ? "Your hashrate will contribute to your default mining pool."
+              : "Backup pools are only used to mine if your default pool is unavailable."}
           </div>
           <PoolForm
             poolIndex={poolIndex}
@@ -145,4 +150,4 @@ const BackupPoolModal = ({
   );
 };
 
-export default BackupPoolModal;
+export default PoolModal;

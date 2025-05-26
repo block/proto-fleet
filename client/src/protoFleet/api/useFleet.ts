@@ -4,7 +4,6 @@ import { fleetManagementClient } from "@/protoFleet/api/clients";
 import {
   type ComponentStatusUpdate,
   ComponentStatusUpdate_Component,
-  type CreatePoolRequest,
   DataMode,
   type ListMinerStateSnapshotsRequest,
   type ListMinerStateSnapshotsResponse,
@@ -12,7 +11,6 @@ import {
   type MeasurementUpdate,
   MinerComponentStatus,
   type MinerStateSnapshot,
-  type SetDefaultPoolRequest,
   StreamMinerUpdatesRequestSchema,
   type StreamMinerUpdatesResponse,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -25,18 +23,6 @@ type FetchPairedMinersArgs = {
   pageSize?: ListMinerStateSnapshotsRequest["pageSize"];
   cursor?: ListMinerStateSnapshotsRequest["cursor"];
 };
-
-interface SetDefaultPoolProps {
-  defaultPoolRequest: SetDefaultPoolRequest;
-  onSuccess: () => void;
-  onError?: (error: string) => void;
-}
-
-interface CreatePoolProps {
-  createPoolRequest: CreatePoolRequest;
-  onSuccess: () => void;
-  onError?: (error: string) => void;
-}
 
 function updateMeasurement(
   measurementUpdate: MeasurementUpdate,
@@ -283,43 +269,13 @@ const useFleet = () => {
     };
   }, [fetchPairedMiners]);
 
-  const setDefaultPool = useCallback(
-    async ({ defaultPoolRequest, onSuccess, onError }: SetDefaultPoolProps) => {
-      await fleetManagementClient
-        .setDefaultPool(defaultPoolRequest, getAuthHeader(authTokens))
-        .then(() => {
-          onSuccess();
-        })
-        .catch((err) => {
-          onError?.(err?.error?.message ?? err);
-        });
-    },
-    [authTokens],
-  );
-
-  const createPool = useCallback(
-    async ({ createPoolRequest, onSuccess, onError }: CreatePoolProps) => {
-      await fleetManagementClient
-        .createPool(createPoolRequest, getAuthHeader(authTokens))
-        .then(() => {
-          onSuccess();
-        })
-        .catch((err) => {
-          onError?.(err?.error?.message ?? err);
-        });
-    },
-    [authTokens],
-  );
-
   return useMemo(
     () => ({
       miners,
       isStreaming,
-      setDefaultPool,
-      createPool,
       loadMoreMiners: () => fetchPairedMiners({ pageSize: 100 }),
     }),
-    [miners, isStreaming, setDefaultPool, createPool, fetchPairedMiners],
+    [miners, isStreaming, fetchPairedMiners],
   );
 };
 

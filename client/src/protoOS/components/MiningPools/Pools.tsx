@@ -3,8 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useTestConnection } from "@/protoOS/api";
 import BackupPoolModalWrapper from "@/protoOS/components/MiningPools/BackupPoolModalWrapper";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import BackupPoolRow from "@/shared/components/MiningPools/BackupPoolRow";
 import PoolForm from "@/shared/components/MiningPools/PoolForm";
+import PoolRow from "@/shared/components/MiningPools/PoolRow";
 import {
   BackupPoolIndex,
   PoolIndex,
@@ -93,15 +93,16 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
         {[...Array(2)].map((_, index) => {
           const backupPoolIndex = (index + 1) as BackupPoolIndex;
           return (
-            <BackupPoolRow
+            <PoolRow
               key={backupPoolIndex}
               pools={localPools}
-              backupPoolIndex={backupPoolIndex}
+              poolIndex={backupPoolIndex}
+              title={"Backup pool #" + backupPoolIndex}
               onClick={() => {
                 startEditing();
                 setCurrentPoolIndex(backupPoolIndex);
               }}
-              testId={`backup-pool-${backupPoolIndex}-add-button`}
+              testId={`pool-${backupPoolIndex}-add-button`}
             />
           );
         })}

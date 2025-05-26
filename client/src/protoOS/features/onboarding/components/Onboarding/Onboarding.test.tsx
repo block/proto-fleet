@@ -21,11 +21,11 @@ const poolUrl = "stratum+tcp://ckpool:3333";
 // data-testid constants
 const miningPoolTitle = "mining-pool-title";
 const testConnectionButton = "test-connection-button";
-const backupPoolAddButton = "backup-pool-1-add-button";
-const backupPoolSaveButton = "backup-pool-save-button";
-const backupPoolSavedUrl = "backup-pool-1-saved-url";
+const backupPoolAddButton = "pool-1-add-button";
+const backupPoolSaveButton = "pool-save-button";
+const backupPoolSavedUrl = "pool-1-saved-url";
 const backupPoolDismissButton = "header-icon-button";
-const backupPoolDeleteButton = "backup-pool-delete-button";
+const backupPoolDeleteButton = "pool-delete-button";
 const continueEditingButton = "continue-editing-button";
 const discardChangesButton = "discard-changes-button";
 const keepBackupButton = "keep-backup-button";

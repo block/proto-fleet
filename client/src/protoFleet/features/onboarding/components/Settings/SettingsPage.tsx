@@ -1,127 +1,45 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { create } from "@bufbuild/protobuf";
-import { CreatePoolRequestSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import useFleet from "@/protoFleet/api/useFleet";
+
+import MiningPoolsForm from "@/protoFleet/components/MiningPools";
 import { STEP_KEYS, STEPS } from "@/protoFleet/features/onboarding/constants";
 
-import AnimatedDotsBackground from "@/shared/components/Animation";
-import Button from "@/shared/components/Button";
-import PoolForm from "@/shared/components/MiningPools/PoolForm";
-import { PoolInfo } from "@/shared/components/MiningPools/types";
-import {
-  getEmptyPoolsInfo,
-  isValidPool,
-} from "@/shared/components/MiningPools/utility";
-import { WarnDefaultPoolCallout } from "@/shared/components/MiningPools/WarnDefaultPoolCallout";
-import OnboardingSettingUp from "@/shared/components/OnboardingSettingUp/OnboardingSettingUp";
-import { OnboardingLayout } from "@/shared/components/Setup";
-import { statuses } from "@/shared/constants/statuses";
+import Header from "@/shared/components/Header";
+import { BootingUp, OnboardingLayout } from "@/shared/components/Setup";
 
-// TODO we can probably share more code with ProtoOS
-const MiningPoolPage = () => {
+const SettingsPage = () => {
   const navigate = useNavigate();
-  const { createPool } = useFleet();
-
-  const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
   const [settingUpMiner, setSettingUpMiner] = useState(false);
-  const [poolStatus, setPoolStatus] = useState<keyof typeof statuses>(
-    statuses.pending,
-  );
-
-  const [warnDefaultPool, setWarnDefaultPool] = useState(false);
-
-  const onContinue = useCallback(() => {
-    // check if default pool has been entered
-    const noValidDefaultPool = !isValidPool(pools[0]);
-    if (noValidDefaultPool) {
-      setWarnDefaultPool(true);
-      return;
-    }
-
-    setSettingUpMiner(true);
-    const defaultPool = pools[0];
-    const createPoolRequest = create(CreatePoolRequestSchema, {
-      poolConfig: {
-        url: defaultPool.url,
-        username: defaultPool.username,
-        password: defaultPool.password,
-      },
-    });
-    createPool({
-      createPoolRequest,
-      onSuccess: () => setPoolStatus(statuses.success),
-      onError: () => setPoolStatus(statuses.error),
-    });
-  }, [pools, createPool]);
-
-  const onChangePools = useCallback((newPools: PoolInfo[]) => {
-    setPools(newPools);
-    if (isValidPool(newPools[0])) {
-      setWarnDefaultPool(false);
-    }
-  }, []);
-
-  const handleClickRetry = useCallback(() => {
-    setPoolStatus(statuses.fetch);
-  }, []);
-
-  const handleClickContinue = useCallback(() => navigate("/"), [navigate]);
-
-  const handleClickReconfigure = useCallback(
-    () => setSettingUpMiner(false),
-    [setSettingUpMiner],
-  );
 
   if (settingUpMiner) {
-    return (
-      <div className="h-svh w-full">
-        <AnimatedDotsBackground>
-          <div className="absolute top-1/2 left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 bg-surface-base p-4">
-            <div className="w-[600px]">
-              <OnboardingSettingUp
-                poolStatus={poolStatus}
-                isSetupDone={poolStatus === statuses.success}
-                onClickContinue={handleClickContinue}
-                onClickReconfigure={handleClickReconfigure}
-                onClickRetry={handleClickRetry}
-              />
-            </div>
-          </div>
-        </AnimatedDotsBackground>
-      </div>
-    );
+    return <BootingUp title="Configuring your fleet" />;
   }
 
-  // TODO support connection test
-  // TODO support backup pools
   return (
     <OnboardingLayout steps={STEPS} currentStep={STEP_KEYS.settings}>
-      <div className="mx-auto max-w-[640px]">
-        <div className="mb-4 flex items-center">
-          <div className="grow text-heading-100 text-text-primary">
-            Default pool
-          </div>
-        </div>
-        <WarnDefaultPoolCallout
-          onDismiss={() => setWarnDefaultPool(false)}
-          show={warnDefaultPool}
-        />
-        <PoolForm
-          poolIndex={0}
-          pools={pools}
-          onChangePools={onChangePools}
-          shouldTestConnection={false}
-          testConnection={() => {}}
-          isTestingConnection={false}
-          setShouldTestConnection={() => {}}
-        />
-        <Button onClick={onContinue} variant="primary" className="mt-4 ml-auto">
-          Continue
-        </Button>
-      </div>
+      <Header
+        className="mb-6"
+        title="Miner settings"
+        titleSize="text-heading-300"
+        description={
+          <>
+            {"These will be your "}
+            <span className="text-emphasis-300">
+              default settings for new miners added to this network.
+            </span>
+            <br className="phone:hidden" />
+            You can always edit these or create custom settings for new miners.
+          </>
+        }
+        inline
+      />
+      <MiningPoolsForm
+        buttonLabel="Complete setup"
+        onSaveRequested={() => setSettingUpMiner(true)}
+        onSaveDone={() => navigate("/")}
+      />
     </OnboardingLayout>
   );
 };
 
-export default MiningPoolPage;
+export default SettingsPage;

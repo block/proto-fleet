@@ -1,38 +1,39 @@
 import { useMemo } from "react";
 
-import { BackupPoolIndex, PoolInfo } from "./types";
+import { PoolIndex, PoolInfo } from "./types";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Row from "@/shared/components/Row";
 
-interface BackupPoolRowProps {
-  backupPoolIndex: BackupPoolIndex;
+interface PoolRowProps {
+  poolIndex: PoolIndex;
+  title: string;
   onClick: () => void;
   pools: PoolInfo[];
   testId?: string;
 }
 
-const BackupPoolRow = ({
-  backupPoolIndex,
+const PoolRow = ({
+  poolIndex,
+  title,
   onClick,
   pools,
   testId,
-}: BackupPoolRowProps) => {
-  const url = useMemo(
-    () => pools[backupPoolIndex]?.url,
-    [pools, backupPoolIndex],
-  );
+}: PoolRowProps) => {
+  const url = useMemo(() => pools[poolIndex]?.url, [pools, poolIndex]);
 
   return (
     <Row className="flex items-center justify-between">
       <div className="flex flex-col">
-        <div>Backup pool #{backupPoolIndex}</div>
-        {!!url && (
+        <div>{title}</div>
+        {url ? (
           <div
             className="text-200 text-text-primary-70"
-            data-testid={`backup-pool-${backupPoolIndex}-saved-url`}
+            data-testid={`pool-${poolIndex}-saved-url`}
           >
             {url}
           </div>
+        ) : (
+          <div className="text-200 text-text-primary-70">Not configured</div>
         )}
       </div>
       <Button
@@ -46,4 +47,4 @@ const BackupPoolRow = ({
   );
 };
 
-export default BackupPoolRow;
+export default PoolRow;

@@ -4,7 +4,11 @@ import AnimatedDotsBackground from "@/shared/components/Animation";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
 
-const BootingUp = () => {
+interface BootingUpProps {
+  title?: string;
+}
+
+const BootingUp = ({ title = "Your miner is booting up" }: BootingUpProps) => {
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
   return (
@@ -25,9 +29,7 @@ const BootingUp = () => {
               transition={{ duration: 1, ease: easeGentle }}
               className="col-start-1 row-start-1 flex flex-col items-center gap-6"
             >
-              <p className="text-emphasis-300 text-text-primary-70">
-                Your miner is booting up
-              </p>
+              <p className="text-emphasis-300 text-text-primary-70">{title}</p>
             </motion.div>
           </div>
         </div>

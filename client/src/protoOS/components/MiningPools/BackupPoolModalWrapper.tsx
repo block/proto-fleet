@@ -1,5 +1,5 @@
 import { useTestConnection } from "@/protoOS/api";
-import BackupPoolModal from "@/shared/components/MiningPools/BackupPoolModal";
+import PoolModal from "@/shared/components/MiningPools/PoolModal";
 import { PoolIndex, PoolInfo } from "@/shared/components/MiningPools/types";
 
 interface BackupPoolPropsWrapper {
@@ -20,12 +20,13 @@ const BackupPoolModalWrapper = ({
   const { testConnection, pending: isTestingConnection } = useTestConnection();
 
   return (
-    <BackupPoolModal
+    <PoolModal
       onChangePools={onChangePools}
       onDismiss={onDismiss}
       poolIndex={poolIndex}
       pools={pools}
       show={show}
+      isDefault={false}
       isTestingConnection={isTestingConnection}
       testConnection={testConnection}
     />
