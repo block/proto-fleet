@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"time"
 
+	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -12,7 +13,7 @@ import (
 // TelemetryCollector defines the interface for collecting miner telemetry data
 type TelemetryCollector interface {
 	// GetMinerTelemetry returns the latest telemetry data for a miner
-	GetMinerTelemetry(ctx context.Context, deviceID string, dataMode pb.DataMode, timeSeriesConfig *pb.TimeSeriesConfig, measurementConfigs []*pb.MeasurementConfig) (*MinerTelemetry, error)
+	GetMinerTelemetry(ctx context.Context, deviceID string, dataMode pb.DataMode, timeSeriesConfig *commonpb.TimeSeriesConfig, measurementConfigs []*pb.MeasurementConfig) (*MinerTelemetry, error)
 
 	// GetMinerComponentStatus returns the latest component status for a miner
 	GetMinerComponentStatus(ctx context.Context, deviceID string) (*pb.MinerComponentStatus, error)
@@ -26,10 +27,10 @@ type TelemetryCollector interface {
 
 // MinerTelemetry represents the telemetry data for a miner
 type MinerTelemetry struct {
-	PowerUsage  []*pb.Measurement
-	Temperature []*pb.Measurement
-	Hashrate    []*pb.Measurement
-	Efficiency  []*pb.Measurement
+	PowerUsage  []*commonpb.Measurement
+	Temperature []*commonpb.Measurement
+	Hashrate    []*commonpb.Measurement
+	Efficiency  []*commonpb.Measurement
 	Timestamp   *timestamppb.Timestamp
 }
 
@@ -40,7 +41,7 @@ func NewMockTelemetryCollector() TelemetryCollector {
 	return &MockTelemetryCollector{}
 }
 
-func (m *MockTelemetryCollector) GetMinerTelemetry(ctx context.Context, _ string, dataMode pb.DataMode, timeSeriesConfig *pb.TimeSeriesConfig, measurementConfigs []*pb.MeasurementConfig) (*MinerTelemetry, error) {
+func (m *MockTelemetryCollector) GetMinerTelemetry(ctx context.Context, _ string, dataMode pb.DataMode, timeSeriesConfig *commonpb.TimeSeriesConfig, measurementConfigs []*pb.MeasurementConfig) (*MinerTelemetry, error) {
 	now := timestamppb.Now()
 
 	// Create a map of measurement type to its config for easy lookup
@@ -50,29 +51,29 @@ func (m *MockTelemetryCollector) GetMinerTelemetry(ctx context.Context, _ string
 	}
 
 	// Helper function to get measurements based on type and config
-	getMeasurements := func(mType pb.MeasurementConfig_MeasurementType) []*pb.Measurement {
+	getMeasurements := func(mType pb.MeasurementConfig_MeasurementType) []*commonpb.Measurement {
 		// Check if there's a specific config for this measurement type
 		if config, ok := configMap[mType]; ok {
 			// Use measurement-specific config
 			if config.DataMode == pb.DataMode_DATA_MODE_METADATA {
-				return []*pb.Measurement{}
+				return []*commonpb.Measurement{}
 			}
 			if config.DataMode == pb.DataMode_DATA_MODE_TIME_SERIES && config.TimeSeriesConfig != nil {
 				return generateTimeSeriesMeasurements(mType, config.TimeSeriesConfig)
 			}
 			// For SNAPSHOT or unspecified, return single measurement
-			return []*pb.Measurement{generateSnapshotMeasurement(mType, now)}
+			return []*commonpb.Measurement{generateSnapshotMeasurement(mType, now)}
 		}
 
 		// No specific config, use global settings
 		if dataMode == pb.DataMode_DATA_MODE_METADATA {
-			return []*pb.Measurement{}
+			return []*commonpb.Measurement{}
 		}
 		if dataMode == pb.DataMode_DATA_MODE_TIME_SERIES && timeSeriesConfig != nil {
 			return generateTimeSeriesMeasurements(mType, timeSeriesConfig)
 		}
 		// Default to SNAPSHOT mode
-		return []*pb.Measurement{generateSnapshotMeasurement(mType, now)}
+		return []*commonpb.Measurement{generateSnapshotMeasurement(mType, now)}
 	}
 
 	return &MinerTelemetry{
@@ -85,23 +86,23 @@ func (m *MockTelemetryCollector) GetMinerTelemetry(ctx context.Context, _ string
 }
 
 // Helper function to generate a single measurement
-func generateSnapshotMeasurement(mType pb.MeasurementConfig_MeasurementType, timestamp *timestamppb.Timestamp) *pb.Measurement {
-	return &pb.Measurement{
+func generateSnapshotMeasurement(mType pb.MeasurementConfig_MeasurementType, timestamp *timestamppb.Timestamp) *commonpb.Measurement {
+	return &commonpb.Measurement{
 		Value:     generateMockValue(mType),
 		Timestamp: timestamp,
 	}
 }
 
 // Helper function to generate time series measurements
-func generateTimeSeriesMeasurements(mType pb.MeasurementConfig_MeasurementType, config *pb.TimeSeriesConfig) []*pb.Measurement {
+func generateTimeSeriesMeasurements(mType pb.MeasurementConfig_MeasurementType, config *commonpb.TimeSeriesConfig) []*commonpb.Measurement {
 	var startTime, endTime time.Time
 
 	// Determine time range based on config
 	switch ts := config.TimeSelection.(type) {
-	case *pb.TimeSeriesConfig_LookbackPeriod:
+	case *commonpb.TimeSeriesConfig_LookbackPeriod:
 		endTime = time.Now()
 		startTime = endTime.Add(-ts.LookbackPeriod.AsDuration())
-	case *pb.TimeSeriesConfig_Interval:
+	case *commonpb.TimeSeriesConfig_Interval:
 		if ts.Interval.StartTime != nil {
 			startTime = ts.Interval.StartTime.AsTime()
 		} else {
@@ -124,9 +125,9 @@ func generateTimeSeriesMeasurements(mType pb.MeasurementConfig_MeasurementType, 
 		resolution = 60 // Default to 1 minute resolution
 	}
 
-	var measurements []*pb.Measurement
+	var measurements []*commonpb.Measurement
 	for t := startTime; t.Before(endTime); t = t.Add(time.Duration(resolution) * time.Second) {
-		measurements = append(measurements, &pb.Measurement{
+		measurements = append(measurements, &commonpb.Measurement{
 			Value:     generateMockValue(mType),
 			Timestamp: timestamppb.New(t),
 		})
@@ -167,7 +168,7 @@ func (m *MockTelemetryCollector) StreamMeasurements(ctx context.Context, deviceI
 					for _, mType := range measurementTypes {
 						measurement := &pb.MeasurementUpdate{
 							MeasurementType: mType,
-							Measurement: &pb.Measurement{
+							Measurement: &commonpb.Measurement{
 								Value:     generateMockValue(mType),
 								Timestamp: timestamppb.Now(),
 							},

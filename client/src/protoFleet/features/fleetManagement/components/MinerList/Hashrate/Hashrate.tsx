@@ -1,4 +1,4 @@
-import { type Measurement } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { type Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import Sparkline from "@/shared/components/Sparkline";

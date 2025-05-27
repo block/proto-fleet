@@ -23,5 +23,16 @@
     "HERMIT_ENV": null,
     "HERMIT_ENV_OPS": null,
     "HERMIT_BIN": null
-  }
+  },
+
+  // Protobuf
+  "protoc": {
+    "path": "protoc",
+    "compile_flags": [
+      "--proto_path=proto"
+    ]
+  },
+  "clangd.arguments": [
+    "--proto-path=proto"
+  ]
 }

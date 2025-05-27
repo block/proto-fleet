@@ -14,12 +14,16 @@ import {
   messageDesc,
   serviceDesc,
 } from "@bufbuild/protobuf/codegenv1";
-import type { Duration, Timestamp } from "@bufbuild/protobuf/wkt";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import {
-  file_google_protobuf_duration,
   file_google_protobuf_timestamp,
   file_google_protobuf_wrappers,
 } from "@bufbuild/protobuf/wkt";
+import type {
+  Measurement,
+  TimeSeriesConfig,
+} from "../../common/v1/measurement_pb";
+import { file_common_v1_measurement } from "../../common/v1/measurement_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
@@ -28,11 +32,11 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_fleetmanagement_v1_fleetmanagement: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "CihmbGVldG1hbmFnZW1lbnQvdjEvZmxlZXRtYW5hZ2VtZW50LnByb3RvEhJmbGVldG1hbmFnZW1lbnQudjEibgoKUG9vbENvbmZpZxILCgN1cmwYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSLgoIcGFzc3dvcmQYAyABKAsyHC5nb29nbGUucHJvdG9idWYuU3RyaW5nVmFsdWUSEQoJcG9vbF9uYW1lGAQgASgJIigKFVNldERlZmF1bHRQb29sUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDIkAKFlNldERlZmF1bHRQb29sUmVzcG9uc2USJgoEcG9vbBgBIAEoCzIYLmZsZWV0bWFuYWdlbWVudC52MS5Qb29sIrMBCgRQb29sEg8KB3Bvb2xfaWQYASABKAMSCwoDdXJsGAIgASgJEhAKCHVzZXJuYW1lGAMgASgJEhEKCXBvb2xfbmFtZRgEIAEoCRIVCg1wb29sX3ByaW9yaXR5GAUgASgFEj0KC3Bvb2xfc3RhdHVzGAYgASgOMiguZmxlZXRtYW5hZ2VtZW50LnYxLlBvb2xDb25uZWN0aW9uU3RhdHVzEhIKCmlzX2RlZmF1bHQYByABKAgiEgoQTGlzdFBvb2xzUmVxdWVzdCI8ChFMaXN0UG9vbHNSZXNwb25zZRInCgVwb29scxgBIAMoCzIYLmZsZWV0bWFuYWdlbWVudC52MS5Qb29sIkgKEUNyZWF0ZVBvb2xSZXF1ZXN0EjMKC3Bvb2xfY29uZmlnGAEgASgLMh4uZmxlZXRtYW5hZ2VtZW50LnYxLlBvb2xDb25maWciPAoSQ3JlYXRlUG9vbFJlc3BvbnNlEiYKBHBvb2wYASABKAsyGC5mbGVldG1hbmFnZW1lbnQudjEuUG9vbCKaAQoRVXBkYXRlUG9vbFJlcXVlc3QSDwoHcG9vbF9pZBgBIAEoAxIRCglwb29sX25hbWUYAiABKAkSCwoDdXJsGAMgASgJEhAKCHVzZXJuYW1lGAQgASgJEi4KCHBhc3N3b3JkGAUgASgLMhwuZ29vZ2xlLnByb3RvYnVmLlN0cmluZ1ZhbHVlEhIKCmlzX2RlZmF1bHQYBiABKAgiPAoSVXBkYXRlUG9vbFJlc3BvbnNlEiYKBHBvb2wYASABKAsyGC5mbGVldG1hbmFnZW1lbnQudjEuUG9vbCIxCgxQb29sUHJpb3JpdHkSDwoHcG9vbF9pZBgBIAEoAxIQCghwcmlvcml0eRgCIAEoBSJWChlVcGRhdGVQb29sUHJpb3JpdHlSZXF1ZXN0EjkKD3Bvb2xfcHJpb3JpdGllcxgBIAMoCzIgLmZsZWV0bWFuYWdlbWVudC52MS5Qb29sUHJpb3JpdHkiRQoaVXBkYXRlUG9vbFByaW9yaXR5UmVzcG9uc2USJwoFcG9vbHMYASADKAsyGC5mbGVldG1hbmFnZW1lbnQudjEuUG9vbCIkChFEZWxldGVQb29sUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDIhQKEkRlbGV0ZVBvb2xSZXNwb25zZSI8ChdMaXN0UGFpcmVkTWluZXJzUmVxdWVzdBIRCglwYWdlX3NpemUYASABKAUSDgoGY3Vyc29yGAIgASgJInIKGExpc3RQYWlyZWRNaW5lcnNSZXNwb25zZRIwCgZtaW5lcnMYASADKAsyIC5mbGVldG1hbmFnZW1lbnQudjEuUGFpcmVkRGV2aWNlEg4KBmN1cnNvchgCIAEoCRIUCgx0b3RhbF9taW5lcnMYAyABKAUiVQoMUGFpcmVkRGV2aWNlEhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEhUKDXNlcmlhbF9udW1iZXIYAiABKAkSEwoLbWFjX2FkZHJlc3MYAyABKAkiugMKEk1pbmVyU3RhdGVTbmFwc2hvdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIMCgRuYW1lGAIgASgJEhMKC21hY19hZGRyZXNzGAMgASgJEhUKDXNlcmlhbF9udW1iZXIYBCABKAkSNAoLcG93ZXJfdXNhZ2UYBSADKAsyHy5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnQSNAoLdGVtcGVyYXR1cmUYBiADKAsyHy5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnQSMQoIaGFzaHJhdGUYByADKAsyHy5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnQSMwoKZWZmaWNpZW5jeRgIIAMoCzIfLmZsZWV0bWFuYWdlbWVudC52MS5NZWFzdXJlbWVudBI4CgZzdGF0dXMYCSABKAsyKC5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJDb21wb25lbnRTdGF0dXMSLQoJdGltZXN0YW1wGAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBISCgppcF9hZGRyZXNzGAsgASgJIvEBChRNaW5lckNvbXBvbmVudFN0YXR1cxI6Cg1jb250cm9sX2JvYXJkGAEgASgOMiMuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1cxIxCgRmYW5zGAIgASgOMiMuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1cxI4CgtoYXNoX2JvYXJkcxgDIAEoDjIjLmZsZWV0bWFuYWdlbWVudC52MS5Db21wb25lbnRTdGF0dXMSMAoDcHN1GAQgASgOMiMuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1cyJ+CgtNZWFzdXJlbWVudBItCgl0aW1lc3RhbXAYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg0KBXZhbHVlGAIgASgBEjEKBHVuaXQYAyABKA4yIy5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnRVbml0IpEDChFNZWFzdXJlbWVudENvbmZpZxJPChBtZWFzdXJlbWVudF90eXBlGAEgASgOMjUuZmxlZXRtYW5hZ2VtZW50LnYxLk1lYXN1cmVtZW50Q29uZmlnLk1lYXN1cmVtZW50VHlwZRIvCglkYXRhX21vZGUYAiABKA4yHC5mbGVldG1hbmFnZW1lbnQudjEuRGF0YU1vZGUSQAoSdGltZV9zZXJpZXNfY29uZmlnGAMgASgLMiQuZmxlZXRtYW5hZ2VtZW50LnYxLlRpbWVTZXJpZXNDb25maWcitwEKD01lYXN1cmVtZW50VHlwZRIgChxNRUFTVVJFTUVOVF9UWVBFX1VOU1BFQ0lGSUVEEAASIAocTUVBU1VSRU1FTlRfVFlQRV9QT1dFUl9VU0FHRRABEiAKHE1FQVNVUkVNRU5UX1RZUEVfVEVNUEVSQVRVUkUQAhIdChlNRUFTVVJFTUVOVF9UWVBFX0hBU0hSQVRFEAMSHwobTUVBU1VSRU1FTlRfVFlQRV9FRkZJQ0lFTkNZEAQiqwIKHkxpc3RNaW5lclN0YXRlU25hcHNob3RzUmVxdWVzdBIRCglwYWdlX3NpemUYASABKAUSDgoGY3Vyc29yGAIgASgJEi8KCWRhdGFfbW9kZRgDIAEoDjIcLmZsZWV0bWFuYWdlbWVudC52MS5EYXRhTW9kZRJAChJ0aW1lX3Nlcmllc19jb25maWcYBCABKAsyJC5mbGVldG1hbmFnZW1lbnQudjEuVGltZVNlcmllc0NvbmZpZxJCChNtZWFzdXJlbWVudF9jb25maWdzGAUgAygLMiUuZmxlZXRtYW5hZ2VtZW50LnYxLk1lYXN1cmVtZW50Q29uZmlnEi8KBmZpbHRlchgGIAEoCzIfLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lckZpbHRlciKkAQoQVGltZVNlcmllc0NvbmZpZxI0Cg9sb29rYmFja19wZXJpb2QYASABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25IABI0CghpbnRlcnZhbBgCIAEoCzIgLmZsZWV0bWFuYWdlbWVudC52MS5UaW1lSW50ZXJ2YWxIABISCgpyZXNvbHV0aW9uGAMgASgFQhAKDnRpbWVfc2VsZWN0aW9uImwKDFRpbWVJbnRlcnZhbBIuCgpzdGFydF90aW1lGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIsCghlbmRfdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiQgoLTWluZXJGaWx0ZXISMwoGc3RhdHVzGAEgASgOMiMuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1cyJ/Ch9MaXN0TWluZXJTdGF0ZVNuYXBzaG90c1Jlc3BvbnNlEjYKBm1pbmVycxgBIAMoCzImLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lclN0YXRlU25hcHNob3QSDgoGY3Vyc29yGAIgASgJEhQKDHRvdGFsX21pbmVycxgDIAEoBSLNAQoZU3RyZWFtTWluZXJVcGRhdGVzUmVxdWVzdBIaChJkZXZpY2VfaWRlbnRpZmllcnMYASADKAkSUAoRbWVhc3VyZW1lbnRfdHlwZXMYAiADKA4yNS5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnRDb25maWcuTWVhc3VyZW1lbnRUeXBlEh4KFmluY2x1ZGVfc3RhdHVzX3VwZGF0ZXMYAyABKAgSIgoaaGVhcnRiZWF0X2ludGVydmFsX3NlY29uZHMYBCABKAUinwIKGlN0cmVhbU1pbmVyVXBkYXRlc1Jlc3BvbnNlEi0KCXRpbWVzdGFtcBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGQoRZGV2aWNlX2lkZW50aWZpZXIYAiABKAkSPAoLbWVhc3VyZW1lbnQYAyABKAsyJS5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnRVcGRhdGVIABI7CgZzdGF0dXMYBCABKAsyKS5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzVXBkYXRlSAASMgoJaGVhcnRiZWF0GAUgASgLMh0uZmxlZXRtYW5hZ2VtZW50LnYxLkhlYXJ0YmVhdEgAQggKBnVwZGF0ZSKaAQoRTWVhc3VyZW1lbnRVcGRhdGUSTwoQbWVhc3VyZW1lbnRfdHlwZRgBIAEoDjI1LmZsZWV0bWFuYWdlbWVudC52MS5NZWFzdXJlbWVudENvbmZpZy5NZWFzdXJlbWVudFR5cGUSNAoLbWVhc3VyZW1lbnQYAiABKAsyHy5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnQinAIKFUNvbXBvbmVudFN0YXR1c1VwZGF0ZRJGCgljb21wb25lbnQYASABKA4yMy5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzVXBkYXRlLkNvbXBvbmVudBIzCgZzdGF0dXMYAiABKA4yIy5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzIoUBCglDb21wb25lbnQSGQoVQ09NUE9ORU5UX1VOU1BFQ0lGSUVEEAASGwoXQ09NUE9ORU5UX0NPTlRST0xfQk9BUkQQARISCg5DT01QT05FTlRfRkFOUxACEhkKFUNPTVBPTkVOVF9IQVNIX0JPQVJEUxADEhEKDUNPTVBPTkVOVF9QU1UQBCILCglIZWFydGJlYXQqowEKFFBvb2xDb25uZWN0aW9uU3RhdHVzEiYKIlBPT0xfQ09OTkVDVElPTl9TVEFUVVNfVU5TUEVDSUZJRUQQABIfChtQT09MX0NPTk5FQ1RJT05fU1RBVFVTX0lETEUQARIhCh1QT09MX0NPTk5FQ1RJT05fU1RBVFVTX0FDVElWRRACEh8KG1BPT0xfQ09OTkVDVElPTl9TVEFUVVNfREVBRBADKsIBCg9Db21wb25lbnRTdGF0dXMSIAocQ09NUE9ORU5UX1NUQVRVU19VTlNQRUNJRklFRBAAEhcKE0NPTVBPTkVOVF9TVEFUVVNfT0sQARIcChhDT01QT05FTlRfU1RBVFVTX1dBUk5JTkcQAhIaChZDT01QT05FTlRfU1RBVFVTX0VSUk9SEAMSHAoYQ09NUE9ORU5UX1NUQVRVU19PRkZMSU5FEAQSHAoYQ09NUE9ORU5UX1NUQVRVU19QRU5ESU5HEAUq5QEKD01lYXN1cmVtZW50VW5pdBIgChxNRUFTVVJFTUVOVF9VTklUX1VOU1BFQ0lGSUVEEAASKAokTUVBU1VSRU1FTlRfVU5JVF9URVJBSEFTSF9QRVJfU0VDT05EEAESKAokTUVBU1VSRU1FTlRfVU5JVF9KT1VMRVNfUEVSX1RFUkFIQVNIEAISHQoZTUVBU1VSRU1FTlRfVU5JVF9LSUxPV0FUVBADEhwKGE1FQVNVUkVNRU5UX1VOSVRfQ0VMU0lVUxAEEh8KG01FQVNVUkVNRU5UX1VOSVRfRkFIUkVOSEVJVBAFKnAKCERhdGFNb2RlEhkKFURBVEFfTU9ERV9VTlNQRUNJRklFRBAAEhYKEkRBVEFfTU9ERV9NRVRBREFUQRABEhYKEkRBVEFfTU9ERV9TTkFQU0hPVBACEhkKFURBVEFfTU9ERV9USU1FX1NFUklFUxADMtIHChZGbGVldE1hbmFnZW1lbnRTZXJ2aWNlEmcKDlNldERlZmF1bHRQb29sEikuZmxlZXRtYW5hZ2VtZW50LnYxLlNldERlZmF1bHRQb29sUmVxdWVzdBoqLmZsZWV0bWFuYWdlbWVudC52MS5TZXREZWZhdWx0UG9vbFJlc3BvbnNlElgKCUxpc3RQb29scxIkLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0UG9vbHNSZXF1ZXN0GiUuZmxlZXRtYW5hZ2VtZW50LnYxLkxpc3RQb29sc1Jlc3BvbnNlElsKCkNyZWF0ZVBvb2wSJS5mbGVldG1hbmFnZW1lbnQudjEuQ3JlYXRlUG9vbFJlcXVlc3QaJi5mbGVldG1hbmFnZW1lbnQudjEuQ3JlYXRlUG9vbFJlc3BvbnNlElsKClVwZGF0ZVBvb2wSJS5mbGVldG1hbmFnZW1lbnQudjEuVXBkYXRlUG9vbFJlcXVlc3QaJi5mbGVldG1hbmFnZW1lbnQudjEuVXBkYXRlUG9vbFJlc3BvbnNlEnMKElVwZGF0ZVBvb2xQcmlvcml0eRItLmZsZWV0bWFuYWdlbWVudC52MS5VcGRhdGVQb29sUHJpb3JpdHlSZXF1ZXN0Gi4uZmxlZXRtYW5hZ2VtZW50LnYxLlVwZGF0ZVBvb2xQcmlvcml0eVJlc3BvbnNlElsKCkRlbGV0ZVBvb2wSJS5mbGVldG1hbmFnZW1lbnQudjEuRGVsZXRlUG9vbFJlcXVlc3QaJi5mbGVldG1hbmFnZW1lbnQudjEuRGVsZXRlUG9vbFJlc3BvbnNlEm0KEExpc3RQYWlyZWRNaW5lcnMSKy5mbGVldG1hbmFnZW1lbnQudjEuTGlzdFBhaXJlZE1pbmVyc1JlcXVlc3QaLC5mbGVldG1hbmFnZW1lbnQudjEuTGlzdFBhaXJlZE1pbmVyc1Jlc3BvbnNlEoIBChdMaXN0TWluZXJTdGF0ZVNuYXBzaG90cxIyLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0TWluZXJTdGF0ZVNuYXBzaG90c1JlcXVlc3QaMy5mbGVldG1hbmFnZW1lbnQudjEuTGlzdE1pbmVyU3RhdGVTbmFwc2hvdHNSZXNwb25zZRJ1ChJTdHJlYW1NaW5lclVwZGF0ZXMSLS5mbGVldG1hbmFnZW1lbnQudjEuU3RyZWFtTWluZXJVcGRhdGVzUmVxdWVzdBouLmZsZWV0bWFuYWdlbWVudC52MS5TdHJlYW1NaW5lclVwZGF0ZXNSZXNwb25zZTABQvUBChZjb20uZmxlZXRtYW5hZ2VtZW50LnYxQhRGbGVldG1hbmFnZW1lbnRQcm90b1ABWlxnaXRodWIuY29tL2J0Yy1taW5pbmcvcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2ZsZWV0bWFuYWdlbWVudC92MTtmbGVldG1hbmFnZW1lbnR2MaICA0ZYWKoCEkZsZWV0bWFuYWdlbWVudC5WMcoCEkZsZWV0bWFuYWdlbWVudFxWMeICHkZsZWV0bWFuYWdlbWVudFxWMVxHUEJNZXRhZGF0YeoCE0ZsZWV0bWFuYWdlbWVudDo6VjFiBnByb3RvMw",
+    "CihmbGVldG1hbmFnZW1lbnQvdjEvZmxlZXRtYW5hZ2VtZW50LnByb3RvEhJmbGVldG1hbmFnZW1lbnQudjEibgoKUG9vbENvbmZpZxILCgN1cmwYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSLgoIcGFzc3dvcmQYAyABKAsyHC5nb29nbGUucHJvdG9idWYuU3RyaW5nVmFsdWUSEQoJcG9vbF9uYW1lGAQgASgJIigKFVNldERlZmF1bHRQb29sUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDIkAKFlNldERlZmF1bHRQb29sUmVzcG9uc2USJgoEcG9vbBgBIAEoCzIYLmZsZWV0bWFuYWdlbWVudC52MS5Qb29sIrMBCgRQb29sEg8KB3Bvb2xfaWQYASABKAMSCwoDdXJsGAIgASgJEhAKCHVzZXJuYW1lGAMgASgJEhEKCXBvb2xfbmFtZRgEIAEoCRIVCg1wb29sX3ByaW9yaXR5GAUgASgFEj0KC3Bvb2xfc3RhdHVzGAYgASgOMiguZmxlZXRtYW5hZ2VtZW50LnYxLlBvb2xDb25uZWN0aW9uU3RhdHVzEhIKCmlzX2RlZmF1bHQYByABKAgiEgoQTGlzdFBvb2xzUmVxdWVzdCI8ChFMaXN0UG9vbHNSZXNwb25zZRInCgVwb29scxgBIAMoCzIYLmZsZWV0bWFuYWdlbWVudC52MS5Qb29sIkgKEUNyZWF0ZVBvb2xSZXF1ZXN0EjMKC3Bvb2xfY29uZmlnGAEgASgLMh4uZmxlZXRtYW5hZ2VtZW50LnYxLlBvb2xDb25maWciPAoSQ3JlYXRlUG9vbFJlc3BvbnNlEiYKBHBvb2wYASABKAsyGC5mbGVldG1hbmFnZW1lbnQudjEuUG9vbCKaAQoRVXBkYXRlUG9vbFJlcXVlc3QSDwoHcG9vbF9pZBgBIAEoAxIRCglwb29sX25hbWUYAiABKAkSCwoDdXJsGAMgASgJEhAKCHVzZXJuYW1lGAQgASgJEi4KCHBhc3N3b3JkGAUgASgLMhwuZ29vZ2xlLnByb3RvYnVmLlN0cmluZ1ZhbHVlEhIKCmlzX2RlZmF1bHQYBiABKAgiPAoSVXBkYXRlUG9vbFJlc3BvbnNlEiYKBHBvb2wYASABKAsyGC5mbGVldG1hbmFnZW1lbnQudjEuUG9vbCIxCgxQb29sUHJpb3JpdHkSDwoHcG9vbF9pZBgBIAEoAxIQCghwcmlvcml0eRgCIAEoBSJWChlVcGRhdGVQb29sUHJpb3JpdHlSZXF1ZXN0EjkKD3Bvb2xfcHJpb3JpdGllcxgBIAMoCzIgLmZsZWV0bWFuYWdlbWVudC52MS5Qb29sUHJpb3JpdHkiRQoaVXBkYXRlUG9vbFByaW9yaXR5UmVzcG9uc2USJwoFcG9vbHMYASADKAsyGC5mbGVldG1hbmFnZW1lbnQudjEuUG9vbCIkChFEZWxldGVQb29sUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDIhQKEkRlbGV0ZVBvb2xSZXNwb25zZSI8ChdMaXN0UGFpcmVkTWluZXJzUmVxdWVzdBIRCglwYWdlX3NpemUYASABKAUSDgoGY3Vyc29yGAIgASgJInIKGExpc3RQYWlyZWRNaW5lcnNSZXNwb25zZRIwCgZtaW5lcnMYASADKAsyIC5mbGVldG1hbmFnZW1lbnQudjEuUGFpcmVkRGV2aWNlEg4KBmN1cnNvchgCIAEoCRIUCgx0b3RhbF9taW5lcnMYAyABKAUiVQoMUGFpcmVkRGV2aWNlEhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEhUKDXNlcmlhbF9udW1iZXIYAiABKAkSEwoLbWFjX2FkZHJlc3MYAyABKAkilgMKEk1pbmVyU3RhdGVTbmFwc2hvdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIMCgRuYW1lGAIgASgJEhMKC21hY19hZGRyZXNzGAMgASgJEhUKDXNlcmlhbF9udW1iZXIYBCABKAkSKwoLcG93ZXJfdXNhZ2UYBSADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKwoLdGVtcGVyYXR1cmUYBiADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKAoIaGFzaHJhdGUYByADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKgoKZWZmaWNpZW5jeRgIIAMoCzIWLmNvbW1vbi52MS5NZWFzdXJlbWVudBI4CgZzdGF0dXMYCSABKAsyKC5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJDb21wb25lbnRTdGF0dXMSLQoJdGltZXN0YW1wGAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBISCgppcF9hZGRyZXNzGAsgASgJIvEBChRNaW5lckNvbXBvbmVudFN0YXR1cxI6Cg1jb250cm9sX2JvYXJkGAEgASgOMiMuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1cxIxCgRmYW5zGAIgASgOMiMuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1cxI4CgtoYXNoX2JvYXJkcxgDIAEoDjIjLmZsZWV0bWFuYWdlbWVudC52MS5Db21wb25lbnRTdGF0dXMSMAoDcHN1GAQgASgOMiMuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1cyKIAwoRTWVhc3VyZW1lbnRDb25maWcSTwoQbWVhc3VyZW1lbnRfdHlwZRgBIAEoDjI1LmZsZWV0bWFuYWdlbWVudC52MS5NZWFzdXJlbWVudENvbmZpZy5NZWFzdXJlbWVudFR5cGUSLwoJZGF0YV9tb2RlGAIgASgOMhwuZmxlZXRtYW5hZ2VtZW50LnYxLkRhdGFNb2RlEjcKEnRpbWVfc2VyaWVzX2NvbmZpZxgDIAEoCzIbLmNvbW1vbi52MS5UaW1lU2VyaWVzQ29uZmlnIrcBCg9NZWFzdXJlbWVudFR5cGUSIAocTUVBU1VSRU1FTlRfVFlQRV9VTlNQRUNJRklFRBAAEiAKHE1FQVNVUkVNRU5UX1RZUEVfUE9XRVJfVVNBR0UQARIgChxNRUFTVVJFTUVOVF9UWVBFX1RFTVBFUkFUVVJFEAISHQoZTUVBU1VSRU1FTlRfVFlQRV9IQVNIUkFURRADEh8KG01FQVNVUkVNRU5UX1RZUEVfRUZGSUNJRU5DWRAEIqICCh5MaXN0TWluZXJTdGF0ZVNuYXBzaG90c1JlcXVlc3QSEQoJcGFnZV9zaXplGAEgASgFEg4KBmN1cnNvchgCIAEoCRIvCglkYXRhX21vZGUYAyABKA4yHC5mbGVldG1hbmFnZW1lbnQudjEuRGF0YU1vZGUSNwoSdGltZV9zZXJpZXNfY29uZmlnGAQgASgLMhsuY29tbW9uLnYxLlRpbWVTZXJpZXNDb25maWcSQgoTbWVhc3VyZW1lbnRfY29uZmlncxgFIAMoCzIlLmZsZWV0bWFuYWdlbWVudC52MS5NZWFzdXJlbWVudENvbmZpZxIvCgZmaWx0ZXIYBiABKAsyHy5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJGaWx0ZXIiQgoLTWluZXJGaWx0ZXISMwoGc3RhdHVzGAEgASgOMiMuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1cyJ/Ch9MaXN0TWluZXJTdGF0ZVNuYXBzaG90c1Jlc3BvbnNlEjYKBm1pbmVycxgBIAMoCzImLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lclN0YXRlU25hcHNob3QSDgoGY3Vyc29yGAIgASgJEhQKDHRvdGFsX21pbmVycxgDIAEoBSLNAQoZU3RyZWFtTWluZXJVcGRhdGVzUmVxdWVzdBIaChJkZXZpY2VfaWRlbnRpZmllcnMYASADKAkSUAoRbWVhc3VyZW1lbnRfdHlwZXMYAiADKA4yNS5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnRDb25maWcuTWVhc3VyZW1lbnRUeXBlEh4KFmluY2x1ZGVfc3RhdHVzX3VwZGF0ZXMYAyABKAgSIgoaaGVhcnRiZWF0X2ludGVydmFsX3NlY29uZHMYBCABKAUinwIKGlN0cmVhbU1pbmVyVXBkYXRlc1Jlc3BvbnNlEi0KCXRpbWVzdGFtcBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGQoRZGV2aWNlX2lkZW50aWZpZXIYAiABKAkSPAoLbWVhc3VyZW1lbnQYAyABKAsyJS5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnRVcGRhdGVIABI7CgZzdGF0dXMYBCABKAsyKS5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzVXBkYXRlSAASMgoJaGVhcnRiZWF0GAUgASgLMh0uZmxlZXRtYW5hZ2VtZW50LnYxLkhlYXJ0YmVhdEgAQggKBnVwZGF0ZSKRAQoRTWVhc3VyZW1lbnRVcGRhdGUSTwoQbWVhc3VyZW1lbnRfdHlwZRgBIAEoDjI1LmZsZWV0bWFuYWdlbWVudC52MS5NZWFzdXJlbWVudENvbmZpZy5NZWFzdXJlbWVudFR5cGUSKwoLbWVhc3VyZW1lbnQYAiABKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQinAIKFUNvbXBvbmVudFN0YXR1c1VwZGF0ZRJGCgljb21wb25lbnQYASABKA4yMy5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzVXBkYXRlLkNvbXBvbmVudBIzCgZzdGF0dXMYAiABKA4yIy5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzIoUBCglDb21wb25lbnQSGQoVQ09NUE9ORU5UX1VOU1BFQ0lGSUVEEAASGwoXQ09NUE9ORU5UX0NPTlRST0xfQk9BUkQQARISCg5DT01QT05FTlRfRkFOUxACEhkKFUNPTVBPTkVOVF9IQVNIX0JPQVJEUxADEhEKDUNPTVBPTkVOVF9QU1UQBCILCglIZWFydGJlYXQqowEKFFBvb2xDb25uZWN0aW9uU3RhdHVzEiYKIlBPT0xfQ09OTkVDVElPTl9TVEFUVVNfVU5TUEVDSUZJRUQQABIfChtQT09MX0NPTk5FQ1RJT05fU1RBVFVTX0lETEUQARIhCh1QT09MX0NPTk5FQ1RJT05fU1RBVFVTX0FDVElWRRACEh8KG1BPT0xfQ09OTkVDVElPTl9TVEFUVVNfREVBRBADKsIBCg9Db21wb25lbnRTdGF0dXMSIAocQ09NUE9ORU5UX1NUQVRVU19VTlNQRUNJRklFRBAAEhcKE0NPTVBPTkVOVF9TVEFUVVNfT0sQARIcChhDT01QT05FTlRfU1RBVFVTX1dBUk5JTkcQAhIaChZDT01QT05FTlRfU1RBVFVTX0VSUk9SEAMSHAoYQ09NUE9ORU5UX1NUQVRVU19PRkZMSU5FEAQSHAoYQ09NUE9ORU5UX1NUQVRVU19QRU5ESU5HEAUqcAoIRGF0YU1vZGUSGQoVREFUQV9NT0RFX1VOU1BFQ0lGSUVEEAASFgoSREFUQV9NT0RFX01FVEFEQVRBEAESFgoSREFUQV9NT0RFX1NOQVBTSE9UEAISGQoVREFUQV9NT0RFX1RJTUVfU0VSSUVTEAMy0gcKFkZsZWV0TWFuYWdlbWVudFNlcnZpY2USZwoOU2V0RGVmYXVsdFBvb2wSKS5mbGVldG1hbmFnZW1lbnQudjEuU2V0RGVmYXVsdFBvb2xSZXF1ZXN0GiouZmxlZXRtYW5hZ2VtZW50LnYxLlNldERlZmF1bHRQb29sUmVzcG9uc2USWAoJTGlzdFBvb2xzEiQuZmxlZXRtYW5hZ2VtZW50LnYxLkxpc3RQb29sc1JlcXVlc3QaJS5mbGVldG1hbmFnZW1lbnQudjEuTGlzdFBvb2xzUmVzcG9uc2USWwoKQ3JlYXRlUG9vbBIlLmZsZWV0bWFuYWdlbWVudC52MS5DcmVhdGVQb29sUmVxdWVzdBomLmZsZWV0bWFuYWdlbWVudC52MS5DcmVhdGVQb29sUmVzcG9uc2USWwoKVXBkYXRlUG9vbBIlLmZsZWV0bWFuYWdlbWVudC52MS5VcGRhdGVQb29sUmVxdWVzdBomLmZsZWV0bWFuYWdlbWVudC52MS5VcGRhdGVQb29sUmVzcG9uc2UScwoSVXBkYXRlUG9vbFByaW9yaXR5Ei0uZmxlZXRtYW5hZ2VtZW50LnYxLlVwZGF0ZVBvb2xQcmlvcml0eVJlcXVlc3QaLi5mbGVldG1hbmFnZW1lbnQudjEuVXBkYXRlUG9vbFByaW9yaXR5UmVzcG9uc2USWwoKRGVsZXRlUG9vbBIlLmZsZWV0bWFuYWdlbWVudC52MS5EZWxldGVQb29sUmVxdWVzdBomLmZsZWV0bWFuYWdlbWVudC52MS5EZWxldGVQb29sUmVzcG9uc2USbQoQTGlzdFBhaXJlZE1pbmVycxIrLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0UGFpcmVkTWluZXJzUmVxdWVzdBosLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0UGFpcmVkTWluZXJzUmVzcG9uc2USggEKF0xpc3RNaW5lclN0YXRlU25hcHNob3RzEjIuZmxlZXRtYW5hZ2VtZW50LnYxLkxpc3RNaW5lclN0YXRlU25hcHNob3RzUmVxdWVzdBozLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0TWluZXJTdGF0ZVNuYXBzaG90c1Jlc3BvbnNlEnUKElN0cmVhbU1pbmVyVXBkYXRlcxItLmZsZWV0bWFuYWdlbWVudC52MS5TdHJlYW1NaW5lclVwZGF0ZXNSZXF1ZXN0Gi4uZmxlZXRtYW5hZ2VtZW50LnYxLlN0cmVhbU1pbmVyVXBkYXRlc1Jlc3BvbnNlMAFC9QEKFmNvbS5mbGVldG1hbmFnZW1lbnQudjFCFEZsZWV0bWFuYWdlbWVudFByb3RvUAFaXGdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvZmxlZXRtYW5hZ2VtZW50L3YxO2ZsZWV0bWFuYWdlbWVudHYxogIDRlhYqgISRmxlZXRtYW5hZ2VtZW50LlYxygISRmxlZXRtYW5hZ2VtZW50XFYx4gIeRmxlZXRtYW5hZ2VtZW50XFYxXEdQQk1ldGFkYXRh6gITRmxlZXRtYW5hZ2VtZW50OjpWMWIGcHJvdG8z",
     [
-      file_google_protobuf_duration,
       file_google_protobuf_timestamp,
       file_google_protobuf_wrappers,
+      file_common_v1_measurement,
     ],
   );
 
@@ -645,7 +649,7 @@ export type MinerStateSnapshot =
      * Power consumption measurements in kilowatts (kW)
      * Contains either a single current value or a time series based on request parameters
      *
-     * @generated from field: repeated fleetmanagement.v1.Measurement power_usage = 5;
+     * @generated from field: repeated common.v1.Measurement power_usage = 5;
      */
     powerUsage: Measurement[];
 
@@ -653,7 +657,7 @@ export type MinerStateSnapshot =
      * Temperature measurements in degrees Celsius
      * Contains either a single current value or a time series based on request parameters
      *
-     * @generated from field: repeated fleetmanagement.v1.Measurement temperature = 6;
+     * @generated from field: repeated common.v1.Measurement temperature = 6;
      */
     temperature: Measurement[];
 
@@ -661,7 +665,7 @@ export type MinerStateSnapshot =
      * Hashrate measurements in TH/s (terahash per second)
      * Contains either a single current value or a time series based on request parameters
      *
-     * @generated from field: repeated fleetmanagement.v1.Measurement hashrate = 7;
+     * @generated from field: repeated common.v1.Measurement hashrate = 7;
      */
     hashrate: Measurement[];
 
@@ -670,7 +674,7 @@ export type MinerStateSnapshot =
      * Lower values indicate better efficiency
      * Contains either a single current value or a time series based on request parameters
      *
-     * @generated from field: repeated fleetmanagement.v1.Measurement efficiency = 8;
+     * @generated from field: repeated common.v1.Measurement efficiency = 8;
      */
     efficiency: Measurement[];
 
@@ -749,42 +753,6 @@ export const MinerComponentStatusSchema: GenMessage<MinerComponentStatus> =
   messageDesc(file_fleetmanagement_v1_fleetmanagement, 19);
 
 /**
- * A single measurement with timestamp, value, and unit
- *
- * @generated from message fleetmanagement.v1.Measurement
- */
-export type Measurement = Message<"fleetmanagement.v1.Measurement"> & {
-  /**
-   * Timestamp of when the measurement was taken
-   *
-   * @generated from field: google.protobuf.Timestamp timestamp = 1;
-   */
-  timestamp?: Timestamp;
-
-  /**
-   * Numeric value of the measurement
-   *
-   * @generated from field: double value = 2;
-   */
-  value: number;
-
-  /**
-   * Unit of measurement
-   *
-   * @generated from field: fleetmanagement.v1.MeasurementUnit unit = 3;
-   */
-  unit: MeasurementUnit;
-};
-
-/**
- * Describes the message fleetmanagement.v1.Measurement.
- * Use `create(MeasurementSchema)` to create a new message.
- */
-export const MeasurementSchema: GenMessage<Measurement> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 20);
-
-/**
  * Configuration for a specific measurement type
  *
  * @generated from message fleetmanagement.v1.MeasurementConfig
@@ -809,7 +777,7 @@ export type MeasurementConfig =
      * Time series configuration for this specific measurement type
      * Required when data_mode is TIME_SERIES
      *
-     * @generated from field: fleetmanagement.v1.TimeSeriesConfig time_series_config = 3;
+     * @generated from field: common.v1.TimeSeriesConfig time_series_config = 3;
      */
     timeSeriesConfig?: TimeSeriesConfig;
   };
@@ -820,7 +788,7 @@ export type MeasurementConfig =
  */
 export const MeasurementConfigSchema: GenMessage<MeasurementConfig> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 21);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 20);
 
 /**
  * Type of measurement this configuration applies to
@@ -869,7 +837,7 @@ export enum MeasurementConfig_MeasurementType {
  */
 export const MeasurementConfig_MeasurementTypeSchema: GenEnum<MeasurementConfig_MeasurementType> =
   /*@__PURE__*/
-  enumDesc(file_fleetmanagement_v1_fleetmanagement, 21, 0);
+  enumDesc(file_fleetmanagement_v1_fleetmanagement, 20, 0);
 
 /**
  * Request to list miners with their telemetry data
@@ -908,7 +876,7 @@ export type ListMinerStateSnapshotsRequest =
      * Global time series config that applies to all measurements unless overridden
      * Required when global data_mode is TIME_SERIES and no per-measurement configs are provided
      *
-     * @generated from field: fleetmanagement.v1.TimeSeriesConfig time_series_config = 4;
+     * @generated from field: common.v1.TimeSeriesConfig time_series_config = 4;
      */
     timeSeriesConfig?: TimeSeriesConfig;
 
@@ -934,85 +902,7 @@ export type ListMinerStateSnapshotsRequest =
  */
 export const ListMinerStateSnapshotsRequestSchema: GenMessage<ListMinerStateSnapshotsRequest> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 22);
-
-/**
- * Configuration for time series data retrieval
- *
- * @generated from message fleetmanagement.v1.TimeSeriesConfig
- */
-export type TimeSeriesConfig =
-  Message<"fleetmanagement.v1.TimeSeriesConfig"> & {
-    /**
-     * @generated from oneof fleetmanagement.v1.TimeSeriesConfig.time_selection
-     */
-    timeSelection:
-      | {
-          /**
-           * @generated from field: google.protobuf.Duration lookback_period = 1;
-           */
-          value: Duration;
-          case: "lookbackPeriod";
-        }
-      | {
-          /**
-           * @generated from field: fleetmanagement.v1.TimeInterval interval = 2;
-           */
-          value: TimeInterval;
-          case: "interval";
-        }
-      | { case: undefined; value?: undefined };
-
-    /**
-     * Time resolution for time series data in seconds
-     * Controls the granularity of returned time series data points
-     * If not specified when data_mode is TIME_SERIES, defaults to a server determined value
-     * Server may adjust this to a supported value
-     *
-     * @generated from field: int32 resolution = 3;
-     */
-    resolution: number;
-  };
-
-/**
- * Describes the message fleetmanagement.v1.TimeSeriesConfig.
- * Use `create(TimeSeriesConfigSchema)` to create a new message.
- */
-export const TimeSeriesConfigSchema: GenMessage<TimeSeriesConfig> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 23);
-
-/**
- * Represents a time interval with start and end timestamps
- * Similar to google.type.Interval but defined within the project
- *
- * @generated from message fleetmanagement.v1.TimeInterval
- */
-export type TimeInterval = Message<"fleetmanagement.v1.TimeInterval"> & {
-  /**
-   * Optional. Inclusive start of the interval.
-   * If specified, only data at or after this timestamp will be included
-   *
-   * @generated from field: google.protobuf.Timestamp start_time = 1;
-   */
-  startTime?: Timestamp;
-
-  /**
-   * Optional. Exclusive end of the interval.
-   * If specified, only data before this timestamp will be included
-   *
-   * @generated from field: google.protobuf.Timestamp end_time = 2;
-   */
-  endTime?: Timestamp;
-};
-
-/**
- * Describes the message fleetmanagement.v1.TimeInterval.
- * Use `create(TimeIntervalSchema)` to create a new message.
- */
-export const TimeIntervalSchema: GenMessage<TimeInterval> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 24);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 21);
 
 /**
  * Filter criteria for miners
@@ -1034,7 +924,7 @@ export type MinerFilter = Message<"fleetmanagement.v1.MinerFilter"> & {
  */
 export const MinerFilterSchema: GenMessage<MinerFilter> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 25);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 22);
 
 /**
  * Response containing a list of miners with their telemetry
@@ -1074,7 +964,7 @@ export type ListMinerStateSnapshotsResponse =
  */
 export const ListMinerStateSnapshotsResponseSchema: GenMessage<ListMinerStateSnapshotsResponse> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 26);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 23);
 
 /**
  * @generated from message fleetmanagement.v1.StreamMinerUpdatesRequest
@@ -1116,7 +1006,7 @@ export type StreamMinerUpdatesRequest =
  */
 export const StreamMinerUpdatesRequestSchema: GenMessage<StreamMinerUpdatesRequest> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 27);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 24);
 
 /**
  * @generated from message fleetmanagement.v1.StreamMinerUpdatesResponse
@@ -1179,7 +1069,7 @@ export type StreamMinerUpdatesResponse =
  */
 export const StreamMinerUpdatesResponseSchema: GenMessage<StreamMinerUpdatesResponse> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 28);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 25);
 
 /**
  * @generated from message fleetmanagement.v1.MeasurementUpdate
@@ -1196,7 +1086,7 @@ export type MeasurementUpdate =
     /**
      * The new measurement value
      *
-     * @generated from field: fleetmanagement.v1.Measurement measurement = 2;
+     * @generated from field: common.v1.Measurement measurement = 2;
      */
     measurement?: Measurement;
   };
@@ -1207,7 +1097,7 @@ export type MeasurementUpdate =
  */
 export const MeasurementUpdateSchema: GenMessage<MeasurementUpdate> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 29);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 26);
 
 /**
  * @generated from message fleetmanagement.v1.ComponentStatusUpdate
@@ -1235,7 +1125,7 @@ export type ComponentStatusUpdate =
  */
 export const ComponentStatusUpdateSchema: GenMessage<ComponentStatusUpdate> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 30);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 27);
 
 /**
  * The component that changed status
@@ -1274,7 +1164,7 @@ export enum ComponentStatusUpdate_Component {
  */
 export const ComponentStatusUpdate_ComponentSchema: GenEnum<ComponentStatusUpdate_Component> =
   /*@__PURE__*/
-  enumDesc(file_fleetmanagement_v1_fleetmanagement, 30, 0);
+  enumDesc(file_fleetmanagement_v1_fleetmanagement, 27, 0);
 
 /**
  * Empty message for heartbeat
@@ -1289,7 +1179,7 @@ export type Heartbeat = Message<"fleetmanagement.v1.Heartbeat"> & {};
  */
 export const HeartbeatSchema: GenMessage<Heartbeat> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 31);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 28);
 
 /**
  * @generated from enum fleetmanagement.v1.PoolConnectionStatus
@@ -1380,62 +1270,6 @@ export const ComponentStatusSchema: GenEnum<ComponentStatus> =
   enumDesc(file_fleetmanagement_v1_fleetmanagement, 1);
 
 /**
- * Standard units used throughout the API
- *
- * @generated from enum fleetmanagement.v1.MeasurementUnit
- */
-export enum MeasurementUnit {
-  /**
-   * Unit not specified
-   *
-   * @generated from enum value: MEASUREMENT_UNIT_UNSPECIFIED = 0;
-   */
-  UNSPECIFIED = 0,
-
-  /**
-   * Terahash per second - for hashrate measurements
-   *
-   * @generated from enum value: MEASUREMENT_UNIT_TERAHASH_PER_SECOND = 1;
-   */
-  TERAHASH_PER_SECOND = 1,
-
-  /**
-   * Joules per terahash - for efficiency measurements
-   *
-   * @generated from enum value: MEASUREMENT_UNIT_JOULES_PER_TERAHASH = 2;
-   */
-  JOULES_PER_TERAHASH = 2,
-
-  /**
-   * Kilowatt - for power consumption measurements
-   *
-   * @generated from enum value: MEASUREMENT_UNIT_KILOWATT = 3;
-   */
-  KILOWATT = 3,
-
-  /**
-   * Degrees Celsius - for temperature measurements
-   *
-   * @generated from enum value: MEASUREMENT_UNIT_CELSIUS = 4;
-   */
-  CELSIUS = 4,
-
-  /**
-   * Degrees Fahrenheit - for temperature measurements
-   *
-   * @generated from enum value: MEASUREMENT_UNIT_FAHRENHEIT = 5;
-   */
-  FAHRENHEIT = 5,
-}
-
-/**
- * Describes the enum fleetmanagement.v1.MeasurementUnit.
- */
-export const MeasurementUnitSchema: GenEnum<MeasurementUnit> =
-  /*@__PURE__*/
-  enumDesc(file_fleetmanagement_v1_fleetmanagement, 2);
-
-/**
  * Determines whether to return current snapshot or historical time series data
  *
  * @generated from enum fleetmanagement.v1.DataMode
@@ -1475,7 +1309,7 @@ export enum DataMode {
  */
 export const DataModeSchema: GenEnum<DataMode> =
   /*@__PURE__*/
-  enumDesc(file_fleetmanagement_v1_fleetmanagement, 3);
+  enumDesc(file_fleetmanagement_v1_fleetmanagement, 2);
 
 /**
  * Service for managing fleet-wide settings and configurations

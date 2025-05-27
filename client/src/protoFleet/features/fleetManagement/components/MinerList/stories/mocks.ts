@@ -1,6 +1,6 @@
+import { type Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import {
   ComponentStatus,
-  type Measurement,
   type MinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 

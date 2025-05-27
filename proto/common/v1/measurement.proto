@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+package common.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+// A single measurement with timestamp, value, and unit
+message Measurement {
+  // Timestamp of when the measurement was taken
+  google.protobuf.Timestamp timestamp = 1;
+
+  // Numeric value of the measurement
+  double value = 2;
+
+  // Unit of measurement
+  MeasurementUnit unit = 3;
+}
+
+// Standard units used throughout the API
+enum MeasurementUnit {
+  // Unit not specified
+  MEASUREMENT_UNIT_UNSPECIFIED = 0;
+
+  // Terahash per second - for hashrate measurements
+  MEASUREMENT_UNIT_TERAHASH_PER_SECOND = 1;
+
+  // Joules per terahash - for efficiency measurements
+  MEASUREMENT_UNIT_JOULES_PER_TERAHASH = 2;
+
+  // Kilowatt - for power consumption measurements
+  MEASUREMENT_UNIT_KILOWATT = 3;
+
+  // Degrees Celsius - for temperature measurements
+  MEASUREMENT_UNIT_CELSIUS = 4;
+
+  // Degrees Fahrenheit - for temperature measurements
+  MEASUREMENT_UNIT_FAHRENHEIT = 5;
+
+  // Percentage - for uptime and efficiency percentages
+  MEASUREMENT_UNIT_PERCENTAGE = 6;
+
+  // Hours - for uptime measurements
+  MEASUREMENT_UNIT_HOURS = 7;
+}
+
+// Configuration for time series data retrieval
+message TimeSeriesConfig {
+  oneof time_selection {
+    google.protobuf.Duration lookback_period = 1;
+    TimeInterval interval = 2;
+  }
+
+  // Time resolution for time series data in seconds
+  // Controls the granularity of returned time series data points
+  // If not specified when data_mode is TIME_SERIES, defaults to a server determined value
+  // Server may adjust this to a supported value
+  int32 resolution = 3;
+}
+
+// Represents a time interval with start and end timestamps
+// Similar to google.type.Interval but defined within the project
+message TimeInterval {
+  // Optional. Inclusive start of the interval.
+  // If specified, only data at or after this timestamp will be included
+  google.protobuf.Timestamp start_time = 1;
+
+  // Optional. Exclusive end of the interval.
+  // If specified, only data before this timestamp will be included
+  google.protobuf.Timestamp end_time = 2;
+}
+

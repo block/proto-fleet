@@ -1,5 +1,5 @@
 import HashrateComponent from ".";
-import { Measurement } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 
 const hashrate = [
   {
