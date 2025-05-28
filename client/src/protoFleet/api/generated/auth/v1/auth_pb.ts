@@ -3,11 +3,13 @@
 /* eslint-disable */
 
 import type {
+  GenEnum,
   GenFile,
   GenMessage,
   GenService,
 } from "@bufbuild/protobuf/codegenv1";
 import {
+  enumDesc,
   fileDesc,
   messageDesc,
   serviceDesc,
@@ -20,7 +22,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_auth_v1_auth: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChJhdXRoL3YxL2F1dGgucHJvdG8SB2F1dGgudjEiOQoTQXV0aGVudGljYXRlUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRIQCghwYXNzd29yZBgCIAEoCSI7ChRBdXRoZW50aWNhdGVSZXNwb25zZRINCgV0b2tlbhgBIAEoCRIUCgx0b2tlbl9leHBpcnkYAiABKAMiRwoVVXBkYXRlUGFzc3dvcmRSZXF1ZXN0EhgKEGN1cnJlbnRfcGFzc3dvcmQYASABKAkSFAoMbmV3X3Bhc3N3b3JkGAIgASgJIhgKFlVwZGF0ZVBhc3N3b3JkUmVzcG9uc2UyrQEKC0F1dGhTZXJ2aWNlEksKDEF1dGhlbnRpY2F0ZRIcLmF1dGgudjEuQXV0aGVudGljYXRlUmVxdWVzdBodLmF1dGgudjEuQXV0aGVudGljYXRlUmVzcG9uc2USUQoOVXBkYXRlUGFzc3dvcmQSHi5hdXRoLnYxLlVwZGF0ZVBhc3N3b3JkUmVxdWVzdBofLmF1dGgudjEuVXBkYXRlUGFzc3dvcmRSZXNwb25zZUKdAQoLY29tLmF1dGgudjFCCUF1dGhQcm90b1ABWkZnaXRodWIuY29tL2J0Yy1taW5pbmcvcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2F1dGgvdjE7YXV0aHYxogIDQVhYqgIHQXV0aC5WMcoCB0F1dGhcVjHiAhNBdXRoXFYxXEdQQk1ldGFkYXRh6gIIQXV0aDo6VjFiBnByb3RvMw",
+    "ChJhdXRoL3YxL2F1dGgucHJvdG8SB2F1dGgudjEiOQoTQXV0aGVudGljYXRlUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRIQCghwYXNzd29yZBgCIAEoCSI7ChRBdXRoZW50aWNhdGVSZXNwb25zZRINCgV0b2tlbhgBIAEoCRIUCgx0b2tlbl9leHBpcnkYAiABKAMiRwoVVXBkYXRlUGFzc3dvcmRSZXF1ZXN0EhgKEGN1cnJlbnRfcGFzc3dvcmQYASABKAkSFAoMbmV3X3Bhc3N3b3JkGAIgASgJIhgKFlVwZGF0ZVBhc3N3b3JkUmVzcG9uc2UqdgoVQXV0aGVudGljYXRlRXJyb3JDb2RlEicKI0FVVEhFTlRJQ0FURV9FUlJPUl9DT0RFX1VOU1BFQ0lGSUVEEAASNAowQVVUSEVOVElDQVRFX0VSUk9SX0NPREVfSU5WQUxJRF9VU0VSX09SX1BBU1NXT1JEEAEqvAEKF1VwZGF0ZVBhc3N3b3JkRXJyb3JDb2RlEioKJlVQREFURV9QQVNTV09SRF9FUlJPUl9DT0RFX1VOU1BFQ0lGSUVEEAASMwovVVBEQVRFX1BBU1NXT1JEX0VSUk9SX0NPREVfSU5WQUxJRF9PTERfUEFTU1dPUkQQARJACjxVUERBVEVfUEFTU1dPUkRfRVJST1JfQ09ERV9ORVdfUEFTU1dPUkRfU0FNRV9BU19PTERfUEFTU1dPUkQQAjKtAQoLQXV0aFNlcnZpY2USSwoMQXV0aGVudGljYXRlEhwuYXV0aC52MS5BdXRoZW50aWNhdGVSZXF1ZXN0Gh0uYXV0aC52MS5BdXRoZW50aWNhdGVSZXNwb25zZRJRCg5VcGRhdGVQYXNzd29yZBIeLmF1dGgudjEuVXBkYXRlUGFzc3dvcmRSZXF1ZXN0Gh8uYXV0aC52MS5VcGRhdGVQYXNzd29yZFJlc3BvbnNlQp0BCgtjb20uYXV0aC52MUIJQXV0aFByb3RvUAFaRmdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvYXV0aC92MTthdXRodjGiAgNBWFiqAgdBdXRoLlYxygIHQXV0aFxWMeICE0F1dGhcVjFcR1BCTWV0YWRhdGHqAghBdXRoOjpWMWIGcHJvdG8z",
   );
 
 /**
@@ -124,6 +126,55 @@ export type UpdatePasswordResponse =
 export const UpdatePasswordResponseSchema: GenMessage<UpdatePasswordResponse> =
   /*@__PURE__*/
   messageDesc(file_auth_v1_auth, 3);
+
+/**
+ * @generated from enum auth.v1.AuthenticateErrorCode
+ */
+export enum AuthenticateErrorCode {
+  /**
+   * @generated from enum value: AUTHENTICATE_ERROR_CODE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: AUTHENTICATE_ERROR_CODE_INVALID_USER_OR_PASSWORD = 1;
+   */
+  INVALID_USER_OR_PASSWORD = 1,
+}
+
+/**
+ * Describes the enum auth.v1.AuthenticateErrorCode.
+ */
+export const AuthenticateErrorCodeSchema: GenEnum<AuthenticateErrorCode> =
+  /*@__PURE__*/
+  enumDesc(file_auth_v1_auth, 0);
+
+/**
+ * @generated from enum auth.v1.UpdatePasswordErrorCode
+ */
+export enum UpdatePasswordErrorCode {
+  /**
+   * @generated from enum value: UPDATE_PASSWORD_ERROR_CODE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: UPDATE_PASSWORD_ERROR_CODE_INVALID_OLD_PASSWORD = 1;
+   */
+  INVALID_OLD_PASSWORD = 1,
+
+  /**
+   * @generated from enum value: UPDATE_PASSWORD_ERROR_CODE_NEW_PASSWORD_SAME_AS_OLD_PASSWORD = 2;
+   */
+  NEW_PASSWORD_SAME_AS_OLD_PASSWORD = 2,
+}
+
+/**
+ * Describes the enum auth.v1.UpdatePasswordErrorCode.
+ */
+export const UpdatePasswordErrorCodeSchema: GenEnum<UpdatePasswordErrorCode> =
+  /*@__PURE__*/
+  enumDesc(file_auth_v1_auth, 1);
 
 /**
  * AuthService provides authentication and user credential management functionality

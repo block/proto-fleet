@@ -2,7 +2,7 @@ package pairing
 
 import (
 	"context"
-	"errors"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"log/slog"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
@@ -41,11 +41,11 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 	case *pb.DiscoverRequest_Mdns:
 		resultChan, err = h.pairingSvc.DiscoverWithMDNS(ctx, r.Msg.GetMdns())
 	default:
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("unsupported mode"))
+		return fleeterror.NewInternalError("unsupported mode")
 	}
 
 	if err != nil {
-		return connect.NewError(connect.CodeInternal, err)
+		return err
 	}
 
 	for {
@@ -58,10 +58,11 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 				Devices: result.Devices,
 			}
 			if err := s.Send(res); err != nil {
-				return connect.NewError(connect.CodeInternal, err)
+				// nolint:wrapcheck
+				return err
 			}
 		case <-ctx.Done():
-			return connect.NewError(connect.CodeCanceled, ctx.Err())
+			return fleeterror.NewCanceledError()
 		}
 	}
 }
@@ -70,7 +71,8 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 func (h *Handler) Pair(ctx context.Context, r *connect.Request[pb.PairRequest]) (*connect.Response[pb.PairResponse], error) {
 	resp, err := h.pairingSvc.PairDevices(ctx, r.Msg)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, err
 	}
+
 	return connect.NewResponse(resp), nil
 }

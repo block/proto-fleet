@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"net"
 	"net/http"
 
@@ -56,7 +57,7 @@ func Execute[Req any, Resp any, Client any](
 		// Fallback to HTTP
 		response, errHTTP = executeWithProtocol(ctx, s.httpClient, minerURL, rpcReq, "http")
 		if errHTTP != nil {
-			return nil, fmt.Errorf("failed to execute gRPC call to: %s: HTTPS error: %w; HTTP error: %w", minerURL, err, errHTTP)
+			return nil, fleeterror.NewInternalErrorf("failed to execute gRPC call to: %s: HTTPS error: %v; HTTP error: %v", minerURL, err, errHTTP)
 		}
 	}
 

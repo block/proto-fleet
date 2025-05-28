@@ -3,17 +3,11 @@ package onboarding
 import (
 	"context"
 	"database/sql"
-	"errors"
-
-	"connectrpc.com/authn"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
-)
-
-var (
-	ErrUnauthorized = errors.New("unauthorized")
 )
 
 type Service struct {
@@ -27,18 +21,20 @@ func NewService(conn *sql.DB) *Service {
 }
 
 func (s *Service) GetFleetOnboardingStatus(ctx context.Context) (*pb.FleetOnboardingStatus, error) {
-	claims, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
-	if !ok {
-		return nil, ErrUnauthorized
+	claims, err := tokenDomain.GetJWTClaims(ctx)
+	if err != nil {
+		return nil, err
 	}
+
 	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (*pb.FleetOnboardingStatus, error) {
 		totalPairedDevices, err := q.GetTotalPairedDevices(ctx)
 		if err != nil {
-			return nil, err
+			return nil, fleeterror.NewInternalErrorf("error getting number of paired devices: %v", err)
 		}
+
 		totalPools, err := q.GetTotalPools(ctx, claims.OrgID)
 		if err != nil {
-			return nil, err
+			return nil, fleeterror.NewInternalErrorf("error getting number of configured pools: %v", err)
 		}
 
 		return &pb.FleetOnboardingStatus{

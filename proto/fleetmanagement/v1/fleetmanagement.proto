@@ -46,6 +46,11 @@ service FleetManagementService {
   rpc StreamMinerUpdates(StreamMinerUpdatesRequest) returns (stream StreamMinerUpdatesResponse);
 }
 
+enum FleetManagementServiceErrorCode {
+  FLEET_MANAGEMENT_SERVICE_ERROR_CODE_UNSPECIFIED = 0;
+  FLEET_MANAGEMENT_SERVICE_ERROR_CODE_INVALID_PAGINATION_CURSOR = 1;
+}
+
 // PoolConfig defines the connection details for a mining pool
 message PoolConfig {
   // Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")

@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package common.v1;
+
+message FleetErrorDetails {
+  oneof code {
+    FleetErrorCode common = 1;
+    int32 service = 2;
+    int32 endpoint = 3;
+  }
+}
+
+enum FleetErrorCode {
+  FLEET_ERROR_CODE_UNSPECIFIED = 0;
+}

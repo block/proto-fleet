@@ -1,9 +1,8 @@
 package networkinfo
 
 import (
-	"context"
-
 	"connectrpc.com/connect"
+	"context"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/networkinfo/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
@@ -23,8 +22,9 @@ func NewHandler(pairingSvc *pairing.Service) *Handler {
 func (h Handler) GetNetworkInfo(ctx context.Context, _ *connect.Request[pb.GetNetworkInfoRequest]) (*connect.Response[pb.GetNetworkInfoResponse], error) {
 	info, err := h.pairingSvc.GetLocalNetworkInfo(ctx)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, err
 	}
+
 	return connect.NewResponse(&pb.GetNetworkInfoResponse{
 		NetworkInfo: &pb.NetworkInfo{
 			Gateway: info.Gateway,

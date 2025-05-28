@@ -1,10 +1,8 @@
 package command
 
 import (
-	"context"
-	"fmt"
-
 	"connectrpc.com/connect"
+	"context"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
@@ -29,7 +27,7 @@ func (h *Handler) StopMining(
 ) (*connect.Response[pb.StopMiningResponse], error) {
 	resp, err := h.commandSvc.StopMining(ctx, req.Msg.DeviceIdentifiers)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to stop mining: %v", err))
+		return nil, err
 	}
 
 	return connect.NewResponse(resp), nil
@@ -41,7 +39,7 @@ func (h *Handler) StartMining(
 ) (*connect.Response[pb.StartMiningResponse], error) {
 	resp, err := h.commandSvc.StartMining(ctx, req.Msg.DeviceIdentifiers)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to start mining: %v", err))
+		return nil, err
 	}
 
 	return connect.NewResponse(resp), nil

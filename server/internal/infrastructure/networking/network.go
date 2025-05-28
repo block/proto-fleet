@@ -1,7 +1,7 @@
 package networking
 
 import (
-	"fmt"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"net"
 
 	"github.com/jackpal/gateway"
@@ -19,7 +19,7 @@ var emptyNetworkInfo = NetworkInfo{}
 func GetLocalNetworkInfo() (NetworkInfo, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
-		return emptyNetworkInfo, fmt.Errorf("failed to get network interfaces: %w", err)
+		return emptyNetworkInfo, fleeterror.NewInternalErrorf("failed to get network interfaces: %v", err)
 	}
 
 	for _, iface := range interfaces {
@@ -48,7 +48,7 @@ func GetLocalNetworkInfo() (NetworkInfo, error) {
 			// Get gateway IP
 			gatewayIP, err := gateway.DiscoverGateway()
 			if err != nil {
-				return emptyNetworkInfo, fmt.Errorf("failed to discover gateway: %w", err)
+				return emptyNetworkInfo, fleeterror.NewInternalErrorf("failed to discover gateway: %v", err)
 			}
 
 			return NetworkInfo{
@@ -60,5 +60,5 @@ func GetLocalNetworkInfo() (NetworkInfo, error) {
 		}
 	}
 
-	return emptyNetworkInfo, fmt.Errorf("no suitable network interface found")
+	return emptyNetworkInfo, fleeterror.NewInternalError("no suitable network interface found")
 }

@@ -1,4 +1,4 @@
-package middleware_test
+package interceptors_test
 
 import (
 	"net/http"
@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
-	"github.com/btc-mining/proto-fleet/server/internal/handlers/middleware"
+	"github.com/btc-mining/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/ping"
 
 	"connectrpc.com/connect"
@@ -17,8 +17,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/ping/v1/pingv1connect"
 )
 
-func TestAuthMiddleware(t *testing.T) {
-
+func TestAuthInterceptor(t *testing.T) {
 	tokenSvc, _ := token.NewService(token.Config{
 		SecretKey:        "000000000000000000000000000000000000",
 		ExpirationPeriod: time.Hour * 24,
@@ -29,14 +28,16 @@ func TestAuthMiddleware(t *testing.T) {
 	}
 
 	t.Run("should respect allow list", func(t *testing.T) {
-
 		// Setup test server
+		authInterceptor := interceptors.NewAuthInterceptor(tokenSvc, allowList)
+		errorInterceptor := interceptors.NewErrorMappingInterceptor()
+		path, handler := pingv1connect.NewPingServiceHandler(
+			ping.Handler{},
+			connect.WithInterceptors(errorInterceptor, authInterceptor),
+		)
 		mux := http.NewServeMux()
-		path, handler := pingv1connect.NewPingServiceHandler(ping.Handler{})
 		mux.Handle(path, handler)
-
-		authMiddleware := middleware.NewAuthMiddleware(tokenSvc, allowList)
-		testServer := httptest.NewServer(authMiddleware.Wrap(mux))
+		testServer := httptest.NewServer(mux)
 		defer testServer.Close()
 
 		// Create client
@@ -58,14 +59,16 @@ func TestAuthMiddleware(t *testing.T) {
 	})
 
 	t.Run("should fail auth when procedure not in allow list", func(t *testing.T) {
-
 		// Setup test server
+		authInterceptor := interceptors.NewAuthInterceptor(tokenSvc, []string{})
+		errorInterceptor := interceptors.NewErrorMappingInterceptor()
+		path, handler := pingv1connect.NewPingServiceHandler(
+			ping.Handler{},
+			connect.WithInterceptors(errorInterceptor, authInterceptor),
+		)
 		mux := http.NewServeMux()
-		path, handler := pingv1connect.NewPingServiceHandler(ping.Handler{})
 		mux.Handle(path, handler)
-
-		authMiddleware := middleware.NewAuthMiddleware(tokenSvc, []string{})
-		testServer := httptest.NewServer(authMiddleware.Wrap(mux))
+		testServer := httptest.NewServer(mux)
 		defer testServer.Close()
 
 		// Create client
@@ -82,18 +85,19 @@ func TestAuthMiddleware(t *testing.T) {
 		_, err := client.Echo(t.Context(), req)
 		assert.Error(t, err)
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
-
 	})
 
 	t.Run("should pass auth check when token is valid", func(t *testing.T) {
-
 		// Setup test server
+		authInterceptor := interceptors.NewAuthInterceptor(tokenSvc, allowList)
+		errorInterceptor := interceptors.NewErrorMappingInterceptor()
+		path, handler := pingv1connect.NewPingServiceHandler(
+			ping.Handler{},
+			connect.WithInterceptors(errorInterceptor, authInterceptor),
+		)
 		mux := http.NewServeMux()
-		path, handler := pingv1connect.NewPingServiceHandler(ping.Handler{})
 		mux.Handle(path, handler)
-
-		authMiddleware := middleware.NewAuthMiddleware(tokenSvc, allowList)
-		testServer := httptest.NewServer(authMiddleware.Wrap(mux))
+		testServer := httptest.NewServer(mux)
 		defer testServer.Close()
 
 		// Create client
@@ -123,14 +127,16 @@ func TestAuthMiddleware(t *testing.T) {
 	})
 
 	t.Run("should fail auth check when token is invalid", func(t *testing.T) {
-
 		// Setup test server
+		authInterceptor := interceptors.NewAuthInterceptor(tokenSvc, allowList)
+		errorInterceptor := interceptors.NewErrorMappingInterceptor()
+		path, handler := pingv1connect.NewPingServiceHandler(
+			ping.Handler{},
+			connect.WithInterceptors(errorInterceptor, authInterceptor),
+		)
 		mux := http.NewServeMux()
-		path, handler := pingv1connect.NewPingServiceHandler(ping.Handler{})
 		mux.Handle(path, handler)
-
-		authMiddleware := middleware.NewAuthMiddleware(tokenSvc, allowList)
-		testServer := httptest.NewServer(authMiddleware.Wrap(mux))
+		testServer := httptest.NewServer(mux)
 		defer testServer.Close()
 
 		// Create client
@@ -154,5 +160,4 @@ func TestAuthMiddleware(t *testing.T) {
 		// Verify response
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})
-
 }

@@ -33,6 +33,11 @@ message AuthenticateResponse {
     int64 token_expiry = 2;
 }
 
+enum AuthenticateErrorCode {
+    AUTHENTICATE_ERROR_CODE_UNSPECIFIED = 0;
+    AUTHENTICATE_ERROR_CODE_INVALID_USER_OR_PASSWORD = 1;
+}
+
 message UpdatePasswordRequest {
     // Current password for the user account
     // Must match the user's existing password
@@ -45,4 +50,10 @@ message UpdatePasswordRequest {
 message UpdatePasswordResponse {
     // Empty response as success/failure is indicated by gRPC status
     // A successful response indicates the password was changed
+}
+
+enum UpdatePasswordErrorCode {
+    UPDATE_PASSWORD_ERROR_CODE_UNSPECIFIED = 0;
+    UPDATE_PASSWORD_ERROR_CODE_INVALID_OLD_PASSWORD = 1;
+    UPDATE_PASSWORD_ERROR_CODE_NEW_PASSWORD_SAME_AS_OLD_PASSWORD = 2;
 }

@@ -1,12 +1,11 @@
 package auth
 
 import (
-	"connectrpc.com/authn"
+	"connectrpc.com/connect"
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
-	"log/slog"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"time"
 
 	authv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1"
@@ -17,13 +16,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
-)
-
-var (
-	ErrForbidden               = errors.New("forbidden")
-	ErrInternal                = errors.New("internal error")
-	ErrInvalidInput            = errors.New("invalid input")
-	ErrUnsupportedUserMultiOrg = errors.New("unsupported user multi org")
 )
 
 const AdminRoleName = "SUPER_ADMIN"
@@ -48,14 +40,14 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 	result, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (UserOrgResult, error) {
 		u, err := q.GetUserByUsername(ctx, req.Username)
 		if err != nil {
-			return UserOrgResult{}, err
+			return UserOrgResult{}, newAuthenticationFailedError()
 		}
 		o, err := q.GetOrganizationsForUser(ctx, u.ID)
 		if err != nil {
-			return UserOrgResult{}, err
+			return UserOrgResult{}, fleeterror.NewInternalErrorf("error listing user orgs: %v", err)
 		}
 		if len(o) != 1 {
-			return UserOrgResult{}, ErrUnsupportedUserMultiOrg
+			return UserOrgResult{}, fleeterror.NewInternalErrorf("user should belong to exactly 1 org: was: %d", len(o))
 		}
 		return UserOrgResult{
 			User: u,
@@ -68,7 +60,7 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 
 	// Compare hashed passwords
 	if err := bcrypt.CompareHashAndPassword([]byte(result.User.PasswordHash), []byte(req.Password)); err != nil {
-		return nil, fmt.Errorf("error validating password: %w", err)
+		return nil, newAuthenticationFailedError()
 	}
 	// Generate and return JWT authToken
 	authToken, exp, err := s.tokenSvc.GenerateJWT(result.User.ID, result.Org.ID)
@@ -81,14 +73,27 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 	}, err
 }
 
+func newAuthenticationFailedError() fleeterror.FleetError {
+	return fleeterror.NewErrorWithEndpointCode(
+		"authentication failed, either the user does not exist, or the password is invalid",
+		connect.CodeUnauthenticated,
+		int32(authv1.AuthenticateErrorCode_AUTHENTICATE_ERROR_CODE_INVALID_USER_OR_PASSWORD),
+	)
+}
+
 func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateAdminLoginRequest) (*onboardingv1.CreateAdminLoginResponse, error) {
-	if len(req.Username) == 0 || len(req.Password) == 0 {
-		return nil, ErrInvalidInput
+	if len(req.Username) == 0 {
+		return nil, fleeterror.NewInvalidArgumentError("username is required but not provided")
 	}
+
+	if len(req.Password) == 0 {
+		return nil, fleeterror.NewInvalidArgumentError("password is required but not provided")
+	}
+
 	// generate salted password hash
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, fmt.Errorf("error generating password: %w", err)
+		return nil, fleeterror.NewInternalErrorf("error generating password: %v", err)
 	}
 
 	externalUserID := uuid.New().String()
@@ -104,11 +109,11 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 			CreatedAt:    time.Now(),
 		})
 		if err != nil {
-			return err
+			return fleeterror.NewInternalErrorf("error creating user: %v", err)
 		}
 		userInternalID, err := result.LastInsertId()
 		if err != nil {
-			return fmt.Errorf("error creating user: %w", err)
+			return fleeterror.NewInternalErrorf("error creating user: %v", err)
 		}
 
 		// create organization
@@ -117,11 +122,11 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 			OrgID: externalOrgID,
 		})
 		if err != nil {
-			return fmt.Errorf("error creating org: %w", err)
+			return fleeterror.NewInternalErrorf("error creating org: %v", err)
 		}
 		orgID, err := orgResult.LastInsertId()
 		if err != nil {
-			return fmt.Errorf("error fetching org id: %w", err)
+			return fleeterror.NewInternalErrorf("error fetching org id: %v", err)
 		}
 
 		// create role
@@ -133,11 +138,11 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 			},
 		})
 		if err != nil {
-			return fmt.Errorf("error creating role: %w", err)
+			return fleeterror.NewInternalErrorf("error creating role: %v", err)
 		}
 		roleID, err := roleResult.LastInsertId()
 		if err != nil {
-			return fmt.Errorf("error fetching role id: %w", err)
+			return fleeterror.NewInternalErrorf("error fetching role id: %v", err)
 		}
 
 		// associate user with organization and role
@@ -146,11 +151,16 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 			RoleID:         roleID,
 			OrganizationID: orgID,
 		})
-		return err
+
+		if err != nil {
+			return fleeterror.NewInternalErrorf("error creating org: %v", err)
+		}
+
+		return nil
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("error associating user with org and role: %w", err)
+		return nil, fleeterror.NewInternalErrorf("error associating user with org and role: %v", err)
 	}
 	return &onboardingv1.CreateAdminLoginResponse{
 		UserId: externalUserID,
@@ -158,32 +168,37 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 }
 
 func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRequest) error {
-	claims, ok := authn.GetInfo(ctx).(token.Claims)
-	if !ok {
-		return ErrForbidden
+	claims, err := token.GetJWTClaims(ctx)
+	if err != nil {
+		return err
 	}
+
 	return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
 		user, err := q.GetUserById(ctx, claims.UserID)
 		if err != nil {
-			slog.Error("error getting user by id", "user_id", claims.UserID, "error", err)
-			return ErrForbidden
+			return fleeterror.NewForbiddenErrorf("error getting user by id, user_id: %d, error: %v", claims.UserID, err)
 		}
 
 		if err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(r.CurrentPassword)); err != nil {
-			// invalid password case
-			return ErrForbidden
+			return fleeterror.NewErrorWithEndpointCode(
+				"old password is not valid",
+				connect.CodeInvalidArgument,
+				int32(authv1.UpdatePasswordErrorCode_UPDATE_PASSWORD_ERROR_CODE_INVALID_OLD_PASSWORD),
+			)
 		}
 
 		if r.CurrentPassword == r.NewPassword {
-			// New password matches the current password
-			return ErrInvalidInput
+			return fleeterror.NewErrorWithEndpointCode(
+				"new password is the same as old password",
+				connect.CodeInvalidArgument,
+				int32(authv1.UpdatePasswordErrorCode_UPDATE_PASSWORD_ERROR_CODE_NEW_PASSWORD_SAME_AS_OLD_PASSWORD),
+			)
 		}
 
 		// generate salted password hash
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(r.NewPassword), bcrypt.DefaultCost)
 		if err != nil {
-			slog.Error("error generating hash of new password", "user_id", claims.UserID, "error", err)
-			return ErrInternal
+			return fleeterror.NewInternalErrorf("error generating hash of new password for user_id: %d, because: %v", claims.UserID, err)
 		}
 
 		if err = q.UpdateUserPassword(ctx, sqlc.UpdateUserPasswordParams{
@@ -191,8 +206,7 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 			PasswordHash: string(hashedPassword),
 			UpdatedAt:    time.Now(),
 		}); err != nil {
-			slog.Error("error updating password", "user_id", claims.UserID, "error", err)
-			return ErrInternal
+			return fleeterror.NewInternalErrorf("error updating password for user_id: %d, because: %v", claims.UserID, err)
 		}
 		return nil
 	})

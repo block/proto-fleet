@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"log/slog"
 
 	"github.com/btc-mining/proto-fleet/server/migrations"
@@ -38,7 +39,7 @@ func ConnectToDatabase(config *Config) (*sql.DB, error) {
 
 	conn, err := sql.Open("mysql", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("error creating mysql connection: %w", err)
+		return nil, fleeterror.NewInternalErrorf("error creating mysql connection: %v", err)
 	}
 
 	return conn, nil
@@ -49,22 +50,22 @@ func MigrateDatabase(connection *sql.DB, config *Config) error {
 
 	fs, err := iofs.New(migrations.Migrations, ".")
 	if err != nil {
-		return fmt.Errorf("error opening migrations fs: %w", err)
+		return fleeterror.NewInternalErrorf("error opening migrations fs: %v", err)
 	}
 
 	driver, err := mysql.WithInstance(connection, &mysql.Config{})
 	if err != nil {
-		return fmt.Errorf("error creating mysql driver: %w", err)
+		return fleeterror.NewInternalErrorf("error creating mysql driver: %v", err)
 	}
 
 	m, err := migrate.NewWithInstance("migrations", fs, "fleet", driver)
 	if err != nil {
-		return fmt.Errorf("error creating migrator: %w", err)
+		return fleeterror.NewInternalErrorf("error creating migrator: %v", err)
 	}
 
 	err = m.Up()
 	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		return fmt.Errorf("error running migrations: %w", err)
+		return fleeterror.NewInternalErrorf("error running migrations: %v", err)
 	}
 
 	return nil
@@ -76,7 +77,7 @@ func verifyDatabaseConnectionEstablished(connection *sql.DB, config *Config) err
 
 	err := connection.PingContext(ctx)
 	if err != nil {
-		return fmt.Errorf("error pinging db: %w", err)
+		return fleeterror.NewInternalErrorf("error pinging db: %v", err)
 	}
 
 	return nil

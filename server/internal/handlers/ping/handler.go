@@ -3,7 +3,7 @@ package ping
 import (
 	"context"
 	"errors"
-	"fmt"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"io"
 
 	"connectrpc.com/connect"
@@ -32,10 +32,10 @@ func (Handler) PingStream(_ context.Context, stream *connect.BidiStream[pingv1.P
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
-			return fmt.Errorf("failed to process request: %w", err)
+			return fleeterror.NewInternalErrorf("failed to process request: %v", err)
 		}
 		if err := stream.Send(&pingv1.PingStreamResponse{Text: req.Text}); err != nil {
-			return fmt.Errorf("failed to process request: %w", err)
+			return fleeterror.NewInternalErrorf("failed to process request: %v", err)
 		}
 	}
 }

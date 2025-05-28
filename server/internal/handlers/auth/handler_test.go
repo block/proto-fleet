@@ -2,8 +2,7 @@ package auth_test
 
 import (
 	"database/sql"
-	"github.com/btc-mining/proto-fleet/server/internal/handlers/middleware"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/server"
+	"github.com/btc-mining/proto-fleet/server/internal/handlers/interceptors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -231,28 +230,20 @@ func setupAuthClientFor(conn *sql.DB, t *testing.T, adminUsername, password stri
 	authSvc := authDomain.NewService(conn, tokenSvc)
 	onboardingSvc := onboardingDomain.NewService(conn)
 
+	authInterceptor := interceptors.NewAuthInterceptor(tokenSvc, []string{
+		authv1connect.AuthServiceAuthenticateProcedure,
+		onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
+	})
+	errorInterceptor := interceptors.NewErrorMappingInterceptor()
+
 	// Setup test server
 	mux := http.NewServeMux()
 	onboardingServer := onboarding.NewHandler(authSvc, onboardingSvc)
 	mux.Handle(onboardingv1connect.NewOnboardingServiceHandler(onboardingServer))
 
 	authServer := auth.NewHandler(authSvc)
-	mux.Handle(authv1connect.NewAuthServiceHandler(authServer))
-
-	// TODO refactor server command or introduce helper to make test server setup easier
-	middlewares := []server.Middleware{
-		middleware.NewAuthMiddleware(tokenSvc, []string{
-			authv1connect.AuthServiceAuthenticateProcedure,
-			onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
-		}),
-	}
-
-	var handler http.Handler = mux
-	for _, m := range middlewares {
-		handler = m.Wrap(handler)
-	}
-
-	testServer := httptest.NewServer(handler)
+	mux.Handle(authv1connect.NewAuthServiceHandler(authServer, connect.WithInterceptors(errorInterceptor, authInterceptor)))
+	testServer := httptest.NewServer(mux)
 
 	// Create clients
 	onboardingClient := onboardingv1connect.NewOnboardingServiceClient(

@@ -101,7 +101,7 @@ func TestNewTokenService_InvalidSecret(t *testing.T) {
 
 	_, err := token.NewService(invalidConfig)
 	assert.Error(t, err, "Expected error for short secret key")
-	assert.Equal(t, fmt.Sprintf("secret key must be at least 32 bytes long: len=%d", len(shortKey)), err.Error(), "Error message should match expected")
+	assert.Equal(t, fmt.Sprintf("FleetError: internal (Common: 0) secret key must be at least 32 bytes long: len=%d", len(shortKey)), err.Error(), "Error message should match expected")
 }
 
 // Test: NewService with valid secret key

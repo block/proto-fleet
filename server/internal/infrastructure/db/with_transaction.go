@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -61,7 +61,7 @@ func WithTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action fun
 	for attempt := 1; attempt <= config.MaxAttempts; attempt++ {
 		select {
 		case <-ctx.Done():
-			return zero, fmt.Errorf("context aborted: %w", ctx.Err())
+			return zero, fleeterror.NewInternalErrorf("context aborted: %v", ctx.Err())
 		default:
 		}
 
@@ -83,14 +83,14 @@ func WithTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action fun
 
 		select {
 		case <-ctx.Done():
-			return zero, fmt.Errorf("context aborted: %w", ctx.Err())
+			return zero, fleeterror.NewInternalErrorf("context aborted: %v", ctx.Err())
 		case <-time.After(sleepDuration):
 		}
 
 		currentBackoff = time.Duration(float64(currentBackoff) * config.BackoffMultiplier)
 	}
 
-	return zero, fmt.Errorf("transaction failed after %d attempts: %w", config.MaxAttempts, lastErr)
+	return zero, fleeterror.NewInternalErrorf("transaction failed after %d attempts: %v", config.MaxAttempts, lastErr)
 }
 
 func executeTransaction[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error)) (T, error) {
@@ -98,9 +98,10 @@ func executeTransaction[T any](ctx context.Context, db *sql.DB, action func(q *s
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return zero, fmt.Errorf("error opening tx: %w", err)
+		return zero, fleeterror.NewInternalErrorf("error opening tx: %v", err)
 	}
 
+	//goland:noinspection GoUnhandledErrorResult
 	defer tx.Rollback()
 
 	sq := sqlc.New(tx)
@@ -111,7 +112,7 @@ func executeTransaction[T any](ctx context.Context, db *sql.DB, action func(q *s
 
 	err = tx.Commit()
 	if err != nil {
-		return zero, fmt.Errorf("error committing tx: %w", err)
+		return zero, fleeterror.NewInternalErrorf("error committing tx: %v", err)
 	}
 
 	return result, nil

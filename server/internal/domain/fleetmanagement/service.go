@@ -1,28 +1,21 @@
 package fleetmanagement
 
 import (
+	"connectrpc.com/connect"
 	"context"
 	"database/sql"
 	"encoding/base64"
-	"errors"
 	"fmt"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"log/slog"
 	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"connectrpc.com/authn"
-	"connectrpc.com/connect"
-
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
-)
-
-var (
-	ErrForbidden = errors.New("forbidden")
-	ErrInternal  = errors.New("internal error")
 )
 
 type PoolStatus string
@@ -56,7 +49,7 @@ func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRe
 	// Decode cursor if provided
 	cursor, err := decodeCursor(req.Cursor)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid page token: %w", err))
+		return nil, err
 	}
 
 	// Prepare query parameters
@@ -71,7 +64,7 @@ func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRe
 		// Query the database
 		devices, err := q.ListPairedDevices(c, params)
 		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to list miners: %w", err))
+			return nil, fleeterror.NewInternalErrorf("failed to list miners: %v", err)
 		}
 
 		// Prepare response
@@ -111,7 +104,7 @@ func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRe
 		// Get total count
 		total, err := q.GetTotalPairedDevices(c)
 		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to get total count: %w", err))
+			return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
 		}
 		resp.TotalMiners = int32(total) //nolint:gosec
 		return resp, nil
@@ -127,10 +120,11 @@ func (s *Service) UpdateDefaultPool(ctx context.Context, poolID int64) (*pb.Pool
 }
 
 func (s *Service) DeletePool(ctx context.Context, id int64) error {
-	claims, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
-	if !ok {
-		return ErrForbidden
+	claims, err := tokenDomain.GetJWTClaims(ctx)
+	if err != nil {
+		return err
 	}
+
 	return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
 		return q.SoftDeletePool(ctx, sqlc.SoftDeletePoolParams{
 			ID:    id,
@@ -140,9 +134,9 @@ func (s *Service) DeletePool(ctx context.Context, id int64) error {
 }
 
 func (s *Service) UpdatePoolPriority(ctx context.Context, priorities []*pb.PoolPriority) ([]*pb.Pool, error) {
-	claims, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
-	if !ok {
-		return nil, ErrForbidden
+	claims, err := tokenDomain.GetJWTClaims(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]*pb.Pool, error) {
@@ -154,16 +148,13 @@ func (s *Service) UpdatePoolPriority(ctx context.Context, priorities []*pb.PoolP
 				PoolPriority: p.Priority,
 			})
 			if err != nil {
-				return nil, ErrInternal
+				return nil, fleeterror.NewInternalErrorf("error getting number of paired devices: %v", err)
 			}
 			pool, err := q.GetPool(ctx, sqlc.GetPoolParams{OrgID: claims.OrgID, ID: p.PoolId})
 			if err != nil {
-				return nil, ErrInternal
+				return nil, fleeterror.NewInternalErrorf("failed to get pool: %v", err)
 			}
-			poolDto, err := toPoolDto(&pool)
-			if err != nil {
-				return nil, err
-			}
+			poolDto := toPoolDto(&pool)
 			pools = append(pools, poolDto)
 		}
 		return pools, nil
@@ -171,17 +162,18 @@ func (s *Service) UpdatePoolPriority(ctx context.Context, priorities []*pb.PoolP
 }
 
 func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.Pool, error) {
-	claims, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
-	if !ok {
-		return nil, ErrForbidden
+	claims, err := tokenDomain.GetJWTClaims(ctx)
+	if err != nil {
+		return nil, err
 	}
+
 	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (*pb.Pool, error) {
 		pool, err := q.GetPool(ctx, sqlc.GetPoolParams{
 			OrgID: claims.OrgID,
 			ID:    r.PoolId,
 		})
 		if err != nil {
-			return nil, ErrInternal
+			return nil, fleeterror.NewInternalErrorf("failed to get pool: %v", err)
 		}
 		if r.PoolName != "" {
 			pool.PoolName = r.PoolName
@@ -194,7 +186,7 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 				UpdatedAt: time.Now(),
 			})
 			if err != nil {
-				return nil, ErrInternal
+				return nil, fleeterror.NewInternalErrorf("failed to unser default pool: %v", err)
 			}
 		}
 		if r.Url != "" {
@@ -219,23 +211,23 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 			ID:           pool.ID,
 		})
 		if err != nil {
-			return nil, ErrInternal
+			return nil, fleeterror.NewInternalErrorf("failed to update pool: %v", err)
 		}
-		return toPoolDto(&pool)
+		return toPoolDto(&pool), nil
 	})
 }
 
 func (s *Service) CreatePool(ctx context.Context, r *pb.PoolConfig) (*pb.Pool, error) {
-	claims, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
-	if !ok {
-		return nil, ErrForbidden
+	claims, err := tokenDomain.GetJWTClaims(ctx)
+	if err != nil {
+		return nil, err
 	}
+
 	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (*pb.Pool, error) {
 		pools, err := q.ListPools(ctx, claims.OrgID)
 
 		if err != nil {
-			slog.Error("error getting list of pools", "org_id", claims.OrgID, "error", err)
-			return nil, ErrInternal
+			return nil, fleeterror.NewInternalErrorf("error getting list of pools for org_id: %d: %v", claims.OrgID, err)
 		}
 		password := ""
 		if r.Password != nil {
@@ -256,50 +248,45 @@ func (s *Service) CreatePool(ctx context.Context, r *pb.PoolConfig) (*pb.Pool, e
 		})
 
 		if err != nil {
-			slog.Error("error saving pool", "org_id", claims.OrgID, "pool_name", r.PoolName, "error", err)
-			return nil, ErrInternal
+			return nil, fleeterror.NewInternalErrorf("error saving pool for org_id: %d, pool_name: %s: %v", claims.OrgID, r.PoolName, err)
 		}
 		poolID, err := result.LastInsertId()
 
 		if err != nil {
-			slog.Error("error getting id of created pool", "org_id", claims.OrgID, "pool_name", r.PoolName, "error", err)
-			return nil, ErrInternal
+			return nil, fleeterror.NewInternalErrorf("error getting id of created pool for org_id: %d, pool_name: %s: %v", claims.OrgID, r.PoolName, err)
 		}
 		pool, err := q.GetPool(ctx, sqlc.GetPoolParams{
 			OrgID: claims.OrgID,
 			ID:    poolID,
 		})
 		if err != nil {
-			slog.Error("error getting created pool", "org_id", claims.OrgID, "pool_id", poolID, "error", err)
-			return nil, ErrInternal
+			return nil, fleeterror.NewInternalErrorf("error getting created pool for org_id: %d, pool_id: %d: %v", claims.OrgID, poolID, err)
 		}
-		return toPoolDto(&pool)
+		return toPoolDto(&pool), nil
 	})
 }
 
 func (s *Service) ListPools(ctx context.Context) ([]*pb.Pool, error) {
-	claims, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
-	if !ok {
-		return nil, ErrForbidden
+	claims, err := tokenDomain.GetJWTClaims(ctx)
+	if err != nil {
+		return nil, err
 	}
+
 	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]*pb.Pool, error) {
 		result, err := q.ListPools(ctx, claims.OrgID)
 		if err != nil {
-			return nil, ErrInternal
+			return nil, fleeterror.NewInternalErrorf("error listing pools : %v", err)
 		}
 		var pools []*pb.Pool
 		for _, p := range result {
-			poolDto, err := toPoolDto(&p)
-			if err != nil {
-				return nil, err
-			}
+			poolDto := toPoolDto(&p)
 			pools = append(pools, poolDto)
 		}
 		return pools, nil
 	})
 }
 
-func toPoolDto(pool *sqlc.Pool) (*pb.Pool, error) {
+func toPoolDto(pool *sqlc.Pool) *pb.Pool {
 	return &pb.Pool{
 		PoolId:       pool.ID,
 		PoolName:     pool.PoolName,
@@ -308,7 +295,7 @@ func toPoolDto(pool *sqlc.Pool) (*pb.Pool, error) {
 		PoolPriority: pool.PoolPriority,
 		PoolStatus:   convertToProtoStatus(pool.PoolStatus),
 		IsDefault:    pool.IsDefault.Valid && pool.IsDefault.Bool,
-	}, nil
+	}
 }
 
 // Convert internal status to proto status
@@ -360,13 +347,21 @@ func decodeCursor(encoded string) (Cursor, error) {
 
 	b, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return Cursor{}, fmt.Errorf("invalid cursor encoding: %w", err)
+		return Cursor{}, fleeterror.NewErrorWithServiceCode(
+			fmt.Sprintf("invalid page token, invalid cursor encoding: %v", err),
+			connect.CodeInvalidArgument,
+			int32(pb.FleetManagementServiceErrorCode_FLEET_MANAGEMENT_SERVICE_ERROR_CODE_INVALID_PAGINATION_CURSOR),
+		)
 	}
 
 	var cursor Cursor
 	_, err = fmt.Sscanf(string(b), "%d:%d", &cursor.ID, &cursor.DeviceID)
 	if err != nil {
-		return Cursor{}, fmt.Errorf("invalid cursor values: %w", err)
+		return Cursor{}, fleeterror.NewErrorWithServiceCode(
+			fmt.Sprintf("invalid page token, invalid cursor values: %v", err),
+			connect.CodeInvalidArgument,
+			int32(pb.FleetManagementServiceErrorCode_FLEET_MANAGEMENT_SERVICE_ERROR_CODE_INVALID_PAGINATION_CURSOR),
+		)
 	}
 
 	return cursor, nil
@@ -374,9 +369,9 @@ func decodeCursor(encoded string) (Cursor, error) {
 
 // ListMinerStateSnapshots returns a paginated list of miners with their operational status and metrics
 func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMinerStateSnapshotsRequest) (*pb.ListMinerStateSnapshotsResponse, error) {
-	claims, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
-	if !ok {
-		return nil, ErrForbidden
+	claims, err := tokenDomain.GetJWTClaims(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (*pb.ListMinerStateSnapshotsResponse, error) {
@@ -386,7 +381,7 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 			Limit: req.PageSize,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to list miners: %v", err)
+			return nil, fleeterror.NewInternalErrorf("failed to list miners: %v", err)
 		}
 
 		// Convert to state snapshots
@@ -425,7 +420,7 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 		// Get total count
 		total, err := q.GetTotalPairedDevices(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get total count: %v", err)
+			return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
 		}
 
 		// Handle case where no miners are returned
@@ -445,9 +440,9 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 
 // StreamMinerUpdates streams real-time measurement updates for miners
 func (s *Service) StreamMinerUpdates(ctx context.Context, req *pb.StreamMinerUpdatesRequest) (<-chan *pb.StreamMinerUpdatesResponse, error) {
-	_, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
-	if !ok {
-		return nil, ErrForbidden
+	_, err := tokenDomain.GetJWTClaims(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	responseChan := make(chan *pb.StreamMinerUpdatesResponse, 100)
@@ -455,7 +450,7 @@ func (s *Service) StreamMinerUpdates(ctx context.Context, req *pb.StreamMinerUpd
 	// Start measurement stream
 	measurementChan, err := s.telemetry.StreamMeasurements(ctx, req.DeviceIdentifiers, req.MeasurementTypes)
 	if err != nil {
-		return nil, fmt.Errorf("failed to start measurement stream: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to start measurement stream: %v", err)
 	}
 
 	// Start status stream if requested
@@ -463,7 +458,7 @@ func (s *Service) StreamMinerUpdates(ctx context.Context, req *pb.StreamMinerUpd
 	if req.IncludeStatusUpdates {
 		statusChan, err = s.telemetry.StreamComponentStatus(ctx, req.DeviceIdentifiers)
 		if err != nil {
-			return nil, fmt.Errorf("failed to start status stream: %v", err)
+			return nil, fleeterror.NewInternalErrorf("failed to start status stream: %v", err)
 		}
 	}
 

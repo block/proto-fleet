@@ -88,14 +88,15 @@ func start(config *Config) error {
 
 	// init middleware
 	middlewares := []server.Middleware{
-		middleware.NewAuthMiddleware(tokenSvc, unauthenticatedProcedures),
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
 	}
 
 	// init interceptors
 	li := connect.WithInterceptors(
+		interceptors.NewErrorMappingInterceptor(),
 		interceptors.ErrorLoggingInterceptor(),
 		interceptors.RequestLoggingInterceptor(config.Log.Level == slog.LevelDebug),
+		interceptors.NewAuthInterceptor(tokenSvc, unauthenticatedProcedures),
 	)
 
 	// setup rpc handlers

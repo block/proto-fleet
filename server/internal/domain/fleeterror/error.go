@@ -1,0 +1,178 @@
+package fleeterror
+
+import (
+	"connectrpc.com/connect"
+	"errors"
+	"fmt"
+	commonv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
+)
+
+// FleetError represents a custom error type that can be converted to a gRPC ConnectError
+type FleetError struct {
+	DebugMessage       string
+	GRPCCode           connect.Code
+	FleetErrorCode     int32
+	FleetErrorCodeType FleetErrorCodeType
+}
+
+// FleetErrorCodeType represents the type of error code being used
+//
+//goland:noinspection GoNameStartsWithPackageName
+type FleetErrorCodeType int
+
+// Error code type constants
+const (
+	// ErrorCodeTypeCommon represents common error codes shared across services
+	ErrorCodeTypeCommon FleetErrorCodeType = 0
+	// ErrorCodeTypeService represents service-specific error codes
+	ErrorCodeTypeService FleetErrorCodeType = 1
+	// ErrorCodeTypeEndpoint represents endpoint-specific error codes
+	ErrorCodeTypeEndpoint FleetErrorCodeType = 2
+)
+
+func (t FleetErrorCodeType) String() string {
+	switch t {
+	case ErrorCodeTypeCommon:
+		return "Common"
+	case ErrorCodeTypeService:
+		return "Service"
+	case ErrorCodeTypeEndpoint:
+		return "Endpoint"
+	default:
+		return "Unknown"
+	}
+}
+
+// Error implements the error interface
+func (e FleetError) Error() string {
+	return fmt.Sprintf("FleetError: %s (%s: %d) %s", e.GRPCCode.String(), e.FleetErrorCodeType.String(), e.FleetErrorCode, e.DebugMessage)
+}
+
+func New(
+	debugMessage string,
+	grpcCode connect.Code,
+	fleetErrorCode int32,
+	fleetErrorCodeType FleetErrorCodeType,
+) FleetError {
+	return FleetError{
+		DebugMessage:       debugMessage,
+		GRPCCode:           grpcCode,
+		FleetErrorCode:     fleetErrorCode,
+		FleetErrorCodeType: fleetErrorCodeType,
+	}
+}
+
+func (e FleetError) ConnectError() *connect.Error {
+	connectError := connect.NewError(e.GRPCCode, errors.New(e.DebugMessage))
+
+	fleetErrorDetails, err := e.fleetErrorDetails()
+	if err != nil {
+		return connect.NewError(connect.CodeInternal, fmt.Errorf("cannot create fleet error details: %w", err))
+	}
+
+	errorDetail, err := connect.NewErrorDetail(fleetErrorDetails)
+	if err != nil {
+		return connect.NewError(connect.CodeInternal, fmt.Errorf("cannot create fleet error details: %w", err))
+	}
+
+	connectError.AddDetail(errorDetail)
+
+	return connectError
+}
+
+func (e FleetError) fleetErrorDetails() (*commonv1.FleetErrorDetails, error) {
+	switch e.FleetErrorCodeType {
+	case ErrorCodeTypeCommon:
+		return &commonv1.FleetErrorDetails{
+			Code: &commonv1.FleetErrorDetails_Common{
+				Common: commonv1.FleetErrorCode(e.FleetErrorCode),
+			},
+		}, nil
+	case ErrorCodeTypeService:
+		return &commonv1.FleetErrorDetails{
+			Code: &commonv1.FleetErrorDetails_Service{
+				Service: e.FleetErrorCode,
+			},
+		}, nil
+	case ErrorCodeTypeEndpoint:
+		return &commonv1.FleetErrorDetails{
+			Code: &commonv1.FleetErrorDetails_Endpoint{
+				Endpoint: e.FleetErrorCode,
+			},
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown fleet error code type: %d", e.FleetErrorCodeType)
+	}
+}
+
+func NewErrorWithCommonCode(
+	debugMessage string,
+	grpcCode connect.Code,
+	fleetErrorCode commonv1.FleetErrorCode,
+) FleetError {
+	return New(debugMessage, grpcCode, int32(fleetErrorCode), ErrorCodeTypeCommon)
+}
+
+func NewErrorWithServiceCode(
+	debugMessage string,
+	grpcCode connect.Code,
+	fleetErrorCode int32,
+) FleetError {
+	return New(debugMessage, grpcCode, fleetErrorCode, ErrorCodeTypeService)
+}
+
+func NewErrorWithEndpointCode(
+	debugMessage string,
+	grpcCode connect.Code,
+	fleetErrorCode int32,
+) FleetError {
+	return New(debugMessage, grpcCode, fleetErrorCode, ErrorCodeTypeEndpoint)
+}
+
+func NewPlainError(debugMessage string, grpcCode connect.Code) FleetError {
+	return NewErrorWithCommonCode(debugMessage, grpcCode, commonv1.FleetErrorCode_FLEET_ERROR_CODE_UNSPECIFIED)
+}
+
+func NewInternalError(debugMessage string) FleetError {
+	return NewPlainError(debugMessage, connect.CodeInternal)
+}
+
+func NewInternalErrorf(format string, a ...any) FleetError {
+	return NewInternalError(
+		fmt.Sprintf(format, a...),
+	)
+}
+
+func NewUnauthenticatedError(debugMessage string) FleetError {
+	return NewPlainError(debugMessage, connect.CodeUnauthenticated)
+}
+
+func NewUnauthenticatedErrorf(format string, a ...any) FleetError {
+	return NewUnauthenticatedError(
+		fmt.Sprintf(format, a...),
+	)
+}
+
+func NewForbiddenError(debugMessage string) FleetError {
+	return NewPlainError(debugMessage, connect.CodePermissionDenied)
+}
+
+func NewForbiddenErrorf(format string, a ...any) FleetError {
+	return NewForbiddenError(
+		fmt.Sprintf(format, a...),
+	)
+}
+
+func NewInvalidArgumentError(debugMessage string) FleetError {
+	return NewPlainError(debugMessage, connect.CodeInvalidArgument)
+}
+
+func NewInvalidArgumentErrorf(format string, a ...any) FleetError {
+	return NewInvalidArgumentError(
+		fmt.Sprintf(format, a...),
+	)
+}
+
+func NewCanceledError() FleetError {
+	return NewPlainError("operation was canceled", connect.CodeCanceled)
+}

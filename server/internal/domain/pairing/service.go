@@ -1,11 +1,11 @@
 package pairing
 
 import (
-	"connectrpc.com/authn"
 	"context"
 	"database/sql"
 	"encoding/binary"
 	"fmt"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/minerclient"
 	"log/slog"
@@ -45,7 +45,7 @@ func ipToUint32(ip string) (uint32, error) {
 	addr := net.ParseIP(ip)
 	ipv4 := addr.To4()
 	if ipv4 == nil {
-		return 0, fmt.Errorf("not a valid IPv4 address: '%v'", ip)
+		return 0, fleeterror.NewInternalErrorf("not a valid IPv4 address: '%v'", ip)
 	}
 	return binary.BigEndian.Uint32(ipv4), nil
 }
@@ -75,7 +75,7 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 
 	resolver, err := zeroconf.NewResolver(nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize resolver: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to initialize resolver: %v", err)
 	}
 
 	entries := make(chan *zeroconf.ServiceEntry)
@@ -202,11 +202,11 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 	resultChan := make(chan *pb.DiscoverResponse)
 	startIP, err := ipToUint32(r.StartIp)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing start ip: %v", err)
+		return nil, fleeterror.NewInvalidArgumentErrorf("error parsing start ip: %v", err)
 	}
 	endIP, err := ipToUint32(r.EndIp)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing end ip: %v", err)
+		return nil, fleeterror.NewInvalidArgumentErrorf("error parsing end ip: %v", err)
 	}
 
 	go func() {
@@ -284,12 +284,12 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 func (s *Service) discoverDevice(ctx context.Context, ipAddress string, port string, resultChan chan<- *pb.DiscoverResponse) error {
 	deviceInfo, err := s.getDevicePairingInformation(ctx, ipAddress, port)
 	if err != nil {
-		return fmt.Errorf("device validation failed: %w", err)
+		return err
 	}
 
 	err = s.processDiscoveredDevice(ctx, deviceInfo, resultChan)
 	if err != nil {
-		return fmt.Errorf("device processing failed: %w", err)
+		return err
 	}
 
 	return nil
@@ -304,7 +304,7 @@ func (s *Service) getDevicePairingInformation(ctx context.Context, ipAddress str
 	}
 
 	if len(pairingInfo.Msg.CbSn) == 0 {
-		return nil, fmt.Errorf("miner at '%s' does not have a serial number which is required for pairing", minerURL)
+		return nil, fleeterror.NewInternalErrorf("miner at '%s' does not have a serial number which is required for pairing", minerURL)
 	}
 
 	return &pb.Device{
@@ -322,7 +322,7 @@ func (s *Service) getDevicePairingInformation(ctx context.Context, ipAddress str
 func (s *Service) processDiscoveredDevice(ctx context.Context, device *pb.Device, resultChan chan<- *pb.DiscoverResponse) error {
 	err := s.saveDevice(ctx, device)
 	if err != nil {
-		return fmt.Errorf("error saving device: %w", err)
+		return err
 	}
 
 	select {
@@ -336,10 +336,11 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, device *pb.Device
 }
 
 func (s *Service) saveDevice(ctx context.Context, device *pb.Device) error {
-	claims, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
-	if !ok {
-		return fmt.Errorf("invalid token")
+	claims, err := tokenDomain.GetJWTClaims(ctx)
+	if err != nil {
+		return err
 	}
+
 	return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
 		// Upsert device
 		result, err := q.UpsertDevice(ctx, sqlc.UpsertDeviceParams{
@@ -352,18 +353,18 @@ func (s *Service) saveDevice(ctx context.Context, device *pb.Device) error {
 			IsActive:         sql.NullBool{Bool: true, Valid: true},
 		})
 		if err != nil {
-			return fmt.Errorf("failed to upsert device: %w", err)
+			return fleeterror.NewInternalErrorf("failed to upsert device: %v", err)
 		}
 
 		// Get device ID (either from insert or existing record)
 		deviceID, err := result.LastInsertId()
 		if err != nil {
-			return fmt.Errorf("failed to upsert device: %w", err)
+			return fleeterror.NewInternalErrorf("failed to upsert device: %v", err)
 		}
 
 		dbDevice, err := q.GetDeviceByID(ctx, sqlc.GetDeviceByIDParams{ID: deviceID, OrgID: claims.OrgID})
 		if err != nil {
-			return fmt.Errorf("failed to fetch device: id=%d %w", deviceID, err)
+			return fleeterror.NewInternalErrorf("failed to fetch device: id=%d %v", deviceID, err)
 		}
 		device.DeviceIdentifier = dbDevice.DeviceIdentifier
 
@@ -373,7 +374,7 @@ func (s *Service) saveDevice(ctx context.Context, device *pb.Device) error {
 			IpAddress: device.IpAddress,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to deactivate old IP assignments: %w", err)
+			return fleeterror.NewInternalErrorf("failed to deactivate old IP assignments: %v", err)
 		}
 
 		// Upsert new IP assignment
@@ -383,7 +384,7 @@ func (s *Service) saveDevice(ctx context.Context, device *pb.Device) error {
 			Port:      device.Port,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to upsert IP assignment: %w", err)
+			return fleeterror.NewInternalErrorf("failed to upsert IP assignment: %v", err)
 		}
 
 		return nil
@@ -391,11 +392,12 @@ func (s *Service) saveDevice(ctx context.Context, device *pb.Device) error {
 }
 
 func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairResponse, error) {
-	claims, ok := authn.GetInfo(ctx).(tokenDomain.Claims)
-	if !ok {
-		return nil, fmt.Errorf("invalid token")
+	claims, err := tokenDomain.GetJWTClaims(ctx)
+	if err != nil {
+		return nil, err
 	}
-	err := db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
+
+	err = db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
 		// Create pairing records for each device
 		for _, dID := range r.DeviceIdentifiers {
 			device, err := q.GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
@@ -403,11 +405,11 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 				OrgID:            claims.OrgID,
 			})
 			if err != nil {
-				return fmt.Errorf("failed get device device_identifier=%s: %w", dID, err)
+				return fleeterror.NewInternalErrorf("failed get device device_identifier=%s: %v", dID, err)
 			}
 			pairingToken, err := s.generatePairingToken(&device)
 			if err != nil {
-				return fmt.Errorf("failed generate pairing token for device device_identifier=%s: %w", dID, err)
+				return fleeterror.NewInternalErrorf("failed generate pairing token for device device_identifier=%s: %v", dID, err)
 			}
 			_, err = q.UpsertDevicePairing(ctx, sqlc.UpsertDevicePairingParams{
 				DeviceID:      device.ID,
@@ -415,7 +417,7 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 				PairingStatus: "PAIRED",
 			})
 			if err != nil {
-				return fmt.Errorf("failed to create pairing for device device_identifier=%s: %w", dID, err)
+				return fleeterror.NewInternalErrorf("failed to create pairing for device device_identifier=%s: %v", dID, err)
 			}
 		}
 
@@ -431,5 +433,9 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 func (s *Service) generatePairingToken(device *sqlc.Device) (string, error) {
 	deviceKey := device.SerialNumber.String
 	bytes, err := bcrypt.GenerateFromPassword(fmt.Appendf(nil, "%s:%s", s.cfg.SecretKey, deviceKey), 14)
-	return string(bytes), err
+	if err != nil {
+		return "", fleeterror.NewInternalError(err.Error())
+	}
+
+	return string(bytes), nil
 }
