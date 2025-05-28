@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/pools"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/logging"
@@ -21,4 +22,5 @@ type Config struct {
 	HTTP    HTTPConfig     `embed:"" prefix:"http" envprefix:"HTTP_"`
 	Auth    token.Config   `embed:"" prefix:"auth" envprefix:"AUTH_"`
 	Pairing pairing.Config `embed:"" prefix:"pairing" envprefix:"PAIRING_"`
+	Pools   pools.Config   `embed:"" prefix:"pools" envprefix:"POOLS_"`
 }

@@ -20,11 +20,13 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
+	"github.com/btc-mining/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
 	authDomain "github.com/btc-mining/proto-fleet/server/internal/domain/auth"
 	commandDomain "github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	fleetmanagementDomain "github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
 	onboardingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
+	poolsDomain "github.com/btc-mining/proto-fleet/server/internal/domain/pools"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/auth"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/command"
@@ -35,6 +37,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/networkinfo"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/onboarding"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/pairing"
+	"github.com/btc-mining/proto-fleet/server/internal/handlers/pools"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/static"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/logging"
@@ -85,6 +88,7 @@ func start(config *Config) error {
 	fleetMgmtSvc := fleetmanagementDomain.NewService(conn, fleetmanagementDomain.NewMockTelemetryCollector())
 	commandSvc := commandDomain.NewService(conn, minerClient)
 	onboardingSvc := onboardingDomain.NewService(conn)
+	poolsSvc := poolsDomain.NewService(conn, config.Pools)
 
 	// init middleware
 	middlewares := []server.Middleware{
@@ -118,6 +122,7 @@ func start(config *Config) error {
 	mux.Handle(networkinfov1connect.NewNetworkInfoServiceHandler(networkinfo.NewHandler(pairingSvc), li))
 	mux.Handle(fleetmanagementv1connect.NewFleetManagementServiceHandler(fleetmanagement.NewHandler(fleetMgmtSvc), li))
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
+	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
 
 	var handler http.Handler = mux
 	for _, m := range middlewares {

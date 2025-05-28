@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package pools.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/wrappers.proto";
+
+service PoolsService {
+    rpc ValidatePool(ValidatePoolRequest) returns (ValidatePoolResponse);
+}
+
+message ValidatePoolRequest {
+    // Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")
+    // Required field that specifies the endpoint for connecting to the pool
+    string url = 1;
+    // Username or wallet address for pool authentication
+    // Required field that identifies the user/wallet receiving mining rewards
+    string username = 2;
+
+    // Password for pool authentication
+    // May be optional depending on pool requirements, often used for worker identification
+    google.protobuf.StringValue password = 3;
+
+    // Set the timeout duration for validation
+    // This is an optional field for integration points that have issues setting context timeouts.
+    google.protobuf.Duration timeout = 4;
+}
+
+message ValidatePoolResponse {
+}

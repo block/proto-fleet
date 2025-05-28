@@ -5,7 +5,6 @@ go 1.24.2
 require (
 	connectrpc.com/authn v0.2.0
 	connectrpc.com/connect v1.18.1
-	connectrpc.com/cors v0.1.0
 	connectrpc.com/grpcreflect v1.3.0
 	github.com/Ullaakut/nmap v2.0.2+incompatible
 	github.com/alecthomas/assert/v2 v2.11.0
@@ -17,9 +16,11 @@ require (
 	github.com/grandcat/zeroconf v1.0.0
 	github.com/jackpal/gateway v1.1.1
 	github.com/rs/cors v1.11.1
+	github.com/rsjethani/secret/v3 v3.0.1
+	github.com/sourcegraph/jsonrpc2 v0.2.1
+	github.com/stretchr/testify v1.10.0
 	golang.org/x/crypto v0.36.0
 	golang.org/x/net v0.38.0
-	google.golang.org/genproto v0.0.0-20240213162025-012b6fc9bca9
 	google.golang.org/protobuf v1.36.5
 )
 
@@ -33,7 +34,6 @@ require (
 	github.com/miekg/dns v1.1.27 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	github.com/stretchr/testify v1.10.0 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
