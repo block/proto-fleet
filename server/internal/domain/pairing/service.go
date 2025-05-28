@@ -5,14 +5,16 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"fmt"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/minerclient"
 	"log/slog"
 	"net"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+
+	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/minerclient"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
@@ -342,10 +344,15 @@ func (s *Service) saveDevice(ctx context.Context, device *pb.Device) error {
 	}
 
 	return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
-		// Upsert device
+		// Use existing device identifier if available, otherwise generate new UUID
+		deviceIdentifier := device.DeviceIdentifier
+		if deviceIdentifier == "" {
+			deviceIdentifier = uuid.NewString()
+		}
+
 		result, err := q.UpsertDevice(ctx, sqlc.UpsertDeviceParams{
 			OrgID:            claims.OrgID,
-			DeviceIdentifier: uuid.NewString(),
+			DeviceIdentifier: deviceIdentifier,
 			MacAddress:       device.MacAddress,
 			SerialNumber:     sql.NullString{String: device.SerialNumber, Valid: len(device.SerialNumber) > 0},
 			Model:            sql.NullString{String: device.Model, Valid: len(device.Model) > 0},
@@ -356,35 +363,32 @@ func (s *Service) saveDevice(ctx context.Context, device *pb.Device) error {
 			return fleeterror.NewInternalErrorf("failed to upsert device: %v", err)
 		}
 
-		// Get device ID (either from insert or existing record)
 		deviceID, err := result.LastInsertId()
 		if err != nil {
-			return fleeterror.NewInternalErrorf("failed to upsert device: %v", err)
+			return fleeterror.NewInternalErrorf("failed to get device ID: %v", err)
 		}
 
 		dbDevice, err := q.GetDeviceByID(ctx, sqlc.GetDeviceByIDParams{ID: deviceID, OrgID: claims.OrgID})
 		if err != nil {
 			return fleeterror.NewInternalErrorf("failed to fetch device: id=%d %v", deviceID, err)
 		}
+
 		device.DeviceIdentifier = dbDevice.DeviceIdentifier
 
-		// Deactivate old IP assignments
-		err = q.DeactivateOldIPAssignments(ctx, sqlc.DeactivateOldIPAssignmentsParams{
-			DeviceID:  deviceID,
-			IpAddress: device.IpAddress,
-		})
+		// Deactivate all current IP assignments for this device
+		err = q.DeactivateAllCurrentIPAssignments(ctx, deviceID)
 		if err != nil {
-			return fleeterror.NewInternalErrorf("failed to deactivate old IP assignments: %v", err)
+			return fleeterror.NewInternalErrorf("failed to deactivate current IP assignments: %v", err)
 		}
 
-		// Upsert new IP assignment
-		_, err = q.UpsertDeviceIPAssignment(ctx, sqlc.UpsertDeviceIPAssignmentParams{
+		// Create new current IP assignment
+		_, err = q.CreateDeviceIPAssignment(ctx, sqlc.CreateDeviceIPAssignmentParams{
 			DeviceID:  deviceID,
 			IpAddress: device.IpAddress,
 			Port:      device.Port,
 		})
 		if err != nil {
-			return fleeterror.NewInternalErrorf("failed to upsert IP assignment: %v", err)
+			return fleeterror.NewInternalErrorf("failed to create IP assignment: %v", err)
 		}
 
 		return nil

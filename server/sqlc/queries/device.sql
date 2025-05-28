@@ -33,7 +33,7 @@ WHERE device_identifier = ?
     AND org_id = ?
 LIMIT 1;
 
--- name: UpsertDeviceIPAssignment :execresult
+-- name: CreateDeviceIPAssignment :execresult
 INSERT INTO device_ip_assignment (
     device_id,
     ip_address,
@@ -44,19 +44,14 @@ INSERT INTO device_ip_assignment (
     ?,
     ?,
     TRUE
-)
-ON DUPLICATE KEY UPDATE
-    unassigned_at = NULL,
-    is_current = TRUE;
+);
 
--- name: DeactivateOldIPAssignments :exec
+-- name: DeactivateAllCurrentIPAssignments :exec
 UPDATE device_ip_assignment
 SET
     is_current = FALSE,
     unassigned_at = CURRENT_TIMESTAMP(6)
 WHERE device_id = ?
-    AND ip_address != ?
-    AND port != ?
     AND is_current = TRUE;
 
 -- name: ListPairedDevices :many
@@ -152,10 +147,11 @@ SELECT
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
-LEFT JOIN device_ip_assignment dia ON d.id = dia.device_id
+LEFT JOIN device_ip_assignment dia ON d.id = dia.device_id AND dia.is_current = TRUE
 WHERE dp.pairing_status = 'PAIRED'
     AND d.deleted_at IS NULL
     AND d.org_id = ?
     AND (? = '' OR d.device_identifier > ?)
 ORDER BY d.device_identifier
 LIMIT ?;
+

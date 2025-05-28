@@ -10,25 +10,41 @@ import (
 	"database/sql"
 )
 
-const deactivateOldIPAssignments = `-- name: DeactivateOldIPAssignments :exec
-UPDATE device_ip_assignment
-SET
-    is_current = FALSE,
-    unassigned_at = CURRENT_TIMESTAMP(6)
-WHERE device_id = ?
-    AND ip_address != ?
-    AND port != ?
-    AND is_current = TRUE
+const createDeviceIPAssignment = `-- name: CreateDeviceIPAssignment :execresult
+INSERT INTO device_ip_assignment (
+    device_id,
+    ip_address,
+    port,
+    is_current
+) VALUES (
+    ?,
+    ?,
+    ?,
+    TRUE
+)
 `
 
-type DeactivateOldIPAssignmentsParams struct {
+type CreateDeviceIPAssignmentParams struct {
 	DeviceID  int64
 	IpAddress string
 	Port      string
 }
 
-func (q *Queries) DeactivateOldIPAssignments(ctx context.Context, arg DeactivateOldIPAssignmentsParams) error {
-	_, err := q.exec(ctx, q.deactivateOldIPAssignmentsStmt, deactivateOldIPAssignments, arg.DeviceID, arg.IpAddress, arg.Port)
+func (q *Queries) CreateDeviceIPAssignment(ctx context.Context, arg CreateDeviceIPAssignmentParams) (sql.Result, error) {
+	return q.exec(ctx, q.createDeviceIPAssignmentStmt, createDeviceIPAssignment, arg.DeviceID, arg.IpAddress, arg.Port)
+}
+
+const deactivateAllCurrentIPAssignments = `-- name: DeactivateAllCurrentIPAssignments :exec
+UPDATE device_ip_assignment
+SET
+    is_current = FALSE,
+    unassigned_at = CURRENT_TIMESTAMP(6)
+WHERE device_id = ?
+    AND is_current = TRUE
+`
+
+func (q *Queries) DeactivateAllCurrentIPAssignments(ctx context.Context, deviceID int64) error {
+	_, err := q.exec(ctx, q.deactivateAllCurrentIPAssignmentsStmt, deactivateAllCurrentIPAssignments, deviceID)
 	return err
 }
 
@@ -268,7 +284,7 @@ SELECT
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
-LEFT JOIN device_ip_assignment dia ON d.id = dia.device_id
+LEFT JOIN device_ip_assignment dia ON d.id = dia.device_id AND dia.is_current = TRUE
 WHERE dp.pairing_status = 'PAIRED'
     AND d.deleted_at IS NULL
     AND d.org_id = ?
@@ -385,33 +401,6 @@ func (q *Queries) UpsertDevice(ctx context.Context, arg UpsertDeviceParams) (sql
 		arg.Manufacturer,
 		arg.IsActive,
 	)
-}
-
-const upsertDeviceIPAssignment = `-- name: UpsertDeviceIPAssignment :execresult
-INSERT INTO device_ip_assignment (
-    device_id,
-    ip_address,
-    port,
-    is_current
-) VALUES (
-    ?,
-    ?,
-    ?,
-    TRUE
-)
-ON DUPLICATE KEY UPDATE
-    unassigned_at = NULL,
-    is_current = TRUE
-`
-
-type UpsertDeviceIPAssignmentParams struct {
-	DeviceID  int64
-	IpAddress string
-	Port      string
-}
-
-func (q *Queries) UpsertDeviceIPAssignment(ctx context.Context, arg UpsertDeviceIPAssignmentParams) (sql.Result, error) {
-	return q.exec(ctx, q.upsertDeviceIPAssignmentStmt, upsertDeviceIPAssignment, arg.DeviceID, arg.IpAddress, arg.Port)
 }
 
 const upsertDevicePairing = `-- name: UpsertDevicePairing :execresult

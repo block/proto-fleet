@@ -24,6 +24,9 @@ func New(db DBTX) *Queries {
 func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	q := Queries{db: db}
 	var err error
+	if q.createDeviceIPAssignmentStmt, err = db.PrepareContext(ctx, createDeviceIPAssignment); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateDeviceIPAssignment: %w", err)
+	}
 	if q.createOrganizationStmt, err = db.PrepareContext(ctx, createOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateOrganization: %w", err)
 	}
@@ -36,8 +39,8 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createUserOrganizationStmt, err = db.PrepareContext(ctx, createUserOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateUserOrganization: %w", err)
 	}
-	if q.deactivateOldIPAssignmentsStmt, err = db.PrepareContext(ctx, deactivateOldIPAssignments); err != nil {
-		return nil, fmt.Errorf("error preparing query DeactivateOldIPAssignments: %w", err)
+	if q.deactivateAllCurrentIPAssignmentsStmt, err = db.PrepareContext(ctx, deactivateAllCurrentIPAssignments); err != nil {
+		return nil, fmt.Errorf("error preparing query DeactivateAllCurrentIPAssignments: %w", err)
 	}
 	if q.getDeviceByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceByDeviceIdentifier: %w", err)
@@ -147,9 +150,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.upsertDeviceStmt, err = db.PrepareContext(ctx, upsertDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertDevice: %w", err)
 	}
-	if q.upsertDeviceIPAssignmentStmt, err = db.PrepareContext(ctx, upsertDeviceIPAssignment); err != nil {
-		return nil, fmt.Errorf("error preparing query UpsertDeviceIPAssignment: %w", err)
-	}
 	if q.upsertDevicePairingStmt, err = db.PrepareContext(ctx, upsertDevicePairing); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertDevicePairing: %w", err)
 	}
@@ -161,6 +161,11 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 
 func (q *Queries) Close() error {
 	var err error
+	if q.createDeviceIPAssignmentStmt != nil {
+		if cerr := q.createDeviceIPAssignmentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createDeviceIPAssignmentStmt: %w", cerr)
+		}
+	}
 	if q.createOrganizationStmt != nil {
 		if cerr := q.createOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createOrganizationStmt: %w", cerr)
@@ -181,9 +186,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing createUserOrganizationStmt: %w", cerr)
 		}
 	}
-	if q.deactivateOldIPAssignmentsStmt != nil {
-		if cerr := q.deactivateOldIPAssignmentsStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing deactivateOldIPAssignmentsStmt: %w", cerr)
+	if q.deactivateAllCurrentIPAssignmentsStmt != nil {
+		if cerr := q.deactivateAllCurrentIPAssignmentsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deactivateAllCurrentIPAssignmentsStmt: %w", cerr)
 		}
 	}
 	if q.getDeviceByDeviceIdentifierStmt != nil {
@@ -366,11 +371,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertDeviceStmt: %w", cerr)
 		}
 	}
-	if q.upsertDeviceIPAssignmentStmt != nil {
-		if cerr := q.upsertDeviceIPAssignmentStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing upsertDeviceIPAssignmentStmt: %w", cerr)
-		}
-	}
 	if q.upsertDevicePairingStmt != nil {
 		if cerr := q.upsertDevicePairingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertDevicePairingStmt: %w", cerr)
@@ -418,101 +418,101 @@ func (q *Queries) queryRow(ctx context.Context, stmt *sql.Stmt, query string, ar
 }
 
 type Queries struct {
-	db                                   DBTX
-	tx                                   *sql.Tx
-	createOrganizationStmt               *sql.Stmt
-	createPoolStmt                       *sql.Stmt
-	createUserStmt                       *sql.Stmt
-	createUserOrganizationStmt           *sql.Stmt
-	deactivateOldIPAssignmentsStmt       *sql.Stmt
-	getDeviceByDeviceIdentifierStmt      *sql.Stmt
-	getDeviceByIDStmt                    *sql.Stmt
-	getDeviceByIdentifierStmt            *sql.Stmt
-	getMinerApiNetworkInfoByDeviceIDStmt *sql.Stmt
-	getOrganizationByIDStmt              *sql.Stmt
-	getOrganizationByNameStmt            *sql.Stmt
-	getOrganizationByOrgIDStmt           *sql.Stmt
-	getOrganizationsForUserStmt          *sql.Stmt
-	getPoolStmt                          *sql.Stmt
-	getRoleByIDStmt                      *sql.Stmt
-	getRoleByNameStmt                    *sql.Stmt
-	getTotalPairedDevicesStmt            *sql.Stmt
-	getTotalPoolsStmt                    *sql.Stmt
-	getUserByIdStmt                      *sql.Stmt
-	getUserByUsernameStmt                *sql.Stmt
-	getUserRoleInOrganizationStmt        *sql.Stmt
-	getUsersForOrganizationStmt          *sql.Stmt
-	listOrganizationsStmt                *sql.Stmt
-	listPairedDevicesStmt                *sql.Stmt
-	listPairedMinersWithStatusStmt       *sql.Stmt
-	listPoolsStmt                        *sql.Stmt
-	listRolesStmt                        *sql.Stmt
-	softDeleteOrganizationStmt           *sql.Stmt
-	softDeletePoolStmt                   *sql.Stmt
-	softDeleteRoleStmt                   *sql.Stmt
-	softDeleteUserFromOrganizationStmt   *sql.Stmt
-	undeleteOrganizationStmt             *sql.Stmt
-	undeleteRoleStmt                     *sql.Stmt
-	unsetDefaultPoolStmt                 *sql.Stmt
-	updateOrganizationStmt               *sql.Stmt
-	updatePoolStmt                       *sql.Stmt
-	updatePoolPriorityStmt               *sql.Stmt
-	updateRoleStmt                       *sql.Stmt
-	updateUserPasswordStmt               *sql.Stmt
-	updateUserRoleStmt                   *sql.Stmt
-	upsertDeviceStmt                     *sql.Stmt
-	upsertDeviceIPAssignmentStmt         *sql.Stmt
-	upsertDevicePairingStmt              *sql.Stmt
-	upsertRoleStmt                       *sql.Stmt
+	db                                    DBTX
+	tx                                    *sql.Tx
+	createDeviceIPAssignmentStmt          *sql.Stmt
+	createOrganizationStmt                *sql.Stmt
+	createPoolStmt                        *sql.Stmt
+	createUserStmt                        *sql.Stmt
+	createUserOrganizationStmt            *sql.Stmt
+	deactivateAllCurrentIPAssignmentsStmt *sql.Stmt
+	getDeviceByDeviceIdentifierStmt       *sql.Stmt
+	getDeviceByIDStmt                     *sql.Stmt
+	getDeviceByIdentifierStmt             *sql.Stmt
+	getMinerApiNetworkInfoByDeviceIDStmt  *sql.Stmt
+	getOrganizationByIDStmt               *sql.Stmt
+	getOrganizationByNameStmt             *sql.Stmt
+	getOrganizationByOrgIDStmt            *sql.Stmt
+	getOrganizationsForUserStmt           *sql.Stmt
+	getPoolStmt                           *sql.Stmt
+	getRoleByIDStmt                       *sql.Stmt
+	getRoleByNameStmt                     *sql.Stmt
+	getTotalPairedDevicesStmt             *sql.Stmt
+	getTotalPoolsStmt                     *sql.Stmt
+	getUserByIdStmt                       *sql.Stmt
+	getUserByUsernameStmt                 *sql.Stmt
+	getUserRoleInOrganizationStmt         *sql.Stmt
+	getUsersForOrganizationStmt           *sql.Stmt
+	listOrganizationsStmt                 *sql.Stmt
+	listPairedDevicesStmt                 *sql.Stmt
+	listPairedMinersWithStatusStmt        *sql.Stmt
+	listPoolsStmt                         *sql.Stmt
+	listRolesStmt                         *sql.Stmt
+	softDeleteOrganizationStmt            *sql.Stmt
+	softDeletePoolStmt                    *sql.Stmt
+	softDeleteRoleStmt                    *sql.Stmt
+	softDeleteUserFromOrganizationStmt    *sql.Stmt
+	undeleteOrganizationStmt              *sql.Stmt
+	undeleteRoleStmt                      *sql.Stmt
+	unsetDefaultPoolStmt                  *sql.Stmt
+	updateOrganizationStmt                *sql.Stmt
+	updatePoolStmt                        *sql.Stmt
+	updatePoolPriorityStmt                *sql.Stmt
+	updateRoleStmt                        *sql.Stmt
+	updateUserPasswordStmt                *sql.Stmt
+	updateUserRoleStmt                    *sql.Stmt
+	upsertDeviceStmt                      *sql.Stmt
+	upsertDevicePairingStmt               *sql.Stmt
+	upsertRoleStmt                        *sql.Stmt
 }
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
-		db:                                   tx,
-		tx:                                   tx,
-		createOrganizationStmt:               q.createOrganizationStmt,
-		createPoolStmt:                       q.createPoolStmt,
-		createUserStmt:                       q.createUserStmt,
-		createUserOrganizationStmt:           q.createUserOrganizationStmt,
-		deactivateOldIPAssignmentsStmt:       q.deactivateOldIPAssignmentsStmt,
-		getDeviceByDeviceIdentifierStmt:      q.getDeviceByDeviceIdentifierStmt,
-		getDeviceByIDStmt:                    q.getDeviceByIDStmt,
-		getDeviceByIdentifierStmt:            q.getDeviceByIdentifierStmt,
-		getMinerApiNetworkInfoByDeviceIDStmt: q.getMinerApiNetworkInfoByDeviceIDStmt,
-		getOrganizationByIDStmt:              q.getOrganizationByIDStmt,
-		getOrganizationByNameStmt:            q.getOrganizationByNameStmt,
-		getOrganizationByOrgIDStmt:           q.getOrganizationByOrgIDStmt,
-		getOrganizationsForUserStmt:          q.getOrganizationsForUserStmt,
-		getPoolStmt:                          q.getPoolStmt,
-		getRoleByIDStmt:                      q.getRoleByIDStmt,
-		getRoleByNameStmt:                    q.getRoleByNameStmt,
-		getTotalPairedDevicesStmt:            q.getTotalPairedDevicesStmt,
-		getTotalPoolsStmt:                    q.getTotalPoolsStmt,
-		getUserByIdStmt:                      q.getUserByIdStmt,
-		getUserByUsernameStmt:                q.getUserByUsernameStmt,
-		getUserRoleInOrganizationStmt:        q.getUserRoleInOrganizationStmt,
-		getUsersForOrganizationStmt:          q.getUsersForOrganizationStmt,
-		listOrganizationsStmt:                q.listOrganizationsStmt,
-		listPairedDevicesStmt:                q.listPairedDevicesStmt,
-		listPairedMinersWithStatusStmt:       q.listPairedMinersWithStatusStmt,
-		listPoolsStmt:                        q.listPoolsStmt,
-		listRolesStmt:                        q.listRolesStmt,
-		softDeleteOrganizationStmt:           q.softDeleteOrganizationStmt,
-		softDeletePoolStmt:                   q.softDeletePoolStmt,
-		softDeleteRoleStmt:                   q.softDeleteRoleStmt,
-		softDeleteUserFromOrganizationStmt:   q.softDeleteUserFromOrganizationStmt,
-		undeleteOrganizationStmt:             q.undeleteOrganizationStmt,
-		undeleteRoleStmt:                     q.undeleteRoleStmt,
-		unsetDefaultPoolStmt:                 q.unsetDefaultPoolStmt,
-		updateOrganizationStmt:               q.updateOrganizationStmt,
-		updatePoolStmt:                       q.updatePoolStmt,
-		updatePoolPriorityStmt:               q.updatePoolPriorityStmt,
-		updateRoleStmt:                       q.updateRoleStmt,
-		updateUserPasswordStmt:               q.updateUserPasswordStmt,
-		updateUserRoleStmt:                   q.updateUserRoleStmt,
-		upsertDeviceStmt:                     q.upsertDeviceStmt,
-		upsertDeviceIPAssignmentStmt:         q.upsertDeviceIPAssignmentStmt,
-		upsertDevicePairingStmt:              q.upsertDevicePairingStmt,
-		upsertRoleStmt:                       q.upsertRoleStmt,
+		db:                                    tx,
+		tx:                                    tx,
+		createDeviceIPAssignmentStmt:          q.createDeviceIPAssignmentStmt,
+		createOrganizationStmt:                q.createOrganizationStmt,
+		createPoolStmt:                        q.createPoolStmt,
+		createUserStmt:                        q.createUserStmt,
+		createUserOrganizationStmt:            q.createUserOrganizationStmt,
+		deactivateAllCurrentIPAssignmentsStmt: q.deactivateAllCurrentIPAssignmentsStmt,
+		getDeviceByDeviceIdentifierStmt:       q.getDeviceByDeviceIdentifierStmt,
+		getDeviceByIDStmt:                     q.getDeviceByIDStmt,
+		getDeviceByIdentifierStmt:             q.getDeviceByIdentifierStmt,
+		getMinerApiNetworkInfoByDeviceIDStmt:  q.getMinerApiNetworkInfoByDeviceIDStmt,
+		getOrganizationByIDStmt:               q.getOrganizationByIDStmt,
+		getOrganizationByNameStmt:             q.getOrganizationByNameStmt,
+		getOrganizationByOrgIDStmt:            q.getOrganizationByOrgIDStmt,
+		getOrganizationsForUserStmt:           q.getOrganizationsForUserStmt,
+		getPoolStmt:                           q.getPoolStmt,
+		getRoleByIDStmt:                       q.getRoleByIDStmt,
+		getRoleByNameStmt:                     q.getRoleByNameStmt,
+		getTotalPairedDevicesStmt:             q.getTotalPairedDevicesStmt,
+		getTotalPoolsStmt:                     q.getTotalPoolsStmt,
+		getUserByIdStmt:                       q.getUserByIdStmt,
+		getUserByUsernameStmt:                 q.getUserByUsernameStmt,
+		getUserRoleInOrganizationStmt:         q.getUserRoleInOrganizationStmt,
+		getUsersForOrganizationStmt:           q.getUsersForOrganizationStmt,
+		listOrganizationsStmt:                 q.listOrganizationsStmt,
+		listPairedDevicesStmt:                 q.listPairedDevicesStmt,
+		listPairedMinersWithStatusStmt:        q.listPairedMinersWithStatusStmt,
+		listPoolsStmt:                         q.listPoolsStmt,
+		listRolesStmt:                         q.listRolesStmt,
+		softDeleteOrganizationStmt:            q.softDeleteOrganizationStmt,
+		softDeletePoolStmt:                    q.softDeletePoolStmt,
+		softDeleteRoleStmt:                    q.softDeleteRoleStmt,
+		softDeleteUserFromOrganizationStmt:    q.softDeleteUserFromOrganizationStmt,
+		undeleteOrganizationStmt:              q.undeleteOrganizationStmt,
+		undeleteRoleStmt:                      q.undeleteRoleStmt,
+		unsetDefaultPoolStmt:                  q.unsetDefaultPoolStmt,
+		updateOrganizationStmt:                q.updateOrganizationStmt,
+		updatePoolStmt:                        q.updatePoolStmt,
+		updatePoolPriorityStmt:                q.updatePoolPriorityStmt,
+		updateRoleStmt:                        q.updateRoleStmt,
+		updateUserPasswordStmt:                q.updateUserPasswordStmt,
+		updateUserRoleStmt:                    q.updateUserRoleStmt,
+		upsertDeviceStmt:                      q.upsertDeviceStmt,
+		upsertDevicePairingStmt:               q.upsertDevicePairingStmt,
+		upsertRoleStmt:                        q.upsertRoleStmt,
 	}
 }
