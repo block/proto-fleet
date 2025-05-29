@@ -4,8 +4,8 @@ import {
   CreatePoolRequestSchema,
   DeletePoolRequestSchema,
   UpdatePoolRequestSchema,
-} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { Pool } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+} from "@/protoFleet/api/generated/pools/v1/pools_pb";
+import { Pool } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 
 import usePools from "@/protoFleet/api/usePools";
 import Button from "@/shared/components/Button";

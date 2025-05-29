@@ -3,11 +3,13 @@
 /* eslint-disable */
 
 import type {
+  GenEnum,
   GenFile,
   GenMessage,
   GenService,
 } from "@bufbuild/protobuf/codegenv1";
 import {
+  enumDesc,
   fileDesc,
   messageDesc,
   serviceDesc,
@@ -25,11 +27,458 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_pools_v1_pools: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChRwb29scy92MS9wb29scy5wcm90bxIIcG9vbHMudjEikAEKE1ZhbGlkYXRlUG9vbFJlcXVlc3QSCwoDdXJsGAEgASgJEhAKCHVzZXJuYW1lGAIgASgJEi4KCHBhc3N3b3JkGAMgASgLMhwuZ29vZ2xlLnByb3RvYnVmLlN0cmluZ1ZhbHVlEioKB3RpbWVvdXQYBCABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24iFgoUVmFsaWRhdGVQb29sUmVzcG9uc2UyXQoMUG9vbHNTZXJ2aWNlEk0KDFZhbGlkYXRlUG9vbBIdLnBvb2xzLnYxLlZhbGlkYXRlUG9vbFJlcXVlc3QaHi5wb29scy52MS5WYWxpZGF0ZVBvb2xSZXNwb25zZUKlAQoMY29tLnBvb2xzLnYxQgpQb29sc1Byb3RvUAFaSGdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvcG9vbHMvdjE7cG9vbHN2MaICA1BYWKoCCFBvb2xzLlYxygIIUG9vbHNcVjHiAhRQb29sc1xWMVxHUEJNZXRhZGF0YeoCCVBvb2xzOjpWMWIGcHJvdG8z",
+    "ChRwb29scy92MS9wb29scy5wcm90bxIIcG9vbHMudjEibgoKUG9vbENvbmZpZxILCgN1cmwYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSLgoIcGFzc3dvcmQYAyABKAsyHC5nb29nbGUucHJvdG9idWYuU3RyaW5nVmFsdWUSEQoJcG9vbF9uYW1lGAQgASgJIigKFVNldERlZmF1bHRQb29sUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDIjYKFlNldERlZmF1bHRQb29sUmVzcG9uc2USHAoEcG9vbBgBIAEoCzIOLnBvb2xzLnYxLlBvb2wiqQEKBFBvb2wSDwoHcG9vbF9pZBgBIAEoAxILCgN1cmwYAiABKAkSEAoIdXNlcm5hbWUYAyABKAkSEQoJcG9vbF9uYW1lGAQgASgJEhUKDXBvb2xfcHJpb3JpdHkYBSABKAUSMwoLcG9vbF9zdGF0dXMYBiABKA4yHi5wb29scy52MS5Qb29sQ29ubmVjdGlvblN0YXR1cxISCgppc19kZWZhdWx0GAcgASgIIhIKEExpc3RQb29sc1JlcXVlc3QiMgoRTGlzdFBvb2xzUmVzcG9uc2USHQoFcG9vbHMYASADKAsyDi5wb29scy52MS5Qb29sIj4KEUNyZWF0ZVBvb2xSZXF1ZXN0EikKC3Bvb2xfY29uZmlnGAEgASgLMhQucG9vbHMudjEuUG9vbENvbmZpZyIyChJDcmVhdGVQb29sUmVzcG9uc2USHAoEcG9vbBgBIAEoCzIOLnBvb2xzLnYxLlBvb2wimgEKEVVwZGF0ZVBvb2xSZXF1ZXN0Eg8KB3Bvb2xfaWQYASABKAMSEQoJcG9vbF9uYW1lGAIgASgJEgsKA3VybBgDIAEoCRIQCgh1c2VybmFtZRgEIAEoCRIuCghwYXNzd29yZBgFIAEoCzIcLmdvb2dsZS5wcm90b2J1Zi5TdHJpbmdWYWx1ZRISCgppc19kZWZhdWx0GAYgASgIIjIKElVwZGF0ZVBvb2xSZXNwb25zZRIcCgRwb29sGAEgASgLMg4ucG9vbHMudjEuUG9vbCIxCgxQb29sUHJpb3JpdHkSDwoHcG9vbF9pZBgBIAEoAxIQCghwcmlvcml0eRgCIAEoBSJMChlVcGRhdGVQb29sUHJpb3JpdHlSZXF1ZXN0Ei8KD3Bvb2xfcHJpb3JpdGllcxgBIAMoCzIWLnBvb2xzLnYxLlBvb2xQcmlvcml0eSI7ChpVcGRhdGVQb29sUHJpb3JpdHlSZXNwb25zZRIdCgVwb29scxgBIAMoCzIOLnBvb2xzLnYxLlBvb2wiJAoRRGVsZXRlUG9vbFJlcXVlc3QSDwoHcG9vbF9pZBgBIAEoAyIUChJEZWxldGVQb29sUmVzcG9uc2UikAEKE1ZhbGlkYXRlUG9vbFJlcXVlc3QSCwoDdXJsGAEgASgJEhAKCHVzZXJuYW1lGAIgASgJEi4KCHBhc3N3b3JkGAMgASgLMhwuZ29vZ2xlLnByb3RvYnVmLlN0cmluZ1ZhbHVlEioKB3RpbWVvdXQYBCABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24iFgoUVmFsaWRhdGVQb29sUmVzcG9uc2UqowEKFFBvb2xDb25uZWN0aW9uU3RhdHVzEiYKIlBPT0xfQ09OTkVDVElPTl9TVEFUVVNfVU5TUEVDSUZJRUQQABIfChtQT09MX0NPTk5FQ1RJT05fU1RBVFVTX0lETEUQARIhCh1QT09MX0NPTk5FQ1RJT05fU1RBVFVTX0FDVElWRRACEh8KG1BPT0xfQ09OTkVDVElPTl9TVEFUVVNfREVBRBADMrQECgxQb29sc1NlcnZpY2USUwoOU2V0RGVmYXVsdFBvb2wSHy5wb29scy52MS5TZXREZWZhdWx0UG9vbFJlcXVlc3QaIC5wb29scy52MS5TZXREZWZhdWx0UG9vbFJlc3BvbnNlEkQKCUxpc3RQb29scxIaLnBvb2xzLnYxLkxpc3RQb29sc1JlcXVlc3QaGy5wb29scy52MS5MaXN0UG9vbHNSZXNwb25zZRJHCgpDcmVhdGVQb29sEhsucG9vbHMudjEuQ3JlYXRlUG9vbFJlcXVlc3QaHC5wb29scy52MS5DcmVhdGVQb29sUmVzcG9uc2USRwoKVXBkYXRlUG9vbBIbLnBvb2xzLnYxLlVwZGF0ZVBvb2xSZXF1ZXN0GhwucG9vbHMudjEuVXBkYXRlUG9vbFJlc3BvbnNlEl8KElVwZGF0ZVBvb2xQcmlvcml0eRIjLnBvb2xzLnYxLlVwZGF0ZVBvb2xQcmlvcml0eVJlcXVlc3QaJC5wb29scy52MS5VcGRhdGVQb29sUHJpb3JpdHlSZXNwb25zZRJHCgpEZWxldGVQb29sEhsucG9vbHMudjEuRGVsZXRlUG9vbFJlcXVlc3QaHC5wb29scy52MS5EZWxldGVQb29sUmVzcG9uc2USTQoMVmFsaWRhdGVQb29sEh0ucG9vbHMudjEuVmFsaWRhdGVQb29sUmVxdWVzdBoeLnBvb2xzLnYxLlZhbGlkYXRlUG9vbFJlc3BvbnNlQqUBCgxjb20ucG9vbHMudjFCClBvb2xzUHJvdG9QAVpIZ2l0aHViLmNvbS9idGMtbWluaW5nL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9wb29scy92MTtwb29sc3YxogIDUFhYqgIIUG9vbHMuVjHKAghQb29sc1xWMeICFFBvb2xzXFYxXEdQQk1ldGFkYXRh6gIJUG9vbHM6OlYxYgZwcm90bzM",
     [file_google_protobuf_duration, file_google_protobuf_wrappers],
   );
 
 /**
+ * PoolConfig defines the connection details for a mining pool
+ *
+ * @generated from message pools.v1.PoolConfig
+ */
+export type PoolConfig = Message<"pools.v1.PoolConfig"> & {
+  /**
+   * Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")
+   * Required field that specifies the endpoint for connecting to the pool
+   *
+   * @generated from field: string url = 1;
+   */
+  url: string;
+
+  /**
+   * Username or wallet address for pool authentication
+   * Required field that identifies the user/wallet receiving mining rewards
+   *
+   * @generated from field: string username = 2;
+   */
+  username: string;
+
+  /**
+   * Password for pool authentication
+   * May be optional depending on pool requirements, often used for worker identification
+   *
+   * @generated from field: google.protobuf.StringValue password = 3;
+   */
+  password?: string;
+
+  /**
+   * Pool name to identify this pool
+   * Human-readable identifier for the pool within the fleet management system
+   *
+   * @generated from field: string pool_name = 4;
+   */
+  poolName: string;
+};
+
+/**
+ * Describes the message pools.v1.PoolConfig.
+ * Use `create(PoolConfigSchema)` to create a new message.
+ */
+export const PoolConfigSchema: GenMessage<PoolConfig> =
+  /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 0);
+
+/**
+ * Request to set an existing pool as the default for the fleet
+ * This pool will be used for new miners or when resetting to defaults
+ *
+ * @generated from message pools.v1.SetDefaultPoolRequest
+ */
+export type SetDefaultPoolRequest =
+  Message<"pools.v1.SetDefaultPoolRequest"> & {
+    /**
+     * ID of the existing pool to set as default
+     * Must reference a valid pool_id from a previously created pool
+     *
+     * @generated from field: int64 pool_id = 1;
+     */
+    poolId: bigint;
+  };
+
+/**
+ * Describes the message pools.v1.SetDefaultPoolRequest.
+ * Use `create(SetDefaultPoolRequestSchema)` to create a new message.
+ */
+export const SetDefaultPoolRequestSchema: GenMessage<SetDefaultPoolRequest> =
+  /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 1);
+
+/**
+ * Response to setting default pool configuration
+ * Empty message as success/failure is indicated by gRPC status
+ *
+ * @generated from message pools.v1.SetDefaultPoolResponse
+ */
+export type SetDefaultPoolResponse =
+  Message<"pools.v1.SetDefaultPoolResponse"> & {
+    /**
+     * The updated default pool with all current values
+     *
+     * @generated from field: pools.v1.Pool pool = 1;
+     */
+    pool?: Pool;
+  };
+
+/**
+ * Describes the message pools.v1.SetDefaultPoolResponse.
+ * Use `create(SetDefaultPoolResponseSchema)` to create a new message.
+ */
+export const SetDefaultPoolResponseSchema: GenMessage<SetDefaultPoolResponse> =
+  /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 2);
+
+/**
+ * Pool defines a configured mining pool with its connection details and status
+ *
+ * @generated from message pools.v1.Pool
+ */
+export type Pool = Message<"pools.v1.Pool"> & {
+  /**
+   * Unique identifier for the pool within the system
+   *
+   * @generated from field: int64 pool_id = 1;
+   */
+  poolId: bigint;
+
+  /**
+   * Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")
+   * Endpoint for connecting to the pool
+   *
+   * @generated from field: string url = 2;
+   */
+  url: string;
+
+  /**
+   * Username or wallet address for pool authentication
+   * Identifies the user/wallet receiving mining rewards
+   *
+   * @generated from field: string username = 3;
+   */
+  username: string;
+
+  /**
+   * Pool name to identify this pool
+   * Human-readable identifier for the pool within the fleet management system
+   *
+   * @generated from field: string pool_name = 4;
+   */
+  poolName: string;
+
+  /**
+   * Priority of this pool (lower number = higher priority)
+   * Determines the order in which miners will try to connect to pools
+   *
+   * @generated from field: int32 pool_priority = 5;
+   */
+  poolPriority: number;
+
+  /**
+   * Current status of the pool
+   * Indicates the operational state of the pool connection
+   *
+   * @generated from field: pools.v1.PoolConnectionStatus pool_status = 6;
+   */
+  poolStatus: PoolConnectionStatus;
+
+  /**
+   * Flag indicating whether the pool is the default pool
+   * Default pool is used for new miners and when resetting to defaults
+   *
+   * @generated from field: bool is_default = 7;
+   */
+  isDefault: boolean;
+};
+
+/**
+ * Describes the message pools.v1.Pool.
+ * Use `create(PoolSchema)` to create a new message.
+ */
+export const PoolSchema: GenMessage<Pool> =
+  /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 3);
+
+/**
+ * Request to retrieve all configured mining pools
+ *
+ * Empty request as all pools are returned
+ *
+ * @generated from message pools.v1.ListPoolsRequest
+ */
+export type ListPoolsRequest = Message<"pools.v1.ListPoolsRequest"> & {};
+
+/**
+ * Describes the message pools.v1.ListPoolsRequest.
+ * Use `create(ListPoolsRequestSchema)` to create a new message.
+ */
+export const ListPoolsRequestSchema: GenMessage<ListPoolsRequest> =
+  /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 4);
+
+/**
+ * Response containing all configured mining pools
+ *
+ * @generated from message pools.v1.ListPoolsResponse
+ */
+export type ListPoolsResponse = Message<"pools.v1.ListPoolsResponse"> & {
+  /**
+   * List of all configured pools, ordered by priority
+   *
+   * @generated from field: repeated pools.v1.Pool pools = 1;
+   */
+  pools: Pool[];
+};
+
+/**
+ * Describes the message pools.v1.ListPoolsResponse.
+ * Use `create(ListPoolsResponseSchema)` to create a new message.
+ */
+export const ListPoolsResponseSchema: GenMessage<ListPoolsResponse> =
+  /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 5);
+
+/**
+ * Request to create a new mining pool configuration
+ *
+ * @generated from message pools.v1.CreatePoolRequest
+ */
+export type CreatePoolRequest = Message<"pools.v1.CreatePoolRequest"> & {
+  /**
+   * Pool configuration details for the new pool
+   * Must contain all required connection information
+   *
+   * @generated from field: pools.v1.PoolConfig pool_config = 1;
+   */
+  poolConfig?: PoolConfig;
+};
+
+/**
+ * Describes the message pools.v1.CreatePoolRequest.
+ * Use `create(CreatePoolRequestSchema)` to create a new message.
+ */
+export const CreatePoolRequestSchema: GenMessage<CreatePoolRequest> =
+  /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 6);
+
+/**
+ * Response after creating a new mining pool
+ *
+ * @generated from message pools.v1.CreatePoolResponse
+ */
+export type CreatePoolResponse = Message<"pools.v1.CreatePoolResponse"> & {
+  /**
+   * The newly created pool with system-assigned ID and default values
+   *
+   * @generated from field: pools.v1.Pool pool = 1;
+   */
+  pool?: Pool;
+};
+
+/**
+ * Describes the message pools.v1.CreatePoolResponse.
+ * Use `create(CreatePoolResponseSchema)` to create a new message.
+ */
+export const CreatePoolResponseSchema: GenMessage<CreatePoolResponse> =
+  /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 7);
+
+/**
+ * Request to update an existing pool's configuration
+ *
+ * @generated from message pools.v1.UpdatePoolRequest
+ */
+export type UpdatePoolRequest = Message<"pools.v1.UpdatePoolRequest"> & {
+  /**
+   * Unique identifier of the pool to update
+   *
+   * @generated from field: int64 pool_id = 1;
+   */
+  poolId: bigint;
+
+  /**
+   * New pool name (optional, leave empty to keep current value)
+   *
+   * @generated from field: string pool_name = 2;
+   */
+  poolName: string;
+
+  /**
+   * New pool URL (optional, leave empty to keep current value)
+   *
+   * @generated from field: string url = 3;
+   */
+  url: string;
+
+  /**
+   * New username (optional, leave empty to keep current value)
+   *
+   * @generated from field: string username = 4;
+   */
+  username: string;
+
+  /**
+   * New password (optional, leave empty to keep current value)
+   *
+   * @generated from field: google.protobuf.StringValue password = 5;
+   */
+  password?: string;
+
+  /**
+   * Whether this pool should be set as the default
+   * Setting to true will unset any previous default pool
+   *
+   * @generated from field: bool is_default = 6;
+   */
+  isDefault: boolean;
+};
+
+/**
+ * Describes the message pools.v1.UpdatePoolRequest.
+ * Use `create(UpdatePoolRequestSchema)` to create a new message.
+ */
+export const UpdatePoolRequestSchema: GenMessage<UpdatePoolRequest> =
+  /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 8);
+
+/**
+ * Response after updating a pool's configuration
+ *
+ * @generated from message pools.v1.UpdatePoolResponse
+ */
+export type UpdatePoolResponse = Message<"pools.v1.UpdatePoolResponse"> & {
+  /**
+   * The updated pool with all current values
+   *
+   * @generated from field: pools.v1.Pool pool = 1;
+   */
+  pool?: Pool;
+};
+
+/**
+ * Describes the message pools.v1.UpdatePoolResponse.
+ * Use `create(UpdatePoolResponseSchema)` to create a new message.
+ */
+export const UpdatePoolResponseSchema: GenMessage<UpdatePoolResponse> =
+  /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 9);
+
+/**
+ * Defines a pool's priority for ordering
+ *
+ * @generated from message pools.v1.PoolPriority
+ */
+export type PoolPriority = Message<"pools.v1.PoolPriority"> & {
+  /**
+   * Unique identifier of the pool
+   *
+   * @generated from field: int64 pool_id = 1;
+   */
+  poolId: bigint;
+
+  /**
+   * New priority value (lower number = higher priority)
+   *
+   * @generated from field: int32 priority = 2;
+   */
+  priority: number;
+};
+
+/**
+ * Describes the message pools.v1.PoolPriority.
+ * Use `create(PoolPrioritySchema)` to create a new message.
+ */
+export const PoolPrioritySchema: GenMessage<PoolPriority> =
+  /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 10);
+
+/**
+ * Request to update priorities for multiple pools at once
+ *
+ * @generated from message pools.v1.UpdatePoolPriorityRequest
+ */
+export type UpdatePoolPriorityRequest =
+  Message<"pools.v1.UpdatePoolPriorityRequest"> & {
+    /**
+     * List of pools with their new priorities
+     * All specified pools will have their priorities updated atomically
+     *
+     * @generated from field: repeated pools.v1.PoolPriority pool_priorities = 1;
+     */
+    poolPriorities: PoolPriority[];
+  };
+
+/**
+ * Describes the message pools.v1.UpdatePoolPriorityRequest.
+ * Use `create(UpdatePoolPriorityRequestSchema)` to create a new message.
+ */
+export const UpdatePoolPriorityRequestSchema: GenMessage<UpdatePoolPriorityRequest> =
+  /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 11);
+
+/**
+ * Response after updating pool priorities
+ *
+ * @generated from message pools.v1.UpdatePoolPriorityResponse
+ */
+export type UpdatePoolPriorityResponse =
+  Message<"pools.v1.UpdatePoolPriorityResponse"> & {
+    /**
+     * List of all pools with their updated priorities
+     *
+     * @generated from field: repeated pools.v1.Pool pools = 1;
+     */
+    pools: Pool[];
+  };
+
+/**
+ * Describes the message pools.v1.UpdatePoolPriorityResponse.
+ * Use `create(UpdatePoolPriorityResponseSchema)` to create a new message.
+ */
+export const UpdatePoolPriorityResponseSchema: GenMessage<UpdatePoolPriorityResponse> =
+  /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 12);
+
+/**
+ * Request to delete a mining pool configuration
+ *
+ * @generated from message pools.v1.DeletePoolRequest
+ */
+export type DeletePoolRequest = Message<"pools.v1.DeletePoolRequest"> & {
+  /**
+   * Unique identifier of the pool to delete
+   *
+   * @generated from field: int64 pool_id = 1;
+   */
+  poolId: bigint;
+};
+
+/**
+ * Describes the message pools.v1.DeletePoolRequest.
+ * Use `create(DeletePoolRequestSchema)` to create a new message.
+ */
+export const DeletePoolRequestSchema: GenMessage<DeletePoolRequest> =
+  /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 13);
+
+/**
+ * Response after deleting a pool configuration
+ *
+ * Empty response as success/failure is indicated by gRPC status
+ *
+ * @generated from message pools.v1.DeletePoolResponse
+ */
+export type DeletePoolResponse = Message<"pools.v1.DeletePoolResponse"> & {};
+
+/**
+ * Describes the message pools.v1.DeletePoolResponse.
+ * Use `create(DeletePoolResponseSchema)` to create a new message.
+ */
+export const DeletePoolResponseSchema: GenMessage<DeletePoolResponse> =
+  /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 14);
+
+/**
+ * Request to validate a pool's connection details
+ *
  * @generated from message pools.v1.ValidatePoolRequest
  */
 export type ValidatePoolRequest = Message<"pools.v1.ValidatePoolRequest"> & {
@@ -72,9 +521,13 @@ export type ValidatePoolRequest = Message<"pools.v1.ValidatePoolRequest"> & {
  */
 export const ValidatePoolRequestSchema: GenMessage<ValidatePoolRequest> =
   /*@__PURE__*/
-  messageDesc(file_pools_v1_pools, 0);
+  messageDesc(file_pools_v1_pools, 15);
 
 /**
+ * Response after validating a pool's connection details
+ *
+ * Empty response as success/failure is indicated by gRPC status
+ *
  * @generated from message pools.v1.ValidatePoolResponse
  */
 export type ValidatePoolResponse =
@@ -86,13 +539,115 @@ export type ValidatePoolResponse =
  */
 export const ValidatePoolResponseSchema: GenMessage<ValidatePoolResponse> =
   /*@__PURE__*/
-  messageDesc(file_pools_v1_pools, 1);
+  messageDesc(file_pools_v1_pools, 16);
+
+/**
+ * @generated from enum pools.v1.PoolConnectionStatus
+ */
+export enum PoolConnectionStatus {
+  /**
+   * @generated from enum value: POOL_CONNECTION_STATUS_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: POOL_CONNECTION_STATUS_IDLE = 1;
+   */
+  IDLE = 1,
+
+  /**
+   * @generated from enum value: POOL_CONNECTION_STATUS_ACTIVE = 2;
+   */
+  ACTIVE = 2,
+
+  /**
+   * @generated from enum value: POOL_CONNECTION_STATUS_DEAD = 3;
+   */
+  DEAD = 3,
+}
+
+/**
+ * Describes the enum pools.v1.PoolConnectionStatus.
+ */
+export const PoolConnectionStatusSchema: GenEnum<PoolConnectionStatus> =
+  /*@__PURE__*/
+  enumDesc(file_pools_v1_pools, 0);
 
 /**
  * @generated from service pools.v1.PoolsService
  */
 export const PoolsService: GenService<{
   /**
+   * Sets the default pool configuration for the fleet
+   * This will be used as the base configuration for new miners
+   * or when resetting miners to default settings
+   * Any existing default pool will be replaced with this configuration
+   *
+   * @generated from rpc pools.v1.PoolsService.SetDefaultPool
+   */
+  setDefaultPool: {
+    methodKind: "unary";
+    input: typeof SetDefaultPoolRequestSchema;
+    output: typeof SetDefaultPoolResponseSchema;
+  };
+  /**
+   * Lists all configured mining pools
+   * Returns pools ordered by priority (highest priority first)
+   *
+   * @generated from rpc pools.v1.PoolsService.ListPools
+   */
+  listPools: {
+    methodKind: "unary";
+    input: typeof ListPoolsRequestSchema;
+    output: typeof ListPoolsResponseSchema;
+  };
+  /**
+   * Creates a new mining pool configuration
+   * First pool created will be set as the default pool
+   * The new pool will be assigned the lowest priority by default
+   *
+   * @generated from rpc pools.v1.PoolsService.CreatePool
+   */
+  createPool: {
+    methodKind: "unary";
+    input: typeof CreatePoolRequestSchema;
+    output: typeof CreatePoolResponseSchema;
+  };
+  /**
+   * Updates an existing pool's configuration
+   * Can modify connection details and default status
+   *
+   * @generated from rpc pools.v1.PoolsService.UpdatePool
+   */
+  updatePool: {
+    methodKind: "unary";
+    input: typeof UpdatePoolRequestSchema;
+    output: typeof UpdatePoolResponseSchema;
+  };
+  /**
+   * Updates priorities for multiple pools in a single operation
+   * All specified priorities are updated atomically
+   *
+   * @generated from rpc pools.v1.PoolsService.UpdatePoolPriority
+   */
+  updatePoolPriority: {
+    methodKind: "unary";
+    input: typeof UpdatePoolPriorityRequestSchema;
+    output: typeof UpdatePoolPriorityResponseSchema;
+  };
+  /**
+   * Deletes a pool configuration
+   *
+   * @generated from rpc pools.v1.PoolsService.DeletePool
+   */
+  deletePool: {
+    methodKind: "unary";
+    input: typeof DeletePoolRequestSchema;
+    output: typeof DeletePoolResponseSchema;
+  };
+  /**
+   * Validates a pool's connection details
+   *
    * @generated from rpc pools.v1.PoolsService.ValidatePool
    */
   validatePool: {

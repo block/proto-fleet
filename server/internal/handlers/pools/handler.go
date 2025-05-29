@@ -24,6 +24,63 @@ func NewHandler(svc *pools.Service) *Handler {
 	}
 }
 
+func (h *Handler) SetDefaultPool(ctx context.Context, r *connect.Request[pb.SetDefaultPoolRequest]) (*connect.Response[pb.SetDefaultPoolResponse], error) {
+	pool, err := h.poolsSvc.UpdateDefaultPool(ctx, r.Msg.PoolId)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(
+		&pb.SetDefaultPoolResponse{
+			Pool: pool,
+		}), nil
+}
+
+func (h *Handler) ListPools(ctx context.Context, _ *connect.Request[pb.ListPoolsRequest]) (*connect.Response[pb.ListPoolsResponse], error) {
+	pools, err := h.poolsSvc.ListPools(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&pb.ListPoolsResponse{Pools: pools}), nil
+}
+
+func (h *Handler) CreatePool(ctx context.Context, r *connect.Request[pb.CreatePoolRequest]) (*connect.Response[pb.CreatePoolResponse], error) {
+	pool, err := h.poolsSvc.CreatePool(ctx, r.Msg.PoolConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&pb.CreatePoolResponse{Pool: pool}), nil
+}
+
+func (h *Handler) UpdatePool(ctx context.Context, r *connect.Request[pb.UpdatePoolRequest]) (*connect.Response[pb.UpdatePoolResponse], error) {
+	pool, err := h.poolsSvc.UpdatePool(ctx, r.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&pb.UpdatePoolResponse{Pool: pool}), nil
+}
+
+func (h *Handler) UpdatePoolPriority(ctx context.Context, r *connect.Request[pb.UpdatePoolPriorityRequest]) (*connect.Response[pb.UpdatePoolPriorityResponse], error) {
+	pools, err := h.poolsSvc.UpdatePoolPriority(ctx, r.Msg.PoolPriorities)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&pb.UpdatePoolPriorityResponse{Pools: pools}), nil
+}
+
+func (h *Handler) DeletePool(ctx context.Context, r *connect.Request[pb.DeletePoolRequest]) (*connect.Response[pb.DeletePoolResponse], error) {
+	err := h.poolsSvc.DeletePool(ctx, r.Msg.PoolId)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&pb.DeletePoolResponse{}), nil
+}
+
 func (h *Handler) ValidatePool(ctx context.Context, r *connect.Request[pb.ValidatePoolRequest]) (*connect.Response[pb.ValidatePoolResponse], error) {
 	var pass *secret.Text
 	if r.Msg.Password != nil {

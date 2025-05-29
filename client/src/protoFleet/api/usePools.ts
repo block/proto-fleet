@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fleetManagementClient } from "@/protoFleet/api/clients";
+import { poolsClient } from "@/protoFleet/api/clients";
 import type {
   CreatePoolRequest,
   DeletePoolRequest,
   ListPoolsResponse,
   SetDefaultPoolRequest,
   UpdatePoolRequest,
-} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+  ValidatePoolRequest,
+} from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import {
   getAuthHeader,
   useAuthContext,
@@ -36,6 +37,12 @@ interface DeletePoolProps {
   onError?: (error: string) => void;
 }
 
+interface ValidatePoolProps {
+  validatePoolRequest: ValidatePoolRequest;
+  onSuccess?: () => void;
+  onError?: (error: string) => void;
+}
+
 const usePools = () => {
   const { authTokens } = useAuthContext();
 
@@ -43,7 +50,7 @@ const usePools = () => {
 
   const fetchPools = useCallback(async () => {
     try {
-      const response = await fleetManagementClient.listPools(
+      const response = await poolsClient.listPools(
         {},
         getAuthHeader(authTokens),
       );
@@ -61,7 +68,7 @@ const usePools = () => {
 
   const setDefaultPool = useCallback(
     async ({ defaultPoolRequest, onSuccess, onError }: SetDefaultPoolProps) => {
-      await fleetManagementClient
+      await poolsClient
         .setDefaultPool(defaultPoolRequest, getAuthHeader(authTokens))
         .then(() => {
           onSuccess();
@@ -75,7 +82,7 @@ const usePools = () => {
 
   const createPool = useCallback(
     async ({ createPoolRequest, onSuccess, onError }: CreatePoolProps) => {
-      await fleetManagementClient
+      await poolsClient
         .createPool(createPoolRequest, getAuthHeader(authTokens))
         .then(() => {
           onSuccess?.();
@@ -89,7 +96,7 @@ const usePools = () => {
 
   const updatePool = useCallback(
     async ({ updatePoolRequest, onSuccess, onError }: UpdatePoolProps) => {
-      await fleetManagementClient
+      await poolsClient
         .updatePool(updatePoolRequest, getAuthHeader(authTokens))
         .then(() => {
           onSuccess?.();
@@ -103,8 +110,22 @@ const usePools = () => {
 
   const deletePool = useCallback(
     async ({ deletePoolRequest, onSuccess, onError }: DeletePoolProps) => {
-      await fleetManagementClient
+      await poolsClient
         .deletePool(deletePoolRequest, getAuthHeader(authTokens))
+        .then(() => {
+          onSuccess?.();
+        })
+        .catch((err) => {
+          onError?.(err?.error?.message ?? err);
+        });
+    },
+    [authTokens],
+  );
+
+  const validatePool = useCallback(
+    async ({ validatePoolRequest, onSuccess, onError }: ValidatePoolProps) => {
+      await poolsClient
+        .validatePool(validatePoolRequest, getAuthHeader(authTokens))
         .then(() => {
           onSuccess?.();
         })
@@ -122,8 +143,9 @@ const usePools = () => {
       createPool,
       updatePool,
       deletePool,
+      validatePool,
     }),
-    [pools, setDefaultPool, createPool, updatePool, deletePool],
+    [pools, setDefaultPool, createPool, updatePool, deletePool, validatePool],
   );
 };
 

@@ -15,10 +15,7 @@ import {
   serviceDesc,
 } from "@bufbuild/protobuf/codegenv1";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import {
-  file_google_protobuf_timestamp,
-  file_google_protobuf_wrappers,
-} from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type {
   Measurement,
   TimeSeriesConfig,
@@ -32,466 +29,9 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_fleetmanagement_v1_fleetmanagement: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "CihmbGVldG1hbmFnZW1lbnQvdjEvZmxlZXRtYW5hZ2VtZW50LnByb3RvEhJmbGVldG1hbmFnZW1lbnQudjEibgoKUG9vbENvbmZpZxILCgN1cmwYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSLgoIcGFzc3dvcmQYAyABKAsyHC5nb29nbGUucHJvdG9idWYuU3RyaW5nVmFsdWUSEQoJcG9vbF9uYW1lGAQgASgJIigKFVNldERlZmF1bHRQb29sUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDIkAKFlNldERlZmF1bHRQb29sUmVzcG9uc2USJgoEcG9vbBgBIAEoCzIYLmZsZWV0bWFuYWdlbWVudC52MS5Qb29sIrMBCgRQb29sEg8KB3Bvb2xfaWQYASABKAMSCwoDdXJsGAIgASgJEhAKCHVzZXJuYW1lGAMgASgJEhEKCXBvb2xfbmFtZRgEIAEoCRIVCg1wb29sX3ByaW9yaXR5GAUgASgFEj0KC3Bvb2xfc3RhdHVzGAYgASgOMiguZmxlZXRtYW5hZ2VtZW50LnYxLlBvb2xDb25uZWN0aW9uU3RhdHVzEhIKCmlzX2RlZmF1bHQYByABKAgiEgoQTGlzdFBvb2xzUmVxdWVzdCI8ChFMaXN0UG9vbHNSZXNwb25zZRInCgVwb29scxgBIAMoCzIYLmZsZWV0bWFuYWdlbWVudC52MS5Qb29sIkgKEUNyZWF0ZVBvb2xSZXF1ZXN0EjMKC3Bvb2xfY29uZmlnGAEgASgLMh4uZmxlZXRtYW5hZ2VtZW50LnYxLlBvb2xDb25maWciPAoSQ3JlYXRlUG9vbFJlc3BvbnNlEiYKBHBvb2wYASABKAsyGC5mbGVldG1hbmFnZW1lbnQudjEuUG9vbCKaAQoRVXBkYXRlUG9vbFJlcXVlc3QSDwoHcG9vbF9pZBgBIAEoAxIRCglwb29sX25hbWUYAiABKAkSCwoDdXJsGAMgASgJEhAKCHVzZXJuYW1lGAQgASgJEi4KCHBhc3N3b3JkGAUgASgLMhwuZ29vZ2xlLnByb3RvYnVmLlN0cmluZ1ZhbHVlEhIKCmlzX2RlZmF1bHQYBiABKAgiPAoSVXBkYXRlUG9vbFJlc3BvbnNlEiYKBHBvb2wYASABKAsyGC5mbGVldG1hbmFnZW1lbnQudjEuUG9vbCIxCgxQb29sUHJpb3JpdHkSDwoHcG9vbF9pZBgBIAEoAxIQCghwcmlvcml0eRgCIAEoBSJWChlVcGRhdGVQb29sUHJpb3JpdHlSZXF1ZXN0EjkKD3Bvb2xfcHJpb3JpdGllcxgBIAMoCzIgLmZsZWV0bWFuYWdlbWVudC52MS5Qb29sUHJpb3JpdHkiRQoaVXBkYXRlUG9vbFByaW9yaXR5UmVzcG9uc2USJwoFcG9vbHMYASADKAsyGC5mbGVldG1hbmFnZW1lbnQudjEuUG9vbCIkChFEZWxldGVQb29sUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDIhQKEkRlbGV0ZVBvb2xSZXNwb25zZSI8ChdMaXN0UGFpcmVkTWluZXJzUmVxdWVzdBIRCglwYWdlX3NpemUYASABKAUSDgoGY3Vyc29yGAIgASgJInIKGExpc3RQYWlyZWRNaW5lcnNSZXNwb25zZRIwCgZtaW5lcnMYASADKAsyIC5mbGVldG1hbmFnZW1lbnQudjEuUGFpcmVkRGV2aWNlEg4KBmN1cnNvchgCIAEoCRIUCgx0b3RhbF9taW5lcnMYAyABKAUiVQoMUGFpcmVkRGV2aWNlEhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEhUKDXNlcmlhbF9udW1iZXIYAiABKAkSEwoLbWFjX2FkZHJlc3MYAyABKAkilgMKEk1pbmVyU3RhdGVTbmFwc2hvdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIMCgRuYW1lGAIgASgJEhMKC21hY19hZGRyZXNzGAMgASgJEhUKDXNlcmlhbF9udW1iZXIYBCABKAkSKwoLcG93ZXJfdXNhZ2UYBSADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKwoLdGVtcGVyYXR1cmUYBiADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKAoIaGFzaHJhdGUYByADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKgoKZWZmaWNpZW5jeRgIIAMoCzIWLmNvbW1vbi52MS5NZWFzdXJlbWVudBI4CgZzdGF0dXMYCSABKAsyKC5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJDb21wb25lbnRTdGF0dXMSLQoJdGltZXN0YW1wGAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBISCgppcF9hZGRyZXNzGAsgASgJIvEBChRNaW5lckNvbXBvbmVudFN0YXR1cxI6Cg1jb250cm9sX2JvYXJkGAEgASgOMiMuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1cxIxCgRmYW5zGAIgASgOMiMuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1cxI4CgtoYXNoX2JvYXJkcxgDIAEoDjIjLmZsZWV0bWFuYWdlbWVudC52MS5Db21wb25lbnRTdGF0dXMSMAoDcHN1GAQgASgOMiMuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1cyKIAwoRTWVhc3VyZW1lbnRDb25maWcSTwoQbWVhc3VyZW1lbnRfdHlwZRgBIAEoDjI1LmZsZWV0bWFuYWdlbWVudC52MS5NZWFzdXJlbWVudENvbmZpZy5NZWFzdXJlbWVudFR5cGUSLwoJZGF0YV9tb2RlGAIgASgOMhwuZmxlZXRtYW5hZ2VtZW50LnYxLkRhdGFNb2RlEjcKEnRpbWVfc2VyaWVzX2NvbmZpZxgDIAEoCzIbLmNvbW1vbi52MS5UaW1lU2VyaWVzQ29uZmlnIrcBCg9NZWFzdXJlbWVudFR5cGUSIAocTUVBU1VSRU1FTlRfVFlQRV9VTlNQRUNJRklFRBAAEiAKHE1FQVNVUkVNRU5UX1RZUEVfUE9XRVJfVVNBR0UQARIgChxNRUFTVVJFTUVOVF9UWVBFX1RFTVBFUkFUVVJFEAISHQoZTUVBU1VSRU1FTlRfVFlQRV9IQVNIUkFURRADEh8KG01FQVNVUkVNRU5UX1RZUEVfRUZGSUNJRU5DWRAEIqICCh5MaXN0TWluZXJTdGF0ZVNuYXBzaG90c1JlcXVlc3QSEQoJcGFnZV9zaXplGAEgASgFEg4KBmN1cnNvchgCIAEoCRIvCglkYXRhX21vZGUYAyABKA4yHC5mbGVldG1hbmFnZW1lbnQudjEuRGF0YU1vZGUSNwoSdGltZV9zZXJpZXNfY29uZmlnGAQgASgLMhsuY29tbW9uLnYxLlRpbWVTZXJpZXNDb25maWcSQgoTbWVhc3VyZW1lbnRfY29uZmlncxgFIAMoCzIlLmZsZWV0bWFuYWdlbWVudC52MS5NZWFzdXJlbWVudENvbmZpZxIvCgZmaWx0ZXIYBiABKAsyHy5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJGaWx0ZXIiQgoLTWluZXJGaWx0ZXISMwoGc3RhdHVzGAEgASgOMiMuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1cyJ/Ch9MaXN0TWluZXJTdGF0ZVNuYXBzaG90c1Jlc3BvbnNlEjYKBm1pbmVycxgBIAMoCzImLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lclN0YXRlU25hcHNob3QSDgoGY3Vyc29yGAIgASgJEhQKDHRvdGFsX21pbmVycxgDIAEoBSLNAQoZU3RyZWFtTWluZXJVcGRhdGVzUmVxdWVzdBIaChJkZXZpY2VfaWRlbnRpZmllcnMYASADKAkSUAoRbWVhc3VyZW1lbnRfdHlwZXMYAiADKA4yNS5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnRDb25maWcuTWVhc3VyZW1lbnRUeXBlEh4KFmluY2x1ZGVfc3RhdHVzX3VwZGF0ZXMYAyABKAgSIgoaaGVhcnRiZWF0X2ludGVydmFsX3NlY29uZHMYBCABKAUinwIKGlN0cmVhbU1pbmVyVXBkYXRlc1Jlc3BvbnNlEi0KCXRpbWVzdGFtcBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGQoRZGV2aWNlX2lkZW50aWZpZXIYAiABKAkSPAoLbWVhc3VyZW1lbnQYAyABKAsyJS5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnRVcGRhdGVIABI7CgZzdGF0dXMYBCABKAsyKS5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzVXBkYXRlSAASMgoJaGVhcnRiZWF0GAUgASgLMh0uZmxlZXRtYW5hZ2VtZW50LnYxLkhlYXJ0YmVhdEgAQggKBnVwZGF0ZSKRAQoRTWVhc3VyZW1lbnRVcGRhdGUSTwoQbWVhc3VyZW1lbnRfdHlwZRgBIAEoDjI1LmZsZWV0bWFuYWdlbWVudC52MS5NZWFzdXJlbWVudENvbmZpZy5NZWFzdXJlbWVudFR5cGUSKwoLbWVhc3VyZW1lbnQYAiABKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQinAIKFUNvbXBvbmVudFN0YXR1c1VwZGF0ZRJGCgljb21wb25lbnQYASABKA4yMy5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzVXBkYXRlLkNvbXBvbmVudBIzCgZzdGF0dXMYAiABKA4yIy5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzIoUBCglDb21wb25lbnQSGQoVQ09NUE9ORU5UX1VOU1BFQ0lGSUVEEAASGwoXQ09NUE9ORU5UX0NPTlRST0xfQk9BUkQQARISCg5DT01QT05FTlRfRkFOUxACEhkKFUNPTVBPTkVOVF9IQVNIX0JPQVJEUxADEhEKDUNPTVBPTkVOVF9QU1UQBCILCglIZWFydGJlYXQqmQEKH0ZsZWV0TWFuYWdlbWVudFNlcnZpY2VFcnJvckNvZGUSMwovRkxFRVRfTUFOQUdFTUVOVF9TRVJWSUNFX0VSUk9SX0NPREVfVU5TUEVDSUZJRUQQABJBCj1GTEVFVF9NQU5BR0VNRU5UX1NFUlZJQ0VfRVJST1JfQ09ERV9JTlZBTElEX1BBR0lOQVRJT05fQ1VSU09SEAEqowEKFFBvb2xDb25uZWN0aW9uU3RhdHVzEiYKIlBPT0xfQ09OTkVDVElPTl9TVEFUVVNfVU5TUEVDSUZJRUQQABIfChtQT09MX0NPTk5FQ1RJT05fU1RBVFVTX0lETEUQARIhCh1QT09MX0NPTk5FQ1RJT05fU1RBVFVTX0FDVElWRRACEh8KG1BPT0xfQ09OTkVDVElPTl9TVEFUVVNfREVBRBADKsIBCg9Db21wb25lbnRTdGF0dXMSIAocQ09NUE9ORU5UX1NUQVRVU19VTlNQRUNJRklFRBAAEhcKE0NPTVBPTkVOVF9TVEFUVVNfT0sQARIcChhDT01QT05FTlRfU1RBVFVTX1dBUk5JTkcQAhIaChZDT01QT05FTlRfU1RBVFVTX0VSUk9SEAMSHAoYQ09NUE9ORU5UX1NUQVRVU19PRkZMSU5FEAQSHAoYQ09NUE9ORU5UX1NUQVRVU19QRU5ESU5HEAUqcAoIRGF0YU1vZGUSGQoVREFUQV9NT0RFX1VOU1BFQ0lGSUVEEAASFgoSREFUQV9NT0RFX01FVEFEQVRBEAESFgoSREFUQV9NT0RFX1NOQVBTSE9UEAISGQoVREFUQV9NT0RFX1RJTUVfU0VSSUVTEAMy0gcKFkZsZWV0TWFuYWdlbWVudFNlcnZpY2USZwoOU2V0RGVmYXVsdFBvb2wSKS5mbGVldG1hbmFnZW1lbnQudjEuU2V0RGVmYXVsdFBvb2xSZXF1ZXN0GiouZmxlZXRtYW5hZ2VtZW50LnYxLlNldERlZmF1bHRQb29sUmVzcG9uc2USWAoJTGlzdFBvb2xzEiQuZmxlZXRtYW5hZ2VtZW50LnYxLkxpc3RQb29sc1JlcXVlc3QaJS5mbGVldG1hbmFnZW1lbnQudjEuTGlzdFBvb2xzUmVzcG9uc2USWwoKQ3JlYXRlUG9vbBIlLmZsZWV0bWFuYWdlbWVudC52MS5DcmVhdGVQb29sUmVxdWVzdBomLmZsZWV0bWFuYWdlbWVudC52MS5DcmVhdGVQb29sUmVzcG9uc2USWwoKVXBkYXRlUG9vbBIlLmZsZWV0bWFuYWdlbWVudC52MS5VcGRhdGVQb29sUmVxdWVzdBomLmZsZWV0bWFuYWdlbWVudC52MS5VcGRhdGVQb29sUmVzcG9uc2UScwoSVXBkYXRlUG9vbFByaW9yaXR5Ei0uZmxlZXRtYW5hZ2VtZW50LnYxLlVwZGF0ZVBvb2xQcmlvcml0eVJlcXVlc3QaLi5mbGVldG1hbmFnZW1lbnQudjEuVXBkYXRlUG9vbFByaW9yaXR5UmVzcG9uc2USWwoKRGVsZXRlUG9vbBIlLmZsZWV0bWFuYWdlbWVudC52MS5EZWxldGVQb29sUmVxdWVzdBomLmZsZWV0bWFuYWdlbWVudC52MS5EZWxldGVQb29sUmVzcG9uc2USbQoQTGlzdFBhaXJlZE1pbmVycxIrLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0UGFpcmVkTWluZXJzUmVxdWVzdBosLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0UGFpcmVkTWluZXJzUmVzcG9uc2USggEKF0xpc3RNaW5lclN0YXRlU25hcHNob3RzEjIuZmxlZXRtYW5hZ2VtZW50LnYxLkxpc3RNaW5lclN0YXRlU25hcHNob3RzUmVxdWVzdBozLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0TWluZXJTdGF0ZVNuYXBzaG90c1Jlc3BvbnNlEnUKElN0cmVhbU1pbmVyVXBkYXRlcxItLmZsZWV0bWFuYWdlbWVudC52MS5TdHJlYW1NaW5lclVwZGF0ZXNSZXF1ZXN0Gi4uZmxlZXRtYW5hZ2VtZW50LnYxLlN0cmVhbU1pbmVyVXBkYXRlc1Jlc3BvbnNlMAFC9QEKFmNvbS5mbGVldG1hbmFnZW1lbnQudjFCFEZsZWV0bWFuYWdlbWVudFByb3RvUAFaXGdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvZmxlZXRtYW5hZ2VtZW50L3YxO2ZsZWV0bWFuYWdlbWVudHYxogIDRlhYqgISRmxlZXRtYW5hZ2VtZW50LlYxygISRmxlZXRtYW5hZ2VtZW50XFYx4gIeRmxlZXRtYW5hZ2VtZW50XFYxXEdQQk1ldGFkYXRh6gITRmxlZXRtYW5hZ2VtZW50OjpWMWIGcHJvdG8z",
-    [
-      file_google_protobuf_timestamp,
-      file_google_protobuf_wrappers,
-      file_common_v1_measurement,
-    ],
+    "CihmbGVldG1hbmFnZW1lbnQvdjEvZmxlZXRtYW5hZ2VtZW50LnByb3RvEhJmbGVldG1hbmFnZW1lbnQudjEiPAoXTGlzdFBhaXJlZE1pbmVyc1JlcXVlc3QSEQoJcGFnZV9zaXplGAEgASgFEg4KBmN1cnNvchgCIAEoCSJyChhMaXN0UGFpcmVkTWluZXJzUmVzcG9uc2USMAoGbWluZXJzGAEgAygLMiAuZmxlZXRtYW5hZ2VtZW50LnYxLlBhaXJlZERldmljZRIOCgZjdXJzb3IYAiABKAkSFAoMdG90YWxfbWluZXJzGAMgASgFIlUKDFBhaXJlZERldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIVCg1zZXJpYWxfbnVtYmVyGAIgASgJEhMKC21hY19hZGRyZXNzGAMgASgJIpYDChJNaW5lclN0YXRlU25hcHNob3QSGQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAkSDAoEbmFtZRgCIAEoCRITCgttYWNfYWRkcmVzcxgDIAEoCRIVCg1zZXJpYWxfbnVtYmVyGAQgASgJEisKC3Bvd2VyX3VzYWdlGAUgAygLMhYuY29tbW9uLnYxLk1lYXN1cmVtZW50EisKC3RlbXBlcmF0dXJlGAYgAygLMhYuY29tbW9uLnYxLk1lYXN1cmVtZW50EigKCGhhc2hyYXRlGAcgAygLMhYuY29tbW9uLnYxLk1lYXN1cmVtZW50EioKCmVmZmljaWVuY3kYCCADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSOAoGc3RhdHVzGAkgASgLMiguZmxlZXRtYW5hZ2VtZW50LnYxLk1pbmVyQ29tcG9uZW50U3RhdHVzEi0KCXRpbWVzdGFtcBgKIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKaXBfYWRkcmVzcxgLIAEoCSLxAQoUTWluZXJDb21wb25lbnRTdGF0dXMSOgoNY29udHJvbF9ib2FyZBgBIAEoDjIjLmZsZWV0bWFuYWdlbWVudC52MS5Db21wb25lbnRTdGF0dXMSMQoEZmFucxgCIAEoDjIjLmZsZWV0bWFuYWdlbWVudC52MS5Db21wb25lbnRTdGF0dXMSOAoLaGFzaF9ib2FyZHMYAyABKA4yIy5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzEjAKA3BzdRgEIAEoDjIjLmZsZWV0bWFuYWdlbWVudC52MS5Db21wb25lbnRTdGF0dXMiiAMKEU1lYXN1cmVtZW50Q29uZmlnEk8KEG1lYXN1cmVtZW50X3R5cGUYASABKA4yNS5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnRDb25maWcuTWVhc3VyZW1lbnRUeXBlEi8KCWRhdGFfbW9kZRgCIAEoDjIcLmZsZWV0bWFuYWdlbWVudC52MS5EYXRhTW9kZRI3ChJ0aW1lX3Nlcmllc19jb25maWcYAyABKAsyGy5jb21tb24udjEuVGltZVNlcmllc0NvbmZpZyK3AQoPTWVhc3VyZW1lbnRUeXBlEiAKHE1FQVNVUkVNRU5UX1RZUEVfVU5TUEVDSUZJRUQQABIgChxNRUFTVVJFTUVOVF9UWVBFX1BPV0VSX1VTQUdFEAESIAocTUVBU1VSRU1FTlRfVFlQRV9URU1QRVJBVFVSRRACEh0KGU1FQVNVUkVNRU5UX1RZUEVfSEFTSFJBVEUQAxIfChtNRUFTVVJFTUVOVF9UWVBFX0VGRklDSUVOQ1kQBCKiAgoeTGlzdE1pbmVyU3RhdGVTbmFwc2hvdHNSZXF1ZXN0EhEKCXBhZ2Vfc2l6ZRgBIAEoBRIOCgZjdXJzb3IYAiABKAkSLwoJZGF0YV9tb2RlGAMgASgOMhwuZmxlZXRtYW5hZ2VtZW50LnYxLkRhdGFNb2RlEjcKEnRpbWVfc2VyaWVzX2NvbmZpZxgEIAEoCzIbLmNvbW1vbi52MS5UaW1lU2VyaWVzQ29uZmlnEkIKE21lYXN1cmVtZW50X2NvbmZpZ3MYBSADKAsyJS5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnRDb25maWcSLwoGZmlsdGVyGAYgASgLMh8uZmxlZXRtYW5hZ2VtZW50LnYxLk1pbmVyRmlsdGVyIkIKC01pbmVyRmlsdGVyEjMKBnN0YXR1cxgBIAEoDjIjLmZsZWV0bWFuYWdlbWVudC52MS5Db21wb25lbnRTdGF0dXMifwofTGlzdE1pbmVyU3RhdGVTbmFwc2hvdHNSZXNwb25zZRI2CgZtaW5lcnMYASADKAsyJi5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJTdGF0ZVNuYXBzaG90Eg4KBmN1cnNvchgCIAEoCRIUCgx0b3RhbF9taW5lcnMYAyABKAUizQEKGVN0cmVhbU1pbmVyVXBkYXRlc1JlcXVlc3QSGgoSZGV2aWNlX2lkZW50aWZpZXJzGAEgAygJElAKEW1lYXN1cmVtZW50X3R5cGVzGAIgAygOMjUuZmxlZXRtYW5hZ2VtZW50LnYxLk1lYXN1cmVtZW50Q29uZmlnLk1lYXN1cmVtZW50VHlwZRIeChZpbmNsdWRlX3N0YXR1c191cGRhdGVzGAMgASgIEiIKGmhlYXJ0YmVhdF9pbnRlcnZhbF9zZWNvbmRzGAQgASgFIp8CChpTdHJlYW1NaW5lclVwZGF0ZXNSZXNwb25zZRItCgl0aW1lc3RhbXAYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhkKEWRldmljZV9pZGVudGlmaWVyGAIgASgJEjwKC21lYXN1cmVtZW50GAMgASgLMiUuZmxlZXRtYW5hZ2VtZW50LnYxLk1lYXN1cmVtZW50VXBkYXRlSAASOwoGc3RhdHVzGAQgASgLMikuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1c1VwZGF0ZUgAEjIKCWhlYXJ0YmVhdBgFIAEoCzIdLmZsZWV0bWFuYWdlbWVudC52MS5IZWFydGJlYXRIAEIICgZ1cGRhdGUikQEKEU1lYXN1cmVtZW50VXBkYXRlEk8KEG1lYXN1cmVtZW50X3R5cGUYASABKA4yNS5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnRDb25maWcuTWVhc3VyZW1lbnRUeXBlEisKC21lYXN1cmVtZW50GAIgASgLMhYuY29tbW9uLnYxLk1lYXN1cmVtZW50IpwCChVDb21wb25lbnRTdGF0dXNVcGRhdGUSRgoJY29tcG9uZW50GAEgASgOMjMuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1c1VwZGF0ZS5Db21wb25lbnQSMwoGc3RhdHVzGAIgASgOMiMuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1cyKFAQoJQ29tcG9uZW50EhkKFUNPTVBPTkVOVF9VTlNQRUNJRklFRBAAEhsKF0NPTVBPTkVOVF9DT05UUk9MX0JPQVJEEAESEgoOQ09NUE9ORU5UX0ZBTlMQAhIZChVDT01QT05FTlRfSEFTSF9CT0FSRFMQAxIRCg1DT01QT05FTlRfUFNVEAQiCwoJSGVhcnRiZWF0KpkBCh9GbGVldE1hbmFnZW1lbnRTZXJ2aWNlRXJyb3JDb2RlEjMKL0ZMRUVUX01BTkFHRU1FTlRfU0VSVklDRV9FUlJPUl9DT0RFX1VOU1BFQ0lGSUVEEAASQQo9RkxFRVRfTUFOQUdFTUVOVF9TRVJWSUNFX0VSUk9SX0NPREVfSU5WQUxJRF9QQUdJTkFUSU9OX0NVUlNPUhABKsIBCg9Db21wb25lbnRTdGF0dXMSIAocQ09NUE9ORU5UX1NUQVRVU19VTlNQRUNJRklFRBAAEhcKE0NPTVBPTkVOVF9TVEFUVVNfT0sQARIcChhDT01QT05FTlRfU1RBVFVTX1dBUk5JTkcQAhIaChZDT01QT05FTlRfU1RBVFVTX0VSUk9SEAMSHAoYQ09NUE9ORU5UX1NUQVRVU19PRkZMSU5FEAQSHAoYQ09NUE9ORU5UX1NUQVRVU19QRU5ESU5HEAUqcAoIRGF0YU1vZGUSGQoVREFUQV9NT0RFX1VOU1BFQ0lGSUVEEAASFgoSREFUQV9NT0RFX01FVEFEQVRBEAESFgoSREFUQV9NT0RFX1NOQVBTSE9UEAISGQoVREFUQV9NT0RFX1RJTUVfU0VSSUVTEAMygwMKFkZsZWV0TWFuYWdlbWVudFNlcnZpY2USbQoQTGlzdFBhaXJlZE1pbmVycxIrLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0UGFpcmVkTWluZXJzUmVxdWVzdBosLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0UGFpcmVkTWluZXJzUmVzcG9uc2USggEKF0xpc3RNaW5lclN0YXRlU25hcHNob3RzEjIuZmxlZXRtYW5hZ2VtZW50LnYxLkxpc3RNaW5lclN0YXRlU25hcHNob3RzUmVxdWVzdBozLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0TWluZXJTdGF0ZVNuYXBzaG90c1Jlc3BvbnNlEnUKElN0cmVhbU1pbmVyVXBkYXRlcxItLmZsZWV0bWFuYWdlbWVudC52MS5TdHJlYW1NaW5lclVwZGF0ZXNSZXF1ZXN0Gi4uZmxlZXRtYW5hZ2VtZW50LnYxLlN0cmVhbU1pbmVyVXBkYXRlc1Jlc3BvbnNlMAFC9QEKFmNvbS5mbGVldG1hbmFnZW1lbnQudjFCFEZsZWV0bWFuYWdlbWVudFByb3RvUAFaXGdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvZmxlZXRtYW5hZ2VtZW50L3YxO2ZsZWV0bWFuYWdlbWVudHYxogIDRlhYqgISRmxlZXRtYW5hZ2VtZW50LlYxygISRmxlZXRtYW5hZ2VtZW50XFYx4gIeRmxlZXRtYW5hZ2VtZW50XFYxXEdQQk1ldGFkYXRh6gITRmxlZXRtYW5hZ2VtZW50OjpWMWIGcHJvdG8z",
+    [file_google_protobuf_timestamp, file_common_v1_measurement],
   );
-
-/**
- * PoolConfig defines the connection details for a mining pool
- *
- * @generated from message fleetmanagement.v1.PoolConfig
- */
-export type PoolConfig = Message<"fleetmanagement.v1.PoolConfig"> & {
-  /**
-   * Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")
-   * Required field that specifies the endpoint for connecting to the pool
-   *
-   * @generated from field: string url = 1;
-   */
-  url: string;
-
-  /**
-   * Username or wallet address for pool authentication
-   * Required field that identifies the user/wallet receiving mining rewards
-   *
-   * @generated from field: string username = 2;
-   */
-  username: string;
-
-  /**
-   * Password for pool authentication
-   * May be optional depending on pool requirements, often used for worker identification
-   *
-   * @generated from field: google.protobuf.StringValue password = 3;
-   */
-  password?: string;
-
-  /**
-   * Pool name to identify this pool
-   * Human-readable identifier for the pool within the fleet management system
-   *
-   * @generated from field: string pool_name = 4;
-   */
-  poolName: string;
-};
-
-/**
- * Describes the message fleetmanagement.v1.PoolConfig.
- * Use `create(PoolConfigSchema)` to create a new message.
- */
-export const PoolConfigSchema: GenMessage<PoolConfig> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 0);
-
-/**
- * Request to set an existing pool as the default for the fleet
- * This pool will be used for new miners or when resetting to defaults
- *
- * @generated from message fleetmanagement.v1.SetDefaultPoolRequest
- */
-export type SetDefaultPoolRequest =
-  Message<"fleetmanagement.v1.SetDefaultPoolRequest"> & {
-    /**
-     * ID of the existing pool to set as default
-     * Must reference a valid pool_id from a previously created pool
-     *
-     * @generated from field: int64 pool_id = 1;
-     */
-    poolId: bigint;
-  };
-
-/**
- * Describes the message fleetmanagement.v1.SetDefaultPoolRequest.
- * Use `create(SetDefaultPoolRequestSchema)` to create a new message.
- */
-export const SetDefaultPoolRequestSchema: GenMessage<SetDefaultPoolRequest> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 1);
-
-/**
- * Response to setting default pool configuration
- * Empty message as success/failure is indicated by gRPC status
- *
- * @generated from message fleetmanagement.v1.SetDefaultPoolResponse
- */
-export type SetDefaultPoolResponse =
-  Message<"fleetmanagement.v1.SetDefaultPoolResponse"> & {
-    /**
-     * The updated default pool with all current values
-     *
-     * @generated from field: fleetmanagement.v1.Pool pool = 1;
-     */
-    pool?: Pool;
-  };
-
-/**
- * Describes the message fleetmanagement.v1.SetDefaultPoolResponse.
- * Use `create(SetDefaultPoolResponseSchema)` to create a new message.
- */
-export const SetDefaultPoolResponseSchema: GenMessage<SetDefaultPoolResponse> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 2);
-
-/**
- * Pool defines a configured mining pool with its connection details and status
- *
- * @generated from message fleetmanagement.v1.Pool
- */
-export type Pool = Message<"fleetmanagement.v1.Pool"> & {
-  /**
-   * Unique identifier for the pool within the system
-   *
-   * @generated from field: int64 pool_id = 1;
-   */
-  poolId: bigint;
-
-  /**
-   * Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")
-   * Endpoint for connecting to the pool
-   *
-   * @generated from field: string url = 2;
-   */
-  url: string;
-
-  /**
-   * Username or wallet address for pool authentication
-   * Identifies the user/wallet receiving mining rewards
-   *
-   * @generated from field: string username = 3;
-   */
-  username: string;
-
-  /**
-   * Pool name to identify this pool
-   * Human-readable identifier for the pool within the fleet management system
-   *
-   * @generated from field: string pool_name = 4;
-   */
-  poolName: string;
-
-  /**
-   * Priority of this pool (lower number = higher priority)
-   * Determines the order in which miners will try to connect to pools
-   *
-   * @generated from field: int32 pool_priority = 5;
-   */
-  poolPriority: number;
-
-  /**
-   * Current status of the pool
-   * Indicates the operational state of the pool connection
-   *
-   * @generated from field: fleetmanagement.v1.PoolConnectionStatus pool_status = 6;
-   */
-  poolStatus: PoolConnectionStatus;
-
-  /**
-   * Flag indicating whether the pool is the default pool
-   * Default pool is used for new miners and when resetting to defaults
-   *
-   * @generated from field: bool is_default = 7;
-   */
-  isDefault: boolean;
-};
-
-/**
- * Describes the message fleetmanagement.v1.Pool.
- * Use `create(PoolSchema)` to create a new message.
- */
-export const PoolSchema: GenMessage<Pool> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 3);
-
-/**
- * Request to retrieve all configured mining pools
- *
- * Empty request as all pools are returned
- *
- * @generated from message fleetmanagement.v1.ListPoolsRequest
- */
-export type ListPoolsRequest =
-  Message<"fleetmanagement.v1.ListPoolsRequest"> & {};
-
-/**
- * Describes the message fleetmanagement.v1.ListPoolsRequest.
- * Use `create(ListPoolsRequestSchema)` to create a new message.
- */
-export const ListPoolsRequestSchema: GenMessage<ListPoolsRequest> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 4);
-
-/**
- * Response containing all configured mining pools
- *
- * @generated from message fleetmanagement.v1.ListPoolsResponse
- */
-export type ListPoolsResponse =
-  Message<"fleetmanagement.v1.ListPoolsResponse"> & {
-    /**
-     * List of all configured pools, ordered by priority
-     *
-     * @generated from field: repeated fleetmanagement.v1.Pool pools = 1;
-     */
-    pools: Pool[];
-  };
-
-/**
- * Describes the message fleetmanagement.v1.ListPoolsResponse.
- * Use `create(ListPoolsResponseSchema)` to create a new message.
- */
-export const ListPoolsResponseSchema: GenMessage<ListPoolsResponse> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 5);
-
-/**
- * Request to create a new mining pool configuration
- *
- * @generated from message fleetmanagement.v1.CreatePoolRequest
- */
-export type CreatePoolRequest =
-  Message<"fleetmanagement.v1.CreatePoolRequest"> & {
-    /**
-     * Pool configuration details for the new pool
-     * Must contain all required connection information
-     *
-     * @generated from field: fleetmanagement.v1.PoolConfig pool_config = 1;
-     */
-    poolConfig?: PoolConfig;
-  };
-
-/**
- * Describes the message fleetmanagement.v1.CreatePoolRequest.
- * Use `create(CreatePoolRequestSchema)` to create a new message.
- */
-export const CreatePoolRequestSchema: GenMessage<CreatePoolRequest> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 6);
-
-/**
- * Response after creating a new mining pool
- *
- * @generated from message fleetmanagement.v1.CreatePoolResponse
- */
-export type CreatePoolResponse =
-  Message<"fleetmanagement.v1.CreatePoolResponse"> & {
-    /**
-     * The newly created pool with system-assigned ID and default values
-     *
-     * @generated from field: fleetmanagement.v1.Pool pool = 1;
-     */
-    pool?: Pool;
-  };
-
-/**
- * Describes the message fleetmanagement.v1.CreatePoolResponse.
- * Use `create(CreatePoolResponseSchema)` to create a new message.
- */
-export const CreatePoolResponseSchema: GenMessage<CreatePoolResponse> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 7);
-
-/**
- * Request to update an existing pool's configuration
- *
- * @generated from message fleetmanagement.v1.UpdatePoolRequest
- */
-export type UpdatePoolRequest =
-  Message<"fleetmanagement.v1.UpdatePoolRequest"> & {
-    /**
-     * Unique identifier of the pool to update
-     *
-     * @generated from field: int64 pool_id = 1;
-     */
-    poolId: bigint;
-
-    /**
-     * New pool name (optional, leave empty to keep current value)
-     *
-     * @generated from field: string pool_name = 2;
-     */
-    poolName: string;
-
-    /**
-     * New pool URL (optional, leave empty to keep current value)
-     *
-     * @generated from field: string url = 3;
-     */
-    url: string;
-
-    /**
-     * New username (optional, leave empty to keep current value)
-     *
-     * @generated from field: string username = 4;
-     */
-    username: string;
-
-    /**
-     * New password (optional, leave empty to keep current value)
-     *
-     * @generated from field: google.protobuf.StringValue password = 5;
-     */
-    password?: string;
-
-    /**
-     * Whether this pool should be set as the default
-     * Setting to true will unset any previous default pool
-     *
-     * @generated from field: bool is_default = 6;
-     */
-    isDefault: boolean;
-  };
-
-/**
- * Describes the message fleetmanagement.v1.UpdatePoolRequest.
- * Use `create(UpdatePoolRequestSchema)` to create a new message.
- */
-export const UpdatePoolRequestSchema: GenMessage<UpdatePoolRequest> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 8);
-
-/**
- * Response after updating a pool's configuration
- *
- * @generated from message fleetmanagement.v1.UpdatePoolResponse
- */
-export type UpdatePoolResponse =
-  Message<"fleetmanagement.v1.UpdatePoolResponse"> & {
-    /**
-     * The updated pool with all current values
-     *
-     * @generated from field: fleetmanagement.v1.Pool pool = 1;
-     */
-    pool?: Pool;
-  };
-
-/**
- * Describes the message fleetmanagement.v1.UpdatePoolResponse.
- * Use `create(UpdatePoolResponseSchema)` to create a new message.
- */
-export const UpdatePoolResponseSchema: GenMessage<UpdatePoolResponse> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 9);
-
-/**
- * Defines a pool's priority for ordering
- *
- * @generated from message fleetmanagement.v1.PoolPriority
- */
-export type PoolPriority = Message<"fleetmanagement.v1.PoolPriority"> & {
-  /**
-   * Unique identifier of the pool
-   *
-   * @generated from field: int64 pool_id = 1;
-   */
-  poolId: bigint;
-
-  /**
-   * New priority value (lower number = higher priority)
-   *
-   * @generated from field: int32 priority = 2;
-   */
-  priority: number;
-};
-
-/**
- * Describes the message fleetmanagement.v1.PoolPriority.
- * Use `create(PoolPrioritySchema)` to create a new message.
- */
-export const PoolPrioritySchema: GenMessage<PoolPriority> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 10);
-
-/**
- * Request to update priorities for multiple pools at once
- *
- * @generated from message fleetmanagement.v1.UpdatePoolPriorityRequest
- */
-export type UpdatePoolPriorityRequest =
-  Message<"fleetmanagement.v1.UpdatePoolPriorityRequest"> & {
-    /**
-     * List of pools with their new priorities
-     * All specified pools will have their priorities updated atomically
-     *
-     * @generated from field: repeated fleetmanagement.v1.PoolPriority pool_priorities = 1;
-     */
-    poolPriorities: PoolPriority[];
-  };
-
-/**
- * Describes the message fleetmanagement.v1.UpdatePoolPriorityRequest.
- * Use `create(UpdatePoolPriorityRequestSchema)` to create a new message.
- */
-export const UpdatePoolPriorityRequestSchema: GenMessage<UpdatePoolPriorityRequest> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 11);
-
-/**
- * Response after updating pool priorities
- *
- * @generated from message fleetmanagement.v1.UpdatePoolPriorityResponse
- */
-export type UpdatePoolPriorityResponse =
-  Message<"fleetmanagement.v1.UpdatePoolPriorityResponse"> & {
-    /**
-     * List of all pools with their updated priorities
-     *
-     * @generated from field: repeated fleetmanagement.v1.Pool pools = 1;
-     */
-    pools: Pool[];
-  };
-
-/**
- * Describes the message fleetmanagement.v1.UpdatePoolPriorityResponse.
- * Use `create(UpdatePoolPriorityResponseSchema)` to create a new message.
- */
-export const UpdatePoolPriorityResponseSchema: GenMessage<UpdatePoolPriorityResponse> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 12);
-
-/**
- * Request to delete a mining pool configuration
- *
- * @generated from message fleetmanagement.v1.DeletePoolRequest
- */
-export type DeletePoolRequest =
-  Message<"fleetmanagement.v1.DeletePoolRequest"> & {
-    /**
-     * Unique identifier of the pool to delete
-     *
-     * @generated from field: int64 pool_id = 1;
-     */
-    poolId: bigint;
-  };
-
-/**
- * Describes the message fleetmanagement.v1.DeletePoolRequest.
- * Use `create(DeletePoolRequestSchema)` to create a new message.
- */
-export const DeletePoolRequestSchema: GenMessage<DeletePoolRequest> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 13);
-
-/**
- * Response after deleting a pool configuration
- *
- * Empty response as success/failure is indicated by gRPC status
- *
- * @generated from message fleetmanagement.v1.DeletePoolResponse
- */
-export type DeletePoolResponse =
-  Message<"fleetmanagement.v1.DeletePoolResponse"> & {};
-
-/**
- * Describes the message fleetmanagement.v1.DeletePoolResponse.
- * Use `create(DeletePoolResponseSchema)` to create a new message.
- */
-export const DeletePoolResponseSchema: GenMessage<DeletePoolResponse> =
-  /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 14);
 
 /**
  * Request to list paired miners with pagination support
@@ -525,7 +65,7 @@ export type ListPairedMinersRequest =
  */
 export const ListPairedMinersRequestSchema: GenMessage<ListPairedMinersRequest> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 15);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 0);
 
 /**
  * Response containing a list of paired miners with pagination support
@@ -565,7 +105,7 @@ export type ListPairedMinersResponse =
  */
 export const ListPairedMinersResponseSchema: GenMessage<ListPairedMinersResponse> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 16);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 1);
 
 /**
  * Represents a miner that has been paired with the fleet management system
@@ -605,7 +145,7 @@ export type PairedDevice = Message<"fleetmanagement.v1.PairedDevice"> & {
  */
 export const PairedDeviceSchema: GenMessage<PairedDevice> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 17);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 2);
 
 /**
  * MinerStateSnapshot represents the operational state of a mining device
@@ -706,7 +246,7 @@ export type MinerStateSnapshot =
  */
 export const MinerStateSnapshotSchema: GenMessage<MinerStateSnapshot> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 18);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 3);
 
 /**
  * Status information for all major components in a miner
@@ -750,7 +290,7 @@ export type MinerComponentStatus =
  */
 export const MinerComponentStatusSchema: GenMessage<MinerComponentStatus> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 19);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 4);
 
 /**
  * Configuration for a specific measurement type
@@ -788,7 +328,7 @@ export type MeasurementConfig =
  */
 export const MeasurementConfigSchema: GenMessage<MeasurementConfig> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 20);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 5);
 
 /**
  * Type of measurement this configuration applies to
@@ -837,7 +377,7 @@ export enum MeasurementConfig_MeasurementType {
  */
 export const MeasurementConfig_MeasurementTypeSchema: GenEnum<MeasurementConfig_MeasurementType> =
   /*@__PURE__*/
-  enumDesc(file_fleetmanagement_v1_fleetmanagement, 20, 0);
+  enumDesc(file_fleetmanagement_v1_fleetmanagement, 5, 0);
 
 /**
  * Request to list miners with their telemetry data
@@ -902,7 +442,7 @@ export type ListMinerStateSnapshotsRequest =
  */
 export const ListMinerStateSnapshotsRequestSchema: GenMessage<ListMinerStateSnapshotsRequest> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 21);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 6);
 
 /**
  * Filter criteria for miners
@@ -924,7 +464,7 @@ export type MinerFilter = Message<"fleetmanagement.v1.MinerFilter"> & {
  */
 export const MinerFilterSchema: GenMessage<MinerFilter> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 22);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 7);
 
 /**
  * Response containing a list of miners with their telemetry
@@ -964,7 +504,7 @@ export type ListMinerStateSnapshotsResponse =
  */
 export const ListMinerStateSnapshotsResponseSchema: GenMessage<ListMinerStateSnapshotsResponse> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 23);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 8);
 
 /**
  * @generated from message fleetmanagement.v1.StreamMinerUpdatesRequest
@@ -1006,7 +546,7 @@ export type StreamMinerUpdatesRequest =
  */
 export const StreamMinerUpdatesRequestSchema: GenMessage<StreamMinerUpdatesRequest> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 24);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 9);
 
 /**
  * @generated from message fleetmanagement.v1.StreamMinerUpdatesResponse
@@ -1069,7 +609,7 @@ export type StreamMinerUpdatesResponse =
  */
 export const StreamMinerUpdatesResponseSchema: GenMessage<StreamMinerUpdatesResponse> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 25);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 10);
 
 /**
  * @generated from message fleetmanagement.v1.MeasurementUpdate
@@ -1097,7 +637,7 @@ export type MeasurementUpdate =
  */
 export const MeasurementUpdateSchema: GenMessage<MeasurementUpdate> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 26);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 11);
 
 /**
  * @generated from message fleetmanagement.v1.ComponentStatusUpdate
@@ -1125,7 +665,7 @@ export type ComponentStatusUpdate =
  */
 export const ComponentStatusUpdateSchema: GenMessage<ComponentStatusUpdate> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 27);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 12);
 
 /**
  * The component that changed status
@@ -1164,7 +704,7 @@ export enum ComponentStatusUpdate_Component {
  */
 export const ComponentStatusUpdate_ComponentSchema: GenEnum<ComponentStatusUpdate_Component> =
   /*@__PURE__*/
-  enumDesc(file_fleetmanagement_v1_fleetmanagement, 27, 0);
+  enumDesc(file_fleetmanagement_v1_fleetmanagement, 12, 0);
 
 /**
  * Empty message for heartbeat
@@ -1179,7 +719,7 @@ export type Heartbeat = Message<"fleetmanagement.v1.Heartbeat"> & {};
  */
 export const HeartbeatSchema: GenMessage<Heartbeat> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 28);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 13);
 
 /**
  * @generated from enum fleetmanagement.v1.FleetManagementServiceErrorCode
@@ -1202,38 +742,6 @@ export enum FleetManagementServiceErrorCode {
 export const FleetManagementServiceErrorCodeSchema: GenEnum<FleetManagementServiceErrorCode> =
   /*@__PURE__*/
   enumDesc(file_fleetmanagement_v1_fleetmanagement, 0);
-
-/**
- * @generated from enum fleetmanagement.v1.PoolConnectionStatus
- */
-export enum PoolConnectionStatus {
-  /**
-   * @generated from enum value: POOL_CONNECTION_STATUS_UNSPECIFIED = 0;
-   */
-  UNSPECIFIED = 0,
-
-  /**
-   * @generated from enum value: POOL_CONNECTION_STATUS_IDLE = 1;
-   */
-  IDLE = 1,
-
-  /**
-   * @generated from enum value: POOL_CONNECTION_STATUS_ACTIVE = 2;
-   */
-  ACTIVE = 2,
-
-  /**
-   * @generated from enum value: POOL_CONNECTION_STATUS_DEAD = 3;
-   */
-  DEAD = 3,
-}
-
-/**
- * Describes the enum fleetmanagement.v1.PoolConnectionStatus.
- */
-export const PoolConnectionStatusSchema: GenEnum<PoolConnectionStatus> =
-  /*@__PURE__*/
-  enumDesc(file_fleetmanagement_v1_fleetmanagement, 1);
 
 /**
  * Operational status of a miner component
@@ -1289,7 +797,7 @@ export enum ComponentStatus {
  */
 export const ComponentStatusSchema: GenEnum<ComponentStatus> =
   /*@__PURE__*/
-  enumDesc(file_fleetmanagement_v1_fleetmanagement, 2);
+  enumDesc(file_fleetmanagement_v1_fleetmanagement, 1);
 
 /**
  * Determines whether to return current snapshot or historical time series data
@@ -1331,7 +839,7 @@ export enum DataMode {
  */
 export const DataModeSchema: GenEnum<DataMode> =
   /*@__PURE__*/
-  enumDesc(file_fleetmanagement_v1_fleetmanagement, 3);
+  enumDesc(file_fleetmanagement_v1_fleetmanagement, 2);
 
 /**
  * Service for managing fleet-wide settings and configurations
@@ -1339,74 +847,6 @@ export const DataModeSchema: GenEnum<DataMode> =
  * @generated from service fleetmanagement.v1.FleetManagementService
  */
 export const FleetManagementService: GenService<{
-  /**
-   * Sets the default pool configuration for the fleet
-   * This will be used as the base configuration for new miners
-   * or when resetting miners to default settings
-   * Any existing default pool will be replaced with this configuration
-   *
-   * @generated from rpc fleetmanagement.v1.FleetManagementService.SetDefaultPool
-   */
-  setDefaultPool: {
-    methodKind: "unary";
-    input: typeof SetDefaultPoolRequestSchema;
-    output: typeof SetDefaultPoolResponseSchema;
-  };
-  /**
-   * Lists all configured mining pools
-   * Returns pools ordered by priority (highest priority first)
-   *
-   * @generated from rpc fleetmanagement.v1.FleetManagementService.ListPools
-   */
-  listPools: {
-    methodKind: "unary";
-    input: typeof ListPoolsRequestSchema;
-    output: typeof ListPoolsResponseSchema;
-  };
-  /**
-   * Creates a new mining pool configuration
-   * First pool created will be set as the default pool
-   * The new pool will be assigned the lowest priority by default
-   *
-   * @generated from rpc fleetmanagement.v1.FleetManagementService.CreatePool
-   */
-  createPool: {
-    methodKind: "unary";
-    input: typeof CreatePoolRequestSchema;
-    output: typeof CreatePoolResponseSchema;
-  };
-  /**
-   * Updates an existing pool's configuration
-   * Can modify connection details and default status
-   *
-   * @generated from rpc fleetmanagement.v1.FleetManagementService.UpdatePool
-   */
-  updatePool: {
-    methodKind: "unary";
-    input: typeof UpdatePoolRequestSchema;
-    output: typeof UpdatePoolResponseSchema;
-  };
-  /**
-   * Updates priorities for multiple pools in a single operation
-   * All specified priorities are updated atomically
-   *
-   * @generated from rpc fleetmanagement.v1.FleetManagementService.UpdatePoolPriority
-   */
-  updatePoolPriority: {
-    methodKind: "unary";
-    input: typeof UpdatePoolPriorityRequestSchema;
-    output: typeof UpdatePoolPriorityResponseSchema;
-  };
-  /**
-   * Deletes a pool configuration
-   *
-   * @generated from rpc fleetmanagement.v1.FleetManagementService.DeletePool
-   */
-  deletePool: {
-    methodKind: "unary";
-    input: typeof DeletePoolRequestSchema;
-    output: typeof DeletePoolResponseSchema;
-  };
   /**
    * Lists all miners that have been paired with the fleet management system
    * Supports pagination for handling large fleets efficiently
