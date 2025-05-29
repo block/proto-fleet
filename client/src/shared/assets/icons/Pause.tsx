@@ -22,7 +22,6 @@ const Pause = ({ className, onClick }: IconProps) => {
         clipRule="evenodd"
         d="M17 14a1 1 0 0 1-1 1H4a1 1 0 1 1 0-2h12a1 1 0 0 1 1 1Zm0-8a1 1 0 0 1-1 1H4a1 1 0 1 1 0-2h12a1 1 0 0 1 1 1Z"
         fill="currentColor"
-        fillOpacity=".3"
       />
     </svg>
   );

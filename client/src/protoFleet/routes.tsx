@@ -34,6 +34,7 @@ type Route = RouteObject & {
 
 export type NavRoute = Omit<Route, "element">;
 
+// TODO this causes ProtoFleet index to redirect to /hashrate on load and refresh
 // copies all Proto OS routes and wraps their element in SingleMinerWrapper
 const wrappedMinerRoutes = singleMinerRoutes.map((route) => {
   const wrappedElement = createElement(SingleMinerWrapper, null, route.element);

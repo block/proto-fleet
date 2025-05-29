@@ -18,6 +18,7 @@ import { statuses } from "@/shared/components/StatusCircle/constants";
 type MinerListProps = {
   title: string;
   miners: MinerStateSnapshot[];
+  bodyClassName?: string;
 };
 
 // TODO: move this to state when we
@@ -32,7 +33,7 @@ const activeCols = [
   minerCols.temperature,
 ] as (keyof MinerStateSnapshot)[];
 
-const MinerList = ({ title, miners = [] }: MinerListProps) => {
+const MinerList = ({ title, miners = [], bodyClassName }: MinerListProps) => {
   const filters = useMemo(() => {
     const countMiners = (status: MinerFilterState) => {
       // TODO: need to determine what properties need to be added to MinerStateSnapshot to support our filters
@@ -119,6 +120,7 @@ const MinerList = ({ title, miners = [] }: MinerListProps) => {
         renderActionBar={(selectedItems) => (
           <MinerListActionBar selectedMiners={selectedItems} />
         )}
+        bodyClassName={bodyClassName}
       />
     </div>
   );

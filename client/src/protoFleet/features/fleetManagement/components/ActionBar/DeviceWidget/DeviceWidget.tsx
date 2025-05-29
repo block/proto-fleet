@@ -115,7 +115,7 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
       {
         action: deviceActions.factoryReset,
         title: "Factory reset",
-        icon: <ArrowLeftCompact />,
+        icon: <ArrowLeftCompact className="opacity-30" />,
         actionHandler: handleFactoryReset,
         requiresConfirmation: true,
         confirmation: {

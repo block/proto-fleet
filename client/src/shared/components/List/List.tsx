@@ -37,6 +37,7 @@ type ListProps<ListItem, ItemKeyValueType, FilterType extends Key> = {
   noDataElement?: ReactNode;
   renderActionBar?: (selectedItems: ItemKeyValueType[]) => ReactNode;
   includeOptions?: boolean;
+  bodyClassName?: string;
 };
 
 const cellClassList = "text-left";
@@ -62,6 +63,7 @@ const List = <ListItem, ItemKeyValueType, FilterType extends Key>({
   noDataElement,
   renderActionBar,
   includeOptions,
+  bodyClassName,
 }: ListProps<ListItem, ItemKeyValueType, FilterType>) => {
   const [selectedItems, setSelectedItems] =
     useState<ItemKeyValueType[]>(initialSelectedItems);
@@ -127,7 +129,7 @@ const List = <ListItem, ItemKeyValueType, FilterType extends Key>({
   );
 
   return (
-    <div className="flex flex-col overflow-hidden">
+    <div className="flex flex-col">
       <Filters<ListItem, FilterType>
         className="gap-4 py-4"
         filterItems={filters ?? []}
@@ -135,123 +137,125 @@ const List = <ListItem, ItemKeyValueType, FilterType extends Key>({
         items={items}
         onFilter={handleFiltering}
       />
-      {!noDataElement || (items && items.length > 0) ? (
-        <div className="overflow-y-auto">
-          <table className="min-w-full table-fixed border-collapse">
-            <thead data-testid="list-header">
-              <tr className={rowClassList}>
-                {itemSelectable && (
-                  <th className={thClassList}>
-                    <div className="w-12 truncate overflow-hidden">
-                      <Checkbox
-                        checked={allSelected}
-                        onChange={(e) => handleSelectAll(e.target.checked)}
-                      />
-                    </div>
-                  </th>
-                )}
-
-                {activeCols.map((row, idx) => (
-                  <th className={thClassList} key={idx}>
-                    <div
-                      className={clsx(
-                        "truncate overflow-hidden",
-                        colConfig[row]?.width,
-                      )}
-                    >
-                      {colTitles[row]}
-                    </div>
-                  </th>
-                ))}
-                {includeOptions && (
-                  <th className={thClassList}>
-                    <div className="w-12 truncate overflow-hidden">
-                      <button className="align-middle text-text-primary-30 hover:cursor-pointer hover:text-text-primary-50">
-                        <Ellipsis />
-                      </button>
-                    </div>
-                  </th>
-                )}
-              </tr>
-            </thead>
-            <tbody data-testid="list-body">
-              {filteredItems.map((item, i) => (
-                <tr
-                  key={i}
-                  className={clsx(rowClassList, "hover:cursor-pointer")}
-                >
+      <div className={bodyClassName}>
+        {!noDataElement || (items && items.length > 0) ? (
+          <div className="min-w-fit">
+            <table className="mb-6 min-w-full table-fixed border-collapse">
+              <thead data-testid="list-header">
+                <tr className={rowClassList}>
                   {itemSelectable && (
-                    <td className={tdClassList}>
-                      <div className="w-12 truncate overflow-hidden">
+                    <th className={thClassList}>
+                      <div className="w-11 truncate overflow-hidden">
                         <Checkbox
-                          checked={
-                            customSelectedItems?.includes(
-                              item[itemKey] as ItemKeyValueType,
-                            ) ||
-                            selectedItems.includes(
-                              item[itemKey] as ItemKeyValueType,
-                            )
-                          }
-                          onChange={(e) =>
-                            handleSelectItem(
-                              item[itemKey] as ItemKeyValueType,
-                              e.target.checked,
-                            )
-                          }
+                          checked={allSelected}
+                          onChange={(e) => handleSelectAll(e.target.checked)}
                         />
                       </div>
-                    </td>
+                    </th>
                   )}
 
-                  {activeCols.map((row, j) => (
-                    <td className={tdClassList} key={j}>
+                  {activeCols.map((row, idx) => (
+                    <th className={thClassList} key={idx}>
                       <div
                         className={clsx(
                           "truncate overflow-hidden",
                           colConfig[row]?.width,
-                          {
-                            "text-core-primary-50": disabled,
-                          },
                         )}
                       >
-                        {colConfig[row]?.component
-                          ? colConfig[row].component(item, selectedItems)
-                          : (item[row] as ReactNode)}
+                        {colTitles[row]}
                       </div>
-                    </td>
+                    </th>
                   ))}
-                  {actions.length == 1 ? (
-                    <td className={tdClassList}>
-                      <div className="flex justify-end">
-                        <Button
-                          variant={variants.secondary}
-                          size={sizes.compact}
-                          text={actions[0].title}
-                          onClick={() => actions[0].actionHandler(item)}
-                        />
+                  {includeOptions && (
+                    <th className={thClassList}>
+                      <div className="w-11 truncate overflow-hidden">
+                        <button className="align-middle text-text-primary-30 hover:cursor-pointer hover:text-text-primary-50">
+                          <Ellipsis />
+                        </button>
                       </div>
-                    </td>
-                  ) : actions.length > 1 ? (
-                    <td className={tdClassList}>
-                      <div className="w-12">
-                        <PopoverProvider>
-                          <ListActions<ListItem>
-                            item={item}
-                            actions={actions}
-                          />
-                        </PopoverProvider>
-                      </div>
-                    </td>
-                  ) : null}
+                    </th>
+                  )}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        noDataElement
-      )}
-      {renderActionBar && renderActionBar(selectedItems)}
+              </thead>
+              <tbody data-testid="list-body">
+                {filteredItems.map((item, i) => (
+                  <tr
+                    key={i}
+                    className={clsx(rowClassList, "hover:cursor-pointer")}
+                  >
+                    {itemSelectable && (
+                      <td className={tdClassList}>
+                        <div className="w-11 truncate overflow-hidden">
+                          <Checkbox
+                            checked={
+                              customSelectedItems?.includes(
+                                item[itemKey] as ItemKeyValueType,
+                              ) ||
+                              selectedItems.includes(
+                                item[itemKey] as ItemKeyValueType,
+                              )
+                            }
+                            onChange={(e) =>
+                              handleSelectItem(
+                                item[itemKey] as ItemKeyValueType,
+                                e.target.checked,
+                              )
+                            }
+                          />
+                        </div>
+                      </td>
+                    )}
+
+                    {activeCols.map((row, j) => (
+                      <td className={tdClassList} key={j}>
+                        <div
+                          className={clsx(
+                            "truncate overflow-hidden",
+                            colConfig[row]?.width,
+                            {
+                              "text-core-primary-50": disabled,
+                            },
+                          )}
+                        >
+                          {colConfig[row]?.component
+                            ? colConfig[row].component(item, selectedItems)
+                            : (item[row] as ReactNode)}
+                        </div>
+                      </td>
+                    ))}
+                    {actions.length == 1 ? (
+                      <td className={tdClassList}>
+                        <div className="flex justify-end">
+                          <Button
+                            variant={variants.secondary}
+                            size={sizes.compact}
+                            text={actions[0].title}
+                            onClick={() => actions[0].actionHandler(item)}
+                          />
+                        </div>
+                      </td>
+                    ) : actions.length > 1 ? (
+                      <td className={tdClassList}>
+                        <div className="w-11">
+                          <PopoverProvider>
+                            <ListActions<ListItem>
+                              item={item}
+                              actions={actions}
+                            />
+                          </PopoverProvider>
+                        </div>
+                      </td>
+                    ) : null}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          noDataElement
+        )}
+        {renderActionBar && renderActionBar(selectedItems)}
+      </div>
     </div>
   );
 };
