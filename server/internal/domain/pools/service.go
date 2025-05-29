@@ -255,7 +255,7 @@ func convertFromProtoStatus(status pb.PoolConnectionStatus) sqlc.PoolPoolStatus 
 // We currently only support Stratum V1 connection pools, if you need V2
 // support please use a proxy v1->v2 as described https://stratumprotocol.org/docs/#proxies
 func (s *Service) ValidateConnection(ctx context.Context, url string, username string, password *secret.Text, timeout *time.Duration) (bool, error) {
-	to := s.cfg.timeout
+	to := s.cfg.Timeout
 	if timeout != nil {
 		to = *timeout
 	}
