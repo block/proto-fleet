@@ -67,16 +67,8 @@ The gRPC API definitions can be found in the `proto` directory.
 
 ## Running the Service
 
-1. Start MySQL
-
 ```shell
-just db-up
-```
-
-2. Build and run the service
-
-```shell
-go install ./cmd/fleetd && fleetd
+just run
 ```
 
 The service will:
@@ -89,4 +81,4 @@ The service will:
 
 ### HTTP API
 
-The service responds to both gRPC requests and HTTP requests. To interact via HTTP see [testing.http](testing.http) NB: You can make requests from this file directly if you are using [GoLand](https://blog.jetbrains.com/idea/2021/10/intellij-idea-2021-3-eap-6-enhanced-http-client-kotlin-support-for-cdi-and-more/#:~:text=Like%20in%20ordinary%20HTTP%20requests,proto%20files.)
+The service responds to both gRPC requests and HTTP requests. To interact via HTTP see [testing.http](testing.http) NB: You can make requests from this file directly if you are using [GoLand](https://blog.jetbrains.com/idea/2021/10/intellij-idea-2021-3-eap-6-enhanced-http-client-kotlin-support-for-cdi-and-more/#:~:text=Like%20in%20ordinary%20HTTP%20requests,proto%20files.) or the [Rest Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client) vscode extension.

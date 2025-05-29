@@ -1,4 +1,10 @@
-### Run health chcek
+### server running locally (just run)
+@host = http://127.0.0.1:8080
+
+### server running in docker (just start)
+#@host = http://localhost:4000
+
+### Run health check
 GET {{host}}/health
 
 ### Onboarding: Create Admin User
@@ -11,6 +17,7 @@ Content-Type: application/json
 }
 
 ### Authenticate
+# @name authenticate
 POST {{host}}/auth.v1.AuthService/Authenticate
 Content-Type: application/json
 
@@ -19,10 +26,13 @@ Content-Type: application/json
   "password": "00000000000000000000000000000000000000000000"
 }
 
+### Set auth token
+@auth_token = {{authenticate.response.body.token}}
+
 ### Run mdns discovery
 POST {{host}}/pairing.v1.PairingService/Discover
 Authorization: Bearer {{auth_token}}
-Content-Type: application/json
+Content-Type: application/grpc+json
 
 {
   "mdns": {
@@ -36,7 +46,7 @@ Content-Type: application/json
 
 POST {{host}}/pairing.v1.PairingService/Discover
 Authorization: Bearer {{auth_token}}
-Content-Type: application/json
+Content-Type: application/grpc+json
 
 {
   "nmap": {
@@ -52,7 +62,7 @@ Content-Type: application/json
 
 POST {{host}}/pairing.v1.PairingService/Discover
 Authorization: Bearer {{auth_token}}
-Content-Type: application/json
+Content-Type: application/grpc+json
 
 {
   "ip_range": {
@@ -68,7 +78,7 @@ Content-Type: application/json
 
 POST {{host}}/pairing.v1.PairingService/Discover
 Authorization: Bearer {{auth_token}}
-Content-Type: application/json
+Content-Type: application/grpc+json
 
 {
   "ip_list": {

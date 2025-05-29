@@ -1,10 +1,12 @@
 package token
 
 import (
-	"connectrpc.com/authn"
 	"context"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"log/slog"
 	"time"
+
+	"connectrpc.com/authn"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -12,6 +14,11 @@ import (
 var signingMethod = jwt.SigningMethodHS256
 
 const minSecretKeyLength = 32 // 32 bytes for HS256 security
+
+const (
+	defaultSecretKey        = "00000000000000000000000000000000000000000000"
+	defaultExpirationPeriod = 24 * time.Hour
+)
 
 // Claims struct for JWT payload
 type Claims struct {
@@ -26,13 +33,20 @@ type Service struct {
 
 // NewService validates and creates a Service instance
 func NewService(cfg Config) (*Service, error) {
-	if len(cfg.SecretKey) < minSecretKeyLength {
-		return nil, fleeterror.NewInternalErrorf("secret key must be at least 32 bytes long: len=%d", len(cfg.SecretKey))
+	if len(cfg.SecretKey) == 0 {
+		cfg.SecretKey = defaultSecretKey
+		slog.Warn("Using default secret key for local development. DO NOT use in production!",
+			"default_key_length", len(defaultSecretKey))
 	}
 
-	// Ensure default expiration period
 	if cfg.ExpirationPeriod == 0 {
-		return nil, fleeterror.NewInternalError("expiration period value is required. e.g. '30m'")
+		cfg.ExpirationPeriod = defaultExpirationPeriod
+		slog.Warn("Using default JWT expiration period.",
+			"default_period", defaultExpirationPeriod.String())
+	}
+
+	if len(cfg.SecretKey) < minSecretKeyLength {
+		return nil, fleeterror.NewInternalErrorf("secret key must be at least 32 bytes long: len=%d", len(cfg.SecretKey))
 	}
 
 	return &Service{cfg: cfg}, nil
