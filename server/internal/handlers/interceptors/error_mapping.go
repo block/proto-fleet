@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"io"
 )
 
 type ErrorMappingInterceptor struct{}
@@ -33,35 +32,15 @@ func (e *ErrorMappingInterceptor) WrapStreamingClient(next connect.StreamingClie
 
 func (e *ErrorMappingInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
 	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
-		err := next(ctx, &streamingHandlerInterceptor{StreamingHandlerConn: conn})
+		err := next(ctx, conn)
 
 		return mapError(err)
 	}
 }
 
-type streamingHandlerInterceptor struct {
-	connect.StreamingHandlerConn
-}
-
-func (i *streamingHandlerInterceptor) Receive(msg interface{}) error {
-	err := i.StreamingHandlerConn.Receive(msg)
-
-	return mapError(err)
-}
-
-func (i *streamingHandlerInterceptor) Send(msg interface{}) error {
-	err := i.StreamingHandlerConn.Send(msg)
-
-	return mapError(err)
-}
-
 func mapError(err error) error {
 	if err == nil {
 		return nil
-	}
-
-	if errors.Is(err, io.EOF) {
-		return err
 	}
 
 	var fleetErr fleeterror.FleetError

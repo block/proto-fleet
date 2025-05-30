@@ -13,6 +13,7 @@ type FleetError struct {
 	GRPCCode           connect.Code
 	FleetErrorCode     int32
 	FleetErrorCodeType FleetErrorCodeType
+	StackTrace         StackTrace
 }
 
 // FleetErrorCodeType represents the type of error code being used
@@ -48,6 +49,35 @@ func (e FleetError) Error() string {
 	return fmt.Sprintf("FleetError: %s (%s: %d) %s", e.GRPCCode.String(), e.FleetErrorCodeType.String(), e.FleetErrorCode, e.DebugMessage)
 }
 
+func (e FleetError) IsExpected() bool {
+	switch e.GRPCCode {
+	case connect.CodeCanceled,
+		connect.CodeInvalidArgument,
+		connect.CodeNotFound,
+		connect.CodeAlreadyExists,
+		connect.CodePermissionDenied,
+		connect.CodeResourceExhausted,
+		connect.CodeFailedPrecondition,
+		connect.CodeAborted,
+		connect.CodeOutOfRange,
+		connect.CodeUnauthenticated:
+		return true
+	case connect.CodeUnknown,
+		connect.CodeDeadlineExceeded,
+		connect.CodeUnimplemented,
+		connect.CodeInternal,
+		connect.CodeUnavailable,
+		connect.CodeDataLoss:
+		return false
+	default:
+		return false
+	}
+}
+
+func (e FleetError) ErrorWithStackTrace() string {
+	return e.Error() + "\n" + e.StackTrace.String()
+}
+
 func New(
 	debugMessage string,
 	grpcCode connect.Code,
@@ -59,7 +89,14 @@ func New(
 		GRPCCode:           grpcCode,
 		FleetErrorCode:     fleetErrorCode,
 		FleetErrorCodeType: fleetErrorCodeType,
+		StackTrace:         NewStackTrace(1),
 	}
+}
+
+func (e FleetError) WithCallerStackTrace() FleetError {
+	e.StackTrace = NewStackTrace(2)
+
+	return e
 }
 
 func (e FleetError) ConnectError() *connect.Error {
@@ -110,7 +147,7 @@ func NewErrorWithCommonCode(
 	grpcCode connect.Code,
 	fleetErrorCode commonv1.FleetErrorCode,
 ) FleetError {
-	return New(debugMessage, grpcCode, int32(fleetErrorCode), ErrorCodeTypeCommon)
+	return New(debugMessage, grpcCode, int32(fleetErrorCode), ErrorCodeTypeCommon).WithCallerStackTrace()
 }
 
 func NewErrorWithServiceCode(
@@ -118,7 +155,7 @@ func NewErrorWithServiceCode(
 	grpcCode connect.Code,
 	fleetErrorCode int32,
 ) FleetError {
-	return New(debugMessage, grpcCode, fleetErrorCode, ErrorCodeTypeService)
+	return New(debugMessage, grpcCode, fleetErrorCode, ErrorCodeTypeService).WithCallerStackTrace()
 }
 
 func NewErrorWithEndpointCode(
@@ -126,53 +163,53 @@ func NewErrorWithEndpointCode(
 	grpcCode connect.Code,
 	fleetErrorCode int32,
 ) FleetError {
-	return New(debugMessage, grpcCode, fleetErrorCode, ErrorCodeTypeEndpoint)
+	return New(debugMessage, grpcCode, fleetErrorCode, ErrorCodeTypeEndpoint).WithCallerStackTrace()
 }
 
 func NewPlainError(debugMessage string, grpcCode connect.Code) FleetError {
-	return NewErrorWithCommonCode(debugMessage, grpcCode, commonv1.FleetErrorCode_FLEET_ERROR_CODE_UNSPECIFIED)
+	return NewErrorWithCommonCode(debugMessage, grpcCode, commonv1.FleetErrorCode_FLEET_ERROR_CODE_UNSPECIFIED).WithCallerStackTrace()
 }
 
 func NewInternalError(debugMessage string) FleetError {
-	return NewPlainError(debugMessage, connect.CodeInternal)
+	return NewPlainError(debugMessage, connect.CodeInternal).WithCallerStackTrace()
 }
 
 func NewInternalErrorf(format string, a ...any) FleetError {
 	return NewInternalError(
 		fmt.Sprintf(format, a...),
-	)
+	).WithCallerStackTrace()
 }
 
 func NewUnauthenticatedError(debugMessage string) FleetError {
-	return NewPlainError(debugMessage, connect.CodeUnauthenticated)
+	return NewPlainError(debugMessage, connect.CodeUnauthenticated).WithCallerStackTrace()
 }
 
 func NewUnauthenticatedErrorf(format string, a ...any) FleetError {
 	return NewUnauthenticatedError(
 		fmt.Sprintf(format, a...),
-	)
+	).WithCallerStackTrace()
 }
 
 func NewForbiddenError(debugMessage string) FleetError {
-	return NewPlainError(debugMessage, connect.CodePermissionDenied)
+	return NewPlainError(debugMessage, connect.CodePermissionDenied).WithCallerStackTrace()
 }
 
 func NewForbiddenErrorf(format string, a ...any) FleetError {
 	return NewForbiddenError(
 		fmt.Sprintf(format, a...),
-	)
+	).WithCallerStackTrace()
 }
 
 func NewInvalidArgumentError(debugMessage string) FleetError {
-	return NewPlainError(debugMessage, connect.CodeInvalidArgument)
+	return NewPlainError(debugMessage, connect.CodeInvalidArgument).WithCallerStackTrace()
 }
 
 func NewInvalidArgumentErrorf(format string, a ...any) FleetError {
 	return NewInvalidArgumentError(
 		fmt.Sprintf(format, a...),
-	)
+	).WithCallerStackTrace()
 }
 
 func NewCanceledError() FleetError {
-	return NewPlainError("operation was canceled", connect.CodeCanceled)
+	return NewPlainError("operation was canceled", connect.CodeCanceled).WithCallerStackTrace()
 }

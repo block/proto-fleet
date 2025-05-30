@@ -98,8 +98,8 @@ func start(config *Config) error {
 	// init interceptors
 	li := connect.WithInterceptors(
 		interceptors.NewErrorMappingInterceptor(),
-		interceptors.ErrorLoggingInterceptor(),
-		interceptors.RequestLoggingInterceptor(config.Log.Level == slog.LevelDebug),
+		interceptors.NewErrorStackTraceLoggingInterceptor(config.Log.Level),
+		interceptors.NewRequestLoggingInterceptor(config.Log.Level),
 		interceptors.NewAuthInterceptor(tokenSvc, unauthenticatedProcedures),
 	)
 
