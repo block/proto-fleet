@@ -68,7 +68,7 @@ The gRPC API definitions can be found in the `proto` directory.
 ## Running the Service
 
 ```shell
-just run
+just --dotenv-filename .env.local run
 ```
 
 The service will:

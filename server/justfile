@@ -16,7 +16,7 @@ build-all:
 install:
     go install -v ./cmd/fleetd
 
-# run the local server
+# run the local server (requires env: use --dotenv-filename .env.local, create .env file, or set vars manually)
 run: db-up install
      ../.hermit/go/bin/fleetd
 
