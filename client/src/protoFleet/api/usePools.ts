@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Duration } from "@bufbuild/protobuf/wkt";
 import { poolsClient } from "@/protoFleet/api/clients";
 import type {
   CreatePoolRequest,
@@ -37,10 +38,11 @@ interface DeletePoolProps {
   onError?: (error: string) => void;
 }
 
-interface ValidatePoolProps {
-  validatePoolRequest: ValidatePoolRequest;
+export interface ValidatePoolProps {
+  poolInfo: Omit<ValidatePoolRequest, "$typeName">;
   onSuccess?: () => void;
   onError?: (error: string) => void;
+  onFinally?: () => void;
 }
 
 const usePools = () => {
@@ -122,15 +124,33 @@ const usePools = () => {
     [authTokens],
   );
 
+  const [validatePoolPending, setValidatePoolPending] = useState(false);
   const validatePool = useCallback(
-    async ({ validatePoolRequest, onSuccess, onError }: ValidatePoolProps) => {
+    async ({ poolInfo, onSuccess, onError, onFinally }: ValidatePoolProps) => {
+      setValidatePoolPending(true);
+
+      // Create request object, only include password if it's not empty
+      const request: Omit<ValidatePoolRequest, "$typeName"> = {
+        url: poolInfo.url,
+        username: poolInfo.username,
+        ...(poolInfo.password &&
+          poolInfo.password.trim() && { password: poolInfo.password }),
+        ...(poolInfo.timeout && {
+          timeout: poolInfo.timeout as Duration,
+        }),
+      };
+
       await poolsClient
-        .validatePool(validatePoolRequest, getAuthHeader(authTokens))
+        .validatePool(request, getAuthHeader(authTokens))
         .then(() => {
           onSuccess?.();
         })
         .catch((err) => {
           onError?.(err?.error?.message ?? err);
+        })
+        .finally(() => {
+          onFinally?.();
+          setValidatePoolPending(false);
         });
     },
     [authTokens],
@@ -144,8 +164,17 @@ const usePools = () => {
       updatePool,
       deletePool,
       validatePool,
+      validatePoolPending,
     }),
-    [pools, setDefaultPool, createPool, updatePool, deletePool, validatePool],
+    [
+      pools,
+      setDefaultPool,
+      createPool,
+      updatePool,
+      deletePool,
+      validatePool,
+      validatePoolPending,
+    ],
   );
 };
 

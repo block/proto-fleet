@@ -2,9 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { PoolConnectedCallout, PoolNotConnectedCallout } from "../Callouts";
 import { info } from "../constants";
-import { PoolIndex, PoolInfo } from "../types";
+import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "../types";
 import { urlValidationErrors } from "./constants";
-import { TestConnectionProps } from "@/protoOS/api";
 import Input from "@/shared/components/Input";
 import { deepClone } from "@/shared/utils/utility";
 
@@ -15,7 +14,7 @@ interface PoolFormProps {
   setShouldTestConnection: (shouldTestConnection: boolean) => void;
   shouldTestConnection: boolean;
   isTestingConnection: boolean;
-  testConnection: (args: TestConnectionProps) => void;
+  testConnection: (args: PoolConnectionTestProps) => void;
   onFocus?: () => void;
   onBlur?: () => void;
 }
@@ -61,7 +60,9 @@ const PoolForm = ({
       setError(false);
       testConnection({
         poolInfo: pools[poolIndex],
-        onError: () => setError(true),
+        onError: () => {
+          setError(true);
+        },
         onFinally: () => setShowCallout(true),
       });
     }

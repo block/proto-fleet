@@ -3,8 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 import { emptyPoolInfo } from "./constants";
 import { WarnDeleteDialog, WarnDiscardDialog } from "./Dialogs";
 import PoolForm from "./PoolForm";
-import { PoolIndex, PoolInfo } from "./types";
-import { TestConnectionProps } from "@/protoOS/api";
+import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "./types";
+
 import { variants } from "@/shared/components/Button";
 import Modal from "@/shared/components/Modal";
 import { animationDuration } from "@/shared/components/PageOverlay";
@@ -18,8 +18,7 @@ interface PoolModalProps {
   show: boolean;
   isDefault?: boolean;
   isTestingConnection: boolean;
-  // TODO: Update props to match both ProtoOS and ProtoFleet API if needed. Could make a generic type for this as well.
-  testConnection: (args: TestConnectionProps) => void;
+  testConnection: (args: PoolConnectionTestProps) => void;
 }
 
 const PoolModal = ({

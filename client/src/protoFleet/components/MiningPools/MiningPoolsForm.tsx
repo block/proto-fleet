@@ -45,6 +45,8 @@ const MiningPoolsForm = ({
     createPool,
     updatePool,
     deletePool,
+    validatePool,
+    validatePoolPending,
   } = usePools();
 
   useEffect(() => {
@@ -206,9 +208,8 @@ const MiningPoolsForm = ({
               pools={pools}
               show={currentPoolIndex === poolIndex}
               isDefault={index === 0}
-              // TODO test connection
-              isTestingConnection={false}
-              testConnection={() => {}}
+              isTestingConnection={validatePoolPending}
+              testConnection={validatePool}
             />
           );
         })}
