@@ -16,9 +16,9 @@ build-all:
 install:
     go install -v ./cmd/fleetd
 
-# run the local server (requires env: use --dotenv-filename .env.local, create .env file, or set vars manually)
-run: db-up install
-     ../.hermit/go/bin/fleetd
+# run the local server using env vars from .env.local
+run:
+     just --dotenv-filename .env.local _run
 
 # run local server in docker compose with watch enabled on the fleet service
 dev: start
@@ -76,3 +76,7 @@ db-shell:
 # create a new migration
 new-migration name:
   migrate create -ext sql -dir migrations -seq {{name}}
+
+# run the local server (requires env: use --dotenv-filename .env.local, create .env file, or set vars manually)
+_run: db-up install
+     ../.hermit/go/bin/fleetd

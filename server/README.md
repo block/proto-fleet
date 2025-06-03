@@ -68,14 +68,27 @@ The gRPC API definitions can be found in the `proto` directory.
 ## Running the Service
 
 ```shell
-just --dotenv-filename .env.local run
+just run
 ```
 
-The service will:
+This will:
 
 1. Connect to the database
 2. Run any pending migrations
 3. Start serving the API on the configured address (default: http://127.0.0.1:8080)
+
+## Running the Service via Docker
+
+```shell
+just dev
+```
+
+This will:
+
+1. Connect to the database
+2. Run any pending migrations
+3. Run the server in docker compose with watch enabled on the fleet service
+4. Start serving the API on the configured address (default: http://localhost:4000)
 
 ## Interacting with the service
 

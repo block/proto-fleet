@@ -3,6 +3,10 @@ default:
 
 init: _server-init _client-init
 
+# Run protoFleet client and server
+dev:
+  ./dev.sh
+
 [working-directory: 'server']
 _server-init:
   go mod download
