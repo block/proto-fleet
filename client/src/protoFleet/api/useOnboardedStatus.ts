@@ -36,7 +36,7 @@ const useOnboardedStatus = () => {
     fetchStatus();
   }, [fetchStatus, authTokens]);
 
-  return status ?? null;
+  return { status: status ?? null, refetch: fetchStatus };
 };
 
 export { useOnboardedStatus };

@@ -10,7 +10,10 @@ import { AuthContext } from "@/protoFleet/features/auth/contexts/AuthContext";
 // Mock the API call for onboarding status
 let mockedOnboardingStatus: FleetOnboardingStatus | null = null;
 vi.mock("@/protoFleet/api/useOnboardedStatus", () => ({
-  useOnboardedStatus: vi.fn(() => mockedOnboardingStatus),
+  useOnboardedStatus: vi.fn(() => ({
+    status: mockedOnboardingStatus,
+    refetch: vi.fn(() => Promise.resolve(mockedOnboardingStatus)),
+  })),
 }));
 
 // Mock AppLayout component for UI testing

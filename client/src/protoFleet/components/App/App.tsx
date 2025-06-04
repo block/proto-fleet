@@ -2,11 +2,15 @@ import { useMemo } from "react";
 import { Outlet, useMatches } from "react-router-dom";
 
 import AppLayout from "@/protoFleet/components/AppLayout";
+import CompleteOnboardingDialog from "@/protoFleet/components/CompleteOnboardingDialog";
 import { useIsAuthenticated } from "@/protoFleet/features/auth/contexts/AuthContext";
-// import { useCompleteOnboarding } from "@/protoFleet/features/onboarding";
+import {
+  OnboardingProvider,
+  useOnboardingContext,
+} from "@/protoFleet/features/onboarding/contexts/OnboardingContext/";
 import { getRouteMetadata } from "@/protoFleet/routes";
 
-const App = () => {
+const AppContent = () => {
   const matches = useMatches();
   const currentPath = useMemo(() => {
     return matches[matches.length - 1]?.pathname || "/";
@@ -21,21 +25,36 @@ const App = () => {
   }, [metadata]);
 
   useIsAuthenticated(requireAuth);
-
-  // TODO: Unsure on if we want want to call this hook here or not
-  // This effects the UX for onboarding. Do we want to let users go back previously completed steps?
-  // useCompleteOnboarding();
+  const { status: onboardingStatus } = useOnboardingContext();
+  const onboardingComplete = useMemo(() => {
+    return (
+      onboardingStatus === null ||
+      (onboardingStatus?.devicePaired === true &&
+        onboardingStatus?.poolConfigured === true)
+    );
+  }, [onboardingStatus]);
 
   return (
     <>
       {metadata.useAppLayout ? (
         <AppLayout title={metadata?.title || ""}>
           <Outlet />
+          {!onboardingComplete && (
+            <CompleteOnboardingDialog onboardingStatus={onboardingStatus} />
+          )}
         </AppLayout>
       ) : (
         <Outlet />
       )}
     </>
+  );
+};
+
+const App = () => {
+  return (
+    <OnboardingProvider>
+      <AppContent />
+    </OnboardingProvider>
   );
 };
 

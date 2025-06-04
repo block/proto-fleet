@@ -14,6 +14,7 @@ interface DialogProps {
   preventScroll?: boolean;
   show: boolean;
   subtitle?: string;
+  subtitleClassName?: string;
   subtitleSize?: string;
   testId?: string;
   title: string;
@@ -29,6 +30,7 @@ const Dialog = ({
   preventScroll,
   show,
   subtitle,
+  subtitleClassName,
   subtitleSize = "text-heading-100",
   testId,
   title,
@@ -39,34 +41,17 @@ const Dialog = ({
   const [showDialog, setShowDialog] = useState(show);
 
   useEffect(() => {
-    if (!show) {
+    let timeoutId: ReturnType<typeof setTimeout>;
+    if (!show && animate) {
       // Wait for the animation to finish before hiding the dialog
-      setTimeout(
-        () => {
-          setShowDialog(show);
-        },
-        animate ? animationDuration : 0,
-      );
+      timeoutId = setTimeout(() => {
+        setShowDialog(show);
+      }, animationDuration);
     } else {
       setShowDialog(show);
     }
-  }, [animate, show]);
 
-  useEffect(() => {
-    let timeoutId: ReturnType<typeof setTimeout>;
-    if (show) {
-      setShowDialog(true);
-    } else {
-      // Wait for the animation to finish before hiding the dialog
-      timeoutId = setTimeout(
-        () => {
-          setShowDialog(false);
-        },
-        animate ? animationDuration : 0,
-      );
-    }
     return () => {
-      // clear timeout if the component is unmounted before the timeout
       clearTimeout(timeoutId);
     };
   }, [animate, show]);
@@ -82,7 +67,7 @@ const Dialog = ({
         >
           <div
             className={clsx(
-              "h-fit w-[360px] rounded-3xl bg-surface-elevated-base p-6 shadow-200",
+              "h-fit w-[360px] overflow-hidden rounded-3xl bg-surface-elevated-base p-6 shadow-200",
               {
                 "animate-sliding-up": animate && show,
                 "animate-sliding-down": animate && !show,
@@ -99,6 +84,7 @@ const Dialog = ({
             )}
             <Header
               className={headerClassName}
+              subtitleClassName={subtitleClassName}
               title={title}
               subtitle={subtitle}
               titleSize={titleSize}

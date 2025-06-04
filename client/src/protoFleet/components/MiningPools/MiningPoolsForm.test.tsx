@@ -1,7 +1,7 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
-
 import MiningPoolsForm from ".";
+import { OnboardingContext } from "@/protoFleet/features/onboarding/contexts/OnboardingContext";
 
 const mocks = vi.hoisted(() => {
   return {
@@ -23,7 +23,9 @@ describe("MiningPoolsForm", () => {
 
   test("renders default and backup pool rows", () => {
     const { getByText, getAllByText } = render(
-      <MiningPoolsForm buttonLabel="Save" onSaveDone={vi.fn()} />,
+      <OnboardingContext.Provider value={{ status: null, refetch: vi.fn() }}>
+        <MiningPoolsForm buttonLabel="Save" onSaveDone={vi.fn()} />,
+      </OnboardingContext.Provider>,
     );
 
     expect(getByText("Default pool")).toBeInTheDocument();
@@ -34,7 +36,9 @@ describe("MiningPoolsForm", () => {
 
   test("displays warning when default pool is invalid", () => {
     const { getByTestId, getByRole } = render(
-      <MiningPoolsForm buttonLabel={buttonLabel} onSaveDone={vi.fn()} />,
+      <OnboardingContext.Provider value={{ status: null, refetch: vi.fn() }}>
+        <MiningPoolsForm buttonLabel={buttonLabel} onSaveDone={vi.fn()} />
+      </OnboardingContext.Provider>,
     );
 
     const saveButton = getByRole("button", { name: buttonLabel });
@@ -47,7 +51,9 @@ describe("MiningPoolsForm", () => {
     mocks.pools = [{ url: "https://example.com", username: "user" }];
 
     const { getByRole } = render(
-      <MiningPoolsForm buttonLabel={buttonLabel} onSaveDone={vi.fn()} />,
+      <OnboardingContext.Provider value={{ status: null, refetch: vi.fn() }}>
+        <MiningPoolsForm buttonLabel={buttonLabel} onSaveDone={vi.fn()} />,
+      </OnboardingContext.Provider>,
     );
 
     const saveButton = getByRole("button", { name: buttonLabel });
@@ -63,11 +69,13 @@ describe("MiningPoolsForm", () => {
     const mockOnSaveDone = vi.fn();
 
     const { getByRole } = render(
-      <MiningPoolsForm
-        buttonLabel={buttonLabel}
-        onSaveRequested={mockOnSaveRequested}
-        onSaveDone={mockOnSaveDone}
-      />,
+      <OnboardingContext.Provider value={{ status: null, refetch: vi.fn() }}>
+        <MiningPoolsForm
+          buttonLabel={buttonLabel}
+          onSaveRequested={mockOnSaveRequested}
+          onSaveDone={mockOnSaveDone}
+        />
+      </OnboardingContext.Provider>,
     );
 
     const saveButton = getByRole("button", { name: buttonLabel });

@@ -8,6 +8,7 @@ import {
 import { Pool } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 
 import usePools from "@/protoFleet/api/usePools";
+import { useOnboardingContext } from "@/protoFleet/features/onboarding/contexts/OnboardingContext";
 import Button from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import PoolModal from "@/shared/components/MiningPools/PoolModal";
@@ -48,6 +49,8 @@ const MiningPoolsForm = ({
     validatePool,
     validatePoolPending,
   } = usePools();
+
+  const { refetch: refetchOnboardingStatus } = useOnboardingContext();
 
   useEffect(() => {
     if (existingPools.length !== 0) {
@@ -144,11 +147,14 @@ const MiningPoolsForm = ({
         return apiCall();
       });
       Promise.all(promises)
-        .then(() => {
-          setLoading(false);
+        .then(async () => {
+          await refetchOnboardingStatus();
           onSaveDone();
         })
-        .catch(() => onSaveFailed?.());
+        .catch(() => onSaveFailed?.())
+        .finally(() => {
+          setLoading(false);
+        });
     });
   }, [
     pools,
@@ -159,6 +165,7 @@ const MiningPoolsForm = ({
     deletePool,
     onSaveDone,
     onSaveFailed,
+    refetchOnboardingStatus,
   ]);
 
   const onChangePools = useCallback((newPools: PoolInfo[]) => {
