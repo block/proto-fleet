@@ -3,11 +3,12 @@ import useFleet from "@/protoFleet/api/useFleet";
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
 
 const Fleet = () => {
-  const { miners } = useFleet();
+  const { minerIds } = useFleet();
+
   return (
     <MinerList
       title="Miners"
-      miners={miners}
+      minerIds={minerIds}
       bodyClassName={clsx(
         // Take width of the parent, add left and right padding and auto margin caused by justify center
         // In the end subtract one spacing unit to account for minor inaccuracy in the calculation

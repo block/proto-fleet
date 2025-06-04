@@ -12,8 +12,8 @@ const alertColConfig: ColConfig<Alert, Alert["minerMacAddress"]> = {
     component: (item: Alert, selectedItems: Alert["minerMacAddress"][]) => {
       return (
         <MinerStatus
-          isSelected={selectedItems.includes(item.minerMacAddress)}
-          status={item.minerStatus}
+          deviceIdentifier={item.minerMacAddress}
+          selectedItems={selectedItems}
         />
       );
     },

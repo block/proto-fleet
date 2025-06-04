@@ -1,16 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { create } from "@bufbuild/protobuf";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
 import {
-  type ComponentStatusUpdate,
-  ComponentStatusUpdate_Component,
   DataMode,
   type ListMinerStateSnapshotsRequest,
-  type ListMinerStateSnapshotsResponse,
   MeasurementConfig_MeasurementType,
-  type MeasurementUpdate,
-  MinerComponentStatus,
-  type MinerStateSnapshot,
   StreamMinerUpdatesRequestSchema,
   type StreamMinerUpdatesResponse,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -18,94 +12,20 @@ import {
   getAuthHeader,
   useAuthContext,
 } from "@/protoFleet/features/auth/contexts/AuthContext";
+import {
+  useFleetStore,
+  useMinerIds,
+} from "@/protoFleet/features/fleetManagement/store/useFleetStore";
 
 type FetchPairedMinersArgs = {
   pageSize?: ListMinerStateSnapshotsRequest["pageSize"];
   cursor?: ListMinerStateSnapshotsRequest["cursor"];
 };
 
-function updateMeasurement(
-  measurementUpdate: MeasurementUpdate,
-  minerToUpdate: MinerStateSnapshot,
-) {
-  const minerClone = { ...minerToUpdate };
-  const type = measurementUpdate.measurementType;
-  const measurement = measurementUpdate.measurement;
-
-  if (!measurement) return false;
-
-  const measurementTypeToProperty = {
-    [MeasurementConfig_MeasurementType.HASHRATE]: "hashrate",
-    [MeasurementConfig_MeasurementType.POWER_USAGE]: "powerUsage",
-    [MeasurementConfig_MeasurementType.TEMPERATURE]: "temperature",
-    [MeasurementConfig_MeasurementType.EFFICIENCY]: "efficiency",
-  } as {
-    [key in MeasurementConfig_MeasurementType]: keyof Pick<
-      MinerStateSnapshot,
-      "hashrate" | "powerUsage" | "temperature" | "efficiency"
-    >;
-  };
-
-  const propertyName = measurementTypeToProperty[type];
-
-  if (propertyName) {
-    const currentValues = minerClone[propertyName];
-
-    if (currentValues && currentValues.length > 0) {
-      minerClone[propertyName] = [measurement, ...currentValues.slice(0, -1)];
-    } else {
-      minerClone[propertyName] = [measurement];
-    }
-  }
-
-  return minerClone;
-}
-
-function updateStatus(
-  { status, component }: ComponentStatusUpdate,
-  minerToUpdate: MinerStateSnapshot,
-) {
-  const minerClone = { ...minerToUpdate };
-  if (!minerClone.status) {
-    minerClone.status = {
-      controlBoard: 0,
-      fans: 0,
-      hashBoards: 0,
-      psu: 0,
-    } as MinerComponentStatus;
-  }
-
-  const updatedStatus = { ...minerClone.status };
-  const componentToProperty = {
-    [ComponentStatusUpdate_Component.CONTROL_BOARD]: "controlBoard",
-    [ComponentStatusUpdate_Component.FANS]: "fans",
-    [ComponentStatusUpdate_Component.HASH_BOARDS]: "hashBoards",
-    [ComponentStatusUpdate_Component.PSU]: "psu",
-  } as {
-    [key in ComponentStatusUpdate_Component]: keyof Pick<
-      MinerComponentStatus,
-      "controlBoard" | "fans" | "hashBoards" | "psu"
-    >;
-  };
-
-  const propertyName = componentToProperty[component];
-  if (propertyName) {
-    updatedStatus[propertyName] = status;
-  }
-
-  minerClone.status = updatedStatus;
-  return minerClone;
-}
-
 const useFleet = () => {
   const { authTokens } = useAuthContext();
 
-  const [miners, setMiners] = useState<
-    ListMinerStateSnapshotsResponse["miners"]
-  >([]);
-  const [cursor, setCursor] =
-    useState<ListMinerStateSnapshotsResponse["cursor"]>("");
-  const [isStreaming, setIsStreaming] = useState(false);
+  const minerIds = useMinerIds();
   const streamAbortController = useRef<AbortController | null>(null);
 
   const updateMinerState = useCallback(
@@ -120,35 +40,21 @@ const useFleet = () => {
         return;
       }
 
-      setMiners((currentMiners) => {
-        const minerIndex = currentMiners.findIndex(
-          (miner) => miner.deviceIdentifier === deviceId,
-        );
+      if (response.update.case === "measurement") {
+        useFleetStore
+          .getState()
+          .updateMinerMeasurement(deviceId, response.update.value);
+      } else if (response.update.case === "status") {
+        useFleetStore
+          .getState()
+          .updateMinerStatus(deviceId, response.update.value);
+      }
 
-        if (minerIndex === -1) {
-          return currentMiners;
-        }
-
-        const updatedMiners = [...currentMiners];
-        let minerToUpdate: MinerStateSnapshot = {
-          ...updatedMiners[minerIndex],
-        };
-
-        if (response.update.case === "measurement") {
-          minerToUpdate =
-            updateMeasurement(response.update.value, minerToUpdate) ||
-            currentMiners[minerIndex];
-        } else if (response.update.case === "status") {
-          minerToUpdate = updateStatus(response.update.value, minerToUpdate);
-        }
-
-        if (response.timestamp) {
-          minerToUpdate.timestamp = response.timestamp;
-        }
-
-        updatedMiners[minerIndex] = minerToUpdate;
-        return updatedMiners;
-      });
+      if (response.timestamp) {
+        useFleetStore
+          .getState()
+          .updateMinerTimestamp(deviceId, response.timestamp);
+      }
     },
     [],
   );
@@ -165,7 +71,7 @@ const useFleet = () => {
 
       streamAbortController.current = new AbortController();
 
-      setIsStreaming(true);
+      useFleetStore.getState().setStreaming(true);
 
       (async () => {
         try {
@@ -206,7 +112,7 @@ const useFleet = () => {
 
           console.error("Error streaming miner updates:", error);
         } finally {
-          setIsStreaming(false);
+          useFleetStore.getState().setStreaming(false);
         }
       })();
     },
@@ -219,7 +125,7 @@ const useFleet = () => {
         const response = await fleetManagementClient.listMinerStateSnapshots(
           {
             pageSize,
-            cursor,
+            cursor: useFleetStore.getState().cursor,
             measurementConfigs: [
               {
                 measurementType: MeasurementConfig_MeasurementType.HASHRATE,
@@ -241,8 +147,8 @@ const useFleet = () => {
         );
 
         const { miners, cursor: newCursor } = response;
-        setMiners(miners);
-        setCursor(newCursor);
+        useFleetStore.getState().setMiners(miners);
+        useFleetStore.getState().setCursor(newCursor);
 
         // Start streaming updates for these miners
         if (miners.length > 0) {
@@ -254,7 +160,7 @@ const useFleet = () => {
         throw error;
       }
     },
-    [cursor, authTokens, startStreamingUpdates],
+    [authTokens, startStreamingUpdates],
   );
 
   useEffect(() => {
@@ -269,14 +175,10 @@ const useFleet = () => {
     };
   }, [fetchPairedMiners]);
 
-  return useMemo(
-    () => ({
-      miners,
-      isStreaming,
-      loadMoreMiners: () => fetchPairedMiners({ pageSize: 100 }),
-    }),
-    [miners, isStreaming, fetchPairedMiners],
-  );
+  return {
+    minerIds,
+    loadMoreMiners: () => fetchPairedMiners({ pageSize: 100 }),
+  };
 };
 
 export default useFleet;

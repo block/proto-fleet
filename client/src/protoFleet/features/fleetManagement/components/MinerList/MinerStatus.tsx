@@ -1,12 +1,10 @@
-import {
-  ComponentStatus,
-  type MinerComponentStatus,
-} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { ComponentStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { useMinerStatus } from "@/protoFleet/features/fleetManagement/store/useFleetStore";
 import StatusCircle, { statuses } from "@/shared/components/StatusCircle";
 
 type MinerStatusProps = {
-  isSelected?: boolean;
-  status: MinerComponentStatus;
+  deviceIdentifier: string;
+  selectedItems?: string[];
 };
 
 // maps ComponentStatus to the status that StatusCircle uses
@@ -19,7 +17,17 @@ const statusMap = {
   [ComponentStatus.PENDING]: statuses.pending,
 };
 
-const MinerStatus = ({ isSelected = false, status }: MinerStatusProps) => {
+const MinerStatus = ({ deviceIdentifier, selectedItems }: MinerStatusProps) => {
+  const statusFromStore = useMinerStatus(deviceIdentifier || "");
+  const status = statusFromStore || {
+    $typeName: "fleetmanagement.v1.MinerComponentStatus",
+    hashBoards: ComponentStatus.UNSPECIFIED,
+    controlBoard: ComponentStatus.UNSPECIFIED,
+    fans: ComponentStatus.UNSPECIFIED,
+    psu: ComponentStatus.UNSPECIFIED,
+  };
+
+  const isSelected = selectedItems?.includes(deviceIdentifier);
   return (
     <div className="flex flex-row opacity-70">
       <StatusCircle
