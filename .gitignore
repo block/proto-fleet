@@ -1,5 +1,6 @@
 .hermit/
 .idea
 .DS_Store
+server/influx_config/.env
 
 **private.env**

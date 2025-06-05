@@ -76,7 +76,7 @@ services:
     volumes:
       - mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -84,21 +84,29 @@ services:
     networks:
       - fleet-network
   influxdb:
-    image: influxdb:1.11.8
-    restart: unless-stopped
-    environment:
-      DOCKER_INFLUXDB_INIT_MODE: setup
-      DOCKER_INFLUXDB_INIT_USERNAME: admin
-      DOCKER_INFLUXDB_INIT_PASSWORD: "00000000000000000000000000000000000000000000"
-      DOCKER_INFLUXDB_INIT_ORG: fleet
-      DOCKER_INFLUXDB_INIT_BUCKET: fleet
+    container_name: influxdb3-core
+    image: influxdb:3.1-core
+    entrypoint: >
+      /bin/sh -c "/var/lib/influxdb3/start/entry_point.sh"
     ports:
-      - "8086:8086"
+      - "8181:8181"
     volumes:
-      - influxdb-data:/var/lib/influxdb2
-      - influxdb-config:/etc/influxdb2
+      - influxdb-data:/var/lib/influxdb3
+      - influxdb-config:/etc/influxdb3
+      - ./influx_config:/var/lib/influxdb3/start
+    environment:
+      INFLUXDB_HTTP_PORT: 8181
+      INFLUXDB_ORG: "fleet"
+      INFLUXDB3_NODE_IDENTIFIER_PREFIX: "influxdb1"
+      INFLUXDB3_DISABLE_AUTHZ: "health"
+      INFLUXDB3_OBJECT_STORE: "file"
+      INFLUXDB3_DB_DIR: "/var/lib/influxdb3"
+      INFLUXDB3_BUCKET: fleet
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8086/ping"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8181/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - fleet-network
 
@@ -106,6 +114,7 @@ volumes:
   mysql:
   influxdb-data:
   influxdb-config:
+
 
 networks:
   fleet-network:

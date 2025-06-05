@@ -80,3 +80,7 @@ new-migration name:
 # run the local server (requires env: use --dotenv-filename .env.local, create .env file, or set vars manually)
 _run: db-up install
      ../.hermit/go/bin/fleetd
+
+# restarts the docker compose services and wipes out all data
+clean-build:
+    docker compose down --rmi all --volumes && docker compose up --build -d
