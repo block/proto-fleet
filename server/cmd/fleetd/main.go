@@ -58,14 +58,6 @@ func main() {
 	}
 }
 
-var unauthenticatedProcedures = []string{
-	"/health",
-	"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
-	authv1connect.AuthServiceAuthenticateProcedure,
-	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
-	networkinfov1connect.NetworkInfoServiceGetNetworkInfoProcedure,
-}
-
 var reflectEnabledServices = []string{
 	pairingv1connect.PairingServiceName,
 }
@@ -100,7 +92,7 @@ func start(config *Config) error {
 		interceptors.NewErrorMappingInterceptor(),
 		interceptors.NewErrorStackTraceLoggingInterceptor(config.Log.Level),
 		interceptors.NewRequestLoggingInterceptor(config.Log.Level),
-		interceptors.NewAuthInterceptor(tokenSvc, unauthenticatedProcedures),
+		interceptors.NewAuthInterceptor(tokenSvc, interceptors.UnauthenticatedProcedures),
 	)
 
 	// setup rpc handlers

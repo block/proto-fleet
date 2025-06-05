@@ -5,11 +5,10 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"log/slog"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
-
 	"connectrpc.com/connect"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 )
 
 // Handler handles the Connect-RPC endpoints

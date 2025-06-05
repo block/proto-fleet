@@ -143,6 +143,20 @@ func (q *Queries) GetDeviceByIdentifier(ctx context.Context, arg GetDeviceByIden
 	return i, err
 }
 
+const getDevicePairingStatusByDeviceDatabaseID = `-- name: GetDevicePairingStatusByDeviceDatabaseID :one
+SELECT
+    dp.pairing_status
+FROM device_pairing dp
+WHERE dp.device_id = ?
+`
+
+func (q *Queries) GetDevicePairingStatusByDeviceDatabaseID(ctx context.Context, deviceID int64) (DevicePairingPairingStatus, error) {
+	row := q.queryRow(ctx, q.getDevicePairingStatusByDeviceDatabaseIDStmt, getDevicePairingStatusByDeviceDatabaseID, deviceID)
+	var pairing_status DevicePairingPairingStatus
+	err := row.Scan(&pairing_status)
+	return pairing_status, err
+}
+
 const getMinerApiNetworkInfoByDeviceID = `-- name: GetMinerApiNetworkInfoByDeviceID :one
 SELECT
     dia.ip_address,

@@ -155,3 +155,9 @@ WHERE dp.pairing_status = 'PAIRED'
 ORDER BY d.device_identifier
 LIMIT ?;
 
+-- name: GetDevicePairingStatusByDeviceDatabaseID :one
+SELECT
+    dp.pairing_status
+FROM device_pairing dp
+WHERE dp.device_id = ?
+
