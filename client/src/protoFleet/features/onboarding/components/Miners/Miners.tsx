@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import FoundMiners from "./FoundMiners";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
+import { Success } from "@/shared/assets/icons";
 import AnimatedDotsBackground from "@/shared/components/Animation";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
@@ -10,25 +11,30 @@ import SegmentedControl from "@/shared/components/SegmentedControl";
 import { minerDiscoveryModes } from "@/shared/components/Setup/miners.constants";
 
 interface MinersProps {
-  loading: boolean;
+  scanDiscoveryPending: boolean;
+  ipListDiscoveryPending: boolean;
   pairingPending: boolean;
   foundMiners: Device[];
-  onScanModeDiscover: () => void;
-  onMdnsModeDiscover: () => void;
+  onCancelScan: () => void;
   onIpListModeDiscover: (ipAddresses: string[]) => void;
   onContinue: () => void;
-  onRestart: () => void;
+  onRescan: () => void;
+  onClearFoundMiners: () => void;
 }
 
+// Minimum time to show the loading animation in milliseconds (only for network scan)
+const MIN_LOADING_TIME = 2000;
+
 const Miners = ({
-  loading,
+  scanDiscoveryPending,
+  ipListDiscoveryPending,
   pairingPending,
   foundMiners,
-  onScanModeDiscover,
-  onMdnsModeDiscover,
+  onCancelScan,
   onIpListModeDiscover,
   onContinue,
-  onRestart,
+  onRescan,
+  onClearFoundMiners,
 }: MinersProps) => {
   const [deselectedMiners, setDeselectedMiners] = useState<
     Device["deviceIdentifier"][]
@@ -36,21 +42,27 @@ const Miners = ({
   const [selectedMode, setSelectedMode] = useState<string>(
     minerDiscoveryModes.scan,
   );
+  const loadingTimeoutId = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showScanLoading, setShowScanLoading] = useState(false);
   const [ipAddresses, setIpAddresses] = useState<string[]>([""]);
 
-  const handleSelect = (selectedKey: string) => {
-    setSelectedMode(selectedKey);
-    switch (selectedKey) {
-      case minerDiscoveryModes.scan:
-        onScanModeDiscover();
-        break;
-      case minerDiscoveryModes.mdns:
-        onMdnsModeDiscover();
-        break;
-      default:
-        break;
+  // Handle loading state with minimum display time for network scan only
+  useEffect(() => {
+    if (scanDiscoveryPending) {
+      setShowScanLoading(true);
+    } else {
+      loadingTimeoutId.current = setTimeout(() => {
+        setShowScanLoading(false);
+      }, MIN_LOADING_TIME);
     }
-  };
+
+    return () => {
+      if (loadingTimeoutId.current) {
+        clearTimeout(loadingTimeoutId.current);
+        loadingTimeoutId.current = null;
+      }
+    };
+  }, [scanDiscoveryPending]);
 
   function handleIpAddressChange(newValue: string, index: number) {
     const newIpAddresses = [...ipAddresses];
@@ -61,6 +73,22 @@ const Miners = ({
     } else {
       setIpAddresses(newIpAddresses);
     }
+  }
+
+  function handleIpListDiscovery() {
+    const validIpAddresses = ipAddresses.filter((address) => address !== "");
+    if (validIpAddresses.length > 0) {
+      onIpListModeDiscover(validIpAddresses);
+    }
+  }
+
+  function handleScanCancel() {
+    setShowScanLoading(false);
+    if (loadingTimeoutId.current) {
+      clearTimeout(loadingTimeoutId.current);
+      loadingTimeoutId.current = null;
+    }
+    onCancelScan();
   }
 
   return (
@@ -89,11 +117,11 @@ const Miners = ({
             title: "Specify IP addresses",
           },
         ]}
-        onSelect={handleSelect}
+        onSelect={setSelectedMode}
       />
 
-      {selectedMode !== minerDiscoveryModes.ipList &&
-        (loading ? (
+      {selectedMode === minerDiscoveryModes.scan && showScanLoading && (
+        <div className="space-y-4">
           <div className="grow rounded-3xl border-1 border-core-primary-5">
             <div className="p-6">
               <h2 className="text-heading-200">Scanning your network</h2>
@@ -105,41 +133,64 @@ const Miners = ({
               <AnimatedDotsBackground connecting={true} padding={0} />
             </div>
           </div>
-        ) : (
-          <FoundMiners
-            miners={foundMiners}
-            deselectedMiners={deselectedMiners}
-            setDeselectedMiners={setDeselectedMiners}
-            handleContinueSetup={onContinue}
-            handleRestartSearch={onRestart}
-          />
-        ))}
+          <div className="flex justify-end">
+            <Button
+              variant={variants.secondary}
+              size={sizes.base}
+              onClick={handleScanCancel}
+            >
+              Cancel scan
+            </Button>
+          </div>
+        </div>
+      )}
 
       {selectedMode === minerDiscoveryModes.ipList && (
         <div className="space-y-4">
-          {ipAddresses.map((ipAddress, index) => (
-            <Input
-              onChange={(value) => handleIpAddressChange(value, index)}
-              id={`ipAddress-${index}`}
-              key={`ipAddress-${index}`}
-              label="IP Address"
-              initValue={ipAddress}
-            />
-          ))}
-          <Button
-            variant={variants.primary}
-            size={sizes.base}
-            loading={loading}
-            onClick={() =>
-              onIpListModeDiscover(
-                ipAddresses.filter((address) => address !== ""),
-              )
-            }
-          >
-            Discover miners
-          </Button>
+          <div className="rounded-3xl border-1 border-core-primary-5 p-6">
+            <div className="space-y-4">
+              {ipAddresses.map((ipAddress, index) => (
+                <Input
+                  onChange={(value) => handleIpAddressChange(value, index)}
+                  id={`ipAddress-${index}`}
+                  key={`ipAddress-${index}`}
+                  label="IP Address"
+                  initValue={ipAddress}
+                  statusIcon={
+                    foundMiners.find(
+                      (miner) => miner.ipAddress === ipAddress,
+                    ) !== undefined ? (
+                      <Success className="text-intent-success-fill" />
+                    ) : undefined
+                  }
+                />
+              ))}
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button
+              variant={variants.primary}
+              size={sizes.base}
+              loading={ipListDiscoveryPending}
+              onClick={handleIpListDiscovery}
+              disabled={ipAddresses.every((addr) => addr === "")}
+            >
+              Discover miners
+            </Button>
+          </div>
         </div>
       )}
+
+      <FoundMiners
+        className="mt-6"
+        miners={foundMiners}
+        deselectedMiners={deselectedMiners}
+        setDeselectedMiners={setDeselectedMiners}
+        minerDiscoveryMode={selectedMode}
+        handleContinueSetup={onContinue}
+        handleRescanNetwork={onRescan}
+        handleClearMiners={onClearFoundMiners}
+      />
     </div>
   );
 };

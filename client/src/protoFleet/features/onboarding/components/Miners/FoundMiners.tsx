@@ -6,14 +6,17 @@ import { type Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import Row from "@/shared/components/Row";
+import { minerDiscoveryModes } from "@/shared/components/Setup/miners.constants";
 
 type FoundMinersProps = {
   miners: Device[];
   deselectedMiners: Device["deviceIdentifier"][];
   setDeselectedMiners: Dispatch<SetStateAction<Device["deviceIdentifier"][]>>;
   className?: string;
+  minerDiscoveryMode: string;
   handleContinueSetup: () => void;
-  handleRestartSearch: () => void;
+  handleRescanNetwork: () => void;
+  handleClearMiners: () => void;
 };
 
 type MinersByModel = {
@@ -30,8 +33,10 @@ const FoundMiners = ({
   deselectedMiners,
   setDeselectedMiners,
   className,
+  minerDiscoveryMode,
   handleContinueSetup,
-  handleRestartSearch,
+  handleRescanNetwork,
+  handleClearMiners,
 }: FoundMinersProps) => {
   const [minersByModel, setMinersByModel] = useState<MinersByModel>({});
   const [showModal, setShowModal] = useState<boolean>(false);
@@ -98,11 +103,17 @@ const FoundMiners = ({
         <div className="mb-4">
           <Header
             inline
-            title={`${sortedMinersWithSelection.length} miners found on your network`}
+            title={
+              sortedMinersWithSelection.length === 0
+                ? "No miners found so far"
+                : `${sortedMinersWithSelection.length} miners found on your network`
+            }
             titleSize="text-heading-200"
             description={
               <>
-                Select the miners that you want to configure now.
+                {sortedMinersWithSelection.length === 0
+                  ? "Once some miners are found, you can select the ones you want to configure."
+                  : "Select the miners that you want to configure now."}
                 <br className="phone:hidden" />
                 You can always add more miners to this network later.
               </>
@@ -151,15 +162,28 @@ const FoundMiners = ({
           <Button
             variant={variants.secondary}
             size={sizes.base}
-            onClick={handleRestartSearch}
+            onClick={() => {
+              setMinersByModel({});
+              handleClearMiners();
+            }}
           >
-            Restart miner search
+            Clear found miners
+          </Button>
+        )}
+        {minerDiscoveryMode === minerDiscoveryModes.scan && (
+          <Button
+            variant={variants.secondary}
+            size={sizes.base}
+            onClick={handleRescanNetwork}
+          >
+            Rescan network
           </Button>
         )}
         <Button
           onClick={handleContinueSetup}
           variant={variants.primary}
           size={sizes.base}
+          disabled={totalSelected === 0}
         >
           Continue with {totalSelected} miners
         </Button>

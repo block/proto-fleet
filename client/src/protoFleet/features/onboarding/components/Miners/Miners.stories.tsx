@@ -7,7 +7,7 @@ type MinersProps = {
   minersCount: number;
 };
 
-export const FoundMiner = ({ minersCount }: MinersProps) => {
+export const Miners = ({ minersCount }: MinersProps) => {
   const [miners] = useState([
     ...Array.from(
       { length: 1000 },
@@ -24,13 +24,14 @@ export const FoundMiner = ({ minersCount }: MinersProps) => {
     <div>
       <MinersComponent
         foundMiners={miners.slice(0, minersCount)}
-        loading={false}
+        scanDiscoveryPending={false}
+        ipListDiscoveryPending={false}
         pairingPending={false}
-        onScanModeDiscover={() => null}
-        onMdnsModeDiscover={() => null}
+        onCancelScan={action("cancel scan")}
         onIpListModeDiscover={() => null}
         onContinue={action("continue setup")}
-        onRestart={action("restart search")}
+        onRescan={action("rescan network")}
+        onClearFoundMiners={action("clear found miners")}
       />
     </div>
   );

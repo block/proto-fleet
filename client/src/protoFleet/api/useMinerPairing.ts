@@ -13,6 +13,7 @@ import {
 
 interface DiscoverMinersProps {
   discoverRequest: DiscoverRequest;
+  discoverAbortController?: AbortController;
   onStreamData: (devices: Device[]) => void;
   onError?: (error: string) => void;
 }
@@ -30,12 +31,20 @@ const useMinerPairing = () => {
   const [pairingPending, setPairingPending] = useState(false);
 
   const discover = useCallback(
-    async ({ discoverRequest, onStreamData, onError }: DiscoverMinersProps) => {
+    async ({
+      discoverRequest,
+      discoverAbortController,
+      onStreamData,
+      onError,
+    }: DiscoverMinersProps) => {
       setDiscoverPending(true);
       try {
         for await (const discoveryResponse of pairingClient.discover(
           discoverRequest,
-          getAuthHeader(authTokens),
+          {
+            ...getAuthHeader(authTokens),
+            signal: discoverAbortController?.signal,
+          },
         )) {
           if (discoveryResponse.error) {
             onError?.(discoveryResponse.error);
@@ -45,7 +54,13 @@ const useMinerPairing = () => {
           onStreamData(discoveryResponse.devices);
         }
       } catch (error) {
-        if (error instanceof ConnectError) {
+        if (
+          (error instanceof DOMException && error.name === "AbortError") ||
+          (discoverAbortController && discoverAbortController.signal.aborted)
+        ) {
+          // The discovery was aborted, do nothing
+          return;
+        } else if (error instanceof ConnectError) {
           onError?.(error.message);
         } else if (typeof error === "string") {
           onError?.(error);

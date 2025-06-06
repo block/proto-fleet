@@ -234,7 +234,7 @@ const Input = ({
           ))}
         </div>
       ) : undefined}
-      {type === "password" && (
+      {(type === "password" || statusIcon !== undefined) && (
         <div
           className={clsx("absolute", {
             "top-1": compact,
