@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 	"time"
 
 	authv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1"
@@ -21,14 +22,16 @@ import (
 const AdminRoleName = "SUPER_ADMIN"
 
 type Service struct {
-	conn     *sql.DB
-	tokenSvc *token.Service
+	conn       *sql.DB
+	tokenSvc   *token.Service
+	encryptSvc *encrypt.Service
 }
 
-func NewService(conn *sql.DB, tokenSvc *token.Service) *Service {
+func NewService(conn *sql.DB, tokenSvc *token.Service, encryptSvc *encrypt.Service) *Service {
 	return &Service{
-		tokenSvc: tokenSvc,
-		conn:     conn,
+		tokenSvc:   tokenSvc,
+		conn:       conn,
+		encryptSvc: encryptSvc,
 	}
 }
 
@@ -63,7 +66,7 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 		return nil, newAuthenticationFailedError()
 	}
 	// Generate and return JWT authToken
-	authToken, exp, err := s.tokenSvc.GenerateJWT(result.User.ID, result.Org.ID)
+	authToken, exp, err := s.tokenSvc.GenerateClientAuthJWT(result.User.ID, result.Org.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -116,10 +119,19 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 			return fleeterror.NewInternalErrorf("error creating user: %v", err)
 		}
 
+		minerAuthPrivateKey, err := s.tokenSvc.CreateMinerAuthPrivateKeyForOrganization()
+		if err != nil {
+			return fleeterror.NewInternalErrorf("error creating miner auth private key: %v", err)
+		}
+		encryptedMinerAuthPrivateKey, err := s.encryptSvc.Encrypt(minerAuthPrivateKey)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("error encrypting miner auth private key: %v", err)
+		}
 		// create organization
 		orgResult, err := q.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-			Name:  orgName,
-			OrgID: externalOrgID,
+			Name:                orgName,
+			OrgID:               externalOrgID,
+			MinerAuthPrivateKey: encryptedMinerAuthPrivateKey,
 		})
 		if err != nil {
 			return fleeterror.NewInternalErrorf("error creating org: %v", err)
@@ -168,7 +180,7 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 }
 
 func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRequest) error {
-	claims, err := token.GetJWTClaims(ctx)
+	claims, err := token.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return err
 	}

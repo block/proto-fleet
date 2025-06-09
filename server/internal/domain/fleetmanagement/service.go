@@ -146,7 +146,7 @@ func decodeCursor(encoded string) (Cursor, error) {
 
 // ListMinerStateSnapshots returns a paginated list of miners with their operational status and metrics
 func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMinerStateSnapshotsRequest) (*pb.ListMinerStateSnapshotsResponse, error) {
-	claims, err := tokenDomain.GetJWTClaims(ctx)
+	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 
 // StreamMinerUpdates streams real-time measurement updates for miners
 func (s *Service) StreamMinerUpdates(ctx context.Context, req *pb.StreamMinerUpdatesRequest) (<-chan *pb.StreamMinerUpdatesResponse, error) {
-	_, err := tokenDomain.GetJWTClaims(ctx)
+	_, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return nil, err
 	}

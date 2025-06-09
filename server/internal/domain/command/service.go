@@ -11,7 +11,9 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 	"net"
+	"net/url"
 	"strings"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
@@ -20,15 +22,19 @@ import (
 
 // Service handles miner command operations
 type Service struct {
-	conn        *sql.DB
-	minerClient *minerclient.Service
+	conn           *sql.DB
+	minerClient    *minerclient.Service
+	tokenService   *tokenDomain.Service
+	encryptService *encrypt.Service
 }
 
 // NewService creates a new command service instance
-func NewService(conn *sql.DB, minerClient *minerclient.Service) *Service {
+func NewService(conn *sql.DB, minerClient *minerclient.Service, tokenService *tokenDomain.Service, encryptService *encrypt.Service) *Service {
 	return &Service{
-		conn:        conn,
-		minerClient: minerClient,
+		conn:           conn,
+		minerClient:    minerClient,
+		tokenService:   tokenService,
+		encryptService: encryptService,
 	}
 }
 
@@ -38,12 +44,12 @@ type minerError struct {
 }
 
 // minerCommand defines a function type for executing specific miner commands
-type minerCommand func(client *minerclient.Service, ctx context.Context, minerURL string) (*connect.Response[miner_command_api.CommandResponse], error)
+type minerCommand func(client *minerclient.Service, ctx context.Context, minerConnectionInfo *minerclient.MinerConnectionInfo) (*connect.Response[miner_command_api.CommandResponse], error)
 
 // StopMining stops mining on the specified miners
 func (s *Service) StopMining(ctx context.Context, deviceIDs []string) (*pb.StopMiningResponse, error) {
-	stopMiningCommand := func(client *minerclient.Service, ctx context.Context, minerURL string) (*connect.Response[miner_command_api.CommandResponse], error) {
-		return client.StopMining(ctx, minerURL)
+	stopMiningCommand := func(client *minerclient.Service, ctx context.Context, minerConnectionInfo *minerclient.MinerConnectionInfo) (*connect.Response[miner_command_api.CommandResponse], error) {
+		return client.StopMining(ctx, minerConnectionInfo)
 	}
 
 	err := s.executeMinerCommand(ctx, deviceIDs, "StopMining", stopMiningCommand)
@@ -56,8 +62,8 @@ func (s *Service) StopMining(ctx context.Context, deviceIDs []string) (*pb.StopM
 
 // StartMining starts mining on the specified miners
 func (s *Service) StartMining(ctx context.Context, deviceIDs []string) (*pb.StartMiningResponse, error) {
-	startMiningCommand := func(client *minerclient.Service, ctx context.Context, minerURL string) (*connect.Response[miner_command_api.CommandResponse], error) {
-		return client.StartMining(ctx, minerURL)
+	startMiningCommand := func(client *minerclient.Service, ctx context.Context, minerConnectionInfo *minerclient.MinerConnectionInfo) (*connect.Response[miner_command_api.CommandResponse], error) {
+		return client.StartMining(ctx, minerConnectionInfo)
 	}
 
 	err := s.executeMinerCommand(ctx, deviceIDs, "StartMining", startMiningCommand)
@@ -73,7 +79,7 @@ func (s *Service) executeMinerCommand(ctx context.Context, deviceIDs []string, c
 	var failedMiners []*minerError
 
 	for _, deviceID := range deviceIDs {
-		minerURL, err := s.getMinerURL(ctx, deviceID)
+		minerConnectionInfo, err := s.getMinerConnectionInfo(ctx, deviceID)
 		if err != nil {
 			failedMiners = append(failedMiners, &minerError{
 				DeviceIdentifier: deviceID,
@@ -81,7 +87,7 @@ func (s *Service) executeMinerCommand(ctx context.Context, deviceIDs []string, c
 			})
 		}
 
-		response, err := command(s.minerClient, ctx, minerURL)
+		response, err := command(s.minerClient, ctx, minerConnectionInfo)
 		if err != nil {
 			failedMiners = append(failedMiners, &minerError{
 				DeviceIdentifier: deviceID,
@@ -108,19 +114,37 @@ func (s *Service) executeMinerCommand(ctx context.Context, deviceIDs []string, c
 	return nil
 }
 
-// getMinerURL retrieves connection details for a single miner
-func (s *Service) getMinerURL(ctx context.Context, deviceID string) (string, error) {
-	claims, err := tokenDomain.GetJWTClaims(ctx)
+// getMinerConnectionInfo retrieves connection details for a single miner
+func (s *Service) getMinerConnectionInfo(ctx context.Context, deviceID string) (*minerclient.MinerConnectionInfo, error) {
+	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (string, error) {
+	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (*minerclient.MinerConnectionInfo, error) {
 		minerInfo, err := q.GetMinerApiNetworkInfoByDeviceID(ctx, sqlc.GetMinerApiNetworkInfoByDeviceIDParams{OrgID: claims.OrgID, DeviceIdentifier: deviceID})
 		if err != nil {
-			return "", fleeterror.NewInternalErrorf("failed to get miner info for miner %s: %v", deviceID, err)
+			return nil, fleeterror.NewInternalErrorf("failed to get miner info for miner %s: %v", deviceID, err)
 		}
 
-		return net.JoinHostPort(minerInfo.IpAddress, minerInfo.Port), nil
+		encryptedOrganizationPrivateKey, err := q.GetOrganizationPrivateKey(ctx, claims.OrgID)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to get organization private key for org id %d: %v", claims.OrgID, err)
+		}
+		decryptedOrganizationPrivateKey, err := s.encryptService.Decrypt(encryptedOrganizationPrivateKey)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("error decrypting organization private key: %v", err)
+		}
+		authToken, _, err := s.tokenService.GenerateMinerAuthJWT(deviceID, decryptedOrganizationPrivateKey)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to generate miner auth token: %v", err)
+		}
+
+		minerURL := url.URL{Host: net.JoinHostPort(minerInfo.IpAddress, minerInfo.Port)}
+
+		return &minerclient.MinerConnectionInfo{
+			URL:       &minerURL,
+			AuthToken: authToken,
+		}, nil
 	})
 }

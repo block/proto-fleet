@@ -2,7 +2,12 @@ package token
 
 import "time"
 
-type Config struct {
+type AuthTokenConfig struct {
 	SecretKey        string        `help:"Secret key for signing the JWT" env:"SECRET_KEY"`
 	ExpirationPeriod time.Duration `help:"Expiration period duration for the JWT" env:"EXPIRATION_PERIOD"`
+}
+
+type Config struct {
+	ClientToken                AuthTokenConfig `embed:"" prefix:"client" envprefix:"CLIENT_"`
+	MinerTokenExpirationPeriod time.Duration   `help:"Expiration period duration for the miner auth JWT" env:"MINER_EXPIRATION_PERIOD"`
 }

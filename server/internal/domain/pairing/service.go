@@ -29,16 +29,23 @@ import (
 
 // Service handles the core device discovery functionality
 type Service struct {
-	conn        *sql.DB
-	minerClient *minerclient.Service
-	cfg         Config
+	conn         *sql.DB
+	minerClient  *minerclient.Service
+	cfg          Config
+	tokenService *tokenDomain.Service
 }
 
-func NewService(conn *sql.DB, minerClient *minerclient.Service, cfg Config) *Service {
+func NewService(
+	conn *sql.DB,
+	minerClient *minerclient.Service,
+	cfg Config,
+	tokenService *tokenDomain.Service,
+) *Service {
 	return &Service{
-		conn:        conn,
-		minerClient: minerClient,
-		cfg:         cfg,
+		conn:         conn,
+		minerClient:  minerClient,
+		cfg:          cfg,
+		tokenService: tokenService,
 	}
 }
 
@@ -298,15 +305,14 @@ func (s *Service) discoverDevice(ctx context.Context, ipAddress string, port str
 }
 
 func (s *Service) getDevicePairingInformation(ctx context.Context, ipAddress string, port string) (*pb.Device, error) {
-	minerURL := net.JoinHostPort(ipAddress, port)
-
-	pairingInfo, err := s.minerClient.GetPairingInfo(ctx, minerURL)
+	URL := net.JoinHostPort(ipAddress, port)
+	pairingInfo, err := s.minerClient.GetPairingInfo(ctx, URL)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(pairingInfo.Msg.CbSn) == 0 {
-		return nil, fleeterror.NewInternalErrorf("miner at '%s' does not have a serial number which is required for pairing", minerURL)
+		return nil, fleeterror.NewInternalErrorf("miner at '%s' does not have a serial number which is required for pairing", URL)
 	}
 
 	return &pb.Device{
@@ -338,7 +344,7 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, device *pb.Device
 }
 
 func (s *Service) saveDevice(ctx context.Context, device *pb.Device) error {
-	claims, err := tokenDomain.GetJWTClaims(ctx)
+	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return err
 	}
@@ -396,7 +402,7 @@ func (s *Service) saveDevice(ctx context.Context, device *pb.Device) error {
 }
 
 func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairResponse, error) {
-	claims, err := tokenDomain.GetJWTClaims(ctx)
+	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -422,6 +428,11 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 			})
 			if err != nil {
 				return fleeterror.NewInternalErrorf("failed to create pairing for device device_identifier=%s: %v", dID, err)
+			}
+
+			minerInfo, err := q.GetMinerApiNetworkInfoByDeviceID(ctx, sqlc.GetMinerApiNetworkInfoByDeviceIDParams{OrgID: claims.OrgID, DeviceIdentifier: dID})
+			if err != nil {
+				return fleeterror.NewInternalErrorf("failed to query miner info: %v", minerInfo)
 			}
 		}
 

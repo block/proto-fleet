@@ -35,7 +35,7 @@ func TestAuthServer_Authenticate(t *testing.T) {
 
 		// Verify response
 		assert.NotEqual(t, "", authResp.Msg.Token, "expected userId in response, got nil")
-		claims, err := testContext.ServiceProvider.TokenService.VerifyJWT(authResp.Msg.Token)
+		claims, err := testContext.ServiceProvider.TokenService.VerifyClientAuthJWT(authResp.Msg.Token)
 		assert.NoError(t, err)
 		assert.Equal(t, claims.ExpiresAt.Unix(), authResp.Msg.TokenExpiry, "expected token expiry to equal expires at")
 	})
@@ -100,7 +100,7 @@ func TestAuthServer_UpdatePassword(t *testing.T) {
 
 		// Verify response
 		assert.NotEqual(t, "", authResp.Msg.Token, "expected userId in response, got nil")
-		claims, err := testContext.ServiceProvider.TokenService.VerifyJWT(authResp.Msg.Token)
+		claims, err := testContext.ServiceProvider.TokenService.VerifyClientAuthJWT(authResp.Msg.Token)
 		assert.NoError(t, err)
 		assert.Equal(t, claims.ExpiresAt.Unix(), authResp.Msg.TokenExpiry, "expected token expiry to equal expires at")
 	})

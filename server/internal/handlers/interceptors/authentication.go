@@ -70,7 +70,7 @@ func (i *AuthInterceptor) authenticate(ctx context.Context, procedure string, re
 		return ctx, err
 	}
 
-	claims, err := i.tokenService.VerifyJWT(bearerToken)
+	claims, err := i.tokenService.VerifyClientAuthJWT(bearerToken)
 	if err != nil {
 		return ctx, err
 	}

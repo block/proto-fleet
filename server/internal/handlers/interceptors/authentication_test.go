@@ -59,7 +59,7 @@ func TestAuthInterceptor(t *testing.T) {
 			Text: "Hello",
 		})
 
-		jwt, _, err := serviceProvider.TokenService.GenerateJWT(123, 1)
+		jwt, _, err := serviceProvider.TokenService.GenerateClientAuthJWT(123, 1)
 		assert.NoError(t, err)
 
 		req.Header().Set(

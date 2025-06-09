@@ -9,23 +9,23 @@ import (
 )
 
 // StartMining executes the StartMining RPC on a miner
-func (s *Service) StartMining(ctx context.Context, minerURL string) (*connect.Response[miner_command_api.CommandResponse], error) {
+func (s *Service) StartMining(ctx context.Context, minerConnectionInfo *MinerConnectionInfo) (*connect.Response[miner_command_api.CommandResponse], error) {
 	request := Request[minerPbCommon.EmptyRequest, miner_command_api.CommandResponse, minerPb.MinerCommandApiClient]{
 		ClientFactory: minerPb.NewMinerCommandApiClient,
 		RPCCall:       minerPb.MinerCommandApiClient.StartMining,
 		RequestDTO:    &minerPbCommon.EmptyRequest{},
 	}
 
-	return Execute(ctx, s, minerURL, request)
+	return ExecuteWithAuth(ctx, s, minerConnectionInfo, request)
 }
 
 // StopMining executes the StopMining RPC on a miner
-func (s *Service) StopMining(ctx context.Context, minerURL string) (*connect.Response[miner_command_api.CommandResponse], error) {
+func (s *Service) StopMining(ctx context.Context, minerConnectionInfo *MinerConnectionInfo) (*connect.Response[miner_command_api.CommandResponse], error) {
 	request := Request[minerPbCommon.EmptyRequest, miner_command_api.CommandResponse, minerPb.MinerCommandApiClient]{
 		ClientFactory: minerPb.NewMinerCommandApiClient,
 		RPCCall:       minerPb.MinerCommandApiClient.StopMining,
 		RequestDTO:    &minerPbCommon.EmptyRequest{},
 	}
 
-	return Execute(ctx, s, minerURL, request)
+	return ExecuteWithAuth(ctx, s, minerConnectionInfo, request)
 }

@@ -9,12 +9,12 @@ import (
 )
 
 // GetPairingInfo executes the GetPairingInfo RPC on a miner
-func (s *Service) GetPairingInfo(ctx context.Context, minerURL string) (*connect.Response[miner_system_api.GetPairingInfoResponse], error) {
+func (s *Service) GetPairingInfo(ctx context.Context, url string) (*connect.Response[miner_system_api.GetPairingInfoResponse], error) {
 	request := Request[minerPbCommon.EmptyRequest, miner_system_api.GetPairingInfoResponse, minerPb.MinerSystemApiClient]{
 		ClientFactory: minerPb.NewMinerSystemApiClient,
 		RPCCall:       minerPb.MinerSystemApiClient.GetPairingInfo,
 		RequestDTO:    &minerPbCommon.EmptyRequest{},
 	}
 
-	return Execute(ctx, s, minerURL, request)
+	return ExecuteWithoutAuth(ctx, s, url, request)
 }

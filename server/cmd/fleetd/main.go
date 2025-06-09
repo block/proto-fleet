@@ -1,18 +1,18 @@
 package main
 
 import (
+	"connectrpc.com/connect"
+	"connectrpc.com/grpcreflect"
 	"fmt"
+	"github.com/alecthomas/kong"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/logging"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/minerclient"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 	"log/slog"
 	"net/http"
 	"os"
-
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/minerclient"
-
-	"connectrpc.com/connect"
-	"connectrpc.com/grpcreflect"
-	"github.com/alecthomas/kong"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
@@ -40,7 +40,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/pools"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/static"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/logging"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/server"
 )
 
@@ -74,11 +73,15 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
+	encryptSvc, err := encrypt.NewService(&config.Encrypt)
+	if err != nil {
+		return err
+	}
 	minerClient := minerclient.NewService()
-	authSvc := authDomain.NewService(conn, tokenSvc)
-	pairingSvc := pairingDomain.NewService(conn, minerClient, config.Pairing)
+	authSvc := authDomain.NewService(conn, tokenSvc, encryptSvc)
+	pairingSvc := pairingDomain.NewService(conn, minerClient, config.Pairing, tokenSvc)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(conn, fleetmanagementDomain.NewMockTelemetryCollector())
-	commandSvc := commandDomain.NewService(conn, minerClient)
+	commandSvc := commandDomain.NewService(conn, minerClient, tokenSvc, encryptSvc)
 	onboardingSvc := onboardingDomain.NewService(conn)
 	poolsSvc := poolsDomain.NewService(conn, config.Pools)
 
@@ -127,7 +130,6 @@ func start(config *Config) error {
 		Handler:           handler,
 		ReadHeaderTimeout: config.HTTP.ReadHeaderTimeout,
 	}
-
 	err = httpServer.ListenAndServe()
 	if err != nil {
 		return fmt.Errorf("server shutting down: %+v", err)

@@ -191,12 +191,13 @@ type DeviceStatus struct {
 }
 
 type Organization struct {
-	ID        int64
-	OrgID     string
-	Name      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt sql.NullTime
+	ID                  int64
+	OrgID               string
+	Name                string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	DeletedAt           sql.NullTime
+	MinerAuthPrivateKey string
 }
 
 type Pool struct {

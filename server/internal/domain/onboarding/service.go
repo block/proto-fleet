@@ -21,7 +21,7 @@ func NewService(conn *sql.DB) *Service {
 }
 
 func (s *Service) GetFleetOnboardingStatus(ctx context.Context) (*pb.FleetOnboardingStatus, error) {
-	claims, err := tokenDomain.GetJWTClaims(ctx)
+	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return nil, err
 	}

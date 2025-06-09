@@ -40,7 +40,7 @@ func (s *Service) UpdateDefaultPool(ctx context.Context, poolID int64) (*pb.Pool
 }
 
 func (s *Service) DeletePool(ctx context.Context, id int64) error {
-	claims, err := tokenDomain.GetJWTClaims(ctx)
+	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return err
 	}
@@ -54,7 +54,7 @@ func (s *Service) DeletePool(ctx context.Context, id int64) error {
 }
 
 func (s *Service) UpdatePoolPriority(ctx context.Context, priorities []*pb.PoolPriority) ([]*pb.Pool, error) {
-	claims, err := tokenDomain.GetJWTClaims(ctx)
+	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +82,7 @@ func (s *Service) UpdatePoolPriority(ctx context.Context, priorities []*pb.PoolP
 }
 
 func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.Pool, error) {
-	claims, err := tokenDomain.GetJWTClaims(ctx)
+	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 }
 
 func (s *Service) CreatePool(ctx context.Context, r *pb.PoolConfig) (*pb.Pool, error) {
-	claims, err := tokenDomain.GetJWTClaims(ctx)
+	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +187,7 @@ func (s *Service) CreatePool(ctx context.Context, r *pb.PoolConfig) (*pb.Pool, e
 }
 
 func (s *Service) ListPools(ctx context.Context) ([]*pb.Pool, error) {
-	claims, err := tokenDomain.GetJWTClaims(ctx)
+	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return nil, err
 	}

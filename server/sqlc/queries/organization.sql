@@ -1,6 +1,6 @@
 -- name: CreateOrganization :execresult
-INSERT INTO organization (org_id, name)
-VALUES (?, ?);
+INSERT INTO organization (org_id, name, miner_auth_private_key)
+VALUES (?, ?, ?);
 
 -- name: GetOrganizationByID :one
 SELECT *
@@ -39,3 +39,8 @@ WHERE id = ?;
 UPDATE organization
 SET deleted_at = NULL
 WHERE id = ?;
+
+-- name: GetOrganizationPrivateKey :one
+SELECT miner_auth_private_key
+FROM organization
+where id = ?;

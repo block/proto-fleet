@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
@@ -23,4 +24,5 @@ type Config struct {
 	Auth    token.Config   `embed:"" prefix:"auth" envprefix:"AUTH_"`
 	Pairing pairing.Config `embed:"" prefix:"pairing" envprefix:"PAIRING_"`
 	Pools   pools.Config   `embed:"" prefix:"pools" envprefix:"POOLS_"`
+	Encrypt encrypt.Config `embed:"" prefix:"encrypt" envprefix:"ENCRYPT_"`
 }
