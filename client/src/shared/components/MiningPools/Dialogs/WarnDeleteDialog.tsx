@@ -1,9 +1,5 @@
 import { PoolInfo } from "../types";
 import { variants } from "@/shared/components/Button";
-import ButtonGroup, {
-  groupVariants,
-  sizes,
-} from "@/shared/components/ButtonGroup";
 import Dialog from "@/shared/components/Dialog";
 import Row from "@/shared/components/Row";
 
@@ -36,6 +32,20 @@ const WarnDeleteDialog = ({
       titleSize="text-heading-200"
       show={show}
       testId="warn-delete-dialog"
+      buttons={[
+        {
+          text: "Delete backup",
+          onClick: onDelete,
+          variant: variants.danger,
+          testId: "delete-backup-button",
+        },
+        {
+          text: "Keep backup",
+          onClick: keepBackup,
+          variant: variants.primary,
+          testId: "keep-backup-button",
+        },
+      ]}
     >
       {(showPoolUrl || showUsername) && (
         <div className="mt-4 rounded-lg border border-border-5 px-4 py-1">
@@ -51,25 +61,6 @@ const WarnDeleteDialog = ({
           )}
         </div>
       )}
-      <ButtonGroup
-        className="mt-4"
-        variant={groupVariants.stack}
-        size={sizes.base}
-        buttons={[
-          {
-            text: "Keep backup",
-            onClick: keepBackup,
-            variant: variants.primary,
-            testId: "keep-backup-button",
-          },
-          {
-            text: "Delete backup",
-            onClick: onDelete,
-            variant: variants.danger,
-            testId: "delete-backup-button",
-          },
-        ]}
-      />
     </Dialog>
   );
 };

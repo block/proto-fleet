@@ -1,8 +1,4 @@
 import { variants } from "@/shared/components/Button";
-import ButtonGroup, {
-  groupVariants,
-  sizes,
-} from "@/shared/components/ButtonGroup";
 import Dialog from "@/shared/components/Dialog";
 
 interface WarnWakeDialogProps {
@@ -21,27 +17,21 @@ const WarnWakeDialog = ({ onClose, onSubmit, show }: WarnWakeDialogProps) => {
       subtitleSize="text-300"
       show={show}
       testId="warn-wake-up-dialog"
-    >
-      <ButtonGroup
-        className="mt-4"
-        variant={groupVariants.stack}
-        size={sizes.base}
-        buttons={[
-          {
-            text: "Wake up miner",
-            onClick: onSubmit,
-            variant: variants.primary,
-            testId: "wake-up-button",
-          },
-          {
-            text: "Cancel",
-            onClick: onClose,
-            variant: variants.secondary,
-            testId: "cancel-button",
-          },
-        ]}
-      />
-    </Dialog>
+      buttons={[
+        {
+          text: "Cancel",
+          onClick: onClose,
+          variant: variants.secondary,
+          testId: "cancel-button",
+        },
+        {
+          text: "Wake up miner",
+          onClick: onSubmit,
+          variant: variants.primary,
+          testId: "wake-up-button",
+        },
+      ]}
+    />
   );
 };
 

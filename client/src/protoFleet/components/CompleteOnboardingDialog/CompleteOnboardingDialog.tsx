@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { FleetOnboardingStatus } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
 import { useAuthContext } from "@/protoFleet/features/auth/contexts/AuthContext";
-import Button, { sizes, variants } from "@/shared/components/Button";
+import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 
 const PAIR_MINERS_PROMPT = {
@@ -61,30 +61,27 @@ const CompleteOnboardingDialog = ({
       titleSize="text-heading-200"
       subtitle={completeOnboarding?.subtitle || ""}
       subtitleSize="text-300"
-    >
-      <div className="relative -mt-6 flex w-[calc(100%+(theme(spacing.6)*2))] -translate-x-6 translate-y-6 items-center justify-between bg-surface-2 p-6">
-        <Button
-          variant={variants.secondary}
-          size={sizes.base}
-          onClick={() => {
+      buttons={[
+        {
+          text: "Logout",
+          onClick: () => {
             setAuthTokens({
               accessToken: { value: "", expiry: new Date() },
             });
-          }}
-          text="Logout"
-        />
-        <Button
-          variant={variants.accent}
-          size={sizes.base}
-          onClick={() => {
+          },
+          variant: variants.secondary,
+        },
+        {
+          text: completeOnboarding?.cta || "Continue",
+          onClick: () => {
             if (completeOnboarding?.route) {
               navigate(completeOnboarding.route);
             }
-          }}
-          text={completeOnboarding?.cta || "Continue"}
-        />
-      </div>
-    </Dialog>
+          },
+          variant: variants.accent,
+        },
+      ]}
+    />
   );
 };
 export default CompleteOnboardingDialog;

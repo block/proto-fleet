@@ -1,8 +1,4 @@
 import { variants } from "@/shared/components/Button";
-import ButtonGroup, {
-  groupVariants,
-  sizes,
-} from "@/shared/components/ButtonGroup";
 import Dialog from "@/shared/components/Dialog";
 
 interface WarnSleepDialogProps {
@@ -21,27 +17,21 @@ const WarnSleepDialog = ({ onClose, onSubmit, show }: WarnSleepDialogProps) => {
       subtitleSize="text-300"
       show={show}
       testId="warn-sleep-dialog"
-    >
-      <ButtonGroup
-        className="mt-4"
-        variant={groupVariants.stack}
-        size={sizes.base}
-        buttons={[
-          {
-            text: "Enter sleep mode",
-            onClick: onSubmit,
-            variant: variants.primary,
-            testId: "sleep-button",
-          },
-          {
-            text: "Cancel",
-            onClick: onClose,
-            variant: variants.secondary,
-            testId: "cancel-button",
-          },
-        ]}
-      />
-    </Dialog>
+      buttons={[
+        {
+          text: "Cancel",
+          onClick: onClose,
+          variant: variants.secondary,
+          testId: "cancel-button",
+        },
+        {
+          text: "Enter sleep mode",
+          onClick: onSubmit,
+          variant: variants.primary,
+          testId: "sleep-button",
+        },
+      ]}
+    />
   );
 };
 

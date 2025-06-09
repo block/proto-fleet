@@ -1,6 +1,9 @@
 import { ReactNode, useEffect, useState } from "react";
 import clsx from "clsx";
 
+import ButtonGroup from "@/shared/components/ButtonGroup";
+import { groupVariants } from "@/shared/components/ButtonGroup/constants";
+import { ButtonProps } from "@/shared/components/ButtonGroup/types";
 import Header from "@/shared/components/Header";
 import PageOverlay, {
   animationDuration,
@@ -21,6 +24,8 @@ interface DialogProps {
   titleSize?: string;
   headerClassName?: string;
   animate?: boolean;
+  buttonGroupVariant?: keyof typeof groupVariants;
+  buttons?: ButtonProps[];
 }
 
 const Dialog = ({
@@ -37,6 +42,8 @@ const Dialog = ({
   titleSize = "text-heading-100",
   headerClassName,
   animate = true,
+  buttonGroupVariant = groupVariants.justifyBetween,
+  buttons,
 }: DialogProps) => {
   const [showDialog, setShowDialog] = useState(show);
 
@@ -67,7 +74,7 @@ const Dialog = ({
         >
           <div
             className={clsx(
-              "h-fit w-[360px] overflow-hidden rounded-3xl bg-surface-elevated-base p-6 shadow-200",
+              "h-fit w-[360px] overflow-hidden rounded-3xl bg-surface-elevated-base shadow-200",
               {
                 "animate-sliding-up": animate && show,
                 "animate-sliding-down": animate && !show,
@@ -76,21 +83,30 @@ const Dialog = ({
             )}
             data-testid={testId}
           >
-            {loading && (
-              <ProgressCircular
-                indeterminate
-                className="mb-3 h-6 text-core-accent-fill"
+            <div className="p-6">
+              {loading && (
+                <ProgressCircular
+                  indeterminate
+                  className="mb-3 h-6 text-core-accent-fill"
+                />
+              )}
+              <Header
+                className={headerClassName}
+                subtitleClassName={subtitleClassName}
+                title={title}
+                subtitle={subtitle}
+                titleSize={titleSize}
+                subtitleSize={subtitleSize}
+              />
+              {children && <div className="mt-4">{children}</div>}
+            </div>
+            {buttons && buttons.length > 0 && (
+              <ButtonGroup
+                buttons={buttons}
+                variant={buttonGroupVariant}
+                className="rounded-b-3xl bg-surface-5 p-6"
               />
             )}
-            <Header
-              className={headerClassName}
-              subtitleClassName={subtitleClassName}
-              title={title}
-              subtitle={subtitle}
-              titleSize={titleSize}
-              subtitleSize={subtitleSize}
-            />
-            {children && <div className="mt-4">{children}</div>}
           </div>
         </PageOverlay>
       )}

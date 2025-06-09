@@ -1,9 +1,5 @@
 import { InfoInverted } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
-import ButtonGroup, {
-  groupVariants,
-  sizes,
-} from "@/shared/components/ButtonGroup";
 import Callout, { intents } from "@/shared/components/Callout";
 import Dialog from "@/shared/components/Dialog";
 
@@ -27,31 +23,26 @@ const WarnRebootDialog = ({
       subtitleSize="text-300"
       show={show}
       testId="warn-reboot-dialog"
+      buttons={[
+        {
+          text: "Cancel",
+          onClick: onClose,
+          variant: variants.secondary,
+          testId: "cancel-button",
+        },
+        {
+          text: "Export logs and reboot miner",
+          onClick: onSubmit,
+          variant: variants.primary,
+          testId: "reboot-button",
+        },
+      ]}
     >
       <Callout
         className="px-3! py-2!"
         intent={intents.information}
         title="Miner logs get reset when you reboot your miner so we’ll auto-export your logs before the miner reboots."
         prefixIcon={<InfoInverted />}
-      />
-      <ButtonGroup
-        className="mt-4"
-        variant={groupVariants.stack}
-        size={sizes.base}
-        buttons={[
-          {
-            text: "Export logs and reboot miner",
-            onClick: onSubmit,
-            variant: variants.primary,
-            testId: "reboot-button",
-          },
-          {
-            text: "Cancel",
-            onClick: onClose,
-            variant: variants.secondary,
-            testId: "cancel-button",
-          },
-        ]}
       />
     </Dialog>
   );

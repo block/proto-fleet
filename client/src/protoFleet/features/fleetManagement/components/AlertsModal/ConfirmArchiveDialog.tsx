@@ -1,8 +1,4 @@
 import { variants } from "@/shared/components/Button";
-import ButtonGroup, {
-  groupVariants,
-  sizes,
-} from "@/shared/components/ButtonGroup";
 import Dialog from "@/shared/components/Dialog";
 
 interface ConfirmArchiveDialogProps {
@@ -22,25 +18,19 @@ const ConfirmArchiveDialog = ({
       subtitle="You will still be able to view archived alerts."
       preventScroll
       show={show}
-    >
-      <ButtonGroup
-        className="mt-4"
-        variant={groupVariants.fill}
-        size={sizes.base}
-        buttons={[
-          {
-            text: "Cancel",
-            onClick: onCancel,
-            variant: variants.secondary,
-          },
-          {
-            text: "Archive alerts",
-            onClick: onConfirm,
-            variant: variants.accent,
-          },
-        ]}
-      />
-    </Dialog>
+      buttons={[
+        {
+          text: "Cancel",
+          onClick: onCancel,
+          variant: variants.secondary,
+        },
+        {
+          text: "Archive alerts",
+          onClick: onConfirm,
+          variant: variants.accent,
+        },
+      ]}
+    />
   );
 };
 
