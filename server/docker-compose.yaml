@@ -9,6 +9,7 @@ services:
           path: .
     ports:
       - "4000:8080"
+      - "40000:40000"
     environment:
       AUTH_CLIENT_SECRET_KEY: "00000000000000000000000000000000000000000000"
       AUTH_CLIENT_EXPIRATION_PERIOD: "168h"
