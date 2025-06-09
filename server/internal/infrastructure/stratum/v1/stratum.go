@@ -7,7 +7,7 @@ import (
 	netUrl "net/url"
 	"strings"
 
-	secret "github.com/rsjethani/secret/v3"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 	"github.com/sourcegraph/jsonrpc2"
 )
 
@@ -22,7 +22,7 @@ const (
 // The url is expected to be in the format "stratum+<protocol>://address".
 // The Password is optional and can be nil if not required by the Stratum server.
 // TODO(briano): Add custom error types for better error handling with connectGRPc
-func Authenticate(ctx context.Context, url string, username string, password *secret.Text) (bool, error) {
+func Authenticate(ctx context.Context, url string, username string, password *secrets.Text) (bool, error) {
 	protocol, address, err := parseStratumURL(url)
 	if err != nil {
 		return false, err

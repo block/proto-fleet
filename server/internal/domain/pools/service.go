@@ -10,8 +10,8 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 	stratumv1 "github.com/btc-mining/proto-fleet/server/internal/infrastructure/stratum/v1"
-	"github.com/rsjethani/secret/v3"
 )
 
 type PoolStatus string
@@ -254,7 +254,7 @@ func convertFromProtoStatus(status pb.PoolConnectionStatus) sqlc.PoolPoolStatus 
 // It returns true if the connection is successful, otherwise false.
 // We currently only support Stratum V1 connection pools, if you need V2
 // support please use a proxy v1->v2 as described https://stratumprotocol.org/docs/#proxies
-func (s *Service) ValidateConnection(ctx context.Context, url string, username string, password *secret.Text, timeout *time.Duration) (bool, error) {
+func (s *Service) ValidateConnection(ctx context.Context, url string, username string, password *secrets.Text, timeout *time.Duration) (bool, error) {
 	to := s.cfg.Timeout
 	if timeout != nil {
 		to = *timeout

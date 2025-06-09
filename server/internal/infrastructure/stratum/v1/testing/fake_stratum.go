@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/rsjethani/secret/v3"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 	"github.com/sourcegraph/jsonrpc2"
 )
 
@@ -35,7 +35,7 @@ type fakeAuthorizeExpectations struct {
 
 type fakeAuthorizeExpectation struct {
 	Username string
-	Password *secret.Text
+	Password *secrets.Text
 	Return   bool
 	Err      error
 	Times    int

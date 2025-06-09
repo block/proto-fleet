@@ -1,7 +1,7 @@
 package stratum
 
 import (
-	secret "github.com/rsjethani/secret/v3"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
 
 const (
@@ -9,14 +9,14 @@ const (
 )
 
 type AuthRequest struct {
-	Username string       `json:"username"`
-	Password *secret.Text `json:"password,omitempty"`
+	Username string        `json:"username"`
+	Password *secrets.Text `json:"password,omitempty"`
 }
 
 func (r *AuthRequest) MarshalParams() []any {
 	ret := []any{r.Username}
 	if r.Password != nil {
-		ret = append(ret, r.Password.Secret())
+		ret = append(ret, r.Password.Value())
 	}
 	return ret
 }

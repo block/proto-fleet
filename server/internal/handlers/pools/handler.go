@@ -9,7 +9,7 @@ import (
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pools"
-	"github.com/rsjethani/secret/v3"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
 
 type Handler struct {
@@ -82,10 +82,9 @@ func (h *Handler) DeletePool(ctx context.Context, r *connect.Request[pb.DeletePo
 }
 
 func (h *Handler) ValidatePool(ctx context.Context, r *connect.Request[pb.ValidatePoolRequest]) (*connect.Response[pb.ValidatePoolResponse], error) {
-	var pass *secret.Text
+	var pass *secrets.Text
 	if r.Msg.Password != nil {
-		tmpPass := secret.New(r.Msg.Password.GetValue())
-		pass = &tmpPass
+		pass = secrets.NewText(r.Msg.Password.GetValue())
 	}
 
 	var timeout *time.Duration

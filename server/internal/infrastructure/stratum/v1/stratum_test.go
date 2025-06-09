@@ -10,18 +10,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	secret "github.com/rsjethani/secret/v3"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
 
-func NewSecret(s string) *secret.Text {
-	sec := secret.New(s)
-	return &sec
+func NewSecret(s string) *secrets.Text {
+	sec := secrets.NewText(s)
+	return sec
 }
 func TestStratumConnect(t *testing.T) {
 	inputs := []struct {
 		Name     string
 		Username string
-		Password *secret.Text
+		Password *secrets.Text
 		Expected bool
 		Err      error
 	}{
@@ -130,7 +130,7 @@ func TestStratumConnectWithInvalidURL(t *testing.T) {
 		Name     string
 		URL      string
 		Username string
-		Password *secret.Text
+		Password *secrets.Text
 	}{
 		{
 			Name:     "invalid url",
@@ -154,7 +154,7 @@ func TestRealEndpoint(t *testing.T) {
 	inputs := []struct {
 		Name     string
 		Username string
-		Password *secret.Text
+		Password *secrets.Text
 		Expected bool
 		URL      string
 	}{

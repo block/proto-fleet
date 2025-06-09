@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/rsjethani/secret/v3"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
 
 type authorizeRequest struct {
@@ -46,7 +46,7 @@ func (b *authorizeCallBuilder) Times(times int) *authorizeCallBuilder {
 	return b
 }
 
-func (ex *fakeAuthorizeExpectations) Authorize(username string, password *secret.Text) *authorizeCallBuilder {
+func (ex *fakeAuthorizeExpectations) Authorize(username string, password *secrets.Text) *authorizeCallBuilder {
 	exp := fakeAuthorizeExpectation{
 		Username: username,
 		Password: password,
@@ -64,7 +64,7 @@ func (ex *fakeAuthorizeExpectations) Authorize(username string, password *secret
 func (f *FakeStratumService) Authorize(username string, password *string) (bool, error) {
 	for i := range f.expect.authorizeExpectations {
 		exp := &f.expect.authorizeExpectations[i]
-		if exp.Username == username && (exp.Password == nil || exp.Password.Secret() == *password) {
+		if exp.Username == username && (exp.Password == nil || exp.Password.Value() == *password) {
 			exp.called++
 			if exp.called > exp.Times {
 				return false, nil // Exceeded expected calls

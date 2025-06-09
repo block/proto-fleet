@@ -3,7 +3,7 @@ package testingtools
 import (
 	"testing"
 
-	"github.com/rsjethani/secret/v3"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -11,17 +11,17 @@ import (
 func TestFakeStratumService_Authorize_Expectations(t *testing.T) {
 	numberCalls := 3
 	fake := NewFakeStratumService()
-	secretPwd := secret.New("password123")
+	secretPwd := secrets.NewText("password123")
 
 	// Add an expectation: username "user1", password "password123", should return true, no error, expected 2 times
 	fake.EXPECT().
-		Authorize("user1", &secretPwd).
+		Authorize("user1", secretPwd).
 		Return(true, nil).
 		Times(numberCalls)
 
 	// Simulate Authorize calls
 	for i := range numberCalls {
-		ret, err := fake.Authorize("user1", SecretToStringPtr(&secretPwd))
+		ret, err := fake.Authorize("user1", SecretToStringPtr(secretPwd))
 		require.NoError(t, err, "unexpected error on call %d", i+1)
 		assert.True(t, ret, "expected true on call %d", i+1)
 	}
@@ -33,16 +33,16 @@ func TestFakeStratumService_Authorize_Expectations(t *testing.T) {
 func TestFakeStratumService_Authorize_ExpectationNotMet(t *testing.T) {
 	numberCalls := 3
 	fake := NewFakeStratumService()
-	secretPwd := secret.New("password123")
+	secretPwd := secrets.NewText("password123")
 
 	// Add an expectation: username "user2", password "password123", should return false, no error, expected 1 time
 	fake.EXPECT().
-		Authorize("user2", &secretPwd).
+		Authorize("user2", secretPwd).
 		Return(false, nil).
 		Times(numberCalls)
 
 	// Only call once (should be called twice)
-	ret, err := fake.Authorize("user2", SecretToStringPtr(&secretPwd))
+	ret, err := fake.Authorize("user2", SecretToStringPtr(secretPwd))
 	require.NoError(t, err, "unexpected error on call")
 	assert.False(t, ret, "expected false on first call")
 
@@ -60,10 +60,10 @@ func TestExpectationError_Error(t *testing.T) {
 	require.Equal(t, expectedMsg, err.Error(), "Error message should match expected format")
 }
 
-func SecretToStringPtr(s *secret.Text) *string {
+func SecretToStringPtr(s *secrets.Text) *string {
 	if s == nil {
 		return nil
 	}
-	str := s.Secret()
+	str := s.Value()
 	return &str
 }
