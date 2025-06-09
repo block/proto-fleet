@@ -6,7 +6,7 @@ require (
 	connectrpc.com/authn v0.2.0
 	connectrpc.com/connect v1.18.1
 	connectrpc.com/grpcreflect v1.3.0
-	github.com/Ullaakut/nmap v2.0.2+incompatible
+	github.com/Ullaakut/nmap/v3 v3.0.6
 	github.com/alecthomas/assert/v2 v2.11.0
 	github.com/alecthomas/kong v1.8.1
 	github.com/go-sql-driver/mysql v1.5.0
@@ -35,6 +35,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
+	golang.org/x/sync v0.12.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

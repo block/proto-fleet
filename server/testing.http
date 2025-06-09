@@ -249,7 +249,7 @@ Content-Type: application/json
 
 ###
 
-POST localhost:2121/miner_command_api.MinerCommandApi/StartMining
+POST localhost:2122/miner_command_api.MinerCommandApi/StartMining
 Authorization: Bearer {{auth_token}}
 Content-Type: application/json
 

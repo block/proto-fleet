@@ -40,7 +40,7 @@ services:
       dockerfile: docker/sim/Dockerfile
     ports:
       - "4100:8080"
-      - "2121:2121"
+      - "2122:2121"
     privileged: true
     environment:
       MFG_SERIAL_NUMBER: local-mms-1
@@ -55,7 +55,7 @@ services:
       dockerfile: docker/sim/Dockerfile
     ports:
       - "4200:8080"
-      - "2122:2121"
+      - "2123:2121"
     privileged: true
     environment:
       MFG_SERIAL_NUMBER: local-mms-2

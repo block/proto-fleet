@@ -23,7 +23,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/Ullaakut/nmap"
+	"github.com/Ullaakut/nmap/v3"
 	"github.com/grandcat/zeroconf"
 )
 
@@ -141,13 +141,17 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 		var err error
 		if len(r.Ports) == 0 && r.FastScan {
 			scanner, err = nmap.NewScanner(
+				ctx,
 				nmap.WithTargets(r.Target),
 				nmap.WithFastMode(),
+				nmap.WithDisabledDNSResolution(),
 			)
 		} else {
 			scanner, err = nmap.NewScanner(
+				ctx,
 				nmap.WithTargets(r.Target),
 				nmap.WithPorts(strings.Join(r.Ports, ",")),
+				nmap.WithDisabledDNSResolution(),
 			)
 		}
 
