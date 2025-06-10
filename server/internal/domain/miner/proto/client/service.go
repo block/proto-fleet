@@ -1,11 +1,12 @@
-package minerclient
+package client
 
 import (
 	"context"
 	"crypto/tls"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"net"
 	"net/http"
+
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 
 	"connectrpc.com/connect"
 	"golang.org/x/net/http2"

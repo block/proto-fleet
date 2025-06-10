@@ -1,18 +1,18 @@
 package main
 
 import (
-	"connectrpc.com/connect"
-	"connectrpc.com/grpcreflect"
 	"fmt"
-	"github.com/alecthomas/kong"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/logging"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/minerclient"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 	"log/slog"
 	"net/http"
 	"os"
+
+	"connectrpc.com/connect"
+	"connectrpc.com/grpcreflect"
+	"github.com/alecthomas/kong"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/logging"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
@@ -24,6 +24,7 @@ import (
 	authDomain "github.com/btc-mining/proto-fleet/server/internal/domain/auth"
 	commandDomain "github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	fleetmanagementDomain "github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
+	protoMinerClient "github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
 	onboardingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	poolsDomain "github.com/btc-mining/proto-fleet/server/internal/domain/pools"
@@ -77,7 +78,7 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
-	minerClient := minerclient.NewService()
+	minerClient := protoMinerClient.NewService()
 	authSvc := authDomain.NewService(conn, tokenSvc, encryptSvc)
 	pairingSvc := pairingDomain.NewService(conn, minerClient, config.Pairing, tokenSvc)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(conn, fleetmanagementDomain.NewMockTelemetryCollector())

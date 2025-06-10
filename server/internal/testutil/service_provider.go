@@ -2,15 +2,16 @@ package testutil
 
 import (
 	"database/sql"
+	"testing"
+	"time"
+
 	"github.com/alecthomas/assert/v2"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/onboarding"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/minerclient"
-	"testing"
-	"time"
 )
 
 type ServiceProvider struct {
@@ -32,7 +33,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB) *ServiceProvider {
 
 	authService := auth.NewService(db, tokenService, encryptService)
 
-	minerClientService := minerclient.NewService()
+	minerClientService := client.NewService()
 	pairingConfig := pairing.Config{SecretKey: "00000000000000000000000000000000000000000000"}
 	pairingService := pairing.NewService(db, minerClientService, pairingConfig, tokenService)
 

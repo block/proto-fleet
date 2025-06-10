@@ -1,4 +1,4 @@
-package minerclient
+package client
 
 import "net/url"
 

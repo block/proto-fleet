@@ -1,8 +1,11 @@
 package networking
 
 import (
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"net"
+	"net/url"
+	"strconv"
+
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 
 	"github.com/jackpal/gateway"
 )
@@ -61,4 +64,68 @@ func GetLocalNetworkInfo() (NetworkInfo, error) {
 	}
 
 	return emptyNetworkInfo, fleeterror.NewInternalError("no suitable network interface found")
+}
+
+type IPAddress string
+
+func (ip IPAddress) String() string {
+	return string(ip)
+}
+
+type Port uint16
+
+func (p Port) String() string {
+	return strconv.Itoa(int(p))
+}
+
+type Protocol int
+
+// Protocol constants for network communication with miners
+const (
+	// ProtocolHTTP is used for unencrypted web communication with miners
+	ProtocolHTTP Protocol = iota
+	// ProtocolHTTPS is used for secure encrypted web communication with miners
+	ProtocolHTTPS
+	// ProtocolTCP is used for direct socket connections with miners
+	ProtocolTCP
+)
+
+func (p Protocol) String() string {
+	switch p {
+	case ProtocolHTTP:
+		return "http"
+	case ProtocolHTTPS:
+		return "https"
+	case ProtocolTCP:
+		return "tcp"
+	default:
+		return "unknown"
+	}
+}
+
+func ProtocolFromString(s string) (Protocol, error) {
+	switch s {
+	case "http":
+		return ProtocolHTTP, nil
+	case "https":
+		return ProtocolHTTPS, nil
+	case "tcp":
+		return ProtocolTCP, nil
+	default:
+		return Protocol(-1), fleeterror.NewInvalidArgumentErrorf("unsupported protocol: %s", s)
+	}
+}
+
+type ConnectionInfo struct {
+	IPAddress IPAddress
+	Port      Port
+	Protocol  Protocol
+}
+
+func (c ConnectionInfo) GetURL() *url.URL {
+	return &url.URL{Scheme: c.Protocol.String(), Host: net.JoinHostPort(string(c.IPAddress), c.Port.String())}
+}
+
+func (c ConnectionInfo) GetHostPort() *url.URL {
+	return &url.URL{Host: net.JoinHostPort(string(c.IPAddress), c.Port.String())}
 }

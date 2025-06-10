@@ -1,40 +1,40 @@
 package command
 
 import (
-	"connectrpc.com/connect"
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api"
-	minerPbCommon "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
+	"strconv"
+	"strings"
+
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto"
+	protoMinerClient "github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
+
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
-	"net"
-	"net/url"
-	"strings"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/minerclient"
 )
 
 // Service handles miner command operations
 type Service struct {
-	conn           *sql.DB
-	minerClient    *minerclient.Service
-	tokenService   *tokenDomain.Service
-	encryptService *encrypt.Service
+	conn             *sql.DB
+	protoMinerClient *protoMinerClient.Service
+	tokenService     *tokenDomain.Service
+	encryptService   *encrypt.Service
 }
 
 // NewService creates a new command service instance
-func NewService(conn *sql.DB, minerClient *minerclient.Service, tokenService *tokenDomain.Service, encryptService *encrypt.Service) *Service {
+func NewService(conn *sql.DB, protoMinerClient *protoMinerClient.Service, tokenService *tokenDomain.Service, encryptService *encrypt.Service) *Service {
 	return &Service{
-		conn:           conn,
-		minerClient:    minerClient,
-		tokenService:   tokenService,
-		encryptService: encryptService,
+		conn:             conn,
+		protoMinerClient: protoMinerClient,
+		tokenService:     tokenService,
+		encryptService:   encryptService,
 	}
 }
 
@@ -44,12 +44,12 @@ type minerError struct {
 }
 
 // minerCommand defines a function type for executing specific miner commands
-type minerCommand func(client *minerclient.Service, ctx context.Context, minerConnectionInfo *minerclient.MinerConnectionInfo) (*connect.Response[miner_command_api.CommandResponse], error)
+type minerCommand func(ctx context.Context, miner miner.Miner) error
 
 // StopMining stops mining on the specified miners
 func (s *Service) StopMining(ctx context.Context, deviceIDs []string) (*pb.StopMiningResponse, error) {
-	stopMiningCommand := func(client *minerclient.Service, ctx context.Context, minerConnectionInfo *minerclient.MinerConnectionInfo) (*connect.Response[miner_command_api.CommandResponse], error) {
-		return client.StopMining(ctx, minerConnectionInfo)
+	stopMiningCommand := func(ctx context.Context, miner miner.Miner) error {
+		return miner.StopMining(ctx)
 	}
 
 	err := s.executeMinerCommand(ctx, deviceIDs, "StopMining", stopMiningCommand)
@@ -62,8 +62,8 @@ func (s *Service) StopMining(ctx context.Context, deviceIDs []string) (*pb.StopM
 
 // StartMining starts mining on the specified miners
 func (s *Service) StartMining(ctx context.Context, deviceIDs []string) (*pb.StartMiningResponse, error) {
-	startMiningCommand := func(client *minerclient.Service, ctx context.Context, minerConnectionInfo *minerclient.MinerConnectionInfo) (*connect.Response[miner_command_api.CommandResponse], error) {
-		return client.StartMining(ctx, minerConnectionInfo)
+	startMiningCommand := func(ctx context.Context, miner miner.Miner) error {
+		return miner.StartMining(ctx)
 	}
 
 	err := s.executeMinerCommand(ctx, deviceIDs, "StartMining", startMiningCommand)
@@ -79,7 +79,7 @@ func (s *Service) executeMinerCommand(ctx context.Context, deviceIDs []string, c
 	var failedMiners []*minerError
 
 	for _, deviceID := range deviceIDs {
-		minerConnectionInfo, err := s.getMinerConnectionInfo(ctx, deviceID)
+		miner, err := s.getMiner(ctx, deviceID)
 		if err != nil {
 			failedMiners = append(failedMiners, &minerError{
 				DeviceIdentifier: deviceID,
@@ -87,16 +87,11 @@ func (s *Service) executeMinerCommand(ctx context.Context, deviceIDs []string, c
 			})
 		}
 
-		response, err := command(s.minerClient, ctx, minerConnectionInfo)
+		err = command(ctx, miner)
 		if err != nil {
 			failedMiners = append(failedMiners, &minerError{
 				DeviceIdentifier: deviceID,
 				Error:            err.Error(),
-			})
-		} else if response.Msg.Result != minerPbCommon.ApiResult_RESULT_SUCCESS {
-			failedMiners = append(failedMiners, &minerError{
-				DeviceIdentifier: deviceID,
-				Error:            fmt.Sprintf("miner command returned error: %s", response.Msg.Message),
 			})
 		}
 	}
@@ -115,13 +110,13 @@ func (s *Service) executeMinerCommand(ctx context.Context, deviceIDs []string, c
 }
 
 // getMinerConnectionInfo retrieves connection details for a single miner
-func (s *Service) getMinerConnectionInfo(ctx context.Context, deviceID string) (*minerclient.MinerConnectionInfo, error) {
+func (s *Service) getMiner(ctx context.Context, deviceID string) (miner.Miner, error) {
 	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (*minerclient.MinerConnectionInfo, error) {
+	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (miner.Miner, error) {
 		minerInfo, err := q.GetMinerApiNetworkInfoByDeviceID(ctx, sqlc.GetMinerApiNetworkInfoByDeviceIDParams{OrgID: claims.OrgID, DeviceIdentifier: deviceID})
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to get miner info for miner %s: %v", deviceID, err)
@@ -140,11 +135,18 @@ func (s *Service) getMinerConnectionInfo(ctx context.Context, deviceID string) (
 			return nil, fleeterror.NewInternalErrorf("failed to generate miner auth token: %v", err)
 		}
 
-		minerURL := url.URL{Host: net.JoinHostPort(minerInfo.IpAddress, minerInfo.Port)}
+		port, err := strconv.ParseUint(minerInfo.Port, 10, 16)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("invalid port for miner %s: %v", deviceID, err)
+		}
 
-		return &minerclient.MinerConnectionInfo{
-			URL:       &minerURL,
-			AuthToken: authToken,
-		}, nil
+		// TODO DASH-429: add miner type to the database and construct the appropriate miner type
+		return proto.NewProtoMiner(
+			deviceID,
+			minerInfo.IpAddress,
+			uint16(port),
+			s.protoMinerClient,
+			authToken,
+		), nil
 	})
 }

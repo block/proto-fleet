@@ -1,8 +1,9 @@
-package minerclient
+package client
 
 import (
-	"connectrpc.com/connect"
 	"context"
+
+	"connectrpc.com/connect"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api"
 	minerPb "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api/miner_command_apiconnect"
 	minerPbCommon "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"

@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	protoMinerClient "github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
 
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/minerclient"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
@@ -28,16 +28,17 @@ import (
 )
 
 // Service handles the core device discovery functionality
+// TODO DASH-430: support other miner types
 type Service struct {
 	conn         *sql.DB
-	minerClient  *minerclient.Service
+	minerClient  *protoMinerClient.Service
 	cfg          Config
 	tokenService *tokenDomain.Service
 }
 
 func NewService(
 	conn *sql.DB,
-	minerClient *minerclient.Service,
+	minerClient *protoMinerClient.Service,
 	cfg Config,
 	tokenService *tokenDomain.Service,
 ) *Service {
