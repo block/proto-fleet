@@ -38,6 +38,8 @@ services:
     build:
       context: ../miner-firmware
       dockerfile: docker/sim/Dockerfile
+      args:
+        TYPE: "b3b-sim"
     ports:
       - "4100:8080"
       - "2122:2121"
@@ -53,6 +55,8 @@ services:
     build:
       context: ../miner-firmware
       dockerfile: docker/sim/Dockerfile
+      args:
+        TYPE: "b3b-sim"
     ports:
       - "4200:8080"
       - "2123:2121"

@@ -38,7 +38,7 @@ jobs:
 
       - name: Build base simulator Docker image
         shell: bash
-        run: docker build -f "miner-firmware/docker/sim/Dockerfile" -t "protofleet/miner-sim-develop-base:latest" miner-firmware
+        run: docker build --build-arg "TYPE=b3b-sim" -f "miner-firmware/docker/sim/Dockerfile" -t "protofleet/miner-sim-develop-base:latest" miner-firmware
 
       - name: Build simulator with ProtoOS dashboard Docker image
         shell: bash
