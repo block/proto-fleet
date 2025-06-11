@@ -15,11 +15,14 @@ import List from "@/shared/components/List";
 import { defaultListFilter } from "@/shared/components/List/constants";
 import { FilterItem } from "@/shared/components/List/Filters/types";
 import { statuses } from "@/shared/components/StatusCircle/constants";
+import { Breakpoint } from "@/shared/constants/breakpoints";
 
 type MinerListProps = {
   title: string;
   minerIds: string[];
-  bodyClassName?: string;
+  listClassName?: string;
+  paddingLeft?: Partial<Record<Breakpoint, string>>;
+  overflowContainer?: boolean;
 };
 
 // TODO: move this to state when we
@@ -34,7 +37,13 @@ const activeCols = [
   minerCols.temperature,
 ] as (keyof MinerStateSnapshot)[];
 
-const MinerList = ({ title, minerIds = [], bodyClassName }: MinerListProps) => {
+const MinerList = ({
+  title,
+  minerIds = [],
+  listClassName,
+  paddingLeft,
+  overflowContainer,
+}: MinerListProps) => {
   // Convert string array to objects for List component compatibility
   // List generally expects object with all items used in the ListItem to be passed to it as props
   // but because we just pass deviceIdentifier, and use that to look up the rest of the data in the store,
@@ -47,7 +56,6 @@ const MinerList = ({ title, minerIds = [], bodyClassName }: MinerListProps) => {
         }) as MinerStateSnapshot,
     );
   }, [minerIds]);
-
   const filters = useMemo(() => {
     const countMiners = (status: MinerFilterState) => {
       // TODO: need to determine what properties need to be added to MinerStateSnapshot to support our filters
@@ -126,7 +134,9 @@ const MinerList = ({ title, minerIds = [], bodyClassName }: MinerListProps) => {
         renderActionBar={(selectedItems) => (
           <MinerListActionBar selectedMiners={selectedItems} />
         )}
-        bodyClassName={bodyClassName}
+        containerClassName={listClassName}
+        paddingLeft={paddingLeft}
+        overflowContainer={overflowContainer}
       />
     </div>
   );

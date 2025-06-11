@@ -169,7 +169,7 @@ const AlertsModal = ({ show, alerts, onDismiss }: AlertsModalProps) => {
 
   return (
     <Modal
-      className="relative flex max-h-3/4 !w-3xl flex-col phone:!w-[calc(100vw-theme(spacing.4))] tablet:!w-[calc(100vw-theme(spacing.4))]"
+      className="relative flex !w-3xl flex-col phone:!w-[calc(100vw-theme(spacing.4))] tablet:!w-[calc(100vw-theme(spacing.4))]"
       bodyClassName="flex flex-col overflow-y-auto"
       show={show}
       buttons={modalButtons}
@@ -213,6 +213,7 @@ const AlertsModal = ({ show, alerts, onDismiss }: AlertsModalProps) => {
         renderActionBar={(selectedItems) => (
           <AlertListActionBar selectedAlerts={selectedItems} />
         )}
+        containerClassName="max-h-[50vh]"
         noDataElement={
           <div className="flex h-108 items-center justify-center rounded-2xl bg-core-primary-5">
             <div className="flex flex-col items-center gap-4 text-text-primary-50">

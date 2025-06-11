@@ -92,7 +92,10 @@ export const List = ({
       colConfig={testColConfig}
       filters={testFilters}
       filterItem={filterItem}
-      items={testItems.slice(0, numberOfItems)}
+      items={[...testItems, ...testItems, ...testItems, ...testItems].slice(
+        0,
+        numberOfItems,
+      )}
       itemKey="id"
       actions={actions.slice(0, numberOfItemActions)}
       itemSelectable={itemSelectable}
@@ -114,15 +117,17 @@ export default {
         component:
           "A reusable and configurable list component for displaying tabular data with support for:\n" +
           " - Customizable columns\n" +
-          "   - Define how to render the columns using object of type ColConfig and ColTitles\n" +
-          "   - Define which columns should be visible at the moment with activeCols prop.\n" +
+          "   - Define how to render the columns using object of type `ColConfig` and `ColTitles`\n" +
+          "   - Define which columns should be visible at the moment with `activeCols` prop.\n" +
           " - Selectable items with a checkbox.\n" +
-          "   - Can be turned on or off with itemSelectable prop\n" +
+          "   - Can be turned on or off with `itemSelectable` prop\n" +
           " - Action buttons for each item.\n" +
           " - Filters for refining displayed data.\n" +
           " - A customizable action bar for selected items.\n" +
           " - Disabled (readonly view)\n" +
-          ' - A "no data" placeholder when the list is empty.',
+          ' - A "no data" placeholder when the list is empty.\n' +
+          " - Sticky header and first two columns on mobile and tablet viewports.\n" +
+          "   - For this to work properly you need to specify max height of the table via `containerClassName` prop.",
       },
     },
   },
@@ -134,7 +139,7 @@ export default {
     disabled: false,
   },
   argTypes: {
-    numberOfItems: { control: { type: "range", min: 0, max: 5, step: 1 } },
+    numberOfItems: { control: { type: "range", min: 0, max: 20, step: 1 } },
     numberOfColumns: { control: { type: "range", min: 1, max: 4, step: 1 } },
     numberOfItemActions: {
       control: { type: "range", min: 0, max: 3, step: 1 },

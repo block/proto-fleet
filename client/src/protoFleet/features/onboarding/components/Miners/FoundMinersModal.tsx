@@ -129,27 +129,25 @@ const FoundMinersModal = ({
           title={`${miners.length} miners found on your network`}
           subtitle="Selected miners will be added to your fleet."
         />
-
-        <div className="max-h-[50vh] overflow-y-auto">
-          <List<
-            MinerWithSelectedAndAction,
-            MinerWithSelectedAndAction["deviceIdentifier"],
-            "model"
-          >
-            filters={[modelFilter]}
-            filterItem={filterItem}
-            filterSize={sizes.base}
-            activeCols={activeCols}
-            colTitles={minerColTitles}
-            colConfig={colConfig}
-            items={miners}
-            itemKey="deviceIdentifier"
-            itemSelectable
-            customSelectedItems={selectedMiners}
-            customSetSelectedItems={setSelectedMiners}
-            actions={[blinkAction]}
-          />
-        </div>
+        <List<
+          MinerWithSelectedAndAction,
+          MinerWithSelectedAndAction["deviceIdentifier"],
+          "model"
+        >
+          filters={[modelFilter]}
+          filterItem={filterItem}
+          filterSize={sizes.base}
+          activeCols={activeCols}
+          colTitles={minerColTitles}
+          colConfig={colConfig}
+          items={miners}
+          itemKey="deviceIdentifier"
+          itemSelectable
+          customSelectedItems={selectedMiners}
+          customSetSelectedItems={setSelectedMiners}
+          actions={[blinkAction]}
+          containerClassName="max-h-[50vh]"
+        />
       </div>
     </Modal>
   );

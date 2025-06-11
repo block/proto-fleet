@@ -4,31 +4,27 @@ import MinerList from "@/protoFleet/features/fleetManagement/components/MinerLis
 
 const Fleet = () => {
   const { minerIds } = useFleet();
-
   return (
     <MinerList
       title="Miners"
       minerIds={minerIds}
-      bodyClassName={clsx(
-        // Take width of the parent, add left and right padding and auto margin caused by justify center
-        // In the end subtract one spacing unit to account for minor inaccuracy in the calculation
-        // Auto padding (left and right) is computed like this: screen width - parent (container width) - left and right paddings - left navigation
-        "phone:w-[calc(100%+theme(spacing.6)*2+(100vw-100%-theme(spacing.6)*2)-theme(spacing.1))]",
-        "tablet:w-[calc(100%+theme(spacing.6)*2+(100vw-100%-theme(spacing.6)*2)-theme(spacing.1))]",
-        "laptop:w-[calc(100%+theme(spacing.20)*2+(100vw-100%-theme(spacing.20)*2-theme(spacing.16))-theme(spacing.1))]",
-        "desktop:w-[calc(100%+theme(spacing.20)*2+(100vw-100%-theme(spacing.20)*2-theme(spacing.16))-theme(spacing.1))]",
-        // Left padding is padding of the parent (container) + half of auto margin caused by justify center
-        "phone:px-[calc(theme(spacing.6)+(100vw-100%-theme(spacing.6)*2)/2)]",
-        "tablet:px-[calc(theme(spacing.6)+(100vw-100%-theme(spacing.6)*2)/2)]",
-        "laptop:px-[calc(theme(spacing.20)+(100vw-100%-theme(spacing.20)*2-theme(spacing.16))/2)]",
-        "desktop:px-[calc(theme(spacing.20)+(100vw-100%-theme(spacing.20)*2-theme(spacing.16))/2)]",
-        // Translate the element left by the padding
-        "phone:-translate-x-[calc(theme(spacing.6)+(100vw-352px-theme(spacing.6)*2)/2))]",
-        "tablet:-translate-x-[calc(theme(spacing.6)+(100vw-584px-theme(spacing.6)*2)/2))]",
-        "laptop:-translate-x-[calc(theme(spacing.20)+(100vw-776px-theme(spacing.20)*2-theme(spacing.16))/2))]",
-        "desktop:-translate-x-[calc(theme(spacing.20)+(100vw-1024px-theme(spacing.20)*2-theme(spacing.16))/2))]",
-        "overflow-x-auto",
+      listClassName={clsx(
+        // limit the height of the list to activate sticky header
+        // take height of the screen - top and bottom paddings - page header - miner list header
+        "phone:max-h-[calc(100vh-theme(spacing.6)*2-(theme(spacing.12)+57px)-theme(spacing.10))]",
+        "tablet:max-h-[calc(100vh-theme(spacing.6)*2-theme(spacing.12)-theme(spacing.10))]",
+        "laptop:max-h-[calc(100vh-theme(spacing.20)*2-(theme(spacing.14)+theme(spacing.1))-theme(spacing.10))]",
+        "desktop:max-h-[calc(100vh-theme(spacing.20)*2-(theme(spacing.14)+theme(spacing.1))-theme(spacing.10))]",
       )}
+      // theme(spacing.20) doesn't work here because this is not preprocessed by Tailwind
+      paddingLeft={{
+        phone: "24px",
+        tablet: "24px",
+        // Left padding is padding of the parent (container) + half of auto margin caused by justify center
+        laptop: "calc(80px + (100vw - 776px - 80px * 2 - 64px)/2)",
+        desktop: "calc(80px + (100vw - 1024px - 80px * 2 - 64px)/2)",
+      }}
+      overflowContainer={true}
     />
   );
 };
