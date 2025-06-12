@@ -4,6 +4,7 @@ package pools.v1;
 
 import "google/protobuf/duration.proto";
 import "google/protobuf/wrappers.proto";
+import "buf/validate/validate.proto";
 
 service PoolsService {
     // Sets the default pool configuration for the fleet
@@ -196,10 +197,16 @@ message DeletePoolResponse {
 message ValidatePoolRequest {
     // Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")
     // Required field that specifies the endpoint for connecting to the pool
-    string url = 1;
+     string url = 1 [(buf.validate.field) = {
+        string: {
+            pattern: "^stratum\\+(tcp|ssl|ws):\\/\\/(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\.[a-zA-Z]{2,})|(\\d{1,3}\\.){3}\\d{1,3}|\\[([0-9a-fA-F:]+)\\])(:\\d{1,5})?$"
+            min_len: 12
+        }
+        required: true
+    }];
     // Username or wallet address for pool authentication
     // Required field that identifies the user/wallet receiving mining rewards
-    string username = 2;
+    string username = 2[(buf.validate.field).required = true];
 
     // Password for pool authentication
     // May be optional depending on pool requirements, often used for worker identification
@@ -207,7 +214,10 @@ message ValidatePoolRequest {
 
     // Set the timeout duration for validation
     // This is an optional field for integration points that have issues setting context timeouts.
-    google.protobuf.Duration timeout = 4;
+    google.protobuf.Duration timeout = 4 [(buf.validate.field).duration = {
+        lte: { seconds: 360 } // Maximum timeout of 6 minutes
+        gte: { seconds: 1 } // Minimum timeout of 1 second
+    }];
 }
 
 // Response after validating a pool's connection details

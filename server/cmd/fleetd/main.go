@@ -8,6 +8,7 @@ import (
 
 	"connectrpc.com/connect"
 	"connectrpc.com/grpcreflect"
+	"connectrpc.com/validate"
 	"github.com/alecthomas/kong"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/logging"
@@ -91,12 +92,19 @@ func start(config *Config) error {
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
 	}
 
+	validateInterceptor, err := validate.NewInterceptor()
+	if err != nil {
+		slog.Error("failed to create validate interceptor", "error", err)
+		return fmt.Errorf("failed to create validate interceptor: %w", err)
+	}
+
 	// init interceptors
 	li := connect.WithInterceptors(
 		interceptors.NewErrorMappingInterceptor(),
 		interceptors.NewErrorStackTraceLoggingInterceptor(config.Log.Level),
 		interceptors.NewRequestLoggingInterceptor(config.Log.Level),
 		interceptors.NewAuthInterceptor(tokenSvc, interceptors.UnauthenticatedProcedures),
+		validateInterceptor,
 	)
 
 	// setup rpc handlers

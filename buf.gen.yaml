@@ -16,6 +16,8 @@ managed:
   disable:
     # Don't modify any files in buf.build/googleapis/googleapis
     - module: buf.build/googleapis/googleapis
+    # Don't modify any files in buf.build/bufbuild/protovalidate
+    - module: buf.build/bufbuild/protovalidate
   override:
     - file_option: go_package_prefix
       value: github.com/btc-mining/proto-fleet/server/generated/grpc
