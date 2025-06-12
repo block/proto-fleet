@@ -9,8 +9,12 @@ interface MinerStatusRowsProps {
 
 const MinerStatusRows = ({ errors, icon }: MinerStatusRowsProps) => (
   <>
-    {errors.map((error) => (
-      <MinerStatusRow error={error} key={error.error_code} icon={icon} />
+    {errors.map((error, idx) => (
+      <MinerStatusRow
+        error={error}
+        key={`${error.error_code}_${idx}`}
+        icon={icon}
+      />
     ))}
   </>
 );

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import clsx from "clsx";
 
 import WidgetWrapper from "../WidgetWrapper";
-import { ErrorListResponse } from "@/protoOS/api/types";
+import { ErrorListResponse, NotificationError } from "@/protoOS/api/types";
 import {
   isControlBoardError,
   isControlBoardWarning,
@@ -30,18 +30,31 @@ const MinerStatusWidget = ({
   onClick,
 }: MinerStatusWidgetProps) => {
   const status = useMemo<StatusCircleProps["status"]>(() => {
+    const createOrPredicate = (
+      ...predicates: Array<(error: NotificationError) => boolean>
+    ) => {
+      return (value: NotificationError) =>
+        predicates.some((predicate) => predicate(value));
+    };
     if (
       errors.some(
-        isFanError || isControlBoardError || isHashboardError || isPSUError,
+        createOrPredicate(
+          isFanError,
+          isControlBoardError,
+          isHashboardError,
+          isPSUError,
+        ),
       )
     )
       return "error";
     if (
       errors.some(
-        isFanWarning ||
-          isControlBoardWarning ||
-          isHashboardWarning ||
+        createOrPredicate(
+          isFanWarning,
+          isControlBoardWarning,
+          isHashboardWarning,
           isPSUWarning,
+        ),
       )
     )
       return "warning";
