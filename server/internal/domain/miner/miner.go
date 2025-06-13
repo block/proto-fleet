@@ -19,7 +19,7 @@ const (
 func (t Type) String() string {
 	switch t {
 	case TypeProto:
-		return "proto"
+		return "proto_miner"
 	case TypeAntminer:
 		return "antminer"
 	default:

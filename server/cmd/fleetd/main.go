@@ -26,6 +26,8 @@ import (
 	commandDomain "github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	fleetmanagementDomain "github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
 	protoMinerClient "github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/proto"
 	onboardingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	poolsDomain "github.com/btc-mining/proto-fleet/server/internal/domain/pools"
@@ -81,7 +83,12 @@ func start(config *Config) error {
 	}
 	minerClient := protoMinerClient.NewService()
 	authSvc := authDomain.NewService(conn, tokenSvc, encryptSvc)
-	pairingSvc := pairingDomain.NewService(conn, minerClient, config.Pairing, tokenSvc)
+	protoDiscoverer := proto.NewDiscoverer(minerClient)
+	discoveryService, err := minerdiscovery.NewService(protoDiscoverer)
+	if err != nil {
+		return err
+	}
+	pairingSvc := pairingDomain.NewService(conn, config.Pairing, tokenSvc, discoveryService)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(conn, fleetmanagementDomain.NewMockTelemetryCollector())
 	commandSvc := commandDomain.NewService(conn, minerClient, tokenSvc, encryptSvc)
 	onboardingSvc := onboardingDomain.NewService(conn)

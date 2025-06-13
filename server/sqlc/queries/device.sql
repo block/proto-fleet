@@ -6,8 +6,10 @@ INSERT INTO device (
     serial_number,
     model,
     manufacturer,
+    type,
     is_active
 ) VALUES (
+    ?,
     ?,
     ?,
     ?,
@@ -23,6 +25,7 @@ ON DUPLICATE KEY UPDATE
     deleted_at = NULL,
     model = VALUES(model),
     manufacturer = VALUES(manufacturer),
+    type = VALUES(type),
     org_id = VALUES(org_id),
     id = LAST_INSERT_ID(id);
 
@@ -61,6 +64,7 @@ SELECT
     d.serial_number,
     d.model,
     d.manufacturer,
+    d.type,
     dp.id as cursor_id,
     d.id as device_id
 FROM device d
@@ -139,6 +143,7 @@ SELECT
     d.serial_number,
     d.model,
     d.manufacturer,
+    d.type,
     ds.status as device_status,
     ds.status_timestamp,
     ds.status_details,

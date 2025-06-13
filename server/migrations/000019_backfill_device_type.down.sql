@@ -1,0 +1,1 @@
+-- No action needed in down migration as we can't undo the update 

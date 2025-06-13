@@ -157,6 +157,7 @@ type Device struct {
 	Model            sql.NullString
 	Manufacturer     sql.NullString
 	OrgID            int64
+	Type             string
 }
 
 type DeviceIpAssignment struct {

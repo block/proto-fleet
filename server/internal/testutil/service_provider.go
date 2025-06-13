@@ -9,6 +9,8 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/proto"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/onboarding"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
@@ -39,7 +41,10 @@ func NewServiceProvider(t *testing.T, db *sql.DB) *ServiceProvider {
 
 	minerClientService := client.NewService()
 	pairingConfig := pairing.Config{SecretKey: secretKey}
-	pairingService := pairing.NewService(db, minerClientService, pairingConfig, tokenService)
+	protoDiscoverer := proto.NewDiscoverer(minerClientService)
+	discoveryService, _ := minerdiscovery.NewService(protoDiscoverer)
+
+	pairingService := pairing.NewService(db, pairingConfig, tokenService, discoveryService)
 
 	onboardingService := onboarding.NewService(db)
 

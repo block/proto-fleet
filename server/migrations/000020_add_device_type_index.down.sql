@@ -1,0 +1,1 @@
+DROP INDEX idx_device_type ON device;

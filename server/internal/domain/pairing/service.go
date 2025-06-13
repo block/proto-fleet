@@ -12,7 +12,8 @@ import (
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	protoMinerClient "github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 
@@ -28,25 +29,24 @@ import (
 )
 
 // Service handles the core device discovery functionality
-// TODO DASH-430: support other miner types
 type Service struct {
-	conn         *sql.DB
-	minerClient  *protoMinerClient.Service
-	cfg          Config
-	tokenService *tokenDomain.Service
+	conn                  *sql.DB
+	cfg                   Config
+	tokenService          *tokenDomain.Service
+	minerDiscoveryService *minerdiscovery.Service
 }
 
 func NewService(
 	conn *sql.DB,
-	minerClient *protoMinerClient.Service,
 	cfg Config,
 	tokenService *tokenDomain.Service,
+	minerDiscoveryService *minerdiscovery.Service,
 ) *Service {
 	return &Service{
-		conn:         conn,
-		minerClient:  minerClient,
-		cfg:          cfg,
-		tokenService: tokenService,
+		conn:                  conn,
+		cfg:                   cfg,
+		tokenService:          tokenService,
+		minerDiscoveryService: minerDiscoveryService,
 	}
 }
 
@@ -296,40 +296,22 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 }
 
 func (s *Service) discoverDevice(ctx context.Context, ipAddress string, port string, resultChan chan<- *pb.DiscoverResponse) error {
-	deviceInfo, err := s.getDevicePairingInformation(ctx, ipAddress, port)
+	device, err := s.minerDiscoveryService.Discover(ctx, ipAddress, port)
 	if err != nil {
+		slog.Debug("Discovery failed",
+			"ipAddress", ipAddress,
+			"port", port,
+			"error", err)
 		return err
 	}
 
-	err = s.processDiscoveredDevice(ctx, deviceInfo, resultChan)
+	// Process the discovered device
+	err = s.processDiscoveredDevice(ctx, device, resultChan)
 	if err != nil {
 		return err
 	}
 
 	return nil
-}
-
-func (s *Service) getDevicePairingInformation(ctx context.Context, ipAddress string, port string) (*pb.Device, error) {
-	URL := net.JoinHostPort(ipAddress, port)
-	pairingInfo, err := s.minerClient.GetPairingInfo(ctx, URL)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(pairingInfo.Msg.CbSn) == 0 {
-		return nil, fleeterror.NewInternalErrorf("miner at '%s' does not have a serial number which is required for pairing", URL)
-	}
-
-	return &pb.Device{
-		IpAddress:    ipAddress,
-		Port:         port,
-		MacAddress:   pairingInfo.Msg.Mac,
-		SerialNumber: pairingInfo.Msg.CbSn,
-		// TODO(DASH-331) Fetch model and manufacturer from miner
-		Model:        "Proto Rig",
-		Manufacturer: "Block, Inc",
-		DiscoveredAt: time.Now().Unix(),
-	}, nil
 }
 
 func (s *Service) processDiscoveredDevice(ctx context.Context, device *pb.Device, resultChan chan<- *pb.DiscoverResponse) error {
@@ -368,6 +350,7 @@ func (s *Service) saveDevice(ctx context.Context, device *pb.Device) error {
 			SerialNumber:     sql.NullString{String: device.SerialNumber, Valid: len(device.SerialNumber) > 0},
 			Model:            sql.NullString{String: device.Model, Valid: len(device.Model) > 0},
 			Manufacturer:     sql.NullString{String: device.Manufacturer, Valid: len(device.Manufacturer) > 0},
+			Type:             miner.TypeProto.String(),
 			IsActive:         sql.NullBool{Bool: true, Valid: true},
 		})
 		if err != nil {

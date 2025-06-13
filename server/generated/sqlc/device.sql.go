@@ -49,7 +49,7 @@ func (q *Queries) DeactivateAllCurrentIPAssignments(ctx context.Context, deviceI
 }
 
 const getDeviceByDeviceIdentifier = `-- name: GetDeviceByDeviceIdentifier :one
-SELECT id, device_identifier, mac_address, serial_number, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, model, manufacturer, org_id
+SELECT id, device_identifier, mac_address, serial_number, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, model, manufacturer, org_id, type
 FROM device
 WHERE device_identifier = ?
   AND org_id = ?
@@ -79,12 +79,13 @@ func (q *Queries) GetDeviceByDeviceIdentifier(ctx context.Context, arg GetDevice
 		&i.Model,
 		&i.Manufacturer,
 		&i.OrgID,
+		&i.Type,
 	)
 	return i, err
 }
 
 const getDeviceByID = `-- name: GetDeviceByID :one
-SELECT id, device_identifier, mac_address, serial_number, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, model, manufacturer, org_id
+SELECT id, device_identifier, mac_address, serial_number, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, model, manufacturer, org_id, type
 FROM device
 WHERE id = ?
   AND org_id = ?
@@ -114,6 +115,7 @@ func (q *Queries) GetDeviceByID(ctx context.Context, arg GetDeviceByIDParams) (D
 		&i.Model,
 		&i.Manufacturer,
 		&i.OrgID,
+		&i.Type,
 	)
 	return i, err
 }
@@ -211,6 +213,7 @@ SELECT
     d.serial_number,
     d.model,
     d.manufacturer,
+    d.type,
     dp.id as cursor_id,
     d.id as device_id
 FROM device d
@@ -241,6 +244,7 @@ type ListPairedDevicesRow struct {
 	SerialNumber     sql.NullString
 	Model            sql.NullString
 	Manufacturer     sql.NullString
+	Type             string
 	CursorID         int64
 	DeviceID         int64
 }
@@ -267,6 +271,7 @@ func (q *Queries) ListPairedDevices(ctx context.Context, arg ListPairedDevicesPa
 			&i.SerialNumber,
 			&i.Model,
 			&i.Manufacturer,
+			&i.Type,
 			&i.CursorID,
 			&i.DeviceID,
 		); err != nil {
@@ -290,6 +295,7 @@ SELECT
     d.serial_number,
     d.model,
     d.manufacturer,
+    d.type,
     ds.status as device_status,
     ds.status_timestamp,
     ds.status_details,
@@ -320,6 +326,7 @@ type ListPairedMinersWithStatusRow struct {
 	SerialNumber     sql.NullString
 	Model            sql.NullString
 	Manufacturer     sql.NullString
+	Type             string
 	DeviceStatus     NullDeviceStatusStatus
 	StatusTimestamp  sql.NullTime
 	StatusDetails    sql.NullString
@@ -347,6 +354,7 @@ func (q *Queries) ListPairedMinersWithStatus(ctx context.Context, arg ListPaired
 			&i.SerialNumber,
 			&i.Model,
 			&i.Manufacturer,
+			&i.Type,
 			&i.DeviceStatus,
 			&i.StatusTimestamp,
 			&i.StatusDetails,
@@ -374,8 +382,10 @@ INSERT INTO device (
     serial_number,
     model,
     manufacturer,
+    type,
     is_active
 ) VALUES (
+    ?,
     ?,
     ?,
     ?,
@@ -391,6 +401,7 @@ ON DUPLICATE KEY UPDATE
     deleted_at = NULL,
     model = VALUES(model),
     manufacturer = VALUES(manufacturer),
+    type = VALUES(type),
     org_id = VALUES(org_id),
     id = LAST_INSERT_ID(id)
 `
@@ -402,6 +413,7 @@ type UpsertDeviceParams struct {
 	SerialNumber     sql.NullString
 	Model            sql.NullString
 	Manufacturer     sql.NullString
+	Type             string
 	IsActive         sql.NullBool
 }
 
@@ -413,6 +425,7 @@ func (q *Queries) UpsertDevice(ctx context.Context, arg UpsertDeviceParams) (sql
 		arg.SerialNumber,
 		arg.Model,
 		arg.Manufacturer,
+		arg.Type,
 		arg.IsActive,
 	)
 }
