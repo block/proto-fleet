@@ -5,6 +5,6 @@ export const THEMES = {
 } as const;
 
 export const TEMP_UNITS = {
-  celcius: "celcius",
+  celsius: "celsius",
   fahrenheit: "fahrenheit",
 } as const;

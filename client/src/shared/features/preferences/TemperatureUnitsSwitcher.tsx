@@ -48,9 +48,9 @@ const TemperatureUnitsSwitcher = ({
       >
         <div className="-mt-3">
           <SelectRow
-            id={TEMP_UNITS.celcius}
-            text="Celcius (ºC)"
-            isSelected={temperatureUnits === TEMP_UNITS.celcius}
+            id={TEMP_UNITS.celsius}
+            text="Celsius (ºC)"
+            isSelected={temperatureUnits === TEMP_UNITS.celsius}
             onChange={handleChange}
             type={selectTypes.radio}
           />

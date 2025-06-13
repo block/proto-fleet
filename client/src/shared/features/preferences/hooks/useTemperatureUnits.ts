@@ -7,7 +7,7 @@ const useTemperatureUnits = () => {
   const { getItem, setItem } = useLocalStorage();
 
   const [temperatureUnits, setTemperatureUnits] = useState<TemperatureUnits>(
-    getItem("temperatureUnits") || TEMP_UNITS.celcius,
+    getItem("temperatureUnits") || TEMP_UNITS.celsius,
   );
 
   useEffect(() => {

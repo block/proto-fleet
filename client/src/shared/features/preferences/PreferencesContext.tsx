@@ -8,7 +8,7 @@ import type { TemperatureUnits, ThemeColors, Themes } from "./types";
 const PreferencesContext = createContext({
   theme: THEMES.system as Themes,
   deviceTheme: undefined as ThemeColors | undefined,
-  temperatureUnits: TEMP_UNITS.celcius as TemperatureUnits,
+  temperatureUnits: TEMP_UNITS.celsius as TemperatureUnits,
   setTheme: (theme: Themes) => {
     void theme;
   },
