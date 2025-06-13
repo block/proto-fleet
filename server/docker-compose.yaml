@@ -22,7 +22,7 @@ services:
       HTTP_LISTEN_ADDRESS: ":8080"
       LOG_LEVEL: "DEBUG"
       PAIRING_SECRET_KEY: "00000000000000000000000000000000000000000000"
-      ENCRYPT_SERVICE_MASTER_KEY: "EV0g7BoFQnqshvzep9knZsUUmvsqSBsjDAJus7ri0B8="
+      ENCRYPT_SERVICE_MASTER_KEY: "00000000000000000000000000000000000000000000"
     depends_on:
       mysql:
         condition: service_healthy
@@ -83,7 +83,7 @@ services:
     volumes:
       - mysql:/var/lib/mysql
     healthcheck:
-      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -110,7 +110,7 @@ services:
       INFLUXDB3_DB_DIR: "/var/lib/influxdb3"
       INFLUXDB3_BUCKET: fleet
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8181/health" ]
+      test: ["CMD", "curl", "-f", "http://localhost:8181/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -121,7 +121,6 @@ volumes:
   mysql:
   influxdb-data:
   influxdb-config:
-
 
 networks:
   fleet-network:
