@@ -1,5 +1,6 @@
 import { action } from "@storybook/addon-actions";
 import MiningPoolsFormComponent from "@/protoFleet/components/MiningPools/MiningPoolsForm";
+import { OnboardingProvider } from "@/protoFleet/features/onboarding/contexts/OnboardingContext";
 
 interface MiningPoolsFormArgs {
   buttonLabel: string;
@@ -7,11 +8,13 @@ interface MiningPoolsFormArgs {
 
 export const MiningPoolsForm = ({ buttonLabel }: MiningPoolsFormArgs) => {
   return (
-    <MiningPoolsFormComponent
-      buttonLabel={buttonLabel}
-      onSaveRequested={action("Save requested")}
-      onSaveDone={() => {}}
-    />
+    <OnboardingProvider>
+      <MiningPoolsFormComponent
+        buttonLabel={buttonLabel}
+        onSaveRequested={action("Save requested")}
+        onSaveDone={() => {}}
+      />
+    </OnboardingProvider>
   );
 };
 

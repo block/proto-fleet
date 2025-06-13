@@ -1,11 +1,18 @@
 import { ElementType } from "react";
 import { MemoryRouter } from "react-router-dom";
 
-import { default as StoryComponent } from ".";
+import { action } from "@storybook/addon-actions";
+import NavigationMenuComponent from ".";
 import routes from "@/protoFleet/routes";
 
 export const NavigationMenu = () => {
-  return <StoryComponent routes={routes} />;
+  return (
+    <NavigationMenuComponent
+      routes={routes}
+      isVisible={true}
+      closeMenu={action("close menu")}
+    />
+  );
 };
 
 export default {
