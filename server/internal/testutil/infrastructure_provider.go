@@ -1,19 +1,26 @@
 package testutil
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
 	"connectrpc.com/connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
+	"github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/ping/v1/pingv1connect"
+	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api/miner_command_apiconnect"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/integrationtesting"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/auth"
+	"github.com/btc-mining/proto-fleet/server/internal/handlers/command"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/onboarding"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/pairing"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/ping"
-	"net/http"
-	"net/http/httptest"
-	"testing"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 )
 
 type InfrastructureProvider struct {
@@ -22,6 +29,7 @@ type InfrastructureProvider struct {
 	PairingClient    pairingv1connect.PairingServiceClient
 	OnboardingClient onboardingv1connect.OnboardingServiceClient
 	PingClient       pingv1connect.PingServiceClient
+	CommandClient    minercommandv1connect.MinerCommandServiceClient
 	ServerURL        string
 	testServer       *httptest.Server
 }
@@ -49,12 +57,16 @@ func NewInfrastructureProvider(t *testing.T, serviceProvider *ServiceProvider, a
 	pingHandler := ping.Handler{}
 	mux.Handle(pingv1connect.NewPingServiceHandler(pingHandler, interceptorsOption))
 
+	commandHandler := command.NewHandler(serviceProvider.CommandService)
+	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(commandHandler, interceptorsOption))
+
 	testServer := httptest.NewServer(mux)
 
 	authClient := authv1connect.NewAuthServiceClient(http.DefaultClient, testServer.URL)
 	pairingClient := pairingv1connect.NewPairingServiceClient(http.DefaultClient, testServer.URL)
 	onboardingClient := onboardingv1connect.NewOnboardingServiceClient(http.DefaultClient, testServer.URL)
 	pingClient := pingv1connect.NewPingServiceClient(http.DefaultClient, testServer.URL)
+	commandClient := minercommandv1connect.NewMinerCommandServiceClient(http.DefaultClient, testServer.URL)
 
 	provider := InfrastructureProvider{
 		serviceProvider:  serviceProvider,
@@ -62,6 +74,7 @@ func NewInfrastructureProvider(t *testing.T, serviceProvider *ServiceProvider, a
 		PairingClient:    pairingClient,
 		OnboardingClient: onboardingClient,
 		PingClient:       pingClient,
+		CommandClient:    commandClient,
 		ServerURL:        testServer.URL,
 		testServer:       testServer,
 	}
@@ -79,4 +92,28 @@ func InitializeDBServiceInfrastructure(t *testing.T) *TestContext {
 
 	infrastructureProvider := NewInfrastructureProvider(t, serviceProvider, interceptors.UnauthenticatedProcedures)
 	return &TestContext{DatabaseService: databaseService, ServiceProvider: serviceProvider, InfrastructureProvider: infrastructureProvider}
+}
+
+// SetupMockMinerServer creates a test HTTP server that simulates a miner API
+func SetupMockMinerServer(t *testing.T, callCounter *integrationtesting.MockMinerCallCounter) *httptest.Server {
+	if callCounter == nil {
+		callCounter = integrationtesting.NewMockMinerCallCounter()
+	}
+
+	mockHandler := integrationtesting.NewMockMinerHandler(t, callCounter)
+
+	mux := http.NewServeMux()
+	path, handler := miner_command_apiconnect.NewMinerCommandApiHandler(mockHandler)
+	mux.Handle(path, handler)
+
+	handler2c := h2c.NewHandler(mux, &http2.Server{})
+
+	server := httptest.NewUnstartedServer(handler2c)
+	server.EnableHTTP2 = true
+	server.Start()
+	t.Logf("Mock miner (h2c) server started at %s", server.URL)
+	t.Cleanup(func() {
+		server.Close()
+	})
+	return server
 }

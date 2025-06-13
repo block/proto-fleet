@@ -1,0 +1,161 @@
+package integrationtesting
+
+import (
+	"context"
+	"sync/atomic"
+	"testing"
+
+	"connectrpc.com/connect"
+	"github.com/alecthomas/assert/v2"
+	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api"
+	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api/miner_command_apiconnect"
+	minercommonapi "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
+	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+)
+
+type MethodName string
+
+// MethodName represents the name of a method in the API
+const (
+	MethodStartMining    MethodName = "StartMining"
+	MethodStopMining     MethodName = "StopMining"
+	MethodSetPowerTarget MethodName = "SetPowerTarget"
+	MethodSetCoolingMode MethodName = "SetCoolingMode"
+	MethodAddPools       MethodName = "AddPools"
+	MethodRemovePools    MethodName = "RemovePools"
+	MethodEditPool       MethodName = "EditPool"
+)
+
+// MockMinerCallCounter tracks call counts for different API methods
+type MockMinerCallCounter struct {
+	counts map[MethodName]*atomic.Int32
+}
+
+func NewMockMinerCallCounter() *MockMinerCallCounter {
+	counter := &MockMinerCallCounter{
+		counts: make(map[MethodName]*atomic.Int32),
+	}
+
+	methods := []MethodName{
+		MethodStartMining,
+		MethodStopMining,
+		MethodSetPowerTarget,
+		MethodSetCoolingMode,
+		MethodAddPools,
+		MethodRemovePools,
+		MethodEditPool,
+	}
+
+	for _, method := range methods {
+		counter.counts[method] = &atomic.Int32{}
+	}
+
+	return counter
+}
+
+func (c *MockMinerCallCounter) GetCounter(method MethodName) *atomic.Int32 {
+	return c.counts[method]
+}
+
+func (c *MockMinerCallCounter) GetCount(method MethodName) int32 {
+	return c.GetCounter(method).Load()
+}
+
+func (c *MockMinerCallCounter) AssertCalls(t *testing.T, method MethodName, expectedCount int32) {
+	actualCount := c.GetCount(method)
+	assert.Equal(t, expectedCount, actualCount,
+		"Expected %s to be called exactly %d times, got %d",
+		method, expectedCount, actualCount)
+}
+
+func handleRequest[Req, Resp any](
+	t *testing.T,
+	methodName string,
+	req *connect.Request[Req],
+	counter *atomic.Int32,
+	handler func(*Req) *Resp,
+) (*connect.Response[Resp], error) {
+	t.Logf("Mock miner received %s request with headers: %v", methodName, req.Header())
+
+	if req.Header().Get("Authorization") == "" {
+		return nil, fleeterror.NewUnauthenticatedError("expected Authorization header")
+	}
+
+	counter.Add(1)
+
+	return connect.NewResponse(handler(req.Msg)), nil
+}
+
+func handleCommandRequest[Req any](
+	t *testing.T,
+	methodName string,
+	req *connect.Request[Req],
+	counter *atomic.Int32,
+	successMessage string,
+) (*connect.Response[miner_command_api.CommandResponse], error) {
+	return handleRequest(
+		t, methodName, req, counter,
+		func(_ *Req) *miner_command_api.CommandResponse {
+			return &miner_command_api.CommandResponse{
+				Result:  minercommonapi.ApiResult_RESULT_SUCCESS,
+				Message: successMessage,
+			}
+		})
+}
+
+type MockMinerHandler struct {
+	t           *testing.T
+	callCounter *MockMinerCallCounter
+}
+
+var _ miner_command_apiconnect.MinerCommandApiHandler = &MockMinerHandler{}
+
+func NewMockMinerHandler(t *testing.T, callCounter *MockMinerCallCounter) *MockMinerHandler {
+	return &MockMinerHandler{
+		t:           t,
+		callCounter: callCounter,
+	}
+}
+
+func (m *MockMinerHandler) StartMining(ctx context.Context, req *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[miner_command_api.CommandResponse], error) {
+	return handleCommandRequest(m.t, "StartMining", req, m.callCounter.GetCounter(MethodStartMining), "Mining started successfully")
+}
+
+func (m *MockMinerHandler) StopMining(ctx context.Context, req *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[miner_command_api.CommandResponse], error) {
+	return handleCommandRequest(m.t, "StopMining", req, m.callCounter.GetCounter(MethodStopMining), "Mining stopped successfully")
+}
+
+func (m *MockMinerHandler) SetPowerTarget(ctx context.Context, req *connect.Request[miner_command_api.PowerTargetRequest]) (*connect.Response[miner_data_api.PowerTargetResponse], error) {
+	return handleRequest(
+		m.t, "SetPowerTarget", req, m.callCounter.GetCounter(MethodSetPowerTarget),
+		func(msg *miner_command_api.PowerTargetRequest) *miner_data_api.PowerTargetResponse {
+			return &miner_data_api.PowerTargetResponse{
+				Result:       minercommonapi.ApiResult_RESULT_SUCCESS,
+				PowerTargetW: msg.PowerTargetW,
+			}
+		})
+}
+
+func (m *MockMinerHandler) SetCoolingMode(ctx context.Context, req *connect.Request[miner_command_api.CoolingModeRequest]) (*connect.Response[miner_data_api.CoolingModeResponse], error) {
+	return handleRequest(
+		m.t, "SetCoolingMode", req, m.callCounter.GetCounter(MethodSetCoolingMode),
+		func(msg *miner_command_api.CoolingModeRequest) *miner_data_api.CoolingModeResponse {
+			return &miner_data_api.CoolingModeResponse{
+				Result: minercommonapi.ApiResult_RESULT_SUCCESS,
+				Mode:   msg.Mode,
+			}
+		})
+}
+
+func (m *MockMinerHandler) AddPools(ctx context.Context, req *connect.Request[miner_command_api.PoolsRequest]) (*connect.Response[miner_command_api.CommandResponse], error) {
+	return handleCommandRequest(m.t, "AddPools", req, m.callCounter.GetCounter(MethodAddPools), "Pools added successfully")
+}
+
+func (m *MockMinerHandler) RemovePools(ctx context.Context, req *connect.Request[miner_command_api.PoolsRequest]) (*connect.Response[miner_command_api.CommandResponse], error) {
+	return handleCommandRequest(m.t, "RemovePools", req, m.callCounter.GetCounter(MethodRemovePools), "Pools removed successfully")
+}
+
+func (m *MockMinerHandler) EditPool(ctx context.Context, req *connect.Request[miner_data_api.Pool]) (*connect.Response[miner_command_api.CommandResponse], error) {
+	return handleCommandRequest(m.t, "EditPool", req, m.callCounter.GetCounter(MethodEditPool), "Pool edited successfully")
+}

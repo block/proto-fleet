@@ -1,6 +1,8 @@
 package pairing_test
 
 import (
+	"testing"
+
 	"connectrpc.com/connect"
 	"github.com/alecthomas/assert/v2"
 	authv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1"
@@ -8,7 +10,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"
-	"testing"
 )
 
 func TestHandler_Pair(t *testing.T) {
