@@ -1,4 +1,11 @@
-import { MouseEvent, useCallback, useEffect, useRef, useState } from "react";
+import {
+  MouseEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import clsx from "clsx";
 
 import { logTypes } from "./constants";
@@ -150,6 +157,30 @@ const Logs = ({ logsData }: LogsProps) => {
     setFocusSearch(true);
   }, []);
 
+  const noResultsMessage = useMemo(() => {
+    if (searchValue) {
+      if (filterByLogType.length === 0)
+        return `No results match “${searchValue}”`;
+      if (
+        filterByLogType.includes(logTypes.error) &&
+        filterByLogType.includes(logTypes.warn)
+      ) {
+        return `No errors or warnings match “${searchValue}”`;
+      }
+      if (filterByLogType.includes(logTypes.error))
+        return `No errors match “${searchValue}”`;
+      return `No warnings match “${searchValue}”`;
+    }
+    if (
+      filterByLogType.includes(logTypes.error) &&
+      filterByLogType.includes(logTypes.warn)
+    ) {
+      return "No errors or warnings found";
+    }
+    if (filterByLogType.includes(logTypes.error)) return "No errors found";
+    return "No warnings found";
+  }, [searchValue, filterByLogType]);
+
   return (
     <>
       {logs.length ? (
@@ -279,21 +310,7 @@ const Logs = ({ logsData }: LogsProps) => {
               ) : (
                 <div className="flex h-[189px] w-full items-center justify-center rounded-2xl bg-core-primary-5">
                   <div className="font-body text-heading-100 text-text-primary-50">
-                    {searchValue &&
-                      filterByLogType.length === 0 &&
-                      `No results match “${searchValue}”`}
-                    {searchValue &&
-                      filterByLogType.includes(logTypes.error) &&
-                      `No errors match “${searchValue}”`}
-                    {searchValue &&
-                      filterByLogType.includes(logTypes.warn) &&
-                      `No warnings match “${searchValue}”`}
-                    {!searchValue &&
-                      filterByLogType.includes(logTypes.error) &&
-                      "No errors found"}
-                    {!searchValue &&
-                      filterByLogType.includes(logTypes.warn) &&
-                      "No warnings found"}
+                    {noResultsMessage}
                   </div>
                 </div>
               )}

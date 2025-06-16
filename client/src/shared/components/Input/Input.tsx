@@ -193,6 +193,7 @@ const Input = ({
           { "left-0": compact },
           { "left-[17px]": !compact },
           { "top-[18px]": !(length(value) || focused) && !compact },
+          { "top-0": !(length(value) || focused) && compact },
           { "top-[7px] text-200": length(value) || focused },
           {
             "duration-150ms transition-[top] ease-in-out peer-focus:top-[7px] peer-focus:text-200":
