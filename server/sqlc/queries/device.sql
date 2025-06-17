@@ -36,7 +36,7 @@ WHERE device_identifier = ?
     AND org_id = ?
 LIMIT 1;
 
--- name: CreateDeviceIPAssignment :execresult
+-- name: CreateInactiveDeviceIPAssignment :exec
 INSERT INTO device_ip_assignment (
     device_id,
     ip_address,
@@ -46,16 +46,35 @@ INSERT INTO device_ip_assignment (
     ?,
     ?,
     ?,
-    TRUE
+    FALSE
 );
 
--- name: DeactivateAllCurrentIPAssignments :exec
-UPDATE device_ip_assignment
+-- name: ActivateNewIPAssignment :exec
+WITH params AS (
+  SELECT
+    ?  AS ip_address,
+    ?  AS port,
+    ?  AS device_id
+)
+UPDATE device_ip_assignment AS d
+JOIN params AS p ON TRUE
 SET
-    is_current = FALSE,
-    unassigned_at = CURRENT_TIMESTAMP(6)
-WHERE device_id = ?
-    AND is_current = TRUE;
+  d.is_current = (d.ip_address = p.ip_address AND d.port = p.port),
+  d.assigned_at = CASE
+    WHEN d.ip_address = p.ip_address
+     AND d.port       = p.port
+    THEN CURRENT_TIMESTAMP(6)
+    ELSE d.assigned_at
+  END,
+  d.unassigned_at = CASE
+    WHEN d.is_current = TRUE
+     AND NOT (d.ip_address = p.ip_address AND d.port = p.port)
+    THEN CURRENT_TIMESTAMP(6)
+    ELSE d.unassigned_at
+  END
+WHERE d.device_id = p.device_id
+  AND (d.is_current = TRUE
+       OR (d.ip_address = p.ip_address AND d.port = p.port));
 
 -- name: ListPairedDevices :many
 SELECT

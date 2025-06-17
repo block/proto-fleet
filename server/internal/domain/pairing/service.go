@@ -369,20 +369,22 @@ func (s *Service) saveDevice(ctx context.Context, device *pb.Device) error {
 
 		device.DeviceIdentifier = dbDevice.DeviceIdentifier
 
-		// Deactivate all current IP assignments for this device
-		err = q.DeactivateAllCurrentIPAssignments(ctx, deviceID)
-		if err != nil {
-			return fleeterror.NewInternalErrorf("failed to deactivate current IP assignments: %v", err)
-		}
-
-		// Create new current IP assignment
-		_, err = q.CreateDeviceIPAssignment(ctx, sqlc.CreateDeviceIPAssignmentParams{
+		err = q.CreateInactiveDeviceIPAssignment(ctx, sqlc.CreateInactiveDeviceIPAssignmentParams{
 			DeviceID:  deviceID,
 			IpAddress: device.IpAddress,
 			Port:      device.Port,
 		})
 		if err != nil {
 			return fleeterror.NewInternalErrorf("failed to create IP assignment: %v", err)
+		}
+
+		err = q.ActivateNewIPAssignment(ctx, sqlc.ActivateNewIPAssignmentParams{
+			DeviceID:  deviceID,
+			IpAddress: device.IpAddress,
+			Port:      device.Port,
+		})
+		if err != nil {
+			return fleeterror.NewInternalErrorf("failed to activate new IP assignment: %v", err)
 		}
 
 		return nil

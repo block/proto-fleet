@@ -143,12 +143,20 @@ func (s *DatabaseService) CreateDevice(organizationID int64) DeviceIdentificatio
 
 func (s *DatabaseService) CreateDeviceIPAssignment(deviceID int64, ipAddress string, port string) {
 	err := db2.WithTransactionNoResult(context.Background(), s.DB, func(q *sqlc.Queries) error {
-		_, err := q.CreateDeviceIPAssignment(context.Background(), sqlc.CreateDeviceIPAssignmentParams{
+		err := q.CreateInactiveDeviceIPAssignment(context.Background(), sqlc.CreateInactiveDeviceIPAssignmentParams{
 			DeviceID:  deviceID,
 			IpAddress: ipAddress,
 			Port:      port,
 		})
-		return err
+		if err != nil {
+			return err
+		}
+
+		return q.ActivateNewIPAssignment(context.Background(), sqlc.ActivateNewIPAssignmentParams{
+			DeviceID:  deviceID,
+			IpAddress: ipAddress,
+			Port:      port,
+		})
 	})
 	assert.NoError(s.t, err)
 }

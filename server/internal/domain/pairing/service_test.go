@@ -73,7 +73,6 @@ func setupTestService(t *testing.T, mockDiscoverers ...*MockDiscoverer) (*pairin
 }
 
 func TestDiscoverWithIPList(t *testing.T) {
-	t.Skip("DASH-433/db-locks-during-device-discovery")
 	t.Run("discovers devices from IP list", func(t *testing.T) {
 		// Arrange
 		var discoverWg sync.WaitGroup
@@ -121,6 +120,7 @@ func TestDiscoverWithIPList(t *testing.T) {
 
 		discoverWg.Wait()
 
+		// Assert
 		mockDiscoverer.AssertExpectations(t)
 
 		require.Len(t, devices, 2)
@@ -137,7 +137,6 @@ func TestDiscoverWithIPList(t *testing.T) {
 }
 
 func TestDiscoverWithIPRange(t *testing.T) {
-	t.Skip("DASH-433/db-locks-during-device-discovery")
 	t.Run("discovers devices in IP range", func(t *testing.T) {
 		// Arrange
 		var discoverWg sync.WaitGroup
@@ -196,6 +195,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 
 		discoverWg.Wait()
 
+		// Assert
 		mockDiscoverer.AssertExpectations(t)
 
 		require.Len(t, devices, 3)
@@ -208,6 +208,92 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		}
 
 		assert.ElementsMatch(t, expectedSerialNumbers, foundSerialNumbers)
+	})
+
+	t.Run("supports updates to existing devices", func(t *testing.T) {
+		// Arrange
+		var discoverWg sync.WaitGroup
+		discoverWg.Add(6)
+
+		mockDiscoverer := &MockDiscoverer{}
+		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
+
+		mockDevice1 := &pb.Device{
+			IpAddress:    "192.168.1.10",
+			Port:         "8080",
+			SerialNumber: "RANGE1",
+		}
+		mockDevice2 := &pb.Device{
+			IpAddress:    "192.168.1.11",
+			Port:         "8080",
+			SerialNumber: "RANGE2",
+		}
+		mockDevice3 := &pb.Device{
+			IpAddress:    "192.168.1.12",
+			Port:         "8080",
+			SerialNumber: "RANGE3",
+		}
+
+		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").Run(func(_ mock.Arguments) {
+			defer discoverWg.Done()
+		}).Return(mockDevice1, nil)
+
+		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.11", "8080").Run(func(_ mock.Arguments) {
+			defer discoverWg.Done()
+		}).Return(mockDevice2, nil)
+
+		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.12", "8080").Run(func(_ mock.Arguments) {
+			defer discoverWg.Done()
+		}).Return(mockDevice3, nil)
+
+		pairingService, ctx := setupTestService(t, mockDiscoverer)
+
+		request := &pb.IPRangeModeRequest{
+			StartIp: "192.168.1.10",
+			EndIp:   "192.168.1.12",
+			Ports:   []string{"8080"},
+		}
+		resultChan, err := pairingService.DiscoverWithIPRange(ctx, request)
+		require.NoError(t, err)
+
+		var devices []*pb.Device
+		for result := range resultChan {
+			require.Empty(t, result.Error)
+			devices = append(devices, result.Devices...)
+		}
+		require.Len(t, devices, 3)
+
+		// Device IPs now change
+
+		mockDevice1.IpAddress = "192.168.1.11"
+		mockDevice2.IpAddress = "192.168.1.12"
+		mockDevice3.IpAddress = "192.168.1.10"
+
+		// Act
+		resultChan, err = pairingService.DiscoverWithIPRange(ctx, request)
+		require.NoError(t, err)
+
+		devices = []*pb.Device{}
+		for result := range resultChan {
+			require.Empty(t, result.Error)
+			devices = append(devices, result.Devices...)
+		}
+
+		discoverWg.Wait()
+
+		// Assert
+		mockDiscoverer.AssertExpectations(t)
+
+		require.Len(t, devices, 3, devices)
+
+		devicesBySerialNumber := make(map[string]*pb.Device)
+		for _, device := range devices {
+			devicesBySerialNumber[device.SerialNumber] = device
+		}
+
+		assert.Equal(t, mockDevice1.IpAddress, devicesBySerialNumber[mockDevice1.SerialNumber].IpAddress)
+		assert.Equal(t, mockDevice2.IpAddress, devicesBySerialNumber[mockDevice2.SerialNumber].IpAddress)
+		assert.Equal(t, mockDevice3.IpAddress, devicesBySerialNumber[mockDevice3.SerialNumber].IpAddress)
 	})
 
 	t.Run("handles discovery failures in IP range", func(t *testing.T) {
@@ -224,7 +310,6 @@ func TestDiscoverWithIPRange(t *testing.T) {
 			SerialNumber: "SUCCESS1",
 		}
 
-		// Set up mock calls that signal completion through WaitGroup
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.20", "8080").Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
 		}).Return(mockDevice, nil)
@@ -254,6 +339,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 
 		discoverWg.Wait()
 
+		// Assert
 		mockDiscoverer.AssertExpectations(t)
 
 		require.Len(t, devices, 1)

@@ -10,7 +10,46 @@ import (
 	"database/sql"
 )
 
-const createDeviceIPAssignment = `-- name: CreateDeviceIPAssignment :execresult
+const activateNewIPAssignment = `-- name: ActivateNewIPAssignment :exec
+WITH params AS (
+  SELECT
+    ?  AS ip_address,
+    ?  AS port,
+    ?  AS device_id
+)
+UPDATE device_ip_assignment AS d
+JOIN params AS p ON TRUE
+SET
+  d.is_current = (d.ip_address = p.ip_address AND d.port = p.port),
+  d.assigned_at = CASE
+    WHEN d.ip_address = p.ip_address
+     AND d.port       = p.port
+    THEN CURRENT_TIMESTAMP(6)
+    ELSE d.assigned_at
+  END,
+  d.unassigned_at = CASE
+    WHEN d.is_current = TRUE
+     AND NOT (d.ip_address = p.ip_address AND d.port = p.port)
+    THEN CURRENT_TIMESTAMP(6)
+    ELSE d.unassigned_at
+  END
+WHERE d.device_id = p.device_id
+  AND (d.is_current = TRUE
+       OR (d.ip_address = p.ip_address AND d.port = p.port))
+`
+
+type ActivateNewIPAssignmentParams struct {
+	IpAddress string
+	Port      string
+	DeviceID  int64
+}
+
+func (q *Queries) ActivateNewIPAssignment(ctx context.Context, arg ActivateNewIPAssignmentParams) error {
+	_, err := q.exec(ctx, q.activateNewIPAssignmentStmt, activateNewIPAssignment, arg.IpAddress, arg.Port, arg.DeviceID)
+	return err
+}
+
+const createInactiveDeviceIPAssignment = `-- name: CreateInactiveDeviceIPAssignment :exec
 INSERT INTO device_ip_assignment (
     device_id,
     ip_address,
@@ -20,31 +59,18 @@ INSERT INTO device_ip_assignment (
     ?,
     ?,
     ?,
-    TRUE
+    FALSE
 )
 `
 
-type CreateDeviceIPAssignmentParams struct {
+type CreateInactiveDeviceIPAssignmentParams struct {
 	DeviceID  int64
 	IpAddress string
 	Port      string
 }
 
-func (q *Queries) CreateDeviceIPAssignment(ctx context.Context, arg CreateDeviceIPAssignmentParams) (sql.Result, error) {
-	return q.exec(ctx, q.createDeviceIPAssignmentStmt, createDeviceIPAssignment, arg.DeviceID, arg.IpAddress, arg.Port)
-}
-
-const deactivateAllCurrentIPAssignments = `-- name: DeactivateAllCurrentIPAssignments :exec
-UPDATE device_ip_assignment
-SET
-    is_current = FALSE,
-    unassigned_at = CURRENT_TIMESTAMP(6)
-WHERE device_id = ?
-    AND is_current = TRUE
-`
-
-func (q *Queries) DeactivateAllCurrentIPAssignments(ctx context.Context, deviceID int64) error {
-	_, err := q.exec(ctx, q.deactivateAllCurrentIPAssignmentsStmt, deactivateAllCurrentIPAssignments, deviceID)
+func (q *Queries) CreateInactiveDeviceIPAssignment(ctx context.Context, arg CreateInactiveDeviceIPAssignmentParams) error {
+	_, err := q.exec(ctx, q.createInactiveDeviceIPAssignmentStmt, createInactiveDeviceIPAssignment, arg.DeviceID, arg.IpAddress, arg.Port)
 	return err
 }
 

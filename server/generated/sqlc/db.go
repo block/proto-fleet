@@ -24,8 +24,11 @@ func New(db DBTX) *Queries {
 func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	q := Queries{db: db}
 	var err error
-	if q.createDeviceIPAssignmentStmt, err = db.PrepareContext(ctx, createDeviceIPAssignment); err != nil {
-		return nil, fmt.Errorf("error preparing query CreateDeviceIPAssignment: %w", err)
+	if q.activateNewIPAssignmentStmt, err = db.PrepareContext(ctx, activateNewIPAssignment); err != nil {
+		return nil, fmt.Errorf("error preparing query ActivateNewIPAssignment: %w", err)
+	}
+	if q.createInactiveDeviceIPAssignmentStmt, err = db.PrepareContext(ctx, createInactiveDeviceIPAssignment); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateInactiveDeviceIPAssignment: %w", err)
 	}
 	if q.createOrganizationStmt, err = db.PrepareContext(ctx, createOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateOrganization: %w", err)
@@ -38,9 +41,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.createUserOrganizationStmt, err = db.PrepareContext(ctx, createUserOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateUserOrganization: %w", err)
-	}
-	if q.deactivateAllCurrentIPAssignmentsStmt, err = db.PrepareContext(ctx, deactivateAllCurrentIPAssignments); err != nil {
-		return nil, fmt.Errorf("error preparing query DeactivateAllCurrentIPAssignments: %w", err)
 	}
 	if q.getDeviceByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceByDeviceIdentifier: %w", err)
@@ -167,9 +167,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 
 func (q *Queries) Close() error {
 	var err error
-	if q.createDeviceIPAssignmentStmt != nil {
-		if cerr := q.createDeviceIPAssignmentStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing createDeviceIPAssignmentStmt: %w", cerr)
+	if q.activateNewIPAssignmentStmt != nil {
+		if cerr := q.activateNewIPAssignmentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing activateNewIPAssignmentStmt: %w", cerr)
+		}
+	}
+	if q.createInactiveDeviceIPAssignmentStmt != nil {
+		if cerr := q.createInactiveDeviceIPAssignmentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createInactiveDeviceIPAssignmentStmt: %w", cerr)
 		}
 	}
 	if q.createOrganizationStmt != nil {
@@ -190,11 +195,6 @@ func (q *Queries) Close() error {
 	if q.createUserOrganizationStmt != nil {
 		if cerr := q.createUserOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createUserOrganizationStmt: %w", cerr)
-		}
-	}
-	if q.deactivateAllCurrentIPAssignmentsStmt != nil {
-		if cerr := q.deactivateAllCurrentIPAssignmentsStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing deactivateAllCurrentIPAssignmentsStmt: %w", cerr)
 		}
 	}
 	if q.getDeviceByDeviceIdentifierStmt != nil {
@@ -436,12 +436,12 @@ func (q *Queries) queryRow(ctx context.Context, stmt *sql.Stmt, query string, ar
 type Queries struct {
 	db                                           DBTX
 	tx                                           *sql.Tx
-	createDeviceIPAssignmentStmt                 *sql.Stmt
+	activateNewIPAssignmentStmt                  *sql.Stmt
+	createInactiveDeviceIPAssignmentStmt         *sql.Stmt
 	createOrganizationStmt                       *sql.Stmt
 	createPoolStmt                               *sql.Stmt
 	createUserStmt                               *sql.Stmt
 	createUserOrganizationStmt                   *sql.Stmt
-	deactivateAllCurrentIPAssignmentsStmt        *sql.Stmt
 	getDeviceByDeviceIdentifierStmt              *sql.Stmt
 	getDeviceByIDStmt                            *sql.Stmt
 	getDeviceByIdentifierStmt                    *sql.Stmt
@@ -486,17 +486,17 @@ type Queries struct {
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
-		db:                                    tx,
-		tx:                                    tx,
-		createDeviceIPAssignmentStmt:          q.createDeviceIPAssignmentStmt,
-		createOrganizationStmt:                q.createOrganizationStmt,
-		createPoolStmt:                        q.createPoolStmt,
-		createUserStmt:                        q.createUserStmt,
-		createUserOrganizationStmt:            q.createUserOrganizationStmt,
-		deactivateAllCurrentIPAssignmentsStmt: q.deactivateAllCurrentIPAssignmentsStmt,
-		getDeviceByDeviceIdentifierStmt:       q.getDeviceByDeviceIdentifierStmt,
-		getDeviceByIDStmt:                     q.getDeviceByIDStmt,
-		getDeviceByIdentifierStmt:             q.getDeviceByIdentifierStmt,
+		db:                                   tx,
+		tx:                                   tx,
+		activateNewIPAssignmentStmt:          q.activateNewIPAssignmentStmt,
+		createInactiveDeviceIPAssignmentStmt: q.createInactiveDeviceIPAssignmentStmt,
+		createOrganizationStmt:               q.createOrganizationStmt,
+		createPoolStmt:                       q.createPoolStmt,
+		createUserStmt:                       q.createUserStmt,
+		createUserOrganizationStmt:           q.createUserOrganizationStmt,
+		getDeviceByDeviceIdentifierStmt:      q.getDeviceByDeviceIdentifierStmt,
+		getDeviceByIDStmt:                    q.getDeviceByIDStmt,
+		getDeviceByIdentifierStmt:            q.getDeviceByIdentifierStmt,
 		getDevicePairingStatusByDeviceDatabaseIDStmt: q.getDevicePairingStatusByDeviceDatabaseIDStmt,
 		getMinerApiNetworkInfoByDeviceIDStmt:         q.getMinerApiNetworkInfoByDeviceIDStmt,
 		getOrganizationByIDStmt:                      q.getOrganizationByIDStmt,
