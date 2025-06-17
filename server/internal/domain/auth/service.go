@@ -1,13 +1,14 @@
 package auth
 
 import (
-	"connectrpc.com/connect"
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
+
+	"connectrpc.com/connect"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
-	"time"
 
 	authv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1"
 	onboardingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1"

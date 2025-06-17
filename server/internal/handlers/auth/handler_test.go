@@ -1,8 +1,9 @@
 package auth_test
 
 import (
-	"github.com/btc-mining/proto-fleet/server/internal/testutil"
 	"testing"
+
+	"github.com/btc-mining/proto-fleet/server/internal/testutil"
 
 	"connectrpc.com/connect"
 	"github.com/alecthomas/assert/v2"

@@ -41,7 +41,7 @@ format:
   goimports -w .
 
 # run all code gen tasks
-gen: gen-db-queries gen-miner-protos
+gen: gen-db-queries gen-miner-protos gen-go
 
 # generate query via sqlc 
 gen-db-queries:
@@ -52,6 +52,10 @@ gen-db-queries:
 gen-miner-protos:
   buf generate
   goimports -w generated/miner-api
+
+# go generate, this will run all go:generate directives in the project
+gen-go:
+  go generate ./...
 
 # start db
 db-up:

@@ -1,11 +1,12 @@
 package interceptors
 
 import (
-	"connectrpc.com/connect"
 	"context"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"net/http"
 	"strings"
+
+	"connectrpc.com/connect"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 

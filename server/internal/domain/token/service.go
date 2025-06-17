@@ -1,14 +1,15 @@
 package token
 
 import (
-	"connectrpc.com/authn"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"time"
+
+	"connectrpc.com/authn"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 
 	"github.com/golang-jwt/jwt/v5"
 )

@@ -4,8 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"time"
+
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 
 	"github.com/go-sql-driver/mysql"
 

@@ -2,6 +2,7 @@ package onboarding
 
 import (
 	"context"
+
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"

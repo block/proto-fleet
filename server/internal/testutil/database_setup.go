@@ -4,12 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/alecthomas/assert/v2"
-	"github.com/alecthomas/kong"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/alecthomas/assert/v2"
+	"github.com/alecthomas/kong"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 )
 
 // GetTestDB creates a test database connection and returns a sql.DB ref for testing.

@@ -3,8 +3,9 @@ package ping
 import (
 	"context"
 	"errors"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"io"
+
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 
 	"connectrpc.com/connect"
 	pingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/ping/v1"

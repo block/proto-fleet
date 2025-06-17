@@ -1,13 +1,14 @@
 package interceptors
 
 import (
-	"connectrpc.com/connect"
 	"context"
 	"errors"
 	"fmt"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"log/slog"
 	"os"
+
+	"connectrpc.com/connect"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 )
 
 type ErrorStackTraceLoggingInterceptor struct {

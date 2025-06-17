@@ -2,9 +2,10 @@ package onboarding_test
 
 import (
 	"database/sql"
-	"github.com/btc-mining/proto-fleet/server/internal/testutil"
 	"strings"
 	"testing"
+
+	"github.com/btc-mining/proto-fleet/server/internal/testutil"
 
 	"connectrpc.com/connect"
 	"github.com/alecthomas/assert/v2"

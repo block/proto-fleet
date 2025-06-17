@@ -1,9 +1,10 @@
 package fleeterror
 
 import (
-	"connectrpc.com/connect"
 	"errors"
 	"fmt"
+
+	"connectrpc.com/connect"
 	commonv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 )
 

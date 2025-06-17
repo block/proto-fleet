@@ -3,6 +3,7 @@ package onboarding
 import (
 	"context"
 	"database/sql"
+
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"

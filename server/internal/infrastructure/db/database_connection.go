@@ -5,8 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"log/slog"
+
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 
 	"github.com/btc-mining/proto-fleet/server/migrations"
 	"github.com/golang-migrate/migrate/v4"
