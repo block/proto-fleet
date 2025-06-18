@@ -1,7 +1,7 @@
 import { Aggregates, TimeSeriesData } from "@/protoOS/api/types";
 import { Duration } from "@/shared/components/DurationSelector";
 
-export type OutletContext = {
+export type KpiOutletContext = {
   duration: Duration;
   hashboardSerials: string[];
   minerHashrate: {

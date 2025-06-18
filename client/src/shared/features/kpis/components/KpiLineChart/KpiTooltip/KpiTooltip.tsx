@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 
 import KpiTooltipItem from "./KpiTooltipItem";
-import useHashboardLocationStore from "@/protoOS/store/useHashboardLocationStore";
 import Divider from "@/shared/components/Divider";
 import { omit } from "@/shared/utils/object";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
@@ -20,6 +19,13 @@ export type TooltipData = {
   y: number;
 };
 
+export interface HashboardLocationStore {
+  getSlotByHbSn: (serial: string) => number | null;
+  getBayByHbSn: (serial: string) => number | null;
+  getBayCount: () => number;
+  getBaySlotIndexByHbSn: (serial: string) => number;
+}
+
 interface KpiTooltipProps {
   active?: boolean;
   coordinate?: { x: number; y: number };
@@ -28,6 +34,7 @@ interface KpiTooltipProps {
   payload?: PayloadType[];
   tooltipData: TooltipData;
   units?: string;
+  hashboardLocationStore?: HashboardLocationStore;
 }
 
 const KpiTooltip = ({
@@ -37,11 +44,11 @@ const KpiTooltip = ({
   payload: payloads,
   tooltipData,
   units,
+  hashboardLocationStore,
 }: KpiTooltipProps) => {
-  const getSlotByHbSn = useHashboardLocationStore(
-    (state) => state.getSlotByHbSn,
-  );
-  const getBayByHbSn = useHashboardLocationStore((state) => state.getBayByHbSn);
+  // Safely handle undefined hashboardLocationStore
+  const getSlotByHbSn = hashboardLocationStore?.getSlotByHbSn || (() => null);
+  const getBayByHbSn = hashboardLocationStore?.getBayByHbSn || (() => null);
 
   useEffect(() => {
     const x = coordinate.x < 310 ? coordinate.x + 310 : coordinate.x;
@@ -91,6 +98,8 @@ const KpiTooltip = ({
             {hasPartials ? <Divider className="mt-4 mb-6" /> : null}
 
             {sorted.map(([serial], idx) => {
+              if (!hashboardLocationStore) return null;
+
               return (
                 <KpiTooltipItem
                   key={idx}
@@ -103,6 +112,7 @@ const KpiTooltip = ({
                     getBayByHbSn(serial) !== getBayByHbSn(sorted[idx - 1]?.[0])
                   }
                   value={getDisplayValue(payload[serial])}
+                  hashboardLocationStore={hashboardLocationStore}
                 />
               );
             })}

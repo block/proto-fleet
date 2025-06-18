@@ -6,8 +6,7 @@ import {
 } from "react-router-dom";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import TabMenu from "./TabMenu"; // Adjust the import path as necessary
-import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
+import TabMenu from "./TabMenu";
 
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
@@ -72,9 +71,7 @@ describe("TabMenu", () => {
   it("switches active tab on click", () => {
     render(
       <MemoryRouter>
-        <MinerHostingProvider>
-          <TabMenu items={{ ...items }} />
-        </MinerHostingProvider>
+        <TabMenu items={{ ...items }} />
       </MemoryRouter>,
     );
 
@@ -97,5 +94,24 @@ describe("TabMenu", () => {
         transform: "translate3d(calc(100% + 2 * var(--spacing) * 0), 0, 0)",
       });
     });
+  });
+
+  it("respects basePath when navigating", () => {
+    const basePath = "/base";
+    render(
+      <MemoryRouter>
+        <TabMenu items={{ ...items }} basePath={basePath} />
+      </MemoryRouter>,
+    );
+
+    const tab2 = screen
+      .getByText("Tab 2")
+      .closest("button") as HTMLButtonElement;
+
+    // Click on the second tab
+    fireEvent.click(tab2);
+
+    // Should navigate to basePath + tab path
+    expect(location).toBe(basePath + items.tab2.path);
   });
 });

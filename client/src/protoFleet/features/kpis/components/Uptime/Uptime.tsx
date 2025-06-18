@@ -1,11 +1,10 @@
 import { useOutletContext } from "react-router-dom";
 
-import { useProcessedHashboardPowerUsages } from "../../hooks";
-import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart/KpiLineChartWrapper";
-import { KpiOutletContext } from "@/protoOS/features/kpis/types";
+import KpiLineChart from "@/protoFleet/features/kpis/components/KpiLineChart/KpiLineChartWrapper";
+import { KpiOutletContext } from "@/protoFleet/features/kpis/types";
 import { type StatProps } from "@/shared/components/Stat";
-import { AggregateStats } from "@/shared/features/kpis";
 import Stats from "@/shared/features/kpis/components/Stats";
+import { AggregateStats } from "@/shared/features/kpis/types";
 
 type StatsArgs = AggregateStats & { lowestPerformer?: string };
 
@@ -16,49 +15,42 @@ const getStats = (stats: StatsArgs = {}): StatProps[] => {
     {
       label: "Average",
       value: avg,
-      units: "kW",
+      units: "%",
       size: "small",
     },
     {
       label: "Highest",
       value: max,
-      units: "kW",
+      units: "%",
       size: "small",
     },
     {
       label: "Lowest",
       value: min,
-      units: "kW",
+      units: "%",
       size: "small",
     },
   ];
 };
 
-const PowerUsage = () => {
+const Uptime = () => {
   const {
-    minerPowerUsage: { powerUsage: totalPowerUsage, aggregates },
-    duration,
-    hashboardSerials,
+    minerUptime: { uptime: totalUptime, aggregates },
   } = useOutletContext<KpiOutletContext>();
-
-  const hbPowerUsages = useProcessedHashboardPowerUsages({
-    serials: hashboardSerials,
-    duration,
-  });
 
   return (
     <>
       {aggregates && <Stats stats={getStats(aggregates)} />}
       <KpiLineChart
-        series={hbPowerUsages}
-        units="kW"
+        series={[]}
+        units="%"
         aggregateSeries={{
-          name: "Total Power Usage",
-          data: totalPowerUsage,
+          name: "Total Uptime",
+          data: totalUptime,
         }}
       />
     </>
   );
 };
 
-export default PowerUsage;
+export default Uptime;

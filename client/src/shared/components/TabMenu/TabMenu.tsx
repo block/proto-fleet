@@ -1,9 +1,8 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import clsx from "clsx";
-import ActiveIndicator from "./ActiveIndicator";
+import ActiveIndicator from "./ActiveIndicator/ActiveIndicator";
 import Tab from "./Tab/Tab";
-import { useMinerHosting } from "@/protoOS/api";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 type TabMenuItem = {
@@ -17,10 +16,11 @@ type TabMenuProps = {
   items: {
     [key: string]: TabMenuItem;
   };
+  basePath?: string; // Optional base path for navigation
 };
 
 // Mark the TabMenu component with memo to prevent unnecessary re-renders
-const TabMenu = memo(({ items }: TabMenuProps) => {
+const TabMenu = memo(({ items, basePath = "" }: TabMenuProps) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [activeItem, setActiveItem] = useState<string>();
@@ -29,7 +29,6 @@ const TabMenu = memo(({ items }: TabMenuProps) => {
     useState<string>("0");
   const [activeIndicatorTransY, setActiveIndicatorTransY] =
     useState<string>("0");
-  const { minerRoot } = useMinerHosting();
   const { isPhone } = useWindowDimensions();
   const prevIsPhone = useRef(isPhone);
   // Start with animation disabled on initial render
@@ -47,13 +46,13 @@ const TabMenu = memo(({ items }: TabMenuProps) => {
 
   useEffect(() => {
     const activeKey = Object.keys(items).find(
-      (key) => minerRoot + items[key].path === location.pathname,
+      (key) => basePath + items[key].path === location.pathname,
     );
 
     const idx = activeKey ? Object.keys(items).indexOf(activeKey) : undefined;
     setActiveIndex(idx);
     setActiveItem(activeKey);
-  }, [location.pathname, items, minerRoot]);
+  }, [location.pathname, items, basePath]);
 
   useEffect(() => {
     if (activeIndex === undefined) {
@@ -93,7 +92,7 @@ const TabMenu = memo(({ items }: TabMenuProps) => {
         path={path}
         isActive={activeItem === key}
         onClick={() => {
-          navigate(minerRoot + items[key].path);
+          navigate(basePath + items[key].path);
         }}
       />
     ),

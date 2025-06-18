@@ -3,8 +3,15 @@ import { matchPath, redirect, type RouteObject } from "react-router-dom";
 
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
 import Miners from "./features/fleetManagement/components/Fleet";
-import HomePage from "./pages/Home";
+import HomeLayout from "@/protoFleet/components/HomeLayout/HomeLayout";
 import Auth from "@/protoFleet/features/auth/pages/Auth";
+import {
+  Efficiency,
+  Hashrate,
+  KpiLayout,
+  PowerUsage,
+  Uptime,
+} from "@/protoFleet/features/kpis";
 import {
   AuthenticationPage,
   MinersPage,
@@ -52,7 +59,33 @@ const routes: Route[] = [
     label: "Home",
     icon: Home,
     navItem: true,
-    element: <HomePage />,
+    element: (
+      <HomeLayout>
+        <KpiLayout />
+      </HomeLayout>
+    ),
+    children: [
+      {
+        index: true,
+        loader: () => redirect("hashrate"),
+      },
+      {
+        path: "hashrate",
+        element: <Hashrate />,
+      },
+      {
+        path: "efficiency",
+        element: <Efficiency />,
+      },
+      {
+        path: "power-usage",
+        element: <PowerUsage />,
+      },
+      {
+        path: "uptime",
+        element: <Uptime />,
+      },
+    ],
   },
   {
     path: "/miners",
@@ -150,10 +183,24 @@ const routes: Route[] = [
 
 export const getRouteMetadata = (pathname: string) => {
   // find the route in routeConfig that matches a pathname
-  const route = routes.find((r) => {
-    if (!r.path) return false;
-    return matchPath(r.path, pathname);
-  });
+  // Helper to recursively search for a matching route, including nested children
+  function findMatchingRoute(
+    routeList: Route[],
+    pathname: string,
+  ): Route | undefined {
+    for (const route of routeList) {
+      if (route.path && matchPath(route.path, pathname)) {
+        return route;
+      }
+      if (route.children) {
+        const match = findMatchingRoute(route.children as Route[], pathname);
+        if (match) return match;
+      }
+    }
+    return undefined;
+  }
+
+  const route = findMatchingRoute(routes, pathname);
 
   return {
     title: route?.label || "",

@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import clsx from "clsx";
-import { type OutletContext } from "../../types";
 import HbBayPreview from "./HbBayPreview";
 import { useCoolingStatus } from "@/protoOS/api";
 import { type FanInfo } from "@/protoOS/api/types";
 import { useProcessedHashboardTemperature } from "@/protoOS/features/kpis/hooks";
+import { KpiOutletContext } from "@/protoOS/features/kpis/types";
 import { FanIndicator } from "@/shared/assets/icons";
 import { type StatProps } from "@/shared/components/Stat";
 import Stats from "@/shared/features/kpis/components/Stats";
@@ -44,7 +44,7 @@ const getFanStats = (
 };
 
 const Temperature = () => {
-  const { duration, hashboardSerials } = useOutletContext<OutletContext>();
+  const { duration, hashboardSerials } = useOutletContext<KpiOutletContext>();
   const [fanSpeeds, setFanSpeeds] = useState<FanInfo[]>();
 
   const hbTempData = useProcessedHashboardTemperature({

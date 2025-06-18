@@ -61,10 +61,6 @@ const (
 	BaseApiSetOtpProcedure = "/mfgtool_api.BaseApi/SetOtp"
 	// BaseApiGetOtpProcedure is the fully-qualified name of the BaseApi's GetOtp RPC.
 	BaseApiGetOtpProcedure = "/mfgtool_api.BaseApi/GetOtp"
-	// BaseApiSetSecurityProcedure is the fully-qualified name of the BaseApi's SetSecurity RPC.
-	BaseApiSetSecurityProcedure = "/mfgtool_api.BaseApi/SetSecurity"
-	// BaseApiGetSecurityProcedure is the fully-qualified name of the BaseApi's GetSecurity RPC.
-	BaseApiGetSecurityProcedure = "/mfgtool_api.BaseApi/GetSecurity"
 	// BaseApiStartRunProcedure is the fully-qualified name of the BaseApi's StartRun RPC.
 	BaseApiStartRunProcedure = "/mfgtool_api.BaseApi/StartRun"
 	// BaseApiStopRunProcedure is the fully-qualified name of the BaseApi's StopRun RPC.
@@ -100,8 +96,6 @@ type BaseApiClient interface {
 	GetPsuInfo(context.Context, *connect.Request[miner_debug_api.PsuRequest]) (*connect.Response[mfgtool_api.PsuInfoResponse], error)
 	SetOtp(context.Context, *connect.Request[mfgtool_api.OtpRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	GetOtp(context.Context, *connect.Request[mfgtool_api.OtpRequest]) (*connect.Response[mfgtool_api.OtpResponse], error)
-	SetSecurity(context.Context, *connect.Request[mfgtool_api.SecurityRequest]) (*connect.Response[mfgtool_api.SecurityResponse], error)
-	GetSecurity(context.Context, *connect.Request[mfgtool_api.SecurityRequest]) (*connect.Response[mfgtool_api.SecurityResponse], error)
 	StartRun(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	StopRun(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	GetRunStatus(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[mfgtool_api.RunStatusResponse], error)
@@ -152,16 +146,6 @@ func NewBaseApiClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 		getOtp: connect.NewClient[mfgtool_api.OtpRequest, mfgtool_api.OtpResponse](
 			httpClient,
 			baseURL+BaseApiGetOtpProcedure,
-			opts...,
-		),
-		setSecurity: connect.NewClient[mfgtool_api.SecurityRequest, mfgtool_api.SecurityResponse](
-			httpClient,
-			baseURL+BaseApiSetSecurityProcedure,
-			opts...,
-		),
-		getSecurity: connect.NewClient[mfgtool_api.SecurityRequest, mfgtool_api.SecurityResponse](
-			httpClient,
-			baseURL+BaseApiGetSecurityProcedure,
 			opts...,
 		),
 		startRun: connect.NewClient[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse](
@@ -225,8 +209,6 @@ type baseApiClient struct {
 	getPsuInfo              *connect.Client[miner_debug_api.PsuRequest, mfgtool_api.PsuInfoResponse]
 	setOtp                  *connect.Client[mfgtool_api.OtpRequest, miner_common_api.ApiResultResponse]
 	getOtp                  *connect.Client[mfgtool_api.OtpRequest, mfgtool_api.OtpResponse]
-	setSecurity             *connect.Client[mfgtool_api.SecurityRequest, mfgtool_api.SecurityResponse]
-	getSecurity             *connect.Client[mfgtool_api.SecurityRequest, mfgtool_api.SecurityResponse]
 	startRun                *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
 	stopRun                 *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
 	getRunStatus            *connect.Client[miner_common_api.EmptyRequest, mfgtool_api.RunStatusResponse]
@@ -267,16 +249,6 @@ func (c *baseApiClient) SetOtp(ctx context.Context, req *connect.Request[mfgtool
 // GetOtp calls mfgtool_api.BaseApi.GetOtp.
 func (c *baseApiClient) GetOtp(ctx context.Context, req *connect.Request[mfgtool_api.OtpRequest]) (*connect.Response[mfgtool_api.OtpResponse], error) {
 	return c.getOtp.CallUnary(ctx, req)
-}
-
-// SetSecurity calls mfgtool_api.BaseApi.SetSecurity.
-func (c *baseApiClient) SetSecurity(ctx context.Context, req *connect.Request[mfgtool_api.SecurityRequest]) (*connect.Response[mfgtool_api.SecurityResponse], error) {
-	return c.setSecurity.CallUnary(ctx, req)
-}
-
-// GetSecurity calls mfgtool_api.BaseApi.GetSecurity.
-func (c *baseApiClient) GetSecurity(ctx context.Context, req *connect.Request[mfgtool_api.SecurityRequest]) (*connect.Response[mfgtool_api.SecurityResponse], error) {
-	return c.getSecurity.CallUnary(ctx, req)
 }
 
 // StartRun calls mfgtool_api.BaseApi.StartRun.
@@ -337,8 +309,6 @@ type BaseApiHandler interface {
 	GetPsuInfo(context.Context, *connect.Request[miner_debug_api.PsuRequest]) (*connect.Response[mfgtool_api.PsuInfoResponse], error)
 	SetOtp(context.Context, *connect.Request[mfgtool_api.OtpRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	GetOtp(context.Context, *connect.Request[mfgtool_api.OtpRequest]) (*connect.Response[mfgtool_api.OtpResponse], error)
-	SetSecurity(context.Context, *connect.Request[mfgtool_api.SecurityRequest]) (*connect.Response[mfgtool_api.SecurityResponse], error)
-	GetSecurity(context.Context, *connect.Request[mfgtool_api.SecurityRequest]) (*connect.Response[mfgtool_api.SecurityResponse], error)
 	StartRun(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	StopRun(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	GetRunStatus(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[mfgtool_api.RunStatusResponse], error)
@@ -385,16 +355,6 @@ func NewBaseApiHandler(svc BaseApiHandler, opts ...connect.HandlerOption) (strin
 	baseApiGetOtpHandler := connect.NewUnaryHandler(
 		BaseApiGetOtpProcedure,
 		svc.GetOtp,
-		opts...,
-	)
-	baseApiSetSecurityHandler := connect.NewUnaryHandler(
-		BaseApiSetSecurityProcedure,
-		svc.SetSecurity,
-		opts...,
-	)
-	baseApiGetSecurityHandler := connect.NewUnaryHandler(
-		BaseApiGetSecurityProcedure,
-		svc.GetSecurity,
 		opts...,
 	)
 	baseApiStartRunHandler := connect.NewUnaryHandler(
@@ -461,10 +421,6 @@ func NewBaseApiHandler(svc BaseApiHandler, opts ...connect.HandlerOption) (strin
 			baseApiSetOtpHandler.ServeHTTP(w, r)
 		case BaseApiGetOtpProcedure:
 			baseApiGetOtpHandler.ServeHTTP(w, r)
-		case BaseApiSetSecurityProcedure:
-			baseApiSetSecurityHandler.ServeHTTP(w, r)
-		case BaseApiGetSecurityProcedure:
-			baseApiGetSecurityHandler.ServeHTTP(w, r)
 		case BaseApiStartRunProcedure:
 			baseApiStartRunHandler.ServeHTTP(w, r)
 		case BaseApiStopRunProcedure:
@@ -516,14 +472,6 @@ func (UnimplementedBaseApiHandler) SetOtp(context.Context, *connect.Request[mfgt
 
 func (UnimplementedBaseApiHandler) GetOtp(context.Context, *connect.Request[mfgtool_api.OtpRequest]) (*connect.Response[mfgtool_api.OtpResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mfgtool_api.BaseApi.GetOtp is not implemented"))
-}
-
-func (UnimplementedBaseApiHandler) SetSecurity(context.Context, *connect.Request[mfgtool_api.SecurityRequest]) (*connect.Response[mfgtool_api.SecurityResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mfgtool_api.BaseApi.SetSecurity is not implemented"))
-}
-
-func (UnimplementedBaseApiHandler) GetSecurity(context.Context, *connect.Request[mfgtool_api.SecurityRequest]) (*connect.Response[mfgtool_api.SecurityResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mfgtool_api.BaseApi.GetSecurity is not implemented"))
 }
 
 func (UnimplementedBaseApiHandler) StartRun(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {

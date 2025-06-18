@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { getHashboardColor } from "../utility";
-import useHashboardLocationStore from "@/protoOS/store/useHashboardLocationStore";
+import { HashboardLocationStore } from "./KpiTooltip";
 import { HashboardIndicator } from "@/shared/assets/icons";
 import Divider from "@/shared/components/Divider";
 
@@ -11,6 +11,7 @@ interface KpiTooltipItemProps {
   totalPartials: number;
   value?: string | number;
   units?: string;
+  hashboardLocationStore: HashboardLocationStore;
 }
 
 const KpiTooltipItem = ({
@@ -20,25 +21,19 @@ const KpiTooltipItem = ({
   totalPartials,
   value,
   units,
+  hashboardLocationStore,
 }: KpiTooltipItemProps) => {
-  const getSlotByHbSn = useHashboardLocationStore(
-    (state) => state.getSlotByHbSn,
-  );
-
-  const getBayByHbSn = useHashboardLocationStore((state) => state.getBayByHbSn);
-  const getBayCount = useHashboardLocationStore((state) => state.getBayCount);
-  const getBaySlotIndexByHbSn = useHashboardLocationStore(
-    (state) => state.getBaySlotIndexByHbSn,
-  );
+  const { getSlotByHbSn, getBayByHbSn, getBayCount, getBaySlotIndexByHbSn } =
+    hashboardLocationStore;
 
   const color = useMemo(() => {
     return getHashboardColor(
       getSlotByHbSn(serial) ?? 1,
       getBayByHbSn(serial) ?? 1,
-      getBaySlotIndexByHbSn(serial) ?? 1,
+      getBaySlotIndexByHbSn(serial),
       getBayCount(),
     );
-  }, [serial, getBayByHbSn, getBayCount, getBaySlotIndexByHbSn, getSlotByHbSn]);
+  }, [serial, getBayByHbSn, getSlotByHbSn, getBaySlotIndexByHbSn, getBayCount]);
 
   if (!value) return null;
 

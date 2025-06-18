@@ -1,6 +1,6 @@
 import { hashboardColors } from "./constants";
 import { TimeSeries, TimeSeriesWithSerial } from "./types";
-import { TimeSeriesData } from "@/protoOS/api/types";
+import { TimeSeriesDataPoint } from "@/shared/features/kpis";
 import { getDayFromEpoch, getTimeFromEpoch } from "@/shared/utils/datetime";
 
 export const getPoint = (index: number, firstPoint: number, gap: number) => {
@@ -8,8 +8,8 @@ export const getPoint = (index: number, firstPoint: number, gap: number) => {
 };
 
 type GetChartValueArgs = {
-  datetime: TimeSeriesData["datetime"];
-  values: TimeSeriesData[];
+  datetime: number | undefined;
+  values: TimeSeriesDataPoint[];
 };
 
 /**
@@ -21,15 +21,19 @@ type GetChartValueArgs = {
  * @returns
  */
 const getChartValue = ({ datetime, values }: GetChartValueArgs) => {
+  if (!datetime) return 0;
+
   // ignore seconds, only match up to minute
   // TODO: this may become performance bottleneck if there are many data points
   // if we can assume that data is already sorted by datetime we could do binary search
-  const matchedTime = values.find(
-    (value) =>
+  const matchedTime = values.find((value) => {
+    if (!value.datetime) return false;
+    return (
       getDayFromEpoch(value.datetime) === getDayFromEpoch(datetime) &&
       getTimeFromEpoch(value.datetime).slice(0, -3) ===
-        getTimeFromEpoch(datetime).slice(0, -3),
-  );
+        getTimeFromEpoch(datetime).slice(0, -3)
+    );
+  });
   return matchedTime?.value || 0;
 };
 
@@ -40,7 +44,7 @@ type GetChartDataArgs = {
 };
 
 export type ChartData = {
-  datetime?: TimeSeriesData["datetime"];
+  datetime?: number;
   aggregateName: string;
   units?: string;
 } & {
@@ -48,7 +52,7 @@ export type ChartData = {
 };
 
 /**
- * Converts inidividual series data points into one object with all series data points at each timestamp
+ * Converts individual series data points into one object with all series data points at each timestamp
  * @param series - Array of TimeSeries data points
  * @param aggregateSeries - Precalculated aggregate of all series
  * @returns

@@ -116,8 +116,6 @@ export default defineConfig(({ mode, command }) => {
       ? {
           "/api/v1": {
             target: env.PROXY_URL,
-            changeOrigin: true,
-            secure: false,
           },
         }
       : {};

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { Outlet } from "react-router-dom";
-import NoPoolsCallout from "../NoPoolsCallout";
 import { useHashboards } from "@/protoOS/api";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
@@ -11,12 +10,13 @@ import {
   useProcessedPowerUsage,
   useProcessedTemperature,
 } from "@/protoOS/features/kpis/hooks";
-import { type OutletContext } from "@/protoOS/features/kpis/types";
+import { type KpiOutletContext } from "@/protoOS/features/kpis/types";
 import DurationSelector, {
   Duration,
   durations,
 } from "@/shared/components/DurationSelector";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import NoPoolsCallout from "@/shared/features/kpis/components/NoPoolsCallout";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 
 const KpiLayout = ({ children }: ContentLayoutProps) => {
@@ -28,7 +28,7 @@ const KpiLayout = ({ children }: ContentLayoutProps) => {
   const [duration, setDuration] = useState<Duration>(
     getItem("duration") || durations[0],
   );
-  const [outletContext, setOutletContext] = useState<OutletContext | null>();
+  const [outletContext, setOutletContext] = useState<KpiOutletContext | null>();
   const minerHashrate = useProcessedHashrate({ duration });
   const minerEfficiency = useProcessedEfficiency({ duration });
   const minerPowerUsage = useProcessedPowerUsage({ duration });

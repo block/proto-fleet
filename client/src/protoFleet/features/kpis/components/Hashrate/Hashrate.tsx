@@ -1,15 +1,15 @@
 import { useOutletContext } from "react-router-dom";
-import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart/index.ts";
-import { useProcessedHashboardHashrates } from "@/protoOS/features/kpis/hooks/index.ts";
-import { KpiOutletContext } from "@/protoOS/features/kpis/types";
+
+import KpiLineChart from "@/protoFleet/features/kpis/components/KpiLineChart/KpiLineChartWrapper";
+import { KpiOutletContext } from "@/protoFleet/features/kpis/types";
 import { type StatProps } from "@/shared/components/Stat";
-import { AggregateStats } from "@/shared/features/kpis";
 import Stats from "@/shared/features/kpis/components/Stats";
+import { AggregateStats } from "@/shared/features/kpis/types";
 
 type StatsArgs = AggregateStats & { lowestPerformer?: string };
 
 const getStats = (stats: StatsArgs = {}): StatProps[] => {
-  const { avg, max, min, lowestPerformer } = stats;
+  const { avg, max, min } = stats;
 
   return [
     {
@@ -30,39 +30,23 @@ const getStats = (stats: StatsArgs = {}): StatProps[] => {
       units: "TH/s",
       size: "small",
     },
-    {
-      label: "Lowest Performer",
-      value: lowestPerformer,
-      size: "small",
-    },
   ];
 };
 
 const Hashrate = () => {
   const {
-    minerHashrate: { hashrate: totalHashrates, aggregates },
-    duration,
-    hashboardSerials,
+    minerHashrate: { hashrate: totalHashrate, aggregates },
   } = useOutletContext<KpiOutletContext>();
-
-  const { hashrates: hbHashrates, lowestPerformer } =
-    useProcessedHashboardHashrates({
-      serials: hashboardSerials,
-      duration,
-    });
 
   return (
     <>
-      {aggregates && (
-        <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
-      )}
-
+      {aggregates && <Stats stats={getStats(aggregates)} />}
       <KpiLineChart
-        series={hbHashrates}
+        series={[]}
         units="TH/s"
         aggregateSeries={{
           name: "Total Hashrate",
-          data: totalHashrates,
+          data: totalHashrate,
         }}
       />
     </>

@@ -1,16 +1,15 @@
 import { useOutletContext } from "react-router-dom";
 
-import { useProcessedHashboardEfficiencies } from "../../hooks";
-import KpiLineChart from "../KpiLineChart";
-import { KpiOutletContext } from "@/protoOS/features/kpis/types";
+import KpiLineChart from "@/protoFleet/features/kpis/components/KpiLineChart/KpiLineChartWrapper";
+import { KpiOutletContext } from "@/protoFleet/features/kpis/types";
 import { type StatProps } from "@/shared/components/Stat";
-import { AggregateStats } from "@/shared/features/kpis";
 import Stats from "@/shared/features/kpis/components/Stats";
+import { AggregateStats } from "@/shared/features/kpis/types";
 
 type StatsArgs = AggregateStats & { lowestPerformer?: string };
 
 const getStats = (stats: StatsArgs = {}): StatProps[] => {
-  const { avg, max, min, lowestPerformer } = stats;
+  const { avg, max, min } = stats;
 
   return [
     {
@@ -31,34 +30,19 @@ const getStats = (stats: StatsArgs = {}): StatProps[] => {
       units: "J/TH",
       size: "small",
     },
-    {
-      label: "Lowest Performer",
-      value: lowestPerformer,
-      size: "small",
-    },
   ];
 };
 
 const Efficiency = () => {
   const {
     minerEfficiency: { efficiency: totalEfficiency, aggregates },
-    duration,
-    hashboardSerials,
   } = useOutletContext<KpiOutletContext>();
-
-  const { efficiencies: hbEfficiencies, lowestPerformer } =
-    useProcessedHashboardEfficiencies({
-      serials: hashboardSerials,
-      duration,
-    });
 
   return (
     <>
-      {aggregates && (
-        <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
-      )}
+      {aggregates && <Stats stats={getStats(aggregates)} />}
       <KpiLineChart
-        series={hbEfficiencies}
+        series={[]}
         units="J/TH"
         aggregateSeries={{
           name: "Total Efficiency",

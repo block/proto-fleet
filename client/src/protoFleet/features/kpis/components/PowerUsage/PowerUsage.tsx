@@ -1,11 +1,10 @@
 import { useOutletContext } from "react-router-dom";
 
-import { useProcessedHashboardPowerUsages } from "../../hooks";
-import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart/KpiLineChartWrapper";
-import { KpiOutletContext } from "@/protoOS/features/kpis/types";
+import KpiLineChart from "@/protoFleet/features/kpis/components/KpiLineChart/KpiLineChartWrapper";
+import { KpiOutletContext } from "@/protoFleet/features/kpis/types";
 import { type StatProps } from "@/shared/components/Stat";
-import { AggregateStats } from "@/shared/features/kpis";
 import Stats from "@/shared/features/kpis/components/Stats";
+import { AggregateStats } from "@/shared/features/kpis/types";
 
 type StatsArgs = AggregateStats & { lowestPerformer?: string };
 
@@ -37,20 +36,13 @@ const getStats = (stats: StatsArgs = {}): StatProps[] => {
 const PowerUsage = () => {
   const {
     minerPowerUsage: { powerUsage: totalPowerUsage, aggregates },
-    duration,
-    hashboardSerials,
   } = useOutletContext<KpiOutletContext>();
-
-  const hbPowerUsages = useProcessedHashboardPowerUsages({
-    serials: hashboardSerials,
-    duration,
-  });
 
   return (
     <>
       {aggregates && <Stats stats={getStats(aggregates)} />}
       <KpiLineChart
-        series={hbPowerUsages}
+        series={[]}
         units="kW"
         aggregateSeries={{
           name: "Total Power Usage",

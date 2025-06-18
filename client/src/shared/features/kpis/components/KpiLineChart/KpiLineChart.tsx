@@ -3,10 +3,12 @@ import { Line, LineChart, ReferenceDot, Tooltip, XAxis, YAxis } from "recharts";
 
 import { lineProps } from "./constants";
 
-import KpiTooltip, { type TooltipData } from "./KpiTooltip";
+import KpiTooltip, {
+  type HashboardLocationStore,
+  type TooltipData,
+} from "./KpiTooltip";
 import { type TimeSeries, type TimeSeriesWithSerial } from "./types";
-import { type ChartData, getChartData, getHashboardColor } from "./utility";
-import useHashboardLocationStore from "@/protoOS/store/useHashboardLocationStore";
+import { type ChartData, getChartData } from "./utility";
 import {
   ChartWrapper,
   LineCursor,
@@ -21,11 +23,18 @@ import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 const ANIMATION_DURATION = 1500;
 
-interface KpiChartProps {
+export interface KpiChartProps {
   series: TimeSeriesWithSerial[];
   units?: string;
   aggregateSeries: TimeSeries;
   highestValue?: string | number;
+  hashboardLocationStore?: HashboardLocationStore;
+  getHashboardColorMap?: (series: TimeSeriesWithSerial[]) => {
+    [key: string]: {
+      line: string;
+      text: string;
+    };
+  };
 }
 
 const KpiChart = ({
@@ -33,6 +42,8 @@ const KpiChart = ({
   aggregateSeries,
   highestValue,
   units,
+  hashboardLocationStore,
+  getHashboardColorMap,
 }: KpiChartProps) => {
   const [chartRef, chartRect] = useMeasure<HTMLDivElement>();
   const [tooltipData, setTooltipData] = useState<TooltipData>({
@@ -48,37 +59,20 @@ const KpiChart = ({
   const { isDesktop, isTablet, isLaptop, isPhone } = useWindowDimensions();
   const [chartData, setChartData] = useState<ChartData[] | null>(null);
   const [maxDomain, setMaxDomain] = useState<number>(0);
-  const getSlotByHbSn = useHashboardLocationStore(
-    (state) => state.getSlotByHbSn,
-  );
-  const getBayByHbSn = useHashboardLocationStore((state) => state.getBayByHbSn);
-  const getBayCount = useHashboardLocationStore((state) => state.getBayCount);
-  const getBaySlotIndexByHbSn = useHashboardLocationStore(
-    (state) => state.getBaySlotIndexByHbSn,
-  );
 
-  type HbColorMap = {
+  // Get the hashboard color map
+  const [hbColorMap, setHbColorMap] = useState<{
     [key: string]: {
       line: string;
       text: string;
     };
-  };
+  } | null>(null);
 
-  const [hbColorMap, setHbColorMap] = useState<HbColorMap>({});
   useEffect(() => {
-    const colors = series.reduce((acc, { serial }) => {
-      acc[serial] = getHashboardColor(
-        getSlotByHbSn(serial) ?? 1,
-        getBayByHbSn(serial) ?? 1,
-        getBaySlotIndexByHbSn(serial) ?? 1,
-        getBayCount(),
-      );
+    if (!getHashboardColorMap) return;
 
-      return acc;
-    }, {} as HbColorMap);
-
-    setHbColorMap(colors);
-  }, [series, getBayByHbSn, getBayCount, getSlotByHbSn, getBaySlotIndexByHbSn]);
+    setHbColorMap(getHashboardColorMap(series));
+  }, [series, getHashboardColorMap]);
 
   // initialize animation flags and chart data
   useEffect(() => {
@@ -235,12 +229,13 @@ const KpiChart = ({
                   onHover={setTooltipData}
                   tooltipData={tooltipData}
                   units={units}
+                  hashboardLocationStore={hashboardLocationStore}
                 />
               }
               cursor={<LineCursor />}
               isAnimationActive={false}
             />
-            {!!tooltipData.payload.length && !shouldAnimate && (
+            {!!tooltipData.payload.length && !shouldAnimate && hbColorMap && (
               <>
                 {series.map((seriesItem, index) => {
                   if (seriesItem.data.length) {

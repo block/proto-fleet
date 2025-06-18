@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import KpiChart from "./KpiLineChart";
+import KpiChart from "./KpiLineChartWrapper";
 
 // Mock SVG elements for tests
 vi.mock("@/shared/components/Chart/AxisTick", () => ({
@@ -60,7 +60,7 @@ vi.mock("@/shared/hooks/useWindowDimensions", () => ({
 }));
 
 // Mock KpiTooltip component
-vi.mock("./KpiTooltip", () => ({
+vi.mock("@/shared/features/kpis/components/KpiLineChart/KpiTooltip", () => ({
   default: ({ tooltipData, units, onHover }: any) => (
     <div data-testid="kpi-tooltip">
       <button

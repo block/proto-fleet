@@ -6,7 +6,7 @@ import {
   downsample,
 } from "../../../hooks/utility";
 
-import KpiLineChartComponent from "../KpiLineChart";
+import KpiLineChartComponent from "../KpiLineChartWrapper";
 import {
   mockHashrateData,
   mockHashrateData1,

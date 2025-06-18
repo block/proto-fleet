@@ -1,8 +1,8 @@
-import { type TimeSeriesData } from "@/protoOS/api/types";
+import { TimeSeriesDataPoint } from "@/shared/features/kpis";
 
 export type TimeSeries = {
   name: string;
-  data: TimeSeriesData[];
+  data: TimeSeriesDataPoint[];
 };
 
 export type TimeSeriesWithSerial = TimeSeries & {
