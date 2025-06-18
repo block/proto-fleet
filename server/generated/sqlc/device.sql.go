@@ -74,6 +74,30 @@ func (q *Queries) CreateInactiveDeviceIPAssignment(ctx context.Context, arg Crea
 	return err
 }
 
+const getActiveDeviceIPAssignmentByDeviceID = `-- name: GetActiveDeviceIPAssignmentByDeviceID :one
+SELECT id, device_id, ip_address, port, assigned_at, unassigned_at, is_current, created_at
+FROM device_ip_assignment
+WHERE device_id = ?
+    AND is_current = TRUE
+LIMIT 1
+`
+
+func (q *Queries) GetActiveDeviceIPAssignmentByDeviceID(ctx context.Context, deviceID int64) (DeviceIpAssignment, error) {
+	row := q.queryRow(ctx, q.getActiveDeviceIPAssignmentByDeviceIDStmt, getActiveDeviceIPAssignmentByDeviceID, deviceID)
+	var i DeviceIpAssignment
+	err := row.Scan(
+		&i.ID,
+		&i.DeviceID,
+		&i.IpAddress,
+		&i.Port,
+		&i.AssignedAt,
+		&i.UnassignedAt,
+		&i.IsCurrent,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getDeviceByDeviceIdentifier = `-- name: GetDeviceByDeviceIdentifier :one
 SELECT id, device_identifier, mac_address, serial_number, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, model, manufacturer, org_id, type
 FROM device

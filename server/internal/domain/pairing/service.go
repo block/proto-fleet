@@ -369,6 +369,13 @@ func (s *Service) saveDevice(ctx context.Context, device *pb.Device) error {
 
 		device.DeviceIdentifier = dbDevice.DeviceIdentifier
 
+		currentIPAssignment, err := q.GetActiveDeviceIPAssignmentByDeviceID(ctx, deviceID)
+		if err != nil && err != sql.ErrNoRows {
+			return fleeterror.NewInternalErrorf("failed to query active device IP assignment: %v", err)
+		} else if err != sql.ErrNoRows && currentIPAssignment.IpAddress == device.IpAddress && currentIPAssignment.Port == device.Port {
+			return nil // Device IP assignment already exists
+		}
+
 		err = q.CreateInactiveDeviceIPAssignment(ctx, sqlc.CreateInactiveDeviceIPAssignmentParams{
 			DeviceID:  deviceID,
 			IpAddress: device.IpAddress,

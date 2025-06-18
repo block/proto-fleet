@@ -167,6 +167,19 @@ func (s *DatabaseService) GetDevicePairingByDeviceIdentifier(databaseDeviceID in
 	})
 }
 
+func (s *DatabaseService) GetTotalDevicePairings(orgID int64, limit int32) (int, error) {
+	return db2.WithTransaction(context.Background(), s.DB, func(q *sqlc.Queries) (int, error) {
+		pairings, err := q.ListPairedMinersWithStatus(context.Background(), sqlc.ListPairedMinersWithStatusParams{
+			OrgID: orgID,
+			Limit: limit,
+		})
+		if err != nil {
+			return 0, err
+		}
+		return len(pairings), nil
+	})
+}
+
 func (s *DatabaseService) CreateAndAssignDevices(count int, organizationID int64) []DeviceIdentification {
 	deviceIdentifications := make([]DeviceIdentification, 0)
 	for i := range count {

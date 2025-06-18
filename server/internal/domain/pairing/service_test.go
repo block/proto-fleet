@@ -49,15 +49,13 @@ func (m *MockDiscoverer) GetMinerType() miner.Type {
 
 var _ minerdiscovery.Discoverer = (*MockDiscoverer)(nil)
 
-func setupTestService(t *testing.T, mockDiscoverers ...*MockDiscoverer) (*pairing.Service, context.Context) {
+func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser *testutil.TestUser, mockDiscoverers ...*MockDiscoverer) (*pairing.Service, context.Context) {
 	discoverers := make([]minerdiscovery.Discoverer, len(mockDiscoverers))
 	for i, m := range mockDiscoverers {
 		discoverers[i] = m
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	tokenService := testContext.ServiceProvider.TokenService
-	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 	ctx := testutil.MockAuthContextForTesting(t.Context(), adminUser.DatabaseID, adminUser.OrganizationID)
 
 	discoveryService, _ := minerdiscovery.NewService(discoverers...)
@@ -100,7 +98,10 @@ func TestDiscoverWithIPList(t *testing.T) {
 			defer discoverWg.Done()
 		}).Return(mockDevice2, nil)
 
-		pairingService, ctx := setupTestService(t, mockDiscoverer)
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, mockDiscoverer)
 
 		request := &pb.IPListModeRequest{
 			IpAddresses: []string{"192.168.1.10", "192.168.1.11"},
@@ -174,7 +175,10 @@ func TestDiscoverWithIPRange(t *testing.T) {
 			defer discoverWg.Done()
 		}).Return(mockDevice3, nil)
 
-		pairingService, ctx := setupTestService(t, mockDiscoverer)
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, mockDiscoverer)
 
 		request := &pb.IPRangeModeRequest{
 			StartIp: "192.168.1.10",
@@ -246,7 +250,10 @@ func TestDiscoverWithIPRange(t *testing.T) {
 			defer discoverWg.Done()
 		}).Return(mockDevice3, nil)
 
-		pairingService, ctx := setupTestService(t, mockDiscoverer)
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, mockDiscoverer)
 
 		request := &pb.IPRangeModeRequest{
 			StartIp: "192.168.1.10",
@@ -296,6 +303,70 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		assert.Equal(t, mockDevice3.IpAddress, devicesBySerialNumber[mockDevice3.SerialNumber].IpAddress)
 	})
 
+	t.Run("does not lead to duplicate device pairings", func(t *testing.T) {
+		// Arrange
+		var discoverWg sync.WaitGroup
+		discoverWg.Add(2)
+
+		mockDiscoverer := &MockDiscoverer{}
+		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
+
+		mockDevice := &pb.Device{
+			IpAddress:    "192.168.1.10",
+			Port:         "8080",
+			SerialNumber: "RANGE1",
+		}
+
+		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").Run(func(_ mock.Arguments) {
+			defer discoverWg.Done()
+		}).Return(mockDevice, nil)
+
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, mockDiscoverer)
+
+		request := &pb.IPRangeModeRequest{
+			StartIp: "192.168.1.10",
+			EndIp:   "192.168.1.10",
+			Ports:   []string{"8080"},
+		}
+		resultChan, err := pairingService.DiscoverWithIPRange(ctx, request)
+		require.NoError(t, err)
+
+		var devices []*pb.Device
+		for result := range resultChan {
+			require.Empty(t, result.Error)
+			devices = append(devices, result.Devices...)
+		}
+		require.Len(t, devices, 1)
+
+		// Act
+		resultChan, err = pairingService.DiscoverWithIPRange(ctx, request)
+		require.NoError(t, err)
+		_, err = pairingService.PairDevices(ctx, &pb.PairRequest{
+			DeviceIdentifiers: []string{devices[0].DeviceIdentifier},
+		})
+		require.NoError(t, err)
+
+		devices = []*pb.Device{}
+		for result := range resultChan {
+			require.Empty(t, result.Error)
+			devices = append(devices, result.Devices...)
+		}
+
+		discoverWg.Wait()
+
+		// Assert
+		mockDiscoverer.AssertExpectations(t)
+
+		require.Len(t, devices, 1)
+
+		totalPairedDevices, err := testContext.DatabaseService.GetTotalDevicePairings(adminUser.OrganizationID, 100)
+		require.NoError(t, err)
+		assert.Equal(t, 1, totalPairedDevices)
+	})
+
 	t.Run("handles discovery failures in IP range", func(t *testing.T) {
 		// Arrange
 		var discoverWg sync.WaitGroup
@@ -318,7 +389,9 @@ func TestDiscoverWithIPRange(t *testing.T) {
 			defer discoverWg.Done()
 		}).Return(nil, assert.AnError)
 
-		pairingService, ctx := setupTestService(t, mockDiscoverer)
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+		pairingService, ctx := setupTestService(t, testContext, adminUser, mockDiscoverer)
 
 		request := &pb.IPRangeModeRequest{
 			StartIp: "192.168.1.20",

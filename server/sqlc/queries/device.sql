@@ -76,6 +76,13 @@ WHERE d.device_id = p.device_id
   AND (d.is_current = TRUE
        OR (d.ip_address = p.ip_address AND d.port = p.port));
 
+-- name: GetActiveDeviceIPAssignmentByDeviceID :one
+SELECT *
+FROM device_ip_assignment
+WHERE device_id = ?
+    AND is_current = TRUE
+LIMIT 1;
+
 -- name: ListPairedDevices :many
 SELECT
     d.device_identifier,

@@ -42,6 +42,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createUserOrganizationStmt, err = db.PrepareContext(ctx, createUserOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateUserOrganization: %w", err)
 	}
+	if q.getActiveDeviceIPAssignmentByDeviceIDStmt, err = db.PrepareContext(ctx, getActiveDeviceIPAssignmentByDeviceID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetActiveDeviceIPAssignmentByDeviceID: %w", err)
+	}
 	if q.getDeviceByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceByDeviceIdentifier: %w", err)
 	}
@@ -195,6 +198,11 @@ func (q *Queries) Close() error {
 	if q.createUserOrganizationStmt != nil {
 		if cerr := q.createUserOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createUserOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.getActiveDeviceIPAssignmentByDeviceIDStmt != nil {
+		if cerr := q.getActiveDeviceIPAssignmentByDeviceIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getActiveDeviceIPAssignmentByDeviceIDStmt: %w", cerr)
 		}
 	}
 	if q.getDeviceByDeviceIdentifierStmt != nil {
@@ -442,6 +450,7 @@ type Queries struct {
 	createPoolStmt                               *sql.Stmt
 	createUserStmt                               *sql.Stmt
 	createUserOrganizationStmt                   *sql.Stmt
+	getActiveDeviceIPAssignmentByDeviceIDStmt    *sql.Stmt
 	getDeviceByDeviceIdentifierStmt              *sql.Stmt
 	getDeviceByIDStmt                            *sql.Stmt
 	getDeviceByIdentifierStmt                    *sql.Stmt
@@ -494,9 +503,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createPoolStmt:                       q.createPoolStmt,
 		createUserStmt:                       q.createUserStmt,
 		createUserOrganizationStmt:           q.createUserOrganizationStmt,
-		getDeviceByDeviceIdentifierStmt:      q.getDeviceByDeviceIdentifierStmt,
-		getDeviceByIDStmt:                    q.getDeviceByIDStmt,
-		getDeviceByIdentifierStmt:            q.getDeviceByIdentifierStmt,
+		getActiveDeviceIPAssignmentByDeviceIDStmt:    q.getActiveDeviceIPAssignmentByDeviceIDStmt,
+		getDeviceByDeviceIdentifierStmt:              q.getDeviceByDeviceIdentifierStmt,
+		getDeviceByIDStmt:                            q.getDeviceByIDStmt,
+		getDeviceByIdentifierStmt:                    q.getDeviceByIdentifierStmt,
 		getDevicePairingStatusByDeviceDatabaseIDStmt: q.getDevicePairingStatusByDeviceDatabaseIDStmt,
 		getMinerApiNetworkInfoByDeviceIDStmt:         q.getMinerApiNetworkInfoByDeviceIDStmt,
 		getOrganizationByIDStmt:                      q.getOrganizationByIDStmt,
