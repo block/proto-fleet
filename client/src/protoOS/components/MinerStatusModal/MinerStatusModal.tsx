@@ -100,14 +100,8 @@ const MinerStatusModal = ({
 
   return (
     <Modal
+      className="phone:w-[calc(100vw-theme(spacing.4))] tablet:w-[calc(100vw-theme(spacing.4))]"
       buttons={[
-        {
-          text: "Contact support",
-          variant: variants.secondary,
-          onClick: () => {
-            window.open("mailto:mining.support@block.xyz", "_blank");
-          },
-        },
         {
           text: "Done",
           variant: variants.primary,

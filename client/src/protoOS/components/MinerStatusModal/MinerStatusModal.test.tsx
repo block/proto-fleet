@@ -130,13 +130,6 @@ describe("MinerStatusModal", () => {
     expect(warningTab).toBeInTheDocument();
   });
 
-  test("shows support contact button", () => {
-    render(<MinerStatusModal onDismiss={() => {}} errors={[]} />);
-
-    const contactButton = screen.getByText("Contact support");
-    expect(contactButton).toBeInTheDocument();
-  });
-
   test("shows done button", () => {
     render(<MinerStatusModal onDismiss={() => {}} errors={[]} />);
 
