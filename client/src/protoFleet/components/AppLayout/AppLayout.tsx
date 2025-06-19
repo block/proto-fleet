@@ -30,11 +30,7 @@ const AppLayout = ({ children }: Props) => {
           <PageHeader openMenu={() => setIsMenuOpen(true)} />
           <div className="relative flex grow flex-row">
             <SecondaryNavigation routes={routes} />
-            <div className="flex grow justify-center p-20 phone:p-6 tablet:p-6">
-              <div className="phone:w-[calc(100vw-theme(spacing.6)*2)] tablet:w-[calc(100vw-theme(spacing.6)*2)] laptop:w-[776px] desktop:w-[1024px]">
-                {children}
-              </div>
-            </div>
+            <div className="w-full p-20 phone:p-6 tablet:p-6">{children}</div>
           </div>
         </div>
       </div>
