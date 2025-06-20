@@ -30,7 +30,7 @@ const getFanStats = (
 
     fanProps = {
       numFans: 2,
-      fanPosition: position === "Front" ? 1 : 0,
+      fanPosition: fanIndex % 2,
     };
   }
 
@@ -58,14 +58,6 @@ const Temperature = () => {
   useEffect(() => {
     if (!pendingCoolingStatus || coolingStatus?.fans) {
       setFanSpeeds(coolingStatus?.fans);
-
-      // TODO: Helfpul for faking an R2, but need to rm later
-      // setFanSpeeds(
-      //   coolingStatus?.fans?.concat([
-      //     coolingStatus?.fans[0],
-      //     coolingStatus?.fans[1],
-      //   ]),
-      // );
     }
   }, [coolingStatus, pendingCoolingStatus]);
 

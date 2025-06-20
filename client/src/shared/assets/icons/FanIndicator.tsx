@@ -8,8 +8,8 @@ type FanIndicatorProps = {
 const FanIndicator = ({ numFans, fanPosition }: FanIndicatorProps) => {
   return (
     <div
-      style={{ gridTemplateColumns: `repeat(${Math.floor(numFans / 2)}, 1fr)` }}
-      className="box-border grid gap-0.5 rounded-sm border border-core-primary-20 p-1"
+      style={{ gridTemplateRows: "repeat(2, 1fr)" }}
+      className="box-border grid grid-flow-col gap-0.5 rounded-sm border border-core-primary-20 p-1"
     >
       {Array(numFans)
         .fill(0)
