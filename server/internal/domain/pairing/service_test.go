@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
+	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"

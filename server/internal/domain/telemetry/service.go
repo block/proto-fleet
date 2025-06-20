@@ -2,17 +2,20 @@ package telemetry
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 )
 
 //go:generate mockgen -source=service.go -destination=mocks/mock_service.go -package=mock UpdateScheduler
 type UpdateScheduler interface {
 	AddNewDevices(ctx context.Context, deviceID ...models.DeviceID) error
-	AddDevices(ctx context.Context, device ...models.Device) error
+	AddDevices(ctx context.Context, devices ...models.Device) error
+	AddFailedDevices(ctx context.Context, devices ...models.Device) error
 	FetchDevices(ctx context.Context, after time.Time) ([]models.Device, error)
 	RemoveDevices(ctx context.Context, deviceID ...models.DeviceID) error
 }
@@ -33,7 +36,7 @@ type TelemetryService struct {
 }
 
 type MinerManager interface {
-	GetMinerFromDeviceID(ctx context.Context, deviceID models.DeviceID) (models.Miner, error)
+	GetMinerFromDeviceID(ctx context.Context, deviceID models.DeviceID) (interfaces.Miner, error)
 }
 
 func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager MinerManager, scheduler UpdateScheduler) *TelemetryService {
@@ -111,50 +114,45 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
 }
 
 func (s *TelemetryService) worker(ctx context.Context) {
-	tryAddDevice := func(devices ...models.Device) {
-		err := s.updateScheduler.AddDevices(ctx, devices...)
-		if err != nil {
-			slog.Warn("failed to re-add device to update scheduler", "devices", devices, "error", err)
-		}
-	}
-
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case device := <-s.tasks:
-			func(ctx context.Context, device models.Device) {
-				ctx, cancel := context.WithTimeout(ctx, s.config.MetricTimeout)
-				defer cancel()
-				miner, err := s.minerManager.GetMinerFromDeviceID(ctx, device.ID)
-				// TODO(DASH-446): update to handle dor unique miner discovery errors.
-				if err != nil {
-					slog.Error("failed to get miner from device ID", "deviceID", device.ID, "error", err)
-					tryAddDevice(device)
-					return
+			if err := s.GetTelemetryFromDevice(ctx, device); err != nil {
+				slog.Warn("failed to get telemetry from device", "deviceID", device.ID, "error", err)
+				if err := s.updateScheduler.AddFailedDevices(ctx, device); err != nil {
+					slog.Warn("failed to add failed telemetry device back into scheduler", "deviceID", device.ID, "error", err)
 				}
-				telemetry, err := miner.GetTelemetryMeasurements(ctx, device.LastUpdatedAt)
-				if err != nil {
-					slog.Error("failed to get telemetry measurements", "deviceID", device.ID, "error", err)
-					tryAddDevice(device)
-					return
-				}
-				err = s.telemetryDataStore.Store(ctx, telemetry...)
-				if err != nil {
-					slog.Error("failed to store telemetry data", "deviceID", device.ID, "error", err)
-					tryAddDevice(device)
-					return
-				}
-				err = s.updateScheduler.AddDevices(ctx, models.Device{
-					ID:            device.ID,
-					LastUpdatedAt: time.Now(),
-				})
-				if err != nil {
-					slog.Error("failed to update device last updated time", "deviceID", device.ID, "error", err)
-					return
-				}
-
-			}(ctx, device)
+			}
 		}
 	}
+}
+
+// GetTelemetryFromDevice fetches telemetry data from a specific device,
+// and stores it in the telemetry data store
+func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device models.Device) error {
+	ctx, cancel := context.WithTimeout(ctx, s.config.MetricTimeout)
+	defer cancel()
+	miner, err := s.minerManager.GetMinerFromDeviceID(ctx, device.ID)
+	// TODO(DASH-446): update to handle dor unique miner discovery errors.
+	if err != nil {
+		return fmt.Errorf("failed to get miner from device ID %s: %w", device.ID, err)
+	}
+	telemetry, err := miner.GetTelemetry(ctx, device.LastUpdatedAt)
+	if err != nil {
+		return fmt.Errorf("failed to get telemetry measurements for device %s: %w", device.ID, err)
+	}
+	err = s.telemetryDataStore.Store(ctx, telemetry...)
+	if err != nil {
+		return fmt.Errorf("failed to store telemetry data for device %s: %w", device.ID, err)
+	}
+	err = s.updateScheduler.AddDevices(ctx, models.Device{
+		ID:            device.ID,
+		LastUpdatedAt: time.Now(),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update device last updated time for device %s: %w", device.ID, err)
+	}
+	return nil
 }

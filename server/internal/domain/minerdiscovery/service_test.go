@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
+	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

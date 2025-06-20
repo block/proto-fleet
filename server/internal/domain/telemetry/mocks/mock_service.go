@@ -9,6 +9,7 @@ import (
 	reflect "reflect"
 	time "time"
 
+	interfaces "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	models "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	gomock "github.com/golang/mock/gomock"
 )
@@ -37,10 +38,10 @@ func (m *MockUpdateScheduler) EXPECT() *MockUpdateSchedulerMockRecorder {
 }
 
 // AddDevices mocks base method.
-func (m *MockUpdateScheduler) AddDevices(ctx context.Context, device ...models.Device) error {
+func (m *MockUpdateScheduler) AddDevices(ctx context.Context, devices ...models.Device) error {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx}
-	for _, a := range device {
+	for _, a := range devices {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "AddDevices", varargs...)
@@ -49,10 +50,29 @@ func (m *MockUpdateScheduler) AddDevices(ctx context.Context, device ...models.D
 }
 
 // AddDevices indicates an expected call of AddDevices.
-func (mr *MockUpdateSchedulerMockRecorder) AddDevices(ctx interface{}, device ...interface{}) *gomock.Call {
+func (mr *MockUpdateSchedulerMockRecorder) AddDevices(ctx interface{}, devices ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]interface{}{ctx}, device...)
+	varargs := append([]interface{}{ctx}, devices...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddDevices", reflect.TypeOf((*MockUpdateScheduler)(nil).AddDevices), varargs...)
+}
+
+// AddFailedDevices mocks base method.
+func (m *MockUpdateScheduler) AddFailedDevices(ctx context.Context, devices ...models.Device) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx}
+	for _, a := range devices {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "AddFailedDevices", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AddFailedDevices indicates an expected call of AddFailedDevices.
+func (mr *MockUpdateSchedulerMockRecorder) AddFailedDevices(ctx interface{}, devices ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx}, devices...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddFailedDevices", reflect.TypeOf((*MockUpdateScheduler)(nil).AddFailedDevices), varargs...)
 }
 
 // AddNewDevices mocks base method.
@@ -174,10 +194,10 @@ func (m *MockMinerManager) EXPECT() *MockMinerManagerMockRecorder {
 }
 
 // GetMinerFromDeviceID mocks base method.
-func (m *MockMinerManager) GetMinerFromDeviceID(ctx context.Context, deviceID models.DeviceID) (models.Miner, error) {
+func (m *MockMinerManager) GetMinerFromDeviceID(ctx context.Context, deviceID models.DeviceID) (interfaces.Miner, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetMinerFromDeviceID", ctx, deviceID)
-	ret0, _ := ret[0].(models.Miner)
+	ret0, _ := ret[0].(interfaces.Miner)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

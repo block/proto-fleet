@@ -2,13 +2,18 @@ package proto
 
 import (
 	"context"
+	"time"
 
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
+	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
+	telemetryModels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 )
+
+var _ interfaces.Miner = &ProtoMiner{}
 
 type ProtoMiner struct {
 	deviceID       string
@@ -90,4 +95,9 @@ func (p *ProtoMiner) getMinerConnectionInfo() *client.MinerConnectionInfo {
 		AuthToken: p.authToken,
 	}
 	return clientConnectionInfo
+}
+
+//nolint:revive // GetTelemetry will be implemented in the future
+func (p *ProtoMiner) GetTelemetry(ctx context.Context, after time.Time) ([]telemetryModels.Telemetry, error) {
+	return []telemetryModels.Telemetry{}, fleeterror.NewInternalErrorf("GetTelemetry not implemented for ProtoMiner")
 }

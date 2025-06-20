@@ -9,7 +9,7 @@ import (
 
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto"
 	protoMinerClient "github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
 
@@ -44,11 +44,11 @@ type minerError struct {
 }
 
 // minerCommand defines a function type for executing specific miner commands
-type minerCommand func(ctx context.Context, miner miner.Miner) error
+type minerCommand func(ctx context.Context, miner interfaces.Miner) error
 
 // StopMining stops mining on the specified miners
 func (s *Service) StopMining(ctx context.Context, deviceIDs []string) (*pb.StopMiningResponse, error) {
-	stopMiningCommand := func(ctx context.Context, miner miner.Miner) error {
+	stopMiningCommand := func(ctx context.Context, miner interfaces.Miner) error {
 		return miner.StopMining(ctx)
 	}
 
@@ -62,7 +62,7 @@ func (s *Service) StopMining(ctx context.Context, deviceIDs []string) (*pb.StopM
 
 // StartMining starts mining on the specified miners
 func (s *Service) StartMining(ctx context.Context, deviceIDs []string) (*pb.StartMiningResponse, error) {
-	startMiningCommand := func(ctx context.Context, miner miner.Miner) error {
+	startMiningCommand := func(ctx context.Context, miner interfaces.Miner) error {
 		return miner.StartMining(ctx)
 	}
 
@@ -110,13 +110,13 @@ func (s *Service) executeMinerCommand(ctx context.Context, deviceIDs []string, c
 }
 
 // getMinerConnectionInfo retrieves connection details for a single miner
-func (s *Service) getMiner(ctx context.Context, deviceID string) (miner.Miner, error) {
+func (s *Service) getMiner(ctx context.Context, deviceID string) (interfaces.Miner, error) {
 	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (miner.Miner, error) {
+	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (interfaces.Miner, error) {
 		minerInfo, err := q.GetMinerApiNetworkInfoByDeviceID(ctx, sqlc.GetMinerApiNetworkInfoByDeviceIDParams{OrgID: claims.OrgID, DeviceIdentifier: deviceID})
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to get miner info for miner %s: %v", deviceID, err)

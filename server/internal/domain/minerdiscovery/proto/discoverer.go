@@ -7,7 +7,7 @@ import (
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
+	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	protoMinerClient "github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
 )
 

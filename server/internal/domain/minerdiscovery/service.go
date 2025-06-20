@@ -2,11 +2,13 @@ package minerdiscovery
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
+	interfaces "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
+	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 )
 
 type Discoverer interface {
@@ -67,4 +69,11 @@ func (s *Service) DiscoverMinerWithType(ctx context.Context, ipAddress string, p
 		return nil, fleeterror.NewInternalErrorf("no discoverer found for miner type: %s", minerType)
 	}
 	return discoverer.Discover(ctx, ipAddress, port)
+}
+
+//nolint:revive // GetMinerFromDeviceID will be implemented in the future
+func (s *Service) GetMinerFromDeviceID(ctx context.Context, deviceID string) (interfaces.Miner, error) {
+	// This method is a placeholder for future implementation
+	// It should return a miner instance based on the device ID
+	return nil, fmt.Errorf("unimplemented method: GetMinerFromDeviceID")
 }

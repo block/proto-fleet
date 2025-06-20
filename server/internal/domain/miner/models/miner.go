@@ -1,11 +1,6 @@
-package miner
+package models
 
-import (
-	"context"
-
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
-)
+import "github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 
 type Type int
 
@@ -36,20 +31,6 @@ func TypeFromString(s string) (Type, error) {
 	default:
 		return TypeProto, fleeterror.NewInvalidArgumentErrorf("invalid miner type: %s", s)
 	}
-}
-
-type Miner interface {
-	// Basic identification
-	GetType() Type
-	GetIdentifier() string
-	GetConnectionInfo() networking.ConnectionInfo
-
-	// Mining operations
-	StartMining(ctx context.Context) error
-	StopMining(ctx context.Context) error
-
-	// System operations
-	GetPairingInfo(ctx context.Context) (*PairingInfo, error)
 }
 
 type PairingInfo struct {

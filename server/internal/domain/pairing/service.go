@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
@@ -350,7 +350,7 @@ func (s *Service) saveDevice(ctx context.Context, device *pb.Device) error {
 			SerialNumber:     sql.NullString{String: device.SerialNumber, Valid: len(device.SerialNumber) > 0},
 			Model:            sql.NullString{String: device.Model, Valid: len(device.Model) > 0},
 			Manufacturer:     sql.NullString{String: device.Manufacturer, Valid: len(device.Manufacturer) > 0},
-			Type:             miner.TypeProto.String(),
+			Type:             models.TypeProto.String(),
 			IsActive:         sql.NullBool{Bool: true, Valid: true},
 		})
 		if err != nil {

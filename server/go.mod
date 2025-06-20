@@ -11,6 +11,7 @@ require (
 	github.com/Ullaakut/nmap/v3 v3.0.6
 	github.com/alecthomas/assert/v2 v2.11.0
 	github.com/alecthomas/kong v1.8.1
+	github.com/brianvoe/gofakeit/v7 v7.2.1
 	github.com/go-sql-driver/mysql v1.5.0
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/golang-migrate/migrate/v4 v4.18.2
