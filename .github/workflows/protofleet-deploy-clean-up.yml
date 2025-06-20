@@ -106,6 +106,7 @@ jobs:
             protofleet/backend-develop,
             protofleet/frontend-dashboard-develop,
             protofleet/frontend-storybook-develop,
+            protofleet/frontend-proto-os-develop,
             protofleet/miner-sim-develop,
           ]
     steps:

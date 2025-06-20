@@ -1,0 +1,36 @@
+name: protofleet-develop-${LABEL}-frontend-proto-os
+
+services:
+  miner-sim:
+    container_name: "protofleet-develop-${LABEL}-frontend-proto-os"
+    image: ${IMAGE}
+    restart: unless-stopped
+    expose:
+      - "2121"
+      - "8080"
+    privileged: true
+    labels:
+      - "traefik.http.services.protofleet-develop-${LABEL}-frontend-proto-os.loadbalancer.server.port=8080"
+      - "traefik.http.services.protofleet-develop-${LABEL}-frontend-proto-os-grpc.loadbalancer.server.port=2121"
+      - "traefik.http.services.protofleet-develop-${LABEL}-frontend-proto-os-grpc.loadbalancer.server.scheme=h2c"
+
+      - "traefik.http.routers.protofleet-develop-${LABEL}-frontend-proto-os.rule=Host(`proto-os.${LABEL}.develop.fleetdev.proto.xyz`)"
+      - "traefik.http.routers.protofleet-develop-${LABEL}-frontend-proto-os.entrypoints=websecure"
+      - "traefik.http.routers.protofleet-develop-${LABEL}-frontend-proto-os.service=protofleet-develop-${LABEL}-frontend-proto-os"
+
+      - "traefik.http.routers.protofleet-develop-${LABEL}-frontend-proto-os-grpc.rule=Host(`proto-os.${LABEL}.develop.fleetdev.proto.xyz`)"
+      - "traefik.http.routers.protofleet-develop-${LABEL}-frontend-proto-os-grpc.entrypoints=miner-grpc"
+      - "traefik.http.routers.protofleet-develop-${LABEL}-frontend-proto-os-grpc.service=protofleet-develop-${LABEL}-frontend-proto-os-grpc"
+    environment:
+      MFG_SERIAL_NUMBER: "proto-os-miner-simulator-${LABEL}"
+    networks:
+      - traefik
+    logging:
+      driver: "json-file"
+      options:
+        max-size: 100m
+
+networks:
+  traefik:
+    name: protofleet-develop-traefik_traefik
+    external: true

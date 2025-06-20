@@ -39,50 +39,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup AWS SSH
-        uses: ./.github/actions/aws-ssh-setup
-        with:
-          aws-instance-id: "i-0e47edcb1574765b0"
-          aws-instance-connect-endpoint-id: "eice-0e5cdfd8da57023b2"
-          aws-instance-user: "ubuntu"
-          aws-region: "us-east-1"
-          aws-role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Deploy_Develop"
-
-      - name: Build Docker image
-        shell: bash
-        run: docker build -f "${{ inputs.source-build-directory }}/Dockerfile" -t "${{ inputs.docker-image-tag }}" ${{ inputs.docker-build-working-directory }}
-
-      - name: Publish Docker image
-        id: publish-docker-image
-        uses: ./.github/actions/docker-image-publish
+      - name: Deploy Docker to Develop VM
+        uses: ./.github/actions/deploy-docker-to-develop-vm
         with:
           docker-image-tag: ${{ inputs.docker-image-tag }}
-
-      - name: Write Docker image tag to Docker Compose file
-        shell: bash
-        run: sed -i 's#${IMAGE}#${{ steps.publish-docker-image.outputs.docker-image-remote-tag }}#g' "${{ inputs.source-build-directory }}/docker-compose.yml"
-
-      - name: Derive Docker image label
-        shell: bash
-        run: echo "DOCKER_IMAGE_LABEL=$(echo "${{ inputs.docker-image-tag }}" | cut -d':' -f 2)" >> $GITHUB_ENV
-
-      - name: Write Docker image label to Docker Compose file
-        shell: bash
-        run: sed -i 's#${LABEL}#${{ env.DOCKER_IMAGE_LABEL }}#g' "${{ inputs.source-build-directory }}/docker-compose.yml"
-
-      - name: Write additional parameters to Docker Compose file
-        shell: bash
-        run: |
-          json='${{ inputs.docker-compose-parameters }}'
-
-          echo "$json" | jq -r 'keys[]' | while read key; do
-            value=$(echo "$json" | jq -r --arg k "$key" '.[$k]')
-
-            sed -i "s^\${$key}^$value^g" "${{ inputs.source-build-directory }}/docker-compose.yml"
-          done
-
-      - name: Deploy
-        uses: ./.github/actions/docker-compose-deploy
-        with:
-          source-directory: "${{ inputs.source-build-directory }}"
-          target-directory: "${{ inputs.target-directory }}"
+          docker-build-working-directory: ${{ inputs.docker-build-working-directory }}
+          source-build-directory: ${{ inputs.source-build-directory }}
+          target-directory: ${{ inputs.target-directory }}
+          docker-compose-parameters: ${{ inputs.docker-compose-parameters }}
