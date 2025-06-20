@@ -13,6 +13,7 @@ interface ProcessedSystemInfo {
   isWebServerRunning: boolean;
   // MCDD
   isMiningDriverRunning: boolean;
+  hasFirmwareUpdate: boolean;
 }
 
 const useSystemInfo = ({ poll }: UseSystemInfoProps) => {
@@ -37,6 +38,7 @@ const useSystemInfo = ({ poll }: UseSystemInfoProps) => {
           setProcessedData({
             isWebServerRunning: false,
             isMiningDriverRunning: false,
+            hasFirmwareUpdate: false,
           });
         } else {
           let isMiningDriverRunning = true;
@@ -55,6 +57,8 @@ const useSystemInfo = ({ poll }: UseSystemInfoProps) => {
           setProcessedData({
             isWebServerRunning: true,
             isMiningDriverRunning: isMiningDriverRunning,
+            hasFirmwareUpdate:
+              responseData.sw_update_status?.status === "available",
           });
         }
       })
@@ -65,6 +69,7 @@ const useSystemInfo = ({ poll }: UseSystemInfoProps) => {
         setProcessedData({
           isWebServerRunning: false,
           isMiningDriverRunning: false,
+          hasFirmwareUpdate: false,
         });
       })
       .finally(() => {

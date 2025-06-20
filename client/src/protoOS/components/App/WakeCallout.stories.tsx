@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 
 import App from "./App";
 import { MiningStatusMiningstatus } from "@/protoOS/api/types";
+import { MinerStatusProvider } from "@/protoOS/contexts/MinerStatusContext";
 
 export const WakeUpMiner = () => {
   const [miningStatus, setMiningStatus] = useState<MiningStatusMiningstatus>({
@@ -16,14 +17,11 @@ export const WakeUpMiner = () => {
   };
 
   return (
-    <App
-      title="Page title"
-      apiMiningStatus={miningStatus}
-      onWake={handleWake}
-      pendingSystemInfo={false}
-    >
-      Page content
-    </App>
+    <MinerStatusProvider apiMiningStatus={miningStatus}>
+      <App title="Page title" onWake={handleWake} pendingSystemInfo={false}>
+        Page content
+      </App>
+    </MinerStatusProvider>
   );
 };
 

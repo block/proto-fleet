@@ -1,6 +1,6 @@
 import { useContext } from "react";
 
-import { MinerStatusContext } from "./MinerStatusContext";
+import MinerStatusContext from "./MinerStatusContext";
 
 const useMinerStatus = () => {
   const {

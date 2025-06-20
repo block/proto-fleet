@@ -11,6 +11,11 @@ import {
 } from "./NavigationItems";
 import { NavigationItemValue, NavigationMenuType } from "./types";
 import { useMinerHosting } from "@/protoOS/api";
+import { UpdateAvailable } from "@/protoOS/features/firmwareUpdate";
+import {
+  statuses as FwuStatuses,
+  useFirmwareUpdate,
+} from "@/protoOS/features/firmwareUpdate/";
 import { Logo } from "@/shared/assets/icons";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
@@ -35,6 +40,12 @@ const Navigation = ({
     () => type === navigationMenuTypes.onboarding,
     [type],
   );
+
+  const {
+    status: fwuStatus,
+    dismissed: fwuDismissed,
+    setDismissed: fwuSetDismissed,
+  } = useFirmwareUpdate();
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -65,7 +76,7 @@ const Navigation = ({
         "phone:absolute phone:z-30 phone:min-h-[calc(100vh-16px)] phone:rounded-lg",
       )}
     >
-      <div className="grow border-b border-border-5">
+      <div className="grow">
         <div className="mb-3 flex h-[60px] items-center border-b border-border-5 px-3 py-2">
           {closeButton ? (
             closeButton
@@ -94,7 +105,14 @@ const Navigation = ({
         </div>
       </div>
 
-      <div className="px-3 pb-3">
+      {fwuStatus === FwuStatuses.available && !fwuDismissed && (
+        <UpdateAvailable
+          className="mb-3"
+          dismiss={() => fwuSetDismissed(true)}
+        />
+      )}
+
+      <div className="border-t border-border-5 px-3 pb-3">
         <VersionInfo
           loading={versionInfo?.loading}
           value={versionInfo?.value}

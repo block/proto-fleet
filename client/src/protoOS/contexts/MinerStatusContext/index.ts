@@ -1,4 +1,4 @@
-import { MinerStatusContext } from "./MinerStatusContext";
+import MinerStatusContext, { MinerStatusProvider } from "./MinerStatusContext";
 import { useMinerStatus } from "./useMinerStatus";
 
-export { useMinerStatus, MinerStatusContext };
+export { useMinerStatus, MinerStatusContext, MinerStatusProvider };

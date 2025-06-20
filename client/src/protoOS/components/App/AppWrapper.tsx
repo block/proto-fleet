@@ -21,6 +21,8 @@ import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
+import { MinerStatusProvider } from "@/protoOS/contexts/MinerStatusContext";
+import { FirmwareUpdateProvider } from "@/protoOS/features/firmwareUpdate/contexts/FirmwareUpdateContext";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { BootingUp } from "@/shared/components/Setup";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
@@ -154,21 +156,26 @@ const AppWrapper = ({
         }
 
         return (
-          <App
-            title={title}
+          <MinerStatusProvider
             apiErrors={errors}
-            pendingErrors={pendingErrors}
             apiMiningStatus={miningStatus}
-            onWake={handleWake}
-            wakeError={startMiningError}
-            afterWake={afterWake}
-            systemInfo={systemInfo}
-            pendingSystemInfo={pendingSystemInfo}
-            hideErrors={hideErrors}
-            ContentLayout={ContentLayout}
+            pendingErrors={pendingErrors}
           >
-            {children}
-          </App>
+            <FirmwareUpdateProvider systemInfo={systemInfo}>
+              <App
+                title={title}
+                onWake={handleWake}
+                wakeError={startMiningError}
+                afterWake={afterWake}
+                systemInfo={systemInfo}
+                pendingSystemInfo={pendingSystemInfo}
+                hideErrors={hideErrors}
+                ContentLayout={ContentLayout}
+              >
+                {children}
+              </App>
+            </FirmwareUpdateProvider>
+          </MinerStatusProvider>
         );
       })()}
     </>

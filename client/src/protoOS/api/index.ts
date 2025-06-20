@@ -4,6 +4,7 @@ import { useCoolingStatus } from "./useCoolingStatus";
 import { useCreatePools } from "./useCreatePools";
 import { useEfficiency } from "./useEfficiency";
 import { useErrors } from "./useErrors";
+import { useFirmwareUpdate } from "./useFirmwareUpdate";
 import { useHashboardEfficiency } from "./useHashboardEfficiency";
 import { useHashboardHashrate } from "./useHashboardHashrate";
 import { useHashboardPower } from "./useHashboardPower";
@@ -37,6 +38,7 @@ export {
   useCreatePools,
   useEfficiency,
   useErrors,
+  useFirmwareUpdate,
   useHashboardEfficiency,
   useHashboardHashrate,
   useHashboardPower,

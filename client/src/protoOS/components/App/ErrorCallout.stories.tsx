@@ -9,6 +9,8 @@ import {
   storyArgTypes,
 } from "@/protoOS/components/PageHeader/MinerStatus/constants";
 
+import { MinerStatusProvider } from "@/protoOS/contexts/MinerStatusContext";
+
 interface MinerStatusProps extends mockErrorListProps {
   loading: boolean;
 }
@@ -32,14 +34,14 @@ export const MinerStatus = ({
   });
 
   return (
-    <App
-      title="Page title"
+    <MinerStatusProvider
       apiErrors={loading ? undefined : mockErrorResponse}
       pendingErrors={loading}
-      pendingSystemInfo={false}
     >
-      Page content
-    </App>
+      <App title="Page title" pendingSystemInfo={false}>
+        Page content
+      </App>{" "}
+    </MinerStatusProvider>
   );
 };
 

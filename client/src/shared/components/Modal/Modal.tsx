@@ -1,6 +1,7 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
+import { sizes } from "./constants";
 import { Dismiss } from "@/shared/assets/icons";
 import { sizes as buttonSizes, variants } from "@/shared/components/Button";
 
@@ -18,8 +19,6 @@ interface ModalButtonProps extends ButtonProps {
   dismissModalOnClick?: boolean;
 }
 
-type ModalSizes = "small" | "large";
-
 interface ModalProps {
   children: ReactNode;
   className?: string;
@@ -34,7 +33,7 @@ interface ModalProps {
   description?: string;
   preventClose?: boolean;
   divider?: boolean;
-  size?: ModalSizes;
+  size?: keyof typeof sizes;
 }
 
 const Modal = ({
@@ -47,11 +46,11 @@ const Modal = ({
   buttons,
   show = true,
   showHeader = true,
-  size = "small",
   title,
   description,
   preventClose,
   divider = true,
+  size = sizes.large,
 }: ModalProps) => {
   const [showModal, setShowModal] = useState(show);
   const ModalRef = useRef<HTMLDivElement>(null);
@@ -80,7 +79,7 @@ const Modal = ({
     (button?: ModalButtonProps) => () => {
       if (
         button?.variant === variants.primary &&
-        !button?.dismissModalOnClick
+        button?.dismissModalOnClick !== true
       ) {
         closeModal(true);
       }
@@ -105,8 +104,10 @@ const Modal = ({
     <PageOverlay show={showModal}>
       <div
         className={clsx(
-          "h-fit w-[80%] max-w-[640px] rounded-3xl bg-surface-elevated-base p-6 shadow-300",
+          "h-fit rounded-3xl bg-surface-elevated-base p-6 shadow-300",
           {
+            "w-160": size === "large",
+            "w-90": size === "small",
             "animate-sliding-up": showModal,
             "animate-sliding-down": !showModal,
             "max-w-[640px]": size === "small",
