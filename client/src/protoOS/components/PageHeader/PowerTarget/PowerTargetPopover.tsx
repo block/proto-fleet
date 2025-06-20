@@ -1,10 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMiningTarget } from "@/protoOS/api";
+import {
+  PerformanceMode,
+  performanceModes,
+} from "@/protoOS/components/PageHeader/PowerTarget/constants";
+import { Efficiency, Hashrate } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Popover from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-import { positions } from "@/shared/constants";
+import SelectRowList from "@/shared/components/SelectRowList";
+import { rowListVariants } from "@/shared/components/SelectRowList/constants";
+import { positions, selectTypes } from "@/shared/constants";
 import { convertWtoKW } from "@/shared/utils/utility";
 
 export type PowerTargetPopoverProps = {
@@ -12,8 +19,11 @@ export type PowerTargetPopoverProps = {
 };
 
 const PowerTargetPopover = ({ onDismiss }: PowerTargetPopoverProps) => {
-  const { miningTarget, bounds, pending, updateMiningTarget } =
+  const { miningTarget, performanceMode, bounds, pending, updateMiningTarget } =
     useMiningTarget();
+  const [selectedPerformanceMode, setSelectedPerformanceMode] = useState<
+    PerformanceMode | undefined
+  >(performanceMode);
   const [inputValue, setInputValue] = useState<string>();
   const [error, setError] = useState<string>();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -38,6 +48,10 @@ const PowerTargetPopover = ({ onDismiss }: PowerTargetPopoverProps) => {
   };
 
   useEffect(() => {
+    setSelectedPerformanceMode(performanceMode);
+  }, [pending, performanceMode]);
+
+  useEffect(() => {
     if (pending || miningTarget === undefined) {
       setInputValue(undefined);
       return;
@@ -46,14 +60,50 @@ const PowerTargetPopover = ({ onDismiss }: PowerTargetPopoverProps) => {
     setInputValue(`${convertWtoKW(miningTarget)}`);
   }, [pending, miningTarget]);
 
+  const handleUpdate = useCallback(() => {
+    if (inputRef.current === null || pending) {
+      return;
+    }
+
+    updateMiningTarget({
+      performance_mode: selectedPerformanceMode,
+      power_target_watts: +inputRef.current.value * 1000,
+    });
+  }, [pending, selectedPerformanceMode, updateMiningTarget]);
+
   return (
-    <Popover position={positions["bottom left"]}>
+    <Popover position={positions["bottom left"]} className="w-102">
       <div>
-        <h2 className="text-heading-100 text-text-primary">Power target</h2>
+        <h2 className="text-heading-100 text-text-primary">
+          Performance target
+        </h2>
         <p className="text-300 text-text-primary-70">
-          Set a power target for the miner.
+          Prioritize hashrate or efficiency.
         </p>
       </div>
+
+      <SelectRowList
+        type={selectTypes.radio}
+        variant={rowListVariants.fill}
+        selectRows={[
+          {
+            id: performanceModes.MaximumHashrate,
+            isSelected:
+              selectedPerformanceMode === performanceModes.MaximumHashrate,
+            prefixIcon: <Hashrate />,
+            text: "Hashrate",
+          },
+          {
+            id: performanceModes.Efficiency,
+            isSelected: selectedPerformanceMode === performanceModes.Efficiency,
+            prefixIcon: <Efficiency />,
+            text: "Efficiency",
+          },
+        ]}
+        onChange={(id, isSelected) => {
+          if (isSelected) setSelectedPerformanceMode(id as PerformanceMode);
+        }}
+      />
 
       <Input
         id={"power-target-input"}
@@ -83,12 +133,13 @@ const PowerTargetPopover = ({ onDismiss }: PowerTargetPopoverProps) => {
           prefixIcon={
             pending ? <ProgressCircular indeterminate size={12} /> : undefined
           }
+          testId="power-target-apply-button"
           onClick={() => {
             if (pending || inputRef.current === null) {
               return;
             }
 
-            updateMiningTarget(+inputRef.current.value * 1000);
+            handleUpdate();
           }}
         />
       </div>

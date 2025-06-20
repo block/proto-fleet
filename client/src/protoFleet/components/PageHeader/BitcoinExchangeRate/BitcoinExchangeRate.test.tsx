@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import BitcoinExchangeRate from "./BitcoinExchangeRate";
 
 describe("Bank Balance", () => {
-  const bitcoinIconTestId = "bitcoin";
+  const bitcoinIconTestId = "bitcoin-icon";
   const skeletonTestId = "skeleton-bar";
 
   const usdCurrency = "$";

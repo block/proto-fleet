@@ -15,6 +15,7 @@ import DismissCircle from "./DismissCircle";
 import DismissCircleDark from "./DismissCircleDark";
 import DismissTiny from "./DismissTiny";
 import Download from "./Download";
+import Efficiency from "./Efficiency";
 import Ellipsis from "./Ellipsis";
 import Eye from "./Eye";
 import Fan from "./Fan";
@@ -25,6 +26,7 @@ import Graph from "./Graph";
 import Grip from "./Grip";
 import Hashboard from "./Hashboard";
 import HashboardIndicator from "./HashboardIndicator";
+import Hashrate from "./Hashrate";
 import Home from "./Home";
 import Info from "./Info";
 import InfoInverted from "./InfoInverted";
@@ -73,6 +75,7 @@ export {
   DismissCircleDark,
   DismissTiny,
   Download,
+  Efficiency,
   Ellipsis,
   Eye,
   Fan,
@@ -83,6 +86,7 @@ export {
   Grip,
   Hashboard,
   HashboardIndicator,
+  Hashrate,
   Home,
   type IconProps,
   Info,

@@ -9,8 +9,6 @@ import { usePopover } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
-// TODO: replace with API call to get power target bounds
-
 const PowerTarget = () => {
   const { miningTarget, bounds, pending } = useMiningTarget();
   const [showPopover, setShowPopover] = useState<boolean>(false);

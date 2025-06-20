@@ -5,7 +5,7 @@ import AlertStatus from "./AlertStatus";
 import { alerts } from "@/protoFleet/features/fleetManagement/components/AlertsModal/stories/mocks";
 
 describe("Alert Status", () => {
-  const alertIconTestId = "alert";
+  const alertIconTestId = "alert-icon";
   const modalTestId = "modal";
 
   const warningClass = "text-text-warning";

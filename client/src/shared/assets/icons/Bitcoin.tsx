@@ -5,7 +5,7 @@ import { IconProps } from "./types";
 
 const Bitcoin = ({ className, width = iconSizes.small }: IconProps) => {
   return (
-    <div className={clsx(width, className)} data-testid="bitcoin">
+    <div className={clsx(width, className)} data-testid="bitcoin-icon">
       <svg
         width="100%"
         height="100%"

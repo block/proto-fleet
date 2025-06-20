@@ -11,7 +11,7 @@ const Checkmark = ({
   return (
     <div
       className={clsx(width, className)}
-      data-testid="checkmark"
+      data-testid="checkmark-icon"
       onClick={onClick}
     >
       <svg

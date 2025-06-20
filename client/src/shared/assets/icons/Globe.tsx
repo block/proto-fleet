@@ -5,7 +5,7 @@ import { IconProps } from "./types";
 
 const Globe = ({ className, width = iconSizes.small }: IconProps) => {
   return (
-    <div className={clsx(width, className)} data-testid="globe">
+    <div className={clsx(width, className)} data-testid="globe-icon">
       <svg
         width="100%"
         height="100%"

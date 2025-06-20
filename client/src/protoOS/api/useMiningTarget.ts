@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { MiningTarget } from "./types";
+import { HttpResponse, MiningTarget, MiningTargetResponse } from "./types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 
 type MiningTargetState = {
   value?: MiningTarget["power_target_watts"];
+  performanceMode?: MiningTarget["performance_mode"];
   bounds?: {
     min: number;
     max: number;
@@ -15,6 +16,7 @@ type MiningTargetState = {
 
 const miningTargetStore: MiningTargetState = {
   value: undefined,
+  performanceMode: undefined,
   bounds: undefined,
   pending: false,
   error: null,
@@ -26,6 +28,7 @@ const updateStore = (update: Partial<Omit<MiningTargetState, "listeners">>) => {
 
   const state = {
     value: miningTargetStore.value,
+    performanceMode: miningTargetStore.performanceMode,
     bounds: miningTargetStore.bounds,
     pending: miningTargetStore.pending,
     error: miningTargetStore.error,
@@ -41,12 +44,13 @@ const fetchData = (api: any) => {
 
   api
     .getMiningTarget()
-    .then((res: any) => {
+    .then((res: HttpResponse<MiningTargetResponse>) => {
       updateStore({
-        value: res?.data["power_target_watts"],
+        value: res?.data.power_target_watts,
+        performanceMode: res?.data.performance_mode,
         bounds: {
-          min: res?.data["power_target_min_watts"],
-          max: res?.data["power_target_max_watts"],
+          min: res?.data.power_target_min_watts ?? 0,
+          max: res?.data.power_target_max_watts ?? 0,
         },
         pending: false,
       });
@@ -60,10 +64,7 @@ const fetchData = (api: any) => {
 };
 
 // Update data for all components
-const sharedUpdateMiningTarget = (
-  api: any,
-  newTarget: MiningTarget["power_target_watts"],
-) => {
+const sharedUpdateMiningTarget = (api: any, newTarget: MiningTarget) => {
   if (!api) return;
 
   updateStore({
@@ -72,13 +73,14 @@ const sharedUpdateMiningTarget = (
   });
 
   api
-    .editMiningTarget({ power_target_watts: newTarget })
-    .then((res: any) => {
+    .editMiningTarget(newTarget)
+    .then((res: HttpResponse<MiningTargetResponse>) => {
       updateStore({
-        value: res?.data["power_target_watts"],
+        value: res?.data.power_target_watts,
+        performanceMode: res?.data.performance_mode,
         bounds: {
-          min: res?.data["power_target_watts_min"],
-          max: res?.data["power_target_watts_max"],
+          min: res?.data.power_target_min_watts ?? 0,
+          max: res?.data.power_target_max_watts ?? 0,
         },
         pending: false,
       });
@@ -95,6 +97,7 @@ const useMiningTarget = () => {
   const { api } = useMinerHosting();
   const [localState, setLocalState] = useState({
     miningTarget: miningTargetStore.value,
+    performanceMode: miningTargetStore.performanceMode,
     bounds: miningTargetStore.bounds,
     pending: miningTargetStore.pending,
     error: miningTargetStore.error,
@@ -104,6 +107,7 @@ const useMiningTarget = () => {
     const listener = (state: Omit<MiningTargetState, "listeners">) => {
       setLocalState({
         miningTarget: state.value,
+        performanceMode: state.performanceMode,
         bounds: state.bounds,
         pending: state.pending,
         error: state.error,
@@ -128,7 +132,7 @@ const useMiningTarget = () => {
   }, [api]);
 
   const updateMiningTarget = useCallback(
-    (newTarget: MiningTarget["power_target_watts"]) => {
+    (newTarget: MiningTarget) => {
       sharedUpdateMiningTarget(api, newTarget);
     },
     [api],
@@ -137,6 +141,7 @@ const useMiningTarget = () => {
   return useMemo(
     () => ({
       miningTarget: localState.miningTarget,
+      performanceMode: localState.performanceMode,
       bounds: localState.bounds,
       pending: localState.pending,
       error: localState.error,

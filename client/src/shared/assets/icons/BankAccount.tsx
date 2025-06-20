@@ -5,7 +5,7 @@ import { IconProps } from "./types";
 
 const BankAccount = ({ className, width = iconSizes.small }: IconProps) => {
   return (
-    <div className={clsx(width, className)} data-testid="bank-account">
+    <div className={clsx(width, className)} data-testid="bank-account-icon">
       <svg
         width="100%"
         height="100%"

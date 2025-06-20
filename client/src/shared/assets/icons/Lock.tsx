@@ -5,7 +5,7 @@ import { IconProps } from "./types";
 
 const Lock = ({ className, width = iconSizes.medium }: IconProps) => {
   return (
-    <div className={clsx(width, className)} data-testid="alert">
+    <div className={clsx(width, className)} data-testid="lock-icon">
       <svg
         width="100%"
         height="100%"

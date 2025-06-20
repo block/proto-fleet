@@ -5,6 +5,7 @@ import { Checkmark } from "@/shared/assets/icons";
 import { SelectType, selectTypes } from "@/shared/constants";
 
 export interface SelectRowProps {
+  className?: string;
   disabled?: boolean;
   isSelected: boolean;
   onChange: (isSelected: boolean) => void;
@@ -15,6 +16,7 @@ export interface SelectRowProps {
 }
 
 const SelectRow = ({
+  className,
   disabled,
   isSelected,
   onChange,
@@ -45,6 +47,7 @@ const SelectRow = ({
             !disabled,
           "cursor-not-allowed bg-core-primary-5 text-text-primary-50": disabled,
         },
+        className,
       )}
       disabled={disabled}
       onClick={() => onChange(!isSelected)}

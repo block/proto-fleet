@@ -4,7 +4,7 @@ import BankBalance from "./BankBalance";
 import { bitcoinCurrency } from "./constants";
 
 describe("Bank Balance", () => {
-  const bankIconTestId = "bank-account";
+  const bankIconTestId = "bank-account-icon";
   const skeletonTestId = "skeleton-bar";
 
   test("renders loading state", () => {

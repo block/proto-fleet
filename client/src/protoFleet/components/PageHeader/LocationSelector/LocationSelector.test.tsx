@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import LocationSelector from "./LocationSelector";
 
 describe("Bank Balance", () => {
-  const globeIconTestId = "globe";
+  const globeIconTestId = "globe-icon";
   const skeletonTestId = "skeleton-bar";
 
   const locationName = "Test lab";

@@ -2,7 +2,8 @@ import { ReactNode, useCallback, useEffect, useState } from "react";
 import type { StoryObj } from "@storybook/react";
 
 import SelectRowListComponent from ".";
-import { SelectType } from "@/shared/constants";
+import { rowListVariants } from "@/shared/components/SelectRowList/constants";
+import { SelectType, selectTypes } from "@/shared/constants";
 import { BaseIcon } from "@/shared/stories/icons";
 
 interface IconWrapperProps {
@@ -18,6 +19,7 @@ interface SelectRowProps {
   hasPrefixIcon: boolean;
   hasSubtext: boolean;
   type: SelectType;
+  variant: keyof typeof rowListVariants;
 }
 
 const selectRows = {
@@ -32,6 +34,7 @@ const SelectRowListForStory = ({
   hasPrefixIcon,
   hasSubtext,
   type,
+  variant,
 }: SelectRowProps) => {
   const [selected, setSelected] = useState<SelectRow[]>([selectRows.one]);
 
@@ -42,11 +45,11 @@ const SelectRowListForStory = ({
   const onChange = useCallback(
     (id: string, isSelected: boolean) => {
       const selectRow = id as SelectRow;
-      if (type === "radio") {
+      if (type === selectTypes.radio) {
         if (isSelected) {
           setSelected([selectRow]);
         }
-      } else if (type === "checkbox") {
+      } else if (type === selectTypes.checkbox) {
         if (isSelected && !selected.includes(selectRow)) {
           setSelected([...selected, selectRow]);
         } else if (!isSelected && selected.includes(selectRow)) {
@@ -63,6 +66,7 @@ const SelectRowListForStory = ({
     <SelectRowListComponent
       className="w-96"
       type={type}
+      variant={variant}
       selectRows={[
         {
           id: selectRows.one,
@@ -101,7 +105,8 @@ export default {
     disabled: false,
     hasPrefixIcon: true,
     hasSubtext: true,
-    type: "radio",
+    type: selectTypes.radio,
+    variant: rowListVariants.stack,
   },
   argTypes: {
     disabled: {
@@ -115,7 +120,11 @@ export default {
     },
     type: {
       control: "select",
-      options: ["radio", "checkbox"],
+      options: Object.values(selectTypes),
+    },
+    variant: {
+      control: "select",
+      options: Object.values(rowListVariants),
     },
   },
 };
