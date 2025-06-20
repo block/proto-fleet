@@ -84,8 +84,8 @@ const MiningPoolPage = () => {
     return (
       <div className="h-svh w-full bg-surface-base">
         <AnimatedDotsBackground>
-          <div className="absolute top-1/2 left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 bg-surface-base p-4">
-            <div className="w-[600px]">
+          <div className="absolute top-1/2 left-1/2 z-10 w-full max-w-[600px] -translate-x-1/2 -translate-y-1/2 bg-surface-base p-4">
+            <div>
               <SettingUp
                 pools={pools}
                 setCreatePoolsError={setCreatePoolsError}
