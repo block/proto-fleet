@@ -3,13 +3,14 @@ package command
 import (
 	"context"
 	"database/sql"
+	"log/slog"
+	"time"
+
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"log/slog"
-	"time"
 )
 
 type StatusService struct {

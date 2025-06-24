@@ -3,10 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
 	"log/slog"
 	"net/http"
 	"os"
+
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
 
 	"connectrpc.com/connect"
 	"connectrpc.com/grpcreflect"
@@ -90,7 +91,14 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
-	pairingSvc := pairingDomain.NewService(conn, config.Pairing, tokenSvc, discoveryService)
+	discoveredDeviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
+	pairingSvc := pairingDomain.NewService(
+		discoveredDeviceStore,
+		conn,
+		config.Pairing,
+		tokenSvc,
+		discoveryService,
+	)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(conn, fleetmanagementDomain.NewMockTelemetryCollector())
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
 

@@ -2,8 +2,9 @@ package command
 
 import (
 	"context"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"log/slog"
+
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 
 	"connectrpc.com/connect"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"

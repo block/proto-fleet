@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
@@ -11,8 +12,28 @@ import (
 	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 )
 
+type DeviceOrgIdentifier struct {
+	DeviceIdentifier string
+	OrgID            int64
+}
+
+type DiscoveredDevice struct {
+	pb.Device
+	OrgID           int64
+	FirstDiscovered time.Time
+	LastSeen        time.Time
+	Type            string
+}
+
+func (d *DiscoveredDevice) GetDeviceOrgIdentifier() DeviceOrgIdentifier {
+	return DeviceOrgIdentifier{
+		DeviceIdentifier: d.Device.DeviceIdentifier,
+		OrgID:            d.OrgID,
+	}
+}
+
 type Discoverer interface {
-	Discover(ctx context.Context, ipAddress string, port string) (*pb.Device, error)
+	Discover(ctx context.Context, ipAddress string, port string) (*DiscoveredDevice, error)
 	GetMinerType() miner.Type
 }
 
@@ -39,7 +60,7 @@ func NewService(discoverers ...Discoverer) (*Service, error) {
 
 // Discover attempts to discover a device at the given IP address and port
 // using all available discoverers
-func (s *Service) Discover(ctx context.Context, ipAddress string, port string) (*pb.Device, error) {
+func (s *Service) Discover(ctx context.Context, ipAddress string, port string) (*DiscoveredDevice, error) {
 	var lastErr error
 
 	for minerType := range s.discoverers {
@@ -63,7 +84,7 @@ func (s *Service) Discover(ctx context.Context, ipAddress string, port string) (
 	return nil, lastErr
 }
 
-func (s *Service) DiscoverMinerWithType(ctx context.Context, ipAddress string, port string, minerType miner.Type) (*pb.Device, error) {
+func (s *Service) DiscoverMinerWithType(ctx context.Context, ipAddress string, port string, minerType miner.Type) (*DiscoveredDevice, error) {
 	discoverer, ok := s.discoverers[minerType]
 	if !ok {
 		return nil, fleeterror.NewInternalErrorf("no discoverer found for miner type: %s", minerType)

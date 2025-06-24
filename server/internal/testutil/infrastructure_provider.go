@@ -1,10 +1,11 @@
 package testutil
 
 import (
-	"github.com/alecthomas/assert/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/alecthomas/assert/v2"
 
 	"connectrpc.com/connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1/authv1connect"

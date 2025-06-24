@@ -1,10 +1,11 @@
 package main
 
 import (
+	"time"
+
 	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
-	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pools"

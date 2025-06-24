@@ -6,27 +6,27 @@ import (
 	"sync"
 	"testing"
 
+	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 )
 
 type MockDiscoverer struct {
 	mock.Mock
 }
 
-func (m *MockDiscoverer) Discover(ctx context.Context, ipAddress string, port string) (*pb.Device, error) {
+func (m *MockDiscoverer) Discover(ctx context.Context, ipAddress string, port string) (*minerdiscovery.DiscoveredDevice, error) {
 	args := m.Called(ctx, ipAddress, port)
 	if args.Get(0) == nil {
 		return nil, fmt.Errorf("discover error: %w", args.Error(1))
 	}
-	device, ok := args.Get(0).(*pb.Device)
+	device, ok := args.Get(0).(*minerdiscovery.DiscoveredDevice)
 	if !ok {
 		return nil, fmt.Errorf("unexpected type for device: %T", args.Get(0))
 	}
@@ -59,8 +59,10 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 	ctx := testutil.MockAuthContextForTesting(t.Context(), adminUser.DatabaseID, adminUser.OrganizationID)
 
 	discoveryService, _ := minerdiscovery.NewService(discoverers...)
+	deviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
 
 	pairingService := pairing.NewService(
+		deviceStore,
 		testContext.ServiceProvider.DB,
 		pairing.Config{SecretKey: "test-secret"},
 		tokenService,
@@ -68,6 +70,17 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 	)
 
 	return pairingService, ctx
+}
+
+func createMockDevice(ipAddress, port, serialNumber, deviceType string) *minerdiscovery.DiscoveredDevice {
+	return &minerdiscovery.DiscoveredDevice{
+		Device: pb.Device{
+			IpAddress:    ipAddress,
+			Port:         port,
+			SerialNumber: serialNumber,
+		},
+		Type: deviceType,
+	}
 }
 
 func TestDiscoverWithIPList(t *testing.T) {
@@ -79,16 +92,8 @@ func TestDiscoverWithIPList(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
 
-		mockDevice1 := &pb.Device{
-			IpAddress:    "192.168.1.10",
-			Port:         "8080",
-			SerialNumber: "SERIAL1",
-		}
-		mockDevice2 := &pb.Device{
-			IpAddress:    "192.168.1.11",
-			Port:         "8080",
-			SerialNumber: "SERIAL2",
-		}
+		mockDevice1 := createMockDevice("192.168.1.10", "8080", "SERIAL1", miner.TypeProto.String())
+		mockDevice2 := createMockDevice("192.168.1.11", "8080", "SERIAL2", miner.TypeProto.String())
 
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
@@ -146,21 +151,9 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
 
-		mockDevice1 := &pb.Device{
-			IpAddress:    "192.168.1.10",
-			Port:         "8080",
-			SerialNumber: "RANGE1",
-		}
-		mockDevice2 := &pb.Device{
-			IpAddress:    "192.168.1.11",
-			Port:         "8080",
-			SerialNumber: "RANGE2",
-		}
-		mockDevice3 := &pb.Device{
-			IpAddress:    "192.168.1.12",
-			Port:         "8080",
-			SerialNumber: "RANGE3",
-		}
+		mockDevice1 := createMockDevice("192.168.1.10", "8080", "RANGE1", miner.TypeProto.String())
+		mockDevice2 := createMockDevice("192.168.1.11", "8080", "RANGE2", miner.TypeProto.String())
+		mockDevice3 := createMockDevice("192.168.1.12", "8080", "RANGE3", miner.TypeProto.String())
 
 		// Set up mock calls that signal completion through WaitGroup
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").Run(func(_ mock.Arguments) {
@@ -222,21 +215,9 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
 
-		mockDevice1 := &pb.Device{
-			IpAddress:    "192.168.1.10",
-			Port:         "8080",
-			SerialNumber: "RANGE1",
-		}
-		mockDevice2 := &pb.Device{
-			IpAddress:    "192.168.1.11",
-			Port:         "8080",
-			SerialNumber: "RANGE2",
-		}
-		mockDevice3 := &pb.Device{
-			IpAddress:    "192.168.1.12",
-			Port:         "8080",
-			SerialNumber: "RANGE3",
-		}
+		mockDevice1 := createMockDevice("192.168.1.10", "8080", "RANGE1", miner.TypeProto.String())
+		mockDevice2 := createMockDevice("192.168.1.11", "8080", "RANGE2", miner.TypeProto.String())
+		mockDevice3 := createMockDevice("192.168.1.12", "8080", "RANGE3", miner.TypeProto.String())
 
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
@@ -311,11 +292,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
 
-		mockDevice := &pb.Device{
-			IpAddress:    "192.168.1.10",
-			Port:         "8080",
-			SerialNumber: "RANGE1",
-		}
+		mockDevice := createMockDevice("192.168.1.10", "8080", "RANGE1", miner.TypeProto.String())
 
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
@@ -375,17 +352,13 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
 
-		mockDevice := &pb.Device{
-			IpAddress:    "192.168.1.20",
-			Port:         "8080",
-			SerialNumber: "SUCCESS1",
-		}
+		mockDevice := createMockDevice("192.168.1.20", "80", "SUCCESS1", miner.TypeProto.String())
 
-		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.20", "8080").Run(func(_ mock.Arguments) {
+		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.20", "80").Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
 		}).Return(mockDevice, nil)
 
-		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.21", "8080").Run(func(_ mock.Arguments) {
+		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.21", "80").Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
 		}).Return(nil, assert.AnError)
 
@@ -396,7 +369,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		request := &pb.IPRangeModeRequest{
 			StartIp: "192.168.1.20",
 			EndIp:   "192.168.1.21",
-			Ports:   []string{"8080"},
+			Ports:   []string{"80"},
 		}
 
 		// Act

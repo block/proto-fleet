@@ -3,12 +3,13 @@ package testutil
 import (
 	"context"
 	"database/sql"
+	"testing"
+	"time"
+
 	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/proto"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
-	"testing"
-	"time"
 
 	"github.com/alecthomas/assert/v2"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"
@@ -48,7 +49,9 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	minerDiscoveryService, err := minerdiscovery.NewService(protoDiscoverer)
 	assert.NoError(t, err)
 
-	pairingService := pairing.NewService(db, pairingConfig, tokenService, minerDiscoveryService)
+	deviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
+
+	pairingService := pairing.NewService(deviceStore, db, pairingConfig, tokenService, minerDiscoveryService)
 
 	commandConfig := &command.Config{MaxWorkers: 50, MasterPollingInterval: time.Second, WorkerExecutionTimeout: 30 * time.Second, BatchStatusUpdatePollingInterval: time.Second}
 

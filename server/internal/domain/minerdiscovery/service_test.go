@@ -13,12 +13,12 @@ import (
 
 type MockDiscoverer struct {
 	MinerType    miner.Type
-	DiscoverFunc func(ctx context.Context, ipAddress string, port string) (*pb.Device, error)
+	DiscoverFunc func(ctx context.Context, ipAddress string, port string) (*minerdiscovery.DiscoveredDevice, error)
 }
 
 var _ minerdiscovery.Discoverer = (*MockDiscoverer)(nil)
 
-func (m *MockDiscoverer) Discover(ctx context.Context, ipAddress string, port string) (*pb.Device, error) {
+func (m *MockDiscoverer) Discover(ctx context.Context, ipAddress string, port string) (*minerdiscovery.DiscoveredDevice, error) {
 	return m.DiscoverFunc(ctx, ipAddress, port)
 }
 
@@ -31,18 +31,21 @@ func TestService(t *testing.T) {
 	t.Run("should discover device using first successful discoverer", func(t *testing.T) {
 		failingDiscoverer := &MockDiscoverer{
 			MinerType: miner.TypeAntminer,
-			DiscoverFunc: func(ctx context.Context, _ string, _ string) (*pb.Device, error) {
+			DiscoverFunc: func(ctx context.Context, _ string, _ string) (*minerdiscovery.DiscoveredDevice, error) {
 				return nil, assert.AnError
 			},
 		}
 
 		successfulDiscoverer := &MockDiscoverer{
 			MinerType: miner.TypeProto,
-			DiscoverFunc: func(ctx context.Context, ipAddress string, port string) (*pb.Device, error) {
-				return &pb.Device{
-					IpAddress:    ipAddress,
-					Port:         port,
-					SerialNumber: "PROTO123",
+			DiscoverFunc: func(ctx context.Context, ipAddress string, port string) (*minerdiscovery.DiscoveredDevice, error) {
+				return &minerdiscovery.DiscoveredDevice{
+					Device: pb.Device{
+						IpAddress:    ipAddress,
+						Port:         port,
+						SerialNumber: "PROTO123",
+					},
+					Type: miner.TypeProto.String(),
 				}, nil
 			},
 		}
@@ -58,14 +61,14 @@ func TestService(t *testing.T) {
 	t.Run("should return error if all discoverers fail", func(t *testing.T) {
 		failingDiscoverer1 := &MockDiscoverer{
 			MinerType: miner.TypeAntminer,
-			DiscoverFunc: func(ctx context.Context, _ string, _ string) (*pb.Device, error) {
+			DiscoverFunc: func(ctx context.Context, _ string, _ string) (*minerdiscovery.DiscoveredDevice, error) {
 				return nil, assert.AnError
 			},
 		}
 
 		failingDiscoverer2 := &MockDiscoverer{
 			MinerType: miner.TypeProto,
-			DiscoverFunc: func(ctx context.Context, _ string, _ string) (*pb.Device, error) {
+			DiscoverFunc: func(ctx context.Context, _ string, _ string) (*minerdiscovery.DiscoveredDevice, error) {
 				return nil, assert.AnError
 			},
 		}

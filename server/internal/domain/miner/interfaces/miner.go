@@ -3,8 +3,9 @@ package interfaces
 import (
 	"context"
 	"database/sql"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
 	"time"
+
+	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	telemetryModels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"

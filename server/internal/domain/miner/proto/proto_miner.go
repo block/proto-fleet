@@ -3,9 +3,10 @@ package proto
 import (
 	"context"
 	"database/sql"
+	"time"
+
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
-	"time"
 
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"

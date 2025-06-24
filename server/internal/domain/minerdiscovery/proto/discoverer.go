@@ -9,6 +9,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	protoMinerClient "github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 )
 
 type Discoverer struct {
@@ -21,7 +22,7 @@ func NewDiscoverer(minerClient *protoMinerClient.Service) *Discoverer {
 	}
 }
 
-func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string) (*pb.Device, error) {
+func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string) (*minerdiscovery.DiscoveredDevice, error) {
 	url := net.JoinHostPort(ipAddress, port)
 
 	pairingInfo, err := d.minerClient.GetPairingInfo(ctx, url)
@@ -33,16 +34,23 @@ func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string
 		return nil, fleeterror.NewInternalErrorf("miner at '%s' does not have a serial number which is required for pairing", url)
 	}
 
+	if len(pairingInfo.Msg.Mac) == 0 {
+		return nil, fleeterror.NewInternalErrorf("miner at '%s' does not have a mac address which is required for pairing", url)
+	}
+
 	// Create device information
-	return &pb.Device{
-		IpAddress:    ipAddress,
-		Port:         port,
-		MacAddress:   pairingInfo.Msg.Mac,
-		SerialNumber: pairingInfo.Msg.CbSn,
-		// TODO(DASH-331) Fetch model and manufacturer from miner
-		Model:        "Proto Rig",
-		Manufacturer: "Block, Inc",
-		DiscoveredAt: time.Now().Unix(),
+	return &minerdiscovery.DiscoveredDevice{
+		Device: pb.Device{
+			IpAddress:    ipAddress,
+			Port:         port,
+			MacAddress:   pairingInfo.Msg.Mac,
+			SerialNumber: pairingInfo.Msg.CbSn,
+			// TODO(DASH-331) Fetch model and manufacturer from miner
+			Model:        "Proto Rig",
+			Manufacturer: "Block, Inc",
+			DiscoveredAt: time.Now().Unix(),
+		},
+		Type: d.GetMinerType().String(),
 	}, nil
 }
 

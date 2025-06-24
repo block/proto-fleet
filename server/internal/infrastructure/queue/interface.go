@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+
 	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
 )
 

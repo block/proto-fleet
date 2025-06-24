@@ -4,11 +4,12 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
+	"net"
+	"net/http"
+
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
-	"net"
-	"net/http"
 
 	"connectrpc.com/connect"
 	"golang.org/x/net/http2"
