@@ -3,15 +3,19 @@
 /* eslint-disable */
 
 import type {
+  GenEnum,
   GenFile,
   GenMessage,
   GenService,
 } from "@bufbuild/protobuf/codegenv2";
 import {
+  enumDesc,
   fileDesc,
   messageDesc,
   serviceDesc,
 } from "@bufbuild/protobuf/codegenv2";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
@@ -20,7 +24,8 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_minercommand_v1_command: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "Ch1taW5lcmNvbW1hbmQvdjEvY29tbWFuZC5wcm90bxIPbWluZXJjb21tYW5kLnYxIi8KEVN0b3BNaW5pbmdSZXF1ZXN0EhoKEmRldmljZV9pZGVudGlmaWVycxgBIAMoCSIUChJTdG9wTWluaW5nUmVzcG9uc2UiMAoSU3RhcnRNaW5pbmdSZXF1ZXN0EhoKEmRldmljZV9pZGVudGlmaWVycxgBIAMoCSIVChNTdGFydE1pbmluZ1Jlc3BvbnNlMsYBChNNaW5lckNvbW1hbmRTZXJ2aWNlElUKClN0b3BNaW5pbmcSIi5taW5lcmNvbW1hbmQudjEuU3RvcE1pbmluZ1JlcXVlc3QaIy5taW5lcmNvbW1hbmQudjEuU3RvcE1pbmluZ1Jlc3BvbnNlElgKC1N0YXJ0TWluaW5nEiMubWluZXJjb21tYW5kLnYxLlN0YXJ0TWluaW5nUmVxdWVzdBokLm1pbmVyY29tbWFuZC52MS5TdGFydE1pbmluZ1Jlc3BvbnNlQtgBChNjb20ubWluZXJjb21tYW5kLnYxQgxDb21tYW5kUHJvdG9QAVpWZ2l0aHViLmNvbS9idGMtbWluaW5nL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9taW5lcmNvbW1hbmQvdjE7bWluZXJjb21tYW5kdjGiAgNNWFiqAg9NaW5lcmNvbW1hbmQuVjHKAg9NaW5lcmNvbW1hbmRcVjHiAhtNaW5lcmNvbW1hbmRcVjFcR1BCTWV0YWRhdGHqAhBNaW5lcmNvbW1hbmQ6OlYxYgZwcm90bzM",
+    "Ch1taW5lcmNvbW1hbmQvdjEvY29tbWFuZC5wcm90bxIPbWluZXJjb21tYW5kLnYxIi8KEVN0b3BNaW5pbmdSZXF1ZXN0EhoKEmRldmljZV9pZGVudGlmaWVycxgBIAMoCSIUChJTdG9wTWluaW5nUmVzcG9uc2UiMAoSU3RhcnRNaW5pbmdSZXF1ZXN0EhoKEmRldmljZV9pZGVudGlmaWVycxgBIAMoCSIVChNTdGFydE1pbmluZ1Jlc3BvbnNlIjwKIFN0cmVhbUNvbW1hbmRCYXRjaFVwZGF0ZXNSZXF1ZXN0EhgKEGJhdGNoX2lkZW50aWZpZXIYASABKAkirwEKIVN0cmVhbUNvbW1hbmRCYXRjaFVwZGF0ZXNSZXNwb25zZRItCgl0aW1lc3RhbXAYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiAKGGNvbW1hbmRfYmF0Y2hfaWRlbnRpZmllchgCIAEoCRI5CgZzdGF0dXMYAyABKAsyKS5taW5lcmNvbW1hbmQudjEuQ29tbWFuZEJhdGNoVXBkYXRlU3RhdHVzIlAKHUNvbW1hbmRCYXRjaFVwZGF0ZURldmljZUNvdW50Eg0KBXRvdGFsGAEgASgDEg8KB3N1Y2Nlc3MYAiABKAMSDwoHZmFpbHVyZRgDIAEoAyK8AwoYQ29tbWFuZEJhdGNoVXBkYXRlU3RhdHVzEmsKG2NvbW1hbmRfYmF0Y2hfdXBkYXRlX3N0YXR1cxgBIAEoDjJGLm1pbmVyY29tbWFuZC52MS5Db21tYW5kQmF0Y2hVcGRhdGVTdGF0dXMuQ29tbWFuZEJhdGNoVXBkYXRlU3RhdHVzVHlwZRJSChpjb21tYW5kX2JhdGNoX2RldmljZV9jb3VudBgCIAEoCzIuLm1pbmVyY29tbWFuZC52MS5Db21tYW5kQmF0Y2hVcGRhdGVEZXZpY2VDb3VudCLeAQocQ29tbWFuZEJhdGNoVXBkYXRlU3RhdHVzVHlwZRIwCixDT01NQU5EX0JBVENIX1VQREFURV9TVEFUVVNfVFlQRV9VTlNQRUNJRklFRBAAEiwKKENPTU1BTkRfQkFUQ0hfVVBEQVRFX1NUQVRVU19UWVBFX1BFTkRJTkcQARIvCitDT01NQU5EX0JBVENIX1VQREFURV9TVEFUVVNfVFlQRV9QUk9DRVNTSU5HEAISLQopQ09NTUFORF9CQVRDSF9VUERBVEVfU1RBVFVTX1RZUEVfRklOSVNIRUQQAzLNAgoTTWluZXJDb21tYW5kU2VydmljZRJVCgpTdG9wTWluaW5nEiIubWluZXJjb21tYW5kLnYxLlN0b3BNaW5pbmdSZXF1ZXN0GiMubWluZXJjb21tYW5kLnYxLlN0b3BNaW5pbmdSZXNwb25zZRJYCgtTdGFydE1pbmluZxIjLm1pbmVyY29tbWFuZC52MS5TdGFydE1pbmluZ1JlcXVlc3QaJC5taW5lcmNvbW1hbmQudjEuU3RhcnRNaW5pbmdSZXNwb25zZRKEAQoZU3RyZWFtQ29tbWFuZEJhdGNoVXBkYXRlcxIxLm1pbmVyY29tbWFuZC52MS5TdHJlYW1Db21tYW5kQmF0Y2hVcGRhdGVzUmVxdWVzdBoyLm1pbmVyY29tbWFuZC52MS5TdHJlYW1Db21tYW5kQmF0Y2hVcGRhdGVzUmVzcG9uc2UwAULYAQoTY29tLm1pbmVyY29tbWFuZC52MUIMQ29tbWFuZFByb3RvUAFaVmdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvbWluZXJjb21tYW5kL3YxO21pbmVyY29tbWFuZHYxogIDTVhYqgIPTWluZXJjb21tYW5kLlYxygIPTWluZXJjb21tYW5kXFYx4gIbTWluZXJjb21tYW5kXFYxXEdQQk1ldGFkYXRh6gIQTWluZXJjb21tYW5kOjpWMWIGcHJvdG8z",
+    [file_google_protobuf_timestamp],
   );
 
 /**
@@ -101,6 +106,145 @@ export const StartMiningResponseSchema: GenMessage<StartMiningResponse> =
   messageDesc(file_minercommand_v1_command, 3);
 
 /**
+ * @generated from message minercommand.v1.StreamCommandBatchUpdatesRequest
+ */
+export type StreamCommandBatchUpdatesRequest =
+  Message<"minercommand.v1.StreamCommandBatchUpdatesRequest"> & {
+    /**
+     * The identifier of the command batch to stream
+     *
+     * @generated from field: string batch_identifier = 1;
+     */
+    batchIdentifier: string;
+  };
+
+/**
+ * Describes the message minercommand.v1.StreamCommandBatchUpdatesRequest.
+ * Use `create(StreamCommandBatchUpdatesRequestSchema)` to create a new message.
+ */
+export const StreamCommandBatchUpdatesRequestSchema: GenMessage<StreamCommandBatchUpdatesRequest> =
+  /*@__PURE__*/
+  messageDesc(file_minercommand_v1_command, 4);
+
+/**
+ * @generated from message minercommand.v1.StreamCommandBatchUpdatesResponse
+ */
+export type StreamCommandBatchUpdatesResponse =
+  Message<"minercommand.v1.StreamCommandBatchUpdatesResponse"> & {
+    /**
+     * Timestamp when this update was generated
+     *
+     * @generated from field: google.protobuf.Timestamp timestamp = 1;
+     */
+    timestamp?: Timestamp;
+
+    /**
+     * Identifier of the command batch this update is for
+     *
+     * @generated from field: string command_batch_identifier = 2;
+     */
+    commandBatchIdentifier: string;
+
+    /**
+     * @generated from field: minercommand.v1.CommandBatchUpdateStatus status = 3;
+     */
+    status?: CommandBatchUpdateStatus;
+  };
+
+/**
+ * Describes the message minercommand.v1.StreamCommandBatchUpdatesResponse.
+ * Use `create(StreamCommandBatchUpdatesResponseSchema)` to create a new message.
+ */
+export const StreamCommandBatchUpdatesResponseSchema: GenMessage<StreamCommandBatchUpdatesResponse> =
+  /*@__PURE__*/
+  messageDesc(file_minercommand_v1_command, 5);
+
+/**
+ * @generated from message minercommand.v1.CommandBatchUpdateDeviceCount
+ */
+export type CommandBatchUpdateDeviceCount =
+  Message<"minercommand.v1.CommandBatchUpdateDeviceCount"> & {
+    /**
+     * @generated from field: int64 total = 1;
+     */
+    total: bigint;
+
+    /**
+     * @generated from field: int64 success = 2;
+     */
+    success: bigint;
+
+    /**
+     * @generated from field: int64 failure = 3;
+     */
+    failure: bigint;
+  };
+
+/**
+ * Describes the message minercommand.v1.CommandBatchUpdateDeviceCount.
+ * Use `create(CommandBatchUpdateDeviceCountSchema)` to create a new message.
+ */
+export const CommandBatchUpdateDeviceCountSchema: GenMessage<CommandBatchUpdateDeviceCount> =
+  /*@__PURE__*/
+  messageDesc(file_minercommand_v1_command, 6);
+
+/**
+ * @generated from message minercommand.v1.CommandBatchUpdateStatus
+ */
+export type CommandBatchUpdateStatus =
+  Message<"minercommand.v1.CommandBatchUpdateStatus"> & {
+    /**
+     * @generated from field: minercommand.v1.CommandBatchUpdateStatus.CommandBatchUpdateStatusType command_batch_update_status = 1;
+     */
+    commandBatchUpdateStatus: CommandBatchUpdateStatus_CommandBatchUpdateStatusType;
+
+    /**
+     * @generated from field: minercommand.v1.CommandBatchUpdateDeviceCount command_batch_device_count = 2;
+     */
+    commandBatchDeviceCount?: CommandBatchUpdateDeviceCount;
+  };
+
+/**
+ * Describes the message minercommand.v1.CommandBatchUpdateStatus.
+ * Use `create(CommandBatchUpdateStatusSchema)` to create a new message.
+ */
+export const CommandBatchUpdateStatusSchema: GenMessage<CommandBatchUpdateStatus> =
+  /*@__PURE__*/
+  messageDesc(file_minercommand_v1_command, 7);
+
+/**
+ * @generated from enum minercommand.v1.CommandBatchUpdateStatus.CommandBatchUpdateStatusType
+ */
+export enum CommandBatchUpdateStatus_CommandBatchUpdateStatusType {
+  /**
+   * @generated from enum value: COMMAND_BATCH_UPDATE_STATUS_TYPE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: COMMAND_BATCH_UPDATE_STATUS_TYPE_PENDING = 1;
+   */
+  PENDING = 1,
+
+  /**
+   * @generated from enum value: COMMAND_BATCH_UPDATE_STATUS_TYPE_PROCESSING = 2;
+   */
+  PROCESSING = 2,
+
+  /**
+   * @generated from enum value: COMMAND_BATCH_UPDATE_STATUS_TYPE_FINISHED = 3;
+   */
+  FINISHED = 3,
+}
+
+/**
+ * Describes the enum minercommand.v1.CommandBatchUpdateStatus.CommandBatchUpdateStatusType.
+ */
+export const CommandBatchUpdateStatus_CommandBatchUpdateStatusTypeSchema: GenEnum<CommandBatchUpdateStatus_CommandBatchUpdateStatusType> =
+  /*@__PURE__*/
+  enumDesc(file_minercommand_v1_command, 7, 0);
+
+/**
  * Service for executing Miner commands
  *
  * @generated from service minercommand.v1.MinerCommandService
@@ -127,5 +271,15 @@ export const MinerCommandService: GenService<{
     methodKind: "unary";
     input: typeof StartMiningRequestSchema;
     output: typeof StartMiningResponseSchema;
+  };
+  /**
+   * Streams command batch updates
+   *
+   * @generated from rpc minercommand.v1.MinerCommandService.StreamCommandBatchUpdates
+   */
+  streamCommandBatchUpdates: {
+    methodKind: "server_streaming";
+    input: typeof StreamCommandBatchUpdatesRequestSchema;
+    output: typeof StreamCommandBatchUpdatesResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_minercommand_v1_command, 0);

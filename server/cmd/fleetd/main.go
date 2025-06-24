@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
 	"log/slog"
 	"net/http"
 	"os"
@@ -81,7 +83,7 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
-	minerClient := protoMinerClient.NewService()
+	minerClient := protoMinerClient.NewService(conn, encryptSvc, tokenSvc)
 	authSvc := authDomain.NewService(conn, tokenSvc, encryptSvc)
 	protoDiscoverer := proto.NewDiscoverer(minerClient)
 	discoveryService, err := minerdiscovery.NewService(protoDiscoverer)
@@ -90,7 +92,15 @@ func start(config *Config) error {
 	}
 	pairingSvc := pairingDomain.NewService(conn, config.Pairing, tokenSvc, discoveryService)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(conn, fleetmanagementDomain.NewMockTelemetryCollector())
-	commandSvc := commandDomain.NewService(conn, minerClient, tokenSvc, encryptSvc)
+	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
+
+	executionServiceCtx, executionServiceCancel := context.WithCancel(context.Background())
+	defer executionServiceCancel()
+
+	executionService := commandDomain.NewExecutionService(executionServiceCtx, &config.Command, conn, dbMessageQueue, minerClient, encryptSvc, tokenSvc)
+
+	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
+	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService)
 	onboardingSvc := onboardingDomain.NewService(conn)
 	poolsSvc := poolsDomain.NewService(conn, config.Pools)
 

@@ -426,11 +426,6 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 			if err != nil {
 				return fleeterror.NewInternalErrorf("failed to create pairing for device device_identifier=%s: %v", dID, err)
 			}
-
-			minerInfo, err := q.GetMinerApiNetworkInfoByDeviceID(ctx, sqlc.GetMinerApiNetworkInfoByDeviceIDParams{OrgID: claims.OrgID, DeviceIdentifier: dID})
-			if err != nil {
-				return fleeterror.NewInternalErrorf("failed to query miner info: %v", minerInfo)
-			}
 		}
 
 		return nil

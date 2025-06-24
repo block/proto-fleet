@@ -1,9 +1,10 @@
 package main
 
 import (
-	"time"
-
+	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
+	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pools"
@@ -26,4 +27,6 @@ type Config struct {
 	Pairing pairing.Config `embed:"" prefix:"pairing" envprefix:"PAIRING_"`
 	Pools   pools.Config   `embed:"" prefix:"pools" envprefix:"POOLS_"`
 	Encrypt encrypt.Config `embed:"" prefix:"encrypt" envprefix:"ENCRYPT_"`
+	Command command.Config `embed:"" prefix:"fleet_command" envprefix:"FLEET_COMMAND_"`
+	Queue   queue.Config   `embed:"" prefix:"fleet_queue" envprefix:"FLEET_QUEUE_"`
 }

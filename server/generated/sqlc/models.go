@@ -11,6 +11,91 @@ import (
 	"time"
 )
 
+type CommandBatchLogStatus string
+
+const (
+	CommandBatchLogStatusPENDING    CommandBatchLogStatus = "PENDING"
+	CommandBatchLogStatusPROCESSING CommandBatchLogStatus = "PROCESSING"
+	CommandBatchLogStatusFINISHED   CommandBatchLogStatus = "FINISHED"
+)
+
+func (e *CommandBatchLogStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CommandBatchLogStatus(s)
+	case string:
+		*e = CommandBatchLogStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CommandBatchLogStatus: %T", src)
+	}
+	return nil
+}
+
+type NullCommandBatchLogStatus struct {
+	CommandBatchLogStatus CommandBatchLogStatus
+	Valid                 bool // Valid is true if CommandBatchLogStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCommandBatchLogStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.CommandBatchLogStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CommandBatchLogStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCommandBatchLogStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CommandBatchLogStatus), nil
+}
+
+type CommandOnDeviceLogStatus string
+
+const (
+	CommandOnDeviceLogStatusSUCCESS CommandOnDeviceLogStatus = "SUCCESS"
+	CommandOnDeviceLogStatusFAILED  CommandOnDeviceLogStatus = "FAILED"
+)
+
+func (e *CommandOnDeviceLogStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CommandOnDeviceLogStatus(s)
+	case string:
+		*e = CommandOnDeviceLogStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CommandOnDeviceLogStatus: %T", src)
+	}
+	return nil
+}
+
+type NullCommandOnDeviceLogStatus struct {
+	CommandOnDeviceLogStatus CommandOnDeviceLogStatus
+	Valid                    bool // Valid is true if CommandOnDeviceLogStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCommandOnDeviceLogStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.CommandOnDeviceLogStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CommandOnDeviceLogStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCommandOnDeviceLogStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CommandOnDeviceLogStatus), nil
+}
+
 type DevicePairingPairingStatus string
 
 const (
@@ -143,6 +228,69 @@ func (ns NullPoolPoolStatus) Value() (driver.Value, error) {
 	return string(ns.PoolPoolStatus), nil
 }
 
+type QueueMessageStatus string
+
+const (
+	QueueMessageStatusPENDING    QueueMessageStatus = "PENDING"
+	QueueMessageStatusPROCESSING QueueMessageStatus = "PROCESSING"
+	QueueMessageStatusSUCCESS    QueueMessageStatus = "SUCCESS"
+	QueueMessageStatusFAILED     QueueMessageStatus = "FAILED"
+)
+
+func (e *QueueMessageStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = QueueMessageStatus(s)
+	case string:
+		*e = QueueMessageStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for QueueMessageStatus: %T", src)
+	}
+	return nil
+}
+
+type NullQueueMessageStatus struct {
+	QueueMessageStatus QueueMessageStatus
+	Valid              bool // Valid is true if QueueMessageStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullQueueMessageStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.QueueMessageStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.QueueMessageStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullQueueMessageStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.QueueMessageStatus), nil
+}
+
+type CommandBatchLog struct {
+	ID         int64
+	Uuid       string
+	Type       string
+	CreatedBy  int64
+	CreatedAt  time.Time
+	StartedAt  sql.NullTime
+	FinishedAt sql.NullTime
+	Status     CommandBatchLogStatus
+}
+
+type CommandOnDeviceLog struct {
+	ID                int64
+	CommandBatchLogID int64
+	DeviceID          int64
+	Status            CommandOnDeviceLogStatus
+	UpdatedAt         time.Time
+}
+
 type Device struct {
 	ID               int64
 	DeviceIdentifier string
@@ -214,6 +362,18 @@ type Pool struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	DeletedAt    sql.NullTime
+}
+
+type QueueMessage struct {
+	ID                int64
+	CommandBatchLogID int64
+	DeviceID          int64
+	CommandType       string
+	Status            QueueMessageStatus
+	RetryCount        int32
+	ErrorInfo         sql.NullString
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type Role struct {

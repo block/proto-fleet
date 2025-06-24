@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
 const activateNewIPAssignment = `-- name: ActivateNewIPAssignment :exec
@@ -195,11 +196,79 @@ func (q *Queries) GetDeviceByIdentifier(ctx context.Context, arg GetDeviceByIden
 	return i, err
 }
 
+const getDeviceIDByDeviceIdentifier = `-- name: GetDeviceIDByDeviceIdentifier :one
+SELECT id
+FROM device
+WHERE device_identifier = ?
+LIMIT 1
+`
+
+func (q *Queries) GetDeviceIDByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (int64, error) {
+	row := q.queryRow(ctx, q.getDeviceIDByDeviceIdentifierStmt, getDeviceIDByDeviceIdentifier, deviceIdentifier)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const getDeviceIDsByDeviceIdentifiers = `-- name: GetDeviceIDsByDeviceIdentifiers :many
+SELECT id
+FROM device
+WHERE device_identifier IN (/*SLICE:device_identifiers*/?)
+`
+
+func (q *Queries) GetDeviceIDsByDeviceIdentifiers(ctx context.Context, deviceIdentifiers []string) ([]int64, error) {
+	query := getDeviceIDsByDeviceIdentifiers
+	var queryParams []interface{}
+	if len(deviceIdentifiers) > 0 {
+		for _, v := range deviceIdentifiers {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(deviceIdentifiers))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
+	}
+	rows, err := q.query(ctx, nil, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getDeviceIdentifierByID = `-- name: GetDeviceIdentifierByID :one
+SELECT device_identifier
+FROM device
+WHERE id = ?
+LIMIT 1
+`
+
+func (q *Queries) GetDeviceIdentifierByID(ctx context.Context, id int64) (string, error) {
+	row := q.queryRow(ctx, q.getDeviceIdentifierByIDStmt, getDeviceIdentifierByID, id)
+	var device_identifier string
+	err := row.Scan(&device_identifier)
+	return device_identifier, err
+}
+
 const getDevicePairingStatusByDeviceDatabaseID = `-- name: GetDevicePairingStatusByDeviceDatabaseID :one
 SELECT
     dp.pairing_status
 FROM device_pairing dp
 WHERE dp.device_id = ?
+LIMIT 1
 `
 
 func (q *Queries) GetDevicePairingStatusByDeviceDatabaseID(ctx context.Context, deviceID int64) (DevicePairingPairingStatus, error) {
@@ -211,33 +280,36 @@ func (q *Queries) GetDevicePairingStatusByDeviceDatabaseID(ctx context.Context, 
 
 const getMinerApiNetworkInfoByDeviceID = `-- name: GetMinerApiNetworkInfoByDeviceID :one
 SELECT
+    d.device_identifier,
+    d.org_id,
     dia.ip_address,
     dia.port
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 JOIN device_ip_assignment dia ON d.id = dia.device_id
-WHERE d.device_identifier = ?
-    AND d.org_id = ?
+WHERE d.id = ?
     AND d.deleted_at IS NULL
     AND dp.pairing_status = 'PAIRED'
     AND dia.is_current = TRUE
 LIMIT 1
 `
 
-type GetMinerApiNetworkInfoByDeviceIDParams struct {
+type GetMinerApiNetworkInfoByDeviceIDRow struct {
 	DeviceIdentifier string
 	OrgID            int64
+	IpAddress        string
+	Port             string
 }
 
-type GetMinerApiNetworkInfoByDeviceIDRow struct {
-	IpAddress string
-	Port      string
-}
-
-func (q *Queries) GetMinerApiNetworkInfoByDeviceID(ctx context.Context, arg GetMinerApiNetworkInfoByDeviceIDParams) (GetMinerApiNetworkInfoByDeviceIDRow, error) {
-	row := q.queryRow(ctx, q.getMinerApiNetworkInfoByDeviceIDStmt, getMinerApiNetworkInfoByDeviceID, arg.DeviceIdentifier, arg.OrgID)
+func (q *Queries) GetMinerApiNetworkInfoByDeviceID(ctx context.Context, id int64) (GetMinerApiNetworkInfoByDeviceIDRow, error) {
+	row := q.queryRow(ctx, q.getMinerApiNetworkInfoByDeviceIDStmt, getMinerApiNetworkInfoByDeviceID, id)
 	var i GetMinerApiNetworkInfoByDeviceIDRow
-	err := row.Scan(&i.IpAddress, &i.Port)
+	err := row.Scan(
+		&i.DeviceIdentifier,
+		&i.OrgID,
+		&i.IpAddress,
+		&i.Port,
+	)
 	return i, err
 }
 

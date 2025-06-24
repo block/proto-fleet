@@ -12,14 +12,16 @@ import (
 )
 
 func TestAuthInterceptor(t *testing.T) {
+	testConfig, err := testutil.GetTestConfig()
+	assert.NoError(t, err, "error initializing test config")
 
 	allowList := []string{
 		pingv1connect.PingServiceEchoProcedure,
 	}
 
 	t.Run("should respect allow list", func(t *testing.T) {
-		databaseService := testutil.NewDatabaseService(t)
-		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB)
+		databaseService := testutil.NewDatabaseService(t, testConfig)
+		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB, testConfig)
 		infrastructureProvider := testutil.NewInfrastructureProvider(t, serviceProvider, allowList)
 
 		// Make request
@@ -35,8 +37,8 @@ func TestAuthInterceptor(t *testing.T) {
 	})
 
 	t.Run("should fail auth when procedure not in allow list", func(t *testing.T) {
-		databaseService := testutil.NewDatabaseService(t)
-		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB)
+		databaseService := testutil.NewDatabaseService(t, testConfig)
+		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB, testConfig)
 		infrastructureProvider := testutil.NewInfrastructureProvider(t, serviceProvider, []string{})
 
 		// Make request
@@ -51,8 +53,8 @@ func TestAuthInterceptor(t *testing.T) {
 
 	t.Run("should pass auth check when token is valid", func(t *testing.T) {
 		// Setup test server
-		databaseService := testutil.NewDatabaseService(t)
-		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB)
+		databaseService := testutil.NewDatabaseService(t, testConfig)
+		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB, testConfig)
 		infrastructureProvider := testutil.NewInfrastructureProvider(t, serviceProvider, allowList)
 
 		// Make request
@@ -76,8 +78,8 @@ func TestAuthInterceptor(t *testing.T) {
 	})
 
 	t.Run("should fail auth check when token is invalid", func(t *testing.T) {
-		databaseService := testutil.NewDatabaseService(t)
-		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB)
+		databaseService := testutil.NewDatabaseService(t, testConfig)
+		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB, testConfig)
 		infrastructureProvider := testutil.NewInfrastructureProvider(t, serviceProvider, allowList)
 
 		// Make request

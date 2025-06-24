@@ -1,0 +1,31 @@
+package queue
+
+import (
+	"context"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
+)
+
+type Message struct {
+	ID          int64
+	BatchLogID  int64
+	CommandType commandtype.Type
+	DeviceID    int64
+}
+
+type MessageQueue interface {
+	// Enqueue adds a command to the queue
+	Enqueue(ctx context.Context, commandBatchLogID int64, commandType commandtype.Type, deviceIDs []int64) error
+
+	// Dequeue retrieves and locks batch of commands for processing
+	Dequeue(ctx context.Context) ([]Message, error)
+
+	// MarkSuccess updates a command as successfully processed
+	MarkSuccess(ctx context.Context, messageID int64) error
+
+	// MarkFailed updates a command as failed with error info
+	MarkFailed(ctx context.Context, messageID int64, errorInfo string) error
+
+	IsBatchFinished(ctx context.Context, commandBatchLogID int64) (bool, error)
+
+	IsBatchProcessing(ctx context.Context, commandBatchLogID int64) (bool, error)
+}

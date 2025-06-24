@@ -3,10 +3,12 @@ package client
 import (
 	"context"
 	"crypto/tls"
+	"database/sql"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 	"net"
 	"net/http"
-
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 
 	"connectrpc.com/connect"
 	"golang.org/x/net/http2"
@@ -14,12 +16,15 @@ import (
 
 // Service handles miner gRPC client operations
 type Service struct {
-	httpClient  *http.Client
-	httpsClient *http.Client
+	httpClient     *http.Client
+	httpsClient    *http.Client
+	conn           *sql.DB
+	encryptService *encrypt.Service
+	tokenService   *tokenDomain.Service
 }
 
 // NewService creates a new miner client service instance
-func NewService() *Service {
+func NewService(conn *sql.DB, encryptService *encrypt.Service, tokenService *tokenDomain.Service) *Service {
 	return &Service{
 		httpClient: &http.Client{
 			Transport: &http2.Transport{
@@ -29,7 +34,10 @@ func NewService() *Service {
 				},
 			},
 		},
-		httpsClient: http.DefaultClient,
+		httpsClient:    http.DefaultClient,
+		conn:           conn,
+		encryptService: encryptService,
+		tokenService:   tokenService,
 	}
 }
 

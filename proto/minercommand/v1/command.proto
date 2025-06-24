@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package minercommand.v1;
 
+import "google/protobuf/timestamp.proto";
+
 // Request to stop mining on specific miners
 message StopMiningRequest {
   // List of device identifiers to stop mining on
@@ -22,6 +24,40 @@ message StartMiningRequest {
 message StartMiningResponse {
 }
 
+message StreamCommandBatchUpdatesRequest {
+  // The identifier of the command batch to stream
+  string batch_identifier = 1;
+}
+
+message StreamCommandBatchUpdatesResponse {
+  // Timestamp when this update was generated
+  google.protobuf.Timestamp timestamp = 1;
+
+  // Identifier of the command batch this update is for
+  string command_batch_identifier = 2;
+
+  CommandBatchUpdateStatus status = 3;
+}
+
+message CommandBatchUpdateDeviceCount {
+  int64 total = 1;
+  int64 success = 2;
+  int64 failure = 3;
+}
+
+message CommandBatchUpdateStatus {
+  enum CommandBatchUpdateStatusType {
+    COMMAND_BATCH_UPDATE_STATUS_TYPE_UNSPECIFIED = 0;
+    COMMAND_BATCH_UPDATE_STATUS_TYPE_PENDING = 1;
+    COMMAND_BATCH_UPDATE_STATUS_TYPE_PROCESSING = 2;
+    COMMAND_BATCH_UPDATE_STATUS_TYPE_FINISHED = 3;
+  }
+
+  CommandBatchUpdateStatusType command_batch_update_status = 1;
+
+  CommandBatchUpdateDeviceCount command_batch_device_count = 2;
+}
+
 // Service for executing Miner commands
 service MinerCommandService {
   // Stops mining on specified miners
@@ -31,4 +67,7 @@ service MinerCommandService {
   // Starts mining on specified miners
   // The operation is attempted on all miners even if some fail
   rpc StartMining(StartMiningRequest) returns (StartMiningResponse);
+
+  // Streams command batch updates
+  rpc StreamCommandBatchUpdates(StreamCommandBatchUpdatesRequest) returns (stream StreamCommandBatchUpdatesResponse);
 }

@@ -9,6 +9,8 @@ import (
 	minerPbCommon "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
 )
 
+type MinerCommandFunc func(ctx context.Context, minerConnectionInfo *MinerConnectionInfo) (*connect.Response[miner_command_api.CommandResponse], error)
+
 // StartMining executes the StartMining RPC on a miner
 func (s *Service) StartMining(ctx context.Context, minerConnectionInfo *MinerConnectionInfo) (*connect.Response[miner_command_api.CommandResponse], error) {
 	request := Request[minerPbCommon.EmptyRequest, miner_command_api.CommandResponse, minerPb.MinerCommandApiClient]{

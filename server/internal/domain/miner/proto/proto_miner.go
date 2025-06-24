@@ -2,6 +2,9 @@ package proto
 
 import (
 	"context"
+	"database/sql"
+	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
@@ -16,13 +19,13 @@ import (
 var _ interfaces.Miner = &ProtoMiner{}
 
 type ProtoMiner struct {
-	deviceID       string
+	deviceID       int64
 	connectionInfo networking.ConnectionInfo
 	authToken      string
 	minerClient    *client.Service
 }
 
-func NewProtoMiner(deviceID string, ipAddress string, port uint16, minerClient *client.Service, authToken string) *ProtoMiner {
+func NewProtoMiner(deviceID int64, ipAddress string, port uint16, minerClient *client.Service, authToken string) *ProtoMiner {
 	return &ProtoMiner{
 		deviceID: deviceID,
 		connectionInfo: networking.ConnectionInfo{
@@ -39,7 +42,7 @@ func (p *ProtoMiner) GetType() miner.Type {
 	return miner.TypeProto
 }
 
-func (p *ProtoMiner) GetIdentifier() string {
+func (p *ProtoMiner) GetID() int64 {
 	return p.deviceID
 }
 
@@ -73,14 +76,20 @@ func (p *ProtoMiner) StopMining(ctx context.Context) error {
 	return nil
 }
 
-func (p *ProtoMiner) GetPairingInfo(ctx context.Context) (*miner.PairingInfo, error) {
+func (p *ProtoMiner) GetPairingInfo(ctx context.Context, conn *sql.DB) (*miner.PairingInfo, error) {
 	resp, err := p.minerClient.GetPairingInfo(ctx, p.connectionInfo.GetHostPort().String())
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get pairing info: %v", err)
 	}
+	deviceIdentifier, err := db.WithTransaction[string](ctx, conn, func(q *sqlc.Queries) (string, error) {
+		return q.GetDeviceIdentifierByID(ctx, p.deviceID)
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get device identifier from ID: %v", err)
+	}
 
 	return &miner.PairingInfo{
-		DeviceID:     p.deviceID,
+		DeviceID:     deviceIdentifier,
 		SerialNumber: resp.Msg.CbSn,
 		MacAddress:   resp.Msg.Mac,
 		// TODO(DASH-331) Fetch model and manufacturer from miner

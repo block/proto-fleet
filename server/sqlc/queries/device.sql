@@ -150,13 +150,14 @@ WHERE device_identifier = ?
 
 -- name: GetMinerApiNetworkInfoByDeviceID :one
 SELECT
+    d.device_identifier,
+    d.org_id,
     dia.ip_address,
     dia.port
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 JOIN device_ip_assignment dia ON d.id = dia.device_id
-WHERE d.device_identifier = ?
-    AND d.org_id = ?
+WHERE d.id = ?
     AND d.deleted_at IS NULL
     AND dp.pairing_status = 'PAIRED'
     AND dia.is_current = TRUE
@@ -191,4 +192,21 @@ SELECT
     dp.pairing_status
 FROM device_pairing dp
 WHERE dp.device_id = ?
+LIMIT 1;
 
+-- name: GetDeviceIDByDeviceIdentifier :one
+SELECT id
+FROM device
+WHERE device_identifier = ?
+LIMIT 1;
+
+-- name: GetDeviceIdentifierByID :one
+SELECT device_identifier
+FROM device
+WHERE id = ?
+LIMIT 1;
+
+-- name: GetDeviceIDsByDeviceIdentifiers :many
+SELECT id
+FROM device
+WHERE device_identifier IN (sqlc.slice('device_identifiers'))

@@ -43,6 +43,7 @@ func isRetryableError(err error) bool {
 		case 1213: // Deadlock found when trying to get lock
 		case 1205: // Lock wait timeout exceeded
 		case 1047: // WSREP has not yet prepared node for application use
+		case 1062: // duplicate key error
 			return true
 		}
 	}

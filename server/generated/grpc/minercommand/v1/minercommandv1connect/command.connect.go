@@ -40,6 +40,9 @@ const (
 	// MinerCommandServiceStartMiningProcedure is the fully-qualified name of the MinerCommandService's
 	// StartMining RPC.
 	MinerCommandServiceStartMiningProcedure = "/minercommand.v1.MinerCommandService/StartMining"
+	// MinerCommandServiceStreamCommandBatchUpdatesProcedure is the fully-qualified name of the
+	// MinerCommandService's StreamCommandBatchUpdates RPC.
+	MinerCommandServiceStreamCommandBatchUpdatesProcedure = "/minercommand.v1.MinerCommandService/StreamCommandBatchUpdates"
 )
 
 // MinerCommandServiceClient is a client for the minercommand.v1.MinerCommandService service.
@@ -50,6 +53,8 @@ type MinerCommandServiceClient interface {
 	// Starts mining on specified miners
 	// The operation is attempted on all miners even if some fail
 	StartMining(context.Context, *connect.Request[v1.StartMiningRequest]) (*connect.Response[v1.StartMiningResponse], error)
+	// Streams command batch updates
+	StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamCommandBatchUpdatesResponse], error)
 }
 
 // NewMinerCommandServiceClient constructs a client for the minercommand.v1.MinerCommandService
@@ -72,13 +77,19 @@ func NewMinerCommandServiceClient(httpClient connect.HTTPClient, baseURL string,
 			baseURL+MinerCommandServiceStartMiningProcedure,
 			opts...,
 		),
+		streamCommandBatchUpdates: connect.NewClient[v1.StreamCommandBatchUpdatesRequest, v1.StreamCommandBatchUpdatesResponse](
+			httpClient,
+			baseURL+MinerCommandServiceStreamCommandBatchUpdatesProcedure,
+			opts...,
+		),
 	}
 }
 
 // minerCommandServiceClient implements MinerCommandServiceClient.
 type minerCommandServiceClient struct {
-	stopMining  *connect.Client[v1.StopMiningRequest, v1.StopMiningResponse]
-	startMining *connect.Client[v1.StartMiningRequest, v1.StartMiningResponse]
+	stopMining                *connect.Client[v1.StopMiningRequest, v1.StopMiningResponse]
+	startMining               *connect.Client[v1.StartMiningRequest, v1.StartMiningResponse]
+	streamCommandBatchUpdates *connect.Client[v1.StreamCommandBatchUpdatesRequest, v1.StreamCommandBatchUpdatesResponse]
 }
 
 // StopMining calls minercommand.v1.MinerCommandService.StopMining.
@@ -91,6 +102,11 @@ func (c *minerCommandServiceClient) StartMining(ctx context.Context, req *connec
 	return c.startMining.CallUnary(ctx, req)
 }
 
+// StreamCommandBatchUpdates calls minercommand.v1.MinerCommandService.StreamCommandBatchUpdates.
+func (c *minerCommandServiceClient) StreamCommandBatchUpdates(ctx context.Context, req *connect.Request[v1.StreamCommandBatchUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamCommandBatchUpdatesResponse], error) {
+	return c.streamCommandBatchUpdates.CallServerStream(ctx, req)
+}
+
 // MinerCommandServiceHandler is an implementation of the minercommand.v1.MinerCommandService
 // service.
 type MinerCommandServiceHandler interface {
@@ -100,6 +116,8 @@ type MinerCommandServiceHandler interface {
 	// Starts mining on specified miners
 	// The operation is attempted on all miners even if some fail
 	StartMining(context.Context, *connect.Request[v1.StartMiningRequest]) (*connect.Response[v1.StartMiningResponse], error)
+	// Streams command batch updates
+	StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest], *connect.ServerStream[v1.StreamCommandBatchUpdatesResponse]) error
 }
 
 // NewMinerCommandServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -118,12 +136,19 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 		svc.StartMining,
 		opts...,
 	)
+	minerCommandServiceStreamCommandBatchUpdatesHandler := connect.NewServerStreamHandler(
+		MinerCommandServiceStreamCommandBatchUpdatesProcedure,
+		svc.StreamCommandBatchUpdates,
+		opts...,
+	)
 	return "/minercommand.v1.MinerCommandService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MinerCommandServiceStopMiningProcedure:
 			minerCommandServiceStopMiningHandler.ServeHTTP(w, r)
 		case MinerCommandServiceStartMiningProcedure:
 			minerCommandServiceStartMiningHandler.ServeHTTP(w, r)
+		case MinerCommandServiceStreamCommandBatchUpdatesProcedure:
+			minerCommandServiceStreamCommandBatchUpdatesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -139,4 +164,8 @@ func (UnimplementedMinerCommandServiceHandler) StopMining(context.Context, *conn
 
 func (UnimplementedMinerCommandServiceHandler) StartMining(context.Context, *connect.Request[v1.StartMiningRequest]) (*connect.Response[v1.StartMiningResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.StartMining is not implemented"))
+}
+
+func (UnimplementedMinerCommandServiceHandler) StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest], *connect.ServerStream[v1.StreamCommandBatchUpdatesResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.StreamCommandBatchUpdates is not implemented"))
 }

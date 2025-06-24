@@ -6,6 +6,7 @@ package mocks
 
 import (
 	context "context"
+	sql "database/sql"
 	reflect "reflect"
 	time "time"
 
@@ -52,33 +53,33 @@ func (mr *MockMinerMockRecorder) GetConnectionInfo() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConnectionInfo", reflect.TypeOf((*MockMiner)(nil).GetConnectionInfo))
 }
 
-// GetIdentifier mocks base method.
-func (m *MockMiner) GetIdentifier() string {
+// GetID mocks base method.
+func (m *MockMiner) GetID() int64 {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetIdentifier")
-	ret0, _ := ret[0].(string)
+	ret := m.ctrl.Call(m, "GetID")
+	ret0, _ := ret[0].(int64)
 	return ret0
 }
 
-// GetIdentifier indicates an expected call of GetIdentifier.
-func (mr *MockMinerMockRecorder) GetIdentifier() *gomock.Call {
+// GetID indicates an expected call of GetID.
+func (mr *MockMinerMockRecorder) GetID() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetIdentifier", reflect.TypeOf((*MockMiner)(nil).GetIdentifier))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetID", reflect.TypeOf((*MockMiner)(nil).GetID))
 }
 
 // GetPairingInfo mocks base method.
-func (m *MockMiner) GetPairingInfo(ctx context.Context) (*models.PairingInfo, error) {
+func (m *MockMiner) GetPairingInfo(ctx context.Context, conn *sql.DB) (*models.PairingInfo, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPairingInfo", ctx)
+	ret := m.ctrl.Call(m, "GetPairingInfo", ctx, conn)
 	ret0, _ := ret[0].(*models.PairingInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetPairingInfo indicates an expected call of GetPairingInfo.
-func (mr *MockMinerMockRecorder) GetPairingInfo(ctx interface{}) *gomock.Call {
+func (mr *MockMinerMockRecorder) GetPairingInfo(ctx, conn interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPairingInfo", reflect.TypeOf((*MockMiner)(nil).GetPairingInfo), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPairingInfo", reflect.TypeOf((*MockMiner)(nil).GetPairingInfo), ctx, conn)
 }
 
 // GetTelemetry mocks base method.

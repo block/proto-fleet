@@ -1,0 +1,10 @@
+package command
+
+import "time"
+
+type Config struct {
+	MaxWorkers                       int32         `help:"Max number of worker threads running at the same time." default:"500" env:"MAX_WORKERS"`
+	MasterPollingInterval            time.Duration `help:"Interval in which the master polls the batch status check." default:"1s" env:"MASTER_POLLING_INTERVAL"`
+	WorkerExecutionTimeout           time.Duration `help:"Limit for a single worker thread runtime." default:"30s" env:"WORKER_EXECUTION_TIMEOUT"`
+	BatchStatusUpdatePollingInterval time.Duration `help:"Interval in which the start and finish for batch is polled." default:"1s" env:"BATCH_STATUS_UPDATE_POLLING_INTERVAL"`
+}

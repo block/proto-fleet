@@ -1,6 +1,8 @@
 package models
 
-import "github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+import (
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+)
 
 type Type int
 

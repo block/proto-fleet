@@ -1,16 +1,18 @@
 package testutil
 
 import (
+	"context"
 	"database/sql"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/proto"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
 	"testing"
 	"time"
 
 	"github.com/alecthomas/assert/v2"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/proto"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/onboarding"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
@@ -18,44 +20,56 @@ import (
 )
 
 type ServiceProvider struct {
-	DB                *sql.DB
-	TokenService      *token.Service
-	AuthService       *auth.Service
-	PairingService    *pairing.Service
-	OnboardingService *onboarding.Service
-	CommandService    *command.Service
+	DB                     *sql.DB
+	TokenService           *token.Service
+	AuthService            *auth.Service
+	PairingService         *pairing.Service
+	OnboardingService      *onboarding.Service
+	CommandService         *command.Service
+	ExecutionServiceCancel context.CancelFunc
 }
 
-func NewServiceProvider(t *testing.T, db *sql.DB) *ServiceProvider {
-	secretKey := "0000000000000000000000000000000000000000000"
-	tokenConfig := token.Config{ClientToken: token.AuthTokenConfig{SecretKey: secretKey, ExpirationPeriod: time.Minute * 5}, MinerTokenExpirationPeriod: time.Minute * 5}
+func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvider {
+	tokenConfig := token.Config{ClientToken: token.AuthTokenConfig{SecretKey: config.AuthTokenSecretKey, ExpirationPeriod: time.Minute * 5}, MinerTokenExpirationPeriod: time.Minute * 5}
 	tokenService, err := token.NewService(tokenConfig)
 	assert.NoError(t, err)
 
-	serviceMasterKey := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-	encryptConfig := encrypt.Config{ServiceMasterKey: serviceMasterKey}
+	encryptConfig := encrypt.Config{ServiceMasterKey: config.ServiceMasterKey}
 	encryptService, err := encrypt.NewService(&encryptConfig)
 	assert.NoError(t, err)
 
 	authService := auth.NewService(db, tokenService, encryptService)
 
-	minerClientService := client.NewService()
-	pairingConfig := pairing.Config{SecretKey: secretKey}
-	protoDiscoverer := proto.NewDiscoverer(minerClientService)
-	discoveryService, _ := minerdiscovery.NewService(protoDiscoverer)
+	minerClientService := client.NewService(db, encryptService, tokenService)
 
-	pairingService := pairing.NewService(db, pairingConfig, tokenService, discoveryService)
+	pairingConfig := pairing.Config{SecretKey: config.PairingSecretKey}
+
+	protoDiscoverer := proto.NewDiscoverer(minerClientService)
+	minerDiscoveryService, err := minerdiscovery.NewService(protoDiscoverer)
+	assert.NoError(t, err)
+
+	pairingService := pairing.NewService(db, pairingConfig, tokenService, minerDiscoveryService)
+
+	commandConfig := &command.Config{MaxWorkers: 50, MasterPollingInterval: time.Second, WorkerExecutionTimeout: 30 * time.Second, BatchStatusUpdatePollingInterval: time.Second}
+
+	dbMessageQueueConfig := queue.Config{DequeLimit: 500, MaxFailureRetries: 5}
+	dbMessageQueue := queue.NewDatabaseMessageQueue(&dbMessageQueueConfig, db)
+
+	executionServiceCtx, executionServiceCancel := context.WithCancel(t.Context())
+
+	executionService := command.NewExecutionService(executionServiceCtx, commandConfig, db, dbMessageQueue, minerClientService, encryptService, tokenService)
+	statusService := command.NewStatusService(db, dbMessageQueue)
+	commandService := command.NewService(commandConfig, db, executionService, dbMessageQueue, statusService)
 
 	onboardingService := onboarding.NewService(db)
 
-	commandService := command.NewService(db, minerClientService, tokenService, encryptService)
-
 	return &ServiceProvider{
-		DB:                db,
-		TokenService:      tokenService,
-		AuthService:       authService,
-		PairingService:    pairingService,
-		OnboardingService: onboardingService,
-		CommandService:    commandService,
+		DB:                     db,
+		TokenService:           tokenService,
+		AuthService:            authService,
+		PairingService:         pairingService,
+		OnboardingService:      onboardingService,
+		CommandService:         commandService,
+		ExecutionServiceCancel: executionServiceCancel,
 	}
 }

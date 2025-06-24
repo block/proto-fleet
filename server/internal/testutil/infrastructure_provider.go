@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"github.com/alecthomas/assert/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -81,14 +82,17 @@ func NewInfrastructureProvider(t *testing.T, serviceProvider *ServiceProvider, a
 
 	t.Cleanup(func() {
 		provider.testServer.Close()
+		provider.serviceProvider.ExecutionServiceCancel()
 	})
 
 	return &provider
 }
 
 func InitializeDBServiceInfrastructure(t *testing.T) *TestContext {
-	databaseService := NewDatabaseService(t)
-	serviceProvider := NewServiceProvider(t, databaseService.DB)
+	testConfig, err := GetTestConfig()
+	assert.NoError(t, err, "error initializing test config")
+	databaseService := NewDatabaseService(t, testConfig)
+	serviceProvider := NewServiceProvider(t, databaseService.DB, testConfig)
 
 	infrastructureProvider := NewInfrastructureProvider(t, serviceProvider, interceptors.UnauthenticatedProcedures)
 	return &TestContext{DatabaseService: databaseService, ServiceProvider: serviceProvider, InfrastructureProvider: infrastructureProvider}

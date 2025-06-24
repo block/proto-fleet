@@ -2,6 +2,7 @@ package command_test
 
 import (
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/alecthomas/assert/v2"
@@ -33,9 +34,9 @@ func TestCommandHandler(t *testing.T) {
 		ctx := testutil.MockAuthContextForTesting(t.Context(), adminUser.DatabaseID, adminUser.OrganizationID)
 
 		_, err := testContext.InfrastructureProvider.CommandClient.StartMining(ctx, req)
-
 		assert.NoError(t, err)
-		minerCallCounter.AssertCalls(t, proto_mocks.MethodStartMining, 2)
+
+		assert.True(t, awaitedMinerCallsHappened(minerCallCounter, proto_mocks.MethodStartMining, 2))
 	})
 
 	t.Run("StopMining should send commands to miners", func(t *testing.T) {
@@ -47,10 +48,25 @@ func TestCommandHandler(t *testing.T) {
 		ctx := testutil.MockAuthContextForTesting(t.Context(), adminUser.DatabaseID, adminUser.OrganizationID)
 
 		_, err := testContext.InfrastructureProvider.CommandClient.StopMining(ctx, req)
-
 		assert.NoError(t, err)
-		minerCallCounter.AssertCalls(t, proto_mocks.MethodStopMining, 2)
+
+		assert.True(t, awaitedMinerCallsHappened(minerCallCounter, proto_mocks.MethodStopMining, 2))
 	})
+}
+
+func awaitedMinerCallsHappened(counter *proto_mocks.MockMinerCallCounter, method proto_mocks.MethodName, expectedCalls int32) bool {
+	timeout := 5 * time.Second
+	pollInterval := 100 * time.Millisecond
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		callCount := counter.GetCount(method)
+		if callCount == expectedCalls {
+			return true
+		}
+		time.Sleep(pollInterval)
+	}
+
+	return false
 }
 
 // Helper functions
