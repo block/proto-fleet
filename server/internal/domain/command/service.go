@@ -43,16 +43,17 @@ func NewService(config *Config, conn *sql.DB, executionService *ExecutionService
 	}
 }
 
-func (s *Service) saveCommandBatchLogToDB(ctx context.Context, commandType commandtype.Type, userID int64) (*batchLogIdentifier, error) {
+func (s *Service) saveCommandBatchLogToDB(ctx context.Context, commandType commandtype.Type, userID int64, devicesCount int32) (*batchLogIdentifier, error) {
 	return db.WithTransaction[*batchLogIdentifier](ctx, s.conn, func(q *sqlc.Queries) (*batchLogIdentifier, error) {
 		timeNow := time.Now()
 		newUUID := uuid.New().String()
 		result, err := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
-			Uuid:      newUUID,
-			Type:      commandType.String(),
-			CreatedBy: userID,
-			CreatedAt: timeNow,
-			Status:    sqlc.CommandBatchLogStatusPENDING,
+			Uuid:         newUUID,
+			Type:         commandType.String(),
+			CreatedBy:    userID,
+			CreatedAt:    timeNow,
+			Status:       sqlc.CommandBatchLogStatusPENDING,
+			DevicesCount: devicesCount,
 		})
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("error creating command batch log: %v", err)
@@ -149,7 +150,8 @@ func (s *Service) processCommand(ctx context.Context, commandType commandtype.Ty
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error getting claims from ctx: %v", err)
 	}
-	batchLogIdentifier, err := s.saveCommandBatchLogToDB(ctx, commandType, claims.UserID)
+	// #nosec G115 - We know device identifiers len won't exceed int32 max value
+	batchLogIdentifier, err := s.saveCommandBatchLogToDB(ctx, commandType, claims.UserID, int32(len(deviceIdentifiers)))
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
 	}

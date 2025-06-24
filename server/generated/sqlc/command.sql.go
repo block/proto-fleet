@@ -17,8 +17,10 @@ INSERT INTO command_batch_log (
     type,
     created_by,
     created_at,
-    status
+    status,
+    devices_count
 ) VALUES (
+  ?,
   ?,
   ?,
   ?,
@@ -28,11 +30,12 @@ INSERT INTO command_batch_log (
 `
 
 type CreateCommandBatchLogParams struct {
-	Uuid      string
-	Type      string
-	CreatedBy int64
-	CreatedAt time.Time
-	Status    CommandBatchLogStatus
+	Uuid         string
+	Type         string
+	CreatedBy    int64
+	CreatedAt    time.Time
+	Status       CommandBatchLogStatus
+	DevicesCount int32
 }
 
 func (q *Queries) CreateCommandBatchLog(ctx context.Context, arg CreateCommandBatchLogParams) (sql.Result, error) {
@@ -42,6 +45,7 @@ func (q *Queries) CreateCommandBatchLog(ctx context.Context, arg CreateCommandBa
 		arg.CreatedBy,
 		arg.CreatedAt,
 		arg.Status,
+		arg.DevicesCount,
 	)
 }
 
@@ -50,7 +54,7 @@ SELECT
     cbl.id,
     cbl.uuid,
     cbl.status,
-    COUNT(codl.id) AS total_devices,
+    cbl.devices_count,
     SUM(CASE WHEN codl.status = 'SUCCESS' THEN 1 ELSE 0 END) AS successful_devices,
     SUM(CASE WHEN codl.status = 'FAILED' THEN 1 ELSE 0 END) AS failed_devices
 FROM
@@ -67,7 +71,7 @@ type GetBatchStatusAndDeviceCountsRow struct {
 	ID                int64
 	Uuid              string
 	Status            CommandBatchLogStatus
-	TotalDevices      int64
+	DevicesCount      int32
 	SuccessfulDevices interface{}
 	FailedDevices     interface{}
 }
@@ -79,7 +83,7 @@ func (q *Queries) GetBatchStatusAndDeviceCounts(ctx context.Context, uuid string
 		&i.ID,
 		&i.Uuid,
 		&i.Status,
-		&i.TotalDevices,
+		&i.DevicesCount,
 		&i.SuccessfulDevices,
 		&i.FailedDevices,
 	)

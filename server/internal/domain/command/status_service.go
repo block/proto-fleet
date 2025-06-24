@@ -44,7 +44,7 @@ func toInt64(value interface{}) int64 {
 
 func getDeviceCount(row *sqlc.GetBatchStatusAndDeviceCountsRow) *pb.CommandBatchUpdateDeviceCount {
 	return &pb.CommandBatchUpdateDeviceCount{
-		Total:   row.TotalDevices,
+		Total:   toInt64(row.DevicesCount),
 		Success: toInt64(row.SuccessfulDevices),
 		Failure: toInt64(row.FailedDevices),
 	}

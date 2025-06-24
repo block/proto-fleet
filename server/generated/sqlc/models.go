@@ -273,14 +273,15 @@ func (ns NullQueueMessageStatus) Value() (driver.Value, error) {
 }
 
 type CommandBatchLog struct {
-	ID         int64
-	Uuid       string
-	Type       string
-	CreatedBy  int64
-	CreatedAt  time.Time
-	StartedAt  sql.NullTime
-	FinishedAt sql.NullTime
-	Status     CommandBatchLogStatus
+	ID           int64
+	Uuid         string
+	Type         string
+	CreatedBy    int64
+	CreatedAt    time.Time
+	StartedAt    sql.NullTime
+	FinishedAt   sql.NullTime
+	Status       CommandBatchLogStatus
+	DevicesCount int32
 }
 
 type CommandOnDeviceLog struct {

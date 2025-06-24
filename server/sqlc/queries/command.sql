@@ -4,8 +4,10 @@ INSERT INTO command_batch_log (
     type,
     created_by,
     created_at,
-    status
+    status,
+    devices_count
 ) VALUES (
+  ?,
   ?,
   ?,
   ?,
@@ -52,7 +54,7 @@ SELECT
     cbl.id,
     cbl.uuid,
     cbl.status,
-    COUNT(codl.id) AS total_devices,
+    cbl.devices_count,
     SUM(CASE WHEN codl.status = 'SUCCESS' THEN 1 ELSE 0 END) AS successful_devices,
     SUM(CASE WHEN codl.status = 'FAILED' THEN 1 ELSE 0 END) AS failed_devices
 FROM
