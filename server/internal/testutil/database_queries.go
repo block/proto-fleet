@@ -13,7 +13,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	db2 "github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
-	"github.com/google/uuid"
+	id "github.com/btc-mining/proto-fleet/server/internal/infrastructure/id"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -47,7 +47,7 @@ func (s *DatabaseService) CreateSuperAdminUser() *TestUser {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	assert.NoError(s.t, err, "could not hash pass")
 
-	externalUserID := uuid.New().String()
+	externalUserID := id.GenerateID()
 
 	var testUser TestUser
 	testUser.Username = username
@@ -117,7 +117,7 @@ func (s *DatabaseService) CreateSuperAdminUser() *TestUser {
 }
 
 func (s *DatabaseService) CreateDevice(organizationID int64) DeviceIdentification {
-	uuidCurrent := uuid.New().String()
+	uuidCurrent := id.GenerateID()
 	deviceIdentification, err := db2.WithTransaction[DeviceIdentification](context.Background(), s.DB, func(q *sqlc.Queries) (DeviceIdentification, error) {
 		result, err := q.UpsertDevice(context.Background(), sqlc.UpsertDeviceParams{
 			OrgID:            organizationID,

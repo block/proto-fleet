@@ -340,7 +340,7 @@ func (s *Service) saveDevice(ctx context.Context, device *pb.Device) error {
 		// Use existing device identifier if available, otherwise generate new UUID
 		deviceIdentifier := device.DeviceIdentifier
 		if deviceIdentifier == "" {
-			deviceIdentifier = uuid.NewString()
+			deviceIdentifier = uuid.Must(uuid.NewV7()).String()
 		}
 
 		result, err := q.UpsertDevice(ctx, sqlc.UpsertDeviceParams{

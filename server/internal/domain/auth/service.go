@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+	id "github.com/btc-mining/proto-fleet/server/internal/infrastructure/id"
 
 	authv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1"
 	onboardingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1"
@@ -16,7 +17,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
-	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -100,8 +100,8 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 		return nil, fleeterror.NewInternalErrorf("error generating password: %v", err)
 	}
 
-	externalUserID := uuid.New().String()
-	externalOrgID := uuid.New().String()
+	externalUserID := id.GenerateID()
+	externalOrgID := id.GenerateID()
 	orgName := generateDefaultOrgName(externalOrgID)
 
 	err = db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {

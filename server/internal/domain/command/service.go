@@ -3,16 +3,18 @@ package command
 import (
 	"context"
 	"database/sql"
+
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 
-	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
-	"github.com/google/uuid"
 	"log/slog"
 	"time"
+
+	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
+	id "github.com/btc-mining/proto-fleet/server/internal/infrastructure/id"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
 )
@@ -46,7 +48,7 @@ func NewService(config *Config, conn *sql.DB, executionService *ExecutionService
 func (s *Service) saveCommandBatchLogToDB(ctx context.Context, commandType commandtype.Type, userID int64, devicesCount int32) (*batchLogIdentifier, error) {
 	return db.WithTransaction[*batchLogIdentifier](ctx, s.conn, func(q *sqlc.Queries) (*batchLogIdentifier, error) {
 		timeNow := time.Now()
-		newUUID := uuid.New().String()
+		newUUID := id.GenerateID()
 		result, err := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
 			Uuid:         newUUID,
 			Type:         commandType.String(),
