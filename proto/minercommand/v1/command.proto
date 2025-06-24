@@ -12,6 +12,7 @@ message StopMiningRequest {
 
 // Response from stop mining request
 message StopMiningResponse {
+  string batch_identifier = 1;
 }
 
 // Request to start mining on specific miners
@@ -22,6 +23,7 @@ message StartMiningRequest {
 
 // Response from start mining request
 message StartMiningResponse {
+  string batch_identifier = 1;
 }
 
 message StreamCommandBatchUpdatesRequest {

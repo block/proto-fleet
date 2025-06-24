@@ -3,7 +3,6 @@ package command
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
@@ -11,10 +10,8 @@ import (
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
-	"github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	"log/slog"
-	"strings"
 	"time"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
@@ -30,6 +27,11 @@ type Service struct {
 	statusService    *StatusService
 }
 
+type batchLogIdentifier struct {
+	id   int64
+	uuid string
+}
+
 // NewService creates a new command service instance
 func NewService(config *Config, conn *sql.DB, executionService *ExecutionService, messageQueue queue.MessageQueue, statusService *StatusService) *Service {
 	return &Service{
@@ -41,17 +43,8 @@ func NewService(config *Config, conn *sql.DB, executionService *ExecutionService
 	}
 }
 
-func isDuplicateKeyError(err error) bool {
-	var mysqlErr *mysql.MySQLError
-	if errors.As(err, &mysqlErr) {
-		return mysqlErr.Number == 1062
-	}
-	// Non mysql approach
-	return err != nil && strings.Contains(strings.ToLower(err.Error()), "duplicate")
-}
-
-func (s *Service) saveCommandBatchLogToDB(ctx context.Context, commandType commandtype.Type, userID int64) (int64, error) {
-	return db.WithTransaction[int64](ctx, s.conn, func(q *sqlc.Queries) (int64, error) {
+func (s *Service) saveCommandBatchLogToDB(ctx context.Context, commandType commandtype.Type, userID int64) (*batchLogIdentifier, error) {
+	return db.WithTransaction[*batchLogIdentifier](ctx, s.conn, func(q *sqlc.Queries) (*batchLogIdentifier, error) {
 		timeNow := time.Now()
 		newUUID := uuid.New().String()
 		result, err := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
@@ -62,13 +55,13 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, commandType comma
 			Status:    sqlc.CommandBatchLogStatusPENDING,
 		})
 		if err != nil {
-			return 0, fleeterror.NewInternalErrorf("error creating command batch log: %v", err)
+			return nil, fleeterror.NewInternalErrorf("error creating command batch log: %v", err)
 		}
 		lastInsertID, err := result.LastInsertId()
 		if err != nil {
-			return 0, fleeterror.NewInternalErrorf("error getting last insert ID: %v", err)
+			return nil, fleeterror.NewInternalErrorf("error getting last insert ID: %v", err)
 		}
-		return lastInsertID, nil
+		return &batchLogIdentifier{id: lastInsertID, uuid: newUUID}, nil
 	})
 }
 
@@ -151,50 +144,54 @@ func (s *Service) initializeStatusUpdateRoutine(commandBatchLogID int64) {
 	}()
 }
 
-func (s *Service) processCommand(ctx context.Context, commandType commandtype.Type, deviceIdentifiers []string) error {
+func (s *Service) processCommand(ctx context.Context, commandType commandtype.Type, deviceIdentifiers []string) (string, error) {
 	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
-		return fleeterror.NewInternalErrorf("error getting claims from ctx: %v", err)
+		return "", fleeterror.NewInternalErrorf("error getting claims from ctx: %v", err)
 	}
-	commandBatchLogID, err := s.saveCommandBatchLogToDB(ctx, commandType, claims.UserID)
+	batchLogIdentifier, err := s.saveCommandBatchLogToDB(ctx, commandType, claims.UserID)
 	if err != nil {
-		return fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
+		return "", fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
 	}
 	deviceIDs, err := db.WithTransaction[[]int64](ctx, s.conn, func(q *sqlc.Queries) ([]int64, error) {
 		return q.GetDeviceIDsByDeviceIdentifiers(ctx, deviceIdentifiers)
 	})
 	if err != nil {
-		return fleeterror.NewInternalErrorf("error getting device IDs from device identifiers: %v", err)
+		return "", fleeterror.NewInternalErrorf("error getting device IDs from device identifiers: %v", err)
 	}
 
-	err = s.messageQueue.Enqueue(ctx, commandBatchLogID, commandType, deviceIDs)
+	err = s.messageQueue.Enqueue(ctx, batchLogIdentifier.id, commandType, deviceIDs)
 	if err != nil {
-		return fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
+		return "", fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogID)
+	s.initializeStatusUpdateRoutine(batchLogIdentifier.id)
 
-	return nil
+	return batchLogIdentifier.uuid, nil
 }
 
 // StopMining stops mining on the specified miners
 func (s *Service) StopMining(ctx context.Context, deviceIDs []string) (*pb.StopMiningResponse, error) {
-	err := s.processCommand(ctx, commandtype.StopMining, deviceIDs)
+	commandBatchLogUUID, err := s.processCommand(ctx, commandtype.StopMining, deviceIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	return &pb.StopMiningResponse{}, nil
+	return &pb.StopMiningResponse{
+		BatchIdentifier: commandBatchLogUUID,
+	}, nil
 }
 
 // StartMining starts mining on the specified miners
 func (s *Service) StartMining(ctx context.Context, deviceIDs []string) (*pb.StartMiningResponse, error) {
-	err := s.processCommand(ctx, commandtype.StartMining, deviceIDs)
+	commandBatchLogUUID, err := s.processCommand(ctx, commandtype.StartMining, deviceIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	return &pb.StartMiningResponse{}, nil
+	return &pb.StartMiningResponse{
+		BatchIdentifier: commandBatchLogUUID,
+	}, nil
 }
 
 func (s *Service) StreamCommandBatchUpdates(ctx context.Context, msg *pb.StreamCommandBatchUpdatesRequest) (<-chan *pb.StreamCommandBatchUpdatesResponse, error) {
