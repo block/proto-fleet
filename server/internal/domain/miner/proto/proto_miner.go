@@ -2,11 +2,7 @@ package proto
 
 import (
 	"context"
-	"database/sql"
 	"time"
-
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
@@ -32,7 +28,6 @@ func NewProtoMiner(deviceID int64, ipAddress string, port uint16, minerClient *c
 		connectionInfo: networking.ConnectionInfo{
 			IPAddress: networking.IPAddress(ipAddress),
 			Port:      networking.Port(port),
-			Protocol:  networking.ProtocolHTTPS, // client will try both HTTP and HTTPS
 		},
 		minerClient: minerClient,
 		authToken:   authToken,
@@ -75,28 +70,6 @@ func (p *ProtoMiner) StopMining(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func (p *ProtoMiner) GetPairingInfo(ctx context.Context, conn *sql.DB) (*miner.PairingInfo, error) {
-	resp, err := p.minerClient.GetPairingInfo(ctx, p.connectionInfo.GetHostPort().String())
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get pairing info: %v", err)
-	}
-	deviceIdentifier, err := db.WithTransaction[string](ctx, conn, func(q *sqlc.Queries) (string, error) {
-		return q.GetDeviceIdentifierByID(ctx, p.deviceID)
-	})
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get device identifier from ID: %v", err)
-	}
-
-	return &miner.PairingInfo{
-		DeviceID:     deviceIdentifier,
-		SerialNumber: resp.Msg.CbSn,
-		MacAddress:   resp.Msg.Mac,
-		// TODO(DASH-331) Fetch model and manufacturer from miner
-		Model:        "Proto Rig",
-		Manufacturer: "Block, Inc",
-	}, nil
 }
 
 func (p *ProtoMiner) getMinerConnectionInfo() *client.MinerConnectionInfo {

@@ -9,9 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -31,6 +29,17 @@ const (
 	endpointBlink        = "/cgi-bin/blink.cgi"
 )
 
+// BitmainWorkMode represents the operating mode of an Antminer device
+type BitmainWorkMode string
+
+// Bitmain work mode constants
+const (
+	BitmainWorkModeStart    BitmainWorkMode = "0" // Normal operation
+	BitmainWorkModeSleep    BitmainWorkMode = "1" // Sleep mode
+	BitmainWorkModeLowPower BitmainWorkMode = "2" // Low power mode
+)
+
+//go:generate mockgen -source=service.go -destination=mocks/mock_web_api_client.go -package=mocks WebAPIClient
 type WebAPIClient interface {
 	GetSystemInfo(ctx context.Context, connInfo *AntminerConnectionInfo) (*SystemInfo, error)
 	GetMinerSummary(ctx context.Context, connInfo *AntminerConnectionInfo) (*MinerSummary, error)
@@ -41,6 +50,8 @@ type WebAPIClient interface {
 	StartBlink(ctx context.Context, connInfo *AntminerConnectionInfo) error
 	StopBlink(ctx context.Context, connInfo *AntminerConnectionInfo) error
 }
+
+var _ WebAPIClient = &Service{}
 
 type Service struct {
 	httpClient *http.Client
@@ -107,20 +118,20 @@ type MinerConfig struct {
 		User string `json:"user"`
 		Pass string `json:"pass"`
 	} `json:"pools"`
-	APIListen              bool   `json:"api-listen"`
-	APINetwork             bool   `json:"api-network"`
-	APIGroups              string `json:"api-groups"`
-	APIAllow               string `json:"api-allow"`
-	BitmainFanCtrl         bool   `json:"bitmain-fan-ctrl"`
-	BitmainFanPWM          string `json:"bitmain-fan-pwm"`
-	BitmainUseVil          bool   `json:"bitmain-use-vil"`
-	BitmainFreq            string `json:"bitmain-freq"`
-	BitmainVoltage         string `json:"bitmain-voltage"`
-	BitmainCCDelay         string `json:"bitmain-ccdelay"`
-	BitmainPWTH            string `json:"bitmain-pwth"`
-	BitmainWorkMode        string `json:"bitmain-work-mode"`
-	BitmainHashratePercent string `json:"bitmain-hashrate-percent"`
-	BitmainFreqLevel       string `json:"bitmain-freq-level"`
+	APIListen              bool            `json:"api-listen"`
+	APINetwork             bool            `json:"api-network"`
+	APIGroups              string          `json:"api-groups"`
+	APIAllow               string          `json:"api-allow"`
+	BitmainFanCtrl         bool            `json:"bitmain-fan-ctrl"`
+	BitmainFanPWM          string          `json:"bitmain-fan-pwm"`
+	BitmainUseVil          bool            `json:"bitmain-use-vil"`
+	BitmainFreq            string          `json:"bitmain-freq"`
+	BitmainVoltage         string          `json:"bitmain-voltage"`
+	BitmainCCDelay         string          `json:"bitmain-ccdelay"`
+	BitmainPWTH            string          `json:"bitmain-pwth"`
+	BitmainWorkMode        BitmainWorkMode `json:"bitmain-work-mode"`
+	BitmainHashratePercent string          `json:"bitmain-hashrate-percent"`
+	BitmainFreqLevel       string          `json:"bitmain-freq-level"`
 }
 
 type NetworkInfo struct {
@@ -146,13 +157,7 @@ type RequestOptions struct {
 }
 
 func (s *Service) buildURL(connInfo *AntminerConnectionInfo, endpoint string) string {
-	url := url.URL{
-		Scheme: scheme,
-		Host:   net.JoinHostPort(connInfo.IPAddress, connInfo.Port),
-		Path:   endpoint,
-	}
-
-	return url.String()
+	return connInfo.GetURL().JoinPath(endpoint).String()
 }
 
 func (s *Service) request(ctx context.Context, connInfo *AntminerConnectionInfo, opts RequestOptions) error {

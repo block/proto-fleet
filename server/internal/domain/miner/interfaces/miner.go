@@ -2,7 +2,6 @@ package interfaces
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
@@ -35,9 +34,6 @@ type Miner interface {
 	// Mining operations
 	StartMining(ctx context.Context) error
 	StopMining(ctx context.Context) error
-
-	// System operations
-	GetPairingInfo(ctx context.Context, conn *sql.DB) (*models.PairingInfo, error)
 
 	// Telemetry operations
 	GetTelemetry(ctx context.Context, after time.Time) ([]telemetryModels.Telemetry, error)

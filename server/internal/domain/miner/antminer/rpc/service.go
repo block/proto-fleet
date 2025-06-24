@@ -10,6 +10,7 @@ import (
 	"bufio"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 )
 
 // timeouts and max response size to prevent large responses from causing issues
@@ -20,13 +21,15 @@ const (
 )
 
 type RPCClient interface {
-	GetStats(ctx context.Context, connInfo *AntminerRPCConnectionInfo) (*StatsResponse, error)
-	GetSummary(ctx context.Context, connInfo *AntminerRPCConnectionInfo) (*SummaryResponse, error)
-	GetPools(ctx context.Context, connInfo *AntminerRPCConnectionInfo) (*PoolsResponse, error)
-	GetVersion(ctx context.Context, connInfo *AntminerRPCConnectionInfo) (*VersionResponse, error)
-	GetDevs(ctx context.Context, connInfo *AntminerRPCConnectionInfo) (*DevsResponse, error)
-	GetConfig(ctx context.Context, connInfo *AntminerRPCConnectionInfo) (*ConfigResponse, error)
+	GetStats(ctx context.Context, connInfo *networking.ConnectionInfo) (*StatsResponse, error)
+	GetSummary(ctx context.Context, connInfo *networking.ConnectionInfo) (*SummaryResponse, error)
+	GetPools(ctx context.Context, connInfo *networking.ConnectionInfo) (*PoolsResponse, error)
+	GetVersion(ctx context.Context, connInfo *networking.ConnectionInfo) (*VersionResponse, error)
+	GetDevs(ctx context.Context, connInfo *networking.ConnectionInfo) (*DevsResponse, error)
+	GetConfig(ctx context.Context, connInfo *networking.ConnectionInfo) (*ConfigResponse, error)
 }
+
+var _ RPCClient = &Service{}
 
 type Service struct {
 	dialTimeout time.Duration
@@ -40,16 +43,16 @@ func NewService() *Service {
 	}
 }
 
-func (s *Service) request(ctx context.Context, connInfo *AntminerRPCConnectionInfo, cmd string, out any) error {
+func (s *Service) request(ctx context.Context, connInfo *networking.ConnectionInfo, cmd string, out any) error {
 	req := &RPCRequest{Command: cmd}
 	return s.executeRPCCommand(ctx, connInfo, req, out)
 }
 
-func (s *Service) executeRPCCommand(ctx context.Context, connInfo *AntminerRPCConnectionInfo, request *RPCRequest, out any) error {
-	address := net.JoinHostPort(connInfo.IPAddress, connInfo.Port)
+func (s *Service) executeRPCCommand(ctx context.Context, connInfo *networking.ConnectionInfo, request *RPCRequest, out any) error {
+	address := connInfo.GetURL().Host
 	dialer := &net.Dialer{Timeout: s.dialTimeout}
 
-	conn, err := dialer.DialContext(ctx, "tcp", address)
+	conn, err := dialer.DialContext(ctx, connInfo.Protocol.String(), address)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to connect to %s: %v", address, err)
 	}
@@ -76,7 +79,7 @@ func (s *Service) executeRPCCommand(ctx context.Context, connInfo *AntminerRPCCo
 	return nil
 }
 
-func (s *Service) GetStats(ctx context.Context, connInfo *AntminerRPCConnectionInfo) (*StatsResponse, error) {
+func (s *Service) GetStats(ctx context.Context, connInfo *networking.ConnectionInfo) (*StatsResponse, error) {
 	var resp StatsResponse
 	if err := s.request(ctx, connInfo, "stats", &resp); err != nil {
 		return nil, err
@@ -84,7 +87,7 @@ func (s *Service) GetStats(ctx context.Context, connInfo *AntminerRPCConnectionI
 	return &resp, nil
 }
 
-func (s *Service) GetSummary(ctx context.Context, connInfo *AntminerRPCConnectionInfo) (*SummaryResponse, error) {
+func (s *Service) GetSummary(ctx context.Context, connInfo *networking.ConnectionInfo) (*SummaryResponse, error) {
 	var resp SummaryResponse
 	if err := s.request(ctx, connInfo, "summary", &resp); err != nil {
 		return nil, err
@@ -92,7 +95,7 @@ func (s *Service) GetSummary(ctx context.Context, connInfo *AntminerRPCConnectio
 	return &resp, nil
 }
 
-func (s *Service) GetPools(ctx context.Context, connInfo *AntminerRPCConnectionInfo) (*PoolsResponse, error) {
+func (s *Service) GetPools(ctx context.Context, connInfo *networking.ConnectionInfo) (*PoolsResponse, error) {
 	var resp PoolsResponse
 	if err := s.request(ctx, connInfo, "pools", &resp); err != nil {
 		return nil, err
@@ -100,7 +103,7 @@ func (s *Service) GetPools(ctx context.Context, connInfo *AntminerRPCConnectionI
 	return &resp, nil
 }
 
-func (s *Service) GetVersion(ctx context.Context, connInfo *AntminerRPCConnectionInfo) (*VersionResponse, error) {
+func (s *Service) GetVersion(ctx context.Context, connInfo *networking.ConnectionInfo) (*VersionResponse, error) {
 	var resp VersionResponse
 	if err := s.request(ctx, connInfo, "version", &resp); err != nil {
 		return nil, err
@@ -108,7 +111,7 @@ func (s *Service) GetVersion(ctx context.Context, connInfo *AntminerRPCConnectio
 	return &resp, nil
 }
 
-func (s *Service) GetDevs(ctx context.Context, connInfo *AntminerRPCConnectionInfo) (*DevsResponse, error) {
+func (s *Service) GetDevs(ctx context.Context, connInfo *networking.ConnectionInfo) (*DevsResponse, error) {
 	var resp DevsResponse
 	if err := s.request(ctx, connInfo, "devs", &resp); err != nil {
 		return nil, err
@@ -116,7 +119,7 @@ func (s *Service) GetDevs(ctx context.Context, connInfo *AntminerRPCConnectionIn
 	return &resp, nil
 }
 
-func (s *Service) GetConfig(ctx context.Context, connInfo *AntminerRPCConnectionInfo) (*ConfigResponse, error) {
+func (s *Service) GetConfig(ctx context.Context, connInfo *networking.ConnectionInfo) (*ConfigResponse, error) {
 	var resp ConfigResponse
 	if err := s.request(ctx, connInfo, "config", &resp); err != nil {
 		return nil, err

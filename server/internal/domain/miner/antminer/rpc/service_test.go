@@ -3,10 +3,12 @@ package rpc_test
 import (
 	"encoding/json"
 	"net"
+	"strconv"
 	"testing"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/rpc"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -442,13 +444,16 @@ func TestRPCCommands(t *testing.T) {
 	require.NoError(t, err, "Failed to create mock server")
 	defer server.Close()
 
-	host, port, err := net.SplitHostPort(server.GetAddress())
+	host, portStr, err := net.SplitHostPort(server.GetAddress())
 	require.NoError(t, err, "Failed to split host port")
+	portInt, err := strconv.Atoi(portStr)
+	require.NoError(t, err, "Failed to convert port to int")
 
 	rpcClient := rpc.NewService()
-	connInfo := &rpc.AntminerRPCConnectionInfo{
-		IPAddress: host,
-		Port:      port,
+	connInfo := &networking.ConnectionInfo{
+		IPAddress: networking.IPAddress(host),
+		Port:      networking.Port(portInt), //nolint:gosec // This is a test
+		Protocol:  networking.ProtocolTCP,
 	}
 
 	t.Run("GetVersion", func(t *testing.T) {
@@ -581,9 +586,9 @@ func TestRPCCommands(t *testing.T) {
 // Test error handling
 func TestRPCErrorHandling(t *testing.T) {
 	rpcClient := rpc.NewService()
-	connInfo := &rpc.AntminerRPCConnectionInfo{
+	connInfo := &networking.ConnectionInfo{
 		IPAddress: "127.0.0.1",
-		Port:      "9999", // Non-existent port
+		Port:      networking.Port(9999), // Non-existent port
 	}
 
 	t.Run("ConnectionFailure", func(t *testing.T) {

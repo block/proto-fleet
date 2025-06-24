@@ -6,7 +6,6 @@ package mocks
 
 import (
 	context "context"
-	sql "database/sql"
 	reflect "reflect"
 	time "time"
 
@@ -65,21 +64,6 @@ func (m *MockMiner) GetID() int64 {
 func (mr *MockMinerMockRecorder) GetID() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetID", reflect.TypeOf((*MockMiner)(nil).GetID))
-}
-
-// GetPairingInfo mocks base method.
-func (m *MockMiner) GetPairingInfo(ctx context.Context, conn *sql.DB) (*models.PairingInfo, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPairingInfo", ctx, conn)
-	ret0, _ := ret[0].(*models.PairingInfo)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetPairingInfo indicates an expected call of GetPairingInfo.
-func (mr *MockMinerMockRecorder) GetPairingInfo(ctx, conn interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPairingInfo", reflect.TypeOf((*MockMiner)(nil).GetPairingInfo), ctx, conn)
 }
 
 // GetTelemetry mocks base method.
