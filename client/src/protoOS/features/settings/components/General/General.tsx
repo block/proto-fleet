@@ -18,7 +18,8 @@ const General = () => {
   const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
   const [showTemperatureUnitsSwitcher, setShowTemperatureUnitsSwitcher] =
     useState(false);
-  const [model, setModel] = useState<string>();
+  const model = "Proto Rig"; // TODO get model from API, do not append generation number
+  const [isR2, setIsR2] = useState<boolean>();
   const { theme, temperatureUnits } = usePreferences();
 
   const { data: systemInfo } = useSystemInfo({ poll: false });
@@ -31,9 +32,9 @@ const General = () => {
 
     // TODO: Swap this logic with model API when available
     if (hashboards.length > 3) {
-      setModel("Proto Rig 2");
+      setIsR2(true);
     } else {
-      setModel("Proto Rig 1");
+      setIsR2(false);
     }
   }, [hashboards, pending]);
 
@@ -43,16 +44,13 @@ const General = () => {
     <>
       <h2 className="mb-10 text-heading-300">General</h2>
       <div className="mb-10 flex h-68 w-full items-center justify-center rounded-2xl bg-core-primary-5">
-        {model ? (
+        {isR2 !== undefined ? (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3 }}
           >
-            <Picture
-              image={model == "Proto Rig 1" ? R1Image : R2Image}
-              alt={model}
-            />
+            <Picture image={isR2 ? R2Image : R1Image} alt={model} />
             <div className="mt-2 text-center text-heading-100 text-text-primary-50">
               {model}
             </div>

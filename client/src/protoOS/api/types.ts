@@ -349,7 +349,7 @@ export interface HashboardsInfoHashboardsinfo {
    */
   hb_sn?: string;
   /** @example "BZM" */
-  mining_asic?: "BZM" | "MC1" | "MC2";
+  mining_asic?: "BZM" | "MC1" | "MC2" | "MC2Sim";
   /**
    * Number of asics on the hashboard.
    * @example 100

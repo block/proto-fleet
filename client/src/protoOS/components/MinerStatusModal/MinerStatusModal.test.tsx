@@ -31,7 +31,7 @@ describe("MinerStatusModal", () => {
     render(<MinerStatusModal onDismiss={() => {}} errors={[]} />);
 
     expect(screen.getByText("All systems are operational")).toBeInTheDocument();
-    expect(screen.getByText("Fans")).toBeInTheDocument();
+    expect(screen.getByText("Fan modules")).toBeInTheDocument();
     expect(screen.getByText("Hashboards")).toBeInTheDocument();
     expect(screen.getByText("Control board")).toBeInTheDocument();
     expect(screen.getByText("PSU")).toBeInTheDocument();

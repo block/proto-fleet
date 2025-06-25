@@ -1,5 +1,10 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
+import { HashboardsInfoHashboardsinfo } from "apiTypes";
 import { useHashboards, useSystemInfo } from "@/protoOS/api";
+import {
+  ExternalAsicType,
+  InternalAsicType,
+} from "@/protoOS/features/settings/components/Hardware/constants";
 import { HashboardIndicator } from "@/shared/assets/icons";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
@@ -16,6 +21,35 @@ const Hardware = () => {
   }, [hashboards]);
 
   const skeletonBar = <SkeletonBar className="h-[22px] w-20" />;
+
+  const getHashboardIdentifier = useCallback(
+    (hashboardInfo: HashboardsInfoHashboardsinfo) => {
+      let generation = 1;
+      if (
+        hashboardInfo.mining_asic === InternalAsicType.MC2 ||
+        hashboardInfo.mining_asic === InternalAsicType.MC2Sim
+      ) {
+        generation = 2;
+      }
+      return `${hashboardInfo.mining_asic_count}C${generation}`;
+    },
+    [],
+  );
+
+  const getExternalAsicType = useCallback((internalAsicName?: string) => {
+    if (!internalAsicName) return undefined;
+    switch (internalAsicName) {
+      case InternalAsicType.MC1:
+      case InternalAsicType.BZM2:
+        return ExternalAsicType.Chip1;
+      case InternalAsicType.MC2:
+        return ExternalAsicType.Chip2;
+      case InternalAsicType.MC2Sim:
+        return ExternalAsicType.Chip2Sim;
+      case InternalAsicType.CpuSimulated:
+        return ExternalAsicType.ChipSim;
+    }
+  }, []);
 
   // TODO get PSU serial number from API
   const psuSerialNumber = "PM-H132435034";
@@ -57,9 +91,13 @@ const Hardware = () => {
                     totalHashboards={hashboards.length}
                   />
                 </div>
-                <div className="w-46 text-300">Hashboard {index + 1}</div>
+                <div className="w-46 text-300">
+                  Hashboard {getHashboardIdentifier(hashboard)}
+                </div>
                 <div className="w-46 text-300">{hashboard.hb_sn}</div>
-                <div className="w-46 text-300">{hashboard.mining_asic}</div>
+                <div className="w-46 text-300">
+                  {getExternalAsicType(hashboard.mining_asic)}
+                </div>
               </Row>
             ))}
           </>

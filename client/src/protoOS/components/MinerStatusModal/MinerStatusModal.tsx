@@ -190,7 +190,7 @@ const MinerStatusModal = ({
           ) : (
             <>
               <Divider />
-              <MinerStatusRow label="Fans" icon={R2_ICONS.fan} />
+              <MinerStatusRow label="Fan modules" icon={R2_ICONS.fan} />
               <MinerStatusRow label="Hashboards" icon={R2_ICONS.hashboard} />
               <MinerStatusRow
                 label="Control board"

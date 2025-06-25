@@ -45,7 +45,7 @@ const Efficiency = () => {
         series={[]}
         units="J/TH"
         aggregateSeries={{
-          name: "Total Efficiency",
+          name: "Average Efficiency",
           data: totalEfficiency,
         }}
       />
