@@ -12,6 +12,7 @@ import (
 	"github.com/alecthomas/assert/v2"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	db2 "github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	id "github.com/btc-mining/proto-fleet/server/internal/infrastructure/id"
 	"golang.org/x/crypto/bcrypt"
@@ -118,11 +119,12 @@ func (s *DatabaseService) CreateSuperAdminUser() *TestUser {
 
 func (s *DatabaseService) CreateDevice(organizationID int64) DeviceIdentification {
 	uuidCurrent := id.GenerateID()
-	deviceIdentification, err := db2.WithTransaction[DeviceIdentification](context.Background(), s.DB, func(q *sqlc.Queries) (DeviceIdentification, error) {
+	deviceIdentification, err := db2.WithTransaction(context.Background(), s.DB, func(q *sqlc.Queries) (DeviceIdentification, error) {
 		result, err := q.UpsertDevice(context.Background(), sqlc.UpsertDeviceParams{
 			OrgID:            organizationID,
 			DeviceIdentifier: uuidCurrent,
 			MacAddress:       "00-1A-2B-3C-4D-5E",
+			Type:             models.TypeProto.String(),
 		})
 		if err != nil {
 			return DeviceIdentification{}, fleeterror.NewInternalErrorf("failed to create device: %v", err)

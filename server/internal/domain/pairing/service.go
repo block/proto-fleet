@@ -305,6 +305,7 @@ func (s *Service) discoverDevice(ctx context.Context, ipAddress string, port str
 			"ipAddress", ipAddress,
 			"port", port,
 			"error", err)
+
 		return err
 	}
 
@@ -441,6 +442,10 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 				}
 
 				device = &dbDevice
+			}
+
+			if device.Type != models.TypeProto.String() {
+				return fleeterror.NewInvalidArgumentErrorf("device type '%s' is not supported for pairing yet, only '%s' devices are supported", device.Type, models.TypeProto)
 			}
 
 			pairingToken, err := s.generatePairingToken(device)

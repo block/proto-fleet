@@ -3,7 +3,6 @@ package proto
 import (
 	"context"
 	"net"
-	"time"
 
 	"connectrpc.com/connect"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
@@ -15,6 +14,10 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 )
 
+const requiredPort = "2121"
+
+var _ minerdiscovery.Discoverer = &Discoverer{}
+
 type Discoverer struct{}
 
 func NewDiscoverer() *Discoverer {
@@ -22,6 +25,10 @@ func NewDiscoverer() *Discoverer {
 }
 
 func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string) (*minerdiscovery.DiscoveredDevice, error) {
+	if port != requiredPort {
+		return nil, minerdiscovery.MinerNotFoundFleetError
+	}
+
 	url := net.JoinHostPort(ipAddress, port)
 
 	minerClient, err := client.CreateClient(
@@ -55,7 +62,6 @@ func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string
 			// TODO(DASH-331) Fetch model and manufacturer from miner
 			Model:        "Proto Rig",
 			Manufacturer: "Block, Inc",
-			DiscoveredAt: time.Now().Unix(),
 		},
 		Type: d.GetMinerType().String(),
 	}, nil

@@ -20,6 +20,7 @@ const (
 	MaxResponseSize    = 1 << 20 // 1MB
 )
 
+//go:generate mockgen -source=service.go -destination=mocks/mock_rpc_client.go -package=mocks RPCClient
 type RPCClient interface {
 	GetStats(ctx context.Context, connInfo *networking.ConnectionInfo) (*StatsResponse, error)
 	GetSummary(ctx context.Context, connInfo *networking.ConnectionInfo) (*SummaryResponse, error)

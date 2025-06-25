@@ -19,14 +19,11 @@ message Device {
   // Serial number of the control board of the unit
   string serial_number = 5;
 
-  // Unix timestamp when the device was discovered
-  int64 discovered_at = 6;
-
   // Model name/number of the device
-  string model = 7;
+  string model = 6;
 
   // Name of the device manufacturer
-  string manufacturer = 8;
+  string manufacturer = 7;
 }
 
 // Configuration for mDNS-based device discovery

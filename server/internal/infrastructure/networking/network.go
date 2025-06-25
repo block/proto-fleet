@@ -122,6 +122,22 @@ type ConnectionInfo struct {
 	Protocol  Protocol
 }
 
+func NewConnectionInfo(ipAddress string, port string, protocol Protocol) (*ConnectionInfo, error) {
+	portInt, err := strconv.Atoi(port)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to convert port to int: %v", err)
+	}
+	if portInt < 0 || portInt > 65535 {
+		return nil, fleeterror.NewInternalErrorf("port out of range: %d", portInt)
+	}
+
+	return &ConnectionInfo{
+		IPAddress: IPAddress(ipAddress),
+		Port:      Port(portInt),
+		Protocol:  protocol,
+	}, nil
+}
+
 func (c ConnectionInfo) GetURL() *url.URL {
 	return &url.URL{Scheme: c.Protocol.String(), Host: net.JoinHostPort(string(c.IPAddress), c.Port.String())}
 }

@@ -2,7 +2,6 @@ package web
 
 import (
 	"net/url"
-	"strconv"
 	"strings"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
@@ -16,7 +15,6 @@ type AntminerConnectionInfo struct {
 	Password secrets.Text
 }
 
-// NewAntminerConnectionInfo creates a new connection info struct with the given parameters
 func NewAntminerConnectionInfo(connectionInfo networking.ConnectionInfo, username string, password secrets.Text) *AntminerConnectionInfo {
 	return &AntminerConnectionInfo{
 		ConnectionInfo: connectionInfo,
@@ -25,7 +23,6 @@ func NewAntminerConnectionInfo(connectionInfo networking.ConnectionInfo, usernam
 	}
 }
 
-// NewAntminerConnectionInfoFromURL creates a connection info struct from a URL string
 func NewAntminerConnectionInfoFromURL(urlStr, username string, password secrets.Text) (*AntminerConnectionInfo, error) {
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
@@ -50,21 +47,14 @@ func NewAntminerConnectionInfoFromURL(urlStr, username string, password secrets.
 		}
 	}
 
-	portInt, err := strconv.Atoi(port)
+	connInfo, err := networking.NewConnectionInfo(host, port, protocol)
 	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentErrorf("failed to parse port %v", err)
-	}
-	if portInt < 0 || portInt > 65535 {
-		return nil, fleeterror.NewInvalidArgumentErrorf("port out of range: %d", portInt)
+		return nil, fleeterror.NewInternalErrorf("failed to create connection info: %v", err)
 	}
 
 	return &AntminerConnectionInfo{
-		ConnectionInfo: networking.ConnectionInfo{
-			IPAddress: networking.IPAddress(host),
-			Port:      networking.Port(portInt),
-			Protocol:  protocol,
-		},
-		Username: username,
-		Password: password,
+		ConnectionInfo: *connInfo,
+		Username:       username,
+		Password:       password,
 	}, nil
 }

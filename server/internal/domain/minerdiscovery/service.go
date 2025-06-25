@@ -6,11 +6,14 @@ import (
 	"log/slog"
 	"time"
 
+	"connectrpc.com/connect"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	interfaces "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 )
+
+var MinerNotFoundFleetError = fleeterror.NewPlainError("miner not found at the specified address and port", connect.CodeNotFound).WithCallerStackTrace()
 
 type DeviceOrgIdentifier struct {
 	DeviceIdentifier string

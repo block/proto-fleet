@@ -79,4 +79,27 @@ func TestService(t *testing.T) {
 		require.Error(t, err)
 		assert.Nil(t, device)
 	})
+
+	t.Run("should return MinerNotFoundFleetError if all discoverers return not found", func(t *testing.T) {
+		notFoundDiscoverer1 := &MockDiscoverer{
+			MinerType: miner.TypeAntminer,
+			DiscoverFunc: func(ctx context.Context, _ string, _ string) (*minerdiscovery.DiscoveredDevice, error) {
+				return nil, minerdiscovery.MinerNotFoundFleetError
+			},
+		}
+
+		notFoundDiscoverer2 := &MockDiscoverer{
+			MinerType: miner.TypeProto,
+			DiscoverFunc: func(ctx context.Context, _ string, _ string) (*minerdiscovery.DiscoveredDevice, error) {
+				return nil, minerdiscovery.MinerNotFoundFleetError
+			},
+		}
+
+		service, _ := minerdiscovery.NewService(notFoundDiscoverer1, notFoundDiscoverer2)
+
+		device, err := service.Discover(t.Context(), "192.168.1.1", "8080")
+		require.Error(t, err)
+		assert.Equal(t, minerdiscovery.MinerNotFoundFleetError, err)
+		assert.Nil(t, device)
+	})
 }

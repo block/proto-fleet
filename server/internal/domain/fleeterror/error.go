@@ -214,3 +214,15 @@ func NewInvalidArgumentErrorf(format string, a ...any) FleetError {
 func NewCanceledError() FleetError {
 	return NewPlainError("operation was canceled", connect.CodeCanceled).WithCallerStackTrace()
 }
+
+func (e FleetError) Is(target error) bool {
+	t, ok := target.(FleetError)
+	if !ok {
+		return false
+	}
+
+	return e.GRPCCode == t.GRPCCode &&
+		e.FleetErrorCode == t.FleetErrorCode &&
+		e.FleetErrorCodeType == t.FleetErrorCodeType &&
+		e.DebugMessage == t.DebugMessage
+}
