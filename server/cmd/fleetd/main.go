@@ -28,7 +28,6 @@ import (
 	authDomain "github.com/btc-mining/proto-fleet/server/internal/domain/auth"
 	commandDomain "github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	fleetmanagementDomain "github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
-	protoMinerClient "github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/proto"
 	onboardingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/onboarding"
@@ -84,9 +83,8 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
-	minerClient := protoMinerClient.NewService(conn, encryptSvc, tokenSvc)
 	authSvc := authDomain.NewService(conn, tokenSvc, encryptSvc)
-	protoDiscoverer := proto.NewDiscoverer(minerClient)
+	protoDiscoverer := proto.NewDiscoverer()
 	discoveryService, err := minerdiscovery.NewService(protoDiscoverer)
 	if err != nil {
 		return err
@@ -105,7 +103,7 @@ func start(config *Config) error {
 	executionServiceCtx, executionServiceCancel := context.WithCancel(context.Background())
 	defer executionServiceCancel()
 
-	executionService := commandDomain.NewExecutionService(executionServiceCtx, &config.Command, conn, dbMessageQueue, minerClient, encryptSvc, tokenSvc)
+	executionService := commandDomain.NewExecutionService(executionServiceCtx, &config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc)
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService)

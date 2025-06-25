@@ -19,7 +19,7 @@ func TestCommandHandler(t *testing.T) {
 
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 
-	var minerCallCounter = proto_mocks.NewMockMinerCallCounter()
+	minerCallCounter := proto_mocks.NewMockMinerCallCounter()
 	mockMinerServer := testutil.SetupMockMinerServer(t, minerCallCounter)
 
 	testMinerIDs := testContext.DatabaseService.CreateTestMiners(adminUser.OrganizationID, 2, mockMinerServer.URL)

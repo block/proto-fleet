@@ -5,27 +5,34 @@ import (
 	"net"
 	"time"
 
+	"connectrpc.com/connect"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
+	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api/miner_system_apiconnect"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	protoMinerClient "github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 )
 
-type Discoverer struct {
-	minerClient *protoMinerClient.Service
-}
+type Discoverer struct{}
 
-func NewDiscoverer(minerClient *protoMinerClient.Service) *Discoverer {
-	return &Discoverer{
-		minerClient: minerClient,
-	}
+func NewDiscoverer() *Discoverer {
+	return &Discoverer{}
 }
 
 func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string) (*minerdiscovery.DiscoveredDevice, error) {
 	url := net.JoinHostPort(ipAddress, port)
 
-	pairingInfo, err := d.minerClient.GetPairingInfo(ctx, url)
+	minerClient, err := client.CreateClient(
+		miner_system_apiconnect.NewMinerSystemApiClient,
+		url,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	pairingInfo, err := minerClient.GetPairingInfo(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
 	if err != nil {
 		return nil, err
 	}

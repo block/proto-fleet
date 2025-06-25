@@ -13,11 +13,11 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
 
 type ExecutionService struct {
@@ -25,19 +25,17 @@ type ExecutionService struct {
 
 	conn           *sql.DB
 	messageQueue   queue.MessageQueue
-	minerClient    *client.Service
 	encryptService *encrypt.Service
 	tokenService   *tokenDomain.Service
 
 	workerSemaphore chan struct{}
 }
 
-func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, messageQueue queue.MessageQueue, minerClient *client.Service, encryptService *encrypt.Service, tokenService *tokenDomain.Service) *ExecutionService {
+func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service) *ExecutionService {
 	executionService := &ExecutionService{
 		config:          config,
 		conn:            conn,
 		messageQueue:    messageQueue,
-		minerClient:     minerClient,
 		encryptService:  encryptService,
 		tokenService:    tokenService,
 		workerSemaphore: make(chan struct{}, config.MaxWorkers),
@@ -162,8 +160,7 @@ func (es *ExecutionService) GetMinerConnectionInfo(ctx context.Context, deviceID
 			deviceID,
 			minerInfo.IpAddress,
 			uint16(port),
-			es.minerClient,
-			authToken,
-		), nil
+			*secrets.NewText(authToken),
+		)
 	})
 }

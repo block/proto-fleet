@@ -13,7 +13,6 @@ import (
 
 	"github.com/alecthomas/assert/v2"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/onboarding"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
@@ -41,11 +40,9 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 
 	authService := auth.NewService(db, tokenService, encryptService)
 
-	minerClientService := client.NewService(db, encryptService, tokenService)
-
 	pairingConfig := pairing.Config{SecretKey: config.PairingSecretKey}
 
-	protoDiscoverer := proto.NewDiscoverer(minerClientService)
+	protoDiscoverer := proto.NewDiscoverer()
 	minerDiscoveryService, err := minerdiscovery.NewService(protoDiscoverer)
 	assert.NoError(t, err)
 
@@ -60,7 +57,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 
 	executionServiceCtx, executionServiceCancel := context.WithCancel(t.Context())
 
-	executionService := command.NewExecutionService(executionServiceCtx, commandConfig, db, dbMessageQueue, minerClientService, encryptService, tokenService)
+	executionService := command.NewExecutionService(executionServiceCtx, commandConfig, db, dbMessageQueue, encryptService, tokenService)
 	statusService := command.NewStatusService(db, dbMessageQueue)
 	commandService := command.NewService(commandConfig, db, executionService, dbMessageQueue, statusService)
 
