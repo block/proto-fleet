@@ -10,7 +10,7 @@ interface MinerListActionBarProps {
 const MinerListActionBar = ({ selectedMiners }: MinerListActionBarProps) => {
   return (
     <ActionBar
-      className="sticky right-0 bottom-4 left-0 z-20 w-full"
+      className="bottom-4 z-20"
       selectedItems={selectedMiners}
       renderActions={(numberOfItems, setHidden) => (
         <>

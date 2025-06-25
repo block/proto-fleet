@@ -35,7 +35,7 @@ const ActionBar = ({
       {show && (
         <div
           className={clsx(
-            "mx-auto flex w-fit justify-center",
+            "flex justify-center",
             {
               invisible: hidden,
             },
@@ -43,7 +43,7 @@ const ActionBar = ({
           )}
           data-testid="action-bar"
         >
-          <div className="bg-sufrace-elevated-base/70 flex items-center justify-between rounded-2xl bg-grayscale-gray-87 p-3 shadow-300 phone:w-[calc(100vw-theme(spacing.4))] phone:rounded-full">
+          <div className="bg-sufrace-elevated-base/70 flex items-center justify-between rounded-2xl bg-grayscale-gray-87 p-3 shadow-300 phone:w-[calc(100vw-theme(spacing.4))]">
             <div className="flex items-center space-x-2">
               <Button
                 className="bg-grayscale-white-10! text-grayscale-white-90!"
@@ -53,12 +53,12 @@ const ActionBar = ({
                 testId="close-button"
                 onClick={() => setShow(false)}
               />
-              <div className="text-emphasis-300 text-grayscale-white-90 phone:hidden">
+              <div className="w-full text-emphasis-300 text-grayscale-white-90 phone:hidden">
                 {numberOfItems} miners selected
               </div>
             </div>
-            <div className="w-12" />
-            <div className="flex items-center space-x-3">
+            <div className="w-12 phone:hidden"></div>
+            <div className="flex flex-wrap justify-start gap-3">
               {renderActions(numberOfItems, setHidden)}
             </div>
           </div>

@@ -367,7 +367,9 @@ const List = <ListItem, ItemKeyValueType, FilterType extends Key>({
         ) : (
           noDataElement
         )}
-        {renderActionBar && renderActionBar(selectedItems)}
+        {renderActionBar && (
+          <div className="w-full">{renderActionBar(selectedItems)}</div>
+        )}
       </div>
     </div>
   );
