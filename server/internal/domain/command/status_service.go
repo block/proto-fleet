@@ -22,32 +22,11 @@ func NewStatusService(conn *sql.DB, messageQueue queue.MessageQueue) *StatusServ
 	return &StatusService{conn: conn, messageQueue: messageQueue}
 }
 
-func toInt64(value interface{}) int64 {
-	if value == nil {
-		return -1
-	}
-
-	switch v := value.(type) {
-	case int64:
-		return v
-	case int32:
-		return int64(v)
-	case int16:
-		return int64(v)
-	case int8:
-		return int64(v)
-	case int:
-		return int64(v)
-	default:
-		return -1
-	}
-}
-
 func getDeviceCount(row *sqlc.GetBatchStatusAndDeviceCountsRow) *pb.CommandBatchUpdateDeviceCount {
 	return &pb.CommandBatchUpdateDeviceCount{
-		Total:   toInt64(row.DevicesCount),
-		Success: toInt64(row.SuccessfulDevices),
-		Failure: toInt64(row.FailedDevices),
+		Total:   int64(row.DevicesCount),
+		Success: row.SuccessfulDevices,
+		Failure: row.FailedDevices,
 	}
 }
 

@@ -55,8 +55,8 @@ SELECT
     cbl.uuid,
     cbl.status,
     cbl.devices_count,
-    SUM(CASE WHEN codl.status = 'SUCCESS' THEN 1 ELSE 0 END) AS successful_devices,
-    SUM(CASE WHEN codl.status = 'FAILED' THEN 1 ELSE 0 END) AS failed_devices
+    CAST(COALESCE(SUM(CASE WHEN codl.status = 'SUCCESS' THEN 1 ELSE 0 END), 0) AS SIGNED) AS successful_devices,
+    CAST(COALESCE(SUM(CASE WHEN codl.status = 'FAILED' THEN 1 ELSE 0 END), 0) AS SIGNED) AS failed_devices
 FROM
     command_batch_log cbl
         LEFT JOIN
@@ -72,8 +72,8 @@ type GetBatchStatusAndDeviceCountsRow struct {
 	Uuid              string
 	Status            CommandBatchLogStatus
 	DevicesCount      int32
-	SuccessfulDevices interface{}
-	FailedDevices     interface{}
+	SuccessfulDevices int64
+	FailedDevices     int64
 }
 
 func (q *Queries) GetBatchStatusAndDeviceCounts(ctx context.Context, uuid string) (GetBatchStatusAndDeviceCountsRow, error) {
