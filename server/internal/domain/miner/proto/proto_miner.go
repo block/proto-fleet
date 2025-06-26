@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"net"
 	"time"
 
 	"connectrpc.com/connect"
@@ -39,13 +38,15 @@ type ProtoMiner struct {
 }
 
 func NewProtoMiner(deviceID int64, ipAddress string, port uint16, authToken secrets.Text) (*ProtoMiner, error) {
-	addr := net.JoinHostPort(ipAddress, fmt.Sprintf("%d", port))
-	addr = fmt.Sprintf("https://%s", addr)
+	connectionInfo, err := networking.NewConnectionInfo(ipAddress, fmt.Sprintf("%d", port), networking.ProtocolHTTPS)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to create connection info: %v", err)
+	}
 
 	// Create individual clients using the new CreateClient function
 	dataClient, err := client.CreateClient(
 		miner_data_apiconnect.NewMinerDataApiClient,
-		addr,
+		*connectionInfo,
 	)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to create data client: %v", err)
@@ -53,7 +54,7 @@ func NewProtoMiner(deviceID int64, ipAddress string, port uint16, authToken secr
 
 	commandClient, err := client.CreateClient(
 		miner_command_apiconnect.NewMinerCommandApiClient,
-		addr,
+		*connectionInfo,
 	)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to create command client: %v", err)
@@ -61,7 +62,7 @@ func NewProtoMiner(deviceID int64, ipAddress string, port uint16, authToken secr
 
 	systemClient, err := client.CreateClient(
 		miner_system_apiconnect.NewMinerSystemApiClient,
-		addr,
+		*connectionInfo,
 	)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to create system client: %v", err)

@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/ping/v1/pingv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api/miner_command_apiconnect"
+	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api/miner_system_apiconnect"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/integrationtesting"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/auth"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/command"
@@ -109,12 +111,21 @@ func SetupMockMinerServer(t *testing.T, callCounter *integrationtesting.MockMine
 
 	mux := http.NewServeMux()
 	path, handler := miner_command_apiconnect.NewMinerCommandApiHandler(mockHandler)
+	systemPath, systemHandler := miner_system_apiconnect.NewMinerSystemApiHandler(mockHandler)
 	mux.Handle(path, handler)
+	mux.Handle(systemPath, systemHandler)
 
 	handler2c := h2c.NewHandler(mux, &http2.Server{})
 
 	server := httptest.NewUnstartedServer(handler2c)
 	server.EnableHTTP2 = true
+	// close the default listener
+	server.Listener.Close()
+	listener, err := net.Listen("tcp", "localhost:2121")
+	if err != nil {
+		t.Fatalf("Failed to listen on port 2121: %v", err)
+	}
+	server.Listener = listener
 	server.Start()
 	t.Logf("Mock miner (h2c) server started at %s", server.URL)
 	t.Cleanup(func() {

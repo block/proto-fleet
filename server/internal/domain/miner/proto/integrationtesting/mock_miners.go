@@ -11,6 +11,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api/miner_command_apiconnect"
 	minercommonapi "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
+	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 )
 
@@ -25,6 +26,9 @@ const (
 	MethodAddPools       MethodName = "AddPools"
 	MethodRemovePools    MethodName = "RemovePools"
 	MethodEditPool       MethodName = "EditPool"
+	MethodGetPairingInfo MethodName = "GetPairingInfo"
+	MethodGetNetwork     MethodName = "GetNetwork"
+	MethodSetNetwork     MethodName = "SetNetwork"
 )
 
 // MockMinerCallCounter tracks call counts for different API methods
@@ -45,6 +49,9 @@ func NewMockMinerCallCounter() *MockMinerCallCounter {
 		MethodAddPools,
 		MethodRemovePools,
 		MethodEditPool,
+		MethodGetPairingInfo,
+		MethodGetNetwork,
+		MethodSetNetwork,
 	}
 
 	for _, method := range methods {
@@ -69,6 +76,19 @@ func (c *MockMinerCallCounter) AssertCalls(t *testing.T, method MethodName, expe
 		method, expectedCount, actualCount)
 }
 
+func handleRequestUnauthenticated[Req, Resp any](
+	t *testing.T,
+	methodName string,
+	req *connect.Request[Req],
+	counter *atomic.Int32,
+	handler func(*Req) *Resp,
+) *connect.Response[Resp] {
+	t.Logf("Mock miner received %s request with headers: %v", methodName, req.Header())
+
+	counter.Add(1)
+	return connect.NewResponse(handler(req.Msg))
+}
+
 func handleRequest[Req, Resp any](
 	t *testing.T,
 	methodName string,
@@ -76,15 +96,11 @@ func handleRequest[Req, Resp any](
 	counter *atomic.Int32,
 	handler func(*Req) *Resp,
 ) (*connect.Response[Resp], error) {
-	t.Logf("Mock miner received %s request with headers: %v", methodName, req.Header())
-
 	if req.Header().Get("Authorization") == "" {
 		return nil, fleeterror.NewUnauthenticatedError("expected Authorization header")
 	}
 
-	counter.Add(1)
-
-	return connect.NewResponse(handler(req.Msg)), nil
+	return handleRequestUnauthenticated(t, methodName, req, counter, handler), nil
 }
 
 func handleCommandRequest[Req any](
@@ -158,4 +174,31 @@ func (m *MockMinerHandler) RemovePools(ctx context.Context, req *connect.Request
 
 func (m *MockMinerHandler) EditPool(ctx context.Context, req *connect.Request[miner_data_api.Pool]) (*connect.Response[miner_command_api.CommandResponse], error) {
 	return handleCommandRequest(m.t, "EditPool", req, m.callCounter.GetCounter(MethodEditPool), "Pool edited successfully")
+}
+
+func (m *MockMinerHandler) GetPairingInfo(ctx context.Context, req *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[miner_system_api.GetPairingInfoResponse], error) {
+	return handleRequestUnauthenticated(
+		m.t, "GetPairingInfo", req, m.callCounter.GetCounter(MethodGetPairingInfo),
+		func(_ *minercommonapi.EmptyRequest) *miner_system_api.GetPairingInfoResponse {
+			return &miner_system_api.GetPairingInfoResponse{
+				Mac:  "00:00:00:00:00:00",
+				CbSn: "1234567890",
+			}
+		}), nil
+}
+
+func (m *MockMinerHandler) GetNetwork(ctx context.Context, req *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[miner_system_api.GetNetworkResponse], error) {
+	return handleRequestUnauthenticated(
+		m.t, "GetNetwork", req, m.callCounter.GetCounter(MethodGetNetwork),
+		func(_ *minercommonapi.EmptyRequest) *miner_system_api.GetNetworkResponse {
+			return &miner_system_api.GetNetworkResponse{}
+		}), nil
+}
+
+func (m *MockMinerHandler) SetNetwork(ctx context.Context, req *connect.Request[miner_system_api.SetNetworkRequest]) (*connect.Response[miner_system_api.SetNetworkResponse], error) {
+	return handleRequest(
+		m.t, "SetNetwork", req, m.callCounter.GetCounter(MethodSetNetwork),
+		func(_ *miner_system_api.SetNetworkRequest) *miner_system_api.SetNetworkResponse {
+			return &miner_system_api.SetNetworkResponse{}
+		})
 }

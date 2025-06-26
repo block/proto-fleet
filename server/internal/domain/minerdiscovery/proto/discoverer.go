@@ -2,7 +2,6 @@ package proto
 
 import (
 	"context"
-	"net"
 
 	"connectrpc.com/connect"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
@@ -12,6 +11,7 @@ import (
 	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 )
 
 const requiredPort = "2121"
@@ -29,11 +29,14 @@ func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string
 		return nil, minerdiscovery.MinerNotFoundFleetError
 	}
 
-	url := net.JoinHostPort(ipAddress, port)
+	connectionInfo, err := networking.NewConnectionInfo(ipAddress, port, networking.ProtocolHTTPS)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to create connection info: %v", err)
+	}
 
 	minerClient, err := client.CreateClient(
 		miner_system_apiconnect.NewMinerSystemApiClient,
-		url,
+		*connectionInfo,
 	)
 	if err != nil {
 		return nil, err
@@ -45,11 +48,11 @@ func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string
 	}
 
 	if len(pairingInfo.Msg.CbSn) == 0 {
-		return nil, fleeterror.NewInternalErrorf("miner at '%s' does not have a serial number which is required for pairing", url)
+		return nil, fleeterror.NewInternalErrorf("miner at '%s' does not have a serial number which is required for pairing", connectionInfo)
 	}
 
 	if len(pairingInfo.Msg.Mac) == 0 {
-		return nil, fleeterror.NewInternalErrorf("miner at '%s' does not have a mac address which is required for pairing", url)
+		return nil, fleeterror.NewInternalErrorf("miner at '%s' does not have a mac address which is required for pairing", connectionInfo)
 	}
 
 	// Create device information
