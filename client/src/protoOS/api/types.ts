@@ -1308,13 +1308,13 @@ export class Api<
      *
      * @tags Authentication
      * @name ChangePassword
-     * @request POST:/api/v1/auth/change-password
+     * @request PUT:/api/v1/auth/change-password
      * @secure
      */
     changePassword: (data: ChangePasswordRequest, params: RequestParams = {}) =>
       this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/auth/change-password`,
-        method: "POST",
+        method: "PUT",
         body: data,
         secure: true,
         type: ContentType.Json,

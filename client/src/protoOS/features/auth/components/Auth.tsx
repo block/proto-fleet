@@ -28,7 +28,7 @@ const Auth = () => {
     show: false,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const setPassword = usePassword();
+  const { setPassword } = usePassword();
   const login = useLogin();
   const navigate = useNavigate();
 

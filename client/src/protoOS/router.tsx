@@ -20,6 +20,7 @@ import {
   Welcome,
 } from "@/protoOS/features/onboarding";
 import {
+  Authentication as AuthenticationSettings,
   // Cooling,
   General,
   Hardware,
@@ -101,6 +102,10 @@ export const routerConfig = [
       {
         index: true,
         loader: () => redirect("general"),
+      },
+      {
+        path: "authentication",
+        element: <AuthenticationSettings />,
       },
       {
         path: "general",

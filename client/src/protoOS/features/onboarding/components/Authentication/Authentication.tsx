@@ -5,7 +5,7 @@ import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const AuthenticationPage = () => {
   const navigate = useNavigate();
-  const setPassword = usePassword();
+  const { setPassword } = usePassword();
   const login = useLogin();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { data: systemStatus, pending: pendingSystemStatus } =

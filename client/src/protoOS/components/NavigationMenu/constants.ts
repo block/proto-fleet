@@ -2,6 +2,7 @@ export const navigationItems = {
   home: "",
   logs: "logs",
   miningPools: "settings/mining-pools",
+  authentication: "settings/authentication",
   general: "settings/general",
   hardware: "settings/hardware",
   // cooling: "settings/cooling",

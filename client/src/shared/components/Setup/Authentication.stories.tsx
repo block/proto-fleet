@@ -1,7 +1,11 @@
 import { useState } from "react";
 import { Authentication as AuthenticationComponent } from ".";
 
-export const Authentication = () => {
+interface AuthenticationArgs {
+  isUpdateMode: boolean;
+}
+
+export const Authentication = ({ isUpdateMode }: AuthenticationArgs) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   return (
@@ -12,6 +16,7 @@ export const Authentication = () => {
         submit={() => {}}
         isSubmitting={isSubmitting}
         setIsSubmitting={setIsSubmitting}
+        isUpdateMode={isUpdateMode}
       />
     </div>
   );
@@ -19,4 +24,7 @@ export const Authentication = () => {
 
 export default {
   title: "Components (Shared)/Setup/Authentication",
+  args: {
+    isUpdateMode: false,
+  },
 };

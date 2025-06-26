@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuthContext } from "./useAuthContext";
 import { useRefresh } from "@/protoOS/api";
 
-const useAccessToken = (shouldCheckAccess = true) => {
+const useAccessToken = (shouldCheckAccess = true, requireLogin = true) => {
   const refresh = useRefresh();
   const { authTokens, setShowLoginModal } = useAuthContext();
 
@@ -31,7 +31,7 @@ const useAccessToken = (shouldCheckAccess = true) => {
     // refresh token is expired, show login modal
     if (!isValidRefreshToken) {
       setHasAccess(false);
-      setShowLoginModal(true);
+      requireLogin && setShowLoginModal(true);
       return;
     }
 
@@ -44,7 +44,7 @@ const useAccessToken = (shouldCheckAccess = true) => {
         },
         onError: () => {
           setHasAccess(false);
-          setShowLoginModal(true);
+          requireLogin && setShowLoginModal(true);
         },
       });
     }
@@ -55,6 +55,7 @@ const useAccessToken = (shouldCheckAccess = true) => {
     isValidAccessToken,
     isValidRefreshToken,
     shouldCheckAccess,
+    requireLogin,
   ]);
 
   useEffect(() => {
