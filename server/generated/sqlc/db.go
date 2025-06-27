@@ -33,6 +33,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createInactiveDeviceIPAssignmentStmt, err = db.PrepareContext(ctx, createInactiveDeviceIPAssignment); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateInactiveDeviceIPAssignment: %w", err)
 	}
+	if q.createMinerCredentialsStmt, err = db.PrepareContext(ctx, createMinerCredentials); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateMinerCredentials: %w", err)
+	}
 	if q.createOrganizationStmt, err = db.PrepareContext(ctx, createOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateOrganization: %w", err)
 	}
@@ -80,6 +83,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getMinerApiNetworkInfoByDeviceIDStmt, err = db.PrepareContext(ctx, getMinerApiNetworkInfoByDeviceID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMinerApiNetworkInfoByDeviceID: %w", err)
+	}
+	if q.getMinerCredentialsByDeviceIDStmt, err = db.PrepareContext(ctx, getMinerCredentialsByDeviceID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMinerCredentialsByDeviceID: %w", err)
 	}
 	if q.getOrganizationByIDStmt, err = db.PrepareContext(ctx, getOrganizationByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrganizationByID: %w", err)
@@ -230,6 +236,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing createInactiveDeviceIPAssignmentStmt: %w", cerr)
 		}
 	}
+	if q.createMinerCredentialsStmt != nil {
+		if cerr := q.createMinerCredentialsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createMinerCredentialsStmt: %w", cerr)
+		}
+	}
 	if q.createOrganizationStmt != nil {
 		if cerr := q.createOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createOrganizationStmt: %w", cerr)
@@ -308,6 +319,11 @@ func (q *Queries) Close() error {
 	if q.getMinerApiNetworkInfoByDeviceIDStmt != nil {
 		if cerr := q.getMinerApiNetworkInfoByDeviceIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getMinerApiNetworkInfoByDeviceIDStmt: %w", cerr)
+		}
+	}
+	if q.getMinerCredentialsByDeviceIDStmt != nil {
+		if cerr := q.getMinerCredentialsByDeviceIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMinerCredentialsByDeviceIDStmt: %w", cerr)
 		}
 	}
 	if q.getOrganizationByIDStmt != nil {
@@ -567,6 +583,7 @@ type Queries struct {
 	activateNewIPAssignmentStmt                  *sql.Stmt
 	createCommandBatchLogStmt                    *sql.Stmt
 	createInactiveDeviceIPAssignmentStmt         *sql.Stmt
+	createMinerCredentialsStmt                   *sql.Stmt
 	createOrganizationStmt                       *sql.Stmt
 	createPoolStmt                               *sql.Stmt
 	createQueueMessageStmt                       *sql.Stmt
@@ -583,6 +600,7 @@ type Queries struct {
 	getDevicePairingStatusByDeviceDatabaseIDStmt *sql.Stmt
 	getMessagesToProcessStmt                     *sql.Stmt
 	getMinerApiNetworkInfoByDeviceIDStmt         *sql.Stmt
+	getMinerCredentialsByDeviceIDStmt            *sql.Stmt
 	getOrganizationByIDStmt                      *sql.Stmt
 	getOrganizationByNameStmt                    *sql.Stmt
 	getOrganizationByOrgIDStmt                   *sql.Stmt
@@ -635,6 +653,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		activateNewIPAssignmentStmt:          q.activateNewIPAssignmentStmt,
 		createCommandBatchLogStmt:            q.createCommandBatchLogStmt,
 		createInactiveDeviceIPAssignmentStmt: q.createInactiveDeviceIPAssignmentStmt,
+		createMinerCredentialsStmt:           q.createMinerCredentialsStmt,
 		createOrganizationStmt:               q.createOrganizationStmt,
 		createPoolStmt:                       q.createPoolStmt,
 		createQueueMessageStmt:               q.createQueueMessageStmt,
@@ -651,6 +670,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDevicePairingStatusByDeviceDatabaseIDStmt: q.getDevicePairingStatusByDeviceDatabaseIDStmt,
 		getMessagesToProcessStmt:                     q.getMessagesToProcessStmt,
 		getMinerApiNetworkInfoByDeviceIDStmt:         q.getMinerApiNetworkInfoByDeviceIDStmt,
+		getMinerCredentialsByDeviceIDStmt:            q.getMinerCredentialsByDeviceIDStmt,
 		getOrganizationByIDStmt:                      q.getOrganizationByIDStmt,
 		getOrganizationByNameStmt:                    q.getOrganizationByNameStmt,
 		getOrganizationByOrgIDStmt:                   q.getOrganizationByOrgIDStmt,

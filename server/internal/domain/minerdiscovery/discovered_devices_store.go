@@ -3,8 +3,6 @@ package minerdiscovery
 import (
 	"sync"
 	"time"
-
-	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 )
 
 // DiscoveredDeviceStore defines the interface for storing and retrieving discovered devices
@@ -82,5 +80,6 @@ func (s *InMemoryDiscoveredDeviceStore) GetDevice(doi DeviceOrgIdentifier) (*Dis
 	if dev, ok := s.devices[doi]; ok {
 		return dev, nil
 	}
-	return nil, fleeterror.NewInternalErrorf("device not found")
+
+	return nil, MinerNotFoundFleetError
 }

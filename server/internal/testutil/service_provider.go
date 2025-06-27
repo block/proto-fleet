@@ -17,6 +17,9 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+
+	pairingAntminer "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/antminer"
+	pairingProto "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/proto"
 )
 
 type ServiceProvider struct {
@@ -27,6 +30,7 @@ type ServiceProvider struct {
 	OnboardingService      *onboarding.Service
 	CommandService         *command.Service
 	ExecutionServiceCancel context.CancelFunc
+	EncryptService         *encrypt.Service
 }
 
 func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvider {
@@ -48,7 +52,10 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 
 	deviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
 
-	pairingService := pairing.NewService(deviceStore, db, pairingConfig, tokenService, minerDiscoveryService)
+	protoPairer := pairingProto.NewService(db, pairingConfig)
+	antminerPairer := pairingAntminer.NewService(db, encryptService)
+
+	pairingService := pairing.NewService(deviceStore, db, tokenService, minerDiscoveryService, protoPairer, antminerPairer)
 
 	commandConfig := &command.Config{MaxWorkers: 50, MasterPollingInterval: time.Second, WorkerExecutionTimeout: 30 * time.Second, BatchStatusUpdatePollingInterval: time.Second}
 
@@ -71,5 +78,6 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 		OnboardingService:      onboardingService,
 		CommandService:         commandService,
 		ExecutionServiceCancel: executionServiceCancel,
+		EncryptService:         encryptService,
 	}
 }

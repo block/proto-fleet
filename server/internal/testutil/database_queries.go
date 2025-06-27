@@ -117,14 +117,14 @@ func (s *DatabaseService) CreateSuperAdminUser() *TestUser {
 	return &testUser
 }
 
-func (s *DatabaseService) CreateDevice(organizationID int64) DeviceIdentification {
+func (s *DatabaseService) CreateDevice(organizationID int64, minerType models.Type) DeviceIdentification {
 	uuidCurrent := id.GenerateID()
 	deviceIdentification, err := db2.WithTransaction(context.Background(), s.DB, func(q *sqlc.Queries) (DeviceIdentification, error) {
 		result, err := q.UpsertDevice(context.Background(), sqlc.UpsertDeviceParams{
 			OrgID:            organizationID,
 			DeviceIdentifier: uuidCurrent,
 			MacAddress:       "00-1A-2B-3C-4D-5E",
-			Type:             models.TypeProto.String(),
+			Type:             minerType.String(),
 		})
 		if err != nil {
 			return DeviceIdentification{}, fleeterror.NewInternalErrorf("failed to create device: %v", err)
@@ -185,7 +185,7 @@ func (s *DatabaseService) GetTotalDevicePairings(orgID int64, limit int32) (int,
 func (s *DatabaseService) CreateAndAssignDevices(count int, organizationID int64) []DeviceIdentification {
 	deviceIdentifications := make([]DeviceIdentification, 0)
 	for i := range count {
-		deviceIdentification := s.CreateDevice(organizationID)
+		deviceIdentification := s.CreateDevice(organizationID, models.TypeProto)
 		s.CreateDeviceIPAssignment(deviceIdentification.DatabaseID, "127.0.0.1", strconv.Itoa(i))
 		deviceIdentifications = append(deviceIdentifications, deviceIdentification)
 	}
@@ -205,7 +205,7 @@ func (s *DatabaseService) CreateTestMiners(orgID int64, count int, mockMinerURL 
 
 	// Create miners in the database
 	for i := range count {
-		device := s.CreateDevice(orgID)
+		device := s.CreateDevice(orgID, models.TypeProto)
 		deviceIDs[i] = device.ID
 
 		s.CreateDeviceIPAssignment(device.DatabaseID, host, portStr)

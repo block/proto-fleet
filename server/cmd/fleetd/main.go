@@ -28,10 +28,14 @@ import (
 	authDomain "github.com/btc-mining/proto-fleet/server/internal/domain/auth"
 	commandDomain "github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	fleetmanagementDomain "github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
+	antminerRPC "github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/rpc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/proto"
+	antminerDiscoverer "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/antminer"
+	protoDiscoverer "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/proto"
 	onboardingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
+	pairingAntminer "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/antminer"
+	pairingProto "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/proto"
 	poolsDomain "github.com/btc-mining/proto-fleet/server/internal/domain/pools"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/auth"
@@ -84,18 +88,24 @@ func start(config *Config) error {
 		return err
 	}
 	authSvc := authDomain.NewService(conn, tokenSvc, encryptSvc)
-	protoDiscoverer := proto.NewDiscoverer()
-	discoveryService, err := minerdiscovery.NewService(protoDiscoverer)
+	protoDiscoverer := protoDiscoverer.NewDiscoverer()
+	antminerDiscoverer := antminerDiscoverer.NewDiscoverer(antminerRPC.NewService())
+	discoveryService, err := minerdiscovery.NewService(protoDiscoverer, antminerDiscoverer)
 	if err != nil {
 		return err
 	}
 	discoveredDeviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
+
+	protoPairer := pairingProto.NewService(conn, config.Pairing)
+	antminerPairer := pairingAntminer.NewService(conn, encryptSvc)
+
 	pairingSvc := pairingDomain.NewService(
 		discoveredDeviceStore,
 		conn,
-		config.Pairing,
 		tokenSvc,
 		discoveryService,
+		protoPairer,
+		antminerPairer,
 	)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(conn, fleetmanagementDomain.NewMockTelemetryCollector())
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)

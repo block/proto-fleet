@@ -10,7 +10,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
 
 // discovery constants
@@ -24,15 +23,11 @@ var _ minerdiscovery.Discoverer = &Discoverer{}
 
 type Discoverer struct {
 	minerRPCClient antminerRPC.RPCClient
-	username       string
-	password       secrets.Text
 }
 
-func NewDiscoverer(rpcClient antminerRPC.RPCClient, username string, password secrets.Text) *Discoverer {
+func NewDiscoverer(rpcClient antminerRPC.RPCClient) *Discoverer {
 	return &Discoverer{
 		minerRPCClient: rpcClient,
-		username:       username,
-		password:       password,
 	}
 }
 
@@ -41,7 +36,7 @@ func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string
 		return nil, minerdiscovery.MinerNotFoundFleetError
 	}
 
-	connInfo, err := networking.NewConnectionInfo(ipAddress, port, networking.ProtocolHTTP)
+	connInfo, err := networking.NewConnectionInfo(ipAddress, port, networking.ProtocolTCP)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to create connection info: %v", err)
 	}

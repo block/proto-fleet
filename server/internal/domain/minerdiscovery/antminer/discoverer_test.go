@@ -10,7 +10,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/antminer"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,18 +17,15 @@ import (
 
 const (
 	ipAddress = "192.168.1.100"
-	username  = "admin"
 	port4028  = "4028"
 	portWrong = "80"
 )
-
-var password = *secrets.NewText("password")
 
 func setup(t *testing.T) (*mocks.MockRPCClient, *antminer.Discoverer) {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	mockRPCClient := mocks.NewMockRPCClient(ctrl)
-	discoverer := antminer.NewDiscoverer(mockRPCClient, username, password)
+	discoverer := antminer.NewDiscoverer(mockRPCClient)
 	return mockRPCClient, discoverer
 }
 
@@ -39,7 +35,7 @@ func TestDiscoverer_Discover_Success(t *testing.T) {
 
 	model := "S19j Pro"
 	manufacturer := "Bitmain"
-	expectedConnInfo, err := networking.NewConnectionInfo(ipAddress, port4028, networking.ProtocolHTTP)
+	expectedConnInfo, err := networking.NewConnectionInfo(ipAddress, port4028, networking.ProtocolTCP)
 	require.NoError(t, err)
 
 	mockRPCClient.EXPECT().
@@ -80,7 +76,7 @@ func TestDiscoverer_Discover_NotAntminer(t *testing.T) {
 	// Arrange
 	mockRPCClient, discoverer := setup(t)
 
-	expectedConnInfo, err := networking.NewConnectionInfo(ipAddress, port4028, networking.ProtocolHTTP)
+	expectedConnInfo, err := networking.NewConnectionInfo(ipAddress, port4028, networking.ProtocolTCP)
 	require.NoError(t, err)
 
 	mockRPCClient.EXPECT().
@@ -104,7 +100,7 @@ func TestDiscoverer_Discover_UnknownModel(t *testing.T) {
 	// Arrange
 	mockRPCClient, discoverer := setup(t)
 
-	expectedConnInfo, err := networking.NewConnectionInfo(ipAddress, port4028, networking.ProtocolHTTP)
+	expectedConnInfo, err := networking.NewConnectionInfo(ipAddress, port4028, networking.ProtocolTCP)
 	require.NoError(t, err)
 
 	mockRPCClient.EXPECT().
@@ -130,7 +126,7 @@ func TestDiscoverer_Discover_RPCError(t *testing.T) {
 	// Arrange
 	mockRPCClient, discoverer := setup(t)
 
-	expectedConnInfo, err := networking.NewConnectionInfo(ipAddress, port4028, networking.ProtocolHTTP)
+	expectedConnInfo, err := networking.NewConnectionInfo(ipAddress, port4028, networking.ProtocolTCP)
 	require.NoError(t, err)
 
 	mockRPCClient.EXPECT().

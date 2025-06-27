@@ -26,6 +26,12 @@ message Device {
   string manufacturer = 7;
 }
 
+// Represents login credentials used for device pairing
+message Credentials {
+  string username = 1;
+  optional string password = 2;
+}
+
 // Configuration for mDNS-based device discovery
 message MDNSModeRequest {
   // Service type to discover (e.g., "_fleet._tcp")
@@ -107,6 +113,8 @@ message DiscoverResponse {
 message PairRequest {
   // List of device identifiers to pair with
   repeated string device_identifiers = 1;
+  // optional credentials for the device
+  Credentials credentials = 2;
 }
 
 // Response to pairing request

@@ -26,7 +26,7 @@ func (t Type) String() string {
 
 func TypeFromString(s string) (Type, error) {
 	switch s {
-	case "proto":
+	case "proto_miner":
 		return TypeProto, nil
 	case "antminer":
 		return TypeAntminer, nil

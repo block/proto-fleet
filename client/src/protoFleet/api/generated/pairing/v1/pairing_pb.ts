@@ -20,7 +20,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_pairing_v1_pairing: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChhwYWlyaW5nL3YxL3BhaXJpbmcucHJvdG8SCnBhaXJpbmcudjEilgEKBkRldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRISCgppcF9hZGRyZXNzGAIgASgJEgwKBHBvcnQYAyABKAkSEwoLbWFjX2FkZHJlc3MYBCABKAkSFQoNc2VyaWFsX251bWJlchgFIAEoCRINCgVtb2RlbBgGIAEoCRIUCgxtYW51ZmFjdHVyZXIYByABKAkiUAoPTUROU01vZGVSZXF1ZXN0EhQKDHNlcnZpY2VfdHlwZRgBIAEoCRIOCgZkb21haW4YAiABKAkSFwoPdGltZW91dF9zZWNvbmRzGAMgASgFIkMKD05tYXBNb2RlUmVxdWVzdBIOCgZ0YXJnZXQYASABKAkSDQoFcG9ydHMYAiADKAkSEQoJZmFzdF9zY2FuGAMgASgIIl4KEklQUmFuZ2VNb2RlUmVxdWVzdBIQCghzdGFydF9pcBgBIAEoCRIOCgZlbmRfaXAYAiABKAkSDQoFcG9ydHMYAyADKAkSFwoPdGltZW91dF9zZWNvbmRzGAQgASgFIlEKEUlQTGlzdE1vZGVSZXF1ZXN0EhQKDGlwX2FkZHJlc3NlcxgBIAMoCRINCgVwb3J0cxgCIAMoCRIXCg90aW1lb3V0X3NlY29uZHMYAyABKAUi2QEKD0Rpc2NvdmVyUmVxdWVzdBIwCgdpcF9saXN0GAEgASgLMh0ucGFpcmluZy52MS5JUExpc3RNb2RlUmVxdWVzdEgAEjIKCGlwX3JhbmdlGAIgASgLMh4ucGFpcmluZy52MS5JUFJhbmdlTW9kZVJlcXVlc3RIABIrCgRtZG5zGAMgASgLMhsucGFpcmluZy52MS5NRE5TTW9kZVJlcXVlc3RIABIrCgRubWFwGAQgASgLMhsucGFpcmluZy52MS5ObWFwTW9kZVJlcXVlc3RIAEIGCgRtb2RlIkYKEERpc2NvdmVyUmVzcG9uc2USIwoHZGV2aWNlcxgBIAMoCzISLnBhaXJpbmcudjEuRGV2aWNlEg0KBWVycm9yGAIgASgJIikKC1BhaXJSZXF1ZXN0EhoKEmRldmljZV9pZGVudGlmaWVycxgBIAMoCSIOCgxQYWlyUmVzcG9uc2UylAEKDlBhaXJpbmdTZXJ2aWNlEkcKCERpc2NvdmVyEhsucGFpcmluZy52MS5EaXNjb3ZlclJlcXVlc3QaHC5wYWlyaW5nLnYxLkRpc2NvdmVyUmVzcG9uc2UwARI5CgRQYWlyEhcucGFpcmluZy52MS5QYWlyUmVxdWVzdBoYLnBhaXJpbmcudjEuUGFpclJlc3BvbnNlQrUBCg5jb20ucGFpcmluZy52MUIMUGFpcmluZ1Byb3RvUAFaTGdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvcGFpcmluZy92MTtwYWlyaW5ndjGiAgNQWFiqAgpQYWlyaW5nLlYxygIKUGFpcmluZ1xWMeICFlBhaXJpbmdcVjFcR1BCTWV0YWRhdGHqAgtQYWlyaW5nOjpWMWIGcHJvdG8z",
+    "ChhwYWlyaW5nL3YxL3BhaXJpbmcucHJvdG8SCnBhaXJpbmcudjEilgEKBkRldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRISCgppcF9hZGRyZXNzGAIgASgJEgwKBHBvcnQYAyABKAkSEwoLbWFjX2FkZHJlc3MYBCABKAkSFQoNc2VyaWFsX251bWJlchgFIAEoCRINCgVtb2RlbBgGIAEoCRIUCgxtYW51ZmFjdHVyZXIYByABKAkiQwoLQ3JlZGVudGlhbHMSEAoIdXNlcm5hbWUYASABKAkSFQoIcGFzc3dvcmQYAiABKAlIAIgBAUILCglfcGFzc3dvcmQiUAoPTUROU01vZGVSZXF1ZXN0EhQKDHNlcnZpY2VfdHlwZRgBIAEoCRIOCgZkb21haW4YAiABKAkSFwoPdGltZW91dF9zZWNvbmRzGAMgASgFIkMKD05tYXBNb2RlUmVxdWVzdBIOCgZ0YXJnZXQYASABKAkSDQoFcG9ydHMYAiADKAkSEQoJZmFzdF9zY2FuGAMgASgIIl4KEklQUmFuZ2VNb2RlUmVxdWVzdBIQCghzdGFydF9pcBgBIAEoCRIOCgZlbmRfaXAYAiABKAkSDQoFcG9ydHMYAyADKAkSFwoPdGltZW91dF9zZWNvbmRzGAQgASgFIlEKEUlQTGlzdE1vZGVSZXF1ZXN0EhQKDGlwX2FkZHJlc3NlcxgBIAMoCRINCgVwb3J0cxgCIAMoCRIXCg90aW1lb3V0X3NlY29uZHMYAyABKAUi2QEKD0Rpc2NvdmVyUmVxdWVzdBIwCgdpcF9saXN0GAEgASgLMh0ucGFpcmluZy52MS5JUExpc3RNb2RlUmVxdWVzdEgAEjIKCGlwX3JhbmdlGAIgASgLMh4ucGFpcmluZy52MS5JUFJhbmdlTW9kZVJlcXVlc3RIABIrCgRtZG5zGAMgASgLMhsucGFpcmluZy52MS5NRE5TTW9kZVJlcXVlc3RIABIrCgRubWFwGAQgASgLMhsucGFpcmluZy52MS5ObWFwTW9kZVJlcXVlc3RIAEIGCgRtb2RlIkYKEERpc2NvdmVyUmVzcG9uc2USIwoHZGV2aWNlcxgBIAMoCzISLnBhaXJpbmcudjEuRGV2aWNlEg0KBWVycm9yGAIgASgJIlcKC1BhaXJSZXF1ZXN0EhoKEmRldmljZV9pZGVudGlmaWVycxgBIAMoCRIsCgtjcmVkZW50aWFscxgCIAEoCzIXLnBhaXJpbmcudjEuQ3JlZGVudGlhbHMiDgoMUGFpclJlc3BvbnNlMpQBCg5QYWlyaW5nU2VydmljZRJHCghEaXNjb3ZlchIbLnBhaXJpbmcudjEuRGlzY292ZXJSZXF1ZXN0GhwucGFpcmluZy52MS5EaXNjb3ZlclJlc3BvbnNlMAESOQoEUGFpchIXLnBhaXJpbmcudjEuUGFpclJlcXVlc3QaGC5wYWlyaW5nLnYxLlBhaXJSZXNwb25zZUK1AQoOY29tLnBhaXJpbmcudjFCDFBhaXJpbmdQcm90b1ABWkxnaXRodWIuY29tL2J0Yy1taW5pbmcvcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL3BhaXJpbmcvdjE7cGFpcmluZ3YxogIDUFhYqgIKUGFpcmluZy5WMcoCClBhaXJpbmdcVjHiAhZQYWlyaW5nXFYxXEdQQk1ldGFkYXRh6gILUGFpcmluZzo6VjFiBnByb3RvMw",
   );
 
 /**
@@ -88,6 +88,31 @@ export const DeviceSchema: GenMessage<Device> =
   messageDesc(file_pairing_v1_pairing, 0);
 
 /**
+ * Represents login credentials used for device pairing
+ *
+ * @generated from message pairing.v1.Credentials
+ */
+export type Credentials = Message<"pairing.v1.Credentials"> & {
+  /**
+   * @generated from field: string username = 1;
+   */
+  username: string;
+
+  /**
+   * @generated from field: optional string password = 2;
+   */
+  password?: string;
+};
+
+/**
+ * Describes the message pairing.v1.Credentials.
+ * Use `create(CredentialsSchema)` to create a new message.
+ */
+export const CredentialsSchema: GenMessage<Credentials> =
+  /*@__PURE__*/
+  messageDesc(file_pairing_v1_pairing, 1);
+
+/**
  * Configuration for mDNS-based device discovery
  *
  * @generated from message pairing.v1.MDNSModeRequest
@@ -122,7 +147,7 @@ export type MDNSModeRequest = Message<"pairing.v1.MDNSModeRequest"> & {
  */
 export const MDNSModeRequestSchema: GenMessage<MDNSModeRequest> =
   /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 1);
+  messageDesc(file_pairing_v1_pairing, 2);
 
 /**
  * Configuration for Nmap-based network scanning discovery
@@ -162,7 +187,7 @@ export type NmapModeRequest = Message<"pairing.v1.NmapModeRequest"> & {
  */
 export const NmapModeRequestSchema: GenMessage<NmapModeRequest> =
   /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 2);
+  messageDesc(file_pairing_v1_pairing, 3);
 
 /**
  * Configuration for IP range-based device discovery
@@ -205,7 +230,7 @@ export type IPRangeModeRequest = Message<"pairing.v1.IPRangeModeRequest"> & {
  */
 export const IPRangeModeRequestSchema: GenMessage<IPRangeModeRequest> =
   /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 3);
+  messageDesc(file_pairing_v1_pairing, 4);
 
 /**
  * Configuration for discovering devices from a specific list of IP addresses
@@ -241,7 +266,7 @@ export type IPListModeRequest = Message<"pairing.v1.IPListModeRequest"> & {
  */
 export const IPListModeRequestSchema: GenMessage<IPListModeRequest> =
   /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 4);
+  messageDesc(file_pairing_v1_pairing, 5);
 
 /**
  * Request message for device discovery, supporting multiple discovery modes
@@ -300,7 +325,7 @@ export type DiscoverRequest = Message<"pairing.v1.DiscoverRequest"> & {
  */
 export const DiscoverRequestSchema: GenMessage<DiscoverRequest> =
   /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 5);
+  messageDesc(file_pairing_v1_pairing, 6);
 
 /**
  * Response message containing discovered devices or errors
@@ -330,7 +355,7 @@ export type DiscoverResponse = Message<"pairing.v1.DiscoverResponse"> & {
  */
 export const DiscoverResponseSchema: GenMessage<DiscoverResponse> =
   /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 6);
+  messageDesc(file_pairing_v1_pairing, 7);
 
 /**
  * Request to pair with discovered devices
@@ -344,6 +369,13 @@ export type PairRequest = Message<"pairing.v1.PairRequest"> & {
    * @generated from field: repeated string device_identifiers = 1;
    */
   deviceIdentifiers: string[];
+
+  /**
+   * optional credentials for the device
+   *
+   * @generated from field: pairing.v1.Credentials credentials = 2;
+   */
+  credentials?: Credentials;
 };
 
 /**
@@ -352,7 +384,7 @@ export type PairRequest = Message<"pairing.v1.PairRequest"> & {
  */
 export const PairRequestSchema: GenMessage<PairRequest> =
   /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 7);
+  messageDesc(file_pairing_v1_pairing, 8);
 
 /**
  * Response to pairing request
@@ -368,7 +400,7 @@ export type PairResponse = Message<"pairing.v1.PairResponse"> & {};
  */
 export const PairResponseSchema: GenMessage<PairResponse> =
   /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 8);
+  messageDesc(file_pairing_v1_pairing, 9);
 
 /**
  * Service for discovering and pairing with network devices

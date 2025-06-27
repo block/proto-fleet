@@ -340,6 +340,15 @@ type DeviceStatus struct {
 	CreatedAt       sql.NullTime
 }
 
+type MinerCredential struct {
+	ID          int64
+	DeviceID    int64
+	UsernameEnc string
+	PasswordEnc string
+	CreatedAt   sql.NullTime
+	UpdatedAt   sql.NullTime
+}
+
 type Organization struct {
 	ID                  int64
 	OrgID               string
