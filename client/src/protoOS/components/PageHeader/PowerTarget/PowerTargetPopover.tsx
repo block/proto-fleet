@@ -3,6 +3,8 @@ import { useMiningTarget } from "@/protoOS/api";
 import {
   PerformanceMode,
   performanceModes,
+  PowerTargetMode,
+  powerTargetModes,
 } from "@/protoOS/components/PageHeader/PowerTarget/constants";
 import { Efficiency, Hashrate } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -18,12 +20,22 @@ export type PowerTargetPopoverProps = {
   onDismiss: () => void;
 };
 
+// TODO get default from API
+const DEFAULT_POWER_TARGET = 9000;
+
 const PowerTargetPopover = ({ onDismiss }: PowerTargetPopoverProps) => {
   const { miningTarget, performanceMode, bounds, pending, updateMiningTarget } =
     useMiningTarget();
   const [selectedPerformanceMode, setSelectedPerformanceMode] = useState<
     PerformanceMode | undefined
   >(performanceMode);
+  const [selectedPowerTargetMode, setSelectedPowerTargetMode] = useState<
+    PowerTargetMode | undefined
+  >(
+    miningTarget === DEFAULT_POWER_TARGET
+      ? powerTargetModes.default
+      : powerTargetModes.custom,
+  );
   const [inputValue, setInputValue] = useState<string>();
   const [error, setError] = useState<string>();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -61,15 +73,29 @@ const PowerTargetPopover = ({ onDismiss }: PowerTargetPopoverProps) => {
   }, [pending, miningTarget]);
 
   const handleUpdate = useCallback(() => {
-    if (inputRef.current === null || pending) {
+    if (
+      pending ||
+      (selectedPowerTargetMode === powerTargetModes.custom &&
+        inputRef.current === null)
+    ) {
       return;
     }
+    const powerTarget =
+      selectedPowerTargetMode === powerTargetModes.default ||
+      inputRef.current === null
+        ? DEFAULT_POWER_TARGET
+        : +inputRef.current.value * 1000;
 
     updateMiningTarget({
       performance_mode: selectedPerformanceMode,
-      power_target_watts: +inputRef.current.value * 1000,
+      power_target_watts: powerTarget,
     });
-  }, [pending, selectedPerformanceMode, updateMiningTarget]);
+  }, [
+    pending,
+    selectedPerformanceMode,
+    selectedPowerTargetMode,
+    updateMiningTarget,
+  ]);
 
   return (
     <Popover position={positions["bottom left"]} className="w-102">
@@ -81,7 +107,6 @@ const PowerTargetPopover = ({ onDismiss }: PowerTargetPopoverProps) => {
           Prioritize hashrate or efficiency.
         </p>
       </div>
-
       <SelectRowList
         type={selectTypes.radio}
         variant={rowListVariants.fill}
@@ -105,17 +130,47 @@ const PowerTargetPopover = ({ onDismiss }: PowerTargetPopoverProps) => {
         }}
       />
 
-      <Input
-        id={"power-target-input"}
-        label="Power target"
-        className="w-full"
-        initValue={inputValue}
-        type="number"
-        inputRef={inputRef}
-        onChange={onChange}
-        error={error}
-        units={"kW"}
+      <div>
+        <h2 className="text-heading-100 text-text-primary">Power target</h2>
+        <p className="text-300 text-text-primary-70">
+          Control this miner’s power usage by using a dynamic or fixed power
+          target.
+        </p>
+      </div>
+      <SelectRowList
+        type={selectTypes.radio}
+        variant={rowListVariants.stack}
+        selectRows={[
+          {
+            id: powerTargetModes.default,
+            isSelected: selectedPowerTargetMode === powerTargetModes.default,
+            text: "Default",
+            sideText: `${convertWtoKW(DEFAULT_POWER_TARGET)} kW`,
+          },
+          {
+            id: powerTargetModes.custom,
+            isSelected: selectedPowerTargetMode === powerTargetModes.custom,
+            text: "Custom",
+          },
+        ]}
+        onChange={(id, isSelected) => {
+          if (isSelected) setSelectedPowerTargetMode(id as PowerTargetMode);
+        }}
       />
+
+      {selectedPowerTargetMode === powerTargetModes.custom && (
+        <Input
+          id={"power-target-input"}
+          label="Power target"
+          className="w-full"
+          initValue={inputValue}
+          type="number"
+          inputRef={inputRef}
+          onChange={onChange}
+          error={error}
+          units={"kW"}
+        />
+      )}
 
       <div className={"grid grid-cols-2 gap-2"}>
         <Button
@@ -134,13 +189,7 @@ const PowerTargetPopover = ({ onDismiss }: PowerTargetPopoverProps) => {
             pending ? <ProgressCircular indeterminate size={12} /> : undefined
           }
           testId="power-target-apply-button"
-          onClick={() => {
-            if (pending || inputRef.current === null) {
-              return;
-            }
-
-            handleUpdate();
-          }}
+          onClick={handleUpdate}
         />
       </div>
     </Popover>

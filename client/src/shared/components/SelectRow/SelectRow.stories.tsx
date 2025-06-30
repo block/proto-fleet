@@ -13,13 +13,16 @@ const IconWrapper = ({ children }: IconWrapperProps) => {
 };
 
 interface SelectRowProps {
-  disabled: boolean;
   hasPrefixIcon: boolean;
-  hasSubtext: boolean;
+  hasSideText: boolean;
   type: SelectType;
 }
 
-export const SelectRow = ({ hasPrefixIcon, type }: SelectRowProps) => {
+export const SelectRow = ({
+  hasPrefixIcon,
+  hasSideText,
+  type,
+}: SelectRowProps) => {
   const [selected, setSelected] = useState<number[]>([]);
 
   useEffect(() => {
@@ -49,6 +52,7 @@ export const SelectRow = ({ hasPrefixIcon, type }: SelectRowProps) => {
             key={index}
             id={index.toString()}
             text="Select Row"
+            sideText={hasSideText ? "Side Text" : undefined}
             isSelected={selected.includes(index)}
             onChange={handleChange}
             prefixIcon={
@@ -69,19 +73,15 @@ export const SelectRow = ({ hasPrefixIcon, type }: SelectRowProps) => {
 export default {
   title: "Components (Shared)/Select Row",
   args: {
-    disabled: false,
     hasPrefixIcon: true,
-    hasSubtext: true,
+    hasSideText: true,
     type: "radio",
   },
   argTypes: {
-    disabled: {
-      control: "boolean",
-    },
     hasPrefixIcon: {
       control: "boolean",
     },
-    hasSubtext: {
+    hasSideText: {
       control: "boolean",
     },
     type: {

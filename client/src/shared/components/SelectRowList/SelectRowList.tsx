@@ -49,6 +49,7 @@ const SelectRowList = ({
             className={clsx({ grow: variant === rowListVariants.fill })}
             subtext={selectRow.subtext}
             text={selectRow.text}
+            sideText={selectRow.sideText}
             disabled={selectRow.disabled}
             isSelected={selectRow.isSelected}
             onChange={handleChange}

@@ -14,6 +14,7 @@ export interface SelectRowProps {
   onChange: (id: string, isSelected: boolean) => void;
   prefixIcon?: ReactNode;
   text: string | ReactNode;
+  sideText?: string | ReactNode;
   type: SelectType;
 }
 
@@ -25,6 +26,7 @@ const SelectRow = ({
   divider = true,
   prefixIcon,
   text,
+  sideText,
   type,
 }: SelectRowProps) => {
   const isCheckbox = useMemo(() => type === selectTypes.checkbox, [type]);
@@ -54,6 +56,11 @@ const SelectRow = ({
           <div className="text-emphasis-300">{text}</div>
         </div>
       </div>
+      {sideText && (
+        <div className="ml-4">
+          <div className="text-text-300">{sideText}</div>
+        </div>
+      )}
       <div className="relative ml-4 flex">
         <input
           className={clsx(

@@ -12,6 +12,7 @@ export interface SelectRowProps {
   prefixIcon?: ReactNode;
   subtext?: string;
   text: string;
+  sideText?: string;
   type: SelectType;
 }
 
@@ -23,6 +24,7 @@ const SelectRow = ({
   prefixIcon,
   subtext,
   text,
+  sideText,
   type,
 }: SelectRowProps) => {
   const isCheckbox = useMemo(() => type === selectTypes.checkbox, [type]);
@@ -68,6 +70,11 @@ const SelectRow = ({
           )}
         </div>
       </div>
+      {sideText && (
+        <div className="ml-4">
+          <div className="text-300">{sideText}</div>
+        </div>
+      )}
       <div className="relative ml-4 flex">
         <input
           className={clsx(
