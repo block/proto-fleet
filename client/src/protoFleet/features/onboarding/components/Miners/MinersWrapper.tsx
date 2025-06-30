@@ -131,9 +131,9 @@ const MinersPage = () => {
     }
   }, [scanDiscoveryPending, handleNmapDiscovery]);
 
-  function handleContinue() {
+  function handleContinue(selectedMinerIdentifiers: string[]) {
     const pairRequest = create(PairRequestSchema, {
-      deviceIdentifiers: foundMiners.map((device) => device.deviceIdentifier),
+      deviceIdentifiers: selectedMinerIdentifiers,
     });
     pair({
       pairRequest: pairRequest,

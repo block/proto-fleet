@@ -14,7 +14,7 @@ type FoundMinersProps = {
   setDeselectedMiners: Dispatch<SetStateAction<Device["deviceIdentifier"][]>>;
   className?: string;
   minerDiscoveryMode: string;
-  handleContinueSetup: () => void;
+  handleContinueSetup: (selectedMinerIdentifiers: string[]) => void;
   handleRescanNetwork: () => void;
   handleClearMiners: () => void;
 };
@@ -45,13 +45,7 @@ const FoundMiners = ({
     const getUpdatedMinersByModel = (prev: MinersByModel) => {
       const _minersByModel: MinersByModel = { ...prev };
 
-      // TODO: Until MDK gives us the model name we'll just set them all to "Proto Rig"
-      const minersWithModel = miners.map((miner) => ({
-        ...miner,
-        model: "Proto Rig",
-      }));
-
-      minersWithModel.forEach((miner) => {
+      miners.forEach((miner) => {
         if (!_minersByModel[miner.model]) {
           _minersByModel[miner.model] = {
             model: miner.model,
@@ -89,9 +83,13 @@ const FoundMiners = ({
     }));
   }, [minersByModel, deselectedMiners]);
 
-  const totalSelected = useMemo(() => {
-    return sortedMinersWithSelection.filter((miner) => miner.selected).length;
+  const selectedMinerIdentifiers = useMemo(() => {
+    return sortedMinersWithSelection
+      .filter((miner) => miner.selected)
+      .map((miner) => miner.deviceIdentifier);
   }, [sortedMinersWithSelection]);
+
+  const totalSelected = selectedMinerIdentifiers.length;
 
   const models = useMemo(() => {
     return Object.keys(minersByModel).map((model) => model);
@@ -180,7 +178,7 @@ const FoundMiners = ({
           </Button>
         )}
         <Button
-          onClick={handleContinueSetup}
+          onClick={() => handleContinueSetup(selectedMinerIdentifiers)}
           variant={variants.primary}
           size={sizes.base}
           disabled={totalSelected === 0}

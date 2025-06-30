@@ -17,7 +17,7 @@ interface MinersProps {
   foundMiners: Device[];
   onCancelScan: () => void;
   onIpListModeDiscover: (ipAddresses: string[]) => void;
-  onContinue: () => void;
+  onContinue: (selectedMinerIdentifiers: string[]) => void;
   onRescan: () => void;
   onClearFoundMiners: () => void;
 }
