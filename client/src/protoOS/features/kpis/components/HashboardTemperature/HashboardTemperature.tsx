@@ -203,9 +203,9 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
       <div className={`${containerPadX} pt-4`}>
         {serial && (
           <div className="before:w-ful relative flex items-center justify-between font-mono text-mono-text-50 text-text-primary-50 before:absolute before:top-[50%] before:left-0 before:h-[1px] before:w-full before:bg-border-5">
-            <div className="relative bg-surface-base pr-4">Rear</div>
+            <div className="relative bg-surface-base pr-4">Front</div>
             <div className="relative bg-surface-base px-4">{serial}</div>
-            <div className="relative bg-surface-base pl-4">Front</div>
+            <div className="relative bg-surface-base pl-4">Rear</div>
           </div>
         )}
       </div>
