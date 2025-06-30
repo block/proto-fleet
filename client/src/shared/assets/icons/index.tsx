@@ -1,6 +1,7 @@
 import Alert from "./Alert";
 import ArrowLeftCompact from "./ArrowLeftCompact";
 import ArrowRight from "./ArrowRight";
+import Asic from "./Asic";
 import BankAccount from "./BankAccount";
 import Bitcoin from "./Bitcoin";
 import C1Chip from "./C1Chip";
@@ -61,6 +62,7 @@ export {
   Alert,
   ArrowLeftCompact,
   ArrowRight,
+  Asic,
   BankAccount,
   Bitcoin,
   C1Chip,

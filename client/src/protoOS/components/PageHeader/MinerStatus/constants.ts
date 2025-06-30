@@ -67,22 +67,28 @@ const statusOptions = [
 
 const errorDetails = {
   AsicOverheat: {
-    AsicOverheat: { port: 1, asic_row: 1, asic_col: 3, temperature: 100.0 },
+    AsicOverheat: { hb_slot: 1, asic_row: 1, asic_col: 3, temperature: 100.0 },
   },
   AsicOverVoltage: {
-    AsicOverVoltage: { port: 1, asic_row: 1, asic_col: 3, voltage: 100.0 },
+    AsicOverVoltage: { hb_slot: 1, asic_row: 1, asic_col: 3, voltage: 100.0 },
   },
   AsicFailure: {
-    AsicFailure: { port: 1, asic_row: 1, asic_col: 3, temperature: 100.0 },
+    AsicFailure: { hb_slot: 1, asic_row: 1, asic_col: 3, temperature: 100.0 },
   },
   FanSlow: { FanSlow: { fan_rpm_target: 23, fan_rpm_tach: 300 } },
-  HashboardOverCurrent: { HashboardOverCurrent: { port: 1, current: 100.0 } },
-  HashboardOverheat: { HashboardOverheat: { port: 1, temperature: 100.0 } },
-  HashboardOverVoltage: { HashboardOverVoltage: { port: 1, voltage: 100.0 } },
-  HashboardPowerLost: { HashboardPowerLost: { port: 1 } },
-  HashboardUnderVoltage: { HashboardUnderVoltage: { port: 1, voltage: 100.0 } },
+  HashboardOverCurrent: {
+    HashboardOverCurrent: { hb_slot: 1, current: 100.0 },
+  },
+  HashboardOverheat: { HashboardOverheat: { hb_slot: 1, temperature: 100.0 } },
+  HashboardOverVoltage: {
+    HashboardOverVoltage: { hb_slot: 1, voltage: 100.0 },
+  },
+  HashboardPowerLost: { HashboardPowerLost: { hb_slot: 1 } },
+  HashboardUnderVoltage: {
+    HashboardUnderVoltage: { hb_slot: 1, voltage: 100.0 },
+  },
   HashboardUsbConnectionLost: {
-    HashboardUsbConnectionLost: { port: 1, serial_number: "123" },
+    HashboardUsbConnectionLost: { hb_slot: 1, serial_number: "123" },
   },
   PoolConnectionLost: {
     PoolConnectionLost: { pool_id: 1, pool_url: "pool.com" },

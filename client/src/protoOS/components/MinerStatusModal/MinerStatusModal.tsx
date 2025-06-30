@@ -4,6 +4,8 @@ import MinerStatusRow from "./MinerStatusRow";
 import MinerStatusRows from "./MinerStatusRows";
 import {
   getErrorTitle,
+  isAsicError,
+  isAsicWarning,
   isControlBoardError,
   isControlBoardWarning,
   isFanError,
@@ -13,7 +15,7 @@ import {
   isPSUError,
   isPSUWarning,
 } from "./utility";
-import { ErrorListResponse } from "@/protoOS/api/types";
+import { ErrorListResponse, NotificationError } from "@/protoOS/api/types";
 
 import { Alert, Checkmark, Stop } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -23,6 +25,7 @@ import Divider from "@/shared/components/Divider";
 import Modal from "@/shared/components/Modal";
 import Tabs from "@/shared/components/Tab";
 import "./style.css";
+import { createOrPredicate } from "@/shared/utils/predicate";
 
 interface MinerStatusModalProps {
   errors?: ErrorListResponse;
@@ -34,11 +37,17 @@ const MinerStatusModal = ({
   onDismiss,
 }: MinerStatusModalProps) => {
   const hashboardErrors = useMemo(
-    () => errors.filter(isHashboardError),
+    () =>
+      errors.filter(
+        createOrPredicate<NotificationError>(isHashboardError, isAsicError),
+      ),
     [errors],
   );
   const hashboardWarnings = useMemo(
-    () => errors.filter(isHashboardWarning),
+    () =>
+      errors.filter(
+        createOrPredicate<NotificationError>(isHashboardWarning, isAsicWarning),
+      ),
     [errors],
   );
   const psuErrors = useMemo(() => errors.filter(isPSUError), [errors]);

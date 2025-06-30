@@ -4,6 +4,8 @@ import clsx from "clsx";
 import WidgetWrapper from "../WidgetWrapper";
 import { ErrorListResponse, NotificationError } from "@/protoOS/api/types";
 import {
+  isAsicError,
+  isAsicWarning,
   isControlBoardError,
   isControlBoardWarning,
   isFanError,
@@ -17,6 +19,7 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import StatusCircle, {
   type StatusCircleProps,
 } from "@/shared/components/StatusCircle/";
+import { createOrPredicate } from "@/shared/utils/predicate";
 
 interface MinerStatusWidgetProps {
   errors?: ErrorListResponse;
@@ -30,18 +33,13 @@ const MinerStatusWidget = ({
   onClick,
 }: MinerStatusWidgetProps) => {
   const status = useMemo<StatusCircleProps["status"]>(() => {
-    const createOrPredicate = (
-      ...predicates: Array<(error: NotificationError) => boolean>
-    ) => {
-      return (value: NotificationError) =>
-        predicates.some((predicate) => predicate(value));
-    };
     if (
       errors.some(
-        createOrPredicate(
+        createOrPredicate<NotificationError>(
           isFanError,
           isControlBoardError,
           isHashboardError,
+          isAsicError,
           isPSUError,
         ),
       )
@@ -49,10 +47,11 @@ const MinerStatusWidget = ({
       return "error";
     if (
       errors.some(
-        createOrPredicate(
+        createOrPredicate<NotificationError>(
           isFanWarning,
           isControlBoardWarning,
           isHashboardWarning,
+          isAsicWarning,
           isPSUWarning,
         ),
       )
