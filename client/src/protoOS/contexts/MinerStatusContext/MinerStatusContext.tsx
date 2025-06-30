@@ -61,7 +61,7 @@ export const MinerStatusProvider = ({
   } = usePoolsInfo();
 
   usePoll({
-    fetchData: () => fetchPoolsInfo({ retryOnMinerDown: true }),
+    fetchData: () => fetchPoolsInfo(),
     poll: true,
   });
 
