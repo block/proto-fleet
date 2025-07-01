@@ -11,7 +11,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 )
 
-//go:generate mockgen -source=service.go -destination=mocks/mock_service.go -package=mock UpdateScheduler
+//go:generate mockgen -source=service.go -destination=mocks/mock_service.go -package=mock UpdateScheduler,TelemetryDataStore
 type UpdateScheduler interface {
 	AddNewDevices(ctx context.Context, deviceID ...models.DeviceID) error
 	AddDevices(ctx context.Context, devices ...models.Device) error
@@ -22,6 +22,11 @@ type UpdateScheduler interface {
 
 type TelemetryDataStore interface {
 	Store(ctx context.Context, data ...models.Telemetry) error
+	GetLatestTelemetry(ctx context.Context, query models.LatestTelemetryQuery) ([]models.Telemetry, error)
+	GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models.Telemetry, error)
+	GetTelemetryMetadata(ctx context.Context, query models.MetadataQuery) ([]models.DeviceMetadata, error)
+	StreamTelemetryUpdates(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error)
+	GetAggregatedTelemetry(ctx context.Context, query models.AggregationQuery) ([]models.AggregatedTelemetry, error)
 }
 
 type TelemetryService struct {

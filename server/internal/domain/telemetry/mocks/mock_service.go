@@ -151,6 +151,66 @@ func (m *MockTelemetryDataStore) EXPECT() *MockTelemetryDataStoreMockRecorder {
 	return m.recorder
 }
 
+// GetAggregatedTelemetry mocks base method.
+func (m *MockTelemetryDataStore) GetAggregatedTelemetry(ctx context.Context, query models.AggregationQuery) ([]models.AggregatedTelemetry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAggregatedTelemetry", ctx, query)
+	ret0, _ := ret[0].([]models.AggregatedTelemetry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAggregatedTelemetry indicates an expected call of GetAggregatedTelemetry.
+func (mr *MockTelemetryDataStoreMockRecorder) GetAggregatedTelemetry(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAggregatedTelemetry", reflect.TypeOf((*MockTelemetryDataStore)(nil).GetAggregatedTelemetry), ctx, query)
+}
+
+// GetLatestTelemetry mocks base method.
+func (m *MockTelemetryDataStore) GetLatestTelemetry(ctx context.Context, query models.LatestTelemetryQuery) ([]models.Telemetry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLatestTelemetry", ctx, query)
+	ret0, _ := ret[0].([]models.Telemetry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLatestTelemetry indicates an expected call of GetLatestTelemetry.
+func (mr *MockTelemetryDataStoreMockRecorder) GetLatestTelemetry(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestTelemetry", reflect.TypeOf((*MockTelemetryDataStore)(nil).GetLatestTelemetry), ctx, query)
+}
+
+// GetTelemetryMetadata mocks base method.
+func (m *MockTelemetryDataStore) GetTelemetryMetadata(ctx context.Context, query models.MetadataQuery) ([]models.DeviceMetadata, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTelemetryMetadata", ctx, query)
+	ret0, _ := ret[0].([]models.DeviceMetadata)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetTelemetryMetadata indicates an expected call of GetTelemetryMetadata.
+func (mr *MockTelemetryDataStoreMockRecorder) GetTelemetryMetadata(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTelemetryMetadata", reflect.TypeOf((*MockTelemetryDataStore)(nil).GetTelemetryMetadata), ctx, query)
+}
+
+// GetTimeSeriesTelemetry mocks base method.
+func (m *MockTelemetryDataStore) GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models.Telemetry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTimeSeriesTelemetry", ctx, query)
+	ret0, _ := ret[0].([]models.Telemetry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetTimeSeriesTelemetry indicates an expected call of GetTimeSeriesTelemetry.
+func (mr *MockTelemetryDataStoreMockRecorder) GetTimeSeriesTelemetry(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTimeSeriesTelemetry", reflect.TypeOf((*MockTelemetryDataStore)(nil).GetTimeSeriesTelemetry), ctx, query)
+}
+
 // Store mocks base method.
 func (m *MockTelemetryDataStore) Store(ctx context.Context, data ...models.Telemetry) error {
 	m.ctrl.T.Helper()
@@ -168,6 +228,21 @@ func (mr *MockTelemetryDataStoreMockRecorder) Store(ctx interface{}, data ...int
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]interface{}{ctx}, data...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Store", reflect.TypeOf((*MockTelemetryDataStore)(nil).Store), varargs...)
+}
+
+// StreamTelemetryUpdates mocks base method.
+func (m *MockTelemetryDataStore) StreamTelemetryUpdates(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StreamTelemetryUpdates", ctx, query)
+	ret0, _ := ret[0].(<-chan models.TelemetryUpdate)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// StreamTelemetryUpdates indicates an expected call of StreamTelemetryUpdates.
+func (mr *MockTelemetryDataStoreMockRecorder) StreamTelemetryUpdates(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StreamTelemetryUpdates", reflect.TypeOf((*MockTelemetryDataStore)(nil).StreamTelemetryUpdates), ctx, query)
 }
 
 // MockMinerManager is a mock of MinerManager interface.

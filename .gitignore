@@ -2,5 +2,6 @@
 .idea
 .DS_Store
 server/influx_config/.env
+**/.goose/
 
 **private.env**
