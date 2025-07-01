@@ -12,8 +12,11 @@ import (
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/web"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
 
 var _ pairing.Pairer = &Service{}
@@ -21,15 +24,18 @@ var _ pairing.Pairer = &Service{}
 type Service struct {
 	conn      *sql.DB
 	encryptor *encrypt.Service
+	webClient web.WebAPIClient
 }
 
 func NewService(
 	conn *sql.DB,
 	encryptor *encrypt.Service,
+	webClient web.WebAPIClient,
 ) *Service {
 	return &Service{
 		conn:      conn,
 		encryptor: encryptor,
+		webClient: webClient,
 	}
 }
 
@@ -41,6 +47,15 @@ func (s *Service) PairDevice(ctx context.Context, device *minerdiscovery.Discove
 	if credentials == nil || strings.TrimSpace(credentials.Username) == "" || credentials.Password == nil || strings.TrimSpace(*credentials.Password) == "" {
 		return fleeterror.NewInvalidArgumentErrorf("credentials are required for Antminer pairing")
 	}
+
+	systemInfo, err := authAndGetSystemInfo(ctx, device, s, credentials)
+	if err != nil {
+		return err
+	}
+
+	// Update device with serial number and MAC address
+	device.SerialNumber = systemInfo.SerialNumber
+	device.MacAddress = systemInfo.MacAddr
 
 	return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
 		deviceID, err := pairing.SaveDiscoveredDevice(ctx, q, device)
@@ -79,4 +94,22 @@ func (s *Service) PairDevice(ctx context.Context, device *minerdiscovery.Discove
 
 		return nil
 	})
+}
+
+func authAndGetSystemInfo(ctx context.Context, device *minerdiscovery.DiscoveredDevice, s *Service, credentials *pb.Credentials) (*web.SystemInfo, error) {
+	connInfo, err := networking.NewConnectionInfo(device.IpAddress, device.Port, networking.ProtocolHTTP)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to create connection info: %v", err)
+	}
+
+	systemInfo, err := s.webClient.GetSystemInfo(ctx, &web.AntminerConnectionInfo{
+		ConnectionInfo: *connInfo,
+		Username:       credentials.Username,
+		Password:       *secrets.NewText(*credentials.Password),
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get system info: %v", err)
+	}
+
+	return systemInfo, nil
 }

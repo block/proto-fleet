@@ -18,6 +18,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 
+	antminerWeb "github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/web"
 	pairingAntminer "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/antminer"
 	pairingProto "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/proto"
 )
@@ -53,7 +54,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	deviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
 
 	protoPairer := pairingProto.NewService(db, pairingConfig)
-	antminerPairer := pairingAntminer.NewService(db, encryptService)
+	antminerPairer := pairingAntminer.NewService(db, encryptService, antminerWeb.NewService())
 
 	pairingService := pairing.NewService(deviceStore, db, tokenService, minerDiscoveryService, protoPairer, antminerPairer)
 

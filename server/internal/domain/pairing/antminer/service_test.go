@@ -3,10 +3,12 @@ package antminer_test
 import (
 	"testing"
 
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/web/mocks"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing/antminer"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/golang/mock/gomock"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/stretchr/testify/assert"
@@ -19,7 +21,10 @@ func TestAntminerCredentialValidation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	service := antminer.NewService(nil, encryptService)
+	ctrl := gomock.NewController(t)
+	webClient := mocks.NewMockWebAPIClient(ctrl)
+
+	service := antminer.NewService(nil, encryptService, webClient)
 	ctx := t.Context()
 
 	device := &minerdiscovery.DiscoveredDevice{

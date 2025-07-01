@@ -7,12 +7,15 @@ import (
 	"testing"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/web"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/web/mocks"
 	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	pairingAntminer "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/antminer"
 	pairingProto "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/proto"
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"
+	"github.com/golang/mock/gomock"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/stretchr/testify/assert"
@@ -52,7 +55,7 @@ func (m *MockDiscoverer) GetMinerType() miner.Type {
 
 var _ minerdiscovery.Discoverer = (*MockDiscoverer)(nil)
 
-func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser *testutil.TestUser, mockDiscoverers ...*MockDiscoverer) (*pairing.Service, context.Context) {
+func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser *testutil.TestUser, webClient *mocks.MockWebAPIClient, mockDiscoverers ...*MockDiscoverer) (*pairing.Service, context.Context) {
 	discoverers := make([]minerdiscovery.Discoverer, len(mockDiscoverers))
 	for i, m := range mockDiscoverers {
 		discoverers[i] = m
@@ -65,7 +68,8 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 	deviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
 
 	protoPairer := pairingProto.NewService(testContext.ServiceProvider.DB, pairing.Config{SecretKey: "test-secret"})
-	antminerPairer := pairingAntminer.NewService(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService)
+
+	antminerPairer := pairingAntminer.NewService(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService, webClient)
 
 	pairingService := pairing.NewService(
 		deviceStore,
@@ -113,7 +117,9 @@ func TestDiscoverWithIPList(t *testing.T) {
 		testContext := testutil.InitializeDBServiceInfrastructure(t)
 		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 
-		pairingService, ctx := setupTestService(t, testContext, adminUser, mockDiscoverer)
+		webClient := mocks.NewMockWebAPIClient(gomock.NewController(t))
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, webClient, mockDiscoverer)
 
 		request := &pb.IPListModeRequest{
 			IpAddresses: []string{"192.168.1.10", "192.168.1.11"},
@@ -169,7 +175,9 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		testContext := testutil.InitializeDBServiceInfrastructure(t)
 		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 
-		pairingService, ctx := setupTestService(t, testContext, adminUser, mockDiscoverer)
+		webClient := mocks.NewMockWebAPIClient(gomock.NewController(t))
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, webClient, mockDiscoverer)
 
 		request := &pb.IPRangeModeRequest{
 			StartIp: "192.168.1.10",
@@ -223,7 +231,9 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		testContext := testutil.InitializeDBServiceInfrastructure(t)
 		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 
-		pairingService, ctx := setupTestService(t, testContext, adminUser, mockDiscoverer)
+		webClient := mocks.NewMockWebAPIClient(gomock.NewController(t))
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, webClient, mockDiscoverer)
 
 		request := &pb.IPRangeModeRequest{
 			StartIp: "192.168.1.10",
@@ -281,7 +291,9 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		testContext := testutil.InitializeDBServiceInfrastructure(t)
 		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 
-		pairingService, ctx := setupTestService(t, testContext, adminUser, mockDiscoverer)
+		webClient := mocks.NewMockWebAPIClient(gomock.NewController(t))
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, webClient, mockDiscoverer)
 
 		request := &pb.IPRangeModeRequest{
 			StartIp: "192.168.1.10",
@@ -344,7 +356,10 @@ func TestDiscoverWithIPRange(t *testing.T) {
 
 		testContext := testutil.InitializeDBServiceInfrastructure(t)
 		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
-		pairingService, ctx := setupTestService(t, testContext, adminUser, mockDiscoverer)
+
+		webClient := mocks.NewMockWebAPIClient(gomock.NewController(t))
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, webClient, mockDiscoverer)
 
 		request := &pb.IPRangeModeRequest{
 			StartIp: "192.168.1.20",
@@ -383,7 +398,9 @@ func TestPairDevices(t *testing.T) {
 		mockDevice := createMockDevice("192.168.1.100", "8080", "PROTO-PAIR-001", miner.TypeProto.String())
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.100", "8080").Return(mockDevice, nil)
 
-		pairingService, ctx := setupTestService(t, testContext, adminUser, mockDiscoverer)
+		webClient := mocks.NewMockWebAPIClient(gomock.NewController(t))
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, webClient, mockDiscoverer)
 
 		// First discover the device
 		request := &pb.IPListModeRequest{
@@ -425,7 +442,14 @@ func TestPairDevices(t *testing.T) {
 		mockDevice := createMockDevice("192.168.1.101", "4028", "ANTMINER-PAIR-001", miner.TypeAntminer.String())
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.101", "4028").Return(mockDevice, nil)
 
-		pairingService, ctx := setupTestService(t, testContext, adminUser, mockDiscoverer)
+		ctrl := gomock.NewController(t)
+		webClient := mocks.NewMockWebAPIClient(ctrl)
+		webClient.EXPECT().GetSystemInfo(gomock.Any(), gomock.Any()).Return(&web.SystemInfo{
+			SerialNumber: "1234567890",
+			MacAddr:      "00:11:22:33:44:55",
+		}, nil)
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, webClient, mockDiscoverer)
 
 		// First discover the device
 		request := &pb.IPListModeRequest{
@@ -472,7 +496,9 @@ func TestPairDevices(t *testing.T) {
 		mockDevice := createMockDevice("192.168.1.102", "4028", "ANTMINER-PAIR-002", miner.TypeAntminer.String())
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.102", "4028").Return(mockDevice, nil)
 
-		pairingService, ctx := setupTestService(t, testContext, adminUser, mockDiscoverer)
+		webClient := mocks.NewMockWebAPIClient(gomock.NewController(t))
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, webClient, mockDiscoverer)
 
 		// First discover the device
 		request := &pb.IPListModeRequest{
@@ -521,7 +547,14 @@ func TestPairDevices(t *testing.T) {
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.110", "4028").Return(nil, minerdiscovery.MinerNotFoundFleetError)
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.111", "4028").Return(antminerDevice, nil)
 
-		pairingService, ctx := setupTestService(t, testContext, adminUser, mockDiscoverer)
+		ctrl := gomock.NewController(t)
+		webClient := mocks.NewMockWebAPIClient(ctrl)
+		webClient.EXPECT().GetSystemInfo(gomock.Any(), gomock.Any()).Return(&web.SystemInfo{
+			SerialNumber: "1234567890",
+			MacAddr:      "00:11:22:33:44:55",
+		}, nil)
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, webClient, mockDiscoverer)
 
 		// Discover both devices
 		request := &pb.IPListModeRequest{
@@ -598,7 +631,9 @@ func TestPairDevices(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
 
-		pairingService, ctx := setupTestService(t, testContext, adminUser, mockDiscoverer)
+		webClient := mocks.NewMockWebAPIClient(gomock.NewController(t))
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, webClient, mockDiscoverer)
 
 		// Try to pair a non-existent device
 		pairRequest := &pb.PairRequest{

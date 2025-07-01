@@ -29,6 +29,7 @@ import (
 	commandDomain "github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	fleetmanagementDomain "github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
 	antminerRPC "github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/rpc"
+	antminerWeb "github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/web"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	antminerDiscoverer "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/antminer"
 	protoDiscoverer "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/proto"
@@ -97,7 +98,7 @@ func start(config *Config) error {
 	discoveredDeviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
 
 	protoPairer := pairingProto.NewService(conn, config.Pairing)
-	antminerPairer := pairingAntminer.NewService(conn, encryptSvc)
+	antminerPairer := pairingAntminer.NewService(conn, encryptSvc, antminerWeb.NewService())
 
 	pairingSvc := pairingDomain.NewService(
 		discoveredDeviceStore,
