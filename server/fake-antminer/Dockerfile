@@ -23,9 +23,11 @@ RUN apk --no-cache add ca-certificates wget && \
 
 WORKDIR /app
 
-# Copy binary and set ownership
+# Copy binary, entrypoint script and set ownership
 COPY --from=builder /app/fake-antminer /app/fake-antminer
-RUN chown appuser:appgroup /app/fake-antminer
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh && \
+    chown -R appuser:appgroup /app
 
 # Switch to non-root user
 USER appuser
@@ -36,4 +38,5 @@ EXPOSE 4028 80
 HEALTHCHECK --interval=2s --timeout=2s --start-period=2s --retries=2 \
     CMD wget -qO- http://127.0.0.1:80/health || exit 1
 
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["/app/fake-antminer"]

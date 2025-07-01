@@ -53,6 +53,9 @@ type WebAPIClient interface {
 
 var _ WebAPIClient = &Service{}
 
+// DefaultPort is the default port for the Antminer HTTP API
+const DefaultPort = "80"
+
 type Service struct {
 	httpClient *http.Client
 }

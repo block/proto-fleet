@@ -134,6 +134,11 @@ const MinersPage = () => {
   function handleContinue(selectedMinerIdentifiers: string[]) {
     const pairRequest = create(PairRequestSchema, {
       deviceIdentifiers: selectedMinerIdentifiers,
+      // TODO DASH-476/add-credential-entry-screen: get credentials from user
+      credentials: {
+        username: "root",
+        password: "root",
+      },
     });
     pair({
       pairRequest: pairRequest,

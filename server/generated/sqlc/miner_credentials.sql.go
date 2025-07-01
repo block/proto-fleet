@@ -9,22 +9,6 @@ import (
 	"context"
 )
 
-const createMinerCredentials = `-- name: CreateMinerCredentials :exec
-INSERT INTO miner_credentials (device_id, username_enc, password_enc)
-VALUES (?, ?, ?)
-`
-
-type CreateMinerCredentialsParams struct {
-	DeviceID    int64
-	UsernameEnc string
-	PasswordEnc string
-}
-
-func (q *Queries) CreateMinerCredentials(ctx context.Context, arg CreateMinerCredentialsParams) error {
-	_, err := q.exec(ctx, q.createMinerCredentialsStmt, createMinerCredentials, arg.DeviceID, arg.UsernameEnc, arg.PasswordEnc)
-	return err
-}
-
 const getMinerCredentialsByDeviceID = `-- name: GetMinerCredentialsByDeviceID :one
 SELECT id, device_id, username_enc, password_enc, created_at, updated_at FROM miner_credentials
 WHERE device_id = ?
@@ -42,4 +26,21 @@ func (q *Queries) GetMinerCredentialsByDeviceID(ctx context.Context, deviceID in
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const upsertMinerCredentials = `-- name: UpsertMinerCredentials :exec
+INSERT INTO miner_credentials (device_id, username_enc, password_enc)
+VALUES (?, ?, ?)
+ON DUPLICATE KEY UPDATE username_enc = VALUES(username_enc), password_enc = VALUES(password_enc)
+`
+
+type UpsertMinerCredentialsParams struct {
+	DeviceID    int64
+	UsernameEnc string
+	PasswordEnc string
+}
+
+func (q *Queries) UpsertMinerCredentials(ctx context.Context, arg UpsertMinerCredentialsParams) error {
+	_, err := q.exec(ctx, q.upsertMinerCredentialsStmt, upsertMinerCredentials, arg.DeviceID, arg.UsernameEnc, arg.PasswordEnc)
+	return err
 }

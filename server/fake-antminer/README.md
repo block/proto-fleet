@@ -43,18 +43,28 @@ Web API endpoints use digest authentication with these default credentials:
 The fake Antminer can be started using Docker Compose:
 
 ```yaml
-fake-antminer-1:
+fake-antminer:
   build:
     context: ./fake-antminer
     dockerfile: Dockerfile
-  ports:
-    - "4029:4028"  # RPC API port
-    - "8080:80"    # Web API port
   environment:
-    MINER_TYPE: "Antminer S19j Pro"
-    SERIAL_NUMBER: "fake-antminer-1"
-    MAC_ADDRESS: "00:11:22:33:44:55"
-    FIRMWARE_VERSION: "Antminer S19j Pro 110Th 28/11/2022 16:51:53"
+    MINER_TYPE: "Antminer S19 FAKE"
+    FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+  mem_limit: 128M
+  mem_reservation: 64M
+  cpus: 0.25
+  expose:
+    - 4028
+    - 80
+```
+
+### Scaling
+
+The service is designed to be scaled using Docker Compose:
+
+```bash
+# Scale to 100 instances
+docker-compose up -d --scale fake-antminer=100
 ```
 
 ## Development

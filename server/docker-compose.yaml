@@ -74,35 +74,34 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
-  fake-antminer-1:
+  fake-antminer:
     build:
       context: ./fake-antminer
       dockerfile: Dockerfile
-    ports:
-      - "4029:4028"  # RPC API port
-      - "8080:80"    # Web API port
-    environment:
-      MINER_TYPE: "Antminer S19j Pro"
-      SERIAL_NUMBER: "fake-antminer-1"
-      MAC_ADDRESS: "00:11:22:33:44:55"
-      FIRMWARE_VERSION: "Antminer S19j Pro 110Th 28/11/2022 16:51:53"
-    networks:
-      - fleet-network
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-  fake-antminer-2:
-    build:
-      context: ./fake-antminer
-      dockerfile: Dockerfile
-    ports:
-      - "4030:4028"  # RPC API port
-      - "8081:80"    # Web API port
     environment:
       MINER_TYPE: "Antminer S19 XP"
-      SERIAL_NUMBER: "fake-antminer-2"
-      MAC_ADDRESS: "00:11:22:33:44:66"
       FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+    # Resource limits to prevent container overload when scaling
+    mem_limit: 128M
+    mem_reservation: 64M
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    expose:
+      - 4028
+      - 80
+    deploy:
+      replicas: 10 # Default is 10 instances, can be overridden with --scale
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
     networks:
       - fleet-network
     cap_add:

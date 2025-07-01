@@ -74,7 +74,7 @@ func (s *Service) PairDevice(ctx context.Context, device *minerdiscovery.Discove
 			return fleeterror.NewInternalErrorf("failed to encrypt password: %v", err)
 		}
 
-		err = q.CreateMinerCredentials(ctx, sqlc.CreateMinerCredentialsParams{
+		err = q.UpsertMinerCredentials(ctx, sqlc.UpsertMinerCredentialsParams{
 			DeviceID:    deviceID,
 			UsernameEnc: encryptedUsername,
 			PasswordEnc: encryptedPassword,
@@ -97,7 +97,7 @@ func (s *Service) PairDevice(ctx context.Context, device *minerdiscovery.Discove
 }
 
 func authAndGetSystemInfo(ctx context.Context, device *minerdiscovery.DiscoveredDevice, s *Service, credentials *pb.Credentials) (*web.SystemInfo, error) {
-	connInfo, err := networking.NewConnectionInfo(device.IpAddress, device.Port, networking.ProtocolHTTP)
+	connInfo, err := networking.NewConnectionInfo(device.IpAddress, web.DefaultPort, networking.ProtocolHTTP)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to create connection info: %v", err)
 	}

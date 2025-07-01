@@ -33,9 +33,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createInactiveDeviceIPAssignmentStmt, err = db.PrepareContext(ctx, createInactiveDeviceIPAssignment); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateInactiveDeviceIPAssignment: %w", err)
 	}
-	if q.createMinerCredentialsStmt, err = db.PrepareContext(ctx, createMinerCredentials); err != nil {
-		return nil, fmt.Errorf("error preparing query CreateMinerCredentials: %w", err)
-	}
 	if q.createOrganizationStmt, err = db.PrepareContext(ctx, createOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateOrganization: %w", err)
 	}
@@ -213,6 +210,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.upsertDevicePairingStmt, err = db.PrepareContext(ctx, upsertDevicePairing); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertDevicePairing: %w", err)
 	}
+	if q.upsertMinerCredentialsStmt, err = db.PrepareContext(ctx, upsertMinerCredentials); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertMinerCredentials: %w", err)
+	}
 	if q.upsertRoleStmt, err = db.PrepareContext(ctx, upsertRole); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertRole: %w", err)
 	}
@@ -234,11 +234,6 @@ func (q *Queries) Close() error {
 	if q.createInactiveDeviceIPAssignmentStmt != nil {
 		if cerr := q.createInactiveDeviceIPAssignmentStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createInactiveDeviceIPAssignmentStmt: %w", cerr)
-		}
-	}
-	if q.createMinerCredentialsStmt != nil {
-		if cerr := q.createMinerCredentialsStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing createMinerCredentialsStmt: %w", cerr)
 		}
 	}
 	if q.createOrganizationStmt != nil {
@@ -536,6 +531,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertDevicePairingStmt: %w", cerr)
 		}
 	}
+	if q.upsertMinerCredentialsStmt != nil {
+		if cerr := q.upsertMinerCredentialsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertMinerCredentialsStmt: %w", cerr)
+		}
+	}
 	if q.upsertRoleStmt != nil {
 		if cerr := q.upsertRoleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertRoleStmt: %w", cerr)
@@ -583,7 +583,6 @@ type Queries struct {
 	activateNewIPAssignmentStmt                  *sql.Stmt
 	createCommandBatchLogStmt                    *sql.Stmt
 	createInactiveDeviceIPAssignmentStmt         *sql.Stmt
-	createMinerCredentialsStmt                   *sql.Stmt
 	createOrganizationStmt                       *sql.Stmt
 	createPoolStmt                               *sql.Stmt
 	createQueueMessageStmt                       *sql.Stmt
@@ -643,6 +642,7 @@ type Queries struct {
 	upsertCommandOnDeviceLogStmt                 *sql.Stmt
 	upsertDeviceStmt                             *sql.Stmt
 	upsertDevicePairingStmt                      *sql.Stmt
+	upsertMinerCredentialsStmt                   *sql.Stmt
 	upsertRoleStmt                               *sql.Stmt
 }
 
@@ -653,7 +653,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		activateNewIPAssignmentStmt:          q.activateNewIPAssignmentStmt,
 		createCommandBatchLogStmt:            q.createCommandBatchLogStmt,
 		createInactiveDeviceIPAssignmentStmt: q.createInactiveDeviceIPAssignmentStmt,
-		createMinerCredentialsStmt:           q.createMinerCredentialsStmt,
 		createOrganizationStmt:               q.createOrganizationStmt,
 		createPoolStmt:                       q.createPoolStmt,
 		createQueueMessageStmt:               q.createQueueMessageStmt,
@@ -713,6 +712,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertCommandOnDeviceLogStmt:                 q.upsertCommandOnDeviceLogStmt,
 		upsertDeviceStmt:                             q.upsertDeviceStmt,
 		upsertDevicePairingStmt:                      q.upsertDevicePairingStmt,
+		upsertMinerCredentialsStmt:                   q.upsertMinerCredentialsStmt,
 		upsertRoleStmt:                               q.upsertRoleStmt,
 	}
 }
