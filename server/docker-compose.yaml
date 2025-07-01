@@ -74,6 +74,40 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+  fake-antminer-1:
+    build:
+      context: ./fake-antminer
+      dockerfile: Dockerfile
+    ports:
+      - "4029:4028"  # RPC API port
+      - "8080:80"    # Web API port
+    environment:
+      MINER_TYPE: "Antminer S19j Pro"
+      SERIAL_NUMBER: "fake-antminer-1"
+      MAC_ADDRESS: "00:11:22:33:44:55"
+      FIRMWARE_VERSION: "Antminer S19j Pro 110Th 28/11/2022 16:51:53"
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+  fake-antminer-2:
+    build:
+      context: ./fake-antminer
+      dockerfile: Dockerfile
+    ports:
+      - "4030:4028"  # RPC API port
+      - "8081:80"    # Web API port
+    environment:
+      MINER_TYPE: "Antminer S19 XP"
+      SERIAL_NUMBER: "fake-antminer-2"
+      MAC_ADDRESS: "00:11:22:33:44:66"
+      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
   mysql:
     image: mysql:8.4.4
     restart: always

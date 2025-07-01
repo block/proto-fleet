@@ -1,0 +1,234 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+)
+
+func main() {
+	// Get configuration from environment variables with validation
+	minerType := getEnv("MINER_TYPE", "Antminer S19j Pro")
+	serialNumber := getEnv("SERIAL_NUMBER", "fake-antminer-1")
+	macAddress := getEnv("MAC_ADDRESS", "00:11:22:33:44:55")
+	firmwareVersion := getEnv("FIRMWARE_VERSION", "Antminer S19j Pro 110Th 28/11/2022 16:51:53")
+
+	// Validate required environment variables
+	if err := validateConfig(minerType, serialNumber, macAddress); err != nil {
+		log.Fatalf("Configuration validation failed: %v", err)
+	}
+
+	log.Printf("Starting fake Antminer server: %s (SN: %s)", minerType, serialNumber)
+
+	// Create miner state
+	state := &MinerState{
+		MinerType:       minerType,
+		SerialNumber:    serialNumber,
+		MacAddress:      macAddress,
+		FirmwareVersion: firmwareVersion,
+		IPAddress:       getOutboundIP().String(),
+		Hostname:        "antminer-" + serialNumber,
+		NetMask:         "255.255.255.0",
+		Gateway:         "192.168.2.1",
+		DNSServers:      "8.8.8.8",
+		HashRate:        110.0,
+		Temperature:     45.0,
+		Pools: []Pool{
+			{
+				URL:  "stratum+tcp://btc.example.com:3333",
+				User: "worker1",
+				Pass: "x",
+			},
+		},
+		Username: "root",
+		Password: "root",
+	}
+
+	// Create context for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Create wait group for server goroutines
+	var wg sync.WaitGroup
+
+	// Start RPC server (handles cgminer API)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := startRPCServer(ctx, state); err != nil && err != context.Canceled {
+			log.Printf("RPC server error: %v", err)
+		}
+	}()
+
+	// Start HTTP server (handles web API)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := startHTTPServer(ctx, state); err != nil && err != context.Canceled {
+			log.Printf("HTTP server error: %v", err)
+		}
+	}()
+
+	// Wait for interrupt signal
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	<-sigs
+
+	log.Println("Shutting down fake Antminer server...")
+	cancel()
+
+	// Wait for servers to shutdown gracefully
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		log.Println("Shutdown completed")
+	case <-time.After(30 * time.Second):
+		log.Println("Shutdown timeout exceeded")
+	}
+}
+
+func startRPCServer(ctx context.Context, state *MinerState) error {
+	// Listen on the standard cgminer API port
+	listener, err := net.Listen("tcp", ":4028")
+	if err != nil {
+		return fmt.Errorf("failed to start RPC server: %w", err)
+	}
+	defer listener.Close()
+
+	// Handle graceful shutdown
+	go func() {
+		<-ctx.Done()
+		listener.Close()
+	}()
+
+	log.Println("RPC server listening on :4028")
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+				log.Printf("Failed to accept connection: %v", err)
+				continue
+			}
+		}
+
+		go handleRPCConnection(conn, state)
+	}
+}
+
+func startHTTPServer(ctx context.Context, state *MinerState) error {
+	mux := http.NewServeMux()
+
+	// Register API endpoints
+	mux.HandleFunc("/cgi-bin/get_system_info.cgi", createSystemInfoHandler(state))
+	mux.HandleFunc("/cgi-bin/summary.cgi", createMinerSummaryHandler(state))
+	mux.HandleFunc("/cgi-bin/get_miner_conf.cgi", createMinerConfigHandler(state))
+	mux.HandleFunc("/cgi-bin/get_network_info.cgi", createNetworkInfoHandler(state))
+	mux.HandleFunc("/cgi-bin/set_miner_conf.cgi", createSetConfigHandler(state))
+	mux.HandleFunc("/cgi-bin/reboot.cgi", createRebootHandler(state))
+	mux.HandleFunc("/cgi-bin/blink.cgi", createBlinkHandler(state))
+
+	// Add health check endpoint (no auth required)
+	mux.HandleFunc("/health", createHealthHandler())
+
+	// Wrap the mux with authentication middleware
+	protectedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check if this is a path that needs authentication
+		if pathNeedsAuth(r.URL.Path) {
+			// Apply auth middleware for protected endpoints
+			digestAuthMiddleware(state)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mux.ServeHTTP(w, r)
+			})).ServeHTTP(w, r)
+		} else {
+			// No auth needed, proceed normally
+			mux.ServeHTTP(w, r)
+		}
+	})
+
+	server := &http.Server{
+		Addr:    ":80",
+		Handler: protectedHandler,
+	}
+
+	// Handle graceful shutdown
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		server.Shutdown(shutdownCtx)
+	}()
+
+	log.Println("HTTP server listening on :80")
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("failed to start HTTP server: %w", err)
+	}
+	return nil
+}
+
+// Helper function to determine if a path needs authentication
+func pathNeedsAuth(path string) bool {
+	// Only enforce auth for POST endpoints that modify state
+	// This better matches the original behavior
+	return path == "/cgi-bin/set_miner_conf.cgi" ||
+		path == "/cgi-bin/reboot.cgi" ||
+		path == "/cgi-bin/blink.cgi"
+}
+
+func getEnv(key, fallback string) string {
+	if value, exists := os.LookupEnv(key); exists && value != "" {
+		return value
+	}
+	return fallback
+}
+
+// validateConfig validates the configuration parameters
+func validateConfig(minerType, serialNumber, macAddress string) error {
+	if minerType == "" {
+		return fmt.Errorf("miner type cannot be empty")
+	}
+	if serialNumber == "" {
+		return fmt.Errorf("serial number cannot be empty")
+	}
+	if macAddress == "" {
+		return fmt.Errorf("MAC address cannot be empty")
+	}
+	// Basic MAC address format validation
+	if len(macAddress) != 17 {
+		return fmt.Errorf("invalid MAC address format: %s", macAddress)
+	}
+	return nil
+}
+
+// getOutboundIP gets the preferred outbound IP of this machine
+func getOutboundIP() net.IP {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP
+}
+
+// Helper function to generate a standardized error response
+func errorResponse(w http.ResponseWriter, message string, statusCode int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	fmt.Fprintf(w, `{"error": "%s"}`, message)
+}
