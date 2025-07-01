@@ -14,6 +14,11 @@ on:
       - "miner-firmware/**"
   workflow_dispatch:
 
+permissions:
+  # Needed for aws-actions/configure-aws-credentials
+  id-token: write
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
