@@ -15,6 +15,7 @@ export type HbTemperature = {
   serial: string;
   data: TimeSeriesData[];
   aggregates: Aggregates;
+  slot: number;
 };
 
 type UseProcessedHashboardTemperatureProps = {
@@ -55,8 +56,10 @@ const useProcessedHashboardTemperature = ({
           (getSlotByHbSn(b[0]) ?? entries.length),
       )
       .reduce((acc, [key, value]) => {
-        const name = "Hashboard " + getSlotByHbSn(key);
+        const slot = getSlotByHbSn(key) || 0;
+        const name = "Hashboard " + slot;
         acc.push({
+          slot,
           name,
           serial: key,
           data: convertValues(

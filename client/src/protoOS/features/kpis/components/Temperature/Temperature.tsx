@@ -10,6 +10,9 @@ import { FanIndicator } from "@/shared/assets/icons";
 import { type StatProps } from "@/shared/components/Stat";
 import Stats from "@/shared/features/kpis/components/Stats";
 
+const BAYS_COUNT = 3;
+const HB_IN_BAY_COUNT = 3;
+
 const getFanStats = (
   fanSpeed: FanInfo | undefined,
   numFans: number,
@@ -93,15 +96,17 @@ const Temperature = () => {
         />
       )}
 
-      <div className="flex flex-col gap-4">
-        {Array.from({ length: Math.ceil(hbTempData.length / 3) }).map(
-          (_, groupIndex) => (
+      <div className="flex grid-cols-3 flex-col gap-4 sm:grid">
+        {Array.from({ length: BAYS_COUNT }).map((_, groupIndex) => (
+          <div key={groupIndex}>
             <HbBayPreview
-              key={groupIndex}
-              data={hbTempData.slice(groupIndex * 3, groupIndex * 3 + 3)}
+              data={hbTempData.filter(
+                (value) =>
+                  Math.ceil(value.slot / HB_IN_BAY_COUNT) === groupIndex + 1,
+              )}
             />
-          ),
-        )}
+          </div>
+        ))}
       </div>
     </>
   );

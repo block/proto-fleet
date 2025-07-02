@@ -44,7 +44,7 @@ const HbTempPreview = ({ hbData, asics }: HbTempPreviewProps) => {
       data-testid="hb-temp-preview"
       to={`${minerRoot}/temperature/${hbData.serial}`}
       className={clsx(
-        "group block overflow-hidden border-r-1 border-r-surface-10 last-of-type:border-r-0 phone:w-full phone:rounded-xl phone:border-1 phone:border-border-10",
+        "group block overflow-hidden phone:w-full phone:rounded-xl phone:border-1 phone:border-border-10",
         isOverheating
           ? "hover:bg-intent-critical-20"
           : "hover:bg-core-primary-2",

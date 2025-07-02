@@ -21,6 +21,7 @@ const mockHbData: HbTemperature = {
     { datetime: 1234567891, value: 60 },
     { datetime: 1234567892, value: 80 },
   ],
+  slot: 1,
 };
 
 const createMockAsics = (temp = 80) => {
@@ -87,6 +88,7 @@ describe("HbTempPreview", () => {
         min: 40,
       },
       data: [{ value: 55 }],
+      slot: 1,
     };
 
     render(

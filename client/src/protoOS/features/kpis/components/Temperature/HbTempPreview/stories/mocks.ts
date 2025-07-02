@@ -16,6 +16,7 @@ export const hbData = {
     avg: 60.01,
     max: 66.69,
   },
+  slot: 1,
 };
 
 export const asics = [
