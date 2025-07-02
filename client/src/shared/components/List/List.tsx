@@ -275,10 +275,7 @@ const List = <ListItem, ItemKeyValueType, FilterType extends Key>({
               </thead>
               <tbody data-testid="list-body">
                 {filteredItems.map((item, i) => (
-                  <tr
-                    key={i}
-                    className={clsx(rowClassList, "hover:cursor-pointer")}
-                  >
+                  <tr key={i} className={rowClassList}>
                     {itemSelectable && (
                       <td
                         className={clsx(tdClassList, firstStickyClasses)}

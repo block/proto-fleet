@@ -12,6 +12,7 @@ export const miners: MinerStateSnapshot[] = [
     name: "C1-M01",
     ipAddress: "0123456789",
     macAddress: "0a:04:8a:54:fa:9f",
+    url: "https://0123456789:8080",
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },
@@ -62,6 +63,7 @@ export const miners: MinerStateSnapshot[] = [
     name: "C1-M02",
     macAddress: "0b:04:8a:54:fa:9f",
     ipAddress: "0123456781",
+    url: "https://0123456781:8080",
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },
@@ -112,6 +114,7 @@ export const miners: MinerStateSnapshot[] = [
     ipAddress: "172.27.244.166",
     name: "C1-M03",
     macAddress: "0c:04:8a:54:fa:9f",
+    url: "https://172.27.244.166:8080",
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },
@@ -162,6 +165,7 @@ export const miners: MinerStateSnapshot[] = [
     ipAddress: "172.27.244.166",
     name: "C1-M04",
     macAddress: "0e:04:8a:54:fa:9f",
+    url: "https://172.27.244.166:8080",
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },

@@ -209,7 +209,7 @@ func generateDevsResponse(state *MinerState) DevsResponse {
 	defer state.mu.RUnlock()
 
 	now := time.Now().Unix()
-	
+
 	// Create 3 devices with slightly different temperatures and stats
 	devices := []DeviceInfo{
 		{

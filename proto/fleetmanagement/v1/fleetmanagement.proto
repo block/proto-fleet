@@ -112,6 +112,9 @@ message MinerStateSnapshot {
 
   string ip_address = 11;
 
+  // The full url of the miner including protocol and port (if running on a port other than 80/443)
+  string url = 12;
+
 }
 
 // Status information for all major components in a miner

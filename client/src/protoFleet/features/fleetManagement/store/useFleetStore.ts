@@ -197,3 +197,6 @@ export const useMinerPowerUsage = (deviceId: string) =>
 
 export const useMinerTemperature = (deviceId: string) =>
   useFleetStore((state) => state.miners[deviceId]?.temperature);
+
+export const useMinerUrl = (deviceId: string) =>
+  useFleetStore((state) => state.miners[deviceId]?.url);

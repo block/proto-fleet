@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"net"
 	"time"
 
 	"connectrpc.com/connect"
@@ -184,12 +185,14 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 				MacAddress:       miner.MacAddress,
 				SerialNumber:     miner.SerialNumber.String,
 				IpAddress:        miner.IpAddress.String,
-				PowerUsage:       telemetry.PowerUsage,
-				Temperature:      telemetry.Temperature,
-				Hashrate:         telemetry.Hashrate,
-				Efficiency:       telemetry.Efficiency,
-				Status:           status,
-				Timestamp:        telemetry.Timestamp,
+				// TODO(DASH-491) read url scheme from miner data once we start persisting
+				Url:         fmt.Sprintf("http://%s", net.JoinHostPort(miner.IpAddress.String, miner.Port.String)),
+				PowerUsage:  telemetry.PowerUsage,
+				Temperature: telemetry.Temperature,
+				Hashrate:    telemetry.Hashrate,
+				Efficiency:  telemetry.Efficiency,
+				Status:      status,
+				Timestamp:   telemetry.Timestamp,
 			}
 			snapshots = append(snapshots, snapshot)
 		}

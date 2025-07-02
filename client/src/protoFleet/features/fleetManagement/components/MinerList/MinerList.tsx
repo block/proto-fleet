@@ -118,7 +118,6 @@ const MinerList = ({
     void activeButtonFilters;
     return true;
   };
-
   return (
     <div>
       <h2 className="text-heading-300">{title}</h2>
