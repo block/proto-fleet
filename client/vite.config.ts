@@ -104,7 +104,7 @@ export default defineConfig(({ mode, command }) => {
   let proxies = {};
   const env = loadEnv(mode, process.cwd(), "");
   if (mode === "protoFleet") {
-    let proxyUrl = env.PROXY_URL || "http://localhost:4000";
+    let proxyUrl = env.FLEET_PROXY_URL || "http://localhost:4000";
     proxies = {
       "/api-proxy": {
         target: proxyUrl,

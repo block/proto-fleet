@@ -103,7 +103,12 @@ PROXY_URL = http://127.0.0.1:8000
   - `cd ../server`
   - `docker-compose down --rmi all --volumes && docker-compose up --build -d` // stops all current containers and removes volumes, builds fresh images and starts all containers in the background
   - Now you will have the server running, mysql running and 2 or more miner emulators running locally
-- Because of CORS we cannot makes request directly from our dev server to the docker backend. Instead specify your docker server url in `.env` file. `PROXY_URL="http://localhost:4000"`. Vite will proxy all api paths listed in `vite.config.ts` to the protoFleet server
+- Because of CORS we cannot makes request directly from our dev server to the docker backend. Instead specify your docker server url in `.env` file. `FLEET_PROXY_URL="http://localhost:4000"`. Vite will proxy all api paths listed in `vite.config.ts` to the protoFleet server
+
+```
+FLEET_PROXY_URL = http://127.0.0.1:4000
+```
+
 - If you are implementing a new API endpoint you may need to add the path to the `vite.config.ts`
 
 ### 2. Start dev server
