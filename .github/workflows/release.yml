@@ -1,0 +1,114 @@
+name: Create Release Artifacts
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  build-proto-fleet-server:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+
+      - name: Set up Go
+        uses: actions/setup-go@19bb51245e9c80abacb2e91cc42b33fa478b8639 # v4
+        with:
+          go-version: "1.24.2"
+
+      - name: Build Golang server
+        working-directory: ./server
+        run: |
+          go mod download
+          go build -v -o proto-fleet-server ./cmd/server
+          echo "version: ${{ github.event.release.tag_name }}" > version.txt
+          echo "build_date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> version.txt
+          echo "commit: ${{ github.sha }}" >> version.txt
+          tar -czf proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz proto-fleet-server version.txt
+
+      - name: Upload ProtoFleet server artifact
+        uses: softprops/action-gh-release@26994186c0ac3ef5cae75ac16aa32e8153525f77 # v1
+        with:
+          files: ./server/proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-proto-fleet-client:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@3235b876344d2a9aa001b8d1453c930bba69e610 # v3
+        with:
+          node-version: "22.14.0"
+          cache: "npm"
+          cache-dependency-path: "./client/package-lock.json"
+
+      - name: Install dependencies
+        working-directory: ./client
+        run: npm ci
+
+      - name: Build ProtoFleet client
+        working-directory: ./client
+        run: npm run build:protoFleet
+
+      - name: Create version file
+        working-directory: ./client
+        run: |
+          echo "version: ${{ github.event.release.tag_name }}" > dist/protoFleet/version.txt
+          echo "build_date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> dist/protoFleet/version.txt
+          echo "commit: ${{ github.sha }}" >> dist/protoFleet/version.txt
+
+      - name: Package ProtoFleet client
+        working-directory: ./client
+        run: |
+          tar -czf proto-fleet-client-${{ github.event.release.tag_name }}.tar.gz dist/protoFleet
+
+      - name: Upload ProtoFleet client artifact
+        uses: softprops/action-gh-release@26994186c0ac3ef5cae75ac16aa32e8153525f77 # v1
+        with:
+          files: ./client/proto-fleet-client-${{ github.event.release.tag_name }}.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-proto-os:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@3235b876344d2a9aa001b8d1453c930bba69e610 # v3
+        with:
+          node-version: "22.14.0"
+          cache: "npm"
+          cache-dependency-path: "./client/package-lock.json"
+
+      - name: Install dependencies
+        working-directory: ./client
+        run: npm ci
+
+      - name: Build ProtoOS
+        working-directory: ./client
+        run: npm run build:protoOS
+
+      - name: Create version file
+        working-directory: ./client
+        run: |
+          echo "version: ${{ github.event.release.tag_name }}" > dist/protoOS/version.txt
+          echo "build_date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> dist/protoOS/version.txt
+          echo "commit: ${{ github.sha }}" >> dist/protoOS/version.txt
+
+      - name: Package ProtoOS
+        working-directory: ./client
+        run: |
+          tar -czf proto-os-${{ github.event.release.tag_name }}.tar.gz dist/protoOS
+
+      - name: Upload ProtoOS artifact
+        uses: softprops/action-gh-release@26994186c0ac3ef5cae75ac16aa32e8153525f77 # v1
+        with:
+          files: ./client/proto-os-${{ github.event.release.tag_name }}.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
