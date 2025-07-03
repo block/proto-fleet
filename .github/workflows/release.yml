@@ -23,7 +23,7 @@ jobs:
         working-directory: ./server
         run: |
           go mod download
-          go build -v -o proto-fleet-server ./cmd/fleetd
+          go build -v -o fleetd ./cmd/fleetd
           echo "version: ${{ github.event.release.tag_name }}" > version.txt
           echo "build_date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> version.txt
           echo "commit: ${{ github.sha }}" >> version.txt
