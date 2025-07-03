@@ -27,19 +27,6 @@ beforeAll(() => {
 });
 
 describe("Power Target Popover", () => {
-  it("renders with initial values and allows changing performance mode", () => {
-    const { getByText, getByLabelText } = render(
-      <PopoverProvider>
-        <PowerTargetPopover onDismiss={vi.fn()} />,
-      </PopoverProvider>,
-    );
-    expect(getByText("Performance target")).toBeInTheDocument();
-    expect(getByText("Hashrate")).toBeInTheDocument();
-    expect(getByText("Efficiency")).toBeInTheDocument();
-    fireEvent.click(getByText("Efficiency"));
-    expect(getByLabelText("Power target")).toHaveValue(1.5);
-  });
-
   it("shows error when input value is below minimum bound", () => {
     const { getByText, getByLabelText } = render(
       <PopoverProvider>
@@ -79,16 +66,6 @@ describe("Power Target Popover", () => {
       expect(mockedUpdateMiningTarget).toHaveBeenCalledWith({
         performance_mode: "MaximumHashrate",
         power_target_watts: 1000,
-      });
-    });
-
-    fireEvent.click(getByText("Efficiency"));
-    fireEvent.change(input, { target: { value: "1.9" } });
-    fireEvent.click(getByText("Apply"));
-    await waitFor(() => {
-      expect(mockedUpdateMiningTarget).toHaveBeenCalledWith({
-        performance_mode: "Efficiency",
-        power_target_watts: 1900,
       });
     });
   });

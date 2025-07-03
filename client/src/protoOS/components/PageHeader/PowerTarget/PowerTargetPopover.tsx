@@ -2,11 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useMiningTarget } from "@/protoOS/api";
 import {
   PerformanceMode,
-  performanceModes,
   PowerTargetMode,
   powerTargetModes,
 } from "@/protoOS/components/PageHeader/PowerTarget/constants";
-import { Efficiency, Hashrate } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Popover from "@/shared/components/Popover";
@@ -100,40 +98,9 @@ const PowerTargetPopover = ({ onDismiss }: PowerTargetPopoverProps) => {
   return (
     <Popover position={positions["bottom left"]} className="w-102">
       <div>
-        <h2 className="text-heading-100 text-text-primary">
-          Performance target
-        </h2>
-        <p className="text-300 text-text-primary-70">
-          Prioritize hashrate or efficiency.
-        </p>
-      </div>
-      <SelectRowList
-        type={selectTypes.radio}
-        variant={rowListVariants.fill}
-        selectRows={[
-          {
-            id: performanceModes.MaximumHashrate,
-            isSelected:
-              selectedPerformanceMode === performanceModes.MaximumHashrate,
-            prefixIcon: <Hashrate />,
-            text: "Hashrate",
-          },
-          {
-            id: performanceModes.Efficiency,
-            isSelected: selectedPerformanceMode === performanceModes.Efficiency,
-            prefixIcon: <Efficiency />,
-            text: "Efficiency",
-          },
-        ]}
-        onChange={(id, isSelected) => {
-          if (isSelected) setSelectedPerformanceMode(id as PerformanceMode);
-        }}
-      />
-
-      <div>
         <h2 className="text-heading-100 text-text-primary">Power target</h2>
         <p className="text-300 text-text-primary-70">
-          Control this miner’s power usage by using a dynamic or fixed power
+          Control this miner's power usage by using a dynamic or fixed power
           target.
         </p>
       </div>
