@@ -1,4 +1,4 @@
-name: Create Release Artifacts
+name: Create ProtoFleet Release Artifacts
 
 on:
   release:
@@ -9,10 +9,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
 
       - name: Set up Go
-        uses: actions/setup-go@19bb51245e9c80abacb2e91cc42b33fa478b8639 # v4
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
         with:
           go-version: "1.24.2"
 
@@ -20,14 +23,14 @@ jobs:
         working-directory: ./server
         run: |
           go mod download
-          go build -v -o proto-fleet-server ./cmd/server
+          go build -v -o proto-fleet-server ./cmd/fleetd
           echo "version: ${{ github.event.release.tag_name }}" > version.txt
           echo "build_date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> version.txt
           echo "commit: ${{ github.sha }}" >> version.txt
-          tar -czf proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz proto-fleet-server version.txt
+          tar -czf proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz fleetd version.txt
 
       - name: Upload ProtoFleet server artifact
-        uses: softprops/action-gh-release@26994186c0ac3ef5cae75ac16aa32e8153525f77 # v1
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2
         with:
           files: ./server/proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz
         env:
@@ -37,12 +40,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
 
       - name: Set up Node.js
-        uses: actions/setup-node@3235b876344d2a9aa001b8d1453c930bba69e610 # v3
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "22.14.0"
           cache: "npm"
           cache-dependency-path: "./client/package-lock.json"
 
@@ -67,7 +72,7 @@ jobs:
           tar -czf proto-fleet-client-${{ github.event.release.tag_name }}.tar.gz dist/protoFleet
 
       - name: Upload ProtoFleet client artifact
-        uses: softprops/action-gh-release@26994186c0ac3ef5cae75ac16aa32e8153525f77 # v1
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2
         with:
           files: ./client/proto-fleet-client-${{ github.event.release.tag_name }}.tar.gz
         env:
@@ -77,12 +82,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
 
       - name: Set up Node.js
-        uses: actions/setup-node@3235b876344d2a9aa001b8d1453c930bba69e610 # v3
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "22.14.0"
           cache: "npm"
           cache-dependency-path: "./client/package-lock.json"
 
@@ -107,7 +114,7 @@ jobs:
           tar -czf proto-os-${{ github.event.release.tag_name }}.tar.gz dist/protoOS
 
       - name: Upload ProtoOS artifact
-        uses: softprops/action-gh-release@26994186c0ac3ef5cae75ac16aa32e8153525f77 # v1
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2
         with:
           files: ./client/proto-os-${{ github.event.release.tag_name }}.tar.gz
         env:
