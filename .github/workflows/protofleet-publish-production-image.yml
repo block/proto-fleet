@@ -1,0 +1,35 @@
+name: ProtoFleet Publish Production Image
+
+on:
+  workflow_call:
+    inputs:
+      docker-image-tag:
+        required: true
+        type: string
+        description: The tag for the Docker image to be published.
+      docker-build-working-directory:
+        required: true
+        type: string
+        description: The working directory where the Docker build will be executed.
+      source-build-directory:
+        required: true
+        type: string
+        description: The path to the deploy directory with Dockerfile and Docker Compose file used for building the Docker image.
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Publish Docker Production Image Backend
+        uses: ./.github/actions/docker-production-image-publish/action.yml
+        with:
+          docker-image-tag: ${{ inputs.docker-image-tag }}
+          docker-build-working-directory: ${{ inputs.docker-build-working-directory }}
+          source-build-directory: ${{ inputs.source-build-directory }}

@@ -1,0 +1,22 @@
+name: ProtoFleet Publish Production Backend Image
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/protofleet-publish-production-backend-image.yml"
+      - "server/**"
+      - "!publish/**"
+      - "publish/docker-image/backend"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    uses: "./.github/workflows/protofleet-publish-production-image.yml"
+    concurrency:
+      group: "${{ github.workflow }}"
+      cancel-in-progress: true
+    with:
+      docker-build-working-directory: "."
+      docker-image-tag: "protofleet/backend-production:main"
+      source-build-directory: "publish/docker-image/backend"

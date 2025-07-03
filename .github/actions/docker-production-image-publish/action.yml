@@ -1,0 +1,35 @@
+name: Docker Production Image Publish
+description: This action automates the process of building and publishing a Docker image.
+
+inputs:
+  docker-image-tag:
+    required: true
+    description: The tag for the Docker image to be published.
+  docker-build-working-directory:
+    required: true
+    description: The working directory where the Docker build will be executed.
+  source-build-directory:
+    required: true
+    description: The path to the deploy directory with Dockerfile and Docker Compose file used for building the Docker image.
+
+runs:
+  using: composite
+  steps:
+    - name: Setup AWS SSH
+      uses: ./.github/actions/aws-ssh-setup
+      with:
+        aws-instance-id: "i-0e47edcb1574765b0"
+        aws-instance-connect-endpoint-id: "eice-0e5cdfd8da57023b2"
+        aws-instance-user: "ubuntu"
+        aws-region: "us-east-1"
+        aws-role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Deploy_Develop"
+
+    - name: Build Docker image
+      shell: bash
+      run: docker build -f "${{ inputs.source-build-directory }}/Dockerfile" -t "${{ inputs.docker-image-tag }}" ${{ inputs.docker-build-working-directory }}
+
+    - name: Push Docker image
+      id: push-docker-image
+      uses: ./.github/actions/docker-image-push
+      with:
+        docker-image-tag: ${{ inputs.docker-image-tag }}

@@ -36,7 +36,7 @@ func ConnectAndMigrate(config *Config) (*sql.DB, error) {
 }
 
 func ConnectToDatabase(config *Config) (*sql.DB, error) {
-	dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?parseTime=true", config.Username, config.Password, config.Address, config.Name)
+	dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?parseTime=true&allowNativePasswords=true", config.Username, config.Password, config.Address, config.Name)
 
 	conn, err := sql.Open("mysql", dsn)
 	if err != nil {

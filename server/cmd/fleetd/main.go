@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/btc-mining/proto-fleet/server/internal/handlers/health"
+	"github.com/btc-mining/proto-fleet/server/internal/handlers/static"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
 
@@ -42,14 +45,12 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/auth"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/command"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/fleetmanagement"
-	"github.com/btc-mining/proto-fleet/server/internal/handlers/health"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/middleware"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/networkinfo"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/onboarding"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/pairing"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/pools"
-	"github.com/btc-mining/proto-fleet/server/internal/handlers/static"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/server"
 )
@@ -70,6 +71,22 @@ func main() {
 
 var reflectEnabledServices = []string{
 	pairingv1connect.PairingServiceName,
+}
+
+func NewProtoFleetHandler(staticPath string) http.Handler {
+	fileServer := http.FileServer(http.Dir(staticPath))
+
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		path := staticPath + request.URL.Path
+		_, err := os.Stat(path)
+
+		if os.IsNotExist(err) || (err == nil && request.URL.Path != "/" && strings.HasSuffix(request.URL.Path, "/")) {
+			http.ServeFile(writer, request, staticPath+"/index.html")
+			return
+		}
+
+		fileServer.ServeHTTP(writer, request)
+	})
 }
 
 func start(config *Config) error {

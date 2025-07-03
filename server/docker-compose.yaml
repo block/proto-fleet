@@ -1,8 +1,8 @@
 services:
   fleet-api:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: server/Dockerfile
     develop:
       watch:
         - action: rebuild

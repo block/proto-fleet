@@ -42,6 +42,44 @@ This will:
 
 3. Shutdown all processes if stopped
 
+## Production protoFleet single script install
+
+### Script flow
+
+1. Check if Docker is installed (install it if not).
+2. Check whether Docker daemon is running (try to start it).
+3. Check whether docker compose is installed (install it if not).
+4. Give user the option to reuse the credentials stored in credential file ("<b>$HOME/.fleet-credentials/credentials.env</b>").
+5. If the user didn't load up the credentials from the file, allow him to input the credentials. After a successful input, store the credentials in the credentials file.
+6. Call the docker-compose with the credentials file to start up the application.
+
+### Environment variables
+
+* With defaults
+  * Database username [fleet_user]
+  * InfluxDB admin username [admin]
+* Secret (without defaults)
+  * MySQL root password
+  * Database password
+  * InfluxDB admin password
+  * Auth client secret key (at least 32 characters)
+  * Pairing secret key (32-48 characters)
+* Secret + generable
+  * Encryption service master key
+    * 32 bytes chain encoded in Base64 - awaits 44 characters
+    * generable via "<b>openssl rand -base64 32</b>"
+
+### Unix
+
+```shell
+chmod +x run-fleet.sh
+./run-fleet.sh
+```
+
+### Windows
+
+Support for Windows is coming soon.
+
 ## related docs
 
 https://connectrpc.com/docs/web/generating-code
