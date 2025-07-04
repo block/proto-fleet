@@ -20,7 +20,7 @@ COPY server/ ./
 # Build the Go application
 RUN go build -gcflags="all=-N -l" -o out/ -v ./...
 
-FROM alpine:3:22.0 AS runner
+FROM alpine:3.22.0 AS runner
 
 # Install Nmap
 RUN apk add --no-cache nmap
