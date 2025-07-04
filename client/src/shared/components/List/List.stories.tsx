@@ -1,12 +1,12 @@
 import { action } from "@storybook/addon-actions";
 import ListComponent from ".";
 import { defaultListFilter } from "@/shared/components/List/constants";
+import { ActiveFilters } from "@/shared/components/List/Filters/types";
 import testColConfig from "@/shared/components/List/mocks/colConfig";
 import {
   testCols,
   testColTitles,
   testFilters,
-  TestFilterState,
   TestItem,
   testItems,
 } from "@/shared/components/List/mocks/data";
@@ -49,15 +49,11 @@ export const List = ({
   disabled,
 }: ListArgs) => {
   // Filter function that supports both button and dropdown filters
-  const filterItem = (
-    item: TestItem,
-    activeButtonFilters: (TestFilterState | typeof defaultListFilter)[],
-    dropdownFilters?: Record<string, string>,
-  ) => {
+  const filterItem = (item: TestItem, filters: ActiveFilters) => {
     // Check button filters first
-    if (!activeButtonFilters.includes(defaultListFilter)) {
+    if (!filters.buttonFilters.includes(defaultListFilter)) {
       // If "all" isn't selected, item must match at least one active filter
-      const matchesStatus = activeButtonFilters.some(
+      const matchesStatus = filters.buttonFilters.some(
         (filter) => item.status === filter,
       );
 
@@ -67,8 +63,8 @@ export const List = ({
     }
 
     // Then check dropdown filters
-    if (dropdownFilters && dropdownFilters["valueRange"]) {
-      const valueRange = dropdownFilters["valueRange"];
+    if (filters.dropdownFilters && filters.dropdownFilters["valueRange"]) {
+      const valueRange = filters.dropdownFilters["valueRange"];
 
       if (valueRange === "low" && item.value > 200) {
         return false;
@@ -86,7 +82,7 @@ export const List = ({
   };
 
   return (
-    <ListComponent<TestItem, TestItem["id"], TestFilterState>
+    <ListComponent<TestItem, TestItem["id"]>
       activeCols={activeCols.slice(0, numberOfColumns)}
       colTitles={testColTitles}
       colConfig={testColConfig}
@@ -123,6 +119,8 @@ export default {
           "   - Can be turned on or off with `itemSelectable` prop\n" +
           " - Action buttons for each item.\n" +
           " - Filters for refining displayed data.\n" +
+          "   - Use `filterItem` prop to use client side filtering. This predicate should decide whether list item should be displayed or not. \n" +
+          "   - Use `onServerFilter` prop to use server side filtering. This callback should construct a filter message and request new data from the server. \n" +
           " - A customizable action bar for selected items.\n" +
           " - Disabled (readonly view)\n" +
           ' - A "no data" placeholder when the list is empty.\n' +

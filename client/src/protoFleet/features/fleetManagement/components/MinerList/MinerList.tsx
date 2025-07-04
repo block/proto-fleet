@@ -1,19 +1,33 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 
+import { create } from "@bufbuild/protobuf";
 import {
   minerCols,
   minerColTitles,
-  type MinerFilterState,
   minerFilterStates,
+  minerTypes,
 } from "./constants";
 import minerColConfig from "./minerColConfig";
 
-import { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  ComponentStatus,
+  MinerListFilterSchema,
+  MinerStateSnapshot,
+  MinerType,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import useFleet from "@/protoFleet/api/useFleet";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 
+import {
+  useMinerStateCounts,
+  useTotalMiners,
+} from "@/protoFleet/features/fleetManagement/store/useFleetStore";
 import List from "@/shared/components/List";
 import { defaultListFilter } from "@/shared/components/List/constants";
-import { FilterItem } from "@/shared/components/List/Filters/types";
+import {
+  ActiveFilters,
+  FilterItem,
+} from "@/shared/components/List/Filters/types";
 import { statuses } from "@/shared/components/StatusCircle/constants";
 import { Breakpoint } from "@/shared/constants/breakpoints";
 
@@ -44,6 +58,10 @@ const MinerList = ({
   paddingLeft,
   overflowContainer,
 }: MinerListProps) => {
+  const { fetchPairedMiners } = useFleet();
+  const totalMiners = useTotalMiners();
+  const minerStateCounts = useMinerStateCounts();
+
   // Convert string array to objects for List component compatibility
   // List generally expects object with all items used in the ListItem to be passed to it as props
   // but because we just pass deviceIdentifier, and use that to look up the rest of the data in the store,
@@ -57,76 +75,108 @@ const MinerList = ({
     );
   }, [minerIds]);
   const filters = useMemo(() => {
-    const countMiners = (status: MinerFilterState) => {
-      // TODO: need to determine what properties need to be added to MinerStateSnapshot to support our filters
-      void status;
-      return minerItems.filter(
-        () => true,
-        // Add filtering logic based on deviceIdentifier when status filtering is implemented
-      ).length;
-    };
-
     return [
       {
         type: "button",
         title: "All miners",
         value: defaultListFilter,
-        count: minerItems.length,
+        count: totalMiners,
       },
       {
         type: "button",
         title: "Hashing",
         value: minerFilterStates.hashing,
-        count: countMiners(minerFilterStates.hashing),
+        count: minerStateCounts.hashingCount,
         status: statuses.normal,
       },
       {
         type: "button",
         title: "Broken",
         value: minerFilterStates.broken,
-        count: countMiners(minerFilterStates.broken),
+        count: minerStateCounts.brokenCount,
         status: statuses.error,
       },
       {
         type: "button",
         title: "Offline",
         value: minerFilterStates.offline,
-        count: countMiners(minerFilterStates.offline),
+        count: minerStateCounts.offlineCount,
         status: statuses.warning,
       },
       {
         type: "button",
         title: "Asleep",
         value: minerFilterStates.asleep,
-        count: countMiners(minerFilterStates.asleep),
+        count: minerStateCounts.sleepingCount,
         status: statuses.inactive,
       },
-    ] as FilterItem<MinerFilterState>[];
-  }, [minerItems]);
+      {
+        type: "dropdown",
+        title: "Type",
+        value: "type",
+        options: [
+          { id: "all", label: "All Types" },
+          { id: minerTypes.protoRig, label: "Proto Rig" },
+          { id: minerTypes.bitmain, label: "Bitmain" },
+        ],
+        defaultOptionId: "all",
+      },
+    ] as FilterItem[];
+  }, [totalMiners, minerStateCounts]);
 
-  const filterMiner = (
-    item: { deviceIdentifier: string },
-    activeButtonFilters: (MinerFilterState | typeof defaultListFilter)[],
-  ) => {
-    if (activeButtonFilters.includes(defaultListFilter)) {
-      return true;
-    }
+  const handleServerFilter = useCallback(
+    async (filters: ActiveFilters) => {
+      const minerFilter = create(MinerListFilterSchema, { status: [] });
 
-    // TODO: Implement filtering logic based on deviceIdentifier
-    // We can get miner data from store using useMiner(item.deviceIdentifier) when needed
-    void item;
-    void activeButtonFilters;
-    return true;
-  };
+      if (!filters.buttonFilters.includes(defaultListFilter)) {
+        filters.buttonFilters.forEach((filter) => {
+          // TODO is this mapping correct?
+          switch (filter) {
+            case minerFilterStates.hashing:
+              minerFilter.status.push(ComponentStatus.OK);
+              break;
+            case minerFilterStates.broken:
+              minerFilter.status.push(ComponentStatus.ERROR);
+              break;
+            case minerFilterStates.offline:
+              minerFilter.status.push(ComponentStatus.OFFLINE);
+              break;
+            case minerFilterStates.asleep:
+              minerFilter.status.push(ComponentStatus.UNSPECIFIED);
+              break;
+          }
+        });
+      }
+
+      if (
+        filters.dropdownFilters.type &&
+        filters.dropdownFilters.type !== "all"
+      ) {
+        switch (filters.dropdownFilters.type) {
+          case minerTypes.protoRig:
+            minerFilter.type = MinerType.PROTO_RIG;
+            break;
+          case minerTypes.bitmain:
+            minerFilter.type = MinerType.BITMAIN;
+            break;
+        }
+      }
+
+      await fetchPairedMiners({
+        filter: minerFilter,
+      });
+    },
+    [fetchPairedMiners],
+  );
   return (
     <div>
       <h2 className="text-heading-300">{title}</h2>
-      <List<MinerStateSnapshot, string, MinerFilterState>
+      <List<MinerStateSnapshot, string>
         activeCols={activeCols}
         colTitles={minerColTitles}
         colConfig={minerColConfig}
         filters={filters}
-        filterItem={filterMiner}
+        onServerFilter={handleServerFilter}
         items={minerItems}
         itemKey={"deviceIdentifier"}
         itemSelectable

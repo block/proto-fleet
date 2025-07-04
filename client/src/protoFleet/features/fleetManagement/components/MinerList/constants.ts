@@ -30,3 +30,8 @@ export const minerFilterStates = {
 
 export type MinerFilterState =
   (typeof minerFilterStates)[keyof typeof minerFilterStates];
+
+export const minerTypes = {
+  protoRig: "proto",
+  bitmain: "bitmain",
+};

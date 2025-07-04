@@ -1,4 +1,4 @@
-import { Key, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import clsx from "clsx";
 
 import { PopoverProvider } from "../../Popover";
@@ -6,36 +6,32 @@ import ButtonFilter from "./ButtonFilter";
 import DropdownFilter from "./DropdownFilter";
 import { sizes } from "@/shared/components/Button";
 import { defaultListFilter } from "@/shared/components/List/constants";
-import { type FilterItem } from "@/shared/components/List/Filters/types";
+import {
+  ActiveFilters,
+  type FilterItem,
+} from "@/shared/components/List/Filters/types";
 
-type ActiveFilters<FilterType extends Key> = {
-  buttonFilters: (FilterType | typeof defaultListFilter)[];
-  dropdownFilters: Record<string, string>;
-};
-
-type FilterProps<ItemType, FilterType extends Key> = {
+type FilterProps<ItemType> = {
   className?: string;
-  filterItems: FilterItem<FilterType>[];
+  filterItems: FilterItem[];
   filterSize?: keyof typeof sizes;
   items: ItemType[];
-  onFilter: (activeFilters: ActiveFilters<FilterType>) => void;
+  onFilter: (activeFilters: ActiveFilters) => void | Promise<void>;
+  isServerSide?: boolean;
 };
 
-const Filters = <ItemType, FilterType extends Key>({
+const Filters = <ItemType,>({
   className,
   filterItems,
   filterSize = sizes.compact,
   items,
   onFilter,
-}: FilterProps<ItemType, FilterType>) => {
-  type CompleteFilterType = FilterType | typeof defaultListFilter;
-
-  const [activeFilters, setActiveFilters] = useState<ActiveFilters<FilterType>>(
-    {
-      buttonFilters: [defaultListFilter as CompleteFilterType],
-      dropdownFilters: {},
-    },
-  );
+  isServerSide = false,
+}: FilterProps<ItemType>) => {
+  const [activeFilters, setActiveFilters] = useState<ActiveFilters>({
+    buttonFilters: [defaultListFilter],
+    dropdownFilters: {},
+  });
 
   useEffect(() => {
     const initialDropdownValues: { [key: string]: string } = {};
@@ -66,14 +62,22 @@ const Filters = <ItemType, FilterType extends Key>({
 
   useEffect(() => {
     onFilter(activeFilters);
-  }, [activeFilters, items, onFilter]);
+  }, [activeFilters, onFilter]);
 
-  const handleButtonFilterChange = (filter: CompleteFilterType) => {
+  // Ensure the client side filter is applied when items change
+  useEffect(() => {
+    if (!isServerSide) {
+      onFilter(activeFilters);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
+
+  const handleButtonFilterChange = (filter: string) => {
     setActiveFilters((prev) => {
       if (filter === defaultListFilter) {
         return {
           ...prev,
-          buttonFilters: [defaultListFilter as CompleteFilterType],
+          buttonFilters: [defaultListFilter],
           dropdownFilters: { ...prev.dropdownFilters },
         };
       }
@@ -93,7 +97,7 @@ const Filters = <ItemType, FilterType extends Key>({
 
         // If no filters remain, add back the "all" filter
         if (newButtonFilters.length === 0) {
-          newButtonFilters = [defaultListFilter as CompleteFilterType];
+          newButtonFilters = [defaultListFilter];
         }
       } else {
         newButtonFilters.push(filter);
@@ -123,7 +127,7 @@ const Filters = <ItemType, FilterType extends Key>({
       {filterItems.map((filter) => {
         if (filter.type === "button") {
           return (
-            <ButtonFilter<CompleteFilterType>
+            <ButtonFilter
               key={filter.value}
               status={filter.status}
               title={filter.title}

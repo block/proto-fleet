@@ -5,7 +5,10 @@ import { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 
 import List from "@/shared/components/List";
-import { DropdownFilterItem } from "@/shared/components/List/Filters/types";
+import {
+  ActiveFilters,
+  DropdownFilterItem,
+} from "@/shared/components/List/Filters/types";
 import Modal from "@/shared/components/Modal";
 
 const activeCols = [
@@ -54,7 +57,7 @@ const FoundMinersModal = ({
   }, [miners]);
 
   // Since were keeping deslected miners as state in parent component
-  // we need to define a a setSelectedMiners function that will update
+  // we need to define a setSelectedMiners function that will update
   // the deselected miners based on the selected miners
   const setSelectedMiners = useCallback(
     (selected: MinerWithSelected["deviceIdentifier"][]) => {
@@ -88,21 +91,17 @@ const FoundMinersModal = ({
       value: "model",
       options: [{ id: "all", label: "All Models" }, ...options],
       defaultOptionId: "all",
-    } as DropdownFilterItem<"model">;
+    } as DropdownFilterItem;
   }, [models]);
 
   const filterItem = useCallback(
-    (
-      item: MinerWithSelectedAndAction,
-      _: ("model" | "all")[],
-      dropdownFilters?: Record<string, string>,
-    ) => {
+    (item: MinerWithSelectedAndAction, filters: ActiveFilters) => {
       if (
-        dropdownFilters &&
-        dropdownFilters["model"] &&
-        dropdownFilters["model"] !== "all"
+        filters.dropdownFilters &&
+        filters.dropdownFilters["model"] &&
+        filters.dropdownFilters["model"] !== "all"
       ) {
-        if (item.model !== dropdownFilters["model"]) {
+        if (item.model !== filters.dropdownFilters["model"]) {
           return false;
         }
       }
@@ -131,8 +130,7 @@ const FoundMinersModal = ({
         />
         <List<
           MinerWithSelectedAndAction,
-          MinerWithSelectedAndAction["deviceIdentifier"],
-          "model"
+          MinerWithSelectedAndAction["deviceIdentifier"]
         >
           filters={[modelFilter]}
           filterItem={filterItem}

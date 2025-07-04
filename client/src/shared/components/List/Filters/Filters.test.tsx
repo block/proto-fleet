@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import Filters from "./Filters";
 import {
   testFilters,
-  TestFilterState,
   TestItem,
   testItems,
 } from "@/shared/components/List/mocks/data";
@@ -12,7 +11,7 @@ describe("Filters", () => {
   it("renders filter buttons for all button filters", () => {
     const handleFiltering = vi.fn();
     render(
-      <Filters<TestItem, TestFilterState>
+      <Filters<TestItem>
         filterItems={testFilters}
         items={testItems}
         onFilter={handleFiltering}
@@ -33,7 +32,7 @@ describe("Filters", () => {
   it("calls onFilter with the correct filter when a button filter is clicked", () => {
     const handleFiltering = vi.fn();
     render(
-      <Filters<TestItem, TestFilterState>
+      <Filters<TestItem>
         filterItems={testFilters}
         items={testItems}
         onFilter={handleFiltering}
@@ -51,7 +50,7 @@ describe("Filters", () => {
   it("renders without crashing when no filters are provided", () => {
     const handleFiltering = vi.fn();
     render(
-      <Filters<TestItem, TestFilterState>
+      <Filters<TestItem>
         filterItems={[]}
         items={testItems}
         onFilter={handleFiltering}
@@ -64,7 +63,7 @@ describe("Filters", () => {
   it("renders without crashing when no items are provided", () => {
     const handleFiltering = vi.fn();
     render(
-      <Filters<TestItem, TestFilterState>
+      <Filters<TestItem>
         filterItems={testFilters}
         items={[]}
         onFilter={handleFiltering}
@@ -83,7 +82,7 @@ describe("Filters", () => {
     );
 
     render(
-      <Filters<TestItem, TestFilterState>
+      <Filters<TestItem>
         filterItems={buttonFilters}
         items={testItems}
         onFilter={handleFiltering}
@@ -117,7 +116,7 @@ describe("Filters", () => {
   it("displays correct count for each button filter status", () => {
     const handleFiltering = vi.fn();
     render(
-      <Filters<TestItem, TestFilterState>
+      <Filters<TestItem>
         filterItems={testFilters}
         items={testItems}
         onFilter={handleFiltering}
@@ -139,7 +138,7 @@ describe("Filters", () => {
   it("renders dropdown filters correctly", () => {
     const handleFiltering = vi.fn();
     render(
-      <Filters<TestItem, TestFilterState>
+      <Filters<TestItem>
         filterItems={testFilters}
         items={testItems}
         onFilter={handleFiltering}
@@ -182,7 +181,7 @@ describe("Filters", () => {
     };
 
     render(
-      <Filters<TestItem, TestFilterState>
+      <Filters<TestItem>
         filterItems={[testDropdownFilter]}
         items={testItems}
         onFilter={handleFiltering}
@@ -217,7 +216,7 @@ describe("Filters", () => {
   it("updates filter state when a dropdown option is selected", async () => {
     const handleFiltering = vi.fn();
     render(
-      <Filters<TestItem, TestFilterState>
+      <Filters<TestItem>
         filterItems={testFilters}
         items={testItems}
         onFilter={handleFiltering}

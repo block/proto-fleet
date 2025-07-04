@@ -77,9 +77,7 @@ export const testItems: TestItem[] = [
   },
 ];
 
-export const testFilters: FilterItem<
-  TestFilterState | typeof defaultListFilter
->[] = [
+export const testFilters: FilterItem[] = [
   {
     type: "button",
     title: "All Items",

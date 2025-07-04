@@ -15,7 +15,10 @@ import { Notification } from "@/shared/assets/icons";
 import { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import { defaultListFilter } from "@/shared/components/List/constants";
-import { FilterItem } from "@/shared/components/List/Filters/types";
+import {
+  ActiveFilters,
+  FilterItem,
+} from "@/shared/components/List/Filters/types";
 import Modal from "@/shared/components/Modal";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import { useNavigate } from "@/shared/hooks/useNavigate";
@@ -113,16 +116,13 @@ const AlertsModal = ({ show, alerts, onDismiss }: AlertsModalProps) => {
         value: alertTypes.pool,
         count: countAlerts(alertTypes.pool),
       },
-    ] as FilterItem<AlertType>[];
+    ] as FilterItem[];
   }, [alerts]);
 
-  const filterAlert = (
-    item: Alert,
-    activeButtonFilters: (AlertType | typeof defaultListFilter)[],
-  ) => {
+  const filterAlert = (item: Alert, filters: ActiveFilters) => {
     return (
-      activeButtonFilters.includes(defaultListFilter) ||
-      activeButtonFilters.some((filter) => item.alertType === filter)
+      filters.buttonFilters.includes(defaultListFilter) ||
+      filters.buttonFilters.some((filter) => item.alertType === filter)
     );
   };
 
@@ -194,7 +194,7 @@ const AlertsModal = ({ show, alerts, onDismiss }: AlertsModalProps) => {
         ]}
         onSelect={handleSelect}
       />
-      <List<Alert, Alert["minerMacAddress"], AlertType>
+      <List<Alert, Alert["minerMacAddress"]>
         activeCols={
           selectedView === alertViews.active
             ? activeCols

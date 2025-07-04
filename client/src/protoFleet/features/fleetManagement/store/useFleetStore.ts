@@ -1,3 +1,4 @@
+import { create as createSchema } from "@bufbuild/protobuf";
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
@@ -7,6 +8,8 @@ import {
   MeasurementConfig_MeasurementType,
   type MeasurementUpdate,
   MinerComponentStatus,
+  MinerStateCounts,
+  MinerStateCountsSchema,
   type MinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
@@ -15,6 +18,9 @@ interface FleetState {
   miners: Record<string, MinerStateSnapshot>; // deviceIdentifier -> miner data
   minerIds: string[]; // ordered list of miner IDs for the fleet
 
+  totalMiners: number; // total number of miners in the fleet
+  minerStateCounts: MinerStateCounts; // counts of miners by state
+
   // Loading states
   isLoading: boolean;
   isStreaming: boolean;
@@ -22,6 +28,8 @@ interface FleetState {
 
   // Actions
   setMiners: (miners: MinerStateSnapshot[]) => void;
+  setTotalMiners: (count: number) => void;
+  setMinerStateCounts: (counts: MinerStateCounts) => void;
   updateMinerMeasurement: (
     deviceId: string,
     measurement: MeasurementUpdate,
@@ -99,6 +107,8 @@ export const useFleetStore = create<FleetState>()(
       // Initial state
       miners: {},
       minerIds: [],
+      totalMiners: 0,
+      minerStateCounts: createSchema(MinerStateCountsSchema, {}),
       isLoading: false,
       isStreaming: false,
       cursor: "",
@@ -113,6 +123,16 @@ export const useFleetStore = create<FleetState>()(
             state.miners[miner.deviceIdentifier] = miner;
             state.minerIds.push(miner.deviceIdentifier);
           });
+        }),
+
+      setTotalMiners: (count) =>
+        set((state) => {
+          state.totalMiners = count;
+        }),
+
+      setMinerStateCounts: (counts) =>
+        set((state) => {
+          state.minerStateCounts = counts;
         }),
 
       updateMinerMeasurement: (deviceId, measurementUpdate) =>
@@ -168,6 +188,11 @@ export const useMiner = (deviceId: string) =>
   useFleetStore((state) => state.miners[deviceId]);
 
 export const useMinerIds = () => useFleetStore((state) => state.minerIds);
+
+export const useTotalMiners = () => useFleetStore((state) => state.totalMiners);
+
+export const useMinerStateCounts = () =>
+  useFleetStore((state) => state.minerStateCounts);
 
 export const useFleetMiners = () =>
   useFleetStore((state) => state.getMinersArray());

@@ -210,7 +210,7 @@ message ListMinerStateSnapshotsRequest {
   repeated MeasurementConfig measurement_configs = 5;
 
   // Filter criteria for the miners to return
-  MinerFilter filter = 6;
+  MinerListFilter filter = 6;
 }
 
 // Determines whether to return current snapshot or historical time series data
@@ -228,10 +228,41 @@ enum DataMode {
   DATA_MODE_TIME_SERIES = 3;
 }
 
-// Filter criteria for miners
-message MinerFilter {
-  // Filter by component status - returns miners where any component has this status
-  ComponentStatus status = 1;
+// Type of miner
+enum MinerType {
+  // Any miner type, used when filtering is not required
+  MINER_TYPE_UNSPECIFIED = 0;
+
+  // Proto Rig miner
+  MINER_TYPE_PROTO_RIG = 1;
+
+  // Bitmain miner
+  MINER_TYPE_BITMAIN = 2;
+}
+
+// Filter criteria for miners, when status and type are specified, they act as AND condition.
+message MinerListFilter {
+  // Filter by component status - returns miners where any component has this status.
+  // When status is repeated, it acts as an OR condition.
+  // TODO do we want to change this to correspond to states shown on the client side?
+  repeated ComponentStatus status = 1;
+  // Filter by miner type
+  MinerType type = 2;
+}
+
+// Represents counts of miners in different states
+message MinerStateCounts {
+  // Number of miners that are hashing
+  int32 hashing_count = 1;
+
+  // Number of miners that are broken
+  int32 broken_count = 2;
+
+  // Number of miners that are offline
+  int32 offline_count = 3;
+
+  // Number of miners that are sleeping
+  int32 sleeping_count = 4;
 }
 
 // Response containing a list of miners with their telemetry
@@ -247,6 +278,11 @@ message ListMinerStateSnapshotsResponse {
   // Total number of miners available across all pages
   // Useful for UI pagination controls
   int32 total_miners = 3;
+
+  // Counts of miners in different states
+  // This includes counts for all miners, not just the ones in the current page
+  // Status filters do not affect these counts, because they act as OR condition.
+  MinerStateCounts total_state_counts = 4;
 }
 
 message StreamMinerUpdatesRequest {

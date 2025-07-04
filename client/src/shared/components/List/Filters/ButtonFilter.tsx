@@ -2,17 +2,17 @@ import Button, { sizes } from "@/shared/components/Button";
 import StatusCircle from "@/shared/components/StatusCircle";
 import { StatusCircleStatus } from "@/shared/components/StatusCircle/constants";
 
-type ButtonFilterProps<FilterType> = {
+type ButtonFilterProps = {
   status?: StatusCircleStatus;
   count?: number;
-  filter: FilterType;
+  filter: string;
   title: string;
-  activeFilters: FilterType[];
-  setActiveFilter: (filter: FilterType) => void;
+  activeFilters: string[];
+  setActiveFilter: (filter: string) => void;
   size?: keyof typeof sizes;
 };
 
-const ButtonFilter = <FilterType,>({
+const ButtonFilter = ({
   status,
   count,
   filter,
@@ -20,7 +20,7 @@ const ButtonFilter = <FilterType,>({
   activeFilters,
   setActiveFilter,
   size = sizes.compact,
-}: ButtonFilterProps<FilterType>) => {
+}: ButtonFilterProps) => {
   const isActive = activeFilters.includes(filter);
 
   return (

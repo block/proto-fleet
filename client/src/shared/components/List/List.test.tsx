@@ -6,7 +6,6 @@ import testColConfig from "@/shared/components/List/mocks/colConfig";
 import {
   testCols,
   testColTitles,
-  TestFilterState,
   TestItem,
   testItems,
 } from "@/shared/components/List/mocks/data";
@@ -38,7 +37,7 @@ describe("List", () => {
 
   it("renders cols correctly", () => {
     render(
-      <List<TestItem, TestItemKey, TestFilterState>
+      <List<TestItem, TestItemKey>
         activeCols={activeCols}
         colTitles={testColTitles}
         colConfig={testColConfig}
@@ -54,7 +53,7 @@ describe("List", () => {
 
   it("renders rows correctly", () => {
     render(
-      <List<TestItem, TestItemKey, TestFilterState>
+      <List<TestItem, TestItemKey>
         activeCols={activeCols}
         colTitles={testColTitles}
         colConfig={testColConfig}
@@ -68,7 +67,7 @@ describe("List", () => {
 
   it("does not render checkboxes when items are not selectable", () => {
     const { getByTestId } = render(
-      <List<TestItem, TestItemKey, TestFilterState>
+      <List<TestItem, TestItemKey>
         activeCols={activeCols}
         colTitles={testColTitles}
         colConfig={testColConfig}
@@ -87,7 +86,7 @@ describe("List", () => {
 
   it("selects all items when clicking select all checkbox", () => {
     const { getByTestId } = render(
-      <List<TestItem, TestItemKey, TestFilterState>
+      <List<TestItem, TestItemKey>
         activeCols={activeCols}
         colTitles={testColTitles}
         colConfig={testColConfig}
@@ -145,7 +144,7 @@ describe("List", () => {
     const renderActionBar = vi.fn(() => <div>Action Bar</div>);
 
     const { getByTestId } = render(
-      <List<TestItem, TestItemKey, TestFilterState>
+      <List<TestItem, TestItemKey>
         activeCols={activeCols}
         colTitles={testColTitles}
         colConfig={testColConfig}
@@ -174,7 +173,7 @@ describe("List", () => {
     ] as ListAction<TestItem>[];
 
     const { getAllByTestId } = render(
-      <List<TestItem, TestItemKey, TestFilterState>
+      <List<TestItem, TestItemKey>
         activeCols={activeCols}
         colTitles={testColTitles}
         colConfig={testColConfig}

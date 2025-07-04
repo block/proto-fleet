@@ -1,12 +1,14 @@
-import { Key, ReactNode, useCallback, useMemo, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 
 import { Ellipsis } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
-import { defaultListFilter } from "@/shared/components/List/constants";
 import Filters from "@/shared/components/List/Filters";
-import { FilterItem } from "@/shared/components/List/Filters/types";
+import {
+  ActiveFilters,
+  FilterItem,
+} from "@/shared/components/List/Filters/types";
 import ListActions from "@/shared/components/List/ListActions";
 import {
   ColConfig,
@@ -17,16 +19,13 @@ import { PopoverProvider } from "@/shared/components/Popover";
 import { Breakpoint, breakpoints } from "@/shared/constants/breakpoints";
 import { useStickyState } from "@/shared/hooks/useStickyState";
 
-type ListProps<ListItem, ItemKeyValueType, FilterType extends Key> = {
+type ListProps<ListItem, ItemKeyValueType> = {
   activeCols: (keyof ListItem)[];
   colTitles: ColTitles<keyof ListItem>;
   colConfig: ColConfig<ListItem, ItemKeyValueType>;
-  filters?: FilterItem<FilterType>[];
-  filterItem?: (
-    item: ListItem,
-    activeButtonFilters: (FilterType | typeof defaultListFilter)[],
-    dropdownFilters?: Record<string, string>,
-  ) => boolean;
+  filters?: FilterItem[];
+  filterItem?: (item: ListItem, filters: ActiveFilters) => boolean;
+  onServerFilter?: (filters: ActiveFilters) => Promise<void>;
   filterSize?: keyof typeof sizes;
   items: ListItem[];
   itemKey: keyof ListItem;
@@ -52,12 +51,13 @@ const tdClassList = cellClassList + " py-4 text-300";
 const columnShadowClassList =
   "after:content-[''] after:absolute after:top-0 after:right-[-6px] after:bottom-[-1px] after:w-[9px] after:bg-[linear-gradient(90deg,rgba(0,0,0,0.06)0%,rgba(0,0,0,0)100%)]";
 
-const List = <ListItem, ItemKeyValueType, FilterType extends Key>({
+const List = <ListItem, ItemKeyValueType>({
   activeCols,
   colTitles,
   colConfig,
   filters,
   filterItem,
+  onServerFilter,
   filterSize = sizes.compact,
   initialSelectedItems = [],
   customSetSelectedItems,
@@ -72,12 +72,16 @@ const List = <ListItem, ItemKeyValueType, FilterType extends Key>({
   containerClassName = "max-h-screen",
   paddingLeft,
   overflowContainer = true,
-}: ListProps<ListItem, ItemKeyValueType, FilterType>) => {
+}: ListProps<ListItem, ItemKeyValueType>) => {
   const { refs, stickyState } = useStickyState();
 
   const [selectedItems, setSelectedItems] =
     useState<ItemKeyValueType[]>(initialSelectedItems);
   const [filteredItems, setFilteredItems] = useState<ListItem[]>(items);
+  const isServerSideFiltering = useMemo(
+    () => onServerFilter !== undefined,
+    [onServerFilter],
+  );
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
@@ -118,25 +122,32 @@ const List = <ListItem, ItemKeyValueType, FilterType extends Key>({
     );
   }, [selectedItems, items, customSelectedItems]);
 
-  const handleFiltering = useCallback(
-    (activeFilters: {
-      buttonFilters: (FilterType | typeof defaultListFilter)[];
-      dropdownFilters: Record<string, string>;
-    }) => {
+  const handleServerFiltering = useCallback(
+    (activeFilters: ActiveFilters) => {
+      if (isServerSideFiltering) {
+        onServerFilter!(activeFilters);
+      }
+    },
+    [isServerSideFiltering, onServerFilter],
+  );
+
+  const handleClientFiltering = useCallback(
+    (activeFilters: ActiveFilters) => {
       setFilteredItems(
         items.filter(
-          (item) =>
-            filterItem === undefined ||
-            filterItem(
-              item,
-              activeFilters.buttonFilters,
-              activeFilters.dropdownFilters,
-            ),
+          (item) => filterItem === undefined || filterItem(item, activeFilters),
         ),
       );
     },
     [filterItem, items],
   );
+
+  // Update filteredItems when items change (for server-side filtering)
+  useEffect(() => {
+    if (isServerSideFiltering) {
+      setFilteredItems(items);
+    }
+  }, [items, isServerSideFiltering]);
 
   const paddingCssVariables = useMemo(() => {
     const style: Record<string, string> = {};
@@ -201,12 +212,15 @@ const List = <ListItem, ItemKeyValueType, FilterType extends Key>({
 
   return (
     <div className={clsx("flex flex-col", containerClassName)}>
-      <Filters<ListItem, FilterType>
+      <Filters<ListItem>
         className="gap-4 py-4"
         filterItems={filters ?? []}
         filterSize={filterSize}
         items={items}
-        onFilter={handleFiltering}
+        onFilter={
+          isServerSideFiltering ? handleServerFiltering : handleClientFiltering
+        }
+        isServerSide={isServerSideFiltering}
       />
       <div className={clsx(bodyClasses)} style={paddingCssVariables}>
         {!noDataElement || (items && items.length > 0) ? (

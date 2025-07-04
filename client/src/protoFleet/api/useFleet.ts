@@ -5,6 +5,7 @@ import {
   DataMode,
   type ListMinerStateSnapshotsRequest,
   MeasurementConfig_MeasurementType,
+  MinerListFilter,
   StreamMinerUpdatesRequestSchema,
   type StreamMinerUpdatesResponse,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -20,6 +21,7 @@ import {
 type FetchPairedMinersArgs = {
   pageSize?: ListMinerStateSnapshotsRequest["pageSize"];
   cursor?: ListMinerStateSnapshotsRequest["cursor"];
+  filter?: MinerListFilter;
 };
 
 const useFleet = () => {
@@ -45,6 +47,7 @@ const useFleet = () => {
           .getState()
           .updateMinerMeasurement(deviceId, response.update.value);
       } else if (response.update.case === "status") {
+        // TODO do we want to refetch the whole list when some filters are specified and the status changes?
         useFleetStore
           .getState()
           .updateMinerStatus(deviceId, response.update.value);
@@ -120,12 +123,13 @@ const useFleet = () => {
   );
 
   const fetchPairedMiners = useCallback(
-    async ({ pageSize }: FetchPairedMinersArgs) => {
+    async ({ pageSize = 100, filter }: FetchPairedMinersArgs) => {
       try {
         const response = await fleetManagementClient.listMinerStateSnapshots(
           {
             pageSize,
             cursor: useFleetStore.getState().cursor,
+            filter,
             measurementConfigs: [
               {
                 measurementType: MeasurementConfig_MeasurementType.HASHRATE,
@@ -146,9 +150,18 @@ const useFleet = () => {
           getAuthHeader(authTokens),
         );
 
-        const { miners, cursor: newCursor } = response;
+        const {
+          miners,
+          cursor: newCursor,
+          totalMiners,
+          totalStateCounts,
+        } = response;
         useFleetStore.getState().setMiners(miners);
         useFleetStore.getState().setCursor(newCursor);
+        useFleetStore.getState().setTotalMiners(totalMiners);
+        if (totalStateCounts) {
+          useFleetStore.getState().setMinerStateCounts(totalStateCounts);
+        }
 
         // Start streaming updates for these miners
         if (miners.length > 0) {
@@ -164,7 +177,7 @@ const useFleet = () => {
   );
 
   useEffect(() => {
-    fetchPairedMiners({ pageSize: 100 });
+    fetchPairedMiners({});
 
     // Clean up streaming when component unmounts
     return () => {
@@ -177,7 +190,7 @@ const useFleet = () => {
 
   return {
     minerIds,
-    loadMoreMiners: () => fetchPairedMiners({ pageSize: 100 }),
+    fetchPairedMiners,
   };
 };
 
