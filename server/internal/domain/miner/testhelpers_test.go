@@ -1,0 +1,257 @@
+package miner
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/golang-migrate/migrate/v4"
+	migrateMySQL "github.com/golang-migrate/migrate/v4/database/mysql"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/mysql"
+	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+)
+
+var (
+	testContainer        *mysql.MySQLContainer
+	testEncryptService   *encrypt.Service
+	testConnectionString string
+	setupOnce            sync.Once
+	setupError           error
+)
+
+func setupTestInfrastructure() error {
+	setupOnce.Do(func() {
+		ctx := context.Background()
+
+		testEncryptService, setupError = createTestEncryptService()
+		if setupError != nil {
+			return
+		}
+
+		var err error
+		testContainer, err = mysql.Run(ctx,
+			"mysql:8.0",
+			mysql.WithDatabase("testdb"),
+			mysql.WithUsername("testuser"),
+			mysql.WithPassword("testpass"),
+			testcontainers.WithWaitStrategy(
+				wait.ForLog("port: 3306  MySQL Community Server - GPL").
+					WithOccurrence(1).
+					WithStartupTimeout(60*time.Second)),
+		)
+		if err != nil {
+			setupError = fmt.Errorf("could not start MySQL container: %w", err)
+			return
+		}
+
+		testConnectionString, err = testContainer.ConnectionString(ctx, "parseTime=true&multiStatements=true")
+		if err != nil {
+			setupError = fmt.Errorf("could not get connection string: %w", err)
+			return
+		}
+
+		tempDB, err := sql.Open("mysql", testConnectionString)
+		if err != nil {
+			setupError = fmt.Errorf("could not connect to database: %w", err)
+			return
+		}
+		defer tempDB.Close()
+
+		if err = tempDB.Ping(); err != nil {
+			setupError = fmt.Errorf("could not ping database: %w", err)
+			return
+		}
+
+		if err := runMigrations(tempDB); err != nil {
+			setupError = fmt.Errorf("could not run migrations: %w", err)
+			return
+		}
+	})
+
+	return setupError
+}
+
+func cleanupTestInfrastructure() error {
+	if testContainer != nil {
+		ctx := context.Background()
+		if err := testContainer.Terminate(ctx); err != nil {
+			return fmt.Errorf("could not terminate MySQL container: %w", err)
+		}
+		testContainer = nil
+	}
+
+	testEncryptService = nil
+	testConnectionString = ""
+	setupOnce = sync.Once{}
+	setupError = nil
+
+	return nil
+}
+
+func createTestEncryptService() (*encrypt.Service, error) {
+	testKey := "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=" // 32-byte key: "12345678901234567890123456789012"
+
+	config := &encrypt.Config{
+		ServiceMasterKey: testKey,
+	}
+
+	return encrypt.NewService(config)
+}
+
+func runMigrations(db *sql.DB) error {
+	migrationsDir, err := filepath.Abs("../../../migrations")
+	if err != nil {
+		return fmt.Errorf("failed to get migrations directory: %w", err)
+	}
+
+	driver, err := migrateMySQL.WithInstance(db, &migrateMySQL.Config{})
+	if err != nil {
+		return fmt.Errorf("failed to create migrate driver: %w", err)
+	}
+
+	m, err := migrate.NewWithDatabaseInstance(
+		fmt.Sprintf("file://%s", migrationsDir),
+		"mysql",
+		driver,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create migrate instance: %w", err)
+	}
+
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	return nil
+}
+
+func setupTestDB(t *testing.T) (*sql.DB, *encrypt.Service) {
+	t.Helper()
+
+	if err := setupTestInfrastructure(); err != nil {
+		t.Fatalf("Failed to setup test infrastructure: %v", err)
+	}
+
+	if testConnectionString == "" {
+		t.Fatal("Test connection string not initialized after setup")
+	}
+
+	if testEncryptService == nil {
+		t.Fatal("Test encrypt service not initialized after setup")
+	}
+
+	db, err := sql.Open("mysql", testConnectionString)
+	if err != nil {
+		t.Fatalf("Failed to create database connection: %v", err)
+	}
+
+	if err := db.Ping(); err != nil {
+		db.Close()
+		t.Fatalf("Failed to ping database: %v", err)
+	}
+
+	t.Cleanup(func() {
+		if db != nil {
+			db.Close()
+		}
+	})
+
+	cleanupTestData(t, db)
+
+	return db, testEncryptService
+}
+
+func cleanupTestData(t *testing.T, db *sql.DB) {
+	t.Helper()
+
+	queries := []string{
+		"DELETE FROM miner_credentials WHERE device_id IN (SELECT id FROM device WHERE device_identifier LIKE 'test-%')",
+		"DELETE FROM device_ip_assignment WHERE device_id IN (SELECT id FROM device WHERE device_identifier LIKE 'test-%')",
+		"DELETE FROM device_pairing WHERE device_id IN (SELECT id FROM device WHERE device_identifier LIKE 'test-%')",
+		"DELETE FROM device WHERE device_identifier LIKE 'test-%'",
+	}
+
+	for _, query := range queries {
+		if _, err := db.Exec(query); err != nil {
+			t.Logf("Warning: failed to cleanup test data: %v", err)
+		}
+	}
+}
+
+func createTestDevice(t *testing.T, db *sql.DB, deviceIdentifier string) int64 {
+	t.Helper()
+
+	queries := sqlc.New(db)
+
+	result, err := queries.UpsertDevice(t.Context(), sqlc.UpsertDeviceParams{
+		OrgID:            0,
+		DeviceIdentifier: deviceIdentifier,
+		MacAddress:       fmt.Sprintf("00:11:22:33:44:%02x", len(deviceIdentifier)%256),
+		SerialNumber:     sql.NullString{String: fmt.Sprintf("SN-%s", deviceIdentifier), Valid: true},
+		Model:            sql.NullString{String: "TestMiner", Valid: true},
+		Manufacturer:     sql.NullString{String: "TestCorp", Valid: true},
+		Type:             "antminer",
+		IsActive:         sql.NullBool{Bool: true, Valid: true},
+	})
+	require.NoError(t, err)
+
+	deviceID, err := result.LastInsertId()
+	require.NoError(t, err)
+
+	err = queries.CreateInactiveDeviceIPAssignment(t.Context(), sqlc.CreateInactiveDeviceIPAssignmentParams{
+		DeviceID:  deviceID,
+		IpAddress: "192.168.1.100",
+		Port:      "4028",
+	})
+	require.NoError(t, err)
+
+	err = queries.ActivateNewIPAssignment(t.Context(), sqlc.ActivateNewIPAssignmentParams{
+		IpAddress: "192.168.1.100",
+		Port:      "4028",
+		DeviceID:  deviceID,
+	})
+	require.NoError(t, err)
+
+	return deviceID
+}
+
+func createTestMinerCredentials(t *testing.T, db *sql.DB, deviceID int64) {
+	t.Helper()
+
+	if testEncryptService == nil {
+		t.Fatal("Test encrypt service not available")
+	}
+
+	queries := sqlc.New(db)
+
+	encryptedUsername, err := testEncryptService.Encrypt([]byte("testuser"))
+	require.NoError(t, err)
+
+	encryptedPassword, err := testEncryptService.Encrypt([]byte("testpass"))
+	require.NoError(t, err)
+
+	err = queries.UpsertMinerCredentials(t.Context(), sqlc.UpsertMinerCredentialsParams{
+		DeviceID:    deviceID,
+		UsernameEnc: encryptedUsername,
+		PasswordEnc: encryptedPassword,
+	})
+	require.NoError(t, err)
+}
+
+func createTestDeviceWithCredentials(t *testing.T, db *sql.DB, deviceIdentifier string) {
+	t.Helper()
+
+	deviceID := createTestDevice(t, db, deviceIdentifier)
+	createTestMinerCredentials(t, db, deviceID)
+}

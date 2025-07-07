@@ -75,6 +75,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDevicePairingStatusByDeviceDatabaseIDStmt, err = db.PrepareContext(ctx, getDevicePairingStatusByDeviceDatabaseID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDevicePairingStatusByDeviceDatabaseID: %w", err)
 	}
+	if q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceWithCredentialsAndIPByDeviceIdentifier); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceWithCredentialsAndIPByDeviceIdentifier: %w", err)
+	}
 	if q.getMessagesToProcessStmt, err = db.PrepareContext(ctx, getMessagesToProcess); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMessagesToProcess: %w", err)
 	}
@@ -304,6 +307,11 @@ func (q *Queries) Close() error {
 	if q.getDevicePairingStatusByDeviceDatabaseIDStmt != nil {
 		if cerr := q.getDevicePairingStatusByDeviceDatabaseIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDevicePairingStatusByDeviceDatabaseIDStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt != nil {
+		if cerr := q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceWithCredentialsAndIPByDeviceIdentifierStmt: %w", cerr)
 		}
 	}
 	if q.getMessagesToProcessStmt != nil {
@@ -578,72 +586,73 @@ func (q *Queries) queryRow(ctx context.Context, stmt *sql.Stmt, query string, ar
 }
 
 type Queries struct {
-	db                                           DBTX
-	tx                                           *sql.Tx
-	activateNewIPAssignmentStmt                  *sql.Stmt
-	createCommandBatchLogStmt                    *sql.Stmt
-	createInactiveDeviceIPAssignmentStmt         *sql.Stmt
-	createOrganizationStmt                       *sql.Stmt
-	createPoolStmt                               *sql.Stmt
-	createQueueMessageStmt                       *sql.Stmt
-	createUserStmt                               *sql.Stmt
-	createUserOrganizationStmt                   *sql.Stmt
-	getActiveDeviceIPAssignmentByDeviceIDStmt    *sql.Stmt
-	getBatchStatusAndDeviceCountsStmt            *sql.Stmt
-	getDeviceByDeviceIdentifierStmt              *sql.Stmt
-	getDeviceByIDStmt                            *sql.Stmt
-	getDeviceByIdentifierStmt                    *sql.Stmt
-	getDeviceIDByDeviceIdentifierStmt            *sql.Stmt
-	getDeviceIDsByDeviceIdentifiersStmt          *sql.Stmt
-	getDeviceIdentifierByIDStmt                  *sql.Stmt
-	getDevicePairingStatusByDeviceDatabaseIDStmt *sql.Stmt
-	getMessagesToProcessStmt                     *sql.Stmt
-	getMinerApiNetworkInfoByDeviceIDStmt         *sql.Stmt
-	getMinerCredentialsByDeviceIDStmt            *sql.Stmt
-	getOrganizationByIDStmt                      *sql.Stmt
-	getOrganizationByNameStmt                    *sql.Stmt
-	getOrganizationByOrgIDStmt                   *sql.Stmt
-	getOrganizationPrivateKeyStmt                *sql.Stmt
-	getOrganizationsForUserStmt                  *sql.Stmt
-	getPoolStmt                                  *sql.Stmt
-	getRoleByIDStmt                              *sql.Stmt
-	getRoleByNameStmt                            *sql.Stmt
-	getTotalPairedDevicesStmt                    *sql.Stmt
-	getTotalPoolsStmt                            *sql.Stmt
-	getUserByIdStmt                              *sql.Stmt
-	getUserByUsernameStmt                        *sql.Stmt
-	getUserRoleInOrganizationStmt                *sql.Stmt
-	getUsersForOrganizationStmt                  *sql.Stmt
-	isBatchFinishedStmt                          *sql.Stmt
-	isBatchProcessingStmt                        *sql.Stmt
-	listOrganizationsStmt                        *sql.Stmt
-	listPairedDevicesStmt                        *sql.Stmt
-	listPairedMinersWithStatusStmt               *sql.Stmt
-	listPoolsStmt                                *sql.Stmt
-	listRolesStmt                                *sql.Stmt
-	markCommandBatchFinishedStmt                 *sql.Stmt
-	markCommandBatchFinishedWithStartedAtStmt    *sql.Stmt
-	markCommandBatchProcessingStmt               *sql.Stmt
-	softDeleteOrganizationStmt                   *sql.Stmt
-	softDeletePoolStmt                           *sql.Stmt
-	softDeleteRoleStmt                           *sql.Stmt
-	softDeleteUserFromOrganizationStmt           *sql.Stmt
-	undeleteOrganizationStmt                     *sql.Stmt
-	undeleteRoleStmt                             *sql.Stmt
-	unsetDefaultPoolStmt                         *sql.Stmt
-	updateMessageAfterFailureStmt                *sql.Stmt
-	updateMessageStatusStmt                      *sql.Stmt
-	updateOrganizationStmt                       *sql.Stmt
-	updatePoolStmt                               *sql.Stmt
-	updatePoolPriorityStmt                       *sql.Stmt
-	updateRoleStmt                               *sql.Stmt
-	updateUserPasswordStmt                       *sql.Stmt
-	updateUserRoleStmt                           *sql.Stmt
-	upsertCommandOnDeviceLogStmt                 *sql.Stmt
-	upsertDeviceStmt                             *sql.Stmt
-	upsertDevicePairingStmt                      *sql.Stmt
-	upsertMinerCredentialsStmt                   *sql.Stmt
-	upsertRoleStmt                               *sql.Stmt
+	db                                                  DBTX
+	tx                                                  *sql.Tx
+	activateNewIPAssignmentStmt                         *sql.Stmt
+	createCommandBatchLogStmt                           *sql.Stmt
+	createInactiveDeviceIPAssignmentStmt                *sql.Stmt
+	createOrganizationStmt                              *sql.Stmt
+	createPoolStmt                                      *sql.Stmt
+	createQueueMessageStmt                              *sql.Stmt
+	createUserStmt                                      *sql.Stmt
+	createUserOrganizationStmt                          *sql.Stmt
+	getActiveDeviceIPAssignmentByDeviceIDStmt           *sql.Stmt
+	getBatchStatusAndDeviceCountsStmt                   *sql.Stmt
+	getDeviceByDeviceIdentifierStmt                     *sql.Stmt
+	getDeviceByIDStmt                                   *sql.Stmt
+	getDeviceByIdentifierStmt                           *sql.Stmt
+	getDeviceIDByDeviceIdentifierStmt                   *sql.Stmt
+	getDeviceIDsByDeviceIdentifiersStmt                 *sql.Stmt
+	getDeviceIdentifierByIDStmt                         *sql.Stmt
+	getDevicePairingStatusByDeviceDatabaseIDStmt        *sql.Stmt
+	getDeviceWithCredentialsAndIPByDeviceIdentifierStmt *sql.Stmt
+	getMessagesToProcessStmt                            *sql.Stmt
+	getMinerApiNetworkInfoByDeviceIDStmt                *sql.Stmt
+	getMinerCredentialsByDeviceIDStmt                   *sql.Stmt
+	getOrganizationByIDStmt                             *sql.Stmt
+	getOrganizationByNameStmt                           *sql.Stmt
+	getOrganizationByOrgIDStmt                          *sql.Stmt
+	getOrganizationPrivateKeyStmt                       *sql.Stmt
+	getOrganizationsForUserStmt                         *sql.Stmt
+	getPoolStmt                                         *sql.Stmt
+	getRoleByIDStmt                                     *sql.Stmt
+	getRoleByNameStmt                                   *sql.Stmt
+	getTotalPairedDevicesStmt                           *sql.Stmt
+	getTotalPoolsStmt                                   *sql.Stmt
+	getUserByIdStmt                                     *sql.Stmt
+	getUserByUsernameStmt                               *sql.Stmt
+	getUserRoleInOrganizationStmt                       *sql.Stmt
+	getUsersForOrganizationStmt                         *sql.Stmt
+	isBatchFinishedStmt                                 *sql.Stmt
+	isBatchProcessingStmt                               *sql.Stmt
+	listOrganizationsStmt                               *sql.Stmt
+	listPairedDevicesStmt                               *sql.Stmt
+	listPairedMinersWithStatusStmt                      *sql.Stmt
+	listPoolsStmt                                       *sql.Stmt
+	listRolesStmt                                       *sql.Stmt
+	markCommandBatchFinishedStmt                        *sql.Stmt
+	markCommandBatchFinishedWithStartedAtStmt           *sql.Stmt
+	markCommandBatchProcessingStmt                      *sql.Stmt
+	softDeleteOrganizationStmt                          *sql.Stmt
+	softDeletePoolStmt                                  *sql.Stmt
+	softDeleteRoleStmt                                  *sql.Stmt
+	softDeleteUserFromOrganizationStmt                  *sql.Stmt
+	undeleteOrganizationStmt                            *sql.Stmt
+	undeleteRoleStmt                                    *sql.Stmt
+	unsetDefaultPoolStmt                                *sql.Stmt
+	updateMessageAfterFailureStmt                       *sql.Stmt
+	updateMessageStatusStmt                             *sql.Stmt
+	updateOrganizationStmt                              *sql.Stmt
+	updatePoolStmt                                      *sql.Stmt
+	updatePoolPriorityStmt                              *sql.Stmt
+	updateRoleStmt                                      *sql.Stmt
+	updateUserPasswordStmt                              *sql.Stmt
+	updateUserRoleStmt                                  *sql.Stmt
+	upsertCommandOnDeviceLogStmt                        *sql.Stmt
+	upsertDeviceStmt                                    *sql.Stmt
+	upsertDevicePairingStmt                             *sql.Stmt
+	upsertMinerCredentialsStmt                          *sql.Stmt
+	upsertRoleStmt                                      *sql.Stmt
 }
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
@@ -658,61 +667,62 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createQueueMessageStmt:               q.createQueueMessageStmt,
 		createUserStmt:                       q.createUserStmt,
 		createUserOrganizationStmt:           q.createUserOrganizationStmt,
-		getActiveDeviceIPAssignmentByDeviceIDStmt:    q.getActiveDeviceIPAssignmentByDeviceIDStmt,
-		getBatchStatusAndDeviceCountsStmt:            q.getBatchStatusAndDeviceCountsStmt,
-		getDeviceByDeviceIdentifierStmt:              q.getDeviceByDeviceIdentifierStmt,
-		getDeviceByIDStmt:                            q.getDeviceByIDStmt,
-		getDeviceByIdentifierStmt:                    q.getDeviceByIdentifierStmt,
-		getDeviceIDByDeviceIdentifierStmt:            q.getDeviceIDByDeviceIdentifierStmt,
-		getDeviceIDsByDeviceIdentifiersStmt:          q.getDeviceIDsByDeviceIdentifiersStmt,
-		getDeviceIdentifierByIDStmt:                  q.getDeviceIdentifierByIDStmt,
-		getDevicePairingStatusByDeviceDatabaseIDStmt: q.getDevicePairingStatusByDeviceDatabaseIDStmt,
-		getMessagesToProcessStmt:                     q.getMessagesToProcessStmt,
-		getMinerApiNetworkInfoByDeviceIDStmt:         q.getMinerApiNetworkInfoByDeviceIDStmt,
-		getMinerCredentialsByDeviceIDStmt:            q.getMinerCredentialsByDeviceIDStmt,
-		getOrganizationByIDStmt:                      q.getOrganizationByIDStmt,
-		getOrganizationByNameStmt:                    q.getOrganizationByNameStmt,
-		getOrganizationByOrgIDStmt:                   q.getOrganizationByOrgIDStmt,
-		getOrganizationPrivateKeyStmt:                q.getOrganizationPrivateKeyStmt,
-		getOrganizationsForUserStmt:                  q.getOrganizationsForUserStmt,
-		getPoolStmt:                                  q.getPoolStmt,
-		getRoleByIDStmt:                              q.getRoleByIDStmt,
-		getRoleByNameStmt:                            q.getRoleByNameStmt,
-		getTotalPairedDevicesStmt:                    q.getTotalPairedDevicesStmt,
-		getTotalPoolsStmt:                            q.getTotalPoolsStmt,
-		getUserByIdStmt:                              q.getUserByIdStmt,
-		getUserByUsernameStmt:                        q.getUserByUsernameStmt,
-		getUserRoleInOrganizationStmt:                q.getUserRoleInOrganizationStmt,
-		getUsersForOrganizationStmt:                  q.getUsersForOrganizationStmt,
-		isBatchFinishedStmt:                          q.isBatchFinishedStmt,
-		isBatchProcessingStmt:                        q.isBatchProcessingStmt,
-		listOrganizationsStmt:                        q.listOrganizationsStmt,
-		listPairedDevicesStmt:                        q.listPairedDevicesStmt,
-		listPairedMinersWithStatusStmt:               q.listPairedMinersWithStatusStmt,
-		listPoolsStmt:                                q.listPoolsStmt,
-		listRolesStmt:                                q.listRolesStmt,
-		markCommandBatchFinishedStmt:                 q.markCommandBatchFinishedStmt,
-		markCommandBatchFinishedWithStartedAtStmt:    q.markCommandBatchFinishedWithStartedAtStmt,
-		markCommandBatchProcessingStmt:               q.markCommandBatchProcessingStmt,
-		softDeleteOrganizationStmt:                   q.softDeleteOrganizationStmt,
-		softDeletePoolStmt:                           q.softDeletePoolStmt,
-		softDeleteRoleStmt:                           q.softDeleteRoleStmt,
-		softDeleteUserFromOrganizationStmt:           q.softDeleteUserFromOrganizationStmt,
-		undeleteOrganizationStmt:                     q.undeleteOrganizationStmt,
-		undeleteRoleStmt:                             q.undeleteRoleStmt,
-		unsetDefaultPoolStmt:                         q.unsetDefaultPoolStmt,
-		updateMessageAfterFailureStmt:                q.updateMessageAfterFailureStmt,
-		updateMessageStatusStmt:                      q.updateMessageStatusStmt,
-		updateOrganizationStmt:                       q.updateOrganizationStmt,
-		updatePoolStmt:                               q.updatePoolStmt,
-		updatePoolPriorityStmt:                       q.updatePoolPriorityStmt,
-		updateRoleStmt:                               q.updateRoleStmt,
-		updateUserPasswordStmt:                       q.updateUserPasswordStmt,
-		updateUserRoleStmt:                           q.updateUserRoleStmt,
-		upsertCommandOnDeviceLogStmt:                 q.upsertCommandOnDeviceLogStmt,
-		upsertDeviceStmt:                             q.upsertDeviceStmt,
-		upsertDevicePairingStmt:                      q.upsertDevicePairingStmt,
-		upsertMinerCredentialsStmt:                   q.upsertMinerCredentialsStmt,
-		upsertRoleStmt:                               q.upsertRoleStmt,
+		getActiveDeviceIPAssignmentByDeviceIDStmt:           q.getActiveDeviceIPAssignmentByDeviceIDStmt,
+		getBatchStatusAndDeviceCountsStmt:                   q.getBatchStatusAndDeviceCountsStmt,
+		getDeviceByDeviceIdentifierStmt:                     q.getDeviceByDeviceIdentifierStmt,
+		getDeviceByIDStmt:                                   q.getDeviceByIDStmt,
+		getDeviceByIdentifierStmt:                           q.getDeviceByIdentifierStmt,
+		getDeviceIDByDeviceIdentifierStmt:                   q.getDeviceIDByDeviceIdentifierStmt,
+		getDeviceIDsByDeviceIdentifiersStmt:                 q.getDeviceIDsByDeviceIdentifiersStmt,
+		getDeviceIdentifierByIDStmt:                         q.getDeviceIdentifierByIDStmt,
+		getDevicePairingStatusByDeviceDatabaseIDStmt:        q.getDevicePairingStatusByDeviceDatabaseIDStmt,
+		getDeviceWithCredentialsAndIPByDeviceIdentifierStmt: q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt,
+		getMessagesToProcessStmt:                            q.getMessagesToProcessStmt,
+		getMinerApiNetworkInfoByDeviceIDStmt:                q.getMinerApiNetworkInfoByDeviceIDStmt,
+		getMinerCredentialsByDeviceIDStmt:                   q.getMinerCredentialsByDeviceIDStmt,
+		getOrganizationByIDStmt:                             q.getOrganizationByIDStmt,
+		getOrganizationByNameStmt:                           q.getOrganizationByNameStmt,
+		getOrganizationByOrgIDStmt:                          q.getOrganizationByOrgIDStmt,
+		getOrganizationPrivateKeyStmt:                       q.getOrganizationPrivateKeyStmt,
+		getOrganizationsForUserStmt:                         q.getOrganizationsForUserStmt,
+		getPoolStmt:                                         q.getPoolStmt,
+		getRoleByIDStmt:                                     q.getRoleByIDStmt,
+		getRoleByNameStmt:                                   q.getRoleByNameStmt,
+		getTotalPairedDevicesStmt:                           q.getTotalPairedDevicesStmt,
+		getTotalPoolsStmt:                                   q.getTotalPoolsStmt,
+		getUserByIdStmt:                                     q.getUserByIdStmt,
+		getUserByUsernameStmt:                               q.getUserByUsernameStmt,
+		getUserRoleInOrganizationStmt:                       q.getUserRoleInOrganizationStmt,
+		getUsersForOrganizationStmt:                         q.getUsersForOrganizationStmt,
+		isBatchFinishedStmt:                                 q.isBatchFinishedStmt,
+		isBatchProcessingStmt:                               q.isBatchProcessingStmt,
+		listOrganizationsStmt:                               q.listOrganizationsStmt,
+		listPairedDevicesStmt:                               q.listPairedDevicesStmt,
+		listPairedMinersWithStatusStmt:                      q.listPairedMinersWithStatusStmt,
+		listPoolsStmt:                                       q.listPoolsStmt,
+		listRolesStmt:                                       q.listRolesStmt,
+		markCommandBatchFinishedStmt:                        q.markCommandBatchFinishedStmt,
+		markCommandBatchFinishedWithStartedAtStmt:           q.markCommandBatchFinishedWithStartedAtStmt,
+		markCommandBatchProcessingStmt:                      q.markCommandBatchProcessingStmt,
+		softDeleteOrganizationStmt:                          q.softDeleteOrganizationStmt,
+		softDeletePoolStmt:                                  q.softDeletePoolStmt,
+		softDeleteRoleStmt:                                  q.softDeleteRoleStmt,
+		softDeleteUserFromOrganizationStmt:                  q.softDeleteUserFromOrganizationStmt,
+		undeleteOrganizationStmt:                            q.undeleteOrganizationStmt,
+		undeleteRoleStmt:                                    q.undeleteRoleStmt,
+		unsetDefaultPoolStmt:                                q.unsetDefaultPoolStmt,
+		updateMessageAfterFailureStmt:                       q.updateMessageAfterFailureStmt,
+		updateMessageStatusStmt:                             q.updateMessageStatusStmt,
+		updateOrganizationStmt:                              q.updateOrganizationStmt,
+		updatePoolStmt:                                      q.updatePoolStmt,
+		updatePoolPriorityStmt:                              q.updatePoolPriorityStmt,
+		updateRoleStmt:                                      q.updateRoleStmt,
+		updateUserPasswordStmt:                              q.updateUserPasswordStmt,
+		updateUserRoleStmt:                                  q.updateUserRoleStmt,
+		upsertCommandOnDeviceLogStmt:                        q.upsertCommandOnDeviceLogStmt,
+		upsertDeviceStmt:                                    q.upsertDeviceStmt,
+		upsertDevicePairingStmt:                             q.upsertDevicePairingStmt,
+		upsertMinerCredentialsStmt:                          q.upsertMinerCredentialsStmt,
+		upsertRoleStmt:                                      q.upsertRoleStmt,
 	}
 }

@@ -59,6 +59,7 @@ func cleanupIntegrationTest(t *testing.T, store *InfluxTelemetryStore, container
 func storeTestDataWithErrorHandling(ctx context.Context, t *testing.T, store *InfluxTelemetryStore, testData []models.Telemetry, operation string) {
 	err := store.Store(ctx, testData...)
 	require.NoError(t, err, "Should successfully store %s", operation)
+	time.Sleep(100 * time.Millisecond) // Give InfluxDB time to process writes
 }
 
 func durationPtr(d time.Duration) *time.Duration {
@@ -353,6 +354,7 @@ func TestInfluxTelemetryStore_GetTelemetryMetadata(t *testing.T) {
 		createTestTelemetryWithMetadata("device1", "hashrate", 100.0, "miner", "datacenter1", baseTime.Add(-10*time.Minute)),
 		createTestTelemetryWithMetadata("device2", "temperature", 30.2, "controller", "datacenter2", baseTime),
 		createTestTelemetryWithMetadata("device3", "temperature", 18.2, "controller", "datacenter2", baseTime),
+		createTestTelemetryWithMetadata("device3", "power", 18.2, "controller", "datacenter2", baseTime),
 	}
 
 	storeTestDataWithErrorHandling(ctx, t, store, testData, "telemetry with metadata")
@@ -388,13 +390,22 @@ func TestInfluxTelemetryStore_StreamTelemetryUpdates(t *testing.T) {
 	testCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
+	// Create initial telemetry data to ensure the table is created.
+	data := []models.Telemetry{
+		createTestTelemetry("not-the-device-you-are-looking-for", "temperature", 1000.5),
+		createTestTelemetry("not-the-device-you-are-looking-for", "power", 20.0),
+	}
+	err := store.Store(testCtx, data...)
+	require.NoError(t, err, "Should successfully store initial telemetry data")
+	time.Sleep(100 * time.Millisecond) // Give InfluxDB time to create the table
+
 	query := models.StreamQuery{
 		DeviceIDs: []models.DeviceID{"stream-device1"},
 		MeasurementTypes: []models.MeasurementType{
 			models.MeasurementTypeTemperature,
 		},
 		IncludeHeartbeat:  true,
-		HeartbeatInterval: durationPtr(200 * time.Millisecond),
+		HeartbeatInterval: durationPtr(100 * time.Millisecond),
 	}
 
 	updateChan, err := store.StreamTelemetryUpdates(testCtx, query)
@@ -504,6 +515,8 @@ func TestInfluxTelemetryStore_GetAggregatedTelemetry(t *testing.T) {
 	// Store the test data
 	err := store.Store(ctx, testData...)
 	require.NoError(t, err, "Should successfully store aggregation test data")
+
+	time.Sleep(100 * time.Millisecond) // Give InfluxDB time to process writes
 
 	// Test GetAggregatedTelemetry with different aggregation types
 	testCases := []struct {

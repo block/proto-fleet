@@ -1,16 +1,20 @@
 package models
 
 import (
+	minerModels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"time"
 )
 
-type DeviceID string
+// DeviceID is a type alias for backward compatibility - no breaking changes
+type DeviceID = minerModels.DeviceID
 
-func (d DeviceID) String() string {
-	return string(d)
-}
-
+// Device struct remains in telemetry package for telemetry-specific concerns
 type Device struct {
 	ID            DeviceID  `json:"id"`
 	LastUpdatedAt time.Time `json:"last_updated_at"`
+}
+
+// NewDeviceIDFromString creates a DeviceID from a string for compatibility
+func NewDeviceIDFromString(s string) DeviceID {
+	return DeviceID(s)
 }
