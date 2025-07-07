@@ -52,10 +52,10 @@ func isRetryableError(err error) bool {
 }
 
 func WithTransaction[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error)) (T, error) {
-	return WithTransactionWithRetry(ctx, db, action, DefaultRetryConfig)
+	return withTransactionWithRetry(ctx, db, action, DefaultRetryConfig)
 }
 
-func WithTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error), config RetryConfig) (T, error) {
+func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error), config RetryConfig) (T, error) {
 	var zero T
 	var lastErr error
 	currentBackoff := config.InitialBackoff
@@ -121,11 +121,11 @@ func executeTransaction[T any](ctx context.Context, db *sql.DB, action func(q *s
 }
 
 func WithTransactionNoResult(ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) error) error {
-	return WithTransactionNoResultWithRetry(ctx, db, action, DefaultRetryConfig)
+	return withTransactionNoResultWithRetry(ctx, db, action, DefaultRetryConfig)
 }
 
-func WithTransactionNoResultWithRetry(ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) error, config RetryConfig) error {
-	_, err := WithTransactionWithRetry(ctx, db, func(sq *sqlc.Queries) (any, error) {
+func withTransactionNoResultWithRetry(ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) error, config RetryConfig) error {
+	_, err := withTransactionWithRetry(ctx, db, func(sq *sqlc.Queries) (any, error) {
 		var emptyResult any
 		return emptyResult, action(sq)
 	}, config)

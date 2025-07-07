@@ -14,6 +14,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	pairingAntminer "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/antminer"
 	pairingProto "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/proto"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"
 	"github.com/golang/mock/gomock"
 	"google.golang.org/protobuf/proto"
@@ -65,14 +66,16 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 	ctx := testutil.MockAuthContextForTesting(t.Context(), adminUser.DatabaseID, adminUser.OrganizationID)
 
 	discoveryService, _ := minerdiscovery.NewService(discoverers...)
-	deviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
+	discoveredDeviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
+	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
 
-	protoPairer := pairingProto.NewService(testContext.ServiceProvider.DB, pairing.Config{SecretKey: "test-secret"})
+	protoPairer := pairingProto.NewService(transactor, deviceStore, pairing.Config{SecretKey: "test-secret"})
 
-	antminerPairer := pairingAntminer.NewService(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService, webClient)
+	antminerPairer := pairingAntminer.NewService(transactor, deviceStore, testContext.ServiceProvider.EncryptService, webClient)
 
 	pairingService := pairing.NewService(
-		deviceStore,
+		discoveredDeviceStore,
 		testContext.ServiceProvider.DB,
 		tokenService,
 		discoveryService,

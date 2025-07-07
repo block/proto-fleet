@@ -9,6 +9,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/proto"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
 
 	"github.com/alecthomas/assert/v2"
@@ -51,12 +52,15 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	minerDiscoveryService, err := minerdiscovery.NewService(protoDiscoverer)
 	assert.NoError(t, err)
 
-	deviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
+	discoveredDeviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
 
-	protoPairer := pairingProto.NewService(db, pairingConfig)
-	antminerPairer := pairingAntminer.NewService(db, encryptService, antminerWeb.NewService())
+	transactor := sqlstores.NewSQLTransactor(db)
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
 
-	pairingService := pairing.NewService(deviceStore, db, tokenService, minerDiscoveryService, protoPairer, antminerPairer)
+	protoPairer := pairingProto.NewService(transactor, deviceStore, pairingConfig)
+	antminerPairer := pairingAntminer.NewService(transactor, deviceStore, encryptService, antminerWeb.NewService())
+
+	pairingService := pairing.NewService(discoveredDeviceStore, db, tokenService, minerDiscoveryService, protoPairer, antminerPairer)
 
 	commandConfig := &command.Config{MaxWorkers: 50, MasterPollingInterval: time.Second, WorkerExecutionTimeout: 30 * time.Second, BatchStatusUpdatePollingInterval: time.Second}
 

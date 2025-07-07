@@ -2,18 +2,16 @@ package antminer
 
 import (
 	"context"
-	"database/sql"
 	"strings"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
+	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/web"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
@@ -22,20 +20,23 @@ import (
 var _ pairing.Pairer = &Service{}
 
 type Service struct {
-	conn      *sql.DB
-	encryptor *encrypt.Service
-	webClient web.WebAPIClient
+	transactor  stores.Transactor
+	deviceStore stores.DeviceStore
+	encryptor   *encrypt.Service
+	webClient   web.WebAPIClient
 }
 
 func NewService(
-	conn *sql.DB,
+	transactor stores.Transactor,
+	deviceStore stores.DeviceStore,
 	encryptor *encrypt.Service,
 	webClient web.WebAPIClient,
 ) *Service {
 	return &Service{
-		conn:      conn,
-		encryptor: encryptor,
-		webClient: webClient,
+		transactor:  transactor,
+		deviceStore: deviceStore,
+		encryptor:   encryptor,
+		webClient:   webClient,
 	}
 }
 
@@ -57,41 +58,33 @@ func (s *Service) PairDevice(ctx context.Context, device *minerdiscovery.Discove
 	device.SerialNumber = systemInfo.SerialNumber
 	device.MacAddress = systemInfo.MacAddr
 
-	return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
-		deviceID, err := pairing.SaveDiscoveredDevice(ctx, q, device)
-		if err != nil {
-			return err
-		}
+	encryptedUsername, err := s.encryptor.Encrypt([]byte(credentials.Username))
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to encrypt username: %v", err)
+	}
 
-		// Store credentials
-		encryptedUsername, err := s.encryptor.Encrypt([]byte(credentials.Username))
-		if err != nil {
-			return fleeterror.NewInternalErrorf("failed to encrypt username: %v", err)
-		}
+	encryptedPassword, err := s.encryptor.Encrypt([]byte(*credentials.Password))
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to encrypt password: %v", err)
+	}
 
-		encryptedPassword, err := s.encryptor.Encrypt([]byte(*credentials.Password))
+	return s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		err := s.deviceStore.UpsertDevice(ctx, &device.Device, device.OrgID, models.TypeAntminer.String())
 		if err != nil {
-			return fleeterror.NewInternalErrorf("failed to encrypt password: %v", err)
+			return fleeterror.NewInternalErrorf("failed to upsert device: %v", err)
 		}
-
-		err = q.UpsertMinerCredentials(ctx, sqlc.UpsertMinerCredentialsParams{
-			DeviceID:    deviceID,
-			UsernameEnc: encryptedUsername,
-			PasswordEnc: encryptedPassword,
-		})
+		err = s.deviceStore.UpsertDeviceIPAssignment(ctx, &device.Device, device.OrgID, device.IpAddress, device.Port)
 		if err != nil {
-			return fleeterror.NewInternalErrorf("failed to save antminer credentials: %v", err)
+			return fleeterror.NewInternalErrorf("failed to upsert device IP assignment: %v", err)
 		}
-
-		// Create pairing record
-		_, err = q.UpsertDevicePairing(ctx, sqlc.UpsertDevicePairingParams{
-			DeviceID:      deviceID,
-			PairingStatus: pairing.StatusPaired,
-		})
+		err = s.deviceStore.UpsertMinerCredentials(ctx, &device.Device, device.OrgID, encryptedUsername, secrets.NewText(encryptedPassword))
 		if err != nil {
-			return fleeterror.NewInternalErrorf("failed to create pairing for device device_identifier=%s: %v", device.DeviceIdentifier, err)
+			return fleeterror.NewInternalErrorf("failed to upsert miner credentials: %v", err)
 		}
-
+		err = s.deviceStore.UpsertDevicePairing(ctx, &device.Device, device.OrgID, "", pairing.StatusPaired)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("failed to upsert device pairing: %v", err)
+		}
 		return nil
 	})
 }

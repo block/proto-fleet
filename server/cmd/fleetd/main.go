@@ -3,12 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/btc-mining/proto-fleet/server/internal/handlers/health"
-	"github.com/btc-mining/proto-fleet/server/internal/handlers/static"
 	"log/slog"
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/btc-mining/proto-fleet/server/internal/handlers/health"
+	"github.com/btc-mining/proto-fleet/server/internal/handlers/static"
 
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
 
@@ -41,6 +42,7 @@ import (
 	pairingAntminer "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/antminer"
 	pairingProto "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/proto"
 	poolsDomain "github.com/btc-mining/proto-fleet/server/internal/domain/pools"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/auth"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/command"
@@ -96,6 +98,8 @@ func start(config *Config) error {
 		return err
 	}
 
+	transactor := sqlstores.NewSQLTransactor(conn)
+
 	// initialize domain services
 	tokenSvc, err := tokenDomain.NewService(config.Auth)
 	if err != nil {
@@ -113,9 +117,10 @@ func start(config *Config) error {
 		return err
 	}
 	discoveredDeviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
+	deviceStore := sqlstores.NewSQLDeviceStore(conn)
 
-	protoPairer := pairingProto.NewService(conn, config.Pairing)
-	antminerPairer := pairingAntminer.NewService(conn, encryptSvc, antminerWeb.NewService())
+	protoPairer := pairingProto.NewService(transactor, deviceStore, config.Pairing)
+	antminerPairer := pairingAntminer.NewService(transactor, deviceStore, encryptSvc, antminerWeb.NewService())
 
 	pairingSvc := pairingDomain.NewService(
 		discoveredDeviceStore,

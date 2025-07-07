@@ -24,7 +24,7 @@ func TestAntminerCredentialValidation(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	webClient := mocks.NewMockWebAPIClient(ctrl)
 
-	service := antminer.NewService(nil, encryptService, webClient)
+	service := antminer.NewService(nil, nil, encryptService, webClient)
 	ctx := t.Context()
 
 	device := &minerdiscovery.DiscoveredDevice{
