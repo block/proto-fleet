@@ -18,6 +18,10 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
 
+const (
+	defaultAntminerRPCPort = "4028"
+)
+
 var _ telemetry.MinerManager = &MinerService{}
 
 type MinerService struct {
@@ -103,13 +107,12 @@ func (s *MinerService) createAntminer(deviceData sqlc.GetDeviceWithCredentialsAn
 	webClient := web.NewService()
 	rpcClient := rpc.NewService()
 	password := *secrets.NewText(string(decryptedPassword))
-	rpcPort := "4028" // Default RPC port for Antminer
 
 	return antminer.NewAntminer(
 		deviceData.ID,
 		deviceData.IpAddress,
 		port,
-		rpcPort,
+		defaultAntminerRPCPort,
 		string(decryptedUsername),
 		password,
 		webClient,
