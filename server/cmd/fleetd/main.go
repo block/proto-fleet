@@ -133,7 +133,7 @@ func start(config *Config) error {
 		protoPairer,
 		antminerPairer,
 	)
-	fleetMgmtSvc := fleetmanagementDomain.NewService(conn, fleetmanagementDomain.NewMockTelemetryCollector())
+	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, fleetmanagementDomain.NewMockTelemetryCollector())
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
 
 	executionServiceCtx, executionServiceCancel := context.WithCancel(context.Background())

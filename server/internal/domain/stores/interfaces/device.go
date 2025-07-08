@@ -3,10 +3,16 @@ package interfaces
 import (
 	"context"
 
+	fm "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
+
+type Cursor struct {
+	ID       int64
+	DeviceID int64
+}
 
 type DeviceStore interface {
 	UpsertDevice(ctx context.Context, device *pb.Device, orgID int64, deviceType string) error
@@ -17,4 +23,6 @@ type DeviceStore interface {
 	GetDeviceByDeviceIdentifier(ctx context.Context, identifier string, orgID int64) (*pb.Device, error)
 	GetDeviceWithIPAssignment(ctx context.Context, deviceIdentifier string, orgID int64) (*minerdiscovery.DiscoveredDevice, error)
 	GetTotalPairedDevices(ctx context.Context) (int64, error)
+	ListPairedDevices(ctx context.Context, cursor Cursor, pageSize int32) ([]*fm.PairedDevice, Cursor, error)
+	ListPairedMinersWithStatus(ctx context.Context, orgID int64, pageSize int32) ([]*pb.Device, error)
 }

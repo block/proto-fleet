@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 
+	fm "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
@@ -180,4 +181,67 @@ func (s *SQLDeviceStore) GetDeviceWithIPAssignment(ctx context.Context, deviceId
 
 func (s *SQLDeviceStore) GetTotalPairedDevices(ctx context.Context) (int64, error) {
 	return s.GetQueries(ctx).GetTotalPairedDevices(ctx)
+}
+
+func (s *SQLDeviceStore) ListPairedDevices(ctx context.Context, cursor stores.Cursor, pageSize int32) ([]*fm.PairedDevice, stores.Cursor, error) {
+	result, err := s.GetQueries(ctx).ListPairedDevices(ctx, sqlc.ListPairedDevicesParams{
+		CursorID:       sql.NullInt64{Int64: cursor.ID, Valid: cursor.ID > 0},
+		DeviceCursorID: sql.NullInt64{Int64: cursor.DeviceID, Valid: cursor.DeviceID > 0},
+		Limit:          pageSize + 1, // request one extra to determine if there are more pages
+	})
+	if err != nil {
+		return nil, stores.Cursor{}, err
+	}
+
+	devices := make([]*fm.PairedDevice, len(result))
+	for i, row := range result {
+		devices[i] = &fm.PairedDevice{
+			DeviceIdentifier: row.DeviceIdentifier,
+			MacAddress:       row.MacAddress,
+			SerialNumber:     row.SerialNumber.String,
+		}
+	}
+
+	// Handle pagination
+	if len(devices) > int(pageSize) {
+		// We got an extra record, so there are more pages
+		devices = devices[:pageSize]
+
+		// Create next page token from last visible item
+		lastDevice := result[pageSize-1]
+		cursor = stores.Cursor{
+			ID:       lastDevice.CursorID,
+			DeviceID: lastDevice.DeviceID,
+		}
+	} else {
+		// This is the last page
+		cursor = stores.Cursor{}
+	}
+
+	return devices, cursor, nil
+}
+
+func (s *SQLDeviceStore) ListPairedMinersWithStatus(ctx context.Context, orgID int64, pageSize int32) ([]*pb.Device, error) {
+	result, err := s.GetQueries(ctx).ListPairedMinersWithStatus(ctx, sqlc.ListPairedMinersWithStatusParams{
+		OrgID: orgID,
+		Limit: pageSize,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	devices := make([]*pb.Device, len(result))
+	for i, row := range result {
+		devices[i] = &pb.Device{
+			DeviceIdentifier: row.DeviceIdentifier,
+			MacAddress:       row.MacAddress,
+			SerialNumber:     row.SerialNumber.String,
+			Model:            row.Model.String,
+			Manufacturer:     row.Manufacturer.String,
+			IpAddress:        row.IpAddress.String,
+			Port:             row.Port.String,
+		}
+	}
+
+	return devices, nil
 }

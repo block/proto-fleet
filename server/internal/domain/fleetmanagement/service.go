@@ -2,7 +2,6 @@ package fleetmanagement
 
 import (
 	"context"
-	"database/sql"
 	"encoding/base64"
 	"fmt"
 	"log/slog"
@@ -11,24 +10,25 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 )
 
+type Cursor = interfaces.Cursor
+
 type Service struct {
-	conn      *sql.DB
-	telemetry TelemetryCollector
+	deviceStore interfaces.DeviceStore
+	telemetry   TelemetryCollector
 }
 
-func NewService(conn *sql.DB, t TelemetryCollector) *Service {
+func NewService(deviceStore interfaces.DeviceStore, t TelemetryCollector) *Service {
 	return &Service{
-		conn:      conn,
-		telemetry: t,
+		deviceStore: deviceStore,
+		telemetry:   t,
 	}
 }
 
@@ -48,69 +48,26 @@ func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRe
 		return nil, err
 	}
 
-	// Prepare query parameters
-	params := sqlc.ListPairedDevicesParams{
-		CursorID:       sql.NullInt64{Int64: cursor.ID, Valid: cursor.ID > 0},
-		DeviceCursorID: sql.NullInt64{Int64: cursor.DeviceID, Valid: cursor.DeviceID > 0},
-		Limit:          pageSize + 1, // request one extra to determine if there are more pages
+	// Query the database
+	devices, cursor, err := s.deviceStore.ListPairedDevices(c, cursor, pageSize)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list miners: %v", err)
 	}
 
-	return db.WithTransaction(c, s.conn, func(q *sqlc.Queries) (*pb.ListPairedMinersResponse, error) {
+	// Get total count
+	total, err := s.deviceStore.GetTotalPairedDevices(c)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
+	}
 
-		// Query the database
-		devices, err := q.ListPairedDevices(c, params)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to list miners: %v", err)
-		}
+	// Prepare response
+	resp := &pb.ListPairedMinersResponse{
+		Miners:      devices,
+		Cursor:      encodeCursor(cursor),
+		TotalMiners: int32(total), //nolint:gosec
+	}
 
-		// Prepare response
-		resp := &pb.ListPairedMinersResponse{}
-
-		// Handle pagination
-		if len(devices) > int(pageSize) {
-			// We got an extra record, so there are more pages
-			resp.Miners = make([]*pb.PairedDevice, pageSize)
-			for i, d := range devices[:pageSize] {
-				resp.Miners[i] = &pb.PairedDevice{
-					DeviceIdentifier: d.DeviceIdentifier,
-					MacAddress:       d.MacAddress,
-					SerialNumber:     d.SerialNumber.String,
-				}
-			}
-
-			// Create next page token from last visible item
-			lastDevice := devices[pageSize-1]
-			cursor = Cursor{
-				ID:       lastDevice.CursorID,
-				DeviceID: lastDevice.DeviceID,
-			}
-			resp.Cursor = encodeCursor(cursor)
-		} else {
-			// This is the last page
-			resp.Miners = make([]*pb.PairedDevice, len(devices))
-			for i, d := range devices {
-				resp.Miners[i] = &pb.PairedDevice{
-					DeviceIdentifier: d.DeviceIdentifier,
-					MacAddress:       d.MacAddress,
-					SerialNumber:     d.SerialNumber.String,
-				}
-			}
-		}
-
-		// Get total count
-		total, err := q.GetTotalPairedDevices(c)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
-		}
-		resp.TotalMiners = int32(total) //nolint:gosec
-		return resp, nil
-
-	})
-}
-
-type Cursor struct {
-	ID       int64
-	DeviceID int64
+	return resp, nil
 }
 
 func encodeCursor(c Cursor) string {
@@ -152,70 +109,66 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 		return nil, err
 	}
 
-	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (*pb.ListMinerStateSnapshotsResponse, error) {
-		// Get paired miners with their basic info
-		miners, err := q.ListPairedMinersWithStatus(ctx, sqlc.ListPairedMinersWithStatusParams{
-			OrgID: claims.OrgID,
-			Limit: req.PageSize,
-		})
+	// Get paired miners with their basic info
+	miners, err := s.deviceStore.ListPairedMinersWithStatus(ctx, claims.OrgID, req.PageSize)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list miners: %v", err)
+	}
+
+	// Convert to state snapshots
+	var snapshots []*pb.MinerStateSnapshot
+	for _, miner := range miners {
+		// Get latest telemetry data for the miner
+		telemetry, err := s.telemetry.GetMinerTelemetry(ctx, miner.DeviceIdentifier, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
 		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to list miners: %v", err)
+			slog.Error("failed to get telemetry for miner", "device_id", miner.DeviceIdentifier, "error", err)
+			continue
 		}
 
-		// Convert to state snapshots
-		var snapshots []*pb.MinerStateSnapshot
-		for _, miner := range miners {
-			// Get latest telemetry data for the miner
-			telemetry, err := s.telemetry.GetMinerTelemetry(ctx, miner.DeviceIdentifier, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
-			if err != nil {
-				slog.Error("failed to get telemetry for miner", "device_id", miner.DeviceIdentifier, "error", err)
-				continue
-			}
-
-			// Get component status
-			status, err := s.telemetry.GetMinerComponentStatus(ctx, miner.DeviceIdentifier)
-			if err != nil {
-				slog.Error("failed to get component status for miner", "device_id", miner.DeviceIdentifier, "error", err)
-				continue
-			}
-
-			snapshot := &pb.MinerStateSnapshot{
-				DeviceIdentifier: miner.DeviceIdentifier,
-				Name:             miner.Model.String,
-				MacAddress:       miner.MacAddress,
-				SerialNumber:     miner.SerialNumber.String,
-				IpAddress:        miner.IpAddress.String,
-				// TODO(DASH-491) read url scheme from miner data once we start persisting
-				Url:         fmt.Sprintf("http://%s", net.JoinHostPort(miner.IpAddress.String, miner.Port.String)),
-				PowerUsage:  telemetry.PowerUsage,
-				Temperature: telemetry.Temperature,
-				Hashrate:    telemetry.Hashrate,
-				Efficiency:  telemetry.Efficiency,
-				Status:      status,
-				Timestamp:   telemetry.Timestamp,
-			}
-			snapshots = append(snapshots, snapshot)
-		}
-
-		// Get total count
-		total, err := q.GetTotalPairedDevices(ctx)
+		// Get component status
+		status, err := s.telemetry.GetMinerComponentStatus(ctx, miner.DeviceIdentifier)
 		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
+			slog.Error("failed to get component status for miner", "device_id", miner.DeviceIdentifier, "error", err)
+			continue
 		}
 
-		// Handle case where no miners are returned
-		var cursor string
-		if len(miners) > 0 {
-			cursor = miners[len(miners)-1].DeviceIdentifier // Use last device ID as cursor
-		} else {
-			cursor = "" // No miners, so cursor is empty
+		snapshot := &pb.MinerStateSnapshot{
+			DeviceIdentifier: miner.DeviceIdentifier,
+			Name:             miner.Model,
+			MacAddress:       miner.MacAddress,
+			SerialNumber:     miner.SerialNumber,
+			IpAddress:        miner.IpAddress,
+			// TODO(DASH-491) read url scheme from miner data once we start persisting
+			Url:         fmt.Sprintf("http://%s", net.JoinHostPort(miner.IpAddress, miner.Port)),
+			PowerUsage:  telemetry.PowerUsage,
+			Temperature: telemetry.Temperature,
+			Hashrate:    telemetry.Hashrate,
+			Efficiency:  telemetry.Efficiency,
+			Status:      status,
+			Timestamp:   telemetry.Timestamp,
 		}
-		return &pb.ListMinerStateSnapshotsResponse{
-			Miners:      snapshots,
-			Cursor:      cursor,
-			TotalMiners: int32(total), //nolint:gosec
-		}, nil
-	})
+		snapshots = append(snapshots, snapshot)
+	}
+
+	// Get total count
+	total, err := s.deviceStore.GetTotalPairedDevices(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
+	}
+
+	// Handle case where no miners are returned
+	var cursor string
+	if len(miners) > 0 {
+		cursor = miners[len(miners)-1].DeviceIdentifier // Use last device ID as cursor
+	} else {
+		cursor = "" // No miners, so cursor is empty
+	}
+	return &pb.ListMinerStateSnapshotsResponse{
+		Miners:      snapshots,
+		Cursor:      cursor,
+		TotalMiners: int32(total), //nolint:gosec
+	}, nil
+
 }
 
 // StreamMinerUpdates streams real-time measurement updates for miners
