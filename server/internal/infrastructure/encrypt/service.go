@@ -5,9 +5,8 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
-	"io"
-
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"io"
 )
 
 type Service struct {

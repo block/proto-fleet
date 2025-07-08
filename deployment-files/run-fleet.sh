@@ -2,14 +2,7 @@
 
 PROJECT_ROOT="$(pwd)"
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yaml"
-ENV_MANAGER="$PROJECT_ROOT/env-manager.sh"
-
-CREDENTIALS_DIR="$HOME/.fleet-credentials"
-CREDENTIALS_FILE="$CREDENTIALS_DIR/credentials.env"
-
-# Create credentials directory if it doesn't exist
-mkdir -p "$CREDENTIALS_DIR"
-chmod 700 "$CREDENTIALS_DIR"
+ENV_FILE="$PROJECT_ROOT/.env"
 
 # Validate if a string is valid Base64 and decodes to 32 bytes
 validate_base64_key() {
@@ -43,12 +36,11 @@ if ! command -v docker &> /dev/null; then
         read -p "Choose option (1/2): " docker_install_choice
 
         if [ "$docker_install_choice" == "1" ]; then
+            DOCKER_VERSION="4.41.2"
             if [ "$(uname -m)" == "arm64" ]; then
-                DOCKER_VERSION="4.41.2"
                 DOWNLOAD_URL="https://desktop.docker.com/mac/main/arm64/191736/Docker.dmg"
                 CHECKSUM="19c69b358a8ee1b94e308648a2853e398f4bff29f0f74f00ef2d1b462ced1d1c"
             else
-                DOCKER_VERSION="4.41.2"
                 DOWNLOAD_URL="https://desktop.docker.com/mac/main/amd64/191736/Docker.dmg"
                 CHECKSUM="51a14a53808659f02b48f571dcf0e3cdb03a7e69cc51cc9ecb519bf6b10403df"
             fi
@@ -173,21 +165,25 @@ fi
 # Set up environment variables
 use_existing="no"
 
-if [ -f "$CREDENTIALS_FILE" ]; then
-    echo -n "Existing credentials found. Would you like to use them? (y/n): "
-    read use_existing_input
-    if [[ $use_existing_input =~ ^[Yy]$ ]]; then
+if [ -f "$ENV_FILE" ]; then
+    echo -n "Existing environment file found. Would you like to use it? (Y/n): "
+    read use_existing_creds
+    if [[ -z "$use_existing_creds" || $use_existing_creds =~ ^[Yy]$ ]]; then
         use_existing="yes"
-        echo "Using existing credentials."
+        echo "Using existing environment file."
     else
         echo "You'll be prompted to enter new credentials."
+        rm -f "$ENV_FILE"
     fi
 fi
 
 if [ "$use_existing" == "no" ]; then
-    echo -n "Generate a random password for the Database root user? (y/n): "
+    # Initialize empty env file
+    > "$ENV_FILE"
+
+    echo -n "Generate a random password for the Database root user? (Y/n): "
     read gen_mysql_pass
-    if [[ $gen_mysql_pass =~ ^[Yy]$ ]]; then
+    if [[ -z "$gen_mysql_pass" || $gen_mysql_pass =~ ^[Yy]$ ]]; then
         MYSQL_ROOT_PASSWORD=$(openssl rand -base64 16)
         echo "Generated secure password for the Database root user."
     else
@@ -195,14 +191,16 @@ if [ "$use_existing" == "no" ]; then
         read -s MYSQL_ROOT_PASSWORD
         echo
     fi
+    echo "MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD" >> "$ENV_FILE"
 
     echo -n "Enter username for the Database user [fleet_user]: "
     read DB_USERNAME
     DB_USERNAME=${DB_USERNAME:-fleet_user}
+    echo "DB_USERNAME=$DB_USERNAME" >> "$ENV_FILE"
 
-    echo -n "Generate a random password for the Database user? (y/n): "
+    echo -n "Generate a random password for the Database user? (Y/n): "
     read gen_db_pass
-    if [[ $gen_db_pass =~ ^[Yy]$ ]]; then
+    if [[ -z "$gen_db_pass" || $gen_db_pass =~ ^[Yy]$ ]]; then
         DB_PASSWORD=$(openssl rand -base64 16)
         echo "Generated secure password for the Database user."
     else
@@ -210,21 +208,8 @@ if [ "$use_existing" == "no" ]; then
         read -s DB_PASSWORD
         echo
     fi
+    echo "DB_PASSWORD=$DB_PASSWORD" >> "$ENV_FILE"
 
-    echo -n "Enter username for the InfluxDB admin user [admin]: "
-    read INFLUXDB_ADMIN_USER
-    INFLUXDB_ADMIN_USER=${INFLUXDB_ADMIN_USER:-admin}
-
-    echo -n "Generate a random password for the InfluxDB admin user? (y/n): "
-    read gen_influxdb_pass
-    if [[ $gen_influxdb_pass =~ ^[Yy]$ ]]; then
-        INFLUXDB_ADMIN_PASSWORD=$(openssl rand -base64 16)
-        echo "Generated secure password for the InfluxDB admin user."
-    else
-        echo -n "Enter password for the InfluxDB admin user: "
-        read -s INFLUXDB_ADMIN_PASSWORD
-        echo
-    fi
 
     while true; do
         echo -n "Enter Auth client secret key (minimum 32 characters for security): "
@@ -240,6 +225,8 @@ if [ "$use_existing" == "no" ]; then
             break
         fi
     done
+    echo "AUTH_CLIENT_SECRET_KEY=$AUTH_CLIENT_SECRET_KEY" >> "$ENV_FILE"
+
 
     while true; do
         echo -n "Enter Pairing secret key (32-48 characters): "
@@ -258,11 +245,12 @@ if [ "$use_existing" == "no" ]; then
             break
         fi
     done
+    echo "PAIRING_SECRET_KEY=$PAIRING_SECRET_KEY" >> "$ENV_FILE"
 
     # Generate random encryption key
-    echo -n "Generate a random encryption service master key? (y/n): "
+    echo -n "Generate a random encryption service master key? (Y/n): "
     read gen_key
-    if [[ $gen_key =~ ^[Yy]$ ]]; then
+    if [[ -z "$gen_key" || $gen_key =~ ^[Yy]$ ]]; then
         ENCRYPT_SERVICE_MASTER_KEY=$(openssl rand -base64 32)
         echo "Generated encryption service master key."
     else
@@ -278,26 +266,11 @@ if [ "$use_existing" == "no" ]; then
             fi
         done
     fi
+    echo "ENCRYPT_SERVICE_MASTER_KEY=$ENCRYPT_SERVICE_MASTER_KEY" >> "$ENV_FILE"
 
-    cat > "$CREDENTIALS_FILE" << EOF
-# Variables with defaults
-MYSQL_ROOT_PASSWORD="$MYSQL_ROOT_PASSWORD"
-DB_USERNAME="$DB_USERNAME"
-DB_PASSWORD="$DB_PASSWORD"
-INFLUXDB_ADMIN_USER="$INFLUXDB_ADMIN_USER"
-INFLUXDB_ADMIN_PASSWORD="$INFLUXDB_ADMIN_PASSWORD"
-
-# Variables without defaults
-AUTH_CLIENT_SECRET_KEY="$AUTH_CLIENT_SECRET_KEY"
-PAIRING_SECRET_KEY="$PAIRING_SECRET_KEY"
-
-# Generated variables
-ENCRYPT_SERVICE_MASTER_KEY="$ENCRYPT_SERVICE_MASTER_KEY"
-EOF
-
-    # Secure the credentials file
-    chmod 600 "$CREDENTIALS_FILE"
-    echo "Credentials saved to $CREDENTIALS_FILE"
+    # Secure the env file
+    chmod 600 "$ENV_FILE"
+    echo "Environment variables saved to $ENV_FILE"
 fi
 
 if [ ! -f "$COMPOSE_FILE" ]; then
@@ -309,7 +282,7 @@ echo "Pulling latest Docker images..."
 docker-compose -f "$COMPOSE_FILE" pull
 
 echo "Starting services..."
-docker-compose --env-file "$CREDENTIALS_FILE" -f "$COMPOSE_FILE" up -d
+docker-compose -f "$COMPOSE_FILE" up -d
 
 # Check if docker-compose was successful
 if [ $? -eq 0 ]; then

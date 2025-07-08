@@ -1,6 +1,8 @@
 package db
 
-import "time"
+import (
+	"time"
+)
 
 type Config struct {
 	Name                     string        `help:"Name of the database" default:"fleet" env:"NAME"`

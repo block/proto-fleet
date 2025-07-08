@@ -1,6 +1,8 @@
 package token
 
-import "time"
+import (
+	"time"
+)
 
 type AuthTokenConfig struct {
 	SecretKey        string        `help:"Secret key for signing the JWT" env:"SECRET_KEY" required:""`

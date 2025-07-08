@@ -4,11 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 	id "github.com/btc-mining/proto-fleet/server/internal/infrastructure/id"
 
 	authv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1"
