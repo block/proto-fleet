@@ -41,6 +41,7 @@ const AuthenticationPage = () => {
         setIsSubmitting={setIsSubmitting}
         headline="Create an admin login for your miners"
         description="This password is required to modify performance settings or mining pool configurations for this miner."
+        initUsername="admin"
       />
     </OnboardingLayout>
   );

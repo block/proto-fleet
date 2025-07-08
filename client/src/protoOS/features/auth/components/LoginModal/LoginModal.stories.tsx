@@ -12,5 +12,5 @@ export const LoginModal = () => {
 };
 
 export default {
-  title: "Components (Shared)/Login Modal",
+  title: "ProtoOS/Login Modal",
 };

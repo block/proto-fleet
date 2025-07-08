@@ -3,11 +3,14 @@ import { useContext } from "react";
 import { AuthContext } from "../AuthContext";
 
 const useAuthContext = () => {
-  const { authTokens, setAuthTokens } = useContext(AuthContext);
+  const { authTokens, setAuthTokens, username, setUsername } =
+    useContext(AuthContext);
 
   return {
     authTokens,
     setAuthTokens,
+    username,
+    setUsername,
   };
 };
 

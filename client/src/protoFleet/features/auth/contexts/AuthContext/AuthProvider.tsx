@@ -17,10 +17,16 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       expiry: new Date(),
     },
   });
+  const [username, setUsername] = useState<string>(getItem("username") || "");
 
   const handleChangeAuthTokens = (newAuthTokens: AuthTokens) => {
     setAuthTokens(newAuthTokens);
     setItem("accessToken", newAuthTokens.accessToken);
+  };
+
+  const handleChangeUsername = (newUsername: string) => {
+    setUsername(newUsername);
+    setItem("username", newUsername);
   };
 
   return (
@@ -28,6 +34,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       value={{
         authTokens,
         setAuthTokens: handleChangeAuthTokens,
+        username,
+        setUsername: handleChangeUsername,
       }}
     >
       {children}

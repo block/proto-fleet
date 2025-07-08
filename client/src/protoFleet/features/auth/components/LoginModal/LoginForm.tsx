@@ -1,6 +1,8 @@
 import { useCallback, useState } from "react";
 import clsx from "clsx";
 
+import { create } from "@bufbuild/protobuf";
+import { AuthenticateRequestSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { useLogin } from "@/protoFleet/api/useLogin";
 import {
   ids,
@@ -51,12 +53,15 @@ const LoginForm = ({
   const handleContinue = useCallback(() => {
     setIsSubmitting(true);
     login({
-      password: values.password,
+      loginRequest: create(AuthenticateRequestSchema, {
+        username: values.username,
+        password: values.password,
+      }),
       onSuccess,
       onError: () => setApiError("Invalid credentials entered."),
       onFinally: () => setIsSubmitting(false),
     });
-  }, [onSuccess, login, values.password]);
+  }, [login, values.username, values.password, onSuccess]);
 
   const handleEnter = useCallback(() => {
     if (isSubmitting) {
@@ -91,9 +96,9 @@ const LoginForm = ({
         <Input
           id={ids.username}
           label="Username"
-          initValue="admin"
-          disabled
+          initValue={values.username}
           className="mb-4"
+          onChange={handleChange}
           testId="username"
         />
       </div>

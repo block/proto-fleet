@@ -1,6 +1,9 @@
 import { useState } from "react";
+import { create } from "@bufbuild/protobuf";
+import { AuthenticateRequestSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { useLogin } from "@/protoFleet/api/useLogin";
 import { usePassword } from "@/protoFleet/api/usePassword";
+import { useAuthContext } from "@/protoFleet/features/auth/contexts/AuthContext";
 import { Authentication } from "@/shared/components/Setup";
 import {
   pushToast,
@@ -9,9 +12,12 @@ import {
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const AuthenticationSettings = () => {
+  const { username } = useAuthContext();
+
   const { updatePassword } = usePassword();
   const login = useLogin();
   const navigate = useNavigate();
+
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   function submit(currentPassword: string, newPassword: string) {
@@ -20,7 +26,10 @@ const AuthenticationSettings = () => {
       newPassword: newPassword,
       onSuccess: () => {
         login({
-          password: newPassword,
+          loginRequest: create(AuthenticateRequestSchema, {
+            username,
+            password: newPassword,
+          }),
           onFinally: () => {
             pushToast({
               message: "Your password has been updated",
@@ -50,6 +59,7 @@ const AuthenticationSettings = () => {
           setIsSubmitting={setIsSubmitting}
           headline="Update your admin login"
           description="Your admin login is used to manage and make changes to this network’s miners, miner settings, and security configurations."
+          initUsername={username}
         />
       </div>
     </>

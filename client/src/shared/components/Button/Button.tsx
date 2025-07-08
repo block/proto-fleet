@@ -58,8 +58,7 @@ const Button = ({
         },
         // font size
         {
-          "text-emphasis-300": base || compact,
-          "text-emphasis-300 font-extrabold": textOnly,
+          "text-emphasis-300": base || compact || textOnly,
         },
         // padding
         {

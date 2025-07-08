@@ -12,7 +12,7 @@ interface SetPasswordProps {
   onError?: (message: string) => void;
   onFinally?: () => void;
   onSuccess?: () => void;
-  password: CreateAdminLoginRequest["password"];
+  setPasswordRequest: CreateAdminLoginRequest;
 }
 interface UpdatePasswordProps {
   onError?: (message: string) => void;
@@ -23,13 +23,19 @@ interface UpdatePasswordProps {
 }
 
 const usePassword = () => {
-  const { authTokens } = useAuthContext();
+  const { authTokens, setUsername } = useAuthContext();
 
   const setPassword = useCallback(
-    async ({ password, onSuccess, onError, onFinally }: SetPasswordProps) => {
+    async ({
+      setPasswordRequest,
+      onSuccess,
+      onError,
+      onFinally,
+    }: SetPasswordProps) => {
       await onboardingClient
-        .createAdminLogin({ username: "admin", password })
+        .createAdminLogin(setPasswordRequest)
         .then(() => {
+          setUsername(setPasswordRequest.username);
           onSuccess?.();
         })
         .catch((err) => {
@@ -39,7 +45,7 @@ const usePassword = () => {
           onFinally?.();
         });
     },
-    [],
+    [setUsername],
   );
 
   const updatePassword = useCallback(

@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { Success } from "@/shared/assets/icons";
-import Button from "@/shared/components/Button";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
@@ -116,12 +116,16 @@ const PasswordStrengthMeter = ({
 };
 
 type AuthenticationProps = {
-  headline: string;
-  description: string;
+  headline: string | ReactNode;
+  description?: string;
+  initUsername?: string;
+  inputPrefix?: string;
   submit:
-    | ((password: string) => void)
+    | ((password: string, username: string) => void)
     | ((currentPassword: string, newPassword: string) => void);
   isUpdateMode?: boolean;
+  requirePasswordConfirmation?: boolean;
+  buttonClassName?: string;
   isSubmitting: boolean;
   setIsSubmitting: (isSubmitting: boolean) => void;
 };
@@ -129,12 +133,21 @@ type AuthenticationProps = {
 const Authentication = ({
   headline,
   description,
+  inputPrefix,
+  initUsername,
   submit,
   isUpdateMode = false,
+  requirePasswordConfirmation = true,
+  buttonClassName = "ml-auto",
   isSubmitting,
   setIsSubmitting,
 }: AuthenticationProps) => {
-  const [values, setValues] = useState<Values>(deepClone(initValues));
+  const defaultValues = deepClone(initValues);
+  if (initUsername !== undefined) {
+    defaultValues.username = initUsername;
+  }
+  const [values, setValues] = useState<Values>(defaultValues);
+
   const [passwordsMatch, setPasswordsMatch] = useState<boolean>(false);
   const [errors, setErrors] = useState<Values>(deepClone(initErrors));
   const [score, setScore] = useState(0);
@@ -155,7 +168,10 @@ const Authentication = ({
     if (values.password.length === 0) {
       newErrors.password = "A password is required";
     }
-    if (values.confirmPassword !== values.password) {
+    if (
+      requirePasswordConfirmation &&
+      values.confirmPassword !== values.password
+    ) {
       newErrors.confirmPassword = "Passwords do not match";
     }
 
@@ -163,10 +179,11 @@ const Authentication = ({
     return Object.values(newErrors).some((err) => err.length > 0);
   }, [
     values.username,
+    values.currentPassword,
     values.password,
     values.confirmPassword,
-    values.currentPassword,
     isUpdateMode,
+    requirePasswordConfirmation,
   ]);
 
   const handleContinue = useCallback(
@@ -189,7 +206,10 @@ const Authentication = ({
               values.password,
             );
           } else {
-            (submit as (password: string) => void)(values.password);
+            (submit as (password: string, username: string) => void)(
+              values.password,
+              values.username,
+            );
           }
         } catch {
           setIsSubmitting(false);
@@ -203,6 +223,7 @@ const Authentication = ({
       isUpdateMode,
       values.currentPassword,
       values.password,
+      values.username,
       submit,
     ],
   );
@@ -255,8 +276,8 @@ const Authentication = ({
       <Input
         onChange={handleChange}
         id="username"
-        label="Username"
-        disabled
+        label={inputPrefix ? `${inputPrefix} username` : "Username"}
+        disabled={initUsername !== undefined && initUsername !== ""}
         initValue={values.username}
         error={errors.username}
       />
@@ -274,7 +295,7 @@ const Authentication = ({
         <Input
           onChange={handleChange}
           id="password"
-          label="Password"
+          label={inputPrefix ? `${inputPrefix} password` : "Password"}
           type="password"
           initValue={values.password}
           error={errors.password}
@@ -292,19 +313,21 @@ const Authentication = ({
           />
         </div>
       </div>
-      <Input
-        onChange={handleChange}
-        id="confirmPassword"
-        label="Confirm password"
-        type="password"
-        initValue={values.confirmPassword}
-        error={errors.confirmPassword}
-        statusIcon={
-          passwordsMatch ? (
-            <Success className="text-intent-success-fill" />
-          ) : undefined
-        }
-      />
+      {requirePasswordConfirmation && (
+        <Input
+          onChange={handleChange}
+          id="confirmPassword"
+          label="Confirm password"
+          type="password"
+          initValue={values.confirmPassword}
+          error={errors.confirmPassword}
+          statusIcon={
+            passwordsMatch ? (
+              <Success className="text-intent-success-fill" />
+            ) : undefined
+          }
+        />
+      )}
       {showWeakPasswordWarning && !isSubmitting && (
         <WeakPasswordWarning
           onReturn={() => setShowWeakPasswordWarning(false)}
@@ -313,9 +336,9 @@ const Authentication = ({
       )}
       <Button
         onClick={() => handleContinue(false)}
-        className="ml-auto"
-        size="base"
-        variant="primary"
+        className={buttonClassName}
+        size={sizes.base}
+        variant={variants.primary}
         loading={isSubmitting}
       >
         Continue

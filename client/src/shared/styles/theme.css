@@ -16,6 +16,7 @@
   --base_red_100: 250 43 55; /* #FA2B37 */
   --base_white_100: 255 255 255; /* #FFFFFF */
   --base_yellow_100: 253 138 0; /* #FD8A00 */
+  --base_beige_100: 201 201 186; /* #C9C9BA */
   --base_text_accent: 51 18 0; /* #331200 */
   --base_text_accent_contrast: 249 115 42; /* #F9732A ** */
   --base_text_critical: 116 20 13; /* #74140D */
@@ -170,6 +171,7 @@ WOuld be best to switch over to mobile first stying  */
   --color-grayscale-gray-10: rgb(var(--base_black_100) / 10%);
   --color-grayscale-gray-15: rgb(var(--base_black_100) / 15%);
   --color-grayscale-gray-5: rgb(var(--base_black_100) / 5%);
+  --color-landing-page: rgb(var(--base_beige_100) / 50%);
 
   /* Typography */
   --font-*: initial;

@@ -13,7 +13,6 @@ import {
   Uptime,
 } from "@/protoFleet/features/kpis";
 import {
-  AuthenticationPage,
   MinersPage,
   SecurityPage,
   SettingsPage,
@@ -25,7 +24,6 @@ import {
   General,
   MiningPools,
 } from "@/protoFleet/features/settings";
-import Signup from "@/protoFleet/pages/Signup";
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 
 import { Fleet, Home, IconProps, Settings } from "@/shared/assets/icons";
@@ -137,20 +135,8 @@ const routes: Route[] = [
     overrideLayout: true,
   },
   {
-    path: "/signup",
-    element: <Signup />,
-    requireAuth: false,
-    overrideLayout: true,
-  },
-  {
     path: "/welcome",
     element: <WelcomePage />,
-    requireAuth: false,
-    overrideLayout: true,
-  },
-  {
-    path: "/onboarding/auth",
-    element: <AuthenticationPage />,
     requireAuth: false,
     overrideLayout: true,
   },

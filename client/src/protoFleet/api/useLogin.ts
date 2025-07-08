@@ -8,16 +8,16 @@ interface LoginProps {
   onError?: (message: string) => void;
   onFinally?: () => void;
   onSuccess?: (accessToken: string) => void;
-  password: AuthenticateRequest["password"];
+  loginRequest: AuthenticateRequest;
 }
 
 const useLogin = () => {
-  const { setAuthTokens } = useAuthContext();
+  const { setAuthTokens, setUsername } = useAuthContext();
 
   const login = useCallback(
-    async ({ password, onSuccess, onError, onFinally }: LoginProps) => {
+    async ({ loginRequest, onSuccess, onError, onFinally }: LoginProps) => {
       await authClient
-        .authenticate({ username: "admin", password })
+        .authenticate(loginRequest)
         .then((res) => {
           const accessTokenValue = res.token;
           const tokenExpiry = res.tokenExpiry;
@@ -27,6 +27,7 @@ const useLogin = () => {
               expiry: new Date(Number(tokenExpiry) * 1000),
             },
           });
+          setUsername(loginRequest.username);
           onSuccess?.(accessTokenValue);
         })
         .catch((err) => {
@@ -36,7 +37,7 @@ const useLogin = () => {
           onFinally?.();
         });
     },
-    [setAuthTokens],
+    [setAuthTokens, setUsername],
   );
 
   return login;

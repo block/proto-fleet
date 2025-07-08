@@ -75,6 +75,7 @@ const AuthenticationSettings = () => {
         setIsSubmitting={setIsSubmitting}
         headline="Update your admin login"
         description="Your admin login is used to modify performance settings or mining pool configurations for this miner."
+        initUsername="admin"
       />
     </div>
   );

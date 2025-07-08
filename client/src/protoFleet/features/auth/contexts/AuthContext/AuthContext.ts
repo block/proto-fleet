@@ -4,6 +4,8 @@ import { AuthTokens } from "@/protoFleet/features/auth/contexts/AuthContext";
 type AuthContextType = {
   authTokens: AuthTokens;
   setAuthTokens: (tokens: AuthTokens) => void;
+  username: string;
+  setUsername: (username: string) => void;
 };
 
 export const AuthContext = createContext<AuthContextType>({
@@ -12,5 +14,9 @@ export const AuthContext = createContext<AuthContextType>({
   },
   setAuthTokens: (tokens: AuthTokens) => {
     void tokens;
+  },
+  username: "",
+  setUsername: (username: string) => {
+    void username;
   },
 });

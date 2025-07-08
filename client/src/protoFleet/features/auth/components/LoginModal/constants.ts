@@ -5,6 +5,7 @@ export const ids = {
 };
 
 export const initValues = {
+  username: "",
   password: "",
   confirmPassword: "",
 };

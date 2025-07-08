@@ -24,7 +24,7 @@ interface HeaderProps {
   subtitleClassName?: string;
   subtitleSize?: string;
   testId?: string;
-  title?: string;
+  title?: string | ReactNode;
   titleSize?: string;
   eybrow?: string;
   description?: string | ReactNode;

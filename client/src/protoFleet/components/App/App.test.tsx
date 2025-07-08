@@ -102,6 +102,8 @@ describe("App", () => {
             },
           },
           setAuthTokens: vi.fn(),
+          username: "admin",
+          setUsername: vi.fn(),
         }}
       >
         <RouterProvider router={router} />
