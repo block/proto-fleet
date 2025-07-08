@@ -4,12 +4,24 @@ import { StatusCircleProps } from "./types";
 import { ConcentricCircles } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 
-const statusColors = {
-  normal: "intent-success-fill",
-  error: "intent-critical-fill",
-  warning: "intent-warning-fill",
-  inactive: "grayscale-gray-50",
-  pending: "intent-info-fill",
+// This has to be duplicated because the class names have to be complete
+// Otherwise tailwind might not bundle them due to tree shaking and the colors won't work
+const bgStatusColors = {
+  normal: "bg-intent-success-fill",
+  error: "bg-intent-critical-fill",
+  warning: "bg-intent-warning-fill",
+  inactive: "bg-grayscale-gray-50",
+  pending: "bg-intent-info-fill",
+  sleeping: "bg-core-primary-20",
+};
+
+const textStatusColors = {
+  normal: "text-intent-success-fill",
+  error: "text-intent-critical-fill",
+  warning: "text-intent-warning-fill",
+  inactive: "text-grayscale-gray-50",
+  pending: "text-intent-info-fill",
+  sleeping: "text-core-primary-20",
 };
 
 const StatusCircle = ({
@@ -21,10 +33,10 @@ const StatusCircle = ({
 }: StatusCircleProps) => {
   const bgColorClass = isSelected
     ? "bg-intent-info-fill"
-    : `bg-${statusColors[status]}`;
+    : bgStatusColors[status];
   const textColorClass = isSelected
     ? "text-intent-info-fill"
-    : `text-${statusColors[status]}`;
+    : textStatusColors[status];
 
   return (
     <>

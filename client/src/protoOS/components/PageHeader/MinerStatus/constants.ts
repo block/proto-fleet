@@ -88,7 +88,7 @@ const errorDetails = {
     HashboardUnderVoltage: { hb_slot: 1, voltage: 100.0 },
   },
   HashboardUsbConnectionLost: {
-    HashboardUsbConnectionLost: { hb_slot: 1, serial_number: "123" },
+    HashboardUsbConnectionLost: { hb_slot: 1, hb_sn: "123" },
   },
   PoolConnectionLost: {
     PoolConnectionLost: { pool_id: 1, pool_url: "pool.com" },

@@ -133,7 +133,7 @@ export const getErrorMessage = (error?: NotificationError) => {
         message = `Slot ${details.hb_slot} Hashboard does not have enough power at ${details.voltage}mV`;
         break;
       case "HashboardUsbConnectionLost":
-        message = `Slot ${details.hb_slot} Hashboard has lost USB connection. Serial number: ${details.serial_number}`;
+        message = `Slot ${details.hb_slot} Hashboard has lost USB connection. Serial number: ${details.hb_sn}`;
         break;
       case "PoolConnectionLost":
         message = `Your miner has lost connection to pool ${details.pool_url}`;

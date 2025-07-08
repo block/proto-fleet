@@ -2,7 +2,12 @@ import { useMemo } from "react";
 import clsx from "clsx";
 
 import WidgetWrapper from "../WidgetWrapper";
-import { ErrorListResponse, NotificationError } from "@/protoOS/api/types";
+import {
+  ErrorListResponse,
+  MiningStatusMiningstatus,
+  NotificationError,
+} from "@/protoOS/api/types";
+import { isSleeping } from "@/protoOS/components/App/utility";
 import {
   isAsicError,
   isAsicWarning,
@@ -19,20 +24,26 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import StatusCircle, {
   type StatusCircleProps,
 } from "@/shared/components/StatusCircle/";
+import { statuses } from "@/shared/components/StatusCircle/constants";
 import { createOrPredicate } from "@/shared/utils/predicate";
 
 interface MinerStatusWidgetProps {
   errors?: ErrorListResponse;
+  miningStatus?: MiningStatusMiningstatus;
   loading?: boolean;
   onClick: () => void;
 }
 
 const MinerStatusWidget = ({
   errors = [],
+  miningStatus,
   loading = false,
   onClick,
 }: MinerStatusWidgetProps) => {
   const status = useMemo<StatusCircleProps["status"]>(() => {
+    if (isSleeping(miningStatus?.status)) {
+      return statuses.sleeping;
+    }
     if (
       errors.some(
         createOrPredicate<NotificationError>(
@@ -44,7 +55,7 @@ const MinerStatusWidget = ({
         ),
       )
     )
-      return "error";
+      return statuses.error;
     if (
       errors.some(
         createOrPredicate<NotificationError>(
@@ -56,9 +67,9 @@ const MinerStatusWidget = ({
         ),
       )
     )
-      return "warning";
-    return "normal";
-  }, [errors]);
+      return statuses.warning;
+    return statuses.normal;
+  }, [errors, miningStatus]);
 
   return (
     <WidgetWrapper

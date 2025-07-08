@@ -4,6 +4,7 @@ export const statuses = {
   normal: "normal",
   inactive: "inactive",
   pending: "pending",
+  sleeping: "sleeping",
 } as const;
 
 export type StatusCircleStatus = keyof typeof statuses;
