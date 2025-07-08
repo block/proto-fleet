@@ -2,14 +2,12 @@ package pools
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pools/v1"
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 	stratumv1 "github.com/btc-mining/proto-fleet/server/internal/infrastructure/stratum/v1"
 )
@@ -21,14 +19,16 @@ const (
 )
 
 type Service struct {
-	conn *sql.DB
-	cfg  Config
+	poolStore  interfaces.PoolStore
+	transactor interfaces.Transactor
+	cfg        Config
 }
 
-func NewService(db *sql.DB, cfg Config) *Service {
+func NewService(poolStore interfaces.PoolStore, transactor interfaces.Transactor, cfg Config) *Service {
 	return &Service{
-		conn: db,
-		cfg:  cfg,
+		poolStore:  poolStore,
+		transactor: transactor,
+		cfg:        cfg,
 	}
 }
 
@@ -45,11 +45,8 @@ func (s *Service) DeletePool(ctx context.Context, id int64) error {
 		return err
 	}
 
-	return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
-		return q.SoftDeletePool(ctx, sqlc.SoftDeletePoolParams{
-			ID:    id,
-			OrgID: claims.OrgID,
-		})
+	return s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		return s.poolStore.SoftDeletePool(ctx, claims.OrgID, id)
 	})
 }
 
@@ -59,26 +56,33 @@ func (s *Service) UpdatePoolPriority(ctx context.Context, priorities []*pb.PoolP
 		return nil, err
 	}
 
-	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]*pb.Pool, error) {
+	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		var pools []*pb.Pool
 		for _, p := range priorities {
-			err := q.UpdatePoolPriority(ctx, sqlc.UpdatePoolPriorityParams{
-				OrgID:        claims.OrgID,
-				ID:           p.PoolId,
-				PoolPriority: p.Priority,
-			})
+			err := s.poolStore.UpdatePoolPriority(ctx, claims.OrgID, p.PoolId, p.Priority)
 			if err != nil {
-				return nil, fleeterror.NewInternalErrorf("error getting number of paired devices: %v", err)
+				return nil, fleeterror.NewInternalErrorf("error updating pool priority: %v", err)
 			}
-			pool, err := q.GetPool(ctx, sqlc.GetPoolParams{OrgID: claims.OrgID, ID: p.PoolId})
+
+			pool, err := s.poolStore.GetPool(ctx, claims.OrgID, p.PoolId)
 			if err != nil {
 				return nil, fleeterror.NewInternalErrorf("failed to get pool: %v", err)
 			}
-			poolDto := toPoolDto(&pool)
-			pools = append(pools, poolDto)
+
+			pools = append(pools, pool)
 		}
 		return pools, nil
 	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	pools, ok := result.([]*pb.Pool)
+	if !ok {
+		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
+	}
+	return pools, nil
 }
 
 func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.Pool, error) {
@@ -87,54 +91,39 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 		return nil, err
 	}
 
-	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (*pb.Pool, error) {
-		pool, err := q.GetPool(ctx, sqlc.GetPoolParams{
-			OrgID: claims.OrgID,
-			ID:    r.PoolId,
-		})
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to get pool: %v", err)
-		}
-		if r.PoolName != "" {
-			pool.PoolName = r.PoolName
-		}
+	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
+		// If setting as default, unset any other default pool first
 		if r.IsDefault {
-			pool.IsDefault = sql.NullBool{Bool: r.IsDefault, Valid: true}
-			// unset any other default pool
-			err := q.UnsetDefaultPool(ctx, sqlc.UnsetDefaultPoolParams{
-				OrgID:     claims.OrgID,
-				UpdatedAt: time.Now(),
-			})
+			err := s.poolStore.UnsetDefaultPool(ctx, claims.OrgID)
 			if err != nil {
-				return nil, fleeterror.NewInternalErrorf("failed to unser default pool: %v", err)
+				return nil, fleeterror.NewInternalErrorf("failed to unset default pool: %v", err)
 			}
 		}
-		if r.Url != "" {
-			pool.Url = r.Url
-		}
-		if r.Username != "" {
-			pool.Username = r.Username
-		}
-		if r.Password != nil {
-			// TODO encrypt password
-			pool.PasswordEnc = r.Password.Value
-		}
-		err = q.UpdatePool(ctx, sqlc.UpdatePoolParams{
-			PoolName:     pool.PoolName,
-			Url:          pool.Url,
-			Username:     pool.Username,
-			PoolPriority: pool.PoolPriority,
-			PoolStatus:   pool.PoolStatus,
-			IsDefault:    pool.IsDefault,
-			UpdatedAt:    time.Now(),
-			OrgID:        claims.OrgID,
-			ID:           pool.ID,
-		})
+
+		// Update the pool
+		err := s.poolStore.UpdatePool(ctx, r, claims.OrgID)
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to update pool: %v", err)
 		}
-		return toPoolDto(&pool), nil
+
+		// Get the updated pool
+		updatedPool, err := s.poolStore.GetPool(ctx, claims.OrgID, r.PoolId)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to get updated pool: %v", err)
+		}
+
+		return updatedPool, nil
 	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	updatedPool, ok := result.(*pb.Pool)
+	if !ok {
+		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
+	}
+	return updatedPool, nil
 }
 
 func (s *Service) CreatePool(ctx context.Context, r *pb.PoolConfig) (*pb.Pool, error) {
@@ -143,47 +132,36 @@ func (s *Service) CreatePool(ctx context.Context, r *pb.PoolConfig) (*pb.Pool, e
 		return nil, err
 	}
 
-	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (*pb.Pool, error) {
-		pools, err := q.ListPools(ctx, claims.OrgID)
-
+	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
+		totalPools, err := s.poolStore.GetTotalPools(ctx, claims.OrgID)
 		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("error getting list of pools for org_id: %d: %v", claims.OrgID, err)
+			return nil, err
 		}
-		password := ""
-		if r.Password != nil {
-			// TODO encrypt password
-			password = r.Password.Value
-		}
-		result, err := q.CreatePool(ctx, sqlc.CreatePoolParams{
-			PoolName:     r.PoolName,
-			Url:          r.Url,
-			Username:     r.Username,
-			PasswordEnc:  password,
-			PoolStatus:   sqlc.PoolPoolStatusUNKNOWN,
-			PoolPriority: defaultPoolPriority,
-			IsDefault:    sql.NullBool{Valid: true, Bool: len(pools) == 0},
-			CreatedAt:    time.Now(),
 
-			OrgID: claims.OrgID,
-		})
+		isDefault := totalPools == 0
 
+		poolID, err := s.poolStore.CreatePool(ctx, r, claims.OrgID, defaultPoolPriority, isDefault)
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("error saving pool for org_id: %d, pool_name: %s: %v", claims.OrgID, r.PoolName, err)
 		}
-		poolID, err := result.LastInsertId()
 
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("error getting id of created pool for org_id: %d, pool_name: %s: %v", claims.OrgID, r.PoolName, err)
-		}
-		pool, err := q.GetPool(ctx, sqlc.GetPoolParams{
-			OrgID: claims.OrgID,
-			ID:    poolID,
-		})
+		pool, err := s.poolStore.GetPool(ctx, claims.OrgID, poolID)
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("error getting created pool for org_id: %d, pool_id: %d: %v", claims.OrgID, poolID, err)
 		}
-		return toPoolDto(&pool), nil
+
+		return pool, nil
 	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	pool, ok := result.(*pb.Pool)
+	if !ok {
+		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
+	}
+	return pool, nil
 }
 
 func (s *Service) ListPools(ctx context.Context) ([]*pb.Pool, error) {
@@ -192,62 +170,12 @@ func (s *Service) ListPools(ctx context.Context) ([]*pb.Pool, error) {
 		return nil, err
 	}
 
-	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]*pb.Pool, error) {
-		result, err := q.ListPools(ctx, claims.OrgID)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("error listing pools : %v", err)
-		}
-		var pools []*pb.Pool
-		for _, p := range result {
-			poolDto := toPoolDto(&p)
-			pools = append(pools, poolDto)
-		}
-		return pools, nil
-	})
-}
-
-func toPoolDto(pool *sqlc.Pool) *pb.Pool {
-	return &pb.Pool{
-		PoolId:       pool.ID,
-		PoolName:     pool.PoolName,
-		Url:          pool.Url,
-		Username:     pool.Username,
-		PoolPriority: pool.PoolPriority,
-		PoolStatus:   convertToProtoStatus(pool.PoolStatus),
-		IsDefault:    pool.IsDefault.Valid && pool.IsDefault.Bool,
+	pools, err := s.poolStore.ListPools(ctx, claims.OrgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error listing pools: %v", err)
 	}
-}
 
-// Convert internal status to proto status
-func convertToProtoStatus(status sqlc.PoolPoolStatus) pb.PoolConnectionStatus {
-	switch status {
-	case sqlc.PoolPoolStatusUNKNOWN:
-		return pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_UNSPECIFIED
-	case sqlc.PoolPoolStatusIDLE:
-		return pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_IDLE
-	case sqlc.PoolPoolStatusACTIVE:
-		return pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_ACTIVE
-	case sqlc.PoolPoolStatusDEAD:
-		return pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_DEAD
-	default:
-		return pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_UNSPECIFIED
-	}
-}
-
-// Convert proto status to internal status
-func convertFromProtoStatus(status pb.PoolConnectionStatus) sqlc.PoolPoolStatus {
-	switch status {
-	case pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_UNSPECIFIED:
-		return sqlc.PoolPoolStatusUNKNOWN
-	case pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_IDLE:
-		return sqlc.PoolPoolStatusIDLE
-	case pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_ACTIVE:
-		return sqlc.PoolPoolStatusACTIVE
-	case pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_DEAD:
-		return sqlc.PoolPoolStatusDEAD
-	default:
-		return sqlc.PoolPoolStatusUNKNOWN
-	}
+	return pools, nil
 }
 
 // ValidateConnection the connection to a pool server.

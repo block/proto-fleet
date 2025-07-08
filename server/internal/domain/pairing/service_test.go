@@ -76,7 +76,8 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 
 	pairingService := pairing.NewService(
 		discoveredDeviceStore,
-		testContext.ServiceProvider.DB,
+		deviceStore,
+		transactor,
 		tokenService,
 		discoveryService,
 		protoPairer,
@@ -607,11 +608,14 @@ func TestPairDevices(t *testing.T) {
 		// Create a service with no pairers registered
 		tokenService := testContext.ServiceProvider.TokenService
 		discoveryService, _ := minerdiscovery.NewService()
-		deviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
+		discoveredDeviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
+		transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+		deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
 
 		pairingService := pairing.NewService(
+			discoveredDeviceStore,
 			deviceStore,
-			testContext.ServiceProvider.DB,
+			transactor,
 			tokenService,
 			discoveryService,
 			// No pairers registered

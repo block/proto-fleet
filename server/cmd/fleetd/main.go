@@ -99,6 +99,9 @@ func start(config *Config) error {
 	}
 
 	transactor := sqlstores.NewSQLTransactor(conn)
+	userStore := sqlstores.NewSQLUserStore(conn)
+	poolStore := sqlstores.NewSQLPoolStore(conn)
+	deviceStore := sqlstores.NewSQLDeviceStore(conn)
 
 	// initialize domain services
 	tokenSvc, err := tokenDomain.NewService(config.Auth)
@@ -109,7 +112,7 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
-	authSvc := authDomain.NewService(conn, tokenSvc, encryptSvc)
+	authSvc := authDomain.NewService(userStore, transactor, tokenSvc, encryptSvc)
 	protoDiscoverer := protoDiscoverer.NewDiscoverer()
 	antminerDiscoverer := antminerDiscoverer.NewDiscoverer(antminerRPC.NewService())
 	discoveryService, err := minerdiscovery.NewService(protoDiscoverer, antminerDiscoverer)
@@ -117,14 +120,14 @@ func start(config *Config) error {
 		return err
 	}
 	discoveredDeviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
-	deviceStore := sqlstores.NewSQLDeviceStore(conn)
 
 	protoPairer := pairingProto.NewService(transactor, deviceStore, config.Pairing)
 	antminerPairer := pairingAntminer.NewService(transactor, deviceStore, encryptSvc, antminerWeb.NewService())
 
 	pairingSvc := pairingDomain.NewService(
 		discoveredDeviceStore,
-		conn,
+		deviceStore,
+		transactor,
 		tokenSvc,
 		discoveryService,
 		protoPairer,
@@ -140,8 +143,8 @@ func start(config *Config) error {
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService)
-	onboardingSvc := onboardingDomain.NewService(conn)
-	poolsSvc := poolsDomain.NewService(conn, config.Pools)
+	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore)
+	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools)
 
 	// init middleware
 	middlewares := []server.Middleware{

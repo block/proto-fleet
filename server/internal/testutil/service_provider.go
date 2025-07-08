@@ -44,7 +44,13 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	encryptService, err := encrypt.NewService(&encryptConfig)
 	assert.NoError(t, err)
 
-	authService := auth.NewService(db, tokenService, encryptService)
+	// Initialize stores
+	transactor := sqlstores.NewSQLTransactor(db)
+	userStore := sqlstores.NewSQLUserStore(db)
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	poolStore := sqlstores.NewSQLPoolStore(db)
+
+	authService := auth.NewService(userStore, transactor, tokenService, encryptService)
 
 	pairingConfig := pairing.Config{SecretKey: config.PairingSecretKey}
 
@@ -54,13 +60,10 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 
 	discoveredDeviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
 
-	transactor := sqlstores.NewSQLTransactor(db)
-	deviceStore := sqlstores.NewSQLDeviceStore(db)
-
 	protoPairer := pairingProto.NewService(transactor, deviceStore, pairingConfig)
 	antminerPairer := pairingAntminer.NewService(transactor, deviceStore, encryptService, antminerWeb.NewService())
 
-	pairingService := pairing.NewService(discoveredDeviceStore, db, tokenService, minerDiscoveryService, protoPairer, antminerPairer)
+	pairingService := pairing.NewService(discoveredDeviceStore, deviceStore, transactor, tokenService, minerDiscoveryService, protoPairer, antminerPairer)
 
 	commandConfig := &command.Config{MaxWorkers: 50, MasterPollingInterval: time.Second, WorkerExecutionTimeout: 30 * time.Second, BatchStatusUpdatePollingInterval: time.Second}
 
@@ -73,7 +76,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	statusService := command.NewStatusService(db, dbMessageQueue)
 	commandService := command.NewService(commandConfig, db, executionService, dbMessageQueue, statusService)
 
-	onboardingService := onboarding.NewService(db)
+	onboardingService := onboarding.NewService(deviceStore, poolStore)
 
 	return &ServiceProvider{
 		DB:                     db,

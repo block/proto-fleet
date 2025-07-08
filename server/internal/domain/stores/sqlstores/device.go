@@ -6,6 +6,7 @@ import (
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
@@ -13,18 +14,17 @@ import (
 var _ stores.DeviceStore = &SQLDeviceStore{}
 
 type SQLDeviceStore struct {
-	conn *sql.DB
+	SQLConnectionManager
 }
 
 func NewSQLDeviceStore(conn *sql.DB) *SQLDeviceStore {
-	return &SQLDeviceStore{conn: conn}
+	return &SQLDeviceStore{
+		SQLConnectionManager: NewSQLConnectionManager(conn),
+	}
 }
 
 func (s *SQLDeviceStore) getQueries(ctx context.Context) *sqlc.Queries {
-	if q, ok := ctx.Value(txContextKey{}).(*sqlc.Queries); ok && q != nil {
-		return q
-	}
-	return sqlc.New(s.conn)
+	return s.GetQueries(ctx)
 }
 
 func (s *SQLDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identifier string, orgID int64) (*pb.Device, error) {
@@ -129,14 +129,14 @@ func (s *SQLDeviceStore) UpsertDevicePairing(ctx context.Context, device *pb.Dev
 }
 
 func (s *SQLDeviceStore) GetMinerCredentials(ctx context.Context, device *pb.Device, orgID int64) (*pb.Credentials, error) {
-	dbDevice, err := s.getQueries(ctx).GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
+	dbDevice, err := s.GetQueries(ctx).GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
 		DeviceIdentifier: device.DeviceIdentifier,
 		OrgID:            orgID,
 	})
 	if err != nil {
 		return nil, err
 	}
-	credentials, err := s.getQueries(ctx).GetMinerCredentialsByDeviceID(ctx, dbDevice.ID)
+	credentials, err := s.GetQueries(ctx).GetMinerCredentialsByDeviceID(ctx, dbDevice.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -144,4 +144,40 @@ func (s *SQLDeviceStore) GetMinerCredentials(ctx context.Context, device *pb.Dev
 		Username: credentials.UsernameEnc,
 		Password: &credentials.PasswordEnc,
 	}, nil
+}
+
+func (s *SQLDeviceStore) GetDeviceWithIPAssignment(ctx context.Context, deviceIdentifier string, orgID int64) (*minerdiscovery.DiscoveredDevice, error) {
+	q := s.GetQueries(ctx)
+
+	device, err := q.GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
+		DeviceIdentifier: deviceIdentifier,
+		OrgID:            orgID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the IP assignment for this device
+	ipAssignment, err := q.GetActiveDeviceIPAssignmentByDeviceID(ctx, device.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &minerdiscovery.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: device.DeviceIdentifier,
+			MacAddress:       device.MacAddress,
+			SerialNumber:     device.SerialNumber.String,
+			Model:            device.Model.String,
+			Manufacturer:     device.Manufacturer.String,
+			IpAddress:        ipAssignment.IpAddress,
+			Port:             ipAssignment.Port,
+		},
+		OrgID: orgID,
+		Type:  device.Type,
+	}, nil
+}
+
+func (s *SQLDeviceStore) GetTotalPairedDevices(ctx context.Context) (int64, error) {
+	return s.GetQueries(ctx).GetTotalPairedDevices(ctx)
 }

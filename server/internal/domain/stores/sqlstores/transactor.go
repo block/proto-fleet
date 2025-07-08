@@ -9,10 +9,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 )
 
-// txContextKey is the key type for storing *sqlc.Queries in context
-// We use this to ensure all repo calls share the same transaction when present.
-type txContextKey struct{}
-
 // withTx returns a new context that carries the given *sqlc.Queries
 func withTx(ctx context.Context, q *sqlc.Queries) context.Context {
 	return context.WithValue(ctx, txContextKey{}, q)
@@ -21,11 +17,13 @@ func withTx(ctx context.Context, q *sqlc.Queries) context.Context {
 var _ interfaces.Transactor = &SQLTransactor{}
 
 type SQLTransactor struct {
-	conn *sql.DB
+	SQLConnectionManager
 }
 
 func NewSQLTransactor(conn *sql.DB) *SQLTransactor {
-	return &SQLTransactor{conn: conn}
+	return &SQLTransactor{
+		SQLConnectionManager: NewSQLConnectionManager(conn),
+	}
 }
 
 func (f *SQLTransactor) RunInTx(ctx context.Context, action func(ctx context.Context) error) error {
@@ -37,7 +35,7 @@ func (f *SQLTransactor) RunInTx(ctx context.Context, action func(ctx context.Con
 }
 
 func (f *SQLTransactor) RunInTxWithResult(ctx context.Context, action func(ctx context.Context) (any, error)) (any, error) {
-	if _, ok := ctx.Value(txContextKey{}).(*sqlc.Queries); ok {
+	if f.GetTxQueries(ctx) != nil {
 		// If the context already has a transaction, just use the existing context
 		return action(ctx)
 	}

@@ -2,10 +2,9 @@ package auth
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
+
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
-	"time"
 
 	"connectrpc.com/connect"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
@@ -13,64 +12,60 @@ import (
 
 	authv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1"
 	onboardingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1"
+	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
-
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"golang.org/x/crypto/bcrypt"
 )
 
 const AdminRoleName = "SUPER_ADMIN"
 
 type Service struct {
-	conn       *sql.DB
+	userStore  stores.UserStore
+	transactor stores.Transactor
 	tokenSvc   *token.Service
 	encryptSvc *encrypt.Service
 }
 
-func NewService(conn *sql.DB, tokenSvc *token.Service, encryptSvc *encrypt.Service) *Service {
+func NewService(
+	userStore stores.UserStore,
+	transactor stores.Transactor,
+	tokenSvc *token.Service,
+	encryptSvc *encrypt.Service,
+) *Service {
 	return &Service{
+		userStore:  userStore,
+		transactor: transactor,
 		tokenSvc:   tokenSvc,
-		conn:       conn,
 		encryptSvc: encryptSvc,
 	}
 }
 
 func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.AuthenticateRequest) (*authv1.AuthenticateResponse, error) {
-	type UserOrgResult struct {
-		User sqlc.User
-		Org  sqlc.Organization
+	user, err := s.userStore.GetUserByUsername(ctx, req.Username)
+	if err != nil {
+		return nil, newAuthenticationFailedError()
 	}
-	result, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (UserOrgResult, error) {
-		u, err := q.GetUserByUsername(ctx, req.Username)
-		if err != nil {
-			return UserOrgResult{}, newAuthenticationFailedError()
-		}
-		o, err := q.GetOrganizationsForUser(ctx, u.ID)
-		if err != nil {
-			return UserOrgResult{}, fleeterror.NewInternalErrorf("error listing user orgs: %v", err)
-		}
-		if len(o) != 1 {
-			return UserOrgResult{}, fleeterror.NewInternalErrorf("user should belong to exactly 1 org: was: %d", len(o))
-		}
-		return UserOrgResult{
-			User: u,
-			Org:  o[0],
-		}, nil
-	})
+
+	orgs, err := s.userStore.GetOrganizationsForUser(ctx, user.ID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error listing user orgs: %v", err)
+	}
+
+	if len(orgs) != 1 {
+		return nil, fleeterror.NewInternalErrorf("user should belong to exactly 1 org: was: %d", len(orgs))
+	}
+
+	// Compare hashed passwords
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		return nil, newAuthenticationFailedError()
+	}
+
+	// Generate and return JWT authToken
+	authToken, exp, err := s.tokenSvc.GenerateClientAuthJWT(user.ID, orgs[0].ID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Compare hashed passwords
-	if err := bcrypt.CompareHashAndPassword([]byte(result.User.PasswordHash), []byte(req.Password)); err != nil {
-		return nil, newAuthenticationFailedError()
-	}
-	// Generate and return JWT authToken
-	authToken, exp, err := s.tokenSvc.GenerateClientAuthJWT(result.User.ID, result.Org.ID)
-	if err != nil {
-		return nil, err
-	}
 	return &authv1.AuthenticateResponse{
 		Token:       authToken,
 		TokenExpiry: exp,
@@ -104,77 +99,34 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 	externalOrgID := id.GenerateID()
 	orgName := generateDefaultOrgName(externalOrgID)
 
-	err = db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
-		// create user
-		result, err := q.CreateUser(ctx, sqlc.CreateUserParams{
-			UserID:       externalUserID,
-			Username:     req.Username,
-			PasswordHash: string(hashedPassword),
-			CreatedAt:    time.Now(),
-		})
-		if err != nil {
-			return fleeterror.NewInternalErrorf("error creating user: %v", err)
-		}
-		userInternalID, err := result.LastInsertId()
-		if err != nil {
-			return fleeterror.NewInternalErrorf("error creating user: %v", err)
-		}
+	minerAuthPrivateKey, err := s.tokenSvc.CreateMinerAuthPrivateKeyForOrganization()
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error creating miner auth private key: %v", err)
+	}
 
-		minerAuthPrivateKey, err := s.tokenSvc.CreateMinerAuthPrivateKeyForOrganization()
-		if err != nil {
-			return fleeterror.NewInternalErrorf("error creating miner auth private key: %v", err)
-		}
-		encryptedMinerAuthPrivateKey, err := s.encryptSvc.Encrypt(minerAuthPrivateKey)
-		if err != nil {
-			return fleeterror.NewInternalErrorf("error encrypting miner auth private key: %v", err)
-		}
-		// create organization
-		orgResult, err := q.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-			Name:                orgName,
-			OrgID:               externalOrgID,
-			MinerAuthPrivateKey: encryptedMinerAuthPrivateKey,
-		})
-		if err != nil {
-			return fleeterror.NewInternalErrorf("error creating org: %v", err)
-		}
-		orgID, err := orgResult.LastInsertId()
-		if err != nil {
-			return fleeterror.NewInternalErrorf("error fetching org id: %v", err)
-		}
+	encryptedMinerAuthPrivateKey, err := s.encryptSvc.Encrypt(minerAuthPrivateKey)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error encrypting miner auth private key: %v", err)
+	}
 
-		// create role
-		roleResult, err := q.UpsertRole(ctx, sqlc.UpsertRoleParams{
-			Name: AdminRoleName,
-			Description: sql.NullString{
-				String: "Super admin role",
-				Valid:  true,
-			},
-		})
-		if err != nil {
-			return fleeterror.NewInternalErrorf("error creating role: %v", err)
-		}
-		roleID, err := roleResult.LastInsertId()
-		if err != nil {
-			return fleeterror.NewInternalErrorf("error fetching role id: %v", err)
-		}
-
-		// associate user with organization and role
-		err = q.CreateUserOrganization(ctx, sqlc.CreateUserOrganizationParams{
-			UserID:         userInternalID,
-			RoleID:         roleID,
-			OrganizationID: orgID,
-		})
-
-		if err != nil {
-			return fleeterror.NewInternalErrorf("error creating org: %v", err)
-		}
-
-		return nil
+	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		return s.userStore.CreateAdminUserWithOrganization(
+			ctx,
+			externalUserID,
+			req.Username,
+			string(hashedPassword),
+			orgName,
+			externalOrgID,
+			encryptedMinerAuthPrivateKey,
+			AdminRoleName,
+			"Super admin role",
+		)
 	})
 
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error associating user with org and role: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error creating admin user: %v", err)
 	}
+
 	return &onboardingv1.CreateAdminLoginResponse{
 		UserId: externalUserID,
 	}, nil
@@ -186,8 +138,8 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 		return err
 	}
 
-	return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
-		user, err := q.GetUserById(ctx, claims.UserID)
+	return s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		user, err := s.userStore.GetUserByID(ctx, claims.UserID)
 		if err != nil {
 			return fleeterror.NewForbiddenErrorf("error getting user by id, user_id: %d, error: %v", claims.UserID, err)
 		}
@@ -214,13 +166,10 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 			return fleeterror.NewInternalErrorf("error generating hash of new password for user_id: %d, because: %v", claims.UserID, err)
 		}
 
-		if err = q.UpdateUserPassword(ctx, sqlc.UpdateUserPasswordParams{
-			ID:           user.ID,
-			PasswordHash: string(hashedPassword),
-			UpdatedAt:    time.Now(),
-		}); err != nil {
+		if err = s.userStore.UpdateUserPassword(ctx, user.ID, string(hashedPassword)); err != nil {
 			return fleeterror.NewInternalErrorf("error updating password for user_id: %d, because: %v", claims.UserID, err)
 		}
+
 		return nil
 	})
 }

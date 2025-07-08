@@ -2,7 +2,6 @@ package pairing
 
 import (
 	"context"
-	"database/sql"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -15,12 +14,10 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
-
+	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	id "github.com/btc-mining/proto-fleet/server/internal/infrastructure/id"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 
@@ -31,7 +28,8 @@ import (
 // Service handles the core device discovery functionality
 type Service struct {
 	discoveredDeviceStore minerdiscovery.DiscoveredDeviceStore
-	conn                  *sql.DB
+	deviceStore           interfaces.DeviceStore
+	transactor            interfaces.Transactor
 	tokenService          *tokenDomain.Service
 	minerDiscoveryService *minerdiscovery.Service
 	pairers               map[models.Type]Pairer
@@ -39,7 +37,8 @@ type Service struct {
 
 func NewService(
 	discoveredDeviceStore minerdiscovery.DiscoveredDeviceStore,
-	conn *sql.DB,
+	deviceStore interfaces.DeviceStore,
+	transactor interfaces.Transactor,
 	tokenService *tokenDomain.Service,
 	minerDiscoveryService *minerdiscovery.Service,
 	pairers ...Pairer,
@@ -51,7 +50,8 @@ func NewService(
 
 	return &Service{
 		discoveredDeviceStore: discoveredDeviceStore,
-		conn:                  conn,
+		deviceStore:           deviceStore,
+		transactor:            transactor,
 		tokenService:          tokenService,
 		minerDiscoveryService: minerDiscoveryService,
 		pairers:               pairersMap,
@@ -355,7 +355,7 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 		return nil, err
 	}
 
-	err = db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
+	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Create pairing records for each device
 		for _, deviceID := range r.DeviceIdentifiers {
 			orgDeviceID := minerdiscovery.DeviceOrgIdentifier{
@@ -368,9 +368,9 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 
 			// If device not in store, try database
 			if errors.Is(err, minerdiscovery.MinerNotFoundFleetError) {
-				discoveredDevice, err = fetchDiscoveredDeviceFromDB(ctx, q, claims.OrgID, deviceID)
+				discoveredDevice, err = s.deviceStore.GetDeviceWithIPAssignment(ctx, deviceID, claims.OrgID)
 				if err != nil {
-					return err
+					return fleeterror.NewInternalErrorf("failed to get device with device_identifier=%s: %v", deviceID, err)
 				}
 			} else if err != nil {
 				return fleeterror.NewInternalErrorf("error getting device from store: %v", err)
@@ -402,34 +402,4 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 		return nil, err
 	}
 	return &pb.PairResponse{}, nil
-}
-
-func fetchDiscoveredDeviceFromDB(ctx context.Context, q *sqlc.Queries, orgID int64, deviceID string) (*minerdiscovery.DiscoveredDevice, error) {
-	device, err := q.GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
-		DeviceIdentifier: deviceID,
-		OrgID:            orgID,
-	})
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get device with device_identifier=%s: %v", deviceID, err)
-	}
-
-	// Get the IP assignment for this device
-	ipAssignment, err := q.GetActiveDeviceIPAssignmentByDeviceID(ctx, device.ID)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get active device IP assignment: %v", err)
-	}
-
-	return &minerdiscovery.DiscoveredDevice{
-		Device: pb.Device{
-			DeviceIdentifier: device.DeviceIdentifier,
-			MacAddress:       device.MacAddress,
-			SerialNumber:     device.SerialNumber.String,
-			Model:            device.Model.String,
-			Manufacturer:     device.Manufacturer.String,
-			IpAddress:        ipAssignment.IpAddress,
-			Port:             ipAssignment.Port,
-		},
-		OrgID: orgID,
-		Type:  device.Type,
-	}, nil
 }

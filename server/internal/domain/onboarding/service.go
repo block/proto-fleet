@@ -2,22 +2,22 @@ package onboarding
 
 import (
 	"context"
-	"database/sql"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1"
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 )
 
 type Service struct {
-	conn *sql.DB
+	deviceStore interfaces.DeviceStore
+	poolStore   interfaces.PoolStore
 }
 
-func NewService(conn *sql.DB) *Service {
+func NewService(deviceStore interfaces.DeviceStore, poolStore interfaces.PoolStore) *Service {
 	return &Service{
-		conn: conn,
+		deviceStore: deviceStore,
+		poolStore:   poolStore,
 	}
 }
 
@@ -27,21 +27,19 @@ func (s *Service) GetFleetOnboardingStatus(ctx context.Context) (*pb.FleetOnboar
 		return nil, err
 	}
 
-	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (*pb.FleetOnboardingStatus, error) {
-		totalPairedDevices, err := q.GetTotalPairedDevices(ctx)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("error getting number of paired devices: %v", err)
-		}
+	totalPairedDevices, err := s.deviceStore.GetTotalPairedDevices(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting number of paired devices: %v", err)
+	}
 
-		totalPools, err := q.GetTotalPools(ctx, claims.OrgID)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("error getting number of configured pools: %v", err)
-		}
+	totalPools, err := s.poolStore.GetTotalPools(ctx, claims.OrgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting number of configured pools: %v", err)
+	}
 
-		return &pb.FleetOnboardingStatus{
-			NetworkConfigured: false,
-			PoolConfigured:    totalPools > 0,
-			DevicePaired:      totalPairedDevices > 0,
-		}, nil
-	})
+	return &pb.FleetOnboardingStatus{
+		NetworkConfigured: false,
+		PoolConfigured:    totalPools > 0,
+		DevicePaired:      totalPairedDevices > 0,
+	}, nil
 }

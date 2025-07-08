@@ -1,8 +1,9 @@
 package models
 
 import (
-	minerModels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"time"
+
+	minerModels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 )
 
 // DeviceID is a type alias for backward compatibility - no breaking changes
