@@ -290,6 +290,7 @@ else
 fi
 
 echo "Starting services..."
+docker-compose -f "$COMPOSE_FILE" build --no-cache || { echo "Error: Build failed. Exiting."; exit 1; }
 docker-compose -f "$COMPOSE_FILE" up -d
 
 # Check if docker-compose was successful
