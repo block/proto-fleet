@@ -31,7 +31,6 @@ WORKDIR /app
 # Copy the binary from builder and set permissions
 COPY --from=builder /go/bin/dlv /app/dlv
 COPY --from=builder /app/out/fleetd /app/fleetd
-COPY --from=builder /app/static /app/static
 
 RUN chmod 755 /app/fleetd
 
