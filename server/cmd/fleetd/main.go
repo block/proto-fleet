@@ -9,8 +9,6 @@ import (
 	"strings"
 
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/health"
-	"github.com/btc-mining/proto-fleet/server/internal/handlers/static"
-
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
 
 	"connectrpc.com/connect"
@@ -169,7 +167,6 @@ func start(config *Config) error {
 	// setup rpc handlers
 	mux := http.NewServeMux()
 
-	mux.Handle("/", static.NewHandler(config.HTTP.StaticAssetPath))
 	mux.HandleFunc("/health", health.NewHandler())
 
 	if len(reflectEnabledServices) != 0 {
