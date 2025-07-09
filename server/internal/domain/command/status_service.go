@@ -78,6 +78,10 @@ func (ss *StatusService) StreamCommandBatchUpdates(ctx context.Context, batchIde
 					return
 				case channel <- resp:
 				}
+
+				if statusAndCount.Status == sqlc.CommandBatchLogStatusFINISHED {
+					return
+				}
 			}
 		}
 	}()

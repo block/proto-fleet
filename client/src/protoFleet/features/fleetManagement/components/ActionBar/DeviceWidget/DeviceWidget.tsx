@@ -5,7 +5,10 @@ import { BulkAction } from "../types";
 import { DeviceAction, deviceActions } from "./constants";
 import {
   StartMiningRequestSchema,
+  StartMiningResponse,
   StopMiningRequestSchema,
+  StopMiningResponse,
+  StreamCommandBatchUpdatesRequestSchema,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import {
@@ -32,7 +35,8 @@ interface DeviceWidgetProps {
 }
 
 const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
-  const { startMining, stopMining } = useMinerCommand();
+  const { startMining, stopMining, streamCommandBatchUpdates } =
+    useMinerCommand();
 
   const [currentAction, setCurrentAction] = useState<DeviceAction | null>(null);
 
@@ -181,19 +185,21 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
     ] as BulkAction<DeviceAction>[];
   }, [numberOfMiners, setHidden]);
 
+  const minersMessage = "miners";
+
   const loadingMessages = {
-    [deviceActions.factoryReset]: "Resetting miners",
-    [deviceActions.reboot]: "Rebooting miners",
-    [deviceActions.shutdown]: "Shutting down miners",
-    [deviceActions.wakeUp]: "Waking up miners",
+    [deviceActions.factoryReset]: "Resetting",
+    [deviceActions.reboot]: "Rebooting",
+    [deviceActions.shutdown]: "Shutting down",
+    [deviceActions.wakeUp]: "Waking up",
   };
   const successMessages = {
-    [deviceActions.factoryReset]: "Reset miners",
-    [deviceActions.reboot]: "Rebooted miners",
-    [deviceActions.shutdown]: "Shut down miners",
-    [deviceActions.wakeUp]: "Woke up miners",
+    [deviceActions.factoryReset]: "Reset",
+    [deviceActions.reboot]: "Rebooted",
+    [deviceActions.shutdown]: "Shut down",
+    [deviceActions.wakeUp]: "Woke up",
   };
-  const handleConfirmation = () => {
+  const handleConfirmation = async () => {
     setHidden(false);
     if (
       currentAction === null ||
@@ -203,7 +209,7 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
       return;
 
     const id = pushToast({
-      message: loadingMessages[currentAction],
+      message: `${loadingMessages[currentAction]} ${minersMessage}`,
       status: TOAST_STATUSES.loading,
       longRunning: true,
     });
@@ -216,7 +222,8 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
         });
         stopMining({
           stopMiningRequest: stopMiningRequest,
-          onSuccess: () => handleSuccess(deviceActions.shutdown, id),
+          onSuccess: (value: StopMiningResponse) =>
+            handleSuccess(deviceActions.shutdown, id, value.batchIdentifier),
           onError: handleError.bind(this, id),
         });
         break;
@@ -227,7 +234,8 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
         });
         startMining({
           startMiningRequest: startMiningRequest,
-          onSuccess: () => handleSuccess(deviceActions.wakeUp, id),
+          onSuccess: (value: StartMiningResponse) =>
+            handleSuccess(deviceActions.wakeUp, id, value.batchIdentifier),
           onError: handleError.bind(this, id),
         });
         break;
@@ -236,16 +244,61 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
     setCurrentAction(null);
   };
 
-  const handleSuccess = (action: DeviceAction, originalToastId: number) => {
+  const handleSuccess = (
+    action: DeviceAction,
+    originalToastId: number,
+    batchIdentifier: string,
+  ) => {
     if (
       action === deviceActions.blinkLEDs ||
       action === deviceActions.downloadLogs
     )
       return;
 
-    updateToast(originalToastId, {
-      message: successMessages[action],
-      status: TOAST_STATUSES.success,
+    // TODO: Do we need abort controller since actions are not cancellable?
+    // If not, we can remove the streamAbortController
+    const streamAbortController = new AbortController();
+
+    let errorToastId: number | null = null;
+    let successCount: number | bigint = 0;
+    let totalCount: number | bigint = 0;
+
+    streamCommandBatchUpdates({
+      streamRequest: create(StreamCommandBatchUpdatesRequestSchema, {
+        batchIdentifier,
+      }),
+      onStreamData: (response) => {
+        totalCount = response.status?.commandBatchDeviceCount?.total || 0;
+        successCount = response.status?.commandBatchDeviceCount?.success || 0;
+
+        updateToast(originalToastId, {
+          message: `${successMessages[action]} ${response.status?.commandBatchDeviceCount?.success} out of ${totalCount} ${minersMessage}`,
+          status: TOAST_STATUSES.success,
+        });
+
+        if (
+          response.status?.commandBatchDeviceCount?.failure &&
+          response.status?.commandBatchDeviceCount?.failure > 0
+        ) {
+          if (!errorToastId) {
+            errorToastId = pushToast({
+              message: `Update failed on ${response.status.commandBatchDeviceCount.failure} out of ${totalCount} ${minersMessage}`,
+              status: TOAST_STATUSES.error,
+            });
+          } else {
+            updateToast(errorToastId, {
+              message: `Update failed on ${response.status.commandBatchDeviceCount.failure} out of ${totalCount} ${minersMessage}`,
+              status: TOAST_STATUSES.error,
+            });
+          }
+        }
+      },
+      streamAbortController: streamAbortController,
+    }).finally(() => {
+      updateToast(originalToastId, {
+        message: `${successMessages[action]} ${successCount} out of ${totalCount} ${minersMessage}`,
+        status: TOAST_STATUSES.success,
+      });
     });
   };
 

@@ -215,16 +215,22 @@ func (s *Service) StreamCommandBatchUpdates(ctx context.Context, msg *pb.StreamC
 	go func() {
 		defer close(responseChan)
 
-		select {
-		case <-ctx.Done():
-			return
-		case status := <-statusChan:
+		for {
 			select {
 			case <-ctx.Done():
 				return
-			case responseChan <- status:
+			case status, ok := <-statusChan:
+				if !ok {
+					return
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case responseChan <- status:
+				}
 			}
 		}
+
 	}()
 
 	return responseChan, nil
