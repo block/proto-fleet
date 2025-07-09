@@ -31,7 +31,7 @@ jobs:
 
       # Upload to GitHub Actions artifacts
       - name: Upload server artifact for job use
-        uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab09edcdc1c1 # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: proto-fleet-server-artifact
           path: ./server/proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz
@@ -81,7 +81,7 @@ jobs:
 
       # Upload to GitHub Actions artifacts
       - name: Upload client artifact for job use
-        uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab09edcdc1c1 # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: proto-fleet-client-artifact
           path: ./client/proto-fleet-client-${{ github.event.release.tag_name }}.tar.gz
@@ -154,13 +154,13 @@ jobs:
           touch deployment/server/influx_config/.env
 
       - name: Download server artifact
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: proto-fleet-server-artifact
           path: /tmp
 
       - name: Download client artifact
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: proto-fleet-client-artifact
           path: /tmp
