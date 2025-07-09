@@ -2,6 +2,8 @@ services:
   fleet-api:
     build:
       context: ./server
+      args:
+        TARGETARCH: ${TARGETARCH:-amd64}
     ports:
       - "4000:8080"
     environment:

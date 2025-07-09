@@ -281,6 +281,14 @@ fi
 echo "Pulling latest Docker images..."
 docker-compose -f "$COMPOSE_FILE" pull
 
+if [ "$(uname -m)" == "arm64" ] || [ "$(uname -m)" == "aarch64" ]; then
+    export TARGETARCH="arm64"
+    echo "Detected ARM64 architecture, setting TARGETARCH=arm64"
+else
+    export TARGETARCH="amd64"
+    echo "Detected x86_64 architecture, setting TARGETARCH=amd64"
+fi
+
 echo "Starting services..."
 docker-compose -f "$COMPOSE_FILE" up -d
 

@@ -6,11 +6,21 @@ RUN apk add --no-cache nmap
 # Set the working directory
 WORKDIR /app
 
-# Copy the prebuilt binary and static assets
-COPY fleetd /app/fleetd
-COPY static /app/static
+# Copy the prebuilt binary
+COPY fleetd-amd64 fleetd-arm64 /app/
 
-RUN chmod 755 /app/fleetd
+ARG TARGETARCH=amd64
+
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+      cp /app/fleetd-amd64 /app/fleetd; \
+    elif [ "$TARGETARCH" = "arm64" ]; then \
+      cp /app/fleetd-arm64 /app/fleetd; \
+    else \
+      echo "Unsupported architecture: $TARGETARCH"; \
+      exit 1; \
+    fi && \
+    chmod 755 /app/fleetd && \
+    rm /app/fleetd-amd64 /app/fleetd-arm64
 
 # Expose the port your application listens on
 EXPOSE 8080

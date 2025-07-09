@@ -23,11 +23,12 @@ jobs:
         working-directory: ./server
         run: |
           go mod download
-          go build -v -o fleetd ./cmd/fleetd
+          GOOS=linux GOARCH=amd64 go build -v -o fleetd-amd64 ./cmd/fleetd
+          GOOS=linux GOARCH=arm64 go build -v -o fleetd-arm64 ./cmd/fleetd
           echo "version: ${{ github.event.release.tag_name }}" > version.txt
           echo "build_date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> version.txt
           echo "commit: ${{ github.sha }}" >> version.txt
-          tar -czf proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz fleetd version.txt
+          tar -czf proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz fleetd-amd64 fleetd-arm64 version.txt
 
       # Upload to GitHub Actions artifacts
       - name: Upload server artifact for job use
@@ -148,9 +149,6 @@ jobs:
           mkdir -p deployment/server
           mkdir -p deployment/client
           mkdir -p deployment/server/influx_config
-          mkdir -p deployment/server/static
-          mkdir -p deployment/secrets
-          touch deployment/.env
           touch deployment/server/influx_config/.env
 
       - name: Download server artifact
