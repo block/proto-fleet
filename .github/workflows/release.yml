@@ -180,8 +180,8 @@ jobs:
           cp deployment-files/server/Dockerfile deployment/server/
           cp deployment-files/docker-compose.yaml deployment/
           cp deployment-files/run-fleet.sh deployment/
-          cp deployment-files/server/influx_config/entry_point.sh deployment/server/influx_config/
-          cp deployment-files/server/influx_config/manage_token.sh deployment/server/influx_config/
+          cp server/influx_config/entry_point.sh deployment/server/influx_config/
+          cp server/influx_config/manage_token.sh deployment/server/influx_config/
           chmod +x deployment/run-fleet.sh
           
           if [[ -f deployment-files/server/influx_config/entry_point.sh ]]; then
