@@ -39,35 +39,29 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
-  mms-1:
+  mms:
     build:
       context: ../miner-firmware
       dockerfile: docker/sim/Dockerfile
       args:
         TYPE: "b3b-sim"
-    ports:
-      - "4100:8080"
-      - "2122:2121"
+    expose:
+      - 8080
+      - 2121
+    # Resource limits to prevent container overload when scaling
+    mem_limit: 128M
+    mem_reservation: 64M
+    cpus: 0.25
     privileged: true
-    environment:
-      MFG_SERIAL_NUMBER: local-mms-1
-    networks:
-      - fleet-network
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-  mms-2:
-    build:
-      context: ../miner-firmware
-      dockerfile: docker/sim/Dockerfile
-      args:
-        TYPE: "b3b-sim"
-    ports:
-      - "4200:8080"
-      - "2123:2121"
-    privileged: true
-    environment:
-      MFG_SERIAL_NUMBER: local-mms-2
+    deploy:
+      replicas: 5 # Default is 5 instances, can be overridden with --scale
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
     networks:
       - fleet-network
     cap_add:
@@ -93,7 +87,7 @@ services:
       - 4028
       - 80
     deploy:
-      replicas: 10 # Default is 10 instances, can be overridden with --scale
+      replicas: 5 # Default is 5 instances, can be overridden with --scale
       resources:
         limits:
           cpus: "0.25"
