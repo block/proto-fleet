@@ -46,7 +46,7 @@ func NewService(config *Config, conn *sql.DB, executionService *ExecutionService
 }
 
 func (s *Service) saveCommandBatchLogToDB(ctx context.Context, commandType commandtype.Type, userID int64, devicesCount int32) (*batchLogIdentifier, error) {
-	return db.WithTransaction[*batchLogIdentifier](ctx, s.conn, func(q *sqlc.Queries) (*batchLogIdentifier, error) {
+	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (*batchLogIdentifier, error) {
 		timeNow := time.Now()
 		newUUID := id.GenerateID()
 		result, err := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
@@ -148,6 +148,14 @@ func (s *Service) initializeStatusUpdateRoutine(commandBatchLogID int64) {
 }
 
 func (s *Service) processCommand(ctx context.Context, commandType commandtype.Type, deviceIdentifiers []string) (string, error) {
+	if !s.executionService.IsRunning() {
+		slog.Error("command execution service is not running, attempting to start it")
+		err := s.executionService.Start(ctx)
+		if err != nil {
+			return "", fleeterror.NewInternalErrorf("failed to start command execution service: %v", err)
+		}
+	}
+
 	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error getting claims from ctx: %v", err)

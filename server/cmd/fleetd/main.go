@@ -138,6 +138,10 @@ func start(config *Config) error {
 	defer executionServiceCancel()
 
 	executionService := commandDomain.NewExecutionService(executionServiceCtx, &config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc)
+	err = executionService.Start(executionServiceCtx)
+	if err != nil {
+		slog.Error("failed to start command execution service", "error", err)
+	}
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService)

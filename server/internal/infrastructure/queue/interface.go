@@ -13,6 +13,7 @@ type Message struct {
 	DeviceID    int64
 }
 
+//go:generate mockgen -source=interface.go -destination=mocks/mock_message_queue.go -package=mocks MessageQueue
 type MessageQueue interface {
 	// Enqueue adds a command to the queue
 	Enqueue(ctx context.Context, commandBatchLogID int64, commandType commandtype.Type, deviceIDs []int64) error

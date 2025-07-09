@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
@@ -29,36 +30,96 @@ type ExecutionService struct {
 	tokenService   *tokenDomain.Service
 
 	workerSemaphore chan struct{}
+
+	queueProcessorMu      sync.Mutex
+	queueProcessorRunning bool
 }
 
 func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service) *ExecutionService {
-	executionService := &ExecutionService{
-		config:          config,
-		conn:            conn,
-		messageQueue:    messageQueue,
-		encryptService:  encryptService,
-		tokenService:    tokenService,
-		workerSemaphore: make(chan struct{}, config.MaxWorkers),
+	return &ExecutionService{
+		config:                config,
+		conn:                  conn,
+		messageQueue:          messageQueue,
+		encryptService:        encryptService,
+		tokenService:          tokenService,
+		workerSemaphore:       make(chan struct{}, config.MaxWorkers),
+		queueProcessorRunning: false,
 	}
+}
+
+// Start starts the queue processor thread if it is not already running.
+func (es *ExecutionService) Start(ctx context.Context) error {
+	es.queueProcessorMu.Lock()
+	defer es.queueProcessorMu.Unlock()
+
+	if es.queueProcessorRunning {
+		return nil
+	}
+
+	es.queueProcessorRunning = true
+
+	// Start the queue processor thread
 	go func() {
-		err := executionService.masterThread(ctx)
+		err := es.startQueueProcessorThread(ctx)
+		es.queueProcessorMu.Lock()
+		es.queueProcessorRunning = false
+		es.queueProcessorMu.Unlock()
+
 		if err != nil && !errors.Is(err, context.Canceled) {
 			slog.Error("message processing stopped with error", "error", err)
 		}
 	}()
 
-	return executionService
+	return nil
 }
 
-func (es *ExecutionService) masterThread(ctx context.Context) error {
+func (es *ExecutionService) IsRunning() bool {
+	es.queueProcessorMu.Lock()
+	defer es.queueProcessorMu.Unlock()
+
+	return es.queueProcessorRunning
+}
+
+func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Message, error) {
+	messages, err := es.messageQueue.Dequeue(ctx)
+	if err == nil {
+		return messages, nil
+	}
+
+	delay := es.config.MasterPollingInterval
+
+	for i := range es.config.DequeueRetries {
+		slog.Warn("dequeue error, retrying", "attempt", i+1, "error", err)
+
+		select {
+		case <-ctx.Done():
+			return nil, fleeterror.NewInternalErrorf("context cancelled: %v", ctx.Err())
+		case <-time.After(delay):
+			// Continue with retry
+		}
+
+		// simple backoff for next attempt
+		delay *= 2
+
+		messages, err = es.messageQueue.Dequeue(ctx)
+		if err == nil {
+			return messages, nil
+		}
+	}
+
+	slog.Error("dequeue failed after retries", "error", err)
+	return nil, err
+}
+
+func (es *ExecutionService) startQueueProcessorThread(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return fleeterror.NewInternalErrorf("error master thread ctx DONE: %v", ctx.Err())
+			return fleeterror.NewInternalErrorf("error queue processor thread ctx DONE: %v", ctx.Err())
 		default:
-			messages, err := es.messageQueue.Dequeue(ctx)
+			messages, err := es.dequeueWithRetry(ctx)
+
 			if err != nil {
-				// TODO do we return here, or implement some type of sleep and retry mechanism?
 				return fleeterror.NewInternalErrorf("error dequeueing messages: %v", err)
 			}
 

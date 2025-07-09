@@ -43,7 +43,7 @@ func (d DatabaseMessageQueue) Enqueue(ctx context.Context, commandBatchLogID int
 }
 
 func (d DatabaseMessageQueue) Dequeue(ctx context.Context) ([]Message, error) {
-	messages, err := db.WithTransaction[[]Message](ctx, d.conn, func(q *sqlc.Queries) ([]Message, error) {
+	messages, err := db.WithTransaction(ctx, d.conn, func(q *sqlc.Queries) ([]Message, error) {
 		dbMessages, err := q.GetMessagesToProcess(ctx, sqlc.GetMessagesToProcessParams{
 			RetryCount: d.config.MaxFailureRetries,
 			Limit:      d.config.DequeLimit,
@@ -116,7 +116,7 @@ func (d DatabaseMessageQueue) MarkFailed(ctx context.Context, messageID int64, e
 type BatchStatusCheckFunc func(ctx context.Context, commandBatchLogID int64) (bool, error)
 
 func (d DatabaseMessageQueue) IsBatchFinished(ctx context.Context, commandBatchLogID int64) (bool, error) {
-	return db.WithTransaction[bool](ctx, d.conn, func(q *sqlc.Queries) (bool, error) {
+	return db.WithTransaction(ctx, d.conn, func(q *sqlc.Queries) (bool, error) {
 		result, err := q.IsBatchFinished(ctx, commandBatchLogID)
 		if err != nil {
 			return false, err
@@ -126,7 +126,7 @@ func (d DatabaseMessageQueue) IsBatchFinished(ctx context.Context, commandBatchL
 }
 
 func (d DatabaseMessageQueue) IsBatchProcessing(ctx context.Context, commandBatchLogID int64) (bool, error) {
-	return db.WithTransaction[bool](ctx, d.conn, func(q *sqlc.Queries) (bool, error) {
+	return db.WithTransaction(ctx, d.conn, func(q *sqlc.Queries) (bool, error) {
 		result, err := q.IsBatchProcessing(ctx, commandBatchLogID)
 		if err != nil {
 			return false, err

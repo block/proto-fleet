@@ -73,6 +73,9 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	executionServiceCtx, executionServiceCancel := context.WithCancel(t.Context())
 
 	executionService := command.NewExecutionService(executionServiceCtx, commandConfig, db, dbMessageQueue, encryptService, tokenService)
+	err = executionService.Start(executionServiceCtx)
+	assert.NoError(t, err)
+
 	statusService := command.NewStatusService(db, dbMessageQueue)
 	commandService := command.NewService(commandConfig, db, executionService, dbMessageQueue, statusService)
 
