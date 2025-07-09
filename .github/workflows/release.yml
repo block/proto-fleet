@@ -137,6 +137,9 @@ jobs:
           touch deployment/.env
           touch deployment/server/influx_config/.env
 
+      - name: Wait for artifacts to be available
+        run: sleep 30
+
       - name: Download release assets
         run: |
           wget -q https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz -O /tmp/proto-fleet-server.tar.gz
