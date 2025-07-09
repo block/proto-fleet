@@ -5,3 +5,7 @@ server/influx_config/.env
 **/.goose/
 
 **private.env**
+
+# Binary files
+server/cmd/fleetd/fleetd
+server/fake-antminer/fake-antminer
