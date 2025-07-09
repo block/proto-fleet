@@ -29,6 +29,14 @@ jobs:
           echo "commit: ${{ github.sha }}" >> version.txt
           tar -czf proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz fleetd version.txt
 
+      # Upload to GitHub Actions artifacts
+      - name: Upload server artifact for job use
+        uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab09edcdc1c1 # v4
+        with:
+          name: proto-fleet-server-artifact
+          path: ./server/proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz
+          retention-days: 1
+
       - name: Upload ProtoFleet server artifact
         uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2
         with:
@@ -70,6 +78,14 @@ jobs:
         working-directory: ./client
         run: |
           tar -czf proto-fleet-client-${{ github.event.release.tag_name }}.tar.gz dist/protoFleet
+
+      # Upload to GitHub Actions artifacts
+      - name: Upload client artifact for job use
+        uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab09edcdc1c1 # v4
+        with:
+          name: proto-fleet-client-artifact
+          path: ./client/proto-fleet-client-${{ github.event.release.tag_name }}.tar.gz
+          retention-days: 1
 
       - name: Upload ProtoFleet client artifact
         uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2
@@ -137,19 +153,23 @@ jobs:
           touch deployment/.env
           touch deployment/server/influx_config/.env
 
-      - name: Wait for artifacts to be available
-        run: sleep 30
+      - name: Download server artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4
+        with:
+          name: proto-fleet-server-artifact
+          path: /tmp
 
-      - name: Download release assets
-        run: |
-          wget -q https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz -O /tmp/proto-fleet-server.tar.gz
-          wget -q https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/proto-fleet-client-${{ github.event.release.tag_name }}.tar.gz -O /tmp/proto-fleet-client.tar.gz
+      - name: Download client artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4
+        with:
+          name: proto-fleet-client-artifact
+          path: /tmp
 
       - name: Extract artifacts
         run: |
-          tar -xzf /tmp/proto-fleet-server.tar.gz -C deployment/server
+          tar -xzf /tmp/proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz -C deployment/server
           mkdir -p /tmp/client
-          tar -xzf /tmp/proto-fleet-client.tar.gz -C /tmp/client
+          tar -xzf /tmp/proto-fleet-client-${{ github.event.release.tag_name }}.tar.gz -C /tmp/client
           mkdir -p deployment/client/protoFleet
           cp -r /tmp/client/dist/protoFleet/* deployment/client/protoFleet/
 
