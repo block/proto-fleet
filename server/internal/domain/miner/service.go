@@ -20,6 +20,7 @@ import (
 
 const (
 	defaultAntminerRPCPort = "4028"
+	maxPort                = 65535
 )
 
 var _ telemetry.MinerManager = &MinerService{}
@@ -53,25 +54,18 @@ func (s *MinerService) GetMinerFromDeviceID(ctx context.Context, deviceID models
 	deviceData, err := s.queries.GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, string(deviceID))
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("device not found or missing credentials/IP for device ID: %s", deviceID)
+			return nil, fmt.Errorf("device not found: %s", deviceID)
 		}
 		return nil, fmt.Errorf("failed to get device data: %w", err)
 	}
 
-	return s.createMinerFromDeviceData(ctx, deviceData)
-}
-
-func (s *MinerService) createMinerFromDeviceData(
-	ctx context.Context,
-	deviceData sqlc.GetDeviceWithCredentialsAndIPByDeviceIdentifierRow,
-) (interfaces.Miner, error) {
 	portInt, err := strconv.Atoi(deviceData.Port)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse port %s: %w", deviceData.Port, err)
 	}
 
-	if portInt < 0 || portInt > 65535 {
-		return nil, fmt.Errorf("port %d is out of valid range (0-65535)", portInt)
+	if portInt < 0 || portInt > maxPort {
+		return nil, fmt.Errorf("port %d is out of valid range (0-%d)", portInt, maxPort)
 	}
 
 	port := uint16(portInt)
@@ -94,12 +88,16 @@ func (s *MinerService) createMinerFromDeviceData(
 }
 
 func (s *MinerService) createAntminer(deviceData sqlc.GetDeviceWithCredentialsAndIPByDeviceIdentifierRow, port uint16) (interfaces.Miner, error) {
-	decryptedUsername, err := s.encryptService.Decrypt(deviceData.UsernameEnc)
+	if !deviceData.UsernameEnc.Valid || !deviceData.PasswordEnc.Valid {
+		return nil, fmt.Errorf("antminer requires both username and password credentials")
+	}
+
+	decryptedUsername, err := s.encryptService.Decrypt(deviceData.UsernameEnc.String)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt username: %w", err)
 	}
 
-	decryptedPassword, err := s.encryptService.Decrypt(deviceData.PasswordEnc)
+	decryptedPassword, err := s.encryptService.Decrypt(deviceData.PasswordEnc.String)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt password: %w", err)
 	}
@@ -121,12 +119,19 @@ func (s *MinerService) createAntminer(deviceData sqlc.GetDeviceWithCredentialsAn
 }
 
 func (s *MinerService) createProtoMiner(deviceData sqlc.GetDeviceWithCredentialsAndIPByDeviceIdentifierRow, port uint16) (interfaces.Miner, error) {
-	decryptedAuthToken, err := s.encryptService.Decrypt(deviceData.PasswordEnc)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt auth token: %w", err)
-	}
+	var authToken secrets.Text
 
-	authToken := *secrets.NewText(string(decryptedAuthToken)) // Proto miners use password as auth token
+	if deviceData.PairingToken.Valid && deviceData.PairingToken.String != "" {
+		authToken = *secrets.NewText(deviceData.PairingToken.String)
+	} else if deviceData.PasswordEnc.Valid {
+		decryptedAuthToken, err := s.encryptService.Decrypt(deviceData.PasswordEnc.String)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decrypt auth token: %w", err)
+		}
+		authToken = *secrets.NewText(string(decryptedAuthToken))
+	} else {
+		return nil, fmt.Errorf("proto miner requires either pairing token or encrypted auth token")
+	}
 
 	return proto.NewProtoMiner(
 		deviceData.ID,

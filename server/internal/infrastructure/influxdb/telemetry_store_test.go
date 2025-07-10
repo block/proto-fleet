@@ -120,7 +120,7 @@ func TestNewTelemetryStore(t *testing.T) {
 		{
 			name: "valid config",
 			config: Config{
-				URL:          "http://localhost:8086",
+				URL:          "http://localhost:8181",
 				Organization: "testorg",
 				Bucket:       "testbucket",
 				Token:        "testtoken",
@@ -142,7 +142,7 @@ func TestNewTelemetryStore(t *testing.T) {
 		{
 			name: "missing organization",
 			config: Config{
-				URL:    "http://localhost:8086",
+				URL:    "http://localhost:8181",
 				Bucket: "testbucket",
 				Token:  "testtoken",
 			},
@@ -152,7 +152,7 @@ func TestNewTelemetryStore(t *testing.T) {
 		{
 			name: "missing bucket",
 			config: Config{
-				URL:          "http://localhost:8086",
+				URL:          "http://localhost:8181",
 				Organization: "testorg",
 				Token:        "testtoken",
 			},
@@ -162,7 +162,7 @@ func TestNewTelemetryStore(t *testing.T) {
 		{
 			name: "missing token",
 			config: Config{
-				URL:          "http://localhost:8086",
+				URL:          "http://localhost:8181",
 				Organization: "testorg",
 				Bucket:       "testbucket",
 			},
@@ -206,7 +206,7 @@ func TestNewTelemetryStore(t *testing.T) {
 
 func TestInfluxTelemetryStore_Store_EmptyData(t *testing.T) {
 	config := Config{
-		URL:          "http://localhost:8086",
+		URL:          "http://localhost:8181",
 		Organization: "testorg",
 		Bucket:       "testbucket",
 		Token:        "testtoken",

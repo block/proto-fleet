@@ -99,6 +99,37 @@ func (q *Queries) GetActiveDeviceIPAssignmentByDeviceID(ctx context.Context, dev
 	return i, err
 }
 
+const getAllPairedDeviceIdentifiers = `-- name: GetAllPairedDeviceIdentifiers :many
+SELECT d.device_identifier
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+WHERE dp.pairing_status = 'PAIRED'
+    AND d.deleted_at IS NULL
+`
+
+func (q *Queries) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]string, error) {
+	rows, err := q.query(ctx, q.getAllPairedDeviceIdentifiersStmt, getAllPairedDeviceIdentifiers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDeviceByDeviceIdentifier = `-- name: GetDeviceByDeviceIdentifier :one
 SELECT id, device_identifier, mac_address, serial_number, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, model, manufacturer, org_id, type
 FROM device

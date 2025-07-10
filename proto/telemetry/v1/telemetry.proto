@@ -1,0 +1,188 @@
+syntax = "proto3";
+
+package telemetry.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+import "buf/validate/validate.proto";
+import "common/v1/measurement.proto";
+
+// Service for retrieving telemetry data from mining devices
+service TelemetryService {
+  // Get latest telemetry data for specified devices and measurement types
+  rpc GetSnapshot(GetSnapshotRequest) returns (GetSnapshotResponse);
+  
+  // Get time series telemetry data for specified devices and measurement types
+  rpc GetTimeSeries(GetTimeSeriesRequest) returns (GetTimeSeriesResponse);
+  
+  // Get metadata about devices including last seen time and capabilities
+  rpc GetMetadata(GetMetadataRequest) returns (GetMetadataResponse);
+  
+  // Stream real-time telemetry updates
+  rpc StreamUpdates(StreamUpdatesRequest) returns (stream StreamUpdatesResponse);
+  
+  // Get aggregated telemetry data (averages, min, max, etc.)
+  rpc GetAggregatedSnapshot(GetAggregatedSnapshotRequest) returns (GetAggregatedSnapshotResponse);
+}
+
+// Enums matching domain models
+enum MeasurementType {
+  MEASUREMENT_TYPE_UNSPECIFIED = 0;
+  MEASUREMENT_TYPE_TEMPERATURE = 1;
+  MEASUREMENT_TYPE_HASHRATE = 2;
+  MEASUREMENT_TYPE_POWER = 3;
+  MEASUREMENT_TYPE_EFFICIENCY = 4;
+  MEASUREMENT_TYPE_FAN_SPEED = 5;
+  MEASUREMENT_TYPE_VOLTAGE = 6;
+  MEASUREMENT_TYPE_CURRENT = 7;
+  MEASUREMENT_TYPE_UPTIME = 8;
+  MEASUREMENT_TYPE_ERROR_RATE = 9;
+}
+
+enum AggregationType {
+  AGGREGATION_TYPE_UNSPECIFIED = 0;
+  AGGREGATION_TYPE_AVERAGE = 1;
+  AGGREGATION_TYPE_MIN = 2;
+  AGGREGATION_TYPE_MAX = 3;
+  AGGREGATION_TYPE_SUM = 4;
+  AGGREGATION_TYPE_COUNT = 5;
+}
+
+enum ComponentStatus {
+  COMPONENT_STATUS_UNSPECIFIED = 0;
+  COMPONENT_STATUS_HEALTHY = 1;
+  COMPONENT_STATUS_WARNING = 2;
+  COMPONENT_STATUS_CRITICAL = 3;
+  COMPONENT_STATUS_OFFLINE = 4;
+}
+
+enum UpdateType {
+  UPDATE_TYPE_UNSPECIFIED = 0;
+  UPDATE_TYPE_TELEMETRY = 1;
+  UPDATE_TYPE_HEARTBEAT = 2;
+  UPDATE_TYPE_ERROR = 3;
+  UPDATE_TYPE_DEVICE_STATUS = 4;
+}
+
+// Time range using optional fields (best practice)
+message TimeRange {
+  optional google.protobuf.Timestamp start_time = 1;
+  optional google.protobuf.Timestamp end_time = 2;
+}
+
+// Telemetry data structure
+message TelemetryData {
+  string device_id = 1;
+  MeasurementType measurement_type = 2;
+  double value = 3;
+  common.v1.MeasurementUnit unit = 4;
+  google.protobuf.Timestamp timestamp = 5;
+  map<string, string> tags = 6;
+}
+
+// Device metadata
+message DeviceMetadata {
+  string device_id = 1;
+  optional string device_type = 2;
+  google.protobuf.Timestamp last_seen = 3;
+  ComponentStatus status = 4;
+  optional string location = 5;
+  map<string, string> tags = 6;
+  repeated string capabilities = 7;
+}
+
+// Aggregated telemetry result
+message AggregatedTelemetry {
+  string device_id = 1;
+  MeasurementType measurement_type = 2;
+  double value = 3;
+  AggregationType aggregation_type = 4;
+  int32 data_points = 5;
+  TimeRange time_window = 6;
+  map<string, string> tags = 7;
+}
+
+// Streaming update
+message TelemetryUpdate {
+  UpdateType type = 1;
+  optional string device_id = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  optional TelemetryData data = 4;
+  optional string error_message = 5;
+  optional ComponentStatus status = 6;
+}
+
+// Request/Response Messages
+message GetSnapshotRequest {
+  // Device identifiers to query - at least one required
+  repeated string device_ids = 1 [(buf.validate.field).repeated.min_items = 1];
+  
+  // Measurement types to retrieve - at least one required
+  repeated MeasurementType measurement_types = 2 [(buf.validate.field).repeated.min_items = 1];
+  
+  // Maximum age of data to return (optional)
+  optional google.protobuf.Duration max_age = 3 [(buf.validate.field).duration = {
+    gte: { seconds: 1 }
+    lte: { seconds: 86400 } // 24 hours
+  }];
+  
+  // Optional tag filters
+  map<string, string> tags = 4;
+}
+
+message GetSnapshotResponse {
+  repeated TelemetryData telemetry = 1;
+}
+
+message GetTimeSeriesRequest {
+  repeated string device_ids = 1 [(buf.validate.field).repeated.min_items = 1];
+  repeated MeasurementType measurement_types = 2 [(buf.validate.field).repeated.min_items = 1];
+  TimeRange time_range = 3 [(buf.validate.field).required = true];
+  optional int32 limit = 4 [(buf.validate.field).int32 = {gte: 1, lte: 10000}];
+  map<string, string> tags = 5;
+}
+
+message GetTimeSeriesResponse {
+  repeated TelemetryData telemetry = 1;
+}
+
+message GetMetadataRequest {
+  repeated string device_ids = 1;
+  optional ComponentStatus status_filter = 2;
+  map<string, string> tag_filters = 3;
+}
+
+message GetMetadataResponse {
+  repeated DeviceMetadata devices = 1;
+}
+
+message StreamUpdatesRequest {
+  repeated string device_ids = 1;
+  repeated MeasurementType measurement_types = 2 [(buf.validate.field).repeated.min_items = 1];
+  bool include_heartbeat = 3;
+  optional google.protobuf.Duration heartbeat_interval = 4 [(buf.validate.field).duration = {
+    gte: { seconds: 1 }
+    lte: { seconds: 600 } // 10 minutes
+  }];
+  map<string, string> tags = 5;
+}
+
+message StreamUpdatesResponse {
+  TelemetryUpdate update = 1;
+}
+
+message GetAggregatedSnapshotRequest {
+  repeated string device_ids = 1 [(buf.validate.field).repeated.min_items = 1];
+  repeated MeasurementType measurement_types = 2 [(buf.validate.field).repeated.min_items = 1];
+  TimeRange time_range = 3 [(buf.validate.field).required = true];
+  AggregationType aggregation_type = 4 [(buf.validate.field).enum.defined_only = true];
+  optional google.protobuf.Duration group_by_interval = 5 [(buf.validate.field).duration = {
+    gte: { seconds: 1 }
+    lte: { seconds: 86400 } // 24 hours
+  }];
+  map<string, string> tags = 6;
+}
+
+message GetAggregatedSnapshotResponse {
+  repeated AggregatedTelemetry aggregated_data = 1;
+}

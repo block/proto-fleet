@@ -28,6 +28,9 @@ services:
       FLEET_COMMAND_BATCH_STATUS_UPDATE_POLLING_INTERVAL: "1s"
       FLEET_QUEUE_DEQUE_LIMIT: "500"
       FLEET_QUEUE_MAX_FAILURE_RETRIES: "5"
+      INFLUXDB3_URL: "http://influxdb:8181"
+      INFLUXDB3_ORG: "fleet"
+      INFLUXDB3_BUCKET: "fleet"
     depends_on:
       mysql:
         condition: service_healthy
@@ -39,6 +42,8 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+    volumes:
+      - ./influx_config:/var/lib/fleet/start:ro
   mms:
     build:
       context: ../miner-firmware
@@ -79,7 +84,7 @@ services:
     mem_reservation: 64M
     cpus: 0.25
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]
+      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:80/health" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -115,7 +120,7 @@ services:
     volumes:
       - mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -142,7 +147,7 @@ services:
       INFLUXDB3_DB_DIR: "/var/lib/influxdb3"
       INFLUXDB3_BUCKET: fleet
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8181/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8181/health" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -153,6 +158,7 @@ volumes:
   mysql:
   influxdb-data:
   influxdb-config:
+
 
 networks:
   fleet-network:

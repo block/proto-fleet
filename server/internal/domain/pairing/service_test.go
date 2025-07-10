@@ -13,6 +13,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	pairingAntminer "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/antminer"
+	pairingMocks "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/mocks"
 	pairingProto "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/proto"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"
@@ -74,12 +75,18 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 
 	antminerPairer := pairingAntminer.NewService(transactor, deviceStore, testContext.ServiceProvider.EncryptService, webClient)
 
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	mockListener := pairingMocks.NewMockListener(ctrl)
+	mockListener.EXPECT().AddDevices(gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
+
 	pairingService := pairing.NewService(
 		discoveredDeviceStore,
 		deviceStore,
 		transactor,
 		tokenService,
 		discoveryService,
+		mockListener,
 		protoPairer,
 		antminerPairer,
 	)
@@ -618,6 +625,7 @@ func TestPairDevices(t *testing.T) {
 			transactor,
 			tokenService,
 			discoveryService,
+			nil,
 			// No pairers registered
 		)
 

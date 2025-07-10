@@ -11,6 +11,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/proto"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/golang/mock/gomock"
 
 	"github.com/alecthomas/assert/v2"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/auth"
@@ -21,6 +22,7 @@ import (
 
 	antminerWeb "github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/web"
 	pairingAntminer "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/antminer"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing/mocks"
 	pairingProto "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/proto"
 )
 
@@ -52,6 +54,11 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 
 	authService := auth.NewService(userStore, transactor, tokenService, encryptService)
 
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	listenerMock := mocks.NewMockListener(ctrl)
+	listenerMock.EXPECT().AddDevices(gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
+
 	pairingConfig := pairing.Config{SecretKey: config.PairingSecretKey}
 
 	protoDiscoverer := proto.NewDiscoverer()
@@ -63,7 +70,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	protoPairer := pairingProto.NewService(transactor, deviceStore, pairingConfig)
 	antminerPairer := pairingAntminer.NewService(transactor, deviceStore, encryptService, antminerWeb.NewService())
 
-	pairingService := pairing.NewService(discoveredDeviceStore, deviceStore, transactor, tokenService, minerDiscoveryService, protoPairer, antminerPairer)
+	pairingService := pairing.NewService(discoveredDeviceStore, deviceStore, transactor, tokenService, minerDiscoveryService, listenerMock, protoPairer, antminerPairer)
 
 	commandConfig := &command.Config{MaxWorkers: 50, MasterPollingInterval: time.Second, WorkerExecutionTimeout: 30 * time.Second, BatchStatusUpdatePollingInterval: time.Second}
 

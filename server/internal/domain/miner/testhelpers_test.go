@@ -209,6 +209,14 @@ func createTestDevice(t *testing.T, db *sql.DB, deviceIdentifier string) int64 {
 	deviceID, err := result.LastInsertId()
 	require.NoError(t, err)
 
+	// Create device pairing record with PAIRED status
+	_, err = queries.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{
+		DeviceID:      deviceID,
+		PairingToken:  sql.NullString{}, // No token for credential-based devices
+		PairingStatus: "PAIRED",
+	})
+	require.NoError(t, err)
+
 	err = queries.CreateInactiveDeviceIPAssignment(t.Context(), sqlc.CreateInactiveDeviceIPAssignmentParams{
 		DeviceID:  deviceID,
 		IpAddress: "192.168.1.100",
@@ -254,4 +262,49 @@ func createTestDeviceWithCredentials(t *testing.T, db *sql.DB, deviceIdentifier 
 
 	deviceID := createTestDevice(t, db, deviceIdentifier)
 	createTestMinerCredentials(t, db, deviceID)
+}
+
+func createTestProtoMinerWithToken(t *testing.T, db *sql.DB, deviceIdentifier string, pairingToken string) int64 {
+	t.Helper()
+
+	queries := sqlc.New(db)
+
+	result, err := queries.UpsertDevice(t.Context(), sqlc.UpsertDeviceParams{
+		OrgID:            0,
+		DeviceIdentifier: deviceIdentifier,
+		MacAddress:       fmt.Sprintf("00:11:22:33:44:%02x", len(deviceIdentifier)%256),
+		SerialNumber:     sql.NullString{String: fmt.Sprintf("SN-%s", deviceIdentifier), Valid: true},
+		Model:            sql.NullString{String: "ProtoMiner", Valid: true},
+		Manufacturer:     sql.NullString{String: "ProtoCorp", Valid: true},
+		Type:             "proto",
+		IsActive:         sql.NullBool{Bool: true, Valid: true},
+	})
+	require.NoError(t, err)
+
+	deviceID, err := result.LastInsertId()
+	require.NoError(t, err)
+
+	// Create device pairing record with PAIRED status and pairing token
+	_, err = queries.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{
+		DeviceID:      deviceID,
+		PairingToken:  sql.NullString{String: pairingToken, Valid: true},
+		PairingStatus: "PAIRED",
+	})
+	require.NoError(t, err)
+
+	err = queries.CreateInactiveDeviceIPAssignment(t.Context(), sqlc.CreateInactiveDeviceIPAssignmentParams{
+		DeviceID:  deviceID,
+		IpAddress: "192.168.1.200",
+		Port:      "8080",
+	})
+	require.NoError(t, err)
+
+	err = queries.ActivateNewIPAssignment(t.Context(), sqlc.ActivateNewIPAssignmentParams{
+		IpAddress: "192.168.1.200",
+		Port:      "8080",
+		DeviceID:  deviceID,
+	})
+	require.NoError(t, err)
+
+	return deviceID
 }

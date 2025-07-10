@@ -9,6 +9,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
 
@@ -106,7 +107,7 @@ func (s *SQLDeviceStore) UpsertMinerCredentials(ctx context.Context, device *pb.
 	err = s.getQueries(ctx).UpsertMinerCredentials(ctx, sqlc.UpsertMinerCredentialsParams{
 		DeviceID:    dbDevice.ID,
 		UsernameEnc: usernameEnc,
-		PasswordEnc: passwordEnc.String(),
+		PasswordEnc: passwordEnc.Value(),
 	})
 
 	return err
@@ -244,4 +245,18 @@ func (s *SQLDeviceStore) ListPairedMinersWithStatus(ctx context.Context, orgID i
 	}
 
 	return devices, nil
+}
+
+func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models.DeviceID, error) {
+	identifiers, err := s.GetQueries(ctx).GetAllPairedDeviceIdentifiers(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	deviceIDs := make([]models.DeviceID, 0, len(identifiers))
+	for _, identifier := range identifiers {
+		deviceIDs = append(deviceIDs, models.NewDeviceIDFromString(identifier))
+	}
+
+	return deviceIDs, nil
 }

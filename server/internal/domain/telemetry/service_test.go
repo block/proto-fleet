@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	minerMocks "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces/mocks"
+	storesMocks "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	mock "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/mocks"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 )
@@ -23,6 +24,7 @@ func TestNewTelemetryService(t *testing.T) {
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
 	mockMinerManager := mock.NewMockMinerManager(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 	config := Config{
 		StalenessThreshold: 1 * time.Minute,
@@ -30,7 +32,7 @@ func TestNewTelemetryService(t *testing.T) {
 		ConcurrencyLimit:   5,
 	}
 
-	service := NewTelemetryService(config, mockDataStore, mockMinerManager, mockScheduler)
+	service := NewTelemetryService(config, mockDataStore, mockMinerManager, mockScheduler, mockDeviceStore)
 
 	// Test that the service was created successfully
 	assert.NotNil(t, service)
@@ -42,6 +44,7 @@ func TestTelemetryService_AddDevices(t *testing.T) {
 
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
 	mockMinerManager := mock.NewMockMinerManager(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 	tests := []struct {
 		name      string
@@ -88,7 +91,7 @@ func TestTelemetryService_AddDevices(t *testing.T) {
 				StalenessThreshold: 1 * time.Minute,
 				FetchInterval:      10 * time.Second,
 				ConcurrencyLimit:   5,
-			}, mockDataStore, mockMinerManager, mockScheduler)
+			}, mockDataStore, mockMinerManager, mockScheduler, mockDeviceStore)
 
 			err := service.AddDevices(t.Context(), tt.deviceIDs...)
 			if tt.wantErr {
@@ -106,6 +109,7 @@ func TestTelemetryService_RemoveDevices(t *testing.T) {
 
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
 	mockMinerManager := mock.NewMockMinerManager(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 	tests := []struct {
 		name      string
@@ -152,7 +156,7 @@ func TestTelemetryService_RemoveDevices(t *testing.T) {
 				StalenessThreshold: 1 * time.Minute,
 				FetchInterval:      10 * time.Second,
 				ConcurrencyLimit:   5,
-			}, mockDataStore, mockMinerManager, mockScheduler)
+			}, mockDataStore, mockMinerManager, mockScheduler, mockDeviceStore)
 
 			err := service.RemoveDevices(t.Context(), tt.deviceIDs...)
 			if tt.wantErr {
@@ -171,6 +175,7 @@ func TestTelemetryService_Start(t *testing.T) {
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
 	mockMinerManager := mock.NewMockMinerManager(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 	// Set up expectations for background processing
 	mockScheduler.EXPECT().
@@ -178,13 +183,20 @@ func TestTelemetryService_Start(t *testing.T) {
 		Return([]models.Device{}, nil).
 		AnyTimes()
 
+	// Set up expectations for device polling
+	mockDeviceStore.EXPECT().
+		GetAllPairedDeviceIdentifiers(gomock.Any()).
+		Return([]models.DeviceID{}, nil).
+		AnyTimes()
+
 	config := Config{
 		StalenessThreshold: 1 * time.Minute,
 		FetchInterval:      100 * time.Millisecond, // Short interval for test
 		ConcurrencyLimit:   5,
+		DevicePollInterval: 100 * time.Millisecond, // Short interval for test
 	}
 
-	service := NewTelemetryService(config, mockDataStore, mockMinerManager, mockScheduler)
+	service := NewTelemetryService(config, mockDataStore, mockMinerManager, mockScheduler, mockDeviceStore)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -210,6 +222,7 @@ func TestTelemetryService_Stop(t *testing.T) {
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
 	mockMinerManager := mock.NewMockMinerManager(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 	// Set up expectations for background processing
 	mockScheduler.EXPECT().
@@ -217,13 +230,20 @@ func TestTelemetryService_Stop(t *testing.T) {
 		Return([]models.Device{}, nil).
 		AnyTimes()
 
+	// Set up expectations for device polling
+	mockDeviceStore.EXPECT().
+		GetAllPairedDeviceIdentifiers(gomock.Any()).
+		Return([]models.DeviceID{}, nil).
+		AnyTimes()
+
 	config := Config{
 		StalenessThreshold: 1 * time.Minute,
 		FetchInterval:      100 * time.Millisecond, // Short interval for test
 		ConcurrencyLimit:   5,
+		DevicePollInterval: 100 * time.Millisecond, // Short interval for test
 	}
 
-	service := NewTelemetryService(config, mockDataStore, mockMinerManager, mockScheduler)
+	service := NewTelemetryService(config, mockDataStore, mockMinerManager, mockScheduler, mockDeviceStore)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -441,6 +461,7 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 			mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
 			mockMinerManager := mock.NewMockMinerManager(ctrl)
 			mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 			//nolint:revive
 			addFailedDevice := func(device models.Device, withErr bool) {
@@ -501,7 +522,7 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 				StalenessThreshold: 1 * time.Minute,
 				FetchInterval:      10 * time.Second,
 				ConcurrencyLimit:   5,
-			}, mockDataStore, mockMinerManager, mockScheduler)
+			}, mockDataStore, mockMinerManager, mockScheduler, mockDeviceStore)
 
 			for _, scenario := range test.devicesScenario {
 				err := service.GetTelemetryFromDevice(t.Context(), scenario.device)
@@ -524,6 +545,7 @@ func TestTelemetryService_Integration(t *testing.T) {
 		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
 		mockMinerManager := mock.NewMockMinerManager(ctrl)
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 		// Set up expectations for scheduler errors
 		mockScheduler.EXPECT().
@@ -538,7 +560,7 @@ func TestTelemetryService_Integration(t *testing.T) {
 			StalenessThreshold: 1 * time.Minute,
 			FetchInterval:      10 * time.Second,
 			ConcurrencyLimit:   5,
-		}, mockDataStore, mockMinerManager, mockScheduler)
+		}, mockDataStore, mockMinerManager, mockScheduler, mockDeviceStore)
 
 		// Test that errors are properly propagated
 		err := service.AddDevices(t.Context(), "1", "2", "3")
@@ -557,6 +579,7 @@ func TestTelemetryService_Integration(t *testing.T) {
 		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
 		mockMinerManager := mock.NewMockMinerManager(ctrl)
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 		// Set up expectations for successful operations
 		mockScheduler.EXPECT().
@@ -571,7 +594,7 @@ func TestTelemetryService_Integration(t *testing.T) {
 			StalenessThreshold: 1 * time.Minute,
 			FetchInterval:      10 * time.Second,
 			ConcurrencyLimit:   5,
-		}, mockDataStore, mockMinerManager, mockScheduler)
+		}, mockDataStore, mockMinerManager, mockScheduler, mockDeviceStore)
 
 		// Test adding devices
 		err := service.AddDevices(t.Context(), "1", "2", "3")
@@ -589,6 +612,7 @@ func TestTelemetryService_Integration(t *testing.T) {
 		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
 		mockMinerManager := mock.NewMockMinerManager(ctrl)
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 		// Test the complete workflow: device scheduling -> service lifecycle
 		deviceID := models.DeviceID("42")
@@ -604,12 +628,19 @@ func TestTelemetryService_Integration(t *testing.T) {
 			Return([]models.Device{}, nil).
 			AnyTimes()
 
+		// Set up expectations for device polling
+		mockDeviceStore.EXPECT().
+			GetAllPairedDeviceIdentifiers(gomock.Any()).
+			Return([]models.DeviceID{}, nil).
+			AnyTimes()
+
 		service := NewTelemetryService(Config{
 			StalenessThreshold: 1 * time.Minute,
 			FetchInterval:      100 * time.Millisecond, // Short interval for test
 			ConcurrencyLimit:   5,
 			MetricTimeout:      5 * time.Second,
-		}, mockDataStore, mockMinerManager, mockScheduler)
+			DevicePollInterval: 100 * time.Millisecond, // Short interval for test
+		}, mockDataStore, mockMinerManager, mockScheduler, mockDeviceStore)
 
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
@@ -650,6 +681,7 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
 		mockMinerManager := mock.NewMockMinerManager(ctrl)
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 		// Set up expectations for background processing
 		mockScheduler.EXPECT().
@@ -657,14 +689,21 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 			Return([]models.Device{}, nil).
 			AnyTimes()
 
+		// Set up expectations for device polling
+		mockDeviceStore.EXPECT().
+			GetAllPairedDeviceIdentifiers(gomock.Any()).
+			Return([]models.DeviceID{}, nil).
+			AnyTimes()
+
 		config := Config{
 			StalenessThreshold: 1 * time.Minute,
 			FetchInterval:      100 * time.Millisecond, // Short interval for test
 			ConcurrencyLimit:   5,
 			MetricTimeout:      5 * time.Second,
+			DevicePollInterval: 100 * time.Millisecond, // Short interval for test
 		}
 
-		service := NewTelemetryService(config, mockDataStore, mockMinerManager, mockScheduler)
+		service := NewTelemetryService(config, mockDataStore, mockMinerManager, mockScheduler, mockDeviceStore)
 
 		// Validate service is properly initialized
 		assert.NotNil(t, service)
@@ -694,6 +733,7 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
 		mockMinerManager := mock.NewMockMinerManager(ctrl)
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 		// Test error scenarios for each component
 		deviceID := models.DeviceID("500")
@@ -712,7 +752,7 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 			FetchInterval:      10 * time.Second,
 			ConcurrencyLimit:   5,
 			MetricTimeout:      5 * time.Second,
-		}, mockDataStore, mockMinerManager, mockScheduler)
+		}, mockDataStore, mockMinerManager, mockScheduler, mockDeviceStore)
 
 		// Verify errors are properly propagated
 		err := service.AddDevices(t.Context(), deviceID)
@@ -731,6 +771,7 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
 		mockMinerManager := mock.NewMockMinerManager(ctrl)
 		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 		// Test that component interactions maintain consistent state
 		deviceIDs := []models.DeviceID{"700", "701", "702"}
@@ -756,12 +797,19 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 			Return([]models.Device{}, nil).
 			AnyTimes()
 
+		// Set up expectations for device polling
+		mockDeviceStore.EXPECT().
+			GetAllPairedDeviceIdentifiers(gomock.Any()).
+			Return([]models.DeviceID{}, nil).
+			AnyTimes()
+
 		service := NewTelemetryService(Config{
 			StalenessThreshold: 1 * time.Minute,
 			FetchInterval:      100 * time.Millisecond, // Short interval for test
 			ConcurrencyLimit:   5,
 			MetricTimeout:      5 * time.Second,
-		}, mockDataStore, mockMinerManager, mockScheduler)
+			DevicePollInterval: 100 * time.Millisecond, // Short interval for test
+		}, mockDataStore, mockMinerManager, mockScheduler, mockDeviceStore)
 
 		// Test device management operations
 		ctx, cancel := context.WithCancel(t.Context())

@@ -7,10 +7,10 @@ import (
 )
 
 type Config struct {
-	URL          string `json:"url" validate:"required,url" env:"INFLUX_URL"`
-	Organization string `json:"organization" validate:"required" env:"INFLUX_ORG"`
-	Bucket       string `json:"bucket" validate:"required" env:"INFLUX_BUCKET"`
-	Token        string `json:"token" validate:"required" env:"INFLUX_TOKEN"`
+	URL          string `json:"url" validate:"required,url" env:"URL"`
+	Organization string `json:"organization" validate:"required" env:"ORG"`
+	Bucket       string `json:"bucket" validate:"required" env:"BUCKET"`
+	Token        string `json:"token" validate:"required" env:"AUTH_TOKEN"`
 
 	WriteTimeout  time.Duration `json:"write_timeout" default:"30s"`
 	QueryTimeout  time.Duration `json:"query_timeout" default:"60s"`

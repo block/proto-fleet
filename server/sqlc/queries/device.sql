@@ -209,4 +209,11 @@ LIMIT 1;
 -- name: GetDeviceIDsByDeviceIdentifiers :many
 SELECT id
 FROM device
-WHERE device_identifier IN (sqlc.slice('device_identifiers'))
+WHERE device_identifier IN (sqlc.slice('device_identifiers'));
+
+-- name: GetAllPairedDeviceIdentifiers :many
+SELECT d.device_identifier
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+WHERE dp.pairing_status = 'PAIRED'
+    AND d.deleted_at IS NULL;

@@ -6,6 +6,7 @@ import (
 	fm "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
 
@@ -14,6 +15,7 @@ type Cursor struct {
 	DeviceID int64
 }
 
+//nolint:interfacebloat // DeviceStore defines the interface for device-related operations in the store layer. We are okay with bloat at this time.
 type DeviceStore interface {
 	UpsertDevice(ctx context.Context, device *pb.Device, orgID int64, deviceType string) error
 	UpsertDeviceIPAssignment(ctx context.Context, device *pb.Device, orgID int64, ipAddress string, port string) error
@@ -25,4 +27,5 @@ type DeviceStore interface {
 	GetTotalPairedDevices(ctx context.Context) (int64, error)
 	ListPairedDevices(ctx context.Context, cursor Cursor, pageSize int32) ([]*fm.PairedDevice, Cursor, error)
 	ListPairedMinersWithStatus(ctx context.Context, orgID int64, pageSize int32) ([]*pb.Device, error)
+	GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models.DeviceID, error)
 }

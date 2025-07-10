@@ -51,6 +51,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getActiveDeviceIPAssignmentByDeviceIDStmt, err = db.PrepareContext(ctx, getActiveDeviceIPAssignmentByDeviceID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveDeviceIPAssignmentByDeviceID: %w", err)
 	}
+	if q.getAllPairedDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getAllPairedDeviceIdentifiers); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAllPairedDeviceIdentifiers: %w", err)
+	}
 	if q.getBatchStatusAndDeviceCountsStmt, err = db.PrepareContext(ctx, getBatchStatusAndDeviceCounts); err != nil {
 		return nil, fmt.Errorf("error preparing query GetBatchStatusAndDeviceCounts: %w", err)
 	}
@@ -267,6 +270,11 @@ func (q *Queries) Close() error {
 	if q.getActiveDeviceIPAssignmentByDeviceIDStmt != nil {
 		if cerr := q.getActiveDeviceIPAssignmentByDeviceIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getActiveDeviceIPAssignmentByDeviceIDStmt: %w", cerr)
+		}
+	}
+	if q.getAllPairedDeviceIdentifiersStmt != nil {
+		if cerr := q.getAllPairedDeviceIdentifiersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAllPairedDeviceIdentifiersStmt: %w", cerr)
 		}
 	}
 	if q.getBatchStatusAndDeviceCountsStmt != nil {
@@ -597,6 +605,7 @@ type Queries struct {
 	createUserStmt                                      *sql.Stmt
 	createUserOrganizationStmt                          *sql.Stmt
 	getActiveDeviceIPAssignmentByDeviceIDStmt           *sql.Stmt
+	getAllPairedDeviceIdentifiersStmt                   *sql.Stmt
 	getBatchStatusAndDeviceCountsStmt                   *sql.Stmt
 	getDeviceByDeviceIdentifierStmt                     *sql.Stmt
 	getDeviceByIDStmt                                   *sql.Stmt
@@ -668,6 +677,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createUserStmt:                       q.createUserStmt,
 		createUserOrganizationStmt:           q.createUserOrganizationStmt,
 		getActiveDeviceIPAssignmentByDeviceIDStmt:           q.getActiveDeviceIPAssignmentByDeviceIDStmt,
+		getAllPairedDeviceIdentifiersStmt:                   q.getAllPairedDeviceIdentifiersStmt,
 		getBatchStatusAndDeviceCountsStmt:                   q.getBatchStatusAndDeviceCountsStmt,
 		getDeviceByDeviceIdentifierStmt:                     q.getDeviceByDeviceIdentifierStmt,
 		getDeviceByIDStmt:                                   q.getDeviceByIDStmt,

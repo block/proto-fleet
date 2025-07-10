@@ -15,6 +15,8 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+	tmodels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
@@ -25,6 +27,11 @@ import (
 	"github.com/grandcat/zeroconf"
 )
 
+//go:generate mockgen -source=service.go -destination=mocks/mock_service.go -package=mocks Listener
+type Listener interface {
+	AddDevices(ctx context.Context, deviceID ...tmodels.DeviceID) error
+}
+
 // Service handles the core device discovery functionality
 type Service struct {
 	discoveredDeviceStore minerdiscovery.DiscoveredDeviceStore
@@ -33,6 +40,7 @@ type Service struct {
 	tokenService          *tokenDomain.Service
 	minerDiscoveryService *minerdiscovery.Service
 	pairers               map[models.Type]Pairer
+	listener              Listener
 }
 
 func NewService(
@@ -41,6 +49,7 @@ func NewService(
 	transactor interfaces.Transactor,
 	tokenService *tokenDomain.Service,
 	minerDiscoveryService *minerdiscovery.Service,
+	listener Listener,
 	pairers ...Pairer,
 ) *Service {
 	pairersMap := make(map[models.Type]Pairer)
@@ -55,6 +64,7 @@ func NewService(
 		tokenService:          tokenService,
 		minerDiscoveryService: minerDiscoveryService,
 		pairers:               pairersMap,
+		listener:              listener,
 	}
 }
 
@@ -355,6 +365,8 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 		return nil, err
 	}
 
+	deviceIDs := make([]models.DeviceID, 0, len(r.DeviceIdentifiers))
+
 	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Create pairing records for each device
 		for _, deviceID := range r.DeviceIdentifiers {
@@ -366,6 +378,7 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 			// Try to get discovered device from in-memory store first
 			discoveredDevice, err := s.discoveredDeviceStore.GetDevice(orgDeviceID)
 
+			deviceIDs = append(deviceIDs, models.DeviceID(deviceID))
 			// If device not in store, try database
 			if errors.Is(err, minerdiscovery.MinerNotFoundFleetError) {
 				discoveredDevice, err = s.deviceStore.GetDeviceWithIPAssignment(ctx, deviceID, claims.OrgID)
@@ -400,6 +413,11 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 
 	if err != nil {
 		return nil, err
+	}
+
+	if err := s.listener.AddDevices(ctx, deviceIDs...); err != nil {
+		slog.Error("failed to add devices to telemetry scheduler", "error", err)
+		return nil, fleeterror.NewInternalErrorf("failed to add devices to telemetry scheduler: %v", err)
 	}
 	return &pb.PairResponse{}, nil
 }

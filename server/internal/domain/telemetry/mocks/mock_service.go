@@ -151,6 +151,20 @@ func (m *MockTelemetryDataStore) EXPECT() *MockTelemetryDataStoreMockRecorder {
 	return m.recorder
 }
 
+// Close mocks base method.
+func (m *MockTelemetryDataStore) Close() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Close")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockTelemetryDataStoreMockRecorder) Close() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockTelemetryDataStore)(nil).Close))
+}
+
 // GetAggregatedTelemetry mocks base method.
 func (m *MockTelemetryDataStore) GetAggregatedTelemetry(ctx context.Context, query models.AggregationQuery) ([]models.AggregatedTelemetry, error) {
 	m.ctrl.T.Helper()
@@ -209,6 +223,20 @@ func (m *MockTelemetryDataStore) GetTimeSeriesTelemetry(ctx context.Context, que
 func (mr *MockTelemetryDataStoreMockRecorder) GetTimeSeriesTelemetry(ctx, query interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTimeSeriesTelemetry", reflect.TypeOf((*MockTelemetryDataStore)(nil).GetTimeSeriesTelemetry), ctx, query)
+}
+
+// Ping mocks base method.
+func (m *MockTelemetryDataStore) Ping(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Ping", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Ping indicates an expected call of Ping.
+func (mr *MockTelemetryDataStoreMockRecorder) Ping(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Ping", reflect.TypeOf((*MockTelemetryDataStore)(nil).Ping), ctx)
 }
 
 // Store mocks base method.
