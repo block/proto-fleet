@@ -162,17 +162,38 @@ if ! command -v docker-compose &> /dev/null; then
     fi
 fi
 
-# Set up environment variables
 use_existing="no"
 
 if [ -f "$ENV_FILE" ]; then
-    echo -n "Existing environment file found. Would you like to use it? (Y/n): "
-    read use_existing_creds
-    if [[ -z "$use_existing_creds" || $use_existing_creds =~ ^[Yy]$ ]]; then
-        use_existing="yes"
-        echo "Using existing environment file."
+    required_keys=(
+        "MYSQL_ROOT_PASSWORD"
+        "DB_USERNAME"
+        "DB_PASSWORD"
+        "AUTH_CLIENT_SECRET_KEY"
+        "PAIRING_SECRET_KEY"
+        "ENCRYPT_SERVICE_MASTER_KEY"
+    )
+
+    missing_keys=0
+    for key in "${required_keys[@]}"; do
+        if ! grep -q "^$key=" "$ENV_FILE"; then
+            missing_keys=1
+            echo "Missing required key in environment file: $key"
+        fi
+    done
+
+    if [ $missing_keys -eq 0 ]; then
+        echo -n "Existing environment file found with all required keys. Would you like to use it? (Y/n): "
+        read use_existing_creds
+        if [[ -z "$use_existing_creds" || $use_existing_creds =~ ^[Yy]$ ]]; then
+            use_existing="yes"
+            echo "Using existing environment file."
+        else
+            echo "You'll be prompted to enter new credentials."
+            rm -f "$ENV_FILE"
+        fi
     else
-        echo "You'll be prompted to enter new credentials."
+        echo "Existing environment file is incomplete. Creating a new one."
         rm -f "$ENV_FILE"
     fi
 fi
@@ -210,41 +231,53 @@ if [ "$use_existing" == "no" ]; then
     fi
     echo "DB_PASSWORD=$DB_PASSWORD" >> "$ENV_FILE"
 
+    echo -n "Generate a random Auth client secret key? (Y/n): "
+    read gen_auth_key
+    if [[ -z "$gen_auth_key" || $gen_auth_key =~ ^[Yy]$ ]]; then
+        AUTH_CLIENT_SECRET_KEY=$(openssl rand -base64 32)
+        echo "Generated secure Auth client secret key."
+    else
+        while true; do
+            echo -n "Enter Auth client secret key (minimum 32 characters for security): "
+            read -s AUTH_CLIENT_SECRET_KEY
+            echo
 
-    while true; do
-        echo -n "Enter Auth client secret key (minimum 32 characters for security): "
-        read -s AUTH_CLIENT_SECRET_KEY
-        echo
-
-        byte_length=${#AUTH_CLIENT_SECRET_KEY}
-        if [ "$byte_length" -lt 32 ]; then
-            echo "Error: Secret key must be at least 32 characters long."
-            echo "Current length: $byte_length characters"
-        else
-            echo "Auth client secret key accepted."
-            break
-        fi
-    done
+            byte_length=${#AUTH_CLIENT_SECRET_KEY}
+            if [ "$byte_length" -lt 32 ]; then
+                echo "Error: Secret key must be at least 32 characters long."
+                echo "Current length: $byte_length characters"
+            else
+                echo "Auth client secret key accepted."
+                break
+            fi
+        done
+    fi
     echo "AUTH_CLIENT_SECRET_KEY=$AUTH_CLIENT_SECRET_KEY" >> "$ENV_FILE"
 
+    echo -n "Generate a random Pairing secret key? (Y/n): "
+    read gen_pairing_key
+    if [[ -z "$gen_pairing_key" || $gen_pairing_key =~ ^[Yy]$ ]]; then
+        PAIRING_SECRET_KEY=$(openssl rand -base64 24)  # Will produce ~32 chars
+        echo "Generated secure Pairing secret key."
+    else
+        while true; do
+            echo -n "Enter Pairing secret key (32-48 characters): "
+            read -s PAIRING_SECRET_KEY
+            echo
 
-    while true; do
-        echo -n "Enter Pairing secret key (32-48 characters): "
-        read -s PAIRING_SECRET_KEY
-        echo
-
-        byte_length=${#PAIRING_SECRET_KEY}
-        if [ "$byte_length" -lt 32 ]; then
-            echo "Error: Pairing secret key must be at least 32 characters long."
-            echo "Current length: $byte_length characters"
-        elif [ "$byte_length" -gt 48 ]; then
-            echo "Error: Pairing secret key must be at most 48 characters long."
-            echo "Current length: $byte_length characters"
-        else
-            echo "Pairing secret key accepted."
-            break
-        fi
-    done
+            byte_length=${#PAIRING_SECRET_KEY}
+            if [ "$byte_length" -lt 32 ]; then
+                echo "Error: Pairing secret key must be at least 32 characters long."
+                echo "Current length: $byte_length characters"
+            elif [ "$byte_length" -gt 48 ]; then
+                echo "Error: Pairing secret key must be at most 48 characters long."
+                echo "Current length: $byte_length characters"
+            else
+                echo "Pairing secret key accepted."
+                break
+            fi
+        done
+    fi
     echo "PAIRING_SECRET_KEY=$PAIRING_SECRET_KEY" >> "$ENV_FILE"
 
     # Generate random encryption key
