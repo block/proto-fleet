@@ -16,7 +16,9 @@ import (
 
 var _ pairing.Pairer = &Service{}
 
-const DefaultBcryptCost = 14
+// pairingBcryptCost is lower than the default of 10 because we want it to be fast.
+// We don't need to be too secure here because we're only using it to pair devices and not to authenticate users.
+const pairingBcryptCost = 6
 
 type Service struct {
 	transactor  stores.Transactor
@@ -67,7 +69,7 @@ func (s *Service) PairDevice(ctx context.Context, device *minerdiscovery.Discove
 
 func (s *Service) generatePairingToken(device *pb.Device) (string, error) {
 	deviceKey := device.SerialNumber
-	bytes, err := bcrypt.GenerateFromPassword(fmt.Appendf(nil, "%s:%s", s.cfg.SecretKey, deviceKey), DefaultBcryptCost)
+	bytes, err := bcrypt.GenerateFromPassword(fmt.Appendf(nil, "%s:%s", s.cfg.SecretKey, deviceKey), pairingBcryptCost)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("bcrypt failure: %v", err)
 	}
