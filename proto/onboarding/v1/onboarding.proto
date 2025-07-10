@@ -24,7 +24,6 @@ message GetFleetOnboardingStatusResponse {
 }
 
 message FleetOnboardingStatus {
-    bool network_configured = 1;
-    bool pool_configured = 2;
-    bool device_paired = 3;
+    bool pool_configured = 1;
+    bool device_paired = 2;
 }

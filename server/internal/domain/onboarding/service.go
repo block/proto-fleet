@@ -38,8 +38,7 @@ func (s *Service) GetFleetOnboardingStatus(ctx context.Context) (*pb.FleetOnboar
 	}
 
 	return &pb.FleetOnboardingStatus{
-		NetworkConfigured: false,
-		PoolConfigured:    totalPools > 0,
-		DevicePaired:      totalPairedDevices > 0,
+		PoolConfigured: totalPools > 0,
+		DevicePaired:   totalPairedDevices > 0,
 	}, nil
 }
