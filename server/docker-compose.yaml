@@ -129,7 +129,7 @@ services:
       - fleet-network
   influxdb:
     container_name: influxdb3-core
-    image: influxdb:3.1-core
+    image: influxdb:3.2-core
     entrypoint: >
       /bin/sh -c "/var/lib/influxdb3/start/entry_point.sh"
     ports:

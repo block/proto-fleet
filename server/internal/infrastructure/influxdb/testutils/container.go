@@ -26,7 +26,7 @@ func SetupInfluxDBContainer(t *testing.T) (testcontainers.Container, Config) {
 	ctx := t.Context()
 
 	req := testcontainers.ContainerRequest{
-		Image:        "influxdb:3.1-core",
+		Image:        "influxdb:3.2-core",
 		ExposedPorts: []string{"8181/tcp"},
 		Env: map[string]string{
 			"INFLUXDB_HTTP_PORT":               "8181",
