@@ -175,7 +175,9 @@ SELECT
     ds.status_timestamp,
     ds.status_details,
     dia.ip_address,
-    dia.port
+    dia.port,
+    dp.id as cursor_id,
+    d.id as device_id
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
@@ -183,8 +185,13 @@ LEFT JOIN device_ip_assignment dia ON d.id = dia.device_id AND dia.is_current = 
 WHERE dp.pairing_status = 'PAIRED'
     AND d.deleted_at IS NULL
     AND d.org_id = ?
-    AND (? = '' OR d.device_identifier > ?)
-ORDER BY d.device_identifier
+    AND (
+        -- If cursor provided, filter by it, otherwise return all
+        COALESCE(sqlc.narg('cursor_id'), 0) = 0
+        OR
+        (dp.id > sqlc.narg('cursor_id') OR (dp.id = sqlc.narg('cursor_id') AND d.id > sqlc.narg('device_cursor_id')))
+    )
+ORDER BY dp.id, d.id
 LIMIT ?;
 
 -- name: GetDevicePairingStatusByDeviceDatabaseID :one

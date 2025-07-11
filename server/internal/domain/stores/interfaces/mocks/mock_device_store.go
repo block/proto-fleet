@@ -11,7 +11,6 @@ import (
 	fleetmanagementv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	minerdiscovery "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
-	interfaces "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	models "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	secrets "github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 	gomock "github.com/golang/mock/gomock"
@@ -116,11 +115,11 @@ func (mr *MockDeviceStoreMockRecorder) GetTotalPairedDevices(ctx interface{}) *g
 }
 
 // ListPairedDevices mocks base method.
-func (m *MockDeviceStore) ListPairedDevices(ctx context.Context, cursor interfaces.Cursor, pageSize int32) ([]*fleetmanagementv1.PairedDevice, interfaces.Cursor, error) {
+func (m *MockDeviceStore) ListPairedDevices(ctx context.Context, cursor string, pageSize int32) ([]*fleetmanagementv1.PairedDevice, string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListPairedDevices", ctx, cursor, pageSize)
 	ret0, _ := ret[0].([]*fleetmanagementv1.PairedDevice)
-	ret1, _ := ret[1].(interfaces.Cursor)
+	ret1, _ := ret[1].(string)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }
@@ -132,18 +131,19 @@ func (mr *MockDeviceStoreMockRecorder) ListPairedDevices(ctx, cursor, pageSize i
 }
 
 // ListPairedMinersWithStatus mocks base method.
-func (m *MockDeviceStore) ListPairedMinersWithStatus(ctx context.Context, orgID int64, pageSize int32) ([]*pairingv1.Device, error) {
+func (m *MockDeviceStore) ListPairedMinersWithStatus(ctx context.Context, orgID int64, cursor string, pageSize int32) ([]*pairingv1.Device, string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListPairedMinersWithStatus", ctx, orgID, pageSize)
+	ret := m.ctrl.Call(m, "ListPairedMinersWithStatus", ctx, orgID, cursor, pageSize)
 	ret0, _ := ret[0].([]*pairingv1.Device)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret1, _ := ret[1].(string)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // ListPairedMinersWithStatus indicates an expected call of ListPairedMinersWithStatus.
-func (mr *MockDeviceStoreMockRecorder) ListPairedMinersWithStatus(ctx, orgID, pageSize interface{}) *gomock.Call {
+func (mr *MockDeviceStoreMockRecorder) ListPairedMinersWithStatus(ctx, orgID, cursor, pageSize interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPairedMinersWithStatus", reflect.TypeOf((*MockDeviceStore)(nil).ListPairedMinersWithStatus), ctx, orgID, pageSize)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPairedMinersWithStatus", reflect.TypeOf((*MockDeviceStore)(nil).ListPairedMinersWithStatus), ctx, orgID, cursor, pageSize)
 }
 
 // UpsertDevice mocks base method.

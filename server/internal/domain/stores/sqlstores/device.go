@@ -3,6 +3,8 @@ package sqlstores
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
+	"fmt"
 
 	fm "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
@@ -27,6 +29,40 @@ func NewSQLDeviceStore(conn *sql.DB) *SQLDeviceStore {
 
 func (s *SQLDeviceStore) getQueries(ctx context.Context) *sqlc.Queries {
 	return s.GetQueries(ctx)
+}
+
+type deviceQueryCursor struct {
+	ID       int64
+	DeviceID int64
+}
+
+// encodeCursor encodes a Cursor struct to a base64 string
+func (s *SQLDeviceStore) encodeCursor(c *deviceQueryCursor) string {
+	if c == nil {
+		return ""
+	}
+	raw := fmt.Sprintf("%d:%d", c.ID, c.DeviceID)
+	return base64.StdEncoding.EncodeToString([]byte(raw))
+}
+
+// decodeCursor decodes a base64 string to a Cursor struct
+func (s *SQLDeviceStore) decodeCursor(encoded string) (deviceQueryCursor, error) {
+	if encoded == "" {
+		return deviceQueryCursor{}, nil
+	}
+
+	b, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return deviceQueryCursor{}, fmt.Errorf("invalid cursor encoding: %v", err)
+	}
+
+	var cursor deviceQueryCursor
+	_, err = fmt.Sscanf(string(b), "%d:%d", &cursor.ID, &cursor.DeviceID)
+	if err != nil {
+		return deviceQueryCursor{}, fmt.Errorf("invalid cursor values: %v", err)
+	}
+
+	return cursor, nil
 }
 
 func (s *SQLDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identifier string, orgID int64) (*pb.Device, error) {
@@ -184,14 +220,20 @@ func (s *SQLDeviceStore) GetTotalPairedDevices(ctx context.Context) (int64, erro
 	return s.GetQueries(ctx).GetTotalPairedDevices(ctx)
 }
 
-func (s *SQLDeviceStore) ListPairedDevices(ctx context.Context, cursor stores.Cursor, pageSize int32) ([]*fm.PairedDevice, stores.Cursor, error) {
+func (s *SQLDeviceStore) ListPairedDevices(ctx context.Context, cursor string, pageSize int32) ([]*fm.PairedDevice, string, error) {
+	// Decode the cursor string to internal Cursor struct
+	internalCursor, err := s.decodeCursor(cursor)
+	if err != nil {
+		return nil, "", err
+	}
+
 	result, err := s.GetQueries(ctx).ListPairedDevices(ctx, sqlc.ListPairedDevicesParams{
-		CursorID:       sql.NullInt64{Int64: cursor.ID, Valid: cursor.ID > 0},
-		DeviceCursorID: sql.NullInt64{Int64: cursor.DeviceID, Valid: cursor.DeviceID > 0},
+		CursorID:       sql.NullInt64{Int64: internalCursor.ID, Valid: internalCursor.ID > 0},
+		DeviceCursorID: sql.NullInt64{Int64: internalCursor.DeviceID, Valid: internalCursor.DeviceID > 0},
 		Limit:          pageSize + 1, // request one extra to determine if there are more pages
 	})
 	if err != nil {
-		return nil, stores.Cursor{}, err
+		return nil, "", err
 	}
 
 	devices := make([]*fm.PairedDevice, len(result))
@@ -203,6 +245,7 @@ func (s *SQLDeviceStore) ListPairedDevices(ctx context.Context, cursor stores.Cu
 		}
 	}
 
+	var nextCursorString string
 	// Handle pagination
 	if len(devices) > int(pageSize) {
 		// We got an extra record, so there are more pages
@@ -210,25 +253,31 @@ func (s *SQLDeviceStore) ListPairedDevices(ctx context.Context, cursor stores.Cu
 
 		// Create next page token from last visible item
 		lastDevice := result[pageSize-1]
-		cursor = stores.Cursor{
+		nextCursor := &deviceQueryCursor{
 			ID:       lastDevice.CursorID,
 			DeviceID: lastDevice.DeviceID,
 		}
-	} else {
-		// This is the last page
-		cursor = stores.Cursor{}
+		nextCursorString = s.encodeCursor(nextCursor)
 	}
 
-	return devices, cursor, nil
+	return devices, nextCursorString, nil
 }
 
-func (s *SQLDeviceStore) ListPairedMinersWithStatus(ctx context.Context, orgID int64, pageSize int32) ([]*pb.Device, error) {
+func (s *SQLDeviceStore) ListPairedMinersWithStatus(ctx context.Context, orgID int64, cursor string, pageSize int32) ([]*pb.Device, string, error) {
+	// Decode the cursor string to internal Cursor struct
+	internalCursor, err := s.decodeCursor(cursor)
+	if err != nil {
+		return nil, "", err
+	}
+
 	result, err := s.GetQueries(ctx).ListPairedMinersWithStatus(ctx, sqlc.ListPairedMinersWithStatusParams{
-		OrgID: orgID,
-		Limit: pageSize,
+		OrgID:          orgID,
+		CursorID:       sql.NullInt64{Int64: internalCursor.ID, Valid: internalCursor.ID > 0},
+		DeviceCursorID: sql.NullInt64{Int64: internalCursor.DeviceID, Valid: internalCursor.DeviceID > 0},
+		Limit:          pageSize + 1,
 	})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	devices := make([]*pb.Device, len(result))
@@ -244,7 +293,22 @@ func (s *SQLDeviceStore) ListPairedMinersWithStatus(ctx context.Context, orgID i
 		}
 	}
 
-	return devices, nil
+	var nextCursorString string
+	// Handle pagination
+	if len(devices) > int(pageSize) {
+		// We got an extra record, so there are more pages
+		devices = devices[:pageSize]
+
+		// Create next page token from last visible item
+		lastDevice := result[pageSize-1]
+		nextCursor := &deviceQueryCursor{
+			ID:       lastDevice.CursorID,
+			DeviceID: lastDevice.DeviceID,
+		}
+		nextCursorString = s.encodeCursor(nextCursor)
+	}
+
+	return devices, nextCursorString, nil
 }
 
 func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models.DeviceID, error) {

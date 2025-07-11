@@ -10,7 +10,10 @@ export const deepClone = (obj: any) => {
   return JSON.parse(stringify);
 };
 
-export const debounce = (callback: (...args: any) => void) => {
+export const debounce = (
+  callback: (...args: any) => void,
+  delay: number = 500,
+) => {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
   const cancel = () => {
@@ -26,7 +29,7 @@ export const debounce = (callback: (...args: any) => void) => {
     timeoutId = setTimeout(() => {
       timeoutId = undefined;
       callback.apply(context, args);
-    }, 500);
+    }, delay);
   };
 
   debounced.cancel = cancel;

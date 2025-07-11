@@ -453,7 +453,9 @@ SELECT
     ds.status_timestamp,
     ds.status_details,
     dia.ip_address,
-    dia.port
+    dia.port,
+    dp.id as cursor_id,
+    d.id as device_id
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
@@ -461,16 +463,21 @@ LEFT JOIN device_ip_assignment dia ON d.id = dia.device_id AND dia.is_current = 
 WHERE dp.pairing_status = 'PAIRED'
     AND d.deleted_at IS NULL
     AND d.org_id = ?
-    AND (? = '' OR d.device_identifier > ?)
-ORDER BY d.device_identifier
+    AND (
+        -- If cursor provided, filter by it, otherwise return all
+        COALESCE(?, 0) = 0
+        OR
+        (dp.id > ? OR (dp.id = ? AND d.id > ?))
+    )
+ORDER BY dp.id, d.id
 LIMIT ?
 `
 
 type ListPairedMinersWithStatusParams struct {
-	OrgID            int64
-	Column2          interface{}
-	DeviceIdentifier string
-	Limit            int32
+	OrgID          int64
+	CursorID       sql.NullInt64
+	DeviceCursorID sql.NullInt64
+	Limit          int32
 }
 
 type ListPairedMinersWithStatusRow struct {
@@ -485,13 +492,17 @@ type ListPairedMinersWithStatusRow struct {
 	StatusDetails    sql.NullString
 	IpAddress        sql.NullString
 	Port             sql.NullString
+	CursorID         int64
+	DeviceID         int64
 }
 
 func (q *Queries) ListPairedMinersWithStatus(ctx context.Context, arg ListPairedMinersWithStatusParams) ([]ListPairedMinersWithStatusRow, error) {
 	rows, err := q.query(ctx, q.listPairedMinersWithStatusStmt, listPairedMinersWithStatus,
 		arg.OrgID,
-		arg.Column2,
-		arg.DeviceIdentifier,
+		arg.CursorID,
+		arg.CursorID,
+		arg.CursorID,
+		arg.DeviceCursorID,
 		arg.Limit,
 	)
 	if err != nil {
@@ -513,6 +524,8 @@ func (q *Queries) ListPairedMinersWithStatus(ctx context.Context, arg ListPaired
 			&i.StatusDetails,
 			&i.IpAddress,
 			&i.Port,
+			&i.CursorID,
+			&i.DeviceID,
 		); err != nil {
 			return nil, err
 		}

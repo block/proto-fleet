@@ -2,13 +2,11 @@ package fleetmanagement
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net"
 	"time"
 
-	"connectrpc.com/connect"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 
@@ -17,8 +15,6 @@ import (
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 )
-
-type Cursor = interfaces.Cursor
 
 type Service struct {
 	deviceStore interfaces.DeviceStore
@@ -42,14 +38,8 @@ func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRe
 		pageSize = 1000 // maximum page size
 	}
 
-	// Decode cursor if provided
-	cursor, err := decodeCursor(req.Cursor)
-	if err != nil {
-		return nil, err
-	}
-
 	// Query the database
-	devices, cursor, err := s.deviceStore.ListPairedDevices(c, cursor, pageSize)
+	devices, nextCursor, err := s.deviceStore.ListPairedDevices(c, req.Cursor, pageSize)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to list miners: %v", err)
 	}
@@ -63,43 +53,11 @@ func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRe
 	// Prepare response
 	resp := &pb.ListPairedMinersResponse{
 		Miners:      devices,
-		Cursor:      encodeCursor(cursor),
+		Cursor:      nextCursor,
 		TotalMiners: int32(total), //nolint:gosec
 	}
 
 	return resp, nil
-}
-
-func encodeCursor(c Cursor) string {
-	raw := fmt.Sprintf("%d:%d", c.ID, c.DeviceID)
-	return base64.StdEncoding.EncodeToString([]byte(raw))
-}
-
-func decodeCursor(encoded string) (Cursor, error) {
-	if encoded == "" {
-		return Cursor{}, nil
-	}
-
-	b, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return Cursor{}, fleeterror.NewErrorWithServiceCode(
-			fmt.Sprintf("invalid page token, invalid cursor encoding: %v", err),
-			connect.CodeInvalidArgument,
-			int32(pb.FleetManagementServiceErrorCode_FLEET_MANAGEMENT_SERVICE_ERROR_CODE_INVALID_PAGINATION_CURSOR),
-		)
-	}
-
-	var cursor Cursor
-	_, err = fmt.Sscanf(string(b), "%d:%d", &cursor.ID, &cursor.DeviceID)
-	if err != nil {
-		return Cursor{}, fleeterror.NewErrorWithServiceCode(
-			fmt.Sprintf("invalid page token, invalid cursor values: %v", err),
-			connect.CodeInvalidArgument,
-			int32(pb.FleetManagementServiceErrorCode_FLEET_MANAGEMENT_SERVICE_ERROR_CODE_INVALID_PAGINATION_CURSOR),
-		)
-	}
-
-	return cursor, nil
 }
 
 // ListMinerStateSnapshots returns a paginated list of miners with their operational status and metrics
@@ -110,7 +68,7 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 	}
 
 	// Get paired miners with their basic info
-	miners, err := s.deviceStore.ListPairedMinersWithStatus(ctx, claims.OrgID, req.PageSize)
+	miners, nextCursor, err := s.deviceStore.ListPairedMinersWithStatus(ctx, claims.OrgID, req.Cursor, req.PageSize)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to list miners: %v", err)
 	}
@@ -156,16 +114,9 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 		return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
 	}
 
-	// Handle case where no miners are returned
-	var cursor string
-	if len(miners) > 0 {
-		cursor = miners[len(miners)-1].DeviceIdentifier // Use last device ID as cursor
-	} else {
-		cursor = "" // No miners, so cursor is empty
-	}
 	return &pb.ListMinerStateSnapshotsResponse{
 		Miners:      snapshots,
-		Cursor:      cursor,
+		Cursor:      nextCursor,
 		TotalMiners: int32(total), //nolint:gosec
 	}, nil
 

@@ -10,11 +10,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
 
-type Cursor struct {
-	ID       int64
-	DeviceID int64
-}
-
+//go:generate mockgen -source=device.go -destination=mocks/mock_device_store.go -package=mocks DeviceStore
 //nolint:interfacebloat // DeviceStore defines the interface for device-related operations in the store layer. We are okay with bloat at this time.
 type DeviceStore interface {
 	UpsertDevice(ctx context.Context, device *pb.Device, orgID int64, deviceType string) error
@@ -25,7 +21,7 @@ type DeviceStore interface {
 	GetDeviceByDeviceIdentifier(ctx context.Context, identifier string, orgID int64) (*pb.Device, error)
 	GetDeviceWithIPAssignment(ctx context.Context, deviceIdentifier string, orgID int64) (*minerdiscovery.DiscoveredDevice, error)
 	GetTotalPairedDevices(ctx context.Context) (int64, error)
-	ListPairedDevices(ctx context.Context, cursor Cursor, pageSize int32) ([]*fm.PairedDevice, Cursor, error)
-	ListPairedMinersWithStatus(ctx context.Context, orgID int64, pageSize int32) ([]*pb.Device, error)
+	ListPairedDevices(ctx context.Context, cursor string, pageSize int32) ([]*fm.PairedDevice, string, error)
 	GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models.DeviceID, error)
+	ListPairedMinersWithStatus(ctx context.Context, orgID int64, cursor string, pageSize int32) ([]*pb.Device, string, error)
 }

@@ -1,9 +1,13 @@
 import clsx from "clsx";
 import useFleet from "@/protoFleet/api/useFleet";
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
+import Button, { sizes, variants } from "@/shared/components/Button";
 
 const Fleet = () => {
-  const { minerIds } = useFleet();
+  const { minerIds, hasMore, isLoading, loadMore, setFilter } = useFleet({
+    pageSize: 100,
+  });
+
   return (
     <div className="flex grow justify-center">
       <div className="phone:w-[calc(100vw-theme(spacing.6)*2)] tablet:w-[calc(100vw-theme(spacing.6)*2)] laptop:w-[776px] desktop:w-[1024px]">
@@ -27,7 +31,20 @@ const Fleet = () => {
             desktop: "calc(80px + (100vw - 1024px - 80px * 2 - 64px)/2)",
           }}
           overflowContainer={true}
+          onFilterChange={setFilter}
         />
+
+        {hasMore ? (
+          <div className="mt-6 flex justify-center">
+            <Button
+              variant={variants.secondary}
+              size={sizes.base}
+              onClick={() => loadMore()}
+              loading={isLoading}
+              text="Load More"
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );

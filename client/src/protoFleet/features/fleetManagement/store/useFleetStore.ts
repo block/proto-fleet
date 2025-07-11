@@ -28,6 +28,7 @@ interface FleetState {
 
   // Actions
   setMiners: (miners: MinerStateSnapshot[]) => void;
+  appendMiners: (miners: MinerStateSnapshot[]) => void;
   setTotalMiners: (count: number) => void;
   setMinerStateCounts: (counts: MinerStateCounts) => void;
   updateMinerMeasurement: (
@@ -122,6 +123,19 @@ export const useFleetStore = create<FleetState>()(
           miners.forEach((miner) => {
             state.miners[miner.deviceIdentifier] = miner;
             state.minerIds.push(miner.deviceIdentifier);
+          });
+        }),
+
+      appendMiners: (miners) =>
+        set((state) => {
+          const existingIds = new Set(state.minerIds);
+
+          miners.forEach((miner) => {
+            // Only add if not already present
+            if (!existingIds.has(miner.deviceIdentifier)) {
+              state.miners[miner.deviceIdentifier] = miner;
+              state.minerIds.push(miner.deviceIdentifier);
+            }
           });
         }),
 

@@ -11,11 +11,11 @@ import minerColConfig from "./minerColConfig";
 
 import {
   ComponentStatus,
+  MinerListFilter,
   MinerListFilterSchema,
   MinerStateSnapshot,
   MinerType,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import useFleet from "@/protoFleet/api/useFleet";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 
 import {
@@ -37,6 +37,7 @@ type MinerListProps = {
   listClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   overflowContainer?: boolean;
+  onFilterChange: (filter: MinerListFilter) => void;
 };
 
 // TODO: move this to state when we
@@ -57,8 +58,8 @@ const MinerList = ({
   listClassName,
   paddingLeft,
   overflowContainer,
+  onFilterChange,
 }: MinerListProps) => {
-  const { fetchPairedMiners } = useFleet();
   const totalMiners = useTotalMiners();
   const minerStateCounts = useMinerStateCounts();
 
@@ -161,12 +162,9 @@ const MinerList = ({
             break;
         }
       }
-
-      await fetchPairedMiners({
-        filter: minerFilter,
-      });
+      onFilterChange(minerFilter);
     },
-    [fetchPairedMiners],
+    [onFilterChange],
   );
   return (
     <div>
