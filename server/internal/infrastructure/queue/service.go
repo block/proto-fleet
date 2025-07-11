@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
@@ -24,7 +25,11 @@ func NewDatabaseMessageQueue(config *Config, conn *sql.DB) *DatabaseMessageQueue
 	}
 }
 
-func (d DatabaseMessageQueue) Enqueue(ctx context.Context, commandBatchLogID int64, commandType commandtype.Type, deviceIDs []int64) error {
+func (d DatabaseMessageQueue) Enqueue(ctx context.Context, commandBatchLogID int64, commandType commandtype.Type, deviceIDs []int64, payload interface{}) error {
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to marshal payload: %v", err)
+	}
 	return db.WithTransactionNoResult(ctx, d.conn, func(q *sqlc.Queries) error {
 		for _, deviceID := range deviceIDs {
 			err := q.CreateQueueMessage(ctx, sqlc.CreateQueueMessageParams{
@@ -33,6 +38,7 @@ func (d DatabaseMessageQueue) Enqueue(ctx context.Context, commandBatchLogID int
 				DeviceID:          deviceID,
 				Status:            sqlc.QueueMessageStatusPENDING,
 				RetryCount:        0,
+				Payload:           payloadBytes,
 			})
 			if err != nil {
 				return fleeterror.NewInternalErrorf("failed to enqueue message: %v", err)
@@ -72,6 +78,7 @@ func (d DatabaseMessageQueue) Dequeue(ctx context.Context) ([]Message, error) {
 				BatchLogID:  dbMsg.CommandBatchLogID,
 				CommandType: cmdType,
 				DeviceID:    dbMsg.DeviceID,
+				Payload:     dbMsg.Payload,
 			})
 		}
 

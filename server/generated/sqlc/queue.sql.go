@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 )
 
 const createQueueMessage = `-- name: CreateQueueMessage :exec
@@ -16,8 +17,10 @@ INSERT INTO queue_message (
     command_type,
     device_id,
     status,
-    retry_count
+    retry_count,
+    payload
 ) VALUES (
+     ?,
      ?,
      ?,
      ?,
@@ -32,6 +35,7 @@ type CreateQueueMessageParams struct {
 	DeviceID          int64
 	Status            QueueMessageStatus
 	RetryCount        int32
+	Payload           json.RawMessage
 }
 
 func (q *Queries) CreateQueueMessage(ctx context.Context, arg CreateQueueMessageParams) error {
@@ -41,12 +45,13 @@ func (q *Queries) CreateQueueMessage(ctx context.Context, arg CreateQueueMessage
 		arg.DeviceID,
 		arg.Status,
 		arg.RetryCount,
+		arg.Payload,
 	)
 	return err
 }
 
 const getMessagesToProcess = `-- name: GetMessagesToProcess :many
-SELECT m.id, m.command_batch_log_id, m.device_id, m.command_type, m.status, m.retry_count, m.error_info, m.created_at, m.updated_at
+SELECT m.id, m.command_batch_log_id, m.device_id, m.command_type, m.status, m.retry_count, m.error_info, m.created_at, m.updated_at, m.payload
 FROM queue_message m
 WHERE m.status = 'PENDING'
   AND m.retry_count < ?
@@ -85,6 +90,7 @@ func (q *Queries) GetMessagesToProcess(ctx context.Context, arg GetMessagesToPro
 			&i.ErrorInfo,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Payload,
 		); err != nil {
 			return nil, err
 		}

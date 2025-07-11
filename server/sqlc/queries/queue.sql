@@ -4,8 +4,10 @@ INSERT INTO queue_message (
     command_type,
     device_id,
     status,
-    retry_count
+    retry_count,
+    payload
 ) VALUES (
+     ?,
      ?,
      ?,
      ?,

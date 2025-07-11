@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 )
 
@@ -18,8 +19,10 @@ INSERT INTO command_batch_log (
     created_by,
     created_at,
     status,
-    devices_count
+    devices_count,
+    payload
 ) VALUES (
+  ?,
   ?,
   ?,
   ?,
@@ -36,6 +39,7 @@ type CreateCommandBatchLogParams struct {
 	CreatedAt    time.Time
 	Status       CommandBatchLogStatus
 	DevicesCount int32
+	Payload      json.RawMessage
 }
 
 func (q *Queries) CreateCommandBatchLog(ctx context.Context, arg CreateCommandBatchLogParams) (sql.Result, error) {
@@ -46,6 +50,7 @@ func (q *Queries) CreateCommandBatchLog(ctx context.Context, arg CreateCommandBa
 		arg.CreatedAt,
 		arg.Status,
 		arg.DevicesCount,
+		arg.Payload,
 	)
 }
 

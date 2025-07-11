@@ -6,6 +6,10 @@ import (
 	"fmt"
 	"time"
 
+	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
+
+	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api"
+
 	"connectrpc.com/connect"
 	"golang.org/x/sync/errgroup"
 
@@ -112,6 +116,38 @@ func (p *ProtoMiner) StopMining(ctx context.Context) error {
 
 	if resp.Msg.Result != miner_common_api.ApiResult_RESULT_SUCCESS {
 		return fleeterror.NewInternalErrorf("stop mining failed: %s", resp.Msg.Message)
+	}
+
+	return nil
+}
+
+func mapCoolingModeType(pbMode pb.CoolingMode) (miner_data_api.CoolingMode, error) {
+	switch pbMode {
+	case pb.CoolingMode_COOLING_MODE_UNSPECIFIED:
+		return miner_data_api.CoolingMode_COOLING_MODE_UNKNOWN, nil
+	case pb.CoolingMode_COOLING_MODE_AIR_COOLED:
+		return miner_data_api.CoolingMode_COOLING_MODE_AUTO, nil
+	case pb.CoolingMode_COOLING_MODE_IMMERSION_COOLED:
+		return miner_data_api.CoolingMode_COOLING_MODE_OFF, nil
+	default:
+		return 0, fleeterror.NewInternalErrorf("unsupported cooling mode type: %v", pbMode)
+	}
+}
+
+func (p *ProtoMiner) SetCoolingMode(ctx context.Context, mode pb.CoolingMode) error {
+	ctx = client.ContextWithAuth(ctx, p.authToken)
+
+	protoMinerMode, err := mapCoolingModeType(mode)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error mapping cooling mode to proto miner type: %v", err)
+	}
+	resp, err := p.commandClient.SetCoolingMode(ctx, connect.NewRequest(&miner_command_api.CoolingModeRequest{Mode: protoMinerMode}))
+	if err != nil {
+		return err
+	}
+
+	if resp.Msg.Result != miner_common_api.ApiResult_RESULT_SUCCESS {
+		return fleeterror.NewInternalErrorf("set cooling mode failed: %s", resp.Msg.String())
 	}
 
 	return nil

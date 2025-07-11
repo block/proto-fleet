@@ -9,6 +9,7 @@ import (
 	reflect "reflect"
 	time "time"
 
+	minercommandv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
 	models "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	models0 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	networking "github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
@@ -93,6 +94,20 @@ func (m *MockMiner) GetType() models.Type {
 func (mr *MockMinerMockRecorder) GetType() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetType", reflect.TypeOf((*MockMiner)(nil).GetType))
+}
+
+// SetCoolingMode mocks base method.
+func (m *MockMiner) SetCoolingMode(ctx context.Context, mode minercommandv1.CoolingMode) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetCoolingMode", ctx, mode)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetCoolingMode indicates an expected call of SetCoolingMode.
+func (mr *MockMinerMockRecorder) SetCoolingMode(ctx, mode interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCoolingMode", reflect.TypeOf((*MockMiner)(nil).SetCoolingMode), ctx, mode)
 }
 
 // StartMining mocks base method.

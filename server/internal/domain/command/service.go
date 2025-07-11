@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
@@ -45,7 +46,11 @@ func NewService(config *Config, conn *sql.DB, executionService *ExecutionService
 	}
 }
 
-func (s *Service) saveCommandBatchLogToDB(ctx context.Context, commandType commandtype.Type, userID int64, devicesCount int32) (*batchLogIdentifier, error) {
+func (s *Service) saveCommandBatchLogToDB(ctx context.Context, commandType commandtype.Type, userID int64, devicesCount int32, payload interface{}) (*batchLogIdentifier, error) {
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error marshalling payload: %v", err)
+	}
 	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (*batchLogIdentifier, error) {
 		timeNow := time.Now()
 		newUUID := id.GenerateID()
@@ -56,6 +61,7 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, commandType comma
 			CreatedAt:    timeNow,
 			Status:       sqlc.CommandBatchLogStatusPENDING,
 			DevicesCount: devicesCount,
+			Payload:      payloadBytes,
 		})
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("error creating command batch log: %v", err)
@@ -147,7 +153,7 @@ func (s *Service) initializeStatusUpdateRoutine(commandBatchLogID int64) {
 	}()
 }
 
-func (s *Service) processCommand(ctx context.Context, commandType commandtype.Type, deviceIdentifiers []string) (string, error) {
+func (s *Service) processCommand(ctx context.Context, commandType commandtype.Type, deviceIdentifiers []string, payload interface{}) (string, error) {
 	if !s.executionService.IsRunning() {
 		slog.Error("command execution service is not running, attempting to start it")
 		err := s.executionService.Start(ctx)
@@ -161,7 +167,7 @@ func (s *Service) processCommand(ctx context.Context, commandType commandtype.Ty
 		return "", fleeterror.NewInternalErrorf("error getting claims from ctx: %v", err)
 	}
 	// #nosec G115 - We know device identifiers len won't exceed int32 max value
-	batchLogIdentifier, err := s.saveCommandBatchLogToDB(ctx, commandType, claims.UserID, int32(len(deviceIdentifiers)))
+	batchLogIdentifier, err := s.saveCommandBatchLogToDB(ctx, commandType, claims.UserID, int32(len(deviceIdentifiers)), payload)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
 	}
@@ -172,7 +178,7 @@ func (s *Service) processCommand(ctx context.Context, commandType commandtype.Ty
 		return "", fleeterror.NewInternalErrorf("error getting device IDs from device identifiers: %v", err)
 	}
 
-	err = s.messageQueue.Enqueue(ctx, batchLogIdentifier.id, commandType, deviceIDs)
+	err = s.messageQueue.Enqueue(ctx, batchLogIdentifier.id, commandType, deviceIDs, payload)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
 	}
@@ -184,7 +190,7 @@ func (s *Service) processCommand(ctx context.Context, commandType commandtype.Ty
 
 // StopMining stops mining on the specified miners
 func (s *Service) StopMining(ctx context.Context, deviceIDs []string) (*pb.StopMiningResponse, error) {
-	commandBatchLogUUID, err := s.processCommand(ctx, commandtype.StopMining, deviceIDs)
+	commandBatchLogUUID, err := s.processCommand(ctx, commandtype.StopMining, deviceIDs, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -196,12 +202,24 @@ func (s *Service) StopMining(ctx context.Context, deviceIDs []string) (*pb.StopM
 
 // StartMining starts mining on the specified miners
 func (s *Service) StartMining(ctx context.Context, deviceIDs []string) (*pb.StartMiningResponse, error) {
-	commandBatchLogUUID, err := s.processCommand(ctx, commandtype.StartMining, deviceIDs)
+	commandBatchLogUUID, err := s.processCommand(ctx, commandtype.StartMining, deviceIDs, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	return &pb.StartMiningResponse{
+		BatchIdentifier: commandBatchLogUUID,
+	}, nil
+}
+
+func (s *Service) SetCoolingMode(ctx context.Context, deviceIDs []string, modeType pb.CoolingMode) (*pb.SetCoolingModeResponse, error) {
+	cm := CoolingModePayload{Mode: modeType}
+	commandBatchLogUUID, err := s.processCommand(ctx, commandtype.SetCoolingMode, deviceIDs, cm)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.SetCoolingModeResponse{
 		BatchIdentifier: commandBatchLogUUID,
 	}, nil
 }

@@ -40,6 +40,9 @@ const (
 	// MinerCommandServiceStartMiningProcedure is the fully-qualified name of the MinerCommandService's
 	// StartMining RPC.
 	MinerCommandServiceStartMiningProcedure = "/minercommand.v1.MinerCommandService/StartMining"
+	// MinerCommandServiceSetCoolingModeProcedure is the fully-qualified name of the
+	// MinerCommandService's SetCoolingMode RPC.
+	MinerCommandServiceSetCoolingModeProcedure = "/minercommand.v1.MinerCommandService/SetCoolingMode"
 	// MinerCommandServiceStreamCommandBatchUpdatesProcedure is the fully-qualified name of the
 	// MinerCommandService's StreamCommandBatchUpdates RPC.
 	MinerCommandServiceStreamCommandBatchUpdatesProcedure = "/minercommand.v1.MinerCommandService/StreamCommandBatchUpdates"
@@ -53,6 +56,7 @@ type MinerCommandServiceClient interface {
 	// Starts mining on specified miners
 	// The operation is attempted on all miners even if some fail
 	StartMining(context.Context, *connect.Request[v1.StartMiningRequest]) (*connect.Response[v1.StartMiningResponse], error)
+	SetCoolingMode(context.Context, *connect.Request[v1.SetCoolingModeRequest]) (*connect.Response[v1.SetCoolingModeResponse], error)
 	// Streams command batch updates
 	StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamCommandBatchUpdatesResponse], error)
 }
@@ -77,6 +81,11 @@ func NewMinerCommandServiceClient(httpClient connect.HTTPClient, baseURL string,
 			baseURL+MinerCommandServiceStartMiningProcedure,
 			opts...,
 		),
+		setCoolingMode: connect.NewClient[v1.SetCoolingModeRequest, v1.SetCoolingModeResponse](
+			httpClient,
+			baseURL+MinerCommandServiceSetCoolingModeProcedure,
+			opts...,
+		),
 		streamCommandBatchUpdates: connect.NewClient[v1.StreamCommandBatchUpdatesRequest, v1.StreamCommandBatchUpdatesResponse](
 			httpClient,
 			baseURL+MinerCommandServiceStreamCommandBatchUpdatesProcedure,
@@ -89,6 +98,7 @@ func NewMinerCommandServiceClient(httpClient connect.HTTPClient, baseURL string,
 type minerCommandServiceClient struct {
 	stopMining                *connect.Client[v1.StopMiningRequest, v1.StopMiningResponse]
 	startMining               *connect.Client[v1.StartMiningRequest, v1.StartMiningResponse]
+	setCoolingMode            *connect.Client[v1.SetCoolingModeRequest, v1.SetCoolingModeResponse]
 	streamCommandBatchUpdates *connect.Client[v1.StreamCommandBatchUpdatesRequest, v1.StreamCommandBatchUpdatesResponse]
 }
 
@@ -100,6 +110,11 @@ func (c *minerCommandServiceClient) StopMining(ctx context.Context, req *connect
 // StartMining calls minercommand.v1.MinerCommandService.StartMining.
 func (c *minerCommandServiceClient) StartMining(ctx context.Context, req *connect.Request[v1.StartMiningRequest]) (*connect.Response[v1.StartMiningResponse], error) {
 	return c.startMining.CallUnary(ctx, req)
+}
+
+// SetCoolingMode calls minercommand.v1.MinerCommandService.SetCoolingMode.
+func (c *minerCommandServiceClient) SetCoolingMode(ctx context.Context, req *connect.Request[v1.SetCoolingModeRequest]) (*connect.Response[v1.SetCoolingModeResponse], error) {
+	return c.setCoolingMode.CallUnary(ctx, req)
 }
 
 // StreamCommandBatchUpdates calls minercommand.v1.MinerCommandService.StreamCommandBatchUpdates.
@@ -116,6 +131,7 @@ type MinerCommandServiceHandler interface {
 	// Starts mining on specified miners
 	// The operation is attempted on all miners even if some fail
 	StartMining(context.Context, *connect.Request[v1.StartMiningRequest]) (*connect.Response[v1.StartMiningResponse], error)
+	SetCoolingMode(context.Context, *connect.Request[v1.SetCoolingModeRequest]) (*connect.Response[v1.SetCoolingModeResponse], error)
 	// Streams command batch updates
 	StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest], *connect.ServerStream[v1.StreamCommandBatchUpdatesResponse]) error
 }
@@ -136,6 +152,11 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 		svc.StartMining,
 		opts...,
 	)
+	minerCommandServiceSetCoolingModeHandler := connect.NewUnaryHandler(
+		MinerCommandServiceSetCoolingModeProcedure,
+		svc.SetCoolingMode,
+		opts...,
+	)
 	minerCommandServiceStreamCommandBatchUpdatesHandler := connect.NewServerStreamHandler(
 		MinerCommandServiceStreamCommandBatchUpdatesProcedure,
 		svc.StreamCommandBatchUpdates,
@@ -147,6 +168,8 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 			minerCommandServiceStopMiningHandler.ServeHTTP(w, r)
 		case MinerCommandServiceStartMiningProcedure:
 			minerCommandServiceStartMiningHandler.ServeHTTP(w, r)
+		case MinerCommandServiceSetCoolingModeProcedure:
+			minerCommandServiceSetCoolingModeHandler.ServeHTTP(w, r)
 		case MinerCommandServiceStreamCommandBatchUpdatesProcedure:
 			minerCommandServiceStreamCommandBatchUpdatesHandler.ServeHTTP(w, r)
 		default:
@@ -164,6 +187,10 @@ func (UnimplementedMinerCommandServiceHandler) StopMining(context.Context, *conn
 
 func (UnimplementedMinerCommandServiceHandler) StartMining(context.Context, *connect.Request[v1.StartMiningRequest]) (*connect.Response[v1.StartMiningResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.StartMining is not implemented"))
+}
+
+func (UnimplementedMinerCommandServiceHandler) SetCoolingMode(context.Context, *connect.Request[v1.SetCoolingModeRequest]) (*connect.Response[v1.SetCoolingModeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.SetCoolingMode is not implemented"))
 }
 
 func (UnimplementedMinerCommandServiceHandler) StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest], *connect.ServerStream[v1.StreamCommandBatchUpdatesResponse]) error {

@@ -5,8 +5,10 @@ INSERT INTO command_batch_log (
     created_by,
     created_at,
     status,
-    devices_count
+    devices_count,
+    payload
 ) VALUES (
+  ?,
   ?,
   ?,
   ?,

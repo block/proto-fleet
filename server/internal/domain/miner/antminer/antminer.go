@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
+
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/rpc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/web"
@@ -63,6 +65,11 @@ func (a *Antminer) StopMining(ctx context.Context) error {
 	return a.webClient.SetMinerConfig(ctx, a.getWebConnectionInfo(), &web.MinerConfig{
 		BitmainWorkMode: web.BitmainWorkModeSleep,
 	})
+}
+
+func (a *Antminer) SetCoolingMode(_ context.Context, _ pb.CoolingMode) error {
+	// TODO implement me
+	return nil
 }
 
 func (a *Antminer) getWebConnectionInfo() *web.AntminerConnectionInfo {

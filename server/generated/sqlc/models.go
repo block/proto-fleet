@@ -7,6 +7,7 @@ package sqlc
 import (
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -282,6 +283,7 @@ type CommandBatchLog struct {
 	FinishedAt   sql.NullTime
 	Status       CommandBatchLogStatus
 	DevicesCount int32
+	Payload      json.RawMessage
 }
 
 type CommandOnDeviceLog struct {
@@ -384,6 +386,7 @@ type QueueMessage struct {
 	ErrorInfo         sql.NullString
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+	Payload           json.RawMessage
 }
 
 type Role struct {

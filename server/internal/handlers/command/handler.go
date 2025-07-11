@@ -49,6 +49,18 @@ func (h *Handler) StartMining(
 	return connect.NewResponse(resp), nil
 }
 
+func (h *Handler) SetCoolingMode(
+	ctx context.Context,
+	req *connect.Request[pb.SetCoolingModeRequest],
+) (*connect.Response[pb.SetCoolingModeResponse], error) {
+	resp, err := h.commandSvc.SetCoolingMode(ctx, req.Msg.DeviceIdentifiers, req.Msg.Mode)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(resp), nil
+}
+
 func (h *Handler) StreamCommandBatchUpdates(ctx context.Context, r *connect.Request[pb.StreamCommandBatchUpdatesRequest], stream *connect.ServerStream[pb.StreamCommandBatchUpdatesResponse]) error {
 	slog.Debug("handling request to stream command batch updates", "request", r)
 	responseChan, err := h.commandSvc.StreamCommandBatchUpdates(ctx, r.Msg)

@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strconv"
@@ -171,7 +172,6 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandType commandtype.Type, message queue.Message) error {
 	minerInfo, err := es.GetMinerConnectionInfo(ctx, message.DeviceID)
 	if err != nil {
-		// TODO do we markFailed here?
 		markFailedErr := es.messageQueue.MarkFailed(ctx, message.ID, err.Error())
 		if markFailedErr != nil {
 			return fleeterror.NewInternalErrorf("error getting miner connection info for deviceID: %d, %v, and also error marking as failed: %v", message.DeviceID, err, markFailedErr)
@@ -179,7 +179,22 @@ func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandTyp
 		return fleeterror.NewInternalErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
 	}
 
-	err = interfaces.GetMinerCommandFunc(commandType, minerInfo)(ctx)
+	switch commandType {
+	case commandtype.StartMining:
+		err = minerInfo.StartMining(ctx)
+	case commandtype.StopMining:
+		err = minerInfo.StopMining(ctx)
+	case commandtype.SetCoolingMode:
+		var p CoolingModePayload
+		extractErr := json.Unmarshal(message.Payload, &p)
+		if extractErr != nil {
+			return fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", extractErr)
+		}
+		err = minerInfo.SetCoolingMode(ctx, p.Mode)
+	default:
+		return fleeterror.NewInternalErrorf("unsupported command type: %v", commandType)
+	}
+
 	if err != nil {
 		err = es.messageQueue.MarkFailed(ctx, message.ID, err.Error())
 		return fleeterror.NewInternalErrorf("error setting message as failed on queue: %v", err)

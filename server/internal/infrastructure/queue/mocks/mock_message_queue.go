@@ -52,17 +52,17 @@ func (mr *MockMessageQueueMockRecorder) Dequeue(ctx interface{}) *gomock.Call {
 }
 
 // Enqueue mocks base method.
-func (m *MockMessageQueue) Enqueue(ctx context.Context, commandBatchLogID int64, commandType commandtype.Type, deviceIDs []int64) error {
+func (m *MockMessageQueue) Enqueue(ctx context.Context, commandBatchLogID int64, commandType commandtype.Type, deviceIDs []int64, payload interface{}) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Enqueue", ctx, commandBatchLogID, commandType, deviceIDs)
+	ret := m.ctrl.Call(m, "Enqueue", ctx, commandBatchLogID, commandType, deviceIDs, payload)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Enqueue indicates an expected call of Enqueue.
-func (mr *MockMessageQueueMockRecorder) Enqueue(ctx, commandBatchLogID, commandType, deviceIDs interface{}) *gomock.Call {
+func (mr *MockMessageQueueMockRecorder) Enqueue(ctx, commandBatchLogID, commandType, deviceIDs, payload interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Enqueue", reflect.TypeOf((*MockMessageQueue)(nil).Enqueue), ctx, commandBatchLogID, commandType, deviceIDs)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Enqueue", reflect.TypeOf((*MockMessageQueue)(nil).Enqueue), ctx, commandBatchLogID, commandType, deviceIDs, payload)
 }
 
 // IsBatchFinished mocks base method.
