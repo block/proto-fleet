@@ -10,8 +10,6 @@ WORKDIR /app
 COPY fleetd-amd64 fleetd-arm64 /app/
 
 ARG TARGETARCH=amd64
-ARG CGO_ENABLED
-ENV CGO_ENABLED=${CGO_ENABLED}
 
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
       cp /app/fleetd-amd64 /app/fleetd; \
