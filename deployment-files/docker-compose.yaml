@@ -4,6 +4,7 @@ services:
       context: ./server
       args:
         TARGETARCH: ${TARGETARCH:-amd64}
+        CGO_ENABLED: 0
     ports:
       - "4000:8080"
     environment:
@@ -66,7 +67,16 @@ services:
     volumes:
       - mysql:/var/lib/mysql
     healthcheck:
-      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}" ]
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-uroot",
+          "-p${MYSQL_ROOT_PASSWORD}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -75,7 +85,8 @@ services:
       - fleet-network
 
   influxdb:
-    image: influxdb:3.1-core
+    build:
+      context: ./influxdb
     entrypoint: >
       /bin/sh -c "/var/lib/influxdb3/start/entry_point.sh"
     ports:
@@ -93,7 +104,7 @@ services:
       INFLUXDB3_DB_DIR: "/var/lib/influxdb3"
       INFLUXDB3_BUCKET: fleet
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8181/health" ]
+      test: ["CMD", "curl", "-f", "http://localhost:8181/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -104,7 +115,6 @@ volumes:
   mysql:
   influxdb-data:
   influxdb-config:
-
 
 networks:
   fleet-network:
