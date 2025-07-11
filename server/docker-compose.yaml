@@ -84,7 +84,7 @@ services:
     mem_reservation: 64M
     cpus: 0.25
     healthcheck:
-      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:80/health" ]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -120,7 +120,7 @@ services:
     volumes:
       - mysql:/var/lib/mysql
     healthcheck:
-      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -147,7 +147,7 @@ services:
       INFLUXDB3_DB_DIR: "/var/lib/influxdb3"
       INFLUXDB3_BUCKET: fleet
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8181/health" ]
+      test: ["CMD", "curl", "-f", "http://localhost:8181/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -158,7 +158,6 @@ volumes:
   mysql:
   influxdb-data:
   influxdb-config:
-
 
 networks:
   fleet-network:
