@@ -70,54 +70,57 @@ const LoginForm = ({
   useKeyDown({ key: "Enter", onKeyDown: handleEnter });
 
   return (
-    <div data-testid="login-form">
-      <div className="text-heading-200 text-text-primary">Login required</div>
-      <div className="mt-1 mb-4 text-300 text-text-primary-70">
-        Contact your system administrator if you need access.
-      </div>
-
-      <div
-        className={clsx("transition-[max-height,margin] ease-in-out", {
-          "max-h-0 overflow-hidden duration-300": !apiError,
-          "mb-4 max-h-96 duration-500": apiError,
-        })}
-        data-testid="error"
-      >
-        <div className="rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
-          Invalid credentials entered.
+    <div data-testid="login-form" className="flex flex-col gap-4">
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-2">
+          <div className="text-heading-200 text-text-primary">
+            Login required
+          </div>
+          <div className="text-300 text-text-primary-70">
+            Contact your system administrator if you need access.
+          </div>
         </div>
       </div>
+      <div className="flex flex-col gap-4">
+        <div
+          className={clsx("transition-[max-height,margin] ease-in-out", {
+            "max-h-0 overflow-hidden duration-300": !apiError,
+            "max-h-96 duration-500": apiError,
+          })}
+          data-testid="error"
+        >
+          <div className="rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
+            Invalid credentials entered.
+          </div>
+        </div>
 
-      <div className="relative z-10 rounded-lg bg-surface-elevated-base">
         <Input
           id={ids.username}
           label="Username"
           initValue="admin"
           disabled
-          className="mb-4"
           testId="username"
+        />
+
+        <Input
+          id={ids.password}
+          label="Password"
+          onChange={handleChange}
+          type="password"
+          initValue={values.password}
+          error={errors.password}
+          testId="password"
+          autoFocus
         />
       </div>
 
-      <Input
-        id={ids.password}
-        label="Password"
-        onChange={handleChange}
-        type="password"
-        initValue={values.password}
-        error={errors.password}
-        className="mb-2"
-        testId="password"
-        autoFocus
-      />
-
-      <div
-        className="mb-4 flex text-200 text-text-primary-50 hover:cursor-pointer"
+      <button
+        className="flex text-200 text-text-primary-50 hover:cursor-pointer"
         onClick={onClickForgotPassword}
         data-testid="forgot-password"
       >
         {"Forgot password ->"}
-      </div>
+      </button>
 
       <ButtonGroup
         variant={groupVariants.fill}
