@@ -74,7 +74,7 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
           handleAuthErrors({
             error,
             onError: (error) => {
-              onError?.(error), setPending(false);
+              (onError?.(error), setPending(false));
             },
             onSuccess: (accessTokenValue) => {
               setCooling({ mode, accessTokenValue, onSuccess, onError });
