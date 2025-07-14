@@ -36,7 +36,7 @@ services:
     networks:
       - fleet-network
     volumes:
-      - ./influx_config:/var/lib/fleet/start:ro
+      - ./server/influx_config:/var/lib/fleet/start:ro
     cap_add:
       - NET_ADMIN
       - NET_RAW
@@ -66,16 +66,7 @@ services:
     volumes:
       - mysql:/var/lib/mysql
     healthcheck:
-      test:
-        [
-          "CMD",
-          "mysqladmin",
-          "ping",
-          "-h",
-          "localhost",
-          "-uroot",
-          "-p${MYSQL_ROOT_PASSWORD}",
-        ]
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -102,7 +93,7 @@ services:
       INFLUXDB3_DB_DIR: "/var/lib/influxdb3"
       INFLUXDB3_BUCKET: fleet
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8181/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8181/health" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -113,6 +104,7 @@ volumes:
   mysql:
   influxdb-data:
   influxdb-config:
+
 
 networks:
   fleet-network:
