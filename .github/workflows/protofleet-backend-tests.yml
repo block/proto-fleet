@@ -14,7 +14,25 @@ on:
   workflow_dispatch:
 
 jobs:
-  tests:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@v1.1.4
+
+      - name: Run protocol buffers
+        run: |
+          just lint
+
+      - name: Run protocol golang
+        run: |
+          cd server
+          just lint
+
+  test:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -44,17 +62,3 @@ jobs:
 
       - name: Run tests
         run: just test
-
-  linter:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Activate hermit
-        uses: cashapp/activate-hermit@v1.1.4
-
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          working-directory: server
