@@ -182,6 +182,7 @@ jobs:
           cp deployment-files/client/nginx.conf deployment/client/
           cp deployment-files/server/Dockerfile deployment/server/
           cp deployment-files/docker-compose.yaml deployment/
+          cp server/docker-compose.base.yaml deployment/server/
           cp deployment-files/run-fleet.sh deployment/
           cp server/influx_config/entry_point.sh deployment/server/influx_config/
           cp server/influx_config/manage_token.sh deployment/server/influx_config/

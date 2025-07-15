@@ -1,45 +1,31 @@
+version: "3"
+
+x-extends:
+  file: ./server/docker-compose.base.yaml
+
 services:
   fleet-api:
+    extends:
+      file: ./server/docker-compose.base.yaml
+      service: fleet-api
     build:
       context: ./server
       args:
         TARGETARCH: ${TARGETARCH:-amd64}
-    ports:
-      - "4000:8080"
     environment:
       AUTH_CLIENT_SECRET_KEY: "${AUTH_CLIENT_SECRET_KEY}"
-      AUTH_CLIENT_EXPIRATION_PERIOD: "24h"
-      AUTH_MINER_EXPIRATION_PERIOD: "24h"
-      DB_NAME: "fleet"
       DB_USERNAME: "${DB_USERNAME}"
       DB_PASSWORD: "${DB_PASSWORD}"
-      DB_ADDRESS: "mysql:3306"
-      HTTP_LISTEN_ADDRESS: ":8080"
-      LOG_LEVEL: "INFO"
       PAIRING_SECRET_KEY: "${PAIRING_SECRET_KEY}"
       ENCRYPT_SERVICE_MASTER_KEY: "${ENCRYPT_SERVICE_MASTER_KEY}"
-      FLEET_COMMAND_MAX_WORKERS: "500"
-      FLEET_COMMAND_MASTER_POLLING_INTERVAL: "1s"
-      FLEET_COMMAND_WORKER_EXECUTION_TIMEOUT: "30s"
-      FLEET_COMMAND_BATCH_STATUS_UPDATE_POLLING_INTERVAL: "1s"
-      FLEET_QUEUE_DEQUE_LIMIT: "500"
-      FLEET_QUEUE_MAX_FAILURE_RETRIES: "5"
-      INFLUXDB3_URL: "http://influxdb:8181"
-      INFLUXDB3_ORG: "fleet"
-      INFLUXDB3_BUCKET: "fleet"
     depends_on:
       mysql:
         condition: service_healthy
       influxdb:
         condition: service_healthy
     restart: always
-    networks:
-      - fleet-network
     volumes:
       - ./server/influx_config:/var/lib/fleet/start:ro
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
 
   fleet-client:
     build:
@@ -52,19 +38,13 @@ services:
       - fleet-network
 
   mysql:
-    image: mysql:8.4.4
-    restart: always
+    extends:
+      file: ./server/docker-compose.base.yaml
+      service: mysql
     environment:
       MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
-      MYSQL_DATABASE: "fleet"
       MYSQL_USER: "${DB_USERNAME}"
       MYSQL_PASSWORD: "${DB_PASSWORD}"
-      MYSQL_INITDB_SKIP_TZINFO: "1"
-    ports:
-      - "3306:3306"
-    command: --sql-mode= --log-bin --binlog-format=ROW --server-id=1 --skip-name-resolve --explicit-defaults-for-timestamp=ON
-    volumes:
-      - mysql:/var/lib/mysql
     healthcheck:
       test:
         [
@@ -78,39 +58,14 @@ services:
           "-e",
           "SELECT 1",
         ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    networks:
-      - fleet-network
 
   influxdb:
-    image: influxdb:3.2-core
+    extends:
+      file: ./server/docker-compose.base.yaml
+      service: influxdb
     user: root
-    entrypoint: >
-      /bin/sh -c "/var/lib/influxdb3/start/entry_point.sh"
-    ports:
-      - "8181:8181"
     volumes:
-      - influxdb-data:/var/lib/influxdb3
-      - influxdb-config:/etc/influxdb3
       - ./server/influx_config:/var/lib/influxdb3/start
-    environment:
-      INFLUXDB_HTTP_PORT: 8181
-      INFLUXDB_ORG: "fleet"
-      INFLUXDB3_NODE_IDENTIFIER_PREFIX: "influxdb1"
-      INFLUXDB3_DISABLE_AUTHZ: "health"
-      INFLUXDB3_OBJECT_STORE: "file"
-      INFLUXDB3_DB_DIR: "/var/lib/influxdb3"
-      INFLUXDB3_BUCKET: fleet
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8181/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - fleet-network
 
 volumes:
   mysql:

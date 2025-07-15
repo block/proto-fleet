@@ -1,5 +1,13 @@
+version: "3"
+
+x-extends:
+  file: ./docker-compose.base.yaml
+
 services:
   fleet-api:
+    extends:
+      file: ./docker-compose.base.yaml
+      service: fleet-api
     build:
       context: ..
       dockerfile: server/Dockerfile
@@ -7,43 +15,42 @@ services:
       watch:
         - action: rebuild
           path: .
-    ports:
-      - "4000:8080"
-      - "40000:40000"
     environment:
       AUTH_CLIENT_SECRET_KEY: "00000000000000000000000000000000000000000000"
-      AUTH_CLIENT_EXPIRATION_PERIOD: "168h"
-      AUTH_MINER_EXPIRATION_PERIOD: "168h"
-      DB_NAME: "fleet"
+      AUTH_CLIENT_EXPIRATION_PERIOD: "168h" # Override to 168h for development
+      AUTH_MINER_EXPIRATION_PERIOD: "168h" # Override to 168h for development
       DB_USERNAME: "root"
       DB_PASSWORD: ""
-      DB_ADDRESS: "mysql:3306"
-      HTTP_LISTEN_ADDRESS: ":8080"
-      LOG_LEVEL: "INFO"
       PAIRING_SECRET_KEY: "00000000000000000000000000000000000000000000"
       ENCRYPT_SERVICE_MASTER_KEY: "EV0g7BoFQnqshvzep9knZsUUmvsqSBsjDAJus7ri0B8="
-      FLEET_COMMAND_MAX_WORKERS: "500"
-      FLEET_COMMAND_MASTER_POLLING_INTERVAL: "1s"
-      FLEET_COMMAND_WORKER_EXECUTION_TIMEOUT: "30s"
-      FLEET_COMMAND_BATCH_STATUS_UPDATE_POLLING_INTERVAL: "1s"
-      FLEET_QUEUE_DEQUE_LIMIT: "500"
-      FLEET_QUEUE_MAX_FAILURE_RETRIES: "5"
-      INFLUXDB3_URL: "http://influxdb:8181"
-      INFLUXDB3_ORG: "fleet"
-      INFLUXDB3_BUCKET: "fleet"
     depends_on:
       mysql:
         condition: service_healthy
       influxdb:
         condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - fleet-network
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
     volumes:
       - ./influx_config:/var/lib/fleet/start:ro
+    restart: unless-stopped
+
+  mysql:
+    extends:
+      file: ./docker-compose.base.yaml
+      service: mysql
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "1"
+      MYSQL_LOG_CONSOLE: "1"
+      MYSQL_ROOT_HOST: "%"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+
+  influxdb:
+    extends:
+      file: ./docker-compose.base.yaml
+      service: influxdb
+    volumes:
+      - ./influx_config:/var/lib/influxdb3/start
+
+  # Development-specific services
   mms:
     build:
       context: ../miner-firmware
@@ -72,6 +79,7 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+
   fake-antminer:
     build:
       context: ./fake-antminer
@@ -105,54 +113,6 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
-  mysql:
-    image: mysql:8.4.4
-    restart: always
-    environment:
-      MYSQL_ALLOW_EMPTY_PASSWORD: "1"
-      MYSQL_LOG_CONSOLE: "1"
-      MYSQL_INITDB_SKIP_TZINFO: "1" # Including TZ info slows down initialisation quite a bit
-      MYSQL_ROOT_HOST: "%"
-      MYSQL_DATABASE: "fleet"
-    ports:
-      - "3306:3306"
-    command: --sql-mode= --log-bin --binlog-format=ROW --server-id=1 --skip-name-resolve --explicit-defaults-for-timestamp=ON
-    volumes:
-      - mysql:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    networks:
-      - fleet-network
-  influxdb:
-    container_name: influxdb3-core
-    image: influxdb:3.2-core
-    entrypoint: >
-      /bin/sh -c "/var/lib/influxdb3/start/entry_point.sh"
-    ports:
-      - "8181:8181"
-    volumes:
-      - influxdb-data:/var/lib/influxdb3
-      - influxdb-config:/etc/influxdb3
-      - ./influx_config:/var/lib/influxdb3/start
-    environment:
-      INFLUXDB_HTTP_PORT: 8181
-      INFLUXDB_ORG: "fleet"
-      INFLUXDB3_NODE_IDENTIFIER_PREFIX: "influxdb1"
-      INFLUXDB3_DISABLE_AUTHZ: "health"
-      INFLUXDB3_OBJECT_STORE: "file"
-      INFLUXDB3_DB_DIR: "/var/lib/influxdb3"
-      INFLUXDB3_BUCKET: fleet
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8181/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - fleet-network
 
 volumes:
   mysql:
@@ -161,7 +121,6 @@ volumes:
 
 networks:
   fleet-network:
-    driver: bridge
     ipam:
       config:
         - subnet: "192.168.2.0/24"
