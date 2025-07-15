@@ -340,8 +340,12 @@ else
     echo "Detected x86_64 architecture, setting TARGETARCH=amd64"
 fi
 
-echo "Starting services..."
 docker-compose -f "$COMPOSE_FILE" build --no-cache || { echo "Error: Build failed. Exiting."; exit 1; }
+
+echo "Stopping any running services..."
+docker-compose -f "$COMPOSE_FILE" down
+
+echo "Starting services..."
 docker-compose -f "$COMPOSE_FILE" up -d
 
 # Check if docker-compose was successful

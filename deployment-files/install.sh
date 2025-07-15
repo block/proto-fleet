@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+DEPLOYMENT_DIR="deployment"
+
 usage() {
   cat <<EOF
 Usage: $0 [VERSION]
@@ -72,11 +74,19 @@ if ! curl -fsSL "${URL}" -o "/tmp/${TAR_NAME}"; then
   usage
 fi
 
+ENV_FILE="${DEPLOYMENT_DIR}/server/influx_config/.env"
+
 echo "📦 Extracting to $(pwd)..."
-tar -xzvf "/tmp/${TAR_NAME}" -C .
+if [ -f "$ENV_FILE" ]; then
+  echo "📦 Preserving existing $ENV_FILE file"
+  tar -xzvf "/tmp/${TAR_NAME}" -C . --exclude="$ENV_FILE"
+else
+  tar -xzvf "/tmp/${TAR_NAME}" -C .
+fi
+
 rm "/tmp/${TAR_NAME}"
 
-cd "deployment"
+cd "$DEPLOYMENT_DIR"
 
 echo "🔧 Running deployment script..."
 ./run-fleet.sh
