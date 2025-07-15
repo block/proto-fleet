@@ -4,6 +4,11 @@ on:
   release:
     types: [created]
 
+permissions:
+  id-token: write
+  contents: write
+  pull-requests: read
+
 jobs:
   build-proto-fleet-server:
     runs-on: ubuntu-latest
@@ -181,7 +186,7 @@ jobs:
           cp server/influx_config/entry_point.sh deployment/server/influx_config/
           cp server/influx_config/manage_token.sh deployment/server/influx_config/
           chmod +x deployment/run-fleet.sh
-          
+
           if [[ -f deployment-files/server/influx_config/entry_point.sh ]]; then
             chmod +x deployment/server/influx_config/entry_point.sh
           fi
@@ -205,3 +210,35 @@ jobs:
           files: proto-fleet-${{ github.event.release.tag_name }}.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: "us-east-1"
+          role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Release"
+      - name: Upload ProtoFleet bundle to S3
+        run: |
+          aws s3 cp \
+            proto-fleet-${{ github.event.release.tag_name }}.tar.gz \
+              s3://proto-fleet/releases/fleet/${{ github.event.release.tag_name }}/ \
+              --acl public-read
+      - name: Upload install script to S3
+        run: |
+          aws s3 cp \
+            deployment-files/install.sh \
+            s3://proto-fleet/releases/fleet/${{ github.event.release.tag_name }}/install.sh \
+            --acl public-read
+
+      - name: Sync release to latest folder
+        run: |
+          aws s3 sync \
+            s3://proto-fleet/releases/fleet/${{ github.event.release.tag_name }}/ \
+            s3://proto-fleet/releases/fleet/latest/ \
+            --acl public-read \
+            --delete
+      - name: Upload version file to latest folder
+        run: |
+          aws s3 cp \
+            deployment/version.txt \
+            s3://proto-fleet/releases/fleet/latest/version.txt \
+            --acl public-read

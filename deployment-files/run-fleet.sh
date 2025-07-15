@@ -162,6 +162,25 @@ if ! command -v docker-compose &> /dev/null; then
     fi
 fi
 
+prompt_store_reinit() {
+  local proj=$(basename "$PROJECT_ROOT")
+  local vol=$(docker volume ls -q | grep -E "^${proj}[-_]mysql$")
+  if [[ -n $vol ]]; then
+    echo "⚠️  Detected existing MySQL data volume: $vol"
+    read -p "   Remove & reinitialize this volume now? ALL DATA WILL BE LOST (y/N): " answer
+    if [[ $answer =~ ^[Yy]$ ]]; then
+      echo "   Shutting down containers…"
+      docker-compose -f "$COMPOSE_FILE" down
+      echo "   Removing volume $vol…"
+      docker volume rm "$vol"
+      echo "   Volume removed; new credentials will apply next startup."
+    else
+      return 1
+    fi
+  fi
+  return 0
+}
+
 use_existing="no"
 
 if [ -f "$ENV_FILE" ]; then
@@ -183,18 +202,17 @@ if [ -f "$ENV_FILE" ]; then
     done
 
     if [ $missing_keys -eq 0 ]; then
-        echo -n "Existing environment file found with all required keys. Would you like to use it? (Y/n): "
+        echo -n "Existing environment file found with all required keys. Use it? (Y/n): "
         read use_existing_creds
         if [[ -z "$use_existing_creds" || $use_existing_creds =~ ^[Yy]$ ]]; then
             use_existing="yes"
             echo "Using existing environment file."
         else
-            echo "You'll be prompted to enter new credentials."
-            rm -f "$ENV_FILE"
+            prompt_store_reinit || { echo "Aborting due to existing data volume."; exit 1; }
         fi
     else
-        echo "Existing environment file is incomplete. Creating a new one."
-        rm -f "$ENV_FILE"
+        echo "Existing environment file is incomplete. Regenerating…"
+        prompt_store_reinit || { echo "Cannot proceed with incomplete env + existing data."; exit 1; }
     fi
 fi
 
