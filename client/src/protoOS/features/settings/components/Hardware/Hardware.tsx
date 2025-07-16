@@ -19,6 +19,9 @@ const Hardware = () => {
       (a, b) => (a.slot || hashboards.length) - (b.slot || hashboards.length),
     );
   }, [hashboards]);
+  const totalSlots = sortedHashboards?.length
+    ? (sortedHashboards[sortedHashboards.length - 1]?.slot ?? 0)
+    : 0;
 
   const skeletonBar = <SkeletonBar className="h-[22px] w-20" />;
 
@@ -87,8 +90,8 @@ const Hardware = () => {
               <Row key={index} className="flex" attributes={{ role: "row" }}>
                 <div className="w-22 text-300">
                   <HashboardIndicator
-                    activeHashboard={index}
-                    totalHashboards={hashboards.length}
+                    activeHashboardSlot={hashboard.slot ?? index + 1}
+                    totalHashboards={totalSlots}
                   />
                 </div>
                 <div className="w-46 text-300">

@@ -75,6 +75,10 @@ const KpiTooltip = ({
       (getSlotByHbSn(b[0]) ?? entries.length)
     );
   });
+  // Get last occupied slot
+  const totalSlots = sorted?.length
+    ? (getSlotByHbSn(sorted[sorted.length - 1]?.[0]) ?? 0)
+    : 0;
 
   const hasPartials = Object.keys(sorted).length > 0;
 
@@ -104,7 +108,7 @@ const KpiTooltip = ({
                 <KpiTooltipItem
                   key={idx}
                   currentPartial={idx}
-                  totalPartials={Object.keys(partials).length}
+                  totalSlots={totalSlots}
                   serial={serial}
                   units={units}
                   bayDivider={

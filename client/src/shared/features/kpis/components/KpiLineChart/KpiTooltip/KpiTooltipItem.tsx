@@ -8,7 +8,7 @@ interface KpiTooltipItemProps {
   bayDivider: boolean;
   serial: string;
   currentPartial: number;
-  totalPartials: number;
+  totalSlots: number;
   value?: string | number;
   units?: string;
   hashboardLocationStore: HashboardLocationStore;
@@ -18,7 +18,7 @@ const KpiTooltipItem = ({
   serial,
   bayDivider,
   currentPartial,
-  totalPartials,
+  totalSlots,
   value,
   units,
   hashboardLocationStore,
@@ -60,8 +60,8 @@ const KpiTooltipItem = ({
           {getSlotByHbSn(serial) ?? ""}
         </div>
         <HashboardIndicator
-          activeHashboard={currentPartial}
-          totalHashboards={totalPartials}
+          activeHashboardSlot={getSlotByHbSn(serial) ?? currentPartial + 1}
+          totalHashboards={totalSlots}
           color={color.line}
         />
         <div className="grow text-end text-300 text-text-primary">

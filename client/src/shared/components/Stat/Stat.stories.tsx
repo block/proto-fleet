@@ -4,7 +4,7 @@ import { HashboardIndicator } from "@/shared/assets/icons";
 import { chartStatus } from "@/shared/components/Stat/constants";
 
 const icons = {
-  hashboardIndicator: <HashboardIndicator activeHashboard={2} />,
+  hashboardIndicator: <HashboardIndicator activeHashboardSlot={3} />,
   status: <StatusCircle status="warning" variant="simple" width="w-1.5" />,
 };
 

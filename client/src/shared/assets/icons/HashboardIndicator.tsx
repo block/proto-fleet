@@ -5,14 +5,15 @@ import { IconProps } from "./types";
 
 type HashboardIndicatorProps = IconProps & {
   color?: string;
-  activeHashboard?: number;
+  // slots are indexed from 1 to totalHashboards, however some slots might be empty
+  activeHashboardSlot?: number;
   totalHashboards?: number;
 };
 
 const HashboardIndicator = ({
   className,
   color,
-  activeHashboard = 0,
+  activeHashboardSlot = 1,
   totalHashboards = 9,
 }: HashboardIndicatorProps) => {
   return (
@@ -27,19 +28,20 @@ const HashboardIndicator = ({
       )}
     >
       {new Array(totalHashboards).fill(null).map((_, index) => {
+        const slotIndex = index + 1;
         const renderDivider =
-          index !== totalHashboards - 1 && (index + 1) % 3 === 0;
+          index !== totalHashboards - 1 && slotIndex % 3 === 0;
 
         return (
           <Fragment key={"hb-slot-" + index}>
             <div
               className={clsx("h-3 w-0.5 rounded-[1px]", {
-                "bg-text-primary": activeHashboard === index && !color,
-                "bg-core-primary-20": activeHashboard !== index,
+                "bg-text-primary": activeHashboardSlot === slotIndex && !color,
+                "bg-core-primary-20": activeHashboardSlot !== slotIndex,
               })}
               style={{
                 backgroundColor:
-                  color && activeHashboard === index
+                  color && activeHashboardSlot === slotIndex
                     ? `var(${color})`
                     : undefined,
               }}
