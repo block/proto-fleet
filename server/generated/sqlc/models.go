@@ -185,50 +185,6 @@ func (ns NullDeviceStatusStatus) Value() (driver.Value, error) {
 	return string(ns.DeviceStatusStatus), nil
 }
 
-type PoolPoolStatus string
-
-const (
-	PoolPoolStatusUNKNOWN PoolPoolStatus = "UNKNOWN"
-	PoolPoolStatusIDLE    PoolPoolStatus = "IDLE"
-	PoolPoolStatusACTIVE  PoolPoolStatus = "ACTIVE"
-	PoolPoolStatusDEAD    PoolPoolStatus = "DEAD"
-)
-
-func (e *PoolPoolStatus) Scan(src interface{}) error {
-	switch s := src.(type) {
-	case []byte:
-		*e = PoolPoolStatus(s)
-	case string:
-		*e = PoolPoolStatus(s)
-	default:
-		return fmt.Errorf("unsupported scan type for PoolPoolStatus: %T", src)
-	}
-	return nil
-}
-
-type NullPoolPoolStatus struct {
-	PoolPoolStatus PoolPoolStatus
-	Valid          bool // Valid is true if PoolPoolStatus is not NULL
-}
-
-// Scan implements the Scanner interface.
-func (ns *NullPoolPoolStatus) Scan(value interface{}) error {
-	if value == nil {
-		ns.PoolPoolStatus, ns.Valid = "", false
-		return nil
-	}
-	ns.Valid = true
-	return ns.PoolPoolStatus.Scan(value)
-}
-
-// Value implements the driver Valuer interface.
-func (ns NullPoolPoolStatus) Value() (driver.Value, error) {
-	if !ns.Valid {
-		return nil, nil
-	}
-	return string(ns.PoolPoolStatus), nil
-}
-
 type QueueMessageStatus string
 
 const (
@@ -362,18 +318,34 @@ type Organization struct {
 }
 
 type Pool struct {
-	ID           int64
-	OrgID        int64
-	PoolName     string
-	Url          string
-	Username     string
-	PasswordEnc  string
-	PoolStatus   PoolPoolStatus
-	PoolPriority int32
-	IsDefault    sql.NullBool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	DeletedAt    sql.NullTime
+	ID          int64
+	OrgID       int64
+	PoolName    string
+	Url         string
+	Username    string
+	PasswordEnc string
+	IsDefault   sql.NullBool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	DeletedAt   sql.NullTime
+}
+
+type PoolConfiguration struct {
+	ID          int64
+	OrgID       int64
+	Name        string
+	Description sql.NullString
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type PoolConfigurationPool struct {
+	ID                  int64
+	PoolID              int64
+	PoolConfigurationID int64
+	Priority            int32
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type QueueMessage struct {

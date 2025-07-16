@@ -9,11 +9,11 @@ SELECT *
 FROM pool
 WHERE org_id = ?
   AND deleted_at IS NULL
-ORDER BY pool_priority ASC;
+ORDER BY created_at DESC;
 
 -- name: CreatePool :execresult
-INSERT INTO pool (org_id, pool_name, url, username, password_enc, pool_priority, pool_status, is_default, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO pool (org_id, pool_name, url, username, password_enc, is_default, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- name: UpdatePool :exec
 UPDATE pool
@@ -21,16 +21,7 @@ SET pool_name     = ?,
     url           = ?,
     username      = ?,
     password_enc = ?,
-    pool_priority = ?,
-    pool_status   = ?,
     is_default    = ?,
-    updated_at    = ?
-WHERE org_id = ?
-  AND id = ?;
-
--- name: UpdatePoolPriority :exec
-UPDATE pool
-SET pool_priority = ?,
     updated_at    = ?
 WHERE org_id = ?
   AND id = ?;
@@ -47,6 +38,11 @@ UPDATE pool
 SET deleted_at = CURRENT_TIMESTAMP(6)
 WHERE org_id = ?
   AND id = ?;
+
+-- name: DeletePool :exec
+DELETE
+FROM pool
+WHERE id = ?;
 
 -- name: GetTotalPools :one
 SELECT COUNT(*)

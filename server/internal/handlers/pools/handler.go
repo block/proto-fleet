@@ -63,15 +63,6 @@ func (h *Handler) UpdatePool(ctx context.Context, r *connect.Request[pb.UpdatePo
 	return connect.NewResponse(&pb.UpdatePoolResponse{Pool: pool}), nil
 }
 
-func (h *Handler) UpdatePoolPriority(ctx context.Context, r *connect.Request[pb.UpdatePoolPriorityRequest]) (*connect.Response[pb.UpdatePoolPriorityResponse], error) {
-	pools, err := h.poolsSvc.UpdatePoolPriority(ctx, r.Msg.PoolPriorities)
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(&pb.UpdatePoolPriorityResponse{Pools: pools}), nil
-}
-
 func (h *Handler) DeletePool(ctx context.Context, r *connect.Request[pb.DeletePoolRequest]) (*connect.Response[pb.DeletePoolResponse], error) {
 	err := h.poolsSvc.DeletePool(ctx, r.Msg.PoolId)
 	if err != nil {

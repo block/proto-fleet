@@ -40,6 +40,11 @@ UPDATE organization
 SET deleted_at = NULL
 WHERE id = ?;
 
+-- name: DeleteOrganization :exec
+DELETE
+FROM organization
+WHERE id = ?;
+
 -- name: GetOrganizationPrivateKey :one
 SELECT miner_auth_private_key
 FROM organization

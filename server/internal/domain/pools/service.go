@@ -14,10 +14,6 @@ import (
 
 type PoolStatus string
 
-const (
-	defaultPoolPriority int32 = 10
-)
-
 type Service struct {
 	poolStore  interfaces.PoolStore
 	transactor interfaces.Transactor
@@ -48,41 +44,6 @@ func (s *Service) DeletePool(ctx context.Context, id int64) error {
 	return s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		return s.poolStore.SoftDeletePool(ctx, claims.OrgID, id)
 	})
-}
-
-func (s *Service) UpdatePoolPriority(ctx context.Context, priorities []*pb.PoolPriority) ([]*pb.Pool, error) {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
-		var pools []*pb.Pool
-		for _, p := range priorities {
-			err := s.poolStore.UpdatePoolPriority(ctx, claims.OrgID, p.PoolId, p.Priority)
-			if err != nil {
-				return nil, fleeterror.NewInternalErrorf("error updating pool priority: %v", err)
-			}
-
-			pool, err := s.poolStore.GetPool(ctx, claims.OrgID, p.PoolId)
-			if err != nil {
-				return nil, fleeterror.NewInternalErrorf("failed to get pool: %v", err)
-			}
-
-			pools = append(pools, pool)
-		}
-		return pools, nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	pools, ok := result.([]*pb.Pool)
-	if !ok {
-		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
-	}
-	return pools, nil
 }
 
 func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.Pool, error) {
@@ -140,7 +101,7 @@ func (s *Service) CreatePool(ctx context.Context, r *pb.PoolConfig) (*pb.Pool, e
 
 		isDefault := totalPools == 0
 
-		poolID, err := s.poolStore.CreatePool(ctx, r, claims.OrgID, defaultPoolPriority, isDefault)
+		poolID, err := s.poolStore.CreatePool(ctx, r, claims.OrgID, isDefault)
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("error saving pool for org_id: %d, pool_name: %s: %v", claims.OrgID, r.PoolName, err)
 		}

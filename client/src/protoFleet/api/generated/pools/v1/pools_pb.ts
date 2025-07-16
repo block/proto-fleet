@@ -28,7 +28,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_pools_v1_pools: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChRwb29scy92MS9wb29scy5wcm90bxIIcG9vbHMudjEibgoKUG9vbENvbmZpZxILCgN1cmwYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSLgoIcGFzc3dvcmQYAyABKAsyHC5nb29nbGUucHJvdG9idWYuU3RyaW5nVmFsdWUSEQoJcG9vbF9uYW1lGAQgASgJIigKFVNldERlZmF1bHRQb29sUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDIjYKFlNldERlZmF1bHRQb29sUmVzcG9uc2USHAoEcG9vbBgBIAEoCzIOLnBvb2xzLnYxLlBvb2wiqQEKBFBvb2wSDwoHcG9vbF9pZBgBIAEoAxILCgN1cmwYAiABKAkSEAoIdXNlcm5hbWUYAyABKAkSEQoJcG9vbF9uYW1lGAQgASgJEhUKDXBvb2xfcHJpb3JpdHkYBSABKAUSMwoLcG9vbF9zdGF0dXMYBiABKA4yHi5wb29scy52MS5Qb29sQ29ubmVjdGlvblN0YXR1cxISCgppc19kZWZhdWx0GAcgASgIIhIKEExpc3RQb29sc1JlcXVlc3QiMgoRTGlzdFBvb2xzUmVzcG9uc2USHQoFcG9vbHMYASADKAsyDi5wb29scy52MS5Qb29sIj4KEUNyZWF0ZVBvb2xSZXF1ZXN0EikKC3Bvb2xfY29uZmlnGAEgASgLMhQucG9vbHMudjEuUG9vbENvbmZpZyIyChJDcmVhdGVQb29sUmVzcG9uc2USHAoEcG9vbBgBIAEoCzIOLnBvb2xzLnYxLlBvb2wimgEKEVVwZGF0ZVBvb2xSZXF1ZXN0Eg8KB3Bvb2xfaWQYASABKAMSEQoJcG9vbF9uYW1lGAIgASgJEgsKA3VybBgDIAEoCRIQCgh1c2VybmFtZRgEIAEoCRIuCghwYXNzd29yZBgFIAEoCzIcLmdvb2dsZS5wcm90b2J1Zi5TdHJpbmdWYWx1ZRISCgppc19kZWZhdWx0GAYgASgIIjIKElVwZGF0ZVBvb2xSZXNwb25zZRIcCgRwb29sGAEgASgLMg4ucG9vbHMudjEuUG9vbCIxCgxQb29sUHJpb3JpdHkSDwoHcG9vbF9pZBgBIAEoAxIQCghwcmlvcml0eRgCIAEoBSJMChlVcGRhdGVQb29sUHJpb3JpdHlSZXF1ZXN0Ei8KD3Bvb2xfcHJpb3JpdGllcxgBIAMoCzIWLnBvb2xzLnYxLlBvb2xQcmlvcml0eSI7ChpVcGRhdGVQb29sUHJpb3JpdHlSZXNwb25zZRIdCgVwb29scxgBIAMoCzIOLnBvb2xzLnYxLlBvb2wiJAoRRGVsZXRlUG9vbFJlcXVlc3QSDwoHcG9vbF9pZBgBIAEoAyIUChJEZWxldGVQb29sUmVzcG9uc2UiwwIKE1ZhbGlkYXRlUG9vbFJlcXVlc3QSpAEKA3VybBgBIAEoCUKWAbpIkgHIAQFyjAEQDDKHAV5zdHJhdHVtXCsodGNwfHNzbHx3cyk6XC9cLygoW2EtekEtWjAtOV1bYS16QS1aMC05Li1dKlthLXpBLVowLTldXC5bYS16QS1aXXsyLH0pfChcZHsxLDN9XC4pezN9XGR7MSwzfXxcWyhbMC05YS1mQS1GOl0rKVxdKSg6XGR7MSw1fSk/JBIYCgh1c2VybmFtZRgCIAEoCUIGukgDyAEBEi4KCHBhc3N3b3JkGAMgASgLMhwuZ29vZ2xlLnByb3RvYnVmLlN0cmluZ1ZhbHVlEjsKB3RpbWVvdXQYBCABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25CD7pIDKoBCSIDCOgCMgIIASIWChRWYWxpZGF0ZVBvb2xSZXNwb25zZSqjAQoUUG9vbENvbm5lY3Rpb25TdGF0dXMSJgoiUE9PTF9DT05ORUNUSU9OX1NUQVRVU19VTlNQRUNJRklFRBAAEh8KG1BPT0xfQ09OTkVDVElPTl9TVEFUVVNfSURMRRABEiEKHVBPT0xfQ09OTkVDVElPTl9TVEFUVVNfQUNUSVZFEAISHwobUE9PTF9DT05ORUNUSU9OX1NUQVRVU19ERUFEEAMytAQKDFBvb2xzU2VydmljZRJTCg5TZXREZWZhdWx0UG9vbBIfLnBvb2xzLnYxLlNldERlZmF1bHRQb29sUmVxdWVzdBogLnBvb2xzLnYxLlNldERlZmF1bHRQb29sUmVzcG9uc2USRAoJTGlzdFBvb2xzEhoucG9vbHMudjEuTGlzdFBvb2xzUmVxdWVzdBobLnBvb2xzLnYxLkxpc3RQb29sc1Jlc3BvbnNlEkcKCkNyZWF0ZVBvb2wSGy5wb29scy52MS5DcmVhdGVQb29sUmVxdWVzdBocLnBvb2xzLnYxLkNyZWF0ZVBvb2xSZXNwb25zZRJHCgpVcGRhdGVQb29sEhsucG9vbHMudjEuVXBkYXRlUG9vbFJlcXVlc3QaHC5wb29scy52MS5VcGRhdGVQb29sUmVzcG9uc2USXwoSVXBkYXRlUG9vbFByaW9yaXR5EiMucG9vbHMudjEuVXBkYXRlUG9vbFByaW9yaXR5UmVxdWVzdBokLnBvb2xzLnYxLlVwZGF0ZVBvb2xQcmlvcml0eVJlc3BvbnNlEkcKCkRlbGV0ZVBvb2wSGy5wb29scy52MS5EZWxldGVQb29sUmVxdWVzdBocLnBvb2xzLnYxLkRlbGV0ZVBvb2xSZXNwb25zZRJNCgxWYWxpZGF0ZVBvb2wSHS5wb29scy52MS5WYWxpZGF0ZVBvb2xSZXF1ZXN0Gh4ucG9vbHMudjEuVmFsaWRhdGVQb29sUmVzcG9uc2VCpQEKDGNvbS5wb29scy52MUIKUG9vbHNQcm90b1ABWkhnaXRodWIuY29tL2J0Yy1taW5pbmcvcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL3Bvb2xzL3YxO3Bvb2xzdjGiAgNQWFiqAghQb29scy5WMcoCCFBvb2xzXFYx4gIUUG9vbHNcVjFcR1BCTWV0YWRhdGHqAglQb29sczo6VjFiBnByb3RvMw",
+    "ChRwb29scy92MS9wb29scy5wcm90bxIIcG9vbHMudjEibgoKUG9vbENvbmZpZxILCgN1cmwYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSLgoIcGFzc3dvcmQYAyABKAsyHC5nb29nbGUucHJvdG9idWYuU3RyaW5nVmFsdWUSEQoJcG9vbF9uYW1lGAQgASgJIigKFVNldERlZmF1bHRQb29sUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDIjYKFlNldERlZmF1bHRQb29sUmVzcG9uc2USHAoEcG9vbBgBIAEoCzIOLnBvb2xzLnYxLlBvb2wiXQoEUG9vbBIPCgdwb29sX2lkGAEgASgDEgsKA3VybBgCIAEoCRIQCgh1c2VybmFtZRgDIAEoCRIRCglwb29sX25hbWUYBCABKAkSEgoKaXNfZGVmYXVsdBgFIAEoCCISChBMaXN0UG9vbHNSZXF1ZXN0IjIKEUxpc3RQb29sc1Jlc3BvbnNlEh0KBXBvb2xzGAEgAygLMg4ucG9vbHMudjEuUG9vbCI+ChFDcmVhdGVQb29sUmVxdWVzdBIpCgtwb29sX2NvbmZpZxgBIAEoCzIULnBvb2xzLnYxLlBvb2xDb25maWciMgoSQ3JlYXRlUG9vbFJlc3BvbnNlEhwKBHBvb2wYASABKAsyDi5wb29scy52MS5Qb29sIpoBChFVcGRhdGVQb29sUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDEhEKCXBvb2xfbmFtZRgCIAEoCRILCgN1cmwYAyABKAkSEAoIdXNlcm5hbWUYBCABKAkSLgoIcGFzc3dvcmQYBSABKAsyHC5nb29nbGUucHJvdG9idWYuU3RyaW5nVmFsdWUSEgoKaXNfZGVmYXVsdBgGIAEoCCIyChJVcGRhdGVQb29sUmVzcG9uc2USHAoEcG9vbBgBIAEoCzIOLnBvb2xzLnYxLlBvb2wiJAoRRGVsZXRlUG9vbFJlcXVlc3QSDwoHcG9vbF9pZBgBIAEoAyIUChJEZWxldGVQb29sUmVzcG9uc2UiwwIKE1ZhbGlkYXRlUG9vbFJlcXVlc3QSpAEKA3VybBgBIAEoCUKWAbpIkgHIAQFyjAEQDDKHAV5zdHJhdHVtXCsodGNwfHNzbHx3cyk6XC9cLygoW2EtekEtWjAtOV1bYS16QS1aMC05Li1dKlthLXpBLVowLTldXC5bYS16QS1aXXsyLH0pfChcZHsxLDN9XC4pezN9XGR7MSwzfXxcWyhbMC05YS1mQS1GOl0rKVxdKSg6XGR7MSw1fSk/JBIYCgh1c2VybmFtZRgCIAEoCUIGukgDyAEBEi4KCHBhc3N3b3JkGAMgASgLMhwuZ29vZ2xlLnByb3RvYnVmLlN0cmluZ1ZhbHVlEjsKB3RpbWVvdXQYBCABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25CD7pIDKoBCSIDCOgCMgIIASIWChRWYWxpZGF0ZVBvb2xSZXNwb25zZSqjAQoUUG9vbENvbm5lY3Rpb25TdGF0dXMSJgoiUE9PTF9DT05ORUNUSU9OX1NUQVRVU19VTlNQRUNJRklFRBAAEh8KG1BPT0xfQ09OTkVDVElPTl9TVEFUVVNfSURMRRABEiEKHVBPT0xfQ09OTkVDVElPTl9TVEFUVVNfQUNUSVZFEAISHwobUE9PTF9DT05ORUNUSU9OX1NUQVRVU19ERUFEEAMy0wMKDFBvb2xzU2VydmljZRJTCg5TZXREZWZhdWx0UG9vbBIfLnBvb2xzLnYxLlNldERlZmF1bHRQb29sUmVxdWVzdBogLnBvb2xzLnYxLlNldERlZmF1bHRQb29sUmVzcG9uc2USRAoJTGlzdFBvb2xzEhoucG9vbHMudjEuTGlzdFBvb2xzUmVxdWVzdBobLnBvb2xzLnYxLkxpc3RQb29sc1Jlc3BvbnNlEkcKCkNyZWF0ZVBvb2wSGy5wb29scy52MS5DcmVhdGVQb29sUmVxdWVzdBocLnBvb2xzLnYxLkNyZWF0ZVBvb2xSZXNwb25zZRJHCgpVcGRhdGVQb29sEhsucG9vbHMudjEuVXBkYXRlUG9vbFJlcXVlc3QaHC5wb29scy52MS5VcGRhdGVQb29sUmVzcG9uc2USRwoKRGVsZXRlUG9vbBIbLnBvb2xzLnYxLkRlbGV0ZVBvb2xSZXF1ZXN0GhwucG9vbHMudjEuRGVsZXRlUG9vbFJlc3BvbnNlEk0KDFZhbGlkYXRlUG9vbBIdLnBvb2xzLnYxLlZhbGlkYXRlUG9vbFJlcXVlc3QaHi5wb29scy52MS5WYWxpZGF0ZVBvb2xSZXNwb25zZUKlAQoMY29tLnBvb2xzLnYxQgpQb29sc1Byb3RvUAFaSGdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvcG9vbHMvdjE7cG9vbHN2MaICA1BYWKoCCFBvb2xzLlYxygIIUG9vbHNcVjHiAhRQb29sc1xWMVxHUEJNZXRhZGF0YeoCCVBvb2xzOjpWMWIGcHJvdG8z",
     [
       file_google_protobuf_duration,
       file_google_protobuf_wrappers,
@@ -170,26 +170,10 @@ export type Pool = Message<"pools.v1.Pool"> & {
   poolName: string;
 
   /**
-   * Priority of this pool (lower number = higher priority)
-   * Determines the order in which miners will try to connect to pools
-   *
-   * @generated from field: int32 pool_priority = 5;
-   */
-  poolPriority: number;
-
-  /**
-   * Current status of the pool
-   * Indicates the operational state of the pool connection
-   *
-   * @generated from field: pools.v1.PoolConnectionStatus pool_status = 6;
-   */
-  poolStatus: PoolConnectionStatus;
-
-  /**
    * Flag indicating whether the pool is the default pool
    * Default pool is used for new miners and when resetting to defaults
    *
-   * @generated from field: bool is_default = 7;
+   * @generated from field: bool is_default = 5;
    */
   isDefault: boolean;
 };
@@ -367,82 +351,6 @@ export const UpdatePoolResponseSchema: GenMessage<UpdatePoolResponse> =
   messageDesc(file_pools_v1_pools, 9);
 
 /**
- * Defines a pool's priority for ordering
- *
- * @generated from message pools.v1.PoolPriority
- */
-export type PoolPriority = Message<"pools.v1.PoolPriority"> & {
-  /**
-   * Unique identifier of the pool
-   *
-   * @generated from field: int64 pool_id = 1;
-   */
-  poolId: bigint;
-
-  /**
-   * New priority value (lower number = higher priority)
-   *
-   * @generated from field: int32 priority = 2;
-   */
-  priority: number;
-};
-
-/**
- * Describes the message pools.v1.PoolPriority.
- * Use `create(PoolPrioritySchema)` to create a new message.
- */
-export const PoolPrioritySchema: GenMessage<PoolPriority> =
-  /*@__PURE__*/
-  messageDesc(file_pools_v1_pools, 10);
-
-/**
- * Request to update priorities for multiple pools at once
- *
- * @generated from message pools.v1.UpdatePoolPriorityRequest
- */
-export type UpdatePoolPriorityRequest =
-  Message<"pools.v1.UpdatePoolPriorityRequest"> & {
-    /**
-     * List of pools with their new priorities
-     * All specified pools will have their priorities updated atomically
-     *
-     * @generated from field: repeated pools.v1.PoolPriority pool_priorities = 1;
-     */
-    poolPriorities: PoolPriority[];
-  };
-
-/**
- * Describes the message pools.v1.UpdatePoolPriorityRequest.
- * Use `create(UpdatePoolPriorityRequestSchema)` to create a new message.
- */
-export const UpdatePoolPriorityRequestSchema: GenMessage<UpdatePoolPriorityRequest> =
-  /*@__PURE__*/
-  messageDesc(file_pools_v1_pools, 11);
-
-/**
- * Response after updating pool priorities
- *
- * @generated from message pools.v1.UpdatePoolPriorityResponse
- */
-export type UpdatePoolPriorityResponse =
-  Message<"pools.v1.UpdatePoolPriorityResponse"> & {
-    /**
-     * List of all pools with their updated priorities
-     *
-     * @generated from field: repeated pools.v1.Pool pools = 1;
-     */
-    pools: Pool[];
-  };
-
-/**
- * Describes the message pools.v1.UpdatePoolPriorityResponse.
- * Use `create(UpdatePoolPriorityResponseSchema)` to create a new message.
- */
-export const UpdatePoolPriorityResponseSchema: GenMessage<UpdatePoolPriorityResponse> =
-  /*@__PURE__*/
-  messageDesc(file_pools_v1_pools, 12);
-
-/**
  * Request to delete a mining pool configuration
  *
  * @generated from message pools.v1.DeletePoolRequest
@@ -462,7 +370,7 @@ export type DeletePoolRequest = Message<"pools.v1.DeletePoolRequest"> & {
  */
 export const DeletePoolRequestSchema: GenMessage<DeletePoolRequest> =
   /*@__PURE__*/
-  messageDesc(file_pools_v1_pools, 13);
+  messageDesc(file_pools_v1_pools, 10);
 
 /**
  * Response after deleting a pool configuration
@@ -479,7 +387,7 @@ export type DeletePoolResponse = Message<"pools.v1.DeletePoolResponse"> & {};
  */
 export const DeletePoolResponseSchema: GenMessage<DeletePoolResponse> =
   /*@__PURE__*/
-  messageDesc(file_pools_v1_pools, 14);
+  messageDesc(file_pools_v1_pools, 11);
 
 /**
  * Request to validate a pool's connection details
@@ -526,7 +434,7 @@ export type ValidatePoolRequest = Message<"pools.v1.ValidatePoolRequest"> & {
  */
 export const ValidatePoolRequestSchema: GenMessage<ValidatePoolRequest> =
   /*@__PURE__*/
-  messageDesc(file_pools_v1_pools, 15);
+  messageDesc(file_pools_v1_pools, 12);
 
 /**
  * Response after validating a pool's connection details
@@ -544,7 +452,7 @@ export type ValidatePoolResponse =
  */
 export const ValidatePoolResponseSchema: GenMessage<ValidatePoolResponse> =
   /*@__PURE__*/
-  messageDesc(file_pools_v1_pools, 16);
+  messageDesc(file_pools_v1_pools, 13);
 
 /**
  * @generated from enum pools.v1.PoolConnectionStatus
@@ -628,17 +536,6 @@ export const PoolsService: GenService<{
     methodKind: "unary";
     input: typeof UpdatePoolRequestSchema;
     output: typeof UpdatePoolResponseSchema;
-  };
-  /**
-   * Updates priorities for multiple pools in a single operation
-   * All specified priorities are updated atomically
-   *
-   * @generated from rpc pools.v1.PoolsService.UpdatePoolPriority
-   */
-  updatePoolPriority: {
-    methodKind: "unary";
-    input: typeof UpdatePoolPriorityRequestSchema;
-    output: typeof UpdatePoolPriorityResponseSchema;
   };
   /**
    * Deletes a pool configuration

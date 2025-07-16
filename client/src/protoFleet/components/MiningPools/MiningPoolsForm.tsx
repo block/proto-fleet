@@ -57,15 +57,22 @@ const MiningPoolsForm = ({
       const currentPools = existingPools
         .sort((a, b) =>
           // always move default pool to the front, then sort by pool priority (lower number = higher priority)
-          a.isDefault ? -1 : b.isDefault ? 1 : a.poolPriority - b.poolPriority,
+          // TODO fix me in the DASH-522
+          a.isDefault
+            ? -1
+            : b.isDefault
+              ? 1
+              : Number(a.poolId) - Number(b.poolId),
         )
         .map((pool: Pool) => ({
           ...pool,
           password: "",
-          priority: pool.poolPriority,
+          // TODO fix me in the DASH-522
+          priority: pool.poolId,
         }));
       const maxExistingPriority = Math.max(
-        ...existingPools.map((pool: Pool) => pool.poolPriority),
+        // TODO fix me in the DASH-522
+        ...existingPools.map((pool: Pool) => Number(pool.poolId)),
       );
       const emptyPools = getEmptyPoolsInfo(maxExistingPriority).slice(
         existingPools.length,

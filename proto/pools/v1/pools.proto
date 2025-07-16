@@ -26,10 +26,6 @@ service PoolsService {
     // Can modify connection details and default status
     rpc UpdatePool(UpdatePoolRequest) returns (UpdatePoolResponse);
 
-    // Updates priorities for multiple pools in a single operation
-    // All specified priorities are updated atomically
-    rpc UpdatePoolPriority(UpdatePoolPriorityRequest) returns (UpdatePoolPriorityResponse);
-
     // Deletes a pool configuration
     rpc DeletePool(DeletePoolRequest) returns (DeletePoolResponse);
 
@@ -95,17 +91,9 @@ message Pool {
   // Human-readable identifier for the pool within the fleet management system
   string pool_name = 4;
 
-  // Priority of this pool (lower number = higher priority)
-  // Determines the order in which miners will try to connect to pools
-  int32 pool_priority = 5;
-
-  // Current status of the pool
-  // Indicates the operational state of the pool connection
-  PoolConnectionStatus pool_status = 6;
-
   // Flag indicating whether the pool is the default pool
   // Default pool is used for new miners and when resetting to defaults
-  bool is_default = 7;
+  bool is_default = 5;
 }
 
 // Request to retrieve all configured mining pools
@@ -158,28 +146,6 @@ message UpdatePoolRequest {
 message UpdatePoolResponse {
   // The updated pool with all current values
   Pool pool = 1;
-}
-
-// Defines a pool's priority for ordering
-message PoolPriority {
-  // Unique identifier of the pool
-  int64 pool_id = 1;
-
-  // New priority value (lower number = higher priority)
-  int32 priority = 2;
-}
-
-// Request to update priorities for multiple pools at once
-message UpdatePoolPriorityRequest {
-  // List of pools with their new priorities
-  // All specified pools will have their priorities updated atomically
-  repeated PoolPriority pool_priorities = 1;
-}
-
-// Response after updating pool priorities
-message UpdatePoolPriorityResponse {
-  // List of all pools with their updated priorities
-  repeated Pool pools = 1;
 }
 
 // Request to delete a mining pool configuration

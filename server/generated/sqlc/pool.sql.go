@@ -12,20 +12,18 @@ import (
 )
 
 const createPool = `-- name: CreatePool :execresult
-INSERT INTO pool (org_id, pool_name, url, username, password_enc, pool_priority, pool_status, is_default, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO pool (org_id, pool_name, url, username, password_enc, is_default, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreatePoolParams struct {
-	OrgID        int64
-	PoolName     string
-	Url          string
-	Username     string
-	PasswordEnc  string
-	PoolPriority int32
-	PoolStatus   PoolPoolStatus
-	IsDefault    sql.NullBool
-	CreatedAt    time.Time
+	OrgID       int64
+	PoolName    string
+	Url         string
+	Username    string
+	PasswordEnc string
+	IsDefault   sql.NullBool
+	CreatedAt   time.Time
 }
 
 func (q *Queries) CreatePool(ctx context.Context, arg CreatePoolParams) (sql.Result, error) {
@@ -35,15 +33,24 @@ func (q *Queries) CreatePool(ctx context.Context, arg CreatePoolParams) (sql.Res
 		arg.Url,
 		arg.Username,
 		arg.PasswordEnc,
-		arg.PoolPriority,
-		arg.PoolStatus,
 		arg.IsDefault,
 		arg.CreatedAt,
 	)
 }
 
+const deletePool = `-- name: DeletePool :exec
+DELETE
+FROM pool
+WHERE id = ?
+`
+
+func (q *Queries) DeletePool(ctx context.Context, id int64) error {
+	_, err := q.exec(ctx, q.deletePoolStmt, deletePool, id)
+	return err
+}
+
 const getPool = `-- name: GetPool :one
-SELECT id, org_id, pool_name, url, username, password_enc, pool_status, pool_priority, is_default, created_at, updated_at, deleted_at
+SELECT id, org_id, pool_name, url, username, password_enc, is_default, created_at, updated_at, deleted_at
 FROM pool
 WHERE org_id = ?
   AND id = ?
@@ -64,8 +71,6 @@ func (q *Queries) GetPool(ctx context.Context, arg GetPoolParams) (Pool, error) 
 		&i.Url,
 		&i.Username,
 		&i.PasswordEnc,
-		&i.PoolStatus,
-		&i.PoolPriority,
 		&i.IsDefault,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -89,11 +94,11 @@ func (q *Queries) GetTotalPools(ctx context.Context, orgID int64) (int64, error)
 }
 
 const listPools = `-- name: ListPools :many
-SELECT id, org_id, pool_name, url, username, password_enc, pool_status, pool_priority, is_default, created_at, updated_at, deleted_at
+SELECT id, org_id, pool_name, url, username, password_enc, is_default, created_at, updated_at, deleted_at
 FROM pool
 WHERE org_id = ?
   AND deleted_at IS NULL
-ORDER BY pool_priority ASC
+ORDER BY created_at DESC
 `
 
 func (q *Queries) ListPools(ctx context.Context, orgID int64) ([]Pool, error) {
@@ -112,8 +117,6 @@ func (q *Queries) ListPools(ctx context.Context, orgID int64) ([]Pool, error) {
 			&i.Url,
 			&i.Username,
 			&i.PasswordEnc,
-			&i.PoolStatus,
-			&i.PoolPriority,
 			&i.IsDefault,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -173,8 +176,6 @@ SET pool_name     = ?,
     url           = ?,
     username      = ?,
     password_enc = ?,
-    pool_priority = ?,
-    pool_status   = ?,
     is_default    = ?,
     updated_at    = ?
 WHERE org_id = ?
@@ -182,16 +183,14 @@ WHERE org_id = ?
 `
 
 type UpdatePoolParams struct {
-	PoolName     string
-	Url          string
-	Username     string
-	PasswordEnc  string
-	PoolPriority int32
-	PoolStatus   PoolPoolStatus
-	IsDefault    sql.NullBool
-	UpdatedAt    time.Time
-	OrgID        int64
-	ID           int64
+	PoolName    string
+	Url         string
+	Username    string
+	PasswordEnc string
+	IsDefault   sql.NullBool
+	UpdatedAt   time.Time
+	OrgID       int64
+	ID          int64
 }
 
 func (q *Queries) UpdatePool(ctx context.Context, arg UpdatePoolParams) error {
@@ -200,34 +199,7 @@ func (q *Queries) UpdatePool(ctx context.Context, arg UpdatePoolParams) error {
 		arg.Url,
 		arg.Username,
 		arg.PasswordEnc,
-		arg.PoolPriority,
-		arg.PoolStatus,
 		arg.IsDefault,
-		arg.UpdatedAt,
-		arg.OrgID,
-		arg.ID,
-	)
-	return err
-}
-
-const updatePoolPriority = `-- name: UpdatePoolPriority :exec
-UPDATE pool
-SET pool_priority = ?,
-    updated_at    = ?
-WHERE org_id = ?
-  AND id = ?
-`
-
-type UpdatePoolPriorityParams struct {
-	PoolPriority int32
-	UpdatedAt    time.Time
-	OrgID        int64
-	ID           int64
-}
-
-func (q *Queries) UpdatePoolPriority(ctx context.Context, arg UpdatePoolPriorityParams) error {
-	_, err := q.exec(ctx, q.updatePoolPriorityStmt, updatePoolPriority,
-		arg.PoolPriority,
 		arg.UpdatedAt,
 		arg.OrgID,
 		arg.ID,

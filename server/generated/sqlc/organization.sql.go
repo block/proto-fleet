@@ -25,6 +25,17 @@ func (q *Queries) CreateOrganization(ctx context.Context, arg CreateOrganization
 	return q.exec(ctx, q.createOrganizationStmt, createOrganization, arg.OrgID, arg.Name, arg.MinerAuthPrivateKey)
 }
 
+const deleteOrganization = `-- name: DeleteOrganization :exec
+DELETE
+FROM organization
+WHERE id = ?
+`
+
+func (q *Queries) DeleteOrganization(ctx context.Context, id int64) error {
+	_, err := q.exec(ctx, q.deleteOrganizationStmt, deleteOrganization, id)
+	return err
+}
+
 const getOrganizationByID = `-- name: GetOrganizationByID :one
 SELECT id, org_id, name, created_at, updated_at, deleted_at, miner_auth_private_key
 FROM organization

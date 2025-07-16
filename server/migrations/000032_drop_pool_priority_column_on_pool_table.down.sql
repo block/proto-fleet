@@ -1,0 +1,1 @@
+ALTER TABLE pool ADD COLUMN pool_priority INT NOT NULL;

@@ -53,22 +53,20 @@ func (s *SQLPoolStore) GetTotalPools(ctx context.Context, orgID int64) (int64, e
 	return s.GetQueries(ctx).GetTotalPools(ctx, orgID)
 }
 
-func (s *SQLPoolStore) CreatePool(ctx context.Context, config *pb.PoolConfig, orgID int64, poolPriority int32, isDefault bool) (int64, error) {
+func (s *SQLPoolStore) CreatePool(ctx context.Context, config *pb.PoolConfig, orgID int64, isDefault bool) (int64, error) {
 	password := ""
 	if config.Password != nil {
 		password = config.Password.Value
 	}
 
 	result, err := s.GetQueries(ctx).CreatePool(ctx, sqlc.CreatePoolParams{
-		PoolName:     config.PoolName,
-		Url:          config.Url,
-		Username:     config.Username,
-		PasswordEnc:  password,
-		PoolStatus:   sqlc.PoolPoolStatusUNKNOWN,
-		PoolPriority: poolPriority,
-		IsDefault:    sql.NullBool{Bool: isDefault, Valid: true},
-		CreatedAt:    time.Now(),
-		OrgID:        orgID,
+		PoolName:    config.PoolName,
+		Url:         config.Url,
+		Username:    config.Username,
+		PasswordEnc: password,
+		IsDefault:   sql.NullBool{Bool: isDefault, Valid: true},
+		CreatedAt:   time.Now(),
+		OrgID:       orgID,
 	})
 	if err != nil {
 		return 0, fleeterror.NewInternalErrorf("error creating pool: %v", err)
@@ -116,24 +114,14 @@ func (s *SQLPoolStore) UpdatePool(ctx context.Context, request *pb.UpdatePoolReq
 
 	// Update the pool
 	return s.GetQueries(ctx).UpdatePool(ctx, sqlc.UpdatePoolParams{
-		PoolName:     pool.PoolName,
-		Url:          pool.Url,
-		Username:     pool.Username,
-		PasswordEnc:  password,
-		PoolPriority: pool.PoolPriority,
-		PoolStatus:   pool.PoolStatus,
-		IsDefault:    pool.IsDefault,
-		UpdatedAt:    time.Now(),
-		OrgID:        orgID,
-		ID:           request.PoolId,
-	})
-}
-
-func (s *SQLPoolStore) UpdatePoolPriority(ctx context.Context, orgID int64, poolID int64, priority int32) error {
-	return s.GetQueries(ctx).UpdatePoolPriority(ctx, sqlc.UpdatePoolPriorityParams{
-		OrgID:        orgID,
-		ID:           poolID,
-		PoolPriority: priority,
+		PoolName:    pool.PoolName,
+		Url:         pool.Url,
+		Username:    pool.Username,
+		PasswordEnc: password,
+		IsDefault:   pool.IsDefault,
+		UpdatedAt:   time.Now(),
+		OrgID:       orgID,
+		ID:          request.PoolId,
 	})
 }
 
@@ -153,28 +141,10 @@ func (s *SQLPoolStore) SoftDeletePool(ctx context.Context, orgID int64, poolID i
 
 func convertToProtoPool(pool sqlc.Pool) *pb.Pool {
 	return &pb.Pool{
-		PoolId:       pool.ID,
-		PoolName:     pool.PoolName,
-		Url:          pool.Url,
-		Username:     pool.Username,
-		PoolPriority: pool.PoolPriority,
-		PoolStatus:   convertSQLStatusToProtoStatus(pool.PoolStatus),
-		IsDefault:    pool.IsDefault.Valid && pool.IsDefault.Bool,
-	}
-}
-
-// Convert SQL status to proto status
-func convertSQLStatusToProtoStatus(status sqlc.PoolPoolStatus) pb.PoolConnectionStatus {
-	switch status {
-	case sqlc.PoolPoolStatusUNKNOWN:
-		return pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_UNSPECIFIED
-	case sqlc.PoolPoolStatusIDLE:
-		return pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_IDLE
-	case sqlc.PoolPoolStatusACTIVE:
-		return pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_ACTIVE
-	case sqlc.PoolPoolStatusDEAD:
-		return pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_DEAD
-	default:
-		return pb.PoolConnectionStatus_POOL_CONNECTION_STATUS_UNSPECIFIED
+		PoolId:    pool.ID,
+		PoolName:  pool.PoolName,
+		Url:       pool.Url,
+		Username:  pool.Username,
+		IsDefault: pool.IsDefault.Valid && pool.IsDefault.Bool,
 	}
 }

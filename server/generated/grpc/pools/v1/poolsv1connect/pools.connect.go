@@ -43,9 +43,6 @@ const (
 	PoolsServiceCreatePoolProcedure = "/pools.v1.PoolsService/CreatePool"
 	// PoolsServiceUpdatePoolProcedure is the fully-qualified name of the PoolsService's UpdatePool RPC.
 	PoolsServiceUpdatePoolProcedure = "/pools.v1.PoolsService/UpdatePool"
-	// PoolsServiceUpdatePoolPriorityProcedure is the fully-qualified name of the PoolsService's
-	// UpdatePoolPriority RPC.
-	PoolsServiceUpdatePoolPriorityProcedure = "/pools.v1.PoolsService/UpdatePoolPriority"
 	// PoolsServiceDeletePoolProcedure is the fully-qualified name of the PoolsService's DeletePool RPC.
 	PoolsServiceDeletePoolProcedure = "/pools.v1.PoolsService/DeletePool"
 	// PoolsServiceValidatePoolProcedure is the fully-qualified name of the PoolsService's ValidatePool
@@ -70,9 +67,6 @@ type PoolsServiceClient interface {
 	// Updates an existing pool's configuration
 	// Can modify connection details and default status
 	UpdatePool(context.Context, *connect.Request[v1.UpdatePoolRequest]) (*connect.Response[v1.UpdatePoolResponse], error)
-	// Updates priorities for multiple pools in a single operation
-	// All specified priorities are updated atomically
-	UpdatePoolPriority(context.Context, *connect.Request[v1.UpdatePoolPriorityRequest]) (*connect.Response[v1.UpdatePoolPriorityResponse], error)
 	// Deletes a pool configuration
 	DeletePool(context.Context, *connect.Request[v1.DeletePoolRequest]) (*connect.Response[v1.DeletePoolResponse], error)
 	// Validates a pool's connection details
@@ -109,11 +103,6 @@ func NewPoolsServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			baseURL+PoolsServiceUpdatePoolProcedure,
 			opts...,
 		),
-		updatePoolPriority: connect.NewClient[v1.UpdatePoolPriorityRequest, v1.UpdatePoolPriorityResponse](
-			httpClient,
-			baseURL+PoolsServiceUpdatePoolPriorityProcedure,
-			opts...,
-		),
 		deletePool: connect.NewClient[v1.DeletePoolRequest, v1.DeletePoolResponse](
 			httpClient,
 			baseURL+PoolsServiceDeletePoolProcedure,
@@ -129,13 +118,12 @@ func NewPoolsServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 
 // poolsServiceClient implements PoolsServiceClient.
 type poolsServiceClient struct {
-	setDefaultPool     *connect.Client[v1.SetDefaultPoolRequest, v1.SetDefaultPoolResponse]
-	listPools          *connect.Client[v1.ListPoolsRequest, v1.ListPoolsResponse]
-	createPool         *connect.Client[v1.CreatePoolRequest, v1.CreatePoolResponse]
-	updatePool         *connect.Client[v1.UpdatePoolRequest, v1.UpdatePoolResponse]
-	updatePoolPriority *connect.Client[v1.UpdatePoolPriorityRequest, v1.UpdatePoolPriorityResponse]
-	deletePool         *connect.Client[v1.DeletePoolRequest, v1.DeletePoolResponse]
-	validatePool       *connect.Client[v1.ValidatePoolRequest, v1.ValidatePoolResponse]
+	setDefaultPool *connect.Client[v1.SetDefaultPoolRequest, v1.SetDefaultPoolResponse]
+	listPools      *connect.Client[v1.ListPoolsRequest, v1.ListPoolsResponse]
+	createPool     *connect.Client[v1.CreatePoolRequest, v1.CreatePoolResponse]
+	updatePool     *connect.Client[v1.UpdatePoolRequest, v1.UpdatePoolResponse]
+	deletePool     *connect.Client[v1.DeletePoolRequest, v1.DeletePoolResponse]
+	validatePool   *connect.Client[v1.ValidatePoolRequest, v1.ValidatePoolResponse]
 }
 
 // SetDefaultPool calls pools.v1.PoolsService.SetDefaultPool.
@@ -156,11 +144,6 @@ func (c *poolsServiceClient) CreatePool(ctx context.Context, req *connect.Reques
 // UpdatePool calls pools.v1.PoolsService.UpdatePool.
 func (c *poolsServiceClient) UpdatePool(ctx context.Context, req *connect.Request[v1.UpdatePoolRequest]) (*connect.Response[v1.UpdatePoolResponse], error) {
 	return c.updatePool.CallUnary(ctx, req)
-}
-
-// UpdatePoolPriority calls pools.v1.PoolsService.UpdatePoolPriority.
-func (c *poolsServiceClient) UpdatePoolPriority(ctx context.Context, req *connect.Request[v1.UpdatePoolPriorityRequest]) (*connect.Response[v1.UpdatePoolPriorityResponse], error) {
-	return c.updatePoolPriority.CallUnary(ctx, req)
 }
 
 // DeletePool calls pools.v1.PoolsService.DeletePool.
@@ -190,9 +173,6 @@ type PoolsServiceHandler interface {
 	// Updates an existing pool's configuration
 	// Can modify connection details and default status
 	UpdatePool(context.Context, *connect.Request[v1.UpdatePoolRequest]) (*connect.Response[v1.UpdatePoolResponse], error)
-	// Updates priorities for multiple pools in a single operation
-	// All specified priorities are updated atomically
-	UpdatePoolPriority(context.Context, *connect.Request[v1.UpdatePoolPriorityRequest]) (*connect.Response[v1.UpdatePoolPriorityResponse], error)
 	// Deletes a pool configuration
 	DeletePool(context.Context, *connect.Request[v1.DeletePoolRequest]) (*connect.Response[v1.DeletePoolResponse], error)
 	// Validates a pool's connection details
@@ -225,11 +205,6 @@ func NewPoolsServiceHandler(svc PoolsServiceHandler, opts ...connect.HandlerOpti
 		svc.UpdatePool,
 		opts...,
 	)
-	poolsServiceUpdatePoolPriorityHandler := connect.NewUnaryHandler(
-		PoolsServiceUpdatePoolPriorityProcedure,
-		svc.UpdatePoolPriority,
-		opts...,
-	)
 	poolsServiceDeletePoolHandler := connect.NewUnaryHandler(
 		PoolsServiceDeletePoolProcedure,
 		svc.DeletePool,
@@ -250,8 +225,6 @@ func NewPoolsServiceHandler(svc PoolsServiceHandler, opts ...connect.HandlerOpti
 			poolsServiceCreatePoolHandler.ServeHTTP(w, r)
 		case PoolsServiceUpdatePoolProcedure:
 			poolsServiceUpdatePoolHandler.ServeHTTP(w, r)
-		case PoolsServiceUpdatePoolPriorityProcedure:
-			poolsServiceUpdatePoolPriorityHandler.ServeHTTP(w, r)
 		case PoolsServiceDeletePoolProcedure:
 			poolsServiceDeletePoolHandler.ServeHTTP(w, r)
 		case PoolsServiceValidatePoolProcedure:
@@ -279,10 +252,6 @@ func (UnimplementedPoolsServiceHandler) CreatePool(context.Context, *connect.Req
 
 func (UnimplementedPoolsServiceHandler) UpdatePool(context.Context, *connect.Request[v1.UpdatePoolRequest]) (*connect.Response[v1.UpdatePoolResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("pools.v1.PoolsService.UpdatePool is not implemented"))
-}
-
-func (UnimplementedPoolsServiceHandler) UpdatePoolPriority(context.Context, *connect.Request[v1.UpdatePoolPriorityRequest]) (*connect.Response[v1.UpdatePoolPriorityResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("pools.v1.PoolsService.UpdatePoolPriority is not implemented"))
 }
 
 func (UnimplementedPoolsServiceHandler) DeletePool(context.Context, *connect.Request[v1.DeletePoolRequest]) (*connect.Response[v1.DeletePoolResponse], error) {
