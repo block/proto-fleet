@@ -40,6 +40,7 @@ import Logs from "./Logs";
 import Menu from "./Menu";
 import Minus from "./Minus";
 import Notification from "./Notification";
+import PartialCheckmark from "./PartialCheckmark";
 import Pause from "./Pause";
 import Play from "./Play";
 import Plus from "./Plus";
@@ -102,6 +103,7 @@ export {
   Menu,
   Minus,
   Notification,
+  PartialCheckmark,
   Pause,
   Play,
   Plus,

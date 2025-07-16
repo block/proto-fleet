@@ -149,17 +149,13 @@ const MinerList = ({
         });
       }
 
-      if (
-        filters.dropdownFilters.type &&
-        filters.dropdownFilters.type !== "all"
-      ) {
-        switch (filters.dropdownFilters.type) {
-          case minerTypes.protoRig:
-            minerFilter.type = MinerType.PROTO_RIG;
-            break;
-          case minerTypes.bitmain:
-            minerFilter.type = MinerType.BITMAIN;
-            break;
+      // TODO: Add support for multiple types in dropdown
+      if (filters.dropdownFilters.type) {
+        if (filters.dropdownFilters.type.includes(minerTypes.protoRig)) {
+          minerFilter.type = MinerType.PROTO_RIG;
+        }
+        if (filters.dropdownFilters.type.includes(minerTypes.bitmain)) {
+          minerFilter.type = MinerType.BITMAIN;
         }
       }
       onFilterChange(minerFilter);

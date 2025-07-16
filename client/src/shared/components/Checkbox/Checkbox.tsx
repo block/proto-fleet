@@ -1,14 +1,20 @@
 import { ChangeEvent } from "react";
 import clsx from "clsx";
-import { Checkmark } from "@/shared/assets/icons";
+import { Checkmark, PartialCheckmark } from "@/shared/assets/icons";
 
 type CheckboxProps = {
   onChange?: (e: ChangeEvent<HTMLInputElement>) => void;
   checked?: boolean;
+  partiallyChecked?: boolean;
   className?: string;
 };
 
-const Checkbox = ({ onChange, checked, className = "" }: CheckboxProps) => {
+const Checkbox = ({
+  onChange,
+  checked,
+  partiallyChecked = false,
+  className = "",
+}: CheckboxProps) => {
   return (
     <div className={clsx(className, "relative h-[20px] w-[20px]")}>
       <input
@@ -19,7 +25,15 @@ const Checkbox = ({ onChange, checked, className = "" }: CheckboxProps) => {
         }}
         className="peer h-full w-full cursor-pointer appearance-none rounded-sm border border-border-20 checked:border-transparent checked:bg-core-accent-fill"
       />
-      <Checkmark className="pointer-events-none absolute top-0 hidden h-full w-full text-text-contrast peer-checked:block" />
+      {partiallyChecked ? (
+        <PartialCheckmark
+          className={clsx(
+            "pointer-events-none absolute top-0 block cursor-pointer rounded-sm bg-core-primary-fill/40 text-surface-base",
+          )}
+        />
+      ) : (
+        <Checkmark className="pointer-events-none absolute top-0 hidden h-full w-full text-text-contrast peer-checked:block" />
+      )}
     </div>
   );
 };

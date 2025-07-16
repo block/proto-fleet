@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import Miners from "./Miners";
 import {
@@ -12,14 +12,13 @@ import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import {
   defaultDiscoveryPorts,
   defaultTimeout,
-  STEP_KEYS,
-  STEPS,
 } from "@/protoFleet/features/onboarding/constants";
-import { OnboardingLayout } from "@/shared/components/Setup";
+import { useOnboardingContext } from "@/protoFleet/features/onboarding/contexts/OnboardingContext";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const MinersPage = () => {
   const navigate = useNavigate();
+
   const { data: networkInfo } = useNetworkInfo();
 
   const { discover, pairingPending, pair } = useMinerPairing();
@@ -28,6 +27,8 @@ const MinersPage = () => {
   const scanAbortController = useRef<AbortController>(new AbortController());
 
   const [foundMiners, setFoundMiners] = useState<Device[]>([]);
+
+  const { refetch } = useOnboardingContext();
 
   // Process discovered miners, ensuring no duplicates
   function processDiscoveredMiners(devices: Device[]) {
@@ -76,11 +77,6 @@ const MinersPage = () => {
       setScanDiscoveryPending(false),
     );
   }, [handleDiscover, networkInfo]);
-
-  // Initial network scan
-  useEffect(() => {
-    handleNmapDiscovery();
-  }, [handleNmapDiscovery]);
 
   const cancelNetworkScan = useCallback(() => {
     if (scanAbortController.current) {
@@ -143,7 +139,8 @@ const MinersPage = () => {
     pair({
       pairRequest: pairRequest,
       onSuccess: () => {
-        navigate("/onboarding/security");
+        refetch();
+        navigate("/");
       },
       onError: (error) => {
         // TODO handle error
@@ -153,19 +150,17 @@ const MinersPage = () => {
   }
 
   return (
-    <OnboardingLayout steps={STEPS} currentStep={STEP_KEYS.miners}>
-      <Miners
-        foundMiners={foundMiners}
-        scanDiscoveryPending={scanDiscoveryPending}
-        ipListDiscoveryPending={ipListDiscoveryPending}
-        pairingPending={pairingPending}
-        onCancelScan={cancelNetworkScan}
-        onIpListModeDiscover={handleIpListDiscovery}
-        onContinue={handleContinue}
-        onRescan={handleRescan}
-        onClearFoundMiners={() => setFoundMiners([])}
-      />
-    </OnboardingLayout>
+    <Miners
+      foundMiners={foundMiners}
+      scanDiscoveryPending={scanDiscoveryPending}
+      ipListDiscoveryPending={ipListDiscoveryPending}
+      pairingPending={pairingPending}
+      onCancelScan={cancelNetworkScan}
+      onIpListModeDiscover={handleIpListDiscovery}
+      onContinue={handleContinue}
+      onRescan={handleRescan}
+      onClearFoundMiners={() => setFoundMiners([])}
+    />
   );
 };
 

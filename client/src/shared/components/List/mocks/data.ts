@@ -128,6 +128,6 @@ export const testFilters: FilterItem[] = [
       { id: "medium", label: "Medium (201-400)" },
       { id: "high", label: "High (401+)" },
     ],
-    defaultOptionId: "all",
+    defaultOptionIds: ["all"],
   },
 ];

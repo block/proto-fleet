@@ -143,7 +143,6 @@ const routes: Route[] = [
   {
     path: "/onboarding/miners",
     element: <MinersPage />,
-    overrideLayout: true,
   },
   {
     path: "/onboarding/security",

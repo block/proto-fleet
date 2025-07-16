@@ -18,12 +18,12 @@ export type ButtonFilterItem = BaseFilterItem & {
 export type DropdownFilterItem = BaseFilterItem & {
   type: "dropdown";
   options: DropdownOption[];
-  defaultOptionId: string;
+  defaultOptionIds: string[];
 };
 
 export type FilterItem = ButtonFilterItem | DropdownFilterItem;
 
 export type ActiveFilters = {
   buttonFilters: string[];
-  dropdownFilters: Record<string, string>;
+  dropdownFilters: Record<string, string[]>;
 };

@@ -246,6 +246,13 @@ const List = <ListItem, ItemKeyValueType>({
                       <div className="w-9 truncate overflow-hidden">
                         <Checkbox
                           checked={allSelected}
+                          partiallyChecked={
+                            (selectedItems.length > 0 &&
+                              selectedItems.length < filteredItems.length) ||
+                            (customSelectedItems &&
+                              customSelectedItems.length > 0 &&
+                              customSelectedItems.length < filteredItems.length)
+                          }
                           onChange={(e) => handleSelectAll(e.target.checked)}
                         />
                       </div>

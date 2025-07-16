@@ -151,8 +151,8 @@ describe("Filters", () => {
     );
 
     for (const dropdownFilter of dropdownFilters) {
-      const defaultOption = dropdownFilter.options.find(
-        (o) => o.id === dropdownFilter.defaultOptionId,
+      const defaultOption = dropdownFilter.options.find((o) =>
+        dropdownFilter.defaultOptionIds.includes(o.id),
       );
       const dropdownButton = screen.getByText(
         defaultOption?.label || "SHOULD FAIL",
@@ -177,7 +177,7 @@ describe("Filters", () => {
         { id: "test1", label: "Test Option 1" },
         { id: "test2", label: "Test Option 2" },
       ],
-      defaultOptionId: "all",
+      defaultOptionIds: ["all"],
     };
 
     render(
@@ -233,8 +233,8 @@ describe("Filters", () => {
       const secondOption = firstDropdown.options[1];
 
       // Click the dropdown button to open it
-      const defaultOption = firstDropdown.options.find(
-        (o) => o.id === firstDropdown.defaultOptionId,
+      const defaultOption = firstDropdown.options.find((o) =>
+        firstDropdown.defaultOptionIds.includes(o.id),
       );
       const dropdownButton = screen.getByText(
         defaultOption?.label || "SHOULD FAIL",

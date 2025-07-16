@@ -1,4 +1,4 @@
-import { useContext } from "react";
+import { useContext, useMemo } from "react";
 import OnboardingContext from "./OnboardingContext";
 
 export const useOnboardingContext = () => {
@@ -9,7 +9,21 @@ export const useOnboardingContext = () => {
     );
   }
 
+  const onboardingComplete = useMemo(() => {
+    return (
+      context.status === null ||
+      (context.status?.devicePaired === true &&
+        context.status?.poolConfigured === true)
+    );
+  }, [context.status]);
+
+  const devicePaired = useMemo(() => {
+    return context.status?.devicePaired === true;
+  }, [context.status]);
+
   return {
+    devicePaired,
+    onboardingComplete,
     status: context.status,
     refetch: context.refetch,
   };

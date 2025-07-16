@@ -34,12 +34,12 @@ const Filters = <ItemType,>({
   });
 
   useEffect(() => {
-    const initialDropdownValues: { [key: string]: string } = {};
+    const initialDropdownValues: { [key: string]: string[] } = {};
 
     filterItems.forEach((filter) => {
-      if (filter.type === "dropdown" && filter.defaultOptionId) {
+      if (filter.type === "dropdown" && filter.defaultOptionIds) {
         const filterKey = filter.value as string;
-        initialDropdownValues[filterKey] = filter.defaultOptionId;
+        initialDropdownValues[filterKey] = filter.defaultOptionIds;
       }
     });
 
@@ -113,13 +113,23 @@ const Filters = <ItemType,>({
 
   // Handle dropdown filter change
   const handleDropdownFilterChange = (filterKey: string, value: string) => {
-    setActiveFilters((prev) => ({
-      ...prev,
-      dropdownFilters: {
-        ...prev.dropdownFilters,
-        [filterKey]: value,
-      },
-    }));
+    setActiveFilters((prev) => {
+      const currentValues = prev.dropdownFilters[filterKey] || [];
+      let newValues;
+      if (currentValues.includes(value)) {
+        newValues = currentValues.filter((v) => v !== value);
+      } else {
+        newValues = [...currentValues, value];
+      }
+
+      return {
+        ...prev,
+        dropdownFilters: {
+          ...prev.dropdownFilters,
+          [filterKey]: newValues,
+        },
+      };
+    });
   };
 
   return (
@@ -139,19 +149,32 @@ const Filters = <ItemType,>({
             />
           );
         } else if (filter.type === "dropdown") {
-          const selectedOption =
-            activeFilters.dropdownFilters[filter.value as string];
+          const selectedOptions = activeFilters.dropdownFilters[filter.value];
+
           return (
             <div key={filter.value}>
               <PopoverProvider>
                 <DropdownFilter
                   title={filter.title}
+                  allSelectedTitle="All models"
                   options={filter.options}
-                  selectedOption={selectedOption}
+                  selectedOptions={selectedOptions}
                   size={filterSize}
                   onSelect={(value) =>
                     handleDropdownFilterChange(filter.value as string, value)
                   }
+                  onSelectAll={(selectAll) => {
+                    const newValues = selectAll
+                      ? filter.options.map((o) => o.id)
+                      : [];
+                    setActiveFilters((prev) => ({
+                      ...prev,
+                      dropdownFilters: {
+                        ...prev.dropdownFilters,
+                        [filter.value as string]: newValues,
+                      },
+                    }));
+                  }}
                 />
               </PopoverProvider>
             </div>

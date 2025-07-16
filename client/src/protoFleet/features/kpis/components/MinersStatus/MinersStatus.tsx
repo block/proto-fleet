@@ -8,17 +8,17 @@ import { chartStatus } from "@/shared/components/Stat/constants";
 import Stats from "@/shared/features/kpis/components/Stats";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 
-interface OfflineMinersProps {
+interface MinersStatusProps {
   activeMiners: number;
   inactiveMiners: number;
   offlineMiners: number;
 }
 
-const OfflineMiners = ({
+const MinersStatusMiners = ({
   activeMiners,
   inactiveMiners,
   offlineMiners,
-}: OfflineMinersProps) => {
+}: MinersStatusProps) => {
   const minerStats = useMemo(() => {
     const fleetSize = activeMiners + inactiveMiners + offlineMiners;
     const inactivePercentage = (inactiveMiners / fleetSize) * 100;
@@ -79,4 +79,4 @@ const OfflineMiners = ({
   );
 };
 
-export default OfflineMiners;
+export default MinersStatusMiners;

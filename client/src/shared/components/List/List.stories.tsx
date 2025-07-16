@@ -66,14 +66,14 @@ export const List = ({
     if (filters.dropdownFilters && filters.dropdownFilters["valueRange"]) {
       const valueRange = filters.dropdownFilters["valueRange"];
 
-      if (valueRange === "low" && item.value > 200) {
+      if (valueRange.includes("low") && item.value > 200) {
         return false;
       } else if (
-        valueRange === "medium" &&
+        valueRange.includes("medium") &&
         (item.value <= 200 || item.value > 400)
       ) {
         return false;
-      } else if (valueRange === "high" && item.value <= 400) {
+      } else if (valueRange.includes("high") && item.value <= 400) {
         return false;
       }
     }

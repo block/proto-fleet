@@ -1,7 +1,8 @@
 import { Dispatch, SetStateAction, useCallback, useMemo } from "react";
 import type { MinerWithSelected, MinerWithSelectedAndAction } from "./types";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
-import { sizes, variants } from "@/shared/components/Button";
+import Button, { sizes, variants } from "@/shared/components/Button";
+import Divider from "@/shared/components/Divider";
 import Header from "@/shared/components/Header";
 
 import List from "@/shared/components/List";
@@ -89,8 +90,8 @@ const FoundMinersModal = ({
       type: "dropdown",
       title: "Model",
       value: "model",
-      options: [{ id: "all", label: "All Models" }, ...options],
-      defaultOptionId: "all",
+      options: [...options],
+      defaultOptionIds: [...options.map((o) => o.id)],
     } as DropdownFilterItem;
   }, [models]);
 
@@ -99,9 +100,9 @@ const FoundMinersModal = ({
       if (
         filters.dropdownFilters &&
         filters.dropdownFilters["model"] &&
-        filters.dropdownFilters["model"] !== "all"
+        !filters.dropdownFilters["model"].includes("all")
       ) {
-        if (item.model !== filters.dropdownFilters["model"]) {
+        if (!filters.dropdownFilters["model"].includes(item.model)) {
           return false;
         }
       }
@@ -134,7 +135,7 @@ const FoundMinersModal = ({
         >
           filters={[modelFilter]}
           filterItem={filterItem}
-          filterSize={sizes.base}
+          filterSize={sizes.compact}
           activeCols={activeCols}
           colTitles={minerColTitles}
           colConfig={colConfig}
@@ -146,6 +147,25 @@ const FoundMinersModal = ({
           actions={[blinkAction]}
           containerClassName="max-h-[50vh]"
         />
+      </div>
+      <Divider className="-mx-6 mt-2 !w-[calc(100%+3rem)]" />
+      <div className="flex items-center justify-between pt-5">
+        <div className="text-emphasis-300">
+          {selectedMiners.length} miners selected
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() =>
+              setSelectedMiners(miners.map((miner) => miner.deviceIdentifier))
+            }
+            variant="textOnly"
+          >
+            Select all
+          </Button>
+          <Button onClick={() => setSelectedMiners([])} variant="textOnly">
+            Select none
+          </Button>
+        </div>
       </div>
     </Modal>
   );

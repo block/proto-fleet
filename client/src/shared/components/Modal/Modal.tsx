@@ -112,6 +112,8 @@ const Modal = ({
             "animate-sliding-down": !showModal,
             "max-w-[640px]": size === "small",
             "max-w-[1024px]": size === "large",
+            "h-full w-full max-w-full overflow-y-auto rounded-none":
+              size === sizes.fullscreen,
           },
           className,
         )}
@@ -121,6 +123,9 @@ const Modal = ({
         {showHeader && (
           <>
             <Header
+              className={clsx({
+                "sticky top-0": size === sizes.fullscreen,
+              })}
               title={title}
               description={description}
               titleSize="text-heading-200"

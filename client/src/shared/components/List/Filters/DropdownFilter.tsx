@@ -1,5 +1,5 @@
 import { MouseEvent, useMemo, useRef, useState } from "react";
-import { ChevronUpDown } from "@/shared/assets/icons";
+import { ChevronUpDown, Dismiss } from "@/shared/assets/icons";
 import Button, { sizes } from "@/shared/components/Button";
 import Popover, { usePopover } from "@/shared/components/Popover";
 import SelectRow from "@/shared/components/SelectRow";
@@ -13,18 +13,22 @@ export type DropdownOption = {
 
 type DropdownFilterProps = {
   title: string;
+  allSelectedTitle: string;
   options: DropdownOption[];
-  selectedOption?: string;
+  selectedOptions: string[] | undefined;
   size?: keyof typeof sizes;
   onSelect: (value: string) => void;
+  onSelectAll: (value: boolean) => void;
 };
 
 const DropdownFilter = ({
   title,
+  allSelectedTitle = "All selected",
   options,
-  selectedOption,
+  selectedOptions,
   size = sizes.compact,
   onSelect,
+  onSelectAll,
 }: DropdownFilterProps) => {
   const [showPopover, setShowPopover] = useState<boolean>(false);
   const popoverRef = useRef(null);
@@ -36,9 +40,13 @@ const DropdownFilter = ({
   });
 
   const selectedLabel = useMemo(() => {
-    const selected = options.find((option) => option.id === selectedOption);
-    return selected?.label || title;
-  }, [selectedOption, options, title]);
+    const selected = options.find((option) =>
+      selectedOptions?.includes(option.id),
+    );
+    return options.length === selectedOptions?.length
+      ? allSelectedTitle
+      : selected?.label || title;
+  }, [options, selectedOptions, allSelectedTitle, title]);
 
   // Prevent event bubbling to parent components
   const handleButtonClick = (e: MouseEvent) => {
@@ -51,48 +59,87 @@ const DropdownFilter = ({
     e.stopPropagation();
     e.preventDefault();
     onSelect(optionId);
-    setShowPopover(false);
   };
 
   return (
-    <div ref={triggerRef} className="relative min-w-32">
-      <Button
-        textColor="text-text-primary"
-        className="mr-2 min-w-32 text-emphasis-300"
-        variant="ghost"
-        size={size}
-        suffixIcon={<ChevronUpDown />}
-        onClick={handleButtonClick}
-      >
-        {selectedLabel}
-      </Button>
-
-      {showPopover && (
-        <Popover className="!space-y-0 px-0 py-0">
-          <div
-            ref={popoverRef}
-            className="popover-content px-6 py-2"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {options.map((option, index) => (
-              <div
-                key={option.id}
-                onClick={(e) => handleOptionClick(option.id, e)}
-              >
-                <SelectRow
-                  id={option.id}
-                  isSelected={selectedOption === option.id}
-                  onChange={() => {}} // Handle in parent onClick instead
-                  text={option.label}
-                  type={selectTypes.radio}
-                  divider={index !== options.length - 1}
-                />
-              </div>
-            ))}
+    <>
+      {selectedOptions ? (
+        <div ref={triggerRef} className="relative min-w-32">
+          <div className="flex flex-row items-center gap-2">
+            <Button
+              textColor="text-text-primary"
+              className="min-w-32 text-emphasis-300"
+              variant="ghost"
+              size={size}
+              suffixIcon={<ChevronUpDown />}
+              onClick={handleButtonClick}
+            >
+              {selectedLabel}
+            </Button>
+            {selectedOptions.length !== options.length &&
+              selectedOptions.map((option) => {
+                return (
+                  <Button
+                    variant="accent"
+                    prefixIcon={<Dismiss />}
+                    key={option}
+                    size={size}
+                    onClick={(e) => handleOptionClick(option, e)}
+                  >
+                    {option}
+                  </Button>
+                );
+              })}
           </div>
-        </Popover>
+
+          {showPopover && (
+            <Popover className="!space-y-0 px-0 py-0">
+              <div
+                ref={popoverRef}
+                className="popover-content px-6 py-2"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div
+                  key="all"
+                  onClick={() =>
+                    onSelectAll(options.length !== selectedOptions.length)
+                  }
+                >
+                  <SelectRow
+                    id="all"
+                    isSelected={selectedOptions.length === options.length}
+                    onChange={() => {}} // Handle in parent onClick instead
+                    text={allSelectedTitle}
+                    type={selectTypes.checkbox}
+                    partiallySelected={
+                      selectedOptions.length > 0 &&
+                      selectedOptions.length < options.length
+                    }
+                  />
+                </div>
+                {options.map((option, index) => (
+                  <div
+                    key={option.id}
+                    onClick={(e) => handleOptionClick(option.id, e)}
+                  >
+                    <SelectRow
+                      id={option.id}
+                      isSelected={selectedOptions.includes(option.id)}
+                      onChange={() => {}} // Handle in parent onClick instead
+                      text={option.label}
+                      type={selectTypes.checkbox}
+                      divider={index !== options.length - 1}
+                    />
+                  </div>
+                ))}
+              </div>
+            </Popover>
+          )}
+        </div>
+      ) : (
+        <div></div>
       )}
-    </div>
+    </>
   );
 };
 

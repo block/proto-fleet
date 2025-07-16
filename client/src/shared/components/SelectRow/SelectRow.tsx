@@ -1,7 +1,7 @@
 import { ChangeEvent, ReactNode, useCallback, useMemo } from "react";
 import clsx from "clsx";
 
-import { Checkmark } from "@/shared/assets/icons";
+import { Checkmark, PartialCheckmark } from "@/shared/assets/icons";
 
 import Row from "@/shared/components/Row";
 import { SelectType, selectTypes } from "@/shared/constants";
@@ -10,6 +10,7 @@ export interface SelectRowProps {
   className?: string;
   id: string;
   isSelected: boolean;
+  partiallySelected?: boolean;
   divider?: boolean;
   onChange: (id: string, isSelected: boolean) => void;
   prefixIcon?: ReactNode;
@@ -22,6 +23,7 @@ const SelectRow = ({
   className,
   id,
   isSelected,
+  partiallySelected,
   onChange,
   divider = true,
   prefixIcon,
@@ -91,12 +93,20 @@ const SelectRow = ({
             <circle cx="5" cy="5" r="5" fill="currentColor" />
           </svg>
         </div>
-        <Checkmark
-          className={clsx(
-            "absolute hidden cursor-pointer rounded-sm bg-core-accent-80 text-surface-base",
-            { "peer-checked:block": isCheckbox },
-          )}
-        />
+        {partiallySelected ? (
+          <PartialCheckmark
+            className={clsx(
+              "absolute block cursor-pointer rounded-sm bg-core-primary-fill/40 text-surface-base",
+            )}
+          />
+        ) : (
+          <Checkmark
+            className={clsx(
+              "absolute hidden cursor-pointer rounded-sm bg-core-accent-80 text-surface-base",
+              { "peer-checked:block": isCheckbox },
+            )}
+          />
+        )}
       </div>
     </Row>
   );
