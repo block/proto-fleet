@@ -43,6 +43,9 @@ const (
 	// MinerCommandServiceSetCoolingModeProcedure is the fully-qualified name of the
 	// MinerCommandService's SetCoolingMode RPC.
 	MinerCommandServiceSetCoolingModeProcedure = "/minercommand.v1.MinerCommandService/SetCoolingMode"
+	// MinerCommandServiceUpdateMiningPoolsProcedure is the fully-qualified name of the
+	// MinerCommandService's UpdateMiningPools RPC.
+	MinerCommandServiceUpdateMiningPoolsProcedure = "/minercommand.v1.MinerCommandService/UpdateMiningPools"
 	// MinerCommandServiceStreamCommandBatchUpdatesProcedure is the fully-qualified name of the
 	// MinerCommandService's StreamCommandBatchUpdates RPC.
 	MinerCommandServiceStreamCommandBatchUpdatesProcedure = "/minercommand.v1.MinerCommandService/StreamCommandBatchUpdates"
@@ -57,6 +60,7 @@ type MinerCommandServiceClient interface {
 	// The operation is attempted on all miners even if some fail
 	StartMining(context.Context, *connect.Request[v1.StartMiningRequest]) (*connect.Response[v1.StartMiningResponse], error)
 	SetCoolingMode(context.Context, *connect.Request[v1.SetCoolingModeRequest]) (*connect.Response[v1.SetCoolingModeResponse], error)
+	UpdateMiningPools(context.Context, *connect.Request[v1.UpdateMiningPoolsRequest]) (*connect.Response[v1.UpdateMiningPoolsResponse], error)
 	// Streams command batch updates
 	StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamCommandBatchUpdatesResponse], error)
 }
@@ -86,6 +90,11 @@ func NewMinerCommandServiceClient(httpClient connect.HTTPClient, baseURL string,
 			baseURL+MinerCommandServiceSetCoolingModeProcedure,
 			opts...,
 		),
+		updateMiningPools: connect.NewClient[v1.UpdateMiningPoolsRequest, v1.UpdateMiningPoolsResponse](
+			httpClient,
+			baseURL+MinerCommandServiceUpdateMiningPoolsProcedure,
+			opts...,
+		),
 		streamCommandBatchUpdates: connect.NewClient[v1.StreamCommandBatchUpdatesRequest, v1.StreamCommandBatchUpdatesResponse](
 			httpClient,
 			baseURL+MinerCommandServiceStreamCommandBatchUpdatesProcedure,
@@ -99,6 +108,7 @@ type minerCommandServiceClient struct {
 	stopMining                *connect.Client[v1.StopMiningRequest, v1.StopMiningResponse]
 	startMining               *connect.Client[v1.StartMiningRequest, v1.StartMiningResponse]
 	setCoolingMode            *connect.Client[v1.SetCoolingModeRequest, v1.SetCoolingModeResponse]
+	updateMiningPools         *connect.Client[v1.UpdateMiningPoolsRequest, v1.UpdateMiningPoolsResponse]
 	streamCommandBatchUpdates *connect.Client[v1.StreamCommandBatchUpdatesRequest, v1.StreamCommandBatchUpdatesResponse]
 }
 
@@ -117,6 +127,11 @@ func (c *minerCommandServiceClient) SetCoolingMode(ctx context.Context, req *con
 	return c.setCoolingMode.CallUnary(ctx, req)
 }
 
+// UpdateMiningPools calls minercommand.v1.MinerCommandService.UpdateMiningPools.
+func (c *minerCommandServiceClient) UpdateMiningPools(ctx context.Context, req *connect.Request[v1.UpdateMiningPoolsRequest]) (*connect.Response[v1.UpdateMiningPoolsResponse], error) {
+	return c.updateMiningPools.CallUnary(ctx, req)
+}
+
 // StreamCommandBatchUpdates calls minercommand.v1.MinerCommandService.StreamCommandBatchUpdates.
 func (c *minerCommandServiceClient) StreamCommandBatchUpdates(ctx context.Context, req *connect.Request[v1.StreamCommandBatchUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamCommandBatchUpdatesResponse], error) {
 	return c.streamCommandBatchUpdates.CallServerStream(ctx, req)
@@ -132,6 +147,7 @@ type MinerCommandServiceHandler interface {
 	// The operation is attempted on all miners even if some fail
 	StartMining(context.Context, *connect.Request[v1.StartMiningRequest]) (*connect.Response[v1.StartMiningResponse], error)
 	SetCoolingMode(context.Context, *connect.Request[v1.SetCoolingModeRequest]) (*connect.Response[v1.SetCoolingModeResponse], error)
+	UpdateMiningPools(context.Context, *connect.Request[v1.UpdateMiningPoolsRequest]) (*connect.Response[v1.UpdateMiningPoolsResponse], error)
 	// Streams command batch updates
 	StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest], *connect.ServerStream[v1.StreamCommandBatchUpdatesResponse]) error
 }
@@ -157,6 +173,11 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 		svc.SetCoolingMode,
 		opts...,
 	)
+	minerCommandServiceUpdateMiningPoolsHandler := connect.NewUnaryHandler(
+		MinerCommandServiceUpdateMiningPoolsProcedure,
+		svc.UpdateMiningPools,
+		opts...,
+	)
 	minerCommandServiceStreamCommandBatchUpdatesHandler := connect.NewServerStreamHandler(
 		MinerCommandServiceStreamCommandBatchUpdatesProcedure,
 		svc.StreamCommandBatchUpdates,
@@ -170,6 +191,8 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 			minerCommandServiceStartMiningHandler.ServeHTTP(w, r)
 		case MinerCommandServiceSetCoolingModeProcedure:
 			minerCommandServiceSetCoolingModeHandler.ServeHTTP(w, r)
+		case MinerCommandServiceUpdateMiningPoolsProcedure:
+			minerCommandServiceUpdateMiningPoolsHandler.ServeHTTP(w, r)
 		case MinerCommandServiceStreamCommandBatchUpdatesProcedure:
 			minerCommandServiceStreamCommandBatchUpdatesHandler.ServeHTTP(w, r)
 		default:
@@ -191,6 +214,10 @@ func (UnimplementedMinerCommandServiceHandler) StartMining(context.Context, *con
 
 func (UnimplementedMinerCommandServiceHandler) SetCoolingMode(context.Context, *connect.Request[v1.SetCoolingModeRequest]) (*connect.Response[v1.SetCoolingModeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.SetCoolingMode is not implemented"))
+}
+
+func (UnimplementedMinerCommandServiceHandler) UpdateMiningPools(context.Context, *connect.Request[v1.UpdateMiningPoolsRequest]) (*connect.Response[v1.UpdateMiningPoolsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.UpdateMiningPools is not implemented"))
 }
 
 func (UnimplementedMinerCommandServiceHandler) StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest], *connect.ServerStream[v1.StreamCommandBatchUpdatesResponse]) error {

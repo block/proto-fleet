@@ -98,6 +98,8 @@ service MinerCommandService {
 
   rpc SetCoolingMode(SetCoolingModeRequest) returns (SetCoolingModeResponse);
 
+  rpc UpdateMiningPools(UpdateMiningPoolsRequest) returns (UpdateMiningPoolsResponse);
+
   // Streams command batch updates
   rpc StreamCommandBatchUpdates(StreamCommandBatchUpdatesRequest) returns (stream StreamCommandBatchUpdatesResponse);
 }
