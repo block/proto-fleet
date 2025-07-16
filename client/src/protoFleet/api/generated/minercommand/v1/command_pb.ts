@@ -24,7 +24,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_minercommand_v1_command: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "Ch1taW5lcmNvbW1hbmQvdjEvY29tbWFuZC5wcm90bxIPbWluZXJjb21tYW5kLnYxIi8KEVN0b3BNaW5pbmdSZXF1ZXN0EhoKEmRldmljZV9pZGVudGlmaWVycxgBIAMoCSIuChJTdG9wTWluaW5nUmVzcG9uc2USGAoQYmF0Y2hfaWRlbnRpZmllchgBIAEoCSIwChJTdGFydE1pbmluZ1JlcXVlc3QSGgoSZGV2aWNlX2lkZW50aWZpZXJzGAEgAygJIi8KE1N0YXJ0TWluaW5nUmVzcG9uc2USGAoQYmF0Y2hfaWRlbnRpZmllchgBIAEoCSJfChVTZXRDb29saW5nTW9kZVJlcXVlc3QSGgoSZGV2aWNlX2lkZW50aWZpZXJzGAEgAygJEioKBG1vZGUYAiABKA4yHC5taW5lcmNvbW1hbmQudjEuQ29vbGluZ01vZGUiMgoWU2V0Q29vbGluZ01vZGVSZXNwb25zZRIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJIjwKIFN0cmVhbUNvbW1hbmRCYXRjaFVwZGF0ZXNSZXF1ZXN0EhgKEGJhdGNoX2lkZW50aWZpZXIYASABKAkirwEKIVN0cmVhbUNvbW1hbmRCYXRjaFVwZGF0ZXNSZXNwb25zZRItCgl0aW1lc3RhbXAYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiAKGGNvbW1hbmRfYmF0Y2hfaWRlbnRpZmllchgCIAEoCRI5CgZzdGF0dXMYAyABKAsyKS5taW5lcmNvbW1hbmQudjEuQ29tbWFuZEJhdGNoVXBkYXRlU3RhdHVzIlAKHUNvbW1hbmRCYXRjaFVwZGF0ZURldmljZUNvdW50Eg0KBXRvdGFsGAEgASgDEg8KB3N1Y2Nlc3MYAiABKAMSDwoHZmFpbHVyZRgDIAEoAyK8AwoYQ29tbWFuZEJhdGNoVXBkYXRlU3RhdHVzEmsKG2NvbW1hbmRfYmF0Y2hfdXBkYXRlX3N0YXR1cxgBIAEoDjJGLm1pbmVyY29tbWFuZC52MS5Db21tYW5kQmF0Y2hVcGRhdGVTdGF0dXMuQ29tbWFuZEJhdGNoVXBkYXRlU3RhdHVzVHlwZRJSChpjb21tYW5kX2JhdGNoX2RldmljZV9jb3VudBgCIAEoCzIuLm1pbmVyY29tbWFuZC52MS5Db21tYW5kQmF0Y2hVcGRhdGVEZXZpY2VDb3VudCLeAQocQ29tbWFuZEJhdGNoVXBkYXRlU3RhdHVzVHlwZRIwCixDT01NQU5EX0JBVENIX1VQREFURV9TVEFUVVNfVFlQRV9VTlNQRUNJRklFRBAAEiwKKENPTU1BTkRfQkFUQ0hfVVBEQVRFX1NUQVRVU19UWVBFX1BFTkRJTkcQARIvCitDT01NQU5EX0JBVENIX1VQREFURV9TVEFUVVNfVFlQRV9QUk9DRVNTSU5HEAISLQopQ09NTUFORF9CQVRDSF9VUERBVEVfU1RBVFVTX1RZUEVfRklOSVNIRUQQAyprCgtDb29saW5nTW9kZRIcChhDT09MSU5HX01PREVfVU5TUEVDSUZJRUQQABIbChdDT09MSU5HX01PREVfQUlSX0NPT0xFRBABEiEKHUNPT0xJTkdfTU9ERV9JTU1FUlNJT05fQ09PTEVEEAIysAMKE01pbmVyQ29tbWFuZFNlcnZpY2USVQoKU3RvcE1pbmluZxIiLm1pbmVyY29tbWFuZC52MS5TdG9wTWluaW5nUmVxdWVzdBojLm1pbmVyY29tbWFuZC52MS5TdG9wTWluaW5nUmVzcG9uc2USWAoLU3RhcnRNaW5pbmcSIy5taW5lcmNvbW1hbmQudjEuU3RhcnRNaW5pbmdSZXF1ZXN0GiQubWluZXJjb21tYW5kLnYxLlN0YXJ0TWluaW5nUmVzcG9uc2USYQoOU2V0Q29vbGluZ01vZGUSJi5taW5lcmNvbW1hbmQudjEuU2V0Q29vbGluZ01vZGVSZXF1ZXN0GicubWluZXJjb21tYW5kLnYxLlNldENvb2xpbmdNb2RlUmVzcG9uc2UShAEKGVN0cmVhbUNvbW1hbmRCYXRjaFVwZGF0ZXMSMS5taW5lcmNvbW1hbmQudjEuU3RyZWFtQ29tbWFuZEJhdGNoVXBkYXRlc1JlcXVlc3QaMi5taW5lcmNvbW1hbmQudjEuU3RyZWFtQ29tbWFuZEJhdGNoVXBkYXRlc1Jlc3BvbnNlMAFC2AEKE2NvbS5taW5lcmNvbW1hbmQudjFCDENvbW1hbmRQcm90b1ABWlZnaXRodWIuY29tL2J0Yy1taW5pbmcvcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL21pbmVyY29tbWFuZC92MTttaW5lcmNvbW1hbmR2MaICA01YWKoCD01pbmVyY29tbWFuZC5WMcoCD01pbmVyY29tbWFuZFxWMeICG01pbmVyY29tbWFuZFxWMVxHUEJNZXRhZGF0YeoCEE1pbmVyY29tbWFuZDo6VjFiBnByb3RvMw",
+    "Ch1taW5lcmNvbW1hbmQvdjEvY29tbWFuZC5wcm90bxIPbWluZXJjb21tYW5kLnYxIi8KEVN0b3BNaW5pbmdSZXF1ZXN0EhoKEmRldmljZV9pZGVudGlmaWVycxgBIAMoCSIuChJTdG9wTWluaW5nUmVzcG9uc2USGAoQYmF0Y2hfaWRlbnRpZmllchgBIAEoCSIwChJTdGFydE1pbmluZ1JlcXVlc3QSGgoSZGV2aWNlX2lkZW50aWZpZXJzGAEgAygJIi8KE1N0YXJ0TWluaW5nUmVzcG9uc2USGAoQYmF0Y2hfaWRlbnRpZmllchgBIAEoCSJfChVTZXRDb29saW5nTW9kZVJlcXVlc3QSGgoSZGV2aWNlX2lkZW50aWZpZXJzGAEgAygJEioKBG1vZGUYAiABKA4yHC5taW5lcmNvbW1hbmQudjEuQ29vbGluZ01vZGUiMgoWU2V0Q29vbGluZ01vZGVSZXNwb25zZRIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJIrcBChhVcGRhdGVNaW5pbmdQb29sc1JlcXVlc3QSGgoSZGV2aWNlX2lkZW50aWZpZXJzGAEgAygJEhcKD2RlZmF1bHRfcG9vbF9pZBgCIAEoAxIdChBiYWNrdXBfMV9wb29sX2lkGAMgASgDSACIAQESHQoQYmFja3VwXzJfcG9vbF9pZBgEIAEoA0gBiAEBQhMKEV9iYWNrdXBfMV9wb29sX2lkQhMKEV9iYWNrdXBfMl9wb29sX2lkIjUKGVVwZGF0ZU1pbmluZ1Bvb2xzUmVzcG9uc2USGAoQYmF0Y2hfaWRlbnRpZmllchgBIAEoCSI8CiBTdHJlYW1Db21tYW5kQmF0Y2hVcGRhdGVzUmVxdWVzdBIYChBiYXRjaF9pZGVudGlmaWVyGAEgASgJIq8BCiFTdHJlYW1Db21tYW5kQmF0Y2hVcGRhdGVzUmVzcG9uc2USLQoJdGltZXN0YW1wGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIgChhjb21tYW5kX2JhdGNoX2lkZW50aWZpZXIYAiABKAkSOQoGc3RhdHVzGAMgASgLMikubWluZXJjb21tYW5kLnYxLkNvbW1hbmRCYXRjaFVwZGF0ZVN0YXR1cyJQCh1Db21tYW5kQmF0Y2hVcGRhdGVEZXZpY2VDb3VudBINCgV0b3RhbBgBIAEoAxIPCgdzdWNjZXNzGAIgASgDEg8KB2ZhaWx1cmUYAyABKAMivAMKGENvbW1hbmRCYXRjaFVwZGF0ZVN0YXR1cxJrChtjb21tYW5kX2JhdGNoX3VwZGF0ZV9zdGF0dXMYASABKA4yRi5taW5lcmNvbW1hbmQudjEuQ29tbWFuZEJhdGNoVXBkYXRlU3RhdHVzLkNvbW1hbmRCYXRjaFVwZGF0ZVN0YXR1c1R5cGUSUgoaY29tbWFuZF9iYXRjaF9kZXZpY2VfY291bnQYAiABKAsyLi5taW5lcmNvbW1hbmQudjEuQ29tbWFuZEJhdGNoVXBkYXRlRGV2aWNlQ291bnQi3gEKHENvbW1hbmRCYXRjaFVwZGF0ZVN0YXR1c1R5cGUSMAosQ09NTUFORF9CQVRDSF9VUERBVEVfU1RBVFVTX1RZUEVfVU5TUEVDSUZJRUQQABIsCihDT01NQU5EX0JBVENIX1VQREFURV9TVEFUVVNfVFlQRV9QRU5ESU5HEAESLworQ09NTUFORF9CQVRDSF9VUERBVEVfU1RBVFVTX1RZUEVfUFJPQ0VTU0lORxACEi0KKUNPTU1BTkRfQkFUQ0hfVVBEQVRFX1NUQVRVU19UWVBFX0ZJTklTSEVEEAMqawoLQ29vbGluZ01vZGUSHAoYQ09PTElOR19NT0RFX1VOU1BFQ0lGSUVEEAASGwoXQ09PTElOR19NT0RFX0FJUl9DT09MRUQQARIhCh1DT09MSU5HX01PREVfSU1NRVJTSU9OX0NPT0xFRBACMrADChNNaW5lckNvbW1hbmRTZXJ2aWNlElUKClN0b3BNaW5pbmcSIi5taW5lcmNvbW1hbmQudjEuU3RvcE1pbmluZ1JlcXVlc3QaIy5taW5lcmNvbW1hbmQudjEuU3RvcE1pbmluZ1Jlc3BvbnNlElgKC1N0YXJ0TWluaW5nEiMubWluZXJjb21tYW5kLnYxLlN0YXJ0TWluaW5nUmVxdWVzdBokLm1pbmVyY29tbWFuZC52MS5TdGFydE1pbmluZ1Jlc3BvbnNlEmEKDlNldENvb2xpbmdNb2RlEiYubWluZXJjb21tYW5kLnYxLlNldENvb2xpbmdNb2RlUmVxdWVzdBonLm1pbmVyY29tbWFuZC52MS5TZXRDb29saW5nTW9kZVJlc3BvbnNlEoQBChlTdHJlYW1Db21tYW5kQmF0Y2hVcGRhdGVzEjEubWluZXJjb21tYW5kLnYxLlN0cmVhbUNvbW1hbmRCYXRjaFVwZGF0ZXNSZXF1ZXN0GjIubWluZXJjb21tYW5kLnYxLlN0cmVhbUNvbW1hbmRCYXRjaFVwZGF0ZXNSZXNwb25zZTABQtgBChNjb20ubWluZXJjb21tYW5kLnYxQgxDb21tYW5kUHJvdG9QAVpWZ2l0aHViLmNvbS9idGMtbWluaW5nL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9taW5lcmNvbW1hbmQvdjE7bWluZXJjb21tYW5kdjGiAgNNWFiqAg9NaW5lcmNvbW1hbmQuVjHKAg9NaW5lcmNvbW1hbmRcVjHiAhtNaW5lcmNvbW1hbmRcVjFcR1BCTWV0YWRhdGHqAhBNaW5lcmNvbW1hbmQ6OlYxYgZwcm90bzM",
     [file_google_protobuf_timestamp],
   );
 
@@ -159,6 +159,59 @@ export const SetCoolingModeResponseSchema: GenMessage<SetCoolingModeResponse> =
   messageDesc(file_minercommand_v1_command, 5);
 
 /**
+ * @generated from message minercommand.v1.UpdateMiningPoolsRequest
+ */
+export type UpdateMiningPoolsRequest =
+  Message<"minercommand.v1.UpdateMiningPoolsRequest"> & {
+    /**
+     * @generated from field: repeated string device_identifiers = 1;
+     */
+    deviceIdentifiers: string[];
+
+    /**
+     * @generated from field: int64 default_pool_id = 2;
+     */
+    defaultPoolId: bigint;
+
+    /**
+     * @generated from field: optional int64 backup_1_pool_id = 3;
+     */
+    backup1PoolId?: bigint;
+
+    /**
+     * @generated from field: optional int64 backup_2_pool_id = 4;
+     */
+    backup2PoolId?: bigint;
+  };
+
+/**
+ * Describes the message minercommand.v1.UpdateMiningPoolsRequest.
+ * Use `create(UpdateMiningPoolsRequestSchema)` to create a new message.
+ */
+export const UpdateMiningPoolsRequestSchema: GenMessage<UpdateMiningPoolsRequest> =
+  /*@__PURE__*/
+  messageDesc(file_minercommand_v1_command, 6);
+
+/**
+ * @generated from message minercommand.v1.UpdateMiningPoolsResponse
+ */
+export type UpdateMiningPoolsResponse =
+  Message<"minercommand.v1.UpdateMiningPoolsResponse"> & {
+    /**
+     * @generated from field: string batch_identifier = 1;
+     */
+    batchIdentifier: string;
+  };
+
+/**
+ * Describes the message minercommand.v1.UpdateMiningPoolsResponse.
+ * Use `create(UpdateMiningPoolsResponseSchema)` to create a new message.
+ */
+export const UpdateMiningPoolsResponseSchema: GenMessage<UpdateMiningPoolsResponse> =
+  /*@__PURE__*/
+  messageDesc(file_minercommand_v1_command, 7);
+
+/**
  * @generated from message minercommand.v1.StreamCommandBatchUpdatesRequest
  */
 export type StreamCommandBatchUpdatesRequest =
@@ -177,7 +230,7 @@ export type StreamCommandBatchUpdatesRequest =
  */
 export const StreamCommandBatchUpdatesRequestSchema: GenMessage<StreamCommandBatchUpdatesRequest> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 6);
+  messageDesc(file_minercommand_v1_command, 8);
 
 /**
  * @generated from message minercommand.v1.StreamCommandBatchUpdatesResponse
@@ -210,7 +263,7 @@ export type StreamCommandBatchUpdatesResponse =
  */
 export const StreamCommandBatchUpdatesResponseSchema: GenMessage<StreamCommandBatchUpdatesResponse> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 7);
+  messageDesc(file_minercommand_v1_command, 9);
 
 /**
  * @generated from message minercommand.v1.CommandBatchUpdateDeviceCount
@@ -239,7 +292,7 @@ export type CommandBatchUpdateDeviceCount =
  */
 export const CommandBatchUpdateDeviceCountSchema: GenMessage<CommandBatchUpdateDeviceCount> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 8);
+  messageDesc(file_minercommand_v1_command, 10);
 
 /**
  * @generated from message minercommand.v1.CommandBatchUpdateStatus
@@ -263,7 +316,7 @@ export type CommandBatchUpdateStatus =
  */
 export const CommandBatchUpdateStatusSchema: GenMessage<CommandBatchUpdateStatus> =
   /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 9);
+  messageDesc(file_minercommand_v1_command, 11);
 
 /**
  * @generated from enum minercommand.v1.CommandBatchUpdateStatus.CommandBatchUpdateStatusType
@@ -295,7 +348,7 @@ export enum CommandBatchUpdateStatus_CommandBatchUpdateStatusType {
  */
 export const CommandBatchUpdateStatus_CommandBatchUpdateStatusTypeSchema: GenEnum<CommandBatchUpdateStatus_CommandBatchUpdateStatusType> =
   /*@__PURE__*/
-  enumDesc(file_minercommand_v1_command, 9, 0);
+  enumDesc(file_minercommand_v1_command, 11, 0);
 
 /**
  * @generated from enum minercommand.v1.CoolingMode

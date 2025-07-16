@@ -2,6 +2,7 @@ package interfaces
 
 import (
 	"context"
+
 	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 
 	fm "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"

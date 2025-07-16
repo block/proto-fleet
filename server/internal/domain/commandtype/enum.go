@@ -15,6 +15,7 @@ const (
 	// StopMining represents a command to halt mining operations
 	StopMining
 	SetCoolingMode
+	UpdateMiningPools
 )
 
 func (t *Type) String() string {
@@ -25,6 +26,8 @@ func (t *Type) String() string {
 		return "StopMining"
 	case SetCoolingMode:
 		return "SetCoolingMode"
+	case UpdateMiningPools:
+		return "UpdateMiningPools"
 	default:
 		return "Undefined"
 	}
@@ -38,6 +41,8 @@ func FromString(s string) (Type, error) {
 		return StopMining, nil
 	case "SetCoolingMode":
 		return SetCoolingMode, nil
+	case "UpdateMiningPools":
+		return UpdateMiningPools, nil
 
 	default:
 		return Type(-1), fleeterror.NewInternalErrorf("invalid command type: %s", s)

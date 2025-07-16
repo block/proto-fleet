@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
+
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
@@ -185,12 +187,19 @@ func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandTyp
 	case commandtype.StopMining:
 		err = minerInfo.StopMining(ctx)
 	case commandtype.SetCoolingMode:
-		var p CoolingModePayload
-		extractErr := json.Unmarshal(message.Payload, &p)
-		if extractErr != nil {
-			return fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", extractErr)
+		var p dto.CoolingModePayload
+		coolingExtractErr := json.Unmarshal(message.Payload, &p)
+		if coolingExtractErr != nil {
+			return fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", coolingExtractErr)
 		}
-		err = minerInfo.SetCoolingMode(ctx, p.Mode)
+		err = minerInfo.SetCoolingMode(ctx, p)
+	case commandtype.UpdateMiningPools:
+		var p dto.UpdateMiningPoolsPayload
+		updateExtractErr := json.Unmarshal(message.Payload, &p)
+		if updateExtractErr != nil {
+			return fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", updateExtractErr)
+		}
+		err = minerInfo.UpdateMiningPools(ctx, p)
 	default:
 		return fleeterror.NewInternalErrorf("unsupported command type: %v", commandType)
 	}

@@ -37,12 +37,12 @@ func (h *Handler) SetDefaultPool(ctx context.Context, r *connect.Request[pb.SetD
 }
 
 func (h *Handler) ListPools(ctx context.Context, _ *connect.Request[pb.ListPoolsRequest]) (*connect.Response[pb.ListPoolsResponse], error) {
-	pools, err := h.poolsSvc.ListPools(ctx)
+	listedPools, err := h.poolsSvc.ListPools(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&pb.ListPoolsResponse{Pools: pools}), nil
+	return connect.NewResponse(&pb.ListPoolsResponse{Pools: listedPools}), nil
 }
 
 func (h *Handler) CreatePool(ctx context.Context, r *connect.Request[pb.CreatePoolRequest]) (*connect.Response[pb.CreatePoolResponse], error) {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	telemetryModels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
@@ -21,7 +21,10 @@ type Miner interface {
 	// Mining operations
 	StartMining(ctx context.Context) error
 	StopMining(ctx context.Context) error
-	SetCoolingMode(ctx context.Context, mode pb.CoolingMode) error
+
+	// Configuration operations
+	SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error
+	UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error
 
 	// Telemetry operations
 	GetTelemetry(ctx context.Context, after time.Time) ([]telemetryModels.Telemetry, error)

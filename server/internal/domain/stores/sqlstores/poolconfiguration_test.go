@@ -2,8 +2,9 @@ package sqlstores_test
 
 import (
 	"database/sql"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"testing"
+
+	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"

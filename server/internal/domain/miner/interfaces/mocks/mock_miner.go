@@ -9,7 +9,7 @@ import (
 	reflect "reflect"
 	time "time"
 
-	minercommandv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
+	dto "github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
 	models "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	models0 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	networking "github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
@@ -97,17 +97,17 @@ func (mr *MockMinerMockRecorder) GetType() *gomock.Call {
 }
 
 // SetCoolingMode mocks base method.
-func (m *MockMiner) SetCoolingMode(ctx context.Context, mode minercommandv1.CoolingMode) error {
+func (m *MockMiner) SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetCoolingMode", ctx, mode)
+	ret := m.ctrl.Call(m, "SetCoolingMode", ctx, payload)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SetCoolingMode indicates an expected call of SetCoolingMode.
-func (mr *MockMinerMockRecorder) SetCoolingMode(ctx, mode interface{}) *gomock.Call {
+func (mr *MockMinerMockRecorder) SetCoolingMode(ctx, payload interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCoolingMode", reflect.TypeOf((*MockMiner)(nil).SetCoolingMode), ctx, mode)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCoolingMode", reflect.TypeOf((*MockMiner)(nil).SetCoolingMode), ctx, payload)
 }
 
 // StartMining mocks base method.
@@ -136,4 +136,18 @@ func (m *MockMiner) StopMining(ctx context.Context) error {
 func (mr *MockMinerMockRecorder) StopMining(ctx interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopMining", reflect.TypeOf((*MockMiner)(nil).StopMining), ctx)
+}
+
+// UpdateMiningPools mocks base method.
+func (m *MockMiner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateMiningPools", ctx, payload)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateMiningPools indicates an expected call of UpdateMiningPools.
+func (mr *MockMinerMockRecorder) UpdateMiningPools(ctx, payload interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMiningPools", reflect.TypeOf((*MockMiner)(nil).UpdateMiningPools), ctx, payload)
 }

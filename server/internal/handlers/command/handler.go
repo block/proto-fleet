@@ -61,6 +61,30 @@ func (h *Handler) SetCoolingMode(
 	return connect.NewResponse(resp), nil
 }
 
+func (h *Handler) UpdateMiningPools(
+	ctx context.Context,
+	req *connect.Request[pb.UpdateMiningPoolsRequest],
+) (*connect.Response[pb.UpdateMiningPoolsResponse], error) {
+	var backup1PoolID, backup2PoolID *int64
+
+	if req.Msg.Backup_1PoolId != nil {
+		value := *req.Msg.Backup_1PoolId
+		backup1PoolID = &value
+	}
+
+	if req.Msg.Backup_2PoolId != nil {
+		value := *req.Msg.Backup_2PoolId
+		backup2PoolID = &value
+	}
+
+	resp, err := h.commandSvc.UpdateMiningPools(ctx, req.Msg.DeviceIdentifiers, req.Msg.DefaultPoolId, backup1PoolID, backup2PoolID)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(resp), nil
+}
+
 func (h *Handler) StreamCommandBatchUpdates(ctx context.Context, r *connect.Request[pb.StreamCommandBatchUpdatesRequest], stream *connect.ServerStream[pb.StreamCommandBatchUpdatesResponse]) error {
 	slog.Debug("handling request to stream command batch updates", "request", r)
 	responseChan, err := h.commandSvc.StreamCommandBatchUpdates(ctx, r.Msg)

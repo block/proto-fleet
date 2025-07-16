@@ -87,7 +87,7 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 	return updatedPool, nil
 }
 
-func (s *Service) CreatePool(ctx context.Context, r *pb.PoolConfig) (*pb.Pool, error) {
+func (s *Service) CreatePool(ctx context.Context, poolConfig *pb.PoolConfig) (*pb.Pool, error) {
 	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return nil, err
@@ -101,9 +101,9 @@ func (s *Service) CreatePool(ctx context.Context, r *pb.PoolConfig) (*pb.Pool, e
 
 		isDefault := totalPools == 0
 
-		poolID, err := s.poolStore.CreatePool(ctx, r, claims.OrgID, isDefault)
+		poolID, err := s.poolStore.CreatePool(ctx, poolConfig, claims.OrgID, isDefault)
 		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("error saving pool for org_id: %d, pool_name: %s: %v", claims.OrgID, r.PoolName, err)
+			return nil, fleeterror.NewInternalErrorf("error saving pool for org_id: %d, pool_name: %s: %v", claims.OrgID, poolConfig.PoolName, err)
 		}
 
 		pool, err := s.poolStore.GetPool(ctx, claims.OrgID, poolID)

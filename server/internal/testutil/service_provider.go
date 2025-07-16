@@ -50,7 +50,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	transactor := sqlstores.NewSQLTransactor(db)
 	userStore := sqlstores.NewSQLUserStore(db)
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
-	poolStore := sqlstores.NewSQLPoolStore(db)
+	poolStore := sqlstores.NewSQLPoolStore(db, encryptService)
 
 	authService := auth.NewService(userStore, transactor, tokenService, encryptService)
 
@@ -84,7 +84,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	assert.NoError(t, err)
 
 	statusService := command.NewStatusService(db, dbMessageQueue)
-	commandService := command.NewService(commandConfig, db, executionService, dbMessageQueue, statusService)
+	commandService := command.NewService(commandConfig, db, executionService, dbMessageQueue, statusService, encryptService)
 
 	onboardingService := onboarding.NewService(deviceStore, poolStore)
 

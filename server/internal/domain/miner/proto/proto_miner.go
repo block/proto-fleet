@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
+
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
 
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api"
@@ -134,10 +136,10 @@ func mapCoolingModeType(pbMode pb.CoolingMode) (miner_data_api.CoolingMode, erro
 	}
 }
 
-func (p *ProtoMiner) SetCoolingMode(ctx context.Context, mode pb.CoolingMode) error {
+func (p *ProtoMiner) SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error {
 	ctx = client.ContextWithAuth(ctx, p.authToken)
 
-	protoMinerMode, err := mapCoolingModeType(mode)
+	protoMinerMode, err := mapCoolingModeType(payload.Mode)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("error mapping cooling mode to proto miner type: %v", err)
 	}
@@ -148,6 +150,69 @@ func (p *ProtoMiner) SetCoolingMode(ctx context.Context, mode pb.CoolingMode) er
 
 	if resp.Msg.Result != miner_common_api.ApiResult_RESULT_SUCCESS {
 		return fleeterror.NewInternalErrorf("set cooling mode failed: %s", resp.Msg.String())
+	}
+
+	return nil
+}
+
+func toMinerDataPool(payloadPool *dto.MiningPool) *miner_data_api.Pool {
+	return &miner_data_api.Pool{
+		Priority: payloadPool.Priority,
+		Url:      payloadPool.URL,
+		Username: payloadPool.Username,
+		Password: payloadPool.Password,
+	}
+}
+
+func getMinerDataPoolsToSet(payload dto.UpdateMiningPoolsPayload) []*miner_data_api.Pool {
+	poolsToSet := make([]*miner_data_api.Pool, 0, 3)
+
+	poolsToSet = append(poolsToSet, toMinerDataPool(&payload.DefaultPool))
+
+	if payload.Backup1Pool != nil {
+		poolsToSet = append(poolsToSet, toMinerDataPool(payload.Backup1Pool))
+	}
+
+	if payload.Backup2Pool != nil {
+		poolsToSet = append(poolsToSet, toMinerDataPool(payload.Backup2Pool))
+	}
+
+	return poolsToSet
+}
+
+func toMinerCommandPoolsRequest(pld dto.UpdateMiningPoolsPayload) *miner_command_api.PoolsRequest {
+	return &miner_command_api.PoolsRequest{Pools: getMinerDataPoolsToSet(pld)}
+}
+
+func (p *ProtoMiner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
+	// TODO rewrite to a single setMiningPools call on miner once FW supports this (link the linear task here once created)
+	ctx = client.ContextWithAuth(ctx, p.authToken)
+
+	poolsResp, err := p.dataClient.GetPools(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
+	if err != nil {
+		return err
+	}
+
+	if poolsResp.Msg.Result != miner_common_api.ApiResult_RESULT_SUCCESS {
+		return fleeterror.NewInternalErrorf("error getting current pools set up: %s", poolsResp.Msg.String())
+	}
+
+	resp, err := p.commandClient.RemovePools(ctx, connect.NewRequest(&miner_command_api.PoolsRequest{Pools: poolsResp.Msg.Pools}))
+	if err != nil {
+		return err
+	}
+
+	if resp.Msg.Result != miner_common_api.ApiResult_RESULT_SUCCESS {
+		return fleeterror.NewInternalErrorf("remove mining pools failed: %s", resp.Msg.String())
+	}
+
+	resp, err = p.commandClient.AddPools(ctx, connect.NewRequest(toMinerCommandPoolsRequest(payload)))
+	if err != nil {
+		return err
+	}
+
+	if resp.Msg.Result != miner_common_api.ApiResult_RESULT_SUCCESS {
+		return fleeterror.NewInternalErrorf("add mining pools failed: %s", resp.Msg.String())
 	}
 
 	return nil

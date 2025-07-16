@@ -41,6 +41,17 @@ message SetCoolingModeResponse {
   string batch_identifier = 1;
 }
 
+message UpdateMiningPoolsRequest {
+  repeated string device_identifiers = 1;
+  int64 default_pool_id = 2;
+  optional int64 backup_1_pool_id = 3;
+  optional int64 backup_2_pool_id = 4;
+}
+
+message UpdateMiningPoolsResponse {
+  string batch_identifier = 1;
+}
+
 message StreamCommandBatchUpdatesRequest {
   // The identifier of the command batch to stream
   string batch_identifier = 1;

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/rpc"
@@ -67,9 +67,12 @@ func (a *Antminer) StopMining(ctx context.Context) error {
 	})
 }
 
-func (a *Antminer) SetCoolingMode(_ context.Context, _ pb.CoolingMode) error {
-	// TODO implement me
-	return nil
+func (a *Antminer) SetCoolingMode(_ context.Context, _ dto.CoolingModePayload) error {
+	return fleeterror.NewInternalErrorf("Not implemented!") // TODO https://linear.app/squareup/issue/DASH-513
+}
+
+func (a *Antminer) UpdateMiningPools(_ context.Context, _ dto.UpdateMiningPoolsPayload) error {
+	return fleeterror.NewInternalErrorf("Not implemented!") // TODO https://linear.app/squareup/issue/DASH-528
 }
 
 func (a *Antminer) getWebConnectionInfo() *web.AntminerConnectionInfo {

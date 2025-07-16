@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
@@ -15,19 +17,18 @@ var _ interfaces.PoolStore = &SQLPoolStore{}
 
 type SQLPoolStore struct {
 	SQLConnectionManager
+	encryptor *encrypt.Service
 }
 
-func NewSQLPoolStore(conn *sql.DB) *SQLPoolStore {
+func NewSQLPoolStore(conn *sql.DB, encryptor *encrypt.Service) *SQLPoolStore {
 	return &SQLPoolStore{
 		SQLConnectionManager: NewSQLConnectionManager(conn),
+		encryptor:            encryptor,
 	}
 }
 
 func (s *SQLPoolStore) GetPool(ctx context.Context, orgID int64, poolID int64) (*pb.Pool, error) {
-	pool, err := s.GetQueries(ctx).GetPool(ctx, sqlc.GetPoolParams{
-		OrgID: orgID,
-		ID:    poolID,
-	})
+	pool, err := s.GetQueries(ctx).GetPool(ctx, sqlc.GetPoolParams{ID: poolID, OrgID: orgID})
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +57,11 @@ func (s *SQLPoolStore) GetTotalPools(ctx context.Context, orgID int64) (int64, e
 func (s *SQLPoolStore) CreatePool(ctx context.Context, config *pb.PoolConfig, orgID int64, isDefault bool) (int64, error) {
 	password := ""
 	if config.Password != nil {
-		password = config.Password.Value
+		encryptedPassword, err := s.encryptor.Encrypt([]byte(config.Password.Value))
+		if err != nil {
+			return 0, fleeterror.NewInternalErrorf("error encrypting password: %v", err)
+		}
+		password = encryptedPassword
 	}
 
 	result, err := s.GetQueries(ctx).CreatePool(ctx, sqlc.CreatePoolParams{
@@ -82,10 +87,7 @@ func (s *SQLPoolStore) CreatePool(ctx context.Context, config *pb.PoolConfig, or
 
 func (s *SQLPoolStore) UpdatePool(ctx context.Context, request *pb.UpdatePoolRequest, orgID int64) error {
 	// First get the current pool to preserve values that aren't being updated
-	pool, err := s.GetQueries(ctx).GetPool(ctx, sqlc.GetPoolParams{
-		OrgID: orgID,
-		ID:    request.PoolId,
-	})
+	pool, err := s.GetQueries(ctx).GetPool(ctx, sqlc.GetPoolParams{ID: request.PoolId, OrgID: orgID})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("error getting pool: %v", err)
 	}

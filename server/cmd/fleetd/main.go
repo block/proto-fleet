@@ -112,15 +112,17 @@ func start(config *Config) error {
 	}
 
 	transactor := sqlstores.NewSQLTransactor(conn)
-	userStore := sqlstores.NewSQLUserStore(conn)
-	poolStore := sqlstores.NewSQLPoolStore(conn)
-	deviceStore := sqlstores.NewSQLDeviceStore(conn)
 
-	tokenSvc, err := tokenDomain.NewService(config.Auth)
+	encryptSvc, err := encrypt.NewService(&config.Encrypt)
 	if err != nil {
 		return err
 	}
-	encryptSvc, err := encrypt.NewService(&config.Encrypt)
+
+	userStore := sqlstores.NewSQLUserStore(conn)
+	poolStore := sqlstores.NewSQLPoolStore(conn, encryptSvc)
+	deviceStore := sqlstores.NewSQLDeviceStore(conn)
+
+	tokenSvc, err := tokenDomain.NewService(config.Auth)
 	if err != nil {
 		return err
 	}
@@ -181,7 +183,7 @@ func start(config *Config) error {
 	}
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
-	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService)
+	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore)
 	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools)
 
