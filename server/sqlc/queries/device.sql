@@ -111,8 +111,12 @@ LIMIT ?;
 SELECT COUNT(*)
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN device_status ds ON d.id = ds.device_id
 WHERE dp.pairing_status = 'PAIRED'
-    AND d.deleted_at IS NULL;
+    AND d.deleted_at IS NULL
+    AND d.org_id = ?
+    AND (sqlc.narg('status_filter') is null OR FIND_IN_SET(ds.status, sqlc.narg('status_filter')))
+    AND (sqlc.narg('type_filter') is null OR FIND_IN_SET(d.type, sqlc.narg('type_filter')));
 
 -- name: UpsertDevicePairing :execresult
 INSERT INTO device_pairing (
@@ -191,6 +195,8 @@ WHERE dp.pairing_status = 'PAIRED'
         OR
         (dp.id > sqlc.narg('cursor_id') OR (dp.id = sqlc.narg('cursor_id') AND d.id > sqlc.narg('device_cursor_id')))
     )
+    AND (sqlc.narg('status_filter') is null OR FIND_IN_SET(ds.status, sqlc.narg('status_filter')))
+    AND (sqlc.narg('type_filter') is null OR FIND_IN_SET(d.type, sqlc.narg('type_filter')))
 ORDER BY dp.id, d.id
 LIMIT ?;
 
@@ -224,3 +230,18 @@ FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 WHERE dp.pairing_status = 'PAIRED'
     AND d.deleted_at IS NULL;
+
+-- name: CountMinersByState :one
+SELECT
+    COUNT(CASE WHEN ds.status = 'ONLINE' THEN 1 END) as hashing_count,
+    COUNT(CASE WHEN ds.status = 'ERROR' THEN 1 END) as broken_count,
+    COUNT(CASE WHEN ds.status = 'OFFLINE' THEN 1 END) as offline_count,
+    COUNT(CASE WHEN ds.status = 'MAINTENANCE' THEN 1 END) as sleeping_count
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN device_status ds ON d.id = ds.device_id
+WHERE dp.pairing_status = 'PAIRED'
+  AND d.deleted_at IS NULL
+  AND d.org_id = ?
+  AND (sqlc.narg('status_filter') is null OR FIND_IN_SET(ds.status, sqlc.narg('status_filter')))
+  AND (sqlc.narg('type_filter') is null OR FIND_IN_SET(d.type, sqlc.narg('type_filter')));

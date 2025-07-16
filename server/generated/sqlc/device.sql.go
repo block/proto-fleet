@@ -50,6 +50,53 @@ func (q *Queries) ActivateNewIPAssignment(ctx context.Context, arg ActivateNewIP
 	return err
 }
 
+const countMinersByState = `-- name: CountMinersByState :one
+SELECT
+    COUNT(CASE WHEN ds.status = 'ONLINE' THEN 1 END) as hashing_count,
+    COUNT(CASE WHEN ds.status = 'ERROR' THEN 1 END) as broken_count,
+    COUNT(CASE WHEN ds.status = 'OFFLINE' THEN 1 END) as offline_count,
+    COUNT(CASE WHEN ds.status = 'MAINTENANCE' THEN 1 END) as sleeping_count
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN device_status ds ON d.id = ds.device_id
+WHERE dp.pairing_status = 'PAIRED'
+  AND d.deleted_at IS NULL
+  AND d.org_id = ?
+  AND (? is null OR FIND_IN_SET(ds.status, ?))
+  AND (? is null OR FIND_IN_SET(d.type, ?))
+`
+
+type CountMinersByStateParams struct {
+	OrgID        int64
+	StatusFilter sql.NullString
+	TypeFilter   sql.NullString
+}
+
+type CountMinersByStateRow struct {
+	HashingCount  int64
+	BrokenCount   int64
+	OfflineCount  int64
+	SleepingCount int64
+}
+
+func (q *Queries) CountMinersByState(ctx context.Context, arg CountMinersByStateParams) (CountMinersByStateRow, error) {
+	row := q.queryRow(ctx, q.countMinersByStateStmt, countMinersByState,
+		arg.OrgID,
+		arg.StatusFilter,
+		arg.StatusFilter,
+		arg.TypeFilter,
+		arg.TypeFilter,
+	)
+	var i CountMinersByStateRow
+	err := row.Scan(
+		&i.HashingCount,
+		&i.BrokenCount,
+		&i.OfflineCount,
+		&i.SleepingCount,
+	)
+	return i, err
+}
+
 const createInactiveDeviceIPAssignment = `-- name: CreateInactiveDeviceIPAssignment :exec
 INSERT INTO device_ip_assignment (
     device_id,
@@ -348,12 +395,28 @@ const getTotalPairedDevices = `-- name: GetTotalPairedDevices :one
 SELECT COUNT(*)
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN device_status ds ON d.id = ds.device_id
 WHERE dp.pairing_status = 'PAIRED'
     AND d.deleted_at IS NULL
+    AND d.org_id = ?
+    AND (? is null OR FIND_IN_SET(ds.status, ?))
+    AND (? is null OR FIND_IN_SET(d.type, ?))
 `
 
-func (q *Queries) GetTotalPairedDevices(ctx context.Context) (int64, error) {
-	row := q.queryRow(ctx, q.getTotalPairedDevicesStmt, getTotalPairedDevices)
+type GetTotalPairedDevicesParams struct {
+	OrgID        int64
+	StatusFilter sql.NullString
+	TypeFilter   sql.NullString
+}
+
+func (q *Queries) GetTotalPairedDevices(ctx context.Context, arg GetTotalPairedDevicesParams) (int64, error) {
+	row := q.queryRow(ctx, q.getTotalPairedDevicesStmt, getTotalPairedDevices,
+		arg.OrgID,
+		arg.StatusFilter,
+		arg.StatusFilter,
+		arg.TypeFilter,
+		arg.TypeFilter,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -469,6 +532,8 @@ WHERE dp.pairing_status = 'PAIRED'
         OR
         (dp.id > ? OR (dp.id = ? AND d.id > ?))
     )
+    AND (? is null OR FIND_IN_SET(ds.status, ?))
+    AND (? is null OR FIND_IN_SET(d.type, ?))
 ORDER BY dp.id, d.id
 LIMIT ?
 `
@@ -477,6 +542,8 @@ type ListPairedMinersWithStatusParams struct {
 	OrgID          int64
 	CursorID       sql.NullInt64
 	DeviceCursorID sql.NullInt64
+	StatusFilter   sql.NullString
+	TypeFilter     sql.NullString
 	Limit          int32
 }
 
@@ -503,6 +570,10 @@ func (q *Queries) ListPairedMinersWithStatus(ctx context.Context, arg ListPaired
 		arg.CursorID,
 		arg.CursorID,
 		arg.DeviceCursorID,
+		arg.StatusFilter,
+		arg.StatusFilter,
+		arg.TypeFilter,
+		arg.TypeFilter,
 		arg.Limit,
 	)
 	if err != nil {

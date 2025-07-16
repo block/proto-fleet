@@ -27,6 +27,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.activateNewIPAssignmentStmt, err = db.PrepareContext(ctx, activateNewIPAssignment); err != nil {
 		return nil, fmt.Errorf("error preparing query ActivateNewIPAssignment: %w", err)
 	}
+	if q.countMinersByStateStmt, err = db.PrepareContext(ctx, countMinersByState); err != nil {
+		return nil, fmt.Errorf("error preparing query CountMinersByState: %w", err)
+	}
 	if q.createCommandBatchLogStmt, err = db.PrepareContext(ctx, createCommandBatchLog); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateCommandBatchLog: %w", err)
 	}
@@ -230,6 +233,11 @@ func (q *Queries) Close() error {
 	if q.activateNewIPAssignmentStmt != nil {
 		if cerr := q.activateNewIPAssignmentStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing activateNewIPAssignmentStmt: %w", cerr)
+		}
+	}
+	if q.countMinersByStateStmt != nil {
+		if cerr := q.countMinersByStateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countMinersByStateStmt: %w", cerr)
 		}
 	}
 	if q.createCommandBatchLogStmt != nil {
@@ -597,6 +605,7 @@ type Queries struct {
 	db                                                  DBTX
 	tx                                                  *sql.Tx
 	activateNewIPAssignmentStmt                         *sql.Stmt
+	countMinersByStateStmt                              *sql.Stmt
 	createCommandBatchLogStmt                           *sql.Stmt
 	createInactiveDeviceIPAssignmentStmt                *sql.Stmt
 	createOrganizationStmt                              *sql.Stmt
@@ -669,6 +678,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		db:                                   tx,
 		tx:                                   tx,
 		activateNewIPAssignmentStmt:          q.activateNewIPAssignmentStmt,
+		countMinersByStateStmt:               q.countMinersByStateStmt,
 		createCommandBatchLogStmt:            q.createCommandBatchLogStmt,
 		createInactiveDeviceIPAssignmentStmt: q.createInactiveDeviceIPAssignmentStmt,
 		createOrganizationStmt:               q.createOrganizationStmt,

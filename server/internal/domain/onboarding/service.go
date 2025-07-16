@@ -27,7 +27,7 @@ func (s *Service) GetFleetOnboardingStatus(ctx context.Context) (*pb.FleetOnboar
 		return nil, err
 	}
 
-	totalPairedDevices, err := s.deviceStore.GetTotalPairedDevices(ctx)
+	totalPairedDevices, err := s.deviceStore.GetTotalPairedDevices(ctx, claims.OrgID, nil)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error getting number of paired devices: %v", err)
 	}

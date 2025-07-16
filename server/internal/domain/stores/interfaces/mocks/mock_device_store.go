@@ -11,6 +11,7 @@ import (
 	fleetmanagementv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	minerdiscovery "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
+	interfaces "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	models "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	secrets "github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 	gomock "github.com/golang/mock/gomock"
@@ -99,19 +100,34 @@ func (mr *MockDeviceStoreMockRecorder) GetMinerCredentials(ctx, device, orgID in
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerCredentials", reflect.TypeOf((*MockDeviceStore)(nil).GetMinerCredentials), ctx, device, orgID)
 }
 
-// GetTotalPairedDevices mocks base method.
-func (m *MockDeviceStore) GetTotalPairedDevices(ctx context.Context) (int64, error) {
+// GetMinerStateCounts mocks base method.
+func (m *MockDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *interfaces.MinerFilter) (*fleetmanagementv1.MinerStateCounts, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetTotalPairedDevices", ctx)
+	ret := m.ctrl.Call(m, "GetMinerStateCounts", ctx, orgID, filter)
+	ret0, _ := ret[0].(*fleetmanagementv1.MinerStateCounts)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMinerStateCounts indicates an expected call of GetMinerStateCounts.
+func (mr *MockDeviceStoreMockRecorder) GetMinerStateCounts(ctx, orgID, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerStateCounts", reflect.TypeOf((*MockDeviceStore)(nil).GetMinerStateCounts), ctx, orgID, filter)
+}
+
+// GetTotalPairedDevices mocks base method.
+func (m *MockDeviceStore) GetTotalPairedDevices(ctx context.Context, orgID int64, filter *interfaces.MinerFilter) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTotalPairedDevices", ctx, orgID, filter)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetTotalPairedDevices indicates an expected call of GetTotalPairedDevices.
-func (mr *MockDeviceStoreMockRecorder) GetTotalPairedDevices(ctx interface{}) *gomock.Call {
+func (mr *MockDeviceStoreMockRecorder) GetTotalPairedDevices(ctx, orgID, filter interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTotalPairedDevices", reflect.TypeOf((*MockDeviceStore)(nil).GetTotalPairedDevices), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTotalPairedDevices", reflect.TypeOf((*MockDeviceStore)(nil).GetTotalPairedDevices), ctx, orgID, filter)
 }
 
 // ListPairedDevices mocks base method.
@@ -131,9 +147,9 @@ func (mr *MockDeviceStoreMockRecorder) ListPairedDevices(ctx, cursor, pageSize i
 }
 
 // ListPairedMinersWithStatus mocks base method.
-func (m *MockDeviceStore) ListPairedMinersWithStatus(ctx context.Context, orgID int64, cursor string, pageSize int32) ([]*pairingv1.Device, string, error) {
+func (m *MockDeviceStore) ListPairedMinersWithStatus(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *interfaces.MinerFilter) ([]*pairingv1.Device, string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListPairedMinersWithStatus", ctx, orgID, cursor, pageSize)
+	ret := m.ctrl.Call(m, "ListPairedMinersWithStatus", ctx, orgID, cursor, pageSize, filter)
 	ret0, _ := ret[0].([]*pairingv1.Device)
 	ret1, _ := ret[1].(string)
 	ret2, _ := ret[2].(error)
@@ -141,9 +157,9 @@ func (m *MockDeviceStore) ListPairedMinersWithStatus(ctx context.Context, orgID 
 }
 
 // ListPairedMinersWithStatus indicates an expected call of ListPairedMinersWithStatus.
-func (mr *MockDeviceStoreMockRecorder) ListPairedMinersWithStatus(ctx, orgID, cursor, pageSize interface{}) *gomock.Call {
+func (mr *MockDeviceStoreMockRecorder) ListPairedMinersWithStatus(ctx, orgID, cursor, pageSize, filter interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPairedMinersWithStatus", reflect.TypeOf((*MockDeviceStore)(nil).ListPairedMinersWithStatus), ctx, orgID, cursor, pageSize)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPairedMinersWithStatus", reflect.TypeOf((*MockDeviceStore)(nil).ListPairedMinersWithStatus), ctx, orgID, cursor, pageSize, filter)
 }
 
 // UpsertDevice mocks base method.

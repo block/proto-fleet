@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"fmt"
+	"strings"
 
 	fm "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
@@ -216,8 +217,14 @@ func (s *SQLDeviceStore) GetDeviceWithIPAssignment(ctx context.Context, deviceId
 	}, nil
 }
 
-func (s *SQLDeviceStore) GetTotalPairedDevices(ctx context.Context) (int64, error) {
-	return s.GetQueries(ctx).GetTotalPairedDevices(ctx)
+func (s *SQLDeviceStore) GetTotalPairedDevices(ctx context.Context, orgID int64, filter *stores.MinerFilter) (int64, error) {
+	statusFilter, typeFilter := buildFilterParams(filter)
+
+	return s.GetQueries(ctx).GetTotalPairedDevices(ctx, sqlc.GetTotalPairedDevicesParams{
+		OrgID:        orgID,
+		StatusFilter: statusFilter,
+		TypeFilter:   typeFilter,
+	})
 }
 
 func (s *SQLDeviceStore) ListPairedDevices(ctx context.Context, cursor string, pageSize int32) ([]*fm.PairedDevice, string, error) {
@@ -263,17 +270,21 @@ func (s *SQLDeviceStore) ListPairedDevices(ctx context.Context, cursor string, p
 	return devices, nextCursorString, nil
 }
 
-func (s *SQLDeviceStore) ListPairedMinersWithStatus(ctx context.Context, orgID int64, cursor string, pageSize int32) ([]*pb.Device, string, error) {
+func (s *SQLDeviceStore) ListPairedMinersWithStatus(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *stores.MinerFilter) ([]*pb.Device, string, error) {
 	// Decode the cursor string to internal Cursor struct
 	internalCursor, err := s.decodeCursor(cursor)
 	if err != nil {
 		return nil, "", err
 	}
 
-	result, err := s.GetQueries(ctx).ListPairedMinersWithStatus(ctx, sqlc.ListPairedMinersWithStatusParams{
+	statusFilter, typeFilter := buildFilterParams(filter)
+
+	result, err := s.getQueries(ctx).ListPairedMinersWithStatus(ctx, sqlc.ListPairedMinersWithStatusParams{
 		OrgID:          orgID,
 		CursorID:       sql.NullInt64{Int64: internalCursor.ID, Valid: internalCursor.ID > 0},
 		DeviceCursorID: sql.NullInt64{Int64: internalCursor.DeviceID, Valid: internalCursor.DeviceID > 0},
+		StatusFilter:   statusFilter,
+		TypeFilter:     typeFilter,
 		Limit:          pageSize + 1,
 	})
 	if err != nil {
@@ -323,4 +334,40 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 	}
 
 	return deviceIDs, nil
+}
+
+func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *stores.MinerFilter) (*fm.MinerStateCounts, error) {
+	statusFilter, typeFilter := buildFilterParams(filter)
+
+	counts, err := s.getQueries(ctx).CountMinersByState(ctx, sqlc.CountMinersByStateParams{
+		OrgID:        orgID,
+		StatusFilter: statusFilter,
+		TypeFilter:   typeFilter,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &fm.MinerStateCounts{
+		HashingCount:  int32(counts.HashingCount),  //nolint:gosec
+		BrokenCount:   int32(counts.BrokenCount),   //nolint:gosec
+		OfflineCount:  int32(counts.OfflineCount),  //nolint:gosec
+		SleepingCount: int32(counts.SleepingCount), //nolint:gosec
+	}, nil
+}
+
+func buildFilterParams(filter *stores.MinerFilter) (statusFilter, typeFilter sql.NullString) {
+	if filter != nil && len(filter.StatusFilter) > 0 {
+		statusFilter = sql.NullString{String: strings.Join(filter.StatusFilter, ","), Valid: true}
+	}
+
+	if filter != nil && len(filter.MinerType) > 0 {
+		typeStrings := make([]string, len(filter.MinerType))
+		for i, t := range filter.MinerType {
+			typeStrings[i] = t.String()
+		}
+		typeFilter = sql.NullString{String: strings.Join(typeStrings, ","), Valid: true}
+	}
+
+	return statusFilter, typeFilter
 }

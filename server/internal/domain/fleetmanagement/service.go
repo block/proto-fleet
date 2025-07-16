@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -29,6 +30,11 @@ func NewService(deviceStore interfaces.DeviceStore, t TelemetryCollector) *Servi
 }
 
 func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRequest) (*pb.ListPairedMinersResponse, error) {
+	claims, err := tokenDomain.GetClientAuthJWTClaims(c)
+	if err != nil {
+		return nil, err
+	}
+
 	// Validate and set page size
 	pageSize := req.PageSize
 	if pageSize <= 0 {
@@ -45,7 +51,7 @@ func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRe
 	}
 
 	// Get total count
-	total, err := s.deviceStore.GetTotalPairedDevices(c)
+	total, err := s.deviceStore.GetTotalPairedDevices(c, claims.OrgID, nil)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
 	}
@@ -67,8 +73,13 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 		return nil, err
 	}
 
+	filter, err := parseFilter(req.Filter)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to parse filter parameters: %v", err)
+	}
+
 	// Get paired miners with their basic info
-	miners, nextCursor, err := s.deviceStore.ListPairedMinersWithStatus(ctx, claims.OrgID, req.Cursor, req.PageSize)
+	miners, nextCursor, err := s.deviceStore.ListPairedMinersWithStatus(ctx, claims.OrgID, req.Cursor, req.PageSize, filter)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to list miners: %v", err)
 	}
@@ -109,17 +120,23 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 	}
 
 	// Get total count
-	total, err := s.deviceStore.GetTotalPairedDevices(ctx)
+	total, err := s.deviceStore.GetTotalPairedDevices(ctx, claims.OrgID, filter)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
 	}
 
-	return &pb.ListMinerStateSnapshotsResponse{
-		Miners:      snapshots,
-		Cursor:      nextCursor,
-		TotalMiners: int32(total), //nolint:gosec
-	}, nil
+	// Get state counts
+	stateCounts, err := s.deviceStore.GetMinerStateCounts(ctx, claims.OrgID, filter)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get state counts: %v", err)
+	}
 
+	return &pb.ListMinerStateSnapshotsResponse{
+		Miners:           snapshots,
+		Cursor:           nextCursor,
+		TotalMiners:      int32(total), //nolint:gosec
+		TotalStateCounts: stateCounts,
+	}, nil
 }
 
 // StreamMinerUpdates streams real-time measurement updates for miners
@@ -196,4 +213,49 @@ func (s *Service) StreamMinerUpdates(ctx context.Context, req *pb.StreamMinerUpd
 	}()
 
 	return responseChan, nil
+}
+
+func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) {
+	if pbFilter == nil {
+		return nil, nil
+	}
+
+	filter := &interfaces.MinerFilter{}
+
+	if len(pbFilter.Status) > 0 {
+		statusFilters := make([]string, 0, len(pbFilter.Status))
+		for _, status := range pbFilter.Status {
+			dbStatus, exists := componentStatusMap[status]
+			if exists {
+				statusFilters = append(statusFilters, dbStatus)
+			} else {
+				return nil, fleeterror.NewInternalErrorf("unsupported miner status: %v", status)
+			}
+		}
+		filter.StatusFilter = statusFilters
+	}
+
+	var minerType mm.Type
+
+	switch pbFilter.Type {
+	case pb.MinerType_MINER_TYPE_PROTO_RIG:
+		minerType = mm.TypeProto
+	case pb.MinerType_MINER_TYPE_BITMAIN:
+		minerType = mm.TypeAntminer
+	case pb.MinerType_MINER_TYPE_UNSPECIFIED:
+		return filter, nil
+	default:
+		return nil, fleeterror.NewInternalErrorf("unsupported miner type: %v", pbFilter.Type)
+	}
+
+	filter.MinerType = []mm.Type{minerType}
+
+	return filter, nil
+}
+
+var componentStatusMap = map[pb.ComponentStatus]string{
+	pb.ComponentStatus_COMPONENT_STATUS_OK:      "ONLINE",
+	pb.ComponentStatus_COMPONENT_STATUS_WARNING: "MAINTENANCE",
+	pb.ComponentStatus_COMPONENT_STATUS_ERROR:   "ERROR",
+	pb.ComponentStatus_COMPONENT_STATUS_OFFLINE: "OFFLINE",
 }
