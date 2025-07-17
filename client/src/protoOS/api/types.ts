@@ -972,6 +972,7 @@ type CancelToken = Symbol | string | number;
 
 export enum ContentType {
   Json = "application/json",
+  JsonApi = "application/vnd.api+json",
   FormData = "multipart/form-data",
   UrlEncoded = "application/x-www-form-urlencoded",
   Text = "text/plain",
@@ -1036,6 +1037,10 @@ export class HttpClient<SecurityDataType = unknown> {
 
   private contentFormatters: Record<ContentType, (input: any) => any> = {
     [ContentType.Json]: (input: any) =>
+      input !== null && (typeof input === "object" || typeof input === "string")
+        ? JSON.stringify(input)
+        : input,
+    [ContentType.JsonApi]: (input: any) =>
       input !== null && (typeof input === "object" || typeof input === "string")
         ? JSON.stringify(input)
         : input,
@@ -1576,6 +1581,34 @@ export class Api<
       }),
 
     /**
+     * @description The upload system endpoint allows users to upload a firmware update file directly to the device. The uploaded file will be stored and can be installed using the install endpoint.
+     *
+     * @tags System
+     * @name UploadSystem
+     * @request POST:/api/v1/system/upload
+     * @secure
+     */
+    uploadSystem: (
+      data: {
+        /**
+         * The firmware update file to upload (.swu format)
+         * @format binary
+         */
+        file: File;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<MessageResponse, MessageResponse>({
+        path: `/api/v1/system/upload`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.FormData,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description The get ssh endpoint returns if SSH is enabled or disabled on the control board
      *
      * @tags System
@@ -1601,6 +1634,40 @@ export class Api<
     setSsh: (data: SshConfig, params: RequestParams = {}) =>
       this.request<SshResponse, MessageResponse>({
         path: `/api/v1/system/ssh`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The get UNLOCK endpoint returns current lock status of the control board.
+     *
+     * @tags System
+     * @name GetUnlock
+     * @request GET:/api/v1/system/unlock
+     */
+    getUnlock: (params: RequestParams = {}) =>
+      this.request<any, MessageResponse>({
+        path: `/api/v1/system/unlock`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The put UNLOCK endpoint execute device unlock on the control board when correct password is used.
+     *
+     * @tags System
+     * @name SetUnlock
+     * @request PUT:/api/v1/system/unlock
+     * @secure
+     */
+    setUnlock: (data: any, params: RequestParams = {}) =>
+      this.request<any, MessageResponse>({
+        path: `/api/v1/system/unlock`,
         method: "PUT",
         body: data,
         secure: true,

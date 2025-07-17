@@ -38,8 +38,6 @@ const General = () => {
     }
   }, [hashboards, pending]);
 
-  const serial = "1234567890";
-
   return (
     <>
       <h2 className="mb-10 text-heading-300">General</h2>
@@ -70,7 +68,7 @@ const General = () => {
         <Row className="flex justify-between">
           <h4 className="text-emphasis-300">Serial number</h4>
           <div className="text-300">
-            {serial || <SkeletonBar className="w-20" />}
+            {systemInfo?.cb_sn || <SkeletonBar className="w-20" />}
           </div>
         </Row>
       </div>
