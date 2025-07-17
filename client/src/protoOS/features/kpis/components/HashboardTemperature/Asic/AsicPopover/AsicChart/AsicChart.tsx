@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Line, LineChart, Tooltip, XAxis } from "recharts";
 
 import AsicChartTooltip, { TooltipData } from "./AsicChartTooltip";
@@ -17,6 +17,8 @@ import {
   xAxisProps,
 } from "@/shared/components/Chart";
 
+const ANIMATION_DURATION = 500;
+
 interface AsicChartProps {
   hashrateData: ChartData[];
   temperatureData: ChartData[];
@@ -29,9 +31,20 @@ const AsicChart = ({ hashrateData, temperatureData }: AsicChartProps) => {
     payload: [],
   });
 
+  const [shouldAnimate, setShouldAnimate] = useState(true);
+
   const chartData = useMemo(() => {
     return getChartData({ hashrateData, temperatureData });
   }, [hashrateData, temperatureData]);
+
+  // initialize animation flags
+  useEffect(() => {
+    setShouldAnimate(true);
+    const timeoutId = setTimeout(() => {
+      setShouldAnimate(false);
+    }, ANIMATION_DURATION);
+    return () => clearTimeout(timeoutId);
+  }, []);
 
   return (
     <ChartWrapper>
@@ -82,6 +95,8 @@ const AsicChart = ({ hashrateData, temperatureData }: AsicChartProps) => {
               <></>
             )
           }
+          isAnimationActive={shouldAnimate}
+          animationDuration={ANIMATION_DURATION}
         />
         <Line
           {...temperatureLineProps}
@@ -98,6 +113,8 @@ const AsicChart = ({ hashrateData, temperatureData }: AsicChartProps) => {
               <></>
             )
           }
+          isAnimationActive={shouldAnimate}
+          animationDuration={ANIMATION_DURATION}
         />
       </LineChart>
     </ChartWrapper>

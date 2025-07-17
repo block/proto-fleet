@@ -84,9 +84,10 @@ const KpiChart = ({
         units,
       }),
     );
-    setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       setShouldAnimate(false);
     }, ANIMATION_DURATION);
+    return () => clearTimeout(timeoutId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

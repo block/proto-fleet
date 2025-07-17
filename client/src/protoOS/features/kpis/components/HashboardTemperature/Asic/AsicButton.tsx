@@ -31,9 +31,12 @@ const AsicButton = ({
   const { temperatureUnits } = usePreferences();
   const isFahrenheit = temperatureUnits === TEMP_UNITS.fahrenheit;
 
+  const currentAsicId =
+    asic.id !== undefined
+      ? getAsicUniqueId(asic.id, hashboardSerial)
+      : undefined;
   const shouldShowPopover =
-    asic.id !== undefined &&
-    showPopover === getAsicUniqueId(asic.id, hashboardSerial);
+    currentAsicId !== undefined && showPopover === currentAsicId;
 
   const backgroundColor = useAsicColor(asic);
 
@@ -55,16 +58,15 @@ const AsicButton = ({
           granularity={granularity}
           hashboardSerial={hashboardSerial}
           closePopover={() => setShowPopover(undefined)}
+          closeIgnoreSelectors={[".asic-button"]}
         />
       ) : null}
       <button
         style={{ backgroundColor }}
-        className="w-full truncate rounded-lg border border-border-5 text-center font-mono text-mono-text-50 text-text-primary"
+        className="asic-button w-full truncate rounded-lg border border-border-5 text-center font-mono text-mono-text-50 text-text-primary"
         onClick={() =>
           setShowPopover((prev) =>
-            prev || asic.id === undefined
-              ? undefined
-              : getAsicUniqueId(asic.id, hashboardSerial),
+            prev === currentAsicId ? undefined : currentAsicId,
           )
         }
       >

@@ -13,4 +13,5 @@ export type PopoverContentProps = {
   title?: string;
   titleSize?: string;
   closePopover?: () => void;
+  closeIgnoreSelectors?: string[];
 };

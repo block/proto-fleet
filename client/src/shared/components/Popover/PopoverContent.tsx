@@ -21,12 +21,14 @@ const PopoverContent = ({
   title,
   closePopover = () => {},
   titleSize = "text-heading-200",
+  closeIgnoreSelectors,
 }: PopoverContentProps) => {
   const popoverRef = useRef<HTMLDivElement>(null);
 
   useClickOutside({
     ref: popoverRef,
     onClickOutside: closePopover,
+    ignoreSelectors: closeIgnoreSelectors,
   });
 
   // Stop propagation to prevent modal close

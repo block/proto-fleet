@@ -20,6 +20,7 @@ interface AsicPopoverProps {
   pendingAsicTemperatureData?: boolean;
   temperatureData?: ChartData[];
   closePopover: () => void;
+  closeIgnoreSelectors?: string[];
 }
 
 const AsicPopover = ({
@@ -29,6 +30,7 @@ const AsicPopover = ({
   pendingAsicTemperatureData,
   temperatureData,
   closePopover,
+  closeIgnoreSelectors,
 }: AsicPopoverProps) => {
   const { temperatureUnits } = usePreferences();
 
@@ -38,6 +40,7 @@ const AsicPopover = ({
       position={positions.top}
       offset={minimalMargin * 3}
       closePopover={closePopover}
+      closeIgnoreSelectors={closeIgnoreSelectors}
     >
       <div className="space-y-1">
         <div className="text-200 text-text-primary-70">ASIC</div>
