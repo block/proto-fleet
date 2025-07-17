@@ -71,8 +71,22 @@ func (a *Antminer) SetCoolingMode(_ context.Context, _ dto.CoolingModePayload) e
 	return fleeterror.NewInternalErrorf("Not implemented!") // TODO https://linear.app/squareup/issue/DASH-513
 }
 
-func (a *Antminer) UpdateMiningPools(_ context.Context, _ dto.UpdateMiningPoolsPayload) error {
-	return fleeterror.NewInternalErrorf("Not implemented!") // TODO https://linear.app/squareup/issue/DASH-528
+func (a *Antminer) UpdateMiningPools(ctx context.Context, poolsPayload dto.UpdateMiningPoolsPayload) error {
+	pools := make([]web.Pool, 0, 3)
+
+	pools = append(pools, toAntminerPool(&poolsPayload.DefaultPool))
+
+	if poolsPayload.Backup1Pool != nil {
+		pools = append(pools, toAntminerPool(poolsPayload.Backup1Pool))
+	}
+
+	if poolsPayload.Backup2Pool != nil {
+		pools = append(pools, toAntminerPool(poolsPayload.Backup2Pool))
+	}
+
+	return a.webClient.SetMinerConfig(ctx, a.getWebConnectionInfo(), &web.MinerConfig{
+		Pools: pools,
+	})
 }
 
 func (a *Antminer) getWebConnectionInfo() *web.AntminerConnectionInfo {
@@ -90,4 +104,12 @@ func (a *Antminer) getRPCConnectionInfo() *networking.ConnectionInfo {
 //nolint:revive // GetTelemetry will be implemented in the future
 func (a *Antminer) GetTelemetry(ctx context.Context, after time.Time) ([]telemetryModels.Telemetry, error) {
 	return []telemetryModels.Telemetry{}, fleeterror.NewInternalErrorf("GetTelemetry not implemented for Antminer")
+}
+
+func toAntminerPool(payloadPool *dto.MiningPool) web.Pool {
+	return web.Pool{
+		URL:      payloadPool.URL,
+		Username: payloadPool.Username,
+		Password: payloadPool.Password,
+	}
 }

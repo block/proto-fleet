@@ -161,7 +161,7 @@ func TestGetMinerConfig(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotZero(t, config)
 	assert.Equal(t, "stratum+tcp://stratum.example.com:3333", config.Pools[0].URL)
-	assert.Equal(t, "proto_mining_sw_test", config.Pools[0].User)
+	assert.Equal(t, "proto_mining_sw_test", config.Pools[0].Username)
 	assert.Equal(t, "100", config.BitmainFanPWM)
 	assert.Equal(t, "200", config.BitmainFreq)
 }
@@ -228,7 +228,7 @@ func TestSetMinerConfig(t *testing.T) {
 		assert.NoError(t, err)
 
 		assert.Equal(t, "stratum+tcp://pool.example.com:3333", config.Pools[0].URL)
-		assert.Equal(t, "username.worker", config.Pools[0].User)
+		assert.Equal(t, "username.worker", config.Pools[0].Username)
 
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -239,15 +239,11 @@ func TestSetMinerConfig(t *testing.T) {
 	assert.NoError(t, err)
 
 	config := &web.MinerConfig{
-		Pools: []struct {
-			URL  string `json:"url"`
-			User string `json:"user"`
-			Pass string `json:"pass"`
-		}{
+		Pools: []web.Pool{
 			{
-				URL:  "stratum+tcp://pool.example.com:3333",
-				User: "username.worker",
-				Pass: "x",
+				URL:      "stratum+tcp://pool.example.com:3333",
+				Username: "username.worker",
+				Password: "x",
 			},
 		},
 		BitmainFanPWM:    "100",

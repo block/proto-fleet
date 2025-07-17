@@ -115,12 +115,14 @@ type MinerSummary struct {
 	} `json:"SUMMARY"`
 }
 
+type Pool struct {
+	URL      string `json:"url"`
+	Username string `json:"user"`
+	Password string `json:"pass"`
+}
+
 type MinerConfig struct {
-	Pools []struct {
-		URL  string `json:"url"`
-		User string `json:"user"`
-		Pass string `json:"pass"`
-	} `json:"pools"`
+	Pools                  []Pool          `json:"pools"`
 	APIListen              bool            `json:"api-listen"`
 	APINetwork             bool            `json:"api-network"`
 	APIGroups              string          `json:"api-groups"`
