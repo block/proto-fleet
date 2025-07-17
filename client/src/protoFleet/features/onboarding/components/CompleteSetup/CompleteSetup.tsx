@@ -3,7 +3,7 @@ import { AuthenticateMiners } from "@/protoFleet/features/auth/components/Authen
 import { Alert, Dismiss, MiningPools, Racks } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
 
-type CardProps = {
+type TaskCardProps = {
   icon: ReactNode;
   title: string;
   description?: string;
@@ -13,7 +13,7 @@ type CardProps = {
   onSkip?: () => void;
 };
 
-const Card = ({
+const TaskCard = ({
   icon,
   title,
   description,
@@ -21,7 +21,7 @@ const Card = ({
   onActionClick,
   skippable = false,
   onSkip,
-}: CardProps) => {
+}: TaskCardProps) => {
   return (
     <div className="flex flex-col justify-between gap-4 rounded-2xl bg-surface-base p-6">
       <div className="flex flex-col gap-4">
@@ -56,7 +56,7 @@ const AuthenticateMinersCard = () => {
 
   return (
     <>
-      <Card
+      <TaskCard
         icon={<Alert className="text-text-critical" />}
         title="Authenticate miners"
         description="17 miners need attention"
@@ -70,7 +70,7 @@ const AuthenticateMinersCard = () => {
 
 const ConfigureMiningPoolsCard = () => {
   return (
-    <Card
+    <TaskCard
       icon={<MiningPools />}
       title="Configure mining pools"
       description="123 miners"
@@ -82,7 +82,7 @@ const ConfigureMiningPoolsCard = () => {
 
 const SetUpRacksCard = () => {
   return (
-    <Card
+    <TaskCard
       icon={<Racks />}
       title="Set up racks"
       actionText="Set up"
