@@ -123,7 +123,7 @@ const Miners = ({
 
       {showModal && (
         <PageOverlay show>
-          <div className="h-full w-full bg-white p-6">
+          <div className="h-full w-full bg-surface-base p-6">
             <Header
               className="sticky top-0 z-10 pb-14"
               title="Add miners"
