@@ -15,10 +15,10 @@ import (
 
 // Common conversion helper functions
 
-func deviceIDsToModels(deviceIDs []string) []models.DeviceID {
-	result := make([]models.DeviceID, len(deviceIDs))
+func deviceIDsToModels(deviceIDs []string) []models.DeviceIdentifier {
+	result := make([]models.DeviceIdentifier, len(deviceIDs))
 	for i, id := range deviceIDs {
-		result[i] = models.DeviceID(id)
+		result[i] = models.DeviceIdentifier(id)
 	}
 	return result
 }

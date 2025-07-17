@@ -322,15 +322,15 @@ func (s *SQLDeviceStore) ListPairedMinersWithStatus(ctx context.Context, orgID i
 	return devices, nextCursorString, nil
 }
 
-func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models.DeviceID, error) {
+func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models.DeviceIdentifier, error) {
 	identifiers, err := s.GetQueries(ctx).GetAllPairedDeviceIdentifiers(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	deviceIDs := make([]models.DeviceID, 0, len(identifiers))
+	deviceIDs := make([]models.DeviceIdentifier, 0, len(identifiers))
 	for _, identifier := range identifiers {
-		deviceIDs = append(deviceIDs, models.NewDeviceIDFromString(identifier))
+		deviceIDs = append(deviceIDs, models.NewDeviceIdentifierFromString(identifier))
 	}
 
 	return deviceIDs, nil

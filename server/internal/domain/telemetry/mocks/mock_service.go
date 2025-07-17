@@ -76,7 +76,7 @@ func (mr *MockUpdateSchedulerMockRecorder) AddFailedDevices(ctx interface{}, dev
 }
 
 // AddNewDevices mocks base method.
-func (m *MockUpdateScheduler) AddNewDevices(ctx context.Context, deviceID ...models.DeviceID) error {
+func (m *MockUpdateScheduler) AddNewDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx}
 	for _, a := range deviceID {
@@ -110,7 +110,7 @@ func (mr *MockUpdateSchedulerMockRecorder) FetchDevices(ctx, after interface{}) 
 }
 
 // RemoveDevices mocks base method.
-func (m *MockUpdateScheduler) RemoveDevices(ctx context.Context, deviceID ...models.DeviceID) error {
+func (m *MockUpdateScheduler) RemoveDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx}
 	for _, a := range deviceID {
@@ -273,40 +273,40 @@ func (mr *MockTelemetryDataStoreMockRecorder) StreamTelemetryUpdates(ctx, query 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StreamTelemetryUpdates", reflect.TypeOf((*MockTelemetryDataStore)(nil).StreamTelemetryUpdates), ctx, query)
 }
 
-// MockMinerManager is a mock of MinerManager interface.
-type MockMinerManager struct {
+// MockMinerGetter is a mock of MinerGetter interface.
+type MockMinerGetter struct {
 	ctrl     *gomock.Controller
-	recorder *MockMinerManagerMockRecorder
+	recorder *MockMinerGetterMockRecorder
 }
 
-// MockMinerManagerMockRecorder is the mock recorder for MockMinerManager.
-type MockMinerManagerMockRecorder struct {
-	mock *MockMinerManager
+// MockMinerGetterMockRecorder is the mock recorder for MockMinerGetter.
+type MockMinerGetterMockRecorder struct {
+	mock *MockMinerGetter
 }
 
-// NewMockMinerManager creates a new mock instance.
-func NewMockMinerManager(ctrl *gomock.Controller) *MockMinerManager {
-	mock := &MockMinerManager{ctrl: ctrl}
-	mock.recorder = &MockMinerManagerMockRecorder{mock}
+// NewMockMinerGetter creates a new mock instance.
+func NewMockMinerGetter(ctrl *gomock.Controller) *MockMinerGetter {
+	mock := &MockMinerGetter{ctrl: ctrl}
+	mock.recorder = &MockMinerGetterMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockMinerManager) EXPECT() *MockMinerManagerMockRecorder {
+func (m *MockMinerGetter) EXPECT() *MockMinerGetterMockRecorder {
 	return m.recorder
 }
 
-// GetMinerFromDeviceID mocks base method.
-func (m *MockMinerManager) GetMinerFromDeviceID(ctx context.Context, deviceID models.DeviceID) (interfaces.Miner, error) {
+// GetMinerFromDeviceIdentifier mocks base method.
+func (m *MockMinerGetter) GetMinerFromDeviceIdentifier(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (interfaces.Miner, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetMinerFromDeviceID", ctx, deviceID)
+	ret := m.ctrl.Call(m, "GetMinerFromDeviceIdentifier", ctx, deviceIdentifier)
 	ret0, _ := ret[0].(interfaces.Miner)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetMinerFromDeviceID indicates an expected call of GetMinerFromDeviceID.
-func (mr *MockMinerManagerMockRecorder) GetMinerFromDeviceID(ctx, deviceID interface{}) *gomock.Call {
+// GetMinerFromDeviceIdentifier indicates an expected call of GetMinerFromDeviceIdentifier.
+func (mr *MockMinerGetterMockRecorder) GetMinerFromDeviceIdentifier(ctx, deviceIdentifier interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerFromDeviceID", reflect.TypeOf((*MockMinerManager)(nil).GetMinerFromDeviceID), ctx, deviceID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerFromDeviceIdentifier", reflect.TypeOf((*MockMinerGetter)(nil).GetMinerFromDeviceIdentifier), ctx, deviceIdentifier)
 }

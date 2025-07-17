@@ -12,13 +12,13 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 )
 
-//go:generate mockgen -source=service.go -destination=mocks/mock_service.go -package=mock UpdateScheduler,TelemetryDataStore
+//go:generate mockgen -source=service.go -destination=mocks/mock_service.go -package=mock UpdateScheduler,TelemetryDataStore,MinerGetter
 type UpdateScheduler interface {
-	AddNewDevices(ctx context.Context, deviceID ...models.DeviceID) error
+	AddNewDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error
 	AddDevices(ctx context.Context, devices ...models.Device) error
 	AddFailedDevices(ctx context.Context, devices ...models.Device) error
 	FetchDevices(ctx context.Context, after time.Time) ([]models.Device, error)
-	RemoveDevices(ctx context.Context, deviceID ...models.DeviceID) error
+	RemoveDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error
 }
 
 type TelemetryDataStore interface {
@@ -31,12 +31,15 @@ type TelemetryDataStore interface {
 	Ping(ctx context.Context) error
 	Close() error
 }
+type MinerGetter interface {
+	GetMinerFromDeviceIdentifier(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (interfaces.Miner, error)
+}
 
 type TelemetryService struct {
 	config             Config
 	updateScheduler    UpdateScheduler
 	telemetryDataStore TelemetryDataStore
-	minerManager       MinerManager
+	minerManager       MinerGetter
 	deviceStore        stores.DeviceStore
 	mux                sync.Mutex
 	tasks              chan models.Device
@@ -44,11 +47,7 @@ type TelemetryService struct {
 	lookBackDuration   time.Duration
 }
 
-type MinerManager interface {
-	GetMinerFromDeviceID(ctx context.Context, deviceID models.DeviceID) (interfaces.Miner, error)
-}
-
-func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager MinerManager, scheduler UpdateScheduler, deviceStore stores.DeviceStore) *TelemetryService {
+func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager MinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore) *TelemetryService {
 	return &TelemetryService{
 		config:             config,
 		telemetryDataStore: telemetryDataStore,
@@ -61,14 +60,14 @@ func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, m
 	}
 }
 
-func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.DeviceID) error {
+func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error {
 	if len(deviceID) == 0 {
 		return nil
 	}
 	return s.updateScheduler.AddNewDevices(ctx, deviceID...)
 }
 
-func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceID ...models.DeviceID) error {
+func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error {
 	if len(deviceID) == 0 {
 		return nil
 	}
@@ -187,7 +186,7 @@ func (s *TelemetryService) worker(ctx context.Context) {
 func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device models.Device) error {
 	ctx, cancel := context.WithTimeout(ctx, s.config.MetricTimeout)
 	defer cancel()
-	miner, err := s.minerManager.GetMinerFromDeviceID(ctx, device.ID)
+	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, device.ID)
 	// TODO(DASH-446): update to handle dor unique miner discovery errors.
 	if err != nil {
 		return fmt.Errorf("failed to get miner from device ID %s: %w", device.ID, err)

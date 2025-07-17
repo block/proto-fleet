@@ -19,38 +19,38 @@ type MetadataFilter struct {
 }
 
 type LatestTelemetryQuery struct {
-	DeviceIDs        []DeviceID        `json:"device_ids,omitempty"`
-	MeasurementTypes []MeasurementType `json:"measurement_types,omitempty"`
-	MaxAge           *time.Duration    `json:"max_age,omitempty"`
-	Tags             map[string]string `json:"tags,omitempty"`
+	DeviceIDs        []DeviceIdentifier `json:"device_ids,omitempty"`
+	MeasurementTypes []MeasurementType  `json:"measurement_types,omitempty"`
+	MaxAge           *time.Duration     `json:"max_age,omitempty"`
+	Tags             map[string]string  `json:"tags,omitempty"`
 }
 
 type TimeSeriesTelemetryQuery struct {
-	DeviceIDs        []DeviceID        `json:"device_ids,omitempty"`
-	MeasurementTypes []MeasurementType `json:"measurement_types,omitempty"`
-	TimeRange        TimeRange         `json:"time_range"`
-	Limit            *int              `json:"limit,omitempty"`
-	Tags             map[string]string `json:"tags,omitempty"`
+	DeviceIDs        []DeviceIdentifier `json:"device_ids,omitempty"`
+	MeasurementTypes []MeasurementType  `json:"measurement_types,omitempty"`
+	TimeRange        TimeRange          `json:"time_range"`
+	Limit            *int               `json:"limit,omitempty"`
+	Tags             map[string]string  `json:"tags,omitempty"`
 }
 
 type MetadataQuery struct {
-	DeviceIDs []DeviceID      `json:"device_ids,omitempty"`
-	Filter    *MetadataFilter `json:"filter,omitempty"`
+	DeviceIDs []DeviceIdentifier `json:"device_ids,omitempty"`
+	Filter    *MetadataFilter    `json:"filter,omitempty"`
 }
 
 type StreamQuery struct {
-	DeviceIDs         []DeviceID        `json:"device_ids,omitempty"`
-	MeasurementTypes  []MeasurementType `json:"measurement_types,omitempty"`
-	IncludeHeartbeat  bool              `json:"include_heartbeat"`
-	HeartbeatInterval *time.Duration    `json:"heartbeat_interval,omitempty"`
-	Tags              map[string]string `json:"tags,omitempty"`
+	DeviceIDs         []DeviceIdentifier `json:"device_ids,omitempty"`
+	MeasurementTypes  []MeasurementType  `json:"measurement_types,omitempty"`
+	IncludeHeartbeat  bool               `json:"include_heartbeat"`
+	HeartbeatInterval *time.Duration     `json:"heartbeat_interval,omitempty"`
+	Tags              map[string]string  `json:"tags,omitempty"`
 }
 
 type AggregationQuery struct {
-	DeviceIDs        []DeviceID        `json:"device_ids,omitempty"`
-	MeasurementTypes []MeasurementType `json:"measurement_types,omitempty"`
-	TimeRange        TimeRange         `json:"time_range"`
-	AggregationType  AggregationType   `json:"aggregation_type"`
-	GroupByInterval  *time.Duration    `json:"group_by_interval,omitempty"`
-	Tags             map[string]string `json:"tags,omitempty"`
+	DeviceIDs        []DeviceIdentifier `json:"device_ids,omitempty"`
+	MeasurementTypes []MeasurementType  `json:"measurement_types,omitempty"`
+	TimeRange        TimeRange          `json:"time_range"`
+	AggregationType  AggregationType    `json:"aggregation_type"`
+	GroupByInterval  *time.Duration     `json:"group_by_interval,omitempty"`
+	Tags             map[string]string  `json:"tags,omitempty"`
 }

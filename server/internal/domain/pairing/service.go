@@ -29,7 +29,7 @@ import (
 
 //go:generate mockgen -source=service.go -destination=mocks/mock_service.go -package=mocks Listener
 type Listener interface {
-	AddDevices(ctx context.Context, deviceID ...tmodels.DeviceID) error
+	AddDevices(ctx context.Context, deviceID ...tmodels.DeviceIdentifier) error
 }
 
 // Service handles the core device discovery functionality
@@ -365,7 +365,7 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 		return nil, err
 	}
 
-	deviceIDs := make([]models.DeviceID, 0, len(r.DeviceIdentifiers))
+	deviceIDs := make([]models.DeviceIdentifier, 0, len(r.DeviceIdentifiers))
 
 	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Create pairing records for each device
@@ -378,7 +378,7 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 			// Try to get discovered device from in-memory store first
 			discoveredDevice, err := s.discoveredDeviceStore.GetDevice(orgDeviceID)
 
-			deviceIDs = append(deviceIDs, models.DeviceID(deviceID))
+			deviceIDs = append(deviceIDs, models.DeviceIdentifier(deviceID))
 			// If device not in store, try database
 			if errors.Is(err, minerdiscovery.MinerNotFoundFleetError) {
 				discoveredDevice, err = s.deviceStore.GetDeviceWithIPAssignment(ctx, deviceID, claims.OrgID)

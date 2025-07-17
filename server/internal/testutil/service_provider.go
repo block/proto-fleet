@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/proto"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -79,7 +80,8 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 
 	executionServiceCtx, executionServiceCancel := context.WithCancel(t.Context())
 
-	executionService := command.NewExecutionService(executionServiceCtx, commandConfig, db, dbMessageQueue, encryptService, tokenService)
+	minerService := miner.NewMinerService(db, encryptService)
+	executionService := command.NewExecutionService(executionServiceCtx, commandConfig, db, dbMessageQueue, encryptService, tokenService, minerService)
 	err = executionService.Start(executionServiceCtx)
 	assert.NoError(t, err)
 

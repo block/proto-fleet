@@ -35,7 +35,7 @@ func (m *QueryResultMapper) ToDeviceMetadata(result *influxdb3.PointValues) mode
 	}
 
 	return models.DeviceMetadata{
-		DeviceID:   models.DeviceID(deviceID),
+		DeviceID:   models.DeviceIdentifier(deviceID),
 		DeviceType: deviceType,
 		LastSeen:   lastSeen,
 		Status:     models.ComponentStatusUnknown, // Default status
@@ -80,7 +80,7 @@ func (m *QueryResultMapper) ToAggregatedTelemetry(result map[string]interface{},
 	}
 
 	return models.AggregatedTelemetry{
-		DeviceID:        models.DeviceID(deviceID),
+		DeviceID:        models.DeviceIdentifier(deviceID),
 		MeasurementType: measurementType,
 		Value:           aggregatedValue,
 		AggregationType: aggType,

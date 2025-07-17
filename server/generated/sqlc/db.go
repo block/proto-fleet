@@ -99,11 +99,11 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceWithCredentialsAndIPByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceWithCredentialsAndIPByDeviceIdentifier: %w", err)
 	}
+	if q.getDeviceWithCredentialsAndIPByIDStmt, err = db.PrepareContext(ctx, getDeviceWithCredentialsAndIPByID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceWithCredentialsAndIPByID: %w", err)
+	}
 	if q.getMessagesToProcessStmt, err = db.PrepareContext(ctx, getMessagesToProcess); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMessagesToProcess: %w", err)
-	}
-	if q.getMinerApiNetworkInfoByDeviceIDStmt, err = db.PrepareContext(ctx, getMinerApiNetworkInfoByDeviceID); err != nil {
-		return nil, fmt.Errorf("error preparing query GetMinerApiNetworkInfoByDeviceID: %w", err)
 	}
 	if q.getMinerCredentialsByDeviceIDStmt, err = db.PrepareContext(ctx, getMinerCredentialsByDeviceID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMinerCredentialsByDeviceID: %w", err)
@@ -382,14 +382,14 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getDeviceWithCredentialsAndIPByDeviceIdentifierStmt: %w", cerr)
 		}
 	}
+	if q.getDeviceWithCredentialsAndIPByIDStmt != nil {
+		if cerr := q.getDeviceWithCredentialsAndIPByIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceWithCredentialsAndIPByIDStmt: %w", cerr)
+		}
+	}
 	if q.getMessagesToProcessStmt != nil {
 		if cerr := q.getMessagesToProcessStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getMessagesToProcessStmt: %w", cerr)
-		}
-	}
-	if q.getMinerApiNetworkInfoByDeviceIDStmt != nil {
-		if cerr := q.getMinerApiNetworkInfoByDeviceIDStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getMinerApiNetworkInfoByDeviceIDStmt: %w", cerr)
 		}
 	}
 	if q.getMinerCredentialsByDeviceIDStmt != nil {
@@ -701,8 +701,8 @@ type Queries struct {
 	getDeviceIdentifierByIDStmt                         *sql.Stmt
 	getDevicePairingStatusByDeviceDatabaseIDStmt        *sql.Stmt
 	getDeviceWithCredentialsAndIPByDeviceIdentifierStmt *sql.Stmt
+	getDeviceWithCredentialsAndIPByIDStmt               *sql.Stmt
 	getMessagesToProcessStmt                            *sql.Stmt
-	getMinerApiNetworkInfoByDeviceIDStmt                *sql.Stmt
 	getMinerCredentialsByDeviceIDStmt                   *sql.Stmt
 	getOrganizationByIDStmt                             *sql.Stmt
 	getOrganizationByNameStmt                           *sql.Stmt
@@ -783,8 +783,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceIdentifierByIDStmt:                         q.getDeviceIdentifierByIDStmt,
 		getDevicePairingStatusByDeviceDatabaseIDStmt:        q.getDevicePairingStatusByDeviceDatabaseIDStmt,
 		getDeviceWithCredentialsAndIPByDeviceIdentifierStmt: q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt,
+		getDeviceWithCredentialsAndIPByIDStmt:               q.getDeviceWithCredentialsAndIPByIDStmt,
 		getMessagesToProcessStmt:                            q.getMessagesToProcessStmt,
-		getMinerApiNetworkInfoByDeviceIDStmt:                q.getMinerApiNetworkInfoByDeviceIDStmt,
 		getMinerCredentialsByDeviceIDStmt:                   q.getMinerCredentialsByDeviceIDStmt,
 		getOrganizationByIDStmt:                             q.getOrganizationByIDStmt,
 		getOrganizationByNameStmt:                           q.getOrganizationByNameStmt,

@@ -233,7 +233,7 @@ func (p *ProtoMiner) GetPairingInfo(ctx context.Context, conn *sql.DB) (*miner.P
 	}
 
 	return &miner.PairingInfo{
-		DeviceID:     miner.DeviceID(deviceIdentifier),
+		DeviceID:     miner.DeviceIdentifier(deviceIdentifier),
 		SerialNumber: resp.Msg.CbSn,
 		MacAddress:   resp.Msg.Mac,
 		// TODO(DASH-331) Fetch model and manufacturer from miner

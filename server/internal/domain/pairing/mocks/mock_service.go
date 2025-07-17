@@ -36,7 +36,7 @@ func (m *MockListener) EXPECT() *MockListenerMockRecorder {
 }
 
 // AddDevices mocks base method.
-func (m *MockListener) AddDevices(ctx context.Context, deviceID ...models.DeviceID) error {
+func (m *MockListener) AddDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx}
 	for _, a := range deviceID {

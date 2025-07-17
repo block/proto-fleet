@@ -6,23 +6,25 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"strconv"
 	"sync"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
+
+//go:generate mockgen -source=execution_service.go -destination=mocks/mock_miner_getter.go -package=mocks MinerGetter
+type MinerGetter interface {
+	GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error)
+}
 
 type ExecutionService struct {
 	config *Config
@@ -31,6 +33,7 @@ type ExecutionService struct {
 	messageQueue   queue.MessageQueue
 	encryptService *encrypt.Service
 	tokenService   *tokenDomain.Service
+	minerService   MinerGetter
 
 	workerSemaphore chan struct{}
 
@@ -38,13 +41,14 @@ type ExecutionService struct {
 	queueProcessorRunning bool
 }
 
-func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service) *ExecutionService {
+func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service, minerService MinerGetter) *ExecutionService {
 	return &ExecutionService{
 		config:                config,
 		conn:                  conn,
 		messageQueue:          messageQueue,
 		encryptService:        encryptService,
 		tokenService:          tokenService,
+		minerService:          minerService,
 		workerSemaphore:       make(chan struct{}, config.MaxWorkers),
 		queueProcessorRunning: false,
 	}
@@ -172,7 +176,7 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 }
 
 func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandType commandtype.Type, message queue.Message) error {
-	minerInfo, err := es.GetMinerConnectionInfo(ctx, message.DeviceID)
+	minerInfo, err := es.minerService.GetMiner(ctx, message.DeviceID)
 	if err != nil {
 		markFailedErr := es.messageQueue.MarkFailed(ctx, message.ID, err.Error())
 		if markFailedErr != nil {
@@ -213,39 +217,4 @@ func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandTyp
 		return fleeterror.NewInternalErrorf("error setting message as success on queue: %v", err)
 	}
 	return nil
-}
-
-// GetMinerConnectionInfo retrieves connection details for a single miner
-func (es *ExecutionService) GetMinerConnectionInfo(ctx context.Context, deviceID int64) (interfaces.Miner, error) {
-	return db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (interfaces.Miner, error) {
-		minerInfo, err := q.GetMinerApiNetworkInfoByDeviceID(ctx, deviceID)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to get miner info for miner %d: %v", deviceID, err)
-		}
-
-		encryptedOrganizationPrivateKey, err := q.GetOrganizationPrivateKey(ctx, minerInfo.OrgID)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to get organization private key for org id %d: %v", minerInfo.OrgID, err)
-		}
-		decryptedOrganizationPrivateKey, err := es.encryptService.Decrypt(encryptedOrganizationPrivateKey)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("error decrypting organization private key: %v", err)
-		}
-		authToken, _, err := es.tokenService.GenerateMinerAuthJWT(minerInfo.DeviceIdentifier, decryptedOrganizationPrivateKey)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to generate miner auth token: %v", err)
-		}
-
-		port, err := strconv.ParseUint(minerInfo.Port, 10, 16)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("invalid port for miner %d: %v", deviceID, err)
-		}
-
-		return proto.NewProtoMiner(
-			deviceID,
-			minerInfo.IpAddress,
-			uint16(port),
-			*secrets.NewText(authToken),
-		)
-	})
 }

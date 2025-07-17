@@ -356,41 +356,6 @@ func (q *Queries) GetDevicePairingStatusByDeviceDatabaseID(ctx context.Context, 
 	return pairing_status, err
 }
 
-const getMinerApiNetworkInfoByDeviceID = `-- name: GetMinerApiNetworkInfoByDeviceID :one
-SELECT
-    d.device_identifier,
-    d.org_id,
-    dia.ip_address,
-    dia.port
-FROM device d
-JOIN device_pairing dp ON d.id = dp.device_id
-JOIN device_ip_assignment dia ON d.id = dia.device_id
-WHERE d.id = ?
-    AND d.deleted_at IS NULL
-    AND dp.pairing_status = 'PAIRED'
-    AND dia.is_current = TRUE
-LIMIT 1
-`
-
-type GetMinerApiNetworkInfoByDeviceIDRow struct {
-	DeviceIdentifier string
-	OrgID            int64
-	IpAddress        string
-	Port             string
-}
-
-func (q *Queries) GetMinerApiNetworkInfoByDeviceID(ctx context.Context, id int64) (GetMinerApiNetworkInfoByDeviceIDRow, error) {
-	row := q.queryRow(ctx, q.getMinerApiNetworkInfoByDeviceIDStmt, getMinerApiNetworkInfoByDeviceID, id)
-	var i GetMinerApiNetworkInfoByDeviceIDRow
-	err := row.Scan(
-		&i.DeviceIdentifier,
-		&i.OrgID,
-		&i.IpAddress,
-		&i.Port,
-	)
-	return i, err
-}
-
 const getTotalPairedDevices = `-- name: GetTotalPairedDevices :one
 SELECT COUNT(*)
 FROM device d

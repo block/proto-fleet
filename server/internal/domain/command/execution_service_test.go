@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	minerMocks "github.com/btc-mining/proto-fleet/server/internal/domain/command/mocks"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue/mocks"
 	"github.com/golang/mock/gomock"
@@ -25,11 +26,12 @@ func TestExecutionService_Start(t *testing.T) {
 			started = true
 			return nil, nil
 		}).AnyTimes()
+		mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
 
 		svc := NewExecutionService(t.Context(), &Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 10 * time.Millisecond,
-		}, nil, mockQueue, nil, nil)
+		}, nil, mockQueue, nil, nil, mockMinerGetter)
 
 		// Act
 		err := svc.Start(t.Context())
@@ -56,11 +58,11 @@ func TestExecutionService_Start(t *testing.T) {
 			started = true
 			return nil, nil
 		}).AnyTimes()
-
+		mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
 		svc := NewExecutionService(t.Context(), &Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 10 * time.Millisecond,
-		}, nil, mockQueue, nil, nil)
+		}, nil, mockQueue, nil, nil, mockMinerGetter)
 
 		// Start the service first
 		err := svc.Start(t.Context())
@@ -128,11 +130,12 @@ func TestQueueProcessorRetries(t *testing.T) {
 			}).
 			AnyTimes()
 
+		mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
 		svc := NewExecutionService(t.Context(), &Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: time.Millisecond,
 			DequeueRetries:        3,
-		}, nil, mockQueue, nil, nil)
+		}, nil, mockQueue, nil, nil, mockMinerGetter)
 
 		// Act
 		err := svc.Start(t.Context())
@@ -161,11 +164,12 @@ func TestQueueProcessorRetries(t *testing.T) {
 			Return(nil, testError).
 			Times(3)
 
+		mockMinerGetter := minerMocks.NewMockMinerGetter(ctrl)
 		svc := NewExecutionService(t.Context(), &Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: time.Millisecond,
 			DequeueRetries:        2, // Only 2 retries allowed
-		}, nil, mockQueue, nil, nil)
+		}, nil, mockQueue, nil, nil, mockMinerGetter)
 
 		// Act
 		err := svc.Start(t.Context())

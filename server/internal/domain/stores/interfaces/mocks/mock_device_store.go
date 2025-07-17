@@ -41,10 +41,10 @@ func (m *MockDeviceStore) EXPECT() *MockDeviceStoreMockRecorder {
 }
 
 // GetAllPairedDeviceIdentifiers mocks base method.
-func (m *MockDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models.DeviceID, error) {
+func (m *MockDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models.DeviceIdentifier, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAllPairedDeviceIdentifiers", ctx)
-	ret0, _ := ret[0].([]models.DeviceID)
+	ret0, _ := ret[0].([]models.DeviceIdentifier)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

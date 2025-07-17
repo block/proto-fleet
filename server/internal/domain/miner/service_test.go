@@ -44,12 +44,12 @@ func TestMinerService_GetMinerFromDeviceID_WithValidDevice_ShouldReturnMiner(t *
 
 	db, encryptService := setupTestDB(t)
 
-	deviceID := models.DeviceID("test-device-123")
+	deviceID := models.DeviceIdentifier("test-device-123")
 	createTestDeviceWithCredentials(t, db, string(deviceID))
 
 	service := NewMinerService(db, encryptService)
 
-	miner, err := service.GetMinerFromDeviceID(t.Context(), deviceID)
+	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
 
 	require.NoError(t, err)
 	assert.NotNil(t, miner)
@@ -65,7 +65,7 @@ func TestMinerService_GetMinerFromDeviceID_WithNonexistentDevice_ShouldReturnErr
 
 	service := NewMinerService(db, encryptService)
 
-	miner, err := service.GetMinerFromDeviceID(t.Context(), models.DeviceID("nonexistent"))
+	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier("nonexistent"))
 
 	require.Error(t, err)
 	assert.Nil(t, miner)
@@ -77,7 +77,7 @@ func TestMinerService_GetMinerFromDeviceID_WithEmptyDeviceID_ShouldReturnError(t
 
 	service := NewMinerService(db, encryptService)
 
-	miner, err := service.GetMinerFromDeviceID(t.Context(), models.DeviceID(""))
+	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier(""))
 
 	require.Error(t, err)
 	assert.Nil(t, miner)
@@ -90,7 +90,7 @@ func TestMinerService_GetMinerFromDeviceID_WithDatabaseError_ShouldReturnError(t
 
 	service := NewMinerService(db, encryptService)
 
-	miner, err := service.GetMinerFromDeviceID(t.Context(), models.DeviceID("device-123"))
+	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier("device-123"))
 
 	require.Error(t, err)
 	assert.Nil(t, miner)
@@ -103,12 +103,12 @@ func TestMinerService_GetMinerFromDeviceID_WithMissingCredentials_ShouldReturnEr
 
 	db, encryptService := setupTestDB(t)
 
-	deviceID := models.DeviceID("test-device-no-creds")
+	deviceID := models.DeviceIdentifier("test-device-no-creds")
 	createTestDevice(t, db, string(deviceID))
 
 	service := NewMinerService(db, encryptService)
 
-	miner, err := service.GetMinerFromDeviceID(t.Context(), deviceID)
+	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
 
 	require.Error(t, err)
 	assert.Nil(t, miner)
@@ -124,9 +124,9 @@ func TestMinerService_ConcurrentAccess_ShouldBeThreadSafe(t *testing.T) {
 	db, encryptService := setupTestDB(t)
 
 	const numDevices = 10
-	deviceIDs := make([]models.DeviceID, numDevices)
+	deviceIDs := make([]models.DeviceIdentifier, numDevices)
 	for i := range numDevices {
-		deviceID := models.DeviceID(fmt.Sprintf("device-%d", i))
+		deviceID := models.DeviceIdentifier(fmt.Sprintf("device-%d", i))
 		deviceIDs[i] = deviceID
 		createTestDeviceWithCredentials(t, db, string(deviceID))
 	}
@@ -143,7 +143,7 @@ func TestMinerService_ConcurrentAccess_ShouldBeThreadSafe(t *testing.T) {
 			defer wg.Done()
 
 			deviceID := deviceIDs[goroutineID%numDevices]
-			_, err := service.GetMinerFromDeviceID(t.Context(), deviceID)
+			_, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
 			if err != nil {
 				errors <- fmt.Errorf("goroutine %d failed: %w", goroutineID, err)
 			}
@@ -179,7 +179,7 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf("type_%s", test.deviceType), func(t *testing.T) {
-			deviceID := models.DeviceID(fmt.Sprintf("test-%s-device", test.deviceType))
+			deviceID := models.DeviceIdentifier(fmt.Sprintf("test-%s-device", test.deviceType))
 
 			queries := sqlc.New(db)
 			result, err := queries.UpsertDevice(t.Context(), sqlc.UpsertDeviceParams{
@@ -222,13 +222,13 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 			createTestMinerCredentials(t, db, dbDeviceID)
 
 			if test.expectedType == models.TypeAntminer || test.expectedType == models.TypeProto {
-				miner, err := service.GetMinerFromDeviceID(t.Context(), deviceID)
+				miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
 
 				require.NoError(t, err)
 				assert.NotNil(t, miner)
 				assert.Equal(t, test.expectedType, miner.GetType())
 			} else {
-				miner, err := service.GetMinerFromDeviceID(t.Context(), deviceID)
+				miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
 
 				require.Error(t, err)
 				assert.Nil(t, miner)
@@ -245,13 +245,13 @@ func TestMinerService_GetMinerFromDeviceID_WithProtoMinerToken_ShouldReturnProto
 
 	db, encryptService := setupTestDB(t)
 
-	deviceID := models.DeviceID("test-proto-token-device")
+	deviceID := models.DeviceIdentifier("test-proto-token-device")
 	pairingToken := "test-pairing-token-123"
 	createTestProtoMinerWithToken(t, db, string(deviceID), pairingToken)
 
 	service := NewMinerService(db, encryptService)
 
-	miner, err := service.GetMinerFromDeviceID(t.Context(), deviceID)
+	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
 
 	require.NoError(t, err)
 	assert.NotNil(t, miner)
@@ -302,7 +302,7 @@ func TestMinerService_GetMinerFromDeviceID_WithUnpairedDevice_ShouldReturnError(
 
 	service := NewMinerService(db, encryptService)
 
-	miner, err := service.GetMinerFromDeviceID(t.Context(), models.DeviceID("test-unpaired-device"))
+	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier("test-unpaired-device"))
 
 	require.Error(t, err)
 	assert.Nil(t, miner)
@@ -359,7 +359,7 @@ func TestMinerService_GetMinerFromDeviceID_WithDeviceNeitherTokenNorCredentials_
 
 	service := NewMinerService(db, encryptService)
 
-	miner, err := service.GetMinerFromDeviceID(t.Context(), models.DeviceID("test-no-auth-device"))
+	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier("test-no-auth-device"))
 
 	require.Error(t, err)
 	assert.Nil(t, miner)

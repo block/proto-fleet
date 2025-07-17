@@ -264,7 +264,7 @@ func TestInfluxTelemetryStore_GetLatestTelemetry(t *testing.T) {
 	storeTestDataWithErrorHandling(ctx, t, store, testData, "telemetry data")
 
 	query := models.LatestTelemetryQuery{
-		DeviceIDs: []models.DeviceID{"device1", "device2"},
+		DeviceIDs: []models.DeviceIdentifier{"device1", "device2"},
 		MeasurementTypes: []models.MeasurementType{
 			models.MeasurementTypeTemperature,
 			models.MeasurementTypeHashrate,
@@ -319,7 +319,7 @@ func TestInfluxTelemetryStore_GetTimeSeriesTelemetry(t *testing.T) {
 	limit := 100
 
 	query := models.TimeSeriesTelemetryQuery{
-		DeviceIDs: []models.DeviceID{"device1"},
+		DeviceIDs: []models.DeviceIdentifier{"device1"},
 		MeasurementTypes: []models.MeasurementType{
 			models.MeasurementTypeTemperature,
 			models.MeasurementTypeHashrate,
@@ -361,7 +361,7 @@ func TestInfluxTelemetryStore_GetTelemetryMetadata(t *testing.T) {
 
 	// Test GetTelemetryMetadata
 	query := models.MetadataQuery{
-		DeviceIDs: []models.DeviceID{"device1", "device2"},
+		DeviceIDs: []models.DeviceIdentifier{"device1", "device2"},
 	}
 
 	results, err := store.GetTelemetryMetadata(ctx, query)
@@ -400,7 +400,7 @@ func TestInfluxTelemetryStore_StreamTelemetryUpdates(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // Give InfluxDB time to create the table
 
 	query := models.StreamQuery{
-		DeviceIDs: []models.DeviceID{"stream-device1"},
+		DeviceIDs: []models.DeviceIdentifier{"stream-device1"},
 		MeasurementTypes: []models.MeasurementType{
 			models.MeasurementTypeTemperature,
 		},
@@ -538,7 +538,7 @@ func TestInfluxTelemetryStore_GetAggregatedTelemetry(t *testing.T) {
 			endTime := baseTime
 
 			query := models.AggregationQuery{
-				DeviceIDs: []models.DeviceID{"agg-device1", "agg-device2"},
+				DeviceIDs: []models.DeviceIdentifier{"agg-device1", "agg-device2"},
 				MeasurementTypes: []models.MeasurementType{
 					models.MeasurementTypeTemperature,
 				},

@@ -26,12 +26,12 @@ func TestHandler_NewHandler(t *testing.T) {
 
 	// Create mocks for all required dependencies
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerManager := mock.NewMockMinerManager(ctrl)
+	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 	config := telemetry.Config{}
-	service := telemetry.NewTelemetryService(config, mockDataStore, mockMinerManager, mockScheduler, mockDeviceStore)
+	service := telemetry.NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore)
 
 	handler := NewHandler(service)
 
@@ -100,11 +100,11 @@ func TestHandler_GetSnapshot(t *testing.T) {
 			tt.setupMocks(mockStore)
 
 			config := telemetry.Config{}
-			mockMinerManager := mock.NewMockMinerManager(ctrl)
+			mockMinerGetter := mock.NewMockMinerGetter(ctrl)
 			mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
-			service := telemetry.NewTelemetryService(config, mockStore, mockMinerManager, mockScheduler, mockDeviceStore)
+			service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore)
 			handler := NewHandler(service)
 
 			resp, err := handler.GetSnapshot(t.Context(), connect.NewRequest(tt.request))
@@ -192,11 +192,11 @@ func TestHandler_GetTimeSeries(t *testing.T) {
 			tt.setupMocks(mockStore)
 
 			config := telemetry.Config{}
-			mockMinerManager := mock.NewMockMinerManager(ctrl)
+			mockMinerGetter := mock.NewMockMinerGetter(ctrl)
 			mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
-			service := telemetry.NewTelemetryService(config, mockStore, mockMinerManager, mockScheduler, mockDeviceStore)
+			service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore)
 			handler := NewHandler(service)
 
 			resp, err := handler.GetTimeSeries(t.Context(), connect.NewRequest(tt.request))
@@ -233,7 +233,7 @@ func TestHandler_GetMetadata(t *testing.T) {
 				mockStore.EXPECT().GetTelemetryMetadata(gomock.Any(), gomock.Any()).
 					Return([]models.DeviceMetadata{
 						{
-							DeviceID:     models.DeviceID("device1"),
+							DeviceID:     models.DeviceIdentifier("device1"),
 							DeviceType:   "antminer",
 							LastSeen:     mockTime,
 							Status:       models.ComponentStatusHealthy,
@@ -274,11 +274,11 @@ func TestHandler_GetMetadata(t *testing.T) {
 			tt.setupMocks(mockStore)
 
 			config := telemetry.Config{}
-			mockMinerManager := mock.NewMockMinerManager(ctrl)
+			mockMinerGetter := mock.NewMockMinerGetter(ctrl)
 			mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
-			service := telemetry.NewTelemetryService(config, mockStore, mockMinerManager, mockScheduler, mockDeviceStore)
+			service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore)
 			handler := NewHandler(service)
 
 			resp, err := handler.GetMetadata(t.Context(), connect.NewRequest(tt.request))
@@ -323,7 +323,7 @@ func TestHandler_GetAggregated(t *testing.T) {
 				mockStore.EXPECT().GetAggregatedTelemetry(gomock.Any(), gomock.Any()).
 					Return([]models.AggregatedTelemetry{
 						{
-							DeviceID:        models.DeviceID("device1"),
+							DeviceID:        models.DeviceIdentifier("device1"),
 							MeasurementType: models.MeasurementTypeTemperature,
 							Value:           67.5,
 							AggregationType: models.AggregationTypeAverage,
@@ -375,11 +375,11 @@ func TestHandler_GetAggregated(t *testing.T) {
 			tt.setupMocks(mockStore)
 
 			config := telemetry.Config{}
-			mockMinerManager := mock.NewMockMinerManager(ctrl)
+			mockMinerGetter := mock.NewMockMinerGetter(ctrl)
 			mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
-			service := telemetry.NewTelemetryService(config, mockStore, mockMinerManager, mockScheduler, mockDeviceStore)
+			service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore)
 			handler := NewHandler(service)
 
 			resp, err := handler.GetAggregatedSnapshot(t.Context(), connect.NewRequest(tt.request))

@@ -152,21 +152,6 @@ WHERE device_identifier = ?
   AND deleted_at IS NULL
     LIMIT 1;
 
--- name: GetMinerApiNetworkInfoByDeviceID :one
-SELECT
-    d.device_identifier,
-    d.org_id,
-    dia.ip_address,
-    dia.port
-FROM device d
-JOIN device_pairing dp ON d.id = dp.device_id
-JOIN device_ip_assignment dia ON d.id = dia.device_id
-WHERE d.id = ?
-    AND d.deleted_at IS NULL
-    AND dp.pairing_status = 'PAIRED'
-    AND dia.is_current = TRUE
-LIMIT 1;
-
 -- name: ListPairedMinersWithStatus :many
 SELECT
     d.device_identifier,

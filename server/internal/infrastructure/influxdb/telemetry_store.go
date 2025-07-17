@@ -309,7 +309,7 @@ func (s *InfluxTelemetryStore) GetTelemetryMetadata(ctx context.Context, query m
 		models.MeasurementTypePower,
 	}
 
-	deviceMetadataMap := make(map[models.DeviceID]*models.DeviceMetadata)
+	deviceMetadataMap := make(map[models.DeviceIdentifier]*models.DeviceMetadata)
 
 	for _, measurementType := range measurementTypes {
 		measurementName := measurementType.String()
@@ -340,9 +340,9 @@ func (s *InfluxTelemetryStore) GetTelemetryMetadata(ctx context.Context, query m
 				continue
 			}
 
-			deviceID := models.DeviceID("")
+			deviceID := models.DeviceIdentifier("")
 			if tagValue, exists := point.GetTag("device_id"); exists {
-				deviceID = models.DeviceID(tagValue)
+				deviceID = models.DeviceIdentifier(tagValue)
 			}
 
 			if deviceID == "" {
@@ -478,7 +478,7 @@ func (s *InfluxTelemetryStore) StreamTelemetryUpdates(ctx context.Context, query
 
 						updateChan <- models.TelemetryUpdate{
 							Type:      models.UpdateTypeTelemetry,
-							DeviceID:  models.DeviceID(deviceID),
+							DeviceID:  models.DeviceIdentifier(deviceID),
 							Timestamp: telemetryData.Timestamp,
 							Data:      &telemetryData,
 						}
@@ -550,9 +550,9 @@ func (s *InfluxTelemetryStore) GetAggregatedTelemetry(ctx context.Context, query
 				continue
 			}
 
-			deviceID := models.DeviceID("")
+			deviceID := models.DeviceIdentifier("")
 			if tagValue, exists := point.GetTag("device_id"); exists {
-				deviceID = models.DeviceID(tagValue)
+				deviceID = models.DeviceIdentifier(tagValue)
 			}
 
 			aggregatedValue := float64(0)
@@ -631,7 +631,7 @@ func (s *InfluxTelemetryStore) Ping(ctx context.Context) error {
 	return nil
 }
 
-func deviceIDsToStrings(deviceIDs []models.DeviceID) []string {
+func deviceIDsToStrings(deviceIDs []models.DeviceIdentifier) []string {
 	result := make([]string, len(deviceIDs))
 	for i, id := range deviceIDs {
 		result[i] = string(id)
@@ -639,7 +639,7 @@ func deviceIDsToStrings(deviceIDs []models.DeviceID) []string {
 	return result
 }
 
-func (s *InfluxTelemetryStore) buildDeviceIDsString(deviceIDs []models.DeviceID) string {
+func (s *InfluxTelemetryStore) buildDeviceIDsString(deviceIDs []models.DeviceIdentifier) string {
 	if len(deviceIDs) == 0 {
 		return "''"
 	}

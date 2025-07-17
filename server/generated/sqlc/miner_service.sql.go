@@ -60,3 +60,54 @@ func (q *Queries) GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx context.Co
 	)
 	return i, err
 }
+
+const getDeviceWithCredentialsAndIPByID = `-- name: GetDeviceWithCredentialsAndIPByID :one
+SELECT 
+    d.id,
+    d.device_identifier,
+    d.type,
+    d.org_id,
+    mc.username_enc,
+    mc.password_enc,
+    dia.ip_address,
+    dia.port,
+    dp.pairing_token
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN miner_credentials mc ON d.id = mc.device_id
+JOIN device_ip_assignment dia ON d.id = dia.device_id
+WHERE d.id = ?
+    AND d.deleted_at IS NULL
+    AND dp.pairing_status = 'PAIRED'
+    AND dia.is_current = TRUE
+LIMIT 1
+`
+
+type GetDeviceWithCredentialsAndIPByIDRow struct {
+	ID               int64
+	DeviceIdentifier string
+	Type             string
+	OrgID            int64
+	UsernameEnc      sql.NullString
+	PasswordEnc      sql.NullString
+	IpAddress        string
+	Port             string
+	PairingToken     sql.NullString
+}
+
+func (q *Queries) GetDeviceWithCredentialsAndIPByID(ctx context.Context, id int64) (GetDeviceWithCredentialsAndIPByIDRow, error) {
+	row := q.queryRow(ctx, q.getDeviceWithCredentialsAndIPByIDStmt, getDeviceWithCredentialsAndIPByID, id)
+	var i GetDeviceWithCredentialsAndIPByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.DeviceIdentifier,
+		&i.Type,
+		&i.OrgID,
+		&i.UsernameEnc,
+		&i.PasswordEnc,
+		&i.IpAddress,
+		&i.Port,
+		&i.PairingToken,
+	)
+	return i, err
+}

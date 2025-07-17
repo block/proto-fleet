@@ -4,10 +4,10 @@ import (
 	"fmt"
 )
 
-// DeviceID represents a unique identifier for a mining device
-type DeviceID string
+// DeviceIdentifier represents a unique identifier for a mining device
+type DeviceIdentifier string
 
-func (d DeviceID) String() string {
+func (d DeviceIdentifier) String() string {
 	return string(d)
 }
 
@@ -61,7 +61,7 @@ func TypeFromString(s string) (Type, error) {
 }
 
 type PairingInfo struct {
-	DeviceID     DeviceID
+	DeviceID     DeviceIdentifier
 	SerialNumber string
 	MacAddress   string
 	Model        string

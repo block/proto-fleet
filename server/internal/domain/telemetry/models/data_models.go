@@ -4,7 +4,7 @@ import "time"
 
 // DeviceMetadata represents metadata about a device
 type DeviceMetadata struct {
-	DeviceID     DeviceID          `json:"device_id"`
+	DeviceID     DeviceIdentifier  `json:"device_id"`
 	DeviceType   string            `json:"device_type,omitempty"`
 	LastSeen     time.Time         `json:"last_seen"`
 	Status       ComponentStatus   `json:"status"`
@@ -15,7 +15,7 @@ type DeviceMetadata struct {
 
 // AggregatedTelemetry represents aggregated telemetry data
 type AggregatedTelemetry struct {
-	DeviceID        DeviceID          `json:"device_id"`
+	DeviceID        DeviceIdentifier  `json:"device_id"`
 	MeasurementType MeasurementType   `json:"measurement_type"`
 	Value           float64           `json:"value"`
 	AggregationType AggregationType   `json:"aggregation_type"`
@@ -27,7 +27,7 @@ type AggregatedTelemetry struct {
 // TelemetryUpdate represents a streaming update from the telemetry system
 type TelemetryUpdate struct {
 	Type      UpdateType       `json:"type"`
-	DeviceID  DeviceID         `json:"device_id,omitempty"`
+	DeviceID  DeviceIdentifier `json:"device_id,omitempty"`
 	Timestamp time.Time        `json:"timestamp"`
 	Data      *Telemetry       `json:"data,omitempty"`
 	Error     *string          `json:"error,omitempty"`

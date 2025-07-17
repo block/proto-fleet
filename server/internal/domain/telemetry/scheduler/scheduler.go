@@ -48,7 +48,7 @@ func NewScheduler(config Config) *scheduler {
 }
 
 // AddNewDevices adds new devices to the scheduler.
-func (s *scheduler) AddNewDevices(ctx context.Context, deviceID ...models.DeviceID) error {
+func (s *scheduler) AddNewDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error {
 
 	for _, id := range deviceID {
 		if _, exists := s.managedDevices.LoadOrStore(id, true); exists {
@@ -130,7 +130,7 @@ func (s *scheduler) AddFailedDevices(ctx context.Context, devices ...models.Devi
 }
 
 // Removes a device from scheduler management
-func (s *scheduler) RemoveDevices(ctx context.Context, deviceID ...models.DeviceID) error {
+func (s *scheduler) RemoveDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

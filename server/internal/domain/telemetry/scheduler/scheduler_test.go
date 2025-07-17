@@ -35,7 +35,7 @@ func TestScheduler_AddNewDevices(t *testing.T) {
 		}
 		s := NewScheduler(config)
 		ctx := t.Context()
-		deviceID := models.DeviceID("123")
+		deviceID := models.DeviceIdentifier("123")
 
 		err := s.AddNewDevices(ctx, deviceID)
 
@@ -57,7 +57,7 @@ func TestScheduler_AddNewDevices(t *testing.T) {
 		}
 		s := NewScheduler(config)
 		ctx := t.Context()
-		deviceIDs := []models.DeviceID{"123", "456", "789"}
+		deviceIDs := []models.DeviceIdentifier{"123", "456", "789"}
 
 		err := s.AddNewDevices(ctx, deviceIDs...)
 
@@ -83,7 +83,7 @@ func TestScheduler_AddNewDevices(t *testing.T) {
 		}
 		s := NewScheduler(config)
 		ctx := t.Context()
-		deviceID := models.DeviceID("123")
+		deviceID := models.DeviceIdentifier("123")
 
 		// Add device first time
 		err := s.AddNewDevices(ctx, deviceID)
@@ -104,7 +104,7 @@ func TestScheduler_AddDevices(t *testing.T) {
 		}
 		s := NewScheduler(config)
 		ctx := t.Context()
-		deviceID := models.DeviceID("123")
+		deviceID := models.DeviceIdentifier("123")
 
 		// First add as new device
 		err := s.AddNewDevices(ctx, deviceID)
@@ -143,7 +143,7 @@ func TestScheduler_AddDevices(t *testing.T) {
 		s := NewScheduler(config)
 		ctx := t.Context()
 		device := models.Device{
-			ID:            models.DeviceID("999"),
+			ID:            models.DeviceIdentifier("999"),
 			LastUpdatedAt: time.Now(),
 		}
 
@@ -161,7 +161,7 @@ func TestScheduler_AddDevices(t *testing.T) {
 		}
 		s := NewScheduler(config)
 		ctx := t.Context()
-		deviceID := models.DeviceID("123")
+		deviceID := models.DeviceIdentifier("123")
 
 		// Add as new device (will be in queue)
 		err := s.AddNewDevices(ctx, deviceID)
@@ -186,7 +186,7 @@ func TestScheduler_RemoveDevices(t *testing.T) {
 		}
 		s := NewScheduler(config)
 		ctx := t.Context()
-		deviceID := models.DeviceID("123")
+		deviceID := models.DeviceIdentifier("123")
 
 		// Add device first
 		err := s.AddNewDevices(ctx, deviceID)
@@ -210,7 +210,7 @@ func TestScheduler_RemoveDevices(t *testing.T) {
 		}
 		s := NewScheduler(config)
 		ctx := t.Context()
-		deviceIDs := []models.DeviceID{"123", "456", "789", "101112", "131415"}
+		deviceIDs := []models.DeviceIdentifier{"123", "456", "789", "101112", "131415"}
 
 		// Add devices first
 		err := s.AddNewDevices(ctx, deviceIDs...)
@@ -230,7 +230,7 @@ func TestScheduler_RemoveDevices(t *testing.T) {
 		}
 		s := NewScheduler(config)
 		ctx := t.Context()
-		deviceID := models.DeviceID("999")
+		deviceID := models.DeviceIdentifier("999")
 
 		err := s.RemoveDevices(ctx, deviceID)
 
@@ -246,8 +246,8 @@ func TestScheduler_RemoveDevices(t *testing.T) {
 		}
 		s := NewScheduler(config)
 		ctx := t.Context()
-		managedID := models.DeviceID("123")
-		unmanagedID := models.DeviceID("999")
+		managedID := models.DeviceIdentifier("123")
+		unmanagedID := models.DeviceIdentifier("999")
 
 		// Add only one device
 		err := s.AddNewDevices(ctx, managedID)
@@ -275,7 +275,7 @@ func TestScheduler_FetchDevices(t *testing.T) {
 		now := time.Now()
 
 		// Add devices with different timestamps by adding them as new devices first
-		deviceIDs := []models.DeviceID{"1", "2", "3", "4"}
+		deviceIDs := []models.DeviceIdentifier{"1", "2", "3", "4"}
 		for _, id := range deviceIDs {
 			err := s.AddNewDevices(ctx, id)
 			require.NoError(t, err)
@@ -310,24 +310,24 @@ func TestScheduler_FetchDevices(t *testing.T) {
 		assert.Len(t, fetchedDevices, 2)
 
 		// Verify correct devices were fetched (should be the old ones)
-		fetchedIDs := make([]models.DeviceID, len(fetchedDevices))
+		fetchedIDs := make([]models.DeviceIdentifier, len(fetchedDevices))
 		for i, device := range fetchedDevices {
 			fetchedIDs[i] = device.ID
 		}
-		assert.Contains(t, fetchedIDs, models.DeviceID("1"))
-		assert.Contains(t, fetchedIDs, models.DeviceID("2"))
+		assert.Contains(t, fetchedIDs, models.DeviceIdentifier("1"))
+		assert.Contains(t, fetchedIDs, models.DeviceIdentifier("2"))
 
 		// Check that remaining devices are still in scheduler
 		remainingDevices, err := s.GetAllDevices(ctx)
 		require.NoError(t, err)
 		assert.Len(t, remainingDevices, 2)
 
-		remainingIDs := make([]models.DeviceID, len(remainingDevices))
+		remainingIDs := make([]models.DeviceIdentifier, len(remainingDevices))
 		for i, device := range remainingDevices {
 			remainingIDs[i] = device.ID
 		}
-		assert.Contains(t, remainingIDs, models.DeviceID("3"))
-		assert.Contains(t, remainingIDs, models.DeviceID("4"))
+		assert.Contains(t, remainingIDs, models.DeviceIdentifier("3"))
+		assert.Contains(t, remainingIDs, models.DeviceIdentifier("4"))
 	})
 
 	t.Run("returns empty slice when no old devices", func(t *testing.T) {
@@ -338,7 +338,7 @@ func TestScheduler_FetchDevices(t *testing.T) {
 		ctx := t.Context()
 
 		// Add only recent devices
-		deviceIDs := []models.DeviceID{"1", "2"}
+		deviceIDs := []models.DeviceIdentifier{"1", "2"}
 		for _, id := range deviceIDs {
 			err := s.AddNewDevices(ctx, id)
 			require.NoError(t, err)
@@ -377,7 +377,7 @@ func TestScheduler_FetchDevices(t *testing.T) {
 		now := time.Now()
 
 		// Add devices as new first
-		deviceIDs := []models.DeviceID{"1", "2"}
+		deviceIDs := []models.DeviceIdentifier{"1", "2"}
 		for _, id := range deviceIDs {
 			err := s.AddNewDevices(ctx, id)
 			require.NoError(t, err)
@@ -412,7 +412,7 @@ func TestScheduler_FetchDevices(t *testing.T) {
 		}
 		s := NewScheduler(config)
 		ctx := t.Context()
-		deviceID := models.DeviceID("123")
+		deviceID := models.DeviceIdentifier("123")
 
 		// Add device
 		err := s.AddNewDevices(ctx, deviceID)
@@ -439,7 +439,7 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 
 		s := NewScheduler(config)
 		ctx := t.Context()
-		deviceID := models.DeviceID("123")
+		deviceID := models.DeviceIdentifier("123")
 
 		// Add device as new first
 		err := s.AddNewDevices(ctx, deviceID)
@@ -473,13 +473,13 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 		}
 		tests := []struct {
 			name                   string
-			deviceScenario         map[models.DeviceID]scenario
+			deviceScenario         map[models.DeviceIdentifier]scenario
 			MaxConsecutiveFailures int
 		}{
 			{
 				name:                   "single device with multiple failures",
 				MaxConsecutiveFailures: 10,
-				deviceScenario: map[models.DeviceID]scenario{
+				deviceScenario: map[models.DeviceIdentifier]scenario{
 					"device1": {
 						PassFailQueue: []PassFailExpect{
 							{Pass: false, ExpectFetched: true},
@@ -492,7 +492,7 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 			{
 				name:                   "single device with max failures",
 				MaxConsecutiveFailures: 3,
-				deviceScenario: map[models.DeviceID]scenario{
+				deviceScenario: map[models.DeviceIdentifier]scenario{
 					"device1": {
 						PassFailQueue: []PassFailExpect{
 							{Pass: false, ExpectFetched: true},
@@ -507,7 +507,7 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 			{
 				name:                   "multiple devices with mixed failures",
 				MaxConsecutiveFailures: 3,
-				deviceScenario: map[models.DeviceID]scenario{
+				deviceScenario: map[models.DeviceIdentifier]scenario{
 					"device1": {
 						PassFailQueue: []PassFailExpect{
 							{Pass: false, ExpectFetched: true},
@@ -540,7 +540,7 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 			{
 				name:                   "single device fails till max limit and then succeeds should be in queue",
 				MaxConsecutiveFailures: 3,
-				deviceScenario: map[models.DeviceID]scenario{
+				deviceScenario: map[models.DeviceIdentifier]scenario{
 					"device1": {
 						PassFailQueue: []PassFailExpect{
 							{Pass: false, ExpectFetched: true},
@@ -558,7 +558,7 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 			{
 				name:                   "single device fails multiple times, then passes, should be added back then fail until removed",
 				MaxConsecutiveFailures: 3,
-				deviceScenario: map[models.DeviceID]scenario{
+				deviceScenario: map[models.DeviceIdentifier]scenario{
 					"device1": {
 						PassFailQueue: []PassFailExpect{
 							{Pass: false, ExpectFetched: true},
@@ -576,7 +576,7 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 			{
 				name:                   "failed till removed, than added back in after max failures should be added back in",
 				MaxConsecutiveFailures: 3,
-				deviceScenario: map[models.DeviceID]scenario{
+				deviceScenario: map[models.DeviceIdentifier]scenario{
 					"device1": {
 						PassFailQueue: []PassFailExpect{
 							{Pass: false, ExpectFetched: true},
@@ -664,7 +664,7 @@ func TestScheduler_ConcurrentAccess(t *testing.T) {
 		go func() {
 			defer func() { done <- true }()
 			for i := range 10 {
-				deviceID := models.DeviceID(fmt.Sprint(i))
+				deviceID := models.DeviceIdentifier(fmt.Sprint(i))
 				err := s.AddNewDevices(ctx, deviceID)
 				assert.NoError(t, err, "Failed to add device %d", i)
 			}
@@ -674,7 +674,7 @@ func TestScheduler_ConcurrentAccess(t *testing.T) {
 		go func() {
 			defer func() { done <- true }()
 			for i := range 10 {
-				deviceID := models.DeviceID(fmt.Sprint(i))
+				deviceID := models.DeviceIdentifier(fmt.Sprint(i))
 				//nolint:errcheck // Intentionally ignore errors for unmanaged devices
 				s.RemoveDevices(ctx, deviceID) // This may error, which is expected
 			}
@@ -701,7 +701,7 @@ func TestScheduler_ConcurrentAccess(t *testing.T) {
 
 		// Add some devices first
 		for i := range 5 {
-			err := s.AddNewDevices(ctx, models.DeviceID(fmt.Sprint(i)))
+			err := s.AddNewDevices(ctx, models.DeviceIdentifier(fmt.Sprint(i)))
 			require.NoError(t, err)
 		}
 
@@ -769,7 +769,7 @@ func TestScheduler_EdgeCases(t *testing.T) {
 		exactTime := time.Now()
 
 		// Add device as new first
-		deviceID := models.DeviceID("1")
+		deviceID := models.DeviceIdentifier("1")
 		err := s.AddNewDevices(ctx, deviceID)
 		require.NoError(t, err)
 
@@ -801,9 +801,9 @@ func TestScheduler_EdgeCases(t *testing.T) {
 
 		// Add many devices
 		deviceCount := 1000
-		deviceIDs := make([]models.DeviceID, deviceCount)
+		deviceIDs := make([]models.DeviceIdentifier, deviceCount)
 		for i := range deviceCount {
-			deviceIDs[i] = models.DeviceID(fmt.Sprint(i))
+			deviceIDs[i] = models.DeviceIdentifier(fmt.Sprint(i))
 		}
 
 		err := s.AddNewDevices(ctx, deviceIDs...)
@@ -824,7 +824,7 @@ func TestScheduler_IntegrationScenarios(t *testing.T) {
 		}
 		s := NewScheduler(config)
 		ctx := t.Context()
-		deviceID := models.DeviceID("123")
+		deviceID := models.DeviceIdentifier("123")
 
 		// 1. Add new device
 		err := s.AddNewDevices(ctx, deviceID)
@@ -865,7 +865,7 @@ func TestScheduler_IntegrationScenarios(t *testing.T) {
 		now := time.Now()
 
 		// Add devices as new first
-		deviceIDs := []models.DeviceID{"1", "2", "3", "4", "5"}
+		deviceIDs := []models.DeviceIdentifier{"1", "2", "3", "4", "5"}
 		for _, id := range deviceIDs {
 			err := s.AddNewDevices(ctx, id)
 			require.NoError(t, err)
@@ -895,9 +895,9 @@ func TestScheduler_IntegrationScenarios(t *testing.T) {
 
 		// Should fetch devices 1 and 2
 		assert.Len(t, fetchedDevices, 2)
-		fetchedIDs := []models.DeviceID{fetchedDevices[0].ID, fetchedDevices[1].ID}
-		assert.Contains(t, fetchedIDs, models.DeviceID("1"))
-		assert.Contains(t, fetchedIDs, models.DeviceID("2"))
+		fetchedIDs := []models.DeviceIdentifier{fetchedDevices[0].ID, fetchedDevices[1].ID}
+		assert.Contains(t, fetchedIDs, models.DeviceIdentifier("1"))
+		assert.Contains(t, fetchedIDs, models.DeviceIdentifier("2"))
 
 		// Remaining devices should be 3, 4, 5
 		remainingDevices, err := s.GetAllDevices(ctx)
