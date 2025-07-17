@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import MinersStatus from "@/protoFleet/features/kpis/components/MinersStatus";
 import { MinersPage } from "@/protoFleet/features/onboarding";
+import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
 import { useOnboardingContext } from "@/protoFleet/features/onboarding/contexts/OnboardingContext";
 
 const HomeLayout = ({ children }: { children?: ReactNode }) => {
@@ -11,6 +12,9 @@ const HomeLayout = ({ children }: { children?: ReactNode }) => {
       {devicePaired ? (
         <>
           <div className="px-14 phone:px-6 phone:pt-6 tablet:px-10 tablet:pt-10">
+            <div className="mb-10">
+              <CompleteSetup />
+            </div>
             <div className="flex items-center pb-6">
               <div className="grow text-heading-300">Home</div>
             </div>

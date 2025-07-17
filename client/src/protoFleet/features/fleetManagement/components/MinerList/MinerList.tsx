@@ -22,6 +22,7 @@ import {
   useMinerStateCounts,
   useTotalMiners,
 } from "@/protoFleet/features/fleetManagement/store/useFleetStore";
+import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
 import List from "@/shared/components/List";
 import { defaultListFilter } from "@/shared/components/List/constants";
 import {
@@ -164,6 +165,9 @@ const MinerList = ({
   );
   return (
     <div>
+      <div className="mb-10">
+        <CompleteSetup />
+      </div>
       <h2 className="text-heading-300">{title}</h2>
       <List<MinerStateSnapshot, string>
         activeCols={activeCols}

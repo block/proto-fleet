@@ -38,6 +38,7 @@ import Logo from "./Logo";
 import LogoAlt from "./LogoAlt";
 import Logs from "./Logs";
 import Menu from "./Menu";
+import MiningPools from "./MiningPools";
 import Minus from "./Minus";
 import Notification from "./Notification";
 import PartialCheckmark from "./PartialCheckmark";
@@ -46,6 +47,7 @@ import Play from "./Play";
 import Plus from "./Plus";
 import Power from "./Power";
 import Question from "./Question";
+import Racks from "./Racks";
 import Reboot from "./Reboot";
 import Rectangle from "./Rectangle";
 import Repair from "./Repair";
@@ -101,6 +103,7 @@ export {
   LogoAlt,
   Logs,
   Menu,
+  MiningPools,
   Minus,
   Notification,
   PartialCheckmark,
@@ -109,6 +112,7 @@ export {
   Plus,
   Power,
   Question,
+  Racks,
   Reboot,
   Rectangle,
   Repair,

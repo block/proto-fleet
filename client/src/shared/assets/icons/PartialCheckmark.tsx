@@ -25,7 +25,7 @@ const PartialCheckmark = ({
           <path
             d="M13.9971 10C13.9971 10.5523 13.5494 11 12.9971 11H7C6.44772 11 6 10.5523 6 10C6 9.44772 6.44772 9 7 9H12.9971C13.5494 9 13.9971 9.44772 13.9971 10Z"
             fill="url(#paint0_linear_805_58063)"
-            fill-opacity="0.02"
+            fillOpacity="0.02"
           />
         </g>
         <defs>
