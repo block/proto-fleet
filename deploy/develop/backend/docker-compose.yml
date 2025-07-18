@@ -24,6 +24,9 @@ services:
       LOG_LEVEL: "DEBUG"
       PAIRING_SECRET_KEY: "00000000000000000000000000000000000000000000"
       ENCRYPT_SERVICE_MASTER_KEY: "EV0g7BoFQnqshvzep9knZsUUmvsqSBsjDAJus7ri0B8="
+      INFLUXDB3_URL: "http://protofleet-develop-${LABEL}-backend-influxdb:8181"
+      INFLUXDB3_ORG: "fleet"
+      INFLUXDB3_BUCKET: "fleet"
     expose:
       - "80"
     labels:
@@ -39,6 +42,8 @@ services:
       driver: "json-file"
       options:
         max-size: 100m
+    volumes:
+      - "./volumes/influxdb/influx_config:/var/lib/fleet/start:ro"
 
   mysql:
     container_name: "protofleet-develop-${LABEL}-backend-mysql"
@@ -76,23 +81,83 @@ services:
 
   influxdb:
     container_name: "protofleet-develop-${LABEL}-backend-influxdb"
-    image: influxdb:1.11.8
+    image: influxdb:3.2-core
     restart: unless-stopped
+    user: root
+    entrypoint: |
+      /bin/sh -c '
+      # Start InfluxDB server in background
+      influxdb3 serve &
+      
+      # Wait for InfluxDB to be healthy
+      echo "Waiting for InfluxDB to be healthy..."
+      until curl -s http://localhost:8181/health | grep -q "OK" ; do
+        sleep 5
+      done
+      echo "InfluxDB is healthy."
+      
+      # Check if token is already set in /var/lib/influxdb3/start/.env
+      ENV_FILE=/var/lib/influxdb3/start/.env
+      
+      touch "$$ENV_FILE"
+      
+      # Generate a new token (capture both stdout and stderr)
+      influxdb3 create token --admin > /tmp/influxdb3_token.txt 2>&1
+      if [ $$? -ne 0 ]; then
+          echo "Failed to create InfluxDB token."
+          exit 1
+      fi
+
+      if grep -q "409" /tmp/influxdb3_token.txt; then
+          echo "Token already exists, reusing the existing token."
+      else
+          echo "New token created successfully."
+      
+          # Read the token from the file
+          # Extracting token from line "Token: <token_value>"
+          TOKEN=$(cat /tmp/influxdb3_token.txt | grep Token | cut -d" " -f2)
+
+          # Check if the token is empty
+          if [ -z "$$TOKEN" ]; then
+              echo "Failed to extract token from /tmp/influxdb3_token.txt."
+              exit 1
+          fi 
+      
+          # Write the token to the .env file
+          if grep -q "^INFLUXDB3_AUTH_TOKEN=" "$$ENV_FILE"; then
+              # replace existing token
+              sed -i "s/^INFLUXDB3_AUTH_TOKEN=.*/INFLUXDB3_AUTH_TOKEN=$$TOKEN/" "$$ENV_FILE"
+          else
+              # append new token
+              echo "INFLUXDB3_AUTH_TOKEN=$$TOKEN" >> "$$ENV_FILE"
+          fi
+          echo "Token written to $$ENV_FILE."
+      fi
+      
+      # Wait for the background InfluxDB process
+      wait 
+      '
     environment:
-      DOCKER_INFLUXDB_INIT_MODE: setup
-      DOCKER_INFLUXDB_INIT_USERNAME: admin
-      DOCKER_INFLUXDB_INIT_PASSWORD: "00000000000000000000000000000000000000000000"
-      DOCKER_INFLUXDB_INIT_ORG: fleet
-      DOCKER_INFLUXDB_INIT_BUCKET: fleet
+      INFLUXDB_HTTP_PORT: 8181
+      INFLUXDB_ORG: "fleet"
+      INFLUXDB3_NODE_IDENTIFIER_PREFIX: "influxdb1"
+      INFLUXDB3_DISABLE_AUTHZ: "health"
+      INFLUXDB3_OBJECT_STORE: "file"
+      INFLUXDB3_DB_DIR: "/var/lib/influxdb3"
+      INFLUXDB3_BUCKET: "fleet"
     expose:
-      - "8086"
+      - "8181"
     labels:
       - "traefik.enabled=false"
     volumes:
-      - "./volumes/influxdb/data:/var/lib/influxdb2"
-      - "./volumes/influxdb/config:/etc/influxdb2"
+      - "./volumes/influxdb/data:/var/lib/influxdb3"
+      - "./volumes/influxdb/config:/etc/influxdb3"
+      - "./volumes/influxdb/influx_config:/var/lib/influxdb3/start"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8086/ping"]
+      test: ["CMD", "curl", "-f", "http://localhost:8181/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - backend
     logging:
