@@ -68,7 +68,8 @@ func (a *Antminer) StopMining(ctx context.Context) error {
 }
 
 func (a *Antminer) SetCoolingMode(_ context.Context, _ dto.CoolingModePayload) error {
-	return fleeterror.NewInternalErrorf("Not implemented!") // TODO https://linear.app/squareup/issue/DASH-513
+	// While we can control the fan speed, we can't turn off the fans completely.
+	return fleeterror.NewInternalErrorf("Cooling mode control is not supported for Antminer devices")
 }
 
 func (a *Antminer) UpdateMiningPools(ctx context.Context, poolsPayload dto.UpdateMiningPoolsPayload) error {
