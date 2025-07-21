@@ -19,23 +19,21 @@ import (
 var _ interfaces.Miner = &Antminer{}
 
 type Antminer struct {
-	deviceID       int64
-	connectionInfo networking.ConnectionInfo
-	rpcPort        string
-	username       string
-	password       secrets.Text
-	webClient      web.WebAPIClient
-	rpcClient      rpc.RPCClient
+	deviceIdentifier models.DeviceIdentifier
+	connectionInfo   networking.ConnectionInfo
+	username         string
+	password         secrets.Text
+	webClient        web.WebAPIClient
+	rpcClient        rpc.RPCClient
 }
 
-func NewAntminer(deviceID int64, ipAddress string, port uint16, rpcPort string, username string, password secrets.Text, webClient web.WebAPIClient, rpcClient rpc.RPCClient) *Antminer {
+func NewAntminer(deviceIdentifier models.DeviceIdentifier, ipAddress string, port uint16, username string, password secrets.Text, webClient web.WebAPIClient, rpcClient rpc.RPCClient) *Antminer {
 	return &Antminer{
-		deviceID: deviceID,
+		deviceIdentifier: deviceIdentifier,
 		connectionInfo: networking.ConnectionInfo{
 			IPAddress: networking.IPAddress(ipAddress),
 			Port:      networking.Port(port),
 		},
-		rpcPort:   rpcPort,
 		username:  username,
 		password:  password,
 		webClient: webClient,
@@ -47,8 +45,8 @@ func (a *Antminer) GetType() models.Type {
 	return models.TypeAntminer
 }
 
-func (a *Antminer) GetID() int64 {
-	return a.deviceID
+func (a *Antminer) GetID() models.DeviceIdentifier {
+	return a.deviceIdentifier
 }
 
 func (a *Antminer) GetConnectionInfo() networking.ConnectionInfo {
@@ -92,19 +90,40 @@ func (a *Antminer) UpdateMiningPools(ctx context.Context, poolsPayload dto.Updat
 
 func (a *Antminer) getWebConnectionInfo() *web.AntminerConnectionInfo {
 	return &web.AntminerConnectionInfo{
-		ConnectionInfo: a.connectionInfo,
-		Username:       a.username,
-		Password:       a.password,
+		ConnectionInfo: networking.ConnectionInfo{
+			IPAddress: a.connectionInfo.IPAddress,
+			Port:      a.connectionInfo.Port,
+			Protocol:  networking.ProtocolHTTP,
+		},
+		Username: a.username,
+		Password: a.password,
 	}
 }
 
 func (a *Antminer) getRPCConnectionInfo() *networking.ConnectionInfo {
-	return &a.connectionInfo
+	return &networking.ConnectionInfo{
+		IPAddress: a.connectionInfo.IPAddress,
+		Port:      a.connectionInfo.Port,
+		Protocol:  networking.ProtocolTCP,
+	}
 }
 
-//nolint:revive // GetTelemetry will be implemented in the future
-func (a *Antminer) GetTelemetry(ctx context.Context, after time.Time) ([]telemetryModels.Telemetry, error) {
-	return []telemetryModels.Telemetry{}, fleeterror.NewInternalErrorf("GetTelemetry not implemented for Antminer")
+func (a *Antminer) GetTelemetry(ctx context.Context, _ time.Time) ([]telemetryModels.Telemetry, error) {
+	telemetryMapper := NewTelemetryMapper(a.deviceIdentifier)
+
+	summary, err := a.rpcClient.GetSummary(ctx, a.getRPCConnectionInfo())
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get summary from Antminer: %v", err)
+	}
+
+	devs, err := a.rpcClient.GetDevs(ctx, a.getRPCConnectionInfo())
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get device info from Antminer: %v", err)
+	}
+
+	telemetry := telemetryMapper.ToTelemetry(summary, devs, time.Now())
+
+	return telemetry, nil
 }
 
 func toAntminerPool(payloadPool *dto.MiningPool) web.Pool {

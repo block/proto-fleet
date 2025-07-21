@@ -61,96 +61,6 @@ func (s *MockRPCServer) setupMockResponses() {
 	}
 	`
 
-	s.responses["stats"] = `
-	{
-		"STATUS": [
-			{
-			"STATUS": "S",
-			"When": 1750277144,
-			"Code": 70,
-			"Msg": "CGMiner stats",
-			"Description": "cgminer 1.0.0"
-			}
-		],
-		"STATS": [
-			{
-			"BMMiner": "1.0.0",
-			"Miner": "uart_trans.1.3",
-			"CompileTime": "Thu Jul 11 16:38:25 CST 2024",
-			"Type": "Antminer S21"
-			},
-			{
-			"STATS": 0,
-			"ID": "BTM_SOC0",
-			"Elapsed": 59128,
-			"Calls": 0,
-			"Wait": 0,
-			"Max": 0,
-			"Min": 99999999,
-			"GHS 5s": 202266.83,
-			"GHS av": 203676.57,
-			"rate_30m": 204016.42,
-			"Mode": 2,
-			"miner_count": 3,
-			"frequency": 490,
-			"fan_num": 4,
-			"fan1": 7000,
-			"fan2": 7000,
-			"fan3": 7000,
-			"fan4": 7000,
-			"temp_num": 3,
-			"temp1": 65,
-			"temp2_1": 70,
-			"temp2": 65,
-			"temp2_2": 70,
-			"temp3": 66,
-			"temp2_3": 71,
-			"temp_pcb1": "51-51-65-65",
-			"temp_pcb2": "51-51-65-65",
-			"temp_pcb3": "51-51-66-66",
-			"temp_pcb4": "0-0-0-0",
-			"temp_chip1": "56-56-70-70",
-			"temp_chip2": "56-56-70-70",
-			"temp_chip3": "56-56-71-71",
-			"temp_chip4": "0-0-0-0",
-			"temp_pic1": "41-41-55-55",
-			"temp_pic2": "41-41-55-55",
-			"temp_pic3": "41-41-56-56",
-			"temp_pic4": "0-0-0-0",
-			"total_rateideal": 200000.0,
-			"rate_unit": "GH",
-			"total_freqavg": 490,
-			"total_acn": 324,
-			"total rate": 203676.57,
-			"temp_max": 0,
-			"no_matching_work": 61,
-			"chain_acn1": 108,
-			"chain_acn2": 108,
-			"chain_acn3": 108,
-			"chain_acn4": 0,
-			"chain_acs1": "o",
-			"chain_acs2": "o",
-			"chain_acs3": "o",
-			"chain_acs4": "",
-			"chain_hw1": 55,
-			"chain_hw2": 2,
-			"chain_hw3": 4,
-			"chain_hw4": 0,
-			"chain_rate1": "68988.06",
-			"chain_rate2": "66953.27",
-			"chain_rate3": "66325.51",
-			"chain_rate4": "",
-			"freq1": 490,
-			"freq2": 490,
-			"freq3": 490,
-			"freq4": 0,
-			"miner_version": "uart_trans.1.3",
-			"miner_id": "no miner id now"
-			}
-		],
-		"id": 1
-	}`
-
 	s.responses["summary"] = `
 	{
 		"STATUS": [
@@ -473,35 +383,6 @@ func TestRPCCommands(t *testing.T) {
 		assert.Len(t, response.Status, 1, "Should have one status entry")
 		assert.Equal(t, "S", response.Status[0].Status, "Status should be Success")
 		assert.Equal(t, "CGMiner versions", response.Status[0].Msg, "Message should match")
-	})
-
-	t.Run("GetStats", func(t *testing.T) {
-		response, err := rpcClient.GetStats(t.Context(), connInfo)
-		require.NoError(t, err, "GetStats should not return error")
-		assert.NotZero(t, response, "Response should not be nil")
-		assert.Len(t, response.Stats, 2, "Should have two stats entries")
-
-		// First entry - basic info
-		basicInfo := response.Stats[0]
-		assert.Equal(t, "1.0.0", basicInfo.BMMiner, "BMMiner version should match")
-		assert.Equal(t, "uart_trans.1.3", basicInfo.Miner, "Miner should match")
-		assert.Equal(t, "Antminer S21", basicInfo.Type, "Miner type should match")
-
-		// Second entry - detailed stats
-		detailedStats := response.Stats[1]
-		assert.Equal(t, int64(59128), detailedStats.Elapsed, "Elapsed time should match")
-		assert.InDelta(t, 202266.83, detailedStats.GHS5s, 0.01, "5s hash rate should match")
-		assert.InDelta(t, 203676.57, detailedStats.GHSAv, 0.01, "Average hash rate should match")
-		assert.Equal(t, 490, detailedStats.Frequency, "Frequency should match")
-
-		// Fan speeds
-		assert.Equal(t, 7000, detailedStats.Fan1, "Fan 1 speed should match")
-		assert.Equal(t, 7000, detailedStats.Fan2, "Fan 2 speed should match")
-
-		// Temperatures
-		assert.Equal(t, 65, detailedStats.Temp1, "Temp 1 should match")
-		assert.Equal(t, 65, detailedStats.Temp2, "Temp 2 should match")
-		assert.Equal(t, 66, detailedStats.Temp3, "Temp 3 should match")
 	})
 
 	t.Run("GetSummary", func(t *testing.T) {

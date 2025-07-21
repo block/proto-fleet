@@ -32,8 +32,6 @@ func handleRPCConnection(conn net.Conn, state *MinerState) {
 	switch request.Command {
 	case "version":
 		response = generateVersionResponse(state)
-	case "stats":
-		response = generateStatsResponse(state)
 	case "summary":
 		response = generateSummaryResponse(state)
 	case "pools":
@@ -80,89 +78,59 @@ func generateVersionResponse(state *MinerState) VersionResponse {
 	}
 }
 
-func generateStatsResponse(state *MinerState) StatsResponse {
-	state.mu.RLock()
-	defer state.mu.RUnlock()
-
-	now := time.Now().Unix()
-	return StatsResponse{
-		RPCResponse: RPCResponse{
-			Status: []StatusInfo{
-				{
-					Status: "S",
-					When:   now,
-					Code:   70,
-					Msg:    "CGMiner stats",
-				},
-			},
-		},
-		Stats: []struct {
-			BMMiner     string  `json:"BMMiner"`
-			Miner       string  `json:"Miner"`
-			CompileTime string  `json:"CompileTime"`
-			Type        string  `json:"Type"`
-			Stats       float64 `json:"stats"`
-			ID          string  `json:"ID"`
-			Elapsed     int     `json:"Elapsed"`
-			Calls       int     `json:"Calls"`
-			Wait        float64 `json:"Wait"`
-			Max         float64 `json:"Max"`
-			Min         float64 `json:"Min"`
-		}{
-			{
-				BMMiner:     "2.0.0",
-				Miner:       state.MinerType,
-				CompileTime: "2023-05-01",
-				Type:        "Antminer " + state.MinerType,
-				Stats:       0,
-				ID:          "BTM",
-				Elapsed:     DefaultElapsedTime,
-				Calls:       0,
-				Wait:        0,
-				Max:         0,
-				Min:         999999,
-			},
-		},
-	}
-}
-
 func generateSummaryResponse(state *MinerState) SummaryResponse {
 	state.mu.RLock()
 	defer state.mu.RUnlock()
 
 	now := time.Now().Unix()
+
+	// Calculate some values based on state
+	hashRateGHS := state.HashRate * 1000 // Convert TH/s to GH/s
+
 	return SummaryResponse{
 		RPCResponse: RPCResponse{
 			Status: []StatusInfo{
 				{
-					Status: "S",
-					When:   now,
-					Code:   11,
-					Msg:    "Summary",
+					Status:      "S",
+					When:        now,
+					Code:        11,
+					Msg:         "Summary",
+					Description: "cgminer 1.0.0",
 				},
 			},
 		},
-		Summary: []struct {
-			Elapsed   int     `json:"elapsed"`
-			Rate5s    float64 `json:"rate_5s"`
-			Rate30m   float64 `json:"rate_30m"`
-			RateAvg   float64 `json:"rate_avg"`
-			RateIdeal float64 `json:"rate_ideal"`
-			RateUnit  string  `json:"rate_unit"`
-			HwAll     int     `json:"hw_all"`
-			BestShare int64   `json:"bestshare"`
-		}{
+		Summary: []SummaryInfo{
 			{
-				Elapsed:   DefaultElapsedTime,
-				Rate5s:    state.HashRate,
-				Rate30m:   state.HashRate,
-				RateAvg:   state.HashRate,
-				RateIdeal: state.HashRate,
-				RateUnit:  DefaultHashRateUnit,
-				HwAll:     0,
-				BestShare: DefaultBestShare,
+				Elapsed:            DefaultElapsedTime,
+				GHS5s:              hashRateGHS - 2000, // Slight variation for 5s
+				GHSav:              hashRateGHS,
+				GHS30m:             hashRateGHS + 1000, // Slight variation for 30m
+				FoundBlocks:        0,
+				Getwork:            34537,
+				Accepted:           73280,
+				Rejected:           75,
+				HardwareErrors:     63,
+				Utility:            12.79,
+				Discarded:          32426300,
+				Stale:              44,
+				GetFailures:        3,
+				LocalWork:          32459750,
+				RemoteFailures:     0,
+				NetworkBlocks:      571,
+				TotalMH:            8.18439346825e13,
+				WorkUtility:        3320110.48,
+				DifficultyAccepted: 18995326976.0,
+				DifficultyRejected: 19333120.0,
+				DifficultyStale:    0.0,
+				BestShare:          13416269691,
+				DeviceHardwarePerc: 0.0,
+				DeviceRejectedPerc: 0.0,
+				PoolRejectedPerc:   0.0,
+				PoolStalePerc:      0.0,
+				LastGetwork:        now,
 			},
 		},
+		ID: 1,
 	}
 }
 
@@ -210,46 +178,32 @@ func generateDevsResponse(state *MinerState) DevsResponse {
 
 	now := time.Now().Unix()
 
-	// Create 3 devices with slightly different temperatures and stats
+	// Create one device according to the example format
 	devices := []DeviceInfo{
 		{
-			ASC:      0,
-			Name:     "ASC0",
-			ID:       0,
-			Enabled:  "Y",
-			Status:   "Alive",
-			Temp:     state.Temperature,
-			MHS5s:    state.HashRate * 1000 * 1000 / 3,
-			MHS30m:   state.HashRate * 1000 * 1000 / 3,
-			MHSav:    state.HashRate * 1000 * 1000 / 3,
-			Accepted: DefaultAccepted,
-			Rejected: DefaultRejected,
-		},
-		{
-			ASC:      1,
-			Name:     "ASC1",
-			ID:       1,
-			Enabled:  "Y",
-			Status:   "Alive",
-			Temp:     state.Temperature + 1.5,
-			MHS5s:    state.HashRate * 1000 * 1000 / 3,
-			MHS30m:   state.HashRate * 1000 * 1000 / 3,
-			MHSav:    state.HashRate * 1000 * 1000 / 3,
-			Accepted: DefaultAccepted + 1,
-			Rejected: DefaultRejected,
-		},
-		{
-			ASC:      2,
-			Name:     "ASC2",
-			ID:       2,
-			Enabled:  "Y",
-			Status:   "Alive",
-			Temp:     state.Temperature + 0.5,
-			MHS5s:    state.HashRate * 1000 * 1000 / 3,
-			MHS30m:   state.HashRate * 1000 * 1000 / 3,
-			MHSav:    state.HashRate * 1000 * 1000 / 3,
-			Accepted: DefaultAccepted + 2,
-			Rejected: DefaultRejected,
+			ASC:                 0,
+			Name:                "BTM_SOC",
+			ID:                  0,
+			Enabled:             "Y",
+			Status:              "Alive",
+			Tenperature:         0.0,
+			MHSav:               0.0,
+			MHS5s:               0.0,
+			Accepted:            73280,
+			Rejected:            75,
+			HardwareErrors:      0,
+			Utility:             0.0,
+			LastSharePool:       0,
+			LastShareTime:       now - 6,
+			TotalMH:             0.0,
+			Diff1Work:           0,
+			DifficultyAccepted:  18995326976,
+			DifficultyRejected:  19333120,
+			LastShareDifficulty: now - 6,
+			LastValidWork:       now - 6,
+			DeviceHardwarePerc:  0.0,
+			DeviceRejectedPerc:  0.0,
+			DeviceElapsed:       DefaultElapsedTime,
 		},
 	}
 
@@ -257,13 +211,15 @@ func generateDevsResponse(state *MinerState) DevsResponse {
 		RPCResponse: RPCResponse{
 			Status: []StatusInfo{
 				{
-					Status: "S",
-					When:   now,
-					Code:   9,
-					Msg:    "3 ASC(s)",
+					Status:      "S",
+					When:        now,
+					Code:        9,
+					Msg:         "1 ASC(s)",
+					Description: "cgminer 1.0.0",
 				},
 			},
 		},
 		Devices: devices,
+		ID:      1,
 	}
 }

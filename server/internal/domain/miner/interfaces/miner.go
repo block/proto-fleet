@@ -15,7 +15,7 @@ import (
 type Miner interface {
 	// Basic identification
 	GetType() models.Type
-	GetID() int64
+	GetID() models.DeviceIdentifier
 	GetConnectionInfo() networking.ConnectionInfo
 
 	// Mining operations

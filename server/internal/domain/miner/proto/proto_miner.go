@@ -2,7 +2,6 @@ package proto
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
@@ -21,13 +20,11 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api/miner_data_apiconnect"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api/miner_system_apiconnect"
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
 	telemetryModels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
@@ -35,15 +32,15 @@ import (
 var _ interfaces.Miner = &ProtoMiner{}
 
 type ProtoMiner struct {
-	deviceID       int64
-	connectionInfo networking.ConnectionInfo
-	authToken      *secrets.Text
-	dataClient     miner_data_apiconnect.MinerDataApiClient
-	commandClient  miner_command_apiconnect.MinerCommandApiClient
-	systemClient   miner_system_apiconnect.MinerSystemApiClient
+	deviceIdentifier miner.DeviceIdentifier
+	connectionInfo   networking.ConnectionInfo
+	authToken        *secrets.Text
+	dataClient       miner_data_apiconnect.MinerDataApiClient
+	commandClient    miner_command_apiconnect.MinerCommandApiClient
+	systemClient     miner_system_apiconnect.MinerSystemApiClient
 }
 
-func NewProtoMiner(deviceID int64, ipAddress string, port uint16, authToken secrets.Text) (*ProtoMiner, error) {
+func NewProtoMiner(deviceIdentifier miner.DeviceIdentifier, ipAddress string, port uint16, authToken secrets.Text) (*ProtoMiner, error) {
 	connectionInfo, err := networking.NewConnectionInfo(ipAddress, fmt.Sprintf("%d", port), networking.ProtocolHTTPS)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to create connection info: %v", err)
@@ -75,11 +72,11 @@ func NewProtoMiner(deviceID int64, ipAddress string, port uint16, authToken secr
 	}
 
 	return &ProtoMiner{
-		deviceID:      deviceID,
-		authToken:     &authToken,
-		dataClient:    dataClient,
-		commandClient: commandClient,
-		systemClient:  systemClient,
+		deviceIdentifier: deviceIdentifier,
+		authToken:        &authToken,
+		dataClient:       dataClient,
+		commandClient:    commandClient,
+		systemClient:     systemClient,
 	}, nil
 }
 
@@ -87,8 +84,8 @@ func (p *ProtoMiner) GetType() miner.Type {
 	return miner.TypeProto
 }
 
-func (p *ProtoMiner) GetID() int64 {
-	return p.deviceID
+func (p *ProtoMiner) GetID() miner.DeviceIdentifier {
+	return p.deviceIdentifier
 }
 
 func (p *ProtoMiner) GetConnectionInfo() networking.ConnectionInfo {
@@ -218,33 +215,9 @@ func (p *ProtoMiner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMi
 	return nil
 }
 
-func (p *ProtoMiner) GetPairingInfo(ctx context.Context, conn *sql.DB) (*miner.PairingInfo, error) {
-	ctx = client.ContextWithAuth(ctx, p.authToken)
-	resp, err := p.systemClient.GetPairingInfo(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get pairing info: %v", err)
-	}
-
-	deviceIdentifier, err := db.WithTransaction[string](ctx, conn, func(q *sqlc.Queries) (string, error) {
-		return q.GetDeviceIdentifierByID(ctx, p.deviceID)
-	})
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get device identifier from ID: %v", err)
-	}
-
-	return &miner.PairingInfo{
-		DeviceID:     miner.DeviceIdentifier(deviceIdentifier),
-		SerialNumber: resp.Msg.CbSn,
-		MacAddress:   resp.Msg.Mac,
-		// TODO(DASH-331) Fetch model and manufacturer from miner
-		Model:        "Proto Rig",
-		Manufacturer: "Block, Inc",
-	}, nil
-}
-
 func (p *ProtoMiner) GetTelemetry(ctx context.Context, after time.Time) ([]telemetryModels.Telemetry, error) {
 	// Create telemetry mapper
-	mapper := NewTelemetryMapper(p.deviceID)
+	mapper := NewTelemetryMapper(p.deviceIdentifier)
 
 	// Generate time series requests for all data types
 	requests := mapper.MapToTimeSeriesRequests(after)

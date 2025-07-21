@@ -54,10 +54,10 @@ func (mr *MockMinerMockRecorder) GetConnectionInfo() *gomock.Call {
 }
 
 // GetID mocks base method.
-func (m *MockMiner) GetID() int64 {
+func (m *MockMiner) GetID() models.DeviceIdentifier {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetID")
-	ret0, _ := ret[0].(int64)
+	ret0, _ := ret[0].(models.DeviceIdentifier)
 	return ret0
 }
 

@@ -7,18 +7,19 @@ import (
 
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	telemetryModels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 )
 
 // TelemetryMapper handles mapping between miner data API and fleet telemetry models
 type TelemetryMapper struct {
-	deviceID int64
+	deviceIdentifier models.DeviceIdentifier
 }
 
 // NewTelemetryMapper creates a new telemetry mapper
-func NewTelemetryMapper(deviceID int64) *TelemetryMapper {
+func NewTelemetryMapper(deviceIdentifier models.DeviceIdentifier) *TelemetryMapper {
 	return &TelemetryMapper{
-		deviceID: deviceID,
+		deviceIdentifier: deviceIdentifier,
 	}
 }
 
@@ -141,7 +142,7 @@ func (tm *TelemetryMapper) MapToTelemetryModels(responses []*miner_data_api.Time
 					"value": point.Value,
 				},
 				Tags: map[string]string{
-					"device_id":      strconv.FormatInt(tm.deviceID, 10),
+					"device_id":      tm.deviceIdentifier.String(),
 					"component_type": componentType,
 					"component_id":   componentID,
 					"data_type":      response.DataType.String(),

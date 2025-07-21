@@ -19,8 +19,7 @@ import (
 )
 
 const (
-	defaultAntminerRPCPort = "4028"
-	maxPort                = 65535
+	maxPort = 65535
 )
 
 var _ telemetry.MinerGetter = &MinerService{}
@@ -55,7 +54,7 @@ func (s *MinerService) GetMiner(ctx context.Context, deviceID int64) (interfaces
 		return nil, fmt.Errorf("failed to get device data: %w", err)
 	}
 
-	return s.createMiner(deviceData.ID, deviceData.Port, deviceData.Type, deviceData.UsernameEnc.String, deviceData.PasswordEnc.String, deviceData.IpAddress, deviceData.PairingToken.String)
+	return s.createMiner(deviceData.DeviceIdentifier, deviceData.Port, deviceData.Type, deviceData.UsernameEnc.String, deviceData.PasswordEnc.String, deviceData.IpAddress, deviceData.PairingToken.String)
 }
 
 func (s *MinerService) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID models.DeviceIdentifier) (interfaces.Miner, error) {
@@ -71,10 +70,10 @@ func (s *MinerService) GetMinerFromDeviceIdentifier(ctx context.Context, deviceI
 		return nil, fmt.Errorf("failed to get device data: %w", err)
 	}
 
-	return s.createMiner(deviceData.ID, deviceData.Port, deviceData.Type, deviceData.UsernameEnc.String, deviceData.PasswordEnc.String, deviceData.IpAddress, deviceData.PairingToken.String)
+	return s.createMiner(deviceData.DeviceIdentifier, deviceData.Port, deviceData.Type, deviceData.UsernameEnc.String, deviceData.PasswordEnc.String, deviceData.IpAddress, deviceData.PairingToken.String)
 }
 
-func (s *MinerService) createMiner(deviceID int64, devicePort string, deviceType string, deviceUsername string, devicePassword string, deviceIPAddress string, devicePairingToken string) (interfaces.Miner, error) {
+func (s *MinerService) createMiner(deviceIdentifier string, devicePort string, deviceType string, deviceUsername string, devicePassword string, deviceIPAddress string, devicePairingToken string) (interfaces.Miner, error) {
 	portInt, err := strconv.Atoi(devicePort)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse port %s: %w", devicePort, err)
@@ -91,11 +90,12 @@ func (s *MinerService) createMiner(deviceID int64, devicePort string, deviceType
 		return nil, fmt.Errorf("failed to parse device type: %w", err)
 	}
 
+	minerIdentifier := models.DeviceIdentifier(deviceIdentifier)
 	switch minerType {
 	case models.TypeAntminer:
-		return s.createAntminer(deviceID, deviceUsername, devicePassword, deviceIPAddress, port)
+		return s.createAntminer(minerIdentifier, deviceUsername, devicePassword, deviceIPAddress, port)
 	case models.TypeProto:
-		return s.createProtoMiner(deviceID, devicePassword, devicePairingToken, deviceIPAddress, port)
+		return s.createProtoMiner(minerIdentifier, devicePassword, devicePairingToken, deviceIPAddress, port)
 	case models.TypeWhatsminer, models.TypeAvalon, models.TypeUnknown:
 		return nil, fmt.Errorf("unsupported miner type: %s", deviceType)
 	default:
@@ -103,7 +103,7 @@ func (s *MinerService) createMiner(deviceID int64, devicePort string, deviceType
 	}
 }
 
-func (s *MinerService) createAntminer(deviceID int64, deviceUsername string, devicePassword string, deviceIPAddress string, port uint16) (interfaces.Miner, error) {
+func (s *MinerService) createAntminer(deviceIdentifier models.DeviceIdentifier, deviceUsername string, devicePassword string, deviceIPAddress string, port uint16) (interfaces.Miner, error) {
 	if deviceUsername == "" || devicePassword == "" {
 		return nil, fmt.Errorf("antminer requires both username and password credentials")
 	}
@@ -123,10 +123,9 @@ func (s *MinerService) createAntminer(deviceID int64, deviceUsername string, dev
 	password := *secrets.NewText(string(decryptedPassword))
 
 	return antminer.NewAntminer(
-		deviceID,
+		deviceIdentifier,
 		deviceIPAddress,
 		port,
-		defaultAntminerRPCPort,
 		string(decryptedUsername),
 		password,
 		webClient,
@@ -134,7 +133,7 @@ func (s *MinerService) createAntminer(deviceID int64, deviceUsername string, dev
 	), nil
 }
 
-func (s *MinerService) createProtoMiner(deviceID int64, devicePassword string, devicePairingToken string, deviceIPAddress string, port uint16) (interfaces.Miner, error) {
+func (s *MinerService) createProtoMiner(deviceIdentifier models.DeviceIdentifier, devicePassword string, devicePairingToken string, deviceIPAddress string, port uint16) (interfaces.Miner, error) {
 	var authToken secrets.Text
 
 	if devicePairingToken != "" {
@@ -150,7 +149,7 @@ func (s *MinerService) createProtoMiner(deviceID int64, devicePassword string, d
 	}
 
 	return proto.NewProtoMiner(
-		deviceID,
+		deviceIdentifier,
 		deviceIPAddress,
 		port,
 		authToken,

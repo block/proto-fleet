@@ -9,7 +9,7 @@ import (
 )
 
 func TestTelemetryMapper_MapToTimeSeriesRequests(t *testing.T) {
-	mapper := NewTelemetryMapper(123)
+	mapper := NewTelemetryMapper("123")
 	after := time.Now().Add(-1 * time.Hour)
 
 	requests := mapper.MapToTimeSeriesRequests(after)
@@ -52,7 +52,7 @@ func TestTelemetryMapper_MapToTimeSeriesRequests(t *testing.T) {
 }
 
 func TestTelemetryMapper_MapToTelemetryModels(t *testing.T) {
-	mapper := NewTelemetryMapper(123)
+	mapper := NewTelemetryMapper("123")
 
 	// Create a mock response
 	now := time.Now()
@@ -105,7 +105,7 @@ func TestTelemetryMapper_MapToTelemetryModels(t *testing.T) {
 }
 
 func TestTelemetryMapper_GetMeasurementName(t *testing.T) {
-	mapper := NewTelemetryMapper(123)
+	mapper := NewTelemetryMapper("123")
 
 	tests := []struct {
 		dataType     miner_data_api.DataType
@@ -129,7 +129,7 @@ func TestTelemetryMapper_GetMeasurementName(t *testing.T) {
 }
 
 func TestTelemetryMapper_GetComponentInfo(t *testing.T) {
-	mapper := NewTelemetryMapper(123)
+	mapper := NewTelemetryMapper("123")
 
 	tests := []struct {
 		name              string

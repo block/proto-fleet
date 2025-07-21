@@ -13,7 +13,7 @@ func TestProtoMiner_GetTelemetry_Integration(t *testing.T) {
 	// This is an integration test that would require a running miner
 	// For now, we'll test that the method doesn't panic and returns proper error handling
 
-	miner, err := NewProtoMiner(123, "localhost", 8080, *secrets.NewText("test-token"))
+	miner, err := NewProtoMiner("123", "localhost", 8080, *secrets.NewText("test-token"))
 	require.NoError(t, err, "expected no error when creating miner")
 	require.NotNil(t, miner, "expected miner to be created")
 
@@ -29,7 +29,7 @@ func TestProtoMiner_GetTelemetry_Integration(t *testing.T) {
 
 func TestProtoMiner_NewConstructors(t *testing.T) {
 	// Test the new constructor
-	miner1, err := NewProtoMiner(123, "localhost", 8080, *secrets.NewText("test-token"))
+	miner1, err := NewProtoMiner("123", "localhost", 8080, *secrets.NewText("test-token"))
 	assert.NotNil(t, miner1, "expected miner to be created")
 	assert.NoError(t, err, "expected no error when creating miner")
 }

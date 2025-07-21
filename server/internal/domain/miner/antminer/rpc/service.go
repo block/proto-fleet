@@ -22,7 +22,6 @@ const (
 
 //go:generate mockgen -source=service.go -destination=mocks/mock_rpc_client.go -package=mocks RPCClient
 type RPCClient interface {
-	GetStats(ctx context.Context, connInfo *networking.ConnectionInfo) (*StatsResponse, error)
 	GetSummary(ctx context.Context, connInfo *networking.ConnectionInfo) (*SummaryResponse, error)
 	GetPools(ctx context.Context, connInfo *networking.ConnectionInfo) (*PoolsResponse, error)
 	GetVersion(ctx context.Context, connInfo *networking.ConnectionInfo) (*VersionResponse, error)
@@ -78,14 +77,6 @@ func (s *Service) executeRPCCommand(ctx context.Context, connInfo *networking.Co
 	}
 
 	return nil
-}
-
-func (s *Service) GetStats(ctx context.Context, connInfo *networking.ConnectionInfo) (*StatsResponse, error) {
-	var resp StatsResponse
-	if err := s.request(ctx, connInfo, "stats", &resp); err != nil {
-		return nil, err
-	}
-	return &resp, nil
 }
 
 func (s *Service) GetSummary(ctx context.Context, connInfo *networking.ConnectionInfo) (*SummaryResponse, error) {

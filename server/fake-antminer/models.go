@@ -17,10 +17,11 @@ const (
 
 // Common structs for API responses
 type StatusInfo struct {
-	Status string `json:"STATUS"`
-	When   int64  `json:"when"`
-	Code   int    `json:"code"`
-	Msg    string `json:"Msg"`
+	Status      string `json:"STATUS"`
+	When        int64  `json:"When"`
+	Code        int    `json:"Code"`
+	Msg         string `json:"Msg"`
+	Description string `json:"Description,omitempty"`
 }
 
 type VersionInfo struct {
@@ -46,17 +47,29 @@ type PoolStatus struct {
 }
 
 type DeviceInfo struct {
-	ASC      int     `json:"ASC"`
-	Name     string  `json:"name"`
-	ID       int     `json:"id"`
-	Enabled  string  `json:"enabled"`
-	Status   string  `json:"status"`
-	Temp     float64 `json:"temp"`
-	MHS5s    float64 `json:"mhs_5s"`
-	MHS30m   float64 `json:"mhs_30m"`
-	MHSav    float64 `json:"mhs_av"`
-	Accepted int     `json:"accepted"`
-	Rejected int     `json:"rejected"`
+	ASC                 int     `json:"ASC"`
+	Name                string  `json:"Name"`
+	ID                  int     `json:"ID"`
+	Enabled             string  `json:"Enabled"`
+	Status              string  `json:"Status"`
+	Tenperature         float64 `json:"Tenperature"`
+	MHSav               float64 `json:"MHS av"`
+	MHS5s               float64 `json:"MHS 5s"`
+	Accepted            int     `json:"Accepted"`
+	Rejected            int     `json:"Rejected"`
+	HardwareErrors      int     `json:"Hardware Errors"`
+	Utility             float64 `json:"Utility"`
+	LastSharePool       int     `json:"Last Share Pool"`
+	LastShareTime       int64   `json:"Last Share Time"`
+	TotalMH             float64 `json:"Total MH"`
+	Diff1Work           int     `json:"Diff1 Work"`
+	DifficultyAccepted  int64   `json:"Difficulty Accepted"`
+	DifficultyRejected  int     `json:"Difficulty Rejected"`
+	LastShareDifficulty int64   `json:"Last Share Difficulty"`
+	LastValidWork       int64   `json:"Last Valid Work"`
+	DeviceHardwarePerc  float64 `json:"Device Hardware%"`
+	DeviceRejectedPerc  float64 `json:"Device Rejected%"`
+	DeviceElapsed       int     `json:"Device Elapsed"`
 }
 
 // MinerState holds the state data of the fake miner
@@ -102,37 +115,41 @@ type VersionResponse struct {
 	Version []VersionInfo `json:"version"`
 }
 
-// StatsResponse for 'stats' command
-type StatsResponse struct {
-	RPCResponse
-	Stats []struct {
-		BMMiner     string  `json:"BMMiner"`
-		Miner       string  `json:"Miner"`
-		CompileTime string  `json:"CompileTime"`
-		Type        string  `json:"Type"`
-		Stats       float64 `json:"stats"`
-		ID          string  `json:"ID"`
-		Elapsed     int     `json:"Elapsed"`
-		Calls       int     `json:"Calls"`
-		Wait        float64 `json:"Wait"`
-		Max         float64 `json:"Max"`
-		Min         float64 `json:"Min"`
-	} `json:"stats"`
-}
-
 // SummaryResponse for 'summary' command
 type SummaryResponse struct {
 	RPCResponse
-	Summary []struct {
-		Elapsed   int     `json:"elapsed"`
-		Rate5s    float64 `json:"rate_5s"`
-		Rate30m   float64 `json:"rate_30m"`
-		RateAvg   float64 `json:"rate_avg"`
-		RateIdeal float64 `json:"rate_ideal"`
-		RateUnit  string  `json:"rate_unit"`
-		HwAll     int     `json:"hw_all"`
-		BestShare int64   `json:"bestshare"`
-	} `json:"SUMMARY"`
+	Summary []SummaryInfo `json:"SUMMARY"`
+	ID      int           `json:"id"`
+}
+
+type SummaryInfo struct {
+	Elapsed            int     `json:"Elapsed"`
+	GHS5s              float64 `json:"GHS 5s"`
+	GHSav              float64 `json:"GHS av"`
+	GHS30m             float64 `json:"GHS 30m"`
+	FoundBlocks        int     `json:"Found Blocks"`
+	Getwork            int     `json:"Getwork"`
+	Accepted           int     `json:"Accepted"`
+	Rejected           int     `json:"Rejected"`
+	HardwareErrors     int     `json:"Hardware Errors"`
+	Utility            float64 `json:"Utility"`
+	Discarded          int     `json:"Discarded"`
+	Stale              int     `json:"Stale"`
+	GetFailures        int     `json:"Get Failures"`
+	LocalWork          int     `json:"Local Work"`
+	RemoteFailures     int     `json:"Remote Failures"`
+	NetworkBlocks      int     `json:"Network Blocks"`
+	TotalMH            float64 `json:"Total MH"`
+	WorkUtility        float64 `json:"Work Utility"`
+	DifficultyAccepted float64 `json:"Difficulty Accepted"`
+	DifficultyRejected float64 `json:"Difficulty Rejected"`
+	DifficultyStale    float64 `json:"Difficulty Stale"`
+	BestShare          int64   `json:"Best Share"`
+	DeviceHardwarePerc float64 `json:"Device Hardware%"`
+	DeviceRejectedPerc float64 `json:"Device Rejected%"`
+	PoolRejectedPerc   float64 `json:"Pool Rejected%"`
+	PoolStalePerc      float64 `json:"Pool Stale%"`
+	LastGetwork        int64   `json:"Last getwork"`
 }
 
 // PoolsResponse for 'pools' command
@@ -145,4 +162,5 @@ type PoolsResponse struct {
 type DevsResponse struct {
 	RPCResponse
 	Devices []DeviceInfo `json:"DEVS"`
+	ID      int          `json:"id"`
 }

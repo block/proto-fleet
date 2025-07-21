@@ -81,21 +81,6 @@ func (mr *MockRPCClientMockRecorder) GetPools(ctx, connInfo interface{}) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPools", reflect.TypeOf((*MockRPCClient)(nil).GetPools), ctx, connInfo)
 }
 
-// GetStats mocks base method.
-func (m *MockRPCClient) GetStats(ctx context.Context, connInfo *networking.ConnectionInfo) (*rpc.StatsResponse, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetStats", ctx, connInfo)
-	ret0, _ := ret[0].(*rpc.StatsResponse)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetStats indicates an expected call of GetStats.
-func (mr *MockRPCClientMockRecorder) GetStats(ctx, connInfo interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStats", reflect.TypeOf((*MockRPCClient)(nil).GetStats), ctx, connInfo)
-}
-
 // GetSummary mocks base method.
 func (m *MockRPCClient) GetSummary(ctx context.Context, connInfo *networking.ConnectionInfo) (*rpc.SummaryResponse, error) {
 	m.ctrl.T.Helper()
