@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
-import { fleetManagementClient } from "@/protoFleet/api/clients";
+import {
+  fleetManagementClient,
+  telemetryClient,
+} from "@/protoFleet/api/clients";
 import {
   DataMode,
   MeasurementConfig_MeasurementType,
   MinerListFilter,
-  StreamMinerUpdatesRequestSchema,
-  type StreamMinerUpdatesResponse,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  MeasurementType,
+  StreamUpdatesRequestSchema,
+  StreamUpdatesResponse,
+  UpdateType,
+} from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import {
   getAuthHeader,
   useAuthContext,
@@ -75,37 +82,31 @@ const useFleet = (options: UseFleetOptions = {}) => {
   const [isLoading, setIsLoading] = useState(false);
   const [cursor, setCursor] = useState<string | undefined>();
 
-  const updateMinerState = useCallback(
-    (response: StreamMinerUpdatesResponse) => {
-      const deviceId = response.deviceIdentifier;
+  const updateMinerState = useCallback((response: StreamUpdatesResponse) => {
+    const update = response.update;
 
-      if (
-        !deviceId ||
-        !response.update ||
-        response.update.case === "heartbeat"
-      ) {
-        return;
-      }
+    if (!update || !update.deviceId) {
+      return;
+    }
 
-      if (response.update.case === "measurement") {
-        useFleetStore
-          .getState()
-          .updateMinerMeasurement(deviceId, response.update.value);
-      } else if (response.update.case === "status") {
-        // TODO do we want to refetch the whole list when some filters are specified and the status changes?
-        useFleetStore
-          .getState()
-          .updateMinerStatus(deviceId, response.update.value);
-      }
+    // Handle heartbeat updates
+    if (update.type === UpdateType.HEARTBEAT) {
+      return;
+    }
 
-      if (response.timestamp) {
-        useFleetStore
-          .getState()
-          .updateMinerTimestamp(deviceId, response.timestamp);
-      }
-    },
-    [],
-  );
+    // Handle telemetry data updates
+    if (update.type === UpdateType.TELEMETRY && update.data) {
+      useFleetStore.getState().updateMinerTelemetry(update.deviceId, update);
+    }
+
+    // Handle device status updates - TODO: implement when needed
+
+    if (update.timestamp) {
+      useFleetStore
+        .getState()
+        .updateMinerTimestamp(update.deviceId, update.timestamp);
+    }
+  }, []);
 
   const startStreamingUpdates = useCallback(
     (deviceIdentifiers: string[]) => {
@@ -123,25 +124,25 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
       (async () => {
         try {
-          const request = create(StreamMinerUpdatesRequestSchema, {
-            deviceIdentifiers,
+          const request = create(StreamUpdatesRequestSchema, {
+            deviceIds: deviceIdentifiers,
             measurementTypes: [
-              MeasurementConfig_MeasurementType.HASHRATE,
-              MeasurementConfig_MeasurementType.POWER_USAGE,
-              MeasurementConfig_MeasurementType.TEMPERATURE,
-              MeasurementConfig_MeasurementType.EFFICIENCY,
+              MeasurementType.HASHRATE,
+              MeasurementType.POWER,
+              MeasurementType.TEMPERATURE,
+              MeasurementType.EFFICIENCY,
             ],
-            includeStatusUpdates: true,
-            heartbeatIntervalSeconds: 30,
+            includeHeartbeat: true,
+            heartbeatInterval: {
+              seconds: BigInt(30),
+              nanos: 0,
+            },
           });
 
-          for await (const response of fleetManagementClient.streamMinerUpdates(
-            request,
-            {
-              ...getAuthHeader(authTokens),
-              signal: streamAbortController.current?.signal,
-            },
-          )) {
+          for await (const response of telemetryClient.streamUpdates(request, {
+            ...getAuthHeader(authTokens),
+            signal: streamAbortController.current?.signal,
+          })) {
             updateMinerState(response);
           }
         } catch (error) {
@@ -158,7 +159,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
             return;
           }
 
-          console.error("Error streaming miner updates:", error);
+          console.error("Error streaming telemetry updates:", error);
         } finally {
           useFleetStore.getState().setStreaming(false);
         }

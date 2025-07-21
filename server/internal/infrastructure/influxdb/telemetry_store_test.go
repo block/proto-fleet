@@ -20,8 +20,6 @@ func setupIntegrationTest(t *testing.T) (*InfluxTelemetryStore, testcontainers.C
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	t.Parallel()
-
 	container, testConfig := testutils.SetupInfluxDBContainer(t)
 
 	config := Config{
@@ -80,9 +78,39 @@ func createTestTelemetry(deviceID, measurement string, value float64) models.Tel
 	}
 }
 
+// createTestTelemetryByType creates test telemetry using the correct InfluxDB measurement name
+func createTestTelemetryByType(deviceID string, measurementType models.MeasurementType, value float64) models.Telemetry {
+	return models.Telemetry{
+		Measurement: measurementType.InfluxMeasurementName(),
+		Fields: map[string]any{
+			"value": value,
+		},
+		Tags: map[string]string{
+			"device_id": deviceID,
+			"test":      "true",
+		},
+		Timestamp: time.Now(),
+	}
+}
+
 func createTestTelemetryWithTimestamp(deviceID, measurement string, value float64, timestamp time.Time) models.Telemetry {
 	return models.Telemetry{
 		Measurement: measurement,
+		Fields: map[string]any{
+			"value": value,
+		},
+		Tags: map[string]string{
+			"device_id": deviceID,
+			"test":      "integration",
+		},
+		Timestamp: timestamp,
+	}
+}
+
+// createTestTelemetryByTypeWithTimestamp creates test telemetry using the correct InfluxDB measurement name with timestamp
+func createTestTelemetryByTypeWithTimestamp(deviceID string, measurementType models.MeasurementType, value float64, timestamp time.Time) models.Telemetry {
+	return models.Telemetry{
+		Measurement: measurementType.InfluxMeasurementName(),
 		Fields: map[string]any{
 			"value": value,
 		},
@@ -110,7 +138,26 @@ func createTestTelemetryWithMetadata(deviceID, measurement string, value float64
 	}
 }
 
+// createTestTelemetryByTypeWithMetadata creates test telemetry using the correct InfluxDB measurement name with metadata
+func createTestTelemetryByTypeWithMetadata(deviceID string, measurementType models.MeasurementType, value float64, deviceType, location string, timestamp time.Time) models.Telemetry {
+	return models.Telemetry{
+		Measurement: measurementType.InfluxMeasurementName(),
+		Fields: map[string]any{
+			"value": value,
+		},
+		Tags: map[string]string{
+			"device_id":   deviceID,
+			"device_type": deviceType,
+			"location":    location,
+			"test":        "metadata",
+		},
+		Timestamp: timestamp,
+	}
+}
+
 func TestNewTelemetryStore(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		config      Config
@@ -184,6 +231,8 @@ func TestNewTelemetryStore(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			store, err := NewTelemetryStore(tt.config)
 
 			if tt.expectError {
@@ -205,6 +254,8 @@ func TestNewTelemetryStore(t *testing.T) {
 }
 
 func TestInfluxTelemetryStore_Store_EmptyData(t *testing.T) {
+	t.Parallel()
+
 	config := Config{
 		URL:          "http://localhost:8181",
 		Organization: "testorg",
@@ -223,6 +274,8 @@ func TestInfluxTelemetryStore_Store_EmptyData(t *testing.T) {
 }
 
 func TestInfluxTelemetryStore_Store_Data(t *testing.T) {
+	t.Parallel()
+
 	store, container, ctx := setupIntegrationTest(t)
 	defer cleanupIntegrationTest(t, store, container)
 
@@ -237,6 +290,8 @@ func TestInfluxTelemetryStore_Store_Data(t *testing.T) {
 }
 
 func TestInfluxTelemetryStore_Store_SinglePoint(t *testing.T) {
+	t.Parallel()
+
 	store, container, ctx := setupIntegrationTest(t)
 	defer cleanupIntegrationTest(t, store, container)
 
@@ -249,16 +304,18 @@ func TestInfluxTelemetryStore_Store_SinglePoint(t *testing.T) {
 }
 
 func TestInfluxTelemetryStore_GetLatestTelemetry(t *testing.T) {
+	t.Parallel()
+
 	store, container, ctx := setupIntegrationTest(t)
 	defer cleanupIntegrationTest(t, store, container)
 
 	baseTime := time.Now().Add(-1 * time.Hour)
 	testData := []models.Telemetry{
-		createTestTelemetryWithTimestamp("device1", "temperature", 25.5, baseTime.Add(-30*time.Minute)),
-		createTestTelemetryWithTimestamp("device1", "temperature", 26.0, baseTime.Add(-20*time.Minute)),
-		createTestTelemetryWithTimestamp("device1", "hashrate", 100.0, baseTime.Add(-15*time.Minute)),
-		createTestTelemetryWithTimestamp("device2", "temperature", 30.2, baseTime.Add(-10*time.Minute)),
-		createTestTelemetryWithTimestamp("device2", "hashrate", 150.0, baseTime.Add(-5*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("device1", models.MeasurementTypeTemperature, 25.5, baseTime.Add(-30*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("device1", models.MeasurementTypeTemperature, 26.0, baseTime.Add(-20*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("device1", models.MeasurementTypeHashrate, 100.0, baseTime.Add(-15*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("device2", models.MeasurementTypeTemperature, 30.2, baseTime.Add(-10*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("device2", models.MeasurementTypeHashrate, 150.0, baseTime.Add(-5*time.Minute)),
 	}
 
 	storeTestDataWithErrorHandling(ctx, t, store, testData, "telemetry data")
@@ -290,26 +347,28 @@ func TestInfluxTelemetryStore_GetLatestTelemetry(t *testing.T) {
 }
 
 func TestInfluxTelemetryStore_GetTimeSeriesTelemetry(t *testing.T) {
+	t.Parallel()
+
 	store, container, ctx := setupIntegrationTest(t)
 	defer cleanupIntegrationTest(t, store, container)
 
 	baseTime := time.Now().Add(-2 * time.Hour)
 	testData := []models.Telemetry{
-		createTestTelemetryWithTimestamp("device1", "temperature", 25.0, baseTime),
-		createTestTelemetryWithTimestamp("device1", "temperature", 25.5, baseTime.Add(10*time.Minute)),
-		createTestTelemetryWithTimestamp("device1", "temperature", 26.0, baseTime.Add(20*time.Minute)),
-		createTestTelemetryWithTimestamp("device1", "hashrate", 100.0, baseTime.Add(5*time.Minute)),
-		createTestTelemetryWithTimestamp("device1", "hashrate", 105.0, baseTime.Add(15*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("device1", models.MeasurementTypeTemperature, 25.0, baseTime),
+		createTestTelemetryByTypeWithTimestamp("device1", models.MeasurementTypeTemperature, 25.5, baseTime.Add(10*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("device1", models.MeasurementTypeTemperature, 26.0, baseTime.Add(20*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("device1", models.MeasurementTypeHashrate, 100.0, baseTime.Add(5*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("device1", models.MeasurementTypeHashrate, 105.0, baseTime.Add(15*time.Minute)),
 
-		createTestTelemetryWithTimestamp("device2", "temperature", 26.0, baseTime.Add(20*time.Minute)),
-		createTestTelemetryWithTimestamp("device2", "hashrate", 100.0, baseTime.Add(5*time.Minute)),
-		createTestTelemetryWithTimestamp("device2", "hashrate", 105.0, baseTime.Add(15*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("device2", models.MeasurementTypeTemperature, 26.0, baseTime.Add(20*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("device2", models.MeasurementTypeHashrate, 100.0, baseTime.Add(5*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("device2", models.MeasurementTypeHashrate, 105.0, baseTime.Add(15*time.Minute)),
 
 		// out of range data
-		createTestTelemetryWithTimestamp("device1", "hashrate", 100.0, baseTime.Add(-6*time.Minute)),
-		createTestTelemetryWithTimestamp("device1", "hashrate", 105.0, baseTime.Add(31*time.Minute)),
-		createTestTelemetryWithTimestamp("device1", "temperature", 25.5, baseTime.Add(-7*time.Minute)),
-		createTestTelemetryWithTimestamp("device1", "temperature", 26.0, baseTime.Add(30*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("device1", models.MeasurementTypeHashrate, 100.0, baseTime.Add(-6*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("device1", models.MeasurementTypeHashrate, 105.0, baseTime.Add(31*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("device1", models.MeasurementTypeTemperature, 25.5, baseTime.Add(-7*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("device1", models.MeasurementTypeTemperature, 26.0, baseTime.Add(30*time.Minute)),
 	}
 
 	storeTestDataWithErrorHandling(ctx, t, store, testData, "time series data")
@@ -344,17 +403,19 @@ func TestInfluxTelemetryStore_GetTimeSeriesTelemetry(t *testing.T) {
 }
 
 func TestInfluxTelemetryStore_GetTelemetryMetadata(t *testing.T) {
+	t.Parallel()
+
 	store, container, ctx := setupIntegrationTest(t)
 	defer cleanupIntegrationTest(t, store, container)
 
 	// Create test data with metadata tags
 	baseTime := time.Now().Add(-30 * time.Minute)
 	testData := []models.Telemetry{
-		createTestTelemetryWithMetadata("device1", "temperature", 25.5, "miner", "datacenter1", baseTime.Add(-20*time.Minute)),
-		createTestTelemetryWithMetadata("device1", "hashrate", 100.0, "miner", "datacenter1", baseTime.Add(-10*time.Minute)),
-		createTestTelemetryWithMetadata("device2", "temperature", 30.2, "controller", "datacenter2", baseTime),
-		createTestTelemetryWithMetadata("device3", "temperature", 18.2, "controller", "datacenter2", baseTime),
-		createTestTelemetryWithMetadata("device3", "power", 18.2, "controller", "datacenter2", baseTime),
+		createTestTelemetryByTypeWithMetadata("device1", models.MeasurementTypeTemperature, 25.5, "miner", "datacenter1", baseTime.Add(-20*time.Minute)),
+		createTestTelemetryByTypeWithMetadata("device1", models.MeasurementTypeHashrate, 100.0, "miner", "datacenter1", baseTime.Add(-10*time.Minute)),
+		createTestTelemetryByTypeWithMetadata("device2", models.MeasurementTypeTemperature, 30.2, "controller", "datacenter2", baseTime),
+		createTestTelemetryByTypeWithMetadata("device3", models.MeasurementTypeTemperature, 18.2, "controller", "datacenter2", baseTime),
+		createTestTelemetryByTypeWithMetadata("device3", models.MeasurementTypePower, 18.2, "controller", "datacenter2", baseTime),
 	}
 
 	storeTestDataWithErrorHandling(ctx, t, store, testData, "telemetry with metadata")
@@ -384,6 +445,8 @@ func TestInfluxTelemetryStore_GetTelemetryMetadata(t *testing.T) {
 }
 
 func TestInfluxTelemetryStore_StreamTelemetryUpdates(t *testing.T) {
+	t.Parallel()
+
 	store, container, ctx := setupIntegrationTest(t)
 	defer cleanupIntegrationTest(t, store, container)
 
@@ -392,8 +455,8 @@ func TestInfluxTelemetryStore_StreamTelemetryUpdates(t *testing.T) {
 
 	// Create initial telemetry data to ensure the table is created.
 	data := []models.Telemetry{
-		createTestTelemetry("not-the-device-you-are-looking-for", "temperature", 1000.5),
-		createTestTelemetry("not-the-device-you-are-looking-for", "power", 20.0),
+		createTestTelemetryByType("not-the-device-you-are-looking-for", models.MeasurementTypeTemperature, 1000.5),
+		createTestTelemetryByType("not-the-device-you-are-looking-for", models.MeasurementTypePower, 20.0),
 	}
 	err := store.Store(testCtx, data...)
 	require.NoError(t, err, "Should successfully store initial telemetry data")
@@ -415,7 +478,7 @@ func TestInfluxTelemetryStore_StreamTelemetryUpdates(t *testing.T) {
 	// Store data in a goroutine after a short delay to simulate real-world scenario
 	go func() {
 		time.Sleep(300 * time.Millisecond) // Give stream time to start polling
-		testData := createTestTelemetry("stream-device1", "temperature", 25.5)
+		testData := createTestTelemetryByType("stream-device1", models.MeasurementTypeTemperature, 25.5)
 		err := store.Store(ctx, testData)
 		if err != nil {
 			t.Logf("Failed to store test data: %v", err)
@@ -454,7 +517,7 @@ func TestInfluxTelemetryStore_StreamTelemetryUpdates(t *testing.T) {
 
 				// Check if this is our expected data
 				if update.DeviceID == "stream-device1" && update.Data != nil {
-					if update.Data.Measurement == "temperature" {
+					if update.Data.Measurement == models.MeasurementTypeTemperature.InfluxMeasurementName() {
 						if valueField, exists := update.Data.Fields["value"]; exists {
 							if value, ok := valueField.(float64); ok && value == 25.5 {
 								foundExpectedData = true
@@ -490,6 +553,8 @@ func TestInfluxTelemetryStore_StreamTelemetryUpdates(t *testing.T) {
 }
 
 func TestInfluxTelemetryStore_GetAggregatedTelemetry(t *testing.T) {
+	t.Parallel()
+
 	store, container, ctx := setupIntegrationTest(t)
 	t.Cleanup(func() {
 		cleanupIntegrationTest(t, store, container)
@@ -498,18 +563,18 @@ func TestInfluxTelemetryStore_GetAggregatedTelemetry(t *testing.T) {
 	// Create test data for aggregation
 	baseTime := time.Now().Add(-1 * time.Hour)
 	testData := []models.Telemetry{
-		createTestTelemetryWithTimestamp("agg-device1", "temperature", 25.0, baseTime.Add(-30*time.Minute)),
-		createTestTelemetryWithTimestamp("agg-device1", "temperature", 26.0, baseTime.Add(-20*time.Minute)),
-		createTestTelemetryWithTimestamp("agg-device1", "temperature", 27.0, baseTime.Add(-10*time.Minute)),
-		createTestTelemetryWithTimestamp("agg-device2", "temperature", 30.0, baseTime.Add(-25*time.Minute)),
-		createTestTelemetryWithTimestamp("agg-device2", "temperature", 32.0, baseTime.Add(-15*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("agg-device1", models.MeasurementTypeTemperature, 25.0, baseTime.Add(-30*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("agg-device1", models.MeasurementTypeTemperature, 26.0, baseTime.Add(-20*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("agg-device1", models.MeasurementTypeTemperature, 27.0, baseTime.Add(-10*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("agg-device2", models.MeasurementTypeTemperature, 30.0, baseTime.Add(-25*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("agg-device2", models.MeasurementTypeTemperature, 32.0, baseTime.Add(-15*time.Minute)),
 
-		createTestTelemetryWithTimestamp("agg-device1", "hashrate", 1000.0, baseTime.Add(-10*time.Minute)),
-		createTestTelemetryWithTimestamp("agg-device1", "temperature", 99.0, baseTime.Add(-41*time.Minute)),
-		createTestTelemetryWithTimestamp("agg-device2", "temperature", 30.0, baseTime.Add(-25*time.Minute)),
-		createTestTelemetryWithTimestamp("agg-device2", "temperature", 32.0, baseTime.Add(-15*time.Minute)),
-		createTestTelemetryWithTimestamp("agg-device3", "temperature", 33.0, baseTime.Add(-25*time.Minute)),
-		createTestTelemetryWithTimestamp("agg-device3", "temperature", 99.0, baseTime.Add(-15*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("agg-device1", models.MeasurementTypeHashrate, 1000.0, baseTime.Add(-10*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("agg-device1", models.MeasurementTypeTemperature, 99.0, baseTime.Add(-41*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("agg-device2", models.MeasurementTypeTemperature, 30.0, baseTime.Add(-25*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("agg-device2", models.MeasurementTypeTemperature, 32.0, baseTime.Add(-15*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("agg-device3", models.MeasurementTypeTemperature, 33.0, baseTime.Add(-25*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp("agg-device3", models.MeasurementTypeTemperature, 99.0, baseTime.Add(-15*time.Minute)),
 	}
 
 	// Store the test data
@@ -534,6 +599,7 @@ func TestInfluxTelemetryStore_GetAggregatedTelemetry(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
 			startTime := baseTime.Add(-40 * time.Minute)
 			endTime := baseTime
 
@@ -572,6 +638,8 @@ func TestInfluxTelemetryStore_GetAggregatedTelemetry(t *testing.T) {
 }
 
 func TestInfluxTelemetryStore_Close(t *testing.T) {
+	t.Parallel()
+
 	store, container, _ := setupIntegrationTest(t)
 	// Note: Don't use cleanupIntegrationTest here since we want to test Close() explicitly
 	defer func() {

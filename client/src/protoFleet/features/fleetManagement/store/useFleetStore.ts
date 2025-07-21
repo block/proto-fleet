@@ -2,6 +2,7 @@ import { create as createSchema } from "@bufbuild/protobuf";
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
+import { MeasurementSchema } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import {
   type ComponentStatusUpdate,
   ComponentStatusUpdate_Component,
@@ -12,6 +13,10 @@ import {
   MinerStateCountsSchema,
   type MinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  MeasurementType,
+  type TelemetryUpdate,
+} from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 
 interface FleetState {
   // Core data
@@ -35,6 +40,10 @@ interface FleetState {
     deviceId: string,
     measurement: MeasurementUpdate,
   ) => void;
+  updateMinerTelemetry: (
+    deviceId: string,
+    telemetryUpdate: TelemetryUpdate,
+  ) => void;
   updateMinerStatus: (deviceId: string, status: ComponentStatusUpdate) => void;
   updateMinerTimestamp: (deviceId: string, timestamp: any) => void;
   setLoading: (loading: boolean) => void;
@@ -45,6 +54,7 @@ interface FleetState {
   getMinersArray: () => MinerStateSnapshot[];
 }
 
+// TODO(briano): Remove this once telemetry updates are fully integrated. see updateTelemetryMeasurement.
 function updateMeasurement(
   measurementUpdate: MeasurementUpdate,
   miner: MinerStateSnapshot,
@@ -59,6 +69,43 @@ function updateMeasurement(
     [MeasurementConfig_MeasurementType.POWER_USAGE]: "powerUsage",
     [MeasurementConfig_MeasurementType.TEMPERATURE]: "temperature",
     [MeasurementConfig_MeasurementType.EFFICIENCY]: "efficiency",
+  } as const;
+
+  const propertyName =
+    measurementTypeToProperty[type as keyof typeof measurementTypeToProperty];
+
+  if (propertyName) {
+    const currentValues = miner[propertyName];
+
+    if (currentValues && currentValues.length > 0) {
+      miner[propertyName] = [measurement, ...currentValues.slice(0, -1)];
+    } else {
+      miner[propertyName] = [measurement];
+    }
+  }
+}
+
+function updateTelemetryMeasurement(
+  telemetryUpdate: TelemetryUpdate,
+  miner: MinerStateSnapshot,
+): void {
+  if (!telemetryUpdate.data) return;
+
+  const type = telemetryUpdate.data.measurementType;
+  const telemetryData = telemetryUpdate.data;
+
+  // Convert telemetry data to measurement format using proper protobuf creation
+  const measurement = createSchema(MeasurementSchema, {
+    value: telemetryData.value,
+    unit: telemetryData.unit,
+    timestamp: telemetryData.timestamp,
+  });
+
+  const measurementTypeToProperty = {
+    [MeasurementType.HASHRATE]: "hashrate",
+    [MeasurementType.POWER]: "powerUsage",
+    [MeasurementType.TEMPERATURE]: "temperature",
+    [MeasurementType.EFFICIENCY]: "efficiency",
   } as const;
 
   const propertyName =
@@ -154,6 +201,14 @@ export const useFleetStore = create<FleetState>()(
           const miner = state.miners[deviceId];
           if (miner) {
             updateMeasurement(measurementUpdate, miner);
+          }
+        }),
+
+      updateMinerTelemetry: (deviceId, telemetryUpdate) =>
+        set((state) => {
+          const miner = state.miners[deviceId];
+          if (miner) {
+            updateTelemetryMeasurement(telemetryUpdate, miner);
           }
         }),
 

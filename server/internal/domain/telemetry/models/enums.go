@@ -43,6 +43,35 @@ func (m MeasurementType) String() string {
 	}
 }
 
+// InfluxMeasurementName returns the actual InfluxDB table/measurement name
+// This maps domain model measurement types to the actual table names used in InfluxDB
+func (m MeasurementType) InfluxMeasurementName() string {
+	switch m {
+	case MeasurementTypeUnknown:
+		return "unknown"
+	case MeasurementTypeTemperature:
+		return "temperature_c"
+	case MeasurementTypeHashrate:
+		return "hashrate_mhs"
+	case MeasurementTypePower:
+		return "power_w"
+	case MeasurementTypeEfficiency:
+		return "efficiency_jth"
+	case MeasurementTypeFanSpeed:
+		return "fan_rpm"
+	case MeasurementTypeVoltage:
+		return "voltage_mv"
+	case MeasurementTypeCurrent:
+		return "current_ma"
+	case MeasurementTypeUptime:
+		return "uptime"
+	case MeasurementTypeErrorRate:
+		return "error_rate"
+	default:
+		return "unknown"
+	}
+}
+
 type AggregationType int
 
 // AggregationType constants define the types of aggregations

@@ -145,7 +145,7 @@ func (s *InfluxTelemetryStore) GetLatestTelemetry(ctx context.Context, query mod
 	totalSuccessCount := 0
 
 	for _, measurementType := range query.MeasurementTypes {
-		measurementName := measurementType.String()
+		measurementName := measurementType.InfluxMeasurementName()
 
 		deviceIDsStr := s.buildDeviceIDsString(query.DeviceIDs)
 
@@ -225,7 +225,7 @@ func (s *InfluxTelemetryStore) GetTimeSeriesTelemetry(ctx context.Context, query
 	totalSuccessCount := 0
 
 	for _, measurementType := range query.MeasurementTypes {
-		measurementName := measurementType.String()
+		measurementName := measurementType.InfluxMeasurementName()
 
 		deviceIDsStr := s.buildDeviceIDsString(query.DeviceIDs)
 
@@ -312,7 +312,7 @@ func (s *InfluxTelemetryStore) GetTelemetryMetadata(ctx context.Context, query m
 	deviceMetadataMap := make(map[models.DeviceIdentifier]*models.DeviceMetadata)
 
 	for _, measurementType := range measurementTypes {
-		measurementName := measurementType.String()
+		measurementName := measurementType.InfluxMeasurementName()
 
 		deviceIDsStr := s.buildDeviceIDsString(query.DeviceIDs)
 
@@ -439,7 +439,7 @@ func (s *InfluxTelemetryStore) StreamTelemetryUpdates(ctx context.Context, query
 				hasNewData := false
 
 				for _, measurementType := range query.MeasurementTypes {
-					measurementName := measurementType.String()
+					measurementName := measurementType.InfluxMeasurementName()
 
 					deviceIDsStr := s.buildDeviceIDsString(query.DeviceIDs)
 
@@ -520,7 +520,7 @@ func (s *InfluxTelemetryStore) GetAggregatedTelemetry(ctx context.Context, query
 	totalSuccessCount := 0
 
 	for _, measurementType := range query.MeasurementTypes {
-		measurementName := measurementType.String()
+		measurementName := measurementType.InfluxMeasurementName()
 		aggFunc := getAggregationFunction(query.AggregationType)
 
 		deviceIDsStr := s.buildDeviceIDsString(query.DeviceIDs)
