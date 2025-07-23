@@ -2,7 +2,7 @@ name: miner-sim
 
 services:
   miner-sim:
-    container_name: "miner-sim"
+    container_name: ${MINER_NAME}
     image: ${IMAGE}
     restart: unless-stopped
     expose:
