@@ -36,9 +36,9 @@ const PartialCheckmark = ({
             width="71.9971"
             height="66"
             filterUnits="userSpaceOnUse"
-            color-interpolation-filters="sRGB"
+            colorInterpolationFilters="sRGB"
           >
-            <feFlood flood-opacity="0" result="BackgroundImageFix" />
+            <feFlood floodOpacity="0" result="BackgroundImageFix" />
             <feColorMatrix
               in="SourceAlpha"
               type="matrix"
@@ -126,7 +126,7 @@ const PartialCheckmark = ({
             y2="11"
             gradientUnits="userSpaceOnUse"
           >
-            <stop stop-opacity="0" />
+            <stop stopOpacity="0" />
             <stop offset="1" />
           </linearGradient>
         </defs>

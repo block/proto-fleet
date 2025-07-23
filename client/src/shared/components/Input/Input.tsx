@@ -22,7 +22,8 @@ interface InputProps {
   className?: string;
   disabled?: boolean;
   dismiss?: boolean;
-  error?: string;
+  // Error message is optional in error state
+  error?: boolean | string;
   hideLabelOnFocus?: boolean;
   id: string;
   initValue?: string | number;
@@ -54,7 +55,7 @@ const Input = ({
   className,
   dismiss,
   disabled,
-  error,
+  error = false,
   hideLabelOnFocus,
   id,
   initValue = "",
@@ -84,6 +85,10 @@ const Input = ({
   useEffect(() => {
     setValue(initValue);
   }, [initValue]);
+
+  useEffect(() => {
+    setInputType(type);
+  }, [type]);
 
   useEffect(() => {
     if (error) {
@@ -183,84 +188,87 @@ const Input = ({
             {units}
           </span>
         )}
-      </div>
-      <label
-        htmlFor={id}
-        className={clsx(
-          "absolute text-text-primary-50",
-          { "cursor-text": !disabled },
-          { "text-300": !(length(value) || focused) },
-          { "left-0": compact },
-          { "left-[17px]": !compact },
-          { "top-[18px]": !(length(value) || focused) && !compact },
-          { "top-0": !(length(value) || focused) && compact },
-          { "top-[7px] text-200": length(value) || focused },
-          {
-            "duration-150ms transition-[top] ease-in-out peer-focus:top-[7px] peer-focus:text-200":
-              !hideLabelOnFocus,
-          },
-          { "peer-focus:invisible": hideLabelOnFocus },
-          { invisible: hideLabelOnFocus && (length(value) || focused) },
-        )}
-      >
-        {label}
-      </label>
-      {tooltip && (
-        <div className="absolute top-7 right-4 -translate-y-1/2 transform">
-          <Tooltip
-            header={tooltip.header}
-            body={tooltip.body}
-            position={positions["top left"]}
-          />
-        </div>
-      )}
-      {dismiss && length(value) && !compact ? (
-        <div
-          className={clsx("absolute right-4", {
-            "top-1": compact,
-            "top-7 -translate-y-1/2 transform": !compact,
-          })}
-        >
-          <DismissCircle
-            onClick={handleChange}
-            className="hover:cursor-pointer"
-            opacity="0.7"
-          />
-        </div>
-      ) : undefined}
-      {keyboardShortcuts && !length(value) ? (
-        <div className="absolute top-7 right-4 flex -translate-y-1/2 transform space-x-[2px] rounded-sm bg-core-primary-5 px-2 text-300 font-semibold text-text-primary-30 shadow-100">
-          {keyboardShortcuts.map((shortcut, index) => (
-            <Fragment key={index}>{shortcut}</Fragment>
-          ))}
-        </div>
-      ) : undefined}
-      {(type === "password" || statusIcon !== undefined) && (
-        <div
-          className={clsx("absolute", {
-            "top-1": compact,
-            "top-7 -translate-y-1/2 transform": !compact,
-            "right-4": !tooltip,
-            "right-12": tooltip,
-          })}
-        >
-          {statusIcon ? (
-            statusIcon
-          ) : (
-            <Eye
-              onClick={togglePasswordVisibility}
-              className="hover:cursor-pointer"
-              testId="eye-icon"
-            />
+        <label
+          htmlFor={id}
+          className={clsx(
+            "absolute text-text-primary-50",
+            { "cursor-text": !disabled },
+            { "text-300": !(length(value) || focused) },
+            { "left-0": compact },
+            { "left-[17px]": !compact },
+            {
+              "top-1/2 -translate-y-1/2":
+                !(length(value) || focused) && !compact,
+            },
+            { "top-0": !(length(value) || focused) && compact },
+            { "top-[7px] text-200": length(value) || focused },
+            {
+              "duration-150ms transition-[top] ease-in-out peer-focus:top-[7px] peer-focus:text-200":
+                !hideLabelOnFocus,
+            },
+            { "peer-focus:invisible": hideLabelOnFocus },
+            { invisible: hideLabelOnFocus && (length(value) || focused) },
           )}
-        </div>
-      )}
+        >
+          {label}
+        </label>
+        {tooltip && (
+          <div className="absolute top-7 right-4 -translate-y-1/2 transform">
+            <Tooltip
+              header={tooltip.header}
+              body={tooltip.body}
+              position={positions["top left"]}
+            />
+          </div>
+        )}
+        {dismiss && length(value) && !compact ? (
+          <div
+            className={clsx("absolute right-4", {
+              "top-1": compact,
+              "top-7 -translate-y-1/2 transform": !compact,
+            })}
+          >
+            <DismissCircle
+              onClick={handleChange}
+              className="hover:cursor-pointer"
+              opacity="0.7"
+            />
+          </div>
+        ) : undefined}
+        {keyboardShortcuts && !length(value) ? (
+          <div className="absolute top-7 right-4 flex -translate-y-1/2 transform space-x-[2px] rounded-sm bg-core-primary-5 px-2 text-300 font-semibold text-text-primary-30 shadow-100">
+            {keyboardShortcuts.map((shortcut, index) => (
+              <Fragment key={index}>{shortcut}</Fragment>
+            ))}
+          </div>
+        ) : undefined}
+        {(type === "password" || statusIcon !== undefined) && (
+          <div
+            className={clsx("absolute", {
+              "top-1": compact,
+              "top-1/2 -translate-y-1/2 transform": !compact,
+              "right-4": !tooltip,
+              "right-12": tooltip,
+            })}
+          >
+            {statusIcon ? (
+              statusIcon
+            ) : (
+              <Eye
+                onClick={togglePasswordVisibility}
+                className="hover:cursor-pointer"
+                testId="eye-icon"
+              />
+            )}
+          </div>
+        )}
+      </div>
       <div
         className={clsx(
           "text-200 text-intent-critical-fill",
           "transition-[opacity,max-height,margin-top] duration-200 ease-in-out",
-          { "max-h-0 opacity-0": !error },
-          { "mt-2 max-h-10 opacity-100": error },
+          { "max-h-0 opacity-0": !error || error === true },
+          { "mt-2 max-h-10 opacity-100": error && error !== true },
         )}
       >
         <div className="flex items-center space-x-1">

@@ -2,6 +2,7 @@ import { create as createSchema } from "@bufbuild/protobuf";
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
+import { useShallow } from "zustand/react/shallow";
 import { MeasurementSchema } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import {
   type ComponentStatusUpdate,
@@ -264,7 +265,7 @@ export const useMinerStateCounts = () =>
   useFleetStore((state) => state.minerStateCounts);
 
 export const useFleetMiners = () =>
-  useFleetStore((state) => state.getMinersArray());
+  useFleetStore(useShallow((state) => state.getMinersArray()));
 
 export const useIsLoading = () => useFleetStore((state) => state.isLoading);
 

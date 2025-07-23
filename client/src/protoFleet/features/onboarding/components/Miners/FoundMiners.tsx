@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import clsx from "clsx";
 import type { MinerWithModel } from "./types";
 import { type Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
@@ -89,9 +89,8 @@ const FoundMiners = ({
       <div className="rounded-3xl border-1 border-core-primary-5 p-6">
         <div>
           {Object.values(minersByModel).map((model, index) => (
-            <>
+            <Fragment key={index}>
               <Row
-                key={index}
                 divider={false}
                 className="flex items-center justify-between"
               >
@@ -126,7 +125,7 @@ const FoundMiners = ({
                 </div>
               </Row>
               {Object.values(minersByModel).length > index + 1 && <Divider />}
-            </>
+            </Fragment>
           ))}
         </div>
       </div>

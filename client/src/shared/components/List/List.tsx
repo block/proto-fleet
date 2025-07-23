@@ -27,6 +27,7 @@ type ListProps<ListItem, ItemKeyValueType> = {
   filterItem?: (item: ListItem, filters: ActiveFilters) => boolean;
   onServerFilter?: (filters: ActiveFilters) => Promise<void>;
   filterSize?: keyof typeof sizes;
+  headerControls?: ReactNode;
   items: ListItem[];
   itemKey: keyof ListItem;
   itemSelectable?: boolean;
@@ -46,7 +47,8 @@ const cellClassList = "text-left pl-2";
 const rowClassList = "border-b border-border-5";
 const thClassList = cellClassList + " py-3 text-emphasis-300 text-text-primary";
 const baseStickyClassList = "sticky z-1 bg-surface-base";
-const tdClassList = cellClassList + " py-4 text-300";
+const tdClassList = "text-left text-300";
+const tdPaddingClassList = "px-2 py-4";
 // use after element for shadow
 const columnShadowClassList =
   "after:content-[''] after:absolute after:top-0 after:right-[-6px] after:bottom-[-1px] after:w-[9px] after:bg-[linear-gradient(90deg,rgba(0,0,0,0.06)0%,rgba(0,0,0,0)100%)]";
@@ -59,6 +61,7 @@ const List = <ListItem, ItemKeyValueType>({
   filterItem,
   onServerFilter,
   filterSize = sizes.compact,
+  headerControls,
   initialSelectedItems = [],
   customSetSelectedItems,
   customSelectedItems,
@@ -221,6 +224,7 @@ const List = <ListItem, ItemKeyValueType>({
           isServerSideFiltering ? handleServerFiltering : handleClientFiltering
         }
         isServerSide={isServerSideFiltering}
+        headerControls={headerControls}
       />
       <div className={clsx(bodyClasses)} style={paddingCssVariables}>
         {!noDataElement || (items && items.length > 0) ? (
@@ -302,7 +306,12 @@ const List = <ListItem, ItemKeyValueType>({
                         className={clsx(tdClassList, firstStickyClasses)}
                         style={paddingCssVariables}
                       >
-                        <div className="w-9 truncate overflow-hidden">
+                        <div
+                          className={clsx(
+                            "w-9 truncate overflow-hidden",
+                            tdPaddingClassList,
+                          )}
+                        >
                           <Checkbox
                             checked={
                               customSelectedItems?.includes(
@@ -341,6 +350,7 @@ const List = <ListItem, ItemKeyValueType>({
                         <div
                           className={clsx(
                             "truncate overflow-hidden",
+                            tdPaddingClassList,
                             colConfig[row]?.width,
                             {
                               "text-core-primary-50": disabled,
@@ -355,7 +365,12 @@ const List = <ListItem, ItemKeyValueType>({
                     ))}
                     {actions.length == 1 ? (
                       <td className={tdClassList}>
-                        <div className="flex justify-end">
+                        <div
+                          className={clsx(
+                            "flex justify-end",
+                            tdPaddingClassList,
+                          )}
+                        >
                           <Button
                             variant={variants.secondary}
                             size={sizes.compact}
@@ -366,7 +381,7 @@ const List = <ListItem, ItemKeyValueType>({
                       </td>
                     ) : actions.length > 1 ? (
                       <td className={tdClassList}>
-                        <div className="w-11">
+                        <div className={clsx("w-11", tdPaddingClassList)}>
                           <PopoverProvider>
                             <ListActions<ListItem>
                               item={item}

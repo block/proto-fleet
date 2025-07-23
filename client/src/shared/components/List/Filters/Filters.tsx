@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import clsx from "clsx";
 
 import { PopoverProvider } from "../../Popover";
@@ -18,6 +18,7 @@ type FilterProps<ItemType> = {
   items: ItemType[];
   onFilter: (activeFilters: ActiveFilters) => void | Promise<void>;
   isServerSide?: boolean;
+  headerControls?: ReactNode;
 };
 
 const Filters = <ItemType,>({
@@ -27,6 +28,7 @@ const Filters = <ItemType,>({
   items,
   onFilter,
   isServerSide = false,
+  headerControls,
 }: FilterProps<ItemType>) => {
   const [activeFilters, setActiveFilters] = useState<ActiveFilters>({
     buttonFilters: [defaultListFilter],
@@ -182,6 +184,7 @@ const Filters = <ItemType,>({
         }
         return null;
       })}
+      {headerControls && <div className="mr-6 ml-auto">{headerControls}</div>}
     </div>
   );
 };

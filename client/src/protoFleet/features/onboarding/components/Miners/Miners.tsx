@@ -281,8 +281,11 @@ const Miners = ({
                       className="mb-6"
                     />
                     <div className="flex flex-col gap-5">
-                      {Array.from({ length: 3 }).map(() => (
-                        <div className="flex items-center justify-between">
+                      {Array.from({ length: 3 }).map((_, index) => (
+                        <div
+                          key={index}
+                          className="flex items-center justify-between"
+                        >
                           <div className="flex items-center gap-4">
                             <div className="size-5 animate-pulse rounded-full bg-core-primary-20"></div>
                             <div className="flex flex-col gap-3">

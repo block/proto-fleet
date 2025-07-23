@@ -79,7 +79,7 @@ const Modal = ({
     (button?: ModalButtonProps) => () => {
       if (
         button?.variant === variants.primary &&
-        button?.dismissModalOnClick !== true
+        button?.dismissModalOnClick !== false
       ) {
         closeModal(true);
       }
@@ -106,12 +106,14 @@ const Modal = ({
         className={clsx(
           "h-fit rounded-3xl bg-surface-elevated-base p-6 shadow-300",
           {
-            "w-160": size === "large",
-            "w-90": size === "small",
+            "w-256": size === sizes.extraLarge,
+            "w-160": size === sizes.large,
+            "w-90": size === sizes.small,
             "animate-sliding-up": showModal,
             "animate-sliding-down": !showModal,
-            "max-w-[640px]": size === "small",
-            "max-w-[1024px]": size === "large",
+            "max-w-[640px]": size === sizes.small,
+            "max-w-[1024px]": size === sizes.large,
+            "max-w-[1280px]": size === sizes.extraLarge,
             "h-full w-full max-w-full overflow-y-auto rounded-none":
               size === sizes.fullscreen,
           },

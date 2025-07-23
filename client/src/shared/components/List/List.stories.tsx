@@ -10,6 +10,7 @@ import {
   TestItem,
   testItems,
 } from "@/shared/components/List/mocks/data";
+import Switch from "@/shared/components/Switch";
 
 interface ListArgs {
   numberOfItems: number;
@@ -88,6 +89,7 @@ export const List = ({
       colConfig={testColConfig}
       filters={testFilters}
       filterItem={filterItem}
+      headerControls={<Switch label="Show passwords" />}
       items={[...testItems, ...testItems, ...testItems, ...testItems].slice(
         0,
         numberOfItems,

@@ -1,8 +1,7 @@
 import { Dispatch, SetStateAction, useCallback, useMemo } from "react";
 import type { MinerWithSelected, MinerWithSelectedAndAction } from "./types";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
-import Button, { sizes, variants } from "@/shared/components/Button";
-import Divider from "@/shared/components/Divider";
+import { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 
 import List from "@/shared/components/List";
@@ -10,7 +9,7 @@ import {
   ActiveFilters,
   DropdownFilterItem,
 } from "@/shared/components/List/Filters/types";
-import Modal from "@/shared/components/Modal";
+import Modal, { ModalSelectAllFooter } from "@/shared/components/Modal";
 
 const activeCols = [
   "model",
@@ -148,25 +147,13 @@ const FoundMinersModal = ({
           containerClassName="max-h-[50vh]"
         />
       </div>
-      <Divider className="-mx-6 mt-2 !w-[calc(100%+3rem)]" />
-      <div className="flex items-center justify-between pt-5">
-        <div className="text-emphasis-300">
-          {selectedMiners.length} miners selected
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            onClick={() =>
-              setSelectedMiners(miners.map((miner) => miner.deviceIdentifier))
-            }
-            variant="textOnly"
-          >
-            Select all
-          </Button>
-          <Button onClick={() => setSelectedMiners([])} variant="textOnly">
-            Select none
-          </Button>
-        </div>
-      </div>
+      <ModalSelectAllFooter
+        label={selectedMiners.length + " miners selected"}
+        onSelectAll={() =>
+          setSelectedMiners(miners.map((miner) => miner.deviceIdentifier))
+        }
+        onSelectNone={() => setSelectedMiners([])}
+      />
     </Modal>
   );
 };
