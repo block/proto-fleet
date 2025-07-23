@@ -6,6 +6,7 @@ type AuthContextType = {
   setAuthTokens: (tokens: AuthTokens) => void;
   username: string;
   setUsername: (username: string) => void;
+  loading: boolean;
 };
 
 export const AuthContext = createContext<AuthContextType>({
@@ -19,4 +20,5 @@ export const AuthContext = createContext<AuthContextType>({
   setUsername: (username: string) => {
     void username;
   },
+  loading: true,
 });

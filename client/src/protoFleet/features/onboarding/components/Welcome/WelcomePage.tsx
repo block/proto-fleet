@@ -1,15 +1,21 @@
 import { ReactNode, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 import { AuthenticateRequestSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { CreateAdminLoginRequestSchema } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
 import { useLogin } from "@/protoFleet/api/useLogin";
 import { usePassword } from "@/protoFleet/api/usePassword";
-import { Logo, LogoAlt, Plus } from "@/shared/assets/icons";
+import { Logo, Plus } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import AnimatedDotsBackground from "@/shared/components/Animation";
 import Button, { variants } from "@/shared/components/Button";
 import { Authentication } from "@/shared/components/Setup";
+import { Splash } from "@/shared/components/Splash";
+import {
+  pushToast,
+  STATUSES as TOAST_STATUSES,
+} from "@/shared/features/toaster";
 
 const WELCOME_SCREEN_TIMEOUT = 3000; // how long the welcome screen should be visible for
 
@@ -62,26 +68,24 @@ const WelcomePage = () => {
           },
         });
       },
+      onError: (error: unknown) => {
+        if (error instanceof ConnectError) {
+          if (error.code === Code.AlreadyExists) {
+            navigate("/auth");
+            pushToast({
+              message: "Proto Fleet instance already onboarded. Please login.",
+              status: TOAST_STATUSES.error,
+            });
+          }
+        }
+      },
     });
   };
 
   return (
     <>
       {showWelcome ? (
-        <div className="flex h-screen w-full flex-col items-center justify-between bg-landing-page">
-          <div className="h-1/4" />
-          <div className="min-w-120 phone:min-w-80 tablet:min-w-80">
-            <WelcomePanel>
-              <div className="mx-10 my-13 flex flex-col items-center text-display-200">
-                <LogoAlt width="w-16" />
-                <div className="mt-6 text-display-300">Proto Fleet</div>
-              </div>
-            </WelcomePanel>
-          </div>
-          <div className="h-1/4">
-            <AnimatedDotsBackground padding={0} />
-          </div>
-        </div>
+        <Splash />
       ) : (
         <div className="flex h-screen flex-1 bg-surface-base">
           <div className="flex h-screen w-1/2 phone:w-full tablet:w-full">

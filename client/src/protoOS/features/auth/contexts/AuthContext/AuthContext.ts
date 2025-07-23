@@ -21,4 +21,8 @@ export const AuthContext = createContext({
   setDismissedLoginModal: (dismissed: boolean) => {
     void dismissed;
   },
+  loading: true,
+  setLoading: (loading: boolean) => {
+    void loading;
+  },
 });

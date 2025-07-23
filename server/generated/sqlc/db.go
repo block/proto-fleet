@@ -159,6 +159,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getUsersForOrganizationStmt, err = db.PrepareContext(ctx, getUsersForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUsersForOrganization: %w", err)
 	}
+	if q.hasUserStmt, err = db.PrepareContext(ctx, hasUser); err != nil {
+		return nil, fmt.Errorf("error preparing query HasUser: %w", err)
+	}
 	if q.isBatchFinishedStmt, err = db.PrepareContext(ctx, isBatchFinished); err != nil {
 		return nil, fmt.Errorf("error preparing query IsBatchFinished: %w", err)
 	}
@@ -482,6 +485,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getUsersForOrganizationStmt: %w", cerr)
 		}
 	}
+	if q.hasUserStmt != nil {
+		if cerr := q.hasUserStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hasUserStmt: %w", cerr)
+		}
+	}
 	if q.isBatchFinishedStmt != nil {
 		if cerr := q.isBatchFinishedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing isBatchFinishedStmt: %w", cerr)
@@ -721,6 +729,7 @@ type Queries struct {
 	getUserByUsernameStmt                               *sql.Stmt
 	getUserRoleInOrganizationStmt                       *sql.Stmt
 	getUsersForOrganizationStmt                         *sql.Stmt
+	hasUserStmt                                         *sql.Stmt
 	isBatchFinishedStmt                                 *sql.Stmt
 	isBatchProcessingStmt                               *sql.Stmt
 	listOrganizationsStmt                               *sql.Stmt
@@ -803,6 +812,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getUserByUsernameStmt:                               q.getUserByUsernameStmt,
 		getUserRoleInOrganizationStmt:                       q.getUserRoleInOrganizationStmt,
 		getUsersForOrganizationStmt:                         q.getUsersForOrganizationStmt,
+		hasUserStmt:                                         q.hasUserStmt,
 		isBatchFinishedStmt:                                 q.isBatchFinishedStmt,
 		isBatchProcessingStmt:                               q.isBatchProcessingStmt,
 		listOrganizationsStmt:                               q.listOrganizationsStmt,

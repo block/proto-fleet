@@ -109,8 +109,17 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 		return nil, fleeterror.NewInternalErrorf("error encrypting miner auth private key: %v", err)
 	}
 
-	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		return s.userStore.CreateAdminUserWithOrganization(
+	created, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
+		hasUser, err := s.userStore.HasUser(ctx)
+		if err != nil {
+			return false, err
+		}
+
+		if hasUser {
+			return false, nil
+		}
+
+		err = s.userStore.CreateAdminUserWithOrganization(
 			ctx,
 			externalUserID,
 			req.Username,
@@ -121,10 +130,21 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 			AdminRoleName,
 			"Super admin role",
 		)
+		userCreated := err == nil
+		return userCreated, err
 	})
 
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error creating admin user: %v", err)
+		return nil, err
+	}
+
+	createdBool, ok := created.(bool)
+	if !ok {
+		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", created)
+	}
+
+	if !createdBool {
+		return nil, fleeterror.NewPlainError("fleet already onboarded", connect.CodeAlreadyExists)
 	}
 
 	return &onboardingv1.CreateAdminLoginResponse{

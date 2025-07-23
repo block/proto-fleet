@@ -141,3 +141,7 @@ func (s *SQLUserStore) CreateAdminUserWithOrganization(ctx context.Context, user
 		OrganizationID: orgInternalID,
 	})
 }
+
+func (s *SQLUserStore) HasUser(ctx context.Context) (bool, error) {
+	return s.getQueries(ctx).HasUser(ctx)
+}

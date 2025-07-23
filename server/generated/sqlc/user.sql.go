@@ -74,6 +74,18 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 	return i, err
 }
 
+const hasUser = `-- name: HasUser :one
+SELECT COUNT(*) > 0
+FROM user
+`
+
+func (q *Queries) HasUser(ctx context.Context) (bool, error) {
+	row := q.queryRow(ctx, q.hasUserStmt, hasUser)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const updateUserPassword = `-- name: UpdateUserPassword :exec
 UPDATE user
 SET password_hash = ?,

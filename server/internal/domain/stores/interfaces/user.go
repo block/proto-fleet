@@ -10,9 +10,9 @@ type UserStore interface {
 	GetUserByID(ctx context.Context, userID int64) (User, error)
 	UpdateUserPassword(ctx context.Context, userID int64, passwordHash string) error
 	GetOrganizationsForUser(ctx context.Context, userID int64) ([]Organization, error)
-
 	CreateAdminUserWithOrganization(ctx context.Context, userID string, username string, passwordHash string,
 		orgName string, orgID string, minerAuthPrivateKey string, roleName string, roleDescription string) error
+	HasUser(ctx context.Context) (bool, error)
 }
 
 type User struct {

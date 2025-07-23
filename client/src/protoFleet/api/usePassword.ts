@@ -39,7 +39,7 @@ const usePassword = () => {
           onSuccess?.();
         })
         .catch((err) => {
-          onError?.(err?.error?.message ?? err?.error ?? err);
+          onError?.(err?.error ?? err);
         })
         .finally(() => {
           onFinally?.();
@@ -65,7 +65,7 @@ const usePassword = () => {
           onSuccess?.();
         })
         .catch((err) => {
-          onError?.(err?.error?.message ?? err?.error ?? err);
+          onError?.(err?.error ?? err);
         })
         .finally(() => {
           onFinally?.();

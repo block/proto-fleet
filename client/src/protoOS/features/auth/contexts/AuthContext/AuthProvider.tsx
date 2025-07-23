@@ -17,6 +17,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     refreshToken: getItem("refreshToken") || { value: "", expiry: new Date() },
   });
   const [dismissedLoginModal, setDismissedLoginModal] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const handleChangeAuthTokens = (newAuthTokens: AuthTokens) => {
     setAuthTokens(newAuthTokens);
@@ -40,6 +41,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         setShowLoginModal: handleChangeLoginModal,
         dismissedLoginModal,
         setDismissedLoginModal,
+        loading,
+        setLoading,
       }}
     >
       {children}

@@ -17,3 +17,7 @@ UPDATE user
 SET password_hash = ?,
     updated_at = ?
 WHERE id = ?;
+
+-- name: HasUser :one
+SELECT COUNT(*) > 0
+FROM user;

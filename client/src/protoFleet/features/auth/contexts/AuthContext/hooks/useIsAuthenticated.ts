@@ -2,9 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 
 import { useNavigate } from "react-router-dom";
 import { useAuthContext } from "./useAuthContext";
+import {
+  pushToast,
+  STATUSES as TOAST_STATUSES,
+} from "@/shared/features/toaster";
+
+const REDIRECT_DELAY = 600;
 
 const useIsAuthenticated = (shouldCheckAccess = true) => {
-  const { authTokens } = useAuthContext();
+  const { authTokens, loading } = useAuthContext();
 
   // returns undefined if access is not needed
   // returns true if access token is valid
@@ -17,6 +23,7 @@ const useIsAuthenticated = (shouldCheckAccess = true) => {
   const isValidAccessToken = dateAccessToken > dateNow;
 
   const checkAccess = useCallback(() => {
+    let timeoutId: ReturnType<typeof setTimeout>;
     if (!shouldCheckAccess) {
       return;
     }
@@ -26,15 +33,22 @@ const useIsAuthenticated = (shouldCheckAccess = true) => {
       return;
     } else {
       setHasAccess(false);
-      navigate("/welcome");
+      pushToast({
+        message: "Please login to continue.",
+        status: TOAST_STATUSES.error,
+      });
+      timeoutId = setTimeout(() => {
+        navigate("/auth");
+      }, REDIRECT_DELAY);
     }
+    return () => clearTimeout(timeoutId);
   }, [shouldCheckAccess, isValidAccessToken, navigate]);
 
   useEffect(() => {
     checkAccess();
   }, [checkAccess]);
 
-  return { checkAccess, hasAccess, setHasAccess };
+  return { checkAccess, hasAccess, setHasAccess, loading };
 };
 
 export { useIsAuthenticated };

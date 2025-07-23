@@ -1,4 +1,4 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import {
   AuthContext,
   AuthTokens,
@@ -9,6 +9,8 @@ type AuthProviderProps = {
   children: ReactNode;
 };
 
+const MIN_LOADING_TIME = 500;
+
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const { getItem, setItem } = useLocalStorage();
   const [authTokens, setAuthTokens] = useState({
@@ -18,6 +20,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     },
   });
   const [username, setUsername] = useState<string>(getItem("username") || "");
+  const [loading, setLoading] = useState(true);
 
   const handleChangeAuthTokens = (newAuthTokens: AuthTokens) => {
     setAuthTokens(newAuthTokens);
@@ -29,6 +32,13 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     setItem("username", newUsername);
   };
 
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setLoading(false);
+    }, MIN_LOADING_TIME);
+    return () => clearTimeout(timeout);
+  }, []);
+
   return (
     <AuthContext.Provider
       value={{
@@ -36,6 +46,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         setAuthTokens: handleChangeAuthTokens,
         username,
         setUsername: handleChangeUsername,
+        loading,
       }}
     >
       {children}

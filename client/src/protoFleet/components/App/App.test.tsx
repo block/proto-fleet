@@ -104,6 +104,7 @@ describe("App", () => {
           setAuthTokens: vi.fn(),
           username: "admin",
           setUsername: vi.fn(),
+          loading: false,
         }}
       >
         <RouterProvider router={router} />
@@ -135,9 +136,9 @@ describe("App", () => {
       isValidToken = false;
       renderWithRouter("/");
 
-      // Should redirect to landing page with invalid token
+      // Should redirect to auth page with invalid token
       await waitFor(() => {
-        expect(screen.getByTestId("landing-page")).toBeInTheDocument();
+        expect(screen.getByTestId("auth-page")).toBeInTheDocument();
       });
     });
 
