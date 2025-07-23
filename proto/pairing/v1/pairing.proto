@@ -27,6 +27,9 @@ message Device {
 
   // URL scheme of the device's web interface
   string url_scheme = 8;
+
+  // Type of the device
+  string type = 9;
 }
 
 // Represents login credentials used for device pairing

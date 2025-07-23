@@ -199,19 +199,32 @@ func (s *DatabaseService) CreateTestMiners(orgID int64, count int, mockMinerURL 
 	u, err := url.Parse(mockMinerURL)
 	assert.NoError(s.t, err)
 
+	protocol, err := networking.ProtocolFromString(u.Scheme)
+	assert.NoError(s.t, err)
+
 	host, portStr, err := net.SplitHostPort(u.Host)
 	assert.NoError(s.t, err)
 
 	s.t.Logf("Setting up %d test miners with host=%s, port=%s", count, host, portStr)
 
+	var minerType models.Type
+	switch portStr {
+	case "2121":
+		minerType = models.TypeProto
+	case "4028":
+		minerType = models.TypeAntminer
+	default:
+		minerType = models.TypeProto
+	}
+
 	deviceIDs := make([]string, count)
 
 	// Create miners in the database
 	for i := range count {
-		device := s.CreateDevice(orgID, models.TypeProto)
+		device := s.CreateDevice(orgID, minerType)
 		deviceIDs[i] = device.ID
 
-		s.createDeviceIPAssignment(device.DatabaseID, host, portStr, networking.ProtocolHTTPS)
+		s.createDeviceIPAssignment(device.DatabaseID, host, portStr, protocol)
 
 		err := db2.WithTransactionNoResult(s.t.Context(), s.DB, func(q *sqlc.Queries) error {
 			_, err := q.UpsertDevicePairing(s.t.Context(), sqlc.UpsertDevicePairingParams{

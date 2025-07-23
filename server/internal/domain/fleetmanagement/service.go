@@ -2,12 +2,11 @@ package fleetmanagement
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"net"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
 	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 
@@ -18,14 +17,16 @@ import (
 )
 
 type Service struct {
-	deviceStore interfaces.DeviceStore
-	telemetry   TelemetryCollector
+	deviceStore  interfaces.DeviceStore
+	telemetry    TelemetryCollector
+	minerService *miner.MinerService
 }
 
-func NewService(deviceStore interfaces.DeviceStore, t TelemetryCollector) *Service {
+func NewService(deviceStore interfaces.DeviceStore, t TelemetryCollector, minerService *miner.MinerService) *Service {
 	return &Service{
-		deviceStore: deviceStore,
-		telemetry:   t,
+		deviceStore:  deviceStore,
+		telemetry:    t,
+		minerService: minerService,
 	}
 }
 
@@ -101,20 +102,25 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 			continue
 		}
 
+		minerInfo, err := s.minerService.BuildMinerInfo(miner.DeviceIdentifier, miner.IpAddress, miner.Port, miner.UrlScheme, miner.Type)
+		if err != nil {
+			slog.Error("failed to get miner info", "device_id", miner.DeviceIdentifier, "error", err)
+			continue
+		}
+
 		snapshot := &pb.MinerStateSnapshot{
-			DeviceIdentifier: miner.DeviceIdentifier,
+			DeviceIdentifier: minerInfo.GetID().String(),
 			Name:             miner.Model,
 			MacAddress:       miner.MacAddress,
 			SerialNumber:     miner.SerialNumber,
-			IpAddress:        miner.IpAddress,
-			// TODO(DASH-491) read url scheme from miner data once we start persisting
-			Url:         fmt.Sprintf("http://%s", net.JoinHostPort(miner.IpAddress, miner.Port)),
-			PowerUsage:  telemetry.PowerUsage,
-			Temperature: telemetry.Temperature,
-			Hashrate:    telemetry.Hashrate,
-			Efficiency:  telemetry.Efficiency,
-			Status:      status,
-			Timestamp:   telemetry.Timestamp,
+			IpAddress:        minerInfo.GetConnectionInfo().IPAddress.String(),
+			Url:              minerInfo.GetWebViewURL().String(),
+			PowerUsage:       telemetry.PowerUsage,
+			Temperature:      telemetry.Temperature,
+			Hashrate:         telemetry.Hashrate,
+			Efficiency:       telemetry.Efficiency,
+			Status:           status,
+			Timestamp:        telemetry.Timestamp,
 		}
 		snapshots = append(snapshots, snapshot)
 	}

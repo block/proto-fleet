@@ -2,6 +2,7 @@ package antminer
 
 import (
 	"context"
+	"net/url"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
@@ -17,23 +18,27 @@ import (
 )
 
 var _ interfaces.Miner = &Antminer{}
+var _ interfaces.MinerInfo = &Antminer{}
+var _ interfaces.MinerInfo = &AntminerInfo{}
 
-type Antminer struct {
+const minerViewPort = 80
+
+type AntminerInfo struct {
 	deviceIdentifier models.DeviceIdentifier
 	connectionInfo   networking.ConnectionInfo
-	username         string
-	password         secrets.Text
-	webClient        web.WebAPIClient
-	rpcClient        rpc.RPCClient
 }
 
-func NewAntminer(deviceIdentifier models.DeviceIdentifier, ipAddress string, port uint16, username string, password secrets.Text, webClient web.WebAPIClient, rpcClient rpc.RPCClient) *Antminer {
+type Antminer struct {
+	interfaces.MinerInfo
+	username  string
+	password  secrets.Text
+	webClient web.WebAPIClient
+	rpcClient rpc.RPCClient
+}
+
+func NewAntminer(antminerInfo interfaces.MinerInfo, username string, password secrets.Text, webClient web.WebAPIClient, rpcClient rpc.RPCClient) *Antminer {
 	return &Antminer{
-		deviceIdentifier: deviceIdentifier,
-		connectionInfo: networking.ConnectionInfo{
-			IPAddress: networking.IPAddress(ipAddress),
-			Port:      networking.Port(port),
-		},
+		MinerInfo: antminerInfo,
 		username:  username,
 		password:  password,
 		webClient: webClient,
@@ -41,16 +46,34 @@ func NewAntminer(deviceIdentifier models.DeviceIdentifier, ipAddress string, por
 	}
 }
 
-func (a *Antminer) GetType() models.Type {
+func NewAntminerInfo(deviceIdentifier models.DeviceIdentifier, ipAddress string, port uint16) *AntminerInfo {
+	return &AntminerInfo{
+		deviceIdentifier: deviceIdentifier,
+		connectionInfo: networking.ConnectionInfo{
+			IPAddress: networking.IPAddress(ipAddress),
+			Port:      networking.Port(port),
+		},
+	}
+}
+
+func (a *AntminerInfo) GetType() models.Type {
 	return models.TypeAntminer
 }
 
-func (a *Antminer) GetID() models.DeviceIdentifier {
+func (a *AntminerInfo) GetID() models.DeviceIdentifier {
 	return a.deviceIdentifier
 }
 
-func (a *Antminer) GetConnectionInfo() networking.ConnectionInfo {
+func (a *AntminerInfo) GetConnectionInfo() networking.ConnectionInfo {
 	return a.connectionInfo
+}
+
+func (a *AntminerInfo) GetWebViewURL() *url.URL {
+	return networking.ConnectionInfo{
+		Protocol:  networking.ProtocolHTTP,
+		IPAddress: a.connectionInfo.IPAddress,
+		Port:      networking.Port(minerViewPort),
+	}.GetURL()
 }
 
 func (a *Antminer) StartMining(ctx context.Context) error {
@@ -91,8 +114,8 @@ func (a *Antminer) UpdateMiningPools(ctx context.Context, poolsPayload dto.Updat
 func (a *Antminer) getWebConnectionInfo() *web.AntminerConnectionInfo {
 	return &web.AntminerConnectionInfo{
 		ConnectionInfo: networking.ConnectionInfo{
-			IPAddress: a.connectionInfo.IPAddress,
-			Port:      a.connectionInfo.Port,
+			IPAddress: a.GetConnectionInfo().IPAddress,
+			Port:      a.GetConnectionInfo().Port,
 			Protocol:  networking.ProtocolHTTP,
 		},
 		Username: a.username,
@@ -102,14 +125,14 @@ func (a *Antminer) getWebConnectionInfo() *web.AntminerConnectionInfo {
 
 func (a *Antminer) getRPCConnectionInfo() *networking.ConnectionInfo {
 	return &networking.ConnectionInfo{
-		IPAddress: a.connectionInfo.IPAddress,
-		Port:      a.connectionInfo.Port,
+		IPAddress: a.GetConnectionInfo().IPAddress,
+		Port:      a.GetConnectionInfo().Port,
 		Protocol:  networking.ProtocolTCP,
 	}
 }
 
 func (a *Antminer) GetTelemetry(ctx context.Context, _ time.Time) ([]telemetryModels.Telemetry, error) {
-	telemetryMapper := NewTelemetryMapper(a.deviceIdentifier)
+	telemetryMapper := NewTelemetryMapper(a.GetID())
 
 	summary, err := a.rpcClient.GetSummary(ctx, a.getRPCConnectionInfo())
 	if err != nil {

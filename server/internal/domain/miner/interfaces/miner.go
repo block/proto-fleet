@@ -2,6 +2,7 @@ package interfaces
 
 import (
 	"context"
+	"net/url"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
@@ -12,11 +13,14 @@ import (
 )
 
 //go:generate mockgen -source=miner.go -destination=mocks/mock_miner.go -package=mocks Miner
-type Miner interface {
-	// Basic identification
+type MinerInfo interface {
 	GetType() models.Type
 	GetID() models.DeviceIdentifier
 	GetConnectionInfo() networking.ConnectionInfo
+	GetWebViewURL() *url.URL
+}
+type Miner interface {
+	MinerInfo
 
 	// Mining operations
 	StartMining(ctx context.Context) error

@@ -304,6 +304,8 @@ func (s *SQLDeviceStore) ListPairedMinersWithStatus(ctx context.Context, orgID i
 			Manufacturer:     row.Manufacturer.String,
 			IpAddress:        row.IpAddress.String,
 			Port:             row.Port.String,
+			UrlScheme:        row.UrlScheme.String,
+			Type:             row.Type,
 		}
 	}
 

@@ -6,6 +6,7 @@ package mocks
 
 import (
 	context "context"
+	url "net/url"
 	reflect "reflect"
 	time "time"
 
@@ -15,6 +16,85 @@ import (
 	networking "github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	gomock "github.com/golang/mock/gomock"
 )
+
+// MockMinerInfo is a mock of MinerInfo interface.
+type MockMinerInfo struct {
+	ctrl     *gomock.Controller
+	recorder *MockMinerInfoMockRecorder
+}
+
+// MockMinerInfoMockRecorder is the mock recorder for MockMinerInfo.
+type MockMinerInfoMockRecorder struct {
+	mock *MockMinerInfo
+}
+
+// NewMockMinerInfo creates a new mock instance.
+func NewMockMinerInfo(ctrl *gomock.Controller) *MockMinerInfo {
+	mock := &MockMinerInfo{ctrl: ctrl}
+	mock.recorder = &MockMinerInfoMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockMinerInfo) EXPECT() *MockMinerInfoMockRecorder {
+	return m.recorder
+}
+
+// GetConnectionInfo mocks base method.
+func (m *MockMinerInfo) GetConnectionInfo() networking.ConnectionInfo {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetConnectionInfo")
+	ret0, _ := ret[0].(networking.ConnectionInfo)
+	return ret0
+}
+
+// GetConnectionInfo indicates an expected call of GetConnectionInfo.
+func (mr *MockMinerInfoMockRecorder) GetConnectionInfo() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConnectionInfo", reflect.TypeOf((*MockMinerInfo)(nil).GetConnectionInfo))
+}
+
+// GetID mocks base method.
+func (m *MockMinerInfo) GetID() models.DeviceIdentifier {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetID")
+	ret0, _ := ret[0].(models.DeviceIdentifier)
+	return ret0
+}
+
+// GetID indicates an expected call of GetID.
+func (mr *MockMinerInfoMockRecorder) GetID() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetID", reflect.TypeOf((*MockMinerInfo)(nil).GetID))
+}
+
+// GetType mocks base method.
+func (m *MockMinerInfo) GetType() models.Type {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetType")
+	ret0, _ := ret[0].(models.Type)
+	return ret0
+}
+
+// GetType indicates an expected call of GetType.
+func (mr *MockMinerInfoMockRecorder) GetType() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetType", reflect.TypeOf((*MockMinerInfo)(nil).GetType))
+}
+
+// GetWebViewURL mocks base method.
+func (m *MockMinerInfo) GetWebViewURL() *url.URL {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWebViewURL")
+	ret0, _ := ret[0].(*url.URL)
+	return ret0
+}
+
+// GetWebViewURL indicates an expected call of GetWebViewURL.
+func (mr *MockMinerInfoMockRecorder) GetWebViewURL() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWebViewURL", reflect.TypeOf((*MockMinerInfo)(nil).GetWebViewURL))
+}
 
 // MockMiner is a mock of Miner interface.
 type MockMiner struct {
@@ -94,6 +174,20 @@ func (m *MockMiner) GetType() models.Type {
 func (mr *MockMinerMockRecorder) GetType() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetType", reflect.TypeOf((*MockMiner)(nil).GetType))
+}
+
+// GetWebViewURL mocks base method.
+func (m *MockMiner) GetWebViewURL() *url.URL {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWebViewURL")
+	ret0, _ := ret[0].(*url.URL)
+	return ret0
+}
+
+// GetWebViewURL indicates an expected call of GetWebViewURL.
+func (mr *MockMinerMockRecorder) GetWebViewURL() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWebViewURL", reflect.TypeOf((*MockMiner)(nil).GetWebViewURL))
 }
 
 // SetCoolingMode mocks base method.

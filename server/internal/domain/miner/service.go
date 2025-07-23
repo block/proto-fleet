@@ -92,7 +92,7 @@ func (s *MinerService) GetMinerFromDeviceIdentifier(ctx context.Context, deviceI
 	)
 }
 
-func (s *MinerService) createMiner(deviceIdentifier string, devicePort string, deviceType string, deviceUsername string, devicePassword string, deviceIPAddress string, devicePairingToken string, deviceScheme string) (interfaces.Miner, error) {
+func (s *MinerService) BuildMinerInfo(deviceIdentifier string, deviceIPAddress string, devicePort string, deviceScheme string, deviceType string) (interfaces.MinerInfo, error) {
 	portInt, err := strconv.Atoi(devicePort)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse port %s: %w", devicePort, err)
@@ -117,9 +117,9 @@ func (s *MinerService) createMiner(deviceIdentifier string, devicePort string, d
 	minerIdentifier := models.DeviceIdentifier(deviceIdentifier)
 	switch minerType {
 	case models.TypeAntminer:
-		return s.createAntminer(minerIdentifier, deviceUsername, devicePassword, deviceIPAddress, port)
+		return antminer.NewAntminerInfo(minerIdentifier, deviceIPAddress, port), nil
 	case models.TypeProto:
-		return s.createProtoMiner(minerIdentifier, devicePassword, devicePairingToken, deviceIPAddress, port, scheme)
+		return proto.NewProtoMinerInfo(minerIdentifier, deviceIPAddress, port, scheme)
 	case models.TypeWhatsminer, models.TypeAvalon, models.TypeUnknown:
 		return nil, fmt.Errorf("unsupported miner type: %s", deviceType)
 	default:
@@ -127,7 +127,25 @@ func (s *MinerService) createMiner(deviceIdentifier string, devicePort string, d
 	}
 }
 
-func (s *MinerService) createAntminer(deviceIdentifier models.DeviceIdentifier, deviceUsername string, devicePassword string, deviceIPAddress string, port uint16) (interfaces.Miner, error) {
+func (s *MinerService) createMiner(deviceIdentifier string, devicePort string, deviceType string, deviceUsername string, devicePassword string, deviceIPAddress string, devicePairingToken string, deviceScheme string) (interfaces.Miner, error) {
+	minerInfo, err := s.BuildMinerInfo(deviceIdentifier, deviceIPAddress, devicePort, deviceScheme, deviceType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get miner info: %w", err)
+	}
+
+	switch minerInfo.GetType() {
+	case models.TypeAntminer:
+		return s.createAntminer(minerInfo, deviceUsername, devicePassword)
+	case models.TypeProto:
+		return s.createProtoMiner(minerInfo, devicePassword, devicePairingToken)
+	case models.TypeWhatsminer, models.TypeAvalon, models.TypeUnknown:
+		return nil, fmt.Errorf("unsupported miner type: %s", deviceType)
+	default:
+		return nil, fmt.Errorf("unsupported miner type: %s", deviceType)
+	}
+}
+
+func (s *MinerService) createAntminer(minerInfo interfaces.MinerInfo, deviceUsername string, devicePassword string) (interfaces.Miner, error) {
 	if deviceUsername == "" || devicePassword == "" {
 		return nil, fmt.Errorf("antminer requires both username and password credentials")
 	}
@@ -147,9 +165,7 @@ func (s *MinerService) createAntminer(deviceIdentifier models.DeviceIdentifier, 
 	password := *secrets.NewText(string(decryptedPassword))
 
 	return antminer.NewAntminer(
-		deviceIdentifier,
-		deviceIPAddress,
-		port,
+		minerInfo,
 		string(decryptedUsername),
 		password,
 		webClient,
@@ -157,7 +173,7 @@ func (s *MinerService) createAntminer(deviceIdentifier models.DeviceIdentifier, 
 	), nil
 }
 
-func (s *MinerService) createProtoMiner(deviceIdentifier models.DeviceIdentifier, devicePassword string, devicePairingToken string, deviceIPAddress string, port uint16, scheme networking.Protocol) (interfaces.Miner, error) {
+func (s *MinerService) createProtoMiner(minerInfo interfaces.MinerInfo, devicePassword string, devicePairingToken string) (interfaces.Miner, error) {
 	var authToken secrets.Text
 
 	if devicePairingToken != "" {
@@ -173,10 +189,7 @@ func (s *MinerService) createProtoMiner(deviceIdentifier models.DeviceIdentifier
 	}
 
 	return proto.NewProtoMiner(
-		deviceIdentifier,
-		deviceIPAddress,
-		port,
-		scheme,
+		minerInfo,
 		authToken,
 	)
 }

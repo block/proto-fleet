@@ -50,10 +50,9 @@ func TestAntminer_StartMining(t *testing.T) {
 		SetMinerConfig(gomock.Any(), gomock.Eq(expectedConnInfo), gomock.Eq(expectedConfig)).
 		Return(nil)
 
+	minerInfo := antminer.NewAntminerInfo(deviceID, ipAddress, port)
 	miner := antminer.NewAntminer(
-		deviceID,
-		ipAddress,
-		port,
+		minerInfo,
 		username,
 		password,
 		mockWebClient,
@@ -97,10 +96,9 @@ func TestAntminer_StopMining(t *testing.T) {
 		SetMinerConfig(gomock.Any(), gomock.Eq(expectedConnInfo), gomock.Eq(expectedConfig)).
 		Return(nil)
 
+	minerInfo := antminer.NewAntminerInfo(deviceID, ipAddress, port)
 	miner := antminer.NewAntminer(
-		deviceID,
-		ipAddress,
-		port,
+		minerInfo,
 		username,
 		password,
 		mockWebClient,
@@ -160,10 +158,9 @@ func TestAntminer_UpdateMiningPools(t *testing.T) {
 		SetMinerConfig(gomock.Any(), gomock.Eq(expectedConnInfo), gomock.Eq(expectedConfig)).
 		Return(nil)
 
+	minerInfo := antminer.NewAntminerInfo(deviceID, ipAddress, port)
 	miner := antminer.NewAntminer(
-		deviceID,
-		ipAddress,
-		port,
+		minerInfo,
 		username,
 		password,
 		mockWebClient,
@@ -258,10 +255,9 @@ func TestAntminer_GetTelemetry(t *testing.T) {
 		GetDevs(gomock.Any(), gomock.Eq(expectedConnInfo)).
 		Return(devsResponse, nil)
 
+	minerInfo := antminer.NewAntminerInfo(deviceID, ipAddress, port)
 	miner := antminer.NewAntminer(
-		deviceID,
-		ipAddress,
-		port,
+		minerInfo,
 		username,
 		password,
 		mockWebClient,

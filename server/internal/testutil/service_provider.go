@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/proto"
@@ -36,6 +37,8 @@ type ServiceProvider struct {
 	CommandService         *command.Service
 	ExecutionServiceCancel context.CancelFunc
 	EncryptService         *encrypt.Service
+	FleetManagementService *fleetmanagement.Service
+	DeviceStore            *sqlstores.SQLDeviceStore
 }
 
 func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvider {
@@ -90,6 +93,8 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 
 	onboardingService := onboarding.NewService(deviceStore, poolStore)
 
+	fleetManagementService := fleetmanagement.NewService(deviceStore, fleetmanagement.NewMockTelemetryCollector(), minerService)
+
 	return &ServiceProvider{
 		DB:                     db,
 		TokenService:           tokenService,
@@ -99,5 +104,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 		CommandService:         commandService,
 		ExecutionServiceCancel: executionServiceCancel,
 		EncryptService:         encryptService,
+		FleetManagementService: fleetManagementService,
+		DeviceStore:            deviceStore,
 	}
 }

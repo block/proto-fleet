@@ -142,12 +142,12 @@ func start(config *Config) error {
 	scheduler := scheduler.NewScheduler(
 		config.Scheduler,
 	)
-	minerGetter := miner.NewMinerService(conn, encryptSvc)
+	minerService := miner.NewMinerService(conn, encryptSvc)
 
 	telemetryService := telemetry.NewTelemetryService(
 		config.Telemetry,
 		influxdbService,
-		minerGetter,
+		minerService,
 		scheduler,
 		deviceStore,
 	)
@@ -170,13 +170,13 @@ func start(config *Config) error {
 		protoPairer,
 		antminerPairer,
 	)
-	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, fleetmanagementDomain.NewMockTelemetryCollector())
+	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, fleetmanagementDomain.NewMockTelemetryCollector(), minerService)
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
 
 	executionServiceCtx, executionServiceCancel := context.WithCancel(context.Background())
 	defer executionServiceCancel()
 
-	executionService := commandDomain.NewExecutionService(executionServiceCtx, &config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerGetter)
+	executionService := commandDomain.NewExecutionService(executionServiceCtx, &config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService)
 	err = executionService.Start(executionServiceCtx)
 	if err != nil {
 		slog.Error("failed to start command execution service", "error", err)
