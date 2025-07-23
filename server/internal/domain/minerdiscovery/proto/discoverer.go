@@ -6,6 +6,7 @@ import (
 	"connectrpc.com/connect"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
+	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api/miner_system_apiconnect"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
@@ -29,7 +30,42 @@ func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string
 		return nil, minerdiscovery.MinerNotFoundFleetError
 	}
 
-	connectionInfo, err := networking.NewConnectionInfo(ipAddress, port, networking.ProtocolHTTPS)
+	protocol := networking.ProtocolHTTPS
+	pairingInfo, err := getPairingInfo(ctx, ipAddress, port, protocol)
+	if err != nil {
+		protocol = networking.ProtocolHTTP
+		pairingInfo, err = getPairingInfo(ctx, ipAddress, port, protocol)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if len(pairingInfo.Msg.CbSn) == 0 {
+		return nil, fleeterror.NewInternalErrorf("miner at '%s' does not have a serial number which is required for pairing", ipAddress)
+	}
+
+	if len(pairingInfo.Msg.Mac) == 0 {
+		return nil, fleeterror.NewInternalErrorf("miner at '%s' does not have a mac address which is required for pairing", ipAddress)
+	}
+
+	// Create device information
+	return &minerdiscovery.DiscoveredDevice{
+		Device: pb.Device{
+			IpAddress:    ipAddress,
+			Port:         port,
+			UrlScheme:    protocol.String(),
+			MacAddress:   pairingInfo.Msg.Mac,
+			SerialNumber: pairingInfo.Msg.CbSn,
+			// TODO(DASH-331) Fetch model and manufacturer from miner
+			Model:        "Proto Rig",
+			Manufacturer: "Block, Inc",
+		},
+		Type: d.GetMinerType().String(),
+	}, nil
+}
+
+func getPairingInfo(ctx context.Context, ipAddress string, port string, protocol networking.Protocol) (*connect.Response[miner_system_api.GetPairingInfoResponse], error) {
+	connectionInfo, err := networking.NewConnectionInfo(ipAddress, port, protocol)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to create connection info: %v", err)
 	}
@@ -46,28 +82,7 @@ func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string
 	if err != nil {
 		return nil, err
 	}
-
-	if len(pairingInfo.Msg.CbSn) == 0 {
-		return nil, fleeterror.NewInternalErrorf("miner at '%s' does not have a serial number which is required for pairing", connectionInfo)
-	}
-
-	if len(pairingInfo.Msg.Mac) == 0 {
-		return nil, fleeterror.NewInternalErrorf("miner at '%s' does not have a mac address which is required for pairing", connectionInfo)
-	}
-
-	// Create device information
-	return &minerdiscovery.DiscoveredDevice{
-		Device: pb.Device{
-			IpAddress:    ipAddress,
-			Port:         port,
-			MacAddress:   pairingInfo.Msg.Mac,
-			SerialNumber: pairingInfo.Msg.CbSn,
-			// TODO(DASH-331) Fetch model and manufacturer from miner
-			Model:        "Proto Rig",
-			Manufacturer: "Block, Inc",
-		},
-		Type: d.GetMinerType().String(),
-	}, nil
+	return pairingInfo, nil
 }
 
 // GetMinerType returns the type of miner this discoverer handles

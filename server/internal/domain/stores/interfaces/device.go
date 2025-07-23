@@ -22,7 +22,7 @@ type MinerFilter struct {
 //nolint:interfacebloat // DeviceStore defines the interface for device-related operations in the store layer. We are okay with bloat at this time.
 type DeviceStore interface {
 	UpsertDevice(ctx context.Context, device *pb.Device, orgID int64, deviceType string) error
-	UpsertDeviceIPAssignment(ctx context.Context, device *pb.Device, orgID int64, ipAddress string, port string) error
+	UpsertDeviceIPAssignment(ctx context.Context, device *pb.Device, orgID int64) error
 	UpsertMinerCredentials(ctx context.Context, device *pb.Device, orgID int64, usernameEnc string, passwordEnc *secrets.Text) error
 	UpsertDevicePairing(ctx context.Context, device *pb.Device, orgID int64, pairingToken string, pairingStatus string) error
 	GetMinerCredentials(ctx context.Context, device *pb.Device, orgID int64) (*pb.Credentials, error)

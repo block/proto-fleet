@@ -73,7 +73,7 @@ func (s *Service) PairDevice(ctx context.Context, device *minerdiscovery.Discove
 		if err != nil {
 			return fleeterror.NewInternalErrorf("failed to upsert device: %v", err)
 		}
-		err = s.deviceStore.UpsertDeviceIPAssignment(ctx, &device.Device, device.OrgID, device.IpAddress, device.Port)
+		err = s.deviceStore.UpsertDeviceIPAssignment(ctx, &device.Device, device.OrgID)
 		if err != nil {
 			return fleeterror.NewInternalErrorf("failed to upsert device IP assignment: %v", err)
 		}

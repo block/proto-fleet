@@ -15,6 +15,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	db2 "github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	id "github.com/btc-mining/proto-fleet/server/internal/infrastructure/id"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -143,12 +144,13 @@ func (s *DatabaseService) CreateDevice(organizationID int64, minerType models.Ty
 	return deviceIdentification
 }
 
-func (s *DatabaseService) CreateDeviceIPAssignment(deviceID int64, ipAddress string, port string) {
+func (s *DatabaseService) createDeviceIPAssignment(deviceID int64, ipAddress string, port string, urlScheme networking.Protocol) {
 	err := db2.WithTransactionNoResult(context.Background(), s.DB, func(q *sqlc.Queries) error {
 		err := q.CreateInactiveDeviceIPAssignment(context.Background(), sqlc.CreateInactiveDeviceIPAssignmentParams{
 			DeviceID:  deviceID,
 			IpAddress: ipAddress,
 			Port:      port,
+			UrlScheme: urlScheme.String(),
 		})
 		if err != nil {
 			return err
@@ -158,6 +160,7 @@ func (s *DatabaseService) CreateDeviceIPAssignment(deviceID int64, ipAddress str
 			DeviceID:  deviceID,
 			IpAddress: ipAddress,
 			Port:      port,
+			UrlScheme: urlScheme.String(),
 		})
 	})
 	assert.NoError(s.t, err)
@@ -186,7 +189,7 @@ func (s *DatabaseService) CreateAndAssignDevices(count int, organizationID int64
 	deviceIdentifications := make([]DeviceIdentification, 0)
 	for i := range count {
 		deviceIdentification := s.CreateDevice(organizationID, models.TypeProto)
-		s.CreateDeviceIPAssignment(deviceIdentification.DatabaseID, "127.0.0.1", strconv.Itoa(i))
+		s.createDeviceIPAssignment(deviceIdentification.DatabaseID, "127.0.0.1", strconv.Itoa(i), networking.ProtocolHTTPS)
 		deviceIdentifications = append(deviceIdentifications, deviceIdentification)
 	}
 	return deviceIdentifications
@@ -208,7 +211,7 @@ func (s *DatabaseService) CreateTestMiners(orgID int64, count int, mockMinerURL 
 		device := s.CreateDevice(orgID, models.TypeProto)
 		deviceIDs[i] = device.ID
 
-		s.CreateDeviceIPAssignment(device.DatabaseID, host, portStr)
+		s.createDeviceIPAssignment(device.DatabaseID, host, portStr, networking.ProtocolHTTPS)
 
 		err := db2.WithTransactionNoResult(s.t.Context(), s.DB, func(q *sqlc.Queries) error {
 			_, err := q.UpsertDevicePairing(s.t.Context(), sqlc.UpsertDevicePairingParams{

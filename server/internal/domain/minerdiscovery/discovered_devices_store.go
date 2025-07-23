@@ -101,6 +101,7 @@ func (s *InMemoryDiscoveredDeviceStore) Save(doi DeviceOrgIdentifier, in *Discov
 	device.Manufacturer = in.Manufacturer
 	device.Type = in.Type
 	device.Port = in.Port
+	device.UrlScheme = in.UrlScheme
 	device.IpAddress = in.IpAddress
 	device.OrgID = doi.OrgID
 	device.LastSeen = now

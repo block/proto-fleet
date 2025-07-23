@@ -15,6 +15,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
 
@@ -54,7 +55,16 @@ func (s *MinerService) GetMiner(ctx context.Context, deviceID int64) (interfaces
 		return nil, fmt.Errorf("failed to get device data: %w", err)
 	}
 
-	return s.createMiner(deviceData.DeviceIdentifier, deviceData.Port, deviceData.Type, deviceData.UsernameEnc.String, deviceData.PasswordEnc.String, deviceData.IpAddress, deviceData.PairingToken.String)
+	return s.createMiner(
+		deviceData.DeviceIdentifier,
+		deviceData.Port,
+		deviceData.Type,
+		deviceData.UsernameEnc.String,
+		deviceData.PasswordEnc.String,
+		deviceData.IpAddress,
+		deviceData.PairingToken.String,
+		deviceData.UrlScheme,
+	)
 }
 
 func (s *MinerService) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID models.DeviceIdentifier) (interfaces.Miner, error) {
@@ -70,10 +80,19 @@ func (s *MinerService) GetMinerFromDeviceIdentifier(ctx context.Context, deviceI
 		return nil, fmt.Errorf("failed to get device data: %w", err)
 	}
 
-	return s.createMiner(deviceData.DeviceIdentifier, deviceData.Port, deviceData.Type, deviceData.UsernameEnc.String, deviceData.PasswordEnc.String, deviceData.IpAddress, deviceData.PairingToken.String)
+	return s.createMiner(
+		deviceData.DeviceIdentifier,
+		deviceData.Port,
+		deviceData.Type,
+		deviceData.UsernameEnc.String,
+		deviceData.PasswordEnc.String,
+		deviceData.IpAddress,
+		deviceData.PairingToken.String,
+		deviceData.UrlScheme,
+	)
 }
 
-func (s *MinerService) createMiner(deviceIdentifier string, devicePort string, deviceType string, deviceUsername string, devicePassword string, deviceIPAddress string, devicePairingToken string) (interfaces.Miner, error) {
+func (s *MinerService) createMiner(deviceIdentifier string, devicePort string, deviceType string, deviceUsername string, devicePassword string, deviceIPAddress string, devicePairingToken string, deviceScheme string) (interfaces.Miner, error) {
 	portInt, err := strconv.Atoi(devicePort)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse port %s: %w", devicePort, err)
@@ -90,12 +109,17 @@ func (s *MinerService) createMiner(deviceIdentifier string, devicePort string, d
 		return nil, fmt.Errorf("failed to parse device type: %w", err)
 	}
 
+	scheme, err := networking.ProtocolFromString(deviceScheme)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse scheme: %w", err)
+	}
+
 	minerIdentifier := models.DeviceIdentifier(deviceIdentifier)
 	switch minerType {
 	case models.TypeAntminer:
 		return s.createAntminer(minerIdentifier, deviceUsername, devicePassword, deviceIPAddress, port)
 	case models.TypeProto:
-		return s.createProtoMiner(minerIdentifier, devicePassword, devicePairingToken, deviceIPAddress, port)
+		return s.createProtoMiner(minerIdentifier, devicePassword, devicePairingToken, deviceIPAddress, port, scheme)
 	case models.TypeWhatsminer, models.TypeAvalon, models.TypeUnknown:
 		return nil, fmt.Errorf("unsupported miner type: %s", deviceType)
 	default:
@@ -133,7 +157,7 @@ func (s *MinerService) createAntminer(deviceIdentifier models.DeviceIdentifier, 
 	), nil
 }
 
-func (s *MinerService) createProtoMiner(deviceIdentifier models.DeviceIdentifier, devicePassword string, devicePairingToken string, deviceIPAddress string, port uint16) (interfaces.Miner, error) {
+func (s *MinerService) createProtoMiner(deviceIdentifier models.DeviceIdentifier, devicePassword string, devicePairingToken string, deviceIPAddress string, port uint16, scheme networking.Protocol) (interfaces.Miner, error) {
 	var authToken secrets.Text
 
 	if devicePairingToken != "" {
@@ -152,6 +176,7 @@ func (s *MinerService) createProtoMiner(deviceIdentifier models.DeviceIdentifier
 		deviceIdentifier,
 		deviceIPAddress,
 		port,
+		scheme,
 		authToken,
 	)
 }

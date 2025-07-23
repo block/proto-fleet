@@ -20,6 +20,7 @@ SELECT
     mc.password_enc,
     dia.ip_address,
     dia.port,
+    dia.url_scheme,
     dp.pairing_token
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
@@ -41,6 +42,7 @@ type GetDeviceWithCredentialsAndIPByDeviceIdentifierRow struct {
 	PasswordEnc      sql.NullString
 	IpAddress        string
 	Port             string
+	UrlScheme        string
 	PairingToken     sql.NullString
 }
 
@@ -56,6 +58,7 @@ func (q *Queries) GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx context.Co
 		&i.PasswordEnc,
 		&i.IpAddress,
 		&i.Port,
+		&i.UrlScheme,
 		&i.PairingToken,
 	)
 	return i, err
@@ -71,6 +74,7 @@ SELECT
     mc.password_enc,
     dia.ip_address,
     dia.port,
+    dia.url_scheme,
     dp.pairing_token
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
@@ -92,6 +96,7 @@ type GetDeviceWithCredentialsAndIPByIDRow struct {
 	PasswordEnc      sql.NullString
 	IpAddress        string
 	Port             string
+	UrlScheme        string
 	PairingToken     sql.NullString
 }
 
@@ -107,6 +112,7 @@ func (q *Queries) GetDeviceWithCredentialsAndIPByID(ctx context.Context, id int6
 		&i.PasswordEnc,
 		&i.IpAddress,
 		&i.Port,
+		&i.UrlScheme,
 		&i.PairingToken,
 	)
 	return i, err

@@ -209,6 +209,7 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 				DeviceID:  dbDeviceID,
 				IpAddress: "192.168.1.100",
 				Port:      "4028",
+				UrlScheme: "https",
 			})
 			require.NoError(t, err)
 
@@ -216,6 +217,7 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 				IpAddress: "192.168.1.100",
 				Port:      "4028",
 				DeviceID:  dbDeviceID,
+				UrlScheme: "https",
 			})
 			require.NoError(t, err)
 
@@ -288,6 +290,7 @@ func TestMinerService_GetMinerFromDeviceID_WithUnpairedDevice_ShouldReturnError(
 		DeviceID:  dbDeviceID,
 		IpAddress: "192.168.1.100",
 		Port:      "4028",
+		UrlScheme: "https",
 	})
 	require.NoError(t, err)
 
@@ -295,6 +298,7 @@ func TestMinerService_GetMinerFromDeviceID_WithUnpairedDevice_ShouldReturnError(
 		IpAddress: "192.168.1.100",
 		Port:      "4028",
 		DeviceID:  dbDeviceID,
+		UrlScheme: "https",
 	})
 	require.NoError(t, err)
 
@@ -347,6 +351,7 @@ func TestMinerService_GetMinerFromDeviceID_WithDeviceNeitherTokenNorCredentials_
 		DeviceID:  dbDeviceID,
 		IpAddress: "192.168.1.100",
 		Port:      "4028",
+		UrlScheme: "https",
 	})
 	require.NoError(t, err)
 
@@ -354,6 +359,7 @@ func TestMinerService_GetMinerFromDeviceID_WithDeviceNeitherTokenNorCredentials_
 		IpAddress: "192.168.1.100",
 		Port:      "4028",
 		DeviceID:  dbDeviceID,
+		UrlScheme: "https",
 	})
 	require.NoError(t, err)
 

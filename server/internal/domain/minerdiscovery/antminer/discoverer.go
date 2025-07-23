@@ -65,6 +65,7 @@ func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string
 		Device: pb.Device{
 			IpAddress:    ipAddress,
 			Port:         port,
+			UrlScheme:    networking.ProtocolHTTP.String(),
 			Model:        model,
 			Manufacturer: manufacturer,
 		},

@@ -8,6 +8,7 @@ SELECT
     mc.password_enc,
     dia.ip_address,
     dia.port,
+    dia.url_scheme,
     dp.pairing_token
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
@@ -29,6 +30,7 @@ SELECT
     mc.password_enc,
     dia.ip_address,
     dia.port,
+    dia.url_scheme,
     dp.pairing_token
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id

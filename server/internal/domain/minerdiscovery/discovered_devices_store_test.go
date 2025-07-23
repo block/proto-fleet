@@ -19,6 +19,7 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 	ipAddress1 := "192.168.1.1"
 	ipAddress2 := "192.168.1.2"
 	deviceType := "antminer"
+	urlScheme := "https"
 
 	t.Run("Save new device", func(t *testing.T) {
 		// Arrange
@@ -36,6 +37,7 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 				Port:             "4028",
 				Model:            "S19",
 				Manufacturer:     "Bitmain",
+				UrlScheme:        urlScheme,
 			},
 			Type: deviceType,
 		}
@@ -49,6 +51,7 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 		assert.Equal(t, deviceID1, savedDevice.DeviceIdentifier)
 		assert.Equal(t, serial1, savedDevice.SerialNumber)
 		assert.Equal(t, ipAddress1, savedDevice.IpAddress)
+		assert.Equal(t, urlScheme, savedDevice.UrlScheme)
 		assert.Equal(t, deviceType, savedDevice.Type)
 		assert.Equal(t, orgID, savedDevice.OrgID)
 		assert.NotZero(t, savedDevice.LastSeen)
@@ -72,6 +75,7 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 				MacAddress:   "00:11:22:33:44:55",
 				IpAddress:    ipAddress1,
 				Port:         "4028",
+				UrlScheme:    urlScheme,
 				Model:        "S19",
 				Manufacturer: "Bitmain",
 			},
@@ -93,6 +97,7 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 				MacAddress:   "00:11:22:33:44:55",
 				IpAddress:    ipAddress2,
 				Port:         "4028",
+				UrlScheme:    urlScheme,
 				Model:        "S19 Pro",
 				Manufacturer: "Bitmain",
 			},
@@ -123,6 +128,7 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 				MacAddress:   "00:11:22:33:44:55",
 				IpAddress:    ipAddress1,
 				Port:         "4028",
+				UrlScheme:    urlScheme,
 				Model:        "S19",
 				Manufacturer: "Bitmain",
 			},
@@ -141,6 +147,7 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 				MacAddress:   "AA:BB:CC:DD:EE:FF",
 				IpAddress:    "192.168.1.3",
 				Port:         "4028",
+				UrlScheme:    urlScheme,
 				Model:        "S19j",
 				Manufacturer: "Bitmain",
 			},
@@ -178,6 +185,7 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 				SerialNumber: "",
 				IpAddress:    ipAddress1,
 				Port:         "4028",
+				UrlScheme:    urlScheme,
 			},
 			Type: deviceType,
 		}
@@ -193,6 +201,7 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 				SerialNumber: "",
 				IpAddress:    ipAddress1,
 				Port:         "4028",
+				UrlScheme:    urlScheme,
 			},
 			Type: deviceType,
 		}
@@ -224,6 +233,7 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 			Device: pb.Device{
 				SerialNumber: serial1,
 				IpAddress:    ipAddress1,
+				UrlScheme:    urlScheme,
 			},
 			Type: deviceType,
 		}
@@ -234,6 +244,7 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 			Device: pb.Device{
 				SerialNumber: serial2,
 				IpAddress:    ipAddress1,
+				UrlScheme:    urlScheme,
 			},
 			Type: deviceType,
 		}
@@ -249,6 +260,7 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 			Device: pb.Device{
 				SerialNumber: serial2,
 				IpAddress:    ipAddress2,
+				UrlScheme:    urlScheme,
 			},
 			Type: deviceType,
 		}
@@ -296,6 +308,7 @@ func TestInMemoryDiscoveredDeviceStore_GetDevice(t *testing.T) {
 				SerialNumber: "serial1",
 				IpAddress:    "192.168.1.1",
 				Port:         "4028",
+				UrlScheme:    "https",
 			},
 			Type: "antminer",
 		}

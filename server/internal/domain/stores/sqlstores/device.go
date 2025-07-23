@@ -98,7 +98,7 @@ func (s *SQLDeviceStore) UpsertDevice(ctx context.Context, device *pb.Device, or
 	return err
 }
 
-func (s *SQLDeviceStore) UpsertDeviceIPAssignment(ctx context.Context, device *pb.Device, orgID int64, ipAddress string, port string) error {
+func (s *SQLDeviceStore) UpsertDeviceIPAssignment(ctx context.Context, device *pb.Device, orgID int64) error {
 	dbDevice, err := s.getQueries(ctx).GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
 		DeviceIdentifier: device.DeviceIdentifier,
 		OrgID:            orgID,
@@ -119,8 +119,9 @@ func (s *SQLDeviceStore) UpsertDeviceIPAssignment(ctx context.Context, device *p
 	// Create and activate new IP assignment
 	err = s.getQueries(ctx).CreateInactiveDeviceIPAssignment(ctx, sqlc.CreateInactiveDeviceIPAssignmentParams{
 		DeviceID:  dbDevice.ID,
-		IpAddress: ipAddress,
-		Port:      port,
+		IpAddress: device.IpAddress,
+		Port:      device.Port,
+		UrlScheme: device.UrlScheme,
 	})
 	if err != nil {
 		return err
@@ -128,8 +129,9 @@ func (s *SQLDeviceStore) UpsertDeviceIPAssignment(ctx context.Context, device *p
 
 	return s.getQueries(ctx).ActivateNewIPAssignment(ctx, sqlc.ActivateNewIPAssignmentParams{
 		DeviceID:  dbDevice.ID,
-		IpAddress: ipAddress,
-		Port:      port,
+		IpAddress: device.IpAddress,
+		Port:      device.Port,
+		UrlScheme: device.UrlScheme,
 	})
 }
 
@@ -211,6 +213,7 @@ func (s *SQLDeviceStore) GetDeviceWithIPAssignment(ctx context.Context, deviceId
 			Manufacturer:     device.Manufacturer.String,
 			IpAddress:        ipAssignment.IpAddress,
 			Port:             ipAssignment.Port,
+			UrlScheme:        ipAssignment.UrlScheme,
 		},
 		OrgID: orgID,
 		Type:  device.Type,

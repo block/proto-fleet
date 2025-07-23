@@ -221,6 +221,7 @@ func createTestDevice(t *testing.T, db *sql.DB, deviceIdentifier string) int64 {
 		DeviceID:  deviceID,
 		IpAddress: "192.168.1.100",
 		Port:      "4028",
+		UrlScheme: "https",
 	})
 	require.NoError(t, err)
 
@@ -228,6 +229,7 @@ func createTestDevice(t *testing.T, db *sql.DB, deviceIdentifier string) int64 {
 		IpAddress: "192.168.1.100",
 		Port:      "4028",
 		DeviceID:  deviceID,
+		UrlScheme: "https",
 	})
 	require.NoError(t, err)
 
@@ -296,6 +298,7 @@ func createTestProtoMinerWithToken(t *testing.T, db *sql.DB, deviceIdentifier st
 		DeviceID:  deviceID,
 		IpAddress: "192.168.1.200",
 		Port:      "8080",
+		UrlScheme: "https",
 	})
 	require.NoError(t, err)
 
@@ -303,6 +306,7 @@ func createTestProtoMinerWithToken(t *testing.T, db *sql.DB, deviceIdentifier st
 		IpAddress: "192.168.1.200",
 		Port:      "8080",
 		DeviceID:  deviceID,
+		UrlScheme: "https",
 	})
 	require.NoError(t, err)
 

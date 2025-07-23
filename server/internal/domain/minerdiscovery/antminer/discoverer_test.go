@@ -56,6 +56,7 @@ func TestDiscoverer_Discover_Success(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, ipAddress, result.Device.IpAddress)
 	assert.Equal(t, port4028, result.Device.Port)
+	assert.Equal(t, networking.ProtocolHTTP.String(), result.Device.UrlScheme)
 	assert.Equal(t, model, result.Device.Model)
 	assert.Equal(t, manufacturer, result.Device.Manufacturer)
 	assert.Equal(t, models.TypeAntminer.String(), result.Type)

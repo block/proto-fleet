@@ -177,17 +177,17 @@ func (mr *MockDeviceStoreMockRecorder) UpsertDevice(ctx, device, orgID, deviceTy
 }
 
 // UpsertDeviceIPAssignment mocks base method.
-func (m *MockDeviceStore) UpsertDeviceIPAssignment(ctx context.Context, device *pairingv1.Device, orgID int64, ipAddress, port string) error {
+func (m *MockDeviceStore) UpsertDeviceIPAssignment(ctx context.Context, device *pairingv1.Device, orgID int64) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpsertDeviceIPAssignment", ctx, device, orgID, ipAddress, port)
+	ret := m.ctrl.Call(m, "UpsertDeviceIPAssignment", ctx, device, orgID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpsertDeviceIPAssignment indicates an expected call of UpsertDeviceIPAssignment.
-func (mr *MockDeviceStoreMockRecorder) UpsertDeviceIPAssignment(ctx, device, orgID, ipAddress, port interface{}) *gomock.Call {
+func (mr *MockDeviceStoreMockRecorder) UpsertDeviceIPAssignment(ctx, device, orgID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertDeviceIPAssignment", reflect.TypeOf((*MockDeviceStore)(nil).UpsertDeviceIPAssignment), ctx, device, orgID, ipAddress, port)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertDeviceIPAssignment", reflect.TypeOf((*MockDeviceStore)(nil).UpsertDeviceIPAssignment), ctx, device, orgID)
 }
 
 // UpsertDevicePairing mocks base method.

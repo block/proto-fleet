@@ -100,6 +100,7 @@ func createMockDevice(ipAddress, port, serialNumber, deviceType string) *minerdi
 			IpAddress:    ipAddress,
 			Port:         port,
 			SerialNumber: serialNumber,
+			UrlScheme:    "http",
 		},
 		Type: deviceType,
 	}

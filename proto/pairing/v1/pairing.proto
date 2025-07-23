@@ -24,6 +24,9 @@ message Device {
 
   // Name of the device manufacturer
   string manufacturer = 7;
+
+  // URL scheme of the device's web interface
+  string url_scheme = 8;
 }
 
 // Represents login credentials used for device pairing

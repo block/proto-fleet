@@ -20,7 +20,7 @@ func TestCommandHandler(t *testing.T) {
 	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
 
 	minerCallCounter := proto_mocks.NewMockMinerCallCounter()
-	mockMinerServer := testutil.SetupMockMinerServer(t, minerCallCounter)
+	mockMinerServer := testutil.SetupMockMinerServer(t, minerCallCounter, true)
 
 	testMinerIDs := testContext.DatabaseService.CreateTestMiners(adminUser.OrganizationID, 2, mockMinerServer.URL)
 	authToken := getAuthToken(t, testContext, adminUser.Username, adminUser.Password)

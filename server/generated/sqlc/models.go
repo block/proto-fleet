@@ -276,6 +276,7 @@ type DeviceIpAssignment struct {
 	UnassignedAt sql.NullTime
 	IsCurrent    sql.NullBool
 	CreatedAt    sql.NullTime
+	UrlScheme    string
 }
 
 type DevicePairing struct {

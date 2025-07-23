@@ -12,6 +12,7 @@ import (
 	miner_mocks "github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/integrationtesting"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandler_Pair(t *testing.T) {
@@ -46,67 +47,90 @@ func TestHandler_Pair(t *testing.T) {
 }
 
 func TestHandler_DiscoverAndPair(t *testing.T) {
-	t.Run("should discover and pair devices", func(t *testing.T) {
-		testContext := testutil.InitializeDBServiceInfrastructure(t)
-		testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	testCases := []struct {
+		name           string
+		useTLS         bool
+		expectedScheme string
+	}{
+		{
+			name:           "should discover and pair devices over HTTP",
+			useTLS:         false,
+			expectedScheme: "http",
+		},
+		{
+			name:           "should discover and pair devices over HTTPS",
+			useTLS:         true,
+			expectedScheme: "https",
+		},
+	}
 
-		minerCallCounter := miner_mocks.NewMockMinerCallCounter()
-		mockMinerServer := testutil.SetupMockMinerServer(t, minerCallCounter)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			testContext := testutil.InitializeDBServiceInfrastructure(t)
+			testUser := testContext.DatabaseService.CreateSuperAdminUser()
 
-		mockServerURL, err := url.Parse(mockMinerServer.URL)
-		assert.NoError(t, err)
+			minerCallCounter := miner_mocks.NewMockMinerCallCounter()
+			mockMinerServer := testutil.SetupMockMinerServer(t, minerCallCounter, tc.useTLS)
 
-		ipAddresses := []string{mockServerURL.Hostname()}
-		ports := []string{"2121"}
+			mockServerURL, err := url.Parse(mockMinerServer.URL)
+			require.NoError(t, err)
 
-		authRequest := connect.NewRequest(&authv1.AuthenticateRequest{
-			Username: testUser.Username,
-			Password: testUser.Password,
-		})
+			ipAddresses := []string{mockServerURL.Hostname()}
+			ports := []string{"2121"}
 
-		authResponse, err := testContext.InfrastructureProvider.AuthClient.Authenticate(t.Context(), authRequest)
-		assert.NoError(t, err)
-		assert.NotEqual(t, "", authResponse.Msg.Token, "expected userId in response, go nil")
-
-		discoverRequest := connect.NewRequest(&pairingv1.DiscoverRequest{
-			Mode: &pairingv1.DiscoverRequest_IpList{
-				IpList: &pairingv1.IPListModeRequest{
-					IpAddresses: ipAddresses,
-					Ports:       ports,
-				},
-			},
-		})
-		discoverRequest.Header().Set("Authorization", "Bearer "+authResponse.Msg.Token)
-
-		discoverStream, err := testContext.InfrastructureProvider.PairingClient.Discover(t.Context(), discoverRequest)
-		assert.NoError(t, err)
-
-		discoveredDevices := make([]*pairingv1.Device, 0)
-		for discoverStream.Receive() {
-			msg := discoverStream.Msg()
-			if msg == nil {
-				t.Fatal("received nil message from stream")
-			}
-			discoveredDevices = append(discoveredDevices, msg.Devices...)
-		}
-		assert.NoError(t, discoverStream.Err())
-		assert.Equal(t, 1, len(discoveredDevices))
-
-		deviceIdentifier := discoveredDevices[0].DeviceIdentifier
-
-		pairingRequest := connect.NewRequest(&pairingv1.PairRequest{DeviceIdentifiers: []string{deviceIdentifier}})
-		pairingRequest.Header().Set("Authorization", "Bearer "+authResponse.Msg.Token)
-
-		_, err = testContext.InfrastructureProvider.PairingClient.Pair(t.Context(), pairingRequest)
-		assert.NoError(t, err)
-		devices, err := db.WithTransaction(t.Context(), testContext.DatabaseService.DB, func(q *sqlc.Queries) ([]sqlc.ListPairedDevicesRow, error) {
-			return q.ListPairedDevices(t.Context(), sqlc.ListPairedDevicesParams{
-				OrgID: testUser.OrganizationID,
-				Limit: 10,
+			authRequest := connect.NewRequest(&authv1.AuthenticateRequest{
+				Username: testUser.Username,
+				Password: testUser.Password,
 			})
+
+			authResponse, err := testContext.InfrastructureProvider.AuthClient.Authenticate(t.Context(), authRequest)
+			require.NoError(t, err)
+			assert.NotEqual(t, "", authResponse.Msg.Token, "expected userId in response, go nil")
+
+			discoverRequest := connect.NewRequest(&pairingv1.DiscoverRequest{
+				Mode: &pairingv1.DiscoverRequest_IpList{
+					IpList: &pairingv1.IPListModeRequest{
+						IpAddresses: ipAddresses,
+						Ports:       ports,
+					},
+				},
+			})
+			discoverRequest.Header().Set("Authorization", "Bearer "+authResponse.Msg.Token)
+
+			discoverStream, err := testContext.InfrastructureProvider.PairingClient.Discover(t.Context(), discoverRequest)
+			require.NoError(t, err)
+
+			discoveredDevices := make([]*pairingv1.Device, 0)
+			for discoverStream.Receive() {
+				msg := discoverStream.Msg()
+				if msg == nil {
+					t.Fatal("received nil message from stream")
+				}
+				discoveredDevices = append(discoveredDevices, msg.Devices...)
+			}
+			require.NoError(t, discoverStream.Err())
+			assert.Equal(t, 1, len(discoveredDevices))
+
+			assert.Equal(t, tc.expectedScheme, discoveredDevices[0].UrlScheme)
+
+			deviceIdentifier := discoveredDevices[0].DeviceIdentifier
+
+			pairingRequest := connect.NewRequest(&pairingv1.PairRequest{DeviceIdentifiers: []string{deviceIdentifier}})
+			pairingRequest.Header().Set("Authorization", "Bearer "+authResponse.Msg.Token)
+
+			_, err = testContext.InfrastructureProvider.PairingClient.Pair(t.Context(), pairingRequest)
+			require.NoError(t, err)
+			devices, err := db.WithTransaction(t.Context(), testContext.DatabaseService.DB, func(q *sqlc.Queries) ([]sqlc.ListPairedMinersWithStatusRow, error) {
+				return q.ListPairedMinersWithStatus(t.Context(), sqlc.ListPairedMinersWithStatusParams{
+					OrgID: testUser.OrganizationID,
+					Limit: 10,
+				})
+			})
+			require.NoError(t, err)
+			assert.Equal(t, 1, len(devices))
+			assert.Equal(t, deviceIdentifier, devices[0].DeviceIdentifier)
+			assert.Equal(t, tc.expectedScheme, devices[0].UrlScheme.String)
+			mockMinerServer.Close()
 		})
-		assert.NoError(t, err)
-		assert.Equal(t, 1, len(devices))
-		assert.Equal(t, deviceIdentifier, devices[0].DeviceIdentifier)
-	})
+	}
 }

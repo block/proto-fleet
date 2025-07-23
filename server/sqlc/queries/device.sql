@@ -41,8 +41,10 @@ INSERT INTO device_ip_assignment (
     device_id,
     ip_address,
     port,
+    url_scheme,
     is_current
 ) VALUES (
+    ?,
     ?,
     ?,
     ?,
@@ -54,27 +56,29 @@ WITH params AS (
   SELECT
     ?  AS ip_address,
     ?  AS port,
+    ?  AS url_scheme,
     ?  AS device_id
 )
 UPDATE device_ip_assignment AS d
 JOIN params AS p ON TRUE
 SET
-  d.is_current = (d.ip_address = p.ip_address AND d.port = p.port),
+  d.is_current = (d.ip_address = p.ip_address AND d.port = p.port AND d.url_scheme = p.url_scheme),
   d.assigned_at = CASE
     WHEN d.ip_address = p.ip_address
      AND d.port       = p.port
+     AND d.url_scheme = p.url_scheme
     THEN CURRENT_TIMESTAMP(6)
     ELSE d.assigned_at
   END,
   d.unassigned_at = CASE
     WHEN d.is_current = TRUE
-     AND NOT (d.ip_address = p.ip_address AND d.port = p.port)
+     AND NOT (d.ip_address = p.ip_address AND d.port = p.port AND d.url_scheme = p.url_scheme)
     THEN CURRENT_TIMESTAMP(6)
     ELSE d.unassigned_at
   END
 WHERE d.device_id = p.device_id
   AND (d.is_current = TRUE
-       OR (d.ip_address = p.ip_address AND d.port = p.port));
+       OR (d.ip_address = p.ip_address AND d.port = p.port AND d.url_scheme = p.url_scheme));
 
 -- name: GetActiveDeviceIPAssignmentByDeviceID :one
 SELECT *
@@ -165,6 +169,7 @@ SELECT
     ds.status_details,
     dia.ip_address,
     dia.port,
+    dia.url_scheme,
     dp.id as cursor_id,
     d.id as device_id
 FROM device d

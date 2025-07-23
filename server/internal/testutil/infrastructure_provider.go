@@ -1,6 +1,8 @@
 package testutil
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -102,7 +104,7 @@ func InitializeDBServiceInfrastructure(t *testing.T) *TestContext {
 }
 
 // SetupMockMinerServer creates a test HTTP server that simulates a miner API
-func SetupMockMinerServer(t *testing.T, callCounter *integrationtesting.MockMinerCallCounter) *httptest.Server {
+func SetupMockMinerServer(t *testing.T, callCounter *integrationtesting.MockMinerCallCounter, useTLS bool) *httptest.Server {
 	if callCounter == nil {
 		callCounter = integrationtesting.NewMockMinerCallCounter()
 	}
@@ -115,10 +117,19 @@ func SetupMockMinerServer(t *testing.T, callCounter *integrationtesting.MockMine
 	mux.Handle(path, handler)
 	mux.Handle(systemPath, systemHandler)
 
-	handler2c := h2c.NewHandler(mux, &http2.Server{})
+	var server *httptest.Server
 
-	server := httptest.NewUnstartedServer(handler2c)
+	if useTLS {
+		// For HTTPS, use the standard handler without h2c wrapping
+		server = httptest.NewUnstartedServer(mux)
+	} else {
+		// For HTTP, use h2c handler for HTTP/2 over cleartext
+		h2cHandler := h2c.NewHandler(mux, &http2.Server{})
+		server = httptest.NewUnstartedServer(h2cHandler)
+	}
+
 	server.EnableHTTP2 = true
+
 	// close the default listener
 	server.Listener.Close()
 	listener, err := net.Listen("tcp", "localhost:2121")
@@ -126,10 +137,49 @@ func SetupMockMinerServer(t *testing.T, callCounter *integrationtesting.MockMine
 		t.Fatalf("Failed to listen on port 2121: %v", err)
 	}
 	server.Listener = listener
-	server.Start()
-	t.Logf("Mock miner (h2c) server started at %s", server.URL)
+
+	if useTLS {
+		server.StartTLS()
+		trustTestCACert(t, server)
+	} else {
+		server.Start()
+	}
+
+	t.Logf("Mock miner server started at %s (TLS: %v)", server.URL, useTLS)
 	t.Cleanup(func() {
 		server.Close()
 	})
 	return server
+}
+
+func trustTestCACert(t *testing.T, server *httptest.Server) {
+	certDER := server.TLS.Certificates[0].Certificate[0]
+	leaf, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatalf("parsing test server cert: %v", err)
+	}
+
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		pool = x509.NewCertPool()
+	}
+	pool.AddCert(leaf)
+
+	originalTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected http.DefaultTransport to be *http.Transport, got %T", http.DefaultTransport)
+	}
+
+	testTransport := originalTransport.Clone()
+	testTransport.TLSClientConfig = &tls.Config{
+		RootCAs:    pool,
+		MinVersion: tls.VersionTLS12,
+	}
+
+	http.DefaultClient.Transport = testTransport
+
+	// Save the original transport to restore after the test
+	t.Cleanup(func() {
+		http.DefaultClient.Transport = originalTransport
+	})
 }

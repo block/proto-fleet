@@ -16,37 +16,45 @@ WITH params AS (
   SELECT
     ?  AS ip_address,
     ?  AS port,
+    ?  AS url_scheme,
     ?  AS device_id
 )
 UPDATE device_ip_assignment AS d
 JOIN params AS p ON TRUE
 SET
-  d.is_current = (d.ip_address = p.ip_address AND d.port = p.port),
+  d.is_current = (d.ip_address = p.ip_address AND d.port = p.port AND d.url_scheme = p.url_scheme),
   d.assigned_at = CASE
     WHEN d.ip_address = p.ip_address
      AND d.port       = p.port
+     AND d.url_scheme = p.url_scheme
     THEN CURRENT_TIMESTAMP(6)
     ELSE d.assigned_at
   END,
   d.unassigned_at = CASE
     WHEN d.is_current = TRUE
-     AND NOT (d.ip_address = p.ip_address AND d.port = p.port)
+     AND NOT (d.ip_address = p.ip_address AND d.port = p.port AND d.url_scheme = p.url_scheme)
     THEN CURRENT_TIMESTAMP(6)
     ELSE d.unassigned_at
   END
 WHERE d.device_id = p.device_id
   AND (d.is_current = TRUE
-       OR (d.ip_address = p.ip_address AND d.port = p.port))
+       OR (d.ip_address = p.ip_address AND d.port = p.port AND d.url_scheme = p.url_scheme))
 `
 
 type ActivateNewIPAssignmentParams struct {
 	IpAddress string
 	Port      string
+	UrlScheme string
 	DeviceID  int64
 }
 
 func (q *Queries) ActivateNewIPAssignment(ctx context.Context, arg ActivateNewIPAssignmentParams) error {
-	_, err := q.exec(ctx, q.activateNewIPAssignmentStmt, activateNewIPAssignment, arg.IpAddress, arg.Port, arg.DeviceID)
+	_, err := q.exec(ctx, q.activateNewIPAssignmentStmt, activateNewIPAssignment,
+		arg.IpAddress,
+		arg.Port,
+		arg.UrlScheme,
+		arg.DeviceID,
+	)
 	return err
 }
 
@@ -102,8 +110,10 @@ INSERT INTO device_ip_assignment (
     device_id,
     ip_address,
     port,
+    url_scheme,
     is_current
 ) VALUES (
+    ?,
     ?,
     ?,
     ?,
@@ -115,15 +125,21 @@ type CreateInactiveDeviceIPAssignmentParams struct {
 	DeviceID  int64
 	IpAddress string
 	Port      string
+	UrlScheme string
 }
 
 func (q *Queries) CreateInactiveDeviceIPAssignment(ctx context.Context, arg CreateInactiveDeviceIPAssignmentParams) error {
-	_, err := q.exec(ctx, q.createInactiveDeviceIPAssignmentStmt, createInactiveDeviceIPAssignment, arg.DeviceID, arg.IpAddress, arg.Port)
+	_, err := q.exec(ctx, q.createInactiveDeviceIPAssignmentStmt, createInactiveDeviceIPAssignment,
+		arg.DeviceID,
+		arg.IpAddress,
+		arg.Port,
+		arg.UrlScheme,
+	)
 	return err
 }
 
 const getActiveDeviceIPAssignmentByDeviceID = `-- name: GetActiveDeviceIPAssignmentByDeviceID :one
-SELECT id, device_id, ip_address, port, assigned_at, unassigned_at, is_current, created_at
+SELECT id, device_id, ip_address, port, assigned_at, unassigned_at, is_current, created_at, url_scheme
 FROM device_ip_assignment
 WHERE device_id = ?
     AND is_current = TRUE
@@ -142,6 +158,7 @@ func (q *Queries) GetActiveDeviceIPAssignmentByDeviceID(ctx context.Context, dev
 		&i.UnassignedAt,
 		&i.IsCurrent,
 		&i.CreatedAt,
+		&i.UrlScheme,
 	)
 	return i, err
 }
@@ -482,6 +499,7 @@ SELECT
     ds.status_details,
     dia.ip_address,
     dia.port,
+    dia.url_scheme,
     dp.id as cursor_id,
     d.id as device_id
 FROM device d
@@ -524,6 +542,7 @@ type ListPairedMinersWithStatusRow struct {
 	StatusDetails    sql.NullString
 	IpAddress        sql.NullString
 	Port             sql.NullString
+	UrlScheme        sql.NullString
 	CursorID         int64
 	DeviceID         int64
 }
@@ -560,6 +579,7 @@ func (q *Queries) ListPairedMinersWithStatus(ctx context.Context, arg ListPaired
 			&i.StatusDetails,
 			&i.IpAddress,
 			&i.Port,
+			&i.UrlScheme,
 			&i.CursorID,
 			&i.DeviceID,
 		); err != nil {

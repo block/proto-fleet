@@ -40,8 +40,8 @@ type ProtoMiner struct {
 	systemClient     miner_system_apiconnect.MinerSystemApiClient
 }
 
-func NewProtoMiner(deviceIdentifier miner.DeviceIdentifier, ipAddress string, port uint16, authToken secrets.Text) (*ProtoMiner, error) {
-	connectionInfo, err := networking.NewConnectionInfo(ipAddress, fmt.Sprintf("%d", port), networking.ProtocolHTTPS)
+func NewProtoMiner(deviceIdentifier miner.DeviceIdentifier, ipAddress string, port uint16, scheme networking.Protocol, authToken secrets.Text) (*ProtoMiner, error) {
+	connectionInfo, err := networking.NewConnectionInfo(ipAddress, fmt.Sprintf("%d", port), scheme)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to create connection info: %v", err)
 	}
