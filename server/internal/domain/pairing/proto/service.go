@@ -2,6 +2,7 @@ package proto
 
 import (
 	"context"
+	"crypto/sha512"
 	"fmt"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
@@ -68,8 +69,9 @@ func (s *Service) PairDevice(ctx context.Context, device *minerdiscovery.Discove
 }
 
 func (s *Service) generatePairingToken(device *pb.Device) (string, error) {
-	deviceKey := device.SerialNumber
-	bytes, err := bcrypt.GenerateFromPassword(fmt.Appendf(nil, "%s:%s", s.cfg.SecretKey, deviceKey), pairingBcryptCost)
+	deviceKey := fmt.Sprintf("%s:%s", s.cfg.SecretKey, device.SerialNumber)
+	hash := sha512.Sum512([]byte(deviceKey))
+	bytes, err := bcrypt.GenerateFromPassword(hash[:], pairingBcryptCost)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("bcrypt failure: %v", err)
 	}
