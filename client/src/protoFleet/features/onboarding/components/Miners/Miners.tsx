@@ -123,7 +123,7 @@ const Miners = ({
 
       {showModal && (
         <PageOverlay show>
-          <div className="h-full w-full bg-surface-base p-6">
+          <div className="h-full w-full overflow-auto bg-surface-base p-6">
             <Header
               className="sticky top-0 z-10 pb-14"
               title="Add miners"
@@ -131,6 +131,7 @@ const Miners = ({
               icon={<Dismiss />}
               iconOnClick={() => {
                 handleScanCancel();
+                setActiveStep("findMiners");
                 setShowModal(false);
               }}
               inline
@@ -258,6 +259,7 @@ const Miners = ({
                       size={sizes.base}
                       loading={ipListDiscoveryPending}
                       onClick={() => {
+                        setActiveStep("pairing");
                         setShowModal(true);
                         handleIpListDiscovery();
                       }}
