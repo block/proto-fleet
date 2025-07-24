@@ -46,9 +46,15 @@ const (
 	// MinerCommandServiceUpdateMiningPoolsProcedure is the fully-qualified name of the
 	// MinerCommandService's UpdateMiningPools RPC.
 	MinerCommandServiceUpdateMiningPoolsProcedure = "/minercommand.v1.MinerCommandService/UpdateMiningPools"
+	// MinerCommandServiceDownloadLogsProcedure is the fully-qualified name of the MinerCommandService's
+	// DownloadLogs RPC.
+	MinerCommandServiceDownloadLogsProcedure = "/minercommand.v1.MinerCommandService/DownloadLogs"
 	// MinerCommandServiceStreamCommandBatchUpdatesProcedure is the fully-qualified name of the
 	// MinerCommandService's StreamCommandBatchUpdates RPC.
 	MinerCommandServiceStreamCommandBatchUpdatesProcedure = "/minercommand.v1.MinerCommandService/StreamCommandBatchUpdates"
+	// MinerCommandServiceGetCommandBatchLogBundleProcedure is the fully-qualified name of the
+	// MinerCommandService's GetCommandBatchLogBundle RPC.
+	MinerCommandServiceGetCommandBatchLogBundleProcedure = "/minercommand.v1.MinerCommandService/GetCommandBatchLogBundle"
 )
 
 // MinerCommandServiceClient is a client for the minercommand.v1.MinerCommandService service.
@@ -61,8 +67,10 @@ type MinerCommandServiceClient interface {
 	StartMining(context.Context, *connect.Request[v1.StartMiningRequest]) (*connect.Response[v1.StartMiningResponse], error)
 	SetCoolingMode(context.Context, *connect.Request[v1.SetCoolingModeRequest]) (*connect.Response[v1.SetCoolingModeResponse], error)
 	UpdateMiningPools(context.Context, *connect.Request[v1.UpdateMiningPoolsRequest]) (*connect.Response[v1.UpdateMiningPoolsResponse], error)
+	DownloadLogs(context.Context, *connect.Request[v1.DownloadLogsRequest]) (*connect.Response[v1.DownloadLogsResponse], error)
 	// Streams command batch updates
 	StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamCommandBatchUpdatesResponse], error)
+	GetCommandBatchLogBundle(context.Context, *connect.Request[v1.GetCommandBatchLogBundleRequest]) (*connect.Response[v1.GetCommandBatchLogBundleResponse], error)
 }
 
 // NewMinerCommandServiceClient constructs a client for the minercommand.v1.MinerCommandService
@@ -95,9 +103,19 @@ func NewMinerCommandServiceClient(httpClient connect.HTTPClient, baseURL string,
 			baseURL+MinerCommandServiceUpdateMiningPoolsProcedure,
 			opts...,
 		),
+		downloadLogs: connect.NewClient[v1.DownloadLogsRequest, v1.DownloadLogsResponse](
+			httpClient,
+			baseURL+MinerCommandServiceDownloadLogsProcedure,
+			opts...,
+		),
 		streamCommandBatchUpdates: connect.NewClient[v1.StreamCommandBatchUpdatesRequest, v1.StreamCommandBatchUpdatesResponse](
 			httpClient,
 			baseURL+MinerCommandServiceStreamCommandBatchUpdatesProcedure,
+			opts...,
+		),
+		getCommandBatchLogBundle: connect.NewClient[v1.GetCommandBatchLogBundleRequest, v1.GetCommandBatchLogBundleResponse](
+			httpClient,
+			baseURL+MinerCommandServiceGetCommandBatchLogBundleProcedure,
 			opts...,
 		),
 	}
@@ -109,7 +127,9 @@ type minerCommandServiceClient struct {
 	startMining               *connect.Client[v1.StartMiningRequest, v1.StartMiningResponse]
 	setCoolingMode            *connect.Client[v1.SetCoolingModeRequest, v1.SetCoolingModeResponse]
 	updateMiningPools         *connect.Client[v1.UpdateMiningPoolsRequest, v1.UpdateMiningPoolsResponse]
+	downloadLogs              *connect.Client[v1.DownloadLogsRequest, v1.DownloadLogsResponse]
 	streamCommandBatchUpdates *connect.Client[v1.StreamCommandBatchUpdatesRequest, v1.StreamCommandBatchUpdatesResponse]
+	getCommandBatchLogBundle  *connect.Client[v1.GetCommandBatchLogBundleRequest, v1.GetCommandBatchLogBundleResponse]
 }
 
 // StopMining calls minercommand.v1.MinerCommandService.StopMining.
@@ -132,9 +152,19 @@ func (c *minerCommandServiceClient) UpdateMiningPools(ctx context.Context, req *
 	return c.updateMiningPools.CallUnary(ctx, req)
 }
 
+// DownloadLogs calls minercommand.v1.MinerCommandService.DownloadLogs.
+func (c *minerCommandServiceClient) DownloadLogs(ctx context.Context, req *connect.Request[v1.DownloadLogsRequest]) (*connect.Response[v1.DownloadLogsResponse], error) {
+	return c.downloadLogs.CallUnary(ctx, req)
+}
+
 // StreamCommandBatchUpdates calls minercommand.v1.MinerCommandService.StreamCommandBatchUpdates.
 func (c *minerCommandServiceClient) StreamCommandBatchUpdates(ctx context.Context, req *connect.Request[v1.StreamCommandBatchUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamCommandBatchUpdatesResponse], error) {
 	return c.streamCommandBatchUpdates.CallServerStream(ctx, req)
+}
+
+// GetCommandBatchLogBundle calls minercommand.v1.MinerCommandService.GetCommandBatchLogBundle.
+func (c *minerCommandServiceClient) GetCommandBatchLogBundle(ctx context.Context, req *connect.Request[v1.GetCommandBatchLogBundleRequest]) (*connect.Response[v1.GetCommandBatchLogBundleResponse], error) {
+	return c.getCommandBatchLogBundle.CallUnary(ctx, req)
 }
 
 // MinerCommandServiceHandler is an implementation of the minercommand.v1.MinerCommandService
@@ -148,8 +178,10 @@ type MinerCommandServiceHandler interface {
 	StartMining(context.Context, *connect.Request[v1.StartMiningRequest]) (*connect.Response[v1.StartMiningResponse], error)
 	SetCoolingMode(context.Context, *connect.Request[v1.SetCoolingModeRequest]) (*connect.Response[v1.SetCoolingModeResponse], error)
 	UpdateMiningPools(context.Context, *connect.Request[v1.UpdateMiningPoolsRequest]) (*connect.Response[v1.UpdateMiningPoolsResponse], error)
+	DownloadLogs(context.Context, *connect.Request[v1.DownloadLogsRequest]) (*connect.Response[v1.DownloadLogsResponse], error)
 	// Streams command batch updates
 	StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest], *connect.ServerStream[v1.StreamCommandBatchUpdatesResponse]) error
+	GetCommandBatchLogBundle(context.Context, *connect.Request[v1.GetCommandBatchLogBundleRequest]) (*connect.Response[v1.GetCommandBatchLogBundleResponse], error)
 }
 
 // NewMinerCommandServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -178,9 +210,19 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 		svc.UpdateMiningPools,
 		opts...,
 	)
+	minerCommandServiceDownloadLogsHandler := connect.NewUnaryHandler(
+		MinerCommandServiceDownloadLogsProcedure,
+		svc.DownloadLogs,
+		opts...,
+	)
 	minerCommandServiceStreamCommandBatchUpdatesHandler := connect.NewServerStreamHandler(
 		MinerCommandServiceStreamCommandBatchUpdatesProcedure,
 		svc.StreamCommandBatchUpdates,
+		opts...,
+	)
+	minerCommandServiceGetCommandBatchLogBundleHandler := connect.NewUnaryHandler(
+		MinerCommandServiceGetCommandBatchLogBundleProcedure,
+		svc.GetCommandBatchLogBundle,
 		opts...,
 	)
 	return "/minercommand.v1.MinerCommandService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -193,8 +235,12 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 			minerCommandServiceSetCoolingModeHandler.ServeHTTP(w, r)
 		case MinerCommandServiceUpdateMiningPoolsProcedure:
 			minerCommandServiceUpdateMiningPoolsHandler.ServeHTTP(w, r)
+		case MinerCommandServiceDownloadLogsProcedure:
+			minerCommandServiceDownloadLogsHandler.ServeHTTP(w, r)
 		case MinerCommandServiceStreamCommandBatchUpdatesProcedure:
 			minerCommandServiceStreamCommandBatchUpdatesHandler.ServeHTTP(w, r)
+		case MinerCommandServiceGetCommandBatchLogBundleProcedure:
+			minerCommandServiceGetCommandBatchLogBundleHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -220,6 +266,14 @@ func (UnimplementedMinerCommandServiceHandler) UpdateMiningPools(context.Context
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.UpdateMiningPools is not implemented"))
 }
 
+func (UnimplementedMinerCommandServiceHandler) DownloadLogs(context.Context, *connect.Request[v1.DownloadLogsRequest]) (*connect.Response[v1.DownloadLogsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.DownloadLogs is not implemented"))
+}
+
 func (UnimplementedMinerCommandServiceHandler) StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest], *connect.ServerStream[v1.StreamCommandBatchUpdatesResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.StreamCommandBatchUpdates is not implemented"))
+}
+
+func (UnimplementedMinerCommandServiceHandler) GetCommandBatchLogBundle(context.Context, *connect.Request[v1.GetCommandBatchLogBundleRequest]) (*connect.Response[v1.GetCommandBatchLogBundleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.GetCommandBatchLogBundle is not implemented"))
 }

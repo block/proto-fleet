@@ -52,6 +52,14 @@ message UpdateMiningPoolsResponse {
   string batch_identifier = 1;
 }
 
+message DownloadLogsRequest {
+  repeated string device_identifiers = 1;
+}
+
+message DownloadLogsResponse {
+  string batch_identifier = 1;
+}
+
 message StreamCommandBatchUpdatesRequest {
   // The identifier of the command batch to stream
   string batch_identifier = 1;
@@ -86,6 +94,15 @@ message CommandBatchUpdateStatus {
   CommandBatchUpdateDeviceCount command_batch_device_count = 2;
 }
 
+message GetCommandBatchLogBundleRequest {
+  string batch_identifier = 1;
+}
+
+message GetCommandBatchLogBundleResponse {
+  bytes chunk_data = 1;
+  string filename = 2;
+}
+
 // Service for executing Miner commands
 service MinerCommandService {
   // Stops mining on specified miners
@@ -100,6 +117,10 @@ service MinerCommandService {
 
   rpc UpdateMiningPools(UpdateMiningPoolsRequest) returns (UpdateMiningPoolsResponse);
 
+  rpc DownloadLogs(DownloadLogsRequest) returns (DownloadLogsResponse);
+
   // Streams command batch updates
   rpc StreamCommandBatchUpdates(StreamCommandBatchUpdatesRequest) returns (stream StreamCommandBatchUpdatesResponse);
+
+  rpc GetCommandBatchLogBundle(GetCommandBatchLogBundleRequest) returns (GetCommandBatchLogBundleResponse);
 }

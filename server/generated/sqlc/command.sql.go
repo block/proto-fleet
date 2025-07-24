@@ -54,6 +54,26 @@ func (q *Queries) CreateCommandBatchLog(ctx context.Context, arg CreateCommandBa
 	)
 }
 
+const getBatchLog = `-- name: GetBatchLog :one
+SELECT
+    cbl.status,
+    cbl.type
+FROM command_batch_log cbl
+WHERE cbl.uuid = ?
+`
+
+type GetBatchLogRow struct {
+	Status CommandBatchLogStatus
+	Type   string
+}
+
+func (q *Queries) GetBatchLog(ctx context.Context, uuid string) (GetBatchLogRow, error) {
+	row := q.queryRow(ctx, q.getBatchLogStmt, getBatchLog, uuid)
+	var i GetBatchLogRow
+	err := row.Scan(&i.Status, &i.Type)
+	return i, err
+}
+
 const getBatchStatusAndDeviceCounts = `-- name: GetBatchStatusAndDeviceCounts :one
 SELECT
     cbl.id,
@@ -99,11 +119,11 @@ const markCommandBatchFinished = `-- name: MarkCommandBatchFinished :exec
 UPDATE command_batch_log
 SET status = 'FINISHED',
    finished_at = NOW()
-WHERE id = ?
+WHERE uuid = ?
 `
 
-func (q *Queries) MarkCommandBatchFinished(ctx context.Context, id int64) error {
-	_, err := q.exec(ctx, q.markCommandBatchFinishedStmt, markCommandBatchFinished, id)
+func (q *Queries) MarkCommandBatchFinished(ctx context.Context, uuid string) error {
+	_, err := q.exec(ctx, q.markCommandBatchFinishedStmt, markCommandBatchFinished, uuid)
 	return err
 }
 
@@ -112,11 +132,11 @@ UPDATE command_batch_log
 SET status = 'FINISHED',
     started_at = NOW(),
     finished_at = NOW()
-WHERE id = ?
+WHERE uuid = ?
 `
 
-func (q *Queries) MarkCommandBatchFinishedWithStartedAt(ctx context.Context, id int64) error {
-	_, err := q.exec(ctx, q.markCommandBatchFinishedWithStartedAtStmt, markCommandBatchFinishedWithStartedAt, id)
+func (q *Queries) MarkCommandBatchFinishedWithStartedAt(ctx context.Context, uuid string) error {
+	_, err := q.exec(ctx, q.markCommandBatchFinishedWithStartedAtStmt, markCommandBatchFinishedWithStartedAt, uuid)
 	return err
 }
 
@@ -124,11 +144,11 @@ const markCommandBatchProcessing = `-- name: MarkCommandBatchProcessing :exec
 UPDATE command_batch_log
 SET status = 'PROCESSING',
     started_at = NOW()
-WHERE id = ?
+WHERE uuid = ?
 `
 
-func (q *Queries) MarkCommandBatchProcessing(ctx context.Context, id int64) error {
-	_, err := q.exec(ctx, q.markCommandBatchProcessingStmt, markCommandBatchProcessing, id)
+func (q *Queries) MarkCommandBatchProcessing(ctx context.Context, uuid string) error {
+	_, err := q.exec(ctx, q.markCommandBatchProcessingStmt, markCommandBatchProcessing, uuid)
 	return err
 }
 
@@ -138,29 +158,32 @@ INSERT INTO command_on_device_log (
    device_id,
    status,
    updated_at
-) VALUES (
-  ?,
+)
+SELECT
+  cbl.id,
   ?,
   ?,
   ?
-) ON DUPLICATE KEY UPDATE
+FROM command_batch_log cbl
+WHERE cbl.uuid = ?
+ON DUPLICATE KEY UPDATE
     status = VALUES(status),
     updated_at = VALUES(updated_at)
 `
 
 type UpsertCommandOnDeviceLogParams struct {
-	CommandBatchLogID int64
-	DeviceID          int64
-	Status            CommandOnDeviceLogStatus
-	UpdatedAt         time.Time
+	DeviceID  int64
+	Status    CommandOnDeviceLogStatus
+	UpdatedAt time.Time
+	Uuid      string
 }
 
 func (q *Queries) UpsertCommandOnDeviceLog(ctx context.Context, arg UpsertCommandOnDeviceLogParams) error {
 	_, err := q.exec(ctx, q.upsertCommandOnDeviceLogStmt, upsertCommandOnDeviceLog,
-		arg.CommandBatchLogID,
 		arg.DeviceID,
 		arg.Status,
 		arg.UpdatedAt,
+		arg.Uuid,
 	)
 	return err
 }

@@ -163,10 +163,10 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 	timeNow := time.Now()
 	dbError := db.WithTransactionNoResult(ctx, es.conn, func(q *sqlc.Queries) error {
 		return q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
-			CommandBatchLogID: message.BatchLogID,
-			DeviceID:          message.DeviceID,
-			Status:            upsertCommandOnDeviceStatus(workerError),
-			UpdatedAt:         timeNow,
+			Uuid:      message.BatchLogUUID,
+			DeviceID:  message.DeviceID,
+			Status:    upsertCommandOnDeviceStatus(workerError),
+			UpdatedAt: timeNow,
 		})
 	})
 	if dbError != nil {
@@ -204,6 +204,8 @@ func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandTyp
 			return fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", updateExtractErr)
 		}
 		err = minerInfo.UpdateMiningPools(ctx, p)
+	case commandtype.DownloadLogs:
+		err = minerInfo.DownloadLogs(ctx, message.BatchLogUUID)
 	default:
 		return fleeterror.NewInternalErrorf("unsupported command type: %v", commandType)
 	}

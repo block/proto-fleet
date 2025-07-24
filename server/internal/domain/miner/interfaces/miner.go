@@ -30,6 +30,8 @@ type Miner interface {
 	SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error
 	UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error
 
+	DownloadLogs(ctx context.Context, batchLogUUID string) error
+
 	// Telemetry operations
 	GetTelemetry(ctx context.Context, after time.Time) ([]telemetryModels.Telemetry, error)
 }

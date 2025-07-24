@@ -6,10 +6,11 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
+
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
-
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api"
 
 	"connectrpc.com/connect"
@@ -40,15 +41,17 @@ type ProtoMinerInfo struct {
 	deviceIdentifier miner.DeviceIdentifier
 	connectionInfo   networking.ConnectionInfo
 }
+
 type ProtoMiner struct {
 	interfaces.MinerInfo
 	authToken     *secrets.Text
 	dataClient    miner_data_apiconnect.MinerDataApiClient
 	commandClient miner_command_apiconnect.MinerCommandApiClient
 	systemClient  miner_system_apiconnect.MinerSystemApiClient
+	filesService  *files.Service
 }
 
-func NewProtoMiner(protoMinerInfo interfaces.MinerInfo, authToken secrets.Text) (*ProtoMiner, error) {
+func NewProtoMiner(protoMinerInfo interfaces.MinerInfo, authToken secrets.Text, filesService *files.Service) (*ProtoMiner, error) {
 	// Create individual clients using the new CreateClient function
 	dataClient, err := client.CreateClient(
 		miner_data_apiconnect.NewMinerDataApiClient,
@@ -80,6 +83,7 @@ func NewProtoMiner(protoMinerInfo interfaces.MinerInfo, authToken secrets.Text) 
 		dataClient:    dataClient,
 		commandClient: commandClient,
 		systemClient:  systemClient,
+		filesService:  filesService,
 	}, nil
 }
 
@@ -236,6 +240,47 @@ func (p *ProtoMiner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMi
 	}
 
 	return nil
+}
+
+func (p *ProtoMiner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
+	ctx = client.ContextWithAuth(ctx, p.authToken)
+
+	// TODO introduce the correct call once the GRPC supports it
+	downloadResp, err := p.commandClient.StopMining(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
+	if err != nil {
+		return err
+	}
+
+	if downloadResp.Msg.Result != miner_common_api.ApiResult_RESULT_SUCCESS {
+		return fleeterror.NewInternalErrorf("download logs failed: %s", downloadResp.Msg.String())
+	}
+
+	// TODO use the real data once the GRPC supports it
+
+	deviceIdentifier := p.GetID()
+	logData := generateMockLogData(&deviceIdentifier)
+
+	_, err = p.filesService.SaveLogs(batchLogUUID, &deviceIdentifier, logData)
+
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error saving logs: %v", err)
+	}
+
+	return nil
+}
+
+func generateMockLogData(deviceIdentifier *miner.DeviceIdentifier) string {
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	return fmt.Sprintf(`{
+		"device_id": "%s",
+		"timestamp": "%s",
+		"log_entries": [
+			{"level": "INFO", "timestamp": "%s", "message": "Mining service started"},
+			{"level": "INFO", "timestamp": "%s", "message": "Connected to pool"},
+			{"level": "DEBUG", "timestamp": "%s", "message": "Hash rate: 95.5 TH/s"},
+			{"level": "WARNING", "timestamp": "%s", "message": "Temperature threshold approaching"}
+		]
+	}`, deviceIdentifier, timestamp, timestamp, timestamp, timestamp, timestamp)
 }
 
 func (p *ProtoMiner) GetTelemetry(ctx context.Context, after time.Time) ([]telemetryModels.Telemetry, error) {

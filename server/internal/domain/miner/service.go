@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
+
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/rpc"
@@ -29,20 +31,25 @@ type MinerService struct {
 	db             *sql.DB
 	queries        *sqlc.Queries
 	encryptService *encrypt.Service
+	filesService   *files.Service
 }
 
-func NewMinerService(db *sql.DB, encryptService *encrypt.Service) *MinerService {
+func NewMinerService(db *sql.DB, encryptService *encrypt.Service, filesService *files.Service) *MinerService {
 	if db == nil {
 		panic("database cannot be nil")
 	}
 	if encryptService == nil {
 		panic("encrypt service cannot be nil")
 	}
+	if filesService == nil {
+		panic("files service cannot be nil")
+	}
 
 	return &MinerService{
 		db:             db,
 		queries:        sqlc.New(db),
 		encryptService: encryptService,
+		filesService:   filesService,
 	}
 }
 
@@ -191,5 +198,6 @@ func (s *MinerService) createProtoMiner(minerInfo interfaces.MinerInfo, devicePa
 	return proto.NewProtoMiner(
 		minerInfo,
 		authToken,
+		s.filesService,
 	)
 }

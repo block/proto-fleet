@@ -21,20 +21,20 @@ INSERT INTO command_batch_log (
 UPDATE command_batch_log
 SET status = 'PROCESSING',
     started_at = NOW()
-WHERE id = ?;
+WHERE uuid = ?;
 
 -- name: MarkCommandBatchFinished :exec
 UPDATE command_batch_log
 SET status = 'FINISHED',
    finished_at = NOW()
-WHERE id = ?;
+WHERE uuid = ?;
 
 -- name: MarkCommandBatchFinishedWithStartedAt :exec
 UPDATE command_batch_log
 SET status = 'FINISHED',
     started_at = NOW(),
     finished_at = NOW()
-WHERE id = ?;
+WHERE uuid = ?;
 
 -- name: UpsertCommandOnDeviceLog :exec
 INSERT INTO command_on_device_log (
@@ -42,12 +42,15 @@ INSERT INTO command_on_device_log (
    device_id,
    status,
    updated_at
-) VALUES (
-  ?,
+)
+SELECT
+  cbl.id,
   ?,
   ?,
   ?
-) ON DUPLICATE KEY UPDATE
+FROM command_batch_log cbl
+WHERE cbl.uuid = ?
+ON DUPLICATE KEY UPDATE
     status = VALUES(status),
     updated_at = VALUES(updated_at);
 
@@ -67,3 +70,10 @@ WHERE
     cbl.uuid = ?
 GROUP BY
     cbl.id;
+
+-- name: GetBatchLog :one
+SELECT
+    cbl.status,
+    cbl.type
+FROM command_batch_log cbl
+WHERE cbl.uuid = ?;

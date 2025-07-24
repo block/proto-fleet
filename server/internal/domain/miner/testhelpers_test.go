@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
+
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/golang-migrate/migrate/v4"
 	migrateMySQL "github.com/golang-migrate/migrate/v4/database/mysql"
@@ -25,6 +27,7 @@ import (
 var (
 	testContainer        *mysql.MySQLContainer
 	testEncryptService   *encrypt.Service
+	testFilesService     *files.Service
 	testConnectionString string
 	setupOnce            sync.Once
 	setupError           error
@@ -75,6 +78,11 @@ func setupTestInfrastructure() error {
 
 		if err := runMigrations(tempDB); err != nil {
 			setupError = fmt.Errorf("could not run migrations: %w", err)
+			return
+		}
+
+		testFilesService, setupError = files.NewService()
+		if setupError != nil {
 			return
 		}
 	})
@@ -136,7 +144,7 @@ func runMigrations(db *sql.DB) error {
 	return nil
 }
 
-func setupTestDB(t *testing.T) (*sql.DB, *encrypt.Service) {
+func setupTestDB(t *testing.T) (*sql.DB, *encrypt.Service, *files.Service) {
 	t.Helper()
 
 	if err := setupTestInfrastructure(); err != nil {
@@ -149,6 +157,10 @@ func setupTestDB(t *testing.T) (*sql.DB, *encrypt.Service) {
 
 	if testEncryptService == nil {
 		t.Fatal("Test encrypt service not initialized after setup")
+	}
+
+	if testFilesService == nil {
+		t.Fatal("Test files service not initialized after setup")
 	}
 
 	db, err := sql.Open("mysql", testConnectionString)
@@ -169,7 +181,7 @@ func setupTestDB(t *testing.T) (*sql.DB, *encrypt.Service) {
 
 	cleanupTestData(t, db)
 
-	return db, testEncryptService
+	return db, testEncryptService, testFilesService
 }
 
 func cleanupTestData(t *testing.T, db *sql.DB) {

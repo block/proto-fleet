@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
+
 	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
@@ -39,6 +41,7 @@ type ServiceProvider struct {
 	EncryptService         *encrypt.Service
 	FleetManagementService *fleetmanagement.Service
 	DeviceStore            *sqlstores.SQLDeviceStore
+	FilesService           *files.Service
 }
 
 func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvider {
@@ -83,13 +86,16 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 
 	executionServiceCtx, executionServiceCancel := context.WithCancel(t.Context())
 
-	minerService := miner.NewMinerService(db, encryptService)
+	filesService, err := files.NewService()
+	assert.NoError(t, err)
+
+	minerService := miner.NewMinerService(db, encryptService, filesService)
 	executionService := command.NewExecutionService(executionServiceCtx, commandConfig, db, dbMessageQueue, encryptService, tokenService, minerService)
 	err = executionService.Start(executionServiceCtx)
 	assert.NoError(t, err)
 
 	statusService := command.NewStatusService(db, dbMessageQueue)
-	commandService := command.NewService(commandConfig, db, executionService, dbMessageQueue, statusService, encryptService)
+	commandService := command.NewService(commandConfig, db, executionService, dbMessageQueue, statusService, encryptService, filesService)
 
 	onboardingService := onboarding.NewService(deviceStore, poolStore)
 
@@ -106,5 +112,6 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 		EncryptService:         encryptService,
 		FleetManagementService: fleetManagementService,
 		DeviceStore:            deviceStore,
+		FilesService:           filesService,
 	}
 }

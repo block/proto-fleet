@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
+
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 
@@ -32,17 +34,19 @@ type Service struct {
 	messageQueue     queue.MessageQueue
 	statusService    *StatusService
 	encryptService   *encrypt.Service
+	filesService     *files.Service
 }
 
 const defaultPoolPriority uint32 = 0
 
-type batchLogIdentifier struct {
-	id   int64
-	uuid string
+type Command struct {
+	commandType       commandtype.Type
+	deviceIdentifiers []string
+	payload           interface{}
 }
 
 // NewService creates a new command service instance
-func NewService(config *Config, conn *sql.DB, executionService *ExecutionService, messageQueue queue.MessageQueue, statusService *StatusService, encryptService *encrypt.Service) *Service {
+func NewService(config *Config, conn *sql.DB, executionService *ExecutionService, messageQueue queue.MessageQueue, statusService *StatusService, encryptService *encrypt.Service, filesService *files.Service) *Service {
 	return &Service{
 		config:           config,
 		conn:             conn,
@@ -50,20 +54,20 @@ func NewService(config *Config, conn *sql.DB, executionService *ExecutionService
 		messageQueue:     messageQueue,
 		statusService:    statusService,
 		encryptService:   encryptService,
+		filesService:     filesService,
 	}
 }
 
-func (s *Service) saveCommandBatchLogToDB(ctx context.Context, commandType commandtype.Type, userID int64, devicesCount int32, payload interface{}) (*batchLogIdentifier, error) {
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error marshalling payload: %v", err)
-	}
-	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (*batchLogIdentifier, error) {
+func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID int64, command *Command, payloadBytes []byte) (string, error) {
+	// #nosec G115 - We know device identifiers len won't exceed int32 max value
+	devicesCount := int32(len(command.deviceIdentifiers))
+	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (string, error) {
 		timeNow := time.Now()
 		newUUID := id.GenerateID()
-		result, err := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
+
+		_, err := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
 			Uuid:         newUUID,
-			Type:         commandType.String(),
+			Type:         command.commandType.String(),
 			CreatedBy:    userID,
 			CreatedAt:    timeNow,
 			Status:       sqlc.CommandBatchLogStatusPENDING,
@@ -71,24 +75,21 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, commandType comma
 			Payload:      payloadBytes,
 		})
 		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("error creating command batch log: %v", err)
+			return "", fleeterror.NewInternalErrorf("error creating command batch log: %v", err)
 		}
-		lastInsertID, err := result.LastInsertId()
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("error getting last insert ID: %v", err)
-		}
-		return &batchLogIdentifier{id: lastInsertID, uuid: newUUID}, nil
+
+		return newUUID, nil
 	})
 }
 
-func (s *Service) statusUpdateIsProcessingBranch(ctx context.Context, commandBatchLogID int64) (bool, error) {
-	isProcessing, err := s.messageQueue.IsBatchProcessing(ctx, commandBatchLogID)
+func (s *Service) statusUpdateIsProcessingBranch(ctx context.Context, commandBatchLogUUID string) (bool, error) {
+	isProcessing, err := s.messageQueue.IsBatchProcessing(ctx, commandBatchLogUUID)
 	if err != nil {
 		return false, fleeterror.NewInternalErrorf("error asking isProcessing: %v", err)
 	}
 	if isProcessing {
 		err = db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
-			return q.MarkCommandBatchProcessing(ctx, commandBatchLogID)
+			return q.MarkCommandBatchProcessing(ctx, commandBatchLogUUID)
 		})
 		if err != nil {
 			return false, fleeterror.NewInternalErrorf("error marking batch: %v", err)
@@ -98,33 +99,36 @@ func (s *Service) statusUpdateIsProcessingBranch(ctx context.Context, commandBat
 	return false, nil
 }
 
-func (s *Service) getMarkFinishedBatchFunction(processingMarkedInDB bool) func(ctx context.Context, commandBatchLogID int64) error {
-	return func(ctx context.Context, commandBatchLogID int64) error {
+func (s *Service) getMarkFinishedBatchFunction(processingMarkedInDB bool) func(ctx context.Context, commandBatchLogUUID string) error {
+	return func(ctx context.Context, commandBatchLogUUID string) error {
 		return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
 			if processingMarkedInDB {
-				return q.MarkCommandBatchFinished(ctx, commandBatchLogID)
+				return q.MarkCommandBatchFinished(ctx, commandBatchLogUUID)
 			}
-			return q.MarkCommandBatchFinishedWithStartedAt(ctx, commandBatchLogID)
+			return q.MarkCommandBatchFinishedWithStartedAt(ctx, commandBatchLogUUID)
 		})
 	}
 }
 
-func (s *Service) statusUpdateIsFinishedBranch(ctx context.Context, commandBatchLogID int64, processingMarkedInDB bool) (bool, error) {
-	isFinished, err := s.messageQueue.IsBatchFinished(ctx, commandBatchLogID)
+func (s *Service) statusUpdateIsFinishedBranch(ctx context.Context, commandBatchLogUUID string, processingMarkedInDB bool) (bool, error) {
+	isFinished, err := s.messageQueue.IsBatchFinished(ctx, commandBatchLogUUID)
 	if err != nil {
 		return false, fleeterror.NewInternalErrorf("error asking is finished: %v", err)
 	}
 	if isFinished {
-		err = s.getMarkFinishedBatchFunction(processingMarkedInDB)(ctx, commandBatchLogID)
+		err = s.getMarkFinishedBatchFunction(processingMarkedInDB)(ctx, commandBatchLogUUID)
 		if err != nil {
 			return false, fleeterror.NewInternalErrorf("error marking batch: %v", err)
 		}
+
 		return true, nil
 	}
 	return false, nil
 }
 
-func (s *Service) initializeStatusUpdateRoutine(commandBatchLogID int64) {
+type onFinishedCallbackFunc func() error
+
+func (s *Service) initializeStatusUpdateRoutine(commandBatchLogUUID string, onFinishedCallback onFinishedCallbackFunc) {
 	go func() {
 		// TODO maybe integrate this with the execution service master thread ctx in the future
 		ctx := context.Background()
@@ -138,19 +142,24 @@ func (s *Service) initializeStatusUpdateRoutine(commandBatchLogID int64) {
 				return
 			case <-ticker.C:
 				if !processingMarkedInDB {
-					isProcessing, err := s.statusUpdateIsProcessingBranch(ctx, commandBatchLogID)
+					isProcessing, err := s.statusUpdateIsProcessingBranch(ctx, commandBatchLogUUID)
 					if err != nil {
 						slog.Error("error in isProcessing branch", "error", err)
 						return
 					}
 					processingMarkedInDB = isProcessing
 				}
-				isFinished, err := s.statusUpdateIsFinishedBranch(ctx, commandBatchLogID, processingMarkedInDB)
+				isFinished, err := s.statusUpdateIsFinishedBranch(ctx, commandBatchLogUUID, processingMarkedInDB)
 				if err != nil {
 					slog.Error("error in isFinished branch", "error", err)
 					return
 				}
 				if isFinished {
+					if onFinishedCallback != nil {
+						if callbackErr := onFinishedCallback(); callbackErr != nil {
+							slog.Error("error in onFinished callback", "error", callbackErr)
+						}
+					}
 					return
 				}
 			}
@@ -158,7 +167,18 @@ func (s *Service) initializeStatusUpdateRoutine(commandBatchLogID int64) {
 	}()
 }
 
-func (s *Service) processCommand(ctx context.Context, commandType commandtype.Type, deviceIdentifiers []string, payload interface{}) (string, error) {
+func (s *Service) statusUpdateRoutineOnFinishedCallback(commandType commandtype.Type, batchLogUUID string) onFinishedCallbackFunc {
+	switch commandType {
+	case commandtype.DownloadLogs:
+		return s.filesService.DownloadLogsOnFinishedCallback(batchLogUUID)
+	case commandtype.StopMining, commandtype.StartMining, commandtype.SetCoolingMode, commandtype.UpdateMiningPools:
+		return nil
+	default:
+		return nil
+	}
+}
+
+func (s *Service) processCommand(ctx context.Context, command *Command) (string, error) {
 	if !s.executionService.IsRunning() {
 		slog.Error("command execution service is not running, attempting to start it")
 		err := s.executionService.Start(ctx)
@@ -171,31 +191,40 @@ func (s *Service) processCommand(ctx context.Context, commandType commandtype.Ty
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error getting claims from ctx: %v", err)
 	}
-	// #nosec G115 - We know device identifiers len won't exceed int32 max value
-	batchLogIdentifier, err := s.saveCommandBatchLogToDB(ctx, commandType, claims.UserID, int32(len(deviceIdentifiers)), payload)
+
+	payloadBytes, err := json.Marshal(command.payload)
+	if err != nil {
+		return "", fleeterror.NewInternalErrorf("error marshalling payload: %v", err)
+	}
+
+	batchLogIdentifier, err := s.saveCommandBatchLogToDB(ctx, claims.UserID, command, payloadBytes)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
 	}
 	deviceIDs, err := db.WithTransaction[[]int64](ctx, s.conn, func(q *sqlc.Queries) ([]int64, error) {
-		return q.GetDeviceIDsByDeviceIdentifiers(ctx, deviceIdentifiers)
+		return q.GetDeviceIDsByDeviceIdentifiers(ctx, command.deviceIdentifiers)
 	})
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error getting device IDs from device identifiers: %v", err)
 	}
 
-	err = s.messageQueue.Enqueue(ctx, batchLogIdentifier.id, commandType, deviceIDs, payload)
+	err = s.messageQueue.Enqueue(ctx, batchLogIdentifier, command.commandType, deviceIDs, command.payload)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
 	}
 
-	s.initializeStatusUpdateRoutine(batchLogIdentifier.id)
+	onFinishedCallback := s.statusUpdateRoutineOnFinishedCallback(command.commandType, batchLogIdentifier)
+	s.initializeStatusUpdateRoutine(batchLogIdentifier, onFinishedCallback)
 
-	return batchLogIdentifier.uuid, nil
+	return batchLogIdentifier, nil
 }
 
 // StopMining stops mining on the specified miners
 func (s *Service) StopMining(ctx context.Context, deviceIDs []string) (*pb.StopMiningResponse, error) {
-	commandBatchLogUUID, err := s.processCommand(ctx, commandtype.StopMining, deviceIDs, nil)
+	commandBatchLogUUID, err := s.processCommand(
+		ctx,
+		&Command{commandType: commandtype.StopMining, deviceIdentifiers: deviceIDs, payload: nil},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +236,10 @@ func (s *Service) StopMining(ctx context.Context, deviceIDs []string) (*pb.StopM
 
 // StartMining starts mining on the specified miners
 func (s *Service) StartMining(ctx context.Context, deviceIDs []string) (*pb.StartMiningResponse, error) {
-	commandBatchLogUUID, err := s.processCommand(ctx, commandtype.StartMining, deviceIDs, nil)
+	commandBatchLogUUID, err := s.processCommand(
+		ctx,
+		&Command{commandType: commandtype.StartMining, deviceIdentifiers: deviceIDs, payload: nil},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +251,10 @@ func (s *Service) StartMining(ctx context.Context, deviceIDs []string) (*pb.Star
 
 func (s *Service) SetCoolingMode(ctx context.Context, deviceIDs []string, modeType pb.CoolingMode) (*pb.SetCoolingModeResponse, error) {
 	cm := dto.CoolingModePayload{Mode: modeType}
-	commandBatchLogUUID, err := s.processCommand(ctx, commandtype.SetCoolingMode, deviceIDs, cm)
+	commandBatchLogUUID, err := s.processCommand(
+		ctx,
+		&Command{commandType: commandtype.SetCoolingMode, deviceIdentifiers: deviceIDs, payload: cm},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -294,11 +329,26 @@ func (s *Service) UpdateMiningPools(ctx context.Context, deviceIDs []string, def
 		return nil, err
 	}
 
-	commandBatchLogUUID, err := s.processCommand(ctx, commandtype.UpdateMiningPools, deviceIDs, pld)
+	commandBatchLogUUID, err := s.processCommand(
+		ctx,
+		&Command{commandType: commandtype.UpdateMiningPools, deviceIdentifiers: deviceIDs, payload: pld},
+	)
 	if err != nil {
 		return nil, err
 	}
 	return &pb.UpdateMiningPoolsResponse{BatchIdentifier: commandBatchLogUUID}, nil
+}
+
+func (s *Service) DownloadLogs(ctx context.Context, deviceIDs []string) (*pb.DownloadLogsResponse, error) {
+	commandBatchLogUUID, err := s.processCommand(
+		ctx,
+		&Command{commandType: commandtype.DownloadLogs, deviceIdentifiers: deviceIDs, payload: nil},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.DownloadLogsResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
 
 func (s *Service) StreamCommandBatchUpdates(ctx context.Context, msg *pb.StreamCommandBatchUpdatesRequest) (<-chan *pb.StreamCommandBatchUpdatesResponse, error) {
@@ -337,4 +387,18 @@ func (s *Service) StreamCommandBatchUpdates(ctx context.Context, msg *pb.StreamC
 	}()
 
 	return responseChan, nil
+}
+
+func (s *Service) GetCommandBatchLogBundle(batchUUID string) (*pb.GetCommandBatchLogBundleResponse, error) {
+	file, err := s.filesService.GetBatchLogBundleFile(batchUUID)
+	if err != nil {
+		return nil, err
+	}
+
+	s.filesService.ScheduleBatchLogCleanup(batchUUID, 30*time.Minute)
+
+	return &pb.GetCommandBatchLogBundleResponse{
+		Filename:  file.Filename,
+		ChunkData: file.Data,
+	}, nil
 }

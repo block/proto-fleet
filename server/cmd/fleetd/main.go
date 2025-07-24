@@ -8,6 +8,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
+
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
+
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/health"
 
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/influxdb"
@@ -33,7 +37,6 @@ import (
 	authDomain "github.com/btc-mining/proto-fleet/server/internal/domain/auth"
 	commandDomain "github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	fleetmanagementDomain "github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
 	antminerRPC "github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/rpc"
 	antminerWeb "github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/web"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
@@ -142,7 +145,11 @@ func start(config *Config) error {
 	scheduler := scheduler.NewScheduler(
 		config.Scheduler,
 	)
-	minerService := miner.NewMinerService(conn, encryptSvc)
+	filesService, err := files.NewService()
+	if err != nil {
+		return err
+	}
+	minerService := miner.NewMinerService(conn, encryptSvc, filesService)
 
 	telemetryService := telemetry.NewTelemetryService(
 		config.Telemetry,
@@ -183,7 +190,7 @@ func start(config *Config) error {
 	}
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
-	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc)
+	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore)
 	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools)
 

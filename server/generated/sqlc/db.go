@@ -72,6 +72,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getAllPairedDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getAllPairedDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllPairedDeviceIdentifiers: %w", err)
 	}
+	if q.getBatchLogStmt, err = db.PrepareContext(ctx, getBatchLog); err != nil {
+		return nil, fmt.Errorf("error preparing query GetBatchLog: %w", err)
+	}
 	if q.getBatchStatusAndDeviceCountsStmt, err = db.PrepareContext(ctx, getBatchStatusAndDeviceCounts); err != nil {
 		return nil, fmt.Errorf("error preparing query GetBatchStatusAndDeviceCounts: %w", err)
 	}
@@ -338,6 +341,11 @@ func (q *Queries) Close() error {
 	if q.getAllPairedDeviceIdentifiersStmt != nil {
 		if cerr := q.getAllPairedDeviceIdentifiersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getAllPairedDeviceIdentifiersStmt: %w", cerr)
+		}
+	}
+	if q.getBatchLogStmt != nil {
+		if cerr := q.getBatchLogStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getBatchLogStmt: %w", cerr)
 		}
 	}
 	if q.getBatchStatusAndDeviceCountsStmt != nil {
@@ -700,6 +708,7 @@ type Queries struct {
 	deletePoolConfigurationStmt                         *sql.Stmt
 	getActiveDeviceIPAssignmentByDeviceIDStmt           *sql.Stmt
 	getAllPairedDeviceIdentifiersStmt                   *sql.Stmt
+	getBatchLogStmt                                     *sql.Stmt
 	getBatchStatusAndDeviceCountsStmt                   *sql.Stmt
 	getDeviceByDeviceIdentifierStmt                     *sql.Stmt
 	getDeviceByIDStmt                                   *sql.Stmt
@@ -783,6 +792,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deletePoolConfigurationStmt:                         q.deletePoolConfigurationStmt,
 		getActiveDeviceIPAssignmentByDeviceIDStmt:           q.getActiveDeviceIPAssignmentByDeviceIDStmt,
 		getAllPairedDeviceIdentifiersStmt:                   q.getAllPairedDeviceIdentifiersStmt,
+		getBatchLogStmt:                                     q.getBatchLogStmt,
 		getBatchStatusAndDeviceCountsStmt:                   q.getBatchStatusAndDeviceCountsStmt,
 		getDeviceByDeviceIdentifierStmt:                     q.getDeviceByDeviceIdentifierStmt,
 		getDeviceByIDStmt:                                   q.getDeviceByIDStmt,

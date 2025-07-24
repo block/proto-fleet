@@ -1,6 +1,6 @@
 -- name: CreateQueueMessage :exec
 INSERT INTO queue_message (
-    command_batch_log_id,
+    command_batch_log_uuid,
     command_type,
     device_id,
     status,
@@ -55,7 +55,7 @@ SELECT
         ELSE false
     END AS is_finished
 FROM queue_message
-WHERE command_batch_log_id = ?;
+WHERE command_batch_log_uuid = ?;
 
 -- name: IsBatchProcessing :one
 SELECT
@@ -64,5 +64,5 @@ SELECT
         ELSE false
         END AS is_processing
 FROM queue_message
-WHERE command_batch_log_id = ?
+WHERE command_batch_log_uuid = ?
   AND status = 'PROCESSING';

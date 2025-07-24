@@ -52,47 +52,47 @@ func (mr *MockMessageQueueMockRecorder) Dequeue(ctx interface{}) *gomock.Call {
 }
 
 // Enqueue mocks base method.
-func (m *MockMessageQueue) Enqueue(ctx context.Context, commandBatchLogID int64, commandType commandtype.Type, deviceIDs []int64, payload interface{}) error {
+func (m *MockMessageQueue) Enqueue(ctx context.Context, commandBatchLogUUID string, commandType commandtype.Type, deviceIDs []int64, payload interface{}) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Enqueue", ctx, commandBatchLogID, commandType, deviceIDs, payload)
+	ret := m.ctrl.Call(m, "Enqueue", ctx, commandBatchLogUUID, commandType, deviceIDs, payload)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Enqueue indicates an expected call of Enqueue.
-func (mr *MockMessageQueueMockRecorder) Enqueue(ctx, commandBatchLogID, commandType, deviceIDs, payload interface{}) *gomock.Call {
+func (mr *MockMessageQueueMockRecorder) Enqueue(ctx, commandBatchLogUUID, commandType, deviceIDs, payload interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Enqueue", reflect.TypeOf((*MockMessageQueue)(nil).Enqueue), ctx, commandBatchLogID, commandType, deviceIDs, payload)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Enqueue", reflect.TypeOf((*MockMessageQueue)(nil).Enqueue), ctx, commandBatchLogUUID, commandType, deviceIDs, payload)
 }
 
 // IsBatchFinished mocks base method.
-func (m *MockMessageQueue) IsBatchFinished(ctx context.Context, commandBatchLogID int64) (bool, error) {
+func (m *MockMessageQueue) IsBatchFinished(ctx context.Context, commandBatchLogUUID string) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsBatchFinished", ctx, commandBatchLogID)
+	ret := m.ctrl.Call(m, "IsBatchFinished", ctx, commandBatchLogUUID)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // IsBatchFinished indicates an expected call of IsBatchFinished.
-func (mr *MockMessageQueueMockRecorder) IsBatchFinished(ctx, commandBatchLogID interface{}) *gomock.Call {
+func (mr *MockMessageQueueMockRecorder) IsBatchFinished(ctx, commandBatchLogUUID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsBatchFinished", reflect.TypeOf((*MockMessageQueue)(nil).IsBatchFinished), ctx, commandBatchLogID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsBatchFinished", reflect.TypeOf((*MockMessageQueue)(nil).IsBatchFinished), ctx, commandBatchLogUUID)
 }
 
 // IsBatchProcessing mocks base method.
-func (m *MockMessageQueue) IsBatchProcessing(ctx context.Context, commandBatchLogID int64) (bool, error) {
+func (m *MockMessageQueue) IsBatchProcessing(ctx context.Context, commandBatchLogUUID string) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsBatchProcessing", ctx, commandBatchLogID)
+	ret := m.ctrl.Call(m, "IsBatchProcessing", ctx, commandBatchLogUUID)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // IsBatchProcessing indicates an expected call of IsBatchProcessing.
-func (mr *MockMessageQueueMockRecorder) IsBatchProcessing(ctx, commandBatchLogID interface{}) *gomock.Call {
+func (mr *MockMessageQueueMockRecorder) IsBatchProcessing(ctx, commandBatchLogUUID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsBatchProcessing", reflect.TypeOf((*MockMessageQueue)(nil).IsBatchProcessing), ctx, commandBatchLogID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsBatchProcessing", reflect.TypeOf((*MockMessageQueue)(nil).IsBatchProcessing), ctx, commandBatchLogUUID)
 }
 
 // MarkFailed mocks base method.

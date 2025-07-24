@@ -13,7 +13,7 @@ import (
 
 const createQueueMessage = `-- name: CreateQueueMessage :exec
 INSERT INTO queue_message (
-    command_batch_log_id,
+    command_batch_log_uuid,
     command_type,
     device_id,
     status,
@@ -30,17 +30,17 @@ INSERT INTO queue_message (
 `
 
 type CreateQueueMessageParams struct {
-	CommandBatchLogID int64
-	CommandType       string
-	DeviceID          int64
-	Status            QueueMessageStatus
-	RetryCount        int32
-	Payload           json.RawMessage
+	CommandBatchLogUuid string
+	CommandType         string
+	DeviceID            int64
+	Status              QueueMessageStatus
+	RetryCount          int32
+	Payload             json.RawMessage
 }
 
 func (q *Queries) CreateQueueMessage(ctx context.Context, arg CreateQueueMessageParams) error {
 	_, err := q.exec(ctx, q.createQueueMessageStmt, createQueueMessage,
-		arg.CommandBatchLogID,
+		arg.CommandBatchLogUuid,
 		arg.CommandType,
 		arg.DeviceID,
 		arg.Status,
@@ -51,7 +51,7 @@ func (q *Queries) CreateQueueMessage(ctx context.Context, arg CreateQueueMessage
 }
 
 const getMessagesToProcess = `-- name: GetMessagesToProcess :many
-SELECT m.id, m.command_batch_log_id, m.device_id, m.command_type, m.status, m.retry_count, m.error_info, m.created_at, m.updated_at, m.payload
+SELECT m.id, m.device_id, m.command_type, m.status, m.retry_count, m.error_info, m.created_at, m.updated_at, m.payload, m.command_batch_log_uuid
 FROM queue_message m
 WHERE m.status = 'PENDING'
   AND m.retry_count < ?
@@ -82,7 +82,6 @@ func (q *Queries) GetMessagesToProcess(ctx context.Context, arg GetMessagesToPro
 		var i QueueMessage
 		if err := rows.Scan(
 			&i.ID,
-			&i.CommandBatchLogID,
 			&i.DeviceID,
 			&i.CommandType,
 			&i.Status,
@@ -91,6 +90,7 @@ func (q *Queries) GetMessagesToProcess(ctx context.Context, arg GetMessagesToPro
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Payload,
+			&i.CommandBatchLogUuid,
 		); err != nil {
 			return nil, err
 		}
@@ -113,11 +113,11 @@ SELECT
         ELSE false
     END AS is_finished
 FROM queue_message
-WHERE command_batch_log_id = ?
+WHERE command_batch_log_uuid = ?
 `
 
-func (q *Queries) IsBatchFinished(ctx context.Context, commandBatchLogID int64) (int32, error) {
-	row := q.queryRow(ctx, q.isBatchFinishedStmt, isBatchFinished, commandBatchLogID)
+func (q *Queries) IsBatchFinished(ctx context.Context, commandBatchLogUuid string) (int32, error) {
+	row := q.queryRow(ctx, q.isBatchFinishedStmt, isBatchFinished, commandBatchLogUuid)
 	var is_finished int32
 	err := row.Scan(&is_finished)
 	return is_finished, err
@@ -130,12 +130,12 @@ SELECT
         ELSE false
         END AS is_processing
 FROM queue_message
-WHERE command_batch_log_id = ?
+WHERE command_batch_log_uuid = ?
   AND status = 'PROCESSING'
 `
 
-func (q *Queries) IsBatchProcessing(ctx context.Context, commandBatchLogID int64) (int32, error) {
-	row := q.queryRow(ctx, q.isBatchProcessingStmt, isBatchProcessing, commandBatchLogID)
+func (q *Queries) IsBatchProcessing(ctx context.Context, commandBatchLogUuid string) (int32, error) {
+	row := q.queryRow(ctx, q.isBatchProcessingStmt, isBatchProcessing, commandBatchLogUuid)
 	var is_processing int32
 	err := row.Scan(&is_processing)
 	return is_processing, err

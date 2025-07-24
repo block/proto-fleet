@@ -85,6 +85,18 @@ func (h *Handler) UpdateMiningPools(
 	return connect.NewResponse(resp), nil
 }
 
+func (h *Handler) DownloadLogs(
+	ctx context.Context,
+	req *connect.Request[pb.DownloadLogsRequest],
+) (*connect.Response[pb.DownloadLogsResponse], error) {
+	resp, err := h.commandSvc.DownloadLogs(ctx, req.Msg.DeviceIdentifiers)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(resp), nil
+}
+
 func (h *Handler) StreamCommandBatchUpdates(ctx context.Context, r *connect.Request[pb.StreamCommandBatchUpdatesRequest], stream *connect.ServerStream[pb.StreamCommandBatchUpdatesResponse]) error {
 	slog.Debug("handling request to stream command batch updates", "request", r)
 	responseChan, err := h.commandSvc.StreamCommandBatchUpdates(ctx, r.Msg)
@@ -108,4 +120,16 @@ func (h *Handler) StreamCommandBatchUpdates(ctx context.Context, r *connect.Requ
 			}
 		}
 	}
+}
+
+func (h *Handler) GetCommandBatchLogBundle(
+	_ context.Context,
+	req *connect.Request[pb.GetCommandBatchLogBundleRequest],
+) (*connect.Response[pb.GetCommandBatchLogBundleResponse], error) {
+	resp, err := h.commandSvc.GetCommandBatchLogBundle(req.Msg.BatchIdentifier)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(resp), nil
 }

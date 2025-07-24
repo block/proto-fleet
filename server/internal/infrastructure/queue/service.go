@@ -25,7 +25,7 @@ func NewDatabaseMessageQueue(config *Config, conn *sql.DB) *DatabaseMessageQueue
 	}
 }
 
-func (d DatabaseMessageQueue) Enqueue(ctx context.Context, commandBatchLogID int64, commandType commandtype.Type, deviceIDs []int64, payload interface{}) error {
+func (d DatabaseMessageQueue) Enqueue(ctx context.Context, commandBatchLogUUID string, commandType commandtype.Type, deviceIDs []int64, payload interface{}) error {
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to marshal payload: %v", err)
@@ -33,12 +33,12 @@ func (d DatabaseMessageQueue) Enqueue(ctx context.Context, commandBatchLogID int
 	return db.WithTransactionNoResult(ctx, d.conn, func(q *sqlc.Queries) error {
 		for _, deviceID := range deviceIDs {
 			err := q.CreateQueueMessage(ctx, sqlc.CreateQueueMessageParams{
-				CommandBatchLogID: commandBatchLogID,
-				CommandType:       commandType.String(),
-				DeviceID:          deviceID,
-				Status:            sqlc.QueueMessageStatusPENDING,
-				RetryCount:        0,
-				Payload:           payloadBytes,
+				CommandBatchLogUuid: commandBatchLogUUID,
+				CommandType:         commandType.String(),
+				DeviceID:            deviceID,
+				Status:              sqlc.QueueMessageStatusPENDING,
+				RetryCount:          0,
+				Payload:             payloadBytes,
 			})
 			if err != nil {
 				return fleeterror.NewInternalErrorf("failed to enqueue message: %v", err)
@@ -74,11 +74,11 @@ func (d DatabaseMessageQueue) Dequeue(ctx context.Context) ([]Message, error) {
 			}
 
 			messages = append(messages, Message{
-				ID:          dbMsg.ID,
-				BatchLogID:  dbMsg.CommandBatchLogID,
-				CommandType: cmdType,
-				DeviceID:    dbMsg.DeviceID,
-				Payload:     dbMsg.Payload,
+				ID:           dbMsg.ID,
+				BatchLogUUID: dbMsg.CommandBatchLogUuid,
+				CommandType:  cmdType,
+				DeviceID:     dbMsg.DeviceID,
+				Payload:      dbMsg.Payload,
 			})
 		}
 
@@ -122,9 +122,9 @@ func (d DatabaseMessageQueue) MarkFailed(ctx context.Context, messageID int64, e
 
 type BatchStatusCheckFunc func(ctx context.Context, commandBatchLogID int64) (bool, error)
 
-func (d DatabaseMessageQueue) IsBatchFinished(ctx context.Context, commandBatchLogID int64) (bool, error) {
+func (d DatabaseMessageQueue) IsBatchFinished(ctx context.Context, commandBatchLogUUID string) (bool, error) {
 	return db.WithTransaction(ctx, d.conn, func(q *sqlc.Queries) (bool, error) {
-		result, err := q.IsBatchFinished(ctx, commandBatchLogID)
+		result, err := q.IsBatchFinished(ctx, commandBatchLogUUID)
 		if err != nil {
 			return false, err
 		}
@@ -132,9 +132,9 @@ func (d DatabaseMessageQueue) IsBatchFinished(ctx context.Context, commandBatchL
 	})
 }
 
-func (d DatabaseMessageQueue) IsBatchProcessing(ctx context.Context, commandBatchLogID int64) (bool, error) {
+func (d DatabaseMessageQueue) IsBatchProcessing(ctx context.Context, commandBatchLogUUID string) (bool, error) {
 	return db.WithTransaction(ctx, d.conn, func(q *sqlc.Queries) (bool, error) {
-		result, err := q.IsBatchProcessing(ctx, commandBatchLogID)
+		result, err := q.IsBatchProcessing(ctx, commandBatchLogUUID)
 		if err != nil {
 			return false, err
 		}

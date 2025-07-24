@@ -350,16 +350,16 @@ type PoolConfigurationPool struct {
 }
 
 type QueueMessage struct {
-	ID                int64
-	CommandBatchLogID int64
-	DeviceID          int64
-	CommandType       string
-	Status            QueueMessageStatus
-	RetryCount        int32
-	ErrorInfo         sql.NullString
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	Payload           json.RawMessage
+	ID                  int64
+	DeviceID            int64
+	CommandType         string
+	Status              QueueMessageStatus
+	RetryCount          int32
+	ErrorInfo           sql.NullString
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	Payload             json.RawMessage
+	CommandBatchLogUuid string
 }
 
 type Role struct {

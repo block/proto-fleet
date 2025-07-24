@@ -119,6 +119,20 @@ func (m *MockMiner) EXPECT() *MockMinerMockRecorder {
 	return m.recorder
 }
 
+// DownloadLogs mocks base method.
+func (m *MockMiner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DownloadLogs", ctx, batchLogUUID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DownloadLogs indicates an expected call of DownloadLogs.
+func (mr *MockMinerMockRecorder) DownloadLogs(ctx, batchLogUUID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DownloadLogs", reflect.TypeOf((*MockMiner)(nil).DownloadLogs), ctx, batchLogUUID)
+}
+
 // GetConnectionInfo mocks base method.
 func (m *MockMiner) GetConnectionInfo() networking.ConnectionInfo {
 	m.ctrl.T.Helper()
