@@ -214,9 +214,9 @@ func (s *SQLDeviceStore) GetDeviceWithIPAssignment(ctx context.Context, deviceId
 			IpAddress:        ipAssignment.IpAddress,
 			Port:             ipAssignment.Port,
 			UrlScheme:        ipAssignment.UrlScheme,
+			Type:             device.Type,
 		},
 		OrgID: orgID,
-		Type:  device.Type,
 	}, nil
 }
 

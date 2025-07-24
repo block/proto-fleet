@@ -44,8 +44,8 @@ func TestService(t *testing.T) {
 						IpAddress:    ipAddress,
 						Port:         port,
 						SerialNumber: "PROTO123",
+						Type:         miner.TypeProto.String(),
 					},
-					Type: miner.TypeProto.String(),
 				}, nil
 			},
 		}

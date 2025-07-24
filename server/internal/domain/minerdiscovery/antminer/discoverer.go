@@ -68,8 +68,8 @@ func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string
 			UrlScheme:    networking.ProtocolHTTP.String(),
 			Model:        model,
 			Manufacturer: manufacturer,
+			Type:         d.GetMinerType().String(),
 		},
-		Type: d.GetMinerType().String(),
 	}, nil
 }
 

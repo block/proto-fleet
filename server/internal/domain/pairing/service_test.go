@@ -101,8 +101,8 @@ func createMockDevice(ipAddress, port, serialNumber, deviceType string) *minerdi
 			Port:         port,
 			SerialNumber: serialNumber,
 			UrlScheme:    "http",
+			Type:         deviceType,
 		},
-		Type: deviceType,
 	}
 }
 
@@ -535,7 +535,7 @@ func TestPairDevices(t *testing.T) {
 
 		_, err = pairingService.PairDevices(ctx, pairRequest)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "credentials are required for Antminer pairing")
+		assert.Contains(t, err.Error(), "Failed to pair any devices")
 
 		// Verify no pairing was created
 		totalPairedDevices, err := testContext.DatabaseService.GetTotalDevicePairings(adminUser.OrganizationID, 10)
@@ -637,7 +637,7 @@ func TestPairDevices(t *testing.T) {
 
 		_, err := pairingService.PairDevices(ctx, pairRequest)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to get device")
+		assert.Contains(t, err.Error(), "Failed to pair any devices")
 	})
 
 	t.Run("handles device not found error", func(t *testing.T) {
@@ -658,7 +658,50 @@ func TestPairDevices(t *testing.T) {
 
 		_, err := pairingService.PairDevices(ctx, pairRequest)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to get device")
+		assert.Contains(t, err.Error(), "Failed to pair any devices")
+	})
+
+	t.Run("pairs miners even if one of them fails", func(t *testing.T) {
+		testContext := testutil.InitializeDBServiceInfrastructure(t)
+		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+		mockDiscoverer := &MockDiscoverer{}
+		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
+
+		mockDevice := createMockDevice("192.168.1.100", "8080", "PROTO-PAIR-001", miner.TypeProto.String())
+		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.100", "8080").Return(mockDevice, nil)
+
+		webClient := mocks.NewMockWebAPIClient(gomock.NewController(t))
+
+		pairingService, ctx := setupTestService(t, testContext, adminUser, webClient, mockDiscoverer)
+
+		request := &pb.IPListModeRequest{
+			IpAddresses: []string{"192.168.1.100"},
+			Ports:       []string{"8080"},
+		}
+
+		resultChan, err := pairingService.DiscoverWithIPList(ctx, request)
+		require.NoError(t, err)
+
+		var devices []*pb.Device
+		for result := range resultChan {
+			require.Empty(t, result.Error)
+			devices = append(devices, result.Devices...)
+		}
+		require.Len(t, devices, 1)
+
+		// send pairing request with one valid and one invalid device identifier
+		pairRequest := &pb.PairRequest{
+			DeviceIdentifiers: []string{devices[0].DeviceIdentifier, "test-invalid-device"},
+		}
+
+		_, err = pairingService.PairDevices(ctx, pairRequest)
+		require.NoError(t, err)
+
+		// Verify pairing was successful for the valid device
+		totalPairedDevices, err := testContext.DatabaseService.GetTotalDevicePairings(adminUser.OrganizationID, 10)
+		require.NoError(t, err)
+		assert.Equal(t, 1, totalPairedDevices)
 	})
 }
 

@@ -370,42 +370,16 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Create pairing records for each device
 		for _, deviceID := range r.DeviceIdentifiers {
-			orgDeviceID := minerdiscovery.DeviceOrgIdentifier{
-				DeviceIdentifier: deviceID,
-				OrgID:            claims.OrgID,
+			err = s.pairDevice(ctx, deviceID, claims.OrgID, r.Credentials)
+			if err == nil {
+				deviceIDs = append(deviceIDs, models.DeviceIdentifier(deviceID))
+			} else {
+				slog.Error("failed to pair device", "error", err) // continue pairing other devices
 			}
+		}
 
-			// Try to get discovered device from in-memory store first
-			discoveredDevice, err := s.discoveredDeviceStore.GetDevice(orgDeviceID)
-
-			deviceIDs = append(deviceIDs, models.DeviceIdentifier(deviceID))
-			// If device not in store, try database
-			if errors.Is(err, minerdiscovery.MinerNotFoundFleetError) {
-				discoveredDevice, err = s.deviceStore.GetDeviceWithIPAssignment(ctx, deviceID, claims.OrgID)
-				if err != nil {
-					return fleeterror.NewInternalErrorf("failed to get device with device_identifier=%s: %v", deviceID, err)
-				}
-			} else if err != nil {
-				return fleeterror.NewInternalErrorf("error getting device from store: %v", err)
-			}
-
-			if discoveredDevice == nil {
-				return fleeterror.NewInternalErrorf("device not found: %s", deviceID)
-			}
-
-			deviceType, err := models.TypeFromString(discoveredDevice.Type)
-			if err != nil {
-				return fleeterror.NewInternalErrorf("invalid device type for pairing: %v", err)
-			}
-
-			pairer, ok := s.pairers[deviceType]
-			if !ok {
-				return fleeterror.NewInvalidArgumentErrorf("device type '%s' is not supported for pairing yet", discoveredDevice.Type)
-			}
-
-			if err := pairer.PairDevice(ctx, discoveredDevice, r.Credentials); err != nil {
-				return fleeterror.NewInternalErrorf("pairing device %s: %v", discoveredDevice.DeviceIdentifier, err)
-			}
+		if len(deviceIDs) == 0 {
+			return fleeterror.NewInternalError("Failed to pair any devices")
 		}
 
 		return nil
@@ -420,4 +394,44 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 		return nil, fleeterror.NewInternalErrorf("failed to add devices to telemetry scheduler: %v", err)
 	}
 	return &pb.PairResponse{}, nil
+}
+
+func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, credentials *pb.Credentials) error {
+	orgDeviceID := minerdiscovery.DeviceOrgIdentifier{
+		DeviceIdentifier: deviceID,
+		OrgID:            orgID,
+	}
+
+	// Try to get discovered device from in-memory store first
+	discoveredDevice, err := s.discoveredDeviceStore.GetDevice(orgDeviceID)
+
+	// If device not in store, try database
+	if errors.Is(err, minerdiscovery.MinerNotFoundFleetError) {
+		discoveredDevice, err = s.deviceStore.GetDeviceWithIPAssignment(ctx, deviceID, orgID)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("failed to get device with device_identifier=%s: %v", deviceID, err)
+		}
+	} else if err != nil {
+		return fleeterror.NewInternalErrorf("error getting device from store: %v", err)
+	}
+
+	if discoveredDevice == nil {
+		return fleeterror.NewInternalErrorf("device not found: %s", deviceID)
+	}
+
+	deviceType, err := models.TypeFromString(discoveredDevice.Type)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("invalid device type for pairing: %v", err)
+	}
+
+	pairer, ok := s.pairers[deviceType]
+	if !ok {
+		return fleeterror.NewInvalidArgumentErrorf("device type '%s' is not supported for pairing yet", discoveredDevice.Type)
+	}
+
+	if err := pairer.PairDevice(ctx, discoveredDevice, credentials); err != nil {
+		return fleeterror.NewInternalErrorf("pairing device %s: %v", discoveredDevice.DeviceIdentifier, err)
+	}
+
+	return nil
 }

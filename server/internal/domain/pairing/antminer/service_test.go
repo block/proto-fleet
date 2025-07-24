@@ -31,8 +31,8 @@ func TestAntminerCredentialValidation(t *testing.T) {
 		Device: pb.Device{
 			DeviceIdentifier: "test-antminer-001",
 			MacAddress:       "00:11:22:33:44:55",
+			Type:             models.TypeAntminer.String(),
 		},
-		Type: models.TypeAntminer.String(),
 	}
 
 	t.Run("fails with nil credentials", func(t *testing.T) {

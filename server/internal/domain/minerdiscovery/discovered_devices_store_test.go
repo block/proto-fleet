@@ -38,8 +38,8 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 				Model:            "S19",
 				Manufacturer:     "Bitmain",
 				UrlScheme:        urlScheme,
+				Type:             deviceType,
 			},
-			Type: deviceType,
 		}
 
 		// Act
@@ -78,8 +78,8 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 				UrlScheme:    urlScheme,
 				Model:        "S19",
 				Manufacturer: "Bitmain",
+				Type:         deviceType,
 			},
-			Type: deviceType,
 		}
 		_, err := store.Save(doi, originalDevice)
 		require.NoError(t, err)
@@ -100,8 +100,8 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 				UrlScheme:    urlScheme,
 				Model:        "S19 Pro",
 				Manufacturer: "Bitmain",
+				Type:         deviceType,
 			},
-			Type: deviceType,
 		}
 
 		// Act
@@ -131,8 +131,8 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 				UrlScheme:    urlScheme,
 				Model:        "S19",
 				Manufacturer: "Bitmain",
+				Type:         deviceType,
 			},
-			Type: deviceType,
 		}
 		_, err := store.Save(doi1, device1)
 		require.NoError(t, err)
@@ -150,8 +150,8 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 				UrlScheme:    urlScheme,
 				Model:        "S19j",
 				Manufacturer: "Bitmain",
+				Type:         deviceType,
 			},
-			Type: deviceType,
 		}
 
 		// Act
@@ -186,8 +186,8 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 				IpAddress:    ipAddress1,
 				Port:         "4028",
 				UrlScheme:    urlScheme,
+				Type:         deviceType,
 			},
-			Type: deviceType,
 		}
 		_, err := store.Save(doi1, device1)
 		require.NoError(t, err)
@@ -202,8 +202,8 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 				IpAddress:    ipAddress1,
 				Port:         "4028",
 				UrlScheme:    urlScheme,
+				Type:         deviceType,
 			},
-			Type: deviceType,
 		}
 
 		// Act
@@ -234,8 +234,8 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 				SerialNumber: serial1,
 				IpAddress:    ipAddress1,
 				UrlScheme:    urlScheme,
+				Type:         deviceType,
 			},
-			Type: deviceType,
 		}
 		_, err := store.Save(doi, device)
 		require.NoError(t, err)
@@ -245,8 +245,8 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 				SerialNumber: serial2,
 				IpAddress:    ipAddress1,
 				UrlScheme:    urlScheme,
+				Type:         deviceType,
 			},
-			Type: deviceType,
 		}
 
 		_, err = store.Save(doi, updatedDevice)
@@ -261,8 +261,8 @@ func TestInMemoryDiscoveredDeviceStore_Save(t *testing.T) {
 				SerialNumber: serial2,
 				IpAddress:    ipAddress2,
 				UrlScheme:    urlScheme,
+				Type:         deviceType,
 			},
-			Type: deviceType,
 		}
 
 		// Act
@@ -309,8 +309,8 @@ func TestInMemoryDiscoveredDeviceStore_GetDevice(t *testing.T) {
 				IpAddress:    "192.168.1.1",
 				Port:         "4028",
 				UrlScheme:    "https",
+				Type:         "antminer",
 			},
-			Type: "antminer",
 		}
 		_, err := store.Save(doi, deviceToSave)
 		require.NoError(t, err)
