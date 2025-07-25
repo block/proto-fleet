@@ -1,21 +1,14 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 import PowerWidget from "./PowerWidget";
 import {
   useMiningStart,
   useMiningStatus,
   useMiningStop,
-  useSystemLogs,
   useSystemReboot,
 } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
-import { LogsResponseLogs } from "@/protoOS/api/types";
 import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
-import {
-  formatLogs,
-  formatLogType,
-  getExportLink,
-} from "@/protoOS/pages/MinerLogs/utility";
 import { PopoverProvider } from "@/shared/components/Popover";
 
 interface PowerWidgetWrapperProps {
@@ -31,8 +24,6 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
   const [startMiningError, setStartMiningError] = useState<ErrorProps>();
   const { miningStatus, setMiningStatus } = useMinerStatus();
   const { fetchData: fetchMiningStatus } = useMiningStatus({ poll: false });
-  const { fetchData: fetchLogs } = useSystemLogs();
-  const linkRef = useRef<HTMLAnchorElement>(null);
 
   const [intervalId, setIntervalId] =
     useState<ReturnType<typeof setInterval>>();
@@ -67,24 +58,7 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
     });
   };
 
-  const downloadLogs = (logsData?: LogsResponseLogs) => {
-    if (logsData?.content?.length) {
-      const formattedLogs = formatLogs(logsData.content);
-      const exportLink = getExportLink([
-        "Time,Type,Message",
-        ...formattedLogs.map(
-          (log) =>
-            `${log.timestamp},${formatLogType(log.logType)},${log.message.replace(/,/g, " | ")}`,
-        ),
-      ]);
-      linkRef.current?.setAttribute("href", exportLink);
-      linkRef.current?.click();
-    }
-  };
-
-  const handleReboot = async () => {
-    const logsData = await fetchLogs({ lines: 10000 });
-    downloadLogs(logsData);
+  const handleReboot = () => {
     reboot();
   };
 
@@ -128,7 +102,6 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
   return (
     <PopoverProvider>
       <PowerWidget
-        linkRef={linkRef}
         miningStatus={isMiningStatusStale ? {} : miningStatus}
         onReboot={handleReboot}
         rebootError={rebootSystemError}

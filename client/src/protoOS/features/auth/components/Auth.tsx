@@ -59,6 +59,7 @@ const Auth = () => {
           });
         },
         onError: (error) => {
+          console.error(">>> error", { error });
           setApiError({ error, show: true });
         },
         onFinally: () => setIsSubmitting(false),

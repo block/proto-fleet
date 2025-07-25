@@ -1,4 +1,4 @@
-import { RefObject, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import WidgetWrapper from "../WidgetWrapper";
 import { actions } from "./constants";
@@ -13,7 +13,6 @@ import {
 } from "@/protoOS/components/App/utility";
 import {
   EnteringSleepDialog,
-  ExportingLogsDialog,
   RebootingDialog,
   WakingDialog,
   WarnRebootDialog,
@@ -34,7 +33,6 @@ interface PowerWidgetProps {
   afterReboot?: () => void;
   afterSleep?: () => void;
   afterWake?: () => void;
-  linkRef?: RefObject<HTMLAnchorElement>;
   miningStatus: MiningStatusMiningstatus;
   onReboot: () => void;
   onSleep: () => void;
@@ -49,7 +47,6 @@ const PowerWidget = ({
   afterReboot,
   afterSleep,
   afterWake,
-  linkRef,
   miningStatus,
   onReboot,
   onSleep,
@@ -69,7 +66,6 @@ const PowerWidget = ({
   const [shouldReboot, setShouldReboot] = useState(
     miningStatus.reboot_uptime_s ? isWarmingUp(miningStatus) : false,
   );
-  const [shouldExportLogs, setShouldExportLogs] = useState(false);
   const [warnSleep, setWarnSleep] = useState(false);
   const [shouldSleep, setShouldSleep] = useState(false);
   const [warnWake, setWarnWake] = useState(false);
@@ -114,11 +110,9 @@ const PowerWidget = ({
     checkAccess();
   };
 
-  const handleRebootConfirm = async () => {
+  const handleRebootConfirm = () => {
     setWarnReboot(false);
-    setShouldExportLogs(true);
-    await onReboot();
-    setShouldExportLogs(false);
+    onReboot();
     setShouldReboot(true);
   };
 
@@ -219,7 +213,6 @@ const PowerWidget = ({
         onSubmit={handleRebootConfirm}
         show={warnReboot}
       />
-      <ExportingLogsDialog show={shouldExportLogs} linkRef={linkRef} />
       <RebootingDialog show={shouldReboot} />
       <WarnSleepDialog
         onClose={() => setWarnSleep(false)}

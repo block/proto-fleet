@@ -1,6 +1,4 @@
-import { InfoInverted } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
-import Callout, { intents } from "@/shared/components/Callout";
 import Dialog from "@/shared/components/Dialog";
 
 interface WarnRebootDialogProps {
@@ -31,20 +29,13 @@ const WarnRebootDialog = ({
           testId: "cancel-button",
         },
         {
-          text: "Export logs and reboot miner",
+          text: "Reboot miner",
           onClick: onSubmit,
           variant: variants.primary,
           testId: "reboot-button",
         },
       ]}
-    >
-      <Callout
-        className="px-3! py-2!"
-        intent={intents.information}
-        title="Miner logs get reset when you reboot your miner so we’ll auto-export your logs before the miner reboots."
-        prefixIcon={<InfoInverted />}
-      />
-    </Dialog>
+    />
   );
 };
 
