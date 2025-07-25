@@ -126,6 +126,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getOrganizationsForUserStmt, err = db.PrepareContext(ctx, getOrganizationsForUser); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrganizationsForUser: %w", err)
 	}
+	if q.getPairedDevicesIdsStmt, err = db.PrepareContext(ctx, getPairedDevicesIds); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPairedDevicesIds: %w", err)
+	}
 	if q.getPoolStmt, err = db.PrepareContext(ctx, getPool); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPool: %w", err)
 	}
@@ -433,6 +436,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getOrganizationsForUserStmt: %w", cerr)
 		}
 	}
+	if q.getPairedDevicesIdsStmt != nil {
+		if cerr := q.getPairedDevicesIdsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPairedDevicesIdsStmt: %w", cerr)
+		}
+	}
 	if q.getPoolStmt != nil {
 		if cerr := q.getPoolStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getPoolStmt: %w", cerr)
@@ -726,6 +734,7 @@ type Queries struct {
 	getOrganizationByOrgIDStmt                          *sql.Stmt
 	getOrganizationPrivateKeyStmt                       *sql.Stmt
 	getOrganizationsForUserStmt                         *sql.Stmt
+	getPairedDevicesIdsStmt                             *sql.Stmt
 	getPoolStmt                                         *sql.Stmt
 	getPoolConfigurationStmt                            *sql.Stmt
 	getPoolConfigurationIDByOrgStmt                     *sql.Stmt
@@ -810,6 +819,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getOrganizationByOrgIDStmt:                          q.getOrganizationByOrgIDStmt,
 		getOrganizationPrivateKeyStmt:                       q.getOrganizationPrivateKeyStmt,
 		getOrganizationsForUserStmt:                         q.getOrganizationsForUserStmt,
+		getPairedDevicesIdsStmt:                             q.getPairedDevicesIdsStmt,
 		getPoolStmt:                                         q.getPoolStmt,
 		getPoolConfigurationStmt:                            q.getPoolConfigurationStmt,
 		getPoolConfigurationIDByOrgStmt:                     q.getPoolConfigurationIDByOrgStmt,

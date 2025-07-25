@@ -111,6 +111,16 @@ WHERE dp.pairing_status = 'PAIRED'
 ORDER BY dp.id, d.id
 LIMIT ?;
 
+-- name: GetPairedDevicesIds :many
+SELECT
+    d.id as device_id
+from device d
+JOIN device_pairing dp ON d.id = dp.device_id
+WHERE dp.pairing_status = 'PAIRED'
+    AND d.org_id = ?
+    AND d.deleted_at IS NULL
+ORDER BY dp.id, d.id;
+
 -- name: GetTotalPairedDevices :one
 SELECT COUNT(*)
 FROM device d

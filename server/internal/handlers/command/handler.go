@@ -29,7 +29,7 @@ func (h *Handler) StopMining(
 	ctx context.Context,
 	req *connect.Request[pb.StopMiningRequest],
 ) (*connect.Response[pb.StopMiningResponse], error) {
-	resp, err := h.commandSvc.StopMining(ctx, req.Msg.DeviceIdentifiers)
+	resp, err := h.commandSvc.StopMining(ctx, req.Msg.DeviceSelector)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +41,7 @@ func (h *Handler) StartMining(
 	ctx context.Context,
 	req *connect.Request[pb.StartMiningRequest],
 ) (*connect.Response[pb.StartMiningResponse], error) {
-	resp, err := h.commandSvc.StartMining(ctx, req.Msg.DeviceIdentifiers)
+	resp, err := h.commandSvc.StartMining(ctx, req.Msg.DeviceSelector)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func (h *Handler) SetCoolingMode(
 	ctx context.Context,
 	req *connect.Request[pb.SetCoolingModeRequest],
 ) (*connect.Response[pb.SetCoolingModeResponse], error) {
-	resp, err := h.commandSvc.SetCoolingMode(ctx, req.Msg.DeviceIdentifiers, req.Msg.Mode)
+	resp, err := h.commandSvc.SetCoolingMode(ctx, req.Msg.DeviceSelector, req.Msg.Mode)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func (h *Handler) UpdateMiningPools(
 		backup2PoolID = &value
 	}
 
-	resp, err := h.commandSvc.UpdateMiningPools(ctx, req.Msg.DeviceIdentifiers, req.Msg.DefaultPoolId, backup1PoolID, backup2PoolID)
+	resp, err := h.commandSvc.UpdateMiningPools(ctx, req.Msg.DeviceSelector, req.Msg.DefaultPoolId, backup1PoolID, backup2PoolID)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func (h *Handler) DownloadLogs(
 	ctx context.Context,
 	req *connect.Request[pb.DownloadLogsRequest],
 ) (*connect.Response[pb.DownloadLogsResponse], error) {
-	resp, err := h.commandSvc.DownloadLogs(ctx, req.Msg.DeviceIdentifiers)
+	resp, err := h.commandSvc.DownloadLogs(ctx, req.Msg.DeviceSelector)
 	if err != nil {
 		return nil, err
 	}

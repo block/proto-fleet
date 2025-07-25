@@ -27,7 +27,7 @@ func TestCommandHandler(t *testing.T) {
 
 	t.Run("StartMining should send commands to miners", func(t *testing.T) {
 		req := connect.NewRequest(&pb.StartMiningRequest{
-			DeviceIdentifiers: testMinerIDs,
+			DeviceSelector: &pb.DeviceSelector{SelectionType: &pb.DeviceSelector_IncludeDevices{IncludeDevices: &pb.DeviceList{DeviceIdentifiers: testMinerIDs}}},
 		})
 
 		req.Header().Set("Authorization", "Bearer "+authToken)
@@ -41,7 +41,7 @@ func TestCommandHandler(t *testing.T) {
 
 	t.Run("StopMining should send commands to miners", func(t *testing.T) {
 		req := connect.NewRequest(&pb.StopMiningRequest{
-			DeviceIdentifiers: testMinerIDs,
+			DeviceSelector: &pb.DeviceSelector{SelectionType: &pb.DeviceSelector_IncludeDevices{IncludeDevices: &pb.DeviceList{DeviceIdentifiers: testMinerIDs}}},
 		})
 
 		req.Header().Set("Authorization", "Bearer "+authToken)

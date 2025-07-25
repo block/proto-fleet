@@ -40,9 +40,9 @@ type Service struct {
 const defaultPoolPriority uint32 = 0
 
 type Command struct {
-	commandType       commandtype.Type
-	deviceIdentifiers []string
-	payload           interface{}
+	commandType    commandtype.Type
+	deviceSelector *pb.DeviceSelector
+	payload        interface{}
 }
 
 // NewService creates a new command service instance
@@ -58,9 +58,36 @@ func NewService(config *Config, conn *sql.DB, executionService *ExecutionService
 	}
 }
 
+func (s *Service) getDevicesCount(ctx context.Context, selector *pb.DeviceSelector) (int32, error) {
+	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("error getting claims from ctx: %v", err)
+	}
+
+	switch x := selector.SelectionType.(type) {
+	case *pb.DeviceSelector_AllDevices:
+		return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (int32, error) {
+			count, err := q.GetTotalPairedDevices(ctx, sqlc.GetTotalPairedDevicesParams{OrgID: claims.OrgID})
+			if err != nil {
+				return 0, err
+			}
+			// #nosec G115 - We know device identifiers len won't exceed int32 max value
+			return int32(count), nil
+		})
+	case *pb.DeviceSelector_IncludeDevices:
+		// #nosec G115 - We know device identifiers len won't exceed int32 max value
+		return int32(len(x.IncludeDevices.DeviceIdentifiers)), nil
+	default:
+		return 0, fleeterror.NewInternalErrorf("getDevicesCount called with unknown type: %v", x)
+	}
+}
+
 func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID int64, command *Command, payloadBytes []byte) (string, error) {
-	// #nosec G115 - We know device identifiers len won't exceed int32 max value
-	devicesCount := int32(len(command.deviceIdentifiers))
+	devicesCount, err := s.getDevicesCount(ctx, command.deviceSelector)
+	if err != nil {
+		return "", err
+	}
+
 	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (string, error) {
 		timeNow := time.Now()
 		newUUID := id.GenerateID()
@@ -178,6 +205,30 @@ func (s *Service) statusUpdateRoutineOnFinishedCallback(commandType commandtype.
 	}
 }
 
+func (s *Service) getDeviceIDs(ctx context.Context, selector *pb.DeviceSelector) ([]int64, error) {
+	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting claims from context: %v", err)
+	}
+
+	switch x := selector.SelectionType.(type) {
+	case *pb.DeviceSelector_AllDevices:
+		return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]int64, error) {
+			return q.GetPairedDevicesIds(ctx, claims.OrgID)
+		})
+	case *pb.DeviceSelector_IncludeDevices:
+		if len(x.IncludeDevices.DeviceIdentifiers) == 0 {
+			return []int64{}, nil
+		}
+
+		return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]int64, error) {
+			return q.GetDeviceIDsByDeviceIdentifiers(ctx, x.IncludeDevices.DeviceIdentifiers)
+		})
+	default:
+		return nil, fleeterror.NewInternalErrorf("getDeviceIDs called with unknown type: %v", x)
+	}
+}
+
 func (s *Service) processCommand(ctx context.Context, command *Command) (string, error) {
 	if !s.executionService.IsRunning() {
 		slog.Error("command execution service is not running, attempting to start it")
@@ -201,11 +252,9 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (string,
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
 	}
-	deviceIDs, err := db.WithTransaction[[]int64](ctx, s.conn, func(q *sqlc.Queries) ([]int64, error) {
-		return q.GetDeviceIDsByDeviceIdentifiers(ctx, command.deviceIdentifiers)
-	})
+	deviceIDs, err := s.getDeviceIDs(ctx, command.deviceSelector)
 	if err != nil {
-		return "", fleeterror.NewInternalErrorf("error getting device IDs from device identifiers: %v", err)
+		return "", fleeterror.NewInternalErrorf("error getting device IDs from device selector: %v", err)
 	}
 
 	err = s.messageQueue.Enqueue(ctx, batchLogIdentifier, command.commandType, deviceIDs, command.payload)
@@ -220,10 +269,10 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (string,
 }
 
 // StopMining stops mining on the specified miners
-func (s *Service) StopMining(ctx context.Context, deviceIDs []string) (*pb.StopMiningResponse, error) {
+func (s *Service) StopMining(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.StopMiningResponse, error) {
 	commandBatchLogUUID, err := s.processCommand(
 		ctx,
-		&Command{commandType: commandtype.StopMining, deviceIdentifiers: deviceIDs, payload: nil},
+		&Command{commandType: commandtype.StopMining, deviceSelector: deviceSelector, payload: nil},
 	)
 	if err != nil {
 		return nil, err
@@ -235,10 +284,10 @@ func (s *Service) StopMining(ctx context.Context, deviceIDs []string) (*pb.StopM
 }
 
 // StartMining starts mining on the specified miners
-func (s *Service) StartMining(ctx context.Context, deviceIDs []string) (*pb.StartMiningResponse, error) {
+func (s *Service) StartMining(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.StartMiningResponse, error) {
 	commandBatchLogUUID, err := s.processCommand(
 		ctx,
-		&Command{commandType: commandtype.StartMining, deviceIdentifiers: deviceIDs, payload: nil},
+		&Command{commandType: commandtype.StartMining, deviceSelector: deviceSelector, payload: nil},
 	)
 	if err != nil {
 		return nil, err
@@ -249,11 +298,11 @@ func (s *Service) StartMining(ctx context.Context, deviceIDs []string) (*pb.Star
 	}, nil
 }
 
-func (s *Service) SetCoolingMode(ctx context.Context, deviceIDs []string, modeType pb.CoolingMode) (*pb.SetCoolingModeResponse, error) {
+func (s *Service) SetCoolingMode(ctx context.Context, deviceSelector *pb.DeviceSelector, modeType pb.CoolingMode) (*pb.SetCoolingModeResponse, error) {
 	cm := dto.CoolingModePayload{Mode: modeType}
 	commandBatchLogUUID, err := s.processCommand(
 		ctx,
-		&Command{commandType: commandtype.SetCoolingMode, deviceIdentifiers: deviceIDs, payload: cm},
+		&Command{commandType: commandtype.SetCoolingMode, deviceSelector: deviceSelector, payload: cm},
 	)
 	if err != nil {
 		return nil, err
@@ -323,7 +372,7 @@ func (s *Service) createUpdateMiningPoolsPayload(ctx context.Context, defaultPoo
 	return pld, nil
 }
 
-func (s *Service) UpdateMiningPools(ctx context.Context, deviceIDs []string, defaultPoolID int64, backup1PoolID *int64, backup2PoolID *int64) (*pb.UpdateMiningPoolsResponse, error) {
+func (s *Service) UpdateMiningPools(ctx context.Context, deviceSelector *pb.DeviceSelector, defaultPoolID int64, backup1PoolID *int64, backup2PoolID *int64) (*pb.UpdateMiningPoolsResponse, error) {
 	pld, err := s.createUpdateMiningPoolsPayload(ctx, defaultPoolID, backup1PoolID, backup2PoolID)
 	if err != nil {
 		return nil, err
@@ -331,7 +380,7 @@ func (s *Service) UpdateMiningPools(ctx context.Context, deviceIDs []string, def
 
 	commandBatchLogUUID, err := s.processCommand(
 		ctx,
-		&Command{commandType: commandtype.UpdateMiningPools, deviceIdentifiers: deviceIDs, payload: pld},
+		&Command{commandType: commandtype.UpdateMiningPools, deviceSelector: deviceSelector, payload: pld},
 	)
 	if err != nil {
 		return nil, err
@@ -339,10 +388,10 @@ func (s *Service) UpdateMiningPools(ctx context.Context, deviceIDs []string, def
 	return &pb.UpdateMiningPoolsResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
 
-func (s *Service) DownloadLogs(ctx context.Context, deviceIDs []string) (*pb.DownloadLogsResponse, error) {
+func (s *Service) DownloadLogs(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.DownloadLogsResponse, error) {
 	commandBatchLogUUID, err := s.processCommand(
 		ctx,
-		&Command{commandType: commandtype.DownloadLogs, deviceIdentifiers: deviceIDs, payload: nil},
+		&Command{commandType: commandtype.DownloadLogs, deviceSelector: deviceSelector, payload: nil},
 	)
 	if err != nil {
 		return nil, err

@@ -373,6 +373,40 @@ func (q *Queries) GetDevicePairingStatusByDeviceDatabaseID(ctx context.Context, 
 	return pairing_status, err
 }
 
+const getPairedDevicesIds = `-- name: GetPairedDevicesIds :many
+SELECT
+    d.id as device_id
+from device d
+JOIN device_pairing dp ON d.id = dp.device_id
+WHERE dp.pairing_status = 'PAIRED'
+    AND d.org_id = ?
+    AND d.deleted_at IS NULL
+ORDER BY dp.id, d.id
+`
+
+func (q *Queries) GetPairedDevicesIds(ctx context.Context, orgID int64) ([]int64, error) {
+	rows, err := q.query(ctx, q.getPairedDevicesIdsStmt, getPairedDevicesIds, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var device_id int64
+		if err := rows.Scan(&device_id); err != nil {
+			return nil, err
+		}
+		items = append(items, device_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTotalPairedDevices = `-- name: GetTotalPairedDevices :one
 SELECT COUNT(*)
 FROM device d

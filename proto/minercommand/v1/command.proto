@@ -4,10 +4,20 @@ package minercommand.v1;
 
 import "google/protobuf/timestamp.proto";
 
+message DeviceSelector {
+  oneof selection_type {
+    bool all_devices = 1;
+    DeviceList include_devices = 2;
+  }
+}
+
+message DeviceList {
+  repeated string device_identifiers = 1;
+}
+
 // Request to stop mining on specific miners
 message StopMiningRequest {
-  // List of device identifiers to stop mining on
-  repeated string device_identifiers = 1;
+  DeviceSelector device_selector = 1;
 }
 
 // Response from stop mining request
@@ -17,8 +27,7 @@ message StopMiningResponse {
 
 // Request to start mining on specific miners
 message StartMiningRequest {
-  // List of device identifiers to start mining on
-  repeated string device_identifiers = 1;
+  DeviceSelector device_selector = 1;
 }
 
 // Response from start mining request
@@ -33,7 +42,7 @@ enum CoolingMode {
 }
 
 message SetCoolingModeRequest {
-  repeated string device_identifiers = 1;
+  DeviceSelector device_selector = 1;
   CoolingMode mode = 2;
 }
 
@@ -42,7 +51,7 @@ message SetCoolingModeResponse {
 }
 
 message UpdateMiningPoolsRequest {
-  repeated string device_identifiers = 1;
+  DeviceSelector device_selector = 1;
   int64 default_pool_id = 2;
   optional int64 backup_1_pool_id = 3;
   optional int64 backup_2_pool_id = 4;
@@ -53,7 +62,7 @@ message UpdateMiningPoolsResponse {
 }
 
 message DownloadLogsRequest {
-  repeated string device_identifiers = 1;
+  DeviceSelector device_selector = 1;
 }
 
 message DownloadLogsResponse {

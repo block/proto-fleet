@@ -4,6 +4,8 @@ import BulkActionsWidget, { BulkActionsPopover } from "../BulkActions";
 import { BulkAction } from "../types";
 import { DeviceAction, deviceActions } from "./constants";
 import {
+  DeviceListSchema,
+  DeviceSelectorSchema,
   StartMiningRequestSchema,
   StartMiningResponse,
   StopMiningRequestSchema,
@@ -218,7 +220,14 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
     switch (currentAction) {
       case deviceActions.shutdown: {
         const stopMiningRequest = create(StopMiningRequestSchema, {
-          deviceIdentifiers: selectedMiners,
+          deviceSelector: create(DeviceSelectorSchema, {
+            selectionType: {
+              case: "includeDevices",
+              value: create(DeviceListSchema, {
+                deviceIdentifiers: selectedMiners,
+              }),
+            },
+          }),
         });
         stopMining({
           stopMiningRequest: stopMiningRequest,
@@ -230,7 +239,14 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
       }
       case deviceActions.wakeUp: {
         const startMiningRequest = create(StartMiningRequestSchema, {
-          deviceIdentifiers: selectedMiners,
+          deviceSelector: create(DeviceSelectorSchema, {
+            selectionType: {
+              case: "includeDevices",
+              value: create(DeviceListSchema, {
+                deviceIdentifiers: selectedMiners,
+              }),
+            },
+          }),
         });
         startMining({
           startMiningRequest: startMiningRequest,
