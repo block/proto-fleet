@@ -21,7 +21,7 @@ func NewService(poolConfigurationStore interfaces.PoolConfigurationStore, transa
 	}
 }
 
-func (s *Service) ListPoolConfigurations(ctx context.Context) ([]*pb.PoolConfiguration, error) {
+func (s *Service) ListPoolConfigurations(ctx context.Context) (*pb.ListPoolConfigurationsResponse, error) {
 	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return nil, err
@@ -32,45 +32,86 @@ func (s *Service) ListPoolConfigurations(ctx context.Context) ([]*pb.PoolConfigu
 		return nil, fleeterror.NewInternalErrorf("error listing pool configurations: %v", err)
 	}
 
-	return poolConfigurations, nil
+	return &pb.ListPoolConfigurationsResponse{Configurations: poolConfigurations}, nil
 }
 
-func (s *Service) CreatePoolConfiguration(ctx context.Context, config *pb.PoolConfigurationConfig) (*pb.PoolConfiguration, error) {
+func (s *Service) GetPoolConfiguration(ctx context.Context, id int64) (*pb.GetPoolConfigurationResponse, error) {
 	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	poolConfigurationID, err := s.poolConfigurationStore.CreatePoolConfiguration(ctx, config, claims.OrgID)
+	poolConfiguration, err := s.poolConfigurationStore.GetPoolConfiguration(ctx, claims.OrgID, id)
 	if err != nil {
-		return nil, err
+		return nil, fleeterror.NewInternalErrorf("error getting pool configuration: %v", err)
 	}
 
-	return s.poolConfigurationStore.GetPoolConfiguration(ctx, poolConfigurationID)
+	return &pb.GetPoolConfigurationResponse{Configuration: poolConfiguration}, nil
 }
 
-func (s *Service) DeletePoolConfiguration(ctx context.Context, poolConfigurationID int64) error {
-	return s.poolConfigurationStore.DeletePoolConfiguration(ctx, poolConfigurationID)
-}
-
-func (s *Service) AddPoolToConfiguration(ctx context.Context, poolConfigurationID int64, poolID int64, priority int32) (*pb.PoolConfigurationPoolWithPriority, error) {
-	poolConfigurationPoolID, err := s.poolConfigurationStore.AddPoolToConfiguration(ctx, poolConfigurationID, poolID, priority)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.poolConfigurationStore.GetPoolConfigurationPoolWithPriority(ctx, poolConfigurationPoolID)
-}
-
-func (s *Service) RemovePoolFromConfiguration(ctx context.Context, poolConfigurationPoolID int64) error {
-	return s.poolConfigurationStore.RemovePoolFromConfiguration(ctx, poolConfigurationPoolID)
-}
-
-func (s *Service) GetPoolConfigurationsWithPools(ctx context.Context) ([]*pb.PoolConfigurationWithPools, error) {
+func (s *Service) UpsertPoolConfiguration(
+	ctx context.Context,
+	poolConfiguration *pb.PoolConfigurationBase,
+	poolEntries []*pb.PoolConfigurationEntry,
+) (*pb.UpsertPoolConfigurationResponse, error) {
 	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return s.poolConfigurationStore.GetPoolConfigurationsWithPools(ctx, claims.OrgID)
+	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
+		err := s.poolConfigurationStore.UpsertPoolConfiguration(ctx, claims.OrgID, poolConfiguration)
+		if err != nil {
+			return nil, err
+		}
+
+		configID, err := s.poolConfigurationStore.GetPoolConfigurationIDByOrg(ctx, claims.OrgID)
+		if err != nil {
+			return nil, err
+		}
+
+		err = s.poolConfigurationStore.DeletePoolConfigurationPools(ctx, configID)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, entry := range poolEntries {
+			err = s.poolConfigurationStore.AddPoolToConfiguration(ctx, configID, entry.Id, entry.Priority)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		updatedConfig, err := s.poolConfigurationStore.GetPoolConfiguration(ctx, claims.OrgID, configID)
+		if err != nil {
+			return nil, err
+		}
+
+		return updatedConfig, nil
+	})
+
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to upsert pool configuration: %v", err)
+	}
+
+	configuration, ok := result.(*pb.PoolConfigurationWithPools)
+	if !ok {
+		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
+	}
+
+	return &pb.UpsertPoolConfigurationResponse{Configuration: configuration}, nil
+}
+
+func (s *Service) DeletePoolConfiguration(ctx context.Context, id int64) (*pb.DeletePoolConfigurationResponse, error) {
+	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.poolConfigurationStore.DeletePoolConfiguration(ctx, claims.OrgID, id)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error deleting pool configuration: %v", err)
+	}
+
+	return &pb.DeletePoolConfigurationResponse{}, nil
 }

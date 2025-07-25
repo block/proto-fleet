@@ -19,48 +19,38 @@ func NewHandler(svc *poolconfigurations.Service) *Handler {
 	return &Handler{service: svc}
 }
 
-func (h *Handler) ListPoolConfigurationsWithPools(ctx context.Context, _ *connect.Request[poolsv1.ListPoolConfigurationsWithPoolsRequest]) (*connect.Response[poolsv1.ListPoolConfigurationsWithPoolsResponse], error) {
-	poolConfigurationsWithPools, err := h.service.GetPoolConfigurationsWithPools(ctx)
+func (h *Handler) ListPoolConfigurations(ctx context.Context, _ *connect.Request[poolsv1.ListPoolConfigurationsRequest]) (*connect.Response[poolsv1.ListPoolConfigurationsResponse], error) {
+	resp, err := h.service.ListPoolConfigurations(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(
-		&poolsv1.ListPoolConfigurationsWithPoolsResponse{PoolConfigurationsWithPools: poolConfigurationsWithPools}), nil
+	return connect.NewResponse(resp), nil
 }
 
-func (h *Handler) CreatePoolConfiguration(ctx context.Context, r *connect.Request[poolsv1.CreatePoolConfigurationRequest]) (*connect.Response[poolsv1.CreatePoolConfigurationResponse], error) {
-	poolConfiguration, err := h.service.CreatePoolConfiguration(ctx, r.Msg.PoolConfigurationConfig)
+func (h *Handler) GetPoolConfiguration(ctx context.Context, r *connect.Request[poolsv1.GetPoolConfigurationRequest]) (*connect.Response[poolsv1.GetPoolConfigurationResponse], error) {
+	resp, err := h.service.GetPoolConfiguration(ctx, r.Msg.Id)
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&poolsv1.CreatePoolConfigurationResponse{PoolConfiguration: poolConfiguration}), nil
+	return connect.NewResponse(resp), nil
+}
+
+func (h *Handler) UpsertPoolConfiguration(ctx context.Context, r *connect.Request[poolsv1.UpsertPoolConfigurationRequest]) (*connect.Response[poolsv1.UpsertPoolConfigurationResponse], error) {
+	resp, err := h.service.UpsertPoolConfiguration(ctx, r.Msg.Configuration, r.Msg.Pools)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(resp), nil
 }
 
 func (h *Handler) DeletePoolConfiguration(ctx context.Context, r *connect.Request[poolsv1.DeletePoolConfigurationRequest]) (*connect.Response[poolsv1.DeletePoolConfigurationResponse], error) {
-	err := h.service.DeletePoolConfiguration(ctx, r.Msg.PoolConfigurationId)
+	resp, err := h.service.DeletePoolConfiguration(ctx, r.Msg.ConfigurationId)
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&poolsv1.DeletePoolConfigurationResponse{}), nil
-}
-
-func (h *Handler) AddPoolToConfiguration(ctx context.Context, r *connect.Request[poolsv1.AddPoolToConfigurationRequest]) (*connect.Response[poolsv1.AddPoolToConfigurationResponse], error) {
-	poolConfigurationPool, err := h.service.AddPoolToConfiguration(ctx, r.Msg.PoolConfigurationId, r.Msg.PoolId, r.Msg.Priority)
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(&poolsv1.AddPoolToConfigurationResponse{PoolConfigurationPool: poolConfigurationPool}), nil
-}
-
-func (h *Handler) RemovePoolFromConfiguration(ctx context.Context, r *connect.Request[poolsv1.RemovePoolFromConfigurationRequest]) (*connect.Response[poolsv1.RemovePoolFromConfigurationResponse], error) {
-	err := h.service.RemovePoolFromConfiguration(ctx, r.Msg.PoolConfigurationPoolId)
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(&poolsv1.RemovePoolFromConfigurationResponse{}), nil
+	return connect.NewResponse(resp), nil
 }

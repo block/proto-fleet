@@ -22,15 +22,15 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_pools_v1_poolconfigurations: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "CiFwb29scy92MS9wb29sY29uZmlndXJhdGlvbnMucHJvdG8SCHBvb2xzLnYxIjwKF1Bvb2xDb25maWd1cmF0aW9uQ29uZmlnEgwKBG5hbWUYASABKAkSEwoLZGVzY3JpcHRpb24YAiABKAkiVQoRUG9vbENvbmZpZ3VyYXRpb24SHQoVcG9vbF9jb25maWd1cmF0aW9uX2lkGAEgASgDEgwKBG5hbWUYAiABKAkSEwoLZGVzY3JpcHRpb24YAyABKAkiKAomTGlzdFBvb2xDb25maWd1cmF0aW9uc1dpdGhQb29sc1JlcXVlc3QidwohUG9vbENvbmZpZ3VyYXRpb25Qb29sV2l0aFByaW9yaXR5EhwKBHBvb2wYASABKAsyDi5wb29scy52MS5Qb29sEhAKCHByaW9yaXR5GAIgASgFEiIKGnBvb2xfY29uZmlndXJhdGlvbl9wb29sX2lkGAMgASgDIpEBChpQb29sQ29uZmlndXJhdGlvbldpdGhQb29scxI3ChJwb29sX2NvbmZpZ3VyYXRpb24YASABKAsyGy5wb29scy52MS5Qb29sQ29uZmlndXJhdGlvbhI6CgVwb29scxgCIAMoCzIrLnBvb2xzLnYxLlBvb2xDb25maWd1cmF0aW9uUG9vbFdpdGhQcmlvcml0eSJ3CidMaXN0UG9vbENvbmZpZ3VyYXRpb25zV2l0aFBvb2xzUmVzcG9uc2USTAoecG9vbF9jb25maWd1cmF0aW9uc193aXRoX3Bvb2xzGAEgAygLMiQucG9vbHMudjEuUG9vbENvbmZpZ3VyYXRpb25XaXRoUG9vbHMiZgoeQ3JlYXRlUG9vbENvbmZpZ3VyYXRpb25SZXF1ZXN0EkQKGXBvb2xfY29uZmlndXJhdGlvbl9jb25maWcYASABKAsyIS5wb29scy52MS5Qb29sQ29uZmlndXJhdGlvbkNvbmZpZyJaCh9DcmVhdGVQb29sQ29uZmlndXJhdGlvblJlc3BvbnNlEjcKEnBvb2xfY29uZmlndXJhdGlvbhgBIAEoCzIbLnBvb2xzLnYxLlBvb2xDb25maWd1cmF0aW9uIj8KHkRlbGV0ZVBvb2xDb25maWd1cmF0aW9uUmVxdWVzdBIdChVwb29sX2NvbmZpZ3VyYXRpb25faWQYASABKAMiIQofRGVsZXRlUG9vbENvbmZpZ3VyYXRpb25SZXNwb25zZSJhCh1BZGRQb29sVG9Db25maWd1cmF0aW9uUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDEh0KFXBvb2xfY29uZmlndXJhdGlvbl9pZBgCIAEoAxIQCghwcmlvcml0eRgDIAEoBSJuCh5BZGRQb29sVG9Db25maWd1cmF0aW9uUmVzcG9uc2USTAoXcG9vbF9jb25maWd1cmF0aW9uX3Bvb2wYASABKAsyKy5wb29scy52MS5Qb29sQ29uZmlndXJhdGlvblBvb2xXaXRoUHJpb3JpdHkiSAoiUmVtb3ZlUG9vbEZyb21Db25maWd1cmF0aW9uUmVxdWVzdBIiChpwb29sX2NvbmZpZ3VyYXRpb25fcG9vbF9pZBgBIAEoAyIlCiNSZW1vdmVQb29sRnJvbUNvbmZpZ3VyYXRpb25SZXNwb25zZTLtBAoZUG9vbENvbmZpZ3VyYXRpb25zU2VydmljZRKGAQofTGlzdFBvb2xDb25maWd1cmF0aW9uc1dpdGhQb29scxIwLnBvb2xzLnYxLkxpc3RQb29sQ29uZmlndXJhdGlvbnNXaXRoUG9vbHNSZXF1ZXN0GjEucG9vbHMudjEuTGlzdFBvb2xDb25maWd1cmF0aW9uc1dpdGhQb29sc1Jlc3BvbnNlEm4KF0NyZWF0ZVBvb2xDb25maWd1cmF0aW9uEigucG9vbHMudjEuQ3JlYXRlUG9vbENvbmZpZ3VyYXRpb25SZXF1ZXN0GikucG9vbHMudjEuQ3JlYXRlUG9vbENvbmZpZ3VyYXRpb25SZXNwb25zZRJuChdEZWxldGVQb29sQ29uZmlndXJhdGlvbhIoLnBvb2xzLnYxLkRlbGV0ZVBvb2xDb25maWd1cmF0aW9uUmVxdWVzdBopLnBvb2xzLnYxLkRlbGV0ZVBvb2xDb25maWd1cmF0aW9uUmVzcG9uc2USawoWQWRkUG9vbFRvQ29uZmlndXJhdGlvbhInLnBvb2xzLnYxLkFkZFBvb2xUb0NvbmZpZ3VyYXRpb25SZXF1ZXN0GigucG9vbHMudjEuQWRkUG9vbFRvQ29uZmlndXJhdGlvblJlc3BvbnNlEnoKG1JlbW92ZVBvb2xGcm9tQ29uZmlndXJhdGlvbhIsLnBvb2xzLnYxLlJlbW92ZVBvb2xGcm9tQ29uZmlndXJhdGlvblJlcXVlc3QaLS5wb29scy52MS5SZW1vdmVQb29sRnJvbUNvbmZpZ3VyYXRpb25SZXNwb25zZUKyAQoMY29tLnBvb2xzLnYxQhdQb29sY29uZmlndXJhdGlvbnNQcm90b1ABWkhnaXRodWIuY29tL2J0Yy1taW5pbmcvcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL3Bvb2xzL3YxO3Bvb2xzdjGiAgNQWFiqAghQb29scy5WMcoCCFBvb2xzXFYx4gIUUG9vbHNcVjFcR1BCTWV0YWRhdGHqAglQb29sczo6VjFiBnByb3RvMw",
+    "CiFwb29scy92MS9wb29sY29uZmlndXJhdGlvbnMucHJvdG8SCHBvb2xzLnYxIjoKFVBvb2xDb25maWd1cmF0aW9uQmFzZRIMCgRuYW1lGAEgASgJEhMKC2Rlc2NyaXB0aW9uGAIgASgJIjYKFlBvb2xDb25maWd1cmF0aW9uRW50cnkSCgoCaWQYASABKAMSEAoIcHJpb3JpdHkYAiABKAUiQgoRUG9vbENvbmZpZ3VyYXRpb24SCgoCaWQYASABKAMSDAoEbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCSJCChBQb29sV2l0aFByaW9yaXR5EhwKBHBvb2wYASABKAsyDi5wb29scy52MS5Qb29sEhAKCHByaW9yaXR5GAIgASgFInsKGlBvb2xDb25maWd1cmF0aW9uV2l0aFBvb2xzEjIKDWNvbmZpZ3VyYXRpb24YASABKAsyGy5wb29scy52MS5Qb29sQ29uZmlndXJhdGlvbhIpCgVwb29scxgCIAMoCzIaLnBvb2xzLnYxLlBvb2xXaXRoUHJpb3JpdHkiHwodTGlzdFBvb2xDb25maWd1cmF0aW9uc1JlcXVlc3QiXgoeTGlzdFBvb2xDb25maWd1cmF0aW9uc1Jlc3BvbnNlEjwKDmNvbmZpZ3VyYXRpb25zGAEgAygLMiQucG9vbHMudjEuUG9vbENvbmZpZ3VyYXRpb25XaXRoUG9vbHMiKQobR2V0UG9vbENvbmZpZ3VyYXRpb25SZXF1ZXN0EgoKAmlkGAEgASgDIlsKHEdldFBvb2xDb25maWd1cmF0aW9uUmVzcG9uc2USOwoNY29uZmlndXJhdGlvbhgBIAEoCzIkLnBvb2xzLnYxLlBvb2xDb25maWd1cmF0aW9uV2l0aFBvb2xzIokBCh5VcHNlcnRQb29sQ29uZmlndXJhdGlvblJlcXVlc3QSNgoNY29uZmlndXJhdGlvbhgBIAEoCzIfLnBvb2xzLnYxLlBvb2xDb25maWd1cmF0aW9uQmFzZRIvCgVwb29scxgCIAMoCzIgLnBvb2xzLnYxLlBvb2xDb25maWd1cmF0aW9uRW50cnkiXgofVXBzZXJ0UG9vbENvbmZpZ3VyYXRpb25SZXNwb25zZRI7Cg1jb25maWd1cmF0aW9uGAEgASgLMiQucG9vbHMudjEuUG9vbENvbmZpZ3VyYXRpb25XaXRoUG9vbHMiOgoeRGVsZXRlUG9vbENvbmZpZ3VyYXRpb25SZXF1ZXN0EhgKEGNvbmZpZ3VyYXRpb25faWQYASABKAMiIQofRGVsZXRlUG9vbENvbmZpZ3VyYXRpb25SZXNwb25zZTLPAwoZUG9vbENvbmZpZ3VyYXRpb25zU2VydmljZRJrChZMaXN0UG9vbENvbmZpZ3VyYXRpb25zEicucG9vbHMudjEuTGlzdFBvb2xDb25maWd1cmF0aW9uc1JlcXVlc3QaKC5wb29scy52MS5MaXN0UG9vbENvbmZpZ3VyYXRpb25zUmVzcG9uc2USZQoUR2V0UG9vbENvbmZpZ3VyYXRpb24SJS5wb29scy52MS5HZXRQb29sQ29uZmlndXJhdGlvblJlcXVlc3QaJi5wb29scy52MS5HZXRQb29sQ29uZmlndXJhdGlvblJlc3BvbnNlEm4KF1Vwc2VydFBvb2xDb25maWd1cmF0aW9uEigucG9vbHMudjEuVXBzZXJ0UG9vbENvbmZpZ3VyYXRpb25SZXF1ZXN0GikucG9vbHMudjEuVXBzZXJ0UG9vbENvbmZpZ3VyYXRpb25SZXNwb25zZRJuChdEZWxldGVQb29sQ29uZmlndXJhdGlvbhIoLnBvb2xzLnYxLkRlbGV0ZVBvb2xDb25maWd1cmF0aW9uUmVxdWVzdBopLnBvb2xzLnYxLkRlbGV0ZVBvb2xDb25maWd1cmF0aW9uUmVzcG9uc2VCsgEKDGNvbS5wb29scy52MUIXUG9vbGNvbmZpZ3VyYXRpb25zUHJvdG9QAVpIZ2l0aHViLmNvbS9idGMtbWluaW5nL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9wb29scy92MTtwb29sc3YxogIDUFhYqgIIUG9vbHMuVjHKAghQb29sc1xWMeICFFBvb2xzXFYxXEdQQk1ldGFkYXRh6gIJUG9vbHM6OlYxYgZwcm90bzM",
     [file_pools_v1_pools],
   );
 
 /**
- * @generated from message pools.v1.PoolConfigurationConfig
+ * @generated from message pools.v1.PoolConfigurationBase
  */
-export type PoolConfigurationConfig =
-  Message<"pools.v1.PoolConfigurationConfig"> & {
+export type PoolConfigurationBase =
+  Message<"pools.v1.PoolConfigurationBase"> & {
     /**
      * @generated from field: string name = 1;
      */
@@ -43,21 +43,47 @@ export type PoolConfigurationConfig =
   };
 
 /**
- * Describes the message pools.v1.PoolConfigurationConfig.
- * Use `create(PoolConfigurationConfigSchema)` to create a new message.
+ * Describes the message pools.v1.PoolConfigurationBase.
+ * Use `create(PoolConfigurationBaseSchema)` to create a new message.
  */
-export const PoolConfigurationConfigSchema: GenMessage<PoolConfigurationConfig> =
+export const PoolConfigurationBaseSchema: GenMessage<PoolConfigurationBase> =
   /*@__PURE__*/
   messageDesc(file_pools_v1_poolconfigurations, 0);
+
+/**
+ * @generated from message pools.v1.PoolConfigurationEntry
+ */
+export type PoolConfigurationEntry =
+  Message<"pools.v1.PoolConfigurationEntry"> & {
+    /**
+     * @generated from field: int64 id = 1;
+     */
+    id: bigint;
+
+    /**
+     * 0=default, 1=backup1, 2=backup2
+     *
+     * @generated from field: int32 priority = 2;
+     */
+    priority: number;
+  };
+
+/**
+ * Describes the message pools.v1.PoolConfigurationEntry.
+ * Use `create(PoolConfigurationEntrySchema)` to create a new message.
+ */
+export const PoolConfigurationEntrySchema: GenMessage<PoolConfigurationEntry> =
+  /*@__PURE__*/
+  messageDesc(file_pools_v1_poolconfigurations, 1);
 
 /**
  * @generated from message pools.v1.PoolConfiguration
  */
 export type PoolConfiguration = Message<"pools.v1.PoolConfiguration"> & {
   /**
-   * @generated from field: int64 pool_configuration_id = 1;
+   * @generated from field: int64 id = 1;
    */
-  poolConfigurationId: bigint;
+  id: bigint;
 
   /**
    * @generated from field: string name = 2;
@@ -76,48 +102,28 @@ export type PoolConfiguration = Message<"pools.v1.PoolConfiguration"> & {
  */
 export const PoolConfigurationSchema: GenMessage<PoolConfiguration> =
   /*@__PURE__*/
-  messageDesc(file_pools_v1_poolconfigurations, 1);
-
-/**
- * @generated from message pools.v1.ListPoolConfigurationsWithPoolsRequest
- */
-export type ListPoolConfigurationsWithPoolsRequest =
-  Message<"pools.v1.ListPoolConfigurationsWithPoolsRequest"> & {};
-
-/**
- * Describes the message pools.v1.ListPoolConfigurationsWithPoolsRequest.
- * Use `create(ListPoolConfigurationsWithPoolsRequestSchema)` to create a new message.
- */
-export const ListPoolConfigurationsWithPoolsRequestSchema: GenMessage<ListPoolConfigurationsWithPoolsRequest> =
-  /*@__PURE__*/
   messageDesc(file_pools_v1_poolconfigurations, 2);
 
 /**
- * @generated from message pools.v1.PoolConfigurationPoolWithPriority
+ * @generated from message pools.v1.PoolWithPriority
  */
-export type PoolConfigurationPoolWithPriority =
-  Message<"pools.v1.PoolConfigurationPoolWithPriority"> & {
-    /**
-     * @generated from field: pools.v1.Pool pool = 1;
-     */
-    pool?: Pool;
+export type PoolWithPriority = Message<"pools.v1.PoolWithPriority"> & {
+  /**
+   * @generated from field: pools.v1.Pool pool = 1;
+   */
+  pool?: Pool;
 
-    /**
-     * @generated from field: int32 priority = 2;
-     */
-    priority: number;
-
-    /**
-     * @generated from field: int64 pool_configuration_pool_id = 3;
-     */
-    poolConfigurationPoolId: bigint;
-  };
+  /**
+   * @generated from field: int32 priority = 2;
+   */
+  priority: number;
+};
 
 /**
- * Describes the message pools.v1.PoolConfigurationPoolWithPriority.
- * Use `create(PoolConfigurationPoolWithPrioritySchema)` to create a new message.
+ * Describes the message pools.v1.PoolWithPriority.
+ * Use `create(PoolWithPrioritySchema)` to create a new message.
  */
-export const PoolConfigurationPoolWithPrioritySchema: GenMessage<PoolConfigurationPoolWithPriority> =
+export const PoolWithPrioritySchema: GenMessage<PoolWithPriority> =
   /*@__PURE__*/
   messageDesc(file_pools_v1_poolconfigurations, 3);
 
@@ -127,14 +133,14 @@ export const PoolConfigurationPoolWithPrioritySchema: GenMessage<PoolConfigurati
 export type PoolConfigurationWithPools =
   Message<"pools.v1.PoolConfigurationWithPools"> & {
     /**
-     * @generated from field: pools.v1.PoolConfiguration pool_configuration = 1;
+     * @generated from field: pools.v1.PoolConfiguration configuration = 1;
      */
-    poolConfiguration?: PoolConfiguration;
+    configuration?: PoolConfiguration;
 
     /**
-     * @generated from field: repeated pools.v1.PoolConfigurationPoolWithPriority pools = 2;
+     * @generated from field: repeated pools.v1.PoolWithPriority pools = 2;
      */
-    pools: PoolConfigurationPoolWithPriority[];
+    pools: PoolWithPriority[];
   };
 
 /**
@@ -146,61 +152,118 @@ export const PoolConfigurationWithPoolsSchema: GenMessage<PoolConfigurationWithP
   messageDesc(file_pools_v1_poolconfigurations, 4);
 
 /**
- * @generated from message pools.v1.ListPoolConfigurationsWithPoolsResponse
+ * @generated from message pools.v1.ListPoolConfigurationsRequest
  */
-export type ListPoolConfigurationsWithPoolsResponse =
-  Message<"pools.v1.ListPoolConfigurationsWithPoolsResponse"> & {
-    /**
-     * @generated from field: repeated pools.v1.PoolConfigurationWithPools pool_configurations_with_pools = 1;
-     */
-    poolConfigurationsWithPools: PoolConfigurationWithPools[];
-  };
+export type ListPoolConfigurationsRequest =
+  Message<"pools.v1.ListPoolConfigurationsRequest"> & {};
 
 /**
- * Describes the message pools.v1.ListPoolConfigurationsWithPoolsResponse.
- * Use `create(ListPoolConfigurationsWithPoolsResponseSchema)` to create a new message.
+ * Describes the message pools.v1.ListPoolConfigurationsRequest.
+ * Use `create(ListPoolConfigurationsRequestSchema)` to create a new message.
  */
-export const ListPoolConfigurationsWithPoolsResponseSchema: GenMessage<ListPoolConfigurationsWithPoolsResponse> =
+export const ListPoolConfigurationsRequestSchema: GenMessage<ListPoolConfigurationsRequest> =
   /*@__PURE__*/
   messageDesc(file_pools_v1_poolconfigurations, 5);
 
 /**
- * @generated from message pools.v1.CreatePoolConfigurationRequest
+ * @generated from message pools.v1.ListPoolConfigurationsResponse
  */
-export type CreatePoolConfigurationRequest =
-  Message<"pools.v1.CreatePoolConfigurationRequest"> & {
+export type ListPoolConfigurationsResponse =
+  Message<"pools.v1.ListPoolConfigurationsResponse"> & {
     /**
-     * @generated from field: pools.v1.PoolConfigurationConfig pool_configuration_config = 1;
+     * @generated from field: repeated pools.v1.PoolConfigurationWithPools configurations = 1;
      */
-    poolConfigurationConfig?: PoolConfigurationConfig;
+    configurations: PoolConfigurationWithPools[];
   };
 
 /**
- * Describes the message pools.v1.CreatePoolConfigurationRequest.
- * Use `create(CreatePoolConfigurationRequestSchema)` to create a new message.
+ * Describes the message pools.v1.ListPoolConfigurationsResponse.
+ * Use `create(ListPoolConfigurationsResponseSchema)` to create a new message.
  */
-export const CreatePoolConfigurationRequestSchema: GenMessage<CreatePoolConfigurationRequest> =
+export const ListPoolConfigurationsResponseSchema: GenMessage<ListPoolConfigurationsResponse> =
   /*@__PURE__*/
   messageDesc(file_pools_v1_poolconfigurations, 6);
 
 /**
- * @generated from message pools.v1.CreatePoolConfigurationResponse
+ * @generated from message pools.v1.GetPoolConfigurationRequest
  */
-export type CreatePoolConfigurationResponse =
-  Message<"pools.v1.CreatePoolConfigurationResponse"> & {
+export type GetPoolConfigurationRequest =
+  Message<"pools.v1.GetPoolConfigurationRequest"> & {
     /**
-     * @generated from field: pools.v1.PoolConfiguration pool_configuration = 1;
+     * @generated from field: int64 id = 1;
      */
-    poolConfiguration?: PoolConfiguration;
+    id: bigint;
   };
 
 /**
- * Describes the message pools.v1.CreatePoolConfigurationResponse.
- * Use `create(CreatePoolConfigurationResponseSchema)` to create a new message.
+ * Describes the message pools.v1.GetPoolConfigurationRequest.
+ * Use `create(GetPoolConfigurationRequestSchema)` to create a new message.
  */
-export const CreatePoolConfigurationResponseSchema: GenMessage<CreatePoolConfigurationResponse> =
+export const GetPoolConfigurationRequestSchema: GenMessage<GetPoolConfigurationRequest> =
   /*@__PURE__*/
   messageDesc(file_pools_v1_poolconfigurations, 7);
+
+/**
+ * @generated from message pools.v1.GetPoolConfigurationResponse
+ */
+export type GetPoolConfigurationResponse =
+  Message<"pools.v1.GetPoolConfigurationResponse"> & {
+    /**
+     * @generated from field: pools.v1.PoolConfigurationWithPools configuration = 1;
+     */
+    configuration?: PoolConfigurationWithPools;
+  };
+
+/**
+ * Describes the message pools.v1.GetPoolConfigurationResponse.
+ * Use `create(GetPoolConfigurationResponseSchema)` to create a new message.
+ */
+export const GetPoolConfigurationResponseSchema: GenMessage<GetPoolConfigurationResponse> =
+  /*@__PURE__*/
+  messageDesc(file_pools_v1_poolconfigurations, 8);
+
+/**
+ * @generated from message pools.v1.UpsertPoolConfigurationRequest
+ */
+export type UpsertPoolConfigurationRequest =
+  Message<"pools.v1.UpsertPoolConfigurationRequest"> & {
+    /**
+     * @generated from field: pools.v1.PoolConfigurationBase configuration = 1;
+     */
+    configuration?: PoolConfigurationBase;
+
+    /**
+     * @generated from field: repeated pools.v1.PoolConfigurationEntry pools = 2;
+     */
+    pools: PoolConfigurationEntry[];
+  };
+
+/**
+ * Describes the message pools.v1.UpsertPoolConfigurationRequest.
+ * Use `create(UpsertPoolConfigurationRequestSchema)` to create a new message.
+ */
+export const UpsertPoolConfigurationRequestSchema: GenMessage<UpsertPoolConfigurationRequest> =
+  /*@__PURE__*/
+  messageDesc(file_pools_v1_poolconfigurations, 9);
+
+/**
+ * @generated from message pools.v1.UpsertPoolConfigurationResponse
+ */
+export type UpsertPoolConfigurationResponse =
+  Message<"pools.v1.UpsertPoolConfigurationResponse"> & {
+    /**
+     * @generated from field: pools.v1.PoolConfigurationWithPools configuration = 1;
+     */
+    configuration?: PoolConfigurationWithPools;
+  };
+
+/**
+ * Describes the message pools.v1.UpsertPoolConfigurationResponse.
+ * Use `create(UpsertPoolConfigurationResponseSchema)` to create a new message.
+ */
+export const UpsertPoolConfigurationResponseSchema: GenMessage<UpsertPoolConfigurationResponse> =
+  /*@__PURE__*/
+  messageDesc(file_pools_v1_poolconfigurations, 10);
 
 /**
  * @generated from message pools.v1.DeletePoolConfigurationRequest
@@ -208,9 +271,9 @@ export const CreatePoolConfigurationResponseSchema: GenMessage<CreatePoolConfigu
 export type DeletePoolConfigurationRequest =
   Message<"pools.v1.DeletePoolConfigurationRequest"> & {
     /**
-     * @generated from field: int64 pool_configuration_id = 1;
+     * @generated from field: int64 configuration_id = 1;
      */
-    poolConfigurationId: bigint;
+    configurationId: bigint;
   };
 
 /**
@@ -219,7 +282,7 @@ export type DeletePoolConfigurationRequest =
  */
 export const DeletePoolConfigurationRequestSchema: GenMessage<DeletePoolConfigurationRequest> =
   /*@__PURE__*/
-  messageDesc(file_pools_v1_poolconfigurations, 8);
+  messageDesc(file_pools_v1_poolconfigurations, 11);
 
 /**
  * @generated from message pools.v1.DeletePoolConfigurationResponse
@@ -233,108 +296,35 @@ export type DeletePoolConfigurationResponse =
  */
 export const DeletePoolConfigurationResponseSchema: GenMessage<DeletePoolConfigurationResponse> =
   /*@__PURE__*/
-  messageDesc(file_pools_v1_poolconfigurations, 9);
-
-/**
- * @generated from message pools.v1.AddPoolToConfigurationRequest
- */
-export type AddPoolToConfigurationRequest =
-  Message<"pools.v1.AddPoolToConfigurationRequest"> & {
-    /**
-     * @generated from field: int64 pool_id = 1;
-     */
-    poolId: bigint;
-
-    /**
-     * @generated from field: int64 pool_configuration_id = 2;
-     */
-    poolConfigurationId: bigint;
-
-    /**
-     * @generated from field: int32 priority = 3;
-     */
-    priority: number;
-  };
-
-/**
- * Describes the message pools.v1.AddPoolToConfigurationRequest.
- * Use `create(AddPoolToConfigurationRequestSchema)` to create a new message.
- */
-export const AddPoolToConfigurationRequestSchema: GenMessage<AddPoolToConfigurationRequest> =
-  /*@__PURE__*/
-  messageDesc(file_pools_v1_poolconfigurations, 10);
-
-/**
- * @generated from message pools.v1.AddPoolToConfigurationResponse
- */
-export type AddPoolToConfigurationResponse =
-  Message<"pools.v1.AddPoolToConfigurationResponse"> & {
-    /**
-     * @generated from field: pools.v1.PoolConfigurationPoolWithPriority pool_configuration_pool = 1;
-     */
-    poolConfigurationPool?: PoolConfigurationPoolWithPriority;
-  };
-
-/**
- * Describes the message pools.v1.AddPoolToConfigurationResponse.
- * Use `create(AddPoolToConfigurationResponseSchema)` to create a new message.
- */
-export const AddPoolToConfigurationResponseSchema: GenMessage<AddPoolToConfigurationResponse> =
-  /*@__PURE__*/
-  messageDesc(file_pools_v1_poolconfigurations, 11);
-
-/**
- * @generated from message pools.v1.RemovePoolFromConfigurationRequest
- */
-export type RemovePoolFromConfigurationRequest =
-  Message<"pools.v1.RemovePoolFromConfigurationRequest"> & {
-    /**
-     * @generated from field: int64 pool_configuration_pool_id = 1;
-     */
-    poolConfigurationPoolId: bigint;
-  };
-
-/**
- * Describes the message pools.v1.RemovePoolFromConfigurationRequest.
- * Use `create(RemovePoolFromConfigurationRequestSchema)` to create a new message.
- */
-export const RemovePoolFromConfigurationRequestSchema: GenMessage<RemovePoolFromConfigurationRequest> =
-  /*@__PURE__*/
   messageDesc(file_pools_v1_poolconfigurations, 12);
-
-/**
- * @generated from message pools.v1.RemovePoolFromConfigurationResponse
- */
-export type RemovePoolFromConfigurationResponse =
-  Message<"pools.v1.RemovePoolFromConfigurationResponse"> & {};
-
-/**
- * Describes the message pools.v1.RemovePoolFromConfigurationResponse.
- * Use `create(RemovePoolFromConfigurationResponseSchema)` to create a new message.
- */
-export const RemovePoolFromConfigurationResponseSchema: GenMessage<RemovePoolFromConfigurationResponse> =
-  /*@__PURE__*/
-  messageDesc(file_pools_v1_poolconfigurations, 13);
 
 /**
  * @generated from service pools.v1.PoolConfigurationsService
  */
 export const PoolConfigurationsService: GenService<{
   /**
-   * @generated from rpc pools.v1.PoolConfigurationsService.ListPoolConfigurationsWithPools
+   * @generated from rpc pools.v1.PoolConfigurationsService.ListPoolConfigurations
    */
-  listPoolConfigurationsWithPools: {
+  listPoolConfigurations: {
     methodKind: "unary";
-    input: typeof ListPoolConfigurationsWithPoolsRequestSchema;
-    output: typeof ListPoolConfigurationsWithPoolsResponseSchema;
+    input: typeof ListPoolConfigurationsRequestSchema;
+    output: typeof ListPoolConfigurationsResponseSchema;
   };
   /**
-   * @generated from rpc pools.v1.PoolConfigurationsService.CreatePoolConfiguration
+   * @generated from rpc pools.v1.PoolConfigurationsService.GetPoolConfiguration
    */
-  createPoolConfiguration: {
+  getPoolConfiguration: {
     methodKind: "unary";
-    input: typeof CreatePoolConfigurationRequestSchema;
-    output: typeof CreatePoolConfigurationResponseSchema;
+    input: typeof GetPoolConfigurationRequestSchema;
+    output: typeof GetPoolConfigurationResponseSchema;
+  };
+  /**
+   * @generated from rpc pools.v1.PoolConfigurationsService.UpsertPoolConfiguration
+   */
+  upsertPoolConfiguration: {
+    methodKind: "unary";
+    input: typeof UpsertPoolConfigurationRequestSchema;
+    output: typeof UpsertPoolConfigurationResponseSchema;
   };
   /**
    * @generated from rpc pools.v1.PoolConfigurationsService.DeletePoolConfiguration
@@ -343,21 +333,5 @@ export const PoolConfigurationsService: GenService<{
     methodKind: "unary";
     input: typeof DeletePoolConfigurationRequestSchema;
     output: typeof DeletePoolConfigurationResponseSchema;
-  };
-  /**
-   * @generated from rpc pools.v1.PoolConfigurationsService.AddPoolToConfiguration
-   */
-  addPoolToConfiguration: {
-    methodKind: "unary";
-    input: typeof AddPoolToConfigurationRequestSchema;
-    output: typeof AddPoolToConfigurationResponseSchema;
-  };
-  /**
-   * @generated from rpc pools.v1.PoolConfigurationsService.RemovePoolFromConfiguration
-   */
-  removePoolFromConfiguration: {
-    methodKind: "unary";
-    input: typeof RemovePoolFromConfigurationRequestSchema;
-    output: typeof RemovePoolFromConfigurationResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_pools_v1_poolconfigurations, 0);

@@ -22,71 +22,8 @@ func NewSQLPoolConfigurationStore(conn *sql.DB) *SQLPoolConfigurationStore {
 	}
 }
 
-func (s *SQLPoolConfigurationStore) GetPoolConfiguration(ctx context.Context, poolConfigurationID int64) (*pb.PoolConfiguration, error) {
-	poolConfiguration, err := s.GetQueries(ctx).GetPoolConfiguration(ctx, poolConfigurationID)
-	if err != nil {
-		return nil, err
-	}
-
-	return convertToProtoPoolConfiguration(poolConfiguration), nil
-}
-
-func (s *SQLPoolConfigurationStore) ListPoolConfigurations(ctx context.Context, orgID int64) ([]*pb.PoolConfiguration, error) {
-	poolConfigurations, err := s.GetQueries(ctx).ListPoolConfigurations(ctx, orgID)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make([]*pb.PoolConfiguration, len(poolConfigurations))
-	for i, poolConfiguration := range poolConfigurations {
-		result[i] = convertToProtoPoolConfiguration(poolConfiguration)
-	}
-
-	return result, nil
-}
-
-func (s *SQLPoolConfigurationStore) CreatePoolConfiguration(ctx context.Context, config *pb.PoolConfigurationConfig, orgID int64) (int64, error) {
-	result, err := s.GetQueries(ctx).CreatePoolConfiguration(ctx, sqlc.CreatePoolConfigurationParams{
-		OrgID:       orgID,
-		Name:        config.Name,
-		Description: sql.NullString{String: config.Description, Valid: true},
-	})
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("error creating pool configuration: %v", err)
-	}
-
-	poolConfigurationID, err := result.LastInsertId()
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("error getting pool configuration id: %v", err)
-	}
-
-	return poolConfigurationID, nil
-}
-
-func (s *SQLPoolConfigurationStore) DeletePoolConfiguration(ctx context.Context, poolConfigurationID int64) error {
-	return s.GetQueries(ctx).DeletePoolConfiguration(ctx, poolConfigurationID)
-}
-
-func (s *SQLPoolConfigurationStore) AddPoolToConfiguration(ctx context.Context, poolConfigurationID int64, poolID int64, priority int32) (int64, error) {
-	result, err := s.GetQueries(ctx).AddPoolToConfiguration(ctx, sqlc.AddPoolToConfigurationParams{PoolConfigurationID: poolConfigurationID, PoolID: poolID, Priority: priority})
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("error creating pool to configuration relation: %v", err)
-	}
-
-	poolToConfigurationID, err := result.LastInsertId()
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("error getting relation id: %v", err)
-	}
-
-	return poolToConfigurationID, nil
-}
-
-func (s *SQLPoolConfigurationStore) RemovePoolFromConfiguration(ctx context.Context, poolConfigurationPoolID int64) error {
-	return s.GetQueries(ctx).RemovePoolFromConfiguration(ctx, poolConfigurationPoolID)
-}
-
-func (s *SQLPoolConfigurationStore) GetPoolConfigurationsWithPools(ctx context.Context, orgID int64) ([]*pb.PoolConfigurationWithPools, error) {
-	rows, err := s.GetQueries(ctx).GetPoolConfigurationsWithPools(ctx, orgID)
+func (s *SQLPoolConfigurationStore) ListPoolConfigurations(ctx context.Context, orgID int64) ([]*pb.PoolConfigurationWithPools, error) {
+	rows, err := s.GetQueries(ctx).ListPoolConfigurations(ctx, orgID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error getting pool configuration with pools: %v", err)
 	}
@@ -102,12 +39,12 @@ func (s *SQLPoolConfigurationStore) GetPoolConfigurationsWithPools(ctx context.C
 			}
 
 			config = &pb.PoolConfigurationWithPools{
-				PoolConfiguration: &pb.PoolConfiguration{
-					PoolConfigurationId: row.PoolConfigID,
-					Name:                row.PoolConfigName,
-					Description:         description,
+				Configuration: &pb.PoolConfiguration{
+					Id:          row.PoolConfigID,
+					Name:        row.PoolConfigName,
+					Description: description,
 				},
-				Pools: []*pb.PoolConfigurationPoolWithPriority{},
+				Pools: []*pb.PoolWithPriority{},
 			}
 			configMap[row.PoolConfigID] = config
 		}
@@ -119,7 +56,7 @@ func (s *SQLPoolConfigurationStore) GetPoolConfigurationsWithPools(ctx context.C
 				isDefault = row.PoolIsDefault.Bool
 			}
 
-			pool := &pb.PoolConfigurationPoolWithPriority{
+			pool := &pb.PoolWithPriority{
 				Pool: &pb.Pool{
 					PoolId:    row.PoolID.Int64,
 					PoolName:  row.PoolName.String,
@@ -127,8 +64,7 @@ func (s *SQLPoolConfigurationStore) GetPoolConfigurationsWithPools(ctx context.C
 					Username:  row.PoolUsername.String,
 					IsDefault: isDefault,
 				},
-				Priority:                row.PoolPriority.Int32,
-				PoolConfigurationPoolId: row.PoolConfigPoolID.Int64,
+				Priority: row.PoolPriority.Int32,
 			}
 
 			config.Pools = append(config.Pools, pool)
@@ -143,39 +79,79 @@ func (s *SQLPoolConfigurationStore) GetPoolConfigurationsWithPools(ctx context.C
 	return result, nil
 }
 
-func (s *SQLPoolConfigurationStore) GetPoolConfigurationPoolWithPriority(ctx context.Context, poolConfigurationPoolID int64) (*pb.PoolConfigurationPoolWithPriority, error) {
-	row, err := s.GetQueries(ctx).GetPoolConfigurationPoolWithPriority(ctx, poolConfigurationPoolID)
+func (s *SQLPoolConfigurationStore) GetPoolConfiguration(ctx context.Context, orgID int64, configurationID int64) (*pb.PoolConfigurationWithPools, error) {
+	rows, err := s.GetQueries(ctx).GetPoolConfiguration(ctx, sqlc.GetPoolConfigurationParams{OrgID: orgID, ID: configurationID})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting pool configuration pool with priority: %v", err)
+		return nil, err
 	}
 
-	isDefault := false
-	if row.PoolIsDefault.Valid {
-		isDefault = row.PoolIsDefault.Bool
+	if len(rows) == 0 {
+		return nil, fleeterror.NewInternalErrorf("pool configuration not found")
 	}
 
-	return &pb.PoolConfigurationPoolWithPriority{
-		Pool: &pb.Pool{
-			PoolId:    row.PoolID,
-			PoolName:  row.PoolName,
-			Url:       row.PoolUrl,
-			Username:  row.PoolUsername,
-			IsDefault: isDefault,
+	var config *pb.PoolConfigurationWithPools
+
+	firstRow := rows[0]
+	description := ""
+	if firstRow.PoolConfigDescription.Valid {
+		description = firstRow.PoolConfigDescription.String
+	}
+
+	config = &pb.PoolConfigurationWithPools{
+		Configuration: &pb.PoolConfiguration{
+			Id:          firstRow.PoolConfigID,
+			Name:        firstRow.PoolConfigName,
+			Description: description,
 		},
-		Priority:                row.PoolPriority,
-		PoolConfigurationPoolId: row.PoolConfigPoolID,
-	}, nil
+		Pools: []*pb.PoolWithPriority{},
+	}
+
+	for _, row := range rows {
+		// Add pool if it exists (LEFT JOIN might return null pools)
+		if row.PoolID.Valid {
+			isDefault := false
+			if row.PoolIsDefault.Valid {
+				isDefault = row.PoolIsDefault.Bool
+			}
+
+			pool := &pb.PoolWithPriority{
+				Pool: &pb.Pool{
+					PoolId:    row.PoolID.Int64,
+					PoolName:  row.PoolName.String,
+					Url:       row.PoolUrl.String,
+					Username:  row.PoolUsername.String,
+					IsDefault: isDefault,
+				},
+				Priority: row.PoolPriority.Int32,
+			}
+
+			config.Pools = append(config.Pools, pool)
+		}
+	}
+
+	return config, nil
 }
 
-func convertToProtoPoolConfiguration(poolConfiguration sqlc.PoolConfiguration) *pb.PoolConfiguration {
-	description := ""
-	if poolConfiguration.Description.Valid {
-		description = poolConfiguration.Description.String
-	}
+func (s *SQLPoolConfigurationStore) GetPoolConfigurationIDByOrg(ctx context.Context, orgID int64) (int64, error) {
+	return s.GetQueries(ctx).GetPoolConfigurationIDByOrg(ctx, orgID)
+}
 
-	return &pb.PoolConfiguration{
-		PoolConfigurationId: poolConfiguration.ID,
-		Name:                poolConfiguration.Name,
-		Description:         description,
-	}
+func (s *SQLPoolConfigurationStore) DeletePoolConfiguration(ctx context.Context, orgID int64, configurationID int64) error {
+	return s.GetQueries(ctx).DeletePoolConfiguration(ctx, sqlc.DeletePoolConfigurationParams{OrgID: orgID, ID: configurationID})
+}
+
+func (s *SQLPoolConfigurationStore) DeletePoolConfigurationPools(ctx context.Context, configID int64) error {
+	return s.GetQueries(ctx).DeletePoolConfigurationPools(ctx, configID)
+}
+
+func (s *SQLPoolConfigurationStore) AddPoolToConfiguration(ctx context.Context, poolConfigurationID int64, poolID int64, priority int32) error {
+	return s.GetQueries(ctx).AddPoolToConfiguration(ctx, sqlc.AddPoolToConfigurationParams{PoolConfigurationID: poolConfigurationID, PoolID: poolID, Priority: priority})
+}
+
+func (s *SQLPoolConfigurationStore) UpsertPoolConfiguration(ctx context.Context, orgID int64, config *pb.PoolConfigurationBase) error {
+	return s.GetQueries(ctx).UpsertPoolConfiguration(ctx, sqlc.UpsertPoolConfigurationParams{
+		OrgID:       orgID,
+		Name:        config.Name,
+		Description: sql.NullString{String: config.Description, Valid: len(config.Description) > 0},
+	})
 }

@@ -5,74 +5,68 @@ package pools.v1;
 import "pools/v1/pools.proto";
 
 service PoolConfigurationsService {
-  rpc ListPoolConfigurationsWithPools(ListPoolConfigurationsWithPoolsRequest) returns (ListPoolConfigurationsWithPoolsResponse);
+  rpc ListPoolConfigurations(ListPoolConfigurationsRequest) returns (ListPoolConfigurationsResponse);
 
-  rpc CreatePoolConfiguration(CreatePoolConfigurationRequest) returns (CreatePoolConfigurationResponse);
+  rpc GetPoolConfiguration(GetPoolConfigurationRequest) returns (GetPoolConfigurationResponse);
+
+  rpc UpsertPoolConfiguration(UpsertPoolConfigurationRequest) returns (UpsertPoolConfigurationResponse);
 
   rpc DeletePoolConfiguration(DeletePoolConfigurationRequest) returns (DeletePoolConfigurationResponse);
-
-  rpc AddPoolToConfiguration(AddPoolToConfigurationRequest) returns (AddPoolToConfigurationResponse);
-
-  rpc RemovePoolFromConfiguration(RemovePoolFromConfigurationRequest) returns (RemovePoolFromConfigurationResponse);
 }
 
-message PoolConfigurationConfig {
+message PoolConfigurationBase {
   string name = 1;
   string description = 2;
 }
 
+message PoolConfigurationEntry {
+  int64 id = 1;
+  int32 priority = 2; // 0=default, 1=backup1, 2=backup2
+}
+
 message PoolConfiguration {
-  int64 pool_configuration_id = 1;
+  int64  id = 1;
   string name = 2;
   string description = 3;
 }
 
-message ListPoolConfigurationsWithPoolsRequest {
-}
-
-message PoolConfigurationPoolWithPriority {
+message PoolWithPriority {
   Pool pool = 1;
   int32 priority = 2;
-  int64 pool_configuration_pool_id = 3;
 }
 
 message PoolConfigurationWithPools {
-  PoolConfiguration pool_configuration = 1;
-  repeated PoolConfigurationPoolWithPriority pools = 2;
+  PoolConfiguration configuration = 1;
+  repeated PoolWithPriority pools = 2;
 }
 
-message ListPoolConfigurationsWithPoolsResponse {
-    repeated PoolConfigurationWithPools pool_configurations_with_pools = 1;
+message ListPoolConfigurationsRequest {
 }
 
-message CreatePoolConfigurationRequest {
-  PoolConfigurationConfig pool_configuration_config = 1;
+message ListPoolConfigurationsResponse {
+  repeated PoolConfigurationWithPools configurations = 1;
 }
 
-message CreatePoolConfigurationResponse {
-  PoolConfiguration pool_configuration = 1;
+message GetPoolConfigurationRequest {
+  int64 id = 1;
+}
+
+message GetPoolConfigurationResponse {
+  PoolConfigurationWithPools configuration = 1;
+}
+
+message UpsertPoolConfigurationRequest {
+  PoolConfigurationBase configuration = 1;
+  repeated PoolConfigurationEntry pools = 2;
+}
+
+message UpsertPoolConfigurationResponse {
+  PoolConfigurationWithPools configuration = 1;
 }
 
 message DeletePoolConfigurationRequest {
-  int64 pool_configuration_id = 1;
+  int64 configuration_id = 1;
 }
 
 message DeletePoolConfigurationResponse {
-}
-
-message AddPoolToConfigurationRequest {
-  int64 pool_id = 1;
-  int64 pool_configuration_id = 2;
-  int32 priority = 3;
-}
-
-message AddPoolToConfigurationResponse {
-    PoolConfigurationPoolWithPriority pool_configuration_pool = 1;
-}
-
-message RemovePoolFromConfigurationRequest {
-  int64 pool_configuration_pool_id = 1;
-}
-
-message RemovePoolFromConfigurationResponse {
 }

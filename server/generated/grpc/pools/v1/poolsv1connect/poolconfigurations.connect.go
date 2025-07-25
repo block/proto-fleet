@@ -35,30 +35,26 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// PoolConfigurationsServiceListPoolConfigurationsWithPoolsProcedure is the fully-qualified name of
-	// the PoolConfigurationsService's ListPoolConfigurationsWithPools RPC.
-	PoolConfigurationsServiceListPoolConfigurationsWithPoolsProcedure = "/pools.v1.PoolConfigurationsService/ListPoolConfigurationsWithPools"
-	// PoolConfigurationsServiceCreatePoolConfigurationProcedure is the fully-qualified name of the
-	// PoolConfigurationsService's CreatePoolConfiguration RPC.
-	PoolConfigurationsServiceCreatePoolConfigurationProcedure = "/pools.v1.PoolConfigurationsService/CreatePoolConfiguration"
+	// PoolConfigurationsServiceListPoolConfigurationsProcedure is the fully-qualified name of the
+	// PoolConfigurationsService's ListPoolConfigurations RPC.
+	PoolConfigurationsServiceListPoolConfigurationsProcedure = "/pools.v1.PoolConfigurationsService/ListPoolConfigurations"
+	// PoolConfigurationsServiceGetPoolConfigurationProcedure is the fully-qualified name of the
+	// PoolConfigurationsService's GetPoolConfiguration RPC.
+	PoolConfigurationsServiceGetPoolConfigurationProcedure = "/pools.v1.PoolConfigurationsService/GetPoolConfiguration"
+	// PoolConfigurationsServiceUpsertPoolConfigurationProcedure is the fully-qualified name of the
+	// PoolConfigurationsService's UpsertPoolConfiguration RPC.
+	PoolConfigurationsServiceUpsertPoolConfigurationProcedure = "/pools.v1.PoolConfigurationsService/UpsertPoolConfiguration"
 	// PoolConfigurationsServiceDeletePoolConfigurationProcedure is the fully-qualified name of the
 	// PoolConfigurationsService's DeletePoolConfiguration RPC.
 	PoolConfigurationsServiceDeletePoolConfigurationProcedure = "/pools.v1.PoolConfigurationsService/DeletePoolConfiguration"
-	// PoolConfigurationsServiceAddPoolToConfigurationProcedure is the fully-qualified name of the
-	// PoolConfigurationsService's AddPoolToConfiguration RPC.
-	PoolConfigurationsServiceAddPoolToConfigurationProcedure = "/pools.v1.PoolConfigurationsService/AddPoolToConfiguration"
-	// PoolConfigurationsServiceRemovePoolFromConfigurationProcedure is the fully-qualified name of the
-	// PoolConfigurationsService's RemovePoolFromConfiguration RPC.
-	PoolConfigurationsServiceRemovePoolFromConfigurationProcedure = "/pools.v1.PoolConfigurationsService/RemovePoolFromConfiguration"
 )
 
 // PoolConfigurationsServiceClient is a client for the pools.v1.PoolConfigurationsService service.
 type PoolConfigurationsServiceClient interface {
-	ListPoolConfigurationsWithPools(context.Context, *connect.Request[v1.ListPoolConfigurationsWithPoolsRequest]) (*connect.Response[v1.ListPoolConfigurationsWithPoolsResponse], error)
-	CreatePoolConfiguration(context.Context, *connect.Request[v1.CreatePoolConfigurationRequest]) (*connect.Response[v1.CreatePoolConfigurationResponse], error)
+	ListPoolConfigurations(context.Context, *connect.Request[v1.ListPoolConfigurationsRequest]) (*connect.Response[v1.ListPoolConfigurationsResponse], error)
+	GetPoolConfiguration(context.Context, *connect.Request[v1.GetPoolConfigurationRequest]) (*connect.Response[v1.GetPoolConfigurationResponse], error)
+	UpsertPoolConfiguration(context.Context, *connect.Request[v1.UpsertPoolConfigurationRequest]) (*connect.Response[v1.UpsertPoolConfigurationResponse], error)
 	DeletePoolConfiguration(context.Context, *connect.Request[v1.DeletePoolConfigurationRequest]) (*connect.Response[v1.DeletePoolConfigurationResponse], error)
-	AddPoolToConfiguration(context.Context, *connect.Request[v1.AddPoolToConfigurationRequest]) (*connect.Response[v1.AddPoolToConfigurationResponse], error)
-	RemovePoolFromConfiguration(context.Context, *connect.Request[v1.RemovePoolFromConfigurationRequest]) (*connect.Response[v1.RemovePoolFromConfigurationResponse], error)
 }
 
 // NewPoolConfigurationsServiceClient constructs a client for the pools.v1.PoolConfigurationsService
@@ -71,14 +67,19 @@ type PoolConfigurationsServiceClient interface {
 func NewPoolConfigurationsServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) PoolConfigurationsServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &poolConfigurationsServiceClient{
-		listPoolConfigurationsWithPools: connect.NewClient[v1.ListPoolConfigurationsWithPoolsRequest, v1.ListPoolConfigurationsWithPoolsResponse](
+		listPoolConfigurations: connect.NewClient[v1.ListPoolConfigurationsRequest, v1.ListPoolConfigurationsResponse](
 			httpClient,
-			baseURL+PoolConfigurationsServiceListPoolConfigurationsWithPoolsProcedure,
+			baseURL+PoolConfigurationsServiceListPoolConfigurationsProcedure,
 			opts...,
 		),
-		createPoolConfiguration: connect.NewClient[v1.CreatePoolConfigurationRequest, v1.CreatePoolConfigurationResponse](
+		getPoolConfiguration: connect.NewClient[v1.GetPoolConfigurationRequest, v1.GetPoolConfigurationResponse](
 			httpClient,
-			baseURL+PoolConfigurationsServiceCreatePoolConfigurationProcedure,
+			baseURL+PoolConfigurationsServiceGetPoolConfigurationProcedure,
+			opts...,
+		),
+		upsertPoolConfiguration: connect.NewClient[v1.UpsertPoolConfigurationRequest, v1.UpsertPoolConfigurationResponse](
+			httpClient,
+			baseURL+PoolConfigurationsServiceUpsertPoolConfigurationProcedure,
 			opts...,
 		),
 		deletePoolConfiguration: connect.NewClient[v1.DeletePoolConfigurationRequest, v1.DeletePoolConfigurationResponse](
@@ -86,37 +87,30 @@ func NewPoolConfigurationsServiceClient(httpClient connect.HTTPClient, baseURL s
 			baseURL+PoolConfigurationsServiceDeletePoolConfigurationProcedure,
 			opts...,
 		),
-		addPoolToConfiguration: connect.NewClient[v1.AddPoolToConfigurationRequest, v1.AddPoolToConfigurationResponse](
-			httpClient,
-			baseURL+PoolConfigurationsServiceAddPoolToConfigurationProcedure,
-			opts...,
-		),
-		removePoolFromConfiguration: connect.NewClient[v1.RemovePoolFromConfigurationRequest, v1.RemovePoolFromConfigurationResponse](
-			httpClient,
-			baseURL+PoolConfigurationsServiceRemovePoolFromConfigurationProcedure,
-			opts...,
-		),
 	}
 }
 
 // poolConfigurationsServiceClient implements PoolConfigurationsServiceClient.
 type poolConfigurationsServiceClient struct {
-	listPoolConfigurationsWithPools *connect.Client[v1.ListPoolConfigurationsWithPoolsRequest, v1.ListPoolConfigurationsWithPoolsResponse]
-	createPoolConfiguration         *connect.Client[v1.CreatePoolConfigurationRequest, v1.CreatePoolConfigurationResponse]
-	deletePoolConfiguration         *connect.Client[v1.DeletePoolConfigurationRequest, v1.DeletePoolConfigurationResponse]
-	addPoolToConfiguration          *connect.Client[v1.AddPoolToConfigurationRequest, v1.AddPoolToConfigurationResponse]
-	removePoolFromConfiguration     *connect.Client[v1.RemovePoolFromConfigurationRequest, v1.RemovePoolFromConfigurationResponse]
+	listPoolConfigurations  *connect.Client[v1.ListPoolConfigurationsRequest, v1.ListPoolConfigurationsResponse]
+	getPoolConfiguration    *connect.Client[v1.GetPoolConfigurationRequest, v1.GetPoolConfigurationResponse]
+	upsertPoolConfiguration *connect.Client[v1.UpsertPoolConfigurationRequest, v1.UpsertPoolConfigurationResponse]
+	deletePoolConfiguration *connect.Client[v1.DeletePoolConfigurationRequest, v1.DeletePoolConfigurationResponse]
 }
 
-// ListPoolConfigurationsWithPools calls
-// pools.v1.PoolConfigurationsService.ListPoolConfigurationsWithPools.
-func (c *poolConfigurationsServiceClient) ListPoolConfigurationsWithPools(ctx context.Context, req *connect.Request[v1.ListPoolConfigurationsWithPoolsRequest]) (*connect.Response[v1.ListPoolConfigurationsWithPoolsResponse], error) {
-	return c.listPoolConfigurationsWithPools.CallUnary(ctx, req)
+// ListPoolConfigurations calls pools.v1.PoolConfigurationsService.ListPoolConfigurations.
+func (c *poolConfigurationsServiceClient) ListPoolConfigurations(ctx context.Context, req *connect.Request[v1.ListPoolConfigurationsRequest]) (*connect.Response[v1.ListPoolConfigurationsResponse], error) {
+	return c.listPoolConfigurations.CallUnary(ctx, req)
 }
 
-// CreatePoolConfiguration calls pools.v1.PoolConfigurationsService.CreatePoolConfiguration.
-func (c *poolConfigurationsServiceClient) CreatePoolConfiguration(ctx context.Context, req *connect.Request[v1.CreatePoolConfigurationRequest]) (*connect.Response[v1.CreatePoolConfigurationResponse], error) {
-	return c.createPoolConfiguration.CallUnary(ctx, req)
+// GetPoolConfiguration calls pools.v1.PoolConfigurationsService.GetPoolConfiguration.
+func (c *poolConfigurationsServiceClient) GetPoolConfiguration(ctx context.Context, req *connect.Request[v1.GetPoolConfigurationRequest]) (*connect.Response[v1.GetPoolConfigurationResponse], error) {
+	return c.getPoolConfiguration.CallUnary(ctx, req)
+}
+
+// UpsertPoolConfiguration calls pools.v1.PoolConfigurationsService.UpsertPoolConfiguration.
+func (c *poolConfigurationsServiceClient) UpsertPoolConfiguration(ctx context.Context, req *connect.Request[v1.UpsertPoolConfigurationRequest]) (*connect.Response[v1.UpsertPoolConfigurationResponse], error) {
+	return c.upsertPoolConfiguration.CallUnary(ctx, req)
 }
 
 // DeletePoolConfiguration calls pools.v1.PoolConfigurationsService.DeletePoolConfiguration.
@@ -124,24 +118,13 @@ func (c *poolConfigurationsServiceClient) DeletePoolConfiguration(ctx context.Co
 	return c.deletePoolConfiguration.CallUnary(ctx, req)
 }
 
-// AddPoolToConfiguration calls pools.v1.PoolConfigurationsService.AddPoolToConfiguration.
-func (c *poolConfigurationsServiceClient) AddPoolToConfiguration(ctx context.Context, req *connect.Request[v1.AddPoolToConfigurationRequest]) (*connect.Response[v1.AddPoolToConfigurationResponse], error) {
-	return c.addPoolToConfiguration.CallUnary(ctx, req)
-}
-
-// RemovePoolFromConfiguration calls pools.v1.PoolConfigurationsService.RemovePoolFromConfiguration.
-func (c *poolConfigurationsServiceClient) RemovePoolFromConfiguration(ctx context.Context, req *connect.Request[v1.RemovePoolFromConfigurationRequest]) (*connect.Response[v1.RemovePoolFromConfigurationResponse], error) {
-	return c.removePoolFromConfiguration.CallUnary(ctx, req)
-}
-
 // PoolConfigurationsServiceHandler is an implementation of the pools.v1.PoolConfigurationsService
 // service.
 type PoolConfigurationsServiceHandler interface {
-	ListPoolConfigurationsWithPools(context.Context, *connect.Request[v1.ListPoolConfigurationsWithPoolsRequest]) (*connect.Response[v1.ListPoolConfigurationsWithPoolsResponse], error)
-	CreatePoolConfiguration(context.Context, *connect.Request[v1.CreatePoolConfigurationRequest]) (*connect.Response[v1.CreatePoolConfigurationResponse], error)
+	ListPoolConfigurations(context.Context, *connect.Request[v1.ListPoolConfigurationsRequest]) (*connect.Response[v1.ListPoolConfigurationsResponse], error)
+	GetPoolConfiguration(context.Context, *connect.Request[v1.GetPoolConfigurationRequest]) (*connect.Response[v1.GetPoolConfigurationResponse], error)
+	UpsertPoolConfiguration(context.Context, *connect.Request[v1.UpsertPoolConfigurationRequest]) (*connect.Response[v1.UpsertPoolConfigurationResponse], error)
 	DeletePoolConfiguration(context.Context, *connect.Request[v1.DeletePoolConfigurationRequest]) (*connect.Response[v1.DeletePoolConfigurationResponse], error)
-	AddPoolToConfiguration(context.Context, *connect.Request[v1.AddPoolToConfigurationRequest]) (*connect.Response[v1.AddPoolToConfigurationResponse], error)
-	RemovePoolFromConfiguration(context.Context, *connect.Request[v1.RemovePoolFromConfigurationRequest]) (*connect.Response[v1.RemovePoolFromConfigurationResponse], error)
 }
 
 // NewPoolConfigurationsServiceHandler builds an HTTP handler from the service implementation. It
@@ -150,14 +133,19 @@ type PoolConfigurationsServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewPoolConfigurationsServiceHandler(svc PoolConfigurationsServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	poolConfigurationsServiceListPoolConfigurationsWithPoolsHandler := connect.NewUnaryHandler(
-		PoolConfigurationsServiceListPoolConfigurationsWithPoolsProcedure,
-		svc.ListPoolConfigurationsWithPools,
+	poolConfigurationsServiceListPoolConfigurationsHandler := connect.NewUnaryHandler(
+		PoolConfigurationsServiceListPoolConfigurationsProcedure,
+		svc.ListPoolConfigurations,
 		opts...,
 	)
-	poolConfigurationsServiceCreatePoolConfigurationHandler := connect.NewUnaryHandler(
-		PoolConfigurationsServiceCreatePoolConfigurationProcedure,
-		svc.CreatePoolConfiguration,
+	poolConfigurationsServiceGetPoolConfigurationHandler := connect.NewUnaryHandler(
+		PoolConfigurationsServiceGetPoolConfigurationProcedure,
+		svc.GetPoolConfiguration,
+		opts...,
+	)
+	poolConfigurationsServiceUpsertPoolConfigurationHandler := connect.NewUnaryHandler(
+		PoolConfigurationsServiceUpsertPoolConfigurationProcedure,
+		svc.UpsertPoolConfiguration,
 		opts...,
 	)
 	poolConfigurationsServiceDeletePoolConfigurationHandler := connect.NewUnaryHandler(
@@ -165,28 +153,16 @@ func NewPoolConfigurationsServiceHandler(svc PoolConfigurationsServiceHandler, o
 		svc.DeletePoolConfiguration,
 		opts...,
 	)
-	poolConfigurationsServiceAddPoolToConfigurationHandler := connect.NewUnaryHandler(
-		PoolConfigurationsServiceAddPoolToConfigurationProcedure,
-		svc.AddPoolToConfiguration,
-		opts...,
-	)
-	poolConfigurationsServiceRemovePoolFromConfigurationHandler := connect.NewUnaryHandler(
-		PoolConfigurationsServiceRemovePoolFromConfigurationProcedure,
-		svc.RemovePoolFromConfiguration,
-		opts...,
-	)
 	return "/pools.v1.PoolConfigurationsService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case PoolConfigurationsServiceListPoolConfigurationsWithPoolsProcedure:
-			poolConfigurationsServiceListPoolConfigurationsWithPoolsHandler.ServeHTTP(w, r)
-		case PoolConfigurationsServiceCreatePoolConfigurationProcedure:
-			poolConfigurationsServiceCreatePoolConfigurationHandler.ServeHTTP(w, r)
+		case PoolConfigurationsServiceListPoolConfigurationsProcedure:
+			poolConfigurationsServiceListPoolConfigurationsHandler.ServeHTTP(w, r)
+		case PoolConfigurationsServiceGetPoolConfigurationProcedure:
+			poolConfigurationsServiceGetPoolConfigurationHandler.ServeHTTP(w, r)
+		case PoolConfigurationsServiceUpsertPoolConfigurationProcedure:
+			poolConfigurationsServiceUpsertPoolConfigurationHandler.ServeHTTP(w, r)
 		case PoolConfigurationsServiceDeletePoolConfigurationProcedure:
 			poolConfigurationsServiceDeletePoolConfigurationHandler.ServeHTTP(w, r)
-		case PoolConfigurationsServiceAddPoolToConfigurationProcedure:
-			poolConfigurationsServiceAddPoolToConfigurationHandler.ServeHTTP(w, r)
-		case PoolConfigurationsServiceRemovePoolFromConfigurationProcedure:
-			poolConfigurationsServiceRemovePoolFromConfigurationHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -196,22 +172,18 @@ func NewPoolConfigurationsServiceHandler(svc PoolConfigurationsServiceHandler, o
 // UnimplementedPoolConfigurationsServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedPoolConfigurationsServiceHandler struct{}
 
-func (UnimplementedPoolConfigurationsServiceHandler) ListPoolConfigurationsWithPools(context.Context, *connect.Request[v1.ListPoolConfigurationsWithPoolsRequest]) (*connect.Response[v1.ListPoolConfigurationsWithPoolsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("pools.v1.PoolConfigurationsService.ListPoolConfigurationsWithPools is not implemented"))
+func (UnimplementedPoolConfigurationsServiceHandler) ListPoolConfigurations(context.Context, *connect.Request[v1.ListPoolConfigurationsRequest]) (*connect.Response[v1.ListPoolConfigurationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("pools.v1.PoolConfigurationsService.ListPoolConfigurations is not implemented"))
 }
 
-func (UnimplementedPoolConfigurationsServiceHandler) CreatePoolConfiguration(context.Context, *connect.Request[v1.CreatePoolConfigurationRequest]) (*connect.Response[v1.CreatePoolConfigurationResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("pools.v1.PoolConfigurationsService.CreatePoolConfiguration is not implemented"))
+func (UnimplementedPoolConfigurationsServiceHandler) GetPoolConfiguration(context.Context, *connect.Request[v1.GetPoolConfigurationRequest]) (*connect.Response[v1.GetPoolConfigurationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("pools.v1.PoolConfigurationsService.GetPoolConfiguration is not implemented"))
+}
+
+func (UnimplementedPoolConfigurationsServiceHandler) UpsertPoolConfiguration(context.Context, *connect.Request[v1.UpsertPoolConfigurationRequest]) (*connect.Response[v1.UpsertPoolConfigurationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("pools.v1.PoolConfigurationsService.UpsertPoolConfiguration is not implemented"))
 }
 
 func (UnimplementedPoolConfigurationsServiceHandler) DeletePoolConfiguration(context.Context, *connect.Request[v1.DeletePoolConfigurationRequest]) (*connect.Response[v1.DeletePoolConfigurationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("pools.v1.PoolConfigurationsService.DeletePoolConfiguration is not implemented"))
-}
-
-func (UnimplementedPoolConfigurationsServiceHandler) AddPoolToConfiguration(context.Context, *connect.Request[v1.AddPoolToConfigurationRequest]) (*connect.Response[v1.AddPoolToConfigurationResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("pools.v1.PoolConfigurationsService.AddPoolToConfiguration is not implemented"))
-}
-
-func (UnimplementedPoolConfigurationsServiceHandler) RemovePoolFromConfiguration(context.Context, *connect.Request[v1.RemovePoolFromConfigurationRequest]) (*connect.Response[v1.RemovePoolFromConfigurationResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("pools.v1.PoolConfigurationsService.RemovePoolFromConfiguration is not implemented"))
 }

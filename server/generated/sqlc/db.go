@@ -45,9 +45,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createPoolStmt, err = db.PrepareContext(ctx, createPool); err != nil {
 		return nil, fmt.Errorf("error preparing query CreatePool: %w", err)
 	}
-	if q.createPoolConfigurationStmt, err = db.PrepareContext(ctx, createPoolConfiguration); err != nil {
-		return nil, fmt.Errorf("error preparing query CreatePoolConfiguration: %w", err)
-	}
 	if q.createQueueMessageStmt, err = db.PrepareContext(ctx, createQueueMessage); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateQueueMessage: %w", err)
 	}
@@ -65,6 +62,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.deletePoolConfigurationStmt, err = db.PrepareContext(ctx, deletePoolConfiguration); err != nil {
 		return nil, fmt.Errorf("error preparing query DeletePoolConfiguration: %w", err)
+	}
+	if q.deletePoolConfigurationPoolsStmt, err = db.PrepareContext(ctx, deletePoolConfigurationPools); err != nil {
+		return nil, fmt.Errorf("error preparing query DeletePoolConfigurationPools: %w", err)
 	}
 	if q.getActiveDeviceIPAssignmentByDeviceIDStmt, err = db.PrepareContext(ctx, getActiveDeviceIPAssignmentByDeviceID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveDeviceIPAssignmentByDeviceID: %w", err)
@@ -132,11 +132,8 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getPoolConfigurationStmt, err = db.PrepareContext(ctx, getPoolConfiguration); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPoolConfiguration: %w", err)
 	}
-	if q.getPoolConfigurationPoolWithPriorityStmt, err = db.PrepareContext(ctx, getPoolConfigurationPoolWithPriority); err != nil {
-		return nil, fmt.Errorf("error preparing query GetPoolConfigurationPoolWithPriority: %w", err)
-	}
-	if q.getPoolConfigurationsWithPoolsStmt, err = db.PrepareContext(ctx, getPoolConfigurationsWithPools); err != nil {
-		return nil, fmt.Errorf("error preparing query GetPoolConfigurationsWithPools: %w", err)
+	if q.getPoolConfigurationIDByOrgStmt, err = db.PrepareContext(ctx, getPoolConfigurationIDByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPoolConfigurationIDByOrg: %w", err)
 	}
 	if q.getRoleByIDStmt, err = db.PrepareContext(ctx, getRoleByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRoleByID: %w", err)
@@ -198,9 +195,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.markCommandBatchProcessingStmt, err = db.PrepareContext(ctx, markCommandBatchProcessing); err != nil {
 		return nil, fmt.Errorf("error preparing query MarkCommandBatchProcessing: %w", err)
 	}
-	if q.removePoolFromConfigurationStmt, err = db.PrepareContext(ctx, removePoolFromConfiguration); err != nil {
-		return nil, fmt.Errorf("error preparing query RemovePoolFromConfiguration: %w", err)
-	}
 	if q.softDeleteOrganizationStmt, err = db.PrepareContext(ctx, softDeleteOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteOrganization: %w", err)
 	}
@@ -258,6 +252,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.upsertMinerCredentialsStmt, err = db.PrepareContext(ctx, upsertMinerCredentials); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertMinerCredentials: %w", err)
 	}
+	if q.upsertPoolConfigurationStmt, err = db.PrepareContext(ctx, upsertPoolConfiguration); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertPoolConfiguration: %w", err)
+	}
 	if q.upsertRoleStmt, err = db.PrepareContext(ctx, upsertRole); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertRole: %w", err)
 	}
@@ -301,11 +298,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing createPoolStmt: %w", cerr)
 		}
 	}
-	if q.createPoolConfigurationStmt != nil {
-		if cerr := q.createPoolConfigurationStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing createPoolConfigurationStmt: %w", cerr)
-		}
-	}
 	if q.createQueueMessageStmt != nil {
 		if cerr := q.createQueueMessageStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createQueueMessageStmt: %w", cerr)
@@ -334,6 +326,11 @@ func (q *Queries) Close() error {
 	if q.deletePoolConfigurationStmt != nil {
 		if cerr := q.deletePoolConfigurationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deletePoolConfigurationStmt: %w", cerr)
+		}
+	}
+	if q.deletePoolConfigurationPoolsStmt != nil {
+		if cerr := q.deletePoolConfigurationPoolsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deletePoolConfigurationPoolsStmt: %w", cerr)
 		}
 	}
 	if q.getActiveDeviceIPAssignmentByDeviceIDStmt != nil {
@@ -446,14 +443,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getPoolConfigurationStmt: %w", cerr)
 		}
 	}
-	if q.getPoolConfigurationPoolWithPriorityStmt != nil {
-		if cerr := q.getPoolConfigurationPoolWithPriorityStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getPoolConfigurationPoolWithPriorityStmt: %w", cerr)
-		}
-	}
-	if q.getPoolConfigurationsWithPoolsStmt != nil {
-		if cerr := q.getPoolConfigurationsWithPoolsStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getPoolConfigurationsWithPoolsStmt: %w", cerr)
+	if q.getPoolConfigurationIDByOrgStmt != nil {
+		if cerr := q.getPoolConfigurationIDByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPoolConfigurationIDByOrgStmt: %w", cerr)
 		}
 	}
 	if q.getRoleByIDStmt != nil {
@@ -556,11 +548,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing markCommandBatchProcessingStmt: %w", cerr)
 		}
 	}
-	if q.removePoolFromConfigurationStmt != nil {
-		if cerr := q.removePoolFromConfigurationStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing removePoolFromConfigurationStmt: %w", cerr)
-		}
-	}
 	if q.softDeleteOrganizationStmt != nil {
 		if cerr := q.softDeleteOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing softDeleteOrganizationStmt: %w", cerr)
@@ -656,6 +643,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertMinerCredentialsStmt: %w", cerr)
 		}
 	}
+	if q.upsertPoolConfigurationStmt != nil {
+		if cerr := q.upsertPoolConfigurationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertPoolConfigurationStmt: %w", cerr)
+		}
+	}
 	if q.upsertRoleStmt != nil {
 		if cerr := q.upsertRoleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertRoleStmt: %w", cerr)
@@ -707,13 +699,13 @@ type Queries struct {
 	createInactiveDeviceIPAssignmentStmt                *sql.Stmt
 	createOrganizationStmt                              *sql.Stmt
 	createPoolStmt                                      *sql.Stmt
-	createPoolConfigurationStmt                         *sql.Stmt
 	createQueueMessageStmt                              *sql.Stmt
 	createUserStmt                                      *sql.Stmt
 	createUserOrganizationStmt                          *sql.Stmt
 	deleteOrganizationStmt                              *sql.Stmt
 	deletePoolStmt                                      *sql.Stmt
 	deletePoolConfigurationStmt                         *sql.Stmt
+	deletePoolConfigurationPoolsStmt                    *sql.Stmt
 	getActiveDeviceIPAssignmentByDeviceIDStmt           *sql.Stmt
 	getAllPairedDeviceIdentifiersStmt                   *sql.Stmt
 	getBatchLogStmt                                     *sql.Stmt
@@ -736,8 +728,7 @@ type Queries struct {
 	getOrganizationsForUserStmt                         *sql.Stmt
 	getPoolStmt                                         *sql.Stmt
 	getPoolConfigurationStmt                            *sql.Stmt
-	getPoolConfigurationPoolWithPriorityStmt            *sql.Stmt
-	getPoolConfigurationsWithPoolsStmt                  *sql.Stmt
+	getPoolConfigurationIDByOrgStmt                     *sql.Stmt
 	getRoleByIDStmt                                     *sql.Stmt
 	getRoleByNameStmt                                   *sql.Stmt
 	getTotalPairedDevicesStmt                           *sql.Stmt
@@ -758,7 +749,6 @@ type Queries struct {
 	markCommandBatchFinishedStmt                        *sql.Stmt
 	markCommandBatchFinishedWithStartedAtStmt           *sql.Stmt
 	markCommandBatchProcessingStmt                      *sql.Stmt
-	removePoolFromConfigurationStmt                     *sql.Stmt
 	softDeleteOrganizationStmt                          *sql.Stmt
 	softDeletePoolStmt                                  *sql.Stmt
 	softDeleteRoleStmt                                  *sql.Stmt
@@ -778,6 +768,7 @@ type Queries struct {
 	upsertDeviceStmt                                    *sql.Stmt
 	upsertDevicePairingStmt                             *sql.Stmt
 	upsertMinerCredentialsStmt                          *sql.Stmt
+	upsertPoolConfigurationStmt                         *sql.Stmt
 	upsertRoleStmt                                      *sql.Stmt
 }
 
@@ -792,13 +783,13 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createInactiveDeviceIPAssignmentStmt:                q.createInactiveDeviceIPAssignmentStmt,
 		createOrganizationStmt:                              q.createOrganizationStmt,
 		createPoolStmt:                                      q.createPoolStmt,
-		createPoolConfigurationStmt:                         q.createPoolConfigurationStmt,
 		createQueueMessageStmt:                              q.createQueueMessageStmt,
 		createUserStmt:                                      q.createUserStmt,
 		createUserOrganizationStmt:                          q.createUserOrganizationStmt,
 		deleteOrganizationStmt:                              q.deleteOrganizationStmt,
 		deletePoolStmt:                                      q.deletePoolStmt,
 		deletePoolConfigurationStmt:                         q.deletePoolConfigurationStmt,
+		deletePoolConfigurationPoolsStmt:                    q.deletePoolConfigurationPoolsStmt,
 		getActiveDeviceIPAssignmentByDeviceIDStmt:           q.getActiveDeviceIPAssignmentByDeviceIDStmt,
 		getAllPairedDeviceIdentifiersStmt:                   q.getAllPairedDeviceIdentifiersStmt,
 		getBatchLogStmt:                                     q.getBatchLogStmt,
@@ -821,8 +812,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getOrganizationsForUserStmt:                         q.getOrganizationsForUserStmt,
 		getPoolStmt:                                         q.getPoolStmt,
 		getPoolConfigurationStmt:                            q.getPoolConfigurationStmt,
-		getPoolConfigurationPoolWithPriorityStmt:            q.getPoolConfigurationPoolWithPriorityStmt,
-		getPoolConfigurationsWithPoolsStmt:                  q.getPoolConfigurationsWithPoolsStmt,
+		getPoolConfigurationIDByOrgStmt:                     q.getPoolConfigurationIDByOrgStmt,
 		getRoleByIDStmt:                                     q.getRoleByIDStmt,
 		getRoleByNameStmt:                                   q.getRoleByNameStmt,
 		getTotalPairedDevicesStmt:                           q.getTotalPairedDevicesStmt,
@@ -843,7 +833,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		markCommandBatchFinishedStmt:                        q.markCommandBatchFinishedStmt,
 		markCommandBatchFinishedWithStartedAtStmt:           q.markCommandBatchFinishedWithStartedAtStmt,
 		markCommandBatchProcessingStmt:                      q.markCommandBatchProcessingStmt,
-		removePoolFromConfigurationStmt:                     q.removePoolFromConfigurationStmt,
 		softDeleteOrganizationStmt:                          q.softDeleteOrganizationStmt,
 		softDeletePoolStmt:                                  q.softDeletePoolStmt,
 		softDeleteRoleStmt:                                  q.softDeleteRoleStmt,
@@ -863,6 +852,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertDeviceStmt:                                    q.upsertDeviceStmt,
 		upsertDevicePairingStmt:                             q.upsertDevicePairingStmt,
 		upsertMinerCredentialsStmt:                          q.upsertMinerCredentialsStmt,
+		upsertPoolConfigurationStmt:                         q.upsertPoolConfigurationStmt,
 		upsertRoleStmt:                                      q.upsertRoleStmt,
 	}
 }

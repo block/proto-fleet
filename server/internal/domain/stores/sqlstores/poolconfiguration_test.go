@@ -36,10 +36,13 @@ func TestSQLPoolConfigurationStore_GetPoolConfigurationsWithPools(t *testing.T) 
 	configName := "Test Pool Config"
 	configDesc := "Test Description"
 
-	configID, err := store.CreatePoolConfiguration(ctx, &pb.PoolConfigurationConfig{
+	err = store.UpsertPoolConfiguration(ctx, orgID, &pb.PoolConfigurationBase{
 		Name:        configName,
 		Description: configDesc,
-	}, orgID)
+	})
+	require.NoError(t, err)
+
+	configID, err := store.GetPoolConfigurationIDByOrg(ctx, orgID)
 	require.NoError(t, err)
 	require.Positive(t, configID)
 
@@ -76,23 +79,23 @@ func TestSQLPoolConfigurationStore_GetPoolConfigurationsWithPools(t *testing.T) 
 		poolID, err := poolResult.LastInsertId()
 		require.NoError(t, err)
 
-		_, err = store.AddPoolToConfiguration(ctx, configID, poolID, p.priority)
+		err = store.AddPoolToConfiguration(ctx, configID, poolID, p.priority)
 		require.NoError(t, err)
 	}
 
-	result, err := store.GetPoolConfigurationsWithPools(ctx, orgID)
+	result, err := store.ListPoolConfigurations(ctx, orgID)
 
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 
 	config := result[0]
-	assert.Equal(t, configID, config.PoolConfiguration.PoolConfigurationId)
-	assert.Equal(t, configName, config.PoolConfiguration.Name)
-	assert.Equal(t, configDesc, config.PoolConfiguration.Description)
+	assert.Equal(t, configID, config.Configuration.Id)
+	assert.Equal(t, configName, config.Configuration.Name)
+	assert.Equal(t, configDesc, config.Configuration.Description)
 
 	require.Len(t, config.Pools, len(pools))
 
-	poolMap := make(map[string]*pb.PoolConfigurationPoolWithPriority)
+	poolMap := make(map[string]*pb.PoolWithPriority)
 	for _, p := range config.Pools {
 		poolMap[p.Pool.PoolName] = p
 	}
@@ -107,19 +110,19 @@ func TestSQLPoolConfigurationStore_GetPoolConfigurationsWithPools(t *testing.T) 
 		assert.False(t, pool.Pool.IsDefault)
 	}
 
-	emptyResult, err := store.GetPoolConfigurationsWithPools(ctx, 12345)
+	emptyResult, err := store.ListPoolConfigurations(ctx, 12345)
 	require.NoError(t, err)
 	assert.Empty(t, emptyResult, "Expected empty result for non-existent org ID")
 
-	for _, p := range config.Pools {
-		err := store.RemovePoolFromConfiguration(ctx, p.PoolConfigurationPoolId)
-		require.NoError(t, err)
+	err = store.DeletePoolConfigurationPools(ctx, configID)
+	require.NoError(t, err)
 
+	for _, p := range config.Pools {
 		err = queries.DeletePool(ctx, p.Pool.PoolId)
 		require.NoError(t, err)
 	}
 
-	err = store.DeletePoolConfiguration(ctx, configID)
+	err = store.DeletePoolConfiguration(ctx, orgID, configID)
 	require.NoError(t, err)
 
 	// Delete the test organization
