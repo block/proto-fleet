@@ -9,7 +9,7 @@ const VersionInfo = ({ loading, value }: VersionInfoProps) => {
   return (
     <InfoItem
       label="Firmware Version"
-      loading={loading}
+      loading={loading && !value}
       value={value}
       testId="version-info-item"
     />
