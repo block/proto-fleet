@@ -18,10 +18,10 @@ const AuthenticationSettings = () => {
 
   const submit = useCallback(
     (currentPassword: string, newPassword: string) => {
-      const handleError = () => {
+      const handleError = (message?: string) => {
         setIsSubmitting(false);
         pushToast({
-          message: "Something went wrong, please try again",
+          message: message || "Something went wrong, please try again",
           status: TOAST_STATUSES.error,
         });
       };

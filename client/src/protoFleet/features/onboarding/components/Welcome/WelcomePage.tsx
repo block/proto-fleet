@@ -12,10 +12,6 @@ import AnimatedDotsBackground from "@/shared/components/Animation";
 import Button, { variants } from "@/shared/components/Button";
 import { Authentication } from "@/shared/components/Setup";
 import { Splash } from "@/shared/components/Splash";
-import {
-  pushToast,
-  STATUSES as TOAST_STATUSES,
-} from "@/shared/features/toaster";
 
 const WELCOME_SCREEN_TIMEOUT = 3000; // how long the welcome screen should be visible for
 
@@ -46,7 +42,7 @@ const WelcomePage = () => {
   const { setPassword } = usePassword();
   const login = useLogin();
   const [isSubmitting, setIsSubmitting] = useState(false);
-
+  const [submitError, setSubmitError] = useState<string | undefined>();
   const [showWelcome, setShowWelcome] = useState(false);
 
   const handleContinue = (password: string, username: string) => {
@@ -54,6 +50,7 @@ const WelcomePage = () => {
       username,
       password,
     };
+    setSubmitError(undefined);
     setPassword({
       setPasswordRequest: create(CreateAdminLoginRequestSchema, credentials),
       onSuccess: () => {
@@ -71,12 +68,18 @@ const WelcomePage = () => {
       onError: (error: unknown) => {
         if (error instanceof ConnectError) {
           if (error.code === Code.AlreadyExists) {
-            navigate("/auth");
-            pushToast({
-              message: "Proto Fleet instance already onboarded. Please login.",
-              status: TOAST_STATUSES.error,
-            });
+            setSubmitError(
+              "Proto Fleet instance already onboarded. Please sign in.",
+            );
+            return;
           }
+        }
+        if (error instanceof Error && error.message) {
+          setSubmitError(error.message);
+        } else if (typeof error === "string" && error) {
+          setSubmitError(error);
+        } else {
+          setSubmitError("Something went wrong, please try again");
         }
       },
     });
@@ -107,6 +110,7 @@ const WelcomePage = () => {
                     submit={handleContinue}
                     isSubmitting={isSubmitting}
                     setIsSubmitting={setIsSubmitting}
+                    submitError={submitError}
                   />
                   <div className="mt-4 flex flex-row">
                     <div className="text-300 text-text-primary-50">

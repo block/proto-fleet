@@ -7,6 +7,7 @@ const AuthenticationPage = () => {
   const navigate = useNavigate();
   const { setPassword } = usePassword();
   const login = useLogin();
+  const [submitError, setSubmitError] = useState<string | undefined>();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { data: systemStatus, pending: pendingSystemStatus } =
     useSystemStatus();
@@ -20,6 +21,7 @@ const AuthenticationPage = () => {
   }, [navigate, systemStatus, pendingSystemStatus]);
 
   function submit(password: string) {
+    setSubmitError(undefined);
     setPassword({
       password: password,
       onSuccess: () => {
@@ -30,6 +32,9 @@ const AuthenticationPage = () => {
           },
         });
       },
+      onError: (message) => {
+        setSubmitError(message);
+      },
     });
   }
 
@@ -37,6 +42,7 @@ const AuthenticationPage = () => {
     <OnboardingLayout>
       <Authentication
         submit={submit}
+        submitError={submitError}
         isSubmitting={isSubmitting}
         setIsSubmitting={setIsSubmitting}
         headline="Create an admin login for your miners"

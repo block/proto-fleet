@@ -128,6 +128,7 @@ type AuthenticationProps = {
   buttonClassName?: string;
   isSubmitting: boolean;
   setIsSubmitting: (isSubmitting: boolean) => void;
+  submitError?: string;
 };
 
 const Authentication = ({
@@ -141,6 +142,7 @@ const Authentication = ({
   buttonClassName = "ml-auto",
   isSubmitting,
   setIsSubmitting,
+  submitError,
 }: AuthenticationProps) => {
   const defaultValues = deepClone(initValues);
   if (initUsername !== undefined) {
@@ -195,7 +197,7 @@ const Authentication = ({
           setShowWeakPasswordWarning(true);
           return;
         }
-
+        setShowWeakPasswordWarning(false);
         setIsSubmitting(true);
         try {
           if (isUpdateMode) {
@@ -211,7 +213,7 @@ const Authentication = ({
               values.username,
             );
           }
-        } catch {
+        } finally {
           setIsSubmitting(false);
         }
       }
@@ -273,6 +275,16 @@ const Authentication = ({
         titleSize="text-heading-300"
         description={description}
       />
+      <div
+        className={clsx("transition-[max-height,margin] ease-in-out", {
+          "max-h-0 overflow-hidden duration-300": !submitError,
+          "max-h-96 duration-500": submitError,
+        })}
+      >
+        <div className="rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 leading-5 text-intent-critical-text">
+          {submitError}
+        </div>
+      </div>
       <Input
         onChange={handleChange}
         id="username"
