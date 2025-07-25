@@ -103,3 +103,20 @@ func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPassword
 	_, err := q.exec(ctx, q.updateUserPasswordStmt, updateUserPassword, arg.PasswordHash, arg.UpdatedAt, arg.ID)
 	return err
 }
+
+const updateUserUsername = `-- name: UpdateUserUsername :exec
+UPDATE user
+SET username = ?,
+    updated_at = NOW()
+WHERE id = ?
+`
+
+type UpdateUserUsernameParams struct {
+	Username string
+	ID       int64
+}
+
+func (q *Queries) UpdateUserUsername(ctx context.Context, arg UpdateUserUsernameParams) error {
+	_, err := q.exec(ctx, q.updateUserUsernameStmt, updateUserUsername, arg.Username, arg.ID)
+	return err
+}

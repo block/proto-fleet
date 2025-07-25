@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 
@@ -150,6 +151,20 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 	return &onboardingv1.CreateAdminLoginResponse{
 		UserId: externalUserID,
 	}, nil
+}
+
+func (s *Service) UpdateUsername(ctx context.Context, username string) error {
+	trimmedUsername := strings.TrimSpace(username)
+	if trimmedUsername == "" {
+		return fleeterror.NewInvalidArgumentError("username cannot be empty")
+	}
+
+	claims, err := token.GetClientAuthJWTClaims(ctx)
+	if err != nil {
+		return err
+	}
+
+	return s.userStore.UpdateUserUsername(ctx, claims.UserID, trimmedUsername)
 }
 
 func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRequest) error {

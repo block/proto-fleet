@@ -12,6 +12,8 @@ service AuthService {
     // Returns an error if the current password is incorrect
     // The user must be authenticated to use this endpoint
     rpc UpdatePassword(UpdatePasswordRequest) returns (UpdatePasswordResponse);
+
+    rpc UpdateUsername(UpdateUsernameRequest) returns (UpdateUsernameResponse);
 }
 
 message AuthenticateRequest {
@@ -50,6 +52,13 @@ message UpdatePasswordRequest {
 message UpdatePasswordResponse {
     // Empty response as success/failure is indicated by gRPC status
     // A successful response indicates the password was changed
+}
+
+message UpdateUsernameRequest {
+    string username = 1;
+}
+
+message UpdateUsernameResponse {
 }
 
 enum UpdatePasswordErrorCode {

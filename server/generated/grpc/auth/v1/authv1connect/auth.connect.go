@@ -40,6 +40,9 @@ const (
 	// AuthServiceUpdatePasswordProcedure is the fully-qualified name of the AuthService's
 	// UpdatePassword RPC.
 	AuthServiceUpdatePasswordProcedure = "/auth.v1.AuthService/UpdatePassword"
+	// AuthServiceUpdateUsernameProcedure is the fully-qualified name of the AuthService's
+	// UpdateUsername RPC.
+	AuthServiceUpdateUsernameProcedure = "/auth.v1.AuthService/UpdateUsername"
 )
 
 // AuthServiceClient is a client for the auth.v1.AuthService service.
@@ -51,6 +54,7 @@ type AuthServiceClient interface {
 	// Returns an error if the current password is incorrect
 	// The user must be authenticated to use this endpoint
 	UpdatePassword(context.Context, *connect.Request[v1.UpdatePasswordRequest]) (*connect.Response[v1.UpdatePasswordResponse], error)
+	UpdateUsername(context.Context, *connect.Request[v1.UpdateUsernameRequest]) (*connect.Response[v1.UpdateUsernameResponse], error)
 }
 
 // NewAuthServiceClient constructs a client for the auth.v1.AuthService service. By default, it uses
@@ -73,6 +77,11 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			baseURL+AuthServiceUpdatePasswordProcedure,
 			opts...,
 		),
+		updateUsername: connect.NewClient[v1.UpdateUsernameRequest, v1.UpdateUsernameResponse](
+			httpClient,
+			baseURL+AuthServiceUpdateUsernameProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -80,6 +89,7 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 type authServiceClient struct {
 	authenticate   *connect.Client[v1.AuthenticateRequest, v1.AuthenticateResponse]
 	updatePassword *connect.Client[v1.UpdatePasswordRequest, v1.UpdatePasswordResponse]
+	updateUsername *connect.Client[v1.UpdateUsernameRequest, v1.UpdateUsernameResponse]
 }
 
 // Authenticate calls auth.v1.AuthService.Authenticate.
@@ -92,6 +102,11 @@ func (c *authServiceClient) UpdatePassword(ctx context.Context, req *connect.Req
 	return c.updatePassword.CallUnary(ctx, req)
 }
 
+// UpdateUsername calls auth.v1.AuthService.UpdateUsername.
+func (c *authServiceClient) UpdateUsername(ctx context.Context, req *connect.Request[v1.UpdateUsernameRequest]) (*connect.Response[v1.UpdateUsernameResponse], error) {
+	return c.updateUsername.CallUnary(ctx, req)
+}
+
 // AuthServiceHandler is an implementation of the auth.v1.AuthService service.
 type AuthServiceHandler interface {
 	// Authenticate validates user credentials and returns an authentication token
@@ -101,6 +116,7 @@ type AuthServiceHandler interface {
 	// Returns an error if the current password is incorrect
 	// The user must be authenticated to use this endpoint
 	UpdatePassword(context.Context, *connect.Request[v1.UpdatePasswordRequest]) (*connect.Response[v1.UpdatePasswordResponse], error)
+	UpdateUsername(context.Context, *connect.Request[v1.UpdateUsernameRequest]) (*connect.Response[v1.UpdateUsernameResponse], error)
 }
 
 // NewAuthServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -119,12 +135,19 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		svc.UpdatePassword,
 		opts...,
 	)
+	authServiceUpdateUsernameHandler := connect.NewUnaryHandler(
+		AuthServiceUpdateUsernameProcedure,
+		svc.UpdateUsername,
+		opts...,
+	)
 	return "/auth.v1.AuthService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AuthServiceAuthenticateProcedure:
 			authServiceAuthenticateHandler.ServeHTTP(w, r)
 		case AuthServiceUpdatePasswordProcedure:
 			authServiceUpdatePasswordHandler.ServeHTTP(w, r)
+		case AuthServiceUpdateUsernameProcedure:
+			authServiceUpdateUsernameHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -140,4 +163,8 @@ func (UnimplementedAuthServiceHandler) Authenticate(context.Context, *connect.Re
 
 func (UnimplementedAuthServiceHandler) UpdatePassword(context.Context, *connect.Request[v1.UpdatePasswordRequest]) (*connect.Response[v1.UpdatePasswordResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("auth.v1.AuthService.UpdatePassword is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) UpdateUsername(context.Context, *connect.Request[v1.UpdateUsernameRequest]) (*connect.Response[v1.UpdateUsernameResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("auth.v1.AuthService.UpdateUsername is not implemented"))
 }

@@ -9,6 +9,7 @@ type UserStore interface {
 	GetUserByUsername(ctx context.Context, username string) (User, error)
 	GetUserByID(ctx context.Context, userID int64) (User, error)
 	UpdateUserPassword(ctx context.Context, userID int64, passwordHash string) error
+	UpdateUserUsername(ctx context.Context, userID int64, username string) error
 	GetOrganizationsForUser(ctx context.Context, userID int64) ([]Organization, error)
 	CreateAdminUserWithOrganization(ctx context.Context, userID string, username string, passwordHash string,
 		orgName string, orgID string, minerAuthPrivateKey string, roleName string, roleDescription string) error

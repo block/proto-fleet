@@ -22,7 +22,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_auth_v1_auth: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChJhdXRoL3YxL2F1dGgucHJvdG8SB2F1dGgudjEiOQoTQXV0aGVudGljYXRlUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRIQCghwYXNzd29yZBgCIAEoCSI7ChRBdXRoZW50aWNhdGVSZXNwb25zZRINCgV0b2tlbhgBIAEoCRIUCgx0b2tlbl9leHBpcnkYAiABKAMiRwoVVXBkYXRlUGFzc3dvcmRSZXF1ZXN0EhgKEGN1cnJlbnRfcGFzc3dvcmQYASABKAkSFAoMbmV3X3Bhc3N3b3JkGAIgASgJIhgKFlVwZGF0ZVBhc3N3b3JkUmVzcG9uc2UqdgoVQXV0aGVudGljYXRlRXJyb3JDb2RlEicKI0FVVEhFTlRJQ0FURV9FUlJPUl9DT0RFX1VOU1BFQ0lGSUVEEAASNAowQVVUSEVOVElDQVRFX0VSUk9SX0NPREVfSU5WQUxJRF9VU0VSX09SX1BBU1NXT1JEEAEqvAEKF1VwZGF0ZVBhc3N3b3JkRXJyb3JDb2RlEioKJlVQREFURV9QQVNTV09SRF9FUlJPUl9DT0RFX1VOU1BFQ0lGSUVEEAASMwovVVBEQVRFX1BBU1NXT1JEX0VSUk9SX0NPREVfSU5WQUxJRF9PTERfUEFTU1dPUkQQARJACjxVUERBVEVfUEFTU1dPUkRfRVJST1JfQ09ERV9ORVdfUEFTU1dPUkRfU0FNRV9BU19PTERfUEFTU1dPUkQQAjKtAQoLQXV0aFNlcnZpY2USSwoMQXV0aGVudGljYXRlEhwuYXV0aC52MS5BdXRoZW50aWNhdGVSZXF1ZXN0Gh0uYXV0aC52MS5BdXRoZW50aWNhdGVSZXNwb25zZRJRCg5VcGRhdGVQYXNzd29yZBIeLmF1dGgudjEuVXBkYXRlUGFzc3dvcmRSZXF1ZXN0Gh8uYXV0aC52MS5VcGRhdGVQYXNzd29yZFJlc3BvbnNlQp0BCgtjb20uYXV0aC52MUIJQXV0aFByb3RvUAFaRmdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvYXV0aC92MTthdXRodjGiAgNBWFiqAgdBdXRoLlYxygIHQXV0aFxWMeICE0F1dGhcVjFcR1BCTWV0YWRhdGHqAghBdXRoOjpWMWIGcHJvdG8z",
+    "ChJhdXRoL3YxL2F1dGgucHJvdG8SB2F1dGgudjEiOQoTQXV0aGVudGljYXRlUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRIQCghwYXNzd29yZBgCIAEoCSI7ChRBdXRoZW50aWNhdGVSZXNwb25zZRINCgV0b2tlbhgBIAEoCRIUCgx0b2tlbl9leHBpcnkYAiABKAMiRwoVVXBkYXRlUGFzc3dvcmRSZXF1ZXN0EhgKEGN1cnJlbnRfcGFzc3dvcmQYASABKAkSFAoMbmV3X3Bhc3N3b3JkGAIgASgJIhgKFlVwZGF0ZVBhc3N3b3JkUmVzcG9uc2UiKQoVVXBkYXRlVXNlcm5hbWVSZXF1ZXN0EhAKCHVzZXJuYW1lGAEgASgJIhgKFlVwZGF0ZVVzZXJuYW1lUmVzcG9uc2UqdgoVQXV0aGVudGljYXRlRXJyb3JDb2RlEicKI0FVVEhFTlRJQ0FURV9FUlJPUl9DT0RFX1VOU1BFQ0lGSUVEEAASNAowQVVUSEVOVElDQVRFX0VSUk9SX0NPREVfSU5WQUxJRF9VU0VSX09SX1BBU1NXT1JEEAEqvAEKF1VwZGF0ZVBhc3N3b3JkRXJyb3JDb2RlEioKJlVQREFURV9QQVNTV09SRF9FUlJPUl9DT0RFX1VOU1BFQ0lGSUVEEAASMwovVVBEQVRFX1BBU1NXT1JEX0VSUk9SX0NPREVfSU5WQUxJRF9PTERfUEFTU1dPUkQQARJACjxVUERBVEVfUEFTU1dPUkRfRVJST1JfQ09ERV9ORVdfUEFTU1dPUkRfU0FNRV9BU19PTERfUEFTU1dPUkQQAjKAAgoLQXV0aFNlcnZpY2USSwoMQXV0aGVudGljYXRlEhwuYXV0aC52MS5BdXRoZW50aWNhdGVSZXF1ZXN0Gh0uYXV0aC52MS5BdXRoZW50aWNhdGVSZXNwb25zZRJRCg5VcGRhdGVQYXNzd29yZBIeLmF1dGgudjEuVXBkYXRlUGFzc3dvcmRSZXF1ZXN0Gh8uYXV0aC52MS5VcGRhdGVQYXNzd29yZFJlc3BvbnNlElEKDlVwZGF0ZVVzZXJuYW1lEh4uYXV0aC52MS5VcGRhdGVVc2VybmFtZVJlcXVlc3QaHy5hdXRoLnYxLlVwZGF0ZVVzZXJuYW1lUmVzcG9uc2VCnQEKC2NvbS5hdXRoLnYxQglBdXRoUHJvdG9QAVpGZ2l0aHViLmNvbS9idGMtbWluaW5nL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9hdXRoL3YxO2F1dGh2MaICA0FYWKoCB0F1dGguVjHKAgdBdXRoXFYx4gITQXV0aFxWMVxHUEJNZXRhZGF0YeoCCEF1dGg6OlYxYgZwcm90bzM",
   );
 
 /**
@@ -128,6 +128,38 @@ export const UpdatePasswordResponseSchema: GenMessage<UpdatePasswordResponse> =
   messageDesc(file_auth_v1_auth, 3);
 
 /**
+ * @generated from message auth.v1.UpdateUsernameRequest
+ */
+export type UpdateUsernameRequest = Message<"auth.v1.UpdateUsernameRequest"> & {
+  /**
+   * @generated from field: string username = 1;
+   */
+  username: string;
+};
+
+/**
+ * Describes the message auth.v1.UpdateUsernameRequest.
+ * Use `create(UpdateUsernameRequestSchema)` to create a new message.
+ */
+export const UpdateUsernameRequestSchema: GenMessage<UpdateUsernameRequest> =
+  /*@__PURE__*/
+  messageDesc(file_auth_v1_auth, 4);
+
+/**
+ * @generated from message auth.v1.UpdateUsernameResponse
+ */
+export type UpdateUsernameResponse =
+  Message<"auth.v1.UpdateUsernameResponse"> & {};
+
+/**
+ * Describes the message auth.v1.UpdateUsernameResponse.
+ * Use `create(UpdateUsernameResponseSchema)` to create a new message.
+ */
+export const UpdateUsernameResponseSchema: GenMessage<UpdateUsernameResponse> =
+  /*@__PURE__*/
+  messageDesc(file_auth_v1_auth, 5);
+
+/**
  * @generated from enum auth.v1.AuthenticateErrorCode
  */
 export enum AuthenticateErrorCode {
@@ -204,5 +236,13 @@ export const AuthService: GenService<{
     methodKind: "unary";
     input: typeof UpdatePasswordRequestSchema;
     output: typeof UpdatePasswordResponseSchema;
+  };
+  /**
+   * @generated from rpc auth.v1.AuthService.UpdateUsername
+   */
+  updateUsername: {
+    methodKind: "unary";
+    input: typeof UpdateUsernameRequestSchema;
+    output: typeof UpdateUsernameResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_auth_v1_auth, 0);

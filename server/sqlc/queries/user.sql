@@ -18,6 +18,12 @@ SET password_hash = ?,
     updated_at = ?
 WHERE id = ?;
 
+-- name: UpdateUserUsername :exec
+UPDATE user
+SET username = ?,
+    updated_at = NOW()
+WHERE id = ?;
+
 -- name: HasUser :one
 SELECT COUNT(*) > 0
 FROM user;

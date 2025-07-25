@@ -66,6 +66,10 @@ func (s *SQLUserStore) UpdateUserPassword(ctx context.Context, userID int64, pas
 	})
 }
 
+func (s *SQLUserStore) UpdateUserUsername(ctx context.Context, userID int64, username string) error {
+	return s.getQueries(ctx).UpdateUserUsername(ctx, sqlc.UpdateUserUsernameParams{Username: username, ID: userID})
+}
+
 func (s *SQLUserStore) GetOrganizationsForUser(ctx context.Context, userID int64) ([]interfaces.Organization, error) {
 	orgs, err := s.getQueries(ctx).GetOrganizationsForUser(ctx, userID)
 	if err != nil {

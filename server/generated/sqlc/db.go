@@ -243,6 +243,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateUserRoleStmt, err = db.PrepareContext(ctx, updateUserRole); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateUserRole: %w", err)
 	}
+	if q.updateUserUsernameStmt, err = db.PrepareContext(ctx, updateUserUsername); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateUserUsername: %w", err)
+	}
 	if q.upsertCommandOnDeviceLogStmt, err = db.PrepareContext(ctx, upsertCommandOnDeviceLog); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCommandOnDeviceLog: %w", err)
 	}
@@ -628,6 +631,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateUserRoleStmt: %w", cerr)
 		}
 	}
+	if q.updateUserUsernameStmt != nil {
+		if cerr := q.updateUserUsernameStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateUserUsernameStmt: %w", cerr)
+		}
+	}
 	if q.upsertCommandOnDeviceLogStmt != nil {
 		if cerr := q.upsertCommandOnDeviceLogStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertCommandOnDeviceLogStmt: %w", cerr)
@@ -765,6 +773,7 @@ type Queries struct {
 	updateRoleStmt                                      *sql.Stmt
 	updateUserPasswordStmt                              *sql.Stmt
 	updateUserRoleStmt                                  *sql.Stmt
+	updateUserUsernameStmt                              *sql.Stmt
 	upsertCommandOnDeviceLogStmt                        *sql.Stmt
 	upsertDeviceStmt                                    *sql.Stmt
 	upsertDevicePairingStmt                             *sql.Stmt
@@ -849,6 +858,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateRoleStmt:                                      q.updateRoleStmt,
 		updateUserPasswordStmt:                              q.updateUserPasswordStmt,
 		updateUserRoleStmt:                                  q.updateUserRoleStmt,
+		updateUserUsernameStmt:                              q.updateUserUsernameStmt,
 		upsertCommandOnDeviceLogStmt:                        q.upsertCommandOnDeviceLogStmt,
 		upsertDeviceStmt:                                    q.upsertDeviceStmt,
 		upsertDevicePairingStmt:                             q.upsertDevicePairingStmt,

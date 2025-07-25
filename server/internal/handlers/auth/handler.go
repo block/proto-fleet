@@ -40,3 +40,12 @@ func (s *Handler) UpdatePassword(ctx context.Context, r *connect.Request[pb.Upda
 
 	return connect.NewResponse(&pb.UpdatePasswordResponse{}), nil
 }
+
+func (s *Handler) UpdateUsername(ctx context.Context, r *connect.Request[pb.UpdateUsernameRequest]) (*connect.Response[pb.UpdateUsernameResponse], error) {
+	err := s.authSvc.UpdateUsername(ctx, r.Msg.Username)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&pb.UpdateUsernameResponse{}), nil
+}
