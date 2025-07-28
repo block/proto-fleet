@@ -3,13 +3,13 @@ import clsx from "clsx";
 import FoundMiners from "./FoundMiners";
 import FoundMinersModal from "./FoundMinersModal";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
-import { Dismiss, LogoAlt, Success } from "@/shared/assets/icons";
+import { Dismiss, LogoAlt } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 import Header from "@/shared/components/Header";
-import Input from "@/shared/components/Input";
 import PageOverlay from "@/shared/components/PageOverlay";
 import { minerDiscoveryModes } from "@/shared/components/Setup/miners.constants";
+import Textarea from "@/shared/components/Textarea";
 
 interface MinersProps {
   scanDiscoveryPending: boolean;
@@ -25,6 +25,14 @@ interface MinersProps {
 
 // Minimum time to show the loading animation in milliseconds (only for network scan)
 const MIN_LOADING_TIME = 2000;
+
+// Parse IP addresses from text value which can contain newlines and commas
+function parseIpList(input: string): string[] {
+  return input
+    .split(/[\n,]+/)
+    .map((addr) => addr.trim())
+    .filter((addr) => addr !== "");
+}
 
 const Miners = ({
   scanDiscoveryPending,
@@ -42,7 +50,7 @@ const Miners = ({
   const [selectedMode] = useState<string>(minerDiscoveryModes.scan);
   const loadingTimeoutId = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showScanLoading, setShowScanLoading] = useState(false);
-  const [ipAddresses, setIpAddresses] = useState<string[]>([""]);
+  const [textareaValue, setTextareaValue] = useState<string>("");
   const [showModal, setShowModal] = useState(false);
   const [showFoundMinersModal, setShowFoundMinersModal] = useState(false);
   const [activeStep, setActiveStep] = useState<"findMiners" | "pairing">(
@@ -67,21 +75,16 @@ const Miners = ({
     };
   }, [scanDiscoveryPending]);
 
-  function handleIpAddressChange(newValue: string, index: number) {
-    const newIpAddresses = [...ipAddresses];
-    newIpAddresses[index] = newValue;
-
-    if (newIpAddresses.filter((address) => address === "").length === 0) {
-      setIpAddresses([...newIpAddresses, ""]);
-    } else {
-      setIpAddresses(newIpAddresses);
-    }
+  function handleIpAddressChange(newValue: string) {
+    setTextareaValue(newValue);
   }
 
   function handleIpListDiscovery() {
-    const validIpAddresses = ipAddresses.filter((address) => address !== "");
-    if (validIpAddresses.length > 0) {
-      onIpListModeDiscover(validIpAddresses);
+    const parsedAddresses = parseIpList(textareaValue);
+
+    // Send valid addresses to the discovery function
+    if (parsedAddresses.length > 0) {
+      onIpListModeDiscover(parsedAddresses);
     }
   }
 
@@ -136,51 +139,58 @@ const Miners = ({
               }}
               inline
               buttonSize={sizes.base}
-              buttons={[
-                {
-                  variant: variants.secondary,
+              buttons={
+                showScanLoading
+                  ? []
+                  : [
+                      {
+                        variant: variants.secondary,
 
-                  onClick: onRescan,
-                  text: "Rescan network",
-                  className: clsx({
-                    hidden:
-                      activeStep !== "pairing" ||
-                      selectedMode !== minerDiscoveryModes.scan,
-                  }),
-                },
-                {
-                  variant: variants.secondary,
+                        onClick: onRescan,
+                        text: "Rescan network",
+                        className: clsx({
+                          hidden:
+                            activeStep !== "pairing" ||
+                            selectedMode !== minerDiscoveryModes.scan,
+                        }),
+                      },
+                      {
+                        variant: variants.secondary,
 
-                  onClick: () => {
-                    setShowFoundMinersModal(true);
-                  },
-                  text: "Choose miners",
-                  className: clsx({
-                    hidden: activeStep !== "pairing" || foundMiners.length <= 1,
-                  }),
-                },
-                {
-                  variant: variants.primary,
-                  onClick: () => {
-                    const selectedMinerIdentifiers = foundMiners
-                      .filter(
-                        (miner) =>
-                          !deselectedMiners.includes(miner.deviceIdentifier),
-                      )
-                      .map((miner) => miner.deviceIdentifier);
-                    onContinue(selectedMinerIdentifiers);
-                  },
-                  disabled:
-                    foundMiners.length === 0 ||
-                    foundMiners.length === deselectedMiners.length,
-                  text: `Continue with ${
-                    foundMiners.length - deselectedMiners.length
-                  } miners`,
-                  className: clsx({
-                    hidden: activeStep !== "pairing",
-                  }),
-                },
-              ]}
+                        onClick: () => {
+                          setShowFoundMinersModal(true);
+                        },
+                        text: "Choose miners",
+                        className: clsx({
+                          hidden:
+                            activeStep !== "pairing" || foundMiners.length <= 1,
+                        }),
+                      },
+                      {
+                        variant: variants.primary,
+                        onClick: () => {
+                          const selectedMinerIdentifiers = foundMiners
+                            .filter(
+                              (miner) =>
+                                !deselectedMiners.includes(
+                                  miner.deviceIdentifier,
+                                ),
+                            )
+                            .map((miner) => miner.deviceIdentifier);
+                          onContinue(selectedMinerIdentifiers);
+                        },
+                        disabled:
+                          foundMiners.length === 0 ||
+                          foundMiners.length === deselectedMiners.length,
+                        text: `Continue with ${
+                          foundMiners.length - deselectedMiners.length
+                        } miners`,
+                        className: clsx({
+                          hidden: activeStep !== "pairing",
+                        }),
+                      },
+                    ]
+              }
             />
             {activeStep === "findMiners" && (
               <div className="mx-auto max-w-4xl">
@@ -233,24 +243,12 @@ const Miners = ({
                   />
                   <div>
                     <div className="space-y-4">
-                      {ipAddresses.map((ipAddress, index) => (
-                        <Input
-                          onChange={(value) =>
-                            handleIpAddressChange(value, index)
-                          }
-                          id={`ipAddress-${index}`}
-                          key={`ipAddress-${index}`}
-                          label="IP Address"
-                          initValue={ipAddress}
-                          statusIcon={
-                            foundMiners.find(
-                              (miner) => miner.ipAddress === ipAddress,
-                            ) !== undefined ? (
-                              <Success className="text-intent-success-fill" />
-                            ) : undefined
-                          }
-                        />
-                      ))}
+                      <Textarea
+                        onChange={(value) => handleIpAddressChange(value)}
+                        initValue={textareaValue}
+                        id="ipAddresses"
+                        label="IP Addresses"
+                      />
                     </div>
                   </div>
                   <div>
@@ -263,7 +261,7 @@ const Miners = ({
                         setShowModal(true);
                         handleIpListDiscovery();
                       }}
-                      disabled={ipAddresses.every((addr) => addr === "")}
+                      disabled={!textareaValue.trim()}
                     >
                       Find miners
                     </Button>
