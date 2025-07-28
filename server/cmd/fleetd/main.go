@@ -91,22 +91,6 @@ var reflectEnabledServices = []string{
 	telemetryv1connect.TelemetryServiceName,
 }
 
-func NewProtoFleetHandler(staticPath string) http.Handler {
-	fileServer := http.FileServer(http.Dir(staticPath))
-
-	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		path := staticPath + request.URL.Path
-		_, err := os.Stat(path)
-
-		if os.IsNotExist(err) || (err == nil && request.URL.Path != "/" && strings.HasSuffix(request.URL.Path, "/")) {
-			http.ServeFile(writer, request, staticPath+"/index.html")
-			return
-		}
-
-		fileServer.ServeHTTP(writer, request)
-	})
-}
-
 func start(config *Config) error {
 
 	conn, err := db.ConnectAndMigrate(&config.DB)
