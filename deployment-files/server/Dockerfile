@@ -1,7 +1,7 @@
 FROM alpine:3.22.0
 
-# Install Nmap
-RUN apk add --no-cache nmap
+# Install nmap and gcompat(for glibc compatibility)
+RUN apk add --no-cache nmap gcompat
 
 # Set the working directory
 WORKDIR /app
