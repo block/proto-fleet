@@ -130,7 +130,7 @@ const MinerStatusModal = ({
             <Tabs disableAnimation>
               <Tabs.Tab
                 label="All"
-                className="miner-status-tab-content-wrapper mt-0!"
+                className="miner-status-tab-content-wrapper mt-0! max-h-[30vh] overflow-y-auto"
               >
                 <MinerStatusRows errors={fanErrors} icon={R2_ICONS.fan} />
                 <MinerStatusRows errors={fanWarnings} icon={R2_ICONS.fan} />
@@ -155,7 +155,7 @@ const MinerStatusModal = ({
               </Tabs.Tab>
               <Tabs.Tab
                 label={`${errorCount} ${errorCount === 1 ? "error" : "errors"}`}
-                className="mt-0!"
+                className="mt-0! max-h-[30vh] overflow-y-auto"
               >
                 {errorCount ? (
                   <>
@@ -176,7 +176,7 @@ const MinerStatusModal = ({
               </Tabs.Tab>
               <Tabs.Tab
                 label={`${warningCount} ${warningCount === 1 ? "warning" : "warnings"}`}
-                className="mt-0!"
+                className="mt-0! max-h-[30vh] overflow-y-auto"
               >
                 {warningCount ? (
                   <>

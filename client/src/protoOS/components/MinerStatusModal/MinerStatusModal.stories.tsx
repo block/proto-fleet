@@ -68,6 +68,19 @@ const mixedErrorsWarnings: NotificationError[] = [
   mockErrs.controlBoardWarning,
 ];
 
+const longList = [
+  ...Array.from({ length: 20 }, (_, i) => ({
+    error_code: "FanWarning",
+    error_level: ErrorLevel.warning,
+    error_message: `Error message ${i}`,
+  })),
+  ...Array.from({ length: 20 }, (_, i) => ({
+    error_code: "FanError",
+    error_level: ErrorLevel.error,
+    error_message: `Error message ${i}`,
+  })),
+];
+
 const errorStates = {
   noErrors,
   oneError,
@@ -75,6 +88,7 @@ const errorStates = {
   oneWarning,
   multipleWarnings,
   mixedErrorsWarnings,
+  longList,
 } as const;
 
 type ErrorState = keyof typeof errorStates;
