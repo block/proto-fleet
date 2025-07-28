@@ -12,12 +12,12 @@ type Props = {
 };
 
 const ResizeablePanel = ({ children, resizeOn, className }: Props) => {
+  // Use the enhanced useMeasure hook that includes mutation observer
   const [ref, { height }] = useMeasure<HTMLDivElement>();
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
   return (
     <motion.div
-      initial={false}
       animate={{ height }}
       transition={{ duration: 0.3 }}
       className="relative"

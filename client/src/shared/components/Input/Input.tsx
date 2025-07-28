@@ -76,7 +76,7 @@ const Input = ({
   const [value, setValue] = useState(initValue);
   // keep the error state until the animation is finished
   const [validationError, setValidationError] = useState(error);
-  const [timeoutId, setTimeoutId] = useState<ReturnType<typeof setTimeout>>();
+
   const [inputType, setInputType] = useState(type);
   const [focused, setFocused] = useState(false);
   const fallbackRef = useRef<HTMLInputElement>(null);
@@ -91,17 +91,19 @@ const Input = ({
   }, [type]);
 
   useEffect(() => {
+    let timeoutId: ReturnType<typeof setTimeout>;
     if (error) {
-      clearTimeout(timeoutId);
       setValidationError(error);
-    } else if (!timeoutId) {
+    } else {
       // clear the error after the animation
-      const newTimeoutId = setTimeout(() => {
+      timeoutId = setTimeout(() => {
         setValidationError(error);
       }, 200);
-      setTimeoutId(newTimeoutId);
     }
-  }, [error, timeoutId]);
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [error]);
 
   const handleChange = useCallback(
     (event?: ChangeEvent<HTMLInputElement>) => {

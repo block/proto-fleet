@@ -22,7 +22,7 @@ const ForgotPassword = ({ onDismiss }: ForgotPasswordProps) => {
           Forgot your password?
         </div>
         <div className="mt-1 text-300 text-text-primary-70">
-          To reset your password, you’ll need to reset your miner back to it’s
+          To reset your password, you'll need to reset your miner back to its
           default settings.
         </div>
       </div>
@@ -60,19 +60,21 @@ const ForgotPassword = ({ onDismiss }: ForgotPasswordProps) => {
         <div className="mb-2 text-heading-100 text-text-primary">
           How do I reset my miner?
         </div>
-        <div className="mt-1 text-300 text-text-primary-70">
-          Unplug the miner, remove the microSD card, and re-flash the firmware
-          with the latest version.
+        <div className="mt-1 flex flex-col gap-2 text-300 text-text-primary-70">
+          <p>
+            <strong>Unit ON:</strong> Hold the power button for{" "}
+            <code>20+ seconds</code> (first <code>10s</code> to force reboot,
+            next <code>10s</code> to reset).
+          </p>
+          <p>
+            <strong>Unit OFF:</strong> Hold the power button for{" "}
+            <code>10+ seconds</code>.
+          </p>
+          <p>
+            The LED display will count down from <code>9 ⟶ 0</code>, then your
+            miner will reset to factory defaults.
+          </p>
         </div>
-      </div>
-      <Divider />
-      <div className="text-300 text-text-primary-70">
-        Still need help?{" "}
-        <span className="underline underline-offset-[3px]">
-          <a href="mailto:mining.support@block.xyz" target="_blank">
-            Contact support {"->"}
-          </a>
-        </span>
       </div>
     </div>
   );
