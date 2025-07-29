@@ -88,6 +88,107 @@ export interface ChangePasswordRequest {
   new_password: string;
 }
 
+export interface ControlBoardInfo {
+  /**
+   * Board ID identifier.
+   * @example "8"
+   */
+  board_id?: string;
+  firmware?: ControlBoardInfoControlboardlinuxasset;
+  /**
+   * Machine name identifier.
+   * @example "c3-p1"
+   */
+  machine_name?: string;
+  mpu?: ControlBoardInfoMpuinfo;
+  /**
+   * Control board serial number.
+   * @example "515CP79107000107"
+   */
+  serial_number?: string;
+}
+
+export interface ControlBoardInfoControlboardlinuxasset {
+  /**
+   * Git commit hash.
+   * @example "c5e0a8aed4ee73fc9e04d918909dac43f3d5502a"
+   */
+  git_hash?: string;
+  /**
+   * Image hash.
+   * @example "unknown"
+   */
+  image_hash?: string;
+  /**
+   * Firmware name.
+   * @example "Proto Embedded Linux Distribution"
+   */
+  name?: string;
+  /**
+   * Firmware variant.
+   * @example "mfg"
+   */
+  variant?: string;
+  /**
+   * Firmware version.
+   * @example "0.1.49"
+   */
+  version?: string;
+}
+
+export interface ControlBoardInfoMpuinfo {
+  /**
+   * CPU architecture version.
+   * @example 7
+   */
+  cpu_architecture?: number;
+  /**
+   * CPU implementer identifier.
+   * @example "0x41"
+   */
+  cpu_implementer?: string;
+  /**
+   * CPU part identifier.
+   * @example "0xc07"
+   */
+  cpu_part?: string;
+  /**
+   * CPU revision number.
+   * @example 5
+   */
+  cpu_revision?: number;
+  /**
+   * CPU variant identifier.
+   * @example "0x0"
+   */
+  cpu_variant?: string;
+  /**
+   * Hardware platform identifier.
+   * @example "STM32 (Device Tree Support)"
+   */
+  hardware?: string;
+  /**
+   * CPU model name.
+   * @example "ARMv7 Processor rev 5 (v7l)"
+   */
+  model_name?: string;
+  /**
+   * Processor number.
+   * @example 0
+   */
+  processor?: number;
+  /**
+   * Board revision identifier.
+   * @example "0000"
+   */
+  revision?: string;
+  /**
+   * Board serial number.
+   * @example "001B00353133510635303638"
+   */
+  serial?: string;
+}
+
 export interface CoolingConfig {
   /**
    * Parameter to define the cooling mode.  Modes:
@@ -110,7 +211,7 @@ export interface CoolingStatusCoolingstatus {
    */
   fan_mode?: "Off" | "Auto" | "Max";
   /** This will show speed of all fans in the system. */
-  fans?: FanInfo[];
+  fans?: FanStatus[];
 }
 
 export interface EfficiencyResponse {
@@ -154,7 +255,30 @@ export interface FWInfo {
   version?: string;
 }
 
-export interface FanInfo {
+export interface FanInfoFaninfo {
+  /**
+   * Each cooling device is assigned a unique identifier starting from 0.
+   * @example 0
+   */
+  id?: number;
+  /**
+   * The maximum RPM of the cooling device.
+   * @example 1000
+   */
+  max_rpm?: number;
+  /**
+   * The minimum RPM of the cooling device.
+   * @example 1000
+   */
+  min_rpm?: number;
+  /**
+   * The name of the cooling device.
+   * @example "CPU Cooler"
+   */
+  name?: string;
+}
+
+export interface FanStatus {
   /**
    * Each fan is assigned a unique identifier starting from 0.
    * @example 0
@@ -170,6 +294,10 @@ export interface FanInfo {
    * @example 1200
    */
   rpm?: number;
+}
+
+export interface FansInfo {
+  "fans-info"?: FanInfoFaninfo[];
 }
 
 export interface GetAsicHashrateParams {
@@ -264,6 +392,17 @@ export interface GetSystemLogsParams {
    * @example "miner_sw"
    */
   source?: "os" | "pool_sw" | "miner_sw" | "miner_web_server";
+}
+
+export interface HardwareInfo {
+  "hardware-info"?: HardwareInfoHardwareinfo;
+}
+
+export interface HardwareInfoHardwareinfo {
+  "cb-info"?: ControlBoardInfo;
+  "fans-info"?: FansInfo;
+  "hashboards-info"?: HashboardsInfo;
+  "psus-info"?: PsusInfo;
 }
 
 export interface HashboardStats {
@@ -672,7 +811,7 @@ export interface Pool {
    * @example 20
    */
   rejected?: number;
-  /** The status field indicates the state of the mining pool. An "Idle" status indiciates that the pool is available but not currently in use (due to priority). An "Active" status means that the pool is currently active. A "Dead" status indicates that the mining device is unable to establish a connection with the pool. */
+  /** The status field indicates the state of the mining pool. An "Idle" status indicates that the pool is available but not currently in use (due to priority). An "Active" status means that the pool is currently active. A "Dead" status indicates that the mining device is unable to establish a connection with the pool. */
   status?: "Unknown" | "Idle" | "Active" | "Dead";
   /**
    * The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information.
@@ -749,6 +888,88 @@ export interface PowerResponsePowerdata {
   duration?: "12h" | "24h" | "48h" | "5d";
 }
 
+export interface PsusInfo {
+  "psus-info"?: PsusInfoPsusinfo[];
+}
+
+export interface PsusInfoPsusinfo {
+  firmware?: {
+    /**
+     * Firmware application version.
+     * @example "1.0"
+     */
+    app_version?: string;
+    /**
+     * Firmware bootloader version.
+     * @example "1.0"
+     */
+    bootloader_version?: string;
+  };
+  /**
+   * Hardware revision.
+   * @example "v1.0"
+   */
+  hw_revision?: string;
+  /**
+   * PSU manufacturer.
+   * @example "Chicony"
+   */
+  manufacturer?: string;
+  /**
+   * Model name or number.
+   * @example ""
+   */
+  model?: string;
+  power?: {
+    /**
+     * Input current in amperes.
+     * @example 20.34
+     */
+    input_current?: number;
+    /**
+     * Input power in watts.
+     * @example 3868
+     */
+    input_power?: number;
+    /**
+     * Input voltage in volts.
+     * @example 240
+     */
+    input_voltage?: number;
+    /**
+     * Output current in amperes.
+     * @example 251.5
+     */
+    output_current?: number;
+    /**
+     * Output power in watts.
+     * @example 4000
+     */
+    output_power?: number;
+    /**
+     * Output voltage in volts.
+     * @example 15.38
+     */
+    output_voltage?: number;
+  };
+  /**
+   * Power supply serial number.
+   * @example "517CP81302000721"
+   */
+  psu_sn?: string;
+  /**
+   * The physical slot where the PSU is inserted in the system. (1-3)
+   * @example 2
+   */
+  slot?: number;
+  temperatures?: TemperatureMeasurement[];
+  /**
+   * Vendor name.
+   * @example ""
+   */
+  vendor?: string;
+}
+
 export interface RefreshRequest {
   /** The JWT refresh token to be validated. */
   refresh_token: string;
@@ -793,9 +1014,12 @@ export interface SystemInfoSysteminfo {
     | "unknown";
   /** @example "YWWLMMMMRRFSSSSS" */
   cb_sn?: string;
+  hashboard_firmware?: SWInfo;
   mining_driver_sw?: SWInfo;
   os?: OSInfo;
   pool_interface_sw?: SWInfo;
+  /** @example "Proto Rig" */
+  product_name?: string;
   /** @example "STM32MP157F" */
   soc?:
     | "STM32MP157F"
@@ -809,6 +1033,7 @@ export interface SystemInfoSysteminfo {
    * @example 300
    */
   uptime_seconds?: number;
+  web_dashboard?: SWInfo;
   web_server?: SWInfo;
 }
 
@@ -829,6 +1054,19 @@ export interface TelemetryResponse {
   enabled: boolean;
   /** Status message about telemetry */
   message: string;
+}
+
+export interface TemperatureMeasurement {
+  /**
+   * Temperature in Celsius.
+   * @example 40
+   */
+  temperature_c?: number;
+  /**
+   * Type of temperature measurement.
+   * @example "hotspot"
+   */
+  temperature_type?: string;
 }
 
 export interface TemperatureResponse {
@@ -865,6 +1103,14 @@ export interface TimeSeriesData {
   datetime?: number;
   /** Value of data requested at the given datetime. */
   value?: number;
+}
+
+export interface UnlockConfig {
+  "unlock-password"?: string;
+}
+
+export interface UnlockResponse {
+  "lock-status"?: string;
 }
 
 export interface UpdateStatus {
@@ -1650,7 +1896,7 @@ export class Api<
      * @request GET:/api/v1/system/unlock
      */
     getUnlock: (params: RequestParams = {}) =>
-      this.request<any, MessageResponse>({
+      this.request<UnlockResponse, MessageResponse>({
         path: `/api/v1/system/unlock`,
         method: "GET",
         format: "json",
@@ -1665,8 +1911,8 @@ export class Api<
      * @request PUT:/api/v1/system/unlock
      * @secure
      */
-    setUnlock: (data: any, params: RequestParams = {}) =>
-      this.request<any, MessageResponse>({
+    setUnlock: (data: UnlockConfig, params: RequestParams = {}) =>
+      this.request<UnlockResponse, MessageResponse>({
         path: `/api/v1/system/unlock`,
         method: "PUT",
         body: data,
@@ -1866,6 +2112,36 @@ export class Api<
         path: `/api/v1/power`,
         method: "GET",
         query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The hardware endpoint provides information about the hardware components of the miner. This includes hashboards, power supplies, and fans.
+     *
+     * @tags Hardware, PSUs, Hashboards, Fans
+     * @name GetHardware
+     * @request GET:/api/v1/hardware
+     */
+    getHardware: (params: RequestParams = {}) =>
+      this.request<HardwareInfo, MessageResponse>({
+        path: `/api/v1/hardware`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The get power supplies endpoint returns the full list of currently configured power supplies.
+     *
+     * @tags PSUs, Power
+     * @name ListPowerSupplies
+     * @request GET:/api/v1/hardware/psus
+     */
+    listPowerSupplies: (params: RequestParams = {}) =>
+      this.request<PsusInfo, MessageResponse>({
+        path: `/api/v1/hardware/psus`,
+        method: "GET",
         format: "json",
         ...params,
       }),

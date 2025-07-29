@@ -3,7 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import clsx from "clsx";
 import HbBayPreview from "./HbBayPreview";
 import { useCoolingStatus } from "@/protoOS/api";
-import { type FanInfo } from "@/protoOS/api/types";
+import { type FanStatus } from "@/protoOS/api/types";
 import { useProcessedHashboardTemperature } from "@/protoOS/features/kpis/hooks";
 import { KpiOutletContext } from "@/protoOS/features/kpis/types";
 import { FanIndicator } from "@/shared/assets/icons";
@@ -14,7 +14,7 @@ const BAYS_COUNT = 3;
 const HB_IN_BAY_COUNT = 3;
 
 const getFanStats = (
-  fanSpeed: FanInfo | undefined,
+  fanSpeed: FanStatus | undefined,
   numFans: number,
   fanIndex: number,
   isR1?: boolean,
@@ -48,7 +48,7 @@ const getFanStats = (
 
 const Temperature = () => {
   const { duration, hashboardSerials } = useOutletContext<KpiOutletContext>();
-  const [fanSpeeds, setFanSpeeds] = useState<FanInfo[]>();
+  const [fanSpeeds, setFanSpeeds] = useState<FanStatus[]>();
 
   const hbTempData = useProcessedHashboardTemperature({
     serials: hashboardSerials,
