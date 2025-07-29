@@ -75,7 +75,7 @@ const AsicPopover = ({
           label="Current temperature"
           value={
             temperatureData?.length &&
-            `${convertAndFormatTemperature(temperatureData[temperatureData.length - 1].value, temperatureUnits)}º`
+            `${convertAndFormatTemperature(temperatureData[temperatureData.length - 1].value, temperatureUnits)}`
           }
           className="text-core-accent-fill"
         />
