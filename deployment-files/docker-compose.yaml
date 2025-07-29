@@ -30,12 +30,9 @@ services:
   fleet-client:
     build:
       context: ./client
-    ports:
-      - "80:80"
     depends_on:
       - fleet-api
-    networks:
-      - fleet-network
+    network_mode: host
 
   mysql:
     extends:

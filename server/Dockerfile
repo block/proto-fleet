@@ -35,7 +35,7 @@ COPY --from=builder /app/out/fleetd /app/fleetd
 RUN chmod 755 /app/fleetd
 
 # Expose the port your application listens on
-EXPOSE 8080
+EXPOSE 4000
 
 # Debugging port
 EXPOSE 40000

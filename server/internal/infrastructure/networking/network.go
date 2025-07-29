@@ -1,14 +1,17 @@
 package networking
 
 import (
+	"bytes"
 	"net"
 	"net/url"
+	"os/exec"
 	"strconv"
+	"strings"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
-
-	"github.com/jackpal/gateway"
 )
+
+const externalIPForGatewayDetection = "8.8.8.8"
 
 type NetworkInfo struct {
 	Interface string
@@ -23,6 +26,12 @@ func GetLocalNetworkInfo() (NetworkInfo, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		return emptyNetworkInfo, fleeterror.NewInternalErrorf("failed to get network interfaces: %v", err)
+	}
+
+	// Get gateway IP
+	gatewayIP, err := discoverGateway()
+	if err != nil {
+		return emptyNetworkInfo, fleeterror.NewInternalErrorf("failed to discover gateway: %v", err)
 	}
 
 	for _, iface := range interfaces {
@@ -48,12 +57,6 @@ func GetLocalNetworkInfo() (NetworkInfo, error) {
 				continue
 			}
 
-			// Get gateway IP
-			gatewayIP, err := gateway.DiscoverGateway()
-			if err != nil {
-				return emptyNetworkInfo, fleeterror.NewInternalErrorf("failed to discover gateway: %v", err)
-			}
-
 			return NetworkInfo{
 				Interface: iface.Name,
 				LocalIP:   ipNet.IP.String(),
@@ -64,6 +67,33 @@ func GetLocalNetworkInfo() (NetworkInfo, error) {
 	}
 
 	return emptyNetworkInfo, fleeterror.NewInternalError("no suitable network interface found")
+}
+
+// discoverGateway asks the kernel for the gateway it would use to reach 8.8.8.8.
+// It parses the “via” field out of `ip route get` output and returns it as net.IP.
+func discoverGateway() (net.IP, error) {
+	// Run the ip command
+	cmd := exec.Command("ip", "route", "get", externalIPForGatewayDetection)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to execute ip route command: %v", err)
+	}
+
+	// Example output:
+	// 8.8.8.8 via 192.168.1.1 dev eth0 src 192.168.1.42 uid 0
+	fields := strings.Fields(string(bytes.TrimSpace(out)))
+	for i := range len(fields) - 1 {
+		if fields[i] == "via" {
+			gatewayStr := fields[i+1]
+			gatewayIPStr := net.ParseIP(gatewayStr)
+			if gatewayIPStr == nil {
+				return nil, fleeterror.NewInternalErrorf("parsed invalid gateway IP %q", gatewayStr)
+			}
+			return gatewayIPStr, nil
+		}
+	}
+
+	return nil, fleeterror.NewInternalErrorf("no gateway found in route output: %q", out)
 }
 
 type IPAddress string

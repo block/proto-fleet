@@ -44,14 +44,17 @@ This will:
 
 ## Production protoFleet single script install
 
-### Script flow
+### Latest version
 
-1. Check if Docker is installed (install it if not).
-2. Check whether Docker daemon is running (try to start it).
-3. Check whether docker compose is installed (install it if not).
-4. Give user the option to reuse the credentials stored in credential file ("<b>$HOME/.fleet-credentials/credentials.env</b>").
-5. If the user didn't load up the credentials from the file, allow him to input the credentials. After a successful input, store the credentials in the credentials file.
-6. Call the docker-compose with the credentials file to start up the application.
+```shell
+bash <(curl -fsSL https://proto-fleet.s3.us-east-1.amazonaws.com/releases/fleet/latest/install.sh)
+```
+
+### Specific version
+
+```shell
+bash <(curl -fsSL https://proto-fleet.s3.us-east-1.amazonaws.com/releases/fleet/latest/install.sh) v0.1.0
+```
 
 ### Environment variables
 

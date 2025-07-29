@@ -19,7 +19,6 @@ require (
 	github.com/golang/mock v1.6.0
 	github.com/google/uuid v1.6.0
 	github.com/grandcat/zeroconf v1.0.0
-	github.com/jackpal/gateway v1.1.1
 	github.com/rs/cors v1.11.1
 	github.com/sourcegraph/jsonrpc2 v0.2.1
 	github.com/stretchr/testify v1.10.0

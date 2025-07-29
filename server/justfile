@@ -16,10 +16,6 @@ build-all:
 install:
     go install -v ./cmd/fleetd
 
-# run the local server using env vars from .env.local
-run:
-     just --dotenv-filename .env.local _run
-
 # run local server in docker compose with watch enabled on the fleet service
 dev: start
   docker compose up --watch fleet-api

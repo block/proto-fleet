@@ -350,13 +350,8 @@ docker-compose -f "$COMPOSE_FILE" up -d
 
 # Check if docker-compose was successful
 if [ $? -eq 0 ]; then
-    echo "Services started successfully."
-
-    # Extract the port where fleet-client is exposed
-    CLIENT_PORT=$(grep -E '.*"([0-9]+):80"' "$COMPOSE_FILE" | sed -E 's/.*"([0-9]+):80".*/\1/' || echo "80")
-
     echo "--------------------------------------------------------------"
-    echo "Fleet Client is now running at: http://localhost:$CLIENT_PORT"
+    echo "Proto Fleet is now running at: http://localhost:80"
     echo "--------------------------------------------------------------"
 else
     echo "Error: Failed to start services. Check docker-compose logs for details."

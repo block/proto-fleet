@@ -23,7 +23,7 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
     rm /app/fleetd-amd64 /app/fleetd-arm64
 
 # Expose the port your application listens on
-EXPOSE 8080
+EXPOSE 4000
 
 # Command to run when the container starts
 CMD ["/app/fleetd"]

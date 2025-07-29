@@ -65,19 +65,9 @@ To regenerate the bindings, run `buf generate` (or just `just gen`).
 The service uses [Connect](https://connectrpc.com/docs/go/getting-started) for API endpoints.
 The gRPC API definitions can be found in the `proto` directory.
 
-## Running the Service
-
-```shell
-just run
-```
-
-This will:
-
-1. Connect to the database
-2. Run any pending migrations
-3. Start serving the API on the configured address (default: http://127.0.0.1:8080)
-
 ## Running the Service via Docker
+
+Note: The service runs in host mode, so you must explicitly enable host networking via Docker Desktop for non Linux systems. Settings -> Resources -> Network -> Check Enable host networking.
 
 ```shell
 just dev

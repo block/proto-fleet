@@ -1,8 +1,4 @@
-### server running locally (just run)
-@host = http://127.0.0.1:8080
-
-### server running in docker (just start)
-#@host = http://localhost:4000
+@host = http://localhost:4000
 
 ### Run health check
 GET {{host}}/health
