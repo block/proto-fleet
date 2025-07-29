@@ -10,7 +10,7 @@ import SettingUp from "@/protoOS/components/OnboardingSettingUp";
 import { useAccessToken } from "@/protoOS/features/auth/contexts/AuthContext";
 import { Alert } from "@/shared/assets/icons";
 import AnimatedDotsBackground from "@/shared/components/Animation";
-import Button from "@/shared/components/Button";
+import ButtonGroup, { groupVariants } from "@/shared/components/ButtonGroup";
 import {
   DismissibleCalloutWrapper,
   intents,
@@ -18,6 +18,7 @@ import {
 import { WarnBackupPoolDialog } from "@/shared/components/MiningPools/WarnBackupPoolDialog";
 import { WarnDefaultPoolCallout } from "@/shared/components/MiningPools/WarnDefaultPoolCallout";
 import { OnboardingLayout } from "@/shared/components/Setup";
+import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const MiningPoolPage = () => {
   const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
@@ -26,7 +27,7 @@ const MiningPoolPage = () => {
   const [warnDefaultPool, setWarnDefaultPool] = useState(false);
   const [warnBackupPool, setWarnBackupPool] = useState(false);
 
-  // const navigate = useNavigate();
+  const navigate = useNavigate();
 
   const [pausedAction, setPausedAction] = useState(false);
 
@@ -105,7 +106,7 @@ const MiningPoolPage = () => {
         onContinueWithoutBackup={onContinueWithoutBackup}
         show={warnBackupPool}
       />
-      <div className="w-full">
+      <div className="flex w-full flex-col gap-4">
         <MiningPools
           title="Add your mining pool"
           onChange={onChangePools}
@@ -127,15 +128,27 @@ const MiningPoolPage = () => {
             onDismiss={() => setCreatePoolsError(undefined)}
           />
         </MiningPools>
-        <Button
-          onClick={() => {
-            onContinue(false);
-          }}
-          variant="primary"
-          className="mt-4 ml-auto"
-        >
-          Continue
-        </Button>
+        <ButtonGroup
+          className="flex justify-end"
+          buttons={[
+            {
+              text: "Skip",
+              onClick: () => {
+                setCreatePoolsError(undefined);
+                navigate("/");
+              },
+              variant: "secondary",
+            },
+            {
+              text: "Continue",
+              onClick: () => {
+                onContinue(false);
+              },
+              variant: "primary",
+            },
+          ]}
+          variant={groupVariants.rightAligned}
+        />
       </div>
     </OnboardingLayout>
   );
