@@ -12,6 +12,11 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 )
 
+const (
+	defaultUpdateInterval = 1 * time.Minute
+	defaultGranularity    = 1 * time.Minute
+)
+
 //go:generate mockgen -source=service.go -destination=mocks/mock_service.go -package=mock UpdateScheduler,TelemetryDataStore,MinerGetter
 type UpdateScheduler interface {
 	AddNewDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error
@@ -28,6 +33,7 @@ type TelemetryDataStore interface {
 	GetTelemetryMetadata(ctx context.Context, query models.MetadataQuery) ([]models.DeviceMetadata, error)
 	StreamTelemetryUpdates(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error)
 	GetAggregatedTelemetry(ctx context.Context, query models.AggregationQuery) ([]models.AggregatedTelemetry, error)
+	GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error)
 	Ping(ctx context.Context) error
 	Close() error
 }
@@ -229,6 +235,104 @@ func (s *TelemetryService) StreamTelemetryUpdates(ctx context.Context, query mod
 
 func (s *TelemetryService) GetAggregatedTelemetry(ctx context.Context, query models.AggregationQuery) ([]models.AggregatedTelemetry, error) {
 	return s.telemetryDataStore.GetAggregatedTelemetry(ctx, query)
+}
+
+func (s *TelemetryService) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+	return s.telemetryDataStore.GetCombinedMetrics(ctx, query)
+}
+
+func (s *TelemetryService) StreamCombinedMetrics(ctx context.Context, query models.StreamCombinedMetricsQuery) (<-chan models.CombinedMetric, error) {
+	updateChan := make(chan models.CombinedMetric)
+
+	updateInterval := query.UpdateInterval
+	if updateInterval == 0 {
+		updateInterval = query.Granularity
+		if updateInterval == 0 {
+			updateInterval = defaultUpdateInterval
+		}
+	}
+
+	go func() {
+		defer close(updateChan)
+
+		if err := s.sendCombinedMetricUpdate(ctx, updateChan, query, updateInterval); err != nil {
+			slog.Error("failed to send initial combined metric update", "error", err)
+			return
+		}
+
+		now := time.Now()
+		intervalNanos := updateInterval.Nanoseconds()
+		nextAlignedTime := time.Unix(0, ((now.UnixNano()/intervalNanos)+1)*intervalNanos)
+
+		initialDelay := nextAlignedTime.Sub(now)
+		initialTimer := time.NewTimer(initialDelay)
+
+		select {
+		case <-ctx.Done():
+			initialTimer.Stop()
+			return
+		case <-initialTimer.C:
+			if err := s.sendCombinedMetricUpdate(ctx, updateChan, query, updateInterval); err != nil {
+				slog.Error("failed to send aligned combined metric update", "error", err)
+				return
+			}
+		}
+
+		ticker := time.NewTicker(updateInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := s.sendCombinedMetricUpdate(ctx, updateChan, query, updateInterval); err != nil {
+					slog.Error("failed to send combined metric update", "error", err)
+					return
+				}
+			}
+		}
+	}()
+
+	return updateChan, nil
+}
+
+func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateChan chan<- models.CombinedMetric, query models.StreamCombinedMetricsQuery, updateInterval time.Duration) error {
+	combinedQuery := models.CombinedMetricsQuery{
+		DeviceIDs:        query.DeviceIDs,
+		MeasurementTypes: query.MeasurementTypes,
+		AggregationTypes: query.AggregationTypes,
+		Granularity:      query.Granularity,
+		PageSize:         100,
+	}
+
+	now := time.Now()
+
+	intervalNanos := updateInterval.Nanoseconds()
+	alignedEndTime := time.Unix(0, (now.UnixNano()/intervalNanos)*intervalNanos)
+
+	if alignedEndTime.After(now) {
+		alignedEndTime = alignedEndTime.Add(-updateInterval)
+	}
+
+	startTime := alignedEndTime.Add(-updateInterval)
+
+	combinedQuery.TimeRange = models.TimeRange{
+		StartTime: &startTime,
+		EndTime:   &alignedEndTime,
+	}
+
+	combinedMetrics, err := s.telemetryDataStore.GetCombinedMetrics(ctx, combinedQuery)
+	if err != nil {
+		return fmt.Errorf("failed to get combined metrics: %w", err)
+	}
+
+	select {
+	case updateChan <- combinedMetrics:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("context cancelled: %w", ctx.Err())
+	}
 }
 
 // Ping checks the health of the telemetry datastore

@@ -180,6 +180,21 @@ func (mr *MockTelemetryDataStoreMockRecorder) GetAggregatedTelemetry(ctx, query 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAggregatedTelemetry", reflect.TypeOf((*MockTelemetryDataStore)(nil).GetAggregatedTelemetry), ctx, query)
 }
 
+// GetCombinedMetrics mocks base method.
+func (m *MockTelemetryDataStore) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCombinedMetrics", ctx, query)
+	ret0, _ := ret[0].(models.CombinedMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCombinedMetrics indicates an expected call of GetCombinedMetrics.
+func (mr *MockTelemetryDataStoreMockRecorder) GetCombinedMetrics(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCombinedMetrics", reflect.TypeOf((*MockTelemetryDataStore)(nil).GetCombinedMetrics), ctx, query)
+}
+
 // GetLatestTelemetry mocks base method.
 func (m *MockTelemetryDataStore) GetLatestTelemetry(ctx context.Context, query models.LatestTelemetryQuery) ([]models.Telemetry, error) {
 	m.ctrl.T.Helper()

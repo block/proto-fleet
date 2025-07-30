@@ -13,7 +13,9 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 )
 
-// Common conversion helper functions
+const (
+	defaultPageSize = 100
+)
 
 func deviceIDsToModels(deviceIDs []string) []models.DeviceIdentifier {
 	result := make([]models.DeviceIdentifier, len(deviceIDs))
@@ -66,7 +68,6 @@ func optionalInt32(protoInt32 *int32) *int {
 	return &result
 }
 
-// Enum conversion maps for better maintainability
 var (
 	measurementTypeToProtoMap = map[models.MeasurementType]telemetryv1.MeasurementType{
 		models.MeasurementTypeTemperature: telemetryv1.MeasurementType_MEASUREMENT_TYPE_TEMPERATURE,
@@ -95,21 +96,27 @@ var (
 	}
 
 	aggregationTypeToProtoMap = map[models.AggregationType]telemetryv1.AggregationType{
-		models.AggregationTypeAverage: telemetryv1.AggregationType_AGGREGATION_TYPE_AVERAGE,
-		models.AggregationTypeMin:     telemetryv1.AggregationType_AGGREGATION_TYPE_MIN,
-		models.AggregationTypeMax:     telemetryv1.AggregationType_AGGREGATION_TYPE_MAX,
-		models.AggregationTypeSum:     telemetryv1.AggregationType_AGGREGATION_TYPE_SUM,
-		models.AggregationTypeCount:   telemetryv1.AggregationType_AGGREGATION_TYPE_COUNT,
-		models.AggregationTypeUnknown: telemetryv1.AggregationType_AGGREGATION_TYPE_UNSPECIFIED,
+		models.AggregationTypeAverage:    telemetryv1.AggregationType_AGGREGATION_TYPE_AVERAGE,
+		models.AggregationTypeMin:        telemetryv1.AggregationType_AGGREGATION_TYPE_MIN,
+		models.AggregationTypeMax:        telemetryv1.AggregationType_AGGREGATION_TYPE_MAX,
+		models.AggregationTypeSum:        telemetryv1.AggregationType_AGGREGATION_TYPE_SUM,
+		models.AggregationTypeCount:      telemetryv1.AggregationType_AGGREGATION_TYPE_SUM,
+		models.AggregationTypeTotal:      telemetryv1.AggregationType_AGGREGATION_TYPE_SUM,
+		models.AggregationTypeMeanChange: telemetryv1.AggregationType_AGGREGATION_TYPE_AVERAGE,
+		models.AggregationTypeUnknown:    telemetryv1.AggregationType_AGGREGATION_TYPE_UNSPECIFIED,
 	}
 
 	protoToAggregationTypeMap = map[telemetryv1.AggregationType]models.AggregationType{
-		telemetryv1.AggregationType_AGGREGATION_TYPE_AVERAGE:     models.AggregationTypeAverage,
-		telemetryv1.AggregationType_AGGREGATION_TYPE_MIN:         models.AggregationTypeMin,
-		telemetryv1.AggregationType_AGGREGATION_TYPE_MAX:         models.AggregationTypeMax,
-		telemetryv1.AggregationType_AGGREGATION_TYPE_SUM:         models.AggregationTypeSum,
-		telemetryv1.AggregationType_AGGREGATION_TYPE_COUNT:       models.AggregationTypeCount,
-		telemetryv1.AggregationType_AGGREGATION_TYPE_UNSPECIFIED: models.AggregationTypeUnknown,
+		telemetryv1.AggregationType_AGGREGATION_TYPE_AVERAGE:        models.AggregationTypeAverage,
+		telemetryv1.AggregationType_AGGREGATION_TYPE_MIN:            models.AggregationTypeMin,
+		telemetryv1.AggregationType_AGGREGATION_TYPE_MAX:            models.AggregationTypeMax,
+		telemetryv1.AggregationType_AGGREGATION_TYPE_SUM:            models.AggregationTypeSum,
+		telemetryv1.AggregationType_AGGREGATION_TYPE_FIRST_QUARTILE: models.AggregationTypeAverage,
+		telemetryv1.AggregationType_AGGREGATION_TYPE_MEDIAN:         models.AggregationTypeAverage,
+		telemetryv1.AggregationType_AGGREGATION_TYPE_THIRD_QUARTILE: models.AggregationTypeAverage,
+		telemetryv1.AggregationType_AGGREGATION_TYPE_FIRST:          models.AggregationTypeAverage,
+		telemetryv1.AggregationType_AGGREGATION_TYPE_LAST:           models.AggregationTypeAverage,
+		telemetryv1.AggregationType_AGGREGATION_TYPE_UNSPECIFIED:    models.AggregationTypeUnknown,
 	}
 
 	componentStatusToProtoMap = map[models.ComponentStatus]telemetryv1.ComponentStatus{
@@ -270,6 +277,124 @@ func toAggregationQuery(req *telemetryv1.GetAggregatedSnapshotRequest) (models.A
 	return query, nil
 }
 
+func toCombinedMetricsQuery(req *telemetryv1.GetCombinedMetricsRequest) (models.CombinedMetricsQuery, error) {
+	var deviceIDs []models.DeviceIdentifier
+
+	if req.DeviceSelector != nil {
+		switch selector := req.DeviceSelector.SelectorValue.(type) {
+		case *telemetryv1.DeviceSelector_AllDevices:
+			deviceIDs = []models.DeviceIdentifier{}
+		case *telemetryv1.DeviceSelector_DeviceList:
+			if selector.DeviceList != nil {
+				deviceIDs = deviceIDsToModels(selector.DeviceList.DeviceIds)
+			}
+		default:
+			return models.CombinedMetricsQuery{}, fmt.Errorf("invalid device selector")
+		}
+	}
+
+	measurementTypes, err := measurementTypesToModels(req.MeasurementTypes)
+	if err != nil {
+		return models.CombinedMetricsQuery{}, err
+	}
+
+	aggregationTypes, err := aggregationTypesToModels(req.Aggregations)
+	if err != nil {
+		return models.CombinedMetricsQuery{}, err
+	}
+
+	timeRange := models.TimeRange{}
+	if req.StartTime != nil {
+		startTime := req.StartTime.AsTime()
+		timeRange.StartTime = &startTime
+	}
+	if req.EndTime != nil {
+		endTime := req.EndTime.AsTime()
+		timeRange.EndTime = &endTime
+	}
+
+	granularity := time.Duration(0)
+	if req.Granularity != nil {
+		granularity = req.Granularity.AsDuration()
+	}
+
+	pageSize := int(req.PageSize)
+	if pageSize == 0 {
+		pageSize = defaultPageSize
+	}
+
+	query := models.CombinedMetricsQuery{
+		DeviceIDs:        deviceIDs,
+		MeasurementTypes: measurementTypes,
+		AggregationTypes: aggregationTypes,
+		TimeRange:        timeRange,
+		Granularity:      granularity,
+		PaginationToken:  req.PageToken,
+		PageSize:         pageSize,
+	}
+
+	return query, nil
+}
+
+func aggregationTypesToModels(protoTypes []telemetryv1.AggregationType) ([]models.AggregationType, error) {
+	aggregationTypes := make([]models.AggregationType, len(protoTypes))
+	for i, at := range protoTypes {
+		domainType, err := aggregationTypeToDomain(at)
+		if err != nil {
+			return nil, err
+		}
+		aggregationTypes[i] = domainType
+	}
+	return aggregationTypes, nil
+}
+
+func toStreamCombinedMetricsQuery(req *telemetryv1.StreamCombinedMetricUpdatesRequest) (models.StreamCombinedMetricsQuery, error) {
+	var deviceIDs []models.DeviceIdentifier
+
+	if req.DeviceSelector != nil {
+		switch selector := req.DeviceSelector.SelectorValue.(type) {
+		case *telemetryv1.DeviceSelector_AllDevices:
+			deviceIDs = []models.DeviceIdentifier{}
+		case *telemetryv1.DeviceSelector_DeviceList:
+			if selector.DeviceList != nil {
+				deviceIDs = deviceIDsToModels(selector.DeviceList.DeviceIds)
+			}
+		default:
+			return models.StreamCombinedMetricsQuery{}, fmt.Errorf("invalid device selector")
+		}
+	}
+
+	measurementTypes, err := measurementTypesToModels(req.Metrics)
+	if err != nil {
+		return models.StreamCombinedMetricsQuery{}, err
+	}
+
+	aggregationTypes, err := aggregationTypesToModels(req.Aggregations)
+	if err != nil {
+		return models.StreamCombinedMetricsQuery{}, err
+	}
+
+	granularity := time.Minute
+	if req.Granularity != nil {
+		granularity = req.Granularity.AsDuration()
+	}
+
+	updateInterval := granularity
+	if req.UpdateInterval != nil {
+		updateInterval = req.UpdateInterval.AsDuration()
+	}
+
+	query := models.StreamCombinedMetricsQuery{
+		DeviceIDs:        deviceIDs,
+		MeasurementTypes: measurementTypes,
+		AggregationTypes: aggregationTypes,
+		Granularity:      granularity,
+		UpdateInterval:   updateInterval,
+	}
+
+	return query, nil
+}
+
 func fromTelemetryData(telemetryData []models.Telemetry) ([]*telemetryv1.TelemetryData, error) {
 	result := make([]*telemetryv1.TelemetryData, len(telemetryData))
 
@@ -323,7 +448,6 @@ func fromDeviceMetadata(metadata []models.DeviceMetadata) ([]*telemetryv1.Device
 			Capabilities: meta.Capabilities,
 		}
 
-		// Set optional fields
 		if meta.DeviceType != "" {
 			deviceMetadata.DeviceType = &meta.DeviceType
 		}
@@ -348,7 +472,6 @@ func fromTelemetryUpdate(update models.TelemetryUpdate) (*telemetryv1.StreamUpda
 		Timestamp: timestamppb.New(update.Timestamp),
 	}
 
-	// Set optional fields
 	if update.DeviceID != "" {
 		deviceID := string(update.DeviceID)
 		telemetryUpdate.DeviceId = &deviceID
@@ -397,7 +520,7 @@ func fromAggregatedTelemetry(aggregatedData []models.AggregatedTelemetry) ([]*te
 
 		var dataPoints int32
 		if data.DataPoints <= math.MaxInt32 && data.DataPoints >= 0 {
-			dataPoints = int32(data.DataPoints) //nolint:gosec // Safe conversion after bounds check
+			dataPoints = int32(data.DataPoints)
 		} else if data.DataPoints > math.MaxInt32 {
 			slog.Debug("Data points exceed max int32, setting to max value",
 				"device_id", data.DeviceID,
@@ -413,7 +536,7 @@ func fromAggregatedTelemetry(aggregatedData []models.AggregatedTelemetry) ([]*te
 				"aggregation_type", data.AggregationType,
 				"data_points", data.DataPoints,
 			)
-			dataPoints = 0 // Negative values become 0
+			dataPoints = 0
 		}
 
 		timeWindow := &telemetryv1.TimeRange{}
@@ -499,4 +622,39 @@ func getUnitForMeasurementType(measurementType telemetryv1.MeasurementType) comm
 		return unit
 	}
 	return commonv1.MeasurementUnit_MEASUREMENT_UNIT_UNSPECIFIED
+}
+
+func fromCombinedMetrics(combinedMetrics models.CombinedMetric) (*telemetryv1.GetCombinedMetricsResponse, error) {
+	metrics := make([]*telemetryv1.Metric, len(combinedMetrics.Metrics))
+
+	for i, metric := range combinedMetrics.Metrics {
+		measurementType, err := measurementTypeToProto(metric.MeasurementType)
+		if err != nil {
+			return nil, err
+		}
+
+		aggregatedValues := make([]*telemetryv1.AggregatedValue, len(metric.AggregatedValues))
+		for j, aggValue := range metric.AggregatedValues {
+			aggregationType, err := aggregationTypeToProto(aggValue.Type)
+			if err != nil {
+				return nil, err
+			}
+
+			aggregatedValues[j] = &telemetryv1.AggregatedValue{
+				AggregationType: aggregationType,
+				Value:           aggValue.Value,
+			}
+		}
+
+		metrics[i] = &telemetryv1.Metric{
+			MeasurementType:  measurementType,
+			OpenTime:         timestamppb.New(metric.OpenTime),
+			AggregatedValues: aggregatedValues,
+		}
+	}
+
+	return &telemetryv1.GetCombinedMetricsResponse{
+		Metrics:       metrics,
+		NextPageToken: combinedMetrics.NextPageToken,
+	}, nil
 }

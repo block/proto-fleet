@@ -1,8 +1,20 @@
-import { ReactNode, useEffect, useState } from "react";
-
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Outlet } from "react-router-dom";
+
+import {
+  AggregationType,
+  MeasurementType,
+} from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
+import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import TabMenu from "@/protoFleet/features/kpis/components/TabMenu";
 import { KpiOutletContext } from "@/protoFleet/features/kpis/types";
+import {
+  calculateAggregateStats,
+  getLatestAggregateValue,
+  mergeStreamingDataPoint,
+  transformCombinedMetricsToTimeSeries,
+} from "@/protoFleet/features/kpis/utils/telemetryTransforms";
 import DurationSelector, {
   Duration,
   durations,
@@ -14,7 +26,6 @@ import {
   TimeSeriesDataPoint,
 } from "@/shared/features/kpis/types";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
-
 interface KpiLayoutProps {
   children?: ReactNode;
   title: string;
@@ -93,54 +104,208 @@ const KpiLayoutWrapper = ({ children }: KpiLayoutWrapperProps) => {
     null,
   );
 
-  // Create mock time series data
-  const createTimeSeriesData = (): TimeSeriesDataPoint[] => {
-    const now = Date.now();
-    const hourMs = 3600 * 1000;
-    const data: TimeSeriesDataPoint[] = [];
+  // For fleet-level KPI pages, we want to request data for all devices in the org
+  // rather than just the specific miners loaded in the fleet store
 
-    // Generate 24 hours of data points
-    for (let i = 0; i < 24; i++) {
-      data.push({
-        datetime: now - (24 - i) * hourMs,
-        value: 10 + Math.random() * 10, // Random value between 10-20
-      });
+  const measurementTypes = useMemo(
+    () => [
+      MeasurementType.HASHRATE,
+      MeasurementType.POWER,
+      MeasurementType.TEMPERATURE,
+      MeasurementType.EFFICIENCY,
+    ],
+    [],
+  );
+
+  const aggregations = useMemo(
+    () => [
+      AggregationType.AVERAGE,
+      AggregationType.MIN,
+      AggregationType.MAX,
+      AggregationType.SUM,
+    ],
+    [],
+  );
+
+  const streamingOptions = useMemo(
+    () => ({
+      deviceIds: [], // Empty array will trigger "all devices" selector
+      measurementTypes: measurementTypes,
+      aggregations: aggregations,
+      enabled: true, // Always enabled since we're requesting all devices
+    }),
+    [measurementTypes, aggregations],
+  );
+
+  // Fetch historical combined metrics for all devices
+  const {
+    data: combinedMetricsData,
+    isLoading: isLoadingMetrics,
+    error: metricsError,
+  } = useTelemetryMetrics({
+    // Don't pass deviceIds to request all devices in the organization
+    measurementTypes,
+    aggregations,
+    duration,
+    enabled: true, // Always enabled since we're requesting all devices
+  });
+
+  // Stream real-time updates for all devices
+  const { latestData: streamingData } =
+    useStreamingTelemetryMetrics(streamingOptions);
+
+  // Transform data when available
+  useEffect(() => {
+    if (!combinedMetricsData && !metricsError) return;
+
+    let hashrateTimeSeries: TimeSeriesDataPoint[] = [];
+    let hashrateAggregates: AggregateStats = { avg: 0, max: 0, min: 0 };
+    let powerTimeSeries: TimeSeriesDataPoint[] = [];
+    let powerAggregates: AggregateStats = { avg: 0, max: 0, min: 0 };
+    let efficiencyTimeSeries: TimeSeriesDataPoint[] = [];
+    let efficiencyAggregates: AggregateStats = { avg: 0, max: 0, min: 0 };
+    let temperatureTimeSeries: TimeSeriesDataPoint[] = [];
+    let temperatureAggregates: AggregateStats = { avg: 0, max: 0, min: 0 };
+
+    if (combinedMetricsData) {
+      // Transform hashrate data
+      hashrateTimeSeries = transformCombinedMetricsToTimeSeries(
+        combinedMetricsData,
+        MeasurementType.HASHRATE,
+      );
+      hashrateAggregates = calculateAggregateStats(
+        combinedMetricsData,
+        MeasurementType.HASHRATE,
+      );
+
+      // Transform power data
+      powerTimeSeries = transformCombinedMetricsToTimeSeries(
+        combinedMetricsData,
+        MeasurementType.POWER,
+      );
+      powerAggregates = calculateAggregateStats(
+        combinedMetricsData,
+        MeasurementType.POWER,
+      );
+
+      // Transform efficiency data
+      efficiencyTimeSeries = transformCombinedMetricsToTimeSeries(
+        combinedMetricsData,
+        MeasurementType.EFFICIENCY,
+      );
+      efficiencyAggregates = calculateAggregateStats(
+        combinedMetricsData,
+        MeasurementType.EFFICIENCY,
+      );
+
+      // Transform temperature data (for uptime placeholder)
+      temperatureTimeSeries = transformCombinedMetricsToTimeSeries(
+        combinedMetricsData,
+        MeasurementType.TEMPERATURE,
+      );
+      temperatureAggregates = calculateAggregateStats(
+        combinedMetricsData,
+        MeasurementType.TEMPERATURE,
+      );
     }
 
-    return data;
-  };
-
-  // Create mock aggregates
-  const createMockAggregates = (): AggregateStats => {
-    return {
-      avg: 15.5,
-      max: 20.0,
-      min: 10.0,
-    };
-  };
-
-  // Mock KPI data
-  useEffect(() => {
     setOutletContext({
       duration,
       minerHashrate: {
-        hashrate: createTimeSeriesData(),
-        aggregates: createMockAggregates(),
+        hashrate: hashrateTimeSeries,
+        aggregates: hashrateAggregates,
       },
       minerEfficiency: {
-        efficiency: createTimeSeriesData(),
-        aggregates: createMockAggregates(),
+        efficiency: efficiencyTimeSeries,
+        aggregates: efficiencyAggregates,
       },
       minerPowerUsage: {
-        powerUsage: createTimeSeriesData(),
-        aggregates: createMockAggregates(),
+        powerUsage: powerTimeSeries,
+        aggregates: powerAggregates,
       },
       minerUptime: {
-        uptime: createTimeSeriesData(),
-        aggregates: createMockAggregates(),
+        uptime: temperatureTimeSeries, // Placeholder until uptime is available
+        aggregates: temperatureAggregates,
       },
     });
-  }, [duration]);
+  }, [combinedMetricsData, duration, metricsError]);
+
+  // Update with streaming data
+  useEffect(() => {
+    if (!streamingData) return;
+
+    try {
+      // Get latest values from streaming data
+      const latestHashrate = getLatestAggregateValue(
+        streamingData,
+        MeasurementType.HASHRATE,
+      );
+      const latestPower = getLatestAggregateValue(
+        streamingData,
+        MeasurementType.POWER,
+      );
+      const latestEfficiency = getLatestAggregateValue(
+        streamingData,
+        MeasurementType.EFFICIENCY,
+      );
+      const latestTemperature = getLatestAggregateValue(
+        streamingData,
+        MeasurementType.TEMPERATURE,
+      );
+
+      // Create new data points
+      const now = Date.now();
+      const newHashratePoint = { datetime: now, value: latestHashrate };
+      const newPowerPoint = { datetime: now, value: latestPower };
+      const newEfficiencyPoint = { datetime: now, value: latestEfficiency };
+      const newTemperaturePoint = { datetime: now, value: latestTemperature };
+
+      // Use functional update to access current state without dependency
+      setOutletContext((prev) => {
+        if (!prev) return null;
+
+        // Merge with existing data using previous state
+        const updatedHashrateData = mergeStreamingDataPoint(
+          prev.minerHashrate.hashrate,
+          newHashratePoint,
+        );
+        const updatedPowerData = mergeStreamingDataPoint(
+          prev.minerPowerUsage.powerUsage,
+          newPowerPoint,
+        );
+        const updatedEfficiencyData = mergeStreamingDataPoint(
+          prev.minerEfficiency.efficiency,
+          newEfficiencyPoint,
+        );
+        const updatedTemperatureData = mergeStreamingDataPoint(
+          prev.minerUptime.uptime,
+          newTemperaturePoint,
+        );
+
+        return {
+          ...prev,
+          minerHashrate: {
+            ...prev.minerHashrate,
+            hashrate: updatedHashrateData,
+          },
+          minerPowerUsage: {
+            ...prev.minerPowerUsage,
+            powerUsage: updatedPowerData,
+          },
+          minerEfficiency: {
+            ...prev.minerEfficiency,
+            efficiency: updatedEfficiencyData,
+          },
+          minerUptime: {
+            ...prev.minerUptime,
+            uptime: updatedTemperatureData,
+          },
+        };
+      });
+    } catch (error) {
+      console.error("Error processing streaming data:", error);
+    }
+  }, [streamingData]);
 
   // Set the duration in local storage when it changes
   const handleDurationChange = (newDuration: Duration) => {
@@ -148,29 +313,35 @@ const KpiLayoutWrapper = ({ children }: KpiLayoutWrapperProps) => {
     setDuration(newDuration);
   };
 
-  // Mock values for the tab menu
-  const mockHashrateValue = 15.8;
-  const mockEfficiencyValue = 38.2;
-  const mockPowerUsageValue = 0.55;
-  const mockUptimeValue = 90;
+  // Get current values for the tab menu
+  const currentHashrateValue =
+    outletContext?.minerHashrate.aggregates?.avg || 0;
+  const currentEfficiencyValue =
+    outletContext?.minerEfficiency.aggregates?.avg || 0;
+  const currentPowerUsageValue =
+    outletContext?.minerPowerUsage.aggregates?.avg || 0;
+  const currentUptimeValue = outletContext?.minerUptime.aggregates?.avg || 0;
 
-  // Mock pool status
+  // Mock pool status - TODO: Replace with real pool status
   const poolsLive = true;
   const poolsConfigured = true;
+
+  // Show loading state while fetching initial data
+  const isLoading = isLoadingMetrics && !outletContext;
 
   return (
     <KpiLayout
       title="Fleet performance"
       duration={duration}
       setDuration={handleDurationChange}
-      outletContext={outletContext}
+      outletContext={isLoading ? null : outletContext}
       noPoolsLive={!poolsLive}
       hasPoolsConfigured={poolsConfigured}
       tabMenuProps={{
-        hashrate: mockHashrateValue,
-        efficiency: mockEfficiencyValue,
-        powerUsage: mockPowerUsageValue,
-        uptime: mockUptimeValue,
+        hashrate: currentHashrateValue,
+        efficiency: currentEfficiencyValue,
+        powerUsage: currentPowerUsageValue,
+        uptime: currentUptimeValue,
       }}
     >
       {children}

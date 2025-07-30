@@ -23,6 +23,12 @@ service TelemetryService {
   
   // Get aggregated telemetry data (averages, min, max, etc.)
   rpc GetAggregatedSnapshot(GetAggregatedSnapshotRequest) returns (GetAggregatedSnapshotResponse);
+  
+  // Historical, aggregated candles (pull).
+  rpc GetCombinedMetrics(GetCombinedMetricsRequest) returns (GetCombinedMetricsResponse) {}
+
+  // Live updates pushed by the server.
+  rpc StreamCombinedMetricUpdates(StreamCombinedMetricUpdatesRequest) returns (stream StreamCombinedMetricUpdatesResponse) {}
 }
 
 // Enums matching domain models
@@ -45,8 +51,24 @@ enum AggregationType {
   AGGREGATION_TYPE_MIN = 2;
   AGGREGATION_TYPE_MAX = 3;
   AGGREGATION_TYPE_SUM = 4;
-  AGGREGATION_TYPE_COUNT = 5;
+  AGGREGATION_TYPE_FIRST_QUARTILE = 5;
+  AGGREGATION_TYPE_MEDIAN = 6;
+  AGGREGATION_TYPE_THIRD_QUARTILE = 7;
+  AGGREGATION_TYPE_FIRST = 8;
+  AGGREGATION_TYPE_LAST = 9;
 }
+
+message DeviceSelector  {
+    oneof selector_value {
+        bool all_devices = 1; // Select all devices in the org
+        DeviceList device_list = 2; // Select specific devices by ID
+    }
+}
+
+message DeviceList {
+    repeated string device_ids = 1; // List of device IDs
+}
+
 
 enum ComponentStatus {
   COMPONENT_STATUS_UNSPECIFIED = 0;
@@ -186,3 +208,54 @@ message GetAggregatedSnapshotRequest {
 message GetAggregatedSnapshotResponse {
   repeated AggregatedTelemetry aggregated_data = 1;
 }
+
+message GetCombinedMetricsRequest {
+    DeviceSelector device_selector = 1 [(buf.validate.field).required = true]; // Select devices by ID or all devices in org
+    repeated MeasurementType measurement_types = 3; // e.g., TEMPERATURE, HASHRATE Defaults to all types
+    repeated AggregationType aggregations = 4; // e.g., AVERAGE, MIN, MAX Defaults to all aggregations
+    google.protobuf.Duration granularity = 5; // e.g., 1m, 5m, 1h defaults to 10s
+    google.protobuf.Timestamp start_time = 6 [(buf.validate.field).required = true]; // inclusive
+    google.protobuf.Timestamp end_time = 7;
+    option (buf.validate.message).cel = {
+      id: "end_time_after_start_time"
+      message: "end_time must be after start_time"
+      expression: "this.end_time > this.start_time"
+    };
+
+    string page_token = 8; // for pagination
+    int32 page_size = 9; // max 1000, default 100
+}
+
+message AggregatedValue {
+    AggregationType aggregation_type = 1;
+    double value = 2; // e.g., 75.5 for AVERAGE, 1000 for MAX
+}
+message Metric {
+    MeasurementType measurement_type = 1;
+    google.protobuf.Timestamp open_time = 2;
+    repeated AggregatedValue aggregated_values = 3; // e.g., AVERAGE, MIN, MAX
+}
+
+message GetCombinedMetricsResponse {
+    repeated Metric metrics = 1;
+    string next_page_token = 2; // for pagination
+}
+
+message StreamCombinedMetricUpdatesRequest {
+    DeviceSelector device_selector = 1 [(buf.validate.field).required = true]; // Select devices by ID or all devices in org
+    repeated MeasurementType metrics  = 2;
+    repeated AggregationType aggregations = 3; // e.g., AVERAGE, MIN, MAX
+    // default granularity is 1 minute
+    google.protobuf.Duration granularity = 4 [(buf.validate.field).duration = {
+      gte: { seconds: 10 }
+      lte: { seconds: 86400 } // 24 hours
+    }];
+    // default update interval is granularity
+    google.protobuf.Duration update_interval = 5;
+}
+
+message StreamCombinedMetricUpdatesResponse {
+    repeated Metric metrics = 1; // e.g., TEMPERATURE, HASHRATE
+    google.protobuf.Timestamp next_update_time = 2; // when the next update will be sent
+}
+

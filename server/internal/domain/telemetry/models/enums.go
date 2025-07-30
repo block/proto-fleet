@@ -82,6 +82,8 @@ const (
 	AggregationTypeMax
 	AggregationTypeSum
 	AggregationTypeCount
+	AggregationTypeTotal
+	AggregationTypeMeanChange
 )
 
 func (a AggregationType) String() string {
@@ -98,6 +100,10 @@ func (a AggregationType) String() string {
 		return "sum"
 	case AggregationTypeCount:
 		return "count"
+	case AggregationTypeTotal:
+		return "total"
+	case AggregationTypeMeanChange:
+		return "mean_change"
 	default:
 		return "unknown"
 	}

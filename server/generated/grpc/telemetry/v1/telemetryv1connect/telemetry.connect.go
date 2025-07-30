@@ -49,6 +49,12 @@ const (
 	// TelemetryServiceGetAggregatedSnapshotProcedure is the fully-qualified name of the
 	// TelemetryService's GetAggregatedSnapshot RPC.
 	TelemetryServiceGetAggregatedSnapshotProcedure = "/telemetry.v1.TelemetryService/GetAggregatedSnapshot"
+	// TelemetryServiceGetCombinedMetricsProcedure is the fully-qualified name of the TelemetryService's
+	// GetCombinedMetrics RPC.
+	TelemetryServiceGetCombinedMetricsProcedure = "/telemetry.v1.TelemetryService/GetCombinedMetrics"
+	// TelemetryServiceStreamCombinedMetricUpdatesProcedure is the fully-qualified name of the
+	// TelemetryService's StreamCombinedMetricUpdates RPC.
+	TelemetryServiceStreamCombinedMetricUpdatesProcedure = "/telemetry.v1.TelemetryService/StreamCombinedMetricUpdates"
 )
 
 // TelemetryServiceClient is a client for the telemetry.v1.TelemetryService service.
@@ -63,6 +69,10 @@ type TelemetryServiceClient interface {
 	StreamUpdates(context.Context, *connect.Request[v1.StreamUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamUpdatesResponse], error)
 	// Get aggregated telemetry data (averages, min, max, etc.)
 	GetAggregatedSnapshot(context.Context, *connect.Request[v1.GetAggregatedSnapshotRequest]) (*connect.Response[v1.GetAggregatedSnapshotResponse], error)
+	// Historical, aggregated candles (pull).
+	GetCombinedMetrics(context.Context, *connect.Request[v1.GetCombinedMetricsRequest]) (*connect.Response[v1.GetCombinedMetricsResponse], error)
+	// Live updates pushed by the server.
+	StreamCombinedMetricUpdates(context.Context, *connect.Request[v1.StreamCombinedMetricUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamCombinedMetricUpdatesResponse], error)
 }
 
 // NewTelemetryServiceClient constructs a client for the telemetry.v1.TelemetryService service. By
@@ -100,16 +110,28 @@ func NewTelemetryServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			baseURL+TelemetryServiceGetAggregatedSnapshotProcedure,
 			opts...,
 		),
+		getCombinedMetrics: connect.NewClient[v1.GetCombinedMetricsRequest, v1.GetCombinedMetricsResponse](
+			httpClient,
+			baseURL+TelemetryServiceGetCombinedMetricsProcedure,
+			opts...,
+		),
+		streamCombinedMetricUpdates: connect.NewClient[v1.StreamCombinedMetricUpdatesRequest, v1.StreamCombinedMetricUpdatesResponse](
+			httpClient,
+			baseURL+TelemetryServiceStreamCombinedMetricUpdatesProcedure,
+			opts...,
+		),
 	}
 }
 
 // telemetryServiceClient implements TelemetryServiceClient.
 type telemetryServiceClient struct {
-	getSnapshot           *connect.Client[v1.GetSnapshotRequest, v1.GetSnapshotResponse]
-	getTimeSeries         *connect.Client[v1.GetTimeSeriesRequest, v1.GetTimeSeriesResponse]
-	getMetadata           *connect.Client[v1.GetMetadataRequest, v1.GetMetadataResponse]
-	streamUpdates         *connect.Client[v1.StreamUpdatesRequest, v1.StreamUpdatesResponse]
-	getAggregatedSnapshot *connect.Client[v1.GetAggregatedSnapshotRequest, v1.GetAggregatedSnapshotResponse]
+	getSnapshot                 *connect.Client[v1.GetSnapshotRequest, v1.GetSnapshotResponse]
+	getTimeSeries               *connect.Client[v1.GetTimeSeriesRequest, v1.GetTimeSeriesResponse]
+	getMetadata                 *connect.Client[v1.GetMetadataRequest, v1.GetMetadataResponse]
+	streamUpdates               *connect.Client[v1.StreamUpdatesRequest, v1.StreamUpdatesResponse]
+	getAggregatedSnapshot       *connect.Client[v1.GetAggregatedSnapshotRequest, v1.GetAggregatedSnapshotResponse]
+	getCombinedMetrics          *connect.Client[v1.GetCombinedMetricsRequest, v1.GetCombinedMetricsResponse]
+	streamCombinedMetricUpdates *connect.Client[v1.StreamCombinedMetricUpdatesRequest, v1.StreamCombinedMetricUpdatesResponse]
 }
 
 // GetSnapshot calls telemetry.v1.TelemetryService.GetSnapshot.
@@ -137,6 +159,16 @@ func (c *telemetryServiceClient) GetAggregatedSnapshot(ctx context.Context, req 
 	return c.getAggregatedSnapshot.CallUnary(ctx, req)
 }
 
+// GetCombinedMetrics calls telemetry.v1.TelemetryService.GetCombinedMetrics.
+func (c *telemetryServiceClient) GetCombinedMetrics(ctx context.Context, req *connect.Request[v1.GetCombinedMetricsRequest]) (*connect.Response[v1.GetCombinedMetricsResponse], error) {
+	return c.getCombinedMetrics.CallUnary(ctx, req)
+}
+
+// StreamCombinedMetricUpdates calls telemetry.v1.TelemetryService.StreamCombinedMetricUpdates.
+func (c *telemetryServiceClient) StreamCombinedMetricUpdates(ctx context.Context, req *connect.Request[v1.StreamCombinedMetricUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamCombinedMetricUpdatesResponse], error) {
+	return c.streamCombinedMetricUpdates.CallServerStream(ctx, req)
+}
+
 // TelemetryServiceHandler is an implementation of the telemetry.v1.TelemetryService service.
 type TelemetryServiceHandler interface {
 	// Get latest telemetry data for specified devices and measurement types
@@ -149,6 +181,10 @@ type TelemetryServiceHandler interface {
 	StreamUpdates(context.Context, *connect.Request[v1.StreamUpdatesRequest], *connect.ServerStream[v1.StreamUpdatesResponse]) error
 	// Get aggregated telemetry data (averages, min, max, etc.)
 	GetAggregatedSnapshot(context.Context, *connect.Request[v1.GetAggregatedSnapshotRequest]) (*connect.Response[v1.GetAggregatedSnapshotResponse], error)
+	// Historical, aggregated candles (pull).
+	GetCombinedMetrics(context.Context, *connect.Request[v1.GetCombinedMetricsRequest]) (*connect.Response[v1.GetCombinedMetricsResponse], error)
+	// Live updates pushed by the server.
+	StreamCombinedMetricUpdates(context.Context, *connect.Request[v1.StreamCombinedMetricUpdatesRequest], *connect.ServerStream[v1.StreamCombinedMetricUpdatesResponse]) error
 }
 
 // NewTelemetryServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -182,6 +218,16 @@ func NewTelemetryServiceHandler(svc TelemetryServiceHandler, opts ...connect.Han
 		svc.GetAggregatedSnapshot,
 		opts...,
 	)
+	telemetryServiceGetCombinedMetricsHandler := connect.NewUnaryHandler(
+		TelemetryServiceGetCombinedMetricsProcedure,
+		svc.GetCombinedMetrics,
+		opts...,
+	)
+	telemetryServiceStreamCombinedMetricUpdatesHandler := connect.NewServerStreamHandler(
+		TelemetryServiceStreamCombinedMetricUpdatesProcedure,
+		svc.StreamCombinedMetricUpdates,
+		opts...,
+	)
 	return "/telemetry.v1.TelemetryService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case TelemetryServiceGetSnapshotProcedure:
@@ -194,6 +240,10 @@ func NewTelemetryServiceHandler(svc TelemetryServiceHandler, opts ...connect.Han
 			telemetryServiceStreamUpdatesHandler.ServeHTTP(w, r)
 		case TelemetryServiceGetAggregatedSnapshotProcedure:
 			telemetryServiceGetAggregatedSnapshotHandler.ServeHTTP(w, r)
+		case TelemetryServiceGetCombinedMetricsProcedure:
+			telemetryServiceGetCombinedMetricsHandler.ServeHTTP(w, r)
+		case TelemetryServiceStreamCombinedMetricUpdatesProcedure:
+			telemetryServiceStreamCombinedMetricUpdatesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -221,4 +271,12 @@ func (UnimplementedTelemetryServiceHandler) StreamUpdates(context.Context, *conn
 
 func (UnimplementedTelemetryServiceHandler) GetAggregatedSnapshot(context.Context, *connect.Request[v1.GetAggregatedSnapshotRequest]) (*connect.Response[v1.GetAggregatedSnapshotResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("telemetry.v1.TelemetryService.GetAggregatedSnapshot is not implemented"))
+}
+
+func (UnimplementedTelemetryServiceHandler) GetCombinedMetrics(context.Context, *connect.Request[v1.GetCombinedMetricsRequest]) (*connect.Response[v1.GetCombinedMetricsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("telemetry.v1.TelemetryService.GetCombinedMetrics is not implemented"))
+}
+
+func (UnimplementedTelemetryServiceHandler) StreamCombinedMetricUpdates(context.Context, *connect.Request[v1.StreamCombinedMetricUpdatesRequest], *connect.ServerStream[v1.StreamCombinedMetricUpdatesResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("telemetry.v1.TelemetryService.StreamCombinedMetricUpdates is not implemented"))
 }

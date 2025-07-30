@@ -1,11 +1,14 @@
 package influxdb
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
+	"text/template"
 	"time"
 
 	influxdb3 "github.com/InfluxCommunity/influxdb3-go/v2/influxdb3"
@@ -660,6 +663,9 @@ func measurementTypesToStrings(types []models.MeasurementType) []string {
 	return result
 }
 
+// getAggregationFunction returns the appropriate SQL aggregation function based on the AggregationType
+//
+//nolint:exhaustive // There are only a few types that we care about right now, and the default is AVG
 func getAggregationFunction(aggType models.AggregationType) string {
 	switch aggType {
 	case models.AggregationTypeAverage:
@@ -676,6 +682,35 @@ func getAggregationFunction(aggType models.AggregationType) string {
 		fallthrough
 	default:
 		return "AVG"
+	}
+}
+
+// isCumulativeMeasurement determines if a measurement type is cumulative (like power, hashrate)
+// or non-cumulative (like temperature, voltage)
+func isCumulativeMeasurement(measurementType models.MeasurementType) bool {
+	switch measurementType {
+	case models.MeasurementTypePower:
+		return true
+	case models.MeasurementTypeHashrate:
+		return true
+	case models.MeasurementTypeUptime:
+		return true
+	case models.MeasurementTypeEfficiency:
+		return false
+	case models.MeasurementTypeTemperature:
+		return false
+	case models.MeasurementTypeVoltage:
+		return false
+	case models.MeasurementTypeCurrent:
+		return false
+	case models.MeasurementTypeFanSpeed:
+		return false
+	case models.MeasurementTypeErrorRate:
+		return false
+	case models.MeasurementTypeUnknown:
+		fallthrough
+	default:
+		return false // Default to non-cumulative for unknown types
 	}
 }
 
@@ -744,6 +779,24 @@ func (s *InfluxTelemetryStore) getAggregationParamsForMeasurement(query models.A
 	return params
 }
 
+func (s *InfluxTelemetryStore) getCombinedMetricsParams(query models.CombinedMetricsQuery) influxdb3.QueryParameters {
+	params := make(influxdb3.QueryParameters)
+
+	if query.TimeRange.StartTime != nil {
+		params["start_time"] = *query.TimeRange.StartTime
+	} else {
+		params["start_time"] = time.Now().Add(-24 * time.Hour)
+	}
+
+	if query.TimeRange.EndTime != nil {
+		params["stop_time"] = *query.TimeRange.EndTime
+	} else {
+		params["stop_time"] = time.Now()
+	}
+
+	return params
+}
+
 func stringPtr(s string) *string {
 	return &s
 }
@@ -759,4 +812,363 @@ func (s *InfluxTelemetryStore) logWrite(pointCount int, duration time.Duration, 
 			slog.Int("point_count", pointCount),
 			slog.Int64("duration_ms", duration.Milliseconds()))
 	}
+}
+
+const GetCombinedMetricsNonCumulativeTemplate = `
+WITH raw AS (
+  SELECT
+    date_bin(INTERVAL '{{.GranSecs}} seconds', time) AS bucket,
+    device_id,
+    value,
+	time
+  FROM {{.Table}}                                    -- measurement table
+  WHERE time BETWEEN $start_time AND $stop_time
+    {{- if .DeviceIDs }}
+      AND device_id IN ({{range $i, $id := .DeviceIDs}}{{if $i}}, {{end}}'{{$id}}'{{end}})
+    {{- end }}
+),
+latest_per_device AS (
+  SELECT
+    bucket,
+    device_id,
+    selector_last(value, time)['value'] AS latest_val
+  FROM raw
+  GROUP BY bucket, device_id
+),
+bucket_stats AS (
+  SELECT
+    bucket as time,
+    SUM(latest_val)                         AS v_sum,
+    AVG(latest_val)                         AS v_avg,
+    MIN(latest_val)                         AS v_min,
+    MAX(latest_val)                         AS v_max,
+    approx_percentile_cont(latest_val,0.25) AS v_q1,
+    approx_percentile_cont(latest_val,0.50) AS v_med,
+    approx_percentile_cont(latest_val,0.75) AS v_q3,
+    selector_first(latest_val, bucket)['value'] AS v_first
+  FROM latest_per_device
+  GROUP BY bucket
+)
+SELECT *
+FROM bucket_stats
+ORDER BY time
+LIMIT  {{.Limit}}
+OFFSET {{.Offset}};
+`
+
+const GetCombinedMetricCumulativeTemplate = `
+WITH raw AS (
+  SELECT
+    date_bin(INTERVAL '{{.GranSecs}} seconds', time) AS bucket,
+    device_id,
+    value,
+	time
+  FROM {{.Table}}
+  WHERE time BETWEEN $start_time AND $stop_time
+    {{- if .DeviceIDs }}
+      AND device_id IN ({{range $i, $id := .DeviceIDs}}{{if $i}}, {{end}}'{{$id}}'{{end}})
+    {{- end }}
+),
+per_device AS (
+  SELECT
+    bucket,
+    device_id,
+    MIN(value)                          AS min_val,
+    MAX(value)                          AS max_val,
+    selector_last(value, time)['value'] AS last_val
+  FROM raw
+  GROUP BY bucket, device_id
+),
+bucket_stats AS (
+  SELECT
+    bucket,
+    SUM(last_val)                      AS total,
+    SUM(min_val)                       AS min_total,
+    SUM(max_val)                       AS max_total,
+    AVG(max_val - min_val)             AS mean_change,
+    STDDEV_SAMP(max_val - min_val)     AS stddev_change
+  FROM per_device
+  GROUP BY bucket
+)
+SELECT
+  bucket as time,
+  total,
+  min_total,
+  max_total,
+  mean_change,
+  stddev_change
+FROM bucket_stats
+ORDER BY bucket
+LIMIT  {{.Limit}}
+OFFSET {{.Offset}};`
+
+type CombinedMetricsQueryParams struct {
+	Table     string   // measurement table, e.g. "power_w"
+	DeviceIDs []string // nil if selecting by org
+	GranSecs  int      // granularity in seconds
+	Limit     int      // page_size (≤1000)
+	Offset    int      // decoded page_token
+}
+
+func (s *InfluxTelemetryStore) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+	var allMetrics []models.Metric
+	var allErrors []error
+	totalSuccessCount := 0
+
+	// Default granularity to 1 minute if not specified
+	granularity := query.Granularity
+	if granularity == 0 {
+		granularity = 1 * time.Minute
+	}
+
+	// Parse pagination token to get offset
+	offset := 0
+	if query.PaginationToken != "" {
+		if parsedOffset, err := strconv.Atoi(query.PaginationToken); err == nil {
+			offset = parsedOffset
+		}
+	}
+
+	// Default limit for pagination
+	limit := 100
+	if query.PageSize > 0 {
+		limit = query.PageSize
+	}
+
+	// Pre-parse both templates to avoid repeated parsing in the loop
+	cumulativeTemplate, err := template.New("combined_metrics_cumulative").Parse(GetCombinedMetricCumulativeTemplate)
+	if err != nil {
+		s.logger.Error("failed to parse cumulative combined metrics template", slog.Any("error", err))
+		return models.CombinedMetric{}, newTelemetryQueryError(err, "GetCombinedMetrics")
+	}
+
+	nonCumulativeTemplate, err := template.New("combined_metrics_non_cumulative").Parse(GetCombinedMetricsNonCumulativeTemplate)
+	if err != nil {
+		s.logger.Error("failed to parse non-cumulative combined metrics template", slog.Any("error", err))
+		return models.CombinedMetric{}, newTelemetryQueryError(err, "GetCombinedMetrics")
+	}
+
+	// Process each measurement type
+	for _, measurementType := range query.MeasurementTypes {
+		measurementName := measurementType.InfluxMeasurementName()
+
+		// Prepare template parameters
+		templateParams := CombinedMetricsQueryParams{
+			Table:    measurementName,
+			GranSecs: int(granularity.Seconds()),
+			Limit:    limit,
+			Offset:   offset,
+		}
+
+		// Set device IDs or organization
+		if len(query.DeviceIDs) > 0 {
+			templateParams.DeviceIDs = deviceIDsToStrings(query.DeviceIDs)
+		}
+
+		// Choose the appropriate template based on measurement type
+		var selectedTemplate *template.Template
+		isCumulative := isCumulativeMeasurement(measurementType)
+		if isCumulative {
+			selectedTemplate = cumulativeTemplate
+		} else {
+			selectedTemplate = nonCumulativeTemplate
+		}
+
+		// Execute the selected template to generate query
+		var queryBuffer bytes.Buffer
+		if err := selectedTemplate.Execute(&queryBuffer, templateParams); err != nil {
+			s.logger.Error("failed to execute combined metrics template",
+				slog.String("measurement", measurementName),
+				slog.Bool("is_cumulative", isCumulative),
+				slog.Any("error", err))
+			allErrors = append(allErrors, fmt.Errorf("measurement %s template execute: %w", measurementName, err))
+			continue
+		}
+
+		influxQuery := queryBuffer.String()
+
+		// Prepare query parameters
+		params := s.getCombinedMetricsParams(query)
+
+		// Execute query
+		iterator, err := s.client.QueryPointValueWithParameters(ctx, influxQuery, params)
+		if err != nil {
+			s.logger.Error("combined metrics query failed for measurement type",
+				slog.String("measurement", measurementName),
+				slog.Bool("is_cumulative", isCumulative),
+				slog.Any("error", err))
+			allErrors = append(allErrors, fmt.Errorf("measurement %s: %w", measurementName, err))
+			continue
+		}
+
+		var measurementResults []models.Metric
+		var iterationErrors []error
+		successCount := 0
+
+		// Process query results
+		for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
+			if err != nil {
+				s.logger.Error("error reading point in GetCombinedMetrics",
+					slog.String("measurement", measurementName),
+					slog.Bool("is_cumulative", isCumulative),
+					slog.Any("error", err))
+				iterationErrors = append(iterationErrors, err)
+				continue
+			}
+
+			// Extract bucket time (open time)
+			bucketTime := point.Timestamp
+
+			// Extract aggregated values from the point based on template type
+			var aggregatedValues []models.AggregatedValue
+
+			if isCumulative {
+				// Handle cumulative template fields
+				if totalField := point.GetField("total"); totalField != nil {
+					if val, ok := totalField.(float64); ok {
+						aggregatedValues = append(aggregatedValues, models.AggregatedValue{
+							Type:  models.AggregationTypeSum,
+							Value: val,
+						})
+					}
+				}
+
+				if minTotalField := point.GetField("min_total"); minTotalField != nil {
+					if val, ok := minTotalField.(float64); ok {
+						aggregatedValues = append(aggregatedValues, models.AggregatedValue{
+							Type:  models.AggregationTypeMin,
+							Value: val,
+						})
+					}
+				}
+
+				if maxTotalField := point.GetField("max_total"); maxTotalField != nil {
+					if val, ok := maxTotalField.(float64); ok {
+						aggregatedValues = append(aggregatedValues, models.AggregatedValue{
+							Type:  models.AggregationTypeMax,
+							Value: val,
+						})
+					}
+				}
+
+				if meanChangeField := point.GetField("mean_change"); meanChangeField != nil {
+					if val, ok := meanChangeField.(float64); ok {
+						aggregatedValues = append(aggregatedValues, models.AggregatedValue{
+							Type:  models.AggregationTypeMeanChange,
+							Value: val,
+						})
+					}
+				}
+			} else {
+				// Handle non-cumulative template fields
+				if sumField := point.GetField("v_sum"); sumField != nil {
+					if val, ok := sumField.(float64); ok {
+						aggregatedValues = append(aggregatedValues, models.AggregatedValue{
+							Type:  models.AggregationTypeSum,
+							Value: val,
+						})
+					}
+				}
+
+				if avgField := point.GetField("v_avg"); avgField != nil {
+					if val, ok := avgField.(float64); ok {
+						aggregatedValues = append(aggregatedValues, models.AggregatedValue{
+							Type:  models.AggregationTypeAverage,
+							Value: val,
+						})
+					}
+				}
+
+				if minField := point.GetField("v_min"); minField != nil {
+					if val, ok := minField.(float64); ok {
+						aggregatedValues = append(aggregatedValues, models.AggregatedValue{
+							Type:  models.AggregationTypeMin,
+							Value: val,
+						})
+					}
+				}
+
+				if maxField := point.GetField("v_max"); maxField != nil {
+					if val, ok := maxField.(float64); ok {
+						aggregatedValues = append(aggregatedValues, models.AggregatedValue{
+							Type:  models.AggregationTypeMax,
+							Value: val,
+						})
+					}
+				}
+			}
+
+			// Filter aggregated values based on requested aggregation types
+			var filteredValues []models.AggregatedValue
+			if len(query.AggregationTypes) > 0 {
+				requestedTypes := make(map[models.AggregationType]bool)
+				for _, aggType := range query.AggregationTypes {
+					requestedTypes[aggType] = true
+				}
+
+				for _, aggValue := range aggregatedValues {
+					if requestedTypes[aggValue.Type] {
+						filteredValues = append(filteredValues, aggValue)
+					}
+				}
+			} else {
+				// If no specific aggregation types requested, return all
+				filteredValues = aggregatedValues
+			}
+
+			if len(filteredValues) > 0 {
+				metric := models.Metric{
+					MeasurementType:  measurementType,
+					AggregatedValues: filteredValues,
+					OpenTime:         bucketTime,
+				}
+				measurementResults = append(measurementResults, metric)
+				successCount++
+			}
+		}
+
+		// Handle iteration errors
+		if len(iterationErrors) > 0 {
+			if successCount > 0 {
+				s.logger.Warn("GetCombinedMetrics completed with partial data for measurement",
+					slog.String("measurement", measurementName),
+					slog.Bool("is_cumulative", isCumulative),
+					slog.Int("success_count", successCount),
+					slog.Int("error_count", len(iterationErrors)))
+			} else {
+				allErrors = append(allErrors, fmt.Errorf("measurement %s iteration failed: %w", measurementName, iterationErrors[0]))
+				continue
+			}
+		}
+
+		allMetrics = append(allMetrics, measurementResults...)
+		totalSuccessCount += successCount
+	}
+
+	// Handle overall errors
+	if len(allErrors) > 0 {
+		if totalSuccessCount > 0 {
+			s.logger.Warn("GetCombinedMetrics completed with partial data across measurements",
+				slog.Int("total_success_count", totalSuccessCount),
+				slog.Int("measurement_error_count", len(allErrors)))
+		} else {
+			return models.CombinedMetric{}, newTelemetryIterationError(allErrors[0], "GetCombinedMetrics", len(allErrors), totalSuccessCount > 0)
+		}
+	}
+
+	// Sort metrics by open time
+	sort.Slice(allMetrics, func(i, j int) bool {
+		return allMetrics[i].OpenTime.Before(allMetrics[j].OpenTime)
+	})
+
+	// Generate next page token
+	nextPageToken := ""
+	if len(allMetrics) == limit {
+		nextPageToken = strconv.Itoa(offset + limit)
+	}
+
+	return models.CombinedMetric{
+		Metrics:       allMetrics,
+		NextPageToken: nextPageToken,
+	}, nil
 }

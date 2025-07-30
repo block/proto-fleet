@@ -54,3 +54,36 @@ type AggregationQuery struct {
 	GroupByInterval  *time.Duration     `json:"group_by_interval,omitempty"`
 	Tags             map[string]string  `json:"tags,omitempty"`
 }
+
+type CombinedMetricsQuery struct {
+	DeviceIDs        []DeviceIdentifier `json:"device_ids,omitempty"`
+	MeasurementTypes []MeasurementType  `json:"measurement_types,omitempty"`
+	AggregationTypes []AggregationType  `json:"aggregation_types,omitempty"`
+	TimeRange        TimeRange          `json:"time_range"`
+	Granularity      time.Duration      `json:"granularity,omitempty"`
+	PaginationToken  string             `json:"pagination_token,omitempty"`
+	PageSize         int                `json:"page_size,omitempty"`
+}
+
+type StreamCombinedMetricsQuery struct {
+	DeviceIDs        []DeviceIdentifier `json:"device_ids,omitempty"`
+	MeasurementTypes []MeasurementType  `json:"measurement_types,omitempty"`
+	AggregationTypes []AggregationType  `json:"aggregation_types,omitempty"`
+	Granularity      time.Duration      `json:"granularity,omitempty"`
+	UpdateInterval   time.Duration      `json:"update_interval,omitempty"`
+}
+
+type AggregatedValue struct {
+	Type  AggregationType `json:"type"`
+	Value float64         `json:"value"`
+}
+
+type Metric struct {
+	MeasurementType  MeasurementType   `json:"measurement_type"`
+	AggregatedValues []AggregatedValue `json:"aggregated_values"`
+	OpenTime         time.Time         `json:"open_time"`
+}
+type CombinedMetric struct {
+	Metrics       []Metric `json:"metrics"`
+	NextPageToken string   `json:"next_page_token,omitempty"` // for pagination
+}

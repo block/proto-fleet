@@ -66,7 +66,7 @@ func (tm *TelemetryMapper) MapToTimeSeriesRequests(after time.Time) []*miner_dat
 
 		// Add hashrate type for hashrate requests
 		if dataType == miner_data_api.DataType_DATA_TYPE_MINER_HASHRATE_MH_S {
-			req.HashrateType = miner_data_api.HashrateType_HASHRATE_TYPE_AVERAGE
+			req.HashrateType = miner_data_api.HashrateType_HASHRATE_TYPE_NORMAL
 		}
 
 		requests = append(requests, req)
