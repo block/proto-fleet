@@ -119,6 +119,20 @@ func (m *MockMiner) EXPECT() *MockMinerMockRecorder {
 	return m.recorder
 }
 
+// BlinkLED mocks base method.
+func (m *MockMiner) BlinkLED(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BlinkLED", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// BlinkLED indicates an expected call of BlinkLED.
+func (mr *MockMinerMockRecorder) BlinkLED(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BlinkLED", reflect.TypeOf((*MockMiner)(nil).BlinkLED), ctx)
+}
+
 // DownloadLogs mocks base method.
 func (m *MockMiner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
 	m.ctrl.T.Helper()

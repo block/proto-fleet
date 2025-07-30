@@ -297,6 +297,20 @@ func generateMockLogData(deviceIdentifier *miner.DeviceIdentifier) string {
 	}`, deviceIdentifier, timestamp, timestamp, timestamp, timestamp, timestamp)
 }
 
+func (p *ProtoMiner) BlinkLED(ctx context.Context) error {
+	ctx = client.ContextWithAuth(ctx, p.authToken)
+	resp, err := p.commandClient.PlayLocateSequence(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
+	if err != nil {
+		return err // Error mapping handled by interceptor
+	}
+
+	if resp.Msg.Result != miner_common_api.ApiResult_RESULT_SUCCESS {
+		return fleeterror.NewInternalErrorf("blink LEDs failed: %s", resp.Msg.Result)
+	}
+
+	return nil
+}
+
 func (p *ProtoMiner) GetTelemetry(ctx context.Context, after time.Time) ([]telemetryModels.Telemetry, error) {
 	// Create telemetry mapper
 	mapper := NewTelemetryMapper(p.GetID())

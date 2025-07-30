@@ -52,6 +52,9 @@ const (
 	// MinerCommandServiceDownloadLogsProcedure is the fully-qualified name of the MinerCommandService's
 	// DownloadLogs RPC.
 	MinerCommandServiceDownloadLogsProcedure = "/minercommand.v1.MinerCommandService/DownloadLogs"
+	// MinerCommandServiceBlinkLEDProcedure is the fully-qualified name of the MinerCommandService's
+	// BlinkLED RPC.
+	MinerCommandServiceBlinkLEDProcedure = "/minercommand.v1.MinerCommandService/BlinkLED"
 	// MinerCommandServiceStreamCommandBatchUpdatesProcedure is the fully-qualified name of the
 	// MinerCommandService's StreamCommandBatchUpdates RPC.
 	MinerCommandServiceStreamCommandBatchUpdatesProcedure = "/minercommand.v1.MinerCommandService/StreamCommandBatchUpdates"
@@ -72,6 +75,7 @@ type MinerCommandServiceClient interface {
 	SetCoolingMode(context.Context, *connect.Request[v1.SetCoolingModeRequest]) (*connect.Response[v1.SetCoolingModeResponse], error)
 	UpdateMiningPools(context.Context, *connect.Request[v1.UpdateMiningPoolsRequest]) (*connect.Response[v1.UpdateMiningPoolsResponse], error)
 	DownloadLogs(context.Context, *connect.Request[v1.DownloadLogsRequest]) (*connect.Response[v1.DownloadLogsResponse], error)
+	BlinkLED(context.Context, *connect.Request[v1.BlinkLEDRequest]) (*connect.Response[v1.BlinkLEDResponse], error)
 	// Streams command batch updates
 	StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamCommandBatchUpdatesResponse], error)
 	GetCommandBatchLogBundle(context.Context, *connect.Request[v1.GetCommandBatchLogBundleRequest]) (*connect.Response[v1.GetCommandBatchLogBundleResponse], error)
@@ -117,6 +121,11 @@ func NewMinerCommandServiceClient(httpClient connect.HTTPClient, baseURL string,
 			baseURL+MinerCommandServiceDownloadLogsProcedure,
 			opts...,
 		),
+		blinkLED: connect.NewClient[v1.BlinkLEDRequest, v1.BlinkLEDResponse](
+			httpClient,
+			baseURL+MinerCommandServiceBlinkLEDProcedure,
+			opts...,
+		),
 		streamCommandBatchUpdates: connect.NewClient[v1.StreamCommandBatchUpdatesRequest, v1.StreamCommandBatchUpdatesResponse](
 			httpClient,
 			baseURL+MinerCommandServiceStreamCommandBatchUpdatesProcedure,
@@ -138,6 +147,7 @@ type minerCommandServiceClient struct {
 	setCoolingMode            *connect.Client[v1.SetCoolingModeRequest, v1.SetCoolingModeResponse]
 	updateMiningPools         *connect.Client[v1.UpdateMiningPoolsRequest, v1.UpdateMiningPoolsResponse]
 	downloadLogs              *connect.Client[v1.DownloadLogsRequest, v1.DownloadLogsResponse]
+	blinkLED                  *connect.Client[v1.BlinkLEDRequest, v1.BlinkLEDResponse]
 	streamCommandBatchUpdates *connect.Client[v1.StreamCommandBatchUpdatesRequest, v1.StreamCommandBatchUpdatesResponse]
 	getCommandBatchLogBundle  *connect.Client[v1.GetCommandBatchLogBundleRequest, v1.GetCommandBatchLogBundleResponse]
 }
@@ -172,6 +182,11 @@ func (c *minerCommandServiceClient) DownloadLogs(ctx context.Context, req *conne
 	return c.downloadLogs.CallUnary(ctx, req)
 }
 
+// BlinkLED calls minercommand.v1.MinerCommandService.BlinkLED.
+func (c *minerCommandServiceClient) BlinkLED(ctx context.Context, req *connect.Request[v1.BlinkLEDRequest]) (*connect.Response[v1.BlinkLEDResponse], error) {
+	return c.blinkLED.CallUnary(ctx, req)
+}
+
 // StreamCommandBatchUpdates calls minercommand.v1.MinerCommandService.StreamCommandBatchUpdates.
 func (c *minerCommandServiceClient) StreamCommandBatchUpdates(ctx context.Context, req *connect.Request[v1.StreamCommandBatchUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamCommandBatchUpdatesResponse], error) {
 	return c.streamCommandBatchUpdates.CallServerStream(ctx, req)
@@ -195,6 +210,7 @@ type MinerCommandServiceHandler interface {
 	SetCoolingMode(context.Context, *connect.Request[v1.SetCoolingModeRequest]) (*connect.Response[v1.SetCoolingModeResponse], error)
 	UpdateMiningPools(context.Context, *connect.Request[v1.UpdateMiningPoolsRequest]) (*connect.Response[v1.UpdateMiningPoolsResponse], error)
 	DownloadLogs(context.Context, *connect.Request[v1.DownloadLogsRequest]) (*connect.Response[v1.DownloadLogsResponse], error)
+	BlinkLED(context.Context, *connect.Request[v1.BlinkLEDRequest]) (*connect.Response[v1.BlinkLEDResponse], error)
 	// Streams command batch updates
 	StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest], *connect.ServerStream[v1.StreamCommandBatchUpdatesResponse]) error
 	GetCommandBatchLogBundle(context.Context, *connect.Request[v1.GetCommandBatchLogBundleRequest]) (*connect.Response[v1.GetCommandBatchLogBundleResponse], error)
@@ -236,6 +252,11 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 		svc.DownloadLogs,
 		opts...,
 	)
+	minerCommandServiceBlinkLEDHandler := connect.NewUnaryHandler(
+		MinerCommandServiceBlinkLEDProcedure,
+		svc.BlinkLED,
+		opts...,
+	)
 	minerCommandServiceStreamCommandBatchUpdatesHandler := connect.NewServerStreamHandler(
 		MinerCommandServiceStreamCommandBatchUpdatesProcedure,
 		svc.StreamCommandBatchUpdates,
@@ -260,6 +281,8 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 			minerCommandServiceUpdateMiningPoolsHandler.ServeHTTP(w, r)
 		case MinerCommandServiceDownloadLogsProcedure:
 			minerCommandServiceDownloadLogsHandler.ServeHTTP(w, r)
+		case MinerCommandServiceBlinkLEDProcedure:
+			minerCommandServiceBlinkLEDHandler.ServeHTTP(w, r)
 		case MinerCommandServiceStreamCommandBatchUpdatesProcedure:
 			minerCommandServiceStreamCommandBatchUpdatesHandler.ServeHTTP(w, r)
 		case MinerCommandServiceGetCommandBatchLogBundleProcedure:
@@ -295,6 +318,10 @@ func (UnimplementedMinerCommandServiceHandler) UpdateMiningPools(context.Context
 
 func (UnimplementedMinerCommandServiceHandler) DownloadLogs(context.Context, *connect.Request[v1.DownloadLogsRequest]) (*connect.Response[v1.DownloadLogsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.DownloadLogs is not implemented"))
+}
+
+func (UnimplementedMinerCommandServiceHandler) BlinkLED(context.Context, *connect.Request[v1.BlinkLEDRequest]) (*connect.Response[v1.BlinkLEDResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.BlinkLED is not implemented"))
 }
 
 func (UnimplementedMinerCommandServiceHandler) StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest], *connect.ServerStream[v1.StreamCommandBatchUpdatesResponse]) error {

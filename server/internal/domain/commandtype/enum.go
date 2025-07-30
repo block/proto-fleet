@@ -18,6 +18,7 @@ const (
 	UpdateMiningPools
 	DownloadLogs
 	Reboot
+	BlinkLED
 )
 
 func (t *Type) String() string {
@@ -34,6 +35,8 @@ func (t *Type) String() string {
 		return "DownloadLogs"
 	case Reboot:
 		return "Reboot"
+	case BlinkLED:
+		return "BlinkLED"
 	default:
 		return "Undefined"
 	}
@@ -53,6 +56,8 @@ func FromString(s string) (Type, error) {
 		return DownloadLogs, nil
 	case "Reboot":
 		return Reboot, nil
+	case "BlinkLED":
+		return BlinkLED, nil
 
 	default:
 		return Type(-1), fleeterror.NewInternalErrorf("invalid command type: %s", s)

@@ -31,6 +31,7 @@ type Miner interface {
 	// Configuration operations
 	SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error
 	UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error
+	BlinkLED(ctx context.Context) error
 
 	DownloadLogs(ctx context.Context, batchLogUUID string) error
 

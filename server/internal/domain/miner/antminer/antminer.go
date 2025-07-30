@@ -119,6 +119,10 @@ func (a *Antminer) DownloadLogs(_ context.Context, _ string) error {
 	return fleeterror.NewInternalErrorf("Not implemented!") // TODO https://linear.app/squareup/issue/DASH-540
 }
 
+func (a *Antminer) BlinkLED(_ context.Context) error {
+	return fleeterror.NewInternalErrorf("Not implemented!") // TODO https://linear.app/squareup/issue/DASH-535
+}
+
 func (a *Antminer) getWebConnectionInfo() *web.AntminerConnectionInfo {
 	return &web.AntminerConnectionInfo{
 		ConnectionInfo: networking.ConnectionInfo{

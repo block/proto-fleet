@@ -198,7 +198,7 @@ func (s *Service) statusUpdateRoutineOnFinishedCallback(commandType commandtype.
 	switch commandType {
 	case commandtype.DownloadLogs:
 		return s.filesService.DownloadLogsOnFinishedCallback(batchLogUUID)
-	case commandtype.StopMining, commandtype.StartMining, commandtype.SetCoolingMode, commandtype.UpdateMiningPools, commandtype.Reboot:
+	case commandtype.StopMining, commandtype.StartMining, commandtype.SetCoolingMode, commandtype.UpdateMiningPools, commandtype.Reboot, commandtype.BlinkLED:
 		return nil
 	default:
 		return nil
@@ -409,6 +409,14 @@ func (s *Service) DownloadLogs(ctx context.Context, deviceSelector *pb.DeviceSel
 	}
 
 	return &pb.DownloadLogsResponse{BatchIdentifier: commandBatchLogUUID}, nil
+}
+
+func (s *Service) BlinkLED(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.BlinkLEDResponse, error) {
+	commandBatchLogUUID, err := s.processCommand(ctx, &Command{commandType: commandtype.BlinkLED, deviceSelector: deviceSelector, payload: nil})
+	if err != nil {
+		return nil, err
+	}
+	return &pb.BlinkLEDResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
 
 func (s *Service) StreamCommandBatchUpdates(ctx context.Context, msg *pb.StreamCommandBatchUpdatesRequest) (<-chan *pb.StreamCommandBatchUpdatesResponse, error) {
