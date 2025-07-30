@@ -71,7 +71,7 @@ const AppWrapper = ({
   // navigate to onboarding page if miner has not been onboarded
   useEffect(() => {
     if (!pendingSystemStatus && systemStatus?.onboarded !== undefined) {
-      if (!systemStatus.onboarded) {
+      if (!systemStatus.onboarded && !systemStatus.password_set) {
         setItem("isOnboarded", false);
         navigate("/onboarding/welcome");
       } else {
