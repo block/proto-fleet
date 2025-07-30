@@ -44,6 +44,16 @@ const (
 	// MinerSystemApiSetNetworkProcedure is the fully-qualified name of the MinerSystemApi's SetNetwork
 	// RPC.
 	MinerSystemApiSetNetworkProcedure = "/miner_system_api.MinerSystemApi/SetNetwork"
+	// MinerSystemApiRebootProcedure is the fully-qualified name of the MinerSystemApi's Reboot RPC.
+	MinerSystemApiRebootProcedure = "/miner_system_api.MinerSystemApi/Reboot"
+	// MinerSystemApiGetLogsProcedure is the fully-qualified name of the MinerSystemApi's GetLogs RPC.
+	MinerSystemApiGetLogsProcedure = "/miner_system_api.MinerSystemApi/GetLogs"
+	// MinerSystemApiInstallProcedure is the fully-qualified name of the MinerSystemApi's Install RPC.
+	MinerSystemApiInstallProcedure = "/miner_system_api.MinerSystemApi/Install"
+	// MinerSystemApiUpdateProcedure is the fully-qualified name of the MinerSystemApi's Update RPC.
+	MinerSystemApiUpdateProcedure = "/miner_system_api.MinerSystemApi/Update"
+	// MinerSystemApiUploadProcedure is the fully-qualified name of the MinerSystemApi's Upload RPC.
+	MinerSystemApiUploadProcedure = "/miner_system_api.MinerSystemApi/Upload"
 )
 
 // MinerSystemApiClient is a client for the miner_system_api.MinerSystemApi service.
@@ -51,6 +61,15 @@ type MinerSystemApiClient interface {
 	GetPairingInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.GetPairingInfoResponse], error)
 	GetNetwork(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.GetNetworkResponse], error)
 	SetNetwork(context.Context, *connect.Request[miner_system_api.SetNetworkRequest]) (*connect.Response[miner_system_api.SetNetworkResponse], error)
+	Reboot(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	GetLogs(context.Context, *connect.Request[miner_system_api.GetLogsRequest]) (*connect.Response[miner_system_api.GetLogsResponse], error)
+	// Endpoint for installing updates - can be used by UI to manually trigger installation
+	// when automatic installation after download is not desired
+	Install(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	// Endpoint for updating the system - downloads and installs updates based on current status
+	Update(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.UpdateResponse], error)
+	// Endpoint for uploading update files
+	Upload(context.Context) *connect.ClientStreamForClient[miner_system_api.UploadRequest, miner_system_api.UploadResponse]
 }
 
 // NewMinerSystemApiClient constructs a client for the miner_system_api.MinerSystemApi service. By
@@ -78,6 +97,31 @@ func NewMinerSystemApiClient(httpClient connect.HTTPClient, baseURL string, opts
 			baseURL+MinerSystemApiSetNetworkProcedure,
 			opts...,
 		),
+		reboot: connect.NewClient[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse](
+			httpClient,
+			baseURL+MinerSystemApiRebootProcedure,
+			opts...,
+		),
+		getLogs: connect.NewClient[miner_system_api.GetLogsRequest, miner_system_api.GetLogsResponse](
+			httpClient,
+			baseURL+MinerSystemApiGetLogsProcedure,
+			opts...,
+		),
+		install: connect.NewClient[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse](
+			httpClient,
+			baseURL+MinerSystemApiInstallProcedure,
+			opts...,
+		),
+		update: connect.NewClient[miner_common_api.EmptyRequest, miner_system_api.UpdateResponse](
+			httpClient,
+			baseURL+MinerSystemApiUpdateProcedure,
+			opts...,
+		),
+		upload: connect.NewClient[miner_system_api.UploadRequest, miner_system_api.UploadResponse](
+			httpClient,
+			baseURL+MinerSystemApiUploadProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -86,6 +130,11 @@ type minerSystemApiClient struct {
 	getPairingInfo *connect.Client[miner_common_api.EmptyRequest, miner_system_api.GetPairingInfoResponse]
 	getNetwork     *connect.Client[miner_common_api.EmptyRequest, miner_system_api.GetNetworkResponse]
 	setNetwork     *connect.Client[miner_system_api.SetNetworkRequest, miner_system_api.SetNetworkResponse]
+	reboot         *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	getLogs        *connect.Client[miner_system_api.GetLogsRequest, miner_system_api.GetLogsResponse]
+	install        *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	update         *connect.Client[miner_common_api.EmptyRequest, miner_system_api.UpdateResponse]
+	upload         *connect.Client[miner_system_api.UploadRequest, miner_system_api.UploadResponse]
 }
 
 // GetPairingInfo calls miner_system_api.MinerSystemApi.GetPairingInfo.
@@ -103,11 +152,45 @@ func (c *minerSystemApiClient) SetNetwork(ctx context.Context, req *connect.Requ
 	return c.setNetwork.CallUnary(ctx, req)
 }
 
+// Reboot calls miner_system_api.MinerSystemApi.Reboot.
+func (c *minerSystemApiClient) Reboot(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return c.reboot.CallUnary(ctx, req)
+}
+
+// GetLogs calls miner_system_api.MinerSystemApi.GetLogs.
+func (c *minerSystemApiClient) GetLogs(ctx context.Context, req *connect.Request[miner_system_api.GetLogsRequest]) (*connect.Response[miner_system_api.GetLogsResponse], error) {
+	return c.getLogs.CallUnary(ctx, req)
+}
+
+// Install calls miner_system_api.MinerSystemApi.Install.
+func (c *minerSystemApiClient) Install(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return c.install.CallUnary(ctx, req)
+}
+
+// Update calls miner_system_api.MinerSystemApi.Update.
+func (c *minerSystemApiClient) Update(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.UpdateResponse], error) {
+	return c.update.CallUnary(ctx, req)
+}
+
+// Upload calls miner_system_api.MinerSystemApi.Upload.
+func (c *minerSystemApiClient) Upload(ctx context.Context) *connect.ClientStreamForClient[miner_system_api.UploadRequest, miner_system_api.UploadResponse] {
+	return c.upload.CallClientStream(ctx)
+}
+
 // MinerSystemApiHandler is an implementation of the miner_system_api.MinerSystemApi service.
 type MinerSystemApiHandler interface {
 	GetPairingInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.GetPairingInfoResponse], error)
 	GetNetwork(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.GetNetworkResponse], error)
 	SetNetwork(context.Context, *connect.Request[miner_system_api.SetNetworkRequest]) (*connect.Response[miner_system_api.SetNetworkResponse], error)
+	Reboot(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	GetLogs(context.Context, *connect.Request[miner_system_api.GetLogsRequest]) (*connect.Response[miner_system_api.GetLogsResponse], error)
+	// Endpoint for installing updates - can be used by UI to manually trigger installation
+	// when automatic installation after download is not desired
+	Install(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	// Endpoint for updating the system - downloads and installs updates based on current status
+	Update(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.UpdateResponse], error)
+	// Endpoint for uploading update files
+	Upload(context.Context, *connect.ClientStream[miner_system_api.UploadRequest]) (*connect.Response[miner_system_api.UploadResponse], error)
 }
 
 // NewMinerSystemApiHandler builds an HTTP handler from the service implementation. It returns the
@@ -131,6 +214,31 @@ func NewMinerSystemApiHandler(svc MinerSystemApiHandler, opts ...connect.Handler
 		svc.SetNetwork,
 		opts...,
 	)
+	minerSystemApiRebootHandler := connect.NewUnaryHandler(
+		MinerSystemApiRebootProcedure,
+		svc.Reboot,
+		opts...,
+	)
+	minerSystemApiGetLogsHandler := connect.NewUnaryHandler(
+		MinerSystemApiGetLogsProcedure,
+		svc.GetLogs,
+		opts...,
+	)
+	minerSystemApiInstallHandler := connect.NewUnaryHandler(
+		MinerSystemApiInstallProcedure,
+		svc.Install,
+		opts...,
+	)
+	minerSystemApiUpdateHandler := connect.NewUnaryHandler(
+		MinerSystemApiUpdateProcedure,
+		svc.Update,
+		opts...,
+	)
+	minerSystemApiUploadHandler := connect.NewClientStreamHandler(
+		MinerSystemApiUploadProcedure,
+		svc.Upload,
+		opts...,
+	)
 	return "/miner_system_api.MinerSystemApi/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MinerSystemApiGetPairingInfoProcedure:
@@ -139,6 +247,16 @@ func NewMinerSystemApiHandler(svc MinerSystemApiHandler, opts ...connect.Handler
 			minerSystemApiGetNetworkHandler.ServeHTTP(w, r)
 		case MinerSystemApiSetNetworkProcedure:
 			minerSystemApiSetNetworkHandler.ServeHTTP(w, r)
+		case MinerSystemApiRebootProcedure:
+			minerSystemApiRebootHandler.ServeHTTP(w, r)
+		case MinerSystemApiGetLogsProcedure:
+			minerSystemApiGetLogsHandler.ServeHTTP(w, r)
+		case MinerSystemApiInstallProcedure:
+			minerSystemApiInstallHandler.ServeHTTP(w, r)
+		case MinerSystemApiUpdateProcedure:
+			minerSystemApiUpdateHandler.ServeHTTP(w, r)
+		case MinerSystemApiUploadProcedure:
+			minerSystemApiUploadHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -158,4 +276,24 @@ func (UnimplementedMinerSystemApiHandler) GetNetwork(context.Context, *connect.R
 
 func (UnimplementedMinerSystemApiHandler) SetNetwork(context.Context, *connect.Request[miner_system_api.SetNetworkRequest]) (*connect.Response[miner_system_api.SetNetworkResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerSystemApi.SetNetwork is not implemented"))
+}
+
+func (UnimplementedMinerSystemApiHandler) Reboot(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerSystemApi.Reboot is not implemented"))
+}
+
+func (UnimplementedMinerSystemApiHandler) GetLogs(context.Context, *connect.Request[miner_system_api.GetLogsRequest]) (*connect.Response[miner_system_api.GetLogsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerSystemApi.GetLogs is not implemented"))
+}
+
+func (UnimplementedMinerSystemApiHandler) Install(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerSystemApi.Install is not implemented"))
+}
+
+func (UnimplementedMinerSystemApiHandler) Update(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.UpdateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerSystemApi.Update is not implemented"))
+}
+
+func (UnimplementedMinerSystemApiHandler) Upload(context.Context, *connect.ClientStream[miner_system_api.UploadRequest]) (*connect.Response[miner_system_api.UploadResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerSystemApi.Upload is not implemented"))
 }

@@ -198,7 +198,7 @@ func (s *Service) statusUpdateRoutineOnFinishedCallback(commandType commandtype.
 	switch commandType {
 	case commandtype.DownloadLogs:
 		return s.filesService.DownloadLogsOnFinishedCallback(batchLogUUID)
-	case commandtype.StopMining, commandtype.StartMining, commandtype.SetCoolingMode, commandtype.UpdateMiningPools:
+	case commandtype.StopMining, commandtype.StartMining, commandtype.SetCoolingMode, commandtype.UpdateMiningPools, commandtype.Reboot:
 		return nil
 	default:
 		return nil
@@ -266,6 +266,17 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (string,
 	s.initializeStatusUpdateRoutine(batchLogIdentifier, onFinishedCallback)
 
 	return batchLogIdentifier, nil
+}
+
+func (s *Service) Reboot(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.RebootResponse, error) {
+	commandBatchLogUUID, err := s.processCommand(ctx, &Command{commandType: commandtype.Reboot, deviceSelector: deviceSelector, payload: nil})
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.RebootResponse{
+		BatchIdentifier: commandBatchLogUUID,
+	}, nil
 }
 
 // StopMining stops mining on the specified miners

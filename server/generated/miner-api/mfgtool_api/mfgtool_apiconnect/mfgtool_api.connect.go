@@ -69,6 +69,8 @@ const (
 	BaseApiStartRunProcedure = "/mfgtool_api.BaseApi/StartRun"
 	// BaseApiStopRunProcedure is the fully-qualified name of the BaseApi's StopRun RPC.
 	BaseApiStopRunProcedure = "/mfgtool_api.BaseApi/StopRun"
+	// BaseApiGetRunErrorsProcedure is the fully-qualified name of the BaseApi's GetRunErrors RPC.
+	BaseApiGetRunErrorsProcedure = "/mfgtool_api.BaseApi/GetRunErrors"
 	// BaseApiGetRunStatusProcedure is the fully-qualified name of the BaseApi's GetRunStatus RPC.
 	BaseApiGetRunStatusProcedure = "/mfgtool_api.BaseApi/GetRunStatus"
 	// BaseApiGetRecoveryLimitsConfigProcedure is the fully-qualified name of the BaseApi's
@@ -104,6 +106,7 @@ type BaseApiClient interface {
 	GetSecurity(context.Context, *connect.Request[mfgtool_api.SecurityRequest]) (*connect.Response[mfgtool_api.SecurityResponse], error)
 	StartRun(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	StopRun(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	GetRunErrors(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[mfgtool_api.RunErrorsResponse], error)
 	GetRunStatus(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[mfgtool_api.RunStatusResponse], error)
 	GetRecoveryLimitsConfig(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimitsConfig], error)
 	GetNetworkStatus(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[mfgtool_api.NetworkStatus], error)
@@ -174,6 +177,11 @@ func NewBaseApiClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			baseURL+BaseApiStopRunProcedure,
 			opts...,
 		),
+		getRunErrors: connect.NewClient[miner_common_api.EmptyRequest, mfgtool_api.RunErrorsResponse](
+			httpClient,
+			baseURL+BaseApiGetRunErrorsProcedure,
+			opts...,
+		),
 		getRunStatus: connect.NewClient[miner_common_api.EmptyRequest, mfgtool_api.RunStatusResponse](
 			httpClient,
 			baseURL+BaseApiGetRunStatusProcedure,
@@ -229,6 +237,7 @@ type baseApiClient struct {
 	getSecurity             *connect.Client[mfgtool_api.SecurityRequest, mfgtool_api.SecurityResponse]
 	startRun                *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
 	stopRun                 *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	getRunErrors            *connect.Client[miner_common_api.EmptyRequest, mfgtool_api.RunErrorsResponse]
 	getRunStatus            *connect.Client[miner_common_api.EmptyRequest, mfgtool_api.RunStatusResponse]
 	getRecoveryLimitsConfig *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.RecoveryLimitsConfig]
 	getNetworkStatus        *connect.Client[miner_common_api.EmptyRequest, mfgtool_api.NetworkStatus]
@@ -289,6 +298,11 @@ func (c *baseApiClient) StopRun(ctx context.Context, req *connect.Request[miner_
 	return c.stopRun.CallUnary(ctx, req)
 }
 
+// GetRunErrors calls mfgtool_api.BaseApi.GetRunErrors.
+func (c *baseApiClient) GetRunErrors(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[mfgtool_api.RunErrorsResponse], error) {
+	return c.getRunErrors.CallUnary(ctx, req)
+}
+
 // GetRunStatus calls mfgtool_api.BaseApi.GetRunStatus.
 func (c *baseApiClient) GetRunStatus(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[mfgtool_api.RunStatusResponse], error) {
 	return c.getRunStatus.CallUnary(ctx, req)
@@ -341,6 +355,7 @@ type BaseApiHandler interface {
 	GetSecurity(context.Context, *connect.Request[mfgtool_api.SecurityRequest]) (*connect.Response[mfgtool_api.SecurityResponse], error)
 	StartRun(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	StopRun(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	GetRunErrors(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[mfgtool_api.RunErrorsResponse], error)
 	GetRunStatus(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[mfgtool_api.RunStatusResponse], error)
 	GetRecoveryLimitsConfig(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimitsConfig], error)
 	GetNetworkStatus(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[mfgtool_api.NetworkStatus], error)
@@ -407,6 +422,11 @@ func NewBaseApiHandler(svc BaseApiHandler, opts ...connect.HandlerOption) (strin
 		svc.StopRun,
 		opts...,
 	)
+	baseApiGetRunErrorsHandler := connect.NewUnaryHandler(
+		BaseApiGetRunErrorsProcedure,
+		svc.GetRunErrors,
+		opts...,
+	)
 	baseApiGetRunStatusHandler := connect.NewUnaryHandler(
 		BaseApiGetRunStatusProcedure,
 		svc.GetRunStatus,
@@ -469,6 +489,8 @@ func NewBaseApiHandler(svc BaseApiHandler, opts ...connect.HandlerOption) (strin
 			baseApiStartRunHandler.ServeHTTP(w, r)
 		case BaseApiStopRunProcedure:
 			baseApiStopRunHandler.ServeHTTP(w, r)
+		case BaseApiGetRunErrorsProcedure:
+			baseApiGetRunErrorsHandler.ServeHTTP(w, r)
 		case BaseApiGetRunStatusProcedure:
 			baseApiGetRunStatusHandler.ServeHTTP(w, r)
 		case BaseApiGetRecoveryLimitsConfigProcedure:
@@ -532,6 +554,10 @@ func (UnimplementedBaseApiHandler) StartRun(context.Context, *connect.Request[mi
 
 func (UnimplementedBaseApiHandler) StopRun(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mfgtool_api.BaseApi.StopRun is not implemented"))
+}
+
+func (UnimplementedBaseApiHandler) GetRunErrors(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[mfgtool_api.RunErrorsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mfgtool_api.BaseApi.GetRunErrors is not implemented"))
 }
 
 func (UnimplementedBaseApiHandler) GetRunStatus(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[mfgtool_api.RunStatusResponse], error) {

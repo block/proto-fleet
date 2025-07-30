@@ -119,6 +119,20 @@ func (p *ProtoMinerInfo) GetWebViewURL() *url.URL {
 	}.GetURL()
 }
 
+func (p *ProtoMiner) Reboot(ctx context.Context) error {
+	ctx = client.ContextWithAuth(ctx, p.authToken)
+	resp, err := p.systemClient.Reboot(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
+	if err != nil {
+		return err
+	}
+
+	if resp.Msg.Result != miner_common_api.ApiResult_RESULT_SUCCESS {
+		return fleeterror.NewInternalErrorf("reboot failed: %s", resp.Msg.Result)
+	}
+
+	return nil
+}
+
 func (p *ProtoMiner) StartMining(ctx context.Context) error {
 	ctx = client.ContextWithAuth(ctx, p.authToken)
 	resp, err := p.commandClient.StartMining(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))

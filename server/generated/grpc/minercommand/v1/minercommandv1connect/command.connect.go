@@ -34,6 +34,9 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// MinerCommandServiceRebootProcedure is the fully-qualified name of the MinerCommandService's
+	// Reboot RPC.
+	MinerCommandServiceRebootProcedure = "/minercommand.v1.MinerCommandService/Reboot"
 	// MinerCommandServiceStopMiningProcedure is the fully-qualified name of the MinerCommandService's
 	// StopMining RPC.
 	MinerCommandServiceStopMiningProcedure = "/minercommand.v1.MinerCommandService/StopMining"
@@ -59,6 +62,7 @@ const (
 
 // MinerCommandServiceClient is a client for the minercommand.v1.MinerCommandService service.
 type MinerCommandServiceClient interface {
+	Reboot(context.Context, *connect.Request[v1.RebootRequest]) (*connect.Response[v1.RebootResponse], error)
 	// Stops mining on specified miners
 	// The operation is attempted on all miners even if some fail
 	StopMining(context.Context, *connect.Request[v1.StopMiningRequest]) (*connect.Response[v1.StopMiningResponse], error)
@@ -83,6 +87,11 @@ type MinerCommandServiceClient interface {
 func NewMinerCommandServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MinerCommandServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &minerCommandServiceClient{
+		reboot: connect.NewClient[v1.RebootRequest, v1.RebootResponse](
+			httpClient,
+			baseURL+MinerCommandServiceRebootProcedure,
+			opts...,
+		),
 		stopMining: connect.NewClient[v1.StopMiningRequest, v1.StopMiningResponse](
 			httpClient,
 			baseURL+MinerCommandServiceStopMiningProcedure,
@@ -123,6 +132,7 @@ func NewMinerCommandServiceClient(httpClient connect.HTTPClient, baseURL string,
 
 // minerCommandServiceClient implements MinerCommandServiceClient.
 type minerCommandServiceClient struct {
+	reboot                    *connect.Client[v1.RebootRequest, v1.RebootResponse]
 	stopMining                *connect.Client[v1.StopMiningRequest, v1.StopMiningResponse]
 	startMining               *connect.Client[v1.StartMiningRequest, v1.StartMiningResponse]
 	setCoolingMode            *connect.Client[v1.SetCoolingModeRequest, v1.SetCoolingModeResponse]
@@ -130,6 +140,11 @@ type minerCommandServiceClient struct {
 	downloadLogs              *connect.Client[v1.DownloadLogsRequest, v1.DownloadLogsResponse]
 	streamCommandBatchUpdates *connect.Client[v1.StreamCommandBatchUpdatesRequest, v1.StreamCommandBatchUpdatesResponse]
 	getCommandBatchLogBundle  *connect.Client[v1.GetCommandBatchLogBundleRequest, v1.GetCommandBatchLogBundleResponse]
+}
+
+// Reboot calls minercommand.v1.MinerCommandService.Reboot.
+func (c *minerCommandServiceClient) Reboot(ctx context.Context, req *connect.Request[v1.RebootRequest]) (*connect.Response[v1.RebootResponse], error) {
+	return c.reboot.CallUnary(ctx, req)
 }
 
 // StopMining calls minercommand.v1.MinerCommandService.StopMining.
@@ -170,6 +185,7 @@ func (c *minerCommandServiceClient) GetCommandBatchLogBundle(ctx context.Context
 // MinerCommandServiceHandler is an implementation of the minercommand.v1.MinerCommandService
 // service.
 type MinerCommandServiceHandler interface {
+	Reboot(context.Context, *connect.Request[v1.RebootRequest]) (*connect.Response[v1.RebootResponse], error)
 	// Stops mining on specified miners
 	// The operation is attempted on all miners even if some fail
 	StopMining(context.Context, *connect.Request[v1.StopMiningRequest]) (*connect.Response[v1.StopMiningResponse], error)
@@ -190,6 +206,11 @@ type MinerCommandServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	minerCommandServiceRebootHandler := connect.NewUnaryHandler(
+		MinerCommandServiceRebootProcedure,
+		svc.Reboot,
+		opts...,
+	)
 	minerCommandServiceStopMiningHandler := connect.NewUnaryHandler(
 		MinerCommandServiceStopMiningProcedure,
 		svc.StopMining,
@@ -227,6 +248,8 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 	)
 	return "/minercommand.v1.MinerCommandService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case MinerCommandServiceRebootProcedure:
+			minerCommandServiceRebootHandler.ServeHTTP(w, r)
 		case MinerCommandServiceStopMiningProcedure:
 			minerCommandServiceStopMiningHandler.ServeHTTP(w, r)
 		case MinerCommandServiceStartMiningProcedure:
@@ -249,6 +272,10 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 
 // UnimplementedMinerCommandServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedMinerCommandServiceHandler struct{}
+
+func (UnimplementedMinerCommandServiceHandler) Reboot(context.Context, *connect.Request[v1.RebootRequest]) (*connect.Response[v1.RebootResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.Reboot is not implemented"))
+}
 
 func (UnimplementedMinerCommandServiceHandler) StopMining(context.Context, *connect.Request[v1.StopMiningRequest]) (*connect.Response[v1.StopMiningResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.StopMining is not implemented"))

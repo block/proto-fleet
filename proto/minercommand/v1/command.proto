@@ -15,6 +15,14 @@ message DeviceList {
   repeated string device_identifiers = 1;
 }
 
+message RebootRequest {
+  DeviceSelector device_selector = 1;
+}
+
+message RebootResponse {
+  string batch_identifier = 1;
+}
+
 // Request to stop mining on specific miners
 message StopMiningRequest {
   DeviceSelector device_selector = 1;
@@ -114,6 +122,8 @@ message GetCommandBatchLogBundleResponse {
 
 // Service for executing Miner commands
 service MinerCommandService {
+  rpc Reboot(RebootRequest) returns (RebootResponse);
+
   // Stops mining on specified miners
   // The operation is attempted on all miners even if some fail
   rpc StopMining(StopMiningRequest) returns (StopMiningResponse);

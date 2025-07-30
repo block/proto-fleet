@@ -25,6 +25,18 @@ func NewHandler(commandSvc *command.Service) *Handler {
 	}
 }
 
+func (h *Handler) Reboot(
+	ctx context.Context,
+	req *connect.Request[pb.RebootRequest],
+) (*connect.Response[pb.RebootResponse], error) {
+	resp, err := h.commandSvc.Reboot(ctx, req.Msg.DeviceSelector)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(resp), nil
+}
+
 func (h *Handler) StopMining(
 	ctx context.Context,
 	req *connect.Request[pb.StopMiningRequest],

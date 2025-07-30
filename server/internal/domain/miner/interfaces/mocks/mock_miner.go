@@ -204,6 +204,20 @@ func (mr *MockMinerMockRecorder) GetWebViewURL() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWebViewURL", reflect.TypeOf((*MockMiner)(nil).GetWebViewURL))
 }
 
+// Reboot mocks base method.
+func (m *MockMiner) Reboot(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Reboot", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Reboot indicates an expected call of Reboot.
+func (mr *MockMinerMockRecorder) Reboot(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Reboot", reflect.TypeOf((*MockMiner)(nil).Reboot), ctx)
+}
+
 // SetCoolingMode mocks base method.
 func (m *MockMiner) SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error {
 	m.ctrl.T.Helper()

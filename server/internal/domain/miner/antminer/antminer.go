@@ -76,6 +76,10 @@ func (a *AntminerInfo) GetWebViewURL() *url.URL {
 	}.GetURL()
 }
 
+func (a *Antminer) Reboot(ctx context.Context) error {
+	return a.webClient.Reboot(ctx, a.getWebConnectionInfo())
+}
+
 func (a *Antminer) StartMining(ctx context.Context) error {
 	return a.webClient.SetMinerConfig(ctx, a.getWebConnectionInfo(), &web.MinerConfig{
 		BitmainWorkMode: web.BitmainWorkModeStart,

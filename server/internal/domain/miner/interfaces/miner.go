@@ -22,6 +22,8 @@ type MinerInfo interface {
 type Miner interface {
 	MinerInfo
 
+	Reboot(ctx context.Context) error
+
 	// Mining operations
 	StartMining(ctx context.Context) error
 	StopMining(ctx context.Context) error

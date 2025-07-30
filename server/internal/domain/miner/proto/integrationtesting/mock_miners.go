@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api/miner_system_apiconnect"
+
 	"connectrpc.com/connect"
 	"github.com/alecthomas/assert/v2"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api"
@@ -126,6 +128,7 @@ type MockMinerHandler struct {
 }
 
 var _ miner_command_apiconnect.MinerCommandApiHandler = &MockMinerHandler{}
+var _ miner_system_apiconnect.MinerSystemApiHandler = &MockMinerHandler{}
 
 func NewMockMinerHandler(t *testing.T, callCounter *MockMinerCallCounter) *MockMinerHandler {
 	return &MockMinerHandler{
@@ -201,4 +204,32 @@ func (m *MockMinerHandler) SetNetwork(ctx context.Context, req *connect.Request[
 		func(_ *miner_system_api.SetNetworkRequest) *miner_system_api.SetNetworkResponse {
 			return &miner_system_api.SetNetworkResponse{}
 		})
+}
+
+func (m *MockMinerHandler) PlayLocateSequence(_ context.Context, _ *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[minercommonapi.ApiResultResponse], error) {
+	return nil, fleeterror.NewInternalErrorf("TODO")
+}
+
+func (m *MockMinerHandler) StopLocateSequence(_ context.Context, _ *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[minercommonapi.ApiResultResponse], error) {
+	return nil, fleeterror.NewInternalErrorf("TODO")
+}
+
+func (m *MockMinerHandler) Reboot(_ context.Context, _ *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[minercommonapi.ApiResultResponse], error) {
+	return nil, fleeterror.NewInternalErrorf("TODO")
+}
+
+func (m *MockMinerHandler) GetLogs(_ context.Context, _ *connect.Request[miner_system_api.GetLogsRequest]) (*connect.Response[miner_system_api.GetLogsResponse], error) {
+	return nil, fleeterror.NewInternalErrorf("TODO")
+}
+
+func (m *MockMinerHandler) Install(_ context.Context, _ *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[minercommonapi.ApiResultResponse], error) {
+	return nil, fleeterror.NewInternalErrorf("TODO")
+}
+
+func (m *MockMinerHandler) Update(_ context.Context, _ *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[miner_system_api.UpdateResponse], error) {
+	return nil, fleeterror.NewInternalErrorf("TODO")
+}
+
+func (m *MockMinerHandler) Upload(_ context.Context, _ *connect.ClientStream[miner_system_api.UploadRequest]) (*connect.Response[miner_system_api.UploadResponse], error) {
+	return nil, fleeterror.NewInternalErrorf("TODO")
 }

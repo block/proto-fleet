@@ -186,6 +186,8 @@ func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandTyp
 	}
 
 	switch commandType {
+	case commandtype.Reboot:
+		err = minerInfo.Reboot(ctx)
 	case commandtype.StartMining:
 		err = minerInfo.StartMining(ctx)
 	case commandtype.StopMining:
