@@ -26,6 +26,10 @@ services:
     restart: always
     volumes:
       - ./server/influx_config:/var/lib/fleet/start:ro
+    network_mode: host
+    extra_hosts:
+      - "influxdb:127.0.0.1"
+      - "mysql:127.0.0.1"
 
   fleet-client:
     build:

@@ -31,6 +31,10 @@ services:
     volumes:
       - ./influx_config:/var/lib/fleet/start:ro
     restart: unless-stopped
+    networks:
+      - fleet-network
+    ports:
+      - "4000:4000"
 
   mysql:
     extends:
@@ -51,6 +55,67 @@ services:
       - ./influx_config:/var/lib/influxdb3/start
 
   # Development-specific services
+  mms:
+    build:
+      context: ../miner-firmware
+      dockerfile: docker/sim/Dockerfile
+      args:
+        TYPE: "b3b-sim"
+    expose:
+      - 8080
+      - 2121
+    # Resource limits to prevent container overload when scaling
+    mem_limit: 128M
+    mem_reservation: 64M
+    cpus: 0.25
+    privileged: true
+    deploy:
+      replicas: 5 # Default is 5 instances, can be overridden with --scale
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+  fake-antminer:
+    build:
+      context: ./fake-antminer
+      dockerfile: Dockerfile
+    environment:
+      MINER_TYPE: "Antminer S19 XP"
+      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+    # Resource limits to prevent container overload when scaling
+    mem_limit: 128M
+    mem_reservation: 64M
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    expose:
+      - 4028
+      - 80
+    deploy:
+      replicas: 5 # Default is 5 instances, can be overridden with --scale
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
   proto-sim:
     build:
       context: ../miner-firmware
