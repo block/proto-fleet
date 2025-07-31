@@ -31,6 +31,7 @@ jobs:
           GOOS=linux GOARCH=amd64 go build -v -o fleetd-amd64 ./cmd/fleetd
           GOOS=linux GOARCH=arm64 go build -v -o fleetd-arm64 ./cmd/fleetd
           echo "version: ${{ github.event.release.tag_name }}" > version.txt
+          echo "is_prerelease: ${{ github.event.release.prerelease }}" >> version.txt
           echo "build_date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> version.txt
           echo "commit: ${{ github.sha }}" >> version.txt
           tar -czf proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz fleetd-amd64 fleetd-arm64 version.txt
@@ -231,14 +232,23 @@ jobs:
             --acl public-read
 
       - name: Sync release to latest folder
+        if: github.event.release.prerelease == false
         run: |
+          echo "Syncing to latest folder"
           aws s3 sync \
             s3://proto-fleet/releases/fleet/${{ github.event.release.tag_name }}/ \
             s3://proto-fleet/releases/fleet/latest/ \
             --acl public-read \
             --delete
+
+      - name: Skip sync for pre-release
+        if: github.event.release.prerelease == true
+        run: echo "Skipping sync to latest folder - this is a pre-release"
+
       - name: Upload version file to latest folder
+        if: github.event.release.prerelease == false
         run: |
+          echo "Uploading version file to latest folder"
           aws s3 cp \
             deployment/version.txt \
             s3://proto-fleet/releases/fleet/latest/version.txt \
