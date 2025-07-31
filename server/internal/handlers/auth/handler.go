@@ -49,3 +49,12 @@ func (s *Handler) UpdateUsername(ctx context.Context, r *connect.Request[pb.Upda
 
 	return connect.NewResponse(&pb.UpdateUsernameResponse{}), nil
 }
+
+func (s *Handler) GetUserAuditInfo(ctx context.Context, _ *connect.Request[pb.GetUserAuditInfoRequest]) (*connect.Response[pb.GetUserAuditInfoResponse], error) {
+	resp, err := s.authSvc.GetUserAuditInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(resp), nil
+}

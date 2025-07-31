@@ -33,12 +33,13 @@ func (s *SQLUserStore) GetUserByUsername(ctx context.Context, username string) (
 	}
 
 	return interfaces.User{
-		ID:           user.ID,
-		UserID:       user.UserID,
-		Username:     user.Username,
-		PasswordHash: user.PasswordHash,
-		CreatedAt:    user.CreatedAt,
-		UpdatedAt:    user.UpdatedAt,
+		ID:                user.ID,
+		UserID:            user.UserID,
+		Username:          user.Username,
+		PasswordHash:      user.PasswordHash,
+		CreatedAt:         user.CreatedAt,
+		UpdatedAt:         user.UpdatedAt,
+		PasswordUpdatedAt: user.PasswordUpdatedAt,
 	}, nil
 }
 
@@ -49,12 +50,13 @@ func (s *SQLUserStore) GetUserByID(ctx context.Context, userID int64) (interface
 	}
 
 	return interfaces.User{
-		ID:           user.ID,
-		UserID:       user.UserID,
-		Username:     user.Username,
-		PasswordHash: user.PasswordHash,
-		CreatedAt:    user.CreatedAt,
-		UpdatedAt:    user.UpdatedAt,
+		ID:                user.ID,
+		UserID:            user.UserID,
+		Username:          user.Username,
+		PasswordHash:      user.PasswordHash,
+		CreatedAt:         user.CreatedAt,
+		UpdatedAt:         user.UpdatedAt,
+		PasswordUpdatedAt: user.PasswordUpdatedAt,
 	}, nil
 }
 
@@ -62,7 +64,6 @@ func (s *SQLUserStore) UpdateUserPassword(ctx context.Context, userID int64, pas
 	return s.getQueries(ctx).UpdateUserPassword(ctx, sqlc.UpdateUserPasswordParams{
 		ID:           userID,
 		PasswordHash: passwordHash,
-		UpdatedAt:    time.Now(),
 	})
 }
 
@@ -148,4 +149,8 @@ func (s *SQLUserStore) CreateAdminUserWithOrganization(ctx context.Context, user
 
 func (s *SQLUserStore) HasUser(ctx context.Context) (bool, error) {
 	return s.getQueries(ctx).HasUser(ctx)
+}
+
+func (s *SQLUserStore) PasswordUpdatedAt(ctx context.Context, userID int64) (time.Time, error) {
+	return s.getQueries(ctx).PasswordUpdatedAt(ctx, userID)
 }

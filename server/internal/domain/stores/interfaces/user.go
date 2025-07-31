@@ -14,15 +14,17 @@ type UserStore interface {
 	CreateAdminUserWithOrganization(ctx context.Context, userID string, username string, passwordHash string,
 		orgName string, orgID string, minerAuthPrivateKey string, roleName string, roleDescription string) error
 	HasUser(ctx context.Context) (bool, error)
+	PasswordUpdatedAt(ctx context.Context, userID int64) (time.Time, error)
 }
 
 type User struct {
-	ID           int64
-	UserID       string
-	Username     string
-	PasswordHash string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                int64
+	UserID            string
+	Username          string
+	PasswordHash      string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	PasswordUpdatedAt time.Time
 }
 
 type Organization struct {

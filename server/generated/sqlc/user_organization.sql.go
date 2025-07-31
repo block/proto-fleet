@@ -91,7 +91,7 @@ func (q *Queries) GetUserRoleInOrganization(ctx context.Context, arg GetUserRole
 }
 
 const getUsersForOrganization = `-- name: GetUsersForOrganization :many
-SELECT u.id, u.user_id, u.username, u.password_hash, u.created_at, u.updated_at, u.deleted_at
+SELECT u.id, u.user_id, u.username, u.password_hash, u.created_at, u.updated_at, u.deleted_at, u.password_updated_at
 FROM user u
          JOIN user_organization uo ON u.id = uo.user_id
 WHERE uo.organization_id = ?
@@ -114,6 +114,7 @@ func (q *Queries) GetUsersForOrganization(ctx context.Context, organizationID in
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.PasswordUpdatedAt,
 		); err != nil {
 			return nil, err
 		}

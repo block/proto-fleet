@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 
 	"connectrpc.com/connect"
@@ -207,6 +209,22 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 
 		return nil
 	})
+}
+
+func (s *Service) GetUserAuditInfo(ctx context.Context) (*authv1.GetUserAuditInfoResponse, error) {
+	claims, err := token.GetClientAuthJWTClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	date, err := s.userStore.PasswordUpdatedAt(ctx, claims.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	protoTimestamp := timestamppb.New(date)
+
+	return &authv1.GetUserAuditInfoResponse{Info: &authv1.UserAuditInfo{PasswordUpdatedAt: protoTimestamp}}, nil
 }
 
 // generateDefaultOrgName returns a default organization name suffixed with the first 8 chars or the orgID

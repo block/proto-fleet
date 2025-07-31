@@ -43,6 +43,9 @@ const (
 	// AuthServiceUpdateUsernameProcedure is the fully-qualified name of the AuthService's
 	// UpdateUsername RPC.
 	AuthServiceUpdateUsernameProcedure = "/auth.v1.AuthService/UpdateUsername"
+	// AuthServiceGetUserAuditInfoProcedure is the fully-qualified name of the AuthService's
+	// GetUserAuditInfo RPC.
+	AuthServiceGetUserAuditInfoProcedure = "/auth.v1.AuthService/GetUserAuditInfo"
 )
 
 // AuthServiceClient is a client for the auth.v1.AuthService service.
@@ -55,6 +58,7 @@ type AuthServiceClient interface {
 	// The user must be authenticated to use this endpoint
 	UpdatePassword(context.Context, *connect.Request[v1.UpdatePasswordRequest]) (*connect.Response[v1.UpdatePasswordResponse], error)
 	UpdateUsername(context.Context, *connect.Request[v1.UpdateUsernameRequest]) (*connect.Response[v1.UpdateUsernameResponse], error)
+	GetUserAuditInfo(context.Context, *connect.Request[v1.GetUserAuditInfoRequest]) (*connect.Response[v1.GetUserAuditInfoResponse], error)
 }
 
 // NewAuthServiceClient constructs a client for the auth.v1.AuthService service. By default, it uses
@@ -82,14 +86,20 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			baseURL+AuthServiceUpdateUsernameProcedure,
 			opts...,
 		),
+		getUserAuditInfo: connect.NewClient[v1.GetUserAuditInfoRequest, v1.GetUserAuditInfoResponse](
+			httpClient,
+			baseURL+AuthServiceGetUserAuditInfoProcedure,
+			opts...,
+		),
 	}
 }
 
 // authServiceClient implements AuthServiceClient.
 type authServiceClient struct {
-	authenticate   *connect.Client[v1.AuthenticateRequest, v1.AuthenticateResponse]
-	updatePassword *connect.Client[v1.UpdatePasswordRequest, v1.UpdatePasswordResponse]
-	updateUsername *connect.Client[v1.UpdateUsernameRequest, v1.UpdateUsernameResponse]
+	authenticate     *connect.Client[v1.AuthenticateRequest, v1.AuthenticateResponse]
+	updatePassword   *connect.Client[v1.UpdatePasswordRequest, v1.UpdatePasswordResponse]
+	updateUsername   *connect.Client[v1.UpdateUsernameRequest, v1.UpdateUsernameResponse]
+	getUserAuditInfo *connect.Client[v1.GetUserAuditInfoRequest, v1.GetUserAuditInfoResponse]
 }
 
 // Authenticate calls auth.v1.AuthService.Authenticate.
@@ -107,6 +117,11 @@ func (c *authServiceClient) UpdateUsername(ctx context.Context, req *connect.Req
 	return c.updateUsername.CallUnary(ctx, req)
 }
 
+// GetUserAuditInfo calls auth.v1.AuthService.GetUserAuditInfo.
+func (c *authServiceClient) GetUserAuditInfo(ctx context.Context, req *connect.Request[v1.GetUserAuditInfoRequest]) (*connect.Response[v1.GetUserAuditInfoResponse], error) {
+	return c.getUserAuditInfo.CallUnary(ctx, req)
+}
+
 // AuthServiceHandler is an implementation of the auth.v1.AuthService service.
 type AuthServiceHandler interface {
 	// Authenticate validates user credentials and returns an authentication token
@@ -117,6 +132,7 @@ type AuthServiceHandler interface {
 	// The user must be authenticated to use this endpoint
 	UpdatePassword(context.Context, *connect.Request[v1.UpdatePasswordRequest]) (*connect.Response[v1.UpdatePasswordResponse], error)
 	UpdateUsername(context.Context, *connect.Request[v1.UpdateUsernameRequest]) (*connect.Response[v1.UpdateUsernameResponse], error)
+	GetUserAuditInfo(context.Context, *connect.Request[v1.GetUserAuditInfoRequest]) (*connect.Response[v1.GetUserAuditInfoResponse], error)
 }
 
 // NewAuthServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -140,6 +156,11 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		svc.UpdateUsername,
 		opts...,
 	)
+	authServiceGetUserAuditInfoHandler := connect.NewUnaryHandler(
+		AuthServiceGetUserAuditInfoProcedure,
+		svc.GetUserAuditInfo,
+		opts...,
+	)
 	return "/auth.v1.AuthService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AuthServiceAuthenticateProcedure:
@@ -148,6 +169,8 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 			authServiceUpdatePasswordHandler.ServeHTTP(w, r)
 		case AuthServiceUpdateUsernameProcedure:
 			authServiceUpdateUsernameHandler.ServeHTTP(w, r)
+		case AuthServiceGetUserAuditInfoProcedure:
+			authServiceGetUserAuditInfoHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -167,4 +190,8 @@ func (UnimplementedAuthServiceHandler) UpdatePassword(context.Context, *connect.
 
 func (UnimplementedAuthServiceHandler) UpdateUsername(context.Context, *connect.Request[v1.UpdateUsernameRequest]) (*connect.Response[v1.UpdateUsernameResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("auth.v1.AuthService.UpdateUsername is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) GetUserAuditInfo(context.Context, *connect.Request[v1.GetUserAuditInfoRequest]) (*connect.Response[v1.GetUserAuditInfoResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("auth.v1.AuthService.GetUserAuditInfo is not implemented"))
 }

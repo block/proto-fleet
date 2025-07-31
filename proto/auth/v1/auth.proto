@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package auth.v1;
 
+import "google/protobuf/timestamp.proto";
+
 // AuthService provides authentication and user credential management functionality
 service AuthService {
     // Authenticate validates user credentials and returns an authentication token
@@ -14,6 +16,8 @@ service AuthService {
     rpc UpdatePassword(UpdatePasswordRequest) returns (UpdatePasswordResponse);
 
     rpc UpdateUsername(UpdateUsernameRequest) returns (UpdateUsernameResponse);
+
+    rpc GetUserAuditInfo(GetUserAuditInfoRequest) returns (GetUserAuditInfoResponse);
 }
 
 message AuthenticateRequest {
@@ -65,4 +69,15 @@ enum UpdatePasswordErrorCode {
     UPDATE_PASSWORD_ERROR_CODE_UNSPECIFIED = 0;
     UPDATE_PASSWORD_ERROR_CODE_INVALID_OLD_PASSWORD = 1;
     UPDATE_PASSWORD_ERROR_CODE_NEW_PASSWORD_SAME_AS_OLD_PASSWORD = 2;
+}
+
+message GetUserAuditInfoRequest {
+}
+
+message UserAuditInfo {
+    google.protobuf.Timestamp password_updated_at = 1;
+}
+
+message GetUserAuditInfoResponse {
+    UserAuditInfo info = 1;
 }

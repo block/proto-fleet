@@ -15,7 +15,8 @@ VALUES (?, ?, ?, ?);
 -- name: UpdateUserPassword :exec
 UPDATE user
 SET password_hash = ?,
-    updated_at = ?
+    updated_at = NOW(),
+    password_updated_at = NOW()
 WHERE id = ?;
 
 -- name: UpdateUserUsername :exec
@@ -27,3 +28,8 @@ WHERE id = ?;
 -- name: HasUser :one
 SELECT COUNT(*) > 0
 FROM user;
+
+-- name: PasswordUpdatedAt :one
+SELECT password_updated_at
+FROM user
+WHERE id = ?;

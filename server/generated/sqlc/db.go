@@ -198,6 +198,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.markCommandBatchProcessingStmt, err = db.PrepareContext(ctx, markCommandBatchProcessing); err != nil {
 		return nil, fmt.Errorf("error preparing query MarkCommandBatchProcessing: %w", err)
 	}
+	if q.passwordUpdatedAtStmt, err = db.PrepareContext(ctx, passwordUpdatedAt); err != nil {
+		return nil, fmt.Errorf("error preparing query PasswordUpdatedAt: %w", err)
+	}
 	if q.softDeleteOrganizationStmt, err = db.PrepareContext(ctx, softDeleteOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteOrganization: %w", err)
 	}
@@ -556,6 +559,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing markCommandBatchProcessingStmt: %w", cerr)
 		}
 	}
+	if q.passwordUpdatedAtStmt != nil {
+		if cerr := q.passwordUpdatedAtStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing passwordUpdatedAtStmt: %w", cerr)
+		}
+	}
 	if q.softDeleteOrganizationStmt != nil {
 		if cerr := q.softDeleteOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing softDeleteOrganizationStmt: %w", cerr)
@@ -758,6 +766,7 @@ type Queries struct {
 	markCommandBatchFinishedStmt                        *sql.Stmt
 	markCommandBatchFinishedWithStartedAtStmt           *sql.Stmt
 	markCommandBatchProcessingStmt                      *sql.Stmt
+	passwordUpdatedAtStmt                               *sql.Stmt
 	softDeleteOrganizationStmt                          *sql.Stmt
 	softDeletePoolStmt                                  *sql.Stmt
 	softDeleteRoleStmt                                  *sql.Stmt
@@ -843,6 +852,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		markCommandBatchFinishedStmt:                        q.markCommandBatchFinishedStmt,
 		markCommandBatchFinishedWithStartedAtStmt:           q.markCommandBatchFinishedWithStartedAtStmt,
 		markCommandBatchProcessingStmt:                      q.markCommandBatchProcessingStmt,
+		passwordUpdatedAtStmt:                               q.passwordUpdatedAtStmt,
 		softDeleteOrganizationStmt:                          q.softDeleteOrganizationStmt,
 		softDeletePoolStmt:                                  q.softDeletePoolStmt,
 		softDeleteRoleStmt:                                  q.softDeleteRoleStmt,
