@@ -34,6 +34,11 @@ const (
 	MethodPlayLocateSequence MethodName = "PlayLocateSequence"
 	MethodStopLocateSequence MethodName = "StopLocateSequence"
 	MethodSetAuthKey         MethodName = "SetAuthKey"
+	MethodReboot             MethodName = "Reboot"
+	MethodGetLogs            MethodName = "GetLogs"
+	MethodInstall            MethodName = "Install"
+	MethodUpdate             MethodName = "Update"
+	MethodUpload             MethodName = "Upload"
 )
 
 // MockMinerCallCounter tracks call counts for different API methods
@@ -60,6 +65,11 @@ func NewMockMinerCallCounter() *MockMinerCallCounter {
 		MethodPlayLocateSequence,
 		MethodStopLocateSequence,
 		MethodSetAuthKey,
+		MethodReboot,
+		MethodGetLogs,
+		MethodInstall,
+		MethodUpdate,
+		MethodUpload,
 	}
 
 	for _, method := range methods {
@@ -213,26 +223,6 @@ func (m *MockMinerHandler) SetNetwork(ctx context.Context, req *connect.Request[
 		})
 }
 
-func (m *MockMinerHandler) Reboot(_ context.Context, _ *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[minercommonapi.ApiResultResponse], error) {
-	return nil, fleeterror.NewInternalErrorf("TODO")
-}
-
-func (m *MockMinerHandler) GetLogs(_ context.Context, _ *connect.Request[miner_system_api.GetLogsRequest]) (*connect.Response[miner_system_api.GetLogsResponse], error) {
-	return nil, fleeterror.NewInternalErrorf("TODO")
-}
-
-func (m *MockMinerHandler) Install(_ context.Context, _ *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[minercommonapi.ApiResultResponse], error) {
-	return nil, fleeterror.NewInternalErrorf("TODO")
-}
-
-func (m *MockMinerHandler) Update(_ context.Context, _ *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[miner_system_api.UpdateResponse], error) {
-	return nil, fleeterror.NewInternalErrorf("TODO")
-}
-
-func (m *MockMinerHandler) Upload(_ context.Context, _ *connect.ClientStream[miner_system_api.UploadRequest]) (*connect.Response[miner_system_api.UploadResponse], error) {
-	return nil, fleeterror.NewInternalErrorf("TODO")
-}
-
 func (m *MockMinerHandler) PlayLocateSequence(_ context.Context, req *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[minercommonapi.ApiResultResponse], error) {
 	return handleRequest(
 		m.t, "PlayLocateSequence", req, m.callCounter.GetCounter(MethodPlayLocateSequence),
@@ -263,4 +253,52 @@ func (m *MockMinerHandler) SetAuthKey(ctx context.Context, req *connect.Request[
 				Message: "Auth key set successfully",
 			}
 		}), nil
+}
+
+func (m *MockMinerHandler) Reboot(ctx context.Context, req *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[minercommonapi.ApiResultResponse], error) {
+	return handleRequest(
+		m.t, "Reboot", req, m.callCounter.GetCounter(MethodReboot),
+		func(_ *minercommonapi.EmptyRequest) *minercommonapi.ApiResultResponse {
+			return &minercommonapi.ApiResultResponse{
+				Result: minercommonapi.ApiResult_RESULT_SUCCESS,
+			}
+		})
+}
+
+func (m *MockMinerHandler) GetLogs(ctx context.Context, req *connect.Request[miner_system_api.GetLogsRequest]) (*connect.Response[miner_system_api.GetLogsResponse], error) {
+	return handleRequest(
+		m.t, "GetLogs", req, m.callCounter.GetCounter(MethodGetLogs),
+		func(_ *miner_system_api.GetLogsRequest) *miner_system_api.GetLogsResponse {
+			return &miner_system_api.GetLogsResponse{
+				Source:  req.Msg.Source,
+				Lines:   3,
+				Content: []string{"Mock log data", "Line 2", "Line 3"},
+			}
+		})
+}
+
+func (m *MockMinerHandler) Install(ctx context.Context, req *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[minercommonapi.ApiResultResponse], error) {
+	return handleRequest(
+		m.t, "Install", req, m.callCounter.GetCounter(MethodInstall),
+		func(_ *minercommonapi.EmptyRequest) *minercommonapi.ApiResultResponse {
+			return &minercommonapi.ApiResultResponse{
+				Result: minercommonapi.ApiResult_RESULT_SUCCESS,
+			}
+		})
+}
+
+func (m *MockMinerHandler) Update(ctx context.Context, req *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[miner_system_api.UpdateResponse], error) {
+	return handleRequest(
+		m.t, "Update", req, m.callCounter.GetCounter(MethodUpdate),
+		func(_ *minercommonapi.EmptyRequest) *miner_system_api.UpdateResponse {
+			return &miner_system_api.UpdateResponse{
+				Message: "Update installation started.",
+			}
+		})
+}
+
+func (m *MockMinerHandler) Upload(ctx context.Context, _ *connect.ClientStream[miner_system_api.UploadRequest]) (*connect.Response[miner_system_api.UploadResponse], error) {
+	return connect.NewResponse(&miner_system_api.UploadResponse{
+		Message: "Update file uploaded successfully.",
+	}), nil
 }

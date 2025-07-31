@@ -2,6 +2,7 @@ package files
 
 import (
 	"archive/zip"
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -57,8 +58,7 @@ func (s *Service) CreateBatchDirIfNotExists(batchLogUUID string) (string, error)
 	return batchDir, nil
 }
 
-func (s *Service) SaveLogs(batchLogUUID string, deviceIdentifier *miner.DeviceIdentifier, logData string) (string, error) {
-	// TODO maybe move to a processor level
+func (s *Service) SaveLogs(batchLogUUID string, deviceIdentifier *miner.DeviceIdentifier, logLines []string) (string, error) {
 	batchDir, err := s.CreateBatchDirIfNotExists(batchLogUUID)
 	if err != nil {
 		return "", err
@@ -66,10 +66,29 @@ func (s *Service) SaveLogs(batchLogUUID string, deviceIdentifier *miner.DeviceId
 
 	timestamp := time.Now().Format("20060102-150405")
 	filename := fmt.Sprintf("%s_%s.log", deviceIdentifier, timestamp)
-
 	filePath := filepath.Join(batchDir, filename)
-	if err := os.WriteFile(filePath, []byte(logData), 0640); err != nil {
-		return "", fleeterror.NewInternalErrorf("failed to write log data to a file: %v", err)
+
+	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to create log file: %v", err)
+	}
+	defer file.Close()
+
+	bufWriter := bufio.NewWriter(file)
+	defer func() {
+		if err := bufWriter.Flush(); err != nil {
+			slog.Error("failed to flush buffer", "error", err)
+		}
+	}()
+
+	for _, line := range logLines {
+		if _, err := fmt.Fprintln(bufWriter, line); err != nil {
+			return "", fleeterror.NewInternalErrorf("failed to write log data to file: %v", err)
+		}
+	}
+
+	if err := bufWriter.Flush(); err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to flush log data to file: %v", err)
 	}
 
 	return filePath, nil

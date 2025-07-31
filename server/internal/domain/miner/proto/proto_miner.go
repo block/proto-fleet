@@ -10,6 +10,8 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 
+	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api"
+
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
@@ -39,6 +41,7 @@ var _ interfaces.MinerInfo = &ProtoMiner{}
 var _ interfaces.MinerInfo = &ProtoMinerInfo{}
 
 const minerViewPort = 80
+const DownloadLogsLines uint32 = 10000
 
 type ProtoMinerInfo struct {
 	deviceIdentifier    miner.DeviceIdentifier
@@ -328,20 +331,17 @@ func (p *ProtoMiner) DownloadLogs(ctx context.Context, batchLogUUID string) erro
 		return fleeterror.NewInternalErrorf("error getting auth context: %v", err)
 	}
 
-	// TODO introduce the correct call once the GRPC supports it
-	downloadResp, err := p.commandClient.StopMining(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
+	lines := DownloadLogsLines
+	downloadResp, err := p.systemClient.GetLogs(ctx, connect.NewRequest(&miner_system_api.GetLogsRequest{
+		Lines:  &lines,
+		Source: miner_system_api.LogSource_LOG_SOURCE_MINER_SW,
+	}))
 	if err != nil {
 		return err
 	}
 
-	if downloadResp.Msg.Result != miner_common_api.ApiResult_RESULT_SUCCESS {
-		return fleeterror.NewInternalErrorf("download logs failed: %s", downloadResp.Msg.String())
-	}
-
-	// TODO use the real data once the GRPC supports it
-
 	deviceIdentifier := p.GetID()
-	logData := generateMockLogData(&deviceIdentifier)
+	logData := downloadResp.Msg.Content
 
 	_, err = p.filesService.SaveLogs(batchLogUUID, &deviceIdentifier, logData)
 
@@ -363,20 +363,6 @@ func (p *ProtoMiner) SetAuthKey(ctx context.Context, key string) error {
 	}
 
 	return nil
-}
-
-func generateMockLogData(deviceIdentifier *miner.DeviceIdentifier) string {
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	return fmt.Sprintf(`{
-		"device_id": "%s",
-		"timestamp": "%s",
-		"log_entries": [
-			{"level": "INFO", "timestamp": "%s", "message": "Mining service started"},
-			{"level": "INFO", "timestamp": "%s", "message": "Connected to pool"},
-			{"level": "DEBUG", "timestamp": "%s", "message": "Hash rate: 95.5 TH/s"},
-			{"level": "WARNING", "timestamp": "%s", "message": "Temperature threshold approaching"}
-		]
-	}`, deviceIdentifier, timestamp, timestamp, timestamp, timestamp, timestamp)
 }
 
 func (p *ProtoMiner) BlinkLED(ctx context.Context) error {
