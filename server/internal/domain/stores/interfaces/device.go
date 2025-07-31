@@ -24,7 +24,7 @@ type DeviceStore interface {
 	UpsertDevice(ctx context.Context, device *pb.Device, orgID int64, deviceType string) error
 	UpsertDeviceIPAssignment(ctx context.Context, device *pb.Device, orgID int64) error
 	UpsertMinerCredentials(ctx context.Context, device *pb.Device, orgID int64, usernameEnc string, passwordEnc *secrets.Text) error
-	UpsertDevicePairing(ctx context.Context, device *pb.Device, orgID int64, pairingToken string, pairingStatus string) error
+	UpsertDevicePairing(ctx context.Context, device *pb.Device, orgID int64, pairingStatus string) error
 	GetMinerCredentials(ctx context.Context, device *pb.Device, orgID int64) (*pb.Credentials, error)
 	GetDeviceByDeviceIdentifier(ctx context.Context, identifier string, orgID int64) (*pb.Device, error)
 	GetDeviceWithIPAssignment(ctx context.Context, deviceIdentifier string, orgID int64) (*minerdiscovery.DiscoveredDevice, error)

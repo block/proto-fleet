@@ -44,6 +44,7 @@ type TestContext struct {
 	DatabaseService        *DatabaseService
 	ServiceProvider        *ServiceProvider
 	InfrastructureProvider *InfrastructureProvider
+	Config                 *Config
 }
 
 func NewInfrastructureProvider(t *testing.T, serviceProvider *ServiceProvider, authInterceptorAllowList []string) *InfrastructureProvider {
@@ -100,7 +101,7 @@ func InitializeDBServiceInfrastructure(t *testing.T) *TestContext {
 	serviceProvider := NewServiceProvider(t, databaseService.DB, testConfig)
 
 	infrastructureProvider := NewInfrastructureProvider(t, serviceProvider, interceptors.UnauthenticatedProcedures)
-	return &TestContext{DatabaseService: databaseService, ServiceProvider: serviceProvider, InfrastructureProvider: infrastructureProvider}
+	return &TestContext{DatabaseService: databaseService, ServiceProvider: serviceProvider, InfrastructureProvider: infrastructureProvider, Config: testConfig}
 }
 
 // SetupMockMinerServer creates a test HTTP server that simulates a miner API
@@ -113,8 +114,10 @@ func SetupMockMinerServer(t *testing.T, callCounter *integrationtesting.MockMine
 
 	mux := http.NewServeMux()
 	path, handler := miner_command_apiconnect.NewMinerCommandApiHandler(mockHandler)
+	authPath, authHandler := miner_command_apiconnect.NewMinerAuthApiHandler(mockHandler)
 	systemPath, systemHandler := miner_system_apiconnect.NewMinerSystemApiHandler(mockHandler)
 	mux.Handle(path, handler)
+	mux.Handle(authPath, authHandler)
 	mux.Handle(systemPath, systemHandler)
 
 	var server *httptest.Server

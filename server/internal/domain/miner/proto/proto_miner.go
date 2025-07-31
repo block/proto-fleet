@@ -6,6 +6,10 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
+
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
@@ -28,7 +32,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
 	telemetryModels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
 
 var _ interfaces.Miner = &ProtoMiner{}
@@ -38,20 +41,23 @@ var _ interfaces.MinerInfo = &ProtoMinerInfo{}
 const minerViewPort = 80
 
 type ProtoMinerInfo struct {
-	deviceIdentifier miner.DeviceIdentifier
-	connectionInfo   networking.ConnectionInfo
+	deviceIdentifier    miner.DeviceIdentifier
+	minerAuthPrivateKey []byte
+	connectionInfo      networking.ConnectionInfo
 }
 
 type ProtoMiner struct {
-	interfaces.MinerInfo
-	authToken     *secrets.Text
-	dataClient    miner_data_apiconnect.MinerDataApiClient
-	commandClient miner_command_apiconnect.MinerCommandApiClient
-	systemClient  miner_system_apiconnect.MinerSystemApiClient
-	filesService  *files.Service
+	minerInfo         *ProtoMinerInfo
+	dataClient        miner_data_apiconnect.MinerDataApiClient
+	commandClient     miner_command_apiconnect.MinerCommandApiClient
+	systemClient      miner_system_apiconnect.MinerSystemApiClient
+	commandAuthClient miner_command_apiconnect.MinerAuthApiClient
+	filesService      *files.Service
+	tokenService      *token.Service
+	encryptService    *encrypt.Service
 }
 
-func NewProtoMiner(protoMinerInfo interfaces.MinerInfo, authToken secrets.Text, filesService *files.Service) (*ProtoMiner, error) {
+func NewProtoMiner(protoMinerInfo *ProtoMinerInfo, filesService *files.Service, tokenService *token.Service, encryptService *encrypt.Service) (*ProtoMiner, error) {
 	// Create individual clients using the new CreateClient function
 	dataClient, err := client.CreateClient(
 		miner_data_apiconnect.NewMinerDataApiClient,
@@ -77,25 +83,36 @@ func NewProtoMiner(protoMinerInfo interfaces.MinerInfo, authToken secrets.Text, 
 		return nil, fleeterror.NewInternalErrorf("failed to create system client: %v", err)
 	}
 
+	commandAuthClient, err := client.CreateClient(
+		miner_command_apiconnect.NewMinerAuthApiClient,
+		protoMinerInfo.GetConnectionInfo(),
+	)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to create auth client: %v", err)
+	}
+
 	return &ProtoMiner{
-		MinerInfo:     protoMinerInfo,
-		authToken:     &authToken,
-		dataClient:    dataClient,
-		commandClient: commandClient,
-		systemClient:  systemClient,
-		filesService:  filesService,
+		minerInfo:         protoMinerInfo,
+		dataClient:        dataClient,
+		commandClient:     commandClient,
+		systemClient:      systemClient,
+		commandAuthClient: commandAuthClient,
+		filesService:      filesService,
+		tokenService:      tokenService,
+		encryptService:    encryptService,
 	}, nil
 }
 
-func NewProtoMinerInfo(deviceIdentifier miner.DeviceIdentifier, ipAddress string, port uint16, scheme networking.Protocol) (*ProtoMinerInfo, error) {
+func NewProtoMinerInfo(deviceIdentifier miner.DeviceIdentifier, ipAddress string, port uint16, scheme networking.Protocol, minerAuthPrivateKey []byte) (*ProtoMinerInfo, error) {
 	connectionInfo, err := networking.NewConnectionInfo(ipAddress, fmt.Sprintf("%d", port), scheme)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to create connection info: %v", err)
 	}
 
 	return &ProtoMinerInfo{
-		deviceIdentifier: deviceIdentifier,
-		connectionInfo:   *connectionInfo,
+		deviceIdentifier:    deviceIdentifier,
+		connectionInfo:      *connectionInfo,
+		minerAuthPrivateKey: minerAuthPrivateKey,
 	}, nil
 }
 
@@ -103,12 +120,24 @@ func (p *ProtoMinerInfo) GetType() miner.Type {
 	return miner.TypeProto
 }
 
+func (p *ProtoMiner) GetType() miner.Type {
+	return p.minerInfo.GetType()
+}
+
 func (p *ProtoMinerInfo) GetID() miner.DeviceIdentifier {
 	return p.deviceIdentifier
 }
 
+func (p *ProtoMiner) GetID() miner.DeviceIdentifier {
+	return p.minerInfo.GetID()
+}
+
 func (p *ProtoMinerInfo) GetConnectionInfo() networking.ConnectionInfo {
 	return p.connectionInfo
+}
+
+func (p *ProtoMiner) GetConnectionInfo() networking.ConnectionInfo {
+	return p.minerInfo.GetConnectionInfo()
 }
 
 func (p *ProtoMinerInfo) GetWebViewURL() *url.URL {
@@ -119,8 +148,15 @@ func (p *ProtoMinerInfo) GetWebViewURL() *url.URL {
 	}.GetURL()
 }
 
+func (p *ProtoMiner) GetWebViewURL() *url.URL {
+	return p.minerInfo.GetWebViewURL()
+}
+
 func (p *ProtoMiner) Reboot(ctx context.Context) error {
-	ctx = client.ContextWithAuth(ctx, p.authToken)
+	ctx, err := p.contextWithAuth(ctx)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error getting auth context: %v", err)
+	}
 	resp, err := p.systemClient.Reboot(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
 	if err != nil {
 		return err
@@ -133,8 +169,29 @@ func (p *ProtoMiner) Reboot(ctx context.Context) error {
 	return nil
 }
 
+func (p *ProtoMiner) getJWT() (string, error) {
+	jwt, _, err := p.tokenService.GenerateMinerAuthJWT(p.minerInfo.GetID().String(), p.minerInfo.minerAuthPrivateKey)
+	if err != nil {
+		return "", fleeterror.NewInternalErrorf("error generating miner auth JWT: %v", err)
+	}
+
+	return jwt, nil
+}
+
+func (p *ProtoMiner) contextWithAuth(ctx context.Context) (context.Context, error) {
+	jwt, err := p.getJWT()
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting jwt: %v", err)
+	}
+
+	return client.ContextWithAuth(ctx, secrets.NewText(jwt)), nil
+}
+
 func (p *ProtoMiner) StartMining(ctx context.Context) error {
-	ctx = client.ContextWithAuth(ctx, p.authToken)
+	ctx, err := p.contextWithAuth(ctx)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error getting auth context: %v", err)
+	}
 	resp, err := p.commandClient.StartMining(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
 	if err != nil {
 		return err // Error mapping handled by interceptor
@@ -148,7 +205,10 @@ func (p *ProtoMiner) StartMining(ctx context.Context) error {
 }
 
 func (p *ProtoMiner) StopMining(ctx context.Context) error {
-	ctx = client.ContextWithAuth(ctx, p.authToken)
+	ctx, err := p.contextWithAuth(ctx)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error getting auth context: %v", err)
+	}
 	resp, err := p.commandClient.StopMining(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
 	if err != nil {
 		return err // Error mapping handled by interceptor
@@ -175,7 +235,10 @@ func mapCoolingModeType(pbMode pb.CoolingMode) (miner_data_api.CoolingMode, erro
 }
 
 func (p *ProtoMiner) SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error {
-	ctx = client.ContextWithAuth(ctx, p.authToken)
+	ctx, err := p.contextWithAuth(ctx)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error getting auth context: %v", err)
+	}
 
 	protoMinerMode, err := mapCoolingModeType(payload.Mode)
 	if err != nil {
@@ -224,7 +287,10 @@ func toMinerCommandPoolsRequest(pld dto.UpdateMiningPoolsPayload) *miner_command
 
 func (p *ProtoMiner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
 	// TODO rewrite to a single setMiningPools call on miner once FW supports this (link the linear task here once created)
-	ctx = client.ContextWithAuth(ctx, p.authToken)
+	ctx, err := p.contextWithAuth(ctx)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error getting auth context: %v", err)
+	}
 
 	poolsResp, err := p.dataClient.GetPools(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
 	if err != nil {
@@ -257,7 +323,10 @@ func (p *ProtoMiner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMi
 }
 
 func (p *ProtoMiner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
-	ctx = client.ContextWithAuth(ctx, p.authToken)
+	ctx, err := p.contextWithAuth(ctx)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error getting auth context: %v", err)
+	}
 
 	// TODO introduce the correct call once the GRPC supports it
 	downloadResp, err := p.commandClient.StopMining(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
@@ -283,6 +352,19 @@ func (p *ProtoMiner) DownloadLogs(ctx context.Context, batchLogUUID string) erro
 	return nil
 }
 
+func (p *ProtoMiner) SetAuthKey(ctx context.Context, key string) error {
+	res, err := p.commandAuthClient.SetAuthKey(ctx, connect.NewRequest(&miner_command_api.SetAuthKeyRequest{PublicKey: key}))
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error setting auth key: %v", err)
+	}
+
+	if res.Msg.Result != miner_common_api.ApiResult_RESULT_SUCCESS {
+		return fleeterror.NewInternalErrorf("setting auth key failed: %s", res.Msg.String())
+	}
+
+	return nil
+}
+
 func generateMockLogData(deviceIdentifier *miner.DeviceIdentifier) string {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	return fmt.Sprintf(`{
@@ -298,7 +380,10 @@ func generateMockLogData(deviceIdentifier *miner.DeviceIdentifier) string {
 }
 
 func (p *ProtoMiner) BlinkLED(ctx context.Context) error {
-	ctx = client.ContextWithAuth(ctx, p.authToken)
+	ctx, err := p.contextWithAuth(ctx)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error getting auth context: %v", err)
+	}
 	resp, err := p.commandClient.PlayLocateSequence(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
 	if err != nil {
 		return err // Error mapping handled by interceptor
@@ -323,7 +408,10 @@ func (p *ProtoMiner) GetTelemetry(ctx context.Context, after time.Time) ([]telem
 	errGroup, ctx := errgroup.WithContext(ctx)
 
 	// Add auth token to context
-	ctx = client.ContextWithAuth(ctx, p.authToken)
+	ctx, err := p.contextWithAuth(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting auth context: %v", err)
+	}
 
 	for i, req := range requests {
 		goI, goReq := i, req // Capture loop variables

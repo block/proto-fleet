@@ -135,18 +135,15 @@ WHERE dp.pairing_status = 'PAIRED'
 -- name: UpsertDevicePairing :execresult
 INSERT INTO device_pairing (
     device_id,
-    pairing_token,
     pairing_status,
     paired_at
 ) VALUES (
-    ?,
     ?,
     ?,
     CURRENT_TIMESTAMP(6)
 )
 ON DUPLICATE KEY UPDATE
     pairing_status = VALUES(pairing_status),
-    pairing_token = VALUES(pairing_token),
     paired_at = CURRENT_TIMESTAMP(6),
     unpaired_at = NULL;
 

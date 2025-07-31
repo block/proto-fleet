@@ -229,7 +229,6 @@ func (s *DatabaseService) CreateTestMiners(orgID int64, count int, mockMinerURL 
 		err := db2.WithTransactionNoResult(s.t.Context(), s.DB, func(q *sqlc.Queries) error {
 			_, err := q.UpsertDevicePairing(s.t.Context(), sqlc.UpsertDevicePairingParams{
 				DeviceID:      device.DatabaseID,
-				PairingToken:  sql.NullString{String: "test-token", Valid: true},
 				PairingStatus: sqlc.DevicePairingPairingStatusPAIRED,
 			})
 			return err

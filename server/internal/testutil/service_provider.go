@@ -42,6 +42,7 @@ type ServiceProvider struct {
 	FleetManagementService *fleetmanagement.Service
 	DeviceStore            *sqlstores.SQLDeviceStore
 	FilesService           *files.Service
+	MinerService           *miner.MinerService
 }
 
 func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvider {
@@ -74,7 +75,12 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 
 	discoveredDeviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
 
-	protoPairer := pairingProto.NewService(transactor, deviceStore, pairingConfig)
+	filesService, err := files.NewService()
+	assert.NoError(t, err)
+
+	minerService := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService)
+
+	protoPairer := pairingProto.NewService(transactor, deviceStore, userStore, pairingConfig, minerService, tokenService, encryptService)
 	antminerPairer := pairingAntminer.NewService(transactor, deviceStore, encryptService, antminerWeb.NewService())
 
 	pairingService := pairing.NewService(discoveredDeviceStore, deviceStore, transactor, tokenService, minerDiscoveryService, listenerMock, protoPairer, antminerPairer)
@@ -86,10 +92,6 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 
 	executionServiceCtx, executionServiceCancel := context.WithCancel(t.Context())
 
-	filesService, err := files.NewService()
-	assert.NoError(t, err)
-
-	minerService := miner.NewMinerService(db, encryptService, filesService)
 	executionService := command.NewExecutionService(executionServiceCtx, commandConfig, db, dbMessageQueue, encryptService, tokenService, minerService)
 	err = executionService.Start(executionServiceCtx)
 	assert.NoError(t, err)
@@ -113,5 +115,6 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 		FleetManagementService: fleetManagementService,
 		DeviceStore:            deviceStore,
 		FilesService:           filesService,
+		MinerService:           minerService,
 	}
 }

@@ -133,7 +133,7 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
-	minerService := miner.NewMinerService(conn, encryptSvc, filesService)
+	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, tokenSvc)
 
 	telemetryService := telemetry.NewTelemetryService(
 		config.Telemetry,
@@ -148,7 +148,7 @@ func start(config *Config) error {
 		return fmt.Errorf("failed to start telemetry service: %w", err)
 	}
 
-	protoPairer := pairingProto.NewService(transactor, deviceStore, config.Pairing)
+	protoPairer := pairingProto.NewService(transactor, deviceStore, userStore, config.Pairing, minerService, tokenSvc, encryptSvc)
 	antminerPairer := pairingAntminer.NewService(transactor, deviceStore, encryptSvc, antminerWeb.NewService())
 
 	pairingSvc := pairingDomain.NewService(

@@ -6,15 +6,20 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+
+	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
+
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
 
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/rpc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/web"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto"
+	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
@@ -28,13 +33,15 @@ const (
 var _ telemetry.MinerGetter = &MinerService{}
 
 type MinerService struct {
-	db             *sql.DB
-	queries        *sqlc.Queries
+	// TODO: DASH-579: Refactor this to use a store instead of SQLConnectionManager directly
+	sqlstores.SQLConnectionManager
+	userStore      stores.UserStore
 	encryptService *encrypt.Service
 	filesService   *files.Service
+	tokenService   *token.Service
 }
 
-func NewMinerService(db *sql.DB, encryptService *encrypt.Service, filesService *files.Service) *MinerService {
+func NewMinerService(db *sql.DB, userStore stores.UserStore, encryptService *encrypt.Service, filesService *files.Service, tokenService *token.Service) *MinerService {
 	if db == nil {
 		panic("database cannot be nil")
 	}
@@ -46,15 +53,16 @@ func NewMinerService(db *sql.DB, encryptService *encrypt.Service, filesService *
 	}
 
 	return &MinerService{
-		db:             db,
-		queries:        sqlc.New(db),
-		encryptService: encryptService,
-		filesService:   filesService,
+		SQLConnectionManager: sqlstores.NewSQLConnectionManager(db),
+		userStore:            userStore,
+		encryptService:       encryptService,
+		filesService:         filesService,
+		tokenService:         tokenService,
 	}
 }
 
 func (s *MinerService) GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error) {
-	deviceData, err := s.queries.GetDeviceWithCredentialsAndIPByID(ctx, deviceID)
+	deviceData, err := s.GetQueries(ctx).GetDeviceWithCredentialsAndIPByID(ctx, deviceID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("device not found: %d", deviceID)
@@ -63,13 +71,14 @@ func (s *MinerService) GetMiner(ctx context.Context, deviceID int64) (interfaces
 	}
 
 	return s.createMiner(
+		ctx,
 		deviceData.DeviceIdentifier,
+		deviceData.OrgID,
 		deviceData.Port,
 		deviceData.Type,
 		deviceData.UsernameEnc.String,
 		deviceData.PasswordEnc.String,
 		deviceData.IpAddress,
-		deviceData.PairingToken.String,
 		deviceData.UrlScheme,
 	)
 }
@@ -79,7 +88,7 @@ func (s *MinerService) GetMinerFromDeviceIdentifier(ctx context.Context, deviceI
 		return nil, fmt.Errorf("device ID cannot be empty")
 	}
 
-	deviceData, err := s.queries.GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, string(deviceID))
+	deviceData, err := s.GetQueries(ctx).GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, string(deviceID))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("device not found: %s", deviceID)
@@ -88,18 +97,33 @@ func (s *MinerService) GetMinerFromDeviceIdentifier(ctx context.Context, deviceI
 	}
 
 	return s.createMiner(
+		ctx,
 		deviceData.DeviceIdentifier,
+		deviceData.OrgID,
 		deviceData.Port,
 		deviceData.Type,
 		deviceData.UsernameEnc.String,
 		deviceData.PasswordEnc.String,
 		deviceData.IpAddress,
-		deviceData.PairingToken.String,
 		deviceData.UrlScheme,
 	)
 }
 
-func (s *MinerService) BuildMinerInfo(deviceIdentifier string, deviceIPAddress string, devicePort string, deviceScheme string, deviceType string) (interfaces.MinerInfo, error) {
+func (s *MinerService) getProtoMinerAuthPrivateKey(ctx context.Context, orgID int64) ([]byte, error) {
+	encryptedKey, err := s.userStore.GetOrganizationPrivateKey(ctx, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting org private key: %v", err)
+	}
+
+	privateKey, err := s.encryptService.Decrypt(encryptedKey)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error decrypting private key: %v", err)
+	}
+
+	return privateKey, nil
+}
+
+func (s *MinerService) BuildMinerInfo(ctx context.Context, deviceIdentifier string, orgID int64, deviceIPAddress string, devicePort string, deviceScheme string, deviceType string) (interfaces.MinerInfo, error) {
 	portInt, err := strconv.Atoi(devicePort)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse port %s: %w", devicePort, err)
@@ -126,7 +150,11 @@ func (s *MinerService) BuildMinerInfo(deviceIdentifier string, deviceIPAddress s
 	case models.TypeAntminer:
 		return antminer.NewAntminerInfo(minerIdentifier, deviceIPAddress, port), nil
 	case models.TypeProto:
-		return proto.NewProtoMinerInfo(minerIdentifier, deviceIPAddress, port, scheme)
+		minerAuthPrivateKey, err := s.getProtoMinerAuthPrivateKey(ctx, orgID)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("error getting auth private key: %v", err)
+		}
+		return proto.NewProtoMinerInfo(minerIdentifier, deviceIPAddress, port, scheme, minerAuthPrivateKey)
 	case models.TypeWhatsminer, models.TypeAvalon, models.TypeUnknown:
 		return nil, fmt.Errorf("unsupported miner type: %s", deviceType)
 	default:
@@ -134,8 +162,8 @@ func (s *MinerService) BuildMinerInfo(deviceIdentifier string, deviceIPAddress s
 	}
 }
 
-func (s *MinerService) createMiner(deviceIdentifier string, devicePort string, deviceType string, deviceUsername string, devicePassword string, deviceIPAddress string, devicePairingToken string, deviceScheme string) (interfaces.Miner, error) {
-	minerInfo, err := s.BuildMinerInfo(deviceIdentifier, deviceIPAddress, devicePort, deviceScheme, deviceType)
+func (s *MinerService) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, devicePort string, deviceType string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string) (interfaces.Miner, error) {
+	minerInfo, err := s.BuildMinerInfo(ctx, deviceIdentifier, orgID, deviceIPAddress, devicePort, deviceScheme, deviceType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get miner info: %w", err)
 	}
@@ -144,7 +172,11 @@ func (s *MinerService) createMiner(deviceIdentifier string, devicePort string, d
 	case models.TypeAntminer:
 		return s.createAntminer(minerInfo, deviceUsername, devicePassword)
 	case models.TypeProto:
-		return s.createProtoMiner(minerInfo, devicePassword, devicePairingToken)
+		protoMinerInfo, ok := minerInfo.(*proto.ProtoMinerInfo)
+		if !ok {
+			return nil, fmt.Errorf("expected *proto.ProtoMinerInfo but got %T", minerInfo)
+		}
+		return s.createProtoMiner(protoMinerInfo)
 	case models.TypeWhatsminer, models.TypeAvalon, models.TypeUnknown:
 		return nil, fmt.Errorf("unsupported miner type: %s", deviceType)
 	default:
@@ -180,24 +212,11 @@ func (s *MinerService) createAntminer(minerInfo interfaces.MinerInfo, deviceUser
 	), nil
 }
 
-func (s *MinerService) createProtoMiner(minerInfo interfaces.MinerInfo, devicePassword string, devicePairingToken string) (interfaces.Miner, error) {
-	var authToken secrets.Text
-
-	if devicePairingToken != "" {
-		authToken = *secrets.NewText(devicePairingToken)
-	} else if devicePassword != "" {
-		decryptedAuthToken, err := s.encryptService.Decrypt(devicePassword)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decrypt auth token: %w", err)
-		}
-		authToken = *secrets.NewText(string(decryptedAuthToken))
-	} else {
-		return nil, fmt.Errorf("proto miner requires either pairing token or encrypted auth token")
-	}
-
+func (s *MinerService) createProtoMiner(minerInfo *proto.ProtoMinerInfo) (interfaces.Miner, error) {
 	return proto.NewProtoMiner(
 		minerInfo,
-		authToken,
 		s.filesService,
+		s.tokenService,
+		s.encryptService,
 	)
 }

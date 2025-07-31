@@ -154,3 +154,7 @@ func (s *SQLUserStore) HasUser(ctx context.Context) (bool, error) {
 func (s *SQLUserStore) PasswordUpdatedAt(ctx context.Context, userID int64) (time.Time, error) {
 	return s.getQueries(ctx).PasswordUpdatedAt(ctx, userID)
 }
+
+func (s *SQLUserStore) GetOrganizationPrivateKey(ctx context.Context, orgID int64) (string, error) {
+	return s.getQueries(ctx).GetOrganizationPrivateKey(ctx, orgID)
+}

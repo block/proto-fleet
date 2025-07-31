@@ -1,6 +1,8 @@
 package testutil
 
 import (
+	"testing"
+
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 )
@@ -10,11 +12,45 @@ type Config struct {
 	MinerAuthPrivateKey string // a string encrypted by the ServiceMasterKey
 	AuthTokenSecretKey  string
 	PairingSecretKey    string
+	antminerCredentials *AntminerCredentials
+	encryptService      *encrypt.Service
+}
+
+type AntminerCredentials struct {
+	Username string
+	Password string
+}
+
+func (c *Config) GetAntminerPasswordEnc(t *testing.T) string {
+	pass, err := c.encryptService.Encrypt([]byte(c.antminerCredentials.Password))
+	if err != nil {
+		t.Fatalf("failed to encrypt antminer upassword")
+	}
+
+	return pass
+}
+
+func (c *Config) GetAntminerUsernameEnc(t *testing.T) string {
+	username, err := c.encryptService.Encrypt([]byte(c.antminerCredentials.Username))
+	if err != nil {
+		t.Fatalf("failed to encrypt antminer username")
+	}
+
+	return username
+}
+
+func (c *Config) GetMinerAuthPrivateKey(t *testing.T) []byte {
+	pemBytes, err := c.encryptService.Decrypt(c.MinerAuthPrivateKey)
+	if err != nil {
+		t.Fatalf("failed to decrypt miner auth private key")
+	}
+
+	return pemBytes
 }
 
 func GetTestConfig() (*Config, error) {
 	serviceMasterKey := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-	minerAuthPrivateKey := "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"
+	minerAuthPrivateKey := "z65ViaeDr/SF9jyoEJ/lp/Vsl8C4SrxehBbCCLez9OUA4ni3G8J1K/9db5tXyxx+xd3syUtei8Nw0Ml9QOVzGEvzsnVxp8B7G63VM8ls7i4rncYDrlRV4ietDPs="
 
 	encryptConfig := &encrypt.Config{ServiceMasterKey: serviceMasterKey}
 
@@ -33,5 +69,10 @@ func GetTestConfig() (*Config, error) {
 		MinerAuthPrivateKey: minerAuthPrivateKey,
 		AuthTokenSecretKey:  "00000000000000000000000000000000000000000000",
 		PairingSecretKey:    "00000000000000000000000000000000000000000000",
+		antminerCredentials: &AntminerCredentials{
+			Username: "antminer-commander",
+			Password: "Ants-for-the-win",
+		},
+		encryptService: encryptService,
 	}, nil
 }

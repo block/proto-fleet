@@ -15,6 +15,7 @@ type UserStore interface {
 		orgName string, orgID string, minerAuthPrivateKey string, roleName string, roleDescription string) error
 	HasUser(ctx context.Context) (bool, error)
 	PasswordUpdatedAt(ctx context.Context, userID int64) (time.Time, error)
+	GetOrganizationPrivateKey(ctx context.Context, orgID int64) (string, error)
 }
 
 type User struct {

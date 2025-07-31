@@ -152,7 +152,7 @@ func (s *SQLDeviceStore) UpsertMinerCredentials(ctx context.Context, device *pb.
 	return err
 }
 
-func (s *SQLDeviceStore) UpsertDevicePairing(ctx context.Context, device *pb.Device, orgID int64, pairingToken string, pairingStatus string) error {
+func (s *SQLDeviceStore) UpsertDevicePairing(ctx context.Context, device *pb.Device, orgID int64, pairingStatus string) error {
 	dbDevice, err := s.getQueries(ctx).GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
 		DeviceIdentifier: device.DeviceIdentifier,
 		OrgID:            orgID,
@@ -162,7 +162,6 @@ func (s *SQLDeviceStore) UpsertDevicePairing(ctx context.Context, device *pb.Dev
 	}
 	_, err = s.getQueries(ctx).UpsertDevicePairing(ctx, sqlc.UpsertDevicePairingParams{
 		DeviceID:      dbDevice.ID,
-		PairingToken:  sql.NullString{String: pairingToken, Valid: len(pairingToken) > 0},
 		PairingStatus: sqlc.DevicePairingPairingStatus(pairingStatus),
 	})
 

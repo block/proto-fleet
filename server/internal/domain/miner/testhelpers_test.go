@@ -1,4 +1,4 @@
-package miner
+package miner_test
 
 import (
 	"context"
@@ -8,6 +8,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
+	"github.com/btc-mining/proto-fleet/server/internal/testutil"
 
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
 
@@ -28,6 +31,7 @@ var (
 	testContainer        *mysql.MySQLContainer
 	testEncryptService   *encrypt.Service
 	testFilesService     *files.Service
+	testTokenService     *token.Service
 	testConnectionString string
 	setupOnce            sync.Once
 	setupError           error
@@ -82,6 +86,16 @@ func setupTestInfrastructure() error {
 		}
 
 		testFilesService, setupError = files.NewService()
+		if setupError != nil {
+			return
+		}
+
+		testConfig, setupError := testutil.GetTestConfig()
+		if setupError != nil {
+			return
+		}
+
+		testTokenService, setupError = token.NewService(token.Config{ClientToken: token.AuthTokenConfig{SecretKey: testConfig.AuthTokenSecretKey, ExpirationPeriod: time.Minute * 5}, MinerTokenExpirationPeriod: time.Minute * 5})
 		if setupError != nil {
 			return
 		}
@@ -144,7 +158,7 @@ func runMigrations(db *sql.DB) error {
 	return nil
 }
 
-func setupTestDB(t *testing.T) (*sql.DB, *encrypt.Service, *files.Service) {
+func setupTestDB(t *testing.T) (*sql.DB, *encrypt.Service, *files.Service, *token.Service) {
 	t.Helper()
 
 	if err := setupTestInfrastructure(); err != nil {
@@ -157,6 +171,10 @@ func setupTestDB(t *testing.T) (*sql.DB, *encrypt.Service, *files.Service) {
 
 	if testEncryptService == nil {
 		t.Fatal("Test encrypt service not initialized after setup")
+	}
+
+	if testTokenService == nil {
+		t.Fatal("Test token service not initialized after setup")
 	}
 
 	if testFilesService == nil {
@@ -181,7 +199,7 @@ func setupTestDB(t *testing.T) (*sql.DB, *encrypt.Service, *files.Service) {
 
 	cleanupTestData(t, db)
 
-	return db, testEncryptService, testFilesService
+	return db, testEncryptService, testFilesService, testTokenService
 }
 
 func cleanupTestData(t *testing.T, db *sql.DB) {
@@ -224,7 +242,6 @@ func createTestDevice(t *testing.T, db *sql.DB, deviceIdentifier string) int64 {
 	// Create device pairing record with PAIRED status
 	_, err = queries.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{
 		DeviceID:      deviceID,
-		PairingToken:  sql.NullString{}, // No token for credential-based devices
 		PairingStatus: "PAIRED",
 	})
 	require.NoError(t, err)
@@ -278,13 +295,13 @@ func createTestDeviceWithCredentials(t *testing.T, db *sql.DB, deviceIdentifier 
 	createTestMinerCredentials(t, db, deviceID)
 }
 
-func createTestProtoMinerWithToken(t *testing.T, db *sql.DB, deviceIdentifier string, pairingToken string) int64 {
+func createTestProtoMinerWithToken(t *testing.T, db *sql.DB, deviceIdentifier string) int64 {
 	t.Helper()
 
 	queries := sqlc.New(db)
 
 	result, err := queries.UpsertDevice(t.Context(), sqlc.UpsertDeviceParams{
-		OrgID:            0,
+		OrgID:            1,
 		DeviceIdentifier: deviceIdentifier,
 		MacAddress:       fmt.Sprintf("00:11:22:33:44:%02x", len(deviceIdentifier)%256),
 		SerialNumber:     sql.NullString{String: fmt.Sprintf("SN-%s", deviceIdentifier), Valid: true},
@@ -301,7 +318,6 @@ func createTestProtoMinerWithToken(t *testing.T, db *sql.DB, deviceIdentifier st
 	// Create device pairing record with PAIRED status and pairing token
 	_, err = queries.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{
 		DeviceID:      deviceID,
-		PairingToken:  sql.NullString{String: pairingToken, Valid: true},
 		PairingStatus: "PAIRED",
 	})
 	require.NoError(t, err)

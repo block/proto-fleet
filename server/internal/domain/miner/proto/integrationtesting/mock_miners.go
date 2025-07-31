@@ -21,16 +21,19 @@ type MethodName string
 
 // MethodName represents the name of a method in the API
 const (
-	MethodStartMining    MethodName = "StartMining"
-	MethodStopMining     MethodName = "StopMining"
-	MethodSetPowerTarget MethodName = "SetPowerTarget"
-	MethodSetCoolingMode MethodName = "SetCoolingMode"
-	MethodAddPools       MethodName = "AddPools"
-	MethodRemovePools    MethodName = "RemovePools"
-	MethodEditPool       MethodName = "EditPool"
-	MethodGetPairingInfo MethodName = "GetPairingInfo"
-	MethodGetNetwork     MethodName = "GetNetwork"
-	MethodSetNetwork     MethodName = "SetNetwork"
+	MethodStartMining        MethodName = "StartMining"
+	MethodStopMining         MethodName = "StopMining"
+	MethodSetPowerTarget     MethodName = "SetPowerTarget"
+	MethodSetCoolingMode     MethodName = "SetCoolingMode"
+	MethodAddPools           MethodName = "AddPools"
+	MethodRemovePools        MethodName = "RemovePools"
+	MethodEditPool           MethodName = "EditPool"
+	MethodGetPairingInfo     MethodName = "GetPairingInfo"
+	MethodGetNetwork         MethodName = "GetNetwork"
+	MethodSetNetwork         MethodName = "SetNetwork"
+	MethodPlayLocateSequence MethodName = "PlayLocateSequence"
+	MethodStopLocateSequence MethodName = "StopLocateSequence"
+	MethodSetAuthKey         MethodName = "SetAuthKey"
 )
 
 // MockMinerCallCounter tracks call counts for different API methods
@@ -54,6 +57,9 @@ func NewMockMinerCallCounter() *MockMinerCallCounter {
 		MethodGetPairingInfo,
 		MethodGetNetwork,
 		MethodSetNetwork,
+		MethodPlayLocateSequence,
+		MethodStopLocateSequence,
+		MethodSetAuthKey,
 	}
 
 	for _, method := range methods {
@@ -129,6 +135,7 @@ type MockMinerHandler struct {
 
 var _ miner_command_apiconnect.MinerCommandApiHandler = &MockMinerHandler{}
 var _ miner_system_apiconnect.MinerSystemApiHandler = &MockMinerHandler{}
+var _ miner_command_apiconnect.MinerAuthApiHandler = &MockMinerHandler{}
 
 func NewMockMinerHandler(t *testing.T, callCounter *MockMinerCallCounter) *MockMinerHandler {
 	return &MockMinerHandler{
@@ -206,14 +213,6 @@ func (m *MockMinerHandler) SetNetwork(ctx context.Context, req *connect.Request[
 		})
 }
 
-func (m *MockMinerHandler) PlayLocateSequence(_ context.Context, _ *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[minercommonapi.ApiResultResponse], error) {
-	return nil, fleeterror.NewInternalErrorf("TODO")
-}
-
-func (m *MockMinerHandler) StopLocateSequence(_ context.Context, _ *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[minercommonapi.ApiResultResponse], error) {
-	return nil, fleeterror.NewInternalErrorf("TODO")
-}
-
 func (m *MockMinerHandler) Reboot(_ context.Context, _ *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[minercommonapi.ApiResultResponse], error) {
 	return nil, fleeterror.NewInternalErrorf("TODO")
 }
@@ -232,4 +231,36 @@ func (m *MockMinerHandler) Update(_ context.Context, _ *connect.Request[minercom
 
 func (m *MockMinerHandler) Upload(_ context.Context, _ *connect.ClientStream[miner_system_api.UploadRequest]) (*connect.Response[miner_system_api.UploadResponse], error) {
 	return nil, fleeterror.NewInternalErrorf("TODO")
+}
+
+func (m *MockMinerHandler) PlayLocateSequence(_ context.Context, req *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[minercommonapi.ApiResultResponse], error) {
+	return handleRequest(
+		m.t, "PlayLocateSequence", req, m.callCounter.GetCounter(MethodPlayLocateSequence),
+		func(_ *minercommonapi.EmptyRequest) *minercommonapi.ApiResultResponse {
+			return &minercommonapi.ApiResultResponse{Result: minercommonapi.ApiResult_RESULT_SUCCESS}
+		},
+	)
+}
+
+func (m *MockMinerHandler) StopLocateSequence(_ context.Context, req *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[minercommonapi.ApiResultResponse], error) {
+	return handleRequest(
+		m.t, "StopLocateSequence", req, m.callCounter.GetCounter(MethodStopLocateSequence),
+		func(_ *minercommonapi.EmptyRequest) *minercommonapi.ApiResultResponse {
+			return &minercommonapi.ApiResultResponse{Result: minercommonapi.ApiResult_RESULT_SUCCESS}
+		},
+	)
+}
+
+func (m *MockMinerHandler) SetAuthKey(ctx context.Context, req *connect.Request[miner_command_api.SetAuthKeyRequest]) (*connect.Response[miner_command_api.CommandResponse], error) {
+	return handleRequestUnauthenticated(
+		m.t,
+		"SetAuthKey",
+		req,
+		m.callCounter.GetCounter(MethodSetAuthKey),
+		func(_ *miner_command_api.SetAuthKeyRequest) *miner_command_api.CommandResponse {
+			return &miner_command_api.CommandResponse{
+				Result:  minercommonapi.ApiResult_RESULT_SUCCESS,
+				Message: "Auth key set successfully",
+			}
+		}), nil
 }

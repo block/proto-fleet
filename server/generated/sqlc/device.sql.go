@@ -689,28 +689,24 @@ func (q *Queries) UpsertDevice(ctx context.Context, arg UpsertDeviceParams) (sql
 const upsertDevicePairing = `-- name: UpsertDevicePairing :execresult
 INSERT INTO device_pairing (
     device_id,
-    pairing_token,
     pairing_status,
     paired_at
 ) VALUES (
-    ?,
     ?,
     ?,
     CURRENT_TIMESTAMP(6)
 )
 ON DUPLICATE KEY UPDATE
     pairing_status = VALUES(pairing_status),
-    pairing_token = VALUES(pairing_token),
     paired_at = CURRENT_TIMESTAMP(6),
     unpaired_at = NULL
 `
 
 type UpsertDevicePairingParams struct {
 	DeviceID      int64
-	PairingToken  sql.NullString
 	PairingStatus DevicePairingPairingStatus
 }
 
 func (q *Queries) UpsertDevicePairing(ctx context.Context, arg UpsertDevicePairingParams) (sql.Result, error) {
-	return q.exec(ctx, q.upsertDevicePairingStmt, upsertDevicePairing, arg.DeviceID, arg.PairingToken, arg.PairingStatus)
+	return q.exec(ctx, q.upsertDevicePairingStmt, upsertDevicePairing, arg.DeviceID, arg.PairingStatus)
 }

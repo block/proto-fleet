@@ -102,7 +102,7 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 			continue
 		}
 
-		minerInfo, err := s.minerService.BuildMinerInfo(miner.DeviceIdentifier, miner.IpAddress, miner.Port, miner.UrlScheme, miner.Type)
+		minerInfo, err := s.minerService.BuildMinerInfo(ctx, miner.DeviceIdentifier, claims.OrgID, miner.IpAddress, miner.Port, miner.UrlScheme, miner.Type)
 		if err != nil {
 			slog.Error("failed to get miner info", "device_id", miner.DeviceIdentifier, "error", err)
 			continue

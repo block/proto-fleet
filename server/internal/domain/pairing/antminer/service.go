@@ -81,7 +81,7 @@ func (s *Service) PairDevice(ctx context.Context, device *minerdiscovery.Discove
 		if err != nil {
 			return fleeterror.NewInternalErrorf("failed to upsert miner credentials: %v", err)
 		}
-		err = s.deviceStore.UpsertDevicePairing(ctx, &device.Device, device.OrgID, "", pairing.StatusPaired)
+		err = s.deviceStore.UpsertDevicePairing(ctx, &device.Device, device.OrgID, pairing.StatusPaired)
 		if err != nil {
 			return fleeterror.NewInternalErrorf("failed to upsert device pairing: %v", err)
 		}

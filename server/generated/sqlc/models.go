@@ -282,7 +282,6 @@ type DeviceIpAssignment struct {
 type DevicePairing struct {
 	ID            int64
 	DeviceID      int64
-	PairingToken  sql.NullString
 	PairingStatus DevicePairingPairingStatus
 	PairedAt      sql.NullTime
 	UnpairedAt    sql.NullTime

@@ -2,10 +2,9 @@ package token
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
-	"encoding/pem"
+	"encoding/base64"
 	"time"
 
 	"connectrpc.com/authn"
@@ -14,7 +13,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var signingMethod = jwt.SigningMethodHS256
+var clientSigningMethod = jwt.SigningMethodHS256
+var minerSigningMethod = jwt.SigningMethodEdDSA
 
 const minClientSecretKeyLength = 32 // 32 bytes for HS256 security
 
@@ -26,7 +26,7 @@ type ClientAuthClaims struct {
 }
 
 type MinerAuthClaims struct {
-	MinerID string `json:"miner_id"`
+	MinerSN string `json:"miner_sn"`
 	jwt.RegisteredClaims
 }
 
@@ -57,7 +57,7 @@ func (ts *Service) GenerateClientAuthJWT(userID, orgID int64) (string, int64, er
 		},
 	}
 
-	token := jwt.NewWithClaims(signingMethod, claims)
+	token := jwt.NewWithClaims(clientSigningMethod, claims)
 	signedToken, err := token.SignedString([]byte(ts.cfg.ClientToken.SecretKey))
 	if err != nil {
 		return "", 0, fleeterror.NewInternalErrorf("error signing token: %v", err)
@@ -69,7 +69,7 @@ func (ts *Service) GenerateClientAuthJWT(userID, orgID int64) (string, int64, er
 func (ts *Service) VerifyClientAuthJWT(tokenString string) (*ClientAuthClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &ClientAuthClaims{}, func(_ *jwt.Token) (any, error) {
 		return []byte(ts.cfg.ClientToken.SecretKey), nil
-	}, jwt.WithValidMethods([]string{signingMethod.Alg()}))
+	}, jwt.WithValidMethods([]string{clientSigningMethod.Alg()}))
 
 	if err != nil {
 		return nil, fleeterror.NewUnauthenticatedErrorf("JWT is invalid: %v", err)
@@ -95,46 +95,26 @@ func GetClientAuthJWTClaims(ctx context.Context) (*ClientAuthClaims, error) {
 }
 
 func (ts *Service) CreateMinerAuthPrivateKeyForOrganization() ([]byte, error) {
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return []byte{}, fleeterror.NewInternalErrorf("error generating private key: %v", err)
 	}
 
-	privateKeyBytes := x509.MarshalPKCS1PrivateKey(privateKey)
-	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: privateKeyBytes,
-	})
-
-	if privateKeyPEM == nil {
-		return []byte{}, fleeterror.NewInternalError("error creating private key: failed to encode private key")
-	}
-
-	return privateKeyPEM, nil
+	return privateKey, nil
 }
 
-func (ts *Service) GenerateMinerAuthJWT(minerID string, organizationPrivateKey []byte) (string, int64, error) {
-	block, _ := pem.Decode(organizationPrivateKey)
-	if block == nil {
-		return "", 0, fleeterror.NewInternalErrorf("failed to decode PEM block containing private key")
-	}
-
-	privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
-	if err != nil {
-		return "", 0, fleeterror.NewInternalErrorf("error parsing private key: %v", err)
-	}
-
+func (ts *Service) GenerateMinerAuthJWT(minerID string, privateKey []byte) (string, int64, error) {
 	exp := jwt.NewNumericDate(time.Now().Add(ts.cfg.MinerTokenExpirationPeriod))
 
 	claims := MinerAuthClaims{
-		MinerID: minerID,
+		MinerSN: minerID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: exp,
 		},
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	signedToken, err := token.SignedString(privateKey)
+	token := jwt.NewWithClaims(minerSigningMethod, claims)
+	signedToken, err := token.SignedString(ed25519.PrivateKey(privateKey))
 	if err != nil {
 		return "", 0, fleeterror.NewInternalErrorf("error signing token: %v", err)
 	}
@@ -142,26 +122,11 @@ func (ts *Service) GenerateMinerAuthJWT(minerID string, organizationPrivateKey [
 }
 
 // ExtractPublicKeyFromPrivateKey to be used while pairing with the miner to distribute the public key
-func (ts *Service) ExtractPublicKeyFromPrivateKey(privateKeyPEM string) (string, error) {
-	block, _ := pem.Decode([]byte(privateKeyPEM))
-	if block == nil {
-		return "", fleeterror.NewInternalErrorf("failed to decode PEM block")
+func (ts *Service) ExtractPublicKeyFromPrivateKey(privateKey []byte) (string, error) {
+	privKey := ed25519.PrivateKey(privateKey)
+	pubKey, ok := privKey.Public().(ed25519.PublicKey)
+	if !ok {
+		return "", fleeterror.NewInternalErrorf("created pub key not of ed25519 pub key type")
 	}
-
-	privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
-	if err != nil {
-		return "", fleeterror.NewInternalErrorf("error parsing private key: %v", err)
-	}
-
-	publicKeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
-	if err != nil {
-		return "", fleeterror.NewInternalErrorf("error marshalling public key: %v", err)
-	}
-
-	publicKeyPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "PUBLIC KEY",
-		Bytes: publicKeyBytes,
-	})
-
-	return string(publicKeyPEM), nil
+	return base64.StdEncoding.EncodeToString(pubKey), nil
 }

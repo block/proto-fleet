@@ -191,17 +191,17 @@ func (mr *MockDeviceStoreMockRecorder) UpsertDeviceIPAssignment(ctx, device, org
 }
 
 // UpsertDevicePairing mocks base method.
-func (m *MockDeviceStore) UpsertDevicePairing(ctx context.Context, device *pairingv1.Device, orgID int64, pairingToken, pairingStatus string) error {
+func (m *MockDeviceStore) UpsertDevicePairing(ctx context.Context, device *pairingv1.Device, orgID int64, pairingStatus string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpsertDevicePairing", ctx, device, orgID, pairingToken, pairingStatus)
+	ret := m.ctrl.Call(m, "UpsertDevicePairing", ctx, device, orgID, pairingStatus)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpsertDevicePairing indicates an expected call of UpsertDevicePairing.
-func (mr *MockDeviceStoreMockRecorder) UpsertDevicePairing(ctx, device, orgID, pairingToken, pairingStatus interface{}) *gomock.Call {
+func (mr *MockDeviceStoreMockRecorder) UpsertDevicePairing(ctx, device, orgID, pairingStatus interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertDevicePairing", reflect.TypeOf((*MockDeviceStore)(nil).UpsertDevicePairing), ctx, device, orgID, pairingToken, pairingStatus)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertDevicePairing", reflect.TypeOf((*MockDeviceStore)(nil).UpsertDevicePairing), ctx, device, orgID, pairingStatus)
 }
 
 // UpsertMinerCredentials mocks base method.

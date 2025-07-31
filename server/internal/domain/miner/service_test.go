@@ -1,10 +1,15 @@
-package miner
+package miner_test
 
 import (
 	"database/sql"
 	"fmt"
 	"sync"
 	"testing"
+
+	"github.com/btc-mining/proto-fleet/server/internal/testutil"
+
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -14,26 +19,29 @@ import (
 )
 
 func TestNewMinerService_WithValidDB_ShouldCreateService(t *testing.T) {
-	db, encryptService, testFilesService := setupTestDB(t)
+	db, encryptService, filesService, tokenService := setupTestDB(t)
+	userStore := sqlstores.NewSQLUserStore(db)
 
-	service := NewMinerService(db, encryptService, testFilesService)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService)
 
 	assert.NotNil(t, service)
 }
 
 func TestNewMinerService_WithNilDB_ShouldPanic(t *testing.T) {
-	_, encryptService, testFilesService := setupTestDB(t)
+	db, encryptService, filesService, tokenService := setupTestDB(t)
+	userStore := sqlstores.NewSQLUserStore(db)
 
 	assert.Panics(t, func() {
-		NewMinerService(nil, encryptService, testFilesService)
+		miner.NewMinerService(nil, userStore, encryptService, filesService, tokenService)
 	})
 }
 
 func TestNewMinerService_WithNilEncryptService_ShouldPanic(t *testing.T) {
-	db, _, testFilesService := setupTestDB(t)
+	db, _, filesService, tokenService := setupTestDB(t)
+	userStore := sqlstores.NewSQLUserStore(db)
 
 	assert.Panics(t, func() {
-		NewMinerService(db, nil, testFilesService)
+		miner.NewMinerService(db, userStore, nil, filesService, tokenService)
 	})
 }
 
@@ -42,12 +50,13 @@ func TestMinerService_GetMinerFromDeviceID_WithValidDevice_ShouldReturnMiner(t *
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	db, encryptService, testFilesService := setupTestDB(t)
+	db, encryptService, filesService, tokenService := setupTestDB(t)
+	userStore := sqlstores.NewSQLUserStore(db)
 
 	deviceID := models.DeviceIdentifier("test-device-123")
 	createTestDeviceWithCredentials(t, db, string(deviceID))
 
-	service := NewMinerService(db, encryptService, testFilesService)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService)
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
 
@@ -61,9 +70,10 @@ func TestMinerService_GetMinerFromDeviceID_WithNonexistentDevice_ShouldReturnErr
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	db, encryptService, testFilesService := setupTestDB(t)
+	db, encryptService, filesService, tokenService := setupTestDB(t)
+	userStore := sqlstores.NewSQLUserStore(db)
 
-	service := NewMinerService(db, encryptService, testFilesService)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService)
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier("nonexistent"))
 
@@ -73,9 +83,10 @@ func TestMinerService_GetMinerFromDeviceID_WithNonexistentDevice_ShouldReturnErr
 }
 
 func TestMinerService_GetMinerFromDeviceID_WithEmptyDeviceID_ShouldReturnError(t *testing.T) {
-	db, encryptService, testFilesService := setupTestDB(t)
+	db, encryptService, filesService, tokenService := setupTestDB(t)
+	userStore := sqlstores.NewSQLUserStore(db)
 
-	service := NewMinerService(db, encryptService, testFilesService)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService)
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier(""))
 
@@ -85,10 +96,12 @@ func TestMinerService_GetMinerFromDeviceID_WithEmptyDeviceID_ShouldReturnError(t
 }
 
 func TestMinerService_GetMinerFromDeviceID_WithDatabaseError_ShouldReturnError(t *testing.T) {
-	db, encryptService, testFilesService := setupTestDB(t)
+	db, encryptService, filesService, tokenService := setupTestDB(t)
+	userStore := sqlstores.NewSQLUserStore(db)
+
 	db.Close() // Simulate database error
 
-	service := NewMinerService(db, encryptService, testFilesService)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService)
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier("device-123"))
 
@@ -101,12 +114,12 @@ func TestMinerService_GetMinerFromDeviceID_WithMissingCredentials_ShouldReturnEr
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	db, encryptService, testFilesService := setupTestDB(t)
-
+	db, encryptService, filesService, tokenService := setupTestDB(t)
+	userStore := sqlstores.NewSQLUserStore(db)
 	deviceID := models.DeviceIdentifier("test-device-no-creds")
 	createTestDevice(t, db, string(deviceID))
 
-	service := NewMinerService(db, encryptService, testFilesService)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService)
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
 
@@ -121,8 +134,8 @@ func TestMinerService_ConcurrentAccess_ShouldBeThreadSafe(t *testing.T) {
 
 	t.Parallel()
 
-	db, encryptService, testFilesService := setupTestDB(t)
-
+	db, encryptService, filesService, tokenService := setupTestDB(t)
+	userStore := sqlstores.NewSQLUserStore(db)
 	const numDevices = 10
 	deviceIDs := make([]models.DeviceIdentifier, numDevices)
 	for i := range numDevices {
@@ -131,7 +144,7 @@ func TestMinerService_ConcurrentAccess_ShouldBeThreadSafe(t *testing.T) {
 		createTestDeviceWithCredentials(t, db, string(deviceID))
 	}
 
-	service := NewMinerService(db, encryptService, testFilesService)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService)
 
 	const numGoroutines = 20
 	var wg sync.WaitGroup
@@ -163,9 +176,8 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	db, encryptService, testFilesService := setupTestDB(t)
-
-	service := NewMinerService(db, encryptService, testFilesService)
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testContext.DatabaseService.CreateSuperAdminUser()
 
 	tests := []struct {
 		deviceType   string
@@ -181,9 +193,9 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 		t.Run(fmt.Sprintf("type_%s", test.deviceType), func(t *testing.T) {
 			deviceID := models.DeviceIdentifier(fmt.Sprintf("test-%s-device", test.deviceType))
 
-			queries := sqlc.New(db)
+			queries := sqlc.New(testContext.ServiceProvider.DB)
 			result, err := queries.UpsertDevice(t.Context(), sqlc.UpsertDeviceParams{
-				OrgID:            0,
+				OrgID:            1,
 				DeviceIdentifier: string(deviceID),
 				MacAddress:       "00:11:22:33:44:55",
 				SerialNumber:     sql.NullString{String: "SN-123", Valid: true},
@@ -200,7 +212,6 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 			// Create device pairing record with PAIRED status
 			_, err = queries.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{
 				DeviceID:      dbDeviceID,
-				PairingToken:  sql.NullString{}, // No token for credential-based devices
 				PairingStatus: "PAIRED",
 			})
 			require.NoError(t, err)
@@ -221,16 +232,21 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 			})
 			require.NoError(t, err)
 
-			createTestMinerCredentials(t, db, dbDeviceID)
+			err = queries.UpsertMinerCredentials(t.Context(), sqlc.UpsertMinerCredentialsParams{
+				DeviceID:    dbDeviceID,
+				UsernameEnc: testContext.Config.GetAntminerUsernameEnc(t),
+				PasswordEnc: testContext.Config.GetAntminerPasswordEnc(t),
+			})
+			require.NoError(t, err)
 
 			if test.expectedType == models.TypeAntminer || test.expectedType == models.TypeProto {
-				miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
+				miner, err := testContext.ServiceProvider.MinerService.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
 
 				require.NoError(t, err)
 				assert.NotNil(t, miner)
 				assert.Equal(t, test.expectedType, miner.GetType())
 			} else {
-				miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
+				miner, err := testContext.ServiceProvider.MinerService.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
 
 				require.Error(t, err)
 				assert.Nil(t, miner)
@@ -245,13 +261,14 @@ func TestMinerService_GetMinerFromDeviceID_WithProtoMinerToken_ShouldReturnProto
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	db, encryptService, testFilesService := setupTestDB(t)
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testContext.DatabaseService.CreateSuperAdminUser()
 
 	deviceID := models.DeviceIdentifier("test-proto-token-device")
-	pairingToken := "test-pairing-token-123"
-	createTestProtoMinerWithToken(t, db, string(deviceID), pairingToken)
+	createTestProtoMinerWithToken(t, testContext.ServiceProvider.DB, string(deviceID))
+	userStore := sqlstores.NewSQLUserStore(testContext.ServiceProvider.DB)
 
-	service := NewMinerService(db, encryptService, testFilesService)
+	service := miner.NewMinerService(testContext.ServiceProvider.DB, userStore, testContext.ServiceProvider.EncryptService, testContext.ServiceProvider.FilesService, testContext.ServiceProvider.TokenService)
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
 
@@ -265,13 +282,14 @@ func TestMinerService_GetMinerFromDeviceID_WithUnpairedDevice_ShouldReturnError(
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	db, encryptService, testFilesService := setupTestDB(t)
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testContext.DatabaseService.CreateSuperAdminUser()
 
-	queries := sqlc.New(db)
+	queries := sqlc.New(testContext.DatabaseService.DB)
 
 	// Create device without pairing record
 	result, err := queries.UpsertDevice(t.Context(), sqlc.UpsertDeviceParams{
-		OrgID:            0,
+		OrgID:            1,
 		DeviceIdentifier: "test-unpaired-device",
 		MacAddress:       "00:11:22:33:44:99",
 		SerialNumber:     sql.NullString{String: "SN-UNPAIRED", Valid: true},
@@ -302,9 +320,15 @@ func TestMinerService_GetMinerFromDeviceID_WithUnpairedDevice_ShouldReturnError(
 	})
 	require.NoError(t, err)
 
-	createTestMinerCredentials(t, db, dbDeviceID)
+	err = queries.UpsertMinerCredentials(t.Context(), sqlc.UpsertMinerCredentialsParams{
+		DeviceID:    dbDeviceID,
+		UsernameEnc: testContext.Config.GetAntminerUsernameEnc(t),
+		PasswordEnc: testContext.Config.GetAntminerPasswordEnc(t),
+	})
+	require.NoError(t, err)
 
-	service := NewMinerService(db, encryptService, testFilesService)
+	userStore := sqlstores.NewSQLUserStore(testContext.DatabaseService.DB)
+	service := miner.NewMinerService(testContext.DatabaseService.DB, userStore, testContext.ServiceProvider.EncryptService, testContext.ServiceProvider.FilesService, testContext.ServiceProvider.TokenService)
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier("test-unpaired-device"))
 
@@ -318,13 +342,14 @@ func TestMinerService_GetMinerFromDeviceID_WithDeviceNeitherTokenNorCredentials_
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	db, encryptService, testFilesService := setupTestDB(t)
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testContext.DatabaseService.CreateSuperAdminUser()
 
-	queries := sqlc.New(db)
+	queries := sqlc.New(testContext.DatabaseService.DB)
 
 	// Create device with pairing but no credentials or token
 	result, err := queries.UpsertDevice(t.Context(), sqlc.UpsertDeviceParams{
-		OrgID:            0,
+		OrgID:            1,
 		DeviceIdentifier: "test-no-auth-device",
 		MacAddress:       "00:11:22:33:44:88",
 		SerialNumber:     sql.NullString{String: "SN-NOAUTH", Valid: true},
@@ -341,7 +366,6 @@ func TestMinerService_GetMinerFromDeviceID_WithDeviceNeitherTokenNorCredentials_
 	// Create pairing record with PAIRED status but no token
 	_, err = queries.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{
 		DeviceID:      dbDeviceID,
-		PairingToken:  sql.NullString{}, // No token
 		PairingStatus: "PAIRED",
 	})
 	require.NoError(t, err)
@@ -363,9 +387,7 @@ func TestMinerService_GetMinerFromDeviceID_WithDeviceNeitherTokenNorCredentials_
 	})
 	require.NoError(t, err)
 
-	service := NewMinerService(db, encryptService, testFilesService)
-
-	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier("test-no-auth-device"))
+	miner, err := testContext.ServiceProvider.MinerService.GetMinerFromDeviceIdentifier(t.Context(), "test-no-auth-device")
 
 	require.Error(t, err)
 	assert.Nil(t, miner)
