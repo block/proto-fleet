@@ -105,16 +105,16 @@ const routes: Route[] = [
     loader: () => redirect("/settings/general"),
   },
   {
-    path: "settings/authentication",
-    label: "Authentication",
-    secondaryNavItem: "/settings",
-    element: <AuthSettings />,
-  },
-  {
     path: "settings/general",
     label: "General",
     secondaryNavItem: "/settings",
     element: <General />,
+  },
+  {
+    path: "settings/security",
+    label: "Security",
+    secondaryNavItem: "/settings",
+    element: <AuthSettings />,
   },
   {
     path: "settings/mining-pools",

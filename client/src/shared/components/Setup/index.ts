@@ -1,4 +1,5 @@
 import Authentication from "./Authentication";
+import { PasswordStrengthMeter } from "./Authentication";
 import BootingUp from "./BootingUp";
 import Network from "./Network";
 import OnboardingLayout from "./OnboardingLayout";
@@ -12,4 +13,5 @@ export {
   OnboardingLayout,
   SetupHeader,
   WelcomeScreen,
+  PasswordStrengthMeter,
 };

@@ -1,28 +1,176 @@
 import { useState } from "react";
+import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
 import { AuthenticateRequestSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
+import { useAuth } from "@/protoFleet/api/useAuth";
 import { useLogin } from "@/protoFleet/api/useLogin";
-import { usePassword } from "@/protoFleet/api/usePassword";
 import { useAuthContext } from "@/protoFleet/features/auth/contexts/AuthContext";
-import { Authentication } from "@/shared/components/Setup";
+import Button from "@/shared/components/Button";
+import Header from "@/shared/components/Header";
+import Input from "@/shared/components/Input";
+import Modal from "@/shared/components/Modal";
+import Row from "@/shared/components/Row";
+import { PasswordStrengthMeter } from "@/shared/components/Setup";
 import {
   pushToast,
   STATUSES as TOAST_STATUSES,
 } from "@/shared/features/toaster";
-import { useNavigate } from "@/shared/hooks/useNavigate";
+
+const AuthenticateForm = ({
+  onChange,
+  apiError,
+}: {
+  onChange: (value: string) => void;
+  apiError: string | null;
+}) => {
+  return (
+    <div className="flex flex-col gap-6">
+      <Header
+        title="Authenticate"
+        titleSize="text-heading-300"
+        description="For account protection, your current Fleet account password is required to save changes to your settings."
+      />
+      <div>
+        <div
+          className={clsx("transition-[max-height,margin] ease-in-out", {
+            "max-h-0 overflow-hidden duration-300": !apiError,
+            "max-h-96 duration-500": apiError,
+          })}
+          data-testid="error"
+        >
+          <div className="mb-4 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
+            {apiError}
+          </div>
+        </div>
+
+        <Input
+          id="currentPassword"
+          label="Password"
+          type="password"
+          onChange={onChange}
+        />
+      </div>
+    </div>
+  );
+};
+
+const FormattedDate = ({
+  date,
+  className,
+  label,
+}: {
+  date: Date | null;
+  className?: string;
+  label?: string;
+}) => {
+  return (
+    <span className={className}>
+      {label ? <>{label} </> : null}
+      {date?.toLocaleString(undefined, {
+        month: "short",
+        day: "2-digit",
+        year: "numeric",
+      })}
+    </span>
+  );
+};
 
 const AuthenticationSettings = () => {
   const { username } = useAuthContext();
 
-  const { updatePassword } = usePassword();
+  const { updatePassword, updateUsername, passwordLastUpdatedAt } = useAuth();
   const login = useLogin();
-  const navigate = useNavigate();
 
+  const [showModal, setShowModal] = useState(false);
+  const [updatingState, setUpdatingState] = useState<"password" | "username">();
+  const [step, setStep] = useState<
+    "authenticate" | "updatePassword" | "updateUsername"
+  >("authenticate");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function submit(currentPassword: string, newPassword: string) {
+  const [password, setPassword] = useState("");
+  const [score, setScore] = useState(0);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordErrorMsg, setPasswordErrorMsg] = useState("");
+  const [newUsername, setNewUsername] = useState("");
+  const [usernameErrorMsg, setUsernameErrorMsg] = useState("");
+
+  // API error states
+  const [authApiError, setAuthApiError] = useState<string | null>(null);
+  const [passwordUpdateApiError, setPasswordUpdateApiError] = useState<
+    string | null
+  >(null);
+  const [usernameUpdateApiError, setUsernameUpdateApiError] = useState<
+    string | null
+  >(null);
+
+  // Clear errors when user starts typing
+  const handlePasswordChange = (value: string) => {
+    setPassword(value);
+    setAuthApiError(null);
+  };
+
+  const handleNewPasswordChange = (value: string) => {
+    setNewPassword(value);
+    setPasswordErrorMsg("");
+    setPasswordUpdateApiError(null);
+  };
+
+  const handleConfirmPasswordChange = (value: string) => {
+    setConfirmPassword(value);
+    setPasswordErrorMsg("");
+    setPasswordUpdateApiError(null);
+  };
+
+  const handleNewUsernameChange = (value: string) => {
+    setNewUsername(value);
+    setUsernameErrorMsg("");
+    setUsernameUpdateApiError(null);
+  };
+
+  function authenticate() {
+    setIsSubmitting(true);
+    setAuthApiError(null); // Clear any previous error
+    login({
+      loginRequest: create(AuthenticateRequestSchema, { username, password }),
+      onSuccess: () => {
+        if (updatingState === "password") {
+          setStep("updatePassword");
+        } else if (updatingState === "username") {
+          setStep("updateUsername");
+        }
+      },
+      onError: () => {
+        setAuthApiError(
+          "Authentication failed. Please check your password and try again.",
+        );
+      },
+      onFinally: () => {
+        setIsSubmitting(false);
+      },
+    });
+  }
+
+  function submitPasswordUpdate() {
+    // Validate passwords match
+    if (newPassword !== confirmPassword) {
+      setPasswordErrorMsg("Passwords do not match");
+      return;
+    }
+
+    // Validate password is not empty
+    if (!newPassword) {
+      setPasswordErrorMsg("New password is required");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setPasswordErrorMsg("");
+    setPasswordUpdateApiError(null);
+
     updatePassword({
-      currentPassword: currentPassword,
+      currentPassword: password,
       newPassword: newPassword,
       onSuccess: () => {
         login({
@@ -30,37 +178,277 @@ const AuthenticationSettings = () => {
             username,
             password: newPassword,
           }),
-          onFinally: () => {
+          onSuccess: () => {
             pushToast({
               message: "Your password has been updated",
               status: TOAST_STATUSES.success,
             });
-            navigate("/");
+            setShowModal(false);
+          },
+          onError: () => {
+            setPasswordUpdateApiError(
+              "Password updated but re-login failed. Please log in again.",
+            );
+          },
+          onFinally: () => {
+            setIsSubmitting(false);
           },
         });
       },
       onError: () => {
+        setPasswordUpdateApiError(
+          "Failed to update password. Please try again.",
+        );
         setIsSubmitting(false);
+      },
+    });
+  }
+
+  function submitUsernameUpdate() {
+    // Validate username is not empty
+    if (!newUsername) {
+      setUsernameErrorMsg("New username is required");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setUsernameErrorMsg("");
+    setUsernameUpdateApiError(null);
+
+    updateUsername({
+      username: newUsername,
+      onSuccess: () => {
         pushToast({
-          message: "Something went wrong, please try again",
-          status: TOAST_STATUSES.error,
+          message: "Your username has been updated",
+          status: TOAST_STATUSES.success,
         });
+        setShowModal(false);
+        setIsSubmitting(false);
+      },
+      onError: (error: string) => {
+        setUsernameUpdateApiError(`Failed to update username: ${error}`);
+        setIsSubmitting(false);
       },
     });
   }
 
   return (
     <>
-      <div className="mx-auto max-w-xl">
-        <Authentication
-          isUpdateMode
-          submit={submit}
-          isSubmitting={isSubmitting}
-          setIsSubmitting={setIsSubmitting}
-          headline="Update your admin login"
-          description="Your admin login is used to manage and make changes to this network’s miners, miner settings, and security configurations."
-          initUsername={username}
+      <div className="mx-auto flex max-w-4xl flex-col gap-6">
+        <Header
+          title="Security"
+          titleSize="text-heading-300"
+          description="Protect your mining fleet by managing system access, miner credentials, and team permissions."
         />
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 rounded-xl border border-border-5 p-6">
+            <Header title="Account" titleSize="text-heading-200" />
+            <div>
+              <Row className="flex items-center justify-between gap-5" divider>
+                <div className="text-emphasis-300">Username</div>
+                <div className="flex items-center gap-3">
+                  <span className="text-300">{username}</span>
+                  <Button
+                    onClick={() => {
+                      setShowModal(true);
+                      setUpdatingState("username");
+                      setStep("authenticate");
+                      // Clear any previous errors
+                      setAuthApiError(null);
+                      setUsernameUpdateApiError(null);
+                      setUsernameErrorMsg("");
+                    }}
+                    className="!p-0"
+                    variant="textOnly"
+                  >
+                    Update
+                  </Button>
+                </div>
+              </Row>
+              <Row
+                divider={false}
+                className="flex items-center justify-between gap-5"
+              >
+                <div className="text-emphasis-300">Password</div>
+                <div className="flex items-center gap-3">
+                  {passwordLastUpdatedAt ? (
+                    <FormattedDate
+                      className="text-300"
+                      label="Last updated"
+                      date={passwordLastUpdatedAt}
+                    />
+                  ) : null}
+                  <Button
+                    onClick={() => {
+                      setShowModal(true);
+                      setUpdatingState("password");
+                      setStep("authenticate");
+                      // Clear any previous errors
+                      setAuthApiError(null);
+                      setPasswordUpdateApiError(null);
+                      setPasswordErrorMsg("");
+                    }}
+                    className="!p-0"
+                    variant="textOnly"
+                  >
+                    Update
+                  </Button>
+                </div>
+              </Row>
+            </div>
+          </div>
+
+          {showModal && (
+            <Modal
+              buttons={[
+                {
+                  text: "Confirm",
+                  variant: "primary",
+                  dismissModalOnClick: false,
+                  loading: isSubmitting,
+                  onClick: () => {
+                    if (step === "authenticate") {
+                      authenticate();
+                      return;
+                    }
+
+                    if (step === "updatePassword") {
+                      submitPasswordUpdate();
+                      return;
+                    }
+
+                    if (step === "updateUsername") {
+                      submitUsernameUpdate();
+                    }
+                  },
+                },
+              ]}
+              buttonSize="base"
+              divider={false}
+              show
+              onDismiss={() => setShowModal(false)}
+            >
+              {step === "authenticate" && (
+                <AuthenticateForm
+                  onChange={handlePasswordChange}
+                  apiError={authApiError}
+                />
+              )}
+              {step === "updatePassword" && (
+                <div className="flex flex-col gap-6">
+                  <Header
+                    title="Update password"
+                    titleSize="text-heading-300"
+                    description="Your password will be used to log into Fleet."
+                  />
+
+                  <div>
+                    <div
+                      className={clsx(
+                        "transition-[max-height,margin] ease-in-out",
+                        {
+                          "max-h-0 overflow-hidden duration-300":
+                            !passwordUpdateApiError,
+                          "max-h-96 duration-500": passwordUpdateApiError,
+                        },
+                      )}
+                      data-testid="password-error"
+                    >
+                      <div className="mb-4 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
+                        {passwordUpdateApiError}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-4">
+                      <div className="flex flex-col gap-2">
+                        <Input
+                          id="newPassword"
+                          label="New password"
+                          type="password"
+                          onChange={handleNewPasswordChange}
+                          error={passwordErrorMsg}
+                        />
+                        <div className="flex items-center justify-between gap-5">
+                          <div>
+                            <div className="text-200 text-text-primary-50">
+                              Password strength
+                            </div>
+                          </div>
+                          <PasswordStrengthMeter
+                            score={score}
+                            onSetScore={setScore}
+                            password={newPassword}
+                          />
+                        </div>
+                      </div>
+                      <Input
+                        id="confirmPassword"
+                        label="Confirm password"
+                        type="password"
+                        onChange={handleConfirmPasswordChange}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+              {step === "updateUsername" && (
+                <div className="flex flex-col gap-6">
+                  <Header
+                    title="Update username"
+                    titleSize="text-heading-300"
+                    description="Your username will be used to log into Fleet."
+                  />
+
+                  <div>
+                    <div
+                      className={clsx(
+                        "transition-[max-height,margin] ease-in-out",
+                        {
+                          "max-h-0 overflow-hidden duration-300":
+                            !usernameUpdateApiError,
+                          "max-h-96 duration-500": usernameUpdateApiError,
+                        },
+                      )}
+                      data-testid="username-error"
+                    >
+                      <div className="mb-4 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
+                        {usernameUpdateApiError}
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-4">
+                      <Input
+                        id="username"
+                        label="Username"
+                        type="text"
+                        disabled
+                        initValue={username}
+                      />
+                      <Input
+                        id="newUsername"
+                        label="New username"
+                        type="text"
+                        onChange={handleNewUsernameChange}
+                        error={usernameErrorMsg}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </Modal>
+          )}
+          <div className="flex flex-col gap-4 rounded-xl border border-border-5 p-6">
+            <Header title="Devices" titleSize="text-heading-300" />
+            <div className="flex min-h-[427px] flex-col items-start justify-center gap-6 rounded-xl bg-landing-page p-20">
+              <Header
+                title="You haven’t paired any miners"
+                titleSize="text-heading-200"
+                subtitleSize="text-400"
+                subtitle="Add miners to your fleet to get started."
+              />
+              <Button variant="primary">Get started</Button>
+            </div>
+          </div>
+        </div>
       </div>
     </>
   );

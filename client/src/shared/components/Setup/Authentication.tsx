@@ -51,7 +51,7 @@ const WeakPasswordWarning = ({
   );
 };
 
-const PasswordStrengthMeter = ({
+export const PasswordStrengthMeter = ({
   password,
   score,
   onSetScore,

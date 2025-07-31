@@ -60,7 +60,7 @@ const SelectRow = ({
       </div>
       {sideText && (
         <div className="ml-4">
-          <div className="text-text-300">{sideText}</div>
+          <div className="text-300">{sideText}</div>
         </div>
       )}
       <div className="relative ml-4 flex">

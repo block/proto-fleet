@@ -4,8 +4,8 @@ import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { AuthenticateRequestSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { CreateAdminLoginRequestSchema } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
+import { useAuth } from "@/protoFleet/api/useAuth";
 import { useLogin } from "@/protoFleet/api/useLogin";
-import { usePassword } from "@/protoFleet/api/usePassword";
 import { Logo, Plus } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import AnimatedDotsBackground from "@/shared/components/Animation";
@@ -39,7 +39,7 @@ const WelcomePanel = ({ children }: WelcomePanelProps) => {
 
 const WelcomePage = () => {
   const navigate = useNavigate();
-  const { setPassword } = usePassword();
+  const { setPassword } = useAuth();
   const login = useLogin();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>();
