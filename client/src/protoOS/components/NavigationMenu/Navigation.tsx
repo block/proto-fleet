@@ -11,11 +11,6 @@ import {
 } from "./NavigationItems";
 import { NavigationItemValue, NavigationMenuType } from "./types";
 import { useMinerHosting } from "@/protoOS/api";
-import { UpdateAvailable } from "@/protoOS/features/firmwareUpdate";
-import {
-  statuses as FwuStatuses,
-  useFirmwareUpdate,
-} from "@/protoOS/features/firmwareUpdate/";
 import { Logo } from "@/shared/assets/icons";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
@@ -40,12 +35,6 @@ const Navigation = ({
     () => type === navigationMenuTypes.onboarding,
     [type],
   );
-
-  const {
-    status: fwuStatus,
-    dismissed: fwuDismissed,
-    setDismissed: fwuSetDismissed,
-  } = useFirmwareUpdate();
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -104,13 +93,6 @@ const Navigation = ({
           )}
         </div>
       </div>
-
-      {fwuStatus === FwuStatuses.available && !fwuDismissed && (
-        <UpdateAvailable
-          className="mb-3"
-          dismiss={() => fwuSetDismissed(true)}
-        />
-      )}
 
       <div className="border-t border-border-5 px-3 pb-3">
         <VersionInfo

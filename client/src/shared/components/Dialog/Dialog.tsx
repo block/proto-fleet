@@ -13,6 +13,7 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 interface DialogProps {
   className?: string;
   children?: ReactNode;
+  icon?: ReactNode;
   loading?: boolean;
   preventScroll?: boolean;
   show: boolean;
@@ -31,6 +32,7 @@ interface DialogProps {
 const Dialog = ({
   className,
   children,
+  icon,
   loading,
   preventScroll,
   show,
@@ -84,20 +86,24 @@ const Dialog = ({
             data-testid={testId}
           >
             <div className="p-6">
-              {loading && (
-                <ProgressCircular
-                  indeterminate
-                  className="mb-3 h-6 text-core-accent-fill"
+              <div className="flex flex-col gap-3">
+                {loading ? (
+                  <ProgressCircular
+                    indeterminate
+                    className="text-core-accent-fill"
+                  />
+                ) : icon ? (
+                  icon
+                ) : null}
+                <Header
+                  className={headerClassName}
+                  subtitleClassName={subtitleClassName}
+                  title={title}
+                  subtitle={subtitle}
+                  titleSize={titleSize}
+                  subtitleSize={subtitleSize}
                 />
-              )}
-              <Header
-                className={headerClassName}
-                subtitleClassName={subtitleClassName}
-                title={title}
-                subtitle={subtitle}
-                titleSize={titleSize}
-                subtitleSize={subtitleSize}
-              />
+              </div>
               {children && <div className="mt-4">{children}</div>}
             </div>
             {buttons && buttons.length > 0 && (

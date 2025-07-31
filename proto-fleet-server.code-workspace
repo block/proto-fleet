@@ -1,7 +1,10 @@
 {
   "folders": [
     {
-      "path": "client"
+      "path": "server"
+    },
+    {
+      "path": "proto"
     }
   ],
   "settings": {

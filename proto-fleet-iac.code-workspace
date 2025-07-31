@@ -1,7 +1,10 @@
 {
   "folders": [
     {
-      "path": "client"
+      "path": "deployment-files"
+    },
+    {
+      "path": "deploy"
     }
   ],
   "settings": {

@@ -77,14 +77,18 @@ const useSystemInfo = ({ poll }: UseSystemInfoProps) => {
       });
   }, [api]);
 
+  const reload = useCallback(() => {
+    fetchData();
+  }, [fetchData]);
+
   usePoll({
     fetchData,
     poll,
   });
 
   return useMemo(
-    () => ({ pending, error, data, processedData }),
-    [pending, error, data, processedData],
+    () => ({ pending, error, data, processedData, reload }),
+    [pending, error, data, processedData, reload],
   );
 };
 

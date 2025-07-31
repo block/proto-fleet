@@ -1,5 +1,6 @@
 import { action } from "@storybook/addon-actions";
 import DialogComponent from ".";
+import { SettingsSolid } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 
 export const Dialog = () => {
@@ -31,6 +32,17 @@ export const LoadingDialog = () => {
       subtitle="This may take a few seconds"
       loading
       show
+    />
+  );
+};
+
+export const IconDialog = () => {
+  return (
+    <DialogComponent
+      title="Title"
+      subtitle="Description"
+      show
+      icon={<SettingsSolid />}
     />
   );
 };

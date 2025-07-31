@@ -52,6 +52,7 @@ import Reboot from "./Reboot";
 import Rectangle from "./Rectangle";
 import Repair from "./Repair";
 import Settings from "./Settings";
+import SettingsSolid from "./SettingsSolid";
 import Speedometer from "./Speedometer";
 import Stop from "./Stop";
 import Success from "./Success";
@@ -117,6 +118,7 @@ export {
   Rectangle,
   Repair,
   Settings,
+  SettingsSolid,
   Speedometer,
   Stop,
   Success,

@@ -62,11 +62,6 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
     reboot();
   };
 
-  // TODO: remove this when data no longer gets cleared by reload
-  const handleAfterReboot = () => {
-    window.location.reload();
-  };
-
   const handleSleep = () => {
     setStopMiningError(undefined);
     setIsMiningStatusStale(true);
@@ -109,7 +104,6 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
         sleepError={stopMiningError}
         onWake={handleWake}
         wakeError={startMiningError}
-        afterReboot={handleAfterReboot}
         afterSleep={handleClear}
         afterWake={handleClear}
         shouldShowPopover={shouldShowPopover}

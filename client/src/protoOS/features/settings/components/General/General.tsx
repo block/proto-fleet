@@ -1,8 +1,11 @@
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
-import { useHashboards, useSystemInfo } from "@/protoOS/api";
+import { useFirmwareUpdate, useHashboards, useSystemInfo } from "@/protoOS/api";
+import { SettingsSolid } from "@/shared/assets/icons";
 import R1Image from "@/shared/assets/images/R1.png";
 import R2Image from "@/shared/assets/images/R2.png";
+import Button from "@/shared/components/Button";
+import Header from "@/shared/components/Header";
 import Picture from "@/shared/components/Picture";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
@@ -14,16 +17,46 @@ import {
 import usePreferences from "@/shared/features/preferences/hooks/usePreferences";
 import { convertToSentenceCase } from "@/shared/utils/stringUtils";
 
+const CHECK_FOR_UPDATES_DELAY = 400; // ms
+
 const General = () => {
   const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
   const [showTemperatureUnitsSwitcher, setShowTemperatureUnitsSwitcher] =
     useState(false);
   const model = "Proto Rig"; // TODO get model from API, do not append generation number
   const [isR2, setIsR2] = useState<boolean>();
+  const [firmwareUpdatePending, setFirmwareUpdatePending] = useState(false);
   const { theme, temperatureUnits } = usePreferences();
 
-  const { data: systemInfo } = useSystemInfo({ poll: false });
+  const {
+    data: systemInfo,
+    reload: reloadSystemInfo,
+    pending: systemInfoPending,
+  } = useSystemInfo({
+    poll: false,
+  });
   const { data: hashboards, pending } = useHashboards();
+  const { updateFirmware } = useFirmwareUpdate({ poll: false });
+
+  const [delayedSystemInfoPending, setDelayedSystemInfoPending] =
+    useState(systemInfoPending);
+
+  useEffect(() => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+
+    if (systemInfoPending) {
+      setDelayedSystemInfoPending(true);
+    } else {
+      // Add a synthetic delay since api returns quickly but we want to show a loading state
+      timeout = setTimeout(() => {
+        setDelayedSystemInfoPending(false);
+      }, CHECK_FOR_UPDATES_DELAY);
+    }
+
+    return () => {
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [systemInfoPending]);
 
   useEffect(() => {
     if (pending || !hashboards || !hashboards.length) {
@@ -37,6 +70,10 @@ const General = () => {
       setIsR2(false);
     }
   }, [hashboards, pending]);
+
+  const checkForUpdates = () => {
+    reloadSystemInfo();
+  };
 
   return (
     <>
@@ -80,6 +117,47 @@ const General = () => {
             {systemInfo?.os?.version || <SkeletonBar className="w-20" />}
           </div>
         </Row>
+        <div className="mt-6 flex justify-center">
+          {systemInfo?.sw_update_status?.status === "available" ? (
+            <Header
+              title="Firmware update available"
+              description={
+                systemInfo?.sw_update_status?.message ??
+                `Version: ${systemInfo?.sw_update_status?.new_version}`
+              }
+              icon={<SettingsSolid />}
+              titleSize="text-emphasis-300"
+              inline
+              className="w-full items-center rounded-xl bg-surface-base p-3 shadow-100"
+              buttons={[
+                {
+                  text: "Install",
+                  variant: "secondary",
+                  loading: firmwareUpdatePending,
+                  onClick: async () => {
+                    try {
+                      setFirmwareUpdatePending(true);
+                      await updateFirmware();
+                    } catch (error) {
+                      console.error(error);
+                    } finally {
+                      setFirmwareUpdatePending(false);
+                    }
+                  },
+                },
+              ]}
+            />
+          ) : (
+            <Button
+              variant="secondary"
+              size="compact"
+              loading={delayedSystemInfoPending}
+              onClick={() => checkForUpdates()}
+            >
+              Check for updates
+            </Button>
+          )}
+        </div>
       </div>
       <div className="mb-10">
         <h3 className="mb-2 text-heading-100">Preferences</h3>
