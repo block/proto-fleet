@@ -129,6 +129,7 @@ func start(config *Config) error {
 	scheduler := scheduler.NewScheduler(
 		config.Scheduler,
 	)
+
 	filesService, err := files.NewService()
 	if err != nil {
 		return err

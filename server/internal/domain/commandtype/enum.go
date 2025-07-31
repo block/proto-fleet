@@ -19,6 +19,7 @@ const (
 	DownloadLogs
 	Reboot
 	BlinkLED
+	FirmwareUpdate
 )
 
 func (t *Type) String() string {
@@ -37,6 +38,9 @@ func (t *Type) String() string {
 		return "Reboot"
 	case BlinkLED:
 		return "BlinkLED"
+	case FirmwareUpdate:
+		return "FirmwareUpdate"
+
 	default:
 		return "Undefined"
 	}
@@ -58,6 +62,8 @@ func FromString(s string) (Type, error) {
 		return Reboot, nil
 	case "BlinkLED":
 		return BlinkLED, nil
+	case "FirmwareUpdate":
+		return FirmwareUpdate, nil
 
 	default:
 		return Type(-1), fleeterror.NewInternalErrorf("invalid command type: %s", s)

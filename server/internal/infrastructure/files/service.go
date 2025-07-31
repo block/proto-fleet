@@ -18,7 +18,7 @@ const logsDir = "logs"
 const tempDir = logsDir + string(filepath.Separator) + "tmp"
 const grpcSizeLimit = 4 * 1024 * 1024
 
-type DownloadableFile struct {
+type FSFile struct {
 	Filename string
 	Data     []byte
 }
@@ -172,7 +172,7 @@ func (s *Service) getCommandBatchLogBundle(batchLogUUID string) (string, error) 
 	return zipPath, nil
 }
 
-func (s *Service) GetBatchLogBundleFile(batchLogUUID string) (*DownloadableFile, error) {
+func (s *Service) GetBatchLogBundleFile(batchLogUUID string) (*FSFile, error) {
 	downloadableFilePath := getBatchLogsZipFilePath(batchLogUUID)
 	if _, err := os.Stat(downloadableFilePath); os.IsNotExist(err) {
 		return nil, fleeterror.NewInternalErrorf("log bundle is not available yet, please try again later")
@@ -207,7 +207,7 @@ func (s *Service) GetBatchLogBundleFile(batchLogUUID string) (*DownloadableFile,
 		return nil, fleeterror.NewInternalErrorf("Failed to process request!")
 	}
 
-	return &DownloadableFile{Filename: filename, Data: data}, nil
+	return &FSFile{Filename: filename, Data: data}, nil
 }
 
 func (s *Service) DownloadLogsOnFinishedCallback(batchLogUUID string) func() error {

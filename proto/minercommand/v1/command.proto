@@ -85,6 +85,14 @@ message BlinkLEDResponse {
   string batch_identifier = 1;
 }
 
+message FirmwareUpdateRequest {
+  DeviceSelector device_selector = 1;
+}
+
+message FirmwareUpdateResponse {
+  string batch_identifier = 1;
+}
+
 message StreamCommandBatchUpdatesRequest {
   // The identifier of the command batch to stream
   string batch_identifier = 1;
@@ -152,4 +160,6 @@ service MinerCommandService {
   rpc StreamCommandBatchUpdates(StreamCommandBatchUpdatesRequest) returns (stream StreamCommandBatchUpdatesResponse);
 
   rpc GetCommandBatchLogBundle(GetCommandBatchLogBundleRequest) returns (GetCommandBatchLogBundleResponse);
+
+  rpc FirmwareUpdate(FirmwareUpdateRequest) returns (FirmwareUpdateResponse);
 }

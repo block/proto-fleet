@@ -194,17 +194,6 @@ func (s *Service) initializeStatusUpdateRoutine(commandBatchLogUUID string, onFi
 	}()
 }
 
-func (s *Service) statusUpdateRoutineOnFinishedCallback(commandType commandtype.Type, batchLogUUID string) onFinishedCallbackFunc {
-	switch commandType {
-	case commandtype.DownloadLogs:
-		return s.filesService.DownloadLogsOnFinishedCallback(batchLogUUID)
-	case commandtype.StopMining, commandtype.StartMining, commandtype.SetCoolingMode, commandtype.UpdateMiningPools, commandtype.Reboot, commandtype.BlinkLED:
-		return nil
-	default:
-		return nil
-	}
-}
-
 func (s *Service) getDeviceIDs(ctx context.Context, selector *pb.DeviceSelector) ([]int64, error) {
 	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
@@ -262,9 +251,6 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (string,
 		return "", fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
 	}
 
-	onFinishedCallback := s.statusUpdateRoutineOnFinishedCallback(command.commandType, batchLogIdentifier)
-	s.initializeStatusUpdateRoutine(batchLogIdentifier, onFinishedCallback)
-
 	return batchLogIdentifier, nil
 }
 
@@ -273,6 +259,8 @@ func (s *Service) Reboot(ctx context.Context, deviceSelector *pb.DeviceSelector)
 	if err != nil {
 		return nil, err
 	}
+
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 
 	return &pb.RebootResponse{
 		BatchIdentifier: commandBatchLogUUID,
@@ -289,6 +277,8 @@ func (s *Service) StopMining(ctx context.Context, deviceSelector *pb.DeviceSelec
 		return nil, err
 	}
 
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+
 	return &pb.StopMiningResponse{
 		BatchIdentifier: commandBatchLogUUID,
 	}, nil
@@ -304,6 +294,8 @@ func (s *Service) StartMining(ctx context.Context, deviceSelector *pb.DeviceSele
 		return nil, err
 	}
 
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+
 	return &pb.StartMiningResponse{
 		BatchIdentifier: commandBatchLogUUID,
 	}, nil
@@ -318,6 +310,8 @@ func (s *Service) SetCoolingMode(ctx context.Context, deviceSelector *pb.DeviceS
 	if err != nil {
 		return nil, err
 	}
+
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 
 	return &pb.SetCoolingModeResponse{
 		BatchIdentifier: commandBatchLogUUID,
@@ -396,6 +390,9 @@ func (s *Service) UpdateMiningPools(ctx context.Context, deviceSelector *pb.Devi
 	if err != nil {
 		return nil, err
 	}
+
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+
 	return &pb.UpdateMiningPoolsResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
 
@@ -408,6 +405,9 @@ func (s *Service) DownloadLogs(ctx context.Context, deviceSelector *pb.DeviceSel
 		return nil, err
 	}
 
+	callback := s.filesService.DownloadLogsOnFinishedCallback(commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID, callback)
+
 	return &pb.DownloadLogsResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
 
@@ -416,7 +416,21 @@ func (s *Service) BlinkLED(ctx context.Context, deviceSelector *pb.DeviceSelecto
 	if err != nil {
 		return nil, err
 	}
+
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+
 	return &pb.BlinkLEDResponse{BatchIdentifier: commandBatchLogUUID}, nil
+}
+
+func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.FirmwareUpdateResponse, error) {
+	commandBatchLogUUID, err := s.processCommand(ctx, &Command{commandType: commandtype.FirmwareUpdate, deviceSelector: deviceSelector, payload: nil})
+	if err != nil {
+		return nil, err
+	}
+
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+
+	return &pb.FirmwareUpdateResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
 
 func (s *Service) StreamCommandBatchUpdates(ctx context.Context, msg *pb.StreamCommandBatchUpdatesRequest) (<-chan *pb.StreamCommandBatchUpdatesResponse, error) {

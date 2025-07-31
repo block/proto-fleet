@@ -35,6 +35,8 @@ type Miner interface {
 
 	DownloadLogs(ctx context.Context, batchLogUUID string) error
 
+	FirmwareUpdate(ctx context.Context) error
+
 	// Telemetry operations
 	GetTelemetry(ctx context.Context, after time.Time) ([]telemetryModels.Telemetry, error)
 }

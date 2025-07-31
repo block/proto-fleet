@@ -396,6 +396,15 @@ func (p *ProtoMiner) BlinkLED(ctx context.Context) error {
 	return nil
 }
 
+func (p *ProtoMiner) FirmwareUpdate(ctx context.Context) error {
+	_, err := p.systemClient.Update(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error on install command: %v", err)
+	}
+
+	return nil
+}
+
 func (p *ProtoMiner) GetTelemetry(ctx context.Context, after time.Time) ([]telemetryModels.Telemetry, error) {
 	// Create telemetry mapper
 	mapper := NewTelemetryMapper(p.GetID())

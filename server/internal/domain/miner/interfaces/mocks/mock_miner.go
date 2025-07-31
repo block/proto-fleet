@@ -147,6 +147,20 @@ func (mr *MockMinerMockRecorder) DownloadLogs(ctx, batchLogUUID interface{}) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DownloadLogs", reflect.TypeOf((*MockMiner)(nil).DownloadLogs), ctx, batchLogUUID)
 }
 
+// FirmwareUpdate mocks base method.
+func (m *MockMiner) FirmwareUpdate(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FirmwareUpdate", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// FirmwareUpdate indicates an expected call of FirmwareUpdate.
+func (mr *MockMinerMockRecorder) FirmwareUpdate(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FirmwareUpdate", reflect.TypeOf((*MockMiner)(nil).FirmwareUpdate), ctx)
+}
+
 // GetConnectionInfo mocks base method.
 func (m *MockMiner) GetConnectionInfo() networking.ConnectionInfo {
 	m.ctrl.T.Helper()

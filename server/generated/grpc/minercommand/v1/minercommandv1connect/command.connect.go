@@ -61,6 +61,9 @@ const (
 	// MinerCommandServiceGetCommandBatchLogBundleProcedure is the fully-qualified name of the
 	// MinerCommandService's GetCommandBatchLogBundle RPC.
 	MinerCommandServiceGetCommandBatchLogBundleProcedure = "/minercommand.v1.MinerCommandService/GetCommandBatchLogBundle"
+	// MinerCommandServiceFirmwareUpdateProcedure is the fully-qualified name of the
+	// MinerCommandService's FirmwareUpdate RPC.
+	MinerCommandServiceFirmwareUpdateProcedure = "/minercommand.v1.MinerCommandService/FirmwareUpdate"
 )
 
 // MinerCommandServiceClient is a client for the minercommand.v1.MinerCommandService service.
@@ -79,6 +82,7 @@ type MinerCommandServiceClient interface {
 	// Streams command batch updates
 	StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamCommandBatchUpdatesResponse], error)
 	GetCommandBatchLogBundle(context.Context, *connect.Request[v1.GetCommandBatchLogBundleRequest]) (*connect.Response[v1.GetCommandBatchLogBundleResponse], error)
+	FirmwareUpdate(context.Context, *connect.Request[v1.FirmwareUpdateRequest]) (*connect.Response[v1.FirmwareUpdateResponse], error)
 }
 
 // NewMinerCommandServiceClient constructs a client for the minercommand.v1.MinerCommandService
@@ -136,6 +140,11 @@ func NewMinerCommandServiceClient(httpClient connect.HTTPClient, baseURL string,
 			baseURL+MinerCommandServiceGetCommandBatchLogBundleProcedure,
 			opts...,
 		),
+		firmwareUpdate: connect.NewClient[v1.FirmwareUpdateRequest, v1.FirmwareUpdateResponse](
+			httpClient,
+			baseURL+MinerCommandServiceFirmwareUpdateProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -150,6 +159,7 @@ type minerCommandServiceClient struct {
 	blinkLED                  *connect.Client[v1.BlinkLEDRequest, v1.BlinkLEDResponse]
 	streamCommandBatchUpdates *connect.Client[v1.StreamCommandBatchUpdatesRequest, v1.StreamCommandBatchUpdatesResponse]
 	getCommandBatchLogBundle  *connect.Client[v1.GetCommandBatchLogBundleRequest, v1.GetCommandBatchLogBundleResponse]
+	firmwareUpdate            *connect.Client[v1.FirmwareUpdateRequest, v1.FirmwareUpdateResponse]
 }
 
 // Reboot calls minercommand.v1.MinerCommandService.Reboot.
@@ -197,6 +207,11 @@ func (c *minerCommandServiceClient) GetCommandBatchLogBundle(ctx context.Context
 	return c.getCommandBatchLogBundle.CallUnary(ctx, req)
 }
 
+// FirmwareUpdate calls minercommand.v1.MinerCommandService.FirmwareUpdate.
+func (c *minerCommandServiceClient) FirmwareUpdate(ctx context.Context, req *connect.Request[v1.FirmwareUpdateRequest]) (*connect.Response[v1.FirmwareUpdateResponse], error) {
+	return c.firmwareUpdate.CallUnary(ctx, req)
+}
+
 // MinerCommandServiceHandler is an implementation of the minercommand.v1.MinerCommandService
 // service.
 type MinerCommandServiceHandler interface {
@@ -214,6 +229,7 @@ type MinerCommandServiceHandler interface {
 	// Streams command batch updates
 	StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest], *connect.ServerStream[v1.StreamCommandBatchUpdatesResponse]) error
 	GetCommandBatchLogBundle(context.Context, *connect.Request[v1.GetCommandBatchLogBundleRequest]) (*connect.Response[v1.GetCommandBatchLogBundleResponse], error)
+	FirmwareUpdate(context.Context, *connect.Request[v1.FirmwareUpdateRequest]) (*connect.Response[v1.FirmwareUpdateResponse], error)
 }
 
 // NewMinerCommandServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -267,6 +283,11 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 		svc.GetCommandBatchLogBundle,
 		opts...,
 	)
+	minerCommandServiceFirmwareUpdateHandler := connect.NewUnaryHandler(
+		MinerCommandServiceFirmwareUpdateProcedure,
+		svc.FirmwareUpdate,
+		opts...,
+	)
 	return "/minercommand.v1.MinerCommandService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MinerCommandServiceRebootProcedure:
@@ -287,6 +308,8 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 			minerCommandServiceStreamCommandBatchUpdatesHandler.ServeHTTP(w, r)
 		case MinerCommandServiceGetCommandBatchLogBundleProcedure:
 			minerCommandServiceGetCommandBatchLogBundleHandler.ServeHTTP(w, r)
+		case MinerCommandServiceFirmwareUpdateProcedure:
+			minerCommandServiceFirmwareUpdateHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -330,4 +353,8 @@ func (UnimplementedMinerCommandServiceHandler) StreamCommandBatchUpdates(context
 
 func (UnimplementedMinerCommandServiceHandler) GetCommandBatchLogBundle(context.Context, *connect.Request[v1.GetCommandBatchLogBundleRequest]) (*connect.Response[v1.GetCommandBatchLogBundleResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.GetCommandBatchLogBundle is not implemented"))
+}
+
+func (UnimplementedMinerCommandServiceHandler) FirmwareUpdate(context.Context, *connect.Request[v1.FirmwareUpdateRequest]) (*connect.Response[v1.FirmwareUpdateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.FirmwareUpdate is not implemented"))
 }

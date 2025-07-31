@@ -123,6 +123,10 @@ func (a *Antminer) BlinkLED(_ context.Context) error {
 	return fleeterror.NewInternalErrorf("Not implemented!") // TODO https://linear.app/squareup/issue/DASH-535
 }
 
+func (a *Antminer) FirmwareUpdate(_ context.Context) error {
+	return fleeterror.NewInternalErrorf("Not implemented!") // TODO https://linear.app/squareup/issue/DASH-575
+}
+
 func (a *Antminer) getWebConnectionInfo() *web.AntminerConnectionInfo {
 	return &web.AntminerConnectionInfo{
 		ConnectionInfo: networking.ConnectionInfo{

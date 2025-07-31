@@ -118,6 +118,15 @@ func (h *Handler) BlinkLED(ctx context.Context, req *connect.Request[pb.BlinkLED
 	return connect.NewResponse(resp), nil
 }
 
+func (h *Handler) FirmwareUpdate(ctx context.Context, req *connect.Request[pb.FirmwareUpdateRequest]) (*connect.Response[pb.FirmwareUpdateResponse], error) {
+	resp, err := h.commandSvc.FirmwareUpdate(ctx, req.Msg.DeviceSelector)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(resp), nil
+}
+
 func (h *Handler) StreamCommandBatchUpdates(ctx context.Context, r *connect.Request[pb.StreamCommandBatchUpdatesRequest], stream *connect.ServerStream[pb.StreamCommandBatchUpdatesResponse]) error {
 	slog.Debug("handling request to stream command batch updates", "request", r)
 	responseChan, err := h.commandSvc.StreamCommandBatchUpdates(ctx, r.Msg)

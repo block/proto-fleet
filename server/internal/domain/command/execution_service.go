@@ -210,6 +210,8 @@ func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandTyp
 		err = minerInfo.DownloadLogs(ctx, message.BatchLogUUID)
 	case commandtype.BlinkLED:
 		err = minerInfo.BlinkLED(ctx)
+	case commandtype.FirmwareUpdate:
+		err = minerInfo.FirmwareUpdate(ctx)
 	default:
 		return fleeterror.NewInternalErrorf("unsupported command type: %v", commandType)
 	}
