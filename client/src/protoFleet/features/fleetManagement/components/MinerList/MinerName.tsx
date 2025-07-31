@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import MinerFrame from "@/protoFleet/features/fleetManagement/components/MinerFrame";
 import {
   useMinerName,
@@ -14,11 +14,30 @@ const MinerName = ({ deviceIdentifier }: MinerNameProps) => {
   const url = useMinerUrl(deviceIdentifier);
   const [isMinerFrameOpen, setIsMinerFrameOpen] = useState(false);
 
+  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (url) {
+      try {
+        const parsedUrl = new URL(url);
+        if (parsedUrl.protocol === "https:") {
+          e.preventDefault();
+          setIsMinerFrameOpen(true);
+        }
+      } catch (error) {
+        console.error("Invalid URL:", error);
+      }
+    }
+  };
+
   return url ? (
     <>
-      <button onClick={() => setIsMinerFrameOpen(true)}>
-        <span>{name}</span>
-      </button>
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={handleClick}
+      >
+        {name}
+      </a>
       {isMinerFrameOpen ? (
         <MinerFrame
           title={name}
