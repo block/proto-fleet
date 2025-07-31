@@ -1,24 +1,23 @@
 import { useCallback, useMemo } from "react";
-import { HashboardsInfoHashboardsinfo } from "apiTypes";
-import { useHashboards, useSystemInfo } from "@/protoOS/api";
-import {
-  ExternalAsicType,
-  InternalAsicType,
-} from "@/protoOS/features/settings/components/Hardware/constants";
+import { HashboardsInfoHashboardsinfo, PsusInfoPsusinfo } from "apiTypes";
+import { useHardware } from "@/protoOS/api/useHardware";
+import { InternalAsicType } from "@/protoOS/features/settings/components/Hardware/constants";
 import { HashboardIndicator } from "@/shared/assets/icons";
+import { DataNullState } from "@/shared/components/DataNullState";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
 const Hardware = () => {
-  const { data: hashboards } = useHashboards();
-  const { data: systemInfo } = useSystemInfo({ poll: false });
+  const { hashboardsInfo, controlBoardInfo, psusInfo, pending, error } =
+    useHardware();
 
   const sortedHashboards = useMemo(() => {
-    return hashboards?.sort(
-      (a, b) => (a.slot || hashboards.length) - (b.slot || hashboards.length),
+    return hashboardsInfo?.sort(
+      (a, b) =>
+        (a.slot || hashboardsInfo.length) - (b.slot || hashboardsInfo.length),
     );
-  }, [hashboards]);
+  }, [hashboardsInfo]);
   const totalSlots = sortedHashboards?.length
     ? (sortedHashboards[sortedHashboards.length - 1]?.slot ?? 0)
     : 0;
@@ -39,23 +38,28 @@ const Hardware = () => {
     [],
   );
 
-  const getExternalAsicType = useCallback((internalAsicName?: string) => {
-    if (!internalAsicName) return undefined;
-    switch (internalAsicName) {
-      case InternalAsicType.MC1:
-      case InternalAsicType.BZM2:
-        return ExternalAsicType.Chip1;
-      case InternalAsicType.MC2:
-        return ExternalAsicType.Chip2;
-      case InternalAsicType.MC2Sim:
-        return ExternalAsicType.Chip2Sim;
-      case InternalAsicType.CpuSimulated:
-        return ExternalAsicType.ChipSim;
-    }
-  }, []);
+  if (pending) {
+    return (
+      <>
+        <h2 className="mb-10 text-heading-300">Hardware</h2>
+        <div className="flex justify-center">
+          <ProgressCircular className="my-5" indeterminate />
+        </div>
+      </>
+    );
+  }
 
-  // TODO get PSU serial number from API
-  const psuSerialNumber = "PM-H132435034";
+  if (error) {
+    return (
+      <>
+        <h2 className="mb-10 text-heading-300">Hardware</h2>
+        <DataNullState
+          title="Could not load hardware details"
+          description="Test your connection and try again."
+        />
+      </>
+    );
+  }
 
   return (
     <>
@@ -68,23 +72,24 @@ const Hardware = () => {
         </Row>
         <Row className="flex">
           <div className="w-68 text-300">
-            {systemInfo?.board ?? skeletonBar}
+            {controlBoardInfo?.board_id
+              ? `Control Board ${controlBoardInfo.board_id}`
+              : skeletonBar}
           </div>
           <div className="w-91 text-300">
-            {systemInfo?.cb_sn ?? skeletonBar}
+            {controlBoardInfo?.serial_number ?? skeletonBar}
           </div>
         </Row>
       </div>
       <div className="mb-10" role="table">
         <h3 className="mb-2 text-heading-100">Hashboards</h3>
 
-        {hashboards?.length ? (
+        {hashboardsInfo?.length ? (
           <>
             <Row className="flex" attributes={{ role: "row" }}>
               <h4 className="w-22 text-emphasis-300">Position</h4>
               <h4 className="w-46 text-emphasis-300">Hashboard</h4>
               <h4 className="w-46 text-emphasis-300">Serial Number</h4>
-              <h4 className="w-46 text-emphasis-300">Chip</h4>
             </Row>
             {sortedHashboards?.map((hashboard, index) => (
               <Row key={index} className="flex" attributes={{ role: "row" }}>
@@ -98,28 +103,36 @@ const Hardware = () => {
                   Hashboard {getHashboardIdentifier(hashboard)}
                 </div>
                 <div className="w-46 text-300">{hashboard.hb_sn}</div>
-                <div className="w-46 text-300">
-                  {getExternalAsicType(hashboard.mining_asic)}
-                </div>
               </Row>
             ))}
           </>
         ) : (
           <div className="flex justify-center">
-            <ProgressCircular className="my-5" indeterminate />
+            <p className="text-300">No hashboards found</p>
           </div>
         )}
       </div>
       <div className="mb-10">
         <h3 className="mb-2 text-heading-100">Power supply</h3>
-        <Row className="flex" attributes={{ role: "row" }}>
-          <h4 className="w-68 text-emphasis-300">PSU</h4>
-          <h4 className="w-91 text-emphasis-300">Serial number</h4>
-        </Row>
-        <Row className="flex">
-          <div className="w-68 text-300">Power supply</div>
-          <div className="w-91 text-300">{psuSerialNumber ?? skeletonBar}</div>
-        </Row>
+
+        {psusInfo?.length ? (
+          <>
+            <Row className="flex" attributes={{ role: "row" }}>
+              <h4 className="w-68 text-emphasis-300">PSU</h4>
+              <h4 className="w-91 text-emphasis-300">Serial number</h4>
+            </Row>
+            {psusInfo?.map((psu: PsusInfoPsusinfo) => (
+              <Row className="flex" key={psu.psu_sn}>
+                <div className="w-68 text-300">{psu.model}</div>
+                <div className="w-91 text-300">{psu.psu_sn ?? skeletonBar}</div>
+              </Row>
+            ))}
+          </>
+        ) : (
+          <div className="flex justify-center">
+            <p className="text-300">No power supplies found</p>
+          </div>
+        )}
       </div>
     </>
   );

@@ -296,9 +296,7 @@ export interface FanStatus {
   rpm?: number;
 }
 
-export interface FansInfo {
-  "fans-info"?: FanInfoFaninfo[];
-}
+export type FansInfo = FanInfoFaninfo[];
 
 export interface GetAsicHashrateParams {
   /** The ID of the ASIC to provide hashrate information for. */
@@ -400,9 +398,9 @@ export interface HardwareInfo {
 
 export interface HardwareInfoHardwareinfo {
   "cb-info"?: ControlBoardInfo;
-  "fans-info"?: FansInfo;
-  "hashboards-info"?: HashboardsInfo;
-  "psus-info"?: PsusInfo;
+  "fans-info"?: FanInfoFaninfo[];
+  "hashboards-info"?: HashboardsInfoHashboardsinfo[];
+  "psus-info"?: PsusInfoPsusinfo[];
 }
 
 export interface HashboardStats {
@@ -455,9 +453,7 @@ export interface HashboardStatsHashboardstats {
   voltage_mv?: number;
 }
 
-export interface HashboardsInfo {
-  "hashboards-info"?: HashboardsInfoHashboardsinfo[];
-}
+export type HashboardsInfo = HashboardsInfoHashboardsinfo[];
 
 export interface HashboardsInfoHashboardsinfo {
   /** @example "1.0" */
@@ -888,9 +884,7 @@ export interface PowerResponsePowerdata {
   duration?: "12h" | "24h" | "48h" | "5d";
 }
 
-export interface PsusInfo {
-  "psus-info"?: PsusInfoPsusinfo[];
-}
+export type PsusInfo = PsusInfoPsusinfo[];
 
 export interface PsusInfoPsusinfo {
   firmware?: {
@@ -922,35 +916,35 @@ export interface PsusInfoPsusinfo {
   model?: string;
   power?: {
     /**
-     * Input current in amperes.
-     * @example 20.34
+     * Input current in milliamperes.
+     * @example 219
      */
-    input_current?: number;
+    input_current_ma?: number;
     /**
-     * Input power in watts.
-     * @example 3868
+     * Input power in milliwatts.
+     * @example 48063
      */
-    input_power?: number;
+    input_power_mw?: number;
     /**
-     * Input voltage in volts.
-     * @example 240
+     * Input voltage in millivolts.
+     * @example 210250
      */
-    input_voltage?: number;
+    input_voltage_mv?: number;
     /**
-     * Output current in amperes.
-     * @example 251.5
+     * Output current in milliamperes.
+     * @example 2539
      */
-    output_current?: number;
+    output_current_ma?: number;
     /**
-     * Output power in watts.
-     * @example 4000
+     * Output power in milliwatts.
+     * @example 39500
      */
-    output_power?: number;
+    output_power_mw?: number;
     /**
-     * Output voltage in volts.
-     * @example 15.38
+     * Output voltage in millivolts.
+     * @example 15529
      */
-    output_voltage?: number;
+    output_voltage_mv?: number;
   };
   /**
    * Power supply serial number.

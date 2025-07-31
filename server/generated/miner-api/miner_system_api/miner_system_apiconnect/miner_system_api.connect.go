@@ -25,6 +25,8 @@ const _ = connect.IsAtLeastVersion0_1_0
 const (
 	// MinerSystemApiName is the fully-qualified name of the MinerSystemApi service.
 	MinerSystemApiName = "miner_system_api.MinerSystemApi"
+	// MinerPairingApiName is the fully-qualified name of the MinerPairingApi service.
+	MinerPairingApiName = "miner_system_api.MinerPairingApi"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -35,9 +37,6 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// MinerSystemApiGetPairingInfoProcedure is the fully-qualified name of the MinerSystemApi's
-	// GetPairingInfo RPC.
-	MinerSystemApiGetPairingInfoProcedure = "/miner_system_api.MinerSystemApi/GetPairingInfo"
 	// MinerSystemApiGetNetworkProcedure is the fully-qualified name of the MinerSystemApi's GetNetwork
 	// RPC.
 	MinerSystemApiGetNetworkProcedure = "/miner_system_api.MinerSystemApi/GetNetwork"
@@ -54,14 +53,23 @@ const (
 	MinerSystemApiUpdateProcedure = "/miner_system_api.MinerSystemApi/Update"
 	// MinerSystemApiUploadProcedure is the fully-qualified name of the MinerSystemApi's Upload RPC.
 	MinerSystemApiUploadProcedure = "/miner_system_api.MinerSystemApi/Upload"
+	// MinerPairingApiSetAuthKeyProcedure is the fully-qualified name of the MinerPairingApi's
+	// SetAuthKey RPC.
+	MinerPairingApiSetAuthKeyProcedure = "/miner_system_api.MinerPairingApi/SetAuthKey"
+	// MinerPairingApiGetPairingInfoProcedure is the fully-qualified name of the MinerPairingApi's
+	// GetPairingInfo RPC.
+	MinerPairingApiGetPairingInfoProcedure = "/miner_system_api.MinerPairingApi/GetPairingInfo"
 )
 
 // MinerSystemApiClient is a client for the miner_system_api.MinerSystemApi service.
 type MinerSystemApiClient interface {
-	GetPairingInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.GetPairingInfoResponse], error)
+	// Endpoint for getting network information
 	GetNetwork(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.GetNetworkResponse], error)
+	// Endpoint for setting network configuration
 	SetNetwork(context.Context, *connect.Request[miner_system_api.SetNetworkRequest]) (*connect.Response[miner_system_api.SetNetworkResponse], error)
+	// Endpoint for rebooting the miner
 	Reboot(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	// Endpoint for getting logs from various sources on the miner
 	GetLogs(context.Context, *connect.Request[miner_system_api.GetLogsRequest]) (*connect.Response[miner_system_api.GetLogsResponse], error)
 	// Endpoint for installing updates - can be used by UI to manually trigger installation
 	// when automatic installation after download is not desired
@@ -82,11 +90,6 @@ type MinerSystemApiClient interface {
 func NewMinerSystemApiClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MinerSystemApiClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &minerSystemApiClient{
-		getPairingInfo: connect.NewClient[miner_common_api.EmptyRequest, miner_system_api.GetPairingInfoResponse](
-			httpClient,
-			baseURL+MinerSystemApiGetPairingInfoProcedure,
-			opts...,
-		),
 		getNetwork: connect.NewClient[miner_common_api.EmptyRequest, miner_system_api.GetNetworkResponse](
 			httpClient,
 			baseURL+MinerSystemApiGetNetworkProcedure,
@@ -127,19 +130,13 @@ func NewMinerSystemApiClient(httpClient connect.HTTPClient, baseURL string, opts
 
 // minerSystemApiClient implements MinerSystemApiClient.
 type minerSystemApiClient struct {
-	getPairingInfo *connect.Client[miner_common_api.EmptyRequest, miner_system_api.GetPairingInfoResponse]
-	getNetwork     *connect.Client[miner_common_api.EmptyRequest, miner_system_api.GetNetworkResponse]
-	setNetwork     *connect.Client[miner_system_api.SetNetworkRequest, miner_system_api.SetNetworkResponse]
-	reboot         *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
-	getLogs        *connect.Client[miner_system_api.GetLogsRequest, miner_system_api.GetLogsResponse]
-	install        *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
-	update         *connect.Client[miner_common_api.EmptyRequest, miner_system_api.UpdateResponse]
-	upload         *connect.Client[miner_system_api.UploadRequest, miner_system_api.UploadResponse]
-}
-
-// GetPairingInfo calls miner_system_api.MinerSystemApi.GetPairingInfo.
-func (c *minerSystemApiClient) GetPairingInfo(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.GetPairingInfoResponse], error) {
-	return c.getPairingInfo.CallUnary(ctx, req)
+	getNetwork *connect.Client[miner_common_api.EmptyRequest, miner_system_api.GetNetworkResponse]
+	setNetwork *connect.Client[miner_system_api.SetNetworkRequest, miner_system_api.SetNetworkResponse]
+	reboot     *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	getLogs    *connect.Client[miner_system_api.GetLogsRequest, miner_system_api.GetLogsResponse]
+	install    *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	update     *connect.Client[miner_common_api.EmptyRequest, miner_system_api.UpdateResponse]
+	upload     *connect.Client[miner_system_api.UploadRequest, miner_system_api.UploadResponse]
 }
 
 // GetNetwork calls miner_system_api.MinerSystemApi.GetNetwork.
@@ -179,10 +176,13 @@ func (c *minerSystemApiClient) Upload(ctx context.Context) *connect.ClientStream
 
 // MinerSystemApiHandler is an implementation of the miner_system_api.MinerSystemApi service.
 type MinerSystemApiHandler interface {
-	GetPairingInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.GetPairingInfoResponse], error)
+	// Endpoint for getting network information
 	GetNetwork(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.GetNetworkResponse], error)
+	// Endpoint for setting network configuration
 	SetNetwork(context.Context, *connect.Request[miner_system_api.SetNetworkRequest]) (*connect.Response[miner_system_api.SetNetworkResponse], error)
+	// Endpoint for rebooting the miner
 	Reboot(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	// Endpoint for getting logs from various sources on the miner
 	GetLogs(context.Context, *connect.Request[miner_system_api.GetLogsRequest]) (*connect.Response[miner_system_api.GetLogsResponse], error)
 	// Endpoint for installing updates - can be used by UI to manually trigger installation
 	// when automatic installation after download is not desired
@@ -199,11 +199,6 @@ type MinerSystemApiHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewMinerSystemApiHandler(svc MinerSystemApiHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	minerSystemApiGetPairingInfoHandler := connect.NewUnaryHandler(
-		MinerSystemApiGetPairingInfoProcedure,
-		svc.GetPairingInfo,
-		opts...,
-	)
 	minerSystemApiGetNetworkHandler := connect.NewUnaryHandler(
 		MinerSystemApiGetNetworkProcedure,
 		svc.GetNetwork,
@@ -241,8 +236,6 @@ func NewMinerSystemApiHandler(svc MinerSystemApiHandler, opts ...connect.Handler
 	)
 	return "/miner_system_api.MinerSystemApi/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case MinerSystemApiGetPairingInfoProcedure:
-			minerSystemApiGetPairingInfoHandler.ServeHTTP(w, r)
 		case MinerSystemApiGetNetworkProcedure:
 			minerSystemApiGetNetworkHandler.ServeHTTP(w, r)
 		case MinerSystemApiSetNetworkProcedure:
@@ -265,10 +258,6 @@ func NewMinerSystemApiHandler(svc MinerSystemApiHandler, opts ...connect.Handler
 
 // UnimplementedMinerSystemApiHandler returns CodeUnimplemented from all methods.
 type UnimplementedMinerSystemApiHandler struct{}
-
-func (UnimplementedMinerSystemApiHandler) GetPairingInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.GetPairingInfoResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerSystemApi.GetPairingInfo is not implemented"))
-}
 
 func (UnimplementedMinerSystemApiHandler) GetNetwork(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.GetNetworkResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerSystemApi.GetNetwork is not implemented"))
@@ -296,4 +285,98 @@ func (UnimplementedMinerSystemApiHandler) Update(context.Context, *connect.Reque
 
 func (UnimplementedMinerSystemApiHandler) Upload(context.Context, *connect.ClientStream[miner_system_api.UploadRequest]) (*connect.Response[miner_system_api.UploadResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerSystemApi.Upload is not implemented"))
+}
+
+// MinerPairingApiClient is a client for the miner_system_api.MinerPairingApi service.
+type MinerPairingApiClient interface {
+	// Endpoint for setting auth key (ed25519 public key)
+	SetAuthKey(context.Context, *connect.Request[miner_system_api.SetAuthKeyRequest]) (*connect.Response[miner_system_api.SetAuthKeyResponse], error)
+	// Endpoint for getting pairing info during discovery (mac address, control board serial number)
+	GetPairingInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.GetPairingInfoResponse], error)
+}
+
+// NewMinerPairingApiClient constructs a client for the miner_system_api.MinerPairingApi service. By
+// default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses,
+// and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
+// connect.WithGRPC() or connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewMinerPairingApiClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MinerPairingApiClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	return &minerPairingApiClient{
+		setAuthKey: connect.NewClient[miner_system_api.SetAuthKeyRequest, miner_system_api.SetAuthKeyResponse](
+			httpClient,
+			baseURL+MinerPairingApiSetAuthKeyProcedure,
+			opts...,
+		),
+		getPairingInfo: connect.NewClient[miner_common_api.EmptyRequest, miner_system_api.GetPairingInfoResponse](
+			httpClient,
+			baseURL+MinerPairingApiGetPairingInfoProcedure,
+			opts...,
+		),
+	}
+}
+
+// minerPairingApiClient implements MinerPairingApiClient.
+type minerPairingApiClient struct {
+	setAuthKey     *connect.Client[miner_system_api.SetAuthKeyRequest, miner_system_api.SetAuthKeyResponse]
+	getPairingInfo *connect.Client[miner_common_api.EmptyRequest, miner_system_api.GetPairingInfoResponse]
+}
+
+// SetAuthKey calls miner_system_api.MinerPairingApi.SetAuthKey.
+func (c *minerPairingApiClient) SetAuthKey(ctx context.Context, req *connect.Request[miner_system_api.SetAuthKeyRequest]) (*connect.Response[miner_system_api.SetAuthKeyResponse], error) {
+	return c.setAuthKey.CallUnary(ctx, req)
+}
+
+// GetPairingInfo calls miner_system_api.MinerPairingApi.GetPairingInfo.
+func (c *minerPairingApiClient) GetPairingInfo(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.GetPairingInfoResponse], error) {
+	return c.getPairingInfo.CallUnary(ctx, req)
+}
+
+// MinerPairingApiHandler is an implementation of the miner_system_api.MinerPairingApi service.
+type MinerPairingApiHandler interface {
+	// Endpoint for setting auth key (ed25519 public key)
+	SetAuthKey(context.Context, *connect.Request[miner_system_api.SetAuthKeyRequest]) (*connect.Response[miner_system_api.SetAuthKeyResponse], error)
+	// Endpoint for getting pairing info during discovery (mac address, control board serial number)
+	GetPairingInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.GetPairingInfoResponse], error)
+}
+
+// NewMinerPairingApiHandler builds an HTTP handler from the service implementation. It returns the
+// path on which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewMinerPairingApiHandler(svc MinerPairingApiHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	minerPairingApiSetAuthKeyHandler := connect.NewUnaryHandler(
+		MinerPairingApiSetAuthKeyProcedure,
+		svc.SetAuthKey,
+		opts...,
+	)
+	minerPairingApiGetPairingInfoHandler := connect.NewUnaryHandler(
+		MinerPairingApiGetPairingInfoProcedure,
+		svc.GetPairingInfo,
+		opts...,
+	)
+	return "/miner_system_api.MinerPairingApi/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case MinerPairingApiSetAuthKeyProcedure:
+			minerPairingApiSetAuthKeyHandler.ServeHTTP(w, r)
+		case MinerPairingApiGetPairingInfoProcedure:
+			minerPairingApiGetPairingInfoHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedMinerPairingApiHandler returns CodeUnimplemented from all methods.
+type UnimplementedMinerPairingApiHandler struct{}
+
+func (UnimplementedMinerPairingApiHandler) SetAuthKey(context.Context, *connect.Request[miner_system_api.SetAuthKeyRequest]) (*connect.Response[miner_system_api.SetAuthKeyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerPairingApi.SetAuthKey is not implemented"))
+}
+
+func (UnimplementedMinerPairingApiHandler) GetPairingInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.GetPairingInfoResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerPairingApi.GetPairingInfo is not implemented"))
 }

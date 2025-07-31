@@ -54,7 +54,7 @@ type ProtoMiner struct {
 	dataClient        miner_data_apiconnect.MinerDataApiClient
 	commandClient     miner_command_apiconnect.MinerCommandApiClient
 	systemClient      miner_system_apiconnect.MinerSystemApiClient
-	commandAuthClient miner_command_apiconnect.MinerAuthApiClient
+	commandAuthClient miner_system_apiconnect.MinerPairingApiClient
 	filesService      *files.Service
 	tokenService      *token.Service
 	encryptService    *encrypt.Service
@@ -87,7 +87,7 @@ func NewProtoMiner(protoMinerInfo *ProtoMinerInfo, filesService *files.Service, 
 	}
 
 	commandAuthClient, err := client.CreateClient(
-		miner_command_apiconnect.NewMinerAuthApiClient,
+		miner_system_apiconnect.NewMinerPairingApiClient,
 		protoMinerInfo.GetConnectionInfo(),
 	)
 	if err != nil {
@@ -353,13 +353,9 @@ func (p *ProtoMiner) DownloadLogs(ctx context.Context, batchLogUUID string) erro
 }
 
 func (p *ProtoMiner) SetAuthKey(ctx context.Context, key string) error {
-	res, err := p.commandAuthClient.SetAuthKey(ctx, connect.NewRequest(&miner_command_api.SetAuthKeyRequest{PublicKey: key}))
+	_, err := p.commandAuthClient.SetAuthKey(ctx, connect.NewRequest(&miner_system_api.SetAuthKeyRequest{PublicKey: key}))
 	if err != nil {
 		return fleeterror.NewInternalErrorf("error setting auth key: %v", err)
-	}
-
-	if res.Msg.Result != miner_common_api.ApiResult_RESULT_SUCCESS {
-		return fleeterror.NewInternalErrorf("setting auth key failed: %s", res.Msg.String())
 	}
 
 	return nil

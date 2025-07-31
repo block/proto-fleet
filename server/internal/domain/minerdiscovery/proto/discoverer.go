@@ -71,7 +71,7 @@ func getPairingInfo(ctx context.Context, ipAddress string, port string, protocol
 	}
 
 	minerClient, err := client.CreateClient(
-		miner_system_apiconnect.NewMinerSystemApiClient,
+		miner_system_apiconnect.NewMinerPairingApiClient,
 		*connectionInfo,
 	)
 	if err != nil {

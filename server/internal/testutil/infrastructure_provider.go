@@ -114,7 +114,7 @@ func SetupMockMinerServer(t *testing.T, callCounter *integrationtesting.MockMine
 
 	mux := http.NewServeMux()
 	path, handler := miner_command_apiconnect.NewMinerCommandApiHandler(mockHandler)
-	authPath, authHandler := miner_command_apiconnect.NewMinerAuthApiHandler(mockHandler)
+	authPath, authHandler := miner_system_apiconnect.NewMinerPairingApiHandler(mockHandler)
 	systemPath, systemHandler := miner_system_apiconnect.NewMinerSystemApiHandler(mockHandler)
 	mux.Handle(path, handler)
 	mux.Handle(authPath, authHandler)

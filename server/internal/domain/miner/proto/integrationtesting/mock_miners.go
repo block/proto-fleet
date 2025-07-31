@@ -145,7 +145,7 @@ type MockMinerHandler struct {
 
 var _ miner_command_apiconnect.MinerCommandApiHandler = &MockMinerHandler{}
 var _ miner_system_apiconnect.MinerSystemApiHandler = &MockMinerHandler{}
-var _ miner_command_apiconnect.MinerAuthApiHandler = &MockMinerHandler{}
+var _ miner_system_apiconnect.MinerPairingApiHandler = &MockMinerHandler{}
 
 func NewMockMinerHandler(t *testing.T, callCounter *MockMinerCallCounter) *MockMinerHandler {
 	return &MockMinerHandler{
@@ -241,15 +241,14 @@ func (m *MockMinerHandler) StopLocateSequence(_ context.Context, req *connect.Re
 	)
 }
 
-func (m *MockMinerHandler) SetAuthKey(ctx context.Context, req *connect.Request[miner_command_api.SetAuthKeyRequest]) (*connect.Response[miner_command_api.CommandResponse], error) {
+func (m *MockMinerHandler) SetAuthKey(ctx context.Context, req *connect.Request[miner_system_api.SetAuthKeyRequest]) (*connect.Response[miner_system_api.SetAuthKeyResponse], error) {
 	return handleRequestUnauthenticated(
 		m.t,
 		"SetAuthKey",
 		req,
 		m.callCounter.GetCounter(MethodSetAuthKey),
-		func(_ *miner_command_api.SetAuthKeyRequest) *miner_command_api.CommandResponse {
-			return &miner_command_api.CommandResponse{
-				Result:  minercommonapi.ApiResult_RESULT_SUCCESS,
+		func(_ *miner_system_api.SetAuthKeyRequest) *miner_system_api.SetAuthKeyResponse {
+			return &miner_system_api.SetAuthKeyResponse{
 				Message: "Auth key set successfully",
 			}
 		}), nil

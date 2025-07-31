@@ -42,8 +42,6 @@ const _ = connect.IsAtLeastVersion0_1_0
 const (
 	// MinerCommandApiName is the fully-qualified name of the MinerCommandApi service.
 	MinerCommandApiName = "miner_command_api.MinerCommandApi"
-	// MinerAuthApiName is the fully-qualified name of the MinerAuthApi service.
-	MinerAuthApiName = "miner_command_api.MinerAuthApi"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -81,8 +79,6 @@ const (
 	// MinerCommandApiStopLocateSequenceProcedure is the fully-qualified name of the MinerCommandApi's
 	// StopLocateSequence RPC.
 	MinerCommandApiStopLocateSequenceProcedure = "/miner_command_api.MinerCommandApi/StopLocateSequence"
-	// MinerAuthApiSetAuthKeyProcedure is the fully-qualified name of the MinerAuthApi's SetAuthKey RPC.
-	MinerAuthApiSetAuthKeyProcedure = "/miner_command_api.MinerAuthApi/SetAuthKey"
 )
 
 // MinerCommandApiClient is a client for the miner_command_api.MinerCommandApi service.
@@ -341,70 +337,4 @@ func (UnimplementedMinerCommandApiHandler) PlayLocateSequence(context.Context, *
 
 func (UnimplementedMinerCommandApiHandler) StopLocateSequence(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_command_api.MinerCommandApi.StopLocateSequence is not implemented"))
-}
-
-// MinerAuthApiClient is a client for the miner_command_api.MinerAuthApi service.
-type MinerAuthApiClient interface {
-	SetAuthKey(context.Context, *connect.Request[miner_command_api.SetAuthKeyRequest]) (*connect.Response[miner_command_api.CommandResponse], error)
-}
-
-// NewMinerAuthApiClient constructs a client for the miner_command_api.MinerAuthApi service. By
-// default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses,
-// and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
-// connect.WithGRPC() or connect.WithGRPCWeb() options.
-//
-// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
-// http://api.acme.com or https://acme.com/grpc).
-func NewMinerAuthApiClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MinerAuthApiClient {
-	baseURL = strings.TrimRight(baseURL, "/")
-	return &minerAuthApiClient{
-		setAuthKey: connect.NewClient[miner_command_api.SetAuthKeyRequest, miner_command_api.CommandResponse](
-			httpClient,
-			baseURL+MinerAuthApiSetAuthKeyProcedure,
-			opts...,
-		),
-	}
-}
-
-// minerAuthApiClient implements MinerAuthApiClient.
-type minerAuthApiClient struct {
-	setAuthKey *connect.Client[miner_command_api.SetAuthKeyRequest, miner_command_api.CommandResponse]
-}
-
-// SetAuthKey calls miner_command_api.MinerAuthApi.SetAuthKey.
-func (c *minerAuthApiClient) SetAuthKey(ctx context.Context, req *connect.Request[miner_command_api.SetAuthKeyRequest]) (*connect.Response[miner_command_api.CommandResponse], error) {
-	return c.setAuthKey.CallUnary(ctx, req)
-}
-
-// MinerAuthApiHandler is an implementation of the miner_command_api.MinerAuthApi service.
-type MinerAuthApiHandler interface {
-	SetAuthKey(context.Context, *connect.Request[miner_command_api.SetAuthKeyRequest]) (*connect.Response[miner_command_api.CommandResponse], error)
-}
-
-// NewMinerAuthApiHandler builds an HTTP handler from the service implementation. It returns the
-// path on which to mount the handler and the handler itself.
-//
-// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
-// and JSON codecs. They also support gzip compression.
-func NewMinerAuthApiHandler(svc MinerAuthApiHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	minerAuthApiSetAuthKeyHandler := connect.NewUnaryHandler(
-		MinerAuthApiSetAuthKeyProcedure,
-		svc.SetAuthKey,
-		opts...,
-	)
-	return "/miner_command_api.MinerAuthApi/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case MinerAuthApiSetAuthKeyProcedure:
-			minerAuthApiSetAuthKeyHandler.ServeHTTP(w, r)
-		default:
-			http.NotFound(w, r)
-		}
-	})
-}
-
-// UnimplementedMinerAuthApiHandler returns CodeUnimplemented from all methods.
-type UnimplementedMinerAuthApiHandler struct{}
-
-func (UnimplementedMinerAuthApiHandler) SetAuthKey(context.Context, *connect.Request[miner_command_api.SetAuthKeyRequest]) (*connect.Response[miner_command_api.CommandResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_command_api.MinerAuthApi.SetAuthKey is not implemented"))
 }
