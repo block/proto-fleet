@@ -5,10 +5,11 @@ import BitcoinExchangeRate from "./BitcoinExchangeRate";
 import LocationSelector from "./LocationSelector";
 import { Pause } from "@/shared/assets/icons";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
-
 interface PageHeaderProps {
   openMenu?: () => void;
 }
+
+const headerWidgetEnabled = false;
 
 const PageHeader = ({ openMenu }: PageHeaderProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
@@ -36,7 +37,7 @@ const PageHeader = ({ openMenu }: PageHeaderProps) => {
             )}
             <LocationSelector />
           </div>
-          {!isPhone && <HeaderWidgets />}
+          {!isPhone && headerWidgetEnabled && <HeaderWidgets />}
         </div>
       </div>
       {isPhone && (
