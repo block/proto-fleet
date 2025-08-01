@@ -2,6 +2,7 @@ import { useOutletContext } from "react-router-dom";
 import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart/index.ts";
 import { useProcessedHashboardHashrates } from "@/protoOS/features/kpis/hooks/index.ts";
 import { KpiOutletContext } from "@/protoOS/features/kpis/types";
+import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import { type StatProps } from "@/shared/components/Stat";
 import { AggregateStats } from "@/shared/features/kpis";
 import Stats from "@/shared/features/kpis/components/Stats";
@@ -54,17 +55,20 @@ const Hashrate = () => {
   return (
     <>
       {aggregates && (
-        <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
+        <ErrorBoundary>
+          <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
+        </ErrorBoundary>
       )}
-
-      <KpiLineChart
-        series={hbHashrates}
-        units="TH/s"
-        aggregateSeries={{
-          name: "Total Hashrate",
-          data: totalHashrates,
-        }}
-      />
+      <ErrorBoundary>
+        <KpiLineChart
+          series={hbHashrates}
+          units="TH/s"
+          aggregateSeries={{
+            name: "Total Hashrate",
+            data: totalHashrates,
+          }}
+        />
+      </ErrorBoundary>
     </>
   );
 };

@@ -15,6 +15,7 @@ import DurationSelector, {
   Duration,
   durations,
 } from "@/shared/components/DurationSelector";
+import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import NoPoolsCallout from "@/shared/features/kpis/components/NoPoolsCallout";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
@@ -83,56 +84,60 @@ const KpiLayout = ({ children }: ContentLayoutProps) => {
   }, [poolsInfo, poolsInfoStatus]);
 
   return (
-    <div className="px-14 pt-14 phone:px-6 phone:pt-6 tablet:px-10 tablet:pt-10">
-      {children}
+    <ErrorBoundary>
+      <div className="px-14 pt-14 phone:px-6 phone:pt-6 tablet:px-10 tablet:pt-10">
+        {children}
 
-      {noPoolsLive && (
-        <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} />
-      )}
-
-      <div className="relative mb-4 flex h-[calc(100vh-theme(spacing.36))] min-h-[800px] flex-col phone:min-h-[1000px]">
-        <div className="flex items-center pb-6">
-          <div className="grow text-heading-300">Home</div>
-          <DurationSelector
-            className="h-fit"
-            duration={duration}
-            onSelect={setDuration}
-          />
-        </div>
-
-        <div className="pb-6 phone:pb-6">
-          <TabMenu
-            hashrate={
-              minerHashrate?.hashrate[minerHashrate?.hashrate?.length - 1]
-                ?.value
-            }
-            efficiency={
-              minerEfficiency?.efficiency[
-                minerEfficiency?.efficiency?.length - 1
-              ]?.value
-            }
-            powerUsage={
-              minerPowerUsage?.powerUsage[
-                minerPowerUsage?.powerUsage?.length - 1
-              ]?.value
-            }
-            temperature={
-              minerTemperature?.temperature[
-                minerTemperature?.temperature?.length - 1
-              ]?.value
-            }
-          />
-        </div>
-
-        {outletContext ? (
-          <Outlet context={outletContext} />
-        ) : (
-          <div className="flex h-full flex-1 items-center justify-center">
-            <ProgressCircular indeterminate />
-          </div>
+        {noPoolsLive && (
+          <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} />
         )}
+
+        <div className="relative mb-4 flex h-[calc(100vh-theme(spacing.36))] min-h-[800px] flex-col phone:min-h-[1000px]">
+          <div className="flex items-center pb-6">
+            <div className="grow text-heading-300">Home</div>
+            <DurationSelector
+              className="h-fit"
+              duration={duration}
+              onSelect={setDuration}
+            />
+          </div>
+
+          <div className="pb-6 phone:pb-6">
+            <TabMenu
+              hashrate={
+                minerHashrate?.hashrate[minerHashrate?.hashrate?.length - 1]
+                  ?.value
+              }
+              efficiency={
+                minerEfficiency?.efficiency[
+                  minerEfficiency?.efficiency?.length - 1
+                ]?.value
+              }
+              powerUsage={
+                minerPowerUsage?.powerUsage[
+                  minerPowerUsage?.powerUsage?.length - 1
+                ]?.value
+              }
+              temperature={
+                minerTemperature?.temperature[
+                  minerTemperature?.temperature?.length - 1
+                ]?.value
+              }
+            />
+          </div>
+
+          {outletContext ? (
+            <ErrorBoundary>
+              <Outlet context={outletContext} />
+            </ErrorBoundary>
+          ) : (
+            <div className="flex h-full flex-1 items-center justify-center">
+              <ProgressCircular indeterminate />
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </ErrorBoundary>
   );
 };
 

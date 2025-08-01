@@ -23,6 +23,7 @@ import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
 import { MinerStatusProvider } from "@/protoOS/contexts/MinerStatusContext";
 import { FirmwareUpdateProvider } from "@/protoOS/features/firmwareUpdate/contexts/FirmwareUpdateContext";
+import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { BootingUp } from "@/shared/components/Setup";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
@@ -133,7 +134,7 @@ const AppWrapper = ({
   }, [wakeIntervalId]);
 
   return (
-    <>
+    <ErrorBoundary>
       {(() => {
         if (
           (pendingSystemInfo && processedSystemInfo === undefined) ||
@@ -178,7 +179,7 @@ const AppWrapper = ({
           </MinerStatusProvider>
         );
       })()}
-    </>
+    </ErrorBoundary>
   );
 };
 

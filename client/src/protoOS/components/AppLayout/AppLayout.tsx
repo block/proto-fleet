@@ -14,6 +14,7 @@ import NavigationMenu, {
 
 import PageHeader from "@/protoOS/components/PageHeader";
 import LoginModal from "@/protoOS/features/auth/components/LoginModal";
+import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import {
   pushToast,
   STATUSES as TOAST_STATUSES,
@@ -100,7 +101,9 @@ const AppLayout = ({
             }}
           />
           <div className="relative w-full pt-[60px] pl-60 phone:pl-0 tablet:pl-0">
-            <ContentLayout>{children}</ContentLayout>
+            <ErrorBoundary>
+              <ContentLayout>{children}</ContentLayout>
+            </ErrorBoundary>
           </div>
         </div>
       </div>

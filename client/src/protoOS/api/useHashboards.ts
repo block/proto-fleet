@@ -20,7 +20,7 @@ const useHashboards = () => {
     api
       .getAllHashboards()
       .then((res) => {
-        const hashboards = res?.data;
+        const hashboards = res?.data["hashboards-info"];
         setData(hashboards);
 
         const mapping = hashboards?.reduce(

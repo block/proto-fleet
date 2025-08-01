@@ -453,7 +453,9 @@ export interface HashboardStatsHashboardstats {
   voltage_mv?: number;
 }
 
-export type HashboardsInfo = HashboardsInfoHashboardsinfo[];
+export interface HashboardsInfo {
+  "hashboards-info"?: HashboardsInfoHashboardsinfo[];
+}
 
 export interface HashboardsInfoHashboardsinfo {
   /** @example "1.0" */
