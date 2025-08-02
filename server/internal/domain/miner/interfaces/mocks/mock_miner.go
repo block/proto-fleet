@@ -68,6 +68,20 @@ func (mr *MockMinerInfoMockRecorder) GetID() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetID", reflect.TypeOf((*MockMinerInfo)(nil).GetID))
 }
 
+// GetSerialNumber mocks base method.
+func (m *MockMinerInfo) GetSerialNumber() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSerialNumber")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetSerialNumber indicates an expected call of GetSerialNumber.
+func (mr *MockMinerInfoMockRecorder) GetSerialNumber() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSerialNumber", reflect.TypeOf((*MockMinerInfo)(nil).GetSerialNumber))
+}
+
 // GetType mocks base method.
 func (m *MockMinerInfo) GetType() models.Type {
 	m.ctrl.T.Helper()
@@ -187,6 +201,20 @@ func (m *MockMiner) GetID() models.DeviceIdentifier {
 func (mr *MockMinerMockRecorder) GetID() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetID", reflect.TypeOf((*MockMiner)(nil).GetID))
+}
+
+// GetSerialNumber mocks base method.
+func (m *MockMiner) GetSerialNumber() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSerialNumber")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetSerialNumber indicates an expected call of GetSerialNumber.
+func (mr *MockMinerMockRecorder) GetSerialNumber() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSerialNumber", reflect.TypeOf((*MockMiner)(nil).GetSerialNumber))
 }
 
 // GetTelemetry mocks base method.

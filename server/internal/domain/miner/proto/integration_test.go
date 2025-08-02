@@ -22,7 +22,7 @@ func TestProtoMiner_GetTelemetry_Integration(t *testing.T) {
 	require.NoError(t, err, "expected no error when getting test config")
 	minerAuthPrivateKey := testConfig.GetMinerAuthPrivateKey(t)
 
-	minerInfo, err := proto.NewProtoMinerInfo("123", "localhost", 8080, networking.ProtocolHTTPS, minerAuthPrivateKey)
+	minerInfo, err := proto.NewProtoMinerInfo("123", "localhost", 8080, networking.ProtocolHTTPS, minerAuthPrivateKey, "test_serial_number")
 	require.NoError(t, err, "expected no error when creating miner info")
 
 	miner, err := proto.NewProtoMiner(minerInfo, testContext.ServiceProvider.FilesService, testContext.ServiceProvider.TokenService, testContext.ServiceProvider.EncryptService)
@@ -47,7 +47,7 @@ func TestProtoMiner_NewConstructors(t *testing.T) {
 	require.NoError(t, err, "expected no error when getting test config")
 	minerAuthPrivateKey := testConfig.GetMinerAuthPrivateKey(t)
 
-	minerInfo, err := proto.NewProtoMinerInfo("123", "localhost", 8080, networking.ProtocolHTTPS, minerAuthPrivateKey)
+	minerInfo, err := proto.NewProtoMinerInfo("123", "localhost", 8080, networking.ProtocolHTTPS, minerAuthPrivateKey, "test_serial_number")
 	require.NoError(t, err, "expected no error when creating miner info")
 	miner1, err := proto.NewProtoMiner(minerInfo, testContext.ServiceProvider.FilesService, testContext.ServiceProvider.TokenService, testContext.ServiceProvider.EncryptService)
 	assert.NotNil(t, miner1, "expected miner to be created")

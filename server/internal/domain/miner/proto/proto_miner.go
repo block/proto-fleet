@@ -45,12 +45,13 @@ const DownloadLogsLines uint32 = 10000
 
 type ProtoMinerInfo struct {
 	deviceIdentifier    miner.DeviceIdentifier
+	serialNumber        string
 	minerAuthPrivateKey []byte
 	connectionInfo      networking.ConnectionInfo
 }
 
 type ProtoMiner struct {
-	minerInfo         *ProtoMinerInfo
+	ProtoMinerInfo
 	dataClient        miner_data_apiconnect.MinerDataApiClient
 	commandClient     miner_command_apiconnect.MinerCommandApiClient
 	systemClient      miner_system_apiconnect.MinerSystemApiClient
@@ -95,7 +96,7 @@ func NewProtoMiner(protoMinerInfo *ProtoMinerInfo, filesService *files.Service, 
 	}
 
 	return &ProtoMiner{
-		minerInfo:         protoMinerInfo,
+		ProtoMinerInfo:    *protoMinerInfo,
 		dataClient:        dataClient,
 		commandClient:     commandClient,
 		systemClient:      systemClient,
@@ -106,7 +107,7 @@ func NewProtoMiner(protoMinerInfo *ProtoMinerInfo, filesService *files.Service, 
 	}, nil
 }
 
-func NewProtoMinerInfo(deviceIdentifier miner.DeviceIdentifier, ipAddress string, port uint16, scheme networking.Protocol, minerAuthPrivateKey []byte) (*ProtoMinerInfo, error) {
+func NewProtoMinerInfo(deviceIdentifier miner.DeviceIdentifier, ipAddress string, port uint16, scheme networking.Protocol, minerAuthPrivateKey []byte, serialNumber string) (*ProtoMinerInfo, error) {
 	connectionInfo, err := networking.NewConnectionInfo(ipAddress, fmt.Sprintf("%d", port), scheme)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to create connection info: %v", err)
@@ -116,6 +117,7 @@ func NewProtoMinerInfo(deviceIdentifier miner.DeviceIdentifier, ipAddress string
 		deviceIdentifier:    deviceIdentifier,
 		connectionInfo:      *connectionInfo,
 		minerAuthPrivateKey: minerAuthPrivateKey,
+		serialNumber:        serialNumber,
 	}, nil
 }
 
@@ -123,24 +125,16 @@ func (p *ProtoMinerInfo) GetType() miner.Type {
 	return miner.TypeProto
 }
 
-func (p *ProtoMiner) GetType() miner.Type {
-	return p.minerInfo.GetType()
-}
-
 func (p *ProtoMinerInfo) GetID() miner.DeviceIdentifier {
 	return p.deviceIdentifier
 }
 
-func (p *ProtoMiner) GetID() miner.DeviceIdentifier {
-	return p.minerInfo.GetID()
+func (p *ProtoMinerInfo) GetSerialNumber() string {
+	return p.serialNumber
 }
 
 func (p *ProtoMinerInfo) GetConnectionInfo() networking.ConnectionInfo {
 	return p.connectionInfo
-}
-
-func (p *ProtoMiner) GetConnectionInfo() networking.ConnectionInfo {
-	return p.minerInfo.GetConnectionInfo()
 }
 
 func (p *ProtoMinerInfo) GetWebViewURL() *url.URL {
@@ -149,10 +143,6 @@ func (p *ProtoMinerInfo) GetWebViewURL() *url.URL {
 		IPAddress: p.connectionInfo.IPAddress,
 		Port:      networking.Port(minerViewPort),
 	}.GetURL()
-}
-
-func (p *ProtoMiner) GetWebViewURL() *url.URL {
-	return p.minerInfo.GetWebViewURL()
 }
 
 func (p *ProtoMiner) Reboot(ctx context.Context) error {
@@ -173,7 +163,7 @@ func (p *ProtoMiner) Reboot(ctx context.Context) error {
 }
 
 func (p *ProtoMiner) getJWT() (string, error) {
-	jwt, _, err := p.tokenService.GenerateMinerAuthJWT(p.minerInfo.GetID().String(), p.minerInfo.minerAuthPrivateKey)
+	jwt, _, err := p.tokenService.GenerateMinerAuthJWT(p.GetSerialNumber(), p.minerAuthPrivateKey)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error generating miner auth JWT: %v", err)
 	}

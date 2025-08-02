@@ -80,6 +80,7 @@ func (s *MinerService) GetMiner(ctx context.Context, deviceID int64) (interfaces
 		deviceData.PasswordEnc.String,
 		deviceData.IpAddress,
 		deviceData.UrlScheme,
+		deviceData.SerialNumber.String,
 	)
 }
 
@@ -106,6 +107,7 @@ func (s *MinerService) GetMinerFromDeviceIdentifier(ctx context.Context, deviceI
 		deviceData.PasswordEnc.String,
 		deviceData.IpAddress,
 		deviceData.UrlScheme,
+		deviceData.SerialNumber.String,
 	)
 }
 
@@ -123,7 +125,7 @@ func (s *MinerService) getProtoMinerAuthPrivateKey(ctx context.Context, orgID in
 	return privateKey, nil
 }
 
-func (s *MinerService) BuildMinerInfo(ctx context.Context, deviceIdentifier string, orgID int64, deviceIPAddress string, devicePort string, deviceScheme string, deviceType string) (interfaces.MinerInfo, error) {
+func (s *MinerService) BuildMinerInfo(ctx context.Context, deviceIdentifier string, orgID int64, deviceIPAddress string, devicePort string, deviceScheme string, deviceType string, deviceSerialNumber string) (interfaces.MinerInfo, error) {
 	portInt, err := strconv.Atoi(devicePort)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse port %s: %w", devicePort, err)
@@ -148,13 +150,13 @@ func (s *MinerService) BuildMinerInfo(ctx context.Context, deviceIdentifier stri
 	minerIdentifier := models.DeviceIdentifier(deviceIdentifier)
 	switch minerType {
 	case models.TypeAntminer:
-		return antminer.NewAntminerInfo(minerIdentifier, deviceIPAddress, port), nil
+		return antminer.NewAntminerInfo(minerIdentifier, deviceIPAddress, port, deviceSerialNumber), nil
 	case models.TypeProto:
 		minerAuthPrivateKey, err := s.getProtoMinerAuthPrivateKey(ctx, orgID)
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("error getting auth private key: %v", err)
 		}
-		return proto.NewProtoMinerInfo(minerIdentifier, deviceIPAddress, port, scheme, minerAuthPrivateKey)
+		return proto.NewProtoMinerInfo(minerIdentifier, deviceIPAddress, port, scheme, minerAuthPrivateKey, deviceSerialNumber)
 	case models.TypeWhatsminer, models.TypeAvalon, models.TypeUnknown:
 		return nil, fmt.Errorf("unsupported miner type: %s", deviceType)
 	default:
@@ -162,8 +164,8 @@ func (s *MinerService) BuildMinerInfo(ctx context.Context, deviceIdentifier stri
 	}
 }
 
-func (s *MinerService) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, devicePort string, deviceType string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string) (interfaces.Miner, error) {
-	minerInfo, err := s.BuildMinerInfo(ctx, deviceIdentifier, orgID, deviceIPAddress, devicePort, deviceScheme, deviceType)
+func (s *MinerService) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, devicePort string, deviceType string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string) (interfaces.Miner, error) {
+	minerInfo, err := s.BuildMinerInfo(ctx, deviceIdentifier, orgID, deviceIPAddress, devicePort, deviceScheme, deviceType, deviceSerialNumber)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get miner info: %w", err)
 	}

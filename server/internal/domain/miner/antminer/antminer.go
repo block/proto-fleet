@@ -25,6 +25,7 @@ const minerViewPort = 80
 
 type AntminerInfo struct {
 	deviceIdentifier models.DeviceIdentifier
+	serialNumber     string
 	connectionInfo   networking.ConnectionInfo
 }
 
@@ -46,13 +47,14 @@ func NewAntminer(antminerInfo interfaces.MinerInfo, username string, password se
 	}
 }
 
-func NewAntminerInfo(deviceIdentifier models.DeviceIdentifier, ipAddress string, port uint16) *AntminerInfo {
+func NewAntminerInfo(deviceIdentifier models.DeviceIdentifier, ipAddress string, port uint16, serialNumber string) *AntminerInfo {
 	return &AntminerInfo{
 		deviceIdentifier: deviceIdentifier,
 		connectionInfo: networking.ConnectionInfo{
 			IPAddress: networking.IPAddress(ipAddress),
 			Port:      networking.Port(port),
 		},
+		serialNumber: serialNumber,
 	}
 }
 
@@ -62,6 +64,10 @@ func (a *AntminerInfo) GetType() models.Type {
 
 func (a *AntminerInfo) GetID() models.DeviceIdentifier {
 	return a.deviceIdentifier
+}
+
+func (a *AntminerInfo) GetSerialNumber() string {
+	return a.serialNumber
 }
 
 func (a *AntminerInfo) GetConnectionInfo() networking.ConnectionInfo {

@@ -16,6 +16,7 @@ import (
 type MinerInfo interface {
 	GetType() models.Type
 	GetID() models.DeviceIdentifier
+	GetSerialNumber() string
 	GetConnectionInfo() networking.ConnectionInfo
 	GetWebViewURL() *url.URL
 }

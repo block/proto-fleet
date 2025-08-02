@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
 	"time"
 
@@ -103,12 +104,13 @@ func (ts *Service) CreateMinerAuthPrivateKeyForOrganization() ([]byte, error) {
 	return privateKey, nil
 }
 
-func (ts *Service) GenerateMinerAuthJWT(minerID string, privateKey []byte) (string, int64, error) {
+func (ts *Service) GenerateMinerAuthJWT(serialNumber string, privateKey []byte) (string, int64, error) {
 	exp := jwt.NewNumericDate(time.Now().Add(ts.cfg.MinerTokenExpirationPeriod))
 
 	claims := MinerAuthClaims{
-		MinerSN: minerID,
+		MinerSN: serialNumber,
 		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			ExpiresAt: exp,
 		},
 	}
@@ -126,7 +128,13 @@ func (ts *Service) ExtractPublicKeyFromPrivateKey(privateKey []byte) (string, er
 	privKey := ed25519.PrivateKey(privateKey)
 	pubKey, ok := privKey.Public().(ed25519.PublicKey)
 	if !ok {
-		return "", fleeterror.NewInternalErrorf("created pub key not of ed25519 pub key type")
+		return "", fleeterror.NewInternalErrorf("not an Ed25519 public key")
 	}
-	return base64.StdEncoding.EncodeToString(pubKey), nil
+
+	derBytes, err := x509.MarshalPKIXPublicKey(pubKey)
+	if err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to marshal SPKI DER: %v", err)
+	}
+
+	return base64.StdEncoding.EncodeToString(derBytes), nil
 }
