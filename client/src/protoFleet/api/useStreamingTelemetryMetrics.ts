@@ -78,7 +78,7 @@ export const useStreamingTelemetryMetrics = (options: StreamingOptions) => {
           deviceSelector,
           metrics: stableOptions.measurementTypes || [MeasurementType.HASHRATE],
           aggregations: stableOptions.aggregations || [AggregationType.AVERAGE],
-          granularity: { seconds: BigInt(60), nanos: 0 }, // 1 minute
+          granularity: { seconds: BigInt(90), nanos: 0 }, // 1.5 minute
         });
 
         for await (const response of telemetryClient.streamCombinedMetricUpdates(

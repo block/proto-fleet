@@ -81,7 +81,7 @@ export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
           AggregationType.MIN,
           AggregationType.MAX,
         ],
-        granularity: { seconds: BigInt(60), nanos: 0 }, // 1 minute granularity
+        granularity: { seconds: BigInt(90), nanos: 0 }, // 1.5 minute granularity, 1.5 Times refresh rate
         startTime: {
           seconds: BigInt(Math.floor(startTime.getTime() / 1000)),
           nanos: 0,

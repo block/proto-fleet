@@ -51,11 +51,16 @@ export const transformCombinedMetricsToTimeSeries = (
         (av) => av.aggregationType === targetAggregationType,
       );
 
+      let value = aggregatedValue?.value || 0;
+      if (metric.measurementType === MeasurementType.HASHRATE) {
+        value = value / 1e6; // Convert from MH/s to TH/s
+      }
+
       return {
         datetime: metric.openTime
           ? Number(metric.openTime.seconds) * 1000
           : Date.now(),
-        value: aggregatedValue?.value || 0,
+        value: value,
       };
     })
     .sort((a, b) => (a.datetime || 0) - (b.datetime || 0));
