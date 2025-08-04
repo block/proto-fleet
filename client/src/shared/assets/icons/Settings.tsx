@@ -1,8 +1,9 @@
 import clsx from "clsx";
 
+import { iconSizes } from "./constants";
 import { IconProps } from "./types";
 
-const Settings = ({ className, width = "w-[20px]" }: IconProps) => {
+const Settings = ({ className, width = iconSizes.medium }: IconProps) => {
   return (
     <div className={clsx(width, className)}>
       <svg

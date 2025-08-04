@@ -46,6 +46,7 @@ import Pause from "./Pause";
 import Play from "./Play";
 import Plus from "./Plus";
 import Power from "./Power";
+import PsuIndicator from "./PsuIndicator";
 import Question from "./Question";
 import Racks from "./Racks";
 import Reboot from "./Reboot";
@@ -112,6 +113,7 @@ export {
   Play,
   Plus,
   Power,
+  PsuIndicator,
   Question,
   Racks,
   Reboot,

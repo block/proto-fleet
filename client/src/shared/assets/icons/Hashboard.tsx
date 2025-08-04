@@ -1,8 +1,9 @@
 import clsx from "clsx";
 
+import { iconSizes } from "./constants";
 import { IconProps } from "./types";
 
-const Hashboard = ({ className, width = "w-[20px]" }: IconProps) => {
+const Hashboard = ({ className, width = iconSizes.medium }: IconProps) => {
   return (
     <div className={clsx(width, className)}>
       <svg
