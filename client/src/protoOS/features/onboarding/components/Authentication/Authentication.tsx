@@ -21,6 +21,7 @@ const AuthenticationPage = () => {
   }, [navigate, systemStatus, pendingSystemStatus]);
 
   function submit(password: string) {
+    setIsSubmitting(true);
     setSubmitError(undefined);
     setPassword({
       password: password,
@@ -35,6 +36,9 @@ const AuthenticationPage = () => {
       onError: (message) => {
         setSubmitError(message);
       },
+      onFinally: () => {
+        setIsSubmitting(false);
+      },
     });
   }
 
@@ -45,7 +49,7 @@ const AuthenticationPage = () => {
         submitError={submitError}
         isSubmitting={isSubmitting}
         setIsSubmitting={setIsSubmitting}
-        headline="Create an admin login for your miners"
+        headline="Create an admin login for your miner"
         description="This password is required to modify performance settings or mining pool configurations for this miner."
         initUsername="admin"
       />

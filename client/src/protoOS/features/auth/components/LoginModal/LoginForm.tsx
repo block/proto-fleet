@@ -119,7 +119,7 @@ const LoginForm = ({
         onClick={onClickForgotPassword}
         data-testid="forgot-password"
       >
-        {"Forgot password ->"}
+        Forgot password &rarr;
       </button>
 
       <ButtonGroup

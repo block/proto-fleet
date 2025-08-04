@@ -10,8 +10,8 @@ import { Logo, Plus } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import AnimatedDotsBackground from "@/shared/components/Animation";
 import Button, { variants } from "@/shared/components/Button";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import { Authentication } from "@/shared/components/Setup";
-import { Splash } from "@/shared/components/Splash";
 
 const WELCOME_SCREEN_TIMEOUT = 3000; // how long the welcome screen should be visible for
 
@@ -88,7 +88,9 @@ const WelcomePage = () => {
   return (
     <>
       {showWelcome ? (
-        <Splash />
+        <div className="flex min-h-screen items-center justify-center">
+          <ProgressCircular indeterminate />
+        </div>
       ) : (
         <div className="flex h-screen flex-1 bg-surface-base">
           <div className="flex h-screen w-1/2 phone:w-full tablet:w-full">

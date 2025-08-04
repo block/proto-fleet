@@ -5,7 +5,7 @@ import AppLayout from "@/protoFleet/components/AppLayout";
 import { useIsAuthenticated } from "@/protoFleet/features/auth/contexts/AuthContext";
 import { OnboardingProvider } from "@/protoFleet/features/onboarding/contexts/OnboardingContext";
 import { getRouteMetadata } from "@/protoFleet/routes";
-import { Splash } from "@/shared/components/Splash";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import { Toaster } from "@/shared/features/toaster";
 
 const AppContent = () => {
@@ -32,7 +32,9 @@ const AppContent = () => {
 
       {metadata.useAppLayout ? (
         loading ? (
-          <Splash />
+          <div className="flex min-h-screen items-center justify-center">
+            <ProgressCircular indeterminate />
+          </div>
         ) : (
           <AppLayout title={metadata?.title || ""}>
             <Outlet />

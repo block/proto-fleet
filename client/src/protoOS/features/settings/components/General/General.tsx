@@ -15,6 +15,10 @@ import {
   ThemeSwitcher,
 } from "@/shared/features/preferences";
 import usePreferences from "@/shared/features/preferences/hooks/usePreferences";
+import {
+  pushToast,
+  STATUSES as TOAST_STATUSES,
+} from "@/shared/features/toaster";
 import { convertToSentenceCase } from "@/shared/utils/stringUtils";
 
 const CHECK_FOR_UPDATES_DELAY = 400; // ms
@@ -140,6 +144,10 @@ const General = () => {
                       await updateFirmware();
                     } catch (error) {
                       console.error(error);
+                      pushToast({
+                        message: "Firmware update failed. Please try again.",
+                        status: TOAST_STATUSES.error,
+                      });
                     } finally {
                       setFirmwareUpdatePending(false);
                     }

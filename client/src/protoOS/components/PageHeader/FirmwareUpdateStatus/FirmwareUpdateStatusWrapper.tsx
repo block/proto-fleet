@@ -22,8 +22,9 @@ const FirmwareUpdateStatusWrapper = () => {
         });
       },
       onError: (error) => {
+        console.error(error);
         pushToast({
-          message: error?.error?.message ?? "Reboot failed. Please try again.",
+          message: "Reboot failed. Please try again.",
           status: TOAST_STATUSES.error,
         });
       },
@@ -39,8 +40,9 @@ const FirmwareUpdateStatusWrapper = () => {
         status: TOAST_STATUSES.queued,
       });
     } catch (error: any) {
+      console.error(error);
       pushToast({
-        message: error?.error?.message ?? "Update failed. Please try again.",
+        message: "Update failed. Please try again.",
         status: TOAST_STATUSES.error,
       });
     } finally {
