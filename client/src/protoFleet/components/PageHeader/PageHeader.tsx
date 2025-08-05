@@ -1,28 +1,41 @@
 import clsx from "clsx";
 import AlertStatus from "./AlertStatus";
-import BankBalance from "./BankBalance";
-import BitcoinExchangeRate from "./BitcoinExchangeRate";
+import Button, { variants, sizes } from "@/shared/components/Button";
 import LocationSelector from "./LocationSelector";
 import { Pause } from "@/shared/assets/icons";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
+import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 interface PageHeaderProps {
   openMenu?: () => void;
 }
 
-const headerWidgetEnabled = false;
+const headerWidgetEnabled = true;
+
+const HeaderWidgets = ({ className }: { className?: string }) => {
+  const [dismissedSetup, setDismissedSetup] = useReactiveLocalStorage<boolean>(
+    "completeSetupDismissed",
+  );
+  const handleCompleteSetup = () => {
+    setDismissedSetup(false);
+  };
+
+  return (
+    <div className={clsx("flex space-x-3", className)}>
+      <AlertStatus />
+      {dismissedSetup && (
+        <Button
+          variant={variants.accent}
+          size={sizes.compact}
+          text="Complete Setup"
+          onClick={handleCompleteSetup}
+        />
+      )}
+    </div>
+  );
+};
 
 const PageHeader = ({ openMenu }: PageHeaderProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
-
-  const HeaderWidgets = ({ className }: { className?: string }) => {
-    return (
-      <div className={clsx("flex space-x-3", className)}>
-        <AlertStatus />
-        <BankBalance />
-        <BitcoinExchangeRate />
-      </div>
-    );
-  };
 
   return (
     <>

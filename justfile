@@ -27,11 +27,11 @@ gen-server:
     cd server; just gen
 
 [working-directory: 'server']
-fmt-client:
+fmt-server:
   goimports -w generated/grpc
 
 [working-directory: 'client']
-fmt-server:
+fmt-client:
   npm run format
 
 [working-directory: 'server']

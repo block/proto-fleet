@@ -2,6 +2,7 @@ import { ReactNode, useState } from "react";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
 import { Alert, Dismiss, MiningPools, Racks } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
+import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 
 type TaskCardProps = {
   icon: ReactNode;
@@ -92,16 +93,21 @@ const SetUpRacksCard = () => {
 };
 
 const CompleteSetup = () => {
-  const [showCompleteSetup, setShowCompleteSetup] = useState(true);
+  const [completSetupDismissed, setCompletSetupDismissed] =
+    useReactiveLocalStorage<boolean>("completeSetupDismissed");
+
+  const handleDismiss = () => {
+    setCompletSetupDismissed(true);
+  };
 
   return (
     <>
-      {showCompleteSetup && (
+      {!completSetupDismissed && (
         <div className="@container rounded-3xl bg-landing-page p-6">
           <div className="mb-6 flex items-center justify-between gap-x-10">
             <div className="text-heading-300">Complete setup</div>
             <Button
-              onClick={() => setShowCompleteSetup(false)}
+              onClick={handleDismiss}
               variant="secondary"
               prefixIcon={<Dismiss />}
             ></Button>
