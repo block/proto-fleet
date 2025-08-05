@@ -1,7 +1,7 @@
-import { useCallback, useMemo } from "react";
-import { HashboardsInfoHashboardsinfo, PsusInfoPsusinfo } from "apiTypes";
+import { useMemo } from "react";
+import { PsusInfoPsusinfo } from "apiTypes";
+import { getControlBoardGeneration, getHashboardIdentifier } from "./utility";
 import { useHardware } from "@/protoOS/api/useHardware";
-import { InternalAsicType } from "@/protoOS/features/settings/components/Hardware/constants";
 import {
   FanIndicator,
   HashboardIndicator,
@@ -34,20 +34,6 @@ const Hardware = () => {
 
   const skeletonBar = <SkeletonBar className="h-[22px] w-20" />;
 
-  const getHashboardIdentifier = useCallback(
-    (hashboardInfo: HashboardsInfoHashboardsinfo) => {
-      let generation = 1;
-      if (
-        hashboardInfo.mining_asic === InternalAsicType.MC2 ||
-        hashboardInfo.mining_asic === InternalAsicType.MC2Sim
-      ) {
-        generation = 2;
-      }
-      return `${hashboardInfo.mining_asic_count}C${generation}`;
-    },
-    [],
-  );
-
   if (pending) {
     return (
       <>
@@ -78,15 +64,15 @@ const Hardware = () => {
         <h3 className="mb-2 text-heading-100">Control Board</h3>
         <Row className="flex" attributes={{ role: "row" }}>
           <h4 className="w-68 text-emphasis-300">Type</h4>
-          <h4 className="w-91 text-emphasis-300">Serial number</h4>
+          <h4 className="w-46 text-emphasis-300">Serial number</h4>
         </Row>
         <Row className="flex items-center">
           <div className="w-68 text-300">
             {controlBoardInfo?.board_id
-              ? `Control Board ${controlBoardInfo.board_id}`
+              ? `Control Board ${getControlBoardGeneration(controlBoardInfo) ?? "Unknown"}`
               : skeletonBar}
           </div>
-          <div className="w-91 text-300">
+          <div className="w-46 text-300">
             {controlBoardInfo?.serial_number ?? skeletonBar}
           </div>
         </Row>
@@ -128,13 +114,13 @@ const Hardware = () => {
       </div>
       <div className="mb-10">
         <h3 className="mb-2 text-heading-100">Fans</h3>
-        <Row className="flex" attributes={{ role: "row" }}>
-          <h4 className="w-22 text-emphasis-300">Position</h4>
-          <h4 className="w-46 text-emphasis-300">Fan</h4>
-          {/* <h4 className="w-46 text-emphasis-300">Serial number</h4> */}
-        </Row>
         {fansInfo?.length ? (
           <>
+            <Row className="flex" attributes={{ role: "row" }}>
+              <h4 className="w-22 text-emphasis-300">Position</h4>
+              <h4 className="w-46 text-emphasis-300">Fan</h4>
+              {/* <h4 className="w-46 text-emphasis-300">Serial number</h4> */}
+            </Row>
             {fansInfo?.map((fan, idx) => (
               <Row
                 className="flex items-center"
