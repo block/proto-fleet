@@ -5,6 +5,9 @@
     },
     {
       "path": "deploy"
+    },
+    {
+      "path": ".github"
     }
   ],
   "settings": {
