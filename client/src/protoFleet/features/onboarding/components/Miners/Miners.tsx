@@ -275,7 +275,6 @@ const Miners = ({
                   <>
                     <Header
                       title="Finding miners on your network"
-                      description="IP address 192.168.1.1"
                       titleSize="text-heading-300"
                       inline
                       className="mb-6"
