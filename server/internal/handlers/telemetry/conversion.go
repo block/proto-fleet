@@ -144,15 +144,15 @@ var (
 	}
 
 	measurementStringToTypeMap = map[string]models.MeasurementType{
-		"temperature": models.MeasurementTypeTemperature,
-		"hashrate":    models.MeasurementTypeHashrate,
-		"power":       models.MeasurementTypePower,
-		"efficiency":  models.MeasurementTypeEfficiency,
-		"fan_speed":   models.MeasurementTypeFanSpeed,
-		"voltage":     models.MeasurementTypeVoltage,
-		"current":     models.MeasurementTypeCurrent,
-		"uptime":      models.MeasurementTypeUptime,
-		"error_rate":  models.MeasurementTypeErrorRate,
+		"temperature_c":  models.MeasurementTypeTemperature,
+		"hashrate_mhs":   models.MeasurementTypeHashrate,
+		"power_w":        models.MeasurementTypePower,
+		"efficiency_jth": models.MeasurementTypeEfficiency,
+		"fan_rpm":        models.MeasurementTypeFanSpeed,
+		"voltage_mv":     models.MeasurementTypeVoltage,
+		"current_ma":     models.MeasurementTypeCurrent,
+		"uptime":         models.MeasurementTypeUptime,
+		"error_rate":     models.MeasurementTypeErrorRate,
 	}
 
 	measurementTypeToUnitMap = map[telemetryv1.MeasurementType]commonv1.MeasurementUnit{
@@ -416,6 +416,10 @@ func fromTelemetryData(telemetryData []models.Telemetry) ([]*telemetryv1.Telemet
 		value, ok := val.(float64)
 		if !ok {
 			return nil, fmt.Errorf("invalid value type for measurement %s on device_id: %s expected float64, got %T", data.Measurement, deviceID, val)
+		}
+
+		if measurementType == telemetryv1.MeasurementType_MEASUREMENT_TYPE_HASHRATE {
+			value /= 1e6 // Convert hashrate from MHS to THS
 		}
 
 		result[i] = &telemetryv1.TelemetryData{

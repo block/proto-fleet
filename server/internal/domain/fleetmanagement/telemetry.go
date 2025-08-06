@@ -7,13 +7,14 @@ import (
 
 	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement/models"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // TelemetryCollector defines the interface for collecting miner telemetry data
 type TelemetryCollector interface {
 	// GetMinerTelemetry returns the latest telemetry data for a miner
-	GetMinerTelemetry(ctx context.Context, deviceID string, dataMode pb.DataMode, timeSeriesConfig *commonpb.TimeSeriesConfig, measurementConfigs []*pb.MeasurementConfig) (*MinerTelemetry, error)
+	GetMinerTelemetry(ctx context.Context, deviceID string, dataMode pb.DataMode, timeSeriesConfig *commonpb.TimeSeriesConfig, measurementConfigs []*pb.MeasurementConfig) (*models.MinerTelemetry, error)
 
 	// GetMinerComponentStatus returns the latest component status for a miner
 	GetMinerComponentStatus(ctx context.Context, deviceID string) (*pb.MinerComponentStatus, error)
@@ -25,15 +26,6 @@ type TelemetryCollector interface {
 	StreamComponentStatus(ctx context.Context, deviceIDs []string) (<-chan *pb.StreamMinerUpdatesResponse, error)
 }
 
-// MinerTelemetry represents the telemetry data for a miner
-type MinerTelemetry struct {
-	PowerUsage  []*commonpb.Measurement
-	Temperature []*commonpb.Measurement
-	Hashrate    []*commonpb.Measurement
-	Efficiency  []*commonpb.Measurement
-	Timestamp   *timestamppb.Timestamp
-}
-
 // MockTelemetryCollector provides a mock implementation of TelemetryCollector for testing
 type MockTelemetryCollector struct{}
 
@@ -41,7 +33,7 @@ func NewMockTelemetryCollector() TelemetryCollector {
 	return &MockTelemetryCollector{}
 }
 
-func (m *MockTelemetryCollector) GetMinerTelemetry(ctx context.Context, _ string, dataMode pb.DataMode, timeSeriesConfig *commonpb.TimeSeriesConfig, measurementConfigs []*pb.MeasurementConfig) (*MinerTelemetry, error) {
+func (m *MockTelemetryCollector) GetMinerTelemetry(ctx context.Context, _ string, dataMode pb.DataMode, timeSeriesConfig *commonpb.TimeSeriesConfig, measurementConfigs []*pb.MeasurementConfig) (*models.MinerTelemetry, error) {
 	now := timestamppb.Now()
 
 	// Create a map of measurement type to its config for easy lookup
@@ -76,7 +68,7 @@ func (m *MockTelemetryCollector) GetMinerTelemetry(ctx context.Context, _ string
 		return []*commonpb.Measurement{generateSnapshotMeasurement(mType, now)}
 	}
 
-	return &MinerTelemetry{
+	return &models.MinerTelemetry{
 		PowerUsage:  getMeasurements(pb.MeasurementConfig_MEASUREMENT_TYPE_POWER_USAGE),
 		Temperature: getMeasurements(pb.MeasurementConfig_MEASUREMENT_TYPE_TEMPERATURE),
 		Hashrate:    getMeasurements(pb.MeasurementConfig_MEASUREMENT_TYPE_HASHRATE),

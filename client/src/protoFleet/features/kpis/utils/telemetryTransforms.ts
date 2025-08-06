@@ -41,7 +41,6 @@ export const transformCombinedMetricsToTimeSeries = (
     (metric) => metric.measurementType === measurementType,
   );
 
-  // Use provided aggregationType or default based on metric type
   const targetAggregationType =
     aggregationType || getTimeSeriesAggregationType(measurementType);
 
@@ -52,9 +51,6 @@ export const transformCombinedMetricsToTimeSeries = (
       );
 
       let value = aggregatedValue?.value || 0;
-      if (metric.measurementType === MeasurementType.HASHRATE) {
-        value = value / 1e6; // Convert from MH/s to TH/s
-      }
 
       return {
         datetime: metric.openTime
@@ -112,7 +108,6 @@ export const calculateAggregateStats = (
   }
 
   if (isCumulativeMetric(measurementType)) {
-    // For cumulative metrics: use SUM for avg (total across devices), MIN/MAX as-is
     const sumValues = metrics
       .map(
         (metric) =>
@@ -148,7 +143,6 @@ export const calculateAggregateStats = (
         minValues.length > 0 ? Math.min(...minValues) : Math.min(...sumValues),
     };
   } else {
-    // For non-cumulative metrics: use AVERAGE for avg, MIN/MAX as-is
     const avgValues = metrics
       .map(
         (metric) =>
@@ -200,11 +194,9 @@ export const getLatestAggregateValue = (
 
   if (metrics.length === 0) return 0;
 
-  // Use provided aggregationType or default based on metric type
   const targetAggregationType =
     aggregationType || getTimeSeriesAggregationType(measurementType);
 
-  // Get the most recent metric (assuming they're ordered by time)
   const latestMetric = metrics[metrics.length - 1];
   const aggregatedValue = latestMetric.aggregatedValues.find(
     (av) => av.aggregationType === targetAggregationType,
@@ -223,13 +215,10 @@ export const mergeStreamingDataPoint = (
 ): TimeSeriesDataPoint[] => {
   const updatedData = [...existingData];
 
-  // Add new data point
   updatedData.push(newDataPoint);
 
-  // Sort by datetime
   updatedData.sort((a, b) => (a.datetime || 0) - (b.datetime || 0));
 
-  // Keep only the most recent data points
   if (updatedData.length > maxDataPoints) {
     return updatedData.slice(-maxDataPoints);
   }

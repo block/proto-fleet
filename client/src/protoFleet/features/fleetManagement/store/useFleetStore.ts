@@ -79,7 +79,7 @@ function updateMeasurement(
     const currentValues = miner[propertyName];
 
     if (currentValues && currentValues.length > 0) {
-      miner[propertyName] = [measurement, ...currentValues.slice(0, -1)];
+      miner[propertyName] = [...currentValues.slice(1), measurement];
     } else {
       miner[propertyName] = [measurement];
     }
@@ -116,7 +116,8 @@ function updateTelemetryMeasurement(
     const currentValues = miner[propertyName];
 
     if (currentValues && currentValues.length > 0) {
-      miner[propertyName] = [measurement, ...currentValues.slice(0, -1)];
+      miner[propertyName] = [...currentValues.slice(1), measurement]; //new
+      // miner[propertyName] = [measurement, ...currentValues.slice(0,-1)]; //old
     } else {
       miner[propertyName] = [measurement];
     }

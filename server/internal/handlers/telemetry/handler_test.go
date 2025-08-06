@@ -416,7 +416,7 @@ func TestHandler_ConversionFunctions(t *testing.T) {
 	t.Run("telemetry data conversion", func(t *testing.T) {
 		telemetryData := []models.Telemetry{
 			{
-				Measurement: "temperature",
+				Measurement: "temperature_c",
 				Fields:      map[string]any{"value": 65.5},
 				Tags:        map[string]string{"device_id": "device1"},
 				Timestamp:   mockTime,
@@ -567,8 +567,8 @@ func TestHandler_GetCombinedMetrics(t *testing.T) {
 				// Check second metric (hashrate)
 				require.Equal(t, telemetryv1.MeasurementType_MEASUREMENT_TYPE_HASHRATE, resp.Metrics[1].MeasurementType)
 				require.Len(t, resp.Metrics[1].AggregatedValues, 2)
-				require.InDelta(t, 100.5, resp.Metrics[1].AggregatedValues[0].Value, 0.001)
-				require.InDelta(t, 105.0, resp.Metrics[1].AggregatedValues[1].Value, 0.001)
+				require.InDelta(t, 100.5/1e6, resp.Metrics[1].AggregatedValues[0].Value, 0.001)
+				require.InDelta(t, 105.0/1e6, resp.Metrics[1].AggregatedValues[1].Value, 0.001)
 			},
 		},
 		{
@@ -609,7 +609,7 @@ func TestHandler_GetCombinedMetrics(t *testing.T) {
 				require.Len(t, resp.Metrics, 1)
 				require.Empty(t, resp.NextPageToken)
 				require.Equal(t, telemetryv1.MeasurementType_MEASUREMENT_TYPE_POWER, resp.Metrics[0].MeasurementType)
-				require.InDelta(t, 1250.0, resp.Metrics[0].AggregatedValues[0].Value, 0.001)
+				require.InDelta(t, 1.2500, resp.Metrics[0].AggregatedValues[0].Value, 0.001)
 			},
 		},
 		{
