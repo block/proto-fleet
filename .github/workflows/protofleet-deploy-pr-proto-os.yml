@@ -44,7 +44,7 @@ jobs:
           npm run build:protoOS
           cd ..
           mkdir -p miner-firmware/docker/sim/protoOS/dist/protoOS
-          cp -r client/dist/protoOS miner-firmware/docker/sim/protoOS/dist/protoOS
+          cp -r client/dist/protoOS/* miner-firmware/docker/sim/protoOS/dist/protoOS
           docker build --build-arg "TYPE=b3b-sim" -f "miner-firmware/docker/sim/Dockerfile" -t "protofleet/miner-sim-develop-base:latest" miner-firmware
 
       - name: Deploy Docker to Develop VM
