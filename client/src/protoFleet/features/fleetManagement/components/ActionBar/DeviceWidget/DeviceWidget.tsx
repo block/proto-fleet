@@ -125,9 +125,8 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
         actionHandler: handleFactoryReset,
         requiresConfirmation: true,
         confirmation: {
-          title: `Reset ${numberOfMiners} miners to factory default?`,
-          subtitle:
-            "Resetting this miner will remove all settings and mining pool information. You will not lose any mining rewards.",
+          title: `Reset ${numberOfMiners} ${numberOfMiners === 1 ? "miner" : "miners"} to factory default?`,
+          subtitle: `Resetting ${numberOfMiners === 1 ? "this miner" : "these miners"} will remove all settings and mining pool information. You will not lose any mining rewards.`,
           confirmAction: {
             title: "Reset",
             variant: variants.secondaryDanger,
@@ -142,9 +141,8 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
         actionHandler: handleReboot,
         requiresConfirmation: true,
         confirmation: {
-          title: `Reboot ${numberOfMiners} miners?`,
-          subtitle:
-            "These miners will temporarily go offline but will resume hashing automatically after they reboot.",
+          title: `Reboot ${numberOfMiners} ${numberOfMiners === 1 ? "miner" : "miners"}?`,
+          subtitle: `${numberOfMiners === 1 ? "This miner" : "These miners"} will temporarily go offline but will resume hashing automatically after they reboot.`,
           confirmAction: {
             title: "Reboot",
             variant: variants.primary,
@@ -154,15 +152,15 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
       },
       {
         action: deviceActions.shutdown,
-        title: "Shut down",
+        title: "Sleep",
         icon: <Power className="opacity-30" />,
         actionHandler: handleShutDown,
         requiresConfirmation: true,
         confirmation: {
-          title: `Shut down ${numberOfMiners} miners?`,
-          subtitle: "These miners will shut down and stop hashing.",
+          title: `Sleep ${numberOfMiners} ${numberOfMiners === 1 ? "miner" : "miners"}?`,
+          subtitle: `${numberOfMiners === 1 ? "This miner" : "These miners"} will go to sleep and stop hashing.`,
           confirmAction: {
-            title: "Shut down",
+            title: "Sleep",
             variant: variants.primary,
           },
           testId: "shutdown-confirm-button",
@@ -175,8 +173,8 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
         actionHandler: handleWakeUp,
         requiresConfirmation: true,
         confirmation: {
-          title: `Wake up ${numberOfMiners} miners?`,
-          subtitle: "These miners will wake up and start hashing.",
+          title: `Wake up ${numberOfMiners} ${numberOfMiners === 1 ? "miner" : "miners"}?`,
+          subtitle: `${numberOfMiners === 1 ? "This miner" : "These miners"} will wake up and start hashing.`,
           confirmAction: {
             title: "Wake up",
             variant: variants.primary,

@@ -35,7 +35,7 @@ const TemperatureUnitsSwitcher = ({
     <PageOverlay show>
       <PopoverContent
         closePopover={onClickDone}
-        title="Tempeature"
+        title="Temperature"
         buttons={[
           {
             text: "Done",
