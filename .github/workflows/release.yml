@@ -143,6 +143,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          aws-region: "us-east-1"
+          role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Release"
+
+      - name: Upload ProtoOS bundle to S3
+        run: |
+          aws s3 cp \
+            ./client/proto-os-${{ github.event.release.tag_name }}.tar.gz \
+            s3://proto-fleet/releases/fleet/${{ github.event.release.tag_name }}/ \
+            --acl public-read
+
   build-proto-fleet:
     runs-on: ubuntu-latest
     needs: [build-proto-fleet-server, build-proto-fleet-client]
@@ -214,7 +227,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4.3.1
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           aws-region: "us-east-1"
           role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Release"

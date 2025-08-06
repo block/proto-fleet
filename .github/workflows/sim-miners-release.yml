@@ -1,0 +1,134 @@
+name: Create SimMiners Release Artifacts
+
+on:
+  release:
+    types: [created]
+
+permissions:
+  id-token: write
+  contents: write
+  pull-requests: read
+
+jobs:
+  build-sim-miners-image:
+    runs-on: ubuntu-arm64
+    steps:
+      - name: Create GitHub App token
+        id: create_token
+        uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a # v2.1.0
+        with:
+          app_id: ${{ secrets.GH_APP_ID }}
+          private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          token: "${{ steps.create_token.outputs.token }}"
+          submodules: true
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b #v1
+        with:
+          toolchain: stable
+
+      - name: Set up cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            miner-firmware/target
+            ~/.cache/sccache
+          key: ${{ runner.os }}-cargo-${{ hashFiles('miner-firmware/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install sccache
+        run: |
+          SCCACHE_URL="https://github.com/mozilla/sccache/releases/download/v0.10.0/sccache-v0.10.0-aarch64-unknown-linux-musl.tar.gz"
+          curl -L $SCCACHE_URL | tar xz
+          sudo mv sccache-v0.10.0-aarch64-unknown-linux-musl/sccache /usr/local/bin/
+          sudo chmod +x /usr/local/bin/sccache
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3
+        with:
+          driver-opts: image=moby/buildkit:master
+          buildkitd-flags: --debug
+
+      - name: Create protoOS directory structure
+        run: |
+          # Create empty protoOS directory required for Docker build
+          # This will be mounted as a volume at runtime from the host by the install script
+          mkdir -p ./miner-firmware/docker/sim/protoOS/dist/protoOS
+
+      - name: Build simulator Docker image
+        uses: docker/build-push-action@0a97817b6ade9f46837855d676c4cca3a2471fc9 # v5
+        with:
+          context: ./miner-firmware
+          file: ./miner-firmware/docker/sim/Dockerfile
+          push: false
+          platforms: linux/arm64
+          build-args: |
+            # Target configuration
+            TYPE=b3b-sim
+            PORT=80
+            RUSTFLAGS="-C target-cpu=native -C codegen-units=16 -C opt-level=2"
+            CARGO_INCREMENTAL=1
+            CARGO_NET_GIT_FETCH_WITH_CLI=true
+            # Compiler caching for faster builds
+            RUSTC_WRAPPER="sccache"
+            SCCACHE_CACHE_SIZE=5G
+            SCCACHE_DIR=/root/.cache/sccache
+            CARGO_BUILD_JOBS=$(nproc)
+          tags: protofleet/sim-miner:${{ github.event.release.tag_name }}
+          outputs: type=docker,dest=/tmp/proto-sim-miner-image.tar
+          cache-from: type=gha,scope=sim-miner-build-cache
+          cache-to: type=gha,mode=max,scope=sim-miner-build-cache
+
+      - name: Create deployment directory structure
+        run: |
+          mkdir -p deployment/sim-miners
+
+      - name: Create version file
+        run: |
+          echo "version: ${{ github.event.release.tag_name }}" > deployment/version.txt
+          echo "build_date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> deployment/version.txt
+          echo "commit: ${{ github.sha }}" >> deployment/version.txt
+
+      - name: Inject version into install script
+        run: |
+          sed "s/__VERSION__/${{ github.event.release.tag_name }}/g" deployment-files/install-sim-miners.sh > install-sim-miners.sh
+          chmod +x install-sim-miners.sh
+      - name: Package Docker image and config
+        run: |
+          cp /tmp/proto-sim-miner-image.tar deployment/sim-miners/
+
+          tar -czf proto-fleet-sim-miners.tar.gz -C deployment sim-miners
+
+      - name: Upload sim-miners artifact
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2
+        with:
+          files: ./proto-fleet-sim-miners.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@b47578312673ae6fa5b5096b330d9fbac3d116df # v4
+        with:
+          aws-region: "us-east-1"
+          role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Release"
+
+      - name: Upload artifacts to S3
+        run: |
+          # Upload sim miners bundle to the versioned path
+          aws s3 cp \
+            proto-fleet-sim-miners.tar.gz \
+            s3://proto-fleet/releases/fleet/${{ github.event.release.tag_name }}/proto-fleet-sim-miners.tar.gz \
+            --acl public-read
+
+          # Upload version-injected install script to the versioned path
+          aws s3 cp \
+            install-sim-miners.sh \
+            s3://proto-fleet/releases/fleet/${{ github.event.release.tag_name }}/install-sim-miners.sh \
+            --acl public-read
