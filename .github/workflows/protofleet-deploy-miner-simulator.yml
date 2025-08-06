@@ -45,13 +45,19 @@ jobs:
           aws-region: "us-east-1"
           role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Deploy_Develop"
 
-      - name: Build base simulator Docker image
-        shell: bash
-        run: docker build --build-arg "TYPE=b3b-sim" -f "miner-firmware/docker/sim/Dockerfile" -t "protofleet/miner-sim-develop-base:latest" miner-firmware
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318    # v1.1.4
 
       - name: Build simulator with ProtoOS dashboard Docker image
         shell: bash
-        run: docker build -f "deploy/develop/miner/Dockerfile" -t "protofleet/miner-sim-develop:latest" .
+        run: |
+          cd client
+          npm clean-install
+          npm run build:protoOS
+          cd ..
+          mkdir -p miner-firmware/docker/sim/protoOS/dist/protoOS
+          cp -r client/dist/protoOS miner-firmware/docker/sim/protoOS/dist/protoOS
+          docker build --build-arg "TYPE=b3b-sim" -f "miner-firmware/docker/sim/Dockerfile" -t "protofleet/miner-sim-develop:latest" miner-firmware
 
       - name: Push Docker image
         id: push-docker-image

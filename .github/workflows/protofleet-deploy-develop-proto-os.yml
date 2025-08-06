@@ -39,9 +39,19 @@ jobs:
           token: "${{ steps.create_token.outputs.token }}"
           submodules: true
 
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318    # v1.1.4
+        
       - name: Build base simulator Docker image
         shell: bash
-        run: docker build --build-arg "TYPE=b3b-sim" -f "miner-firmware/docker/sim/Dockerfile" -t "protofleet/miner-sim-develop-base:latest" miner-firmware
+        run: |
+          cd client
+          npm clean-install
+          npm run build:protoOS
+          cd ..
+          mkdir -p miner-firmware/docker/sim/protoOS/dist/protoOS
+          cp -r client/dist/protoOS miner-firmware/docker/sim/protoOS/dist/protoOS
+          docker build --build-arg "TYPE=b3b-sim" -f "miner-firmware/docker/sim/Dockerfile" -t "protofleet/miner-sim-develop-base:latest" miner-firmware
 
       - name: Deploy Docker to Develop VM
         uses: ./.github/actions/deploy-docker-to-develop-vm
