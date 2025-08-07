@@ -41,7 +41,7 @@ const Navigation = ({ routes, className }: NavigationProps) => {
   return (
     <div
       className={clsx(
-        "flex min-h-screen w-60 flex-col justify-between border-r border-border-5 bg-surface-base pb-3 text-text-primary-70 laptop:w-16 laptop:bg-grayscale-gray-5 desktop:w-16 desktop:bg-grayscale-gray-5",
+        "flex min-h-screen w-60 flex-col justify-between border-r border-border-5 bg-surface-base pb-3 text-text-primary-70 laptop:w-full laptop:bg-grayscale-gray-5 desktop:w-full desktop:bg-grayscale-gray-5",
         "laptop:items-center desktop:items-center",
         "tablet:absolute tablet:z-30",
         "phone:absolute phone:z-30",

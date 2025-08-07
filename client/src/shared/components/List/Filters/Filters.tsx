@@ -135,7 +135,12 @@ const Filters = <ItemType,>({
   };
 
   return (
-    <div className={clsx("flex flex-row flex-wrap items-center", className)}>
+    <div
+      className={clsx(
+        "sticky left-0 inline-flex flex-row flex-wrap items-center",
+        className,
+      )}
+    >
       {filterItems.map((filter) => {
         if (filter.type === "button") {
           return (

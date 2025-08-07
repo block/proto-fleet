@@ -10,7 +10,7 @@ interface MinerListActionBarProps {
 const MinerListActionBar = ({ selectedMiners }: MinerListActionBarProps) => {
   return (
     <ActionBar
-      className="bottom-4 z-20"
+      className="fixed bottom-4 z-20"
       selectedItems={selectedMiners}
       renderActions={(numberOfItems, setHidden) => (
         <>

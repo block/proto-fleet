@@ -101,7 +101,7 @@ const Miners = ({
   }
 
   return (
-    <div className="h-full">
+    <div className="h-[calc(100vh-theme(spacing.1)*15)] p-20">
       <Dialog
         title="Pairing the found miners"
         subtitle="This may take a few seconds"

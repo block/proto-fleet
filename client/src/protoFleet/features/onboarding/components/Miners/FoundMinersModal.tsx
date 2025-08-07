@@ -145,6 +145,7 @@ const FoundMinersModal = ({
           customSetSelectedItems={setSelectedMiners}
           actions={[blinkAction]}
           containerClassName="max-h-[50vh]"
+          overflowContainer={true}
         />
       </div>
       <ModalSelectAllFooter

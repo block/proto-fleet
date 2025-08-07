@@ -23,6 +23,7 @@ import {
   Cooling,
   General,
   MiningPools,
+  SettingsLayout,
 } from "@/protoFleet/features/settings";
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 
@@ -108,25 +109,41 @@ const routes: Route[] = [
     path: "settings/general",
     label: "General",
     secondaryNavItem: "/settings",
-    element: <General />,
+    element: (
+      <SettingsLayout>
+        <General />
+      </SettingsLayout>
+    ),
   },
   {
     path: "settings/security",
     label: "Security",
     secondaryNavItem: "/settings",
-    element: <AuthSettings />,
+    element: (
+      <SettingsLayout>
+        <AuthSettings />
+      </SettingsLayout>
+    ),
   },
   {
     path: "settings/mining-pools",
     label: "Mining Pools",
     secondaryNavItem: "/settings",
-    element: <MiningPools />,
+    element: (
+      <SettingsLayout>
+        <MiningPools />
+      </SettingsLayout>
+    ),
   },
   {
     path: "settings/cooling",
     label: "Cooling",
     secondaryNavItem: "/settings",
-    element: <Cooling />,
+    element: (
+      <SettingsLayout>
+        <Cooling />
+      </SettingsLayout>
+    ),
   },
   {
     path: "/auth",

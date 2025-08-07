@@ -22,7 +22,6 @@ import {
   useMinerStateCounts,
   useTotalMiners,
 } from "@/protoFleet/features/fleetManagement/store/useFleetStore";
-import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import { defaultListFilter } from "@/shared/components/List/constants";
@@ -167,11 +166,8 @@ const MinerList = ({
     [onFilterChange],
   );
   return (
-    <div>
-      <div className="mb-10">
-        <CompleteSetup />
-      </div>
-      <div className="flex items-center justify-between">
+    <>
+      <div className="sticky left-0 flex items-center justify-between text-heading-300 phone:px-6 tablet:px-6 laptop:px-10 desktop:px-10">
         <h2 className="text-heading-300">{title}</h2>
         <Button
           text="Add miners"
@@ -180,6 +176,7 @@ const MinerList = ({
           onClick={onAddMiners}
         />
       </div>
+
       <List<MinerStateSnapshot, string>
         activeCols={activeCols}
         colTitles={minerColTitles}
@@ -190,13 +187,15 @@ const MinerList = ({
         itemKey={"deviceIdentifier"}
         itemSelectable
         renderActionBar={(selectedItems) => (
-          <MinerListActionBar selectedMiners={selectedItems} />
+          <div className="flex w-full justify-center">
+            <MinerListActionBar selectedMiners={selectedItems} />
+          </div>
         )}
         containerClassName={listClassName}
         paddingLeft={paddingLeft}
         overflowContainer={overflowContainer}
       />
-    </div>
+    </>
   );
 };
 

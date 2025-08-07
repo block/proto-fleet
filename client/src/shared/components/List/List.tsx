@@ -43,7 +43,7 @@ type ListProps<ListItem, ItemKeyValueType> = {
   overflowContainer?: boolean;
 };
 
-const cellClassList = "text-left pl-2";
+const cellClassList = "text-left";
 const rowClassList = "border-b border-border-5";
 const thClassList = cellClassList + " py-3 text-emphasis-300 text-text-primary";
 const baseStickyClassList = "sticky z-1 bg-surface-base";
@@ -72,7 +72,7 @@ const List = <ListItem, ItemKeyValueType>({
   actions = [],
   noDataElement,
   renderActionBar,
-  containerClassName = "max-h-screen",
+  containerClassName = "",
   paddingLeft,
   overflowContainer = true,
 }: ListProps<ListItem, ItemKeyValueType>) => {
@@ -161,74 +161,55 @@ const List = <ListItem, ItemKeyValueType>({
     return style;
   }, [paddingLeft]);
 
-  const bodyClasses = useMemo(() => {
-    const classes = [];
-    if (overflowContainer) {
-      classes.push("overflow-x-auto");
-    }
-
-    if (paddingLeft === undefined) return classes;
-
-    // cannot create classes dynamically because Tailwind wouldn't include them in the bundle and they wouldn't work
-    classes.push(
-      ...[
-        "phone:w-[calc(100%+var(--list-padding-phone)*2-theme(spacing.1))]",
-        "phone:px-(--list-padding-phone)",
-        "phone:-translate-x-(--list-padding-phone)",
-        "tablet:w-[calc(100%+var(--list-padding-tablet)*2-theme(spacing.1))]",
-        "tablet:px-(--list-padding-tablet)",
-        "tablet:-translate-x-(--list-padding-tablet)",
-        "laptop:w-[calc(100%+var(--list-padding-laptop)*2-theme(spacing.1))]",
-        "laptop:px-(--list-padding-laptop)",
-        "laptop:-translate-x-(--list-padding-laptop)",
-        "desktop:w-[calc(100%+var(--list-padding-desktop)*2-theme(spacing.1))]",
-        "desktop:px-(--list-padding-desktop)",
-        "desktop:-translate-x-(--list-padding-desktop)",
-      ],
-    );
-    return classes;
-  }, [overflowContainer, paddingLeft]);
+  const paddingClasses = clsx(
+    paddingLeft
+      ? [
+          "phone:pl-(--list-padding-phone)",
+          "tablet:pl-(--list-padding-tablet)",
+          "laptop:pl-(--list-padding-laptop)",
+          "desktop:pl-(--list-padding-desktop)",
+        ]
+      : "",
+  );
 
   const firstStickyClasses = clsx(
     baseStickyClassList,
-    paddingLeft
-      ? [
-          "phone:-left-(--list-padding-phone)",
-          "tablet:-left-(--list-padding-tablet)",
-          "laptop:-left-(--list-padding-laptop)",
-          "desktop:-left-(--list-padding-desktop)",
-        ]
-      : "left-0",
+    "left-0",
+    paddingClasses,
   );
 
   const secondStickyClasses = clsx(
     baseStickyClassList,
-    paddingLeft
-      ? [
-          "phone:-left-[calc(theme(spacing.11)*-1+var(--list-padding-phone))]",
-          "tablet:-left-[calc(theme(spacing.11)*-1+var(--list-padding-tablet))]",
-          "laptop:-left-[calc(theme(spacing.11)*-1+var(--list-padding-laptop))]",
-          "desktop:-left-[calc(theme(spacing.11)*-1+var(--list-padding-desktop))]",
-        ]
-      : "left-11",
+    "desktop:left-[calc(var(--list-padding-desktop)+theme(spacing.9))]",
+    "laptop:left-[calc(var(--list-padding-laptop)+theme(spacing.9))]",
+    "tablet:left-[calc(var(--list-padding-tablet)+theme(spacing.9))]",
+    "phone:left-[calc(var(--list-padding-phone)+theme(spacing.9))]",
   );
 
   return (
-    <div className={clsx("flex flex-col", containerClassName)}>
-      <Filters<ListItem>
-        className="gap-4 py-4"
-        filterItems={filters ?? []}
-        filterSize={filterSize}
-        items={items}
-        onFilter={
-          isServerSideFiltering ? handleServerFiltering : handleClientFiltering
-        }
-        isServerSide={isServerSideFiltering}
-        headerControls={headerControls}
-      />
-      <div className={clsx(bodyClasses)} style={paddingCssVariables}>
+    <div
+      className={clsx("flex flex-col", containerClassName)}
+      style={paddingCssVariables}
+    >
+      <div>
+        <Filters<ListItem>
+          className={clsx("gap-4 py-4", paddingClasses)}
+          filterItems={filters ?? []}
+          filterSize={filterSize}
+          items={items}
+          onFilter={
+            isServerSideFiltering
+              ? handleServerFiltering
+              : handleClientFiltering
+          }
+          isServerSide={isServerSideFiltering}
+          headerControls={headerControls}
+        />
+      </div>
+
+      <div className={clsx({ "overflow-x-auto": overflowContainer })}>
         {!noDataElement || (items && items.length > 0) ? (
-          <div className="relative min-w-fit">
+          <>
             <div ref={refs.vertical.start} />
             <div className="sticky top-0 flex justify-between">
               <div ref={refs.horizontal.start} />
@@ -238,7 +219,7 @@ const List = <ListItem, ItemKeyValueType>({
               <thead data-testid="list-header">
                 <tr
                   className={clsx("sticky top-0 z-2 bg-surface-base", {
-                    "shadow-[0_10px_8px_-6px_rgba(0,0,0,0.06)]":
+                    "shadow-[0_0_6px_6px_rgba(0,0,0,0.06)]":
                       stickyState.vertical.isStuck,
                   })}
                 >
@@ -266,11 +247,15 @@ const List = <ListItem, ItemKeyValueType>({
                   {activeCols.map((row, idx) => (
                     <th
                       className={clsx(
+                        "pl-2",
                         thClassList,
                         idx === 0 &&
                           (itemSelectable
                             ? secondStickyClasses
                             : firstStickyClasses),
+                        idx === 0 &&
+                          stickyState.horizontal.isStuck &&
+                          columnShadowClassList,
                       )}
                       key={idx}
                       style={paddingCssVariables}
@@ -309,7 +294,7 @@ const List = <ListItem, ItemKeyValueType>({
                         <div
                           className={clsx(
                             "w-9 truncate overflow-hidden",
-                            tdPaddingClassList,
+                            "py-4",
                           )}
                         >
                           <Checkbox
@@ -396,14 +381,14 @@ const List = <ListItem, ItemKeyValueType>({
               </tbody>
             </table>
             <div ref={refs.vertical.end} />
-          </div>
+          </>
         ) : (
           noDataElement
         )}
-        {renderActionBar && (
-          <div className="w-full">{renderActionBar(selectedItems)}</div>
-        )}
       </div>
+      {renderActionBar && (
+        <div className="w-full">{renderActionBar(selectedItems)}</div>
+      )}
     </div>
   );
 };

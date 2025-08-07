@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 function useReactiveLocalStorage<T>(
   key: string,
@@ -56,14 +56,14 @@ function useReactiveLocalStorage<T>(
     window.addEventListener("storage", handleStorageChange);
     window.addEventListener(
       "localStorageChange",
-      handleStorageChange as EventListener,
+      handleStorageChange as (event: Event) => void,
     );
 
     return () => {
       window.removeEventListener("storage", handleStorageChange);
       window.removeEventListener(
         "localStorageChange",
-        handleStorageChange as EventListener,
+        handleStorageChange as (event: Event) => void,
       );
     };
   }, [key, initialValue]);

@@ -24,7 +24,7 @@ const Hashrate = ({
       ) : (
         <SkeletonBar className="w-full" />
       )}
-      <div className="h-5 w-12">
+      <div className="h-5 w-14 pl-2">
         {hashrate && hashrate.length ? (
           <Sparkline
             data={hashrate

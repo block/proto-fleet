@@ -1,7 +1,7 @@
 import { useState } from "react";
-import clsx from "clsx";
 import useFleet from "@/protoFleet/api/useFleet";
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
+import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup";
 import Miners from "@/protoFleet/features/onboarding/components/Miners";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
@@ -15,47 +15,37 @@ const Fleet = () => {
 
   return (
     <>
-      <div className="flex grow justify-center">
-        <div className="phone:w-[calc(100vw-theme(spacing.6)*2)] tablet:w-[calc(100vw-theme(spacing.6)*2)] laptop:w-[776px] desktop:w-[1024px]">
-          <ErrorBoundary>
-            <MinerList
-              title="Miners"
-              onAddMiners={() => setShowAddMinersModal(true)}
-              minerIds={minerIds}
-              listClassName={clsx(
-                // limit the height of the list to activate sticky header
-                // take height of the screen - top and bottom paddings - page header - miner list header
-                "phone:max-h-[calc(100vh-theme(spacing.6)*2-(theme(spacing.12)+57px)-theme(spacing.10))]",
-                "tablet:max-h-[calc(100vh-theme(spacing.6)*2-theme(spacing.12)-theme(spacing.10))]",
-                "laptop:max-h-[calc(100vh-theme(spacing.20)*2-(theme(spacing.14)+theme(spacing.1))-theme(spacing.10))]",
-                "desktop:max-h-[calc(100vh-theme(spacing.20)*2-(theme(spacing.14)+theme(spacing.1))-theme(spacing.10))]",
-              )}
-              // theme(spacing.20) doesn't work here because this is not preprocessed by Tailwind
-              paddingLeft={{
-                phone: "24px",
-                tablet: "24px",
-                // Left padding is padding of the parent (container) + half of auto margin caused by justify center
-                laptop: "calc(80px + (100vw - 776px - 80px * 2 - 64px)/2)",
-                desktop: "calc(80px + (100vw - 1024px - 80px * 2 - 64px)/2)",
-              }}
-              overflowContainer={true}
-              onFilterChange={setFilter}
-            />
-          </ErrorBoundary>
-
-          {hasMore ? (
-            <div className="mt-6 flex justify-center">
-              <Button
-                variant={variants.secondary}
-                size={sizes.base}
-                onClick={() => loadMore()}
-                loading={isLoading}
-                text="Load More"
-              />
-            </div>
-          ) : null}
-        </div>
+      <div className="sticky left-0 mb-10 max-w-full px-10 pt-10 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6">
+        <CompleteSetup />
       </div>
+      <ErrorBoundary>
+        <MinerList
+          title="Miners"
+          minerIds={minerIds}
+          paddingLeft={{
+            phone: "24px",
+            tablet: "24px",
+            laptop: "40px",
+            desktop: "40px",
+          }}
+          overflowContainer={false}
+          onFilterChange={setFilter}
+          onAddMiners={() => setShowAddMinersModal(true)}
+        />
+      </ErrorBoundary>
+
+      {hasMore ? (
+        <div className="mt-6 flex justify-center">
+          <Button
+            variant={variants.secondary}
+            size={sizes.base}
+            onClick={() => loadMore()}
+            loading={isLoading}
+            text="Load More"
+          />
+        </div>
+      ) : null}
+
       {showAddMinersModal && (
         <Miners mode="pairing" onExit={() => setShowAddMinersModal(false)} />
       )}

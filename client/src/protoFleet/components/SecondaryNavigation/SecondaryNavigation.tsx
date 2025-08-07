@@ -40,7 +40,7 @@ const SecondaryNavigation = ({ routes }: SecondaryNavigationProps) => {
   return (
     <ul
       data-testid="secondary-nav"
-      className="flex w-[176px] flex-col gap-3 border-r border-border-5 px-2 pt-3 text-text-primary-70"
+      className="flex min-h-[calc(100vh-theme(spacing.1)*15)] w-[176px] flex-col gap-3 border-r border-border-5 px-2 pt-3 text-text-primary-70"
     >
       {items.map((item, idx) => {
         if (!item.path) return;
@@ -48,7 +48,7 @@ const SecondaryNavigation = ({ routes }: SecondaryNavigationProps) => {
         return (
           <li key={idx}>
             <Link
-              to={item.path}
+              to={"/" + stripLeadingSlash(item.path)}
               className={clsx(
                 "block rounded-lg px-2 py-1 text-emphasis-300",
                 "hover:text-text-primary",

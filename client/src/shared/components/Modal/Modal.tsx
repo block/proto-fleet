@@ -104,11 +104,11 @@ const Modal = ({
     <PageOverlay show={showModal}>
       <div
         className={clsx(
-          "h-fit rounded-3xl bg-surface-elevated-base p-6 shadow-300",
+          "h-fit w-fit rounded-3xl bg-surface-elevated-base p-6 shadow-300",
           {
-            "w-256": size === sizes.extraLarge,
-            "w-160": size === sizes.large,
-            "w-90": size === sizes.small,
+            "min-w-256": size === sizes.extraLarge,
+            "min-w-160": size === sizes.large,
+            "min-w-90": size === sizes.small,
             "animate-sliding-up": showModal,
             "animate-sliding-down": !showModal,
             "max-w-[640px]": size === sizes.small,

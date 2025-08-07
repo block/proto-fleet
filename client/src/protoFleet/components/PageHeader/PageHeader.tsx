@@ -1,10 +1,10 @@
 import clsx from "clsx";
 import AlertStatus from "./AlertStatus";
-import Button, { variants, sizes } from "@/shared/components/Button";
 import LocationSelector from "./LocationSelector";
 import { Pause } from "@/shared/assets/icons";
-import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 interface PageHeaderProps {
   openMenu?: () => void;
 }

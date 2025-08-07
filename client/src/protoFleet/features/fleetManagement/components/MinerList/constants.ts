@@ -17,8 +17,8 @@ export const minerColTitles = {
   [minerCols.status]: "Status",
   [minerCols.hashrate]: "Hashrate",
   [minerCols.efficiency]: "Efficiency",
-  [minerCols.powerUsage]: "Power Usage",
-  [minerCols.temperature]: "Temperature",
+  [minerCols.powerUsage]: "Power",
+  [minerCols.temperature]: "Temp",
 } as ColTitles<keyof MinerStateSnapshot>;
 
 export const minerFilterStates = {
