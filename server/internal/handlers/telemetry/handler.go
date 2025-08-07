@@ -105,7 +105,11 @@ func (h *Handler) StreamUpdates(
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	updateChan, err := h.telemetryService.StreamTelemetryUpdates(ctx, query)
+	updateTelemetryChan, err := h.telemetryService.StreamTelemetryUpdates(ctx, query)
+	if err != nil {
+		return connect.NewError(connect.CodeInternal, err)
+	}
+	updateStatusChan, err := h.telemetryService.StreamDeviceStatusUpdates(ctx, query)
 	if err != nil {
 		return connect.NewError(connect.CodeInternal, err)
 	}
@@ -114,11 +118,23 @@ func (h *Handler) StreamUpdates(
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("context cancelled: %w", ctx.Err())
-		case update, ok := <-updateChan:
+		case update, ok := <-updateTelemetryChan:
 			if !ok {
 				return nil
 			}
 
+			response, err := fromTelemetryUpdate(update)
+			if err != nil {
+				return connect.NewError(connect.CodeInternal, err)
+			}
+
+			if err := stream.Send(response); err != nil {
+				return fmt.Errorf("failed to send stream response: %w", err)
+			}
+		case update, ok := <-updateStatusChan:
+			if !ok {
+				return nil
+			}
 			response, err := fromTelemetryUpdate(update)
 			if err != nil {
 				return connect.NewError(connect.CodeInternal, err)

@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
+)
 
 // DeviceMetadata represents metadata about a device
 type DeviceMetadata struct {
@@ -26,10 +30,11 @@ type AggregatedTelemetry struct {
 
 // TelemetryUpdate represents a streaming update from the telemetry system
 type TelemetryUpdate struct {
-	Type      UpdateType       `json:"type"`
-	DeviceID  DeviceIdentifier `json:"device_id,omitempty"`
-	Timestamp time.Time        `json:"timestamp"`
-	Data      *Telemetry       `json:"data,omitempty"`
-	Error     *string          `json:"error,omitempty"`
-	Status    *ComponentStatus `json:"status,omitempty"`
+	Type         UpdateType       `json:"type"`
+	DeviceID     DeviceIdentifier `json:"device_id,omitempty"`
+	Timestamp    time.Time        `json:"timestamp"`
+	Data         *Telemetry       `json:"data,omitempty"`
+	Error        *string          `json:"error,omitempty"`
+	Status       *ComponentStatus `json:"status,omitempty"`
+	DeviceStatus *mm.MinerStatus  `json:"device_status,omitempty"` // e.g., ACTIVE, INACTIVE, ERROR
 }

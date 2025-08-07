@@ -10,6 +10,7 @@ import (
 
 	commonv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	telemetryv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
+	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 )
 
@@ -501,6 +502,25 @@ func fromTelemetryUpdate(update models.TelemetryUpdate) (*telemetryv1.StreamUpda
 			return nil, err
 		}
 		telemetryUpdate.Status = &status
+	}
+
+	if update.DeviceStatus != nil {
+		deviceStatus := telemetryv1.DeviceStatus_DEVICE_STATUS_UNSPECIFIED
+		switch *update.DeviceStatus {
+		case mm.MinerStatusActive:
+			deviceStatus = telemetryv1.DeviceStatus_DEVICE_STATUS_ONLINE
+		case mm.MinerStatusInactive:
+			deviceStatus = telemetryv1.DeviceStatus_DEVICE_STATUS_INACTIVE
+		case mm.MinerStatusError:
+			deviceStatus = telemetryv1.DeviceStatus_DEVICE_STATUS_ERROR
+		case mm.MinerStatusMaintenance:
+			deviceStatus = telemetryv1.DeviceStatus_DEVICE_STATUS_MAINTENANCE
+		case mm.MinerStatusUnknown:
+			deviceStatus = telemetryv1.DeviceStatus_DEVICE_STATUS_UNSPECIFIED
+		case mm.MinerStatusOffline:
+			deviceStatus = telemetryv1.DeviceStatus_DEVICE_STATUS_OFFLINE
+		}
+		telemetryUpdate.DeviceStatus = &deviceStatus
 	}
 
 	return &telemetryv1.StreamUpdatesResponse{

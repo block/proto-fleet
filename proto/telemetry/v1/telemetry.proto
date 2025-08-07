@@ -78,6 +78,27 @@ enum ComponentStatus {
   COMPONENT_STATUS_OFFLINE = 4;
 }
 
+// Status of a miner
+enum DeviceStatus {
+  // Status is unknown or not specified
+  DEVICE_STATUS_UNSPECIFIED = 0;
+
+  // Miner is online and functioning normally
+  DEVICE_STATUS_ONLINE = 1;
+
+  // Miner is offline and not responding
+  DEVICE_STATUS_OFFLINE = 2;
+
+  // Miner is in maintenance mode
+  DEVICE_STATUS_MAINTENANCE = 3;
+
+  // Miner is in error state
+  DEVICE_STATUS_ERROR = 4;
+
+  DEVICE_STATUS_INACTIVE = 5; // Miner is inactive, not mining but still connected
+
+}
+
 enum UpdateType {
   UPDATE_TYPE_UNSPECIFIED = 0;
   UPDATE_TYPE_TELEMETRY = 1;
@@ -132,6 +153,7 @@ message TelemetryUpdate {
   optional TelemetryData data = 4;
   optional string error_message = 5;
   optional ComponentStatus status = 6;
+  optional DeviceStatus device_status = 7; // e.g., ACTIVE, INACTIVE, ERROR
 }
 
 // Request/Response Messages

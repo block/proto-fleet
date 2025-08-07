@@ -316,6 +316,45 @@ func (s *TelemetryService) StreamTelemetryUpdates(ctx context.Context, query mod
 	return s.telemetryDataStore.StreamTelemetryUpdates(ctx, query)
 }
 
+func (s *TelemetryService) StreamDeviceStatusUpdates(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error) {
+	// Create a new channel for device status updates
+	updateChan := make(chan models.TelemetryUpdate)
+
+	go func() {
+		defer close(updateChan)
+		ticker := time.NewTicker(*query.HeartbeatInterval)
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				// Fetch device status updates from the telemetry data store
+				statuses, err := s.deviceStore.GetDeviceStatusForDeviceIdentifiers(ctx, query.DeviceIDs)
+				if err != nil {
+					slog.Error("failed to get device status", "deviceIDs", query.DeviceIDs, "error", err)
+					continue
+				}
+				for deviceID, status := range statuses {
+					update := models.TelemetryUpdate{
+						Type:         models.UpdateTypeDeviceStatus,
+						DeviceID:     deviceID,
+						Timestamp:    time.Now(),
+						DeviceStatus: &status,
+					}
+					select {
+					case updateChan <- update:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}
+		}
+	}()
+
+	return updateChan, nil
+}
+
 func (s *TelemetryService) GetAggregatedTelemetry(ctx context.Context, query models.AggregationQuery) ([]models.AggregatedTelemetry, error) {
 	aggregatedData, err := s.telemetryDataStore.GetAggregatedTelemetry(ctx, query)
 	if err != nil {

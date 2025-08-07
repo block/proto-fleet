@@ -315,12 +315,13 @@ const KpiLayoutWrapper = ({ children }: KpiLayoutWrapperProps) => {
 
   // Get current values for the tab menu
   const currentHashrateValue =
-    outletContext?.minerHashrate.aggregates?.avg || 0;
+    outletContext?.minerHashrate.hashrate.slice(-1)[0]?.value || 0;
   const currentEfficiencyValue =
-    outletContext?.minerEfficiency.aggregates?.avg || 0;
+    outletContext?.minerEfficiency.efficiency.slice(-1)[0]?.value || 0;
   const currentPowerUsageValue =
-    outletContext?.minerPowerUsage.aggregates?.avg || 0;
-  const currentUptimeValue = outletContext?.minerUptime.aggregates?.avg || 0;
+    outletContext?.minerPowerUsage.powerUsage.slice(-1)[0]?.value || 0;
+  const currentUptimeValue =
+    outletContext?.minerUptime.uptime.slice(-1)[0]?.value || 0;
 
   // Mock pool status - TODO: Replace with real pool status
   const poolsLive = true;

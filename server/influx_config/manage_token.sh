@@ -21,6 +21,17 @@ measurements=("${default_measurements[@]}")
 # Check if token is already set in /var/lib/influxdb3/shared/.env
 ENV_FILE=/var/lib/influxdb3/start/.env
 
+TAG_KEY="device_id"
+
+default_measurements=(
+    "power_w"
+    "hashrate_mhs"
+    "temperature_c"
+    "efficiency_jth"
+)
+
+measurements=("${default_measurements[@]}")
+
 # Generate a new token
 influxdb3 create token --admin > /tmp/influxdb3_token.txt
 if [ $? -ne 0 ]; then
