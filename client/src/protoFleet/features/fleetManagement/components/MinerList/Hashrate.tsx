@@ -16,10 +16,11 @@ const Hashrate = ({
 }: HashrateProps) => {
   const hashrateFromStore = useMinerHashrate(deviceIdentifier || "");
   const hashrate = hashrateProps || hashrateFromStore;
+  const value = hashrate?.[hashrate.length - 1]?.value;
   return (
     <div className="relative flex h-full w-full flex-row items-center justify-between pr-6 whitespace-nowrap">
       {hashrate ? (
-        <div>{getDisplayValue(hashrate[hashrate.length - 1].value)} TH/s</div>
+        <div>{getDisplayValue(value)} TH/s</div>
       ) : (
         <SkeletonBar className="w-full" />
       )}

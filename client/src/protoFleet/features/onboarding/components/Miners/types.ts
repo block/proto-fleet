@@ -12,3 +12,5 @@ export type MinerWithSelected = MinerWithModel & {
 export type MinerWithSelectedAndAction = MinerWithSelected & {
   action?: null;
 };
+
+export type MinerDiscoveryMode = "onboarding" | "pairing";

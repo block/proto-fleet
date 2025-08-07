@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import FoundMiners from "./FoundMiners";
 import FoundMinersModal from "./FoundMinersModal";
+import { MinerDiscoveryMode } from "./types";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { Dismiss, LogoAlt } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -21,6 +22,7 @@ interface MinersProps {
   onContinue: (selectedMinerIdentifiers: string[]) => void;
   onRescan: () => void;
   onClearFoundMiners: () => void;
+  mode?: MinerDiscoveryMode;
 }
 
 // Minimum time to show the loading animation in milliseconds (only for network scan)
@@ -43,6 +45,7 @@ const Miners = ({
   onIpListModeDiscover,
   onContinue,
   onRescan,
+  mode = "onboarding",
 }: MinersProps) => {
   const [deselectedMiners, setDeselectedMiners] = useState<
     Device["deviceIdentifier"][]
@@ -106,25 +109,27 @@ const Miners = ({
         show={pairingPending}
       />
 
-      <div className="flex h-full w-full items-center rounded-xl bg-landing-page p-10">
-        <div className="flex flex-col gap-12">
-          <div className="flex flex-col gap-4">
-            <LogoAlt width="w-[48px]" />
-            <Header
-              title="Let's setup your fleet."
-              titleSize="text-display-200"
-              description="Add miners to your fleet to get started."
-            />
-          </div>
-          <div>
-            <Button variant="primary" onClick={() => setShowModal(true)}>
-              Get started
-            </Button>
+      {mode === "onboarding" && (
+        <div className="flex h-full w-full items-center rounded-xl bg-landing-page p-10">
+          <div className="flex flex-col gap-12">
+            <div className="flex flex-col gap-4">
+              <LogoAlt width="w-[48px]" />
+              <Header
+                title="Let's setup your fleet."
+                titleSize="text-display-200"
+                description="Add miners to your fleet to get started."
+              />
+            </div>
+            <div>
+              <Button variant="primary" onClick={() => setShowModal(true)}>
+                Get started
+              </Button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {showModal && (
+      {(mode === "pairing" || showModal) && (
         <PageOverlay show>
           <div className="h-full w-full overflow-auto bg-surface-base p-6">
             <Header

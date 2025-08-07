@@ -17,7 +17,7 @@ const MinerMeasurement = ({
     <>
       {measurement && measurement.length > 0 ? (
         <>
-          {getDisplayValue(measurement[measurement.length - 1].value)} {unit}
+          {getDisplayValue(measurement[measurement.length - 1]?.value)} {unit}
         </>
       ) : (
         <SkeletonBar className={className || "w-full pr-10"} />

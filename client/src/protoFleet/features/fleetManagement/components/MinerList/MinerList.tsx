@@ -23,6 +23,7 @@ import {
   useTotalMiners,
 } from "@/protoFleet/features/fleetManagement/store/useFleetStore";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import { defaultListFilter } from "@/shared/components/List/constants";
 import {
@@ -39,6 +40,7 @@ type MinerListProps = {
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   overflowContainer?: boolean;
   onFilterChange: (filter: MinerListFilter) => void;
+  onAddMiners: () => void;
 };
 
 // TODO: move this to state when we
@@ -60,6 +62,7 @@ const MinerList = ({
   paddingLeft,
   overflowContainer,
   onFilterChange,
+  onAddMiners,
 }: MinerListProps) => {
   const totalMiners = useTotalMiners();
   const minerStateCounts = useMinerStateCounts();
@@ -168,7 +171,15 @@ const MinerList = ({
       <div className="mb-10">
         <CompleteSetup />
       </div>
-      <h2 className="text-heading-300">{title}</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-heading-300">{title}</h2>
+        <Button
+          text="Add miners"
+          variant={variants.secondary}
+          size={sizes.compact}
+          onClick={onAddMiners}
+        />
+      </div>
       <List<MinerStateSnapshot, string>
         activeCols={activeCols}
         colTitles={minerColTitles}

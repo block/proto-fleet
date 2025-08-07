@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import Miners from "./Miners";
+import { MinerDiscoveryMode } from "./types";
 import {
   Device,
   DiscoverRequest,
@@ -9,14 +10,24 @@ import {
 } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
+import { useMinerIds } from "@/protoFleet/features/fleetManagement/store/useFleetStore";
 import {
   defaultDiscoveryPorts,
   defaultTimeout,
 } from "@/protoFleet/features/onboarding/constants";
 import { useOnboardingContext } from "@/protoFleet/features/onboarding/contexts/OnboardingContext";
+import {
+  pushToast,
+  STATUSES as TOAST_STATUSES,
+} from "@/shared/features/toaster";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
-const MinersPage = () => {
+type MinersPageProps = {
+  mode?: MinerDiscoveryMode;
+  onExit?: () => void;
+};
+
+const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
   const navigate = useNavigate();
 
   const { data: networkInfo } = useNetworkInfo();
@@ -30,6 +41,7 @@ const MinersPage = () => {
 
   const { refetch } = useOnboardingContext();
 
+  const minerIds = useMinerIds();
   // Process discovered miners, ensuring no duplicates
   function processDiscoveredMiners(devices: Device[]) {
     setFoundMiners((prevMiners) => {
@@ -38,7 +50,7 @@ const MinersPage = () => {
           !prevMiners.some(
             (prevMiner) =>
               prevMiner.deviceIdentifier === device.deviceIdentifier,
-          ),
+          ) && !minerIds.some((minerId) => minerId === device.deviceIdentifier),
       );
       return [...prevMiners, ...newMiners];
     });
@@ -51,8 +63,11 @@ const MinersPage = () => {
         discoverAbortController: abortController,
         onStreamData: processDiscoveredMiners,
         onError: (error) => {
-          // TODO handle error
           console.error("Discovery error:", error);
+          pushToast({
+            message: "Discovery failed",
+            status: TOAST_STATUSES.error,
+          });
         },
       });
     },
@@ -83,7 +98,8 @@ const MinersPage = () => {
       scanAbortController.current.abort();
       scanAbortController.current = new AbortController();
     }
-  }, []);
+    onExit?.();
+  }, [onExit]);
 
   const handleMdnsDiscovery = useCallback(() => {
     const discoverRequest = create(DiscoverRequestSchema, {
@@ -140,11 +156,19 @@ const MinersPage = () => {
       pairRequest: pairRequest,
       onSuccess: () => {
         refetch();
-        navigate("/");
+        if (mode === "onboarding") {
+          navigate("/");
+        } else {
+          onExit?.();
+          navigate(0);
+        }
       },
       onError: (error) => {
-        // TODO handle error
         console.error("Pairing error:", error);
+        pushToast({
+          message: "Pairing failed",
+          status: TOAST_STATUSES.error,
+        });
       },
     });
   }
@@ -160,6 +184,7 @@ const MinersPage = () => {
       onContinue={handleContinue}
       onRescan={handleRescan}
       onClearFoundMiners={() => setFoundMiners([])}
+      mode={mode}
     />
   );
 };
