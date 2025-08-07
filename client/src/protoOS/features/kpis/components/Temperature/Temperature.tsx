@@ -21,8 +21,9 @@ const getFanStats = (
 ) => {
   if (!fanSpeed) return null;
 
-  let label = `Fan ${fanIndex + 1}`;
-  let fanProps = { numFans, fanPosition: fanIndex };
+  const fanPosition = fanIndex + 1;
+  let label = `Fan ${fanPosition}`;
+  let fanProps = { numFans, fanPosition };
 
   // For R1 models, we need to adjust the label and indicator to
   // display Front and Rear fans separately

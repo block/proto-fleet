@@ -7,8 +7,8 @@ import StatusCircle from "@/shared/components/StatusCircle";
 type TabProps = {
   id: string;
   label: string;
-  value?: number;
-  units: string;
+  value?: number | string;
+  units?: string;
   path: string;
   isActive?: boolean;
   onClick?: (id: string) => void;

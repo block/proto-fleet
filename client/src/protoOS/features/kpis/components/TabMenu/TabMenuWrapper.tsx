@@ -1,7 +1,7 @@
 import { memo, useMemo } from "react";
 import TabMenu from "@/shared/components/TabMenu";
 import { TEMP_UNITS, usePreferences } from "@/shared/features/preferences";
-import { convertCtoF } from "@/shared/utils/utility";
+import { getAsicTempValue } from "@/shared/utils/utility";
 
 type TabMenuWrapperProps = {
   hashrate?: number;
@@ -21,7 +21,7 @@ const TabMenuWrapper = memo(
   }: TabMenuWrapperProps) => {
     const { temperatureUnits } = usePreferences();
     const isFahrenheit = temperatureUnits === TEMP_UNITS.fahrenheit;
-
+    const unit = isFahrenheit ? "ºF" : "ºC";
     const tabItems = useMemo(
       () => ({
         hashrate: {
@@ -44,15 +44,12 @@ const TabMenuWrapper = memo(
         },
         temperature: {
           name: "Temperature",
-          value:
-            isFahrenheit && temperature
-              ? convertCtoF(temperature)
-              : temperature,
-          units: isFahrenheit ? "ºF" : "ºC",
+          value: getAsicTempValue(temperature, isFahrenheit),
+          units: temperature ? unit : undefined,
           path: "/temperature",
         },
       }),
-      [hashrate, efficiency, powerUsage, temperature, isFahrenheit],
+      [hashrate, efficiency, powerUsage, temperature, isFahrenheit, unit],
     );
 
     return <TabMenu items={tabItems} basePath={basePath} />;

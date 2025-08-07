@@ -61,6 +61,14 @@ export const convertWtoKW = (value: number = 0) => value / 1000;
 
 export const convertCtoF = (value: number = 0) => (value * 9) / 5 + 32;
 
+export const getAsicTempValue = (
+  avgAsicTemp: number | undefined,
+  isFahrenheit: boolean,
+) => {
+  if (!avgAsicTemp) return "N/A";
+  return isFahrenheit ? convertCtoF(avgAsicTemp) : avgAsicTemp;
+};
+
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 export const getRowLabel = (row: number) => {

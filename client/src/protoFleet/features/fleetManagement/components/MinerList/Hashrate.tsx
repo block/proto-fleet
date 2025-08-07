@@ -16,7 +16,7 @@ const Hashrate = ({
 }: HashrateProps) => {
   const hashrateFromStore = useMinerHashrate(deviceIdentifier || "");
   const hashrate = hashrateProps || hashrateFromStore;
-  const value = hashrate?.[hashrate.length - 1]?.value;
+  const value = hashrate?.[hashrate.length - 1]?.value ?? 0;
   return (
     <div className="relative flex h-full w-full flex-row items-center justify-between pr-6 whitespace-nowrap">
       {hashrate ? (
@@ -25,7 +25,7 @@ const Hashrate = ({
         <SkeletonBar className="w-full" />
       )}
       <div className="h-5 w-12">
-        {hashrate && hashrate.length && (
+        {hashrate && hashrate.length ? (
           <Sparkline
             data={hashrate
               .filter((h) => h.timestamp !== undefined)
@@ -35,7 +35,7 @@ const Hashrate = ({
               }))}
             threshold={20}
           />
-        )}
+        ) : null}
       </div>
     </div>
   );

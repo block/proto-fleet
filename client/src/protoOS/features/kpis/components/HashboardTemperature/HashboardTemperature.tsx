@@ -24,17 +24,12 @@ import {
   usePreferences,
 } from "@/shared/features/preferences";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
-import { convertWtoKW } from "@/shared/utils/utility";
-import { convertCtoF } from "@/shared/utils/utility";
+import {
+  convertCtoF,
+  convertWtoKW,
+  getAsicTempValue,
+} from "@/shared/utils/utility";
 
-const getAsicTemp = (
-  avgAsicTemp: HashboardStatsHashboardstats["avg_asic_temp_c"],
-  units: TemperatureUnits,
-) => {
-  if (!avgAsicTemp) return "N/A";
-  const isFahrenheit = units === TEMP_UNITS.fahrenheit;
-  return isFahrenheit ? convertCtoF(avgAsicTemp) : avgAsicTemp;
-};
 const getStats = (
   avgHashboardTemp: Aggregates["avg"],
   avgAsicTemp: HashboardStatsHashboardstats["avg_asic_temp_c"],
@@ -55,7 +50,7 @@ const getStats = (
     },
     {
       label: "Current avg. ASIC temp",
-      value: getAsicTemp(avgAsicTemp, units),
+      value: getAsicTempValue(avgAsicTemp, isFahrenheit),
       units: avgAsicTemp ? unit : undefined,
     },
     {

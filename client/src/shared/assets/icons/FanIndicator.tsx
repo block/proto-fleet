@@ -19,7 +19,7 @@ const FanIndicator = ({ numFans = 6, fanPosition = 1 }: FanIndicatorProps) => {
           return (
             <div
               key={colIdx}
-              className="flex w-[18px] flex-col items-center justify-center gap-0.5 rounded-sm border border-core-primary-20 p-0.5"
+              className="flex w-[18px] flex-col items-center justify-start gap-0.5 rounded-sm border border-core-primary-20 p-0.5"
             >
               <div
                 className={clsx("h-2 w-2 rounded-full bg-core-primary-20", {

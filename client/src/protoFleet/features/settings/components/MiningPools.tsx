@@ -5,11 +5,7 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 const MiningPools = () => {
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-6">
-      <Header
-        title={"Update your mining pools"}
-        titleSize="text-heading-300"
-        description={"TODO - add description"}
-      />
+      <Header title={"Update your mining pools"} titleSize="text-heading-300" />
       <MiningPoolsForm
         buttonLabel="Continue"
         onSaveDone={() =>

@@ -7,8 +7,8 @@ import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 type TabMenuItem = {
   name: string;
-  value?: number;
-  units: string;
+  value?: number | string;
+  units?: string;
   path: string;
 };
 
