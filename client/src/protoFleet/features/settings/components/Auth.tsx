@@ -436,18 +436,6 @@ const AuthenticationSettings = () => {
               )}
             </Modal>
           )}
-          <div className="flex flex-col gap-4 rounded-xl border border-border-5 p-6">
-            <Header title="Devices" titleSize="text-heading-300" />
-            <div className="flex min-h-[427px] flex-col items-start justify-center gap-6 rounded-xl bg-landing-page p-20">
-              <Header
-                title="You haven’t paired any miners"
-                titleSize="text-heading-200"
-                subtitleSize="text-400"
-                subtitle="Add miners to your fleet to get started."
-              />
-              <Button variant="primary">Get started</Button>
-            </div>
-          </div>
         </div>
       </div>
     </>
