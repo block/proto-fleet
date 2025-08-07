@@ -55,11 +55,12 @@ services:
       INFLUXDB3_OBJECT_STORE: "file"
       INFLUXDB3_DB_DIR: "/var/lib/influxdb3"
       INFLUXDB3_BUCKET: fleet
+      INFLUXDB3_DATABASE_NAME: fleet
     volumes:
       - influxdb-data:/var/lib/influxdb3
       - influxdb-config:/etc/influxdb3
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8181/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8181/health" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -70,6 +71,7 @@ volumes:
   mysql:
   influxdb-data:
   influxdb-config:
+
 
 networks:
   fleet-network:

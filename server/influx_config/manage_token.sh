@@ -1,4 +1,4 @@
-#!/bin/sh 
+#!/usr/bin/env bash
 
 # Wait until influxdb is healthy"
 until curl -s http://localhost:8181/health | grep -q "OK" ; do
@@ -6,6 +6,17 @@ until curl -s http://localhost:8181/health | grep -q "OK" ; do
   sleep 5
 done
 echo "InfluxDB is healthy."
+
+TAG_KEY="device_id"
+
+default_measurements=(
+    "power_w"
+    "hashrate_mhs"
+    "temperature_c"
+    "efficiency_jth"
+)
+
+measurements=("${default_measurements[@]}")
 
 # Check if token is already set in /var/lib/influxdb3/shared/.env
 ENV_FILE=/var/lib/influxdb3/start/.env
@@ -43,3 +54,41 @@ else
     echo "INFLUXDB3_AUTH_TOKEN=$TOKEN" >> "$ENV_FILE"
 fi
 echo "Token written to $ENV_FILE."
+
+db_exists() {
+    influxdb3 show databases --token $TOKEN | grep -q "$INFLUXDB3_DATABASE_NAME" 
+}
+
+table_exists() {
+    influxdb3 query --token $TOKEN --database "$INFLUXDB3_DATABASE_NAME" "SHOW TABLES" | grep -q "$1"
+}
+
+create_table() {
+    # Echo script to create table with tags
+    echo "Creating table $1 with tags $TAG_KEY in database $INFLUXDB3_DATABASE_NAME..."
+    cmd=(
+      influxdb3 create table
+      --token "$TOKEN"
+      --database "$INFLUXDB3_DATABASE_NAME"
+      --tags "$TAG_KEY"
+      -- "$1"
+    )
+    echo running "${cmd[@]}"
+    "${cmd[@]}"
+}
+
+if db_exists; then
+    echo "Database $INFLUXDB3_DATABASE_NAME already exists."
+else
+    echo "Creating database $INFLUXDB3_DATABASE_NAME..."
+    influxdb3 create database --token $TOKEN "$INFLUXDB3_DATABASE_NAME"
+fi
+
+for table in "${measurements[@]}"; do
+    if table_exists "$table"; then
+        echo "Table $table already exists."
+    else
+        echo "Creating table $table..."
+        create_table "$table"
+    fi
+done
