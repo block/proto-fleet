@@ -92,6 +92,9 @@ func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.De
 	if len(deviceID) == 0 {
 		return nil
 	}
+	for _, id := range deviceID {
+		s.tasks <- models.Device{ID: id, LastUpdatedAt: time.Now().Add(-s.config.NewDeviceLookback)} // Initialize with current time minus lookback duration
+	}
 	return s.updateScheduler.AddNewDevices(ctx, deviceID...)
 }
 
@@ -205,8 +208,30 @@ func (s *TelemetryService) worker(ctx context.Context) {
 					slog.Warn("failed to add failed telemetry device back into scheduler", "deviceID", device.ID, "error", err)
 				}
 			}
+			if err := s.GetStatusForDevice(ctx, device); err != nil {
+				slog.Warn("failed to get status for device", "deviceID", device.ID, "error", err)
+			}
 		}
 	}
+}
+
+func (s *TelemetryService) GetStatusForDevice(ctx context.Context, device models.Device) error {
+	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, device.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get miner from device ID %s: %w", device.ID, err)
+	}
+
+	status, err := miner.GetDeviceStatus(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get device status for miner %s: %w", miner.GetID(), err)
+	}
+
+	err = s.deviceStore.UpsertDeviceStatus(ctx, device.ID, status, "")
+	if err != nil {
+		return fmt.Errorf("failed to upsert device status for device %s: %w", device.ID, err)
+	}
+
+	return nil
 }
 
 // GetTelemetryFromDevice fetches telemetry data from a specific device,

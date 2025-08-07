@@ -144,10 +144,12 @@ func (ns NullDevicePairingPairingStatus) Value() (driver.Value, error) {
 type DeviceStatusStatus string
 
 const (
-	DeviceStatusStatusONLINE      DeviceStatusStatus = "ONLINE"
+	DeviceStatusStatusACTIVE      DeviceStatusStatus = "ACTIVE"
+	DeviceStatusStatusINACTIVE    DeviceStatusStatus = "INACTIVE"
 	DeviceStatusStatusOFFLINE     DeviceStatusStatus = "OFFLINE"
 	DeviceStatusStatusMAINTENANCE DeviceStatusStatus = "MAINTENANCE"
 	DeviceStatusStatusERROR       DeviceStatusStatus = "ERROR"
+	DeviceStatusStatusUNKNOWN     DeviceStatusStatus = "UNKNOWN"
 )
 
 func (e *DeviceStatusStatus) Scan(src interface{}) error {
@@ -292,10 +294,10 @@ type DevicePairing struct {
 type DeviceStatus struct {
 	ID              int64
 	DeviceID        int64
-	Status          DeviceStatusStatus
 	StatusTimestamp sql.NullTime
 	StatusDetails   sql.NullString
 	CreatedAt       sql.NullTime
+	Status          DeviceStatusStatus
 }
 
 type MinerCredential struct {

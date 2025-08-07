@@ -634,6 +634,10 @@ func TestTelemetryService_Integration(t *testing.T) {
 			Return([]models.DeviceIdentifier{}, nil).
 			AnyTimes()
 
+		mockMinerGetter.EXPECT().
+			GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
+			Return(nil, nil).AnyTimes()
+
 		service := NewTelemetryService(Config{
 			StalenessThreshold: 1 * time.Minute,
 			FetchInterval:      100 * time.Millisecond, // Short interval for test
@@ -648,6 +652,10 @@ func TestTelemetryService_Integration(t *testing.T) {
 		// Add device to service
 		err := service.AddDevices(ctx, deviceID)
 		require.NoError(t, err)
+
+		// shows that the task was added to get polled as soon as the service starts
+		task := <-service.tasks
+		require.Equal(t, task.ID, deviceID)
 
 		// Step 2: Verify service can be started and stopped
 		err = service.Start(ctx)
@@ -776,6 +784,10 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 		// Test that component interactions maintain consistent state
 		deviceIDs := []models.DeviceIdentifier{"700", "701", "702"}
 
+		mockMinerGetter.EXPECT().
+			GetMinerFromDeviceIdentifier(gomock.Any(), deviceIDs[0]).
+			Return(nil, nil).AnyTimes()
+
 		// Add devices
 		mockScheduler.EXPECT().
 			AddNewDevices(gomock.Any(), deviceIDs[0], deviceIDs[1], deviceIDs[2]).
@@ -818,11 +830,18 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 		err := service.AddDevices(ctx, deviceIDs...)
 		require.NoError(t, err)
 
+		for range deviceIDs {
+			<-service.tasks
+		}
+
 		err = service.RemoveDevices(ctx, deviceIDs[1])
 		require.NoError(t, err)
 
 		err = service.AddDevices(ctx, deviceIDs[1])
 		require.NoError(t, err)
+
+		task := <-service.tasks
+		require.Equal(t, task.ID, deviceIDs[1])
 
 		// Test service lifecycle
 		err = service.Start(ctx)

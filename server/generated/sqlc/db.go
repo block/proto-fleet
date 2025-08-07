@@ -99,6 +99,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDevicePairingStatusByDeviceDatabaseIDStmt, err = db.PrepareContext(ctx, getDevicePairingStatusByDeviceDatabaseID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDevicePairingStatusByDeviceDatabaseID: %w", err)
 	}
+	if q.getDeviceStatusStmt, err = db.PrepareContext(ctx, getDeviceStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceStatus: %w", err)
+	}
+	if q.getDeviceStatusByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceStatusByDeviceIdentifier); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceStatusByDeviceIdentifier: %w", err)
+	}
+	if q.getDeviceStatusForDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getDeviceStatusForDeviceIdentifiers); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceStatusForDeviceIdentifiers: %w", err)
+	}
 	if q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceWithCredentialsAndIPByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceWithCredentialsAndIPByDeviceIdentifier: %w", err)
 	}
@@ -255,6 +264,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.upsertDevicePairingStmt, err = db.PrepareContext(ctx, upsertDevicePairing); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertDevicePairing: %w", err)
 	}
+	if q.upsertDeviceStatusStmt, err = db.PrepareContext(ctx, upsertDeviceStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertDeviceStatus: %w", err)
+	}
 	if q.upsertMinerCredentialsStmt, err = db.PrepareContext(ctx, upsertMinerCredentials); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertMinerCredentials: %w", err)
 	}
@@ -392,6 +404,21 @@ func (q *Queries) Close() error {
 	if q.getDevicePairingStatusByDeviceDatabaseIDStmt != nil {
 		if cerr := q.getDevicePairingStatusByDeviceDatabaseIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDevicePairingStatusByDeviceDatabaseIDStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceStatusStmt != nil {
+		if cerr := q.getDeviceStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceStatusStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceStatusByDeviceIdentifierStmt != nil {
+		if cerr := q.getDeviceStatusByDeviceIdentifierStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceStatusByDeviceIdentifierStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceStatusForDeviceIdentifiersStmt != nil {
+		if cerr := q.getDeviceStatusForDeviceIdentifiersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceStatusForDeviceIdentifiersStmt: %w", cerr)
 		}
 	}
 	if q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt != nil {
@@ -654,6 +681,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertDevicePairingStmt: %w", cerr)
 		}
 	}
+	if q.upsertDeviceStatusStmt != nil {
+		if cerr := q.upsertDeviceStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertDeviceStatusStmt: %w", cerr)
+		}
+	}
 	if q.upsertMinerCredentialsStmt != nil {
 		if cerr := q.upsertMinerCredentialsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertMinerCredentialsStmt: %w", cerr)
@@ -733,6 +765,9 @@ type Queries struct {
 	getDeviceIDsByDeviceIdentifiersStmt                 *sql.Stmt
 	getDeviceIdentifierByIDStmt                         *sql.Stmt
 	getDevicePairingStatusByDeviceDatabaseIDStmt        *sql.Stmt
+	getDeviceStatusStmt                                 *sql.Stmt
+	getDeviceStatusByDeviceIdentifierStmt               *sql.Stmt
+	getDeviceStatusForDeviceIdentifiersStmt             *sql.Stmt
 	getDeviceWithCredentialsAndIPByDeviceIdentifierStmt *sql.Stmt
 	getDeviceWithCredentialsAndIPByIDStmt               *sql.Stmt
 	getMessagesToProcessStmt                            *sql.Stmt
@@ -785,6 +820,7 @@ type Queries struct {
 	upsertCommandOnDeviceLogStmt                        *sql.Stmt
 	upsertDeviceStmt                                    *sql.Stmt
 	upsertDevicePairingStmt                             *sql.Stmt
+	upsertDeviceStatusStmt                              *sql.Stmt
 	upsertMinerCredentialsStmt                          *sql.Stmt
 	upsertPoolConfigurationStmt                         *sql.Stmt
 	upsertRoleStmt                                      *sql.Stmt
@@ -819,6 +855,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceIDsByDeviceIdentifiersStmt:                 q.getDeviceIDsByDeviceIdentifiersStmt,
 		getDeviceIdentifierByIDStmt:                         q.getDeviceIdentifierByIDStmt,
 		getDevicePairingStatusByDeviceDatabaseIDStmt:        q.getDevicePairingStatusByDeviceDatabaseIDStmt,
+		getDeviceStatusStmt:                                 q.getDeviceStatusStmt,
+		getDeviceStatusByDeviceIdentifierStmt:               q.getDeviceStatusByDeviceIdentifierStmt,
+		getDeviceStatusForDeviceIdentifiersStmt:             q.getDeviceStatusForDeviceIdentifiersStmt,
 		getDeviceWithCredentialsAndIPByDeviceIdentifierStmt: q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt,
 		getDeviceWithCredentialsAndIPByIDStmt:               q.getDeviceWithCredentialsAndIPByIDStmt,
 		getMessagesToProcessStmt:                            q.getMessagesToProcessStmt,
@@ -871,6 +910,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertCommandOnDeviceLogStmt:                        q.upsertCommandOnDeviceLogStmt,
 		upsertDeviceStmt:                                    q.upsertDeviceStmt,
 		upsertDevicePairingStmt:                             q.upsertDevicePairingStmt,
+		upsertDeviceStatusStmt:                              q.upsertDeviceStatusStmt,
 		upsertMinerCredentialsStmt:                          q.upsertMinerCredentialsStmt,
 		upsertPoolConfigurationStmt:                         q.upsertPoolConfigurationStmt,
 		upsertRoleStmt:                                      q.upsertRoleStmt,

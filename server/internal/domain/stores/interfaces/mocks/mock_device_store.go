@@ -10,9 +10,10 @@ import (
 
 	fleetmanagementv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
+	models "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	minerdiscovery "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	interfaces "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
-	models "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	models0 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	secrets "github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 	gomock "github.com/golang/mock/gomock"
 )
@@ -41,10 +42,10 @@ func (m *MockDeviceStore) EXPECT() *MockDeviceStoreMockRecorder {
 }
 
 // GetAllPairedDeviceIdentifiers mocks base method.
-func (m *MockDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models.DeviceIdentifier, error) {
+func (m *MockDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models0.DeviceIdentifier, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAllPairedDeviceIdentifiers", ctx)
-	ret0, _ := ret[0].([]models.DeviceIdentifier)
+	ret0, _ := ret[0].([]models0.DeviceIdentifier)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -68,6 +69,21 @@ func (m *MockDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, ident
 func (mr *MockDeviceStoreMockRecorder) GetDeviceByDeviceIdentifier(ctx, identifier, orgID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceByDeviceIdentifier", reflect.TypeOf((*MockDeviceStore)(nil).GetDeviceByDeviceIdentifier), ctx, identifier, orgID)
+}
+
+// GetDeviceStatusForDeviceIdentifiers mocks base method.
+func (m *MockDeviceStore) GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []models0.DeviceIdentifier) (map[models0.DeviceIdentifier]models.MinerStatus, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceStatusForDeviceIdentifiers", ctx, deviceIdentifiers)
+	ret0, _ := ret[0].(map[models0.DeviceIdentifier]models.MinerStatus)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeviceStatusForDeviceIdentifiers indicates an expected call of GetDeviceStatusForDeviceIdentifiers.
+func (mr *MockDeviceStoreMockRecorder) GetDeviceStatusForDeviceIdentifiers(ctx, deviceIdentifiers interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceStatusForDeviceIdentifiers", reflect.TypeOf((*MockDeviceStore)(nil).GetDeviceStatusForDeviceIdentifiers), ctx, deviceIdentifiers)
 }
 
 // GetDeviceWithIPAssignment mocks base method.
@@ -202,6 +218,20 @@ func (m *MockDeviceStore) UpsertDevicePairing(ctx context.Context, device *pairi
 func (mr *MockDeviceStoreMockRecorder) UpsertDevicePairing(ctx, device, orgID, pairingStatus interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertDevicePairing", reflect.TypeOf((*MockDeviceStore)(nil).UpsertDevicePairing), ctx, device, orgID, pairingStatus)
+}
+
+// UpsertDeviceStatus mocks base method.
+func (m *MockDeviceStore) UpsertDeviceStatus(ctx context.Context, deviceIdentifier models0.DeviceIdentifier, status models.MinerStatus, details string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertDeviceStatus", ctx, deviceIdentifier, status, details)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertDeviceStatus indicates an expected call of UpsertDeviceStatus.
+func (mr *MockDeviceStoreMockRecorder) UpsertDeviceStatus(ctx, deviceIdentifier, status, details interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertDeviceStatus", reflect.TypeOf((*MockDeviceStore)(nil).UpsertDeviceStatus), ctx, deviceIdentifier, status, details)
 }
 
 // UpsertMinerCredentials mocks base method.

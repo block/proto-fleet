@@ -10,4 +10,5 @@ type Config struct {
 	ConcurrencyLimit   int           `help:"Maximum number of concurrent telemetry fetch operations." default:"500" env:"CONCURRENCY_LIMIT"`
 	MetricTimeout      time.Duration `help:"Timeout for telemetry measurements from miners." default:"5s" env:"METRIC_TIMEOUT"`
 	DevicePollInterval time.Duration `help:"Interval at which to poll for new paired devices." default:"10m" env:"DEVICE_POLL_INTERVAL"`
+	NewDeviceLookback  time.Duration `help:"Lookback period for new devices to consider for telemetry." default:"10m" env:"NEW_DEVICE_LOOKBACK"`
 }

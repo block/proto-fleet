@@ -189,6 +189,21 @@ func (mr *MockMinerMockRecorder) GetConnectionInfo() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConnectionInfo", reflect.TypeOf((*MockMiner)(nil).GetConnectionInfo))
 }
 
+// GetDeviceStatus mocks base method.
+func (m *MockMiner) GetDeviceStatus(ctx context.Context) (models.MinerStatus, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceStatus", ctx)
+	ret0, _ := ret[0].(models.MinerStatus)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeviceStatus indicates an expected call of GetDeviceStatus.
+func (mr *MockMinerMockRecorder) GetDeviceStatus(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceStatus", reflect.TypeOf((*MockMiner)(nil).GetDeviceStatus), ctx)
+}
+
 // GetID mocks base method.
 func (m *MockMiner) GetID() models.DeviceIdentifier {
 	m.ctrl.T.Helper()

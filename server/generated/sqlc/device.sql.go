@@ -60,7 +60,8 @@ func (q *Queries) ActivateNewIPAssignment(ctx context.Context, arg ActivateNewIP
 
 const countMinersByState = `-- name: CountMinersByState :one
 SELECT
-    COUNT(CASE WHEN ds.status = 'ONLINE' THEN 1 END) as hashing_count,
+    COUNT(CASE WHEN ds.status = 'ACTIVE' THEN 1 END) as hashing_count,
+    COUNT(CASE WHEN ds.status = 'INACTIVE' THEN 1 END) as idle_count,
     COUNT(CASE WHEN ds.status = 'ERROR' THEN 1 END) as broken_count,
     COUNT(CASE WHEN ds.status = 'OFFLINE' THEN 1 END) as offline_count,
     COUNT(CASE WHEN ds.status = 'MAINTENANCE' THEN 1 END) as sleeping_count
@@ -82,6 +83,7 @@ type CountMinersByStateParams struct {
 
 type CountMinersByStateRow struct {
 	HashingCount  int64
+	IdleCount     int64
 	BrokenCount   int64
 	OfflineCount  int64
 	SleepingCount int64
@@ -98,6 +100,7 @@ func (q *Queries) CountMinersByState(ctx context.Context, arg CountMinersByState
 	var i CountMinersByStateRow
 	err := row.Scan(
 		&i.HashingCount,
+		&i.IdleCount,
 		&i.BrokenCount,
 		&i.OfflineCount,
 		&i.SleepingCount,
@@ -371,6 +374,86 @@ func (q *Queries) GetDevicePairingStatusByDeviceDatabaseID(ctx context.Context, 
 	var pairing_status DevicePairingPairingStatus
 	err := row.Scan(&pairing_status)
 	return pairing_status, err
+}
+
+const getDeviceStatus = `-- name: GetDeviceStatus :one
+SELECT
+    ds.status
+FROM device_status ds
+WHERE ds.device_id = ?
+LIMIT 1
+`
+
+func (q *Queries) GetDeviceStatus(ctx context.Context, deviceID int64) (DeviceStatusStatus, error) {
+	row := q.queryRow(ctx, q.getDeviceStatusStmt, getDeviceStatus, deviceID)
+	var status DeviceStatusStatus
+	err := row.Scan(&status)
+	return status, err
+}
+
+const getDeviceStatusByDeviceIdentifier = `-- name: GetDeviceStatusByDeviceIdentifier :one
+SELECT
+    ds.status
+FROM device_status ds
+JOIN device d ON ds.device_id = d.id
+WHERE d.device_identifier = ?
+  AND d.deleted_at IS NULL
+LIMIT 1
+`
+
+func (q *Queries) GetDeviceStatusByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (DeviceStatusStatus, error) {
+	row := q.queryRow(ctx, q.getDeviceStatusByDeviceIdentifierStmt, getDeviceStatusByDeviceIdentifier, deviceIdentifier)
+	var status DeviceStatusStatus
+	err := row.Scan(&status)
+	return status, err
+}
+
+const getDeviceStatusForDeviceIdentifiers = `-- name: GetDeviceStatusForDeviceIdentifiers :many
+SELECT
+    d.device_identifier,
+    ds.status
+FROM device_status ds
+JOIN device d ON ds.device_id = d.id
+WHERE d.device_identifier IN (/*SLICE:device_identifiers*/?)
+  AND d.deleted_at IS NULL
+`
+
+type GetDeviceStatusForDeviceIdentifiersRow struct {
+	DeviceIdentifier string
+	Status           DeviceStatusStatus
+}
+
+func (q *Queries) GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []string) ([]GetDeviceStatusForDeviceIdentifiersRow, error) {
+	query := getDeviceStatusForDeviceIdentifiers
+	var queryParams []interface{}
+	if len(deviceIdentifiers) > 0 {
+		for _, v := range deviceIdentifiers {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(deviceIdentifiers))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
+	}
+	rows, err := q.query(ctx, nil, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetDeviceStatusForDeviceIdentifiersRow
+	for rows.Next() {
+		var i GetDeviceStatusForDeviceIdentifiersRow
+		if err := rows.Scan(&i.DeviceIdentifier, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getPairedDevicesIds = `-- name: GetPairedDevicesIds :many
@@ -709,4 +792,39 @@ type UpsertDevicePairingParams struct {
 
 func (q *Queries) UpsertDevicePairing(ctx context.Context, arg UpsertDevicePairingParams) (sql.Result, error) {
 	return q.exec(ctx, q.upsertDevicePairingStmt, upsertDevicePairing, arg.DeviceID, arg.PairingStatus)
+}
+
+const upsertDeviceStatus = `-- name: UpsertDeviceStatus :exec
+INSERT INTO device_status (
+    device_id,
+    status,
+    status_timestamp,
+    status_details
+) VALUES (
+    ?,
+    ?,
+    ?,
+    ?
+)
+ON DUPLICATE KEY UPDATE
+    status = VALUES(status),
+    status_timestamp = VALUES(status_timestamp),
+    status_details = VALUES(status_details)
+`
+
+type UpsertDeviceStatusParams struct {
+	DeviceID        int64
+	Status          DeviceStatusStatus
+	StatusTimestamp sql.NullTime
+	StatusDetails   sql.NullString
+}
+
+func (q *Queries) UpsertDeviceStatus(ctx context.Context, arg UpsertDeviceStatusParams) error {
+	_, err := q.exec(ctx, q.upsertDeviceStatusStmt, upsertDeviceStatus,
+		arg.DeviceID,
+		arg.Status,
+		arg.StatusTimestamp,
+		arg.StatusDetails,
+	)
+	return err
 }

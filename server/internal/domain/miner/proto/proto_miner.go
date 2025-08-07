@@ -24,6 +24,7 @@ import (
 
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api/miner_command_apiconnect"
 
+	mfgtool_apiconnect "github.com/btc-mining/proto-fleet/server/generated/miner-api/mfgtool_api/mfgtool_apiconnect"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_data_api/miner_data_apiconnect"
@@ -56,6 +57,7 @@ type ProtoMiner struct {
 	commandClient     miner_command_apiconnect.MinerCommandApiClient
 	systemClient      miner_system_apiconnect.MinerSystemApiClient
 	commandAuthClient miner_system_apiconnect.MinerPairingApiClient
+	mfgClient         mfgtool_apiconnect.BaseApiClient
 	filesService      *files.Service
 	tokenService      *token.Service
 	encryptService    *encrypt.Service
@@ -95,6 +97,14 @@ func NewProtoMiner(protoMinerInfo *ProtoMinerInfo, filesService *files.Service, 
 		return nil, fleeterror.NewInternalErrorf("failed to create auth client: %v", err)
 	}
 
+	mfgClient, err := client.CreateClient(
+		mfgtool_apiconnect.NewBaseApiClient,
+		protoMinerInfo.GetConnectionInfo(),
+	)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to create mfg client: %v", err)
+	}
+
 	return &ProtoMiner{
 		ProtoMinerInfo:    *protoMinerInfo,
 		dataClient:        dataClient,
@@ -103,6 +113,7 @@ func NewProtoMiner(protoMinerInfo *ProtoMinerInfo, filesService *files.Service, 
 		commandAuthClient: commandAuthClient,
 		filesService:      filesService,
 		tokenService:      tokenService,
+		mfgClient:         mfgClient,
 		encryptService:    encryptService,
 	}, nil
 }
@@ -414,4 +425,26 @@ func (p *ProtoMiner) GetTelemetry(ctx context.Context, after time.Time) ([]telem
 	telemetryData := mapper.MapToTelemetryModels(responses)
 
 	return telemetryData, nil
+}
+
+func (p *ProtoMiner) GetDeviceStatus(ctx context.Context) (miner.MinerStatus, error) {
+	ctx, err := p.contextWithAuth(ctx)
+	if err != nil {
+		return miner.MinerStatusError, fleeterror.NewInternalErrorf("error getting auth context: %v", err)
+	}
+
+	rep, statErr := p.dataClient.GetMiningStatus(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
+	if statErr != nil {
+		return miner.MinerStatusOffline, fleeterror.NewInternalErrorf("failed to get mining status: %v", statErr)
+	}
+	state := rep.Msg.State
+	//nolint:exhaustive // We handle all known states, but we may not handle all possible states.
+	switch state {
+	case miner_data_api.MiningState_MINING_STATE_MINING, miner_data_api.MiningState_MINING_STATE_DEGRADED_MINING:
+		return miner.MinerStatusActive, nil
+	case miner_data_api.MiningState_MINING_STATE_STOPPED:
+		return miner.MinerStatusInactive, nil
+	default:
+		return miner.MinerStatusOffline, nil
+	}
 }

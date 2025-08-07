@@ -178,3 +178,7 @@ func toAntminerPool(payloadPool *dto.MiningPool) web.Pool {
 		Password: payloadPool.Password,
 	}
 }
+
+func (a *Antminer) GetDeviceStatus(ctx context.Context) (models.MinerStatus, error) {
+	return models.MinerStatusActive, nil
+}

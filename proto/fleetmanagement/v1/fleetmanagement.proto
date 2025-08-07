@@ -153,6 +153,27 @@ enum ComponentStatus {
   COMPONENT_STATUS_PENDING = 5;
 }
 
+// Status of a miner
+enum DeviceStatus {
+  // Status is unknown or not specified
+  DEVICE_STATUS_UNSPECIFIED = 0;
+
+  // Miner is online and functioning normally
+  DEVICE_STATUS_ONLINE = 1;
+
+  // Miner is offline and not responding
+  DEVICE_STATUS_OFFLINE = 2;
+
+  // Miner is in maintenance mode
+  DEVICE_STATUS_MAINTENANCE = 3;
+
+  // Miner is in error state
+  DEVICE_STATUS_ERROR = 4;
+
+  // Miner is inactive and not responding
+  DEVICE_STATUS_INACTIVE = 5;
+
+}
 
 // Configuration for a specific measurement type
 message MeasurementConfig {
@@ -246,8 +267,12 @@ message MinerListFilter {
   // When status is repeated, it acts as an OR condition.
   // TODO do we want to change this to correspond to states shown on the client side?
   repeated ComponentStatus status = 1;
+
   // Filter by miner type
   MinerType type = 2;
+
+  // Filter by device status
+  repeated DeviceStatus device_status = 3;
 }
 
 // Represents counts of miners in different states
@@ -316,6 +341,9 @@ message StreamMinerUpdatesResponse {
 
     // Heartbeat to keep connection alive (no data)
     Heartbeat heartbeat = 5;
+
+    // Device status update
+    DeviceStatusUpdate device_status = 6;
   }
 }
 
@@ -346,4 +374,9 @@ message ComponentStatusUpdate {
 
 message Heartbeat {
   // Empty message for heartbeat
+}
+
+message DeviceStatusUpdate {
+  // The new status of the device
+  DeviceStatus status = 1;
 }

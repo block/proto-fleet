@@ -15,8 +15,9 @@ import (
 //go:generate mockgen -source=device.go -destination=mocks/mock_device_store.go -package=mocks DeviceStore
 
 type MinerFilter struct {
-	StatusFilter []string
-	MinerType    []mm.Type
+	ComponentStatusFilter []string
+	DeviceStatusFilter    []mm.MinerStatus
+	MinerType             []mm.Type
 }
 
 //nolint:interfacebloat // DeviceStore defines the interface for device-related operations in the store layer. We are okay with bloat at this time.
@@ -33,4 +34,6 @@ type DeviceStore interface {
 	ListPairedMinersWithStatus(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *MinerFilter) ([]*pb.Device, string, error)
 	GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models.DeviceIdentifier, error)
 	GetMinerStateCounts(ctx context.Context, orgID int64, filter *MinerFilter) (*fm.MinerStateCounts, error)
+	UpsertDeviceStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, status mm.MinerStatus, details string) error
+	GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []models.DeviceIdentifier) (map[models.DeviceIdentifier]mm.MinerStatus, error)
 }

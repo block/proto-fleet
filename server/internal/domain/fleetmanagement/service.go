@@ -238,7 +238,30 @@ func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) 
 				return nil, fleeterror.NewInternalErrorf("unsupported miner status: %v", status)
 			}
 		}
-		filter.StatusFilter = statusFilters
+		filter.ComponentStatusFilter = statusFilters
+	}
+
+	if len(pbFilter.DeviceStatus) > 0 {
+		statusFilters := make([]mm.MinerStatus, 0, len(pbFilter.DeviceStatus))
+		for _, status := range pbFilter.DeviceStatus {
+			switch status {
+			case pb.DeviceStatus_DEVICE_STATUS_ONLINE:
+				statusFilters = append(statusFilters, mm.MinerStatusActive)
+			case pb.DeviceStatus_DEVICE_STATUS_OFFLINE:
+				statusFilters = append(statusFilters, mm.MinerStatusOffline)
+			case pb.DeviceStatus_DEVICE_STATUS_MAINTENANCE:
+				statusFilters = append(statusFilters, mm.MinerStatusMaintenance)
+			case pb.DeviceStatus_DEVICE_STATUS_ERROR:
+				statusFilters = append(statusFilters, mm.MinerStatusError)
+			case pb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED:
+				statusFilters = append(statusFilters, mm.MinerStatusUnknown)
+			case pb.DeviceStatus_DEVICE_STATUS_INACTIVE:
+				statusFilters = append(statusFilters, mm.MinerStatusInactive)
+			default:
+				return nil, fleeterror.NewInternalErrorf("unsupported miner status: %v", status)
+			}
+		}
+		filter.DeviceStatusFilter = statusFilters
 	}
 
 	var minerType mm.Type

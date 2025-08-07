@@ -230,7 +230,8 @@ WHERE dp.pairing_status = 'PAIRED'
 
 -- name: CountMinersByState :one
 SELECT
-    COUNT(CASE WHEN ds.status = 'ONLINE' THEN 1 END) as hashing_count,
+    COUNT(CASE WHEN ds.status = 'ACTIVE' THEN 1 END) as hashing_count,
+    COUNT(CASE WHEN ds.status = 'INACTIVE' THEN 1 END) as idle_count,
     COUNT(CASE WHEN ds.status = 'ERROR' THEN 1 END) as broken_count,
     COUNT(CASE WHEN ds.status = 'OFFLINE' THEN 1 END) as offline_count,
     COUNT(CASE WHEN ds.status = 'MAINTENANCE' THEN 1 END) as sleeping_count
@@ -242,3 +243,45 @@ WHERE dp.pairing_status = 'PAIRED'
   AND d.org_id = ?
   AND (sqlc.narg('status_filter') is null OR FIND_IN_SET(ds.status, sqlc.narg('status_filter')))
   AND (sqlc.narg('type_filter') is null OR FIND_IN_SET(d.type, sqlc.narg('type_filter')));
+
+-- name: UpsertDeviceStatus :exec
+INSERT INTO device_status (
+    device_id,
+    status,
+    status_timestamp,
+    status_details
+) VALUES (
+    ?,
+    ?,
+    ?,
+    ?
+)
+ON DUPLICATE KEY UPDATE
+    status = VALUES(status),
+    status_timestamp = VALUES(status_timestamp),
+    status_details = VALUES(status_details);
+
+-- name: GetDeviceStatus :one
+SELECT
+    ds.status
+FROM device_status ds
+WHERE ds.device_id = ?
+LIMIT 1;
+
+-- name: GetDeviceStatusByDeviceIdentifier :one
+SELECT
+    ds.status
+FROM device_status ds
+JOIN device d ON ds.device_id = d.id
+WHERE d.device_identifier = ?
+  AND d.deleted_at IS NULL
+LIMIT 1;
+
+-- name: GetDeviceStatusForDeviceIdentifiers :many
+SELECT
+    d.device_identifier,
+    ds.status
+FROM device_status ds
+JOIN device d ON ds.device_id = d.id
+WHERE d.device_identifier IN (sqlc.slice('device_identifiers'))
+  AND d.deleted_at IS NULL

@@ -20,6 +20,8 @@ type MinerInfo interface {
 	GetConnectionInfo() networking.ConnectionInfo
 	GetWebViewURL() *url.URL
 }
+
+//nolint:interfacebloat // Miner defines the interface for miner operations. We are okay with bloat at this time.
 type Miner interface {
 	MinerInfo
 
@@ -40,4 +42,7 @@ type Miner interface {
 
 	// Telemetry operations
 	GetTelemetry(ctx context.Context, after time.Time) ([]telemetryModels.Telemetry, error)
+
+	// GetDeviceStatus
+	GetDeviceStatus(ctx context.Context) (models.MinerStatus, error)
 }

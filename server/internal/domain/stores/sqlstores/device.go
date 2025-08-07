@@ -6,10 +6,12 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"time"
 
 	fm "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
+	minermodels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
@@ -361,8 +363,12 @@ func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, f
 }
 
 func buildFilterParams(filter *stores.MinerFilter) (statusFilter, typeFilter sql.NullString) {
-	if filter != nil && len(filter.StatusFilter) > 0 {
-		statusFilter = sql.NullString{String: strings.Join(filter.StatusFilter, ","), Valid: true}
+	if filter != nil && len(filter.DeviceStatusFilter) > 0 {
+		deviceFilter := make([]string, 0, len(filter.DeviceStatusFilter))
+		for _, status := range filter.DeviceStatusFilter {
+			deviceFilter = append(deviceFilter, status.String())
+		}
+		statusFilter = sql.NullString{String: strings.Join(deviceFilter, ","), Valid: true}
 	}
 
 	if filter != nil && len(filter.MinerType) > 0 {
@@ -374,4 +380,89 @@ func buildFilterParams(filter *stores.MinerFilter) (statusFilter, typeFilter sql
 	}
 
 	return statusFilter, typeFilter
+}
+
+func (s *SQLDeviceStore) UpsertDeviceStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, status minermodels.MinerStatus, details string) error {
+	sqlStatus := toDeviceStatus(status)
+	deviceID, err := s.getQueries(ctx).GetDeviceIDByDeviceIdentifier(ctx, deviceIdentifier.String())
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("device with identifier %s not found", deviceIdentifier)
+		}
+		return fmt.Errorf("failed to get device ID: %w", err)
+	}
+
+	err = s.getQueries(ctx).UpsertDeviceStatus(ctx, sqlc.UpsertDeviceStatusParams{
+		DeviceID:        deviceID,
+		Status:          sqlStatus,
+		StatusTimestamp: sql.NullTime{Time: time.Now(), Valid: true},
+		StatusDetails:   sql.NullString{String: details, Valid: false},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to upsert device status: %w", err)
+	}
+	return nil
+}
+
+func toDeviceStatus(status minermodels.MinerStatus) sqlc.DeviceStatusStatus {
+	//nolint:exhaustive // We handle all known statuses, but we may not handle all possible statuses.
+	switch status {
+	case minermodels.MinerStatusActive:
+		return sqlc.DeviceStatusStatusACTIVE
+	case minermodels.MinerStatusOffline:
+		return sqlc.DeviceStatusStatusOFFLINE
+	case minermodels.MinerStatusInactive:
+		return sqlc.DeviceStatusStatusINACTIVE
+	case minermodels.MinerStatusMaintenance:
+		return sqlc.DeviceStatusStatusMAINTENANCE
+	case minermodels.MinerStatusError:
+		return sqlc.DeviceStatusStatusERROR
+	default:
+		return sqlc.DeviceStatusStatusUNKNOWN
+	}
+}
+
+func toMinerStatus(status sqlc.DeviceStatusStatus) minermodels.MinerStatus {
+	//nolint:exhaustive // We handle all known statuses, but we may not handle all possible statuses.
+	switch status {
+	case sqlc.DeviceStatusStatusACTIVE:
+		return minermodels.MinerStatusActive
+	case sqlc.DeviceStatusStatusOFFLINE:
+		return minermodels.MinerStatusOffline
+	case sqlc.DeviceStatusStatusINACTIVE:
+		return minermodels.MinerStatusInactive
+	case sqlc.DeviceStatusStatusMAINTENANCE:
+		return minermodels.MinerStatusMaintenance
+	case sqlc.DeviceStatusStatusERROR:
+		return minermodels.MinerStatusError
+	default:
+		return minermodels.MinerStatusUnknown
+	}
+}
+
+func (s *SQLDeviceStore) GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []models.DeviceIdentifier) (map[models.DeviceIdentifier]minermodels.MinerStatus, error) {
+	statusMap := make(map[models.DeviceIdentifier]minermodels.MinerStatus)
+
+	if len(deviceIdentifiers) == 0 {
+		return statusMap, nil
+	}
+
+	// Convert identifiers to string slice for the query
+	ids := make([]string, len(deviceIdentifiers))
+	for i, id := range deviceIdentifiers {
+		ids[i] = id.String()
+	}
+
+	statuses, err := s.getQueries(ctx).GetDeviceStatusForDeviceIdentifiers(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device statuses: %w", err)
+	}
+
+	for _, status := range statuses {
+		deviceID := models.NewDeviceIdentifierFromString(status.DeviceIdentifier)
+		minerStatus := toMinerStatus(status.Status)
+		statusMap[deviceID] = minerStatus
+	}
+
+	return statusMap, nil
 }
