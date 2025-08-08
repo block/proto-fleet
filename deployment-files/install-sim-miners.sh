@@ -27,7 +27,6 @@ declare -a API_PORTS
 TEMP_DIR=""
 COMPOSE_FILE=""
 NETWORK_NAME="proto-sim-miners-net"
-SOCAT_PIDS=""
 CLEANUP_DONE=0
 
 log() { 
@@ -226,56 +225,92 @@ setup_temp_dir() {
 }
 
 
+
+cleanup_temp_directories() {
+  if [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" ]]; then
+    rm -rf "$TEMP_DIR"
+    log INFO "Removed temporary directory: $TEMP_DIR"
+  fi
+}
+
+cleanup_socat_processes() {
+  # Find and kill socat processes bound to our miner subnet
+  local socat_pids=$(ps aux | grep "[s]ocat.*TCP-LISTEN.*bind=$SUBNET\." | awk '{print $2}')
+  
+  if [[ -n "$socat_pids" ]]; then
+    log INFO "Found socat processes for subnet $SUBNET.*: $socat_pids"
+    echo "$socat_pids" | xargs -r kill 2>/dev/null || true
+    
+    # Wait a moment and force kill if still running
+    sleep 1
+    local remaining_pids=$(ps aux | grep "[s]ocat.*TCP-LISTEN.*bind=$SUBNET\." | awk '{print $2}')
+    if [[ -n "$remaining_pids" ]]; then
+      log INFO "Force killing remaining socat processes: $remaining_pids" 
+      echo "$remaining_pids" | xargs -r kill -9 2>/dev/null || true
+    fi
+    log INFO "Socat processes stopped successfully"
+  else
+    log INFO "No socat processes found for subnet $SUBNET.*"
+  fi
+}
+
+cleanup_docker_resources() {
+  if ! docker info &>/dev/null; then
+    log INFO "Docker not running, skipping Docker cleanup"
+    return 0
+  fi
+
+  if [[ -n "$COMPOSE_FILE" && -f "$COMPOSE_FILE" ]]; then
+    docker-compose -f "$COMPOSE_FILE" down 2>/dev/null || log WARN "Failed to stop Docker containers"
+  fi
+
+  log INFO "Removing Docker network..."
+  docker network rm "$NETWORK_NAME" 2>/dev/null || log WARN "Could not remove Docker network $NETWORK_NAME"
+  
+  if [[ -d "proto-os-web" ]]; then
+    log INFO "Removing ProtoOS web assets directory..."
+    rm -rf "proto-os-web"
+  fi
+}
+
+cleanup_loopback_aliases() {
+  if [[ -z "$NUM_MINERS" || -z "$SUBNET" || -z "$START_IP" ]]; then
+    log INFO "Missing configuration for loopback cleanup, skipping"
+    return 0
+  fi
+
+  log INFO "Removing loopback aliases..."
+  local cleanup_errors=0
+  
+  for ((i=1; i<=NUM_MINERS; i++)); do
+    local IP_ADDRESS="$SUBNET.$((START_IP + i - 1))"
+
+    if ifconfig lo0 | grep -q "$IP_ADDRESS"; then
+      if ! sudo -n ifconfig lo0 -alias "$IP_ADDRESS" 2>/dev/null; then
+        cleanup_errors=$((cleanup_errors + 1))
+      fi
+    fi
+  done
+
+  if [ $cleanup_errors -eq 0 ]; then
+    log INFO "All loopback aliases removed successfully"
+  else
+    log WARN "Failed to remove $cleanup_errors loopback aliases"
+  fi
+}
+
 cleanup() {
   if [ $CLEANUP_DONE -ne 0 ]; then
     return 0
   fi
   CLEANUP_DONE=1
 
-  log INFO "Cleaning up resources..."
+  log INFO "Starting cleanup process..."
 
-  if [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" ]]; then
-    rm -rf "$TEMP_DIR"
-  fi
-
-  # Kill socat processes if they exist
-  if [[ -n "${SOCAT_PIDS:-}" ]]; then
-    log INFO "Stopping socat port forwarding processes..."
-    for pid in $SOCAT_PIDS; do
-      kill $pid 2>/dev/null || true
-    done
-  fi
-
-  # Stop the miners using docker-compose if Docker is running and the compose file exists
-  if docker info &>/dev/null && [[ -n "$COMPOSE_FILE" && -f "$COMPOSE_FILE" ]]; then
-    log INFO "Stopping all miners..."
-    docker-compose -f $COMPOSE_FILE down
-
-    # Clean up Docker network
-    log INFO "Removing Docker network..."
-    docker network rm $NETWORK_NAME 2>/dev/null || true
-    
-    # Clean up ProtoOS web assets directory
-    if [[ -d "proto-os-web" ]]; then
-      log INFO "Removing ProtoOS web assets directory..."
-      rm -rf "proto-os-web"
-    fi
-  fi
-
-  # Clean up loopback IP aliases if they were created
-  if [[ -n "$NUM_MINERS" && -n "$SUBNET" && -n "$START_IP" ]]; then
-    log INFO "Removing loopback aliases..."
-    for ((i=1; i<=NUM_MINERS; i++)); do
-      IP_ADDRESS="$SUBNET.$((START_IP + i - 1))"
-
-      if ifconfig lo0 | grep -q "$IP_ADDRESS"; then
-        log INFO "Removing IP alias $IP_ADDRESS from lo0"
-        sudo -n ifconfig lo0 -alias $IP_ADDRESS 2>/dev/null || log WARN "Could not remove IP alias $IP_ADDRESS"
-      else
-        log INFO "IP alias $IP_ADDRESS does not exist on lo0, skipping removal"
-      fi
-    done
-  fi
+  cleanup_temp_directories
+  cleanup_socat_processes  
+  cleanup_docker_resources
+  cleanup_loopback_aliases
 
   log INFO "Cleanup complete."
 }
@@ -298,11 +333,9 @@ setup_socat_forwarding() {
     
     # Start socat for HTTP port 80 - forward from static IP to localhost mapped port
     sudo -n socat TCP-LISTEN:80,bind=$IP_ADDRESS,fork,reuseaddr TCP:127.0.0.1:$HTTP_PORT,retry=5 &
-    SOCAT_PIDS="$SOCAT_PIDS $!"
     
     # Start socat for API port 2121
     sudo -n socat TCP-LISTEN:2121,bind=$IP_ADDRESS,fork,reuseaddr TCP:127.0.0.1:$API_PORT,retry=5 &
-    SOCAT_PIDS="$SOCAT_PIDS $!"
   done
   
   log INFO "Port forwarding set up successfully"
@@ -438,10 +471,14 @@ start_miner_services() {
   log INFO "Starting miner services..."
   for ((i=1; i<=NUM_MINERS; i++)); do
     IP_ADDRESS="$SUBNET.$((START_IP + i - 1))"
-    
-    docker exec proto-sim-miner-$i systemctl start miner-services 2>/dev/null || log WARN "Could not start miner-services for miner $i"
-    docker exec proto-sim-miner-$i systemctl start mcdd 2>/dev/null || log WARN "Could not start mcdd for miner $i"
-    docker exec proto-sim-miner-$i systemctl start miner-api-server 2>/dev/null || log WARN "Could not start miner-api-server for miner $i"
+
+    for svc in miner-services mcdd miner-api-server; do
+      output=$(docker exec proto-sim-miner-$i systemctl start $svc 2>&1 || true)
+      exit_code=$?
+      if [[ $exit_code -ne 0 ]]; then
+        log WARN "Failed to start $svc for miner $i (exit $exit_code): $output"
+      fi
+    done
   done
 }
 
