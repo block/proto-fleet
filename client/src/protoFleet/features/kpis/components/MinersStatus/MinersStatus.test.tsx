@@ -11,7 +11,12 @@ describe("Offline Miners", () => {
 
   it("renders correct stats when all miners are active", () => {
     const { getByText, getAllByText } = render(
-      <OfflineMiners activeMiners={100} inactiveMiners={0} offlineMiners={0} />,
+      <OfflineMiners
+        fleetSize={100}
+        activeMiners={100}
+        inactiveMiners={0}
+        offlineMiners={0}
+      />,
     );
 
     const activeText = getByText("100 active miners");
@@ -41,7 +46,12 @@ describe("Offline Miners", () => {
 
   it("renders correct stats when some miners are inactive or offline", () => {
     const { getByText } = render(
-      <OfflineMiners activeMiners={96} inactiveMiners={3} offlineMiners={1} />,
+      <OfflineMiners
+        fleetSize={100}
+        activeMiners={96}
+        inactiveMiners={3}
+        offlineMiners={1}
+      />,
     );
 
     const activeText = getByText("96 active miners");
@@ -71,7 +81,12 @@ describe("Offline Miners", () => {
 
   it("renders critical stats when there are too many inactive and offline miners", () => {
     const { getByText } = render(
-      <OfflineMiners activeMiners={87} inactiveMiners={6} offlineMiners={7} />,
+      <OfflineMiners
+        fleetSize={100}
+        activeMiners={87}
+        inactiveMiners={6}
+        offlineMiners={7}
+      />,
     );
 
     const activeText = getByText("87 active miners");

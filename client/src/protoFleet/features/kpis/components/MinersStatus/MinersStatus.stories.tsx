@@ -1,18 +1,21 @@
 import OfflineMinersComponent from ".";
 
 interface OfflineMinersArgs {
+  fleetSize: number;
   activeMiners: number;
   inactiveMiners: number;
   offlineMiners: number;
 }
 
 export const OfflineMiners = ({
+  fleetSize,
   activeMiners,
   inactiveMiners,
   offlineMiners,
 }: OfflineMinersArgs) => {
   return (
     <OfflineMinersComponent
+      fleetSize={fleetSize}
       activeMiners={activeMiners}
       inactiveMiners={inactiveMiners}
       offlineMiners={offlineMiners}

@@ -9,26 +9,22 @@ import Stats from "@/shared/features/kpis/components/Stats";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 
 interface MinersStatusProps {
+  fleetSize: number;
   activeMiners: number;
   inactiveMiners: number;
   offlineMiners: number;
 }
 
 const MinersStatusMiners = ({
+  fleetSize,
   activeMiners,
   inactiveMiners,
   offlineMiners,
 }: MinersStatusProps) => {
   const minerStats = useMemo(() => {
-    const fleetSize = activeMiners + inactiveMiners + offlineMiners;
-    const inactivePercentage = (inactiveMiners / fleetSize) * 100;
-    const offlinePercentage = (offlineMiners / fleetSize) * 100;
-    // round to one decimal place so that displayed percentages add up to a 100%
-    // toFixed returns string, so we would have to convert the result back to a number
-    const activePercentage =
-      100 -
-      Math.round(inactivePercentage * 10) / 10 -
-      Math.round(offlinePercentage * 10) / 10;
+    const activePercentage = (activeMiners / (fleetSize || 1)) * 100;
+    const inactivePercentage = (inactiveMiners / (fleetSize || 1)) * 100;
+    const offlinePercentage = (offlineMiners / (fleetSize || 1)) * 100;
 
     return [
       {
@@ -67,7 +63,7 @@ const MinersStatusMiners = ({
               : chartStatus.critical,
       },
     ] as StatProps[];
-  }, [activeMiners, inactiveMiners, offlineMiners]);
+  }, [fleetSize, activeMiners, inactiveMiners, offlineMiners]);
 
   return (
     <Stats
