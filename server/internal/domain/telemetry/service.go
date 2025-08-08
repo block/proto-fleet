@@ -223,7 +223,7 @@ func (s *TelemetryService) GetStatusForDevice(ctx context.Context, device models
 
 	status, err := miner.GetDeviceStatus(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get device status for miner %s: %w", miner.GetID(), err)
+		slog.Error("failed to get device status for miner", "deviceID", device.ID, "error", err)
 	}
 
 	err = s.deviceStore.UpsertDeviceStatus(ctx, device.ID, status, "")
