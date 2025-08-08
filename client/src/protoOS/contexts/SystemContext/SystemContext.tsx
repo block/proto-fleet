@@ -1,9 +1,10 @@
 import { createContext } from "react";
+import { SystemInfoSysteminfo } from "@/protoOS/api/types";
 
 interface SystemContextValue {
   pending: boolean;
   error?: string;
-  data?: any;
+  data?: SystemInfoSysteminfo;
   processedData?: {
     isWebServerRunning: boolean;
     isMiningDriverRunning: boolean;
