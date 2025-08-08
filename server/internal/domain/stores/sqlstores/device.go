@@ -343,12 +343,11 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 }
 
 func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *stores.MinerFilter) (*fm.MinerStateCounts, error) {
-	statusFilter, typeFilter := buildFilterParams(filter)
+	_, typeFilter := buildFilterParams(filter)
 
 	counts, err := s.getQueries(ctx).CountMinersByState(ctx, sqlc.CountMinersByStateParams{
-		OrgID:        orgID,
-		StatusFilter: statusFilter,
-		TypeFilter:   typeFilter,
+		OrgID:      orgID,
+		TypeFilter: typeFilter,
 	})
 	if err != nil {
 		return nil, err

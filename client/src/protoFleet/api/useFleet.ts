@@ -215,8 +215,13 @@ const useFleet = (options: UseFleetOptions = {}) => {
           useFleetStore.getState().setMiners(miners);
         }
 
+        const totalMinersStates =
+          (totalStateCounts?.brokenCount || 0) +
+          (totalStateCounts?.hashingCount || 0) +
+          (totalStateCounts?.offlineCount || 0) +
+          (totalStateCounts?.sleepingCount || 0);
         useFleetStore.getState().setCursor(newCursor);
-        useFleetStore.getState().setTotalMiners(totalMiners);
+        useFleetStore.getState().setTotalMiners(totalMinersStates);
         if (totalStateCounts) {
           useFleetStore.getState().setMinerStateCounts(totalStateCounts);
         }
