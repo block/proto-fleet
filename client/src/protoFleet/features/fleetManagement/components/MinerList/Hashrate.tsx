@@ -1,8 +1,10 @@
+import { useMemo } from "react";
 import { type Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import { useMinerHashrate } from "@/protoFleet/features/fleetManagement/store/useFleetStore";
 
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import Sparkline from "@/shared/components/Sparkline";
+import { getLatestMeasurementWithData } from "@/shared/utils/measurementUtils";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 
 type HashrateProps = {
@@ -16,7 +18,13 @@ const Hashrate = ({
 }: HashrateProps) => {
   const hashrateFromStore = useMinerHashrate(deviceIdentifier || "");
   const hashrate = hashrateProps || hashrateFromStore;
-  const value = hashrate?.[hashrate.length - 1]?.value ?? 0;
+
+  const latestMeasurement = useMemo(
+    () => getLatestMeasurementWithData(hashrate),
+    [hashrate],
+  );
+
+  const value = latestMeasurement?.value ?? 0;
   return (
     <div className="relative flex h-full w-full flex-row items-center justify-between pr-6 whitespace-nowrap">
       {hashrate ? (

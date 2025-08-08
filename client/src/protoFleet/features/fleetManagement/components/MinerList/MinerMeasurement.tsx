@@ -1,5 +1,7 @@
+import { useMemo } from "react";
 import { Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import SkeletonBar from "@/shared/components/SkeletonBar";
+import { getLatestMeasurementWithData } from "@/shared/utils/measurementUtils";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 
 type MinerMeasurementProps = {
@@ -13,16 +15,19 @@ const MinerMeasurement = ({
   unit,
   className,
 }: MinerMeasurementProps) => {
-  return (
+  const latestMeasurement = useMemo(
+    () => getLatestMeasurementWithData(measurement),
+    [measurement],
+  );
+
+  const latestValue = latestMeasurement?.value;
+
+  return latestValue ? (
     <>
-      {measurement && measurement.length > 0 ? (
-        <>
-          {getDisplayValue(measurement[measurement.length - 1]?.value)} {unit}
-        </>
-      ) : (
-        <SkeletonBar className={className || "w-full pr-10"} />
-      )}
+      {getDisplayValue(latestValue)} {unit}
     </>
+  ) : (
+    <SkeletonBar className={className || "w-full pr-10"} />
   );
 };
 
