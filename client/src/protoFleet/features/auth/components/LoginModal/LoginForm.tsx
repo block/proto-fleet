@@ -10,6 +10,7 @@ import {
   type Values,
 } from "@/protoFleet/features/auth/components/LoginModal";
 
+import { Logo } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import ButtonGroup, {
   ButtonProps,
@@ -29,7 +30,6 @@ interface LoginFormProps {
 }
 
 const LoginForm = ({
-  onClickForgotPassword,
   onClickCreateAccount,
   onDismiss,
   onSuccess,
@@ -74,89 +74,91 @@ const LoginForm = ({
   useKeyDown({ key: "Enter", onKeyDown: handleEnter });
 
   return (
-    <div data-testid="login-form" className="flex flex-col gap-4">
-      <div className="flex flex-col gap-6">
-        <div className="flex flex-col gap-2">
-          <div className="text-heading-200 text-text-primary">
-            Login required
+    <div
+      data-testid="login-form"
+      className="flex flex-col gap-10 phone:h-full phone:justify-between"
+    >
+      <Logo width="w-[86px]" />
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-2">
+            <div className="text-heading-300 text-text-primary">Log in</div>
           </div>
-          <div className="text-300 text-text-primary-70">
-            Contact your system administrator if you need access.
-          </div>
-        </div>
 
-        <div className="flex flex-col gap-4">
-          <div
-            className={clsx("transition-[max-height,margin] ease-in-out", {
-              "max-h-0 overflow-hidden duration-300": !apiError,
-              "max-h-96 duration-500": apiError,
-            })}
-            data-testid="error"
-          >
-            <div className="rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
-              Invalid credentials entered.
+          <div className="flex flex-col gap-4">
+            <div
+              className={clsx("transition-[max-height,margin] ease-in-out", {
+                "max-h-0 overflow-hidden duration-300": !apiError,
+                "max-h-96 duration-500": apiError,
+              })}
+              data-testid="error"
+            >
+              <div className="rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
+                Invalid credentials entered.
+              </div>
             </div>
+
+            <Input
+              id={ids.username}
+              label="ProtoFleet username"
+              initValue={values.username}
+              onChange={handleChange}
+              testId="username"
+              autoFocus
+            />
+
+            <Input
+              id={ids.password}
+              label="ProtoFleet password"
+              onChange={handleChange}
+              type="password"
+              initValue={values.password}
+              error={errors.password}
+              testId="password"
+            />
           </div>
-
-          <Input
-            id={ids.username}
-            label="Username"
-            initValue={values.username}
-            onChange={handleChange}
-            testId="username"
-          />
-
-          <Input
-            id={ids.password}
-            label="Password"
-            onChange={handleChange}
-            type="password"
-            initValue={values.password}
-            error={errors.password}
-            testId="password"
-            autoFocus
-          />
         </div>
+        <div className="flex flex-col gap-2">
+          <button
+            className="flex text-200 text-text-primary-50 hover:cursor-pointer"
+            onClick={onClickCreateAccount}
+            data-testid="create-account"
+          >
+            Create an account &rarr;
+          </button>
+        </div>
+
+        <ButtonGroup
+          variant={groupVariants.fill}
+          size={sizes.base}
+          buttons={
+            [
+              {
+                ...(onDismiss && {
+                  text: "Cancel",
+                  onClick: onDismiss,
+                  variant: variants.secondary,
+                }),
+              },
+              {
+                text: "Sign in",
+                onClick: handleContinue,
+                variant: variants.primary,
+                disabled: isSubmitting,
+                testId: "login-button",
+              },
+            ].filter((button) => !!button.text) as ButtonProps[]
+          }
+        />
       </div>
       <div className="flex flex-col gap-2">
-        <button
-          className="flex text-200 text-text-primary-50 hover:cursor-pointer"
-          onClick={onClickForgotPassword}
-          data-testid="forgot-password"
-        >
-          {"Forgot password ->"}
-        </button>
-        <button
-          className="flex text-200 text-text-primary-50 hover:cursor-pointer"
-          onClick={onClickCreateAccount}
-          data-testid="create-account"
-        >
-          {"Create an account ->"}
-        </button>
+        <div className="text-300 text-text-primary-70">
+          Powerful mining tools. Built for decentralization.
+        </div>
+        <div className="text-300 text-text-primary-50">
+          &copy; {new Date().getFullYear()} Block, Inc.
+        </div>
       </div>
-
-      <ButtonGroup
-        variant={groupVariants.fill}
-        size={sizes.base}
-        buttons={
-          [
-            {
-              ...(onDismiss && {
-                text: "Cancel",
-                onClick: onDismiss,
-                variant: variants.secondary,
-              }),
-            },
-            {
-              text: "Continue",
-              onClick: handleContinue,
-              variant: variants.primary,
-              disabled: isSubmitting,
-              testId: "login-button",
-            },
-          ].filter((button) => !!button.text) as ButtonProps[]
-        }
-      />
     </div>
   );
 };
