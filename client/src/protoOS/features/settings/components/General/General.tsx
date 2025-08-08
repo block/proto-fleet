@@ -18,7 +18,7 @@ import {
 } from "@/shared/features/preferences";
 import usePreferences from "@/shared/features/preferences/hooks/usePreferences";
 import { convertToSentenceCase } from "@/shared/utils/stringUtils";
-import { updateStatusToLabel } from "@/shared/utils/utility";
+import { statusLabelFromUpdateStatus } from "@/shared/utils/utility";
 
 const CHECK_FOR_UPDATES_DELAY = 400; // ms
 
@@ -122,7 +122,7 @@ const General = () => {
         <div className="mt-6 flex justify-center">
           {installing || status === "available" || status === "installed" ? (
             <Header
-              title={updateStatusToLabel(status)}
+              title={statusLabelFromUpdateStatus(status)}
               description={message}
               icon={<SettingsSolid />}
               titleSize="text-emphasis-300"

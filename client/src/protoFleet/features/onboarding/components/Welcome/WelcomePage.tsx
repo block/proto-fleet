@@ -6,7 +6,7 @@ import { AuthenticateRequestSchema } from "@/protoFleet/api/generated/auth/v1/au
 import { CreateAdminLoginRequestSchema } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
 import { useAuth } from "@/protoFleet/api/useAuth";
 import { useLogin } from "@/protoFleet/api/useLogin";
-import { Logo, Plus } from "@/shared/assets/icons";
+import { FleetWordmark, Logo, Plus } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import AnimatedDotsBackground from "@/shared/components/Animation";
 import Button, { variants } from "@/shared/components/Button";
@@ -144,12 +144,10 @@ const WelcomePage = () => {
               <div className="h-1/4 pt-10" />
               <div className="px-20">
                 <WelcomePanel>
-                  <div className="mx-10 my-13 text-display-200">
-                    Proto Fleet
-                    <div className="text-text-primary-30">
-                      Mining software.
-                      <br />
-                      Evolved.
+                  <div className="text-text-primary-90 mx-10 my-13 flex flex-col gap-4">
+                    <FleetWordmark width="w-[162px]" />
+                    <div className="text-heading-300">
+                      Mining software. Evolved.
                     </div>
                   </div>
                 </WelcomePanel>

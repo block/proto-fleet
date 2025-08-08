@@ -7,7 +7,7 @@ import StatusCircle, {
   type StatusCircleProps,
 } from "@/shared/components/StatusCircle";
 import { statuses } from "@/shared/components/StatusCircle/constants";
-import { updateStatusToLabel } from "@/shared/utils/utility";
+import { statusLabelFromUpdateStatus } from "@/shared/utils/utility";
 
 interface FirmwareUpdateStatusWidgetProps {
   updateStatus?: UpdateStatus;
@@ -47,7 +47,7 @@ const FirmwareUpdateStatusWidget = ({
   }, [updateStatus]);
 
   const firmwareStatusMessage = useMemo(() => {
-    return updateStatusToLabel(updateStatus?.status);
+    return statusLabelFromUpdateStatus(updateStatus?.status);
   }, [updateStatus]);
 
   const isInProgress =
@@ -59,7 +59,10 @@ const FirmwareUpdateStatusWidget = ({
       onClick={loading ? undefined : onClick}
       className={clsx("text-text-primary", {
         "hover:cursor-progress": loading,
-        hidden: !updateStatus || updateStatus.status === "current",
+        hidden:
+          !updateStatus ||
+          updateStatus.status === "current" ||
+          firmwareStatusMessage === undefined,
       })}
     >
       <StatusCircle status={status} />

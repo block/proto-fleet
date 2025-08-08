@@ -23,7 +23,7 @@ const StatusOverlay = ({
   return (
     <>
       {animatedDots}
-      <div className="absolute top-1/2 left-1/2 z-10 flex h-[314px] w-[418px] -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center gap-6 bg-white p-5 backdrop-blur-2xl">
+      <div className="absolute top-1/2 left-1/2 z-10 flex h-[314px] w-[418px] -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center gap-6 rounded-3xl bg-white p-5 backdrop-blur-2xl dark:bg-white/5">
         <motion.div
           animate={{ color: ["#b3b3b3", `#000`], y: ["50%", "0%"] }}
           transition={{ duration: 1, ease: easeGentle }}

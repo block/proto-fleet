@@ -97,7 +97,7 @@ export const refreshTokenExpiryTime = () => {
   return new Date(new Date().getTime() + 15 * 24 * 60 * 60 * 1000);
 };
 
-export const updateStatusToLabel = (updateStatus?: string | null) => {
+export const statusLabelFromUpdateStatus = (updateStatus?: string | null) => {
   if (!updateStatus) return undefined;
   switch (updateStatus) {
     case "available":
@@ -121,6 +121,6 @@ export const updateStatusToLabel = (updateStatus?: string | null) => {
     case "error":
       return "Update failed";
     default:
-      return "Firmware status unknown";
+      return undefined;
   }
 };

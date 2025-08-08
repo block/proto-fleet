@@ -11,7 +11,7 @@ import {
 } from "@/protoFleet/features/auth/components/LoginModal";
 
 import { Logo } from "@/shared/assets/icons";
-import { variants } from "@/shared/components/Button";
+import Button, { variants } from "@/shared/components/Button";
 import ButtonGroup, {
   ButtonProps,
   groupVariants,
@@ -118,15 +118,6 @@ const LoginForm = ({
             />
           </div>
         </div>
-        <div className="flex flex-col gap-2">
-          <button
-            className="flex text-200 text-text-primary-50 hover:cursor-pointer"
-            onClick={onClickCreateAccount}
-            data-testid="create-account"
-          >
-            Create an account &rarr;
-          </button>
-        </div>
 
         <ButtonGroup
           variant={groupVariants.fill}
@@ -150,6 +141,19 @@ const LoginForm = ({
             ].filter((button) => !!button.text) as ButtonProps[]
           }
         />
+
+        <div className="flex items-center">
+          <span className="text-300 text-text-primary-50">
+            New to Proto Fleet?
+          </span>
+          <Button
+            variant={variants.textOnly}
+            className="!py-0 !pl-1"
+            onClick={onClickCreateAccount}
+          >
+            Create an account
+          </Button>
+        </div>
       </div>
       <div className="flex flex-col gap-2">
         <div className="text-300 text-text-primary-70">

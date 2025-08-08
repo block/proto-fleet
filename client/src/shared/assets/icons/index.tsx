@@ -22,6 +22,7 @@ import Eye from "./Eye";
 import Fan from "./Fan";
 import FanIndicator from "./FanIndicator";
 import Fleet from "./Fleet";
+import FleetWordmark from "./FleetWordmark";
 import Globe from "./Globe";
 import Graph from "./Graph";
 import Grip from "./Grip";
@@ -88,6 +89,7 @@ export {
   Fan,
   FanIndicator,
   Fleet,
+  FleetWordmark,
   Globe,
   Graph,
   Grip,
