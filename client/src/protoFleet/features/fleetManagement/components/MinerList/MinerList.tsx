@@ -10,7 +10,7 @@ import {
 import minerColConfig from "./minerColConfig";
 
 import {
-  ComponentStatus,
+  DeviceStatus,
   MinerListFilter,
   MinerListFilterSchema,
   MinerStateSnapshot,
@@ -134,19 +134,18 @@ const MinerList = ({
 
       if (!filters.buttonFilters.includes(defaultListFilter)) {
         filters.buttonFilters.forEach((filter) => {
-          // TODO is this mapping correct?
           switch (filter) {
             case minerFilterStates.hashing:
-              minerFilter.status.push(ComponentStatus.OK);
+              minerFilter.deviceStatus.push(DeviceStatus.ONLINE);
               break;
             case minerFilterStates.broken:
-              minerFilter.status.push(ComponentStatus.ERROR);
+              minerFilter.deviceStatus.push(DeviceStatus.ERROR);
               break;
             case minerFilterStates.offline:
-              minerFilter.status.push(ComponentStatus.OFFLINE);
+              minerFilter.deviceStatus.push(DeviceStatus.OFFLINE);
               break;
             case minerFilterStates.asleep:
-              minerFilter.status.push(ComponentStatus.UNSPECIFIED);
+              minerFilter.deviceStatus.push(DeviceStatus.INACTIVE);
               break;
           }
         });
