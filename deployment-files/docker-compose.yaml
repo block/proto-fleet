@@ -1,5 +1,3 @@
-version: "3"
-
 x-extends:
   file: ./server/docker-compose.base.yaml
 

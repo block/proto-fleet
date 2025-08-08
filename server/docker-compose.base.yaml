@@ -1,5 +1,3 @@
-version: "3"
-
 services:
   fleet-api:
     environment:
@@ -60,7 +58,7 @@ services:
       - influxdb-data:/var/lib/influxdb3
       - influxdb-config:/etc/influxdb3
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8181/health" ]
+      test: ["CMD", "curl", "-f", "http://localhost:8181/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -71,7 +69,6 @@ volumes:
   mysql:
   influxdb-data:
   influxdb-config:
-
 
 networks:
   fleet-network:

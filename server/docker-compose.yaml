@@ -1,5 +1,3 @@
-version: "3"
-
 x-extends:
   file: ./docker-compose.base.yaml
 
@@ -44,8 +42,30 @@ services:
       MYSQL_ALLOW_EMPTY_PASSWORD: "1"
       MYSQL_LOG_CONSOLE: "1"
       MYSQL_ROOT_HOST: "%"
+      # Development performance optimizations
+    command: >
+      --sql-mode=
+      --skip-name-resolve
+      --innodb-flush-log-at-trx-commit=0
+      --sync-binlog=0
+      --innodb-doublewrite=0
+      --disable-log-bin
+      --tls-version=''
+      --performance-schema=OFF
+    volumes:
+      - mysql:/var/lib/mysql
+      # Use tmpfs for temporary files to speed up operations
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 100M
+    # Faster health checks for development
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
 
   influxdb:
     extends:
@@ -53,6 +73,13 @@ services:
       service: influxdb
     volumes:
       - ./influx_config:/var/lib/influxdb3/start
+    # Faster health checks for development
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-m", "2", "http://localhost:8181/health"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
 
   # Development-specific services
   mms:
