@@ -46,6 +46,7 @@ const InfoModal = ({ closeModal }: InfoModalProps) => {
       buttons={[installButton]}
       buttonSize={sizes.base}
       onDismiss={closeModal}
+      size="small"
     >
       <h2 className="text-200 text-text-primary-70">Version {version}</h2>
       <p className="mt-1 mb-4 text-emphasis-300 text-text-primary">

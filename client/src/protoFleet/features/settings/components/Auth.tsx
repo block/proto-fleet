@@ -326,6 +326,7 @@ const AuthenticationSettings = () => {
               buttonSize="base"
               divider={false}
               show
+              size="large"
               onDismiss={() => setShowModal(false)}
             >
               {step === "authenticate" && (

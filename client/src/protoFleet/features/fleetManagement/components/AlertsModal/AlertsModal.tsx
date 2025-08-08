@@ -169,11 +169,12 @@ const AlertsModal = ({ show, alerts, onDismiss }: AlertsModalProps) => {
 
   return (
     <Modal
-      className="relative flex !w-3xl flex-col phone:!w-[calc(100vw-theme(spacing.4))] tablet:!w-[calc(100vw-theme(spacing.4))]"
+      className="relative flex flex-col"
       bodyClassName="flex flex-col overflow-y-auto"
       show={show}
       buttons={modalButtons}
       onDismiss={onDismiss}
+      size="large"
     >
       <ConfirmArchiveDialog
         show={showArchiveAllDialog}

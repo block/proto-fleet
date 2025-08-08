@@ -117,6 +117,7 @@ const PoolModal = ({
           }
           onDismiss={closeModal}
           divider={false}
+          size="large"
         >
           <div className="mb-6">
             {isDefault

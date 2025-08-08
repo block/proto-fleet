@@ -112,7 +112,7 @@ const WelcomeFlow = ({
           description="Ensure that your miner is plugged in with blinking LEDs and that
               it is connected to the network shown below."
           preventClose
-          className="max-w-sm"
+          size="small"
         >
           <div className="py-4">
             {/*TODO we dont have network name*/}

@@ -255,7 +255,6 @@ const AuthenticateMiners = ({ onClose }: AuthenticateMinersProps) => {
 
   return (
     <Modal
-      className="phone:!w-[calc(100vw-theme(spacing.4))] tablet:!w-[calc(100vw-theme(spacing.4))]"
       divider={showMiners}
       onDismiss={onClose}
       show

@@ -109,7 +109,6 @@ const MinerStatusModal = ({
 
   return (
     <Modal
-      className="phone:w-[calc(100vw-theme(spacing.4))] tablet:w-[calc(100vw-theme(spacing.4))]"
       buttons={[
         {
           text: "Done",

@@ -27,7 +27,7 @@ const WeakPasswordWarning = ({
       title="Your password isn't secure"
       description="The password you entered is easy to guess. We recommend creating a password that’s harder to guess."
       preventClose
-      className="max-w-sm"
+      size="small"
     >
       <div className="mt-4 flex flex-col gap-3">
         <Button

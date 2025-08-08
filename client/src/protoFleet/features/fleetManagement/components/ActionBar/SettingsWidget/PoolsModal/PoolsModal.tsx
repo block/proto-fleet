@@ -65,6 +65,7 @@ const PoolsModal = ({
             },
       ]}
       onDismiss={() => onDismiss(poolsChanged)}
+      size="large"
     >
       <Header
         inline
