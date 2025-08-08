@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { SystemInfoSysteminfo } from "./types";
 import { usePoll } from "@/protoOS/api/usePoll";
@@ -6,6 +6,7 @@ import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 
 interface UseSystemInfoProps {
   poll?: boolean;
+  pollIntervalMs?: number;
 }
 
 interface ProcessedSystemInfo {
@@ -16,17 +17,32 @@ interface ProcessedSystemInfo {
   hasFirmwareUpdate: boolean;
 }
 
-const useSystemInfo = ({ poll }: UseSystemInfoProps) => {
+/**
+ * Do NOT use this hook directly.
+ *
+ * Instead, use the centralized SystemContext:
+ *   import { useSystemContext } from "@/protoOS/contexts/SystemContext";
+ *
+ * This hook is wrapped by the SystemContextProvider to ensure a single polling instance
+ * and consistent system info data across the app.
+ *
+ * See SystemContext documentation for details and migration instructions.
+ */
+
+const useSystemInfo = ({ poll, pollIntervalMs }: UseSystemInfoProps) => {
   const { api } = useMinerHosting();
   const [data, setData] = useState<SystemInfoSysteminfo>();
   const [processedData, setProcessedData] = useState<ProcessedSystemInfo>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
+  const isFetchingRef = useRef<boolean>(false);
 
   const fetchData = useCallback(() => {
-    if (!api) return;
+    if (!api || isFetchingRef.current) return;
 
+    isFetchingRef.current = true;
     setPending(true);
+
     api
       .getSystemInfo()
       .then((res) => {
@@ -73,17 +89,20 @@ const useSystemInfo = ({ poll }: UseSystemInfoProps) => {
         });
       })
       .finally(() => {
+        isFetchingRef.current = false;
         setPending(false);
       });
   }, [api]);
 
   const reload = useCallback(() => {
+    if (isFetchingRef.current) return;
     fetchData();
   }, [fetchData]);
 
   usePoll({
-    fetchData,
+    fetchData: reload,
     poll,
+    pollIntervalMs,
   });
 
   return useMemo(

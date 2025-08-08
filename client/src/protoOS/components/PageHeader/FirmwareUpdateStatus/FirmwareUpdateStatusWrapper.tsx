@@ -1,16 +1,16 @@
 import { useState } from "react";
 import FirmwareUpdateStatus from "./FirmwareUpdateStatus";
 import { useFirmwareUpdate, useSystemReboot } from "@/protoOS/api";
-import { useSystemInfo } from "@/protoOS/api/useSystemInfo";
+import { useSystemContext } from "@/protoOS/contexts/SystemContext";
 import {
   pushToast,
   STATUSES as TOAST_STATUSES,
 } from "@/shared/features/toaster";
 
 const FirmwareUpdateStatusWrapper = () => {
-  const { data: systemInfo, pending } = useSystemInfo({ poll: true });
   const { rebootSystem, pending: rebootPending } = useSystemReboot();
   const { updateFirmware } = useFirmwareUpdate({ poll: false });
+  const { data: systemInfo, pending } = useSystemContext();
 
   const [updatePending, setUpdatePending] = useState(false);
   const handleReboot = () => {

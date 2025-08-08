@@ -3,6 +3,7 @@ import { AuthTokens } from "@/protoFleet/features/auth/contexts/AuthContext";
 
 type AuthContextType = {
   authTokens: AuthTokens;
+  logout: () => void;
   setAuthTokens: (tokens: AuthTokens) => void;
   username: string;
   setUsername: (username: string) => void;
@@ -12,6 +13,9 @@ type AuthContextType = {
 export const AuthContext = createContext<AuthContextType>({
   authTokens: {
     accessToken: { value: "", expiry: new Date() },
+  },
+  logout: () => {
+    void null;
   },
   setAuthTokens: (tokens: AuthTokens) => {
     void tokens;

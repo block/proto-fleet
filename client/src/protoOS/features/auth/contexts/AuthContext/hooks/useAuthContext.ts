@@ -10,6 +10,7 @@ const useAuthContext = () => {
     setShowLoginModal,
     dismissedLoginModal,
     setDismissedLoginModal,
+    logout,
   } = useContext(AuthContext);
 
   return {
@@ -19,6 +20,7 @@ const useAuthContext = () => {
     showLoginModal,
     setDismissedLoginModal,
     setShowLoginModal,
+    logout,
   };
 };
 

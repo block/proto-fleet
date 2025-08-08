@@ -13,7 +13,6 @@ import {
   useMiningStart,
   useMiningStatus,
   usePoll,
-  useSystemInfo,
   useSystemStatus,
 } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
@@ -22,6 +21,7 @@ import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultCont
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
 import { MinerStatusProvider } from "@/protoOS/contexts/MinerStatusContext";
+import { useSystemContext } from "@/protoOS/contexts/SystemContext";
 import { FirmwareUpdateProvider } from "@/protoOS/features/firmwareUpdate/contexts/FirmwareUpdateContext";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -65,7 +65,7 @@ const AppWrapper = ({
     data: systemInfo,
     processedData: processedSystemInfo,
     pending: pendingSystemInfo,
-  } = useSystemInfo({ poll: true });
+  } = useSystemContext();
   const { getItem, setItem } = useLocalStorage();
   const navigate = useNavigate();
 

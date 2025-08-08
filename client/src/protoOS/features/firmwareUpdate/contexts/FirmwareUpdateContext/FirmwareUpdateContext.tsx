@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useState } from "react";
+import { createContext, ReactNode, useMemo, useState } from "react";
 import { useFirmwareUpdate as useApiFirmwareUpdate } from "@/protoOS/api";
 import { SystemInfoSysteminfo } from "@/protoOS/api/types";
 
@@ -10,6 +10,7 @@ const FirmwareUpdateContext = createContext({
   message: null as string | null,
   progress: null as number | null,
   dismissed: false,
+  installing: false,
   setDismissed: (dismissed: boolean) => {
     void dismissed;
   },
@@ -31,6 +32,15 @@ export const FirmwareUpdateProvider = ({
 
   const [dismissed, setDismissed] = useState<boolean>(false);
 
+  const installing = useMemo(() => {
+    return (
+      systemInfo?.sw_update_status?.status === "downloading" ||
+      systemInfo?.sw_update_status?.status === "downloaded" ||
+      systemInfo?.sw_update_status?.status === "installing" ||
+      systemInfo?.sw_update_status?.status === "confirming"
+    );
+  }, [systemInfo?.sw_update_status?.status]);
+
   return (
     <FirmwareUpdateContext.Provider
       value={{
@@ -41,6 +51,7 @@ export const FirmwareUpdateProvider = ({
         message: systemInfo?.sw_update_status?.message ?? null,
         progress: systemInfo?.sw_update_status?.progress ?? null,
         dismissed,
+        installing,
         setDismissed: (dismissed: boolean) => {
           setDismissed(dismissed);
         },

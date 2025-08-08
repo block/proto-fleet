@@ -96,3 +96,31 @@ export const refreshTokenExpiryTime = () => {
   // 15 days
   return new Date(new Date().getTime() + 15 * 24 * 60 * 60 * 1000);
 };
+
+export const updateStatusToLabel = (updateStatus?: string | null) => {
+  if (!updateStatus) return undefined;
+  switch (updateStatus) {
+    case "available":
+      return "Update available";
+    case "downloading":
+      return "Downloading";
+    case "downloaded":
+      return "Ready to install";
+    case "installing":
+      return "Installing";
+    case "installed":
+      return "Reboot required";
+    case "success":
+      return "Update complete";
+    case "current":
+      return "Firmware up to date";
+    case "checking":
+      return "Checking";
+    case "confirming":
+      return "Confirming";
+    case "error":
+      return "Update failed";
+    default:
+      return "Firmware status unknown";
+  }
+};

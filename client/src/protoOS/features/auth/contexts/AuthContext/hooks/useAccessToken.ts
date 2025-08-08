@@ -5,7 +5,7 @@ import { useRefresh } from "@/protoOS/api";
 
 const useAccessToken = (shouldCheckAccess = true, requireLogin = true) => {
   const refresh = useRefresh();
-  const { authTokens, setShowLoginModal } = useAuthContext();
+  const { authTokens, setShowLoginModal, logout } = useAuthContext();
 
   // returns undefined if access is not needed
   // returns true if access token is valid
@@ -30,6 +30,7 @@ const useAccessToken = (shouldCheckAccess = true, requireLogin = true) => {
 
     // refresh token is expired, show login modal
     if (!isValidRefreshToken) {
+      logout();
       setHasAccess(false);
       requireLogin && setShowLoginModal(true);
       return;
@@ -43,6 +44,7 @@ const useAccessToken = (shouldCheckAccess = true, requireLogin = true) => {
           setHasAccess(true);
         },
         onError: () => {
+          logout();
           setHasAccess(false);
           requireLogin && setShowLoginModal(true);
         },
@@ -56,6 +58,7 @@ const useAccessToken = (shouldCheckAccess = true, requireLogin = true) => {
     isValidRefreshToken,
     shouldCheckAccess,
     requireLogin,
+    logout,
   ]);
 
   useEffect(() => {

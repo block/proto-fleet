@@ -17,7 +17,7 @@ type NavigationProps = {
 const Navigation = ({ routes, className }: NavigationProps) => {
   const { pathname } = useLocation();
   const { isPhone, isTablet } = useWindowDimensions();
-  const { setAuthTokens } = useAuthContext();
+  const { logout } = useAuthContext();
 
   const navigationItems = useMemo(
     () =>
@@ -113,9 +113,7 @@ const Navigation = ({ routes, className }: NavigationProps) => {
       <div className="pb-3 phone:px-3 tablet:px-3">
         <button
           onClick={() => {
-            setAuthTokens({
-              accessToken: { value: "", expiry: new Date() },
-            });
+            logout();
           }}
           className={clsx(
             "group flex h-8 w-full items-center justify-start rounded-lg px-2 py-1 laptop:h-10 laptop:justify-center desktop:h-10 desktop:justify-center",

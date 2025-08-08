@@ -10,14 +10,12 @@ type AuthProviderProps = {
 };
 
 const MIN_LOADING_TIME = 500;
+const nullAuthTokens = { value: "", expiry: new Date() };
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const { getItem, setItem } = useLocalStorage();
   const [authTokens, setAuthTokens] = useState({
-    accessToken: getItem("accessToken") || {
-      value: "",
-      expiry: new Date(),
-    },
+    accessToken: getItem("accessToken") || nullAuthTokens,
   });
   const [username, setUsername] = useState<string>(getItem("username") || "");
   const [loading, setLoading] = useState(true);
@@ -30,6 +28,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const handleChangeUsername = (newUsername: string) => {
     setUsername(newUsername);
     setItem("username", newUsername);
+  };
+
+  const handleLogout = () => {
+    setAuthTokens({ accessToken: nullAuthTokens });
+    setItem("accessToken", nullAuthTokens);
   };
 
   useEffect(() => {
@@ -47,6 +50,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         username,
         setUsername: handleChangeUsername,
         loading,
+        logout: handleLogout,
       }}
     >
       {children}

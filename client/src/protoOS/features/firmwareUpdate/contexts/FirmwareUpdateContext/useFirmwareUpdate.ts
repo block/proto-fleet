@@ -12,6 +12,7 @@ const useFirmwareUpdate = () => {
     dismissed,
     setDismissed,
     updateFirmware,
+    installing,
   } = useContext(FirmwareUpdateContext);
 
   return {
@@ -24,6 +25,7 @@ const useFirmwareUpdate = () => {
     progress,
     setDismissed,
     updateFirmware,
+    installing,
   };
 };
 

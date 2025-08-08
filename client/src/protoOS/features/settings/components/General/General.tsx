@@ -1,6 +1,8 @@
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
-import { useFirmwareUpdate, useHashboards, useSystemInfo } from "@/protoOS/api";
+import { useHashboards, useSystemReboot } from "@/protoOS/api";
+import { useSystemContext } from "@/protoOS/contexts/SystemContext";
+import { useFirmwareUpdate } from "@/protoOS/features/firmwareUpdate/";
 import { SettingsSolid } from "@/shared/assets/icons";
 import R1Image from "@/shared/assets/images/R1.png";
 import R2Image from "@/shared/assets/images/R2.png";
@@ -15,11 +17,8 @@ import {
   ThemeSwitcher,
 } from "@/shared/features/preferences";
 import usePreferences from "@/shared/features/preferences/hooks/usePreferences";
-import {
-  pushToast,
-  STATUSES as TOAST_STATUSES,
-} from "@/shared/features/toaster";
 import { convertToSentenceCase } from "@/shared/utils/stringUtils";
+import { updateStatusToLabel } from "@/shared/utils/utility";
 
 const CHECK_FOR_UPDATES_DELAY = 400; // ms
 
@@ -27,20 +26,17 @@ const General = () => {
   const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
   const [showTemperatureUnitsSwitcher, setShowTemperatureUnitsSwitcher] =
     useState(false);
-  const model = "Proto Rig"; // TODO get model from API, do not append generation number
   const [isR2, setIsR2] = useState<boolean>();
-  const [firmwareUpdatePending, setFirmwareUpdatePending] = useState(false);
   const { theme, temperatureUnits } = usePreferences();
+  const { rebootSystem } = useSystemReboot();
 
   const {
     data: systemInfo,
     reload: reloadSystemInfo,
     pending: systemInfoPending,
-  } = useSystemInfo({
-    poll: false,
-  });
+  } = useSystemContext();
   const { data: hashboards, pending } = useHashboards();
-  const { updateFirmware } = useFirmwareUpdate({ poll: false });
+  const { updateFirmware, status, message, installing } = useFirmwareUpdate();
 
   const [delayedSystemInfoPending, setDelayedSystemInfoPending] =
     useState(systemInfoPending);
@@ -78,6 +74,8 @@ const General = () => {
   const checkForUpdates = () => {
     reloadSystemInfo();
   };
+
+  const model = systemInfo?.product_name ?? "Proto Rig";
 
   return (
     <>
@@ -122,13 +120,10 @@ const General = () => {
           </div>
         </Row>
         <div className="mt-6 flex justify-center">
-          {systemInfo?.sw_update_status?.status === "available" ? (
+          {installing || status === "available" || status === "installed" ? (
             <Header
-              title="Firmware update available"
-              description={
-                systemInfo?.sw_update_status?.message ??
-                `Version: ${systemInfo?.sw_update_status?.new_version}`
-              }
+              title={updateStatusToLabel(status)}
+              description={message}
               icon={<SettingsSolid />}
               titleSize="text-emphasis-300"
               inline
@@ -137,20 +132,19 @@ const General = () => {
                 {
                   text: "Install",
                   variant: "secondary",
-                  loading: firmwareUpdatePending,
-                  onClick: async () => {
-                    try {
-                      setFirmwareUpdatePending(true);
-                      await updateFirmware();
-                    } catch (error) {
-                      console.error(error);
-                      pushToast({
-                        message: "Firmware update failed. Please try again.",
-                        status: TOAST_STATUSES.error,
-                      });
-                    } finally {
-                      setFirmwareUpdatePending(false);
-                    }
+                  className: status === "installed" ? "hidden" : "",
+                  loading: delayedSystemInfoPending,
+                  onClick: () => {
+                    updateFirmware();
+                  },
+                },
+                {
+                  text: "Reboot",
+                  variant: "primary",
+                  className: status === "installed" ? "" : "hidden",
+                  loading: delayedSystemInfoPending,
+                  onClick: () => {
+                    rebootSystem();
                   },
                 },
               ]}

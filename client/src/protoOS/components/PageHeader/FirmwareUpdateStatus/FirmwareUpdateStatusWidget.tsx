@@ -7,6 +7,7 @@ import StatusCircle, {
   type StatusCircleProps,
 } from "@/shared/components/StatusCircle";
 import { statuses } from "@/shared/components/StatusCircle/constants";
+import { updateStatusToLabel } from "@/shared/utils/utility";
 
 interface FirmwareUpdateStatusWidgetProps {
   updateStatus?: UpdateStatus;
@@ -46,31 +47,7 @@ const FirmwareUpdateStatusWidget = ({
   }, [updateStatus]);
 
   const firmwareStatusMessage = useMemo(() => {
-    if (!updateStatus) return "Firmware up to date";
-    switch (updateStatus.status) {
-      case "available":
-        return "Update available";
-      case "downloading":
-        return "Downloading";
-      case "downloaded":
-        return "Ready to install";
-      case "installing":
-        return "Installing";
-      case "installed":
-        return "Reboot required";
-      case "success":
-        return "Update complete";
-      case "current":
-        return "Firmware up to date";
-      case "checking":
-        return "Checking";
-      case "confirming":
-        return "Confirming";
-      case "error":
-        return "Update failed";
-      default:
-        return "Firmware status unknown";
-    }
+    return updateStatusToLabel(updateStatus?.status);
   }, [updateStatus]);
 
   const isInProgress =
@@ -82,12 +59,12 @@ const FirmwareUpdateStatusWidget = ({
       onClick={loading ? undefined : onClick}
       className={clsx("text-text-primary", {
         "hover:cursor-progress": loading,
-        hidden: updateStatus?.status === "current",
+        hidden: !updateStatus || updateStatus.status === "current",
       })}
     >
       <StatusCircle status={status} />
       {isInProgress && updateStatus?.progress !== undefined && (
-        <span className="text-xs">{updateStatus.progress}% </span>
+        <span className="mr-1 text-xs">{updateStatus.progress}%</span>
       )}
       {firmwareStatusMessage}
     </WidgetWrapper>

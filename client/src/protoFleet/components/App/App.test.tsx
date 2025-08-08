@@ -105,6 +105,7 @@ describe("App", () => {
           username: "admin",
           setUsername: vi.fn(),
           loading: false,
+          logout: vi.fn(),
         }}
       >
         <RouterProvider router={router} />

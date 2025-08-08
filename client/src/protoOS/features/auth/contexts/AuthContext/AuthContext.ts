@@ -10,6 +10,9 @@ export const AuthContext = createContext({
     accessToken: { value: "", expiry: new Date() },
     refreshToken: { value: "", expiry: new Date() },
   },
+  logout: () => {
+    void null;
+  },
   setAuthTokens: (tokens: AuthTokens) => {
     void tokens;
   },

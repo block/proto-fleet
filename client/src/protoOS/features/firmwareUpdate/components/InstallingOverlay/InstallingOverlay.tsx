@@ -11,7 +11,7 @@ const InstallingOverlay = () => {
       icon={
         <ProgressCircular
           size={32}
-          indeterminate={progress === null}
+          indeterminate
           value={progress ?? undefined}
         />
       }

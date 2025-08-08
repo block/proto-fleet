@@ -16,7 +16,6 @@ import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
 import { useAuthContext } from "@/protoOS/features/auth/contexts/AuthContext";
 import {
   InstallingOverlay,
-  statuses,
   useFirmwareUpdate,
 } from "@/protoOS/features/firmwareUpdate/";
 import { useNavigate } from "@/shared/hooks/useNavigate";
@@ -61,11 +60,11 @@ const App = ({
   }, [navigate, pathname, setDismissedLoginModal, setShowLoginModal, location]);
 
   const { miningStatus, errors } = useMinerStatus();
-  const { status } = useFirmwareUpdate();
+  const { installing } = useFirmwareUpdate();
 
   return (
     <>
-      {status && status === statuses.installing ? (
+      {installing ? (
         <InstallingOverlay />
       ) : (
         <AppLayout

@@ -2,6 +2,7 @@ import { RouterProvider } from "react-router-dom";
 
 import { createRouter } from "./router";
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
+import { SystemContextProvider } from "@/protoOS/contexts/SystemContext";
 import { AuthProvider } from "@/protoOS/features/auth/contexts/AuthContext";
 import { PreferencesProvider } from "@/shared/features/preferences/PreferencesContext";
 
@@ -13,9 +14,11 @@ const Main = () => {
   return (
     <MinerHostingProvider>
       <AuthProvider>
-        <PreferencesProvider>
-          <RouterProvider router={router} />
-        </PreferencesProvider>
+        <SystemContextProvider>
+          <PreferencesProvider>
+            <RouterProvider router={router} />
+          </PreferencesProvider>
+        </SystemContextProvider>
       </AuthProvider>
     </MinerHostingProvider>
   );

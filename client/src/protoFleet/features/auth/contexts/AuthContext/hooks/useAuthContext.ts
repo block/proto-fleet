@@ -3,7 +3,7 @@ import { useContext } from "react";
 import { AuthContext } from "../AuthContext";
 
 const useAuthContext = () => {
-  const { authTokens, setAuthTokens, username, setUsername, loading } =
+  const { authTokens, setAuthTokens, username, setUsername, loading, logout } =
     useContext(AuthContext);
 
   return {
@@ -12,6 +12,7 @@ const useAuthContext = () => {
     username,
     setUsername,
     loading,
+    logout,
   };
 };
 

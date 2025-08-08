@@ -43,18 +43,22 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
 
   const minerIds = useMinerIds();
   // Process discovered miners, ensuring no duplicates
-  function processDiscoveredMiners(devices: Device[]) {
-    setFoundMiners((prevMiners) => {
-      const newMiners = devices.filter(
-        (device) =>
-          !prevMiners.some(
-            (prevMiner) =>
-              prevMiner.deviceIdentifier === device.deviceIdentifier,
-          ) && !minerIds.some((minerId) => minerId === device.deviceIdentifier),
-      );
-      return [...prevMiners, ...newMiners];
-    });
-  }
+  const processDiscoveredMiners = useCallback(
+    (devices: Device[]) => {
+      setFoundMiners((prevMiners) => {
+        const newMiners = devices.filter(
+          (device) =>
+            !prevMiners.some(
+              (prevMiner) =>
+                prevMiner.deviceIdentifier === device.deviceIdentifier,
+            ) &&
+            !minerIds.some((minerId) => minerId === device.deviceIdentifier),
+        );
+        return [...prevMiners, ...newMiners];
+      });
+    },
+    [minerIds],
+  );
 
   const handleDiscover = useCallback(
     (discoverRequest: DiscoverRequest, abortController?: AbortController) => {
@@ -71,7 +75,7 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
         },
       });
     },
-    [discover],
+    [discover, processDiscoveredMiners],
   );
 
   const handleNmapDiscovery = useCallback(() => {

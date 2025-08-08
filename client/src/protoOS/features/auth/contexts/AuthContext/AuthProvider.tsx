@@ -9,12 +9,17 @@ type AuthProviderProps = {
   children: ReactNode;
 };
 
+const nullAuthTokens = {
+  accessToken: { value: "", expiry: new Date() },
+  refreshToken: { value: "", expiry: new Date() },
+};
+
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const { getItem, setItem } = useLocalStorage();
   const [authTokens, setAuthTokens] = useState({
-    accessToken: getItem("accessToken") || { value: "", expiry: new Date() },
-    refreshToken: getItem("refreshToken") || { value: "", expiry: new Date() },
+    accessToken: getItem("accessToken") || nullAuthTokens.accessToken,
+    refreshToken: getItem("refreshToken") || nullAuthTokens.refreshToken,
   });
   const [dismissedLoginModal, setDismissedLoginModal] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -32,6 +37,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
+  const handleLogout = () => {
+    setAuthTokens(nullAuthTokens);
+    setItem("accessToken", nullAuthTokens.accessToken);
+    setItem("refreshToken", nullAuthTokens.refreshToken);
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -43,6 +54,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         setDismissedLoginModal,
         loading,
         setLoading,
+        logout: handleLogout,
       }}
     >
       {children}
