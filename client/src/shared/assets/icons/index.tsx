@@ -34,6 +34,7 @@ import Info from "./Info";
 import InfoInverted from "./InfoInverted";
 import LEDIndicator from "./LEDIndicator";
 import Lightning from "./Lightning";
+import LightningAlt from "./LightningAlt";
 import Lock from "./Lock";
 import Logo from "./Logo";
 import LogoAlt from "./LogoAlt";
@@ -102,6 +103,7 @@ export {
   InfoInverted,
   LEDIndicator,
   Lightning,
+  LightningAlt,
   Lock,
   Logo,
   LogoAlt,

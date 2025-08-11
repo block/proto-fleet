@@ -7,6 +7,8 @@ import { MeasurementSchema } from "@/protoFleet/api/generated/common/v1/measurem
 import {
   type ComponentStatusUpdate,
   ComponentStatusUpdate_Component,
+  DeviceStatus,
+  type DeviceStatusUpdate,
   MeasurementConfig_MeasurementType,
   type MeasurementUpdate,
   MinerComponentStatus,
@@ -45,7 +47,14 @@ interface FleetState {
     deviceId: string,
     telemetryUpdate: TelemetryUpdate,
   ) => void;
-  updateMinerStatus: (deviceId: string, status: ComponentStatusUpdate) => void;
+  updateMinerComponentStatus: (
+    deviceId: string,
+    status: ComponentStatusUpdate,
+  ) => void;
+  updateMinerDeviceStatus: (
+    deviceId: string,
+    deviceStatusUpdate: DeviceStatusUpdate,
+  ) => void;
   updateMinerTimestamp: (deviceId: string, timestamp: any) => void;
   setLoading: (loading: boolean) => void;
   setStreaming: (streaming: boolean) => void;
@@ -124,7 +133,7 @@ function updateTelemetryMeasurement(
   }
 }
 
-function updateStatus(
+function updateComponentStatus(
   { status, component }: ComponentStatusUpdate,
   miner: MinerStateSnapshot,
 ): void {
@@ -149,6 +158,17 @@ function updateStatus(
   if (propertyName) {
     miner.status[propertyName] = status;
   }
+}
+
+function updateDeviceStatus(
+  deviceStatus: DeviceStatusUpdate,
+  miner: MinerStateSnapshot,
+): void {
+  if (!miner.deviceStatus) {
+    miner.deviceStatus = DeviceStatus.UNSPECIFIED;
+  }
+
+  miner.deviceStatus = deviceStatus.status;
 }
 
 export const useFleetStore = create<FleetState>()(
@@ -214,11 +234,19 @@ export const useFleetStore = create<FleetState>()(
           }
         }),
 
-      updateMinerStatus: (deviceId, statusUpdate) =>
+      updateMinerComponentStatus: (deviceId, statusUpdate) =>
         set((state) => {
           const miner = state.miners[deviceId];
           if (miner) {
-            updateStatus(statusUpdate, miner);
+            updateComponentStatus(statusUpdate, miner);
+          }
+        }),
+
+      updateMinerDeviceStatus: (deviceId, deviceStatusUpdate) =>
+        set((state) => {
+          const miner = state.miners[deviceId];
+          if (miner) {
+            updateDeviceStatus(deviceStatusUpdate, miner);
           }
         }),
 
@@ -279,8 +307,11 @@ export const useMinerName = (deviceId: string) =>
 export const useMinerMacAddress = (deviceId: string) =>
   useFleetStore((state) => state.miners[deviceId]?.macAddress);
 
-export const useMinerStatus = (deviceId: string) =>
+export const useMinerComponentStatus = (deviceId: string) =>
   useFleetStore((state) => state.miners[deviceId]?.status);
+
+export const useMinerDeviceStatus = (deviceId: string) =>
+  useFleetStore((state) => state.miners[deviceId]?.deviceStatus);
 
 export const useMinerHashrate = (deviceId: string) =>
   useFleetStore((state) => state.miners[deviceId]?.hashrate);

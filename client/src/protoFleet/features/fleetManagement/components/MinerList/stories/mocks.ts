@@ -1,6 +1,7 @@
 import { type Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import {
   ComponentStatus,
+  DeviceStatus,
   type MinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
@@ -55,6 +56,7 @@ export const miners: MinerStateSnapshot[] = [
       fans: ComponentStatus.OK,
       controlBoard: ComponentStatus.OK,
     } as MinerStateSnapshot["status"],
+    deviceStatus: DeviceStatus.ONLINE,
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -106,6 +108,7 @@ export const miners: MinerStateSnapshot[] = [
       fans: ComponentStatus.OK,
       controlBoard: ComponentStatus.OK,
     } as MinerStateSnapshot["status"],
+    deviceStatus: DeviceStatus.ONLINE,
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -157,6 +160,7 @@ export const miners: MinerStateSnapshot[] = [
       fans: ComponentStatus.OK,
       controlBoard: ComponentStatus.OK,
     } as MinerStateSnapshot["status"],
+    deviceStatus: DeviceStatus.ONLINE,
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -208,5 +212,6 @@ export const miners: MinerStateSnapshot[] = [
       fans: ComponentStatus.OK,
       controlBoard: ComponentStatus.OK,
     } as MinerStateSnapshot["status"],
+    deviceStatus: DeviceStatus.ONLINE,
   },
 ];

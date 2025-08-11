@@ -1,5 +1,22 @@
-import { ComponentStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { useMinerStatus } from "@/protoFleet/features/fleetManagement/store/useFleetStore";
+import { ReactNode, useMemo } from "react";
+import { create } from "@bufbuild/protobuf";
+import {
+  ComponentStatus,
+  DeviceStatus,
+  type MinerComponentStatus,
+  MinerComponentStatusSchema,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  useMinerComponentStatus,
+  useMinerDeviceStatus,
+} from "@/protoFleet/features/fleetManagement/store/useFleetStore";
+import {
+  Alert,
+  ControlBoard,
+  Fan,
+  Hashboard,
+  LightningAlt,
+} from "@/shared/assets/icons";
 import StatusCircle, { statuses } from "@/shared/components/StatusCircle";
 
 type MinerStatusProps = {
@@ -7,55 +24,184 @@ type MinerStatusProps = {
   selectedItems?: string[];
 };
 
-// maps ComponentStatus to the status that StatusCircle uses
-const statusMap = {
-  [ComponentStatus.UNSPECIFIED]: statuses.inactive,
-  [ComponentStatus.OK]: statuses.normal,
-  [ComponentStatus.WARNING]: statuses.warning,
-  [ComponentStatus.ERROR]: statuses.error,
-  [ComponentStatus.OFFLINE]: statuses.inactive,
-  [ComponentStatus.PENDING]: statuses.pending,
-};
+type ComponentStatusKeys = keyof Omit<
+  MinerComponentStatus,
+  "$typeName" | "$unknown"
+>;
 
-const MinerStatus = ({ deviceIdentifier, selectedItems }: MinerStatusProps) => {
-  const statusFromStore = useMinerStatus(deviceIdentifier || "");
-  const status = statusFromStore || {
-    $typeName: "fleetmanagement.v1.MinerComponentStatus",
-    hashBoards: ComponentStatus.UNSPECIFIED,
-    controlBoard: ComponentStatus.UNSPECIFIED,
-    fans: ComponentStatus.UNSPECIFIED,
-    psu: ComponentStatus.UNSPECIFIED,
+function getComponentStatus(
+  component: ComponentStatusKeys,
+  statusType: "error" | "warning",
+): ReactNode {
+  const componentStatusMap = {
+    controlBoard: (
+      <>
+        <ControlBoard width="w-4" />
+        Control Board {statusType === "error" ? "Failure" : "Warning"}
+      </>
+    ),
+    hashBoards: (
+      <>
+        <Hashboard width="w-4" />
+        Hashboard {statusType === "error" ? "Failure" : "Warning"}
+      </>
+    ),
+    fans: (
+      <>
+        <Fan width="w-4" />
+        Fan {statusType === "error" ? "Failure" : "Warning"}
+      </>
+    ),
+    psu: (
+      <>
+        <LightningAlt width="w-4" />
+        Power {statusType === "error" ? "Failure" : "Warning"}
+      </>
+    ),
   };
 
-  const isSelected = selectedItems?.includes(deviceIdentifier);
-  return (
-    <div className="flex flex-row opacity-70">
-      <StatusCircle
-        status={statusMap[status.hashBoards]}
-        variant="simple"
-        width="w-[6px]"
-        isSelected={isSelected}
-      />
-      <StatusCircle
-        status={statusMap[status.psu]}
-        variant="simple"
-        width="w-[6px]"
-        isSelected={isSelected}
-      />
-      <StatusCircle
-        status={statusMap[status.fans]}
-        variant="simple"
-        width="w-[6px]"
-        isSelected={isSelected}
-      />
-      <StatusCircle
-        status={statusMap[status.controlBoard]}
-        variant="simple"
-        width="w-[6px]"
-        isSelected={isSelected}
-      />
-    </div>
+  return componentStatusMap[component];
+}
+
+const MinerStatus = ({ deviceIdentifier }: MinerStatusProps) => {
+  const componentStatusFromStore = useMinerComponentStatus(
+    deviceIdentifier || "",
   );
+  const componentStatus = useMemo(
+    () =>
+      componentStatusFromStore ||
+      create(MinerComponentStatusSchema, {
+        hashBoards: ComponentStatus.UNSPECIFIED,
+        controlBoard: ComponentStatus.UNSPECIFIED,
+        fans: ComponentStatus.UNSPECIFIED,
+        psu: ComponentStatus.UNSPECIFIED,
+      }),
+    [componentStatusFromStore],
+  );
+
+  const deviceStatusFromStore = useMinerDeviceStatus(deviceIdentifier || "");
+
+  const status = useMemo(() => {
+    if (deviceStatusFromStore === DeviceStatus.OFFLINE) {
+      return (
+        <>
+          <StatusCircle
+            status={statuses.inactive}
+            variant="simple"
+            width="w-[6px]"
+          />
+          Offline
+        </>
+      );
+    }
+
+    if (deviceStatusFromStore === DeviceStatus.INACTIVE) {
+      return (
+        <>
+          <StatusCircle
+            status={statuses.inactive}
+            variant="simple"
+            width="w-[6px]"
+          />
+          Sleeping
+        </>
+      );
+    }
+
+    // prioritize showing errors over warnings
+    // TODO: determine status with comingled errors and warnings
+    const componentErrors = Object.entries(componentStatus).reduce(
+      (acc, [key, value]) => {
+        if (value === ComponentStatus.ERROR) {
+          acc.push(key as ComponentStatusKeys);
+        }
+        return acc;
+      },
+      [] as ComponentStatusKeys[],
+    );
+
+    // if theres exactly one error, display component name and icon
+    if (componentErrors.length === 1) {
+      return (
+        <>
+          <StatusCircle
+            status={statuses.error}
+            variant="simple"
+            width="w-[6px]"
+          />
+          {getComponentStatus(componentErrors[0], "error")}
+        </>
+      );
+    }
+
+    // if there are multiple errors, display a generic error message
+    if (componentErrors.length > 1) {
+      return (
+        <>
+          <StatusCircle
+            status={statuses.error}
+            variant="simple"
+            width="w-[6px]"
+          />
+          <Alert width="w-4" />
+          Multiple Failures
+        </>
+      );
+    }
+
+    // if there are no errors, check for warnings
+    const componentWarnings = Object.entries(componentStatus).reduce(
+      (acc, [key, value]) => {
+        if (value === ComponentStatus.WARNING) {
+          acc.push(key as ComponentStatusKeys);
+        }
+        return acc;
+      },
+      [] as ComponentStatusKeys[],
+    );
+
+    // if theres exactly one warning, display component name and icon
+    if (componentWarnings.length === 1) {
+      return (
+        <>
+          <StatusCircle
+            status={statuses.warning}
+            variant="simple"
+            width="w-[6px]"
+          />
+          {getComponentStatus(componentWarnings[0], "warning")}
+        </>
+      );
+    }
+
+    // if there are multiple warnings, display a generic error message
+    if (componentWarnings.length > 1) {
+      return (
+        <>
+          <StatusCircle
+            status={statuses.warning}
+            variant="simple"
+            width="w-[6px]"
+          />
+          <Alert width="w-4" />
+          Multiple Warnings
+        </>
+      );
+    }
+
+    return (
+      <>
+        <StatusCircle
+          status={statuses.normal}
+          variant="simple"
+          width="w-[6px]"
+        />
+        Hashing
+      </>
+    );
+  }, [deviceStatusFromStore, componentStatus]);
+
+  return <div className="flex items-center gap-1">{status}</div>;
 };
 
 export default MinerStatus;

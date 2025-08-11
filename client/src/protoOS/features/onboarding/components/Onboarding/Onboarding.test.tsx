@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import Onboarding from "./Onboarding";
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
+import { SystemContextProvider } from "@/protoOS/contexts/SystemContext";
 import { urlValidationErrors } from "@/shared/components/MiningPools/PoolForm/constants";
 
 vi.mock("react-router-dom", () => ({
@@ -47,16 +48,18 @@ describe("Onboarding", () => {
 
   beforeEach(() => {
     component = render(
-      <MinerHostingProvider>
-        <Onboarding
-          networkInfo={undefined}
-          pendingNetworkInfo={false}
-          systemInfo={undefined}
-          pendingSystemInfo={false}
-          settingUpMiner={false}
-          onChangeSettingUpMiner={() => vi.fn()}
-        />
-      </MinerHostingProvider>,
+      <SystemContextProvider>
+        <MinerHostingProvider>
+          <Onboarding
+            networkInfo={undefined}
+            pendingNetworkInfo={false}
+            systemInfo={undefined}
+            pendingSystemInfo={false}
+            settingUpMiner={false}
+            onChangeSettingUpMiner={() => vi.fn()}
+          />
+        </MinerHostingProvider>
+      </SystemContextProvider>,
     );
     getByTestId = component.getByTestId;
     queryByTestId = component.queryByTestId;

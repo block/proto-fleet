@@ -85,6 +85,18 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 		return nil, fleeterror.NewInternalErrorf("failed to list miners: %v", err)
 	}
 
+	// Get device statuses for all miners
+	deviceIdentifiers := make([]mm.DeviceIdentifier, len(miners))
+	for i, miner := range miners {
+		deviceIdentifiers[i] = mm.DeviceIdentifier(miner.DeviceIdentifier)
+	}
+
+	deviceStatuses, err := s.deviceStore.GetDeviceStatusForDeviceIdentifiers(ctx, deviceIdentifiers)
+	if err != nil {
+		slog.Error("failed to get device statuses", "error", err)
+		deviceStatuses = make(map[mm.DeviceIdentifier]mm.MinerStatus) // Empty map as fallback
+	}
+
 	// Convert to state snapshots
 	var snapshots []*pb.MinerStateSnapshot
 	for _, miner := range miners {
@@ -108,6 +120,11 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 			continue
 		}
 
+		// Get device status for this miner
+		deviceID := mm.DeviceIdentifier(miner.DeviceIdentifier)
+		minerStatus := deviceStatuses[deviceID]
+		deviceStatus := convertMinerStatusToDeviceStatus(minerStatus)
+
 		snapshot := &pb.MinerStateSnapshot{
 			DeviceIdentifier: minerInfo.GetID().String(),
 			Name:             miner.Model,
@@ -121,6 +138,7 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 			Efficiency:       telemetry.Efficiency,
 			Status:           status,
 			Timestamp:        telemetry.Timestamp,
+			DeviceStatus:     deviceStatus,
 		}
 		snapshots = append(snapshots, snapshot)
 	}
@@ -287,4 +305,23 @@ var componentStatusMap = map[pb.ComponentStatus]string{
 	pb.ComponentStatus_COMPONENT_STATUS_WARNING: "MAINTENANCE",
 	pb.ComponentStatus_COMPONENT_STATUS_ERROR:   "ERROR",
 	pb.ComponentStatus_COMPONENT_STATUS_OFFLINE: "OFFLINE",
+}
+
+func convertMinerStatusToDeviceStatus(minerStatus mm.MinerStatus) pb.DeviceStatus {
+	switch minerStatus {
+	case mm.MinerStatusActive:
+		return pb.DeviceStatus_DEVICE_STATUS_ONLINE
+	case mm.MinerStatusOffline:
+		return pb.DeviceStatus_DEVICE_STATUS_OFFLINE
+	case mm.MinerStatusMaintenance:
+		return pb.DeviceStatus_DEVICE_STATUS_MAINTENANCE
+	case mm.MinerStatusError:
+		return pb.DeviceStatus_DEVICE_STATUS_ERROR
+	case mm.MinerStatusInactive:
+		return pb.DeviceStatus_DEVICE_STATUS_INACTIVE
+	case mm.MinerStatusUnknown:
+		return pb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED
+	default:
+		return pb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED
+	}
 }
