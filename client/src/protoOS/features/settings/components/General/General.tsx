@@ -28,7 +28,7 @@ const General = () => {
     useState(false);
   const [isR2, setIsR2] = useState<boolean>();
   const { theme, temperatureUnits } = usePreferences();
-  const { rebootSystem } = useSystemReboot();
+  const { rebootSystem, pending: rebootPending } = useSystemReboot();
 
   const {
     data: systemInfo,
@@ -142,7 +142,7 @@ const General = () => {
                   text: "Reboot",
                   variant: "primary",
                   className: status === "installed" ? "" : "hidden",
-                  loading: delayedSystemInfoPending,
+                  loading: rebootPending,
                   onClick: () => {
                     rebootSystem();
                   },

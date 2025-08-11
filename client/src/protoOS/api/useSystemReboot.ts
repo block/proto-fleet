@@ -34,6 +34,7 @@ const useSystemReboot = () => {
           onSuccess?.();
         })
         .catch((error) => {
+          setPending(false);
           handleAuthErrors({
             error,
             onError,
@@ -41,9 +42,6 @@ const useSystemReboot = () => {
               rebootSystem({ accessTokenValue, onError, onSuccess });
             },
           });
-        })
-        .finally(() => {
-          setPending(false);
         });
     },
     [authTokens.accessToken.value, handleAuthErrors, api],

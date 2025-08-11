@@ -19,9 +19,9 @@ interface FirmwareUpdateStatusModalProps {
 
 type StatusConfig = {
   title: string;
-  icon: React.ReactNode;
+  icon?: React.ReactNode;
   statusIndicator: string;
-  message: string;
+  message?: string;
   getButtons: (props: {
     onUpdate?: () => void;
     onDismiss?: () => void;
@@ -29,7 +29,7 @@ type StatusConfig = {
     onContinue?: () => void;
     updatePending?: boolean;
     rebootPending?: boolean;
-  }) => ButtonProps[];
+  }) => ButtonProps[] | undefined;
 };
 
 const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
@@ -37,7 +37,6 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
     title: "Unknown status",
     icon: <Stop className="text-text-critical" />,
     statusIndicator: "unknown",
-    message: "No firmware update information available",
     getButtons: ({ onDismiss }) => [
       {
         text: "Dismiss",
@@ -48,9 +47,7 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
   },
   checking: {
     title: "Checking for updates",
-    icon: <ProgressCircular indeterminate />,
     statusIndicator: "checking",
-    message: "Checking for firmware updates",
     getButtons: ({ onDismiss }) => [
       {
         text: "Dismiss",
@@ -63,7 +60,6 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
     title: "Update available",
     icon: <SettingsSolid />,
     statusIndicator: "available",
-    message: "A new firmware version is available for installation",
     getButtons: ({ onUpdate, onDismiss, updatePending }) => [
       {
         text: "Install",
@@ -80,9 +76,7 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
   },
   downloading: {
     title: "Downloading update",
-    icon: <ProgressCircular indeterminate />,
     statusIndicator: "downloading",
-    message: "Downloading firmware update",
     getButtons: ({ onDismiss }) => [
       {
         text: "Dismiss",
@@ -95,7 +89,6 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
     title: "Ready to install",
     icon: <SettingsSolid />,
     statusIndicator: "downloaded",
-    message: "Firmware update downloaded and ready to install",
     getButtons: ({ onDismiss, onContinue }) => [
       {
         text: "Dismiss",
@@ -111,9 +104,7 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
   },
   installing: {
     title: "Installing update",
-    icon: <ProgressCircular indeterminate />,
     statusIndicator: "installing",
-    message: "Installing firmware update",
     getButtons: ({ onDismiss }) => [
       {
         text: "Dismiss",
@@ -126,7 +117,6 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
     title: "Update installed",
     icon: <Success className="text-intent-success-fill" />,
     statusIndicator: "installed",
-    message: "Firmware update has been installed successfully",
     getButtons: ({ onDismiss, onReboot, rebootPending }) => [
       {
         text: "Dismiss",
@@ -141,11 +131,15 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
       },
     ],
   },
+  rebooting: {
+    title: "Rebooting miner",
+    statusIndicator: "rebooting",
+    message: "Your miner is rebooting. This may take a few minutes.",
+    getButtons: () => undefined,
+  },
   confirming: {
     title: "Confirming update",
-    icon: <ProgressCircular indeterminate />,
     statusIndicator: "confirming",
-    message: "Confirming firmware update installation",
     getButtons: ({ onDismiss }) => [
       {
         text: "Dismiss",
@@ -158,7 +152,6 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
     title: "Update completed successfully",
     icon: <Success className="text-intent-success-fill" />,
     statusIndicator: "success",
-    message: "Firmware update completed successfully",
     getButtons: ({ onDismiss }) => [
       {
         text: "Dismiss",
@@ -171,7 +164,6 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
     title: "Update error",
     icon: <Stop className="text-text-critical" />,
     statusIndicator: "error",
-    message: "An error occurred during the firmware update",
     getButtons: ({ onDismiss }) => [
       {
         text: "Dismiss",
@@ -184,7 +176,6 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
     title: "Firmware is up to date",
     icon: <Success className="text-intent-success-fill" />,
     statusIndicator: "current",
-    message: "Your firmware is already up to date",
     getButtons: ({ onDismiss }) => [
       {
         text: "Dismiss",
@@ -206,7 +197,12 @@ const FirmwareUpdateStatusModal = ({
   updatePending,
 }: FirmwareUpdateStatusModalProps) => {
   const getStatusConfig = (): StatusConfig => {
-    const status = updateStatus?.status || "unknown";
+    let status: string = updateStatus?.status || "unknown";
+
+    if (rebootPending && status === "installed") {
+      status = "rebooting";
+    }
+
     return UPDATE_STATUS_CONFIG[status] || UPDATE_STATUS_CONFIG.unknown;
   };
 
@@ -215,7 +211,11 @@ const FirmwareUpdateStatusModal = ({
   return (
     <Dialog
       show={show}
-      icon={statusConfig.icon}
+      icon={
+        statusConfig.icon ?? (
+          <ProgressCircular indeterminate className="text-core-accent-fill" />
+        )
+      }
       title={statusConfig.title}
       titleSize="text-heading-300"
       buttons={statusConfig.getButtons({
@@ -229,7 +229,7 @@ const FirmwareUpdateStatusModal = ({
     >
       {updateStatus && (
         <div className="space-y-2 text-sm">
-          <div>{updateStatus.message}</div>
+          <div>{statusConfig.message ?? updateStatus.message}</div>
           {updateStatus.current_version && (
             <div>
               <span className="font-medium">Current Version:</span>{" "}
