@@ -9,6 +9,7 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import { positions } from "@/shared/constants";
 import { usePreferences } from "@/shared/features/preferences";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
+import { formatHashrateWithUnit } from "@/shared/utils/utility";
 
 // import { dangerTemp } from "../../constants";
 import { getRowLabel } from "@/shared/utils/utility";
@@ -33,6 +34,12 @@ const AsicPopover = ({
   closeIgnoreSelectors,
 }: AsicPopoverProps) => {
   const { temperatureUnits } = usePreferences();
+
+  const hashRateValue = hashrateData?.length
+    ? hashrateData[hashrateData.length - 1].value
+    : 0;
+  const { value: hashRate, unit: hashUnit } =
+    formatHashrateWithUnit(hashRateValue);
 
   return (
     <Popover
@@ -82,8 +89,9 @@ const AsicPopover = ({
         <AsicPopoverRow
           label="Current hashrate"
           value={
-            hashrateData?.length &&
-            `${getDisplayValue(hashrateData[hashrateData.length - 1].value)} TH/s`
+            hashrateData?.length
+              ? `${getDisplayValue(hashRate)} ${hashUnit}`
+              : undefined
           }
           className="text-text-primary"
         />

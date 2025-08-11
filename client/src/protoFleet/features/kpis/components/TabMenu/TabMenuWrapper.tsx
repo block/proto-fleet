@@ -1,5 +1,6 @@
 import { memo, useMemo } from "react";
 import TabMenu from "@/shared/components/TabMenu";
+import { formatHashrateWithUnit } from "@/shared/utils/utility";
 
 type TabMenuWrapperProps = {
   hashrate?: number;
@@ -17,12 +18,16 @@ const TabMenuWrapper = memo(
     uptime,
     basePath = "",
   }: TabMenuWrapperProps) => {
+    const { value: hashrateValue, unit: hashUnit } = formatHashrateWithUnit(
+      hashrate ?? 0,
+    );
+
     const tabItems = useMemo(
       () => ({
         hashrate: {
           name: "Hashrate",
-          value: hashrate,
-          units: "TH/S",
+          value: hashrateValue,
+          units: hashUnit,
           path: "/hashrate",
         },
         efficiency: {
@@ -44,7 +49,7 @@ const TabMenuWrapper = memo(
           path: "/uptime",
         },
       }),
-      [hashrate, efficiency, powerUsage, uptime],
+      [hashrateValue, efficiency, powerUsage, uptime, hashUnit],
     );
 
     return <TabMenu items={tabItems} basePath={basePath} />;

@@ -1,5 +1,10 @@
 import { describe, expect, test, vi } from "vitest";
-import { debounce, deepClone, getRowLabel } from "./utility";
+import {
+  debounce,
+  deepClone,
+  formatHashrateWithUnit,
+  getRowLabel,
+} from "./utility";
 
 describe("deepClone", () => {
   test("should create a deep copy of an object", () => {
@@ -116,5 +121,26 @@ describe("getRowLabel", () => {
     expect(getRowLabel(7)).toBe("H");
     expect(getRowLabel(8)).toBe("I");
     expect(getRowLabel(9)).toBe("J");
+  });
+});
+
+describe("formatHashrateWithUnit", () => {
+  test("should return TH/S for values <= 1000", () => {
+    expect(formatHashrateWithUnit(0)).toEqual({ value: 0, unit: "TH/S" });
+    expect(formatHashrateWithUnit(500)).toEqual({ value: 500, unit: "TH/S" });
+    expect(formatHashrateWithUnit(1000)).toEqual({ value: 1000, unit: "TH/S" });
+  });
+
+  test("should return PH/S for values > 1000", () => {
+    expect(formatHashrateWithUnit(1001)).toEqual({
+      value: 1.001,
+      unit: "PH/S",
+    });
+    expect(formatHashrateWithUnit(2000)).toEqual({ value: 2, unit: "PH/S" });
+    expect(formatHashrateWithUnit(5500)).toEqual({ value: 5.5, unit: "PH/S" });
+  });
+
+  test("should handle undefined/null values", () => {
+    expect(formatHashrateWithUnit()).toEqual({ value: 0, unit: "TH/S" });
   });
 });

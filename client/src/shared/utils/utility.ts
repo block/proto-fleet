@@ -59,6 +59,19 @@ export const convertMhSToThS = (value: number = 0) => value / 1000000;
 
 export const convertWtoKW = (value: number = 0) => value / 1000;
 
+export const formatHashrateWithUnit = (value: number = 0) => {
+  if (value > 1000) {
+    return {
+      value: value / 1000,
+      unit: "PH/S",
+    };
+  }
+  return {
+    value: value,
+    unit: "TH/S",
+  };
+};
+
 export const convertCtoF = (value: number = 0) => (value * 9) / 5 + 32;
 
 export const getAsicTempValue = (

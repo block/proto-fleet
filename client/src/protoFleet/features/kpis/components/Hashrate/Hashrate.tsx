@@ -5,29 +5,37 @@ import { KpiOutletContext } from "@/protoFleet/features/kpis/types";
 import { type StatProps } from "@/shared/components/Stat";
 import Stats from "@/shared/features/kpis/components/Stats";
 import { AggregateStats } from "@/shared/features/kpis/types";
+import { formatHashrateWithUnit } from "@/shared/utils/utility";
 
 type StatsArgs = AggregateStats & { lowestPerformer?: string };
 
 const getStats = (stats: StatsArgs = {}): StatProps[] => {
   const { avg, max, min } = stats;
 
+  const avgFormatted = formatHashrateWithUnit(avg ?? 0);
+  const maxFormatted = formatHashrateWithUnit(max ?? 0);
+  const minFormatted = formatHashrateWithUnit(min ?? 0);
+
+  // Use the unit from avg (they should all be the same after formatting)
+  const units = avgFormatted.unit === "PH/S" ? "PH/s" : "TH/s";
+
   return [
     {
       label: "Average",
-      value: avg,
-      units: "TH/s",
+      value: avgFormatted.value,
+      units: units,
       size: "small",
     },
     {
       label: "Highest",
-      value: max,
-      units: "TH/s",
+      value: maxFormatted.value,
+      units: units,
       size: "small",
     },
     {
       label: "Lowest",
-      value: min,
-      units: "TH/s",
+      value: minFormatted.value,
+      units: units,
       size: "small",
     },
   ];
