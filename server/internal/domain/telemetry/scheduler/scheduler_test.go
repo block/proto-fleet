@@ -461,6 +461,111 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, devices, 1)
 		assert.Equal(t, deviceID, devices[0].ID)
+
+		// Verify device is not marked as failed yet
+		isFailed, _, err := s.IsFailedDevice(ctx, deviceID)
+		require.NoError(t, err)
+		assert.False(t, isFailed, "Device should not be marked as failed after first failure")
+	})
+
+	t.Run("device marked as failed after max consecutive failures", func(t *testing.T) {
+		config := Config{
+			MaxConsecutiveFailures: 3,
+		}
+		s := NewScheduler(config)
+		ctx := t.Context()
+		deviceID := models.DeviceIdentifier("123")
+
+		// Add device as new first
+		err := s.AddNewDevices(ctx, deviceID)
+		require.NoError(t, err)
+
+		// Simulate failing the device exactly MaxConsecutiveFailures times
+		for i := range config.MaxConsecutiveFailures {
+			// Fetch device
+			fetchedDevices, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
+			require.NoError(t, err)
+			require.Len(t, fetchedDevices, 1)
+
+			// Add back as failed
+			failedDevice := fetchedDevices[0]
+			failedDevice.LastUpdatedAt = time.Now()
+			err = s.AddFailedDevices(ctx, failedDevice)
+			require.NoError(t, err)
+
+			if i < config.MaxConsecutiveFailures-1 {
+				// Should still be in scheduler
+				assert.Equal(t, 1, s.GetDeviceCount(), "Device should still be in scheduler after failure %d", i+1)
+
+				// Should not be marked as failed yet
+				isFailed, _, err := s.IsFailedDevice(ctx, deviceID)
+				require.NoError(t, err)
+				assert.False(t, isFailed, "Device should not be marked as failed after failure %d", i+1)
+			}
+		}
+
+		// After max failures, device should not be in scheduler
+		assert.Equal(t, 0, s.GetDeviceCount(), "Device should be removed from scheduler after max failures")
+
+		// Device should be marked as failed
+		isFailed, failedAt, err := s.IsFailedDevice(ctx, deviceID)
+		require.NoError(t, err)
+		assert.True(t, isFailed, "Device should be marked as failed after max consecutive failures")
+		assert.False(t, failedAt.IsZero(), "Failed timestamp should be set")
+
+		// Trying to add the failed device again should not add it back to scheduler
+		failedDevice := models.Device{
+			ID:            deviceID,
+			LastUpdatedAt: time.Now(),
+		}
+		err = s.AddFailedDevices(ctx, failedDevice)
+		require.NoError(t, err)
+		assert.Equal(t, 0, s.GetDeviceCount(), "Failed device should not be added back to scheduler")
+	})
+
+	t.Run("failed device can be recovered with AddDevices", func(t *testing.T) {
+		config := Config{
+			MaxConsecutiveFailures: 2,
+		}
+		s := NewScheduler(config)
+		ctx := t.Context()
+		deviceID := models.DeviceIdentifier("123")
+
+		// Add device and fail it until it's marked as failed
+		err := s.AddNewDevices(ctx, deviceID)
+		require.NoError(t, err)
+
+		// Fail device max times
+		for range config.MaxConsecutiveFailures {
+			fetchedDevices, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
+			require.NoError(t, err)
+			require.Len(t, fetchedDevices, 1)
+
+			failedDevice := fetchedDevices[0]
+			failedDevice.LastUpdatedAt = time.Now()
+			err = s.AddFailedDevices(ctx, failedDevice)
+			require.NoError(t, err)
+		}
+
+		// Verify device is failed and not in scheduler
+		isFailed, _, err := s.IsFailedDevice(ctx, deviceID)
+		require.NoError(t, err)
+		assert.True(t, isFailed)
+		assert.Equal(t, 0, s.GetDeviceCount())
+
+		// Use AddDevices to recover the device (simulating successful operation)
+		recoveredDevice := models.Device{
+			ID:            deviceID,
+			LastUpdatedAt: time.Now(),
+		}
+		err = s.AddDevices(ctx, recoveredDevice)
+		require.NoError(t, err)
+
+		// Device should be back in scheduler and no longer marked as failed
+		assert.Equal(t, 1, s.GetDeviceCount())
+		isFailed, _, err = s.IsFailedDevice(ctx, deviceID)
+		require.NoError(t, err)
+		assert.False(t, isFailed, "Device should no longer be marked as failed after successful AddDevices")
 	})
 
 	t.Run("add failed devices to scheduler", func(t *testing.T) {
@@ -647,6 +752,62 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 				}
 			})
 		}
+	})
+
+	t.Run("IsFailedDevice method tests", func(t *testing.T) {
+		config := Config{
+			MaxConsecutiveFailures: 2,
+		}
+		s := NewScheduler(config)
+		ctx := t.Context()
+		deviceID := models.DeviceIdentifier("test-device")
+
+		// Test non-existent device
+		isFailed, failedAt, err := s.IsFailedDevice(ctx, deviceID)
+		require.NoError(t, err)
+		assert.False(t, isFailed, "Non-existent device should not be marked as failed")
+		assert.True(t, failedAt.IsZero(), "Non-existent device should have zero timestamp")
+
+		// Add device and test before any failures
+		err = s.AddNewDevices(ctx, deviceID)
+		require.NoError(t, err)
+
+		isFailed, failedAt, err = s.IsFailedDevice(ctx, deviceID)
+		require.NoError(t, err)
+		assert.False(t, isFailed, "New device should not be marked as failed")
+		assert.True(t, failedAt.IsZero(), "New device should have zero timestamp")
+
+		// Fail device once (should not be marked as failed yet)
+		fetchedDevices, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
+		require.NoError(t, err)
+		require.Len(t, fetchedDevices, 1)
+
+		failedDevice := fetchedDevices[0]
+		failedDevice.LastUpdatedAt = time.Now()
+		err = s.AddFailedDevices(ctx, failedDevice)
+		require.NoError(t, err)
+
+		isFailed, failedAt, err = s.IsFailedDevice(ctx, deviceID)
+		require.NoError(t, err)
+		assert.False(t, isFailed, "Device should not be marked as failed after first failure")
+		assert.True(t, failedAt.IsZero(), "Device should have zero timestamp after first failure")
+
+		// Fail device second time (should be marked as failed)
+		fetchedDevices, err = s.FetchDevices(ctx, time.Now().Add(time.Hour))
+		require.NoError(t, err)
+		require.Len(t, fetchedDevices, 1)
+
+		failedDevice = fetchedDevices[0]
+		beforeFailTime := time.Now()
+		failedDevice.LastUpdatedAt = beforeFailTime
+		err = s.AddFailedDevices(ctx, failedDevice)
+		require.NoError(t, err)
+
+		isFailed, failedAt, err = s.IsFailedDevice(ctx, deviceID)
+		require.NoError(t, err)
+		assert.True(t, isFailed, "Device should be marked as failed after max consecutive failures")
+		assert.False(t, failedAt.IsZero(), "Failed device should have non-zero timestamp")
+		assert.Equal(t, beforeFailTime, failedAt, "Failed timestamp should match device's LastUpdatedAt")
 	})
 }
 

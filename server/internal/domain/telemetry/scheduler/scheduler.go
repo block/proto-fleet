@@ -107,6 +107,13 @@ func (s *scheduler) AddFailedDevices(ctx context.Context, devices ...models.Devi
 
 	for _, device := range devices {
 		count, _ := s.failedDevices.LoadOrStore(device.ID, 0)
+
+		// Check if the device is already marked as permanently failed (stored as time.Time)
+		if _, isTime := count.(time.Time); isTime {
+			slog.Debug("Device is already marked as failed, skipping", "device_id", device.ID)
+			continue // Device is already permanently failed, skip it
+		}
+
 		failedCount, ok := count.(int)
 		if !ok {
 			slog.Error("Failed to convert failed count to int", "device_id", device.ID, "failed_count", count)
@@ -120,6 +127,7 @@ func (s *scheduler) AddFailedDevices(ctx context.Context, devices ...models.Devi
 
 		if failedCount >= s.config.MaxConsecutiveFailures {
 			slog.Warn("Device failed too many times, removing from scheduler", "device_id", device.ID, "failed_count", failedCount)
+			s.failedDevices.Store(device.ID, device.LastUpdatedAt)
 			continue // Do not add back to the scheduler
 		}
 		if err := s.addDevices(ctx, device); err != nil {
@@ -201,4 +209,16 @@ func (s *scheduler) GetManagedDeviceCount(ctx context.Context) (int, error) {
 		return true // continue iteration
 	})
 	return count, nil
+}
+
+func (s *scheduler) IsFailedDevice(ctx context.Context, deviceID models.DeviceIdentifier) (bool, time.Time, error) {
+	lastUpdatedAt, exists := s.failedDevices.Load(deviceID)
+	if !exists {
+		return false, time.Time{}, nil
+	}
+	if failedAt, ok := lastUpdatedAt.(time.Time); ok {
+		// if the value is a time.Time, it means the device is failed
+		return true, failedAt, nil
+	}
+	return false, time.Time{}, nil
 }

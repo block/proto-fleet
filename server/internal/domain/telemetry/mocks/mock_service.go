@@ -109,6 +109,22 @@ func (mr *MockUpdateSchedulerMockRecorder) FetchDevices(ctx, after interface{}) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FetchDevices", reflect.TypeOf((*MockUpdateScheduler)(nil).FetchDevices), ctx, after)
 }
 
+// IsFailedDevice mocks base method.
+func (m *MockUpdateScheduler) IsFailedDevice(ctx context.Context, deviceID models.DeviceIdentifier) (bool, time.Time, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsFailedDevice", ctx, deviceID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(time.Time)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// IsFailedDevice indicates an expected call of IsFailedDevice.
+func (mr *MockUpdateSchedulerMockRecorder) IsFailedDevice(ctx, deviceID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsFailedDevice", reflect.TypeOf((*MockUpdateScheduler)(nil).IsFailedDevice), ctx, deviceID)
+}
+
 // RemoveDevices mocks base method.
 func (m *MockUpdateScheduler) RemoveDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error {
 	m.ctrl.T.Helper()

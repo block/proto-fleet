@@ -9,6 +9,7 @@ import (
 
 	fleetmanagementModels "github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
+	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 
@@ -46,6 +47,7 @@ type UpdateScheduler interface {
 	AddFailedDevices(ctx context.Context, devices ...models.Device) error
 	FetchDevices(ctx context.Context, after time.Time) ([]models.Device, error)
 	RemoveDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error
+	IsFailedDevice(ctx context.Context, deviceID models.DeviceIdentifier) (bool, time.Time, error)
 }
 
 type TelemetryDataStore interface {
@@ -71,8 +73,10 @@ type TelemetryService struct {
 	deviceStore        stores.DeviceStore
 	mux                sync.Mutex
 	tasks              chan models.Device
+	statusTasks        chan models.Device
 	cancelFunc         context.CancelFunc
 	lookBackDuration   time.Duration
+	trackedDevices     sync.Map
 }
 
 func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager MinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore) *TelemetryService {
@@ -84,6 +88,7 @@ func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, m
 		deviceStore:        deviceStore,
 		// channel for tasks to process telemetry data, it is set so that there is at least 1 queued task for every worker.
 		tasks:            make(chan models.Device, config.ConcurrencyLimit),
+		statusTasks:      make(chan models.Device, config.ConcurrencyLimit),
 		lookBackDuration: -1 * (config.StalenessThreshold - config.FetchInterval),
 	}
 }
@@ -94,15 +99,19 @@ func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.De
 	}
 	for _, id := range deviceID {
 		s.tasks <- models.Device{ID: id, LastUpdatedAt: time.Now().Add(-s.config.NewDeviceLookback)} // Initialize with current time minus lookback duration
+		s.trackedDevices.Store(id, struct{}{})
 	}
 	return s.updateScheduler.AddNewDevices(ctx, deviceID...)
 }
 
-func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error {
-	if len(deviceID) == 0 {
+func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceIDs ...models.DeviceIdentifier) error {
+	if len(deviceIDs) == 0 {
 		return nil
 	}
-	return s.updateScheduler.RemoveDevices(ctx, deviceID...)
+	for _, id := range deviceIDs {
+		s.trackedDevices.Delete(id)
+	}
+	return s.updateScheduler.RemoveDevices(ctx, deviceIDs...)
 }
 
 func (s *TelemetryService) Start(ctx context.Context) error {
@@ -111,13 +120,39 @@ func (s *TelemetryService) Start(ctx context.Context) error {
 
 	go s.gatherMetricsRoutine(ctx)
 	go s.devicePollingRoutine(ctx)
+	go s.gatherDeviceStatusRoutine(ctx)
 	return nil
 }
 
 func (s *TelemetryService) Stop(ctx context.Context) error {
 	s.cancelFunc()
 	defer close(s.tasks)
+	defer close(s.statusTasks)
 	return nil
+}
+
+func (s *TelemetryService) gatherDeviceStatusRoutine(ctx context.Context) {
+	interval := s.config.DeviceStatusPollInterval
+	if interval <= 0 {
+		interval = 10 * time.Second // Default interval if not configured
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Fetch device statuses
+			s.trackedDevices.Range(func(key, _ any) bool {
+				if id, ok := key.(models.DeviceIdentifier); ok {
+					s.statusTasks <- models.Device{ID: id}
+				}
+				return true
+			})
+		}
+	}
 }
 
 func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
@@ -133,7 +168,11 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
 	}
 
 	// Periodically fetch devices that need telemetry data
-	ticker := time.NewTicker(s.config.FetchInterval)
+	fetchInterval := s.config.FetchInterval
+	if fetchInterval <= 0 {
+		fetchInterval = 10 * time.Second // Default interval if not configured
+	}
+	ticker := time.NewTicker(fetchInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -155,7 +194,11 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
 }
 
 func (s *TelemetryService) devicePollingRoutine(ctx context.Context) {
-	ticker := time.NewTicker(s.config.DevicePollInterval)
+	pollInterval := s.config.DevicePollInterval
+	if pollInterval <= 0 {
+		pollInterval = 10 * time.Minute // Default interval if not configured
+	}
+	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
 	// Run once immediately on startup
@@ -211,6 +254,11 @@ func (s *TelemetryService) worker(ctx context.Context) {
 			if err := s.GetStatusForDevice(ctx, device); err != nil {
 				slog.Warn("failed to get status for device", "deviceID", device.ID, "error", err)
 			}
+
+		case device := <-s.statusTasks:
+			if err := s.GetStatusForDevice(ctx, device); err != nil {
+				slog.Warn("failed to get status for device", "deviceID", device.ID, "error", err)
+			}
 		}
 	}
 }
@@ -229,6 +277,24 @@ func (s *TelemetryService) GetStatusForDevice(ctx context.Context, device models
 	err = s.deviceStore.UpsertDeviceStatus(ctx, device.ID, status, "")
 	if err != nil {
 		return fmt.Errorf("failed to upsert device status for device %s: %w", device.ID, err)
+	}
+
+	if status == mm.MinerStatusError || status == mm.MinerStatusOffline {
+		return nil
+	}
+
+	failed, failedAt, err := s.updateScheduler.IsFailedDevice(ctx, device.ID)
+	if err != nil {
+		return fmt.Errorf("failed to check if device %s is failed: %w", device.ID, err)
+	}
+	if failed {
+		err := s.updateScheduler.AddDevices(ctx, models.Device{
+			ID:            device.ID,
+			LastUpdatedAt: failedAt,
+		})
+		if err != nil {
+			slog.Warn("failed to add failed device back into scheduler", "deviceID", device.ID, "error", err)
+		}
 	}
 
 	return nil
@@ -322,7 +388,11 @@ func (s *TelemetryService) StreamDeviceStatusUpdates(ctx context.Context, query 
 
 	go func() {
 		defer close(updateChan)
-		ticker := time.NewTicker(*query.HeartbeatInterval)
+		heartbeatInterval := *query.HeartbeatInterval
+		if heartbeatInterval <= 0 {
+			heartbeatInterval = 30 * time.Second // Default heartbeat interval if not configured
+		}
+		ticker := time.NewTicker(heartbeatInterval)
 
 		for {
 			select {
