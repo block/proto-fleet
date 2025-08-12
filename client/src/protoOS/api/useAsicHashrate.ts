@@ -3,10 +3,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { GetAsicHashrateParams, HashrateResponseHashratedata } from "./types";
 import { usePoll } from "./usePoll";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { type Duration } from "@/shared/components/DurationSelector";
 
 interface UseAsicHashrateProps {
   asicId?: number;
-  duration: HashrateResponseHashratedata["duration"];
+  duration: Duration;
   granularity: GetAsicHashrateParams["granularity"];
   hashboardSerial?: string;
   poll?: boolean;

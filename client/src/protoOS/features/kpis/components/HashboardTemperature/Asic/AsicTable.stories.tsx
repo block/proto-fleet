@@ -3,8 +3,8 @@ import { MemoryRouter } from "react-router-dom";
 
 import AsicTableComponent from "./AsicTable";
 import { mockHashboardStats } from "./constants";
-import { HashrateResponseHashratedata } from "@/protoOS/api/types";
 import DurationSelector, {
+  type Duration,
   durations,
 } from "@/shared/components/DurationSelector";
 
@@ -13,9 +13,7 @@ interface AsicTableProps {
 }
 
 export const AsicTable = ({ pending }: AsicTableProps) => {
-  const [duration, setDuration] = useState<
-    HashrateResponseHashratedata["duration"]
-  >(durations[0]);
+  const [duration, setDuration] = useState<Duration>(durations[0]);
   const [showPopover, setShowPopover] = useState<string | undefined>(undefined);
 
   return (

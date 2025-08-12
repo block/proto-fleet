@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
-import {
-  convertAggregateValues,
-  convertionFns,
-  convertValues,
-  downsample,
-} from "./utility";
 import { useHashboardTemperature } from "@/protoOS/api";
 import { Aggregates, TimeSeriesData } from "@/protoOS/api/types";
 import useHashboardLocationStore from "@/protoOS/store/useHashboardLocationStore";
+import {
+  conversionFns,
+  convertAggregateValues,
+  convertValues,
+  downsample,
+} from "@/shared/components/Chart/utility";
 import { Duration } from "@/shared/components/DurationSelector";
 
 export type HbTemperature = {
@@ -64,11 +64,11 @@ const useProcessedHashboardTemperature = ({
           serial: key,
           data: convertValues(
             downsample(value.data, duration),
-            convertionFns.temperature,
+            conversionFns.temperature,
           ),
           aggregates: convertAggregateValues(
             value.aggregates,
-            convertionFns.temperature,
+            conversionFns.temperature,
           ),
         });
         return acc;

@@ -28,7 +28,7 @@ export const getHashboardIdentifier = (
   let generation = 1;
   if (
     hashboardInfo.mining_asic === InternalAsicType.MC2 ||
-    hashboardInfo.mining_asic === InternalAsicType.MC2Sim
+    (hashboardInfo.mining_asic as unknown) === InternalAsicType.MC2Sim
   ) {
     generation = 2;
   }

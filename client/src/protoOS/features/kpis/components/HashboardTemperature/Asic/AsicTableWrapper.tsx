@@ -4,9 +4,10 @@ import { sortAsics } from "../../Temperature/utility";
 import AsicTable from "./AsicTable";
 import { useHashboardStats } from "@/protoOS/api";
 import { AsicStats, GetAsicHashrateParams } from "@/protoOS/api/types";
+import { type Duration } from "@/shared/components/DurationSelector";
 
 interface AsicTableWrapperProps {
-  duration: GetAsicHashrateParams["duration"];
+  duration: Duration;
   granularity: GetAsicHashrateParams["granularity"];
   hashboardSerialNumber: string;
   showPopover: string | undefined;

@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { PsusInfoPsusinfo } from "apiTypes";
 import { getControlBoardGeneration, getHashboardIdentifier } from "./utility";
 import { useHardware } from "@/protoOS/api/useHardware";
 import {
@@ -154,7 +153,7 @@ const Hardware = () => {
               <h4 className="w-46 text-emphasis-300">PSU</h4>
               <h4 className="w-46 text-emphasis-300">Serial number</h4>
             </Row>
-            {psusInfo?.map((psu: PsusInfoPsusinfo) => (
+            {psusInfo?.map((psu) => (
               <Row
                 className="flex items-center"
                 key={psu.psu_sn}

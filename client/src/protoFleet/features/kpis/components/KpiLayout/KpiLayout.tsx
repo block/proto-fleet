@@ -10,10 +10,8 @@ import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import TabMenu from "@/protoFleet/features/kpis/components/TabMenu";
 import { KpiOutletContext } from "@/protoFleet/features/kpis/types";
 import {
-  calculateAggregateStats,
-  getLatestAggregateValue,
-  mergeStreamingDataPoint,
-  transformCombinedMetricsToTimeSeries,
+  processAllMetrics,
+  processAllMetricsWithStreaming,
 } from "@/protoFleet/features/kpis/utils/telemetryTransforms";
 import DurationSelector, {
   Duration,
@@ -21,10 +19,6 @@ import DurationSelector, {
 } from "@/shared/components/DurationSelector";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import NoPoolsCallout from "@/shared/features/kpis/components/NoPoolsCallout";
-import {
-  AggregateStats,
-  TimeSeriesDataPoint,
-} from "@/shared/features/kpis/types";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 interface KpiLayoutProps {
   children?: ReactNode;
@@ -158,154 +152,64 @@ const KpiLayoutWrapper = ({ children }: KpiLayoutWrapperProps) => {
   useEffect(() => {
     if (!combinedMetricsData && !metricsError) return;
 
-    let hashrateTimeSeries: TimeSeriesDataPoint[] = [];
-    let hashrateAggregates: AggregateStats = { avg: 0, max: 0, min: 0 };
-    let powerTimeSeries: TimeSeriesDataPoint[] = [];
-    let powerAggregates: AggregateStats = { avg: 0, max: 0, min: 0 };
-    let efficiencyTimeSeries: TimeSeriesDataPoint[] = [];
-    let efficiencyAggregates: AggregateStats = { avg: 0, max: 0, min: 0 };
-    let temperatureTimeSeries: TimeSeriesDataPoint[] = [];
-    let temperatureAggregates: AggregateStats = { avg: 0, max: 0, min: 0 };
-
-    if (combinedMetricsData) {
-      // Transform hashrate data
-      hashrateTimeSeries = transformCombinedMetricsToTimeSeries(
-        combinedMetricsData,
-        MeasurementType.HASHRATE,
-      );
-      hashrateAggregates = calculateAggregateStats(
-        combinedMetricsData,
-        MeasurementType.HASHRATE,
-      );
-
-      // Transform power data
-      powerTimeSeries = transformCombinedMetricsToTimeSeries(
-        combinedMetricsData,
-        MeasurementType.POWER,
-      );
-      powerAggregates = calculateAggregateStats(
-        combinedMetricsData,
-        MeasurementType.POWER,
-      );
-
-      // Transform efficiency data
-      efficiencyTimeSeries = transformCombinedMetricsToTimeSeries(
-        combinedMetricsData,
-        MeasurementType.EFFICIENCY,
-      );
-      efficiencyAggregates = calculateAggregateStats(
-        combinedMetricsData,
-        MeasurementType.EFFICIENCY,
-      );
-
-      // Transform temperature data (for uptime placeholder)
-      temperatureTimeSeries = transformCombinedMetricsToTimeSeries(
-        combinedMetricsData,
-        MeasurementType.TEMPERATURE,
-      );
-      temperatureAggregates = calculateAggregateStats(
-        combinedMetricsData,
-        MeasurementType.TEMPERATURE,
-      );
-    }
+    const processedMetrics = processAllMetrics(combinedMetricsData, duration);
 
     setOutletContext({
       duration,
       minerHashrate: {
-        hashrate: hashrateTimeSeries,
-        aggregates: hashrateAggregates,
+        hashrate: processedMetrics.hashrate.timeSeries,
+        aggregates: processedMetrics.hashrate.aggregates,
       },
       minerEfficiency: {
-        efficiency: efficiencyTimeSeries,
-        aggregates: efficiencyAggregates,
+        efficiency: processedMetrics.efficiency.timeSeries,
+        aggregates: processedMetrics.efficiency.aggregates,
       },
       minerPowerUsage: {
-        powerUsage: powerTimeSeries,
-        aggregates: powerAggregates,
+        powerUsage: processedMetrics.power.timeSeries,
+        aggregates: processedMetrics.power.aggregates,
       },
       minerUptime: {
-        uptime: temperatureTimeSeries, // Placeholder until uptime is available
-        aggregates: temperatureAggregates,
+        uptime: processedMetrics.temperature.timeSeries, // Placeholder until uptime is available
+        aggregates: processedMetrics.temperature.aggregates,
       },
     });
   }, [combinedMetricsData, duration, metricsError]);
 
   // Update with streaming data
   useEffect(() => {
-    if (!streamingData) return;
+    if (!streamingData || !combinedMetricsData) return;
 
     try {
-      // Get latest values from streaming data
-      const latestHashrate = getLatestAggregateValue(
+      // Reprocess all data with streaming updates merged in
+      const processedMetrics = processAllMetricsWithStreaming(
+        combinedMetricsData,
         streamingData,
-        MeasurementType.HASHRATE,
-      );
-      const latestPower = getLatestAggregateValue(
-        streamingData,
-        MeasurementType.POWER,
-      );
-      const latestEfficiency = getLatestAggregateValue(
-        streamingData,
-        MeasurementType.EFFICIENCY,
-      );
-      const latestTemperature = getLatestAggregateValue(
-        streamingData,
-        MeasurementType.TEMPERATURE,
+        duration,
       );
 
-      // Create new data points
-      const now = Date.now();
-      const newHashratePoint = { datetime: now, value: latestHashrate };
-      const newPowerPoint = { datetime: now, value: latestPower };
-      const newEfficiencyPoint = { datetime: now, value: latestEfficiency };
-      const newTemperaturePoint = { datetime: now, value: latestTemperature };
-
-      // Use functional update to access current state without dependency
-      setOutletContext((prev) => {
-        if (!prev) return null;
-
-        // Merge with existing data using previous state
-        const updatedHashrateData = mergeStreamingDataPoint(
-          prev.minerHashrate.hashrate,
-          newHashratePoint,
-        );
-        const updatedPowerData = mergeStreamingDataPoint(
-          prev.minerPowerUsage.powerUsage,
-          newPowerPoint,
-        );
-        const updatedEfficiencyData = mergeStreamingDataPoint(
-          prev.minerEfficiency.efficiency,
-          newEfficiencyPoint,
-        );
-        const updatedTemperatureData = mergeStreamingDataPoint(
-          prev.minerUptime.uptime,
-          newTemperaturePoint,
-        );
-
-        return {
-          ...prev,
-          minerHashrate: {
-            ...prev.minerHashrate,
-            hashrate: updatedHashrateData,
-          },
-          minerPowerUsage: {
-            ...prev.minerPowerUsage,
-            powerUsage: updatedPowerData,
-          },
-          minerEfficiency: {
-            ...prev.minerEfficiency,
-            efficiency: updatedEfficiencyData,
-          },
-          minerUptime: {
-            ...prev.minerUptime,
-            uptime: updatedTemperatureData,
-          },
-        };
+      setOutletContext({
+        duration,
+        minerHashrate: {
+          hashrate: processedMetrics.hashrate.timeSeries,
+          aggregates: processedMetrics.hashrate.aggregates,
+        },
+        minerEfficiency: {
+          efficiency: processedMetrics.efficiency.timeSeries,
+          aggregates: processedMetrics.efficiency.aggregates,
+        },
+        minerPowerUsage: {
+          powerUsage: processedMetrics.power.timeSeries,
+          aggregates: processedMetrics.power.aggregates,
+        },
+        minerUptime: {
+          uptime: processedMetrics.temperature.timeSeries, // Placeholder until uptime is available
+          aggregates: processedMetrics.temperature.aggregates,
+        },
       });
     } catch (error) {
       console.error("Error processing streaming data:", error);
     }
-  }, [streamingData]);
+  }, [streamingData, combinedMetricsData, duration]);
 
   // Set the duration in local storage when it changes
   const handleDurationChange = (newDuration: Duration) => {

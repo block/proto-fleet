@@ -6,10 +6,11 @@ import {
 } from "./types";
 import { usePoll } from "./usePoll";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { type Duration } from "@/shared/components/DurationSelector";
 
 interface UseAsicTemperatureProps {
   asicId?: number;
-  duration: GetAsicTemperatureParams["duration"];
+  duration: Duration;
   granularity: GetAsicTemperatureParams["granularity"];
   hashboardSerial?: string;
   poll?: boolean;

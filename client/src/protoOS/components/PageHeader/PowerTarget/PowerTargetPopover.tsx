@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMiningTarget } from "@/protoOS/api";
+import { PerformanceMode } from "@/protoOS/api/types";
 import {
-  PerformanceMode,
   PowerTargetMode,
   powerTargetModes,
 } from "@/protoOS/components/PageHeader/PowerTarget/constants";

@@ -5,6 +5,7 @@ import { useAsicColor } from "../../../hooks";
 import AsicPopover from "./AsicPopover";
 import { getAsicUniqueId } from "./utility";
 import { AsicStats, GetAsicHashrateParams } from "@/protoOS/api/types";
+import { type Duration } from "@/shared/components/DurationSelector";
 import { usePopover } from "@/shared/components/Popover";
 import { TEMP_UNITS, usePreferences } from "@/shared/features/preferences";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
@@ -12,7 +13,7 @@ import { convertCtoF } from "@/shared/utils/utility";
 
 interface AsicButtonProps {
   asic: AsicStats;
-  duration: GetAsicHashrateParams["duration"];
+  duration: Duration;
   granularity: GetAsicHashrateParams["granularity"];
   hashboardSerial: string;
   showPopover: string | undefined;

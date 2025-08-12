@@ -10,15 +10,29 @@
  * ---------------------------------------------------------------
  */
 
+/**
+ * Statistical aggregates for time series data
+ * @example {"min":28,"avg":31,"max":34}
+ */
 export interface Aggregates {
-  /** Average value in data. */
+  /**
+   * Average value in data.
+   * @example 31
+   */
   avg?: number;
-  /** Maximum value in data. */
+  /**
+   * Maximum value in data.
+   * @example 34
+   */
   max?: number;
-  /** Minimum value in data. */
+  /**
+   * Minimum value in data.
+   * @example 28
+   */
   min?: number;
 }
 
+/** Statistics and performance data for an individual ASIC chip */
 export interface AsicStats {
   /**
    * Physical column location of the ASIC on the hashboard.
@@ -62,44 +76,59 @@ export interface AsicStats {
   temp_c?: number;
 }
 
+/** Response containing statistics data for a specific ASIC chip */
 export interface AsicStatsResponse {
+  /** Statistics and performance data for an individual ASIC chip */
   "asic-stats"?: AsicStats;
 }
 
+/** JWT authentication tokens for access and refresh operations */
 export interface AuthTokens {
-  /** JWT access token. */
+  /**
+   * JWT access token.
+   * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+   */
   access_token: string;
-  /** JWT refresh token. */
+  /**
+   * JWT refresh token.
+   * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+   */
   refresh_token: string;
 }
 
+/** Request data for changing a user's password with current password verification */
 export interface ChangePasswordRequest {
   /**
    * The current password for authentication
    * @format password
    * @minLength 8
+   * @example "current_password123"
    */
   current_password: string;
   /**
    * The new password to set
    * @format password
    * @minLength 8
+   * @example "new_password456"
    */
   new_password: string;
 }
 
+/** Complete control board hardware and firmware information */
 export interface ControlBoardInfo {
   /**
    * Board ID identifier.
    * @example "8"
    */
   board_id?: string;
+  /** Control board Linux firmware information */
   firmware?: ControlBoardInfoControlboardlinuxasset;
   /**
    * Machine name identifier.
    * @example "c3-p1"
    */
   machine_name?: string;
+  /** CPU and processor information from the control board */
   mpu?: ControlBoardInfoMpuinfo;
   /**
    * Control board serial number.
@@ -108,6 +137,7 @@ export interface ControlBoardInfo {
   serial_number?: string;
 }
 
+/** Control board Linux firmware information */
 export interface ControlBoardInfoControlboardlinuxasset {
   /**
    * Git commit hash.
@@ -136,6 +166,7 @@ export interface ControlBoardInfoControlboardlinuxasset {
   version?: string;
 }
 
+/** CPU and processor information from the control board */
 export interface ControlBoardInfoMpuinfo {
   /**
    * CPU architecture version.
@@ -189,6 +220,7 @@ export interface ControlBoardInfoMpuinfo {
   serial?: string;
 }
 
+/** Cooling system configuration for fan control modes */
 export interface CoolingConfig {
   /**
    * Parameter to define the cooling mode.  Modes:
@@ -200,10 +232,13 @@ export interface CoolingConfig {
   mode?: "Off" | "Auto" | "Max";
 }
 
+/** Current cooling system status and fan information */
 export interface CoolingStatus {
+  /** Cooling system status and performance information */
   "cooling-status"?: CoolingStatusCoolingstatus;
 }
 
+/** Cooling system status and performance information */
 export interface CoolingStatusCoolingstatus {
   /**
    * Parameter to show the current fan mode.
@@ -214,17 +249,26 @@ export interface CoolingStatusCoolingstatus {
   fans?: FanStatus[];
 }
 
+/** Response containing historical mining efficiency data over time */
 export interface EfficiencyResponse {
+  /** Efficiency data response with time series information */
   "efficiency-data"?: EfficiencyResponseEfficiencydata;
 }
 
+/**
+ * Efficiency data response with time series information
+ * @example {"duration":"24h","data":[{"datetime":1704067200,"value":30},{"datetime":1704070800,"value":32}],"aggregates":{"min":28,"avg":31,"max":34}}
+ */
 export interface EfficiencyResponseEfficiencydata {
+  /** Statistical aggregates for time series data */
   aggregates?: Aggregates;
+  /** @example [{"datetime":1704067200,"value":30},{"datetime":1704070800,"value":32}] */
   data?: TimeSeriesData[];
-  /** Duration of power data returned. */
-  duration?: "12h" | "24h" | "48h" | "5d";
+  /** Duration of time series data returned. */
+  duration?: TimeSeriesDuration;
 }
 
+/** Error information with code and message details */
 export interface Error {
   /**
    * Error code.
@@ -238,12 +282,16 @@ export interface Error {
   message?: string;
 }
 
+/** Array of notification errors for system error reporting */
 export type ErrorListResponse = NotificationError[];
 
+/** Error response containing error details */
 export interface ErrorResponse {
+  /** Error information with code and message details */
   error?: Error;
 }
 
+/** Firmware version and build information */
 export interface FWInfo {
   /** @example "release" */
   build?: "debug" | "release";
@@ -255,6 +303,7 @@ export interface FWInfo {
   version?: string;
 }
 
+/** Individual fan information including status and RPM data */
 export interface FanInfoFaninfo {
   /**
    * Each cooling device is assigned a unique identifier starting from 0.
@@ -278,6 +327,7 @@ export interface FanInfoFaninfo {
   name?: string;
 }
 
+/** Current status and performance metrics for individual cooling fans */
 export interface FanStatus {
   /**
    * Each fan is assigned a unique identifier starting from 0.
@@ -296,46 +346,83 @@ export interface FanStatus {
   rpm?: number;
 }
 
+/**
+ * Information about all fans in the mining device
+ * @example [{"id":0,"name":"","min_rpm":500,"max_rpm":5000}]
+ */
 export type FansInfo = FanInfoFaninfo[];
 
 export interface GetAsicHashrateParams {
   /** The ID of the ASIC to provide hashrate information for. */
   asicId: number;
-  /** @default "12h" */
-  duration?: "12h" | "24h" | "48h" | "5d";
-  /** @default "1m" */
+  /**
+   * Time duration for historical data retrieval. Defaults to 1h if not specified.
+   * @default "1h"
+   */
+  duration?: "1h" | "12h" | "24h" | "48h" | "5d";
+  /**
+   * Time interval granularity for data points. Defaults to 1m if not specified.
+   * @default "1m"
+   */
   granularity?: "1m" | "5m" | "15m";
-  /** The serial number of the hashboard to provide hashrate information for. */
+  /**
+   * The serial number of the hashboard.
+   * @example "YWWLMMMMRRFSSSSS"
+   */
   hbSn: string;
 }
 
 export interface GetAsicTemperatureParams {
   /** The ID of the ASIC to provide temperature information for. */
   asicId: number;
-  /** @default "12h" */
-  duration?: "12h" | "24h" | "48h" | "5d";
-  /** @default "1m" */
+  /**
+   * Time duration for historical data retrieval. Defaults to 1h if not specified.
+   * @default "1h"
+   */
+  duration?: "1h" | "12h" | "24h" | "48h" | "5d";
+  /**
+   * Time interval granularity for data points. Defaults to 1m if not specified.
+   * @default "1m"
+   */
   granularity?: "1m" | "5m" | "15m";
-  /** The serial number of the hashboard to provide temperature information for. */
+  /**
+   * The serial number of the hashboard.
+   * @example "YWWLMMMMRRFSSSSS"
+   */
   hbSn: string;
 }
 
 export interface GetHashboardEfficiencyParams {
-  /** @default "12h" */
-  duration?: "12h" | "24h" | "48h" | "5d";
-  /** The serial number of the hashboard to provide power information for. */
+  /**
+   * Time duration for historical data retrieval. Defaults to 1h if not specified.
+   * @default "1h"
+   */
+  duration?: "1h" | "12h" | "24h" | "48h" | "5d";
+  /**
+   * The serial number of the hashboard.
+   * @example "YWWLMMMMRRFSSSSS"
+   */
   hbSn: string;
 }
 
 export interface GetHashboardHashrateParams {
-  /** @default "12h" */
-  duration?: "12h" | "24h" | "48h" | "5d";
-  /** The serial number of the hashboard to provide hashrate information for. */
+  /**
+   * Time duration for historical data retrieval. Defaults to 1h if not specified.
+   * @default "1h"
+   */
+  duration?: "1h" | "12h" | "24h" | "48h" | "5d";
+  /**
+   * The serial number of the hashboard.
+   * @example "YWWLMMMMRRFSSSSS"
+   */
   hbSn: string;
 }
 
 export interface GetHashboardLogsParams {
-  /** The serial number of the hashboard to provide statistics for. */
+  /**
+   * The serial number of the hashboard.
+   * @example "YWWLMMMMRRFSSSSS"
+   */
   hbSn: string;
   /**
    * The number of most recent logs to return. Maximum of 500, defaults to 100.
@@ -345,37 +432,61 @@ export interface GetHashboardLogsParams {
 }
 
 export interface GetHashboardPowerParams {
-  /** @default "12h" */
-  duration?: "12h" | "24h" | "48h" | "5d";
-  /** The serial number of the hashboard to provide power information for. */
+  /**
+   * Time duration for historical data retrieval. Defaults to 1h if not specified.
+   * @default "1h"
+   */
+  duration?: "1h" | "12h" | "24h" | "48h" | "5d";
+  /**
+   * The serial number of the hashboard.
+   * @example "YWWLMMMMRRFSSSSS"
+   */
   hbSn: string;
 }
 
 export interface GetHashboardTemperatureParams {
-  /** @default "12h" */
-  duration?: "12h" | "24h" | "48h" | "5d";
-  /** The serial number of the hashboard to provide temperature information for. */
+  /**
+   * Time duration for historical data retrieval. Defaults to 1h if not specified.
+   * @default "1h"
+   */
+  duration?: "1h" | "12h" | "24h" | "48h" | "5d";
+  /**
+   * The serial number of the hashboard.
+   * @example "YWWLMMMMRRFSSSSS"
+   */
   hbSn: string;
 }
 
 export interface GetMinerEfficiencyParams {
-  /** @default "12h" */
-  duration?: "12h" | "24h" | "48h" | "5d";
+  /**
+   * Time duration for historical data retrieval. Defaults to 1h if not specified.
+   * @default "1h"
+   */
+  duration?: "1h" | "12h" | "24h" | "48h" | "5d";
 }
 
 export interface GetMinerHashrateParams {
-  /** @default "12h" */
-  duration?: "12h" | "24h" | "48h" | "5d";
+  /**
+   * Time duration for historical data retrieval. Defaults to 1h if not specified.
+   * @default "1h"
+   */
+  duration?: "1h" | "12h" | "24h" | "48h" | "5d";
 }
 
 export interface GetMinerPowerParams {
-  /** @default "12h" */
-  duration?: "12h" | "24h" | "48h" | "5d";
+  /**
+   * Time duration for historical data retrieval. Defaults to 1h if not specified.
+   * @default "1h"
+   */
+  duration?: "1h" | "12h" | "24h" | "48h" | "5d";
 }
 
 export interface GetMinerTemperatureParams {
-  /** @default "12h" */
-  duration?: "12h" | "24h" | "48h" | "5d";
+  /**
+   * Time duration for historical data retrieval. Defaults to 1h if not specified.
+   * @default "1h"
+   */
+  duration?: "1h" | "12h" | "24h" | "48h" | "5d";
 }
 
 export interface GetSystemLogsParams {
@@ -392,21 +503,34 @@ export interface GetSystemLogsParams {
   source?: "os" | "pool_sw" | "miner_sw" | "miner_web_server";
 }
 
+/** Complete hardware information including hashboards, PSUs, and cooling components */
 export interface HardwareInfo {
+  /** Hardware information and specifications */
   "hardware-info"?: HardwareInfoHardwareinfo;
 }
 
+/**
+ * Hardware information and specifications
+ * @example {"hashboards-info":[],"psus-info":[],"fans-info":[],"cb-info":{}}
+ */
 export interface HardwareInfoHardwareinfo {
+  /** Complete control board hardware and firmware information */
   "cb-info"?: ControlBoardInfo;
-  "fans-info"?: FanInfoFaninfo[];
-  "hashboards-info"?: HashboardsInfoHashboardsinfo[];
-  "psus-info"?: PsusInfoPsusinfo[];
+  "fans-info"?: FansInfo[];
+  "hashboards-info"?: HashboardsInfo[];
+  "psus-info"?: PsusInfo[];
 }
 
+/** Statistics and status information for a hashboard */
 export interface HashboardStats {
+  /** Hashboard performance statistics and metrics */
   "hashboard-stats"?: HashboardStatsHashboardstats;
 }
 
+/**
+ * Hashboard performance statistics and metrics
+ * @example {"hb_sn":"HB001001","hb_id":"0","status":"Running","power_usage_watts":1067,"voltage_mv":16200,"avg_asic_temp_c":65.5,"hashrate_ghs":31666666666666,"ideal_hashrate_ghs":32000000000000,"efficiency_jth":33.7,"asics":[]}
+ */
 export interface HashboardStatsHashboardstats {
   asics?: AsicStats[];
   /**
@@ -453,10 +577,16 @@ export interface HashboardStatsHashboardstats {
   voltage_mv?: number;
 }
 
+/** Information about all hashboards connected to the mining device */
 export interface HashboardsInfo {
+  /** @example [{"hb_sn":"HB001234567890","api_version":"1.0","board":"PROTO0_B","mining_asic":"BZM","mining_asic_count":126,"temp_sensor_count":3,"slot":0}] */
   "hashboards-info"?: HashboardsInfoHashboardsinfo[];
 }
 
+/**
+ * Information about mining hashboards configuration and status
+ * @example {"hb_sn":"HB001001","firmware":{},"bootloader":{},"api_version":"1.0","board":"PROTO0_B","chip_id":"ABC123","mining_asic":"BZM","mining_asic_count":120,"temp_sensor_count":3,"port":0,"ec_logs_path":"/var/log/ec_logs","slot":0}
+ */
 export interface HashboardsInfoHashboardsinfo {
   /** @example "1.0" */
   api_version?: string;
@@ -471,6 +601,7 @@ export interface HashboardsInfoHashboardsinfo {
     | "EVB"
     | "EPIC"
     | "EE_TEST";
+  /** Firmware version and build information */
   bootloader?: FWInfo;
   /** @example "ABC123" */
   chip_id?: string;
@@ -479,6 +610,7 @@ export interface HashboardsInfoHashboardsinfo {
    * @example "/var/log/ec_logs"
    */
   ec_logs_path?: string;
+  /** Firmware version and build information */
   firmware?: FWInfo;
   /**
    * Hashboard serial number.
@@ -486,7 +618,7 @@ export interface HashboardsInfoHashboardsinfo {
    */
   hb_sn?: string;
   /** @example "BZM" */
-  mining_asic?: "BZM" | "MC1" | "MC2" | "MC2Sim";
+  mining_asic?: "BZM" | "MC1" | "MC2";
   /**
    * Number of asics on the hashboard.
    * @example 100
@@ -509,15 +641,23 @@ export interface HashboardsInfoHashboardsinfo {
   temp_sensor_count?: number;
 }
 
+/** Response containing historical hashrate data over time */
 export interface HashrateResponse {
+  /** Hashrate data response with time series information */
   "hashrate-data"?: HashrateResponseHashratedata;
 }
 
+/**
+ * Hashrate data response with time series information
+ * @example {"duration":"24h","data":[{"datetime":1704067200,"value":98765432},{"datetime":1704070800,"value":99123456}],"aggregates":{"min":95000000,"avg":98944444,"max":100000000}}
+ */
 export interface HashrateResponseHashratedata {
+  /** Statistical aggregates for time series data */
   aggregates?: Aggregates;
+  /** @example [{"datetime":1704067200,"value":98765432},{"datetime":1704070800,"value":99123456}] */
   data?: TimeSeriesData[];
-  /** Duration of hashrate data returned. */
-  duration?: "12h" | "24h" | "48h" | "5d";
+  /** Duration of time series data returned. */
+  duration?: TimeSeriesDuration;
 }
 
 export interface LocateSystemParams {
@@ -528,10 +668,13 @@ export interface LocateSystemParams {
   led_on_time?: number;
 }
 
+/** System log entries from various sources (OS, miner software, pool software) */
 export interface LogsResponse {
+  /** Log data response containing system and mining logs */
   logs?: LogsResponseLogs;
 }
 
+/** Log data response containing system and mining logs */
 export interface LogsResponseLogs {
   content?: string[];
   /**
@@ -546,15 +689,19 @@ export interface LogsResponseLogs {
   source?: string;
 }
 
+/** Generic response message */
 export interface MessageResponse {
+  /** @example "Operation completed successfully" */
   message?: string;
 }
 
 /** Mining statistics */
 export interface MiningStatus {
+  /** Mining operation status and performance data */
   "mining-status"?: MiningStatusMiningstatus;
 }
 
+/** Mining operation status and performance data */
 export interface MiningStatusMiningstatus {
   /**
    * Average temperature of the ASICs in the mining device.
@@ -620,26 +767,26 @@ export interface MiningStatusMiningstatus {
     | "Error";
 }
 
+/** Mining target configuration for power and performance settings */
 export interface MiningTarget {
   /**
    * The performance mode the miner will operate in. Modes:
    *  - MaximumHashrate: Will run at the power target to maximum hashrate.
    *  - Efficiency: Will run at or below the power target to optimize J/TH.
-   * @example "MaximumHashrate"
    */
-  performance_mode?: "MaximumHashrate" | "Efficiency";
+  performance_mode?: PerformanceMode;
   /** @example 3000 */
   power_target_watts?: number;
 }
 
+/** Response containing current mining target configuration */
 export interface MiningTargetResponse {
   /**
    * The performance mode the miner will operate in. Modes:
    *  - MaximumHashrate: Will run at the power target to maximum hashrate.
    *  - Efficiency: Will run at or below the power target to optimize J/TH.
-   * @example "MaximumHashrate"
    */
-  performance_mode?: "MaximumHashrate" | "Efficiency";
+  performance_mode?: PerformanceMode;
   /** @example 3000 */
   power_target_max_watts?: number;
   /** @example 400 */
@@ -648,10 +795,13 @@ export interface MiningTargetResponse {
   power_target_watts?: number;
 }
 
+/** Network configuration settings for DHCP or static IP setup */
 export interface NetworkConfig {
+  /** Network configuration settings and parameters */
   "network-config"?: NetworkConfigNetworkconfig;
 }
 
+/** Network configuration settings and parameters */
 export interface NetworkConfigNetworkconfig {
   /** @example true */
   dhcp?: boolean;
@@ -665,10 +815,13 @@ export interface NetworkConfigNetworkconfig {
   netmask?: string;
 }
 
+/** Network configuration and status information for the mining device */
 export interface NetworkInfo {
+  /** Network configuration and connection information */
   "network-info"?: NetworkInfoNetworkinfo;
 }
 
+/** Network configuration and connection information */
 export interface NetworkInfoNetworkinfo {
   /** @example true */
   dhcp?: boolean;
@@ -684,6 +837,7 @@ export interface NetworkInfoNetworkinfo {
   netmask?: string;
 }
 
+/** Notification error information with source and details */
 export interface NotificationError {
   asic_index?: number;
   component_index?: number;
@@ -701,6 +855,7 @@ export interface NotificationError {
   source?: "Miner" | "Hashboard" | "ASIC";
 }
 
+/** Operating system information and version details */
 export interface OSInfo {
   /** @example "20231208T220633Z" */
   build_datetime_utc?: string;
@@ -710,6 +865,7 @@ export interface OSInfo {
   machine?: string;
   /** @example "BTCM Linux Distribution" */
   name?: string;
+  /** Operating system status including memory, CPU, and filesystem usage */
   status?: OSStatus;
   /** @example "release" */
   variant?: "release" | "mfg" | "dev" | "unknown";
@@ -717,6 +873,7 @@ export interface OSInfo {
   version?: string;
 }
 
+/** Operating system status including memory, CPU, and filesystem usage */
 export interface OSStatus {
   /** @example 30.2 */
   cpu_load_percent?: number;
@@ -730,15 +887,29 @@ export interface OSStatus {
   rootfs_total_mb?: number;
 }
 
+/** Password data for authentication operations */
 export interface PasswordRequest {
   /**
    * The password for the user
    * @format password
    * @minLength 8
+   * @example "securePassword123"
    */
   password: string;
 }
 
+/**
+ * The performance mode the miner will operate in. Modes:
+ *  - MaximumHashrate: Will run at the power target to maximum hashrate.
+ *  - Efficiency: Will run at or below the power target to optimize J/TH.
+ * @example "MaximumHashrate"
+ */
+export enum PerformanceMode {
+  MaximumHashrate = "MaximumHashrate",
+  Efficiency = "Efficiency",
+}
+
+/** Mining pool configuration with connection details and priorities */
 export interface Pool {
   /**
    * The number of shares that have been accepted by the mining pool as valid solutions to a mining problem.
@@ -811,16 +982,10 @@ export interface Pool {
   rejected?: number;
   /** The status field indicates the state of the mining pool. An "Idle" status indicates that the pool is available but not currently in use (due to priority). An "Active" status means that the pool is currently active. A "Dead" status indicates that the mining device is unable to establish a connection with the pool. */
   status?: "Unknown" | "Idle" | "Active" | "Dead";
-  /**
-   * The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information.
-   * @example "pool1.com:3333"
-   */
-  url?: string;
-  /**
-   * The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device.
-   * @example "user1"
-   */
-  user?: string;
+  /** The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information. */
+  url?: PoolUrl;
+  /** The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device. */
+  user?: PoolUsername;
   /**
    * The number of works that were generated from the job notify messages.
    * @example 10
@@ -828,66 +993,99 @@ export interface Pool {
   works_generated?: number;
 }
 
+/** Array of pool configurations for creating or updating pools */
 export type PoolConfig = PoolConfigInner[];
 
+/** Individual pool configuration with connection details */
 export interface PoolConfigInner {
-  /**
-   * A password used for authentication and accessing the mining pool, which is ignored by SV1 pools.
-   * @example "anything"
-   */
-  password?: string;
-  /** Connection priority for this pool. Lower numbers are higher priorities, with 0 being the maximum. */
-  priority?: number;
-  /**
-   * The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information.
-   * @example "pool1.com:3333"
-   */
-  url?: string;
-  /**
-   * The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device.
-   * @example "user1"
-   */
-  username?: string;
+  /** A password used for authentication and accessing the mining pool, which is ignored by SV1 pools. */
+  password?: PoolPassword;
+  /** The priority of the pool connection. Lower numbers indicate higher priority, with 0 being the highest priority. */
+  priority?: PoolPriority;
+  /** The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information. */
+  url?: PoolUrl;
+  /** The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device. */
+  username?: PoolUsername;
 }
 
+/** Response containing pool configuration results */
 export type PoolConfigResponse = PoolConfigResponseInner[];
 
+/** Response data for individual pool configuration operations */
 export interface PoolConfigResponseInner {
-  /** Connection priority for this pool. Lower numbers are higher priorities, with 0 being the maximum. */
-  priority?: number;
-  /**
-   * The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information.
-   * @example "pool1.com:3333"
-   */
-  url?: string;
-  /**
-   * The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device.
-   * @example "user1"
-   */
-  username?: string;
+  /** The priority of the pool connection. Lower numbers indicate higher priority, with 0 being the highest priority. */
+  priority?: PoolPriority;
+  /** The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information. */
+  url?: PoolUrl;
+  /** The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device. */
+  username?: PoolUsername;
 }
 
+/**
+ * A password used for authentication and accessing the mining pool, which is ignored by SV1 pools.
+ * @example "anything"
+ */
+export type PoolPassword = string;
+
+/**
+ * The priority of the pool connection. Lower numbers indicate higher priority, with 0 being the highest priority.
+ * @example 0
+ */
+export type PoolPriority = number;
+
+/** Response containing a single pool configuration */
 export interface PoolResponse {
+  /** Mining pool configuration with connection details and priorities */
   pool?: Pool;
 }
 
+/**
+ * The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information.
+ * @example "pool1.com:3333"
+ */
+export type PoolUrl = string;
+
+/**
+ * The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device.
+ * @example "user1"
+ */
+export type PoolUsername = string;
+
+/** List of configured mining pools with their settings */
 export interface PoolsList {
+  /** @example [{"url":"stratum+tcp://pool.example.com:4334","username":"miner.001","password":"x"},{"url":"stratum+tcp://backup.pool.com:4334","username":"miner.001","password":"x"}] */
   pools?: Pool[];
 }
 
+/** Response containing historical power consumption data over time */
 export interface PowerResponse {
+  /** Power data response with time series information */
   "power-data"?: PowerResponsePowerdata;
 }
 
+/**
+ * Power data response with time series information
+ * @example {"duration":"24h","data":[{"datetime":1704067200,"value":3250},{"datetime":1704070800,"value":3300}],"aggregates":{"min":3200,"avg":3275,"max":3350}}
+ */
 export interface PowerResponsePowerdata {
+  /** Statistical aggregates for time series data */
   aggregates?: Aggregates;
+  /** @example [{"datetime":1704067200,"value":3250},{"datetime":1704070800,"value":3300}] */
   data?: TimeSeriesData[];
-  /** Duration of power data returned. */
-  duration?: "12h" | "24h" | "48h" | "5d";
+  /** Duration of time series data returned. */
+  duration?: TimeSeriesDuration;
 }
 
+/**
+ * Information about all power supply units in the mining device
+ * @example [{"serial_number":"PSU001234567890","model":"Example PSU 1","wattage":1600,"efficiency":94.5,"status":"online"}]
+ */
 export type PsusInfo = PsusInfoPsusinfo[];
 
+/**
+ * Power supply unit information and status
+ * @example {"psu_sn":"517CP81302000721","slot":2,"manufacturer":"Chicony","hw_revision":"v1.0","model":"PSU3200","vendor":"Chicony","firmware":{"app_version":"1.0","bootloader_version":"1.0"},"power":{"input_voltage":240,"output_voltage":15.38,"input_current":20.34,"output_current":251.5,"input_power":3868,"output_power":4000},"temperatures":[]}
+ */
 export interface PsusInfoPsusinfo {
   firmware?: {
     /**
@@ -919,32 +1117,32 @@ export interface PsusInfoPsusinfo {
   power?: {
     /**
      * Input current in milliamperes.
-     * @example 219
+     * @example 20340
      */
     input_current_ma?: number;
     /**
      * Input power in milliwatts.
-     * @example 48063
+     * @example 386800
      */
     input_power_mw?: number;
     /**
      * Input voltage in millivolts.
-     * @example 210250
+     * @example 24000
      */
     input_voltage_mv?: number;
     /**
      * Output current in milliamperes.
-     * @example 2539
+     * @example 25150
      */
     output_current_ma?: number;
     /**
      * Output power in milliwatts.
-     * @example 39500
+     * @example 400000
      */
     output_power_mw?: number;
     /**
      * Output voltage in millivolts.
-     * @example 15529
+     * @example 15380
      */
     output_voltage_mv?: number;
   };
@@ -966,16 +1164,25 @@ export interface PsusInfoPsusinfo {
   vendor?: string;
 }
 
+/** Request data for refreshing JWT access tokens */
 export interface RefreshRequest {
-  /** The JWT refresh token to be validated. */
+  /**
+   * The JWT refresh token to be validated.
+   * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+   */
   refresh_token: string;
 }
 
+/** Response containing a new JWT access token */
 export interface RefreshResponse {
-  /** A new JWT access token. */
+  /**
+   * A new JWT access token.
+   * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+   */
   access_token: string;
 }
 
+/** Software component name and version information */
 export interface SWInfo {
   /** @example "Cgminer" */
   name?: string;
@@ -983,23 +1190,31 @@ export interface SWInfo {
   version?: string;
 }
 
+/** Configuration for SSH access */
 export interface SshConfig {
+  /** SSH service status information */
   "ssh-status"?: SshStatus;
 }
 
+/** Response containing SSH status */
 export interface SshResponse {
+  /** SSH service status information */
   "ssh-status"?: SshStatus;
 }
 
+/** SSH service status information */
 export interface SshStatus {
   /** @example true */
   enabled?: boolean;
 }
 
+/** Complete system information including hardware, software, and OS details */
 export interface SystemInfo {
+  /** System information and device details */
   "system-info"?: SystemInfoSysteminfo;
 }
 
+/** System information and device details */
 export interface SystemInfoSysteminfo {
   /** @example "c1-evt" */
   board?:
@@ -1010,9 +1225,13 @@ export interface SystemInfoSysteminfo {
     | "unknown";
   /** @example "YWWLMMMMRRFSSSSS" */
   cb_sn?: string;
+  /** Software component name and version information */
   hashboard_firmware?: SWInfo;
+  /** Software component name and version information */
   mining_driver_sw?: SWInfo;
+  /** Operating system information and version details */
   os?: OSInfo;
+  /** Software component name and version information */
   pool_interface_sw?: SWInfo;
   /** @example "Proto Rig" */
   product_name?: string;
@@ -1023,16 +1242,20 @@ export interface SystemInfoSysteminfo {
     | "STM32MP151F"
     | "STM32MP131F"
     | "unknown";
+  /** Current status and information about system software updates */
   sw_update_status?: UpdateStatus;
   /**
    * @format int64
    * @example 300
    */
   uptime_seconds?: number;
+  /** Software component name and version information */
   web_dashboard?: SWInfo;
+  /** Software component name and version information */
   web_server?: SWInfo;
 }
 
+/** System status information including onboarding and password setup */
 export interface SystemStatuses {
   /** @example true */
   onboarded?: boolean;
@@ -1040,18 +1263,30 @@ export interface SystemStatuses {
   password_set?: boolean;
 }
 
+/** Configuration for telemetry data collection */
 export interface TelemetryConfig {
-  /** Enable or disable telemetry */
+  /**
+   * Enable or disable telemetry
+   * @example true
+   */
   enabled: boolean;
 }
 
+/** Response containing telemetry status information */
 export interface TelemetryResponse {
-  /** Whether telemetry is currently enabled */
+  /**
+   * Whether telemetry is currently enabled
+   * @example true
+   */
   enabled: boolean;
-  /** Status message about telemetry */
+  /**
+   * Status message about telemetry
+   * @example "Telemetry is enabled"
+   */
   message: string;
 }
 
+/** Temperature measurement from a sensor */
 export interface TemperatureMeasurement {
   /**
    * Temperature in Celsius.
@@ -1065,50 +1300,77 @@ export interface TemperatureMeasurement {
   temperature_type?: string;
 }
 
+/** Response containing historical temperature data over time */
 export interface TemperatureResponse {
+  /** Temperature data response with time series information */
   "temperature-data"?: TemperatureResponseTemperaturedata;
 }
 
+/**
+ * Temperature data response with time series information
+ * @example {"duration":"24h","data":[{"datetime":1704067200,"value":68},{"datetime":1704070800,"value":72}],"aggregates":{"min":65,"avg":70,"max":75}}
+ */
 export interface TemperatureResponseTemperaturedata {
+  /** Statistical aggregates for time series data */
   aggregates?: Aggregates;
+  /** @example [{"datetime":1704067200,"value":68},{"datetime":1704070800,"value":72}] */
   data?: TimeSeriesData[];
-  /** Duration of temperature data returned. */
-  duration?: "12h" | "24h" | "48h" | "5d";
+  /** Duration of time series data returned. */
+  duration?: TimeSeriesDuration;
 }
 
+/** Configuration for testing connection to a mining pool */
 export interface TestConnection {
-  /**
-   * A password used for authentication and accessing the mining pool, which is ignored by SV1 pools.
-   * @example "anything"
-   */
-  password?: string;
-  /**
-   * The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information.
-   * @example "pool1.com:3333"
-   */
-  url?: string;
-  /**
-   * The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device.
-   * @example "user1"
-   */
-  username?: string;
+  /** A password used for authentication and accessing the mining pool, which is ignored by SV1 pools. */
+  password?: PoolPassword;
+  /** The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information. */
+  url?: PoolUrl;
+  /** The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device. */
+  username?: PoolUsername;
 }
 
+/**
+ * Time series data point with timestamp and value for historical metrics
+ * @example {"datetime":1704067200,"value":98765432}
+ */
 export interface TimeSeriesData {
-  /** Unix time epoch. */
+  /**
+   * Unix time epoch.
+   * @example 1704067200
+   */
   datetime?: number;
-  /** Value of data requested at the given datetime. */
+  /**
+   * Value of data requested at the given datetime.
+   * @example 98765432
+   */
   value?: number;
 }
 
+/**
+ * Duration of time series data returned.
+ * @example "24h"
+ */
+export enum TimeSeriesDuration {
+  Value1H = "1h",
+  Value12H = "12h",
+  Value24H = "24h",
+  Value48H = "48h",
+  Value5D = "5d",
+}
+
+/** Configuration for device unlock operation */
 export interface UnlockConfig {
+  /** @example "unlock123" */
   "unlock-password"?: string;
 }
 
+/** Response containing device lock status */
 export interface UnlockResponse {
+  /** @example "unlocked" */
   "lock-status"?: string;
 }
 
+/** Current status and information about system software updates */
 export interface UpdateStatus {
   /**
    * Current boot partition
@@ -1420,10 +1682,10 @@ export class HttpClient<SecurityDataType = unknown> {
 
 /**
  * @title Mining Development Kit API
- * @version 1.1.0
- * @license MIT (https://www.mit.edu/~amini/LICENSE.md)
+ * @version 1.2.0
+ * @license MIT (https://opensource.org/license/mit)
  * @baseUrl https://virtserver.swaggerhub.com/kkurucz/mining_development_kit_api/1.0.0
- * @contact <btcm-sw-team@squareup.com>
+ * @contact <mining.support@block.xyz>
  *
  * The Mining Development Kit API serves as a means to access information from the mining device and make necessary adjustments to its settings.
  */
@@ -1466,7 +1728,7 @@ export class Api<
       }),
 
     /**
-     * No description
+     * @description Get configuration for a specific pool by ID
      *
      * @tags Pools
      * @name GetPool
@@ -1500,7 +1762,7 @@ export class Api<
       }),
 
     /**
-     * No description
+     * @description Delete a specific pool configuration by ID
      *
      * @tags Pools
      * @name DeletePool
@@ -1590,12 +1852,12 @@ export class Api<
      * @description Validates and blacklists JWT tokens, effectively logging out the user.
      *
      * @tags Authentication
-     * @name V1AuthLogoutCreate
+     * @name Logout
      * @summary User logout
      * @request POST:/api/v1/auth/logout
      * @secure
      */
-    v1AuthLogoutCreate: (data: AuthTokens, params: RequestParams = {}) =>
+    logout: (data: AuthTokens, params: RequestParams = {}) =>
       this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/auth/logout`,
         method: "POST",
@@ -1610,11 +1872,11 @@ export class Api<
      * @description Validates the provided refresh token and returns a new JWT access token.
      *
      * @tags Authentication
-     * @name V1AuthRefreshCreate
+     * @name RefreshToken
      * @summary Refresh JWT access token
      * @request POST:/api/v1/auth/refresh
      */
-    v1AuthRefreshCreate: (data: RefreshRequest, params: RequestParams = {}) =>
+    refreshToken: (data: RefreshRequest, params: RequestParams = {}) =>
       this.request<RefreshResponse, MessageResponse>({
         path: `/api/v1/auth/refresh`,
         method: "POST",
@@ -1835,6 +2097,7 @@ export class Api<
         /**
          * The firmware update file to upload (.swu format)
          * @format binary
+         * @example "firmware-update-v2.0.2.swu"
          */
         file: File;
       },

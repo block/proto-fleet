@@ -3,9 +3,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ErrorResponse, PowerResponsePowerdata } from "./types";
 import { usePoll } from "./usePoll";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { type Duration } from "@/shared/components/DurationSelector";
 
 interface UseHashboardPowerProps {
-  duration: PowerResponsePowerdata["duration"];
+  duration: Duration;
   hashboardSerial: string | string[];
   poll?: boolean;
 }

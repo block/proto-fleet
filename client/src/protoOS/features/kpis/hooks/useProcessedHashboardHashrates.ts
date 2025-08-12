@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { convertionFns, convertValues, downsample } from "./utility";
 import { useHashboardHashrate } from "@/protoOS/api";
 import { TimeSeriesData } from "@/protoOS/api/types";
 import useHashboardLocationStore from "@/protoOS/store/useHashboardLocationStore";
+import {
+  conversionFns,
+  convertValues,
+  downsample,
+} from "@/shared/components/Chart/utility";
 import { Duration } from "@/shared/components/DurationSelector";
 
 type HbHashRate = {
@@ -75,7 +79,7 @@ const useProcessedHashboardHashrates = ({
             serial: key,
             data: convertValues(
               downsample(value.data, duration),
-              convertionFns.hashrate,
+              conversionFns.hashrate,
             ),
           });
           return acc;

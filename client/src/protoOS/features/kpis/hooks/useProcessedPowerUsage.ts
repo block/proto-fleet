@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  convertAggregateValues,
-  convertionFns,
-  convertValues,
-  downsample,
-} from "./utility";
 import { usePower } from "@/protoOS/api";
 import { Aggregates, TimeSeriesData } from "@/protoOS/api/types";
+import {
+  conversionFns,
+  convertAggregateValues,
+  convertValues,
+  downsample,
+} from "@/shared/components/Chart/utility";
 import { type Duration } from "@/shared/components/DurationSelector";
 
 type UseProcessedPowerUsageProps = {
@@ -45,13 +45,13 @@ const useProcessedPowerUsage = ({ duration }: UseProcessedPowerUsageProps) => {
 
     const convertedAggregates = convertAggregateValues(
       rawPowerUsage.aggregates,
-      convertionFns.powerUsage,
+      conversionFns.powerUsage,
     );
 
     const downsampledPowerUsage = downsample(rawPowerUsage.data, duration);
     const convertedPowerUsage = convertValues(
       downsampledPowerUsage,
-      convertionFns.powerUsage,
+      conversionFns.powerUsage,
     );
 
     setAggregates(convertedAggregates);

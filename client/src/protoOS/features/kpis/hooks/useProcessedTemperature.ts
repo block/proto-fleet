@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  convertAggregateValues,
-  convertionFns,
-  convertValues,
-  downsample,
-} from "./utility";
 import { useTemperature } from "@/protoOS/api";
 import { Aggregates, TimeSeriesData } from "@/protoOS/api/types";
+import {
+  conversionFns,
+  convertAggregateValues,
+  convertValues,
+  downsample,
+} from "@/shared/components/Chart/utility";
 import { type Duration } from "@/shared/components/DurationSelector";
 
 type UseProcessedTemperatureProps = {
@@ -47,13 +47,13 @@ const useProcessedTemperature = ({
 
     const convertedAggregates = convertAggregateValues(
       rawTemperature.aggregates,
-      convertionFns.temperature,
+      conversionFns.temperature,
     );
 
     const downsampledTemperature = downsample(rawTemperature.data, duration);
     const convertedTemperature = convertValues(
       downsampledTemperature,
-      convertionFns.temperature,
+      conversionFns.temperature,
     );
 
     setAggregates(convertedAggregates);

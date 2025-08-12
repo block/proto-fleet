@@ -3,12 +3,13 @@ import { Dispatch, SetStateAction } from "react";
 import { getAsicsRows } from "../../Temperature/utility";
 import AsicButton from "./AsicButton";
 import { AsicStats, GetAsicHashrateParams } from "@/protoOS/api/types";
+import { type Duration } from "@/shared/components/DurationSelector";
 import { PopoverProvider } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
 interface AsicTableProps {
   asics: AsicStats[];
-  duration: GetAsicHashrateParams["duration"];
+  duration: Duration;
   granularity: GetAsicHashrateParams["granularity"];
   hashboardSerialNumber: string;
   pending: boolean;

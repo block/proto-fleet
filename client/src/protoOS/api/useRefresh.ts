@@ -22,8 +22,8 @@ const useRefresh = () => {
     async ({ refreshToken, onSuccess, onError }: RefreshProps) => {
       if (!api) return;
       await api
-        .v1AuthRefreshCreate({ refresh_token: refreshToken })
-        .then((res) => {
+        .refreshToken({ refresh_token: refreshToken })
+        .then((res: any) => {
           const accessTokenValue = res?.data["access_token"];
           setAuthTokens({
             ...authTokens,
@@ -34,7 +34,7 @@ const useRefresh = () => {
           });
           onSuccess?.(accessTokenValue);
         })
-        .catch((err) => {
+        .catch((err: any) => {
           onError?.(err);
         });
     },

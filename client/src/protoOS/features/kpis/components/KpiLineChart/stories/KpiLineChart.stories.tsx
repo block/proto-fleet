@@ -1,11 +1,5 @@
 import { useMemo } from "react";
 
-import {
-  convertionFns,
-  convertValues,
-  downsample,
-} from "../../../hooks/utility";
-
 import KpiLineChartComponent from "../KpiLineChartWrapper";
 import {
   mockHashrateData,
@@ -13,6 +7,11 @@ import {
   mockHashrateData2,
   mockHashrateData3,
 } from "./mocks";
+import {
+  conversionFns,
+  convertValues,
+  downsample,
+} from "@/shared/components/Chart/utility";
 
 import { Duration } from "@/shared/components/DurationSelector";
 
@@ -24,7 +23,7 @@ interface KpiLineChartProps {
 
 const processData = (data: any, duration: Duration) => {
   const downsampledData = downsample(data, duration);
-  return convertValues(downsampledData, convertionFns.hashrate);
+  return convertValues(downsampledData, conversionFns.hashrate);
 };
 
 export const KpiLineChart = ({

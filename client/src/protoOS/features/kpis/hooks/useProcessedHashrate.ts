@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  convertAggregateValues,
-  convertionFns,
-  convertValues,
-  downsample,
-} from "./utility";
 import { useHashrate } from "@/protoOS/api";
 import { Aggregates, TimeSeriesData } from "@/protoOS/api/types";
+import {
+  conversionFns,
+  convertAggregateValues,
+  convertValues,
+  downsample,
+} from "@/shared/components/Chart/utility";
 import { type Duration } from "@/shared/components/DurationSelector";
 
 type UseProcessedHashrateProps = {
@@ -45,13 +45,13 @@ const useProcessedHashrate = ({ duration }: UseProcessedHashrateProps) => {
 
     const convertedAggregates = convertAggregateValues(
       rawHashrate.aggregates,
-      convertionFns.hashrate,
+      conversionFns.hashrate,
     );
 
     const downsampledHashrateValues = downsample(rawHashrate.data, duration);
     const convertedHashrate = convertValues(
       downsampledHashrateValues,
-      convertionFns.hashrate,
+      conversionFns.hashrate,
     );
 
     setAggregates(convertedAggregates || {});

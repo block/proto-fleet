@@ -3,9 +3,10 @@ import { useCallback, useMemo, useState } from "react";
 import { TemperatureResponseTemperaturedata } from "./types";
 import { usePoll } from "./usePoll";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { type Duration } from "@/shared/components/DurationSelector";
 
 interface UseTemperatureProps {
-  duration: TemperatureResponseTemperaturedata["duration"];
+  duration: Duration;
   poll?: boolean;
 }
 

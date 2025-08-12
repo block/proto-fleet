@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  convertAggregateValues,
-  convertionFns,
-  convertValues,
-  downsample,
-} from "./utility";
 import { useEfficiency } from "@/protoOS/api";
 import { Aggregates, TimeSeriesData } from "@/protoOS/api/types";
+import {
+  conversionFns,
+  convertAggregateValues,
+  convertValues,
+  downsample,
+} from "@/shared/components/Chart/utility";
 import { type Duration } from "@/shared/components/DurationSelector";
 
 type UseProcessedEfficiencyProps = {
@@ -45,13 +45,13 @@ const useProcessedEfficiency = ({ duration }: UseProcessedEfficiencyProps) => {
 
     const convertedAggregates = convertAggregateValues(
       rawEfficiency.aggregates,
-      convertionFns.efficiency,
+      conversionFns.efficiency,
     );
 
     const downsampledEfficiency = downsample(rawEfficiency.data, duration);
     const convertedEfficiency = convertValues(
       downsampledEfficiency,
-      convertionFns.efficiency,
+      conversionFns.efficiency,
     );
 
     setAggregates(convertedAggregates);
