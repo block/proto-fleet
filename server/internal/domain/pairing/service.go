@@ -366,34 +366,32 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 	}
 
 	deviceIDs := make([]models.DeviceIdentifier, 0, len(r.DeviceIdentifiers))
+	failedIDs := make([]string, 0, len(r.DeviceIdentifiers))
 
-	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		// Create pairing records for each device
-		for _, deviceID := range r.DeviceIdentifiers {
-			err = s.pairDevice(ctx, deviceID, claims.OrgID, r.Credentials)
-			if err == nil {
-				deviceIDs = append(deviceIDs, models.DeviceIdentifier(deviceID))
-			} else {
-				slog.Error("failed to pair device", "error", err) // continue pairing other devices
-			}
+	// Create pairing records for each device
+	for _, deviceID := range r.DeviceIdentifiers {
+		err = s.pairDevice(ctx, deviceID, claims.OrgID, r.Credentials)
+		if err == nil {
+			deviceIDs = append(deviceIDs, models.DeviceIdentifier(deviceID))
+		} else {
+			slog.Error("failed to pair device", "error", err) // continue pairing other devices
+			failedIDs = append(failedIDs, deviceID)
 		}
+	}
 
-		if len(deviceIDs) == 0 {
-			return fleeterror.NewInternalError("Failed to pair any devices")
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
+	// Partial success is valid
+	if len(deviceIDs) == 0 {
+		return nil, fleeterror.NewInternalError("Failed to pair any devices")
 	}
 
 	if err := s.listener.AddDevices(ctx, deviceIDs...); err != nil {
 		slog.Error("failed to add devices to telemetry scheduler", "error", err)
 		return nil, fleeterror.NewInternalErrorf("failed to add devices to telemetry scheduler: %v", err)
 	}
-	return &pb.PairResponse{}, nil
+
+	return &pb.PairResponse{
+		FailedDeviceIds: failedIDs,
+	}, nil
 }
 
 func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, credentials *pb.Credentials) error {

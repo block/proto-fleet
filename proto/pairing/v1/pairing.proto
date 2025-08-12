@@ -126,6 +126,7 @@ message PairRequest {
 // Response to pairing request
 // Empty message as success/failure is indicated by gRPC status
 message PairResponse {
+  repeated string failed_device_ids = 1;
 }
 
 // Service for discovering and pairing with network devices
