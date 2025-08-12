@@ -5,6 +5,9 @@
     },
     {
       "path": "proto"
+    },
+    {
+      "path": "../miner-firmware"
     }
   ],
   "settings": {
