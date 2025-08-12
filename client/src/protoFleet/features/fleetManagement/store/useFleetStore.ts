@@ -20,6 +20,7 @@ import {
   MeasurementType,
   type TelemetryUpdate,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { getLatestMeasurementWithData } from "@/shared/utils/measurementUtils";
 
 interface FleetState {
   // Core data
@@ -314,16 +315,41 @@ export const useMinerDeviceStatus = (deviceId: string) =>
   useFleetStore((state) => state.miners[deviceId]?.deviceStatus);
 
 export const useMinerHashrate = (deviceId: string) =>
-  useFleetStore((state) => state.miners[deviceId]?.hashrate);
+  useFleetStore((state) =>
+    isHashing(state.miners[deviceId])
+      ? state.miners[deviceId]?.hashrate
+      : undefined,
+  );
+
+const isHashing = (minerSnapshot: MinerStateSnapshot) => {
+  if (!minerSnapshot) return false;
+  if (minerSnapshot.deviceStatus === DeviceStatus.OFFLINE) return false;
+  if (minerSnapshot.deviceStatus === DeviceStatus.INACTIVE) return false;
+  const hashrate = getLatestMeasurementWithData(minerSnapshot.hashrate);
+  if (!hashrate) return false;
+  return hashrate.value > 0;
+};
 
 export const useMinerEfficiency = (deviceId: string) =>
-  useFleetStore((state) => state.miners[deviceId]?.efficiency);
+  useFleetStore((state) =>
+    isHashing(state.miners[deviceId])
+      ? state.miners[deviceId]?.efficiency
+      : undefined,
+  );
 
 export const useMinerPowerUsage = (deviceId: string) =>
-  useFleetStore((state) => state.miners[deviceId]?.powerUsage);
+  useFleetStore((state) =>
+    isHashing(state.miners[deviceId])
+      ? state.miners[deviceId]?.powerUsage
+      : undefined,
+  );
 
 export const useMinerTemperature = (deviceId: string) =>
-  useFleetStore((state) => state.miners[deviceId]?.temperature);
+  useFleetStore((state) =>
+    isHashing(state.miners[deviceId])
+      ? state.miners[deviceId]?.temperature
+      : undefined,
+  );
 
 export const useMinerUrl = (deviceId: string) =>
   useFleetStore((state) => state.miners[deviceId]?.url);

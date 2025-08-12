@@ -22,6 +22,7 @@ const MinerMeasurement = ({
 
   const latestValue = latestMeasurement?.value;
 
+  if (latestValue === undefined) return "N/A";
   return latestValue ? (
     <>
       {getDisplayValue(latestValue)} {unit}
