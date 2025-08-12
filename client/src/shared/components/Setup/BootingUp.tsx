@@ -12,7 +12,7 @@ const BootingUp = ({ title = "Your miner is booting up" }: BootingUpProps) => {
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
   return (
-    <div className="h-svh w-full">
+    <div className="h-svh w-full bg-surface-base">
       <AnimatedDotsBackground connecting>
         <div className="absolute top-1/2 left-1/2 z-10 flex h-[314px] w-[418px] -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center gap-6 rounded-3xl bg-white p-5 backdrop-blur-2xl dark:bg-white/5">
           <motion.div

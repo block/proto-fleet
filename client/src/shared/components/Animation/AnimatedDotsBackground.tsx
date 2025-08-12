@@ -85,7 +85,7 @@ const AnimatedDotsBackground = ({
   return (
     <div
       ref={containerRef}
-      className="relative h-full w-full overflow-visible bg-surface-base p-0.5"
+      className="relative h-full w-full overflow-visible p-0.5"
     >
       {children}
       <div

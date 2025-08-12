@@ -53,7 +53,7 @@ const TaskCard = ({
 };
 
 const AuthenticateMinersCard = () => {
-  const [showModal, setShowModal] = useState(false);
+  const [showAuthMinersModal, setShowAuthMinersModal] = useState(false);
 
   return (
     <>
@@ -62,9 +62,11 @@ const AuthenticateMinersCard = () => {
         title="Authenticate miners"
         description="17 miners need attention"
         actionText="Authenticate"
-        onActionClick={() => setShowModal(true)}
+        onActionClick={() => setShowAuthMinersModal(true)}
       />
-      {showModal && <AuthenticateMiners onClose={() => setShowModal(false)} />}
+      {showAuthMinersModal && (
+        <AuthenticateMiners onClose={() => setShowAuthMinersModal(false)} />
+      )}
     </>
   );
 };

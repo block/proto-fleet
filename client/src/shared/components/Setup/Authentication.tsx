@@ -25,11 +25,12 @@ const WeakPasswordWarning = ({
   return (
     <Modal
       title="Your password isn't secure"
-      description="The password you entered is easy to guess. We recommend creating a password that’s harder to guess."
+      description="The password you entered is easy to guess. We recommend creating a password that's harder to guess."
       preventClose
       size="small"
+      className="!max-w-[360px]"
     >
-      <div className="mt-4 flex flex-col gap-3">
+      <div className="mt-4 flex grow-0 flex-col gap-3">
         <Button
           onClick={onReturn}
           size="base"
