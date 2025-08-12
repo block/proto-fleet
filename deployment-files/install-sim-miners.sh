@@ -183,9 +183,9 @@ verify_system_requirements() {
   fi
 
   # Check if docker-compose is installed
-  if ! check_installed docker-compose; then
-    log INFO "Installing docker-compose..."
-    log WARN "Docker Desktop should include docker-compose. If it's not working, please reinstall Docker Desktop."
+  if ! check_installed docker compose; then
+    log INFO "Installing docker compose..."
+    log WARN "Docker Desktop should include docker compose. If it's not working, please reinstall Docker Desktop."
     exit 1
   fi
 
@@ -261,7 +261,7 @@ cleanup_docker_resources() {
   fi
 
   if [[ -n "$COMPOSE_FILE" && -f "$COMPOSE_FILE" ]]; then
-    docker-compose -f "$COMPOSE_FILE" down 2>/dev/null || log WARN "Failed to stop Docker containers"
+    docker compose -f "$COMPOSE_FILE" down 2>/dev/null || log WARN "Failed to stop Docker containers"
   fi
 
   log INFO "Removing Docker network..."
@@ -454,7 +454,7 @@ generate_compose_file() {
 
 cleanup_existing_containers() {
   log INFO "Tearing down any existing sim miner containers..."
-  docker-compose -f $COMPOSE_FILE down 2>/dev/null || true
+  docker compose -f $COMPOSE_FILE down 2>/dev/null || true
 
   log INFO "Removing any leftover miner containers..."
   for i in $(docker ps -a --format '{{.Names}}' | grep proto-sim-miner); do
@@ -464,7 +464,7 @@ cleanup_existing_containers() {
 
 start_miner_containers() {
   log INFO "Starting $NUM_MINERS miners..."
-  docker-compose -f $COMPOSE_FILE up -d
+  docker compose -f $COMPOSE_FILE up -d
 }
 
 start_miner_services() {
@@ -515,7 +515,7 @@ generate_compose_file
 cleanup_existing_containers
 start_miner_containers
 
-# Check if docker-compose was successful
+# Check if docker compose was successful
 if [ $? -eq 0 ]; then
   setup_loopback_aliases
   start_miner_services
