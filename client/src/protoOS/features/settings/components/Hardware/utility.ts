@@ -1,8 +1,5 @@
 import { InternalAsicType } from "./constants";
-import {
-  ControlBoardInfo,
-  HashboardsInfoHashboardsinfo,
-} from "@/protoOS/api/types";
+import { ControlBoardInfo, HashboardInfo } from "@/protoOS/api/types";
 
 export const getControlBoardGeneration = (
   controlBoardInfo: ControlBoardInfo,
@@ -22,9 +19,7 @@ export const getControlBoardGeneration = (
   }
 };
 
-export const getHashboardIdentifier = (
-  hashboardInfo: HashboardsInfoHashboardsinfo,
-) => {
+export const getHashboardIdentifier = (hashboardInfo: HashboardInfo) => {
   let generation = 1;
   if (
     hashboardInfo.mining_asic === InternalAsicType.MC2 ||

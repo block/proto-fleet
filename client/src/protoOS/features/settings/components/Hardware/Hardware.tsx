@@ -128,7 +128,7 @@ const Hardware = () => {
               >
                 <div className="w-22 text-300">
                   <FanIndicator
-                    fanPosition={(fan.id ?? idx) + 1} // id is 0-indexed, but we want to display it as 1-indexed
+                    fanPosition={fan.id ?? idx + 1} // id is 0-indexed, but we want to display it as 1-indexed
                     numFans={fansInfo.length}
                   />
                 </div>

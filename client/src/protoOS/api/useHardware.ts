@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   ControlBoardInfo,
-  FansInfo,
+  FanInfo,
   HardwareInfoHardwareinfo,
-  HashboardsInfoHashboardsinfo,
-  PsusInfo,
+  HashboardInfo,
+  PsuInfo,
 } from "./types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 
@@ -18,10 +18,10 @@ const useHardware = () => {
     ControlBoardInfo | undefined
   >();
   const [hashboardsInfo, setHashboardsInfo] = useState<
-    HashboardsInfoHashboardsinfo[] | undefined
+    HashboardInfo[] | undefined
   >();
-  const [psusInfo, setPsusInfo] = useState<PsusInfo | undefined>();
-  const [fansInfo, setFansInfo] = useState<FansInfo | undefined>();
+  const [psusInfo, setPsusInfo] = useState<PsuInfo[] | undefined>();
+  const [fansInfo, setFansInfo] = useState<FanInfo[] | undefined>();
 
   useEffect(() => {
     if (!api) return;
@@ -33,19 +33,9 @@ const useHardware = () => {
         const responseData = res?.data["hardware-info"];
         setData(responseData);
         setControlBoardInfo(responseData?.["cb-info"]);
-        // Extract actual arrays from wrapper objects
-        const hashboards = responseData?.["hashboards-info"];
-        setHashboardsInfo(
-          Array.isArray(hashboards)
-            ? hashboards.flatMap((h) => h["hashboards-info"] || [])
-            : undefined,
-        );
-
-        const psus = responseData?.["psus-info"];
-        setPsusInfo(Array.isArray(psus) ? psus.flat() : undefined);
-
-        const fans = responseData?.["fans-info"];
-        setFansInfo(Array.isArray(fans) ? fans.flat() : undefined);
+        setHashboardsInfo(responseData?.["hashboards-info"]);
+        setPsusInfo(responseData?.["psus-info"]);
+        setFansInfo(responseData?.["fans-info"]);
       })
       .catch((err) => {
         setError(err?.error?.message ?? err);

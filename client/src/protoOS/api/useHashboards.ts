@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { HashboardsInfoHashboardsinfo } from "./types";
+import { HashboardInfo } from "./types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import useHashboardLocationStore, {
   type HashboardMap,
@@ -8,7 +8,7 @@ import useHashboardLocationStore, {
 
 const useHashboards = () => {
   const { api } = useMinerHosting();
-  const [data, setData] = useState<HashboardsInfoHashboardsinfo[]>();
+  const [data, setData] = useState<HashboardInfo[]>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
   const setMapping = useHashboardLocationStore((state) => state.setMapping);
@@ -24,7 +24,7 @@ const useHashboards = () => {
         setData(hashboards);
 
         const mapping = hashboards?.reduce(
-          (acc: HashboardMap, hb: HashboardsInfoHashboardsinfo) => {
+          (acc: HashboardMap, hb: HashboardInfo) => {
             if (hb.hb_sn === undefined || hb.slot === undefined) {
               return acc;
             }

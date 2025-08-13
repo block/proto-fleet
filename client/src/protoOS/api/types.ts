@@ -304,7 +304,7 @@ export interface FWInfo {
 }
 
 /** Individual fan information including status and RPM data */
-export interface FanInfoFaninfo {
+export interface FanInfo {
   /**
    * Each cooling device is assigned a unique identifier starting from 0.
    * @example 0
@@ -345,12 +345,6 @@ export interface FanStatus {
    */
   rpm?: number;
 }
-
-/**
- * Information about all fans in the mining device
- * @example [{"id":0,"name":"","min_rpm":500,"max_rpm":5000}]
- */
-export type FansInfo = FanInfoFaninfo[];
 
 export interface GetAsicHashrateParams {
   /** The ID of the ASIC to provide hashrate information for. */
@@ -516,9 +510,67 @@ export interface HardwareInfo {
 export interface HardwareInfoHardwareinfo {
   /** Complete control board hardware and firmware information */
   "cb-info"?: ControlBoardInfo;
-  "fans-info"?: FansInfo[];
-  "hashboards-info"?: HashboardsInfo[];
-  "psus-info"?: PsusInfo[];
+  "fans-info"?: FanInfo[];
+  "hashboards-info"?: HashboardInfo[];
+  "psus-info"?: PsuInfo[];
+}
+
+/**
+ * Information about mining hashboards configuration and status
+ * @example {"hb_sn":"HB001001","firmware":{},"bootloader":{},"api_version":"1.0","board":"PROTO0_B","chip_id":"ABC123","mining_asic":"BZM","mining_asic_count":120,"temp_sensor_count":3,"port":0,"ec_logs_path":"/var/log/ec_logs","slot":0}
+ */
+export interface HashboardInfo {
+  /** @example "1.0" */
+  api_version?: string;
+  /** @example "PROTO0_B" */
+  board?:
+    | "NOT_SET"
+    | "PROTO0_A"
+    | "PROTO0_B"
+    | "EVT"
+    | "DVT"
+    | "PVT"
+    | "EVB"
+    | "EPIC"
+    | "EE_TEST";
+  /** Firmware version and build information */
+  bootloader?: FWInfo;
+  /** @example "ABC123" */
+  chip_id?: string;
+  /**
+   * The absolute path where EC logs are stored.
+   * @example "/var/log/ec_logs"
+   */
+  ec_logs_path?: string;
+  /** Firmware version and build information */
+  firmware?: FWInfo;
+  /**
+   * Hashboard serial number.
+   * @example "YWWLMMMMRRFSSSSS"
+   */
+  hb_sn?: string;
+  /** @example "BZM" */
+  mining_asic?: "BZM" | "MC1" | "MC2";
+  /**
+   * Number of asics on the hashboard.
+   * @example 100
+   */
+  mining_asic_count?: number;
+  /**
+   * The USB port number the hashboard is connected to.
+   * @example 0
+   */
+  port?: number;
+  /**
+   * The physical slot where the hashboard is inserted in the system.
+   * @example 1
+   */
+  slot?: number;
+  /**
+   * Number of temperature sensors on the hashboard.
+   * @example 3
+   */
+  temp_sensor_count?: number;
 }
 
 /** Statistics and status information for a hashboard */
@@ -580,65 +632,7 @@ export interface HashboardStatsHashboardstats {
 /** Information about all hashboards connected to the mining device */
 export interface HashboardsInfo {
   /** @example [{"hb_sn":"HB001234567890","api_version":"1.0","board":"PROTO0_B","mining_asic":"BZM","mining_asic_count":126,"temp_sensor_count":3,"slot":0}] */
-  "hashboards-info"?: HashboardsInfoHashboardsinfo[];
-}
-
-/**
- * Information about mining hashboards configuration and status
- * @example {"hb_sn":"HB001001","firmware":{},"bootloader":{},"api_version":"1.0","board":"PROTO0_B","chip_id":"ABC123","mining_asic":"BZM","mining_asic_count":120,"temp_sensor_count":3,"port":0,"ec_logs_path":"/var/log/ec_logs","slot":0}
- */
-export interface HashboardsInfoHashboardsinfo {
-  /** @example "1.0" */
-  api_version?: string;
-  /** @example "PROTO0_B" */
-  board?:
-    | "NOT_SET"
-    | "PROTO0_A"
-    | "PROTO0_B"
-    | "EVT"
-    | "DVT"
-    | "PVT"
-    | "EVB"
-    | "EPIC"
-    | "EE_TEST";
-  /** Firmware version and build information */
-  bootloader?: FWInfo;
-  /** @example "ABC123" */
-  chip_id?: string;
-  /**
-   * The absolute path where EC logs are stored.
-   * @example "/var/log/ec_logs"
-   */
-  ec_logs_path?: string;
-  /** Firmware version and build information */
-  firmware?: FWInfo;
-  /**
-   * Hashboard serial number.
-   * @example "YWWLMMMMRRFSSSSS"
-   */
-  hb_sn?: string;
-  /** @example "BZM" */
-  mining_asic?: "BZM" | "MC1" | "MC2";
-  /**
-   * Number of asics on the hashboard.
-   * @example 100
-   */
-  mining_asic_count?: number;
-  /**
-   * The USB port number the hashboard is connected to.
-   * @example 0
-   */
-  port?: number;
-  /**
-   * The physical slot where the hashboard is inserted in the system.
-   * @example 1
-   */
-  slot?: number;
-  /**
-   * Number of temperature sensors on the hashboard.
-   * @example 3
-   */
-  temp_sensor_count?: number;
+  "hashboards-info"?: HashboardInfo[];
 }
 
 /** Response containing historical hashrate data over time */
@@ -1077,16 +1071,10 @@ export interface PowerResponsePowerdata {
 }
 
 /**
- * Information about all power supply units in the mining device
- * @example [{"serial_number":"PSU001234567890","model":"Example PSU 1","wattage":1600,"efficiency":94.5,"status":"online"}]
- */
-export type PsusInfo = PsusInfoPsusinfo[];
-
-/**
  * Power supply unit information and status
  * @example {"psu_sn":"517CP81302000721","slot":2,"manufacturer":"Chicony","hw_revision":"v1.0","model":"PSU3200","vendor":"Chicony","firmware":{"app_version":"1.0","bootloader_version":"1.0"},"power":{"input_voltage":240,"output_voltage":15.38,"input_current":20.34,"output_current":251.5,"input_power":3868,"output_power":4000},"temperatures":[]}
  */
-export interface PsusInfoPsusinfo {
+export interface PsuInfo {
   firmware?: {
     /**
      * Firmware application version.
@@ -1163,6 +1151,12 @@ export interface PsusInfoPsusinfo {
    */
   vendor?: string;
 }
+
+/**
+ * Information about all power supply units in the mining device
+ * @example [{"serial_number":"PSU001234567890","model":"Example PSU 1","wattage":1600,"efficiency":94.5,"status":"online"}]
+ */
+export type PsusInfo = PsuInfo[];
 
 /** Request data for refreshing JWT access tokens */
 export interface RefreshRequest {

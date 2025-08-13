@@ -1,4 +1,4 @@
-import { AsicStats, HashboardsInfoHashboardsinfo } from "@/protoOS/api/types";
+import { AsicStats, HashboardInfo } from "@/protoOS/api/types";
 
 export const sortAsics = (asics: AsicStats[]) => {
   return asics.sort((a, b) => {
@@ -10,7 +10,7 @@ export const sortAsics = (asics: AsicStats[]) => {
   });
 };
 
-export const sortHashboards = (hashboards: HashboardsInfoHashboardsinfo[]) => {
+export const sortHashboards = (hashboards: HashboardInfo[]) => {
   return hashboards.sort((a, b) => {
     const aSerial = a.hb_sn || "";
     const bSerial = b.hb_sn || "";
