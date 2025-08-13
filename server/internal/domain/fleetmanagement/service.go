@@ -104,25 +104,26 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 		telemetry, err := s.telemetry.GetMinerTelemetry(ctx, miner.DeviceIdentifier, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
 		if err != nil {
 			slog.Error("failed to get telemetry for miner", "device_id", miner.DeviceIdentifier, "error", err)
-			continue
 		}
 
 		// Get component status
 		status, err := s.telemetry.GetMinerComponentStatus(ctx, miner.DeviceIdentifier)
 		if err != nil {
 			slog.Error("failed to get component status for miner", "device_id", miner.DeviceIdentifier, "error", err)
-			continue
 		}
 
 		minerInfo, err := s.minerService.BuildMinerInfo(ctx, miner.DeviceIdentifier, claims.OrgID, miner.IpAddress, miner.Port, miner.UrlScheme, miner.Type, miner.SerialNumber)
 		if err != nil {
 			slog.Error("failed to get miner info", "device_id", miner.DeviceIdentifier, "error", err)
-			continue
 		}
 
 		// Get device status for this miner
 		deviceID := mm.DeviceIdentifier(miner.DeviceIdentifier)
-		minerStatus := deviceStatuses[deviceID]
+		minerStatus, ok := deviceStatuses[deviceID]
+		if !ok {
+			slog.Warn("device status not found for miner", "device_id", deviceID)
+			minerStatus = mm.MinerStatusUnknown // Default to unknown if not found
+		}
 		deviceStatus := convertMinerStatusToDeviceStatus(minerStatus)
 
 		snapshot := &pb.MinerStateSnapshot{
