@@ -24,7 +24,7 @@ const minerColConfig: ColConfig<MinerItem, string> = {
     component: (item: MinerItem) => (
       <MinerMacAddress deviceIdentifier={item.deviceIdentifier} />
     ),
-    width: "w-34",
+    width: "w-36",
   },
   [minerCols.status]: {
     component: (item: MinerItem, selectedItems: string[]) => (

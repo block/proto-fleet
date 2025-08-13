@@ -1,4 +1,5 @@
 import { ReactNode, useState } from "react";
+import useFleet from "@/protoFleet/api/useFleet";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
 import { Alert, Dismiss, MiningPools, Racks } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
@@ -52,7 +53,7 @@ const TaskCard = ({
   );
 };
 
-const AuthenticateMinersCard = () => {
+const AuthenticateMinersCard = ({ minerIds }: { minerIds: string[] }) => {
   const [showAuthMinersModal, setShowAuthMinersModal] = useState(false);
 
   return (
@@ -60,7 +61,9 @@ const AuthenticateMinersCard = () => {
       <TaskCard
         icon={<Alert className="text-text-critical" />}
         title="Authenticate miners"
-        description="17 miners need attention"
+        description={`${minerIds.length} miner${
+          minerIds.length === 1 ? "" : "s"
+        } need attention`}
         actionText="Authenticate"
         onActionClick={() => setShowAuthMinersModal(true)}
       />
@@ -71,12 +74,14 @@ const AuthenticateMinersCard = () => {
   );
 };
 
-const ConfigureMiningPoolsCard = () => {
+const ConfigureMiningPoolsCard = ({ minerIds }: { minerIds: string[] }) => {
   return (
     <TaskCard
       icon={<MiningPools />}
       title="Configure mining pools"
-      description="123 miners"
+      description={`${minerIds.length} miner${
+        minerIds.length === 1 ? "" : "s"
+      }`}
       actionText="Configure"
       skippable={true}
     />
@@ -102,6 +107,9 @@ const CompleteSetup = () => {
     setCompletSetupDismissed(true);
   };
 
+  // TODO: remove this placeholder once we have a way to get the number of unauthenticated miners
+  const { minerIds } = useFleet({ pageSize: 200 });
+
   return (
     <>
       {!completSetupDismissed && (
@@ -115,8 +123,8 @@ const CompleteSetup = () => {
             ></Button>
           </div>
           <div className="grid gap-4 @lg:grid-cols-2 @3xl:grid-cols-3 @7xl:grid-cols-4">
-            <AuthenticateMinersCard />
-            <ConfigureMiningPoolsCard />
+            <AuthenticateMinersCard minerIds={minerIds} />
+            <ConfigureMiningPoolsCard minerIds={minerIds} />
             <SetUpRacksCard />
           </div>
         </div>
