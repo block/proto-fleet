@@ -20,7 +20,7 @@ import {
 } from "@/protoFleet/features/onboarding";
 import {
   Authentication as AuthSettings,
-  Cooling,
+  // Cooling,
   General,
   MiningPools,
   SettingsLayout,
@@ -135,16 +135,16 @@ const routes: Route[] = [
       </SettingsLayout>
     ),
   },
-  {
-    path: "settings/cooling",
-    label: "Cooling",
-    secondaryNavItem: "/settings",
-    element: (
-      <SettingsLayout>
-        <Cooling />
-      </SettingsLayout>
-    ),
-  },
+  // {
+  //   path: "settings/cooling",
+  //   label: "Cooling",
+  //   secondaryNavItem: "/settings",
+  //   element: (
+  //     <SettingsLayout>
+  //       <Cooling />
+  //     </SettingsLayout>
+  //   ),
+  // },
   {
     path: "/auth",
     element: <Auth />,
