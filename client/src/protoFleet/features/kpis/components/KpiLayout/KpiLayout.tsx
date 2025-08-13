@@ -179,6 +179,34 @@ const KpiLayoutWrapper = ({ children }: KpiLayoutWrapperProps) => {
   useEffect(() => {
     if (!streamingData || !combinedMetricsData) return;
 
+    // eslint-disable-next-line no-console
+    console.log("Streaming values:", {
+      hashrate:
+        streamingData.metrics
+          .find((m) => m.measurementType === MeasurementType.HASHRATE)
+          ?.aggregatedValues.find(
+            (av) => av.aggregationType === AggregationType.SUM,
+          )?.value || 0,
+      efficiency:
+        streamingData.metrics
+          .find((m) => m.measurementType === MeasurementType.EFFICIENCY)
+          ?.aggregatedValues.find(
+            (av) => av.aggregationType === AggregationType.AVERAGE,
+          )?.value || 0,
+      power:
+        streamingData.metrics
+          .find((m) => m.measurementType === MeasurementType.POWER)
+          ?.aggregatedValues.find(
+            (av) => av.aggregationType === AggregationType.SUM,
+          )?.value || 0,
+      temperature:
+        streamingData.metrics
+          .find((m) => m.measurementType === MeasurementType.TEMPERATURE)
+          ?.aggregatedValues.find(
+            (av) => av.aggregationType === AggregationType.AVERAGE,
+          )?.value || 0,
+    });
+
     try {
       // Reprocess all data with streaming updates merged in
       const processedMetrics = processAllMetricsWithStreaming(

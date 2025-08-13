@@ -87,7 +87,8 @@ export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
           nanos: 0,
         },
         endTime: {
-          seconds: BigInt(Math.floor(now.getTime() / 1000)),
+          // TODO: remove granularity subtraction when we move to sliding window
+          seconds: BigInt(Math.floor(now.getTime() / 1000)) - BigInt(90),
           nanos: 0,
         },
         pageSize: 1000,

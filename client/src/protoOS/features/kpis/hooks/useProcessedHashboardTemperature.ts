@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
+import { conversionFns } from "./utility";
 import { useHashboardTemperature } from "@/protoOS/api";
 import { Aggregates, TimeSeriesData } from "@/protoOS/api/types";
 import useHashboardLocationStore from "@/protoOS/store/useHashboardLocationStore";
 import {
-  conversionFns,
   convertAggregateValues,
   convertValues,
   downsample,

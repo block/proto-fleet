@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { conversionFns } from "./utility";
 import { useHashrate } from "@/protoOS/api";
 import { Aggregates, TimeSeriesData } from "@/protoOS/api/types";
 import {
-  conversionFns,
   convertAggregateValues,
   convertValues,
   downsample,

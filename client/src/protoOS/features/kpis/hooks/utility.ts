@@ -1,12 +1,8 @@
-import { TimeSeriesData } from "@/protoOS/api/types";
-import { convertMhSToThS } from "@/shared/utils/utility";
+import { convertMhSToThS, convertWtoKW } from "@/shared/utils/utility";
 
-// Legacy function - kept for backwards compatibility
-export const convertHashrateValues = (data: TimeSeriesData[]) => {
-  return (
-    data?.map((hashrate) => ({
-      datetime: hashrate.datetime || 0,
-      value: convertMhSToThS(hashrate.value) || 0,
-    })) || []
-  );
-};
+export const conversionFns = {
+  hashrate: convertMhSToThS,
+  powerUsage: convertWtoKW,
+  temperature: (value?: number) => (value ? value : 0),
+  efficiency: (value?: number) => (value ? value : 0),
+} as const;
