@@ -127,19 +127,28 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 		deviceStatus := convertMinerStatusToDeviceStatus(minerStatus)
 
 		snapshot := &pb.MinerStateSnapshot{
-			DeviceIdentifier: minerInfo.GetID().String(),
-			Name:             miner.Model,
-			MacAddress:       miner.MacAddress,
-			SerialNumber:     miner.SerialNumber,
-			IpAddress:        minerInfo.GetConnectionInfo().IPAddress.String(),
-			Url:              minerInfo.GetWebViewURL().String(),
-			PowerUsage:       telemetry.PowerUsage,
-			Temperature:      telemetry.Temperature,
-			Hashrate:         telemetry.Hashrate,
-			Efficiency:       telemetry.Efficiency,
-			Status:           status,
-			Timestamp:        telemetry.Timestamp,
-			DeviceStatus:     deviceStatus,
+			Name:         miner.Model,
+			MacAddress:   miner.MacAddress,
+			SerialNumber: miner.SerialNumber,
+			DeviceStatus: deviceStatus,
+		}
+
+		if minerInfo != nil {
+			snapshot.DeviceIdentifier = minerInfo.GetID().String()
+			snapshot.IpAddress = minerInfo.GetConnectionInfo().IPAddress.String()
+			snapshot.Url = minerInfo.GetWebViewURL().String()
+		}
+
+		if telemetry != nil {
+			snapshot.PowerUsage = telemetry.PowerUsage
+			snapshot.Temperature = telemetry.Temperature
+			snapshot.Hashrate = telemetry.Hashrate
+			snapshot.Efficiency = telemetry.Efficiency
+			snapshot.Timestamp = telemetry.Timestamp
+		}
+
+		if status != nil {
+			snapshot.Status = status
 		}
 		snapshots = append(snapshots, snapshot)
 	}
