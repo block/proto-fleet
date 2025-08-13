@@ -181,30 +181,26 @@ const KpiLayoutWrapper = ({ children }: KpiLayoutWrapperProps) => {
 
     // eslint-disable-next-line no-console
     console.log("Streaming values:", {
-      hashrate:
-        streamingData.metrics
-          .find((m) => m.measurementType === MeasurementType.HASHRATE)
-          ?.aggregatedValues.find(
-            (av) => av.aggregationType === AggregationType.SUM,
-          )?.value || 0,
-      efficiency:
-        streamingData.metrics
-          .find((m) => m.measurementType === MeasurementType.EFFICIENCY)
-          ?.aggregatedValues.find(
-            (av) => av.aggregationType === AggregationType.AVERAGE,
-          )?.value || 0,
-      power:
-        streamingData.metrics
-          .find((m) => m.measurementType === MeasurementType.POWER)
-          ?.aggregatedValues.find(
-            (av) => av.aggregationType === AggregationType.SUM,
-          )?.value || 0,
-      temperature:
-        streamingData.metrics
-          .find((m) => m.measurementType === MeasurementType.TEMPERATURE)
-          ?.aggregatedValues.find(
-            (av) => av.aggregationType === AggregationType.AVERAGE,
-          )?.value || 0,
+      hashrate: streamingData.metrics
+        .find((m) => m.measurementType === MeasurementType.HASHRATE)
+        ?.aggregatedValues.find(
+          (av) => av.aggregationType === AggregationType.SUM,
+        )?.value,
+      efficiency: streamingData.metrics
+        .find((m) => m.measurementType === MeasurementType.EFFICIENCY)
+        ?.aggregatedValues.find(
+          (av) => av.aggregationType === AggregationType.AVERAGE,
+        )?.value,
+      power: streamingData.metrics
+        .find((m) => m.measurementType === MeasurementType.POWER)
+        ?.aggregatedValues.find(
+          (av) => av.aggregationType === AggregationType.SUM,
+        )?.value,
+      temperature: streamingData.metrics
+        .find((m) => m.measurementType === MeasurementType.TEMPERATURE)
+        ?.aggregatedValues.find(
+          (av) => av.aggregationType === AggregationType.AVERAGE,
+        )?.value,
     });
 
     try {

@@ -84,3 +84,7 @@ _run: db-up install
 # restarts the docker compose services and wipes out all data
 clean-build:
     docker compose down --rmi all --volumes && docker compose up --build -d
+
+# restart and rebuild fleet-api only
+rebuild-fleet-api:
+  docker compose up fleet-api -d --build --force-recreate

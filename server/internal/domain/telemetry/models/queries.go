@@ -60,9 +60,10 @@ type CombinedMetricsQuery struct {
 	MeasurementTypes []MeasurementType  `json:"measurement_types,omitempty"`
 	AggregationTypes []AggregationType  `json:"aggregation_types,omitempty"`
 	TimeRange        TimeRange          `json:"time_range"`
-	Granularity      time.Duration      `json:"granularity,omitempty"`
+	WindowDuration   *time.Duration     `json:"window_duration,omitempty"`
 	PaginationToken  string             `json:"pagination_token,omitempty"`
 	PageSize         int                `json:"page_size,omitempty"`
+	SlideInterval    *time.Duration     `json:"slide_interval,omitempty"`
 }
 
 type StreamCombinedMetricsQuery struct {

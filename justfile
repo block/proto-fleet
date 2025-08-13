@@ -37,3 +37,10 @@ fmt-client:
 [working-directory: 'server']
 clean-build: 
   docker-compose down --rmi all --volumes && docker-compose up --build -d
+
+[working-directory: 'server']
+rebuild-fleet-api:
+  docker compose up fleet-api -d --build --force-recreate
+
+clean-submodules:
+  git submodule update --init --force --recursive --checkout && git submodule foreach --recursive "git reset --hard && git clean -ffdx" && mkdir -p miner-firmware/docker/sim/protoOS/dist/protoOS

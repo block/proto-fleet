@@ -18,14 +18,16 @@ import (
 )
 
 const (
-	defaultRetryAttempts = 3
-	defaultRetryDelay    = 100 * time.Millisecond
-	maxPointsPerWrite    = 1000
-	defaultParamsLimit   = 1000
-	defaultMaxAge        = 24 * time.Hour
-	defaultStartTime     = -24 * time.Hour
-	defaultPollInterval  = 1 * time.Second
-	defaultBufferSize    = 100
+	defaultRetryAttempts  = 3
+	defaultRetryDelay     = 100 * time.Millisecond
+	maxPointsPerWrite     = 1000
+	defaultParamsLimit    = 1000
+	defaultMaxAge         = 24 * time.Hour
+	defaultStartTime      = -24 * time.Hour
+	defaultPollInterval   = 1 * time.Second
+	defaultBufferSize     = 100
+	defaultWindowDuration = 2 * time.Minute
+	defaultSlideInterval  = 10 * time.Second
 )
 
 var _ telemetry.TelemetryDataStore = &InfluxTelemetryStore{}
@@ -782,14 +784,16 @@ func (s *InfluxTelemetryStore) getAggregationParamsForMeasurement(query models.A
 func (s *InfluxTelemetryStore) getCombinedMetricsParams(query models.CombinedMetricsQuery) influxdb3.QueryParameters {
 	params := make(influxdb3.QueryParameters)
 
+	// Time is all in New York
+
 	if query.TimeRange.StartTime != nil {
-		params["start_time"] = *query.TimeRange.StartTime
+		params["start_time"] = query.TimeRange.StartTime.UTC()
 	} else {
 		params["start_time"] = time.Now().Add(-24 * time.Hour)
 	}
 
 	if query.TimeRange.EndTime != nil {
-		params["stop_time"] = *query.TimeRange.EndTime
+		params["stop_time"] = query.TimeRange.EndTime.UTC()
 	} else {
 		params["stop_time"] = time.Now()
 	}
@@ -814,40 +818,81 @@ func (s *InfluxTelemetryStore) logWrite(pointCount int, duration time.Duration, 
 	}
 }
 
+const GetCombinedMetricsWindowing = `
+{{define "GetCombinedMetricsWindowing"}}
+WITH steps AS (
+    SELECT
+        date_bin_wallclock_gapfill(INTERVAL '{{.SlideIntervalSecs}} second', tz(h.time, 'UTC')) AS bucket,
+        h.device_id,
+        avg(value) AS mean,
+        max(value) AS _max,
+        min(value) AS _min,
+        locf(last_value(value ORDER BY h.time)) AS _last,
+        max(h.time) AS last_time
+    FROM
+        '{{.Table}}' as h
+    WHERE
+		h.time BETWEEN (to_timestamp($start_time) - INTERVAL '{{.WindowDurationSecs}} second') AND $stop_time
+		{{- if .DeviceIDs }}
+			AND h.device_id IN ({{range $i, $id := .DeviceIDs}}{{if $i}}, {{end}}'{{$id}}'{{end}})
+		{{- end }}
+    GROUP BY bucket, h.device_id
+),
+device_roll_up AS (
+    SELECT
+        to_timestamp(bucket) AS _time,
+        device_id,
+		CASE
+		WHEN isnan(
+			avg (mean) OVER (
+				PARTITION BY device_id
+				ORDER BY bucket
+				RANGE INTERVAL '{{.WindowDurationSecs}} second' PRECEDING
+			) )
+		THEN NULL
+		ELSE
+			avg (mean) OVER (
+				PARTITION BY device_id
+				ORDER BY bucket
+				RANGE INTERVAL '{{.WindowDurationSecs}} second' PRECEDING
+			)
+		END AS mean,
+        max (_max) OVER (
+			PARTITION BY device_id
+			ORDER BY bucket
+			RANGE INTERVAL '{{.WindowDurationSecs}} second' PRECEDING
+		) AS _max,
+        min (_min) OVER (
+			PARTITION BY device_id
+			ORDER BY bucket
+			RANGE INTERVAL '{{.WindowDurationSecs}} second' PRECEDING
+		) AS _min,
+        last_value (_last) OVER (
+			PARTITION BY device_id
+			ORDER BY bucket
+			RANGE INTERVAL '{{.WindowDurationSecs}} second' PRECEDING
+		) AS latest_value
+    FROM steps
+	GROUP BY bucket, device_id
+    ORDER by bucket
+),
+{{end}}
+`
 const GetCombinedMetricsNonCumulativeTemplate = `
-WITH raw AS (
-  SELECT
-    date_bin(INTERVAL '{{.GranSecs}} seconds', time) AS bucket,
-    device_id,
-    value,
-	time
-  FROM {{.Table}}                                    -- measurement table
-  WHERE time BETWEEN $start_time AND $stop_time
-    {{- if .DeviceIDs }}
-      AND device_id IN ({{range $i, $id := .DeviceIDs}}{{if $i}}, {{end}}'{{$id}}'{{end}})
-    {{- end }}
-),
-latest_per_device AS (
-  SELECT
-    bucket,
-    device_id,
-    selector_last(value, time)['value'] AS latest_val
-  FROM raw
-  GROUP BY bucket, device_id
-),
+{{template "GetCombinedMetricsWindowing" .}}
 bucket_stats AS (
   SELECT
-    bucket as time,
-    SUM(latest_val)                         AS v_sum,
-    AVG(latest_val)                         AS v_avg,
-    MIN(latest_val)                         AS v_min,
-    MAX(latest_val)                         AS v_max,
-    approx_percentile_cont(latest_val,0.25) AS v_q1,
-    approx_percentile_cont(latest_val,0.50) AS v_med,
-    approx_percentile_cont(latest_val,0.75) AS v_q3,
-    selector_first(latest_val, bucket)['value'] AS v_first
-  FROM latest_per_device
-  GROUP BY bucket
+    _time as time,
+    SUM(latest_value)                         AS v_sum,
+    AVG(latest_value)                         AS v_avg,
+    MIN(latest_value)                         AS v_min,
+    MAX(latest_value)                         AS v_max,
+    approx_percentile_cont(latest_value,0.25) AS v_q1,
+    approx_percentile_cont(latest_value,0.50) AS v_med,
+    approx_percentile_cont(latest_value,0.75) AS v_q3,
+    selector_first(latest_value, _time)['value'] AS v_first
+  FROM device_roll_up
+  GROUP BY _time
 )
 SELECT *
 FROM bucket_stats
@@ -857,57 +902,32 @@ OFFSET {{.Offset}};
 `
 
 const GetCombinedMetricCumulativeTemplate = `
-WITH raw AS (
-  SELECT
-    date_bin(INTERVAL '{{.GranSecs}} seconds', time) AS bucket,
-    device_id,
-    value,
-	time
-  FROM {{.Table}}
-  WHERE time BETWEEN $start_time AND $stop_time
-    {{- if .DeviceIDs }}
-      AND device_id IN ({{range $i, $id := .DeviceIDs}}{{if $i}}, {{end}}'{{$id}}'{{end}})
-    {{- end }}
-),
-per_device AS (
-  SELECT
-    bucket,
-    device_id,
-    MIN(value)                          AS min_val,
-    MAX(value)                          AS max_val,
-    selector_last(value, time)['value'] AS last_val
-  FROM raw
-  GROUP BY bucket, device_id
-),
+{{template "GetCombinedMetricsWindowing" .}}
 bucket_stats AS (
   SELECT
-    bucket,
-    SUM(last_val)                      AS total,
-    SUM(min_val)                       AS min_total,
-    SUM(max_val)                       AS max_total,
-    AVG(max_val - min_val)             AS mean_change,
-    STDDEV_SAMP(max_val - min_val)     AS stddev_change
-  FROM per_device
-  GROUP BY bucket
+    _time as time,
+    SUM(mean)                      AS total,
+    SUM(_min)                       AS min_total,
+    SUM(_max)                       AS max_total,
+    AVG(_max - _min)             AS mean_change,
+    STDDEV_SAMP(_max - _min)     AS stddev_change
+  FROM device_roll_up
+  GROUP BY _time
 )
 SELECT
-  bucket as time,
-  total,
-  min_total,
-  max_total,
-  mean_change,
-  stddev_change
+	*
 FROM bucket_stats
-ORDER BY bucket
+ORDER BY time
 LIMIT  {{.Limit}}
 OFFSET {{.Offset}};`
 
 type CombinedMetricsQueryParams struct {
-	Table     string   // measurement table, e.g. "power_w"
-	DeviceIDs []string // nil if selecting by org
-	GranSecs  int      // granularity in seconds
-	Limit     int      // page_size (≤1000)
-	Offset    int      // decoded page_token
+	Table              string   // measurement table, e.g. "power_w"
+	DeviceIDs          []string // nil if selecting by org
+	WindowDurationSecs int      // granularity in seconds
+	Limit              int      // page_size (≤1000)
+	Offset             int      // decoded page_token
+	SlideIntervalSecs  int      // step in seconds, used for windowing
 }
 
 func (s *InfluxTelemetryStore) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
@@ -915,10 +935,16 @@ func (s *InfluxTelemetryStore) GetCombinedMetrics(ctx context.Context, query mod
 	var allErrors []error
 	totalSuccessCount := 0
 
-	// Default granularity to 1 minute if not specified
-	granularity := query.Granularity
-	if granularity == 0 {
-		granularity = 1 * time.Minute
+	// Default slide interval if not specified
+	slideInterval := defaultSlideInterval
+	if query.SlideInterval != nil {
+		slideInterval = *query.SlideInterval
+	}
+
+	// Default WindowDuration if not specified
+	windowDuration := defaultWindowDuration
+	if query.WindowDuration != nil {
+		windowDuration = *query.WindowDuration
 	}
 
 	// Parse pagination token to get offset
@@ -936,13 +962,13 @@ func (s *InfluxTelemetryStore) GetCombinedMetrics(ctx context.Context, query mod
 	}
 
 	// Pre-parse both templates to avoid repeated parsing in the loop
-	cumulativeTemplate, err := template.New("combined_metrics_cumulative").Parse(GetCombinedMetricCumulativeTemplate)
+	cumulativeTemplate, err := template.New("GetCombinedMetricCumulativeTemplate").Parse(GetCombinedMetricsWindowing + GetCombinedMetricCumulativeTemplate)
 	if err != nil {
 		s.logger.Error("failed to parse cumulative combined metrics template", slog.Any("error", err))
 		return models.CombinedMetric{}, newTelemetryQueryError(err, "GetCombinedMetrics")
 	}
 
-	nonCumulativeTemplate, err := template.New("combined_metrics_non_cumulative").Parse(GetCombinedMetricsNonCumulativeTemplate)
+	nonCumulativeTemplate, err := template.New("GetCombinedMetricsNonCumulativeTemplate").Parse(GetCombinedMetricsWindowing + GetCombinedMetricsNonCumulativeTemplate)
 	if err != nil {
 		s.logger.Error("failed to parse non-cumulative combined metrics template", slog.Any("error", err))
 		return models.CombinedMetric{}, newTelemetryQueryError(err, "GetCombinedMetrics")
@@ -954,10 +980,11 @@ func (s *InfluxTelemetryStore) GetCombinedMetrics(ctx context.Context, query mod
 
 		// Prepare template parameters
 		templateParams := CombinedMetricsQueryParams{
-			Table:    measurementName,
-			GranSecs: int(granularity.Seconds()),
-			Limit:    limit,
-			Offset:   offset,
+			Table:              measurementName,
+			WindowDurationSecs: int(windowDuration.Seconds()),
+			SlideIntervalSecs:  int(slideInterval.Seconds()),
+			Limit:              limit,
+			Offset:             offset,
 		}
 
 		// Set device IDs or organization

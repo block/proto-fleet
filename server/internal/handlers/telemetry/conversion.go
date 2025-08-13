@@ -329,7 +329,7 @@ func toCombinedMetricsQuery(req *telemetryv1.GetCombinedMetricsRequest) (models.
 		MeasurementTypes: measurementTypes,
 		AggregationTypes: aggregationTypes,
 		TimeRange:        timeRange,
-		Granularity:      granularity,
+		SlideInterval:    &granularity,
 		PaginationToken:  req.PageToken,
 		PageSize:         pageSize,
 	}

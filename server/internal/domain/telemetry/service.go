@@ -526,7 +526,7 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 		DeviceIDs:        query.DeviceIDs,
 		MeasurementTypes: query.MeasurementTypes,
 		AggregationTypes: query.AggregationTypes,
-		Granularity:      query.Granularity,
+		SlideInterval:    &query.Granularity,
 		PageSize:         100,
 	}
 

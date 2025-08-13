@@ -224,18 +224,25 @@ export const transformStreamingMetricsToTimeSeries = (
   );
 
   return metrics
-    .map((metric) => {
+    .reduce((acc, metric) => {
       const aggregatedValue = metric.aggregatedValues.find(
         (av) => av.aggregationType === aggregationType,
       );
 
-      return {
-        datetime: metric.openTime
-          ? Number(metric.openTime.seconds) * 1000
-          : Date.now(),
-        value: aggregatedValue?.value || 0,
-      };
-    })
+      if (
+        aggregatedValue?.value === null ||
+        aggregatedValue?.value === undefined
+      ) {
+        acc.push({
+          datetime: metric.openTime
+            ? Number(metric.openTime.seconds) * 1000
+            : Date.now(),
+          value: aggregatedValue?.value,
+        });
+      }
+
+      return acc;
+    }, [] as TimeSeriesDataPoint[])
     .sort((a, b) => (a.datetime || 0) - (b.datetime || 0));
 };
 

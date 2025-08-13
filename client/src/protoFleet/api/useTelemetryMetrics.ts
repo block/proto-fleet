@@ -81,17 +81,16 @@ export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
           AggregationType.MIN,
           AggregationType.MAX,
         ],
-        granularity: { seconds: BigInt(90), nanos: 0 }, // 1.5 minute granularity, 1.5 Times refresh rate
+        granularity: { seconds: BigInt(90), nanos: 0 },
         startTime: {
           seconds: BigInt(Math.floor(startTime.getTime() / 1000)),
           nanos: 0,
         },
         endTime: {
-          // TODO: remove granularity subtraction when we move to sliding window
-          seconds: BigInt(Math.floor(now.getTime() / 1000)) - BigInt(90),
+          seconds: BigInt(Math.floor(now.getTime() / 1000)),
           nanos: 0,
         },
-        pageSize: 1000,
+        pageSize: 10000,
         pageToken: "",
       });
 
