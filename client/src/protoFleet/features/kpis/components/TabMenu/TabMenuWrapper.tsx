@@ -1,8 +1,8 @@
 import { memo, useMemo } from "react";
 import TabMenu from "@/shared/components/TabMenu";
-import { formatHashrateWithUnit, convertCtoF } from "@/shared/utils/utility";
 import { usePreferences } from "@/shared/features/preferences";
 import { TEMP_UNITS } from "@/shared/features/preferences/constants";
+import { convertCtoF, formatHashrateWithUnit } from "@/shared/utils/utility";
 
 type TabMenuWrapperProps = {
   hashrate?: number;

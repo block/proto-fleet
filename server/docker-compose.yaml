@@ -87,7 +87,7 @@ services:
       context: ../miner-firmware
       dockerfile: docker/sim/Dockerfile
       args:
-        TYPE: "b3b-sim"
+        TYPE: "b4-sim"
     expose:
       - 8080
       - 2121
@@ -148,7 +148,7 @@ services:
       context: ../miner-firmware
       dockerfile: docker/sim/Dockerfile
       args:
-        TYPE: "b3b-sim"
+        TYPE: "b4-sim"
     ports:
       - "8080:8080"
       - "2121:2121"
