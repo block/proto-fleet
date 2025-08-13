@@ -2,7 +2,7 @@ import Efficiency from "./components/Efficiency";
 import Hashrate from "./components/Hashrate";
 import KpiLayout from "./components/KpiLayout";
 import PowerUsage from "./components/PowerUsage";
-import Uptime from "./components/Uptime";
+import Temperature from "./components/Temperature";
 import { KpiOutletContext } from "./types";
 
 export {
@@ -11,5 +11,5 @@ export {
   Hashrate,
   Efficiency,
   PowerUsage,
-  Uptime,
+  Temperature,
 };

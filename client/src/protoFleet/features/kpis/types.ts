@@ -21,8 +21,8 @@ export interface KpiOutletContext {
     powerUsage: TimeSeriesDataPoint[];
     aggregates: AggregateStats;
   };
-  minerUptime: {
-    uptime: TimeSeriesDataPoint[];
+  minerTemperature: {
+    temperature: TimeSeriesDataPoint[];
     aggregates: AggregateStats;
   };
 }

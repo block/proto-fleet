@@ -32,7 +32,7 @@ interface KpiLayoutProps {
     hashrate?: number;
     efficiency?: number;
     powerUsage?: number;
-    uptime?: number;
+    temperature?: number;
   };
 }
 
@@ -69,7 +69,7 @@ const KpiLayout = ({
             hashrate={tabMenuProps.hashrate}
             efficiency={tabMenuProps.efficiency}
             powerUsage={tabMenuProps.powerUsage}
-            uptime={tabMenuProps.uptime}
+            temperature={tabMenuProps.temperature}
           />
         </div>
 
@@ -168,8 +168,8 @@ const KpiLayoutWrapper = ({ children }: KpiLayoutWrapperProps) => {
         powerUsage: processedMetrics.power.timeSeries,
         aggregates: processedMetrics.power.aggregates,
       },
-      minerUptime: {
-        uptime: processedMetrics.temperature.timeSeries, // Placeholder until uptime is available
+      minerTemperature: {
+        temperature: processedMetrics.temperature.timeSeries,
         aggregates: processedMetrics.temperature.aggregates,
       },
     });
@@ -201,8 +201,8 @@ const KpiLayoutWrapper = ({ children }: KpiLayoutWrapperProps) => {
           powerUsage: processedMetrics.power.timeSeries,
           aggregates: processedMetrics.power.aggregates,
         },
-        minerUptime: {
-          uptime: processedMetrics.temperature.timeSeries, // Placeholder until uptime is available
+        minerTemperature: {
+          temperature: processedMetrics.temperature.timeSeries,
           aggregates: processedMetrics.temperature.aggregates,
         },
       });
@@ -224,8 +224,8 @@ const KpiLayoutWrapper = ({ children }: KpiLayoutWrapperProps) => {
     outletContext?.minerEfficiency.efficiency.slice(-1)[0]?.value || 0;
   const currentPowerUsageValue =
     outletContext?.minerPowerUsage.powerUsage.slice(-1)[0]?.value || 0;
-  const currentUptimeValue =
-    outletContext?.minerUptime.uptime.slice(-1)[0]?.value || 0;
+  const currentTemperatureValue =
+    outletContext?.minerTemperature.temperature.slice(-1)[0]?.value || 0;
 
   // Mock pool status - TODO: Replace with real pool status
   const poolsLive = true;
@@ -246,7 +246,7 @@ const KpiLayoutWrapper = ({ children }: KpiLayoutWrapperProps) => {
         hashrate: currentHashrateValue,
         efficiency: currentEfficiencyValue,
         powerUsage: currentPowerUsageValue,
-        uptime: currentUptimeValue,
+        temperature: currentTemperatureValue,
       }}
     >
       {children}

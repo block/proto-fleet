@@ -10,7 +10,7 @@ import {
   Hashrate,
   KpiLayout,
   PowerUsage,
-  Uptime,
+  Temperature,
 } from "@/protoFleet/features/kpis";
 import {
   MinersPage,
@@ -81,8 +81,8 @@ const routes: Route[] = [
         element: <PowerUsage />,
       },
       {
-        path: "uptime",
-        element: <Uptime />,
+        path: "temperature",
+        element: <Temperature />,
       },
     ],
   },

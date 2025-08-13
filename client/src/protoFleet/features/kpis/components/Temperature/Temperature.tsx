@@ -15,27 +15,27 @@ const getStats = (stats: StatsArgs = {}): StatProps[] => {
     {
       label: "Average",
       value: avg,
-      units: "%",
+      units: "°C",
       size: "small",
     },
     {
       label: "Highest",
       value: max,
-      units: "%",
+      units: "°C",
       size: "small",
     },
     {
       label: "Lowest",
       value: min,
-      units: "%",
+      units: "°C",
       size: "small",
     },
   ];
 };
 
-const Uptime = () => {
+const Temperature = () => {
   const {
-    minerUptime: { uptime: totalUptime, aggregates },
+    minerTemperature: { temperature: totalTemperature, aggregates },
   } = useOutletContext<KpiOutletContext>();
 
   return (
@@ -43,14 +43,14 @@ const Uptime = () => {
       {aggregates && <Stats stats={getStats(aggregates)} />}
       <KpiLineChart
         series={[]}
-        units="%"
+        units="°C"
         aggregateSeries={{
-          name: "Total Uptime",
-          data: totalUptime,
+          name: "Average Temperature",
+          data: totalTemperature,
         }}
       />
     </>
   );
 };
 
-export default Uptime;
+export default Temperature;

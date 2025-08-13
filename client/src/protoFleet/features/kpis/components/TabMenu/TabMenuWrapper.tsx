@@ -1,12 +1,14 @@
 import { memo, useMemo } from "react";
 import TabMenu from "@/shared/components/TabMenu";
-import { formatHashrateWithUnit } from "@/shared/utils/utility";
+import { formatHashrateWithUnit, convertCtoF } from "@/shared/utils/utility";
+import { usePreferences } from "@/shared/features/preferences";
+import { TEMP_UNITS } from "@/shared/features/preferences/constants";
 
 type TabMenuWrapperProps = {
   hashrate?: number;
   efficiency?: number;
   powerUsage?: number;
-  uptime?: number;
+  temperature?: number;
   basePath?: string; // Optional base path for navigation
 };
 
@@ -15,9 +17,10 @@ const TabMenuWrapper = memo(
     hashrate,
     efficiency,
     powerUsage,
-    uptime,
+    temperature,
     basePath = "",
   }: TabMenuWrapperProps) => {
+    const { temperatureUnits } = usePreferences();
     const { value: hashrateValue, unit: hashUnit } = formatHashrateWithUnit(
       hashrate ?? 0,
     );
@@ -42,14 +45,26 @@ const TabMenuWrapper = memo(
           units: "kW",
           path: "/power-usage",
         },
-        uptime: {
-          name: "Uptime",
-          value: uptime,
-          units: "%",
-          path: "/uptime",
+
+        // TODO: switch to uptime when we are able to support it
+        temperature: {
+          name: "Temperature",
+          value:
+            temperatureUnits === TEMP_UNITS.fahrenheit
+              ? convertCtoF(temperature ?? 0)
+              : temperature,
+          units: temperatureUnits === TEMP_UNITS.fahrenheit ? "°F" : "°C",
+          path: "/temperature",
         },
       }),
-      [hashrateValue, efficiency, powerUsage, uptime, hashUnit],
+      [
+        hashrateValue,
+        efficiency,
+        powerUsage,
+        temperature,
+        hashUnit,
+        temperatureUnits,
+      ],
     );
 
     return <TabMenu items={tabItems} basePath={basePath} />;
