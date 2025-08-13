@@ -71,7 +71,7 @@ jobs:
           platforms: linux/arm64
           build-args: |
             # Target configuration
-            TYPE=b3b-sim
+            TYPE=b4-sim
             PORT=80
             RUSTFLAGS="-C target-cpu=native -C codegen-units=16 -C opt-level=2"
             CARGO_INCREMENTAL=1
