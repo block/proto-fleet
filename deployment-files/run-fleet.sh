@@ -77,10 +77,10 @@ if ! command -v docker &> /dev/null; then
         if command -v apt-get &> /dev/null; then
             echo "Installing Docker using apt..."
             sudo apt-get update
-            sudo apt-get install -y docker.io docker-compose
+            sudo apt-get install -y docker.io docker-compose-plugin
         elif command -v yum &> /dev/null; then
             echo "Installing Docker using yum..."
-            sudo yum install -y docker docker-compose
+            sudo yum install -y docker docker-compose-plugin
         else
             echo "Could not determine package manager. Please install Docker manually:"
             echo "Visit https://docs.docker.com/engine/install/"
@@ -142,21 +142,21 @@ else
     echo "Docker daemon is already running."
 fi
 
-if ! command -v docker-compose &> /dev/null; then
-    echo "docker-compose is not installed. Attempting to install it..."
+if ! docker compose version &> /dev/null; then
+    echo "docker compose is not installed. Attempting to install it..."
 
     if [ "$(uname)" == "Darwin" ]; then
-        # For macOS, docker-compose is included in Docker Desktop
-        echo "Docker Desktop should include docker-compose. If it's not working, please reinstall Docker Desktop."
+        # For macOS, docker compose is included in Docker Desktop
+        echo "Docker Desktop should include docker compose. If it's not working, please reinstall Docker Desktop. https://docs.docker.com/desktop/setup/install/mac-install/"
         exit 1
     elif [ "$(uname)" == "Linux" ]; then
         # For Linux
         if command -v apt-get &> /dev/null; then
-            sudo apt-get install -y docker-compose
+            sudo apt-get install -y docker-compose-plugin
         elif command -v yum &> /dev/null; then
-            sudo yum install -y docker-compose
+            sudo yum install -y docker-compose-plugin
         else
-            echo "Could not automatically install docker-compose. Please install it manually."
+            echo "Could not automatically install docker compose. Please install it manually. https://docs.docker.com/compose/install/linux/"
             exit 1
         fi
     fi
@@ -170,7 +170,7 @@ prompt_store_reinit() {
     read -p "   Remove & reinitialize this volume now? ALL DATA WILL BE LOST (y/N): " answer
     if [[ $answer =~ ^[Yy]$ ]]; then
       echo "   Shutting down containers…"
-      docker-compose -f "$COMPOSE_FILE" down
+      docker compose -f "$COMPOSE_FILE" down
       echo "   Removing volume $vol…"
       docker volume rm "$vol"
       echo "   Volume removed; new credentials will apply next startup."
@@ -330,7 +330,7 @@ if [ ! -f "$COMPOSE_FILE" ]; then
 fi
 
 echo "Pulling latest Docker images..."
-docker-compose -f "$COMPOSE_FILE" pull
+docker compose -f "$COMPOSE_FILE" pull
 
 if [ "$(uname -m)" == "arm64" ] || [ "$(uname -m)" == "aarch64" ]; then
     export TARGETARCH="arm64"
@@ -340,21 +340,21 @@ else
     echo "Detected x86_64 architecture, setting TARGETARCH=amd64"
 fi
 
-docker-compose -f "$COMPOSE_FILE" build --no-cache || { echo "Error: Build failed. Exiting."; exit 1; }
+docker compose -f "$COMPOSE_FILE" build --no-cache || { echo "Error: Build failed. Exiting."; exit 1; }
 
 echo "Stopping any running services..."
-docker-compose -f "$COMPOSE_FILE" down
+docker compose -f "$COMPOSE_FILE" down
 
 echo "Starting services..."
-docker-compose -f "$COMPOSE_FILE" up -d
+docker compose -f "$COMPOSE_FILE" up -d
 
-# Check if docker-compose was successful
+# Check if docker compose was successful
 if [ $? -eq 0 ]; then
     echo "--------------------------------------------------------------"
     echo "Proto Fleet is now running at: http://localhost:80"
     echo "--------------------------------------------------------------"
 else
-    echo "Error: Failed to start services. Check docker-compose logs for details."
+    echo "Error: Failed to start services. Check docker compose logs for details."
     exit 1
 fi
 
