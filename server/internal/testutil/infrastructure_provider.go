@@ -18,6 +18,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/ping/v1/pingv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api/miner_command_apiconnect"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api/miner_system_apiconnect"
+	proto_client "github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/integrationtesting"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/auth"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/command"
@@ -106,6 +107,11 @@ func InitializeDBServiceInfrastructure(t *testing.T) *TestContext {
 
 // SetupMockMinerServer creates a test HTTP server that simulates a miner API
 func SetupMockMinerServer(t *testing.T, callCounter *integrationtesting.MockMinerCallCounter, useTLS bool) *httptest.Server {
+
+	// Reset clients and set environment variable to skip TLS verification for the duration of the test
+	proto_client.ResetClients()
+	t.Setenv("SKIP_TLS_VERIFY", "true")
+
 	if callCounter == nil {
 		callCounter = integrationtesting.NewMockMinerCallCounter()
 	}

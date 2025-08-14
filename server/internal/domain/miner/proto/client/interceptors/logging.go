@@ -22,15 +22,15 @@ func (i *LoggingInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc
 		start := time.Now()
 		procedure := req.Spec().Procedure
 
-		slog.Debug("Starting RPC call", "producer", procedure)
+		slog.Debug("Starting RPC call", "procedure", procedure)
 
 		resp, err := next(ctx, req)
 
 		duration := time.Since(start)
 		if err != nil {
-			slog.Error("RPC call failed:", "producer", procedure, "duration", duration, "error", err)
+			slog.Error("RPC call failed", "procedure", procedure, "duration", duration, "error", err)
 		} else {
-			slog.Debug("RPC call completed", "producer", procedure, "duration", duration)
+			slog.Debug("RPC call completed", "procedure", procedure, "duration", duration)
 		}
 
 		return resp, err
@@ -40,7 +40,7 @@ func (i *LoggingInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc
 // WrapStreamingClient implements the connect.Interceptor interface
 func (i *LoggingInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
 	return func(ctx context.Context, spec connect.Spec) connect.StreamingClientConn {
-		slog.Debug("Starting streaming RPC:", "producer", spec.Procedure)
+		slog.Debug("Starting streaming RPC", "procedure", spec.Procedure)
 		return next(ctx, spec)
 	}
 }
