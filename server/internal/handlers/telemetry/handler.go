@@ -11,6 +11,7 @@ import (
 	telemetryv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 )
 
 type Handler struct {
@@ -100,6 +101,10 @@ func (h *Handler) StreamUpdates(
 	req *connect.Request[telemetryv1.StreamUpdatesRequest],
 	stream *connect.ServerStream[telemetryv1.StreamUpdatesResponse],
 ) error {
+	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	if err != nil {
+		return connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("failed to get JWT claims: %w", err))
+	}
 	query, err := toStreamQuery(req.Msg)
 	if err != nil {
 		return connect.NewError(connect.CodeInvalidArgument, err)
@@ -112,6 +117,11 @@ func (h *Handler) StreamUpdates(
 	updateStatusChan, err := h.telemetryService.StreamDeviceStatusUpdates(ctx, query)
 	if err != nil {
 		return connect.NewError(connect.CodeInternal, err)
+	}
+
+	updateCountsChan, err := h.telemetryService.StreamMinerStateCounts(ctx, claims.OrgID, *query.HeartbeatInterval)
+	if err != nil {
+		return connect.NewError(connect.CodeInternal, fmt.Errorf("failed to start miner state counts stream: %w", err))
 	}
 
 	for {
@@ -132,6 +142,18 @@ func (h *Handler) StreamUpdates(
 				return fmt.Errorf("failed to send stream response: %w", err)
 			}
 		case update, ok := <-updateStatusChan:
+			if !ok {
+				return nil
+			}
+			response, err := fromTelemetryUpdate(update)
+			if err != nil {
+				return connect.NewError(connect.CodeInternal, err)
+			}
+
+			if err := stream.Send(response); err != nil {
+				return fmt.Errorf("failed to send stream response: %w", err)
+			}
+		case update, ok := <-updateCountsChan:
 			if !ok {
 				return nil
 			}

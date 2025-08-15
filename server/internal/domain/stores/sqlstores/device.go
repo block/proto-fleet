@@ -354,10 +354,10 @@ func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, f
 	}
 
 	return &fm.MinerStateCounts{
-		HashingCount:  int32(counts.HashingCount),  //nolint:gosec
-		BrokenCount:   int32(counts.BrokenCount),   //nolint:gosec
-		OfflineCount:  int32(counts.OfflineCount),  //nolint:gosec
-		SleepingCount: int32(counts.SleepingCount), //nolint:gosec
+		HashingCount:  int32(counts.HashingCount),                            //nolint:gosec
+		BrokenCount:   int32(counts.BrokenCount),                             //nolint:gosec
+		OfflineCount:  int32(counts.OfflineCount),                            //nolint:gosec
+		SleepingCount: int32(counts.SleepingCount) + int32(counts.IdleCount), //nolint:gosec
 	}, nil
 }
 

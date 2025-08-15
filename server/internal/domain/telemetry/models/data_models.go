@@ -30,11 +30,19 @@ type AggregatedTelemetry struct {
 
 // TelemetryUpdate represents a streaming update from the telemetry system
 type TelemetryUpdate struct {
-	Type         UpdateType       `json:"type"`
-	DeviceID     DeviceIdentifier `json:"device_id,omitempty"`
-	Timestamp    time.Time        `json:"timestamp"`
-	Data         *Telemetry       `json:"data,omitempty"`
-	Error        *string          `json:"error,omitempty"`
-	Status       *ComponentStatus `json:"status,omitempty"`
-	DeviceStatus *mm.MinerStatus  `json:"device_status,omitempty"` // e.g., ACTIVE, INACTIVE, ERROR
+	Type             UpdateType        `json:"type"`
+	DeviceID         DeviceIdentifier  `json:"device_id,omitempty"`
+	Timestamp        time.Time         `json:"timestamp"`
+	Data             *Telemetry        `json:"data,omitempty"`
+	Error            *string           `json:"error,omitempty"`
+	Status           *ComponentStatus  `json:"status,omitempty"`
+	DeviceStatus     *mm.MinerStatus   `json:"device_status,omitempty"`      // e.g., ACTIVE, INACTIVE, ERROR
+	MinerStateCounts *MinerStateCounts `json:"miner_state_counts,omitempty"` // Counts of miners in different states
+}
+
+type MinerStateCounts struct {
+	Hashing  int32 `json:"hashing"`
+	Offline  int32 `json:"offline"`
+	Broken   int32 `json:"broken"`
+	Sleeping int32 `json:"sleeping"`
 }

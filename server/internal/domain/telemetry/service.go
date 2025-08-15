@@ -23,6 +23,9 @@ const (
 	mhsToThsConversionFactor = 1e6
 	// Conversion factor from watts to kilowatts
 	wattsToKwConversionFactor = 1e3
+
+	// default ticker for status updates
+	defaultStatusUpdateInterval = 1 * time.Second
 )
 
 // convertHashrateToThs converts hashrate from MH/s to TH/s
@@ -1058,4 +1061,48 @@ func (s *TelemetryService) convertTelemetryUpdateToResponse(update models.Teleme
 	default:
 		return nil
 	}
+}
+
+func (s *TelemetryService) StreamMinerStateCounts(ctx context.Context, orgID int64, updateInterval time.Duration) (<-chan models.TelemetryUpdate, error) {
+	ch := make(chan models.TelemetryUpdate, 100)
+
+	go func() {
+		defer close(ch)
+
+		ticker := time.NewTicker(defaultStatusUpdateInterval)
+		if updateInterval > 0 {
+			ticker = time.NewTicker(updateInterval)
+		}
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				counts, err := s.deviceStore.GetMinerStateCounts(ctx, orgID, nil)
+				if err != nil {
+					slog.Error("failed to get miner state counts", "error", err)
+					continue
+				}
+				resp := models.TelemetryUpdate{
+					Type:      models.UpdateTypeMinerStateCounts,
+					Timestamp: time.Now(),
+					MinerStateCounts: &models.MinerStateCounts{
+						Hashing:  counts.HashingCount,
+						Offline:  counts.OfflineCount,
+						Broken:   counts.BrokenCount,
+						Sleeping: counts.SleepingCount,
+					},
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case ch <- resp:
+				}
+			}
+		}
+	}()
+
+	return ch, nil
 }

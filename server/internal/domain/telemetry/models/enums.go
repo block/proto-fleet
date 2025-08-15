@@ -146,6 +146,7 @@ const (
 	UpdateTypeHeartbeat
 	UpdateTypeError
 	UpdateTypeDeviceStatus
+	UpdateTypeMinerStateCounts
 )
 
 func (u UpdateType) String() string {
@@ -160,6 +161,8 @@ func (u UpdateType) String() string {
 		return "error"
 	case UpdateTypeDeviceStatus:
 		return "device_status"
+	case UpdateTypeMinerStateCounts:
+		return "miner_state_counts"
 	default:
 		return "unknown"
 	}

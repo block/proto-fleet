@@ -137,11 +137,12 @@ var (
 	}
 
 	updateTypeToProtoMap = map[models.UpdateType]telemetryv1.UpdateType{
-		models.UpdateTypeTelemetry:    telemetryv1.UpdateType_UPDATE_TYPE_TELEMETRY,
-		models.UpdateTypeHeartbeat:    telemetryv1.UpdateType_UPDATE_TYPE_HEARTBEAT,
-		models.UpdateTypeError:        telemetryv1.UpdateType_UPDATE_TYPE_ERROR,
-		models.UpdateTypeDeviceStatus: telemetryv1.UpdateType_UPDATE_TYPE_DEVICE_STATUS,
-		models.UpdateTypeUnknown:      telemetryv1.UpdateType_UPDATE_TYPE_UNSPECIFIED,
+		models.UpdateTypeTelemetry:        telemetryv1.UpdateType_UPDATE_TYPE_TELEMETRY,
+		models.UpdateTypeHeartbeat:        telemetryv1.UpdateType_UPDATE_TYPE_HEARTBEAT,
+		models.UpdateTypeError:            telemetryv1.UpdateType_UPDATE_TYPE_ERROR,
+		models.UpdateTypeDeviceStatus:     telemetryv1.UpdateType_UPDATE_TYPE_DEVICE_STATUS,
+		models.UpdateTypeMinerStateCounts: telemetryv1.UpdateType_UPDATE_TYPE_MINER_STATE_COUNTS,
+		models.UpdateTypeUnknown:          telemetryv1.UpdateType_UPDATE_TYPE_UNSPECIFIED,
 	}
 
 	measurementStringToTypeMap = map[string]models.MeasurementType{
@@ -521,6 +522,15 @@ func fromTelemetryUpdate(update models.TelemetryUpdate) (*telemetryv1.StreamUpda
 			deviceStatus = telemetryv1.DeviceStatus_DEVICE_STATUS_OFFLINE
 		}
 		telemetryUpdate.DeviceStatus = &deviceStatus
+	}
+
+	if update.MinerStateCounts != nil {
+		telemetryUpdate.MinerStateCounts = &telemetryv1.MinerStateCounts{
+			HashingCount:  update.MinerStateCounts.Hashing,
+			OfflineCount:  update.MinerStateCounts.Offline,
+			BrokenCount:   update.MinerStateCounts.Broken,
+			SleepingCount: update.MinerStateCounts.Sleeping,
+		}
 	}
 
 	return &telemetryv1.StreamUpdatesResponse{

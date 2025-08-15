@@ -105,6 +105,7 @@ enum UpdateType {
   UPDATE_TYPE_HEARTBEAT = 2;
   UPDATE_TYPE_ERROR = 3;
   UPDATE_TYPE_DEVICE_STATUS = 4;
+  UPDATE_TYPE_MINER_STATE_COUNTS = 5; // Represents counts of miners in different states
 }
 
 // Time range using optional fields (best practice)
@@ -145,6 +146,21 @@ message AggregatedTelemetry {
   map<string, string> tags = 7;
 }
 
+// Represents counts of miners in different states
+message MinerStateCounts {
+  // Number of miners that are hashing
+  int32 hashing_count = 1;
+
+  // Number of miners that are broken
+  int32 broken_count = 2;
+
+  // Number of miners that are offline
+  int32 offline_count = 3;
+
+  // Number of miners that are sleeping
+  int32 sleeping_count = 4;
+}
+
 // Streaming update
 message TelemetryUpdate {
   UpdateType type = 1;
@@ -154,6 +170,7 @@ message TelemetryUpdate {
   optional string error_message = 5;
   optional ComponentStatus status = 6;
   optional DeviceStatus device_status = 7; // e.g., ACTIVE, INACTIVE, ERROR
+  optional MinerStateCounts miner_state_counts = 8;
 }
 
 // Request/Response Messages
