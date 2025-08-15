@@ -3,9 +3,16 @@
 set -euo pipefail
 
 echo "Starting Proto Fleet development environment..."
+GIT_VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "development")
 
 echo "Starting ProtoFleet client..."
+
 cd client
+export VITE_VERSION="$GIT_VERSION"
+export VITE_BUILD_DATE="$BUILD_DATE"
+export VITE_COMMIT="$GIT_COMMIT"
 npm run dev:protoFleet & CLIENT_PID=$!
 echo "Client PID: $CLIENT_PID"
 
