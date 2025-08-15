@@ -26,7 +26,7 @@ func TestHandler_ListMinerStateSnapshots(t *testing.T) {
 			},
 			dataMode: pb.DataMode_DATA_MODE_SNAPSHOT,
 			expectedURLs: []string{
-				"https://172.17.0.1:80",
+				"https://172.17.0.1",
 			},
 		},
 		{
@@ -36,7 +36,7 @@ func TestHandler_ListMinerStateSnapshots(t *testing.T) {
 			},
 			dataMode: pb.DataMode_DATA_MODE_SNAPSHOT,
 			expectedURLs: []string{
-				"http://172.17.0.2:80",
+				"http://172.17.0.2",
 			},
 		},
 		{
@@ -46,7 +46,7 @@ func TestHandler_ListMinerStateSnapshots(t *testing.T) {
 			},
 			dataMode: pb.DataMode_DATA_MODE_SNAPSHOT,
 			expectedURLs: []string{
-				"http://172.17.0.3:80",
+				"http://172.17.0.3",
 			},
 		},
 		{
@@ -58,9 +58,9 @@ func TestHandler_ListMinerStateSnapshots(t *testing.T) {
 			},
 			dataMode: pb.DataMode_DATA_MODE_SNAPSHOT,
 			expectedURLs: []string{
-				"https://172.17.0.1:80",
-				"http://172.17.0.2:80",
-				"http://172.17.0.3:80",
+				"https://172.17.0.1",
+				"http://172.17.0.2",
+				"http://172.17.0.3",
 			},
 		},
 	}

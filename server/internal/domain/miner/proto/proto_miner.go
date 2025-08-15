@@ -41,7 +41,6 @@ var _ interfaces.Miner = &ProtoMiner{}
 var _ interfaces.MinerInfo = &ProtoMiner{}
 var _ interfaces.MinerInfo = &ProtoMinerInfo{}
 
-const minerViewPort = 80
 const DownloadLogsLines uint32 = 10000
 
 type ProtoMinerInfo struct {
@@ -152,7 +151,6 @@ func (p *ProtoMinerInfo) GetWebViewURL() *url.URL {
 	return networking.ConnectionInfo{
 		Protocol:  p.connectionInfo.Protocol,
 		IPAddress: p.connectionInfo.IPAddress,
-		Port:      networking.Port(minerViewPort),
 	}.GetURL()
 }
 

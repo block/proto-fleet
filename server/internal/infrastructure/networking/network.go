@@ -168,10 +168,20 @@ func NewConnectionInfo(ipAddress string, port string, protocol Protocol) (*Conne
 	}, nil
 }
 
+func (c ConnectionInfo) getHost() string {
+	if c.Port == 0 {
+		return string(c.IPAddress)
+	}
+	return net.JoinHostPort(string(c.IPAddress), c.Port.String())
+}
+
 func (c ConnectionInfo) GetURL() *url.URL {
-	return &url.URL{Scheme: c.Protocol.String(), Host: net.JoinHostPort(string(c.IPAddress), c.Port.String())}
+	return &url.URL{
+		Scheme: c.Protocol.String(),
+		Host:   c.getHost(),
+	}
 }
 
 func (c ConnectionInfo) GetHostPort() *url.URL {
-	return &url.URL{Host: net.JoinHostPort(string(c.IPAddress), c.Port.String())}
+	return &url.URL{Host: c.getHost()}
 }

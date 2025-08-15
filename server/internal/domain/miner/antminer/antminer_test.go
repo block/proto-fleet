@@ -1,6 +1,7 @@
 package antminer_test
 
 import (
+	"net/url"
 	"testing"
 	"time"
 
@@ -368,4 +369,19 @@ func TestAntminer_GetTelemetry(t *testing.T) {
 			assert.Equal(t, expected.Tags, actual.Tags, "Tags should match for item %d", i)
 		}
 	}
+}
+
+func TestAntminerInfo_GetWebViewURL(t *testing.T) {
+	// Arrange
+	deviceID := models.DeviceIdentifier("123")
+	ipAddress := "192.168.1.100"
+	minerInfo := antminer.NewAntminerInfo(deviceID, ipAddress, 80, "test_serial_number")
+
+	expectedURL := &url.URL{Scheme: "http", Host: ipAddress}
+
+	// Act
+	actualURL := minerInfo.GetWebViewURL()
+
+	// Assert
+	assert.Equal(t, expectedURL, actualURL)
 }

@@ -21,8 +21,6 @@ var _ interfaces.Miner = &Antminer{}
 var _ interfaces.MinerInfo = &Antminer{}
 var _ interfaces.MinerInfo = &AntminerInfo{}
 
-const minerViewPort = 80
-
 type AntminerInfo struct {
 	deviceIdentifier models.DeviceIdentifier
 	serialNumber     string
@@ -78,7 +76,6 @@ func (a *AntminerInfo) GetWebViewURL() *url.URL {
 	return networking.ConnectionInfo{
 		Protocol:  networking.ProtocolHTTP,
 		IPAddress: a.connectionInfo.IPAddress,
-		Port:      networking.Port(minerViewPort),
 	}.GetURL()
 }
 
