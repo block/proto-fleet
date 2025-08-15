@@ -91,20 +91,15 @@ services:
     expose:
       - 8080
       - 2121
-    # Resource limits to prevent container overload when scaling
-    mem_limit: 128M
-    mem_reservation: 64M
-    cpus: 0.25
     privileged: true
     deploy:
       replicas: 5 # Default is 5 instances, can be overridden with --scale
       resources:
         limits:
-          cpus: "0.25"
-          memory: 128M
+          cpus: "0.5"
+          memory: 512M
         reservations:
-          cpus: "0.1"
-          memory: 64M
+          memory: 128M
     networks:
       - fleet-network
     cap_add:
@@ -117,10 +112,6 @@ services:
     environment:
       MINER_TYPE: "Antminer S19 XP"
       FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
-    # Resource limits to prevent container overload when scaling
-    mem_limit: 128M
-    mem_reservation: 64M
-    cpus: 0.25
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]
       interval: 10s
@@ -136,7 +127,6 @@ services:
           cpus: "0.25"
           memory: 128M
         reservations:
-          cpus: "0.1"
           memory: 64M
     networks:
       - fleet-network
@@ -152,19 +142,14 @@ services:
     ports:
       - "8080:8080"
       - "2121:2121"
-    # Resource limits to prevent container overload when scaling
-    mem_limit: 128M
-    mem_reservation: 64M
-    cpus: 0.25
     privileged: true
     deploy:
       resources:
         limits:
-          cpus: "0.25"
-          memory: 128M
+          cpus: "0.5"
+          memory: 512M
         reservations:
-          cpus: "0.1"
-          memory: 64M
+          memory: 128M
     networks:
       - fleet-network
     cap_add:
@@ -177,10 +162,6 @@ services:
     environment:
       MINER_TYPE: "Antminer S19 XP"
       FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
-    # Resource limits to prevent container overload when scaling
-    mem_limit: 128M
-    mem_reservation: 64M
-    cpus: 0.25
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]
       interval: 10s
@@ -195,7 +176,6 @@ services:
           cpus: "0.25"
           memory: 128M
         reservations:
-          cpus: "0.1"
           memory: 64M
     networks:
       - fleet-network
