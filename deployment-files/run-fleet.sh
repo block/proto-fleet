@@ -73,32 +73,35 @@ if ! command -v docker &> /dev/null; then
             exit 1
         fi
     elif [ "$(uname)" == "Linux" ]; then
-        # Linux - use apt or yum based on the distribution
-        if command -v apt-get &> /dev/null; then
-            echo "Installing Docker using apt..."
-            sudo apt-get update
-            sudo apt-get install -y docker.io docker-compose-plugin
-        elif command -v yum &> /dev/null; then
-            echo "Installing Docker using yum..."
-            sudo yum install -y docker docker-compose-plugin
-        else
-            echo "Could not determine package manager. Please install Docker manually:"
+        curl -fsSL https://get.docker.com | sudo sh
+        
+        if ! command -v docker &> /dev/null; then
+            echo "Error: Docker installation failed. Please install Docker manually:"
             echo "Visit https://docs.docker.com/engine/install/"
             exit 1
         fi
 
-        # Start Docker service on Linux
-        sudo systemctl enable docker
-        sudo systemctl start docker
-
-        echo "Docker has been installed. Adding current user to the docker group..."
-        sudo usermod -aG docker $USER
-        echo "Please log out and log back in to apply group changes, then re-run this script."
-        exit 0
+        echo "Docker installed successfully!"
     else
         echo "Unsupported operating system. Please install Docker manually:"
         echo "Visit https://docs.docker.com/get-docker/"
         exit 1
+    fi
+fi
+
+if [ "$(uname)" == "Linux" ]; then
+    # Check if Docker is set to start on boot
+    if ! systemctl is-enabled docker &>/dev/null; then
+        echo "Configuring Docker to start on system boot..."
+        sudo systemctl enable docker
+    fi
+    
+    # Check if current user is in the docker group
+    if ! groups $USER | grep -q '\bdocker\b'; then
+        echo "Adding current user to the docker group for passwordless Docker usage..."
+        sudo usermod -aG docker $USER
+        echo "Please log out and log back in to apply group changes, then re-run this script."
+        exit 0
     fi
 fi
 

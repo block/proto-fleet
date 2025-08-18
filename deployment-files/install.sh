@@ -5,8 +5,7 @@ DEPLOYMENT_DIR="deployment"
 
 # Function to determine installation directory by detecting previous installations
 find_previous_install_dir() {
-  # Look for ProtoFleet containers - suppress failures with || true
-  local container_id=$(docker ps -a --filter "name=${DEPLOYMENT_DIR}-fleet-api" --format "{{.ID}}" 2>/dev/null | head -n 1 || true)
+  local container_id=$(docker ps -a --filter "name=${DEPLOYMENT_DIR}-fleet-api" --filter "name=${DEPLOYMENT_DIR}_fleet-api" --format "{{.ID}}" 2>/dev/null | head -n 1 || true)
   
   if [ -z "$container_id" ]; then
     # No container found

@@ -34,6 +34,7 @@ services:
       context: ./client
     depends_on:
       - fleet-api
+    restart: always
     network_mode: host
 
   mysql:
@@ -44,6 +45,7 @@ services:
       MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
       MYSQL_USER: "${DB_USERNAME}"
       MYSQL_PASSWORD: "${DB_PASSWORD}"
+    restart: always
     healthcheck:
       test:
         [
@@ -63,6 +65,7 @@ services:
       file: ./server/docker-compose.base.yaml
       service: influxdb
     user: root
+    restart: always
     volumes:
       - ./server/influx_config:/var/lib/influxdb3/start
 
