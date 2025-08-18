@@ -1,12 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { conversionFns, convertValues, downsample } from "./utility";
 import { useHashboardEfficiency } from "@/protoOS/api";
 import { TimeSeriesData } from "@/protoOS/api/types";
 import useHashboardLocationStore from "@/protoOS/store/useHashboardLocationStore";
-import {
-  conversionFns,
-  convertValues,
-  downsample,
-} from "@/shared/components/Chart/utility";
 import { Duration } from "@/shared/components/DurationSelector";
 
 type HbEfficiency = {

@@ -1,12 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { conversionFns } from "./utility";
+import { convertAggregateValues, convertValues, downsample } from "./utility";
 import { useHashrate } from "@/protoOS/api";
 import { Aggregates, TimeSeriesData } from "@/protoOS/api/types";
-import {
-  convertAggregateValues,
-  convertValues,
-  downsample,
-} from "@/shared/components/Chart/utility";
 import { type Duration } from "@/shared/components/DurationSelector";
 
 type UseProcessedHashrateProps = {

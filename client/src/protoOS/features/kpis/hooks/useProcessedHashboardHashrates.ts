@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { conversionFns } from "./utility";
+import { convertValues, downsample } from "./utility";
 import { useHashboardHashrate } from "@/protoOS/api";
 import { TimeSeriesData } from "@/protoOS/api/types";
 import useHashboardLocationStore from "@/protoOS/store/useHashboardLocationStore";
-import { convertValues, downsample } from "@/shared/components/Chart/utility";
 import { Duration } from "@/shared/components/DurationSelector";
 
 type HbHashRate = {

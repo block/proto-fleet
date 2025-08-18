@@ -229,6 +229,7 @@ export const transformStreamingMetricsToTimeSeries = (
         (av) => av.aggregationType === aggregationType,
       );
 
+      // Occasionally server will send updates with no value
       if (
         aggregatedValue?.value === null ||
         aggregatedValue?.value === undefined
@@ -435,8 +436,8 @@ export const processRawTimeSeriesData = (
 
   // Calculate aggregates from raw data
   const values = rawData
-    .map((point) => point.value || 0)
-    .filter((val) => val > 0);
+    .map((point) => point.value)
+    .filter((val) => val !== undefined && val !== null);
   const aggregates =
     values.length > 0
       ? {

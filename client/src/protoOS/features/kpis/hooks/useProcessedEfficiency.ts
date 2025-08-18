@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { useEfficiency } from "@/protoOS/api";
-import { Aggregates, TimeSeriesData } from "@/protoOS/api/types";
 import {
   conversionFns,
   convertAggregateValues,
   convertValues,
   downsample,
-} from "@/shared/components/Chart/utility";
+} from "./utility";
+import { useEfficiency } from "@/protoOS/api";
+import { Aggregates, TimeSeriesData } from "@/protoOS/api/types";
 import { type Duration } from "@/shared/components/DurationSelector";
 
 type UseProcessedEfficiencyProps = {

@@ -11,7 +11,7 @@ import {
   conversionFns,
   convertValues,
   downsample,
-} from "@/shared/components/Chart/utility";
+} from "@/protoOS/features/kpis/hooks/utility";
 
 import { Duration } from "@/shared/components/DurationSelector";
 
