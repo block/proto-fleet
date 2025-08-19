@@ -1,8 +1,16 @@
 #!/bin/bash
 
+# ============================================================================
+# Proto Fleet Installation and Setup Script
+# ============================================================================
+
 PROJECT_ROOT="$(pwd)"
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yaml"
 ENV_FILE="$PROJECT_ROOT/.env"
+
+# ----------------------------------------------------------------------------
+# Helper Functions
+# ----------------------------------------------------------------------------
 
 # Validate if a string is valid Base64 and decodes to 32 bytes
 validate_base64_key() {
@@ -26,53 +34,14 @@ validate_base64_key() {
     return 0  # Valid
 }
 
+# ----------------------------------------------------------------------------
+# Docker Installation Check and Setup
+# ----------------------------------------------------------------------------
+
 if ! command -v docker &> /dev/null; then
     echo "Docker is not installed. Attempting to install Docker..."
 
-    if [ "$(uname)" == "Darwin" ]; then
-        echo "Docker is not installed. You can:"
-        echo "1. Let this script download and install Docker Desktop automatically"
-        echo "2. Install Docker manually yourself"
-        read -p "Choose option (1/2): " docker_install_choice
-
-        if [ "$docker_install_choice" == "1" ]; then
-            DOCKER_VERSION="4.41.2"
-            if [ "$(uname -m)" == "arm64" ]; then
-                DOWNLOAD_URL="https://desktop.docker.com/mac/main/arm64/191736/Docker.dmg"
-                CHECKSUM="19c69b358a8ee1b94e308648a2853e398f4bff29f0f74f00ef2d1b462ced1d1c"
-            else
-                DOWNLOAD_URL="https://desktop.docker.com/mac/main/amd64/191736/Docker.dmg"
-                CHECKSUM="51a14a53808659f02b48f571dcf0e3cdb03a7e69cc51cc9ecb519bf6b10403df"
-            fi
-
-            echo "Detected $(uname -m) architecture"
-            echo "Downloading Docker Desktop $DOCKER_VERSION..."
-            curl -L -o /tmp/Docker.dmg "$DOWNLOAD_URL"
-
-            # Verify checksum
-            ACTUAL_CHECKSUM=$(shasum -a 256 /tmp/Docker.dmg | cut -d ' ' -f 1)
-            if [ "$ACTUAL_CHECKSUM" != "$CHECKSUM" ]; then
-                echo "Error: Docker download checksum verification failed."
-                echo "Expected: $CHECKSUM"
-                echo "Actual:   $ACTUAL_CHECKSUM"
-                echo "Please install Docker manually from: https://docs.docker.com/desktop/install/mac-install/"
-                exit 1
-            fi
-
-            echo "Installing Docker Desktop..."
-            hdiutil attach /tmp/Docker.dmg
-            cp -R "/Volumes/Docker/Docker.app" /Applications
-            hdiutil detach "/Volumes/Docker"
-            rm /tmp/Docker.dmg
-
-            echo "Docker Desktop has been installed. Please open it manually to complete the setup."
-            echo "After Docker is running, please re-run this script."
-            exit 0
-        else
-            echo "Please install Docker manually from: https://docs.docker.com/desktop/install/mac-install/"
-            exit 1
-        fi
-    elif [ "$(uname)" == "Linux" ]; then
+    if [ "$(uname)" == "Linux" ]; then
         curl -fsSL https://get.docker.com | sudo sh
         
         if ! command -v docker &> /dev/null; then
@@ -83,12 +52,13 @@ if ! command -v docker &> /dev/null; then
 
         echo "Docker installed successfully!"
     else
-        echo "Unsupported operating system. Please install Docker manually:"
+        echo "Please install Docker manually:"
         echo "Visit https://docs.docker.com/get-docker/"
         exit 1
     fi
 fi
 
+# Configure Docker for Linux systems
 if [ "$(uname)" == "Linux" ]; then
     # Check if Docker is set to start on boot
     if ! systemctl is-enabled docker &>/dev/null; then
@@ -104,6 +74,10 @@ if [ "$(uname)" == "Linux" ]; then
         exit 0
     fi
 fi
+
+# ----------------------------------------------------------------------------
+# Docker Daemon Check and Startup
+# ----------------------------------------------------------------------------
 
 if ! docker info > /dev/null 2>&1; then
     echo "Docker daemon is not running. Starting Docker..."
@@ -145,14 +119,14 @@ else
     echo "Docker daemon is already running."
 fi
 
+# ----------------------------------------------------------------------------
+# Docker Compose Installation Check
+# ----------------------------------------------------------------------------
+
 if ! docker compose version &> /dev/null; then
     echo "docker compose is not installed. Attempting to install it..."
 
-    if [ "$(uname)" == "Darwin" ]; then
-        # For macOS, docker compose is included in Docker Desktop
-        echo "Docker Desktop should include docker compose. If it's not working, please reinstall Docker Desktop. https://docs.docker.com/desktop/setup/install/mac-install/"
-        exit 1
-    elif [ "$(uname)" == "Linux" ]; then
+    if [ "$(uname)" == "Linux" ]; then
         # For Linux
         if command -v apt-get &> /dev/null; then
             sudo apt-get install -y docker-compose-plugin
@@ -162,9 +136,17 @@ if ! docker compose version &> /dev/null; then
             echo "Could not automatically install docker compose. Please install it manually. https://docs.docker.com/compose/install/linux/"
             exit 1
         fi
+    else
+        echo "Please install docker compose manually. https://docs.docker.com/compose/install/"
+        exit 1
     fi
 fi
 
+# ----------------------------------------------------------------------------
+# Database Volume Management Function
+# ----------------------------------------------------------------------------
+
+# Prompt user to reinitialize MySQL data volume if it exists
 prompt_store_reinit() {
   local proj=$(basename "$PROJECT_ROOT")
   local vol=$(docker volume ls -q | grep -E "^${proj}[-_]mysql$")
@@ -184,18 +166,23 @@ prompt_store_reinit() {
   return 0
 }
 
+# ----------------------------------------------------------------------------
+# Environment File Validation and Setup
+# ----------------------------------------------------------------------------
+
 use_existing="no"
 
+# Check if environment file exists and validate its contents
 if [ -f "$ENV_FILE" ]; then
     required_keys=(
         "MYSQL_ROOT_PASSWORD"
         "DB_USERNAME"
         "DB_PASSWORD"
         "AUTH_CLIENT_SECRET_KEY"
-        "PAIRING_SECRET_KEY"
         "ENCRYPT_SERVICE_MASTER_KEY"
     )
 
+    # Check for missing required keys
     missing_keys=0
     for key in "${required_keys[@]}"; do
         if ! grep -q "^$key=" "$ENV_FILE"; then
@@ -219,10 +206,15 @@ if [ -f "$ENV_FILE" ]; then
     fi
 fi
 
+# ----------------------------------------------------------------------------
+# Generate New Environment Configuration
+# ----------------------------------------------------------------------------
+
 if [ "$use_existing" == "no" ]; then
     # Initialize empty env file
     > "$ENV_FILE"
 
+    # Database root password configuration
     echo -n "Generate a random password for the Database root user? (Y/n): "
     read gen_mysql_pass
     if [[ -z "$gen_mysql_pass" || $gen_mysql_pass =~ ^[Yy]$ ]]; then
@@ -235,6 +227,7 @@ if [ "$use_existing" == "no" ]; then
     fi
     echo "MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD" >> "$ENV_FILE"
 
+    # Database user configuration
     echo -n "Enter username for the Database user [fleet_user]: "
     read DB_USERNAME
     DB_USERNAME=${DB_USERNAME:-fleet_user}
@@ -252,6 +245,7 @@ if [ "$use_existing" == "no" ]; then
     fi
     echo "DB_PASSWORD=$DB_PASSWORD" >> "$ENV_FILE"
 
+    # Auth client secret key configuration
     echo -n "Generate a random Auth client secret key? (Y/n): "
     read gen_auth_key
     if [[ -z "$gen_auth_key" || $gen_auth_key =~ ^[Yy]$ ]]; then
@@ -275,33 +269,7 @@ if [ "$use_existing" == "no" ]; then
     fi
     echo "AUTH_CLIENT_SECRET_KEY=$AUTH_CLIENT_SECRET_KEY" >> "$ENV_FILE"
 
-    echo -n "Generate a random Pairing secret key? (Y/n): "
-    read gen_pairing_key
-    if [[ -z "$gen_pairing_key" || $gen_pairing_key =~ ^[Yy]$ ]]; then
-        PAIRING_SECRET_KEY=$(openssl rand -base64 24)  # Will produce ~32 chars
-        echo "Generated secure Pairing secret key."
-    else
-        while true; do
-            echo -n "Enter Pairing secret key (32-48 characters): "
-            read -s PAIRING_SECRET_KEY
-            echo
-
-            byte_length=${#PAIRING_SECRET_KEY}
-            if [ "$byte_length" -lt 32 ]; then
-                echo "Error: Pairing secret key must be at least 32 characters long."
-                echo "Current length: $byte_length characters"
-            elif [ "$byte_length" -gt 48 ]; then
-                echo "Error: Pairing secret key must be at most 48 characters long."
-                echo "Current length: $byte_length characters"
-            else
-                echo "Pairing secret key accepted."
-                break
-            fi
-        done
-    fi
-    echo "PAIRING_SECRET_KEY=$PAIRING_SECRET_KEY" >> "$ENV_FILE"
-
-    # Generate random encryption key
+    # Encryption service master key configuration
     echo -n "Generate a random encryption service master key? (Y/n): "
     read gen_key
     if [[ -z "$gen_key" || $gen_key =~ ^[Yy]$ ]]; then
@@ -327,14 +295,23 @@ if [ "$use_existing" == "no" ]; then
     echo "Environment variables saved to $ENV_FILE"
 fi
 
+# ----------------------------------------------------------------------------
+# Docker Compose File Validation
+# ----------------------------------------------------------------------------
+
 if [ ! -f "$COMPOSE_FILE" ]; then
     echo "Error: Docker Compose file not found at $COMPOSE_FILE"
     exit 1
 fi
 
+# ----------------------------------------------------------------------------
+# Docker Image Preparation
+# ----------------------------------------------------------------------------
+
 echo "Pulling latest Docker images..."
 docker compose -f "$COMPOSE_FILE" pull
 
+# Detect system architecture and set appropriate build target
 if [ "$(uname -m)" == "arm64" ] || [ "$(uname -m)" == "aarch64" ]; then
     export TARGETARCH="arm64"
     echo "Detected ARM64 architecture, setting TARGETARCH=arm64"
@@ -343,13 +320,22 @@ else
     echo "Detected x86_64 architecture, setting TARGETARCH=amd64"
 fi
 
+# Build Docker images
 docker compose -f "$COMPOSE_FILE" build --no-cache || { echo "Error: Build failed. Exiting."; exit 1; }
+
+# ----------------------------------------------------------------------------
+# Service Management
+# ----------------------------------------------------------------------------
 
 echo "Stopping any running services..."
 docker compose -f "$COMPOSE_FILE" down
 
 echo "Starting services..."
 docker compose -f "$COMPOSE_FILE" up -d
+
+# ----------------------------------------------------------------------------
+# Final Status Check
+# ----------------------------------------------------------------------------
 
 # Check if docker compose was successful
 if [ $? -eq 0 ]; then

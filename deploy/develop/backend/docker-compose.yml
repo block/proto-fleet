@@ -22,7 +22,6 @@ services:
       AUTH_CLIENT_EXPIRATION_PERIOD: "1000000h"
       AUTH_MINER_EXPIRATION_PERIOD: "1000000h"
       LOG_LEVEL: "DEBUG"
-      PAIRING_SECRET_KEY: "00000000000000000000000000000000000000000000"
       ENCRYPT_SERVICE_MASTER_KEY: "EV0g7BoFQnqshvzep9knZsUUmvsqSBsjDAJus7ri0B8="
       INFLUXDB3_URL: "http://protofleet-develop-${LABEL}-backend-influxdb:8181"
       INFLUXDB3_ORG: "fleet"
@@ -88,19 +87,19 @@ services:
       /bin/sh -c '
       # Start InfluxDB server in background
       influxdb3 serve &
-      
+
       # Wait for InfluxDB to be healthy
       echo "Waiting for InfluxDB to be healthy..."
       until curl -s http://localhost:8181/health | grep -q "OK" ; do
         sleep 5
       done
       echo "InfluxDB is healthy."
-      
+
       # Check if token is already set in /var/lib/influxdb3/start/.env
       ENV_FILE=/var/lib/influxdb3/start/.env
-      
+
       touch "$$ENV_FILE"
-      
+
       # Generate a new token (capture both stdout and stderr)
       influxdb3 create token --admin > /tmp/influxdb3_token.txt 2>&1
       if [ $$? -ne 0 ]; then
@@ -112,7 +111,7 @@ services:
           echo "Token already exists, reusing the existing token."
       else
           echo "New token created successfully."
-      
+
           # Read the token from the file
           # Extracting token from line "Token: <token_value>"
           TOKEN=$(cat /tmp/influxdb3_token.txt | grep Token | cut -d" " -f2)
@@ -122,7 +121,7 @@ services:
               echo "Failed to extract token from /tmp/influxdb3_token.txt."
               exit 1
           fi 
-      
+
           # Write the token to the .env file
           if grep -q "^INFLUXDB3_AUTH_TOKEN=" "$$ENV_FILE"; then
               # replace existing token
@@ -133,7 +132,7 @@ services:
           fi
           echo "Token written to $$ENV_FILE."
       fi
-      
+
       # Wait for the background InfluxDB process
       wait 
       '

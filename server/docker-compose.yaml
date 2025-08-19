@@ -19,7 +19,6 @@ services:
       AUTH_MINER_EXPIRATION_PERIOD: "168h" # Override to 168h for development
       DB_USERNAME: "root"
       DB_PASSWORD: ""
-      PAIRING_SECRET_KEY: "00000000000000000000000000000000000000000000"
       ENCRYPT_SERVICE_MASTER_KEY: "EV0g7BoFQnqshvzep9knZsUUmvsqSBsjDAJus7ri0B8="
     depends_on:
       mysql:
