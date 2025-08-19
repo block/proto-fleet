@@ -6,6 +6,7 @@ import {
 } from "@/protoFleet/api/clients";
 import {
   DataMode,
+  DeviceStatusUpdateSchema,
   MeasurementConfig_MeasurementType,
   MinerListFilter,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -85,7 +86,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
   const updateMinerState = useCallback((response: StreamUpdatesResponse) => {
     const update = response.update;
 
-    if (!update || !update.deviceId) {
+    if (!update) {
       return;
     }
 
@@ -94,12 +95,42 @@ const useFleet = (options: UseFleetOptions = {}) => {
       return;
     }
 
+    // Handle miner state counts updates (fleet-wide, no deviceId required)
+    if (
+      update.type === UpdateType.MINER_STATE_COUNTS &&
+      update.minerStateCounts
+    ) {
+      const store = useFleetStore.getState();
+      const previousCounts = store.minerStateCounts;
+      store.setMinerStateCounts(update.minerStateCounts);
+      store.handleMinerStateCountsChange(
+        previousCounts,
+        update.minerStateCounts,
+      );
+      return;
+    }
+
+    // For device-specific updates, deviceId is required
+    if (!update.deviceId) {
+      return;
+    }
+
     // Handle telemetry data updates
     if (update.type === UpdateType.TELEMETRY && update.data) {
       useFleetStore.getState().updateMinerTelemetry(update.deviceId, update);
-    }
 
-    // Handle device status updates - TODO: implement when needed
+      // Handle device status updates
+    } else if (
+      update.type === UpdateType.DEVICE_STATUS &&
+      update.deviceStatus
+    ) {
+      useFleetStore.getState().updateMinerDeviceStatus(
+        update.deviceId,
+        create(DeviceStatusUpdateSchema, {
+          status: update.deviceStatus,
+        }),
+      );
+    }
 
     if (update.timestamp) {
       useFleetStore
@@ -220,10 +251,13 @@ const useFleet = (options: UseFleetOptions = {}) => {
           (totalStateCounts?.hashingCount || 0) +
           (totalStateCounts?.offlineCount || 0) +
           (totalStateCounts?.sleepingCount || 0);
-        useFleetStore.getState().setCursor(newCursor);
-        useFleetStore.getState().setTotalMiners(totalMinersStates);
+        const store = useFleetStore.getState();
+        store.setCursor(newCursor);
+        store.setTotalMiners(totalMinersStates);
         if (totalStateCounts) {
-          useFleetStore.getState().setMinerStateCounts(totalStateCounts);
+          const previousCounts = store.minerStateCounts;
+          store.setMinerStateCounts(totalStateCounts);
+          store.handleMinerStateCountsChange(previousCounts, totalStateCounts);
         }
 
         // Update internal state
@@ -259,6 +293,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
   const setFilter = useCallback(
     (filter: MinerListFilter) => {
       setCurrentFilter(filter);
+      useFleetStore.getState().setCurrentFilter(filter);
       setCursor(undefined); // Reset cursor when filter changes
       fetchMiners(filter, undefined, false);
     },
@@ -271,8 +306,24 @@ const useFleet = (options: UseFleetOptions = {}) => {
     }
   }, [hasMore, isLoading, currentFilter, cursor, fetchMiners]);
 
+  // Set up refetch callback for the store
+  useEffect(() => {
+    const refetchCallback = () => {
+      if (!isLoading) {
+        fetchMiners(currentFilter, undefined, false);
+      }
+    };
+
+    useFleetStore.getState().setRefetchCallback(refetchCallback);
+
+    return () => {
+      useFleetStore.getState().setRefetchCallback(undefined);
+    };
+  }, [fetchMiners, currentFilter, isLoading]);
+
   // Initial load on mount
   useEffect(() => {
+    useFleetStore.getState().setCurrentFilter(initialFilter);
     fetchMiners(initialFilter, undefined, false);
 
     // Cleanup streaming on unmount to prevent memory leaks

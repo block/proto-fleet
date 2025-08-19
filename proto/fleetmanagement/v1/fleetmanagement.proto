@@ -4,6 +4,7 @@ package fleetmanagement.v1;
 
 import "google/protobuf/timestamp.proto";
 import "common/v1/measurement.proto";
+import "telemetry/v1/telemetry.proto";
 
 // Service for managing fleet-wide settings and configurations
 service FleetManagementService {
@@ -278,20 +279,6 @@ message MinerListFilter {
   repeated DeviceStatus device_status = 3;
 }
 
-// Represents counts of miners in different states
-message MinerStateCounts {
-  // Number of miners that are hashing
-  int32 hashing_count = 1;
-
-  // Number of miners that are broken
-  int32 broken_count = 2;
-
-  // Number of miners that are offline
-  int32 offline_count = 3;
-
-  // Number of miners that are sleeping
-  int32 sleeping_count = 4;
-}
 
 // Response containing a list of miners with their telemetry
 message ListMinerStateSnapshotsResponse {
@@ -310,7 +297,7 @@ message ListMinerStateSnapshotsResponse {
   // Counts of miners in different states
   // This includes counts for all miners, not just the ones in the current page
   // Status filters do not affect these counts, because they act as OR condition.
-  MinerStateCounts total_state_counts = 4;
+  telemetry.v1.MinerStateCounts total_state_counts = 4;
 }
 
 message StreamMinerUpdatesRequest {

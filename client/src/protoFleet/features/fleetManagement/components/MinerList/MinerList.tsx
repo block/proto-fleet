@@ -8,14 +8,14 @@ import {
   minerTypes,
 } from "./constants";
 import minerColConfig from "./minerColConfig";
-
 import {
-  DeviceStatus,
   MinerListFilter,
   MinerListFilterSchema,
   MinerStateSnapshot,
   MinerType,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 
 import {
@@ -78,6 +78,7 @@ const MinerList = ({
         }) as MinerStateSnapshot,
     );
   }, [minerIds]);
+
   const filters = useMemo(() => {
     return [
       {

@@ -5,22 +5,78 @@ import { immer } from "zustand/middleware/immer";
 import { useShallow } from "zustand/react/shallow";
 import { MeasurementSchema } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import {
+  ComponentStatus,
   type ComponentStatusUpdate,
   ComponentStatusUpdate_Component,
-  DeviceStatus,
   type DeviceStatusUpdate,
   MeasurementConfig_MeasurementType,
   type MeasurementUpdate,
   MinerComponentStatus,
-  MinerStateCounts,
-  MinerStateCountsSchema,
+  MinerListFilter,
   type MinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
+  DeviceStatus,
   MeasurementType,
+  MinerStateCounts,
+  MinerStateCountsSchema,
   type TelemetryUpdate,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { getLatestMeasurementWithData } from "@/shared/utils/measurementUtils";
+
+// Helper function to determine which state counts are relevant for a given filter
+function getRelevantCounts(
+  filter: MinerListFilter | undefined,
+  counts: MinerStateCounts,
+): Partial<MinerStateCounts> {
+  if (!filter) {
+    // No filter means all counts are relevant
+    return counts;
+  }
+
+  const relevantCounts: Partial<MinerStateCounts> = {};
+
+  // If filtering by device status, only include counts for those statuses
+  if (filter.deviceStatus && filter.deviceStatus.length > 0) {
+    for (const status of filter.deviceStatus) {
+      switch (status) {
+        case DeviceStatus.ONLINE:
+          relevantCounts.hashingCount = counts.hashingCount;
+          break;
+        case DeviceStatus.OFFLINE:
+          relevantCounts.offlineCount = counts.offlineCount;
+          break;
+        case DeviceStatus.INACTIVE:
+          relevantCounts.sleepingCount = counts.sleepingCount;
+          break;
+        case DeviceStatus.ERROR:
+        case DeviceStatus.MAINTENANCE:
+          relevantCounts.brokenCount = counts.brokenCount;
+          break;
+      }
+    }
+    return relevantCounts;
+  }
+
+  // If filtering by component status, include counts based on status type
+  if (filter.status && filter.status.length > 0) {
+    for (const status of filter.status) {
+      switch (status) {
+        case ComponentStatus.OK:
+          relevantCounts.hashingCount = counts.hashingCount;
+          break;
+        case ComponentStatus.ERROR:
+        case ComponentStatus.WARNING:
+          relevantCounts.brokenCount = counts.brokenCount;
+          break;
+      }
+    }
+    return relevantCounts;
+  }
+
+  // If no specific status filters are set, all counts are relevant
+  return counts;
+}
 
 interface FleetState {
   // Core data
@@ -29,17 +85,27 @@ interface FleetState {
 
   totalMiners: number; // total number of miners in the fleet
   minerStateCounts: MinerStateCounts; // counts of miners by state
+  currentFilter?: MinerListFilter; // current active filter
 
   // Loading states
   isLoading: boolean;
   isStreaming: boolean;
   cursor: string;
 
+  // Refetch callback
+  refetchMiners?: () => void;
+
   // Actions
   setMiners: (miners: MinerStateSnapshot[]) => void;
   appendMiners: (miners: MinerStateSnapshot[]) => void;
   setTotalMiners: (count: number) => void;
   setMinerStateCounts: (counts: MinerStateCounts) => void;
+  handleMinerStateCountsChange: (
+    previousCounts: MinerStateCounts,
+    newCounts: MinerStateCounts,
+  ) => void;
+  setCurrentFilter: (filter?: MinerListFilter) => void;
+  setRefetchCallback: (callback?: () => void) => void;
   updateMinerMeasurement: (
     deviceId: string,
     measurement: MeasurementUpdate,
@@ -172,6 +238,15 @@ function updateDeviceStatus(
   miner.deviceStatus = deviceStatus.status;
 }
 
+const isHashing = (minerSnapshot: MinerStateSnapshot) => {
+  if (!minerSnapshot) return false;
+  if (minerSnapshot.deviceStatus === DeviceStatus.OFFLINE) return false;
+  if (minerSnapshot.deviceStatus === DeviceStatus.INACTIVE) return false;
+  const hashrate = getLatestMeasurementWithData(minerSnapshot.hashrate);
+  if (!hashrate) return false;
+  return hashrate.value > 0;
+};
+
 export const useFleetStore = create<FleetState>()(
   subscribeWithSelector(
     immer((set, get) => ({
@@ -180,9 +255,11 @@ export const useFleetStore = create<FleetState>()(
       minerIds: [],
       totalMiners: 0,
       minerStateCounts: createSchema(MinerStateCountsSchema, {}),
+      currentFilter: undefined,
       isLoading: false,
       isStreaming: false,
       cursor: "",
+      refetchMiners: undefined,
 
       // Actions
       setMiners: (miners) =>
@@ -217,6 +294,53 @@ export const useFleetStore = create<FleetState>()(
       setMinerStateCounts: (counts) =>
         set((state) => {
           state.minerStateCounts = counts;
+        }),
+
+      handleMinerStateCountsChange: (previousCounts, newCounts) => {
+        const { refetchMiners, currentFilter } = get();
+
+        // If we have a refetch callback and a filter is active, check if relevant counts changed
+        if (refetchMiners && currentFilter) {
+          const previousRelevantCounts = getRelevantCounts(
+            currentFilter,
+            previousCounts,
+          );
+          const currentRelevantCounts = getRelevantCounts(
+            currentFilter,
+            newCounts,
+          );
+
+          // Check if any of the relevant counts have changed
+          const hasRelevantChange =
+            previousRelevantCounts.hashingCount !==
+              currentRelevantCounts.hashingCount ||
+            previousRelevantCounts.brokenCount !==
+              currentRelevantCounts.brokenCount ||
+            previousRelevantCounts.offlineCount !==
+              currentRelevantCounts.offlineCount ||
+            previousRelevantCounts.sleepingCount !==
+              currentRelevantCounts.sleepingCount;
+
+          if (hasRelevantChange) {
+            // Use setTimeout to avoid calling during state update
+            setTimeout(() => {
+              const currentState = get();
+              if (currentState.refetchMiners) {
+                currentState.refetchMiners();
+              }
+            }, 0);
+          }
+        }
+      },
+
+      setCurrentFilter: (filter) =>
+        set((state) => {
+          state.currentFilter = filter;
+        }),
+
+      setRefetchCallback: (callback) =>
+        set((state) => {
+          state.refetchMiners = callback;
         }),
 
       updateMinerMeasurement: (deviceId, measurementUpdate) =>
@@ -320,15 +444,6 @@ export const useMinerHashrate = (deviceId: string) =>
       ? state.miners[deviceId]?.hashrate
       : undefined,
   );
-
-const isHashing = (minerSnapshot: MinerStateSnapshot) => {
-  if (!minerSnapshot) return false;
-  if (minerSnapshot.deviceStatus === DeviceStatus.OFFLINE) return false;
-  if (minerSnapshot.deviceStatus === DeviceStatus.INACTIVE) return false;
-  const hashrate = getLatestMeasurementWithData(minerSnapshot.hashrate);
-  if (!hashrate) return false;
-  return hashrate.value > 0;
-};
 
 export const useMinerEfficiency = (deviceId: string) =>
   useFleetStore((state) =>

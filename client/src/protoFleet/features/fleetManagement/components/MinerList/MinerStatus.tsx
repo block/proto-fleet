@@ -2,10 +2,10 @@ import { ReactNode, useMemo } from "react";
 import { create } from "@bufbuild/protobuf";
 import {
   ComponentStatus,
-  DeviceStatus,
   type MinerComponentStatus,
   MinerComponentStatusSchema,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import {
   useMinerComponentStatus,
   useMinerDeviceStatus,

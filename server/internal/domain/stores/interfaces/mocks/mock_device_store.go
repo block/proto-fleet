@@ -10,6 +10,7 @@ import (
 
 	fleetmanagementv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
+	telemetryv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
 	models "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	minerdiscovery "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	interfaces "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
@@ -117,10 +118,10 @@ func (mr *MockDeviceStoreMockRecorder) GetMinerCredentials(ctx, device, orgID in
 }
 
 // GetMinerStateCounts mocks base method.
-func (m *MockDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *interfaces.MinerFilter) (*fleetmanagementv1.MinerStateCounts, error) {
+func (m *MockDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *interfaces.MinerFilter) (*telemetryv1.MinerStateCounts, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetMinerStateCounts", ctx, orgID, filter)
-	ret0, _ := ret[0].(*fleetmanagementv1.MinerStateCounts)
+	ret0, _ := ret[0].(*telemetryv1.MinerStateCounts)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

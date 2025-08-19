@@ -152,6 +152,31 @@ const List = <ListItem, ItemKeyValueType>({
     }
   }, [items, isServerSideFiltering]);
 
+  // Clear selected items that are no longer in the current items list
+  useEffect(() => {
+    const currentItemKeys = new Set(
+      items.map((item) => item[itemKey] as ItemKeyValueType),
+    );
+
+    if (customSetSelectedItems && customSelectedItems) {
+      const newSelectedItems = customSelectedItems.filter((selectedKey) =>
+        currentItemKeys.has(selectedKey),
+      );
+      if (newSelectedItems.length !== customSelectedItems.length) {
+        customSetSelectedItems(newSelectedItems);
+      }
+    } else {
+      setSelectedItems((prevSelected) => {
+        const newSelectedItems = prevSelected.filter((selectedKey) =>
+          currentItemKeys.has(selectedKey),
+        );
+        return newSelectedItems.length !== prevSelected.length
+          ? newSelectedItems
+          : prevSelected;
+      });
+    }
+  }, [items, itemKey, customSetSelectedItems, customSelectedItems]);
+
   const paddingCssVariables = useMemo(() => {
     const style: Record<string, string> = {};
     Object.entries(breakpoints).forEach(([, breakpoint]) => {

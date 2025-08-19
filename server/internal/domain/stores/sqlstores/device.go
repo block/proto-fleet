@@ -10,6 +10,7 @@ import (
 
 	fm "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
+	tm "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	minermodels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
@@ -342,7 +343,7 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 	return deviceIDs, nil
 }
 
-func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *stores.MinerFilter) (*fm.MinerStateCounts, error) {
+func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *stores.MinerFilter) (*tm.MinerStateCounts, error) {
 	_, typeFilter := buildFilterParams(filter)
 
 	counts, err := s.getQueries(ctx).CountMinersByState(ctx, sqlc.CountMinersByStateParams{
@@ -353,7 +354,7 @@ func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, f
 		return nil, err
 	}
 
-	return &fm.MinerStateCounts{
+	return &tm.MinerStateCounts{
 		HashingCount:  int32(counts.HashingCount),                            //nolint:gosec
 		BrokenCount:   int32(counts.BrokenCount),                             //nolint:gosec
 		OfflineCount:  int32(counts.OfflineCount),                            //nolint:gosec
