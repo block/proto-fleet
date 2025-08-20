@@ -15,10 +15,6 @@ const (
 	StatusUnpaired = "UNPAIRED"
 )
 
-type Config struct {
-	SecretKey string `help:"Secret key for signing the pairing tokens" env:"SECRET_KEY" required:""`
-}
-
 type Pairer interface {
 	// PairDevice handles the entire pairing process including saving the device to the database
 	PairDevice(ctx context.Context, device *minerdiscovery.DiscoveredDevice, credentials *pb.Credentials) error

@@ -75,7 +75,7 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
 	userStore := sqlstores.NewSQLUserStore(testContext.ServiceProvider.DB)
 
-	protoPairer := pairingProto.NewService(transactor, deviceStore, userStore, pairing.Config{SecretKey: "test-secret"}, testContext.ServiceProvider.MinerService, testContext.ServiceProvider.TokenService, testContext.ServiceProvider.EncryptService)
+	protoPairer := pairingProto.NewService(transactor, deviceStore, userStore, testContext.ServiceProvider.MinerService, testContext.ServiceProvider.TokenService, testContext.ServiceProvider.EncryptService)
 
 	antminerPairer := pairingAntminer.NewService(transactor, deviceStore, testContext.ServiceProvider.EncryptService, webClient)
 

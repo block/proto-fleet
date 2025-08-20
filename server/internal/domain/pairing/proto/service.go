@@ -19,15 +19,10 @@ import (
 
 var _ pairing.Pairer = &Service{}
 
-// pairingBcryptCost is lower than the default of 10 because we want it to be fast.
-// We don't need to be too secure here because we're only using it to pair devices and not to authenticate users.
-const pairingBcryptCost = 6
-
 type Service struct {
 	transactor     stores.Transactor
 	deviceStore    stores.DeviceStore
 	userStore      stores.UserStore
-	cfg            pairing.Config
 	minerService   *miner.MinerService
 	tokenService   *token.Service
 	encryptService *encrypt.Service
@@ -37,7 +32,6 @@ func NewService(
 	transactor stores.Transactor,
 	deviceStore stores.DeviceStore,
 	userStore stores.UserStore,
-	cfg pairing.Config,
 	minerService *miner.MinerService,
 	tokenService *token.Service,
 	encryptService *encrypt.Service,
@@ -46,7 +40,6 @@ func NewService(
 		transactor:     transactor,
 		deviceStore:    deviceStore,
 		userStore:      userStore,
-		cfg:            cfg,
 		minerService:   minerService,
 		tokenService:   tokenService,
 		encryptService: encryptService,

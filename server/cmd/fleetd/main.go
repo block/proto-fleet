@@ -149,7 +149,7 @@ func start(config *Config) error {
 		return fmt.Errorf("failed to start telemetry service: %w", err)
 	}
 
-	protoPairer := pairingProto.NewService(transactor, deviceStore, userStore, config.Pairing, minerService, tokenSvc, encryptSvc)
+	protoPairer := pairingProto.NewService(transactor, deviceStore, userStore, minerService, tokenSvc, encryptSvc)
 	antminerPairer := pairingAntminer.NewService(transactor, deviceStore, encryptSvc, antminerWeb.NewService())
 
 	pairingSvc := pairingDomain.NewService(

@@ -10,7 +10,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/influxdb"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pools"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
@@ -27,7 +26,6 @@ type Config struct {
 	Log       logging.Config   `embed:"" prefix:"logging" envprefix:"LOG_"`
 	HTTP      HTTPConfig       `embed:"" prefix:"http" envprefix:"HTTP_"`
 	Auth      token.Config     `embed:"" prefix:"auth" envprefix:"AUTH_"`
-	Pairing   pairing.Config   `embed:"" prefix:"pairing" envprefix:"PAIRING_"`
 	Pools     pools.Config     `embed:"" prefix:"pools" envprefix:"POOLS_"`
 	Encrypt   encrypt.Config   `embed:"" prefix:"encrypt" envprefix:"ENCRYPT_"`
 	Command   command.Config   `embed:"" prefix:"fleet_command" envprefix:"FLEET_COMMAND_"`

@@ -67,8 +67,6 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	listenerMock := mocks.NewMockListener(ctrl)
 	listenerMock.EXPECT().AddDevices(gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
 
-	pairingConfig := pairing.Config{SecretKey: config.PairingSecretKey}
-
 	protoDiscoverer := proto.NewDiscoverer()
 	minerDiscoveryService, err := minerdiscovery.NewService(protoDiscoverer)
 	assert.NoError(t, err)
@@ -80,7 +78,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 
 	minerService := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService)
 
-	protoPairer := pairingProto.NewService(transactor, deviceStore, userStore, pairingConfig, minerService, tokenService, encryptService)
+	protoPairer := pairingProto.NewService(transactor, deviceStore, userStore, minerService, tokenService, encryptService)
 	antminerPairer := pairingAntminer.NewService(transactor, deviceStore, encryptService, antminerWeb.NewService())
 
 	pairingService := pairing.NewService(discoveredDeviceStore, deviceStore, transactor, tokenService, minerDiscoveryService, listenerMock, protoPairer, antminerPairer)
