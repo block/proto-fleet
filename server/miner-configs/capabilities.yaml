@@ -1,0 +1,74 @@
+proto-rig:
+  manufacturer: "Proto"
+  authentication:
+    supportedMethods: ["asymmetric"]
+  commands:
+    rebootSupported: true
+    miningStartSupported: true
+    miningStopSupported: true
+    ledBlinkSupported: true
+    factoryResetSupported: false
+    coolingModeSupported: true
+    coolingModesAvailable: ["normal", "immersion"]
+    poolSwitchingSupported: true
+    poolMaxCount: 3
+    poolPrioritySupported: true
+    logsDownloadSupported: true
+  telemetry:
+    realtimeTelemetrySupported: true
+    historicalDataSupported: true
+    hashrateReported: true
+    powerUsageReported: true
+    temperatureReported: true
+    fanSpeedReported: true
+    efficiencyReported: true
+    uptimeReported: true
+    errorCountReported: true
+    minerStatusReported: true
+    poolStatsReported: true
+    perChipStatsReported: true
+    perBoardStatsReported: true
+    psuStatsReported: true
+    pollingIntervalSecondsRecommended: 30
+  firmware:
+    otaUpdateSupported: true
+    manualUploadSupported: true
+
+bitmain-antminer-s19: &antminer_bitmain
+  manufacturer: "Bitmain"
+  authentication:
+    supportedMethods: ["basic"]
+  commands:
+    rebootSupported: true
+    miningStartSupported: false
+    miningStopSupported: false
+    ledBlinkSupported: true
+    factoryResetSupported: false
+    coolingModeSupported: false
+    coolingModesAvailable: []
+    poolSwitchingSupported: true
+    poolMaxCount: 3
+    poolPrioritySupported: true
+    logsDownloadSupported: false
+  telemetry:
+    realtimeTelemetrySupported: true
+    historicalDataSupported: false
+    hashrateReported: true
+    powerUsageReported: true
+    temperatureReported: true
+    fanSpeedReported: true
+    efficiencyReported: true
+    uptimeReported: true
+    errorCountReported: true
+    minerStatusReported: true
+    poolStatsReported: true
+    perChipStatsReported: true
+    perBoardStatsReported: true
+    psuStatsReported: false
+    pollingIntervalSecondsRecommended: 60
+  firmware:
+    otaUpdateSupported: false
+    manualUploadSupported: true
+
+bitmain-antminer-s21:
+  <<: *antminer_bitmain

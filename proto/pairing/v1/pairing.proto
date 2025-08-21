@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package pairing.v1;
 
+import "capabilities/v1/capabilities.proto";
+
 // Device represents a discovered network device that can be paired with the system
 message Device {
   // unique identifier of the device
@@ -30,6 +32,9 @@ message Device {
 
   // Type of the device
   string type = 9;
+
+  // Capabilities of the device
+  capabilities.v1.MinerCapabilities capabilities = 10;
 }
 
 // Represents login credentials used for device pairing
