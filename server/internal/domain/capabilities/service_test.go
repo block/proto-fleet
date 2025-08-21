@@ -12,23 +12,23 @@ import (
 
 func TestLoadConfig(t *testing.T) {
 	testCapabilitiesPath := filepath.Join("../../..", "miner-configs", "capabilities.yaml")
-	config, err := LoadCapabilities(testCapabilitiesPath)
+	capabilities, err := LoadCapabilities(testCapabilitiesPath)
 	require.NoError(t, err)
-	require.NotNil(t, config)
+	require.NotNil(t, capabilities)
 
 	// Check that we loaded the correct number of miners
-	require.Len(t, config.Miners, 3)
+	require.Len(t, capabilities, 3)
 
 	// Verify that specific miners were loaded
-	assert.NotNil(t, config.Miners["proto-rig"])
-	assert.NotNil(t, config.Miners["bitmain-antminer-s19"])
-	assert.NotNil(t, config.Miners["bitmain-antminer-s21"])
+	assert.NotNil(t, capabilities[NewModelID("proto-rig")])
+	assert.NotNil(t, capabilities[NewModelID("bitmain-antminer-s19")])
+	assert.NotNil(t, capabilities[NewModelID("bitmain-antminer-s21")])
 
 	// Check a few specific values
-	assert.Equal(t, "Proto", config.Miners["proto-rig"].Manufacturer)
-	assert.True(t, config.Miners["proto-rig"].Commands.CoolingModeSupported)
-	assert.Len(t, config.Miners["proto-rig"].Commands.CoolingModesAvailable, 2)
-	assert.Equal(t, int32(30), config.Miners["proto-rig"].Telemetry.PollingIntervalSecondsRecommended)
+	assert.Equal(t, "Proto", capabilities[NewModelID("proto-rig")].Manufacturer)
+	assert.True(t, capabilities[NewModelID("proto-rig")].Commands.CoolingModeSupported)
+	assert.Len(t, capabilities[NewModelID("proto-rig")].Commands.CoolingModesAvailable, 2)
+	assert.Equal(t, int32(30), capabilities[NewModelID("proto-rig")].Telemetry.PollingIntervalSecondsRecommended)
 }
 
 func TestService_GetCapabilitiesForDevice(t *testing.T) {

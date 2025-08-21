@@ -1,19 +1,16 @@
 package capabilities
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
+	"buf.build/go/protovalidate"
 	capabilitiespb "github.com/btc-mining/proto-fleet/server/generated/grpc/capabilities/v1"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 )
-
-type Capabilities struct {
-	Miners map[string]MinerCapabilities `yaml:"miners"`
-}
 
 type MinerCapabilities struct {
 	Manufacturer   string               `yaml:"manufacturer"`
@@ -64,34 +61,53 @@ type FirmwareConfig struct {
 	ManualUploadSupported bool `yaml:"manualUploadSupported"`
 }
 
-func LoadCapabilities(capabilitiesPath string) (*Capabilities, error) {
+func LoadCapabilities(capabilitiesPath string) (map[ModelID]*capabilitiespb.MinerCapabilities, error) {
 	if capabilitiesPath == "" {
 		workDir, err := os.Getwd()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get working directory: %w", err)
+			return nil, fleeterror.NewInternalErrorf("failed to get working directory: %v", err)
 		}
 		capabilitiesPath = filepath.Join(workDir, "miner-configs", "capabilities.yaml")
 	}
 
 	data, err := os.ReadFile(capabilitiesPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, fleeterror.NewInternalErrorf("failed to read config file: %v", err)
 	}
 
 	var minerMap map[string]MinerCapabilities
 	if err := yaml.Unmarshal(data, &minerMap); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal capabilities: %w", err)
+		return nil, fleeterror.NewInternalErrorf("failed to unmarshal capabilities: %v", err)
 	}
 
-	capabilities := &Capabilities{
-		Miners: minerMap,
+	if len(minerMap) == 0 {
+		return nil, fleeterror.NewInternalError("no miners defined in capabilities")
 	}
 
-	return capabilities, nil
+	minerCapabilities := make(map[ModelID]*capabilitiespb.MinerCapabilities)
+
+	validator, err := protovalidate.New()
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to create validator: %v", err)
+	}
+
+	for minerName, minerConfig := range minerMap {
+		pbCapabilities, err := convertToPbCapabilities(minerConfig)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to convert capabilities to protobuf: %v", err)
+		}
+
+		if err := validator.Validate(pbCapabilities); err != nil {
+			return nil, fleeterror.NewInternalErrorf("miner %s has invalid configuration: %v", minerName, err)
+		}
+
+		minerCapabilities[NewModelID(minerName)] = pbCapabilities
+	}
+
+	return minerCapabilities, nil
 }
 
-// ConvertToPbCapabilities converts the capabilities model to protobuf model
-func ConvertToPbCapabilities(capabilities MinerCapabilities) *capabilitiespb.MinerCapabilities {
+func convertToPbCapabilities(capabilities MinerCapabilities) (*capabilitiespb.MinerCapabilities, error) {
 	authMethods := make([]capabilitiespb.AuthenticationMethod, 0, len(capabilities.Authentication.SupportedMethods))
 	for _, method := range capabilities.Authentication.SupportedMethods {
 		switch strings.ToLower(method) {
@@ -99,6 +115,8 @@ func ConvertToPbCapabilities(capabilities MinerCapabilities) *capabilitiespb.Min
 			authMethods = append(authMethods, capabilitiespb.AuthenticationMethod_AUTHENTICATION_METHOD_BASIC)
 		case "asymmetric", "asymmetrickey":
 			authMethods = append(authMethods, capabilitiespb.AuthenticationMethod_AUTHENTICATION_METHOD_ASYMMETRIC_KEY)
+		default:
+			return nil, fleeterror.NewInternalErrorf("invalid authentication method: %s", method)
 		}
 	}
 
@@ -146,5 +164,5 @@ func ConvertToPbCapabilities(capabilities MinerCapabilities) *capabilitiespb.Min
 			OtaUpdateSupported:    capabilities.Firmware.OtaUpdateSupported,
 			ManualUploadSupported: capabilities.Firmware.ManualUploadSupported,
 		},
-	}
+	}, nil
 }

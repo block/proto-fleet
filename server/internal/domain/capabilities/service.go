@@ -9,20 +9,26 @@ import (
 	pairingpb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 )
 
+// ModelID represents a unique identifier for a miner model
+type ModelID string
+
+func NewModelID(id string) ModelID {
+	return ModelID(id)
+}
+
+func NewModelIDFromDeviceDetails(manufacturer, model string) ModelID {
+	return NewModelID(normalizedModelID(manufacturer, model))
+}
+
 // Service provides methods for working with miner capabilities
 type Service struct {
-	capabilities map[string]*capabilitiespb.MinerCapabilities
+	capabilities map[ModelID]*capabilitiespb.MinerCapabilities
 }
 
 func NewService(configPath string) (*Service, error) {
-	config, err := LoadCapabilities(configPath)
+	capabilities, err := LoadCapabilities(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load capabilities config: %w", err)
-	}
-
-	capabilities := make(map[string]*capabilitiespb.MinerCapabilities)
-	for modelID, minerConfig := range config.Miners {
-		capabilities[modelID] = ConvertToPbCapabilities(minerConfig)
 	}
 
 	return &Service{
@@ -37,19 +43,18 @@ func (s *Service) GetCapabilitiesForDevice(ctx context.Context, device *pairingp
 	}
 
 	// First try exact model match
-	if caps := s.capabilities[device.Model]; caps != nil {
+	if caps := s.capabilities[NewModelID(device.Model)]; caps != nil {
 		return caps
 	}
 
 	// Try to construct a model ID from manufacturer and model
-	modelID := normalizedModelID(device.Manufacturer, device.Model)
-	if caps := s.capabilities[modelID]; caps != nil {
+	if caps := s.capabilities[NewModelIDFromDeviceDetails(device.Manufacturer, device.Model)]; caps != nil {
 		return caps
 	}
 
 	// Try to find by manufacturer prefix
 	for modelID, caps := range s.capabilities {
-		if caps.Manufacturer == device.Manufacturer && isModelVariant(modelID, device.Manufacturer, device.Model) {
+		if caps.Manufacturer == device.Manufacturer && isModelVariant(string(modelID), device.Manufacturer, device.Model) {
 			return caps
 		}
 	}

@@ -2,22 +2,27 @@ syntax = "proto3";
 
 package capabilities.v1;
 
+import "buf/validate/validate.proto";
+
 // MinerCapabilities defines what operations and features a specific miner model supports
 message MinerCapabilities {
   // Manufacturer name
-  string manufacturer = 1;
+  string manufacturer = 1 [(buf.validate.field).string = {
+    min_len: 1,
+    max_len: 100,
+  }];
   
   // Authentication capabilities
-  AuthenticationCapabilities authentication = 2;
+  AuthenticationCapabilities authentication = 2 [(buf.validate.field).required = true];
   
   // Command capabilities
-  CommandCapabilities commands = 3;
+  CommandCapabilities commands = 3 [(buf.validate.field).required = true];
   
   // Telemetry capabilities
-  TelemetryCapabilities telemetry = 4;
+  TelemetryCapabilities telemetry = 4 [(buf.validate.field).required = true];
   
   // Firmware capabilities
-  FirmwareCapabilities firmware = 5;
+  FirmwareCapabilities firmware = 5 [(buf.validate.field).required = true];
 }
 
 // Authentication method types
@@ -30,11 +35,24 @@ enum AuthenticationMethod {
 // Authentication methods supported by the miner
 message AuthenticationCapabilities {
   // Authentication methods supported by the miner
-  repeated AuthenticationMethod supported_methods = 1;
+  repeated AuthenticationMethod supported_methods = 1 [(buf.validate.field).repeated = {
+    min_items: 1,
+    items: {
+      enum: {
+        not_in: [0] // Disallow AUTHENTICATION_METHOD_UNSPECIFIED
+      }
+    }
+  }];
 }
 
 // Command operations supported by the miner
 message CommandCapabilities {
+  option (buf.validate.message).cel = {
+    id: "cooling_modes_check",
+    message: "If cooling_mode_supported is true, then cooling_modes_available must not be empty",
+    expression: "!this.cooling_mode_supported || size(this.cooling_modes_available) > 0"
+  };
+
   // Basic operations
   bool reboot_supported = 1;
   bool mining_start_supported = 2;
@@ -48,11 +66,21 @@ message CommandCapabilities {
   
   // Cooling control
   bool cooling_mode_supported = 6;
-  repeated string cooling_modes_available = 7;
+  repeated string cooling_modes_available = 7 [(buf.validate.field).repeated = {
+    items: {
+      string: {
+        min_len: 1,
+        max_len: 50
+      }
+    }
+  }];
   
   // Pool management
   bool pool_switching_supported = 8;
-  int32 pool_max_count = 9;
+  int32 pool_max_count = 9 [(buf.validate.field).int32 = {
+    gt: 0,
+    lte: 10,
+  }];
   bool pool_priority_supported = 10;
 
   // Log management
@@ -84,7 +112,10 @@ message TelemetryCapabilities {
   bool psu_stats_reported = 14;
   
   // Telemetry intervals
-  int32 polling_interval_seconds_recommended = 15;
+  int32 polling_interval_seconds_recommended = 15 [(buf.validate.field).int32 = {
+    gt: 0,
+    lte: 3600,
+  }];
 }
 
 // Firmware update capabilities
