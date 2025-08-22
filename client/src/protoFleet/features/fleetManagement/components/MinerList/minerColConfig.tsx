@@ -18,13 +18,13 @@ const minerColConfig: ColConfig<MinerItem, string> = {
     component: (item: MinerItem) => (
       <MinerName deviceIdentifier={item.deviceIdentifier} />
     ),
-    width: "w-20",
+    width: "min-w-20",
   },
   [minerCols.macAddress]: {
     component: (item: MinerItem) => (
       <MinerMacAddress deviceIdentifier={item.deviceIdentifier} />
     ),
-    width: "w-36",
+    width: "min-w-36",
   },
   [minerCols.status]: {
     component: (item: MinerItem, selectedItems: string[]) => (
@@ -33,31 +33,31 @@ const minerColConfig: ColConfig<MinerItem, string> = {
         selectedItems={selectedItems}
       />
     ),
-    width: "w-74",
+    width: "min-w-74",
   },
   [minerCols.hashrate]: {
     component: (item: MinerItem) => (
       <Hashrate deviceIdentifier={item.deviceIdentifier} />
     ),
-    width: "w-38",
+    width: "min-w-38",
   },
   [minerCols.efficiency]: {
     component: (item: MinerItem) => (
       <MinerEfficiency deviceIdentifier={item.deviceIdentifier} />
     ),
-    width: "w-20",
+    width: "min-w-20",
   },
   [minerCols.powerUsage]: {
     component: (item: MinerItem) => (
       <MinerPowerUsage deviceIdentifier={item.deviceIdentifier} />
     ),
-    width: "w-20",
+    width: "min-w-20",
   },
   [minerCols.temperature]: {
     component: (item: MinerItem) => (
       <MinerTemperature deviceIdentifier={item.deviceIdentifier} />
     ),
-    width: "w-20",
+    width: "min-w-20",
   },
 };
 

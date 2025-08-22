@@ -250,7 +250,7 @@ const List = <ListItem, ItemKeyValueType>({
                 >
                   {itemSelectable && (
                     <th
-                      className={clsx(thClassList, firstStickyClasses)}
+                      className={clsx(thClassList, firstStickyClasses, "w-9")}
                       style={paddingCssVariables}
                     >
                       <div className="w-9 truncate overflow-hidden">
@@ -313,7 +313,7 @@ const List = <ListItem, ItemKeyValueType>({
                   <tr key={i} className={rowClassList}>
                     {itemSelectable && (
                       <td
-                        className={clsx(tdClassList, firstStickyClasses)}
+                        className={clsx(tdClassList, firstStickyClasses, "w-9")}
                         style={paddingCssVariables}
                       >
                         <div

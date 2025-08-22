@@ -29,7 +29,7 @@ const Hashrate = ({
   if (hashrate === undefined) return "N/A";
 
   return (
-    <div className="relative flex h-full w-full flex-row items-center justify-between pr-6 whitespace-nowrap">
+    <div className="relative inline-flex h-full w-full flex-row items-center gap-2 pr-6 whitespace-nowrap">
       {hashrate ? (
         <div>
           {getDisplayValue(value)} {unit}
@@ -37,7 +37,7 @@ const Hashrate = ({
       ) : (
         <SkeletonBar className="w-full" />
       )}
-      <div className="h-5 w-14 pl-2">
+      <div className="h-5 w-10">
         {hashrate && hashrate.length ? (
           <Sparkline
             data={hashrate
