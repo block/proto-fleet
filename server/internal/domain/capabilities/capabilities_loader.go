@@ -1,13 +1,12 @@
 package capabilities
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"buf.build/go/protovalidate"
+	files "github.com/btc-mining/proto-fleet/server"
 	capabilitiespb "github.com/btc-mining/proto-fleet/server/generated/grpc/capabilities/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 )
@@ -62,15 +61,7 @@ type FirmwareConfig struct {
 }
 
 func LoadCapabilities(capabilitiesPath string) (map[ModelID]*capabilitiespb.MinerCapabilities, error) {
-	if capabilitiesPath == "" {
-		workDir, err := os.Getwd()
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to get working directory: %v", err)
-		}
-		capabilitiesPath = filepath.Join(workDir, "miner-configs", "capabilities.yaml")
-	}
-
-	data, err := os.ReadFile(capabilitiesPath)
+	data, err := files.MinerConfigs.ReadFile(capabilitiesPath)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to read config file: %v", err)
 	}

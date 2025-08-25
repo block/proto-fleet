@@ -25,8 +25,8 @@ type Service struct {
 	capabilities map[ModelID]*capabilitiespb.MinerCapabilities
 }
 
-func NewService(configPath string) (*Service, error) {
-	capabilities, err := LoadCapabilities(configPath)
+func NewService(config Config) (*Service, error) {
+	capabilities, err := LoadCapabilities(config.CapabilitiesPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load capabilities config: %w", err)
 	}

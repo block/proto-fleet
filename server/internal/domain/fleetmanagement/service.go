@@ -127,7 +127,7 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 		deviceStatus := convertMinerStatusToDeviceStatus(minerStatus)
 
 		snapshot := &pb.MinerStateSnapshot{
-			Name:         miner.Model,
+			Name:         miner.Manufacturer + " " + miner.Model,
 			MacAddress:   miner.MacAddress,
 			SerialNumber: miner.SerialNumber,
 			DeviceStatus: deviceStatus,

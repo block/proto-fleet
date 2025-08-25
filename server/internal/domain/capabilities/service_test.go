@@ -11,7 +11,7 @@ import (
 )
 
 func TestLoadConfig(t *testing.T) {
-	testCapabilitiesPath := filepath.Join("../../..", "miner-configs", "capabilities.yaml")
+	testCapabilitiesPath := filepath.Join("miner-configs", "capabilities.yaml")
 	capabilities, err := LoadCapabilities(testCapabilitiesPath)
 	require.NoError(t, err)
 	require.NotNil(t, capabilities)
@@ -32,8 +32,10 @@ func TestLoadConfig(t *testing.T) {
 }
 
 func TestService_GetCapabilitiesForDevice(t *testing.T) {
-	testCapabilitiesPath := filepath.Join("../../..", "miner-configs", "capabilities.yaml")
-	service, err := NewService(testCapabilitiesPath)
+	testCapabilitiesPath := filepath.Join("miner-configs", "capabilities.yaml")
+	service, err := NewService(Config{
+		CapabilitiesPath: testCapabilitiesPath,
+	})
 	require.NoError(t, err)
 
 	exactMatchTests := []struct {

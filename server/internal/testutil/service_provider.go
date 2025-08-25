@@ -3,11 +3,13 @@ package testutil
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
 
+	"github.com/btc-mining/proto-fleet/server/internal/domain/capabilities"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
@@ -43,6 +45,7 @@ type ServiceProvider struct {
 	DeviceStore            *sqlstores.SQLDeviceStore
 	FilesService           *files.Service
 	MinerService           *miner.MinerService
+	CapabilitiesService    *capabilities.Service
 }
 
 func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvider {
@@ -81,7 +84,12 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	protoPairer := pairingProto.NewService(transactor, deviceStore, userStore, minerService, tokenService, encryptService)
 	antminerPairer := pairingAntminer.NewService(transactor, deviceStore, encryptService, antminerWeb.NewService())
 
-	pairingService := pairing.NewService(discoveredDeviceStore, deviceStore, transactor, tokenService, minerDiscoveryService, listenerMock, protoPairer, antminerPairer)
+	capabilitiesService, err := capabilities.NewService(capabilities.Config{
+		CapabilitiesPath: filepath.Join("miner-configs", "capabilities.yaml"),
+	})
+	assert.NoError(t, err)
+
+	pairingService := pairing.NewService(discoveredDeviceStore, deviceStore, transactor, tokenService, minerDiscoveryService, capabilitiesService, listenerMock, protoPairer, antminerPairer)
 
 	commandConfig := &command.Config{MaxWorkers: 50, MasterPollingInterval: time.Second, WorkerExecutionTimeout: 30 * time.Second, BatchStatusUpdatePollingInterval: time.Second}
 
@@ -114,5 +122,6 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 		DeviceStore:            deviceStore,
 		FilesService:           filesService,
 		MinerService:           minerService,
+		CapabilitiesService:    capabilitiesService,
 	}
 }

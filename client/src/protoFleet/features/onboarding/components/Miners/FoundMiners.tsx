@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import clsx from "clsx";
 import type { MinerWithModel } from "./types";
+import { AuthenticationMethod } from "@/protoFleet/api/generated/capabilities/v1/capabilities_pb";
 import { type Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { Fleet, LogoAlt } from "@/shared/assets/icons";
 import Divider from "@/shared/components/Divider";
@@ -17,13 +18,33 @@ type MinersByModel = {
   [key: string]: MinersByModelItem;
 };
 
+class MinerKey {
+  manufacturer: string;
+  model: string;
+
+  constructor(manufacturer: string, model: string) {
+    this.manufacturer = manufacturer;
+    this.model = model;
+  }
+
+  toString(): string {
+    return `${this.manufacturer}:${this.model}`;
+  }
+}
+
 type MinersByModelItem = {
   model: string;
+  manufacturer: string;
+  supportedAuthenticationMethods: AuthenticationMethod[];
   miners: MinerWithModel[];
 };
 
-function isProtoRig(model: string): boolean {
-  return model === "Proto Rig";
+function isProtoRig(manufacturer: string): boolean {
+  return manufacturer === "Proto";
+}
+
+function supportsAutoAuth(supportedMethods: AuthenticationMethod[]): boolean {
+  return supportedMethods.includes(AuthenticationMethod.ASYMMETRIC_KEY);
 }
 
 const FoundMiners = ({
@@ -38,9 +59,18 @@ const FoundMiners = ({
       const _minersByModel: MinersByModel = { ...prev };
 
       miners.forEach((miner) => {
-        if (!_minersByModel[miner.model]) {
-          _minersByModel[miner.model] = {
+        const minerKey = new MinerKey(
+          miner.manufacturer || "unknown",
+          miner.model || "unknown",
+        );
+        if (!_minersByModel[minerKey.toString()]) {
+          const supportedMethods =
+            miner.capabilities?.authentication?.supportedMethods || [];
+
+          _minersByModel[minerKey.toString()] = {
             model: miner.model,
+            manufacturer: miner.manufacturer || "unknown",
+            supportedAuthenticationMethods: supportedMethods,
             miners: [miner],
           };
 
@@ -49,14 +79,14 @@ const FoundMiners = ({
           // if miner is already in our state dont add it again
           // so that we dont have duplicates, and can maintain the selected state
         } else if (
-          _minersByModel[miner.model].miners.find(
-            (m) => m.deviceIdentifier === miner.deviceIdentifier,
+          _minersByModel[minerKey.toString()].miners.find(
+            (m) => m.ipAddress === miner.ipAddress,
           )
         ) {
           return;
         }
 
-        _minersByModel[miner.model].miners.push(miner);
+        _minersByModel[minerKey.toString()].miners.push(miner);
       });
       return _minersByModel;
     };
@@ -72,7 +102,7 @@ const FoundMiners = ({
           title={
             miners.length === 0
               ? "No miners found so far"
-              : `${miners.length} miners found on your network`
+              : `${Object.values(minersByModel).reduce((total, item) => total + item.miners.length, 0)} miners found on your network`
           }
           titleSize="text-heading-300"
           description={
@@ -95,14 +125,16 @@ const FoundMiners = ({
                 className="flex items-center justify-between"
               >
                 <div className="flex gap-4">
-                  {isProtoRig(model.model) ? (
+                  {isProtoRig(model.manufacturer) ? (
                     <LogoAlt width="w-[20px]" />
                   ) : (
                     <Fleet width="w-[20px]" />
                   )}
                   <div>
-                    <div className="h-6 text-emphasis-300">{model.model}</div>
-                    {isProtoRig(model.model) ? (
+                    <div className="h-6 text-emphasis-300">
+                      {model.manufacturer} {model.model}
+                    </div>
+                    {supportsAutoAuth(model.supportedAuthenticationMethods) ? (
                       <div className="text-200 text-text-primary-70">
                         Authenticated with default username/password
                       </div>

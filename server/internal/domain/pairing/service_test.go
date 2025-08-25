@@ -74,6 +74,7 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
 	userStore := sqlstores.NewSQLUserStore(testContext.ServiceProvider.DB)
+	capabilitiesService := testContext.ServiceProvider.CapabilitiesService
 
 	protoPairer := pairingProto.NewService(transactor, deviceStore, userStore, testContext.ServiceProvider.MinerService, testContext.ServiceProvider.TokenService, testContext.ServiceProvider.EncryptService)
 
@@ -90,6 +91,7 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 		transactor,
 		tokenService,
 		discoveryService,
+		capabilitiesService,
 		mockListener,
 		protoPairer,
 		antminerPairer,
@@ -641,6 +643,7 @@ func TestPairDevices(t *testing.T) {
 		discoveredDeviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
 		transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
 		deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
+		capabilitiesService := testContext.ServiceProvider.CapabilitiesService
 
 		pairingService := pairing.NewService(
 			discoveredDeviceStore,
@@ -648,6 +651,7 @@ func TestPairDevices(t *testing.T) {
 			transactor,
 			tokenService,
 			discoveryService,
+			capabilitiesService,
 			nil,
 			// No pairers registered
 		)

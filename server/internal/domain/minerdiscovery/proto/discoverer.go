@@ -57,8 +57,8 @@ func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string
 			MacAddress:   pairingInfo.Msg.Mac,
 			SerialNumber: pairingInfo.Msg.CbSn,
 			// TODO(DASH-331) Fetch model and manufacturer from miner
-			Model:        "Proto Rig",
-			Manufacturer: "Block, Inc",
+			Model:        "Rig",
+			Manufacturer: "Proto",
 			Type:         d.GetMinerType().String(),
 		},
 	}, nil

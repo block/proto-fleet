@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/btc-mining/proto-fleet/server/internal/domain/capabilities"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
 
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
@@ -149,6 +150,11 @@ func start(config *Config) error {
 		return fmt.Errorf("failed to start telemetry service: %w", err)
 	}
 
+	capabilitiesSvc, err := capabilities.NewService(config.Capabilities)
+	if err != nil {
+		return err
+	}
+
 	protoPairer := pairingProto.NewService(transactor, deviceStore, userStore, minerService, tokenSvc, encryptSvc)
 	antminerPairer := pairingAntminer.NewService(transactor, deviceStore, encryptSvc, antminerWeb.NewService())
 
@@ -158,6 +164,7 @@ func start(config *Config) error {
 		transactor,
 		tokenSvc,
 		discoveryService,
+		capabilitiesSvc,
 		telemetryService,
 		protoPairer,
 		antminerPairer,

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btc-mining/proto-fleet/server/internal/domain/capabilities"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
@@ -39,6 +40,7 @@ type Service struct {
 	transactor            interfaces.Transactor
 	tokenService          *tokenDomain.Service
 	minerDiscoveryService *minerdiscovery.Service
+	capabilitiesService   *capabilities.Service
 	pairers               map[models.Type]Pairer
 	listener              Listener
 }
@@ -49,6 +51,7 @@ func NewService(
 	transactor interfaces.Transactor,
 	tokenService *tokenDomain.Service,
 	minerDiscoveryService *minerdiscovery.Service,
+	capabilitiesService *capabilities.Service,
 	listener Listener,
 	pairers ...Pairer,
 ) *Service {
@@ -63,6 +66,7 @@ func NewService(
 		transactor:            transactor,
 		tokenService:          tokenService,
 		minerDiscoveryService: minerDiscoveryService,
+		capabilitiesService:   capabilitiesService,
 		pairers:               pairersMap,
 		listener:              listener,
 	}
@@ -348,6 +352,9 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 	if err != nil {
 		return err
 	}
+
+	capabilities := s.capabilitiesService.GetCapabilitiesForDevice(ctx, &discoveredDevice.Device)
+	result.Device.Capabilities = capabilities
 
 	select {
 	case resultChan <- &pb.DiscoverResponse{

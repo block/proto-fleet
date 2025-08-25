@@ -88,8 +88,8 @@ func TestDiscoverer_Discover(t *testing.T) {
 				assert.Equal(t, tc.expectedScheme, device.Device.UrlScheme)
 				assert.Equal(t, "00:00:00:00:00:00", device.Device.MacAddress)
 				assert.Equal(t, "1234567890", device.Device.SerialNumber)
-				assert.Equal(t, "Proto Rig", device.Device.Model)
-				assert.Equal(t, "Block, Inc", device.Device.Manufacturer)
+				assert.Equal(t, "Rig", device.Device.Model)
+				assert.Equal(t, "Proto", device.Device.Manufacturer)
 				assert.Equal(t, models.TypeProto.String(), device.Type)
 
 				// Verify the miner was called
