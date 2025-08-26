@@ -35,8 +35,6 @@ const PoolForm = ({
   const [validationErrors, setValidationErrors] = useState<
     Partial<Record<keyof typeof info, string>>
   >({});
-  const [showOptionalPassword, setShowOptionalPassword] = useState(false);
-
   const showConnectedCallout = useMemo(
     () => showCallout && !isTestingConnection && !error,
     [showCallout, error, isTestingConnection],
@@ -146,36 +144,6 @@ const PoolForm = ({
           onFocus={onFocus}
           onBlur={onBlur}
         />
-        {!showOptionalPassword && !pools[poolIndex].password && (
-          <button
-            onClick={() => setShowOptionalPassword(true)}
-            className="text-200 text-text-primary-50 underline"
-          >
-            Add an optional password
-          </button>
-        )}
-        {(showOptionalPassword || pools[poolIndex].password) && (
-          <div>
-            <Input
-              id={`${info.password} ${poolIndex}`}
-              label="Password"
-              type="password"
-              onChange={onChange}
-              onKeyDown={onKeyDown}
-              initValue={pools[poolIndex].password}
-              tooltip={{
-                header: "Password",
-                body: "Depending on the mining pool you’re trying to connect to, you may need to enter the password you use to log in to that pool.",
-              }}
-              onFocus={onFocus}
-              onBlur={onBlur}
-            />
-            <div className="mt-2 text-200 text-text-primary-50">
-              A password might be required depending on the pool you’re
-              connecting to.
-            </div>
-          </div>
-        )}
       </div>
     </>
   );
