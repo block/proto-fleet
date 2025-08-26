@@ -62,7 +62,7 @@ const PowerTargetPopover = ({ onDismiss }: PowerTargetPopoverProps) => {
   }, [pending, performanceMode]);
 
   useEffect(() => {
-    if (pending || miningTarget === undefined) {
+    if (miningTarget === undefined) {
       setInputValue(undefined);
       return;
     }
@@ -136,6 +136,7 @@ const PowerTargetPopover = ({ onDismiss }: PowerTargetPopoverProps) => {
           onChange={onChange}
           error={error}
           units={"kW"}
+          disabled={pending}
         />
       )}
 
