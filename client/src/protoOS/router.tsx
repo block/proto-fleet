@@ -32,6 +32,7 @@ export const routerConfig = [
   {
     path: "",
     element: <App title="Home" ContentLayout={KpiLayout} />,
+    requiresAuth: false,
     children: [
       {
         index: true,
@@ -114,15 +115,12 @@ export const routerConfig = [
       {
         path: "mining-pools",
         element: <MiningPools />,
+        requiresAuth: true,
       },
       {
         path: "hardware",
         element: <Hardware />,
       },
-      // {
-      //   path: "cooling",
-      //   element: <Cooling />,
-      // },
     ],
   },
 ];

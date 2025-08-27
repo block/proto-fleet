@@ -13,7 +13,10 @@ import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultCont
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
 import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
-import { useAuthContext } from "@/protoOS/features/auth/contexts/AuthContext";
+import {
+  useAccessToken,
+  useAuthContext,
+} from "@/protoOS/features/auth/contexts/AuthContext";
 import {
   InstallingOverlay,
   useFirmwareUpdate,
@@ -53,14 +56,14 @@ const App = ({
     if (pathname === "/settings/mining-pools") {
       // if user landed on mining pools page from within the app, navigate back
       // else navigate to home
-      navigate(location.state?.from || "/home");
+      navigate(location.state?.from || "/");
     }
-    setShowLoginModal(false);
     setDismissedLoginModal(true);
   }, [navigate, pathname, setDismissedLoginModal, setShowLoginModal, location]);
 
   const { miningStatus, errors } = useMinerStatus();
   const { installing } = useFirmwareUpdate();
+  useAccessToken();
 
   return (
     <>

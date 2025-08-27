@@ -1,7 +1,23 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useAuthContext } from "./useAuthContext";
 import { useRefresh } from "@/protoOS/api";
+
+import { matchRoutes, useLocation } from "react-router-dom";
+import { routerConfig } from "@/protoOS/router";
+
+const getRouteAuthRequirement = (path: string, defaultValue = true) => {
+  const matchedRoutes = matchRoutes(routerConfig, path);
+  if (!matchedRoutes) return defaultValue;
+  for (let i = matchedRoutes.length - 1; i >= 0; i--) {
+    const match = matchedRoutes[i];
+    const requiresAuth = match.route.requiresAuth;
+    if (typeof requiresAuth === "boolean") {
+      return requiresAuth;
+    }
+  }
+  return defaultValue;
+};
 
 const useAccessToken = (shouldCheckAccess = true, requireLogin = true) => {
   const refresh = useRefresh();
@@ -17,6 +33,10 @@ const useAccessToken = (shouldCheckAccess = true, requireLogin = true) => {
   const dateRefreshToken = new Date(authTokens.refreshToken.expiry);
   const isValidAccessToken = dateAccessToken > dateNow;
   const isValidRefreshToken = dateRefreshToken > dateNow;
+  const location = useLocation();
+  const routeRequiresAuth = useMemo(() => {
+    return getRouteAuthRequirement(location.pathname, false);
+  }, [location.pathname]);
 
   const checkAccess = useCallback(() => {
     if (!shouldCheckAccess) {
@@ -32,7 +52,7 @@ const useAccessToken = (shouldCheckAccess = true, requireLogin = true) => {
     if (!isValidRefreshToken) {
       logout();
       setHasAccess(false);
-      requireLogin && setShowLoginModal(true);
+      setShowLoginModal(routeRequiresAuth);
       return;
     }
 
@@ -46,7 +66,7 @@ const useAccessToken = (shouldCheckAccess = true, requireLogin = true) => {
         onError: () => {
           logout();
           setHasAccess(false);
-          requireLogin && setShowLoginModal(true);
+          setShowLoginModal(routeRequiresAuth);
         },
       });
     }
@@ -58,6 +78,7 @@ const useAccessToken = (shouldCheckAccess = true, requireLogin = true) => {
     isValidRefreshToken,
     shouldCheckAccess,
     requireLogin,
+    routeRequiresAuth,
     logout,
   ]);
 
@@ -65,7 +86,7 @@ const useAccessToken = (shouldCheckAccess = true, requireLogin = true) => {
     checkAccess();
   }, [checkAccess]);
 
-  return { checkAccess, hasAccess, setHasAccess };
+  return { checkAccess, hasAccess, setHasAccess, routeRequiresAuth };
 };
 
 export { useAccessToken };

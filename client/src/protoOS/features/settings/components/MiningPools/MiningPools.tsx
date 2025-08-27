@@ -11,7 +11,6 @@ import MiningPools, {
   PoolInfo,
 } from "@/protoOS/components/MiningPools";
 import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
-import { useAccessToken } from "@/protoOS/features/auth/contexts/AuthContext";
 import { Alert } from "@/shared/assets/icons";
 import {
   DismissibleCalloutWrapper,
@@ -34,8 +33,6 @@ const SettingsMiningPools = () => {
   const { poolsInfo, poolsInfoStatus } = useMinerStatus();
   const { createPools } = useCreatePools();
   const [createPoolsError, setCreatePoolsError] = useState<SimpleErrorProps>();
-
-  useAccessToken();
 
   useEffect(() => {
     if (poolsInfo?.length) {
