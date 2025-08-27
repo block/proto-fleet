@@ -45,6 +45,7 @@ const Logs = ({ logsData }: LogsProps) => {
   const [searchValue, setSearchValue] = useState<string>("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const searchBarRef = useRef<HTMLDivElement>(null);
+  const [isPinnedToBottom, setIsPinnedToBottom] = useState(true);
 
   const { isPhone, isTablet } = useWindowDimensions();
 
@@ -59,16 +60,17 @@ const Logs = ({ logsData }: LogsProps) => {
       if (!initPage && messagesEndRef.current) {
         setInitPage(true);
         messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
-      } else if (messagesEndRef.current) {
-        // auto-scroll to bottom when new logs come in
+        setIsPinnedToBottom(true);
+      } else if (messagesEndRef.current && isPinnedToBottom) {
+        // auto-scroll to bottom when new logs come in, but only if user is already at the bottom
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
       }
     }
-  }, [filteredLogs, initPage]);
+  }, [filteredLogs, initPage, isPinnedToBottom]);
 
   const updateFilteredLogs = useCallback(() => {
     let newLogs = logs;
-    if (searchValue || filterByLogType) {
+    if (searchValue || filterByLogType.length) {
       const newFilteredLogs = logs.filter(
         (log) =>
           `${log.timestamp} ${log.message}`
@@ -181,6 +183,24 @@ const Logs = ({ logsData }: LogsProps) => {
     return "No warnings found";
   }, [searchValue, filterByLogType]);
 
+  const handleScroll = useCallback(() => {
+    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    const scrollHeight = document.documentElement.scrollHeight;
+    const clientHeight = document.documentElement.clientHeight;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    // consider within 5px as "at bottom"
+    setIsPinnedToBottom(distanceFromBottom < 5);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("scroll", handleScroll);
+    handleScroll();
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, [handleScroll]);
+
   return (
     <>
       {logs.length ? (
@@ -269,7 +289,7 @@ const Logs = ({ logsData }: LogsProps) => {
               </div>
             </div>
           </div>
-          <div className="mt-[58px] h-[calc(100%-60px-58px)] overflow-y-scroll">
+          <div className="mt-[58px] h-[calc(100%-60px-58px)] overflow-y-hidden">
             <div className="p-4 font-mono text-mono-text-50 font-light text-text-primary">
               {filteredLogs.length ? (
                 filteredLogs.map((log, index) => {
