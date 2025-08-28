@@ -1,5 +1,6 @@
 import {
   MouseEvent,
+  SyntheticEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -12,10 +13,10 @@ import { logTypes } from "./constants";
 import LogBadges from "./LogBadges";
 import { LogInfo, logType } from "./types";
 import {
+  downloadLogs,
   formatLogs,
   formatLogType,
   getErrorWarningCount,
-  getExportLink,
 } from "./utility";
 import { LogsResponseLogs } from "@/protoOS/api/types";
 import { DismissTiny } from "@/shared/assets/icons";
@@ -28,11 +29,15 @@ import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 import { padLeft } from "@/shared/utils/stringUtils";
 import { getFileName } from "@/shared/utils/utility";
 
+const CSV_HEADERS = "Time,Type,Message";
+
 interface LogsProps {
   logsData?: LogsResponseLogs;
+  fetchMaxLogs: () => Promise<LogsResponseLogs | undefined>;
 }
 
-const Logs = ({ logsData }: LogsProps) => {
+const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
+  const [isExporting, setIsExporting] = useState(false);
   const [initPage, setInitPage] = useState(false);
   const [storedLogs, setStoredLogs] = useState<string[]>([]);
   const [logs, setLogs] = useState<LogInfo[]>([]);
@@ -41,7 +46,7 @@ const Logs = ({ logsData }: LogsProps) => {
   const [focusSearch, setFocusSearch] = useState(false);
   const [errorCount, setErrorCount] = useState(0);
   const [warningCount, setWarningCount] = useState(0);
-  const [exportLink, setExportLink] = useState<string | null>(null);
+
   const [searchValue, setSearchValue] = useState<string>("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const searchBarRef = useRef<HTMLDivElement>(null);
@@ -83,15 +88,6 @@ const Logs = ({ logsData }: LogsProps) => {
     }
 
     setFilteredLogs(newLogs);
-
-    const newExportLink = getExportLink([
-      "Time,Type,Message",
-      ...newLogs.map(
-        (log) =>
-          `${log.timestamp},${formatLogType(log.logType)},${log.message.replace(/,/g, " | ")}`,
-      ),
-    ]);
-    setExportLink(newExportLink);
   }, [searchValue, logs, filterByLogType]);
 
   // when switching between filters reset the Init Page state so that the page
@@ -134,7 +130,7 @@ const Logs = ({ logsData }: LogsProps) => {
     }
   }, [logsData, storedLogs, formatAndSetLogsData]);
 
-  const blurSearch = (e: MouseEvent<HTMLElement>) => {
+  const blurSearch = (e: SyntheticEvent) => {
     e.stopPropagation();
     setFocusSearch(false);
   };
@@ -154,6 +150,34 @@ const Logs = ({ logsData }: LogsProps) => {
     setSearchValue("");
     blurSearch(e);
   }, []);
+
+  const handleExportLogs = useCallback(
+    async (e: SyntheticEvent) => {
+      try {
+        e.stopPropagation();
+        e.preventDefault();
+        blurSearch(e);
+        setIsExporting(true);
+        const exportLogs = await fetchMaxLogs();
+        if (exportLogs?.content) {
+          const formattedExportLogs = formatLogs(exportLogs.content);
+          const csvData = [
+            CSV_HEADERS,
+            ...formattedExportLogs.map(
+              (log) =>
+                `${log.timestamp},${formatLogType(log.logType)},${log.message.replace(/,/g, " | ")}`,
+            ),
+          ];
+          downloadLogs(csvData, getFileName("miner-logs", "csv"));
+        }
+      } catch (error) {
+        console.error("Error exporting logs:", error);
+      } finally {
+        setIsExporting(false);
+      }
+    },
+    [fetchMaxLogs],
+  );
 
   const handleClickSearchBar = useCallback(() => {
     setFocusSearch(true);
@@ -265,18 +289,16 @@ const Logs = ({ logsData }: LogsProps) => {
                   selected={filterByLogType?.includes(logTypes.warn) || false}
                   onClick={createToggleFilter(logTypes.warn)}
                 />
-                <a
-                  href={exportLink || ""}
-                  download={`${getFileName("miner-logs")}`}
-                  onClick={blurSearch}
-                  onMouseDown={(e) => e.preventDefault()} // to prevent focus-within trigger on parent
-                >
-                  <Button
-                    size={sizes.compact}
-                    variant={variants.secondary}
-                    text="Export"
-                  />
-                </a>
+                <Button
+                  size={sizes.compact}
+                  variant={variants.secondary}
+                  text="Export"
+                  disabled={isExporting}
+                  prefixIcon={
+                    isExporting ? <ProgressCircular indeterminate /> : undefined
+                  }
+                  onClick={handleExportLogs}
+                />
                 {searchValue && (
                   <Button
                     variant={variants.secondary}

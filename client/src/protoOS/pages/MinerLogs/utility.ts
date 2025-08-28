@@ -51,15 +51,25 @@ export const getErrorWarningCount = (logs: string[]) => {
   return { error, warning };
 };
 
-export const getExportLink = (items: string[]) => {
-  // Convert Object to JSON
-  const jsonObject = JSON.stringify(items)
-    .replace(/^\["/, "")
-    .replace(/"]$/, "")
-    .replace(/","/g, "\n");
-  const csvContent = `data:text/csv;charset=utf-8,${jsonObject}`;
-  const encodedURI = encodeURI(csvContent);
-  return encodedURI;
+export const downloadLogs = (items: string[], filename: string) => {
+  const csvContent = items.join("\r\n");
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.style.display = "none";
+  document.body.appendChild(link);
+
+  try {
+    link.click();
+  } finally {
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      link.remove();
+    }, 0);
+  }
 };
 
 export const formatLogType = (logType: logType | null) => {
