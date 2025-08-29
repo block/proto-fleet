@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import clsx from "clsx";
 
-import WidgetWrapper from "../WidgetWrapper";
+import { DEFAULT_POWER_TARGET } from "./constants";
 import PowerTargetPopover from "./PowerTargetPopover";
 import { useMiningTarget } from "@/protoOS/api";
-import { Lightning } from "@/shared/assets/icons";
+import WidgetWrapper from "@/protoOS/components/PageHeader/WidgetWrapper";
 import { usePopover } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
@@ -18,17 +17,28 @@ const PowerTarget = () => {
     return bounds?.max && miningTarget === bounds?.max * 1000;
   }, [miningTarget, bounds?.max]);
 
+  const isMin = useMemo(() => {
+    return bounds?.min && miningTarget === bounds?.min * 1000;
+  }, [miningTarget, bounds?.min]);
+
   const chipText = useMemo(() => {
     if (pending || miningTarget === undefined) {
       return "Power target";
     }
 
+    let targetType;
     if (isMax) {
-      return "Max power target";
+      targetType = "max";
+    } else if (isMin) {
+      targetType = "min";
+    } else if (miningTarget === DEFAULT_POWER_TARGET) {
+      targetType = "default";
+    } else {
+      targetType = "custom";
     }
 
-    return `${miningTarget / 1000} kW fixed target`;
-  }, [isMax, miningTarget, pending]);
+    return `${miningTarget / 1000} kW ${targetType} target`;
+  }, [isMax, isMin, miningTarget, pending]);
 
   useEffect(() => {
     setIsTriggerFixed(true);
@@ -43,26 +53,17 @@ const PowerTarget = () => {
   return (
     <div ref={widgetRef} className="relative">
       <WidgetWrapper
-        contrast={!isMax}
         onClick={() => {
           setShowPopover(true);
         }}
       >
         <>
-          {pending ? (
+          {pending && (
             <ProgressCircular
               className="mr-1"
               indeterminate
               dataTestId="mining-pool-spinner"
               size={14}
-            />
-          ) : (
-            <Lightning
-              className={clsx("mr-1", {
-                "text-text-contrast-70": !isMax,
-                "text-text-primary-50": isMax,
-              })}
-              width="w-3"
             />
           )}
           {chipText}

@@ -13,3 +13,6 @@ export const powerTargetModes = {
 
 export type PowerTargetMode =
   (typeof powerTargetModes)[keyof typeof powerTargetModes];
+
+// TODO get default from API
+export const DEFAULT_POWER_TARGET = 9000;

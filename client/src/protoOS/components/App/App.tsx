@@ -43,7 +43,6 @@ const App = ({
   pendingSystemInfo,
   systemInfo,
   title,
-  wakeError,
   ContentLayout = DefaultContentLayout,
 }: AppProps) => {
   const { data: networkInfo, pending: pendingNetworkInfo } = useNetworkInfo();
@@ -59,9 +58,9 @@ const App = ({
       navigate(location.state?.from || "/");
     }
     setDismissedLoginModal(true);
-  }, [navigate, pathname, setDismissedLoginModal, setShowLoginModal, location]);
+  }, [navigate, pathname, setDismissedLoginModal, location]);
 
-  const { miningStatus, errors } = useMinerStatus();
+  const { miningStatus, errors, comprehensiveStatus } = useMinerStatus();
   const { installing } = useFirmwareUpdate();
   useAccessToken();
 
@@ -89,14 +88,13 @@ const App = ({
               afterWake={afterWake}
               miningStatus={miningStatus}
               onWake={onWake}
-              wakeError={wakeError}
             />
           )}
           {!isWarmingUp(miningStatus) &&
           !isSleeping(miningStatus?.status) &&
           errors.errors?.length &&
           !hideErrors ? (
-            <ErrorCallout errors={errors.errors} />
+            <ErrorCallout status={comprehensiveStatus} />
           ) : null}
           {children}
         </AppLayout>

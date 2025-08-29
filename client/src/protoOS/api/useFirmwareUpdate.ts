@@ -15,7 +15,7 @@ type useFirmwareUpdateProps = {
 const useFirmwareUpdate = ({ poll, duration }: useFirmwareUpdateProps) => {
   void poll;
   void duration;
-  const { hasAccess } = useAccessToken(true, false);
+  const { hasAccess } = useAccessToken(true);
   const { api } = useMinerHosting();
   const { authTokens, setShowLoginModal } = useAuthContext();
 

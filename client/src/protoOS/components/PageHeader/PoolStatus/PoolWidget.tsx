@@ -2,9 +2,12 @@ import { useMemo } from "react";
 import clsx from "clsx";
 
 import WidgetWrapper from "../WidgetWrapper";
-import { ConcentricCircles } from "@/shared/assets/icons";
 
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import StatusCircle, {
+  statuses,
+  variants,
+} from "@/shared/components/StatusCircle";
 
 interface PoolWidgetProps {
   loading: boolean;
@@ -32,24 +35,28 @@ const PoolWidget = ({
       })}
       isOpen={isOpen}
     >
-      <>
+      <div className="flex flex-col justify-center">
         {loading ? (
           <ProgressCircular
-            className="mr-1"
             indeterminate
             dataTestId="mining-pool-spinner"
-            size={14}
+            size={12}
+          />
+        ) : isDisconnected ? (
+          <StatusCircle
+            status={statuses.error}
+            variant={variants.simple}
+            width="w-2"
           />
         ) : (
-          <ConcentricCircles
-            className={clsx("mr-1", {
-              "text-intent-success-fill": isConnected || loading,
-              "text-intent-critical-fill": isDisconnected,
-            })}
+          <StatusCircle
+            status={statuses.normal}
+            variant={variants.simple}
+            width="w-2"
           />
         )}
-        Pool
-      </>
+      </div>
+      Mining Pool
     </WidgetWrapper>
   );
 };

@@ -3,8 +3,10 @@ import clsx from "clsx";
 
 import { UpdateStatus } from "@/protoOS/api/types";
 import WidgetWrapper from "@/protoOS/components/PageHeader/WidgetWrapper";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import StatusCircle, {
   type StatusCircleProps,
+  variants as variants,
 } from "@/shared/components/StatusCircle";
 import { statuses } from "@/shared/components/StatusCircle/constants";
 import { statusLabelFromUpdateStatus } from "@/shared/utils/utility";
@@ -65,9 +67,25 @@ const FirmwareUpdateStatusWidget = ({
           firmwareStatusMessage === undefined,
       })}
     >
-      <StatusCircle status={status} />
-      {isInProgress && updateStatus?.progress !== undefined && (
-        <span className="mr-1 text-xs">{updateStatus.progress}%</span>
+      {isInProgress && updateStatus?.progress !== undefined ? (
+        <div className="flex items-center gap-2 text-xs">
+          <div className="flex items-center">
+            <ProgressCircular
+              indeterminate
+              dataTestId="miner-status-spinner"
+              size={12}
+            />
+          </div>
+          {updateStatus.progress}%
+        </div>
+      ) : (
+        <div className="flex items-center">
+          <StatusCircle
+            status={status}
+            variant={variants.simple}
+            width={"w-2"}
+          />
+        </div>
       )}
       {firmwareStatusMessage}
     </WidgetWrapper>

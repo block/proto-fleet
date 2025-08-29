@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { matchRoutes, useLocation } from "react-router-dom";
 import { useAuthContext } from "./useAuthContext";
 import { useRefresh } from "@/protoOS/api";
 
-import { matchRoutes, useLocation } from "react-router-dom";
 import { routerConfig } from "@/protoOS/router";
 
 const getRouteAuthRequirement = (path: string, defaultValue = true) => {
@@ -19,7 +19,7 @@ const getRouteAuthRequirement = (path: string, defaultValue = true) => {
   return defaultValue;
 };
 
-const useAccessToken = (shouldCheckAccess = true, requireLogin = true) => {
+const useAccessToken = (shouldCheckAccess = true) => {
   const refresh = useRefresh();
   const { authTokens, setShowLoginModal, logout } = useAuthContext();
 
@@ -77,7 +77,6 @@ const useAccessToken = (shouldCheckAccess = true, requireLogin = true) => {
     isValidAccessToken,
     isValidRefreshToken,
     shouldCheckAccess,
-    requireLogin,
     routeRequiresAuth,
     logout,
   ]);

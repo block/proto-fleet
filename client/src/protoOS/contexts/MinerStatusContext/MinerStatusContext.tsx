@@ -13,7 +13,7 @@ const MinerStatusContext = createContext({
     errors: undefined as ErrorListResponse | undefined,
     pending: false,
   },
-  miningStatus: {} as MiningStatusMiningstatus,
+  miningStatus: {} as MiningStatusMiningstatus | undefined,
   poolsInfo: [] as Pool[] | undefined,
   fetchPoolsInfo: ({
     onSuccess,
@@ -72,7 +72,7 @@ export const MinerStatusProvider = ({
           errors: apiErrors || [],
           pending: !!(pendingErrors && !apiErrors),
         },
-        miningStatus: miningStatus || {},
+        miningStatus: miningStatus,
         setMiningStatus,
         poolsInfo,
         fetchPoolsInfo,

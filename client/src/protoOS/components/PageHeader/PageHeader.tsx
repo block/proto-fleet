@@ -72,6 +72,7 @@ const PageHeader = ({ customButtons, openMenu, title }: PageHeaderProps) => {
           <div className="flex space-x-3 phone:flex-shrink-0">
             {customLeftButtons ?? (
               <>
+                <MinerStatus />
                 <FirmwareUpdateStatus />
               </>
             )}
@@ -81,7 +82,6 @@ const PageHeader = ({ customButtons, openMenu, title }: PageHeaderProps) => {
               <>
                 <PowerTarget />
                 <PoolStatus />
-                <MinerStatus />
                 <PowerWidget />
               </>
             )}

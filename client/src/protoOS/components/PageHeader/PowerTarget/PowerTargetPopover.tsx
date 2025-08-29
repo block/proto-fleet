@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useMiningTarget } from "@/protoOS/api";
 import { PerformanceMode } from "@/protoOS/api/types";
 import {
+  DEFAULT_POWER_TARGET,
   PowerTargetMode,
   powerTargetModes,
 } from "@/protoOS/components/PageHeader/PowerTarget/constants";
@@ -17,9 +18,6 @@ import { convertWtoKW } from "@/shared/utils/utility";
 export type PowerTargetPopoverProps = {
   onDismiss: () => void;
 };
-
-// TODO get default from API
-const DEFAULT_POWER_TARGET = 9000;
 
 const PowerTargetPopover = ({ onDismiss }: PowerTargetPopoverProps) => {
   const { miningTarget, performanceMode, bounds, pending, updateMiningTarget } =

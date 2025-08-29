@@ -1,74 +1,48 @@
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
-import { ErrorListResponse } from "@/protoOS/api/types";
-
-import MinerStatusModal from "@/protoOS/components/MinerStatusModal/MinerStatusModal";
-import {
-  getErrorTitle,
-  isError,
-  isWarning,
-} from "@/protoOS/components/MinerStatusModal/utility";
-import { Alert, Stop } from "@/shared/assets/icons";
+import { Alert } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Callout, { intents } from "@/shared/components/Callout";
+import MinerStatusModal from "@/shared/components/MinerStatusModal";
+import { type MinerStatus } from "@/shared/components/MinerStatusModal/types";
+import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 
-interface ErrorCalloutProps {
-  errors: ErrorListResponse;
-}
+const dismissedKey = "error-callout-dismissed";
 
-const ErrorCallout = ({ errors }: ErrorCalloutProps) => {
+const ErrorCallout = ({ status }: { status: MinerStatus }) => {
   const [showModal, setShowModal] = useState(false);
+  const { getItem, setItem } = useLocalStorage();
 
-  const isPoolError = useCallback(
-    (error_code?: string) => /pool/i.test(error_code || ""),
-    [],
-  );
-
-  const hasErrors = useMemo(
-    () =>
-      errors.some(
-        // pool connection errors are tracked in the mining pool widget
-        (error) => isError(error.error_level) && !isPoolError(error.error_code),
-      ),
-    [errors, isPoolError],
-  );
-
-  const hasWarnings = useMemo(
-    () =>
-      errors.some(
-        (error) =>
-          // pool connection errors are tracked in the mining pool widget
-          isWarning(error.error_level) && !isPoolError(error.error_code),
-      ),
-    [errors, isPoolError],
-  );
+  const [dismissed, setDismissed] = useState(getItem(dismissedKey));
 
   const prefixIcon = useMemo(() => {
-    if (hasErrors) {
-      return <Stop className="text-text-critical" width={iconSizes.medium} />;
+    if (status.hasIssues) {
+      return <Alert className="text-text-critical" width={iconSizes.medium} />;
     }
-    if (hasWarnings) {
-      return <Alert className="text-text-warning" width={iconSizes.medium} />;
-    }
-    return undefined;
-  }, [hasErrors, hasWarnings]);
 
-  const title = useMemo(() => getErrorTitle(errors), [errors]);
+    return undefined;
+  }, [status.hasIssues]);
 
   return (
     <>
-      {(hasErrors || hasWarnings) && (
+      {status.hasIssues && !dismissed && (
         <div className="mb-10">
           <Callout
             buttonOnClick={() => setShowModal(true)}
             buttonText="View details"
             intent={intents.information}
             prefixIcon={prefixIcon}
-            title={title}
+            title={status.title}
+            subtitle={status.subtitle}
+            dismissible={true}
+            onDismiss={() => {
+              setItem(dismissedKey, true, 1000 * 60 * 60); // dismissal expires in 1hr
+              setDismissed(true);
+            }}
           />
           {showModal && (
             <MinerStatusModal
-              errors={errors}
+              status={status}
               onDismiss={() => setShowModal(false)}
             />
           )}

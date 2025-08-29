@@ -60,7 +60,7 @@ const Header = ({
         className,
       )}
     >
-      <div className={clsx("w-full", { "flex items-start": inline })}>
+      <div className={clsx("w-full", { "flex items-center": inline })}>
         {icon && iconOnClick && (
           <Button
             textColor={iconTextColor}

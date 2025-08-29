@@ -1,6 +1,7 @@
 import { useContext } from "react";
 
 import MinerStatusContext from "./MinerStatusContext";
+import useComprehensiveStatus from "./useComprehensiveStatus";
 
 const useMinerStatus = () => {
   const {
@@ -12,6 +13,12 @@ const useMinerStatus = () => {
     setMiningStatus,
   } = useContext(MinerStatusContext);
 
+  // boils down various status indicators into one comprehensive status
+  const comprehensiveStatus = useComprehensiveStatus(
+    errors.errors || [],
+    miningStatus,
+  );
+
   return {
     errors,
     fetchPoolsInfo,
@@ -19,6 +26,7 @@ const useMinerStatus = () => {
     poolsInfo,
     poolsInfoStatus,
     setMiningStatus,
+    comprehensiveStatus,
   };
 };
 

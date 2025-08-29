@@ -87,7 +87,7 @@ const Callout = ({
           {header}
         </div>
       )}
-      <div className="flex rounded-xl bg-surface-elevated-base p-4 text-text-primary-70">
+      <div className="flex rounded-xl bg-surface-elevated-base p-4 text-text-primary">
         <div
           className={clsx("mr-3", {
             "mt-1": buttonText,
@@ -99,7 +99,9 @@ const Callout = ({
         <div className="flex w-full items-center justify-between">
           <div>
             <div className="text-emphasis-300">{title}</div>
-            {subtitle && <div className="text-300">{subtitle}</div>}
+            {subtitle && (
+              <div className="text-300 text-text-primary-70">{subtitle}</div>
+            )}
           </div>
           {buttons.length !== 0 && (
             <div className="ml-4">

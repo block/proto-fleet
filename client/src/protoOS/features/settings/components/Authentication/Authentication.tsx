@@ -14,7 +14,7 @@ const AuthenticationSettings = () => {
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { hasAccess } = useAccessToken(true, false);
+  const { hasAccess } = useAccessToken(true);
 
   const submit = useCallback(
     (currentPassword: string, newPassword: string) => {

@@ -1,100 +1,40 @@
-import { useMemo } from "react";
-import clsx from "clsx";
-
 import WidgetWrapper from "../WidgetWrapper";
-import {
-  ErrorListResponse,
-  MiningStatusMiningstatus,
-  NotificationError,
-} from "@/protoOS/api/types";
-import { isSleeping } from "@/protoOS/components/App/utility";
-import {
-  isAsicError,
-  isAsicWarning,
-  isControlBoardError,
-  isControlBoardWarning,
-  isFanError,
-  isFanWarning,
-  isHashboardError,
-  isHashboardWarning,
-  isPSUError,
-  isPSUWarning,
-} from "@/protoOS/components/MinerStatusModal/utility";
+import { MinerStatus as MinerStatusType } from "@/shared/components/MinerStatusModal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-import StatusCircle, {
-  type StatusCircleProps,
-} from "@/shared/components/StatusCircle/";
-import { statuses } from "@/shared/components/StatusCircle/constants";
-import { createOrPredicate } from "@/shared/utils/predicate";
+import StatusCircle, { variants } from "@/shared/components/StatusCircle/";
 
 interface MinerStatusWidgetProps {
-  errors?: ErrorListResponse;
-  miningStatus?: MiningStatusMiningstatus;
-  loading?: boolean;
   onClick: () => void;
+  status?: MinerStatusType;
 }
 
-const MinerStatusWidget = ({
-  errors = [],
-  miningStatus,
-  loading = false,
-  onClick,
-}: MinerStatusWidgetProps) => {
-  const status = useMemo<StatusCircleProps["status"]>(() => {
-    if (isSleeping(miningStatus?.status)) {
-      return statuses.sleeping;
-    }
-    if (
-      errors.some(
-        createOrPredicate<NotificationError>(
-          isFanError,
-          isControlBoardError,
-          isHashboardError,
-          isAsicError,
-          isPSUError,
-        ),
-      )
-    )
-      return statuses.error;
-    if (
-      errors.some(
-        createOrPredicate<NotificationError>(
-          isFanWarning,
-          isControlBoardWarning,
-          isHashboardWarning,
-          isAsicWarning,
-          isPSUWarning,
-        ),
-      )
-    )
-      return statuses.warning;
-    return statuses.normal;
-  }, [errors, miningStatus]);
-
+const MinerStatusWidget = ({ onClick, status }: MinerStatusWidgetProps) => {
   return (
-    <WidgetWrapper
-      onClick={loading ? undefined : onClick}
-      className={clsx("text-text-primary", {
-        "hover:cursor-progress": loading,
-      })}
-    >
+    <WidgetWrapper onClick={status ? onClick : undefined}>
       <>
-        {loading ? (
-          [...Array(3)].map((_, index) => (
+        {!status ? (
+          <div className="flex items-center">
             <ProgressCircular
-              className="mr-1"
               indeterminate
               dataTestId="miner-status-spinner"
-              size={14}
-              key={index}
+              size={12}
             />
-          ))
+          </div>
         ) : (
           <>
-            <StatusCircle status={status} />
+            {status?.circle && (
+              <div className="flex items-center">
+                <StatusCircle
+                  status={status?.circle}
+                  variant={variants.simple}
+                  width={"w-2"}
+                  removeMargin={true}
+                />
+              </div>
+            )}
           </>
         )}
-        Status
+        {status?.summary || "Status"}
       </>
     </WidgetWrapper>
   );

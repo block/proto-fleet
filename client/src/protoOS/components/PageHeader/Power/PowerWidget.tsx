@@ -14,10 +14,8 @@ import {
 import {
   EnteringSleepDialog,
   RebootingDialog,
-  WakingDialog,
   WarnRebootDialog,
   WarnSleepDialog,
-  WarnWakeDialog,
 } from "@/protoOS/components/Power";
 import {
   useAccessToken,
@@ -46,14 +44,12 @@ interface PowerWidgetProps {
 const PowerWidget = ({
   afterReboot,
   afterSleep,
-  afterWake,
   miningStatus,
   onReboot,
   onSleep,
   onWake,
   rebootError,
   sleepError,
-  wakeError,
   shouldShowPopover,
 }: PowerWidgetProps) => {
   const { triggerRef: WidgetRef, setIsTriggerFixed } = usePopover();
@@ -68,8 +64,6 @@ const PowerWidget = ({
   );
   const [warnSleep, setWarnSleep] = useState(false);
   const [shouldSleep, setShouldSleep] = useState(false);
-  const [warnWake, setWarnWake] = useState(false);
-  const [shouldWake, setShouldWake] = useState(false);
   const [pausedAction, setPausedAction] = useState<keyof typeof actions | null>(
     null,
   );
@@ -90,8 +84,6 @@ const PowerWidget = ({
         setWarnReboot(true);
       } else if (pausedAction === actions.sleep) {
         setWarnSleep(true);
-      } else if (pausedAction === actions.wake) {
-        setWarnWake(true);
       }
       setPausedAction(null);
     }
@@ -130,14 +122,7 @@ const PowerWidget = ({
 
   const handleWakeButton = () => {
     setIsOpen(false);
-    setPausedAction(actions.wake);
-    checkAccess();
-  };
-
-  const handleWakeConfirm = () => {
     onWake();
-    setWarnWake(false);
-    setShouldWake(true);
   };
 
   useEffect(() => {
@@ -172,33 +157,15 @@ const PowerWidget = ({
     }
   }, [afterSleep, miningStatus, setHasAccess, shouldSleep, sleepError]);
 
-  useEffect(() => {
-    if (shouldWake) {
-      if (wakeError) {
-        setShouldWake(false);
-        if (wakeError?.status === 401) {
-          setHasAccess(false);
-          setPausedAction(actions.wake);
-        }
-        // TODO: handle other errors
-      } else if (isAwake(miningStatus.status)) {
-        setShouldWake(false);
-        afterWake?.();
-      }
-    }
-  }, [afterWake, miningStatus.status, setHasAccess, shouldWake, wakeError]);
-
   return (
     <div className="relative" ref={WidgetRef}>
       <WidgetWrapper
         onClick={() => setIsOpen((prev) => !prev)}
-        className="text-text-primary"
+        className="w-[28px] p-0 text-text-primary"
         isOpen={isOpen}
         testId="power-button"
       >
-        <>
-          <Power width={iconSizes.xSmall} />
-        </>
+        <Power width={iconSizes.small} className="m-1 -translate-y-0.25" />
       </WidgetWrapper>
       {isOpen && (
         <PowerPopover
@@ -220,12 +187,6 @@ const PowerWidget = ({
         show={warnSleep}
       />
       <EnteringSleepDialog show={shouldSleep} />
-      <WarnWakeDialog
-        onClose={() => setWarnWake(false)}
-        onSubmit={handleWakeConfirm}
-        show={warnWake}
-      />
-      <WakingDialog show={shouldWake} />
     </div>
   );
 };

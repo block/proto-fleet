@@ -142,6 +142,7 @@ const Modal = ({
                 onClick: onButtonClick(button),
               }))}
               inline
+              centerButton
             />
             {!preventClose && divider && <Divider className="mt-6" />}
             {(preventClose || !divider) && <div className="mt-6" />}
