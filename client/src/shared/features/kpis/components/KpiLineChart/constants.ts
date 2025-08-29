@@ -15,6 +15,7 @@ export const lineProps = {
     | undefined,
   activeDot: false,
   isAnimationActive: true,
+  connectNulls: false,
 };
 
 export const nullLineProps = {

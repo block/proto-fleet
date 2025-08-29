@@ -56,19 +56,38 @@ export const aggregateValues = (
     return dataToAggregate;
   }
 
-  let aggregatedData = [
-    { datetime: dataToAggregate[0].datetime, value: 0, numberOfValues: 0 },
-  ];
-  const currentDateEpoch = getDateFromEpoch(
-    dataToAggregate[0].datetime,
-  ).setSeconds(0);
-  let currentDate = getDateFromEpoch(currentDateEpoch);
+  let aggregatedData: {
+    datetime: number;
+    value: number;
+    numberOfValues: number;
+  }[] = [];
+  let currentDate: Date | null = null;
+
   dataToAggregate.forEach((data) => {
+    // Skip entries with invalid datetime
+    if (!data.datetime) {
+      return;
+    }
+
     const dateToCompareEpoch = getDateFromEpoch(data.datetime).setSeconds(0);
     const dateToCompare = getDateFromEpoch(dateToCompareEpoch);
+
+    // Initialize currentDate with first data point
+    if (currentDate === null) {
+      currentDate = dateToCompare;
+      aggregatedData.push({
+        datetime: data.datetime,
+        value: +(data.value || 0),
+        numberOfValues: 1,
+      });
+      return;
+    }
+
     const diffMs = dateToCompare.getTime() - currentDate.getTime();
     const diffMins = diffMs / 60000;
+
     if (diffMins < compareTimeMinutes) {
+      // Same bucket - add to existing
       aggregatedData[aggregatedData.length - 1] = {
         datetime: aggregatedData[aggregatedData.length - 1].datetime,
         value:
@@ -77,7 +96,8 @@ export const aggregateValues = (
           aggregatedData[aggregatedData.length - 1].numberOfValues + 1,
       };
     } else {
-      currentDate = getDateFromEpoch(dateToCompareEpoch);
+      // New bucket - create new entry
+      currentDate = dateToCompare;
       aggregatedData.push({
         datetime: data.datetime,
         value: +(data.value || 0),
@@ -85,6 +105,7 @@ export const aggregateValues = (
       });
     }
   });
+
   return aggregatedData.map((data) => ({
     datetime: data.datetime,
     value: +data.value / data.numberOfValues,
@@ -103,99 +124,7 @@ export const convertAggregateValues = (
   }, {} as Aggregates);
 };
 
-const durationStringToSeconds = (duration: Duration): number => {
-  const unit = duration.slice(-1);
-  const value = parseInt(duration.slice(0, -1), 10);
-
-  if (isNaN(value)) return 0;
-
-  switch (unit) {
-    case "h":
-      return value * 60 * 60;
-    case "d":
-      return value * 24 * 60 * 60;
-    default:
-      return 0;
-  }
-};
-
-const addDurationStartValue = (ts: TimeSeriesData[], duration: Duration) => {
-  if (ts.length === 0) {
-    return ts;
-  }
-
-  const mostRecent = ts[ts.length - 1].datetime;
-  const modified = ts;
-
-  if (
-    mostRecent &&
-    mostRecent > Date.now() / 1000 - durationStringToSeconds(duration)
-  ) {
-    modified.unshift({
-      datetime: mostRecent - durationStringToSeconds(duration),
-      value: 0,
-    });
-  }
-
-  return modified;
-};
-
-const insertDownTimeData = (
-  data: TimeSeriesData[],
-  duration: Duration,
-  compareTimeMinutes: number,
-) => {
-  // if data is empty, we have not received any data from the server
-  // so no need to insert down time data
-  if (data.length === 0) {
-    return data;
-  }
-
-  const originalLength = data.length;
-  // add dummy point at start of duration if needed
-  data = addDurationStartValue(data, duration);
-
-  // Check if a dummy point was added
-  const dummyPointAdded = data.length > originalLength;
-
-  if (!dummyPointAdded) {
-    // No dummy point needed, return original data without any downtime insertion
-    return data;
-  }
-
-  const filledData: TimeSeriesData[] = [];
-
-  // Only fill gap between dummy point (index 0) and first real data point (index 1)
-  const dummyPoint = data[0];
-  const firstRealPoint = data[1];
-
-  filledData.push(dummyPoint);
-
-  if (firstRealPoint?.datetime && dummyPoint?.datetime) {
-    const timeDifference = (firstRealPoint.datetime - dummyPoint.datetime) / 60;
-
-    if (timeDifference > compareTimeMinutes) {
-      const numberOfPoints = Math.floor(timeDifference / compareTimeMinutes);
-      for (let j = 1; j <= numberOfPoints; j++) {
-        filledData.push({
-          datetime: dummyPoint.datetime + j * compareTimeMinutes * 60,
-          value: 0,
-        });
-      }
-    }
-  }
-
-  // Add all the real data points (from index 1 onwards)
-  filledData.push(...data.slice(1));
-
-  return filledData;
-};
-
-export const downsample = (
-  data: TimeSeriesData[],
-  duration: Duration,
-  insertDownTime: Boolean = true,
-) => {
+export const downsample = (data: TimeSeriesData[], duration: Duration) => {
   const numDataPoints = 180;
   let compareTimeMinutes = 10;
   if (duration === "1h") {
@@ -210,10 +139,6 @@ export const downsample = (
     compareTimeMinutes = (5 * 24 * 60) / numDataPoints;
   }
 
-  return aggregateValues(
-    insertDownTime
-      ? insertDownTimeData(data, duration, compareTimeMinutes)
-      : data,
-    compareTimeMinutes,
-  );
+  // Only use real data - no artificial downtime insertion
+  return aggregateValues(data, compareTimeMinutes);
 };
