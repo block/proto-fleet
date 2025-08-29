@@ -50,6 +50,9 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// MinerDebugApiGetMiningInitStatsProcedure is the fully-qualified name of the MinerDebugApi's
+	// GetMiningInitStats RPC.
+	MinerDebugApiGetMiningInitStatsProcedure = "/miner_debug_api.MinerDebugApi/GetMiningInitStats"
 	// MinerDebugApiEnablePsuProcedure is the fully-qualified name of the MinerDebugApi's EnablePsu RPC.
 	MinerDebugApiEnablePsuProcedure = "/miner_debug_api.MinerDebugApi/EnablePsu"
 	// MinerDebugApiDisablePsuProcedure is the fully-qualified name of the MinerDebugApi's DisablePsu
@@ -160,6 +163,7 @@ const (
 
 // MinerDebugApiClient is a client for the miner_debug_api.MinerDebugApi service.
 type MinerDebugApiClient interface {
+	GetMiningInitStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.MiningInitStats], error)
 	// PSU debug functionality
 	EnablePsu(context.Context, *connect.Request[miner_debug_api.PsuRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	DisablePsu(context.Context, *connect.Request[miner_debug_api.PsuRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
@@ -217,6 +221,11 @@ type MinerDebugApiClient interface {
 func NewMinerDebugApiClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MinerDebugApiClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &minerDebugApiClient{
+		getMiningInitStats: connect.NewClient[miner_common_api.EmptyRequest, miner_debug_api.MiningInitStats](
+			httpClient,
+			baseURL+MinerDebugApiGetMiningInitStatsProcedure,
+			opts...,
+		),
 		enablePsu: connect.NewClient[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse](
 			httpClient,
 			baseURL+MinerDebugApiEnablePsuProcedure,
@@ -402,6 +411,7 @@ func NewMinerDebugApiClient(httpClient connect.HTTPClient, baseURL string, opts 
 
 // minerDebugApiClient implements MinerDebugApiClient.
 type minerDebugApiClient struct {
+	getMiningInitStats              *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.MiningInitStats]
 	enablePsu                       *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
 	disablePsu                      *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
 	setPsuOutputVoltage             *connect.Client[miner_debug_api.PsuOutputVoltageRequest, miner_common_api.ApiResultResponse]
@@ -438,6 +448,11 @@ type minerDebugApiClient struct {
 	getPsuErrorStats                *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.PsuErrorStatsList]
 	resetPsuErrorStats              *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
 	setHardwareError                *connect.Client[miner_debug_api.SetHardwareErrorRequest, miner_common_api.ApiResultResponse]
+}
+
+// GetMiningInitStats calls miner_debug_api.MinerDebugApi.GetMiningInitStats.
+func (c *minerDebugApiClient) GetMiningInitStats(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.MiningInitStats], error) {
+	return c.getMiningInitStats.CallUnary(ctx, req)
 }
 
 // EnablePsu calls miner_debug_api.MinerDebugApi.EnablePsu.
@@ -625,6 +640,7 @@ func (c *minerDebugApiClient) SetHardwareError(ctx context.Context, req *connect
 
 // MinerDebugApiHandler is an implementation of the miner_debug_api.MinerDebugApi service.
 type MinerDebugApiHandler interface {
+	GetMiningInitStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.MiningInitStats], error)
 	// PSU debug functionality
 	EnablePsu(context.Context, *connect.Request[miner_debug_api.PsuRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	DisablePsu(context.Context, *connect.Request[miner_debug_api.PsuRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
@@ -678,6 +694,11 @@ type MinerDebugApiHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewMinerDebugApiHandler(svc MinerDebugApiHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	minerDebugApiGetMiningInitStatsHandler := connect.NewUnaryHandler(
+		MinerDebugApiGetMiningInitStatsProcedure,
+		svc.GetMiningInitStats,
+		opts...,
+	)
 	minerDebugApiEnablePsuHandler := connect.NewUnaryHandler(
 		MinerDebugApiEnablePsuProcedure,
 		svc.EnablePsu,
@@ -860,6 +881,8 @@ func NewMinerDebugApiHandler(svc MinerDebugApiHandler, opts ...connect.HandlerOp
 	)
 	return "/miner_debug_api.MinerDebugApi/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case MinerDebugApiGetMiningInitStatsProcedure:
+			minerDebugApiGetMiningInitStatsHandler.ServeHTTP(w, r)
 		case MinerDebugApiEnablePsuProcedure:
 			minerDebugApiEnablePsuHandler.ServeHTTP(w, r)
 		case MinerDebugApiDisablePsuProcedure:
@@ -940,6 +963,10 @@ func NewMinerDebugApiHandler(svc MinerDebugApiHandler, opts ...connect.HandlerOp
 
 // UnimplementedMinerDebugApiHandler returns CodeUnimplemented from all methods.
 type UnimplementedMinerDebugApiHandler struct{}
+
+func (UnimplementedMinerDebugApiHandler) GetMiningInitStats(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.MiningInitStats], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.GetMiningInitStats is not implemented"))
+}
 
 func (UnimplementedMinerDebugApiHandler) EnablePsu(context.Context, *connect.Request[miner_debug_api.PsuRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.EnablePsu is not implemented"))

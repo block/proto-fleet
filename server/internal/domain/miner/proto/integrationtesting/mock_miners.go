@@ -39,6 +39,8 @@ const (
 	MethodInstall            MethodName = "Install"
 	MethodUpdate             MethodName = "Update"
 	MethodUpload             MethodName = "Upload"
+	MethodFactoryReset       MethodName = "FactoryReset"
+	MethodClearUserSettings  MethodName = "ClearUserSettings"
 )
 
 // MockMinerCallCounter tracks call counts for different API methods
@@ -70,6 +72,8 @@ func NewMockMinerCallCounter() *MockMinerCallCounter {
 		MethodInstall,
 		MethodUpdate,
 		MethodUpload,
+		MethodFactoryReset,
+		MethodClearUserSettings,
 	}
 
 	for _, method := range methods {
@@ -300,4 +304,24 @@ func (m *MockMinerHandler) Upload(ctx context.Context, _ *connect.ClientStream[m
 	return connect.NewResponse(&miner_system_api.UploadResponse{
 		Message: "Update file uploaded successfully.",
 	}), nil
+}
+
+func (m *MockMinerHandler) FactoryReset(ctx context.Context, req *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[minercommonapi.ApiResultResponse], error) {
+	return handleRequest(
+		m.t, "FactoryReset", req, m.callCounter.GetCounter(MethodFactoryReset),
+		func(_ *minercommonapi.EmptyRequest) *minercommonapi.ApiResultResponse {
+			return &minercommonapi.ApiResultResponse{
+				Result: minercommonapi.ApiResult_RESULT_SUCCESS,
+			}
+		})
+}
+
+func (m *MockMinerHandler) ClearUserSettings(ctx context.Context, req *connect.Request[minercommonapi.EmptyRequest]) (*connect.Response[minercommonapi.ApiResultResponse], error) {
+	return handleRequest(
+		m.t, "ClearUserSettings", req, m.callCounter.GetCounter(MethodClearUserSettings),
+		func(_ *minercommonapi.EmptyRequest) *minercommonapi.ApiResultResponse {
+			return &minercommonapi.ApiResultResponse{
+				Result: minercommonapi.ApiResult_RESULT_SUCCESS,
+			}
+		})
 }

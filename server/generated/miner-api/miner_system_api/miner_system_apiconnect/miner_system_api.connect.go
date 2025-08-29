@@ -47,12 +47,16 @@ const (
 	MinerSystemApiRebootProcedure = "/miner_system_api.MinerSystemApi/Reboot"
 	// MinerSystemApiGetLogsProcedure is the fully-qualified name of the MinerSystemApi's GetLogs RPC.
 	MinerSystemApiGetLogsProcedure = "/miner_system_api.MinerSystemApi/GetLogs"
-	// MinerSystemApiInstallProcedure is the fully-qualified name of the MinerSystemApi's Install RPC.
-	MinerSystemApiInstallProcedure = "/miner_system_api.MinerSystemApi/Install"
 	// MinerSystemApiUpdateProcedure is the fully-qualified name of the MinerSystemApi's Update RPC.
 	MinerSystemApiUpdateProcedure = "/miner_system_api.MinerSystemApi/Update"
 	// MinerSystemApiUploadProcedure is the fully-qualified name of the MinerSystemApi's Upload RPC.
 	MinerSystemApiUploadProcedure = "/miner_system_api.MinerSystemApi/Upload"
+	// MinerSystemApiFactoryResetProcedure is the fully-qualified name of the MinerSystemApi's
+	// FactoryReset RPC.
+	MinerSystemApiFactoryResetProcedure = "/miner_system_api.MinerSystemApi/FactoryReset"
+	// MinerSystemApiClearUserSettingsProcedure is the fully-qualified name of the MinerSystemApi's
+	// ClearUserSettings RPC.
+	MinerSystemApiClearUserSettingsProcedure = "/miner_system_api.MinerSystemApi/ClearUserSettings"
 	// MinerPairingApiSetAuthKeyProcedure is the fully-qualified name of the MinerPairingApi's
 	// SetAuthKey RPC.
 	MinerPairingApiSetAuthKeyProcedure = "/miner_system_api.MinerPairingApi/SetAuthKey"
@@ -71,13 +75,14 @@ type MinerSystemApiClient interface {
 	Reboot(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	// Endpoint for getting logs from various sources on the miner
 	GetLogs(context.Context, *connect.Request[miner_system_api.GetLogsRequest]) (*connect.Response[miner_system_api.GetLogsResponse], error)
-	// Endpoint for installing updates - can be used by UI to manually trigger installation
-	// when automatic installation after download is not desired
-	Install(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	// Endpoint for updating the system - downloads and installs updates based on current status
 	Update(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.UpdateResponse], error)
-	// Endpoint for uploading update files
+	// Endpoint for uploading update files and installing them
 	Upload(context.Context) *connect.ClientStreamForClient[miner_system_api.UploadRequest, miner_system_api.UploadResponse]
+	// Endpoint for factory resetting the miner, clearing user data and rolling back to recovery image
+	FactoryReset(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	// Endpoint for clearing user settings and restoring defaults for the current version
+	ClearUserSettings(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 }
 
 // NewMinerSystemApiClient constructs a client for the miner_system_api.MinerSystemApi service. By
@@ -110,11 +115,6 @@ func NewMinerSystemApiClient(httpClient connect.HTTPClient, baseURL string, opts
 			baseURL+MinerSystemApiGetLogsProcedure,
 			opts...,
 		),
-		install: connect.NewClient[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse](
-			httpClient,
-			baseURL+MinerSystemApiInstallProcedure,
-			opts...,
-		),
 		update: connect.NewClient[miner_common_api.EmptyRequest, miner_system_api.UpdateResponse](
 			httpClient,
 			baseURL+MinerSystemApiUpdateProcedure,
@@ -125,18 +125,29 @@ func NewMinerSystemApiClient(httpClient connect.HTTPClient, baseURL string, opts
 			baseURL+MinerSystemApiUploadProcedure,
 			opts...,
 		),
+		factoryReset: connect.NewClient[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse](
+			httpClient,
+			baseURL+MinerSystemApiFactoryResetProcedure,
+			opts...,
+		),
+		clearUserSettings: connect.NewClient[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse](
+			httpClient,
+			baseURL+MinerSystemApiClearUserSettingsProcedure,
+			opts...,
+		),
 	}
 }
 
 // minerSystemApiClient implements MinerSystemApiClient.
 type minerSystemApiClient struct {
-	getNetwork *connect.Client[miner_common_api.EmptyRequest, miner_system_api.GetNetworkResponse]
-	setNetwork *connect.Client[miner_system_api.SetNetworkRequest, miner_system_api.SetNetworkResponse]
-	reboot     *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
-	getLogs    *connect.Client[miner_system_api.GetLogsRequest, miner_system_api.GetLogsResponse]
-	install    *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
-	update     *connect.Client[miner_common_api.EmptyRequest, miner_system_api.UpdateResponse]
-	upload     *connect.Client[miner_system_api.UploadRequest, miner_system_api.UploadResponse]
+	getNetwork        *connect.Client[miner_common_api.EmptyRequest, miner_system_api.GetNetworkResponse]
+	setNetwork        *connect.Client[miner_system_api.SetNetworkRequest, miner_system_api.SetNetworkResponse]
+	reboot            *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	getLogs           *connect.Client[miner_system_api.GetLogsRequest, miner_system_api.GetLogsResponse]
+	update            *connect.Client[miner_common_api.EmptyRequest, miner_system_api.UpdateResponse]
+	upload            *connect.Client[miner_system_api.UploadRequest, miner_system_api.UploadResponse]
+	factoryReset      *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	clearUserSettings *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
 }
 
 // GetNetwork calls miner_system_api.MinerSystemApi.GetNetwork.
@@ -159,11 +170,6 @@ func (c *minerSystemApiClient) GetLogs(ctx context.Context, req *connect.Request
 	return c.getLogs.CallUnary(ctx, req)
 }
 
-// Install calls miner_system_api.MinerSystemApi.Install.
-func (c *minerSystemApiClient) Install(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return c.install.CallUnary(ctx, req)
-}
-
 // Update calls miner_system_api.MinerSystemApi.Update.
 func (c *minerSystemApiClient) Update(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.UpdateResponse], error) {
 	return c.update.CallUnary(ctx, req)
@@ -172,6 +178,16 @@ func (c *minerSystemApiClient) Update(ctx context.Context, req *connect.Request[
 // Upload calls miner_system_api.MinerSystemApi.Upload.
 func (c *minerSystemApiClient) Upload(ctx context.Context) *connect.ClientStreamForClient[miner_system_api.UploadRequest, miner_system_api.UploadResponse] {
 	return c.upload.CallClientStream(ctx)
+}
+
+// FactoryReset calls miner_system_api.MinerSystemApi.FactoryReset.
+func (c *minerSystemApiClient) FactoryReset(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return c.factoryReset.CallUnary(ctx, req)
+}
+
+// ClearUserSettings calls miner_system_api.MinerSystemApi.ClearUserSettings.
+func (c *minerSystemApiClient) ClearUserSettings(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return c.clearUserSettings.CallUnary(ctx, req)
 }
 
 // MinerSystemApiHandler is an implementation of the miner_system_api.MinerSystemApi service.
@@ -184,13 +200,14 @@ type MinerSystemApiHandler interface {
 	Reboot(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	// Endpoint for getting logs from various sources on the miner
 	GetLogs(context.Context, *connect.Request[miner_system_api.GetLogsRequest]) (*connect.Response[miner_system_api.GetLogsResponse], error)
-	// Endpoint for installing updates - can be used by UI to manually trigger installation
-	// when automatic installation after download is not desired
-	Install(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	// Endpoint for updating the system - downloads and installs updates based on current status
 	Update(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.UpdateResponse], error)
-	// Endpoint for uploading update files
+	// Endpoint for uploading update files and installing them
 	Upload(context.Context, *connect.ClientStream[miner_system_api.UploadRequest]) (*connect.Response[miner_system_api.UploadResponse], error)
+	// Endpoint for factory resetting the miner, clearing user data and rolling back to recovery image
+	FactoryReset(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	// Endpoint for clearing user settings and restoring defaults for the current version
+	ClearUserSettings(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 }
 
 // NewMinerSystemApiHandler builds an HTTP handler from the service implementation. It returns the
@@ -219,11 +236,6 @@ func NewMinerSystemApiHandler(svc MinerSystemApiHandler, opts ...connect.Handler
 		svc.GetLogs,
 		opts...,
 	)
-	minerSystemApiInstallHandler := connect.NewUnaryHandler(
-		MinerSystemApiInstallProcedure,
-		svc.Install,
-		opts...,
-	)
 	minerSystemApiUpdateHandler := connect.NewUnaryHandler(
 		MinerSystemApiUpdateProcedure,
 		svc.Update,
@@ -232,6 +244,16 @@ func NewMinerSystemApiHandler(svc MinerSystemApiHandler, opts ...connect.Handler
 	minerSystemApiUploadHandler := connect.NewClientStreamHandler(
 		MinerSystemApiUploadProcedure,
 		svc.Upload,
+		opts...,
+	)
+	minerSystemApiFactoryResetHandler := connect.NewUnaryHandler(
+		MinerSystemApiFactoryResetProcedure,
+		svc.FactoryReset,
+		opts...,
+	)
+	minerSystemApiClearUserSettingsHandler := connect.NewUnaryHandler(
+		MinerSystemApiClearUserSettingsProcedure,
+		svc.ClearUserSettings,
 		opts...,
 	)
 	return "/miner_system_api.MinerSystemApi/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -244,12 +266,14 @@ func NewMinerSystemApiHandler(svc MinerSystemApiHandler, opts ...connect.Handler
 			minerSystemApiRebootHandler.ServeHTTP(w, r)
 		case MinerSystemApiGetLogsProcedure:
 			minerSystemApiGetLogsHandler.ServeHTTP(w, r)
-		case MinerSystemApiInstallProcedure:
-			minerSystemApiInstallHandler.ServeHTTP(w, r)
 		case MinerSystemApiUpdateProcedure:
 			minerSystemApiUpdateHandler.ServeHTTP(w, r)
 		case MinerSystemApiUploadProcedure:
 			minerSystemApiUploadHandler.ServeHTTP(w, r)
+		case MinerSystemApiFactoryResetProcedure:
+			minerSystemApiFactoryResetHandler.ServeHTTP(w, r)
+		case MinerSystemApiClearUserSettingsProcedure:
+			minerSystemApiClearUserSettingsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -275,16 +299,20 @@ func (UnimplementedMinerSystemApiHandler) GetLogs(context.Context, *connect.Requ
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerSystemApi.GetLogs is not implemented"))
 }
 
-func (UnimplementedMinerSystemApiHandler) Install(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerSystemApi.Install is not implemented"))
-}
-
 func (UnimplementedMinerSystemApiHandler) Update(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.UpdateResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerSystemApi.Update is not implemented"))
 }
 
 func (UnimplementedMinerSystemApiHandler) Upload(context.Context, *connect.ClientStream[miner_system_api.UploadRequest]) (*connect.Response[miner_system_api.UploadResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerSystemApi.Upload is not implemented"))
+}
+
+func (UnimplementedMinerSystemApiHandler) FactoryReset(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerSystemApi.FactoryReset is not implemented"))
+}
+
+func (UnimplementedMinerSystemApiHandler) ClearUserSettings(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerSystemApi.ClearUserSettings is not implemented"))
 }
 
 // MinerPairingApiClient is a client for the miner_system_api.MinerPairingApi service.
