@@ -1,7 +1,7 @@
 import { isSleeping } from "./utility";
 import { MiningStatusMiningstatus } from "@/protoOS/api/types";
 
-import { WakingDialog, WarnWakeDialog } from "@/protoOS/components/Power";
+import { WakingDialog } from "@/protoOS/components/Power";
 import { useWakeMiner } from "@/protoOS/hooks/useWakeMiner";
 import { Power } from "@/shared/assets/icons";
 import Callout, { intents } from "@/shared/components/Callout";
@@ -13,13 +13,7 @@ interface WakeCalloutProps {
 }
 
 const WakeCallout = ({ afterWake, miningStatus, onWake }: WakeCalloutProps) => {
-  const {
-    wakeMiner,
-    warnWake,
-    shouldWake,
-    handleWakeConfirm,
-    onWarnWakeClose,
-  } = useWakeMiner({
+  const { wakeMiner, shouldWake } = useWakeMiner({
     afterWake,
     miningStatus,
     onSuccess: onWake,
@@ -38,11 +32,6 @@ const WakeCallout = ({ afterWake, miningStatus, onWake }: WakeCalloutProps) => {
           />
         </div>
       )}
-      <WarnWakeDialog
-        onClose={onWarnWakeClose}
-        onSubmit={handleWakeConfirm}
-        show={warnWake}
-      />
       <WakingDialog show={shouldWake} />
     </>
   );

@@ -19,9 +19,10 @@ const getRouteAuthRequirement = (path: string, defaultValue = true) => {
   return defaultValue;
 };
 
-const useAccessToken = (shouldCheckAccess = true) => {
+const useAccessToken = (shouldCheckAccess: boolean = true) => {
   const refresh = useRefresh();
-  const { authTokens, setShowLoginModal, logout } = useAuthContext();
+  const { authTokens, setShowLoginModal, logout, pausedAuthAction } =
+    useAuthContext();
 
   // returns undefined if access is not needed
   // returns true if access token is valid
@@ -52,7 +53,7 @@ const useAccessToken = (shouldCheckAccess = true) => {
     if (!isValidRefreshToken) {
       logout();
       setHasAccess(false);
-      setShowLoginModal(routeRequiresAuth);
+      setShowLoginModal(routeRequiresAuth || pausedAuthAction !== null);
       return;
     }
 
@@ -66,7 +67,7 @@ const useAccessToken = (shouldCheckAccess = true) => {
         onError: () => {
           logout();
           setHasAccess(false);
-          setShowLoginModal(routeRequiresAuth);
+          setShowLoginModal(routeRequiresAuth || pausedAuthAction !== null);
         },
       });
     }
@@ -78,6 +79,7 @@ const useAccessToken = (shouldCheckAccess = true) => {
     isValidRefreshToken,
     shouldCheckAccess,
     routeRequiresAuth,
+    pausedAuthAction,
     logout,
   ]);
 

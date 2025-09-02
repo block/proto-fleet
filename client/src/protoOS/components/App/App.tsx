@@ -12,6 +12,7 @@ import AppLayout from "@/protoOS/components/AppLayout";
 import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
+import { WarnWakeDialog } from "@/protoOS/components/Power";
 import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
 import {
   useAccessToken,
@@ -60,7 +61,8 @@ const App = ({
     setDismissedLoginModal(true);
   }, [navigate, pathname, setDismissedLoginModal, location]);
 
-  const { miningStatus, errors, comprehensiveStatus } = useMinerStatus();
+  const { miningStatus, errors, comprehensiveStatus, wakeDialog } =
+    useMinerStatus();
   const { installing } = useFirmwareUpdate();
   useAccessToken();
 
@@ -99,6 +101,11 @@ const App = ({
           {children}
         </AppLayout>
       )}
+      <WarnWakeDialog
+        onClose={wakeDialog.onClose}
+        onSubmit={wakeDialog.onConfirm}
+        show={wakeDialog.show}
+      />
     </>
   );
 };

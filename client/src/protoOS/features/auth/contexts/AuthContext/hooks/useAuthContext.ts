@@ -6,6 +6,8 @@ const useAuthContext = () => {
   const {
     authTokens,
     setAuthTokens,
+    pausedAuthAction,
+    setPausedAuthAction,
     showLoginModal,
     setShowLoginModal,
     dismissedLoginModal,
@@ -16,6 +18,8 @@ const useAuthContext = () => {
   return {
     authTokens,
     dismissedLoginModal,
+    pausedAuthAction,
+    setPausedAuthAction,
     setAuthTokens,
     showLoginModal,
     setDismissedLoginModal,

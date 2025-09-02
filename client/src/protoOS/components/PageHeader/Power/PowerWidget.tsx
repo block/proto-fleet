@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
 import WidgetWrapper from "../WidgetWrapper";
-import { actions } from "./constants";
 import PowerPopover from "./PowerPopover";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import { MiningStatusMiningstatus } from "@/protoOS/api/types";
@@ -18,6 +17,7 @@ import {
   WarnSleepDialog,
 } from "@/protoOS/components/Power";
 import {
+  AUTH_ACTIONS,
   useAccessToken,
   useAuthContext,
 } from "@/protoOS/features/auth/contexts/AuthContext";
@@ -64,12 +64,15 @@ const PowerWidget = ({
   );
   const [warnSleep, setWarnSleep] = useState(false);
   const [shouldSleep, setShouldSleep] = useState(false);
-  const [pausedAction, setPausedAction] = useState<keyof typeof actions | null>(
-    null,
-  );
-  const { dismissedLoginModal, setDismissedLoginModal } = useAuthContext();
+  const {
+    dismissedLoginModal,
+    setDismissedLoginModal,
+    pausedAuthAction,
+    setPausedAuthAction,
+  } = useAuthContext();
+
   const { checkAccess, hasAccess, setHasAccess } = useAccessToken(
-    !!pausedAction && !dismissedLoginModal,
+    !!pausedAuthAction && !dismissedLoginModal,
   );
 
   const onClickOutside = useCallback(() => {
@@ -79,26 +82,26 @@ const PowerWidget = ({
   useClickOutside({ ref: WidgetRef, onClickOutside });
 
   useEffect(() => {
-    if (hasAccess && pausedAction) {
-      if (pausedAction === actions.reboot) {
+    if (hasAccess && pausedAuthAction) {
+      if (pausedAuthAction === AUTH_ACTIONS.reboot) {
         setWarnReboot(true);
-      } else if (pausedAction === actions.sleep) {
+      } else if (pausedAuthAction === AUTH_ACTIONS.sleep) {
         setWarnSleep(true);
       }
-      setPausedAction(null);
+      setPausedAuthAction(null);
     }
-  }, [hasAccess, pausedAction]);
+  }, [hasAccess, pausedAuthAction, setPausedAuthAction]);
 
   useEffect(() => {
     if (dismissedLoginModal) {
-      setPausedAction(null);
+      setPausedAuthAction(null);
       setDismissedLoginModal(false);
     }
-  }, [dismissedLoginModal, setDismissedLoginModal]);
+  }, [dismissedLoginModal, setDismissedLoginModal, setPausedAuthAction]);
 
   const handleRebootButton = () => {
     setIsOpen(false);
-    setPausedAction(actions.reboot);
+    setPausedAuthAction(AUTH_ACTIONS.reboot);
     checkAccess();
   };
 
@@ -110,7 +113,7 @@ const PowerWidget = ({
 
   const handleSleepButton = () => {
     setIsOpen(false);
-    setPausedAction(actions.sleep);
+    setPausedAuthAction(AUTH_ACTIONS.sleep);
     checkAccess();
   };
 
@@ -131,7 +134,7 @@ const PowerWidget = ({
         setShouldReboot(false);
         if (rebootError?.status === 401) {
           setHasAccess(false);
-          setPausedAction(actions.reboot);
+          setPausedAuthAction(AUTH_ACTIONS.reboot);
         }
         // TODO: handle other errors
       } else if (isAwake(miningStatus.status)) {
@@ -139,7 +142,14 @@ const PowerWidget = ({
         afterReboot?.();
       }
     }
-  }, [shouldReboot, miningStatus, afterReboot, rebootError, setHasAccess]);
+  }, [
+    shouldReboot,
+    miningStatus,
+    afterReboot,
+    rebootError,
+    setHasAccess,
+    setPausedAuthAction,
+  ]);
 
   useEffect(() => {
     if (shouldSleep) {
@@ -147,7 +157,7 @@ const PowerWidget = ({
         setShouldSleep(false);
         if (sleepError?.status === 401) {
           setHasAccess(false);
-          setPausedAction(actions.sleep);
+          setPausedAuthAction(AUTH_ACTIONS.sleep);
         }
         // TODO: handle other errors
       } else if (isSleeping(miningStatus.status)) {
@@ -155,7 +165,14 @@ const PowerWidget = ({
         afterSleep?.();
       }
     }
-  }, [afterSleep, miningStatus, setHasAccess, shouldSleep, sleepError]);
+  }, [
+    afterSleep,
+    miningStatus,
+    setHasAccess,
+    shouldSleep,
+    sleepError,
+    setPausedAuthAction,
+  ]);
 
   return (
     <div className="relative" ref={WidgetRef}>

@@ -1,5 +1,6 @@
 import { AuthContext, type AuthTokens } from "./AuthContext";
 import { AuthProvider } from "./AuthProvider";
+import { AUTH_ACTIONS } from "./constants";
 import { useAccessToken } from "./hooks/useAccessToken";
 import { useAuthContext } from "./hooks/useAuthContext";
 import { useAuthErrors } from "./hooks/useAuthErrors";
@@ -13,4 +14,5 @@ export {
   useAccessToken,
   useAuthContext,
   useAuthErrors,
+  AUTH_ACTIONS,
 };

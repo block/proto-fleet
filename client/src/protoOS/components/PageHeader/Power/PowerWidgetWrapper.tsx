@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import PowerWidget from "./PowerWidget";
 import { useMiningStatus, useMiningStop, useSystemReboot } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
-import { WakingDialog, WarnWakeDialog } from "@/protoOS/components/Power";
+import { WakingDialog } from "@/protoOS/components/Power";
 import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
 import { useWakeMiner } from "@/protoOS/hooks/useWakeMiner";
 import { PopoverProvider } from "@/shared/components/Popover";
@@ -46,10 +46,7 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
   const {
     wakeMiner,
     error: wakeError,
-    warnWake,
     shouldWake,
-    handleWakeConfirm,
-    onWarnWakeClose,
   } = useWakeMiner({
     miningStatus,
     afterWake: handleClear,
@@ -100,11 +97,6 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
         afterSleep={handleClear}
         afterWake={handleClear}
         shouldShowPopover={shouldShowPopover}
-      />
-      <WarnWakeDialog
-        onClose={onWarnWakeClose}
-        onSubmit={handleWakeConfirm}
-        show={warnWake}
       />
       <WakingDialog show={shouldWake} />
     </PopoverProvider>

@@ -8,6 +8,12 @@ import {
 import { usePoll } from "@/protoOS/api";
 import { FetchPoolsInfoProps, usePoolsInfo } from "@/protoOS/api/usePoolsInfo";
 
+type WakeDialog = {
+  show: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+};
+
 const MinerStatusContext = createContext({
   errors: {
     errors: undefined as ErrorListResponse | undefined,
@@ -28,6 +34,16 @@ const MinerStatusContext = createContext({
   setMiningStatus: (newMiningStatus: MiningStatusMiningstatus | undefined) => {
     void newMiningStatus;
   },
+  wakeDialog: {
+    show: false,
+    onConfirm: () => {},
+    onClose: () => {},
+  } as WakeDialog,
+  showWakeDialog: (onConfirm: () => void, onClose: () => void) => {
+    void onConfirm;
+    void onClose;
+  },
+  hideWakeDialog: () => {},
 });
 
 type MinerStatusProviderProps = {
@@ -47,6 +63,12 @@ export const MinerStatusProvider = ({
     MiningStatusMiningstatus | undefined
   >(apiMiningStatus);
 
+  const [wakeDialog, setWakeDialog] = useState<WakeDialog>({
+    show: false,
+    onConfirm: () => {},
+    onClose: () => {},
+  });
+
   useEffect(() => {
     if (apiMiningStatus !== undefined) {
       setMiningStatus(apiMiningStatus);
@@ -65,6 +87,14 @@ export const MinerStatusProvider = ({
     poll: true,
   });
 
+  const showWakeDialog = (onConfirm: () => void, onClose: () => void) => {
+    setWakeDialog({ show: true, onConfirm, onClose });
+  };
+
+  const hideWakeDialog = () => {
+    setWakeDialog({ show: false, onConfirm: () => {}, onClose: () => {} });
+  };
+
   return (
     <MinerStatusContext.Provider
       value={{
@@ -80,6 +110,9 @@ export const MinerStatusProvider = ({
           error: errorPoolsInfo || "",
           pending: pendingPoolsInfo && !poolsInfo,
         },
+        wakeDialog,
+        showWakeDialog,
+        hideWakeDialog,
       }}
     >
       {children}

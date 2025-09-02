@@ -6,6 +6,7 @@ import { MiningStatusMiningstatus } from "@/protoOS/api/types";
 import { isSleeping } from "@/protoOS/components/App/utility";
 import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
 import {
+  AUTH_ACTIONS,
   useAccessToken,
   useAuthContext,
 } from "@/protoOS/features/auth/contexts/AuthContext";
@@ -25,12 +26,19 @@ export const useWakeMiner = ({
 }: UseWakeMinerProps = {}) => {
   const { startMining } = useMiningStart();
   const { fetchData: fetchMiningStatus } = useMiningStatus({ poll: false });
-  const { setMiningStatus } = useMinerStatus();
+  const { setMiningStatus, showWakeDialog, hideWakeDialog } = useMinerStatus();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<ErrorProps>();
-  const [warnWake, setWarnWake] = useState(false);
   const [shouldWake, setShouldWake] = useState(false);
-  const [pausedAction, setPausedAction] = useState(false);
+  const {
+    dismissedLoginModal,
+    setDismissedLoginModal,
+    pausedAuthAction,
+    setPausedAuthAction,
+  } = useAuthContext();
+  const { checkAccess, hasAccess } = useAccessToken(
+    !!pausedAuthAction && !dismissedLoginModal,
+  );
   const afterWakeRef = useRef(afterWake);
   const onSuccessRef = useRef(onSuccess);
   const onErrorRef = useRef(onError);
@@ -67,25 +75,13 @@ export const useWakeMiner = ({
     intervalIdRef.current = newIntervalId;
   }, [fetchMiningStatus, setMiningStatus]);
 
-  const { dismissedLoginModal, setDismissedLoginModal } = useAuthContext();
-  const { checkAccess, hasAccess } = useAccessToken(
-    pausedAction && !dismissedLoginModal,
-  );
-
-  useEffect(() => {
-    if (hasAccess && pausedAction) {
-      setPausedAction(false);
-      setWarnWake(true);
-    }
-  }, [hasAccess, pausedAction]);
-
   // Handle dismissed login modal
   useEffect(() => {
     if (dismissedLoginModal) {
-      setPausedAction(false);
+      setPausedAuthAction(null);
       setDismissedLoginModal(false);
     }
-  }, [dismissedLoginModal, setDismissedLoginModal]);
+  }, [dismissedLoginModal, setDismissedLoginModal, setPausedAuthAction]);
 
   useEffect(() => {
     if (
@@ -143,23 +139,36 @@ export const useWakeMiner = ({
   }, []);
 
   const handleWakeConfirm = useCallback(() => {
-    setWarnWake(false);
+    hideWakeDialog();
     executeWake();
-  }, [executeWake]);
+  }, [executeWake, hideWakeDialog]);
+
+  useEffect(() => {
+    if (hasAccess && pausedAuthAction) {
+      if (pausedAuthAction === AUTH_ACTIONS.wake) {
+        showWakeDialog(handleWakeConfirm, () => hideWakeDialog());
+      }
+      setPausedAuthAction(null);
+    }
+  }, [
+    hasAccess,
+    pausedAuthAction,
+    setPausedAuthAction,
+    showWakeDialog,
+    hideWakeDialog,
+    handleWakeConfirm,
+  ]);
 
   const wakeMiner = useCallback(() => {
-    setPausedAction(true);
+    setPausedAuthAction(AUTH_ACTIONS.wake);
     checkAccess();
-  }, [checkAccess]);
+  }, [checkAccess, setPausedAuthAction]);
 
   return {
     wakeMiner,
     pending,
     error,
     clearError: () => setError(undefined),
-    warnWake,
     shouldWake,
-    handleWakeConfirm,
-    onWarnWakeClose: () => setWarnWake(false),
   };
 };

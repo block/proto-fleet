@@ -11,6 +11,9 @@ const useMinerStatus = () => {
     poolsInfo,
     poolsInfoStatus,
     setMiningStatus,
+    wakeDialog,
+    showWakeDialog,
+    hideWakeDialog,
   } = useContext(MinerStatusContext);
 
   // boils down various status indicators into one comprehensive status
@@ -27,6 +30,9 @@ const useMinerStatus = () => {
     poolsInfoStatus,
     setMiningStatus,
     comprehensiveStatus,
+    wakeDialog,
+    showWakeDialog,
+    hideWakeDialog,
   };
 };
 

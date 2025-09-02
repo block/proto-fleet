@@ -1,8 +1,6 @@
 import { ReactNode, useState } from "react";
-import {
-  AuthContext,
-  AuthTokens,
-} from "@/protoOS/features/auth/contexts/AuthContext";
+import { AuthContext, type AuthTokens } from "./AuthContext";
+import { AUTH_ACTIONS } from "./constants";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 
 type AuthProviderProps = {
@@ -23,6 +21,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   });
   const [dismissedLoginModal, setDismissedLoginModal] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [pausedAuthAction, setPausedAuthAction] = useState<
+    keyof typeof AUTH_ACTIONS | null
+  >(null);
 
   const handleChangeAuthTokens = (newAuthTokens: AuthTokens) => {
     setAuthTokens(newAuthTokens);
@@ -48,6 +49,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       value={{
         authTokens,
         setAuthTokens: handleChangeAuthTokens,
+        pausedAuthAction,
+        setPausedAuthAction,
         showLoginModal,
         setShowLoginModal: handleChangeLoginModal,
         dismissedLoginModal,
