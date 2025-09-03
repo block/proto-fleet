@@ -1,14 +1,10 @@
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
-import { useHashboards, useSystemReboot } from "@/protoOS/api";
-import { useFirmwareUpdate } from "@/protoOS/api";
+import { useHashboards } from "@/protoOS/api";
 import { useSystemContext } from "@/protoOS/contexts/SystemContext";
-import { useFirmwareUpdateContext } from "@/protoOS/features/firmwareUpdate/";
-import { SettingsSolid } from "@/shared/assets/icons";
+import CheckForUpdate from "@/protoOS/features/firmwareUpdate/components/CheckForUpdate";
 import R1Image from "@/shared/assets/images/R1.png";
 import R2Image from "@/shared/assets/images/R2.png";
-import Button from "@/shared/components/Button";
-import Header from "@/shared/components/Header";
 import Picture from "@/shared/components/Picture";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
@@ -19,7 +15,6 @@ import {
 } from "@/shared/features/preferences";
 import usePreferences from "@/shared/features/preferences/hooks/usePreferences";
 import { convertToSentenceCase } from "@/shared/utils/stringUtils";
-import { statusLabelFromUpdateStatus } from "@/shared/utils/utility";
 
 const General = () => {
   const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
@@ -27,24 +22,9 @@ const General = () => {
     useState(false);
   const [isR2, setIsR2] = useState<boolean>();
   const { theme, temperatureUnits } = usePreferences();
-  const { rebootSystem, pending: rebootPending } = useSystemReboot();
 
-  const {
-    data: systemInfo,
-    reload: reloadSystemInfo,
-    pending: systemInfoPending,
-  } = useSystemContext();
+  const { data: systemInfo } = useSystemContext();
   const { data: hashboards, pending } = useHashboards();
-  const { updateFirmware, checkFirmwareUpdate } = useFirmwareUpdate();
-  const { updateStatus, installing } = useFirmwareUpdateContext();
-  const [pendingUpdate, setPendingUpdate] = useState(false);
-
-  // reset pending update if not installing
-  useEffect(() => {
-    if (!installing) {
-      setPendingUpdate(false);
-    }
-  }, [installing]);
 
   useEffect(() => {
     if (pending || !hashboards || !hashboards.length) {
@@ -58,16 +38,6 @@ const General = () => {
       setIsR2(false);
     }
   }, [hashboards, pending]);
-
-  const checkForUpdates = () => {
-    checkFirmwareUpdate()
-      .then(() => {
-        reloadSystemInfo();
-      })
-      .catch((error) => {
-        console.error("Error checking for firmware updates:", error);
-      });
-  };
 
   const model = systemInfo?.product_name ?? "Proto Rig";
 
@@ -114,54 +84,7 @@ const General = () => {
           </div>
         </Row>
         <div className="mt-6 flex justify-center">
-          {installing ||
-          updateStatus?.status === "available" ||
-          updateStatus?.status === "installed" ? (
-            <Header
-              title={statusLabelFromUpdateStatus(status)}
-              description={updateStatus?.message}
-              icon={<SettingsSolid />}
-              titleSize="text-emphasis-300"
-              inline
-              className="w-full items-center rounded-xl bg-surface-base p-3 shadow-100"
-              buttons={[
-                {
-                  text:
-                    updateStatus?.status === "available"
-                      ? "Install"
-                      : convertToSentenceCase(updateStatus?.status || ""),
-                  variant: "secondary",
-                  className:
-                    updateStatus?.status === "installed" ? "hidden" : "",
-                  disabled: installing || pendingUpdate,
-                  loading: installing || pendingUpdate,
-                  onClick: () => {
-                    setPendingUpdate(true);
-                    updateFirmware().then();
-                  },
-                },
-                {
-                  text: "Reboot",
-                  variant: "primary",
-                  className:
-                    updateStatus?.status === "installed" ? "" : "hidden",
-                  loading: rebootPending,
-                  onClick: () => {
-                    rebootSystem();
-                  },
-                },
-              ]}
-            />
-          ) : (
-            <Button
-              variant="secondary"
-              size="compact"
-              loading={systemInfoPending}
-              onClick={() => checkForUpdates()}
-            >
-              Check for updates
-            </Button>
-          )}
+          <CheckForUpdate />
         </div>
       </div>
       <div className="mb-10">

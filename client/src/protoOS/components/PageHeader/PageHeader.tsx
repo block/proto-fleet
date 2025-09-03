@@ -1,10 +1,10 @@
 import { ReactNode } from "react";
 
-import FirmwareUpdateStatus from "./FirmwareUpdateStatus";
 import MinerStatus from "./MinerStatus";
 import PoolStatus from "./PoolStatus";
 import PowerWidget from "./Power";
 import PowerTarget from "./PowerTarget";
+import FirmwareUpdateStatus from "@/protoOS/features/firmwareUpdate/components/FirmwareUpdateStatus";
 import { Pause } from "@/shared/assets/icons";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 

@@ -3,11 +3,14 @@ import clsx from "clsx";
 
 import { UpdateStatus } from "@/protoOS/api/types";
 import WidgetWrapper from "@/protoOS/components/PageHeader/WidgetWrapper";
+import { statusLabelFromUpdateStatus } from "@/protoOS/features/firmwareUpdate/utility";
 import { variants as buttonVariants } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-import StatusCircle, { variants } from "@/shared/components/StatusCircle";
+import StatusCircle, {
+  variants,
+  type StatusCircleProps,
+} from "@/shared/components/StatusCircle";
 import { statuses } from "@/shared/components/StatusCircle/constants";
-import { statusLabelFromUpdateStatus } from "@/shared/utils/utility";
 
 interface FirmwareUpdateStatusWidgetProps {
   updateStatus?: UpdateStatus;
@@ -23,8 +26,19 @@ const FirmwareUpdateStatusWidget = ({
   onClick,
 }: FirmwareUpdateStatusWidgetProps) => {
   const firmwareStatusMessage = useMemo(() => {
-    return statusLabelFromUpdateStatus(updateStatus?.status);
+    return statusLabelFromUpdateStatus(updateStatus);
   }, [updateStatus]);
+
+  const status: StatusCircleProps["status"] = useMemo(() => {
+    switch (updateStatus?.status) {
+      case "error":
+        return statuses.error;
+      case "success":
+        return statuses.normal;
+      default:
+        return statuses.pending;
+    }
+  }, [updateStatus?.status]);
 
   return (
     <WidgetWrapper
@@ -57,7 +71,7 @@ const FirmwareUpdateStatusWidget = ({
         <div className="flex items-center">
           <StatusCircle
             removeMargin={true}
-            status={statuses.pending}
+            status={status}
             variant={variants.simple}
             width={"w-2"}
           />

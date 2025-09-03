@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import FirmwareUpdateStatusWidget from "./FirmwareUpdateStatusWidget";
 import type { UpdateStatus } from "@/protoOS/api/types";
-import { FirmwareUpdateStatusModal } from "@/protoOS/components/FirmwareUpdateStatusModal";
+import FirmwareUpdateStatusModal from "@/protoOS/features/firmwareUpdate/components/FirmwareUpdateStatusModal";
 
 interface FirmwareUpdateStatusProps {
   updateStatus?: UpdateStatus;

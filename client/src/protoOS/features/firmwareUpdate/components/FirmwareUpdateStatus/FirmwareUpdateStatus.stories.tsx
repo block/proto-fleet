@@ -3,7 +3,7 @@ import FirmwareUpdateStatus from "./FirmwareUpdateStatus";
 import { UpdateStatus } from "@/protoOS/api/types";
 
 const meta: Meta<typeof FirmwareUpdateStatus> = {
-  title: "ProtoOS/Page Header/FirmwareUpdateStatus",
+  title: "ProtoOS/Firmware Update/FirmwareUpdateStatus",
   component: FirmwareUpdateStatus,
   parameters: {
     layout: "centered",
@@ -37,6 +37,7 @@ export const Current: Story = {
 
 export const Downloading: Story = {
   args: {
+    installing: true,
     updateStatus: {
       status: "downloading",
       current_version: "1.0.0",
@@ -49,6 +50,7 @@ export const Downloading: Story = {
 
 export const Downloaded: Story = {
   args: {
+    installing: true,
     updateStatus: {
       status: "downloaded",
       current_version: "1.0.0",
@@ -60,6 +62,7 @@ export const Downloaded: Story = {
 
 export const Installing: Story = {
   args: {
+    installing: true,
     updateStatus: {
       status: "installing",
       current_version: "1.0.0",
@@ -72,6 +75,7 @@ export const Installing: Story = {
 
 export const Installed: Story = {
   args: {
+    installing: false,
     updateStatus: {
       status: "installed",
       message: "Update installed",

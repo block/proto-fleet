@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, ElementType } from "react";
 import { action } from "@storybook/addon-actions";
+import { MemoryRouter } from "react-router-dom";
 
 import PowerWidgetComponent from "./PowerWidget";
 import { MiningStatusMiningstatus } from "@/protoOS/api/types";
@@ -42,4 +43,11 @@ export const PowerWidget = () => {
 
 export default {
   title: "protoOS/Page Header/Power Widget",
+  decorators: [
+    (Story: ElementType) => (
+      <MemoryRouter>
+        <Story />
+      </MemoryRouter>
+    ),
+  ],
 };
