@@ -6,6 +6,7 @@ import { FirmwareUpdateStatusModal } from "@/protoOS/components/FirmwareUpdateSt
 
 interface FirmwareUpdateStatusProps {
   updateStatus?: UpdateStatus;
+  installing?: boolean;
   loading?: boolean;
   rebootPending?: boolean;
   updatePending?: boolean;
@@ -15,6 +16,7 @@ interface FirmwareUpdateStatusProps {
 
 const FirmwareUpdateStatus = ({
   updateStatus,
+  installing = false,
   loading = false,
   rebootPending = false,
   updatePending = false,
@@ -27,6 +29,7 @@ const FirmwareUpdateStatus = ({
     <div className="relative">
       <FirmwareUpdateStatusWidget
         updateStatus={updateStatus}
+        installing={installing}
         loading={loading}
         onClick={() => setShowModal(true)}
       />

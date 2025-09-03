@@ -1,20 +1,25 @@
-import { createContext, ReactNode, useMemo, useState } from "react";
-import { useFirmwareUpdate as useApiFirmwareUpdate } from "@/protoOS/api";
-import { SystemInfoSysteminfo } from "@/protoOS/api/types";
+import {
+  createContext,
+  ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useFirmwareUpdate } from "@/protoOS/api";
+import { SystemInfoSysteminfo, UpdateStatus } from "@/protoOS/api/types";
+import { useSystemContext } from "@/protoOS/contexts/SystemContext/useSystemContext";
+
+const FIRMWARE_UPDATE_CHECK_INTERVAL = 60000; // 60 seconds
 
 const FirmwareUpdateContext = createContext({
-  status: null as string | null,
+  updateStatus: undefined as UpdateStatus | undefined,
   pending: false as boolean,
-  version: null as string | null,
-  changelog: null as string | null,
-  message: null as string | null,
-  progress: null as number | null,
   dismissed: false,
   installing: false,
   setDismissed: (dismissed: boolean) => {
     void dismissed;
   },
-  updateFirmware: () => {},
 });
 
 type FirmwareUpdateProviderProps = {
@@ -26,11 +31,10 @@ export const FirmwareUpdateProvider = ({
   children,
   systemInfo,
 }: FirmwareUpdateProviderProps) => {
-  const { updateFirmware } = useApiFirmwareUpdate({
-    poll: false,
-  });
-
   const [dismissed, setDismissed] = useState<boolean>(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { checkFirmwareUpdate } = useFirmwareUpdate();
+  const { reload: reloadSystemInfo } = useSystemContext();
 
   const installing = useMemo(() => {
     return (
@@ -41,21 +45,52 @@ export const FirmwareUpdateProvider = ({
     );
   }, [systemInfo?.sw_update_status?.status]);
 
+  useEffect(() => {
+    const checkForFirmwareUpdates = () => {
+      checkFirmwareUpdate()
+        .then(() => {
+          reloadSystemInfo();
+        })
+        .catch((error) => {
+          // Check if this is a JSON parsing error we should ignore
+          if (
+            error?.error?.message?.includes("Unexpected end of JSON input") ||
+            error?.message?.includes("Unexpected end of JSON input")
+          ) {
+            // JSON parsing error from empty response - this is normal, ignore it
+            return;
+          }
+          console.error("Error checking for firmware updates:", error);
+        });
+    };
+
+    // Immediately check on component mount
+    checkForFirmwareUpdates();
+
+    // Setup periodic check
+    intervalRef.current = setInterval(
+      checkForFirmwareUpdates,
+      FIRMWARE_UPDATE_CHECK_INTERVAL,
+    );
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [checkFirmwareUpdate, reloadSystemInfo]);
+
   return (
     <FirmwareUpdateContext.Provider
       value={{
-        status: systemInfo?.sw_update_status?.status ?? null,
+        updateStatus: systemInfo?.sw_update_status,
         pending: !systemInfo,
-        version: systemInfo?.sw_update_status?.new_version ?? null,
-        changelog: "",
-        message: systemInfo?.sw_update_status?.message ?? null,
-        progress: systemInfo?.sw_update_status?.progress ?? null,
         dismissed,
         installing,
         setDismissed: (dismissed: boolean) => {
           setDismissed(dismissed);
         },
-        updateFirmware,
       }}
     >
       {children}

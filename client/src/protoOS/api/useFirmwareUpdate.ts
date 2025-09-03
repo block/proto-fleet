@@ -1,41 +1,142 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
+import { HttpResponse, MessageResponse } from "./types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import {
+  AUTH_ACTIONS,
   getAuthHeader,
   useAccessToken,
   useAuthContext,
 } from "@/protoOS/features/auth/contexts/AuthContext";
 
-type useFirmwareUpdateProps = {
-  poll: boolean;
-  duration?: number;
-};
-
-const useFirmwareUpdate = ({ poll, duration }: useFirmwareUpdateProps) => {
-  void poll;
-  void duration;
-  const { hasAccess } = useAccessToken(true);
+const useFirmwareUpdate = () => {
+  const { checkAccess, hasAccess } = useAccessToken(true);
   const { api } = useMinerHosting();
-  const { authTokens, setShowLoginModal } = useAuthContext();
+  const { authTokens, pausedAuthAction, setPausedAuthAction } =
+    useAuthContext();
 
+  // called when you click install.
+  // adds a paused action and calls check access
+  // if user is logged out it will trigger the login modal
+  // if user is logged in the pausedAuthAction change will trigger
+  // the useEffect below
   const updateFirmware = useCallback(async () => {
-    if (!hasAccess) {
-      setShowLoginModal(true);
-      return;
-    }
+    setPausedAuthAction(AUTH_ACTIONS.update);
+    checkAccess();
+  }, [checkAccess, setPausedAuthAction]);
 
-    const response = await api?.updateSystem(
-      getAuthHeader(authTokens.accessToken.value),
-    );
-    return response;
-  }, [api, authTokens.accessToken.value, hasAccess, setShowLoginModal]);
+  useEffect(() => {
+    const handleUpdate = async () => {
+      if (hasAccess && pausedAuthAction === AUTH_ACTIONS.update) {
+        setPausedAuthAction(null);
+        try {
+          const response = await api?.postUpdateSystem(
+            getAuthHeader(authTokens.accessToken.value),
+          );
+
+          // Check if the response has a JSON parsing error embedded in it
+          if (
+            response?.error?.message?.includes("Unexpected end of JSON input")
+          ) {
+            return {
+              data: { message: "System update initiated successfully" },
+              status: 200,
+              ok: true,
+              error: null,
+            };
+          }
+
+          return response;
+        } catch (error: any) {
+          // Handle JSON parsing errors embedded in response object
+          if (error?.error?.message?.includes("Unexpected end of JSON input")) {
+            return {
+              data: { message: "System update initiated successfully" },
+              status: 200,
+              ok: true,
+              error: null,
+            };
+          }
+
+          // Handle JSON parsing errors from thrown exceptions
+          if (error?.message?.includes("Unexpected end of JSON input")) {
+            return {
+              data: { message: "System update initiated successfully" },
+              status: 200,
+              ok: true,
+              error: null,
+            };
+          }
+
+          // Re-throw other errors
+          throw error;
+        }
+      }
+    };
+
+    handleUpdate();
+  }, [
+    api,
+    authTokens.accessToken.value,
+    hasAccess,
+    pausedAuthAction,
+    setPausedAuthAction,
+  ]);
+
+  const checkFirmwareUpdate = useCallback(async () => {
+    try {
+      const response = await api?.updateCheck();
+
+      // Check if the response has a JSON parsing error embedded in it
+      if (response?.error?.message?.includes("Unexpected end of JSON input")) {
+        return {
+          data: { message: "Update check completed successfully" },
+          status: 200,
+          ok: true,
+          error: null,
+        } as HttpResponse<MessageResponse>;
+      }
+
+      if (response && response.status === 200 && !response.data) {
+        return {
+          data: { message: "Update check initiated successfully" },
+          status: 200,
+          ok: true,
+          error: null,
+        } as HttpResponse<MessageResponse>;
+      }
+      if (response && response.status === 202) {
+        return {
+          data: { message: "Update check accepted and in progress" },
+          status: 202,
+          ok: true,
+          error: null,
+        } as HttpResponse<MessageResponse>;
+      }
+
+      return response;
+    } catch (error: any) {
+      // Handle JSON parsing errors from thrown exceptions
+      if (error?.message?.includes("Unexpected end of JSON input")) {
+        return {
+          data: { message: "Update check completed successfully" },
+          status: 200,
+          ok: true,
+          error: null,
+        } as HttpResponse<MessageResponse>;
+      }
+
+      // Re-throw other errors
+      throw error;
+    }
+  }, [api]);
 
   return useMemo(
     () => ({
       updateFirmware,
+      checkFirmwareUpdate,
     }),
-    [updateFirmware],
+    [updateFirmware, checkFirmwareUpdate],
   );
 };
 

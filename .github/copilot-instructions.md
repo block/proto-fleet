@@ -114,7 +114,7 @@ This is a monorepo for a miner management system with the following structure:
 - Verify that responsive design is implemented for all screen sizes
 - Ensure proper code splitting and lazy loading for optimal performance
 - Check that Storybook stories exist for new components
-- Verify that console.log statements are removed from production code
+- Verify that console.log statements are removed from production code. console.error statements are fine.
 
 ## Pull Request Guidelines
 

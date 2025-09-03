@@ -1,8 +1,5 @@
-import { useMemo } from "react";
-import {
-  statuses,
-  useFirmwareUpdate,
-} from "@/protoOS/features/firmwareUpdate/contexts/FirmwareUpdateContext";
+import { useFirmwareUpdate } from "@/protoOS/api";
+import { useFirmwareUpdateContext } from "@/protoOS/features/firmwareUpdate/contexts/FirmwareUpdateContext";
 import Button, {
   sizes as buttonSizes,
   variants,
@@ -15,12 +12,8 @@ type InstallModalProps = {
 };
 
 const InstallModal = ({ closeModal }: InstallModalProps) => {
-  const { updateFirmware, status, pending } = useFirmwareUpdate();
-  const isInstalling = useMemo(() => {
-    return (
-      (status !== statuses.current && status !== statuses.available) || pending
-    );
-  }, [status, pending]);
+  const { updateFirmware } = useFirmwareUpdate();
+  const { installing } = useFirmwareUpdateContext();
 
   return (
     <Modal showHeader={false} size={modalSizes.small}>
@@ -45,11 +38,11 @@ const InstallModal = ({ closeModal }: InstallModalProps) => {
           variant={variants.accent}
           size={buttonSizes.base}
           prefixIcon={
-            isInstalling ? (
+            installing ? (
               <ProgressCircular size={16} indeterminate />
             ) : undefined
           }
-          disabled={isInstalling}
+          disabled={installing}
           onClick={updateFirmware}
           className="grow"
         />

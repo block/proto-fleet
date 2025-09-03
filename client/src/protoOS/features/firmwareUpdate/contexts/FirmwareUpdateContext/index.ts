@@ -2,11 +2,11 @@ import { statuses } from "./constants";
 import FirmwareUpdateContext, {
   FirmwareUpdateProvider,
 } from "./FirmwareUpdateContext";
-import useFirmwareUpdate from "./useFirmwareUpdate";
+import useFirmwareUpdateContext from "./useFirmwareUpdateContext";
 
 export {
   FirmwareUpdateContext,
   FirmwareUpdateProvider,
-  useFirmwareUpdate,
+  useFirmwareUpdateContext,
   statuses,
 };

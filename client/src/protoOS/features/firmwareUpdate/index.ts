@@ -8,7 +8,7 @@ import {
   FirmwareUpdateContext,
   FirmwareUpdateProvider,
   statuses,
-  useFirmwareUpdate,
+  useFirmwareUpdateContext,
 } from "./contexts/FirmwareUpdateContext";
 
 export {
@@ -19,6 +19,6 @@ export {
   InstallingOverlay,
   FirmwareUpdateContext,
   FirmwareUpdateProvider,
-  useFirmwareUpdate,
+  useFirmwareUpdateContext,
   statuses,
 };

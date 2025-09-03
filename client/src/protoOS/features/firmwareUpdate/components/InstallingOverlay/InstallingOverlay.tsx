@@ -1,18 +1,18 @@
-import { useFirmwareUpdate } from "@/protoOS/features/firmwareUpdate/";
+import { useFirmwareUpdateContext } from "@/protoOS/features/firmwareUpdate/";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import StatusOverlay from "@/shared/components/StatusOverlay";
 
 const InstallingOverlay = () => {
-  const { message, progress } = useFirmwareUpdate();
+  const { updateStatus } = useFirmwareUpdateContext();
 
   return (
     <StatusOverlay
-      text={message ?? "Installing firmware update"}
+      text={updateStatus?.message ?? "Installing firmware update"}
       icon={
         <ProgressCircular
           size={32}
           indeterminate
-          value={progress ?? undefined}
+          value={updateStatus?.progress ?? undefined}
         />
       }
     />

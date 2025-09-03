@@ -18,10 +18,6 @@ import {
   useAccessToken,
   useAuthContext,
 } from "@/protoOS/features/auth/contexts/AuthContext";
-import {
-  InstallingOverlay,
-  useFirmwareUpdate,
-} from "@/protoOS/features/firmwareUpdate/";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 interface AppProps {
@@ -63,44 +59,39 @@ const App = ({
 
   const { miningStatus, errors, comprehensiveStatus, wakeDialog } =
     useMinerStatus();
-  const { installing } = useFirmwareUpdate();
   useAccessToken();
 
   return (
     <>
-      {installing ? (
-        <InstallingOverlay />
-      ) : (
-        <AppLayout
-          networkInfo={networkInfo}
-          onSuccessLogin={() => setShowLoginModal(false)}
-          onDismissLogin={handleDismissLogin}
-          pendingNetworkInfo={pendingNetworkInfo}
-          pendingSystemInfo={pendingSystemInfo}
-          showLoginModal={showLoginModal}
-          systemInfo={systemInfo}
-          title={title}
-          type={navigationMenuTypes.app}
-          ContentLayout={ContentLayout}
-        >
-          {isWarmingUp(miningStatus) ? (
-            <WarmingUpCallout />
-          ) : (
-            <WakeCallout
-              afterWake={afterWake}
-              miningStatus={miningStatus}
-              onWake={onWake}
-            />
-          )}
-          {!isWarmingUp(miningStatus) &&
-          !isSleeping(miningStatus?.status) &&
-          errors.errors?.length &&
-          !hideErrors ? (
-            <ErrorCallout status={comprehensiveStatus} />
-          ) : null}
-          {children}
-        </AppLayout>
-      )}
+      <AppLayout
+        networkInfo={networkInfo}
+        onSuccessLogin={() => setShowLoginModal(false)}
+        onDismissLogin={handleDismissLogin}
+        pendingNetworkInfo={pendingNetworkInfo}
+        pendingSystemInfo={pendingSystemInfo}
+        showLoginModal={showLoginModal}
+        systemInfo={systemInfo}
+        title={title}
+        type={navigationMenuTypes.app}
+        ContentLayout={ContentLayout}
+      >
+        {isWarmingUp(miningStatus) ? (
+          <WarmingUpCallout />
+        ) : (
+          <WakeCallout
+            afterWake={afterWake}
+            miningStatus={miningStatus}
+            onWake={onWake}
+          />
+        )}
+        {!isWarmingUp(miningStatus) &&
+        !isSleeping(miningStatus?.status) &&
+        errors.errors?.length &&
+        !hideErrors ? (
+          <ErrorCallout status={comprehensiveStatus} />
+        ) : null}
+        {children}
+      </AppLayout>
       <WarnWakeDialog
         onClose={wakeDialog.onClose}
         onSubmit={wakeDialog.onConfirm}

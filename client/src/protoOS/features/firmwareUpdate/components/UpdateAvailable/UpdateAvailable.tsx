@@ -3,7 +3,7 @@ import clsx from "clsx";
 import {
   InfoModal,
   InstallModal,
-  useFirmwareUpdate,
+  useFirmwareUpdateContext,
 } from "@/protoOS/features/firmwareUpdate";
 import { Dismiss } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -17,7 +17,7 @@ type UpdateAvailableProps = {
 const UpdateAvailable = ({ className, dismiss }: UpdateAvailableProps) => {
   const [showConfirmInstall, setShowConfirmInstall] = useState<boolean>(false);
   const [showInfoModal, setShowInfoModal] = useState<boolean>(false);
-  const { version } = useFirmwareUpdate();
+  const { updateStatus } = useFirmwareUpdateContext();
 
   return (
     <div
@@ -47,7 +47,7 @@ const UpdateAvailable = ({ className, dismiss }: UpdateAvailableProps) => {
         >
           Learn more
         </a>{" "}
-        about version {version}
+        about version {updateStatus?.new_version}
       </p>
       <Button
         variant={variants.primary}

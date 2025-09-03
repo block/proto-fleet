@@ -1,7 +1,8 @@
 import { useState } from "react";
 import FirmwareUpdateStatus from "./FirmwareUpdateStatus";
-import { useFirmwareUpdate, useSystemReboot } from "@/protoOS/api";
-import { useSystemContext } from "@/protoOS/contexts/SystemContext";
+import { useSystemReboot } from "@/protoOS/api";
+import { useFirmwareUpdate } from "@/protoOS/api";
+import { useFirmwareUpdateContext } from "@/protoOS/features/firmwareUpdate/contexts/FirmwareUpdateContext/";
 import {
   pushToast,
   STATUSES as TOAST_STATUSES,
@@ -9,10 +10,11 @@ import {
 
 const FirmwareUpdateStatusWrapper = () => {
   const { rebootSystem, pending: rebootPending } = useSystemReboot();
-  const { updateFirmware } = useFirmwareUpdate({ poll: false });
-  const { data: systemInfo, pending } = useSystemContext();
+  const { updateFirmware } = useFirmwareUpdate();
+  const { installing, updateStatus, pending } = useFirmwareUpdateContext();
 
   const [updatePending, setUpdatePending] = useState(false);
+
   const handleReboot = () => {
     rebootSystem({
       onSuccess: () => {
@@ -45,14 +47,13 @@ const FirmwareUpdateStatusWrapper = () => {
         message: "Update failed. Please try again.",
         status: TOAST_STATUSES.error,
       });
-    } finally {
-      setUpdatePending(false);
     }
   };
 
   return (
     <FirmwareUpdateStatus
-      updateStatus={systemInfo?.sw_update_status}
+      updateStatus={updateStatus}
+      installing={installing}
       loading={pending}
       rebootPending={rebootPending}
       onReboot={handleReboot}

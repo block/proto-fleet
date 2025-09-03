@@ -3,71 +3,46 @@ import clsx from "clsx";
 
 import { UpdateStatus } from "@/protoOS/api/types";
 import WidgetWrapper from "@/protoOS/components/PageHeader/WidgetWrapper";
+import { variants as buttonVariants } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-import StatusCircle, {
-  type StatusCircleProps,
-  variants as variants,
-} from "@/shared/components/StatusCircle";
+import StatusCircle, { variants } from "@/shared/components/StatusCircle";
 import { statuses } from "@/shared/components/StatusCircle/constants";
 import { statusLabelFromUpdateStatus } from "@/shared/utils/utility";
 
 interface FirmwareUpdateStatusWidgetProps {
   updateStatus?: UpdateStatus;
   loading?: boolean;
+  installing?: boolean;
   onClick: () => void;
 }
 
 const FirmwareUpdateStatusWidget = ({
   updateStatus,
+  installing,
   loading = false,
   onClick,
 }: FirmwareUpdateStatusWidgetProps) => {
-  const status = useMemo<StatusCircleProps["status"]>(() => {
-    if (!updateStatus?.status) {
-      return statuses.normal;
-    }
-
-    switch (updateStatus.status) {
-      case "error":
-        return statuses.error;
-      case "downloading":
-      case "installing":
-      case "checking":
-        return statuses.pending;
-      case "available":
-        return statuses.pending;
-      case "current":
-      case "success":
-      case "installed":
-        return statuses.normal;
-      case "downloaded":
-      case "confirming":
-        return statuses.warning;
-      default:
-        return statuses.error;
-    }
-  }, [updateStatus]);
-
   const firmwareStatusMessage = useMemo(() => {
     return statusLabelFromUpdateStatus(updateStatus?.status);
   }, [updateStatus]);
 
-  const isInProgress =
-    updateStatus?.status === "downloading" ||
-    updateStatus?.status === "installing";
-
   return (
     <WidgetWrapper
       onClick={loading ? undefined : onClick}
-      className={clsx("text-text-primary", {
+      className={clsx({
         "hover:cursor-progress": loading,
         hidden:
           !updateStatus ||
           updateStatus.status === "current" ||
           firmwareStatusMessage === undefined,
       })}
+      variant={
+        updateStatus?.status === "installed"
+          ? buttonVariants.primary
+          : undefined
+      }
     >
-      {isInProgress && updateStatus?.progress !== undefined ? (
+      {installing ? (
         <div className="flex items-center gap-2 text-xs">
           <div className="flex items-center">
             <ProgressCircular
@@ -76,17 +51,18 @@ const FirmwareUpdateStatusWidget = ({
               size={12}
             />
           </div>
-          {updateStatus.progress}%
+          {updateStatus?.progress && <>{updateStatus.progress}%</>}
         </div>
-      ) : (
+      ) : updateStatus?.status !== "installed" ? (
         <div className="flex items-center">
           <StatusCircle
-            status={status}
+            removeMargin={true}
+            status={statuses.pending}
             variant={variants.simple}
             width={"w-2"}
           />
         </div>
-      )}
+      ) : null}
       {firmwareStatusMessage}
     </WidgetWrapper>
   );

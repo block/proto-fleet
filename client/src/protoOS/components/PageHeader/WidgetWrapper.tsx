@@ -8,6 +8,7 @@ interface WidgetWrapperProps {
   isOpen?: boolean;
   onClick?: () => void;
   testId?: string;
+  variant?: keyof typeof variants;
 }
 
 const WidgetWrapper = ({
@@ -15,13 +16,14 @@ const WidgetWrapper = ({
   className,
   onClick,
   testId,
+  variant,
 }: WidgetWrapperProps) => {
   const baseClasses =
     "flex h-7 items-center rounded-2xl px-2 py-1 whitespace-nowrap";
 
   return (
     <Button
-      variant={variants.secondary}
+      variant={variant || variants.secondary}
       size={sizes.compact}
       className={clsx(baseClasses, className)}
       onClick={onClick}

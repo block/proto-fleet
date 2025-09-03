@@ -226,10 +226,17 @@ export interface CoolingConfig {
    * Parameter to define the cooling mode.  Modes:
    *  - Off: Fans will be set to off for immersion cooling.
    *  - Auto: Fans will be controlled based on miner temperature.
-   *  - Max: Fans will be run at full speed regardless of temperature.
+   *  - Manual: Fans run at a specified percentage of their maximum speed.
    * @example "Auto"
    */
-  mode?: "Off" | "Auto" | "Max";
+  mode?: "Off" | "Auto" | "Manual";
+  /**
+   * Fan speed as a percentage of maximum RPM (valid range: 0-100). Used only when mode is Manual.
+   * @min 0
+   * @max 100
+   * @example 75
+   */
+  speed_percentage?: number;
 }
 
 /** Current cooling system status and fan information */
@@ -241,12 +248,22 @@ export interface CoolingStatus {
 /** Cooling system status and performance information */
 export interface CoolingStatusCoolingstatus {
   /**
-   * Parameter to show the current fan mode.
+   * Current fan control mode.
+   *  - Off: Fans are disabled.
+   *  - Auto: Fans are controlled automatically based on temperature.
+   *  - Manual: Fans are set to a fixed speed percentage.
    * @example "Auto"
    */
-  fan_mode?: "Off" | "Auto" | "Max";
+  fan_mode?: "Off" | "Auto" | "Manual";
   /** This will show speed of all fans in the system. */
   fans?: FanStatus[];
+  /**
+   * Current effective fan speed percentage (0-100). Relevant when mode is Manual.
+   * @min 0
+   * @max 100
+   * @example 55
+   */
+  speed_percentage?: number;
 }
 
 /** Response containing historical mining efficiency data over time */
@@ -581,7 +598,7 @@ export interface HashboardStats {
 
 /**
  * Hashboard performance statistics and metrics
- * @example {"hb_sn":"HB001001","hb_id":"0","status":"Running","power_usage_watts":1067,"voltage_mv":16200,"avg_asic_temp_c":65.5,"hashrate_ghs":31666666666666,"ideal_hashrate_ghs":32000000000000,"efficiency_jth":33.7,"asics":[]}
+ * @example {"$ref":"#/components/examples/HashboardStatsResponse"}
  */
 export interface HashboardStatsHashboardstats {
   asics?: AsicStats[];
@@ -601,10 +618,10 @@ export interface HashboardStatsHashboardstats {
    */
   hashrate_ghs?: number;
   /**
-   * Internal ID of the hashboard, assigned to each hashboard starting from 0.
-   * @example "YWWLMMMMRRFSSSSS"
+   * Internal ID of the hashboard, assigned to each hashboard starting from 1.
+   * @example 3
    */
-  hb_id?: string;
+  hb_id?: number;
   /** Manufacturing serial number of the hashboard, used for subsequent API calls. */
   hb_sn?: string;
   /**
@@ -612,6 +629,16 @@ export interface HashboardStatsHashboardstats {
    * @example 300
    */
   ideal_hashrate_ghs?: number;
+  /**
+   * The measured temperature at the air intake side of the hashboard.
+   * @example 36.19
+   */
+  inlet_temp_c?: number;
+  /**
+   * The measured temperature at the air exhaust side of the hashboard.
+   * @example 78.64
+   */
+  outlet_temp_c?: number;
   /**
    * The power consumption of the hashboard in watts.
    * @example 1000
@@ -1367,11 +1394,6 @@ export interface UnlockResponse {
 /** Current status and information about system software updates */
 export interface UpdateStatus {
   /**
-   * Current boot partition
-   * @example "0"
-   */
-  boot_partition?: string;
-  /**
    * Current software version
    * @example "1.0.0"
    */
@@ -1398,18 +1420,16 @@ export interface UpdateStatus {
   progress?: number;
   /**
    * Release notes for the available update
-   * @example {"title":"Version 1.1.0","description":"Bug fixes and performance improvements"}
+   * @example "Bug fixes and performance improvements"
    */
-  release_notes?: object;
+  release_notes?: string;
   /**
    * Current status of the software update process
    * @example "available"
    */
   status?:
-    | "unknown"
-    | "checking"
-    | "available"
     | "current"
+    | "available"
     | "downloading"
     | "downloaded"
     | "installing"
@@ -1417,11 +1437,6 @@ export interface UpdateStatus {
     | "confirming"
     | "success"
     | "error";
-  /**
-   * Timestamp of the last status update
-   * @example "2023-04-21 12:34:56"
-   */
-  timestamp?: string;
 }
 
 export type QueryParamsType = Record<string | number, any>;
@@ -2050,14 +2065,29 @@ export class Api<
       }),
 
     /**
-     * @description The update system endpoint can be used to initiate a system update of the miner software. This will download the update and automatically install it when download completes.
+     * @description Initiates a check with the update server to determine whether a new version of the miner software is available. This request does not perform a download or installation, only a version availability check.
      *
      * @tags System
-     * @name UpdateSystem
+     * @name UpdateCheck
+     * @request POST:/api/v1/system/update/check
+     */
+    updateCheck: (params: RequestParams = {}) =>
+      this.request<MessageResponse, MessageResponse>({
+        path: `/api/v1/system/update/check`,
+        method: "POST",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Initiates a system update of the miner software. This will download the update and automatically install it once the download completes.
+     *
+     * @tags System
+     * @name PostUpdateSystem
      * @request POST:/api/v1/system/update
      * @secure
      */
-    updateSystem: (params: RequestParams = {}) =>
+    postUpdateSystem: (params: RequestParams = {}) =>
       this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/system/update`,
         method: "POST",
@@ -2067,31 +2097,14 @@ export class Api<
       }),
 
     /**
-     * @description The install system endpoint can be used to install a previously downloaded system update. This is only needed if you want to manually control the installation timing, as the update endpoint will automatically install updates after downloading.
+     * @description Uploads a firmware update file to the device. This endpoint will also install it once the upload completes.
      *
      * @tags System
-     * @name InstallSystem
-     * @request POST:/api/v1/system/install
+     * @name PutUpdateSystem
+     * @request PUT:/api/v1/system/update
      * @secure
      */
-    installSystem: (params: RequestParams = {}) =>
-      this.request<MessageResponse, MessageResponse>({
-        path: `/api/v1/system/install`,
-        method: "POST",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description The upload system endpoint allows users to upload a firmware update file directly to the device. The uploaded file will be stored and can be installed using the install endpoint.
-     *
-     * @tags System
-     * @name UploadSystem
-     * @request POST:/api/v1/system/upload
-     * @secure
-     */
-    uploadSystem: (
+    putUpdateSystem: (
       data: {
         /**
          * The firmware update file to upload (.swu format)
@@ -2103,8 +2116,8 @@ export class Api<
       params: RequestParams = {},
     ) =>
       this.request<MessageResponse, MessageResponse>({
-        path: `/api/v1/system/upload`,
-        method: "POST",
+        path: `/api/v1/system/update`,
+        method: "PUT",
         body: data,
         secure: true,
         type: ContentType.FormData,

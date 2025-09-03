@@ -1,8 +1,9 @@
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { useHashboards, useSystemReboot } from "@/protoOS/api";
+import { useFirmwareUpdate } from "@/protoOS/api";
 import { useSystemContext } from "@/protoOS/contexts/SystemContext";
-import { useFirmwareUpdate } from "@/protoOS/features/firmwareUpdate/";
+import { useFirmwareUpdateContext } from "@/protoOS/features/firmwareUpdate/";
 import { SettingsSolid } from "@/shared/assets/icons";
 import R1Image from "@/shared/assets/images/R1.png";
 import R2Image from "@/shared/assets/images/R2.png";
@@ -20,8 +21,6 @@ import usePreferences from "@/shared/features/preferences/hooks/usePreferences";
 import { convertToSentenceCase } from "@/shared/utils/stringUtils";
 import { statusLabelFromUpdateStatus } from "@/shared/utils/utility";
 
-const CHECK_FOR_UPDATES_DELAY = 400; // ms
-
 const General = () => {
   const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
   const [showTemperatureUnitsSwitcher, setShowTemperatureUnitsSwitcher] =
@@ -36,27 +35,16 @@ const General = () => {
     pending: systemInfoPending,
   } = useSystemContext();
   const { data: hashboards, pending } = useHashboards();
-  const { updateFirmware, status, message, installing } = useFirmwareUpdate();
+  const { updateFirmware, checkFirmwareUpdate } = useFirmwareUpdate();
+  const { updateStatus, installing } = useFirmwareUpdateContext();
+  const [pendingUpdate, setPendingUpdate] = useState(false);
 
-  const [delayedSystemInfoPending, setDelayedSystemInfoPending] =
-    useState(systemInfoPending);
-
+  // reset pending update if not installing
   useEffect(() => {
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-
-    if (systemInfoPending) {
-      setDelayedSystemInfoPending(true);
-    } else {
-      // Add a synthetic delay since api returns quickly but we want to show a loading state
-      timeout = setTimeout(() => {
-        setDelayedSystemInfoPending(false);
-      }, CHECK_FOR_UPDATES_DELAY);
+    if (!installing) {
+      setPendingUpdate(false);
     }
-
-    return () => {
-      if (timeout) clearTimeout(timeout);
-    };
-  }, [systemInfoPending]);
+  }, [installing]);
 
   useEffect(() => {
     if (pending || !hashboards || !hashboards.length) {
@@ -72,7 +60,13 @@ const General = () => {
   }, [hashboards, pending]);
 
   const checkForUpdates = () => {
-    reloadSystemInfo();
+    checkFirmwareUpdate()
+      .then(() => {
+        reloadSystemInfo();
+      })
+      .catch((error) => {
+        console.error("Error checking for firmware updates:", error);
+      });
   };
 
   const model = systemInfo?.product_name ?? "Proto Rig";
@@ -120,28 +114,37 @@ const General = () => {
           </div>
         </Row>
         <div className="mt-6 flex justify-center">
-          {installing || status === "available" || status === "installed" ? (
+          {installing ||
+          updateStatus?.status === "available" ||
+          updateStatus?.status === "installed" ? (
             <Header
               title={statusLabelFromUpdateStatus(status)}
-              description={message}
+              description={updateStatus?.message}
               icon={<SettingsSolid />}
               titleSize="text-emphasis-300"
               inline
               className="w-full items-center rounded-xl bg-surface-base p-3 shadow-100"
               buttons={[
                 {
-                  text: "Install",
+                  text:
+                    updateStatus?.status === "available"
+                      ? "Install"
+                      : convertToSentenceCase(updateStatus?.status || ""),
                   variant: "secondary",
-                  className: status === "installed" ? "hidden" : "",
-                  loading: delayedSystemInfoPending,
+                  className:
+                    updateStatus?.status === "installed" ? "hidden" : "",
+                  disabled: installing || pendingUpdate,
+                  loading: installing || pendingUpdate,
                   onClick: () => {
-                    updateFirmware();
+                    setPendingUpdate(true);
+                    updateFirmware().then();
                   },
                 },
                 {
                   text: "Reboot",
                   variant: "primary",
-                  className: status === "installed" ? "" : "hidden",
+                  className:
+                    updateStatus?.status === "installed" ? "" : "hidden",
                   loading: rebootPending,
                   onClick: () => {
                     rebootSystem();
@@ -153,7 +156,7 @@ const General = () => {
             <Button
               variant="secondary"
               size="compact"
-              loading={delayedSystemInfoPending}
+              loading={systemInfoPending}
               onClick={() => checkForUpdates()}
             >
               Check for updates
