@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useShallow } from "zustand/shallow";
+import useHashboardAsicStore from "@/protoOS/store/useHashboardAsicStore";
 import AsicTable from "./Asic/AsicTableWrapper";
 import HashboardSelector from "./HashboardSelector";
 import {
   useHashboards,
-  useHashboardStats,
   useHashboardTemperature,
   useMinerHosting,
 } from "@/protoOS/api";
@@ -71,27 +72,33 @@ type HashboardTemperatureProps = {
 const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   const { getItem } = useLocalStorage();
   const { temperatureUnits } = usePreferences();
-  const [avgAsicTemp, setAvgAsicTemp] = useState<number | undefined>(undefined);
-  const [powerUsage, setPowerUsage] = useState<number | undefined>(undefined);
-  const [avgHashboardTemp, setAvgHashboardTemp] = useState<number | undefined>(
-    undefined,
-  );
   const getSlotByHbSn = useHashboardLocationStore(
     (state) => state.getSlotByHbSn,
   );
-
   const [showPopover, setShowPopover] = useState<string | undefined>(undefined);
   const { minerRoot } = useMinerHosting();
   const [hashboardList, setHashboardList] = useState<
     { serial: string; name: string }[]
   >([]);
 
+  const [avgHashboardTemp, setAvgHashboardTemp] = useState<number | undefined>(
+    undefined,
+  );
   const navigate = useNavigate();
   const granularity = useGranularity();
 
   const close = () => {
     navigate(minerRoot + `/temperature`);
   };
+
+  const { avgAsicTempC, powerUsageWatts } = useHashboardAsicStore(
+    useShallow((state) => {
+      return {
+        avgAsicTempC: state.hashboards.get(serial)?.avg_asic_temp_c,
+        powerUsageWatts: state.hashboards.get(serial)?.power_usage_watts,
+      };
+    }),
+  );
 
   // TODO: Data that doesnt change often like hashboard serials
   // should be cached in the context, data store or local storage
@@ -125,14 +132,6 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
     poll: true,
   });
 
-  // fetch hashboard stats for average asic temp and power usage
-  const hbStats = useHashboardStats({
-    hashboardSerialNumber: serial,
-    poll: true,
-  });
-
-  // Updates average hashboard temperature
-  // unset the state when the serial changes showing the loading state
   useEffect(() => {
     if (
       !hbTemperature?.data ||
@@ -148,16 +147,6 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
 
   // Updates average asic temp and power usage
   // unset the state when the serial changes showing the loading state
-  useEffect(() => {
-    if (!hbStats?.data || hbStats?.data.hb_sn !== serial) {
-      setAvgAsicTemp(undefined);
-      setPowerUsage(undefined);
-      return;
-    }
-
-    setAvgAsicTemp(hbStats?.data?.avg_asic_temp_c);
-    setPowerUsage(hbStats?.data?.power_usage_watts);
-  }, [hbStats, serial]);
 
   return (
     <div className="min-h-[100vh] w-full bg-surface-base">
@@ -192,8 +181,8 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
           <Stats
             stats={getStats(
               avgHashboardTemp,
-              avgAsicTemp,
-              powerUsage,
+              avgAsicTempC,
+              powerUsageWatts,
               temperatureUnits,
             )}
             size="medium"

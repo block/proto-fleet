@@ -1,4 +1,4 @@
-import { getAsicsRows } from "../utility"; //TODO
+import { getAsicsRows } from "@/protoOS/features/kpis/components/Temperature/utility"; //TODO
 import AsicCell from "./AsicCell";
 import { AsicStats } from "@/protoOS/api/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";

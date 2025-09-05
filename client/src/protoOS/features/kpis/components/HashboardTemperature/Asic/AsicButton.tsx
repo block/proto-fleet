@@ -1,7 +1,7 @@
 import { Dispatch, SetStateAction } from "react";
 import clsx from "clsx";
 
-import { useAsicColor } from "../../../hooks";
+import { useAsicColor } from "@/protoOS/features/kpis/hooks";
 import AsicPopover from "./AsicPopover";
 import { getAsicUniqueId } from "./utility";
 import { AsicStats, GetAsicHashrateParams } from "@/protoOS/api/types";

@@ -4,6 +4,9 @@ import { GetAsicHashrateParams, HashrateResponseHashratedata } from "./types";
 import { usePoll } from "./usePoll";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { type Duration } from "@/shared/components/DurationSelector";
+import useHashboardAsicStore, {
+  HistoricalData,
+} from "@/protoOS/store/useHashboardAsicStore";
 
 interface UseAsicHashrateProps {
   asicId?: number;
@@ -31,6 +34,8 @@ const useAsicHashrate = ({
     granularity,
     hashboardSerial,
   });
+  const { updateAsicHistoricalData, updateAsicCurrentData, initializeAsic } =
+    useHashboardAsicStore();
 
   const fetchData = useCallback(() => {
     if (!hashboardSerial || asicId === undefined || !api) return;
@@ -59,6 +64,28 @@ const useAsicHashrate = ({
       setParams({ asicId, duration, granularity, hashboardSerial });
     }
   }, [asicId, duration, granularity, hashboardSerial, params]);
+
+  useEffect(() => {
+    if (!data || !hashboardSerial || asicId === undefined) return;
+
+    initializeAsic(hashboardSerial, asicId);
+    const updateData: HistoricalData = {};
+
+    if (data?.data) {
+      updateData.hashrateHistory = data.data;
+    }
+
+    if (data?.aggregates) {
+      updateData.hashrateAggregates = data.aggregates;
+    }
+
+    updateAsicHistoricalData(hashboardSerial, asicId, updateData);
+    const current = data.data?.[data.data.length - 1].value;
+    current &&
+      updateAsicCurrentData(hashboardSerial, asicId, {
+        hashrate: current / 1e3,
+      });
+  }, [data, hashboardSerial]);
 
   usePoll({
     fetchData,

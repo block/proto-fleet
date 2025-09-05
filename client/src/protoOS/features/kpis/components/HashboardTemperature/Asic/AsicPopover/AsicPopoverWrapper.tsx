@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 
-// import { dangerTemp } from "../../constants";
 import { ChartData } from "./AsicChart/types";
 import AsicPopover from "./AsicPopover";
 import { convertHashrateValues, convertTemperatureValues } from "./utility";
 import { useAsicHashrate, useAsicTemperature } from "@/protoOS/api";
 import { AsicStats, GetAsicTemperatureParams } from "@/protoOS/api/types";
 import { type Duration } from "@/shared/components/DurationSelector";
+import useHashboardAsicStore from "@/protoOS/store/useHashboardAsicStore";
 
 interface AsicPopoverWrapperProps {
   asic: AsicStats;
@@ -27,32 +27,41 @@ const AsicPopoverWrapper = ({
 }: AsicPopoverWrapperProps) => {
   const [temperatureData, setTemperatureData] = useState<ChartData[]>();
   const [hashrateData, setHashrateData] = useState<ChartData[]>();
-  const { data: asicTemperatureData, pending: pendingAsicTemperatureData } =
-    useAsicTemperature({
-      asicId: asic.id,
-      duration,
-      granularity,
-      hashboardSerial,
-      poll: true,
-    });
-  const { data: asicHashrateData, pending: pendingAsicHashrateData } =
-    useAsicHashrate({
-      asicId: asic.id,
-      duration,
-      granularity,
-      hashboardSerial,
-      poll: true,
-    });
+  const { pending: pendingTemp } = useAsicTemperature({
+    asicId: asic?.id ?? 0,
+    duration,
+    granularity,
+    hashboardSerial,
+    poll: true,
+  });
+  const { pending: pendingHashrate } = useAsicHashrate({
+    asicId: asic?.id ?? 0,
+    duration,
+    granularity,
+    hashboardSerial,
+    poll: true,
+  });
+
+  const asicTemperatureData = useHashboardAsicStore(
+    (state) =>
+      state.hashboards.get(hashboardSerial)?.asics.get(asic?.id ?? 0)
+        ?.tempHistory,
+  );
+  const asicHashrateData = useHashboardAsicStore(
+    (state) =>
+      state.hashboards.get(hashboardSerial)?.asics.get(asic?.id ?? 0)
+        ?.hashrateHistory,
+  );
 
   useEffect(() => {
-    if (asicTemperatureData?.data?.length) {
-      setTemperatureData(convertTemperatureValues(asicTemperatureData.data));
+    if (asicTemperatureData?.length) {
+      setTemperatureData(convertTemperatureValues(asicTemperatureData));
     }
   }, [asicTemperatureData]);
 
   useEffect(() => {
-    if (asicHashrateData?.data?.length) {
-      setHashrateData(convertHashrateValues(asicHashrateData.data));
+    if (asicHashrateData?.length) {
+      setHashrateData(convertHashrateValues(asicHashrateData));
     }
   }, [asicHashrateData]);
 
@@ -60,8 +69,8 @@ const AsicPopoverWrapper = ({
     <AsicPopover
       asic={asic}
       hashrateData={hashrateData}
-      pendingAsicHashrateData={pendingAsicHashrateData}
-      pendingAsicTemperatureData={pendingAsicTemperatureData}
+      pendingAsicHashrateData={pendingHashrate}
+      pendingAsicTemperatureData={pendingTemp}
       temperatureData={temperatureData}
       closePopover={closePopover}
       closeIgnoreSelectors={closeIgnoreSelectors}

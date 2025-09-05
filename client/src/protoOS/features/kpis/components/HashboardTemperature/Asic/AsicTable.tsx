@@ -1,6 +1,6 @@
 import { Dispatch, SetStateAction } from "react";
 
-import { getAsicsRows } from "../../Temperature/utility";
+import { getAsicsRows } from "@/protoOS/features/kpis/components/Temperature/utility";
 import AsicButton from "./AsicButton";
 import { AsicStats, GetAsicHashrateParams } from "@/protoOS/api/types";
 import { type Duration } from "@/shared/components/DurationSelector";

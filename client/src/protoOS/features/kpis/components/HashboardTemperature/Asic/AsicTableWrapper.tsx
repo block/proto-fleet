@@ -1,10 +1,11 @@
-import { Dispatch, SetStateAction, useEffect, useState } from "react";
+import { Dispatch, SetStateAction, useMemo } from "react";
 
-import { sortAsics } from "../../Temperature/utility";
+import useHashboardAsicStore from "@/protoOS/store/useHashboardAsicStore";
 import AsicTable from "./AsicTable";
-import { useHashboardStats } from "@/protoOS/api";
-import { AsicStats, GetAsicHashrateParams } from "@/protoOS/api/types";
+import { GetAsicHashrateParams } from "@/protoOS/api/types";
 import { type Duration } from "@/shared/components/DurationSelector";
+import { sortAsics } from "@/protoOS/features/kpis/components/Temperature/utility";
+import { useHashboardStats } from "@/protoOS/api";
 
 interface AsicTableWrapperProps {
   duration: Duration;
@@ -21,20 +22,19 @@ const AsicTableWrapper = ({
   showPopover,
   setShowPopover,
 }: AsicTableWrapperProps) => {
-  const { data, pending } = useHashboardStats({
+  const { pending } = useHashboardStats({
     hashboardSerialNumber,
     poll: true,
   });
-  const [asics, setAsics] = useState<AsicStats[]>([]);
 
-  useEffect(() => {
-    if (!data?.asics?.length || data?.hb_sn !== hashboardSerialNumber) {
-      setAsics([]);
-      return;
-    }
+  const hashboard = useHashboardAsicStore((state) =>
+    state.hashboards.get(hashboardSerialNumber),
+  );
 
-    setAsics(sortAsics(data.asics));
-  }, [data, pending, hashboardSerialNumber]);
+  const asics = useMemo(() => {
+    if (!hashboard) return [];
+    return sortAsics(Array.from(hashboard.asics.values()));
+  }, [hashboard?.asics]);
 
   return (
     <AsicTable

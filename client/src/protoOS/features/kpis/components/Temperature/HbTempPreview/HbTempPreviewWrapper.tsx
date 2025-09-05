@@ -1,26 +1,31 @@
-import { useEffect, useState } from "react";
-import { HbTemperature } from "../../../hooks";
-import { sortAsics } from "../utility";
+import { useShallow } from "zustand/shallow";
+
+import { HbTemperature } from "@/protoOS/features/kpis/hooks";
+import useHashboardAsicStore from "@/protoOS/store/useHashboardAsicStore";
+import { AsicData } from "@/protoOS/store/useHashboardAsicStore";
+import { sortAsics } from "@/protoOS/features/kpis/components/Temperature/utility";
 import HbTempPreview from "./HbTempPreview";
 import { useHashboardStats } from "@/protoOS/api";
-import { AsicStats } from "@/protoOS/api/types";
 
 type HbTempPreviewWrapperProps = {
   hbData: HbTemperature;
 };
 
 const HbTempPreviewWrapper = ({ hbData }: HbTempPreviewWrapperProps) => {
-  const [asics, setAsics] = useState<AsicStats[] | undefined>();
-  const { data, pending } = useHashboardStats({
+  useHashboardStats({
     hashboardSerialNumber: hbData.serial,
     poll: true,
   });
+  const asics = useHashboardAsicStore(
+    useShallow((state) => {
+      const hashboard = state.hashboards.get(hbData.serial);
+      const asicArray: AsicData[] = hashboard
+        ? Array.from(hashboard.asics.values())
+        : [];
 
-  useEffect(() => {
-    if (!pending && data?.asics?.length) {
-      setAsics(sortAsics(data.asics));
-    }
-  }, [data, pending]);
+      return asicArray.length > 0 ? sortAsics(asicArray) : undefined;
+    }),
+  );
 
   return <HbTempPreview hbData={hbData} asics={asics} />;
 };

@@ -7,6 +7,9 @@ import {
 import { usePoll } from "./usePoll";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { type Duration } from "@/shared/components/DurationSelector";
+import useHashboardAsicStore, {
+  HistoricalData,
+} from "@/protoOS/store/useHashboardAsicStore";
 
 interface UseAsicTemperatureProps {
   asicId?: number;
@@ -33,6 +36,8 @@ const useAsicTemperature = ({
     granularity,
     hashboardSerial,
   });
+  const { updateAsicHistoricalData, updateAsicCurrentData, initializeAsic } =
+    useHashboardAsicStore();
 
   const fetchData = useCallback(() => {
     if (!hashboardSerial || asicId === undefined || !api) return;
@@ -55,6 +60,26 @@ const useAsicTemperature = ({
         setPending(false);
       });
   }, [duration, granularity, hashboardSerial, asicId, api]);
+
+  useEffect(() => {
+    if (!data || !hashboardSerial || asicId === undefined) return;
+
+    initializeAsic(hashboardSerial, asicId);
+    const updateData: HistoricalData = {};
+
+    if (data?.data) {
+      updateData.tempHistory = data.data;
+    }
+
+    if (data?.aggregates) {
+      updateData.tempAggregates = data.aggregates;
+    }
+
+    updateAsicHistoricalData(hashboardSerial, asicId, updateData);
+    updateAsicCurrentData(hashboardSerial, asicId, {
+      temp: data.data?.[data.data.length - 1].value,
+    });
+  }, [data, hashboardSerial]);
 
   useEffect(() => {
     if (
