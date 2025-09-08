@@ -97,9 +97,9 @@ const (
 	// MinerDebugApiGetHashboardSupportedParametersProcedure is the fully-qualified name of the
 	// MinerDebugApi's GetHashboardSupportedParameters RPC.
 	MinerDebugApiGetHashboardSupportedParametersProcedure = "/miner_debug_api.MinerDebugApi/GetHashboardSupportedParameters"
-	// MinerDebugApiGetRelHashboardsInfoProcedure is the fully-qualified name of the MinerDebugApi's
-	// GetRelHashboardsInfo RPC.
-	MinerDebugApiGetRelHashboardsInfoProcedure = "/miner_debug_api.MinerDebugApi/GetRelHashboardsInfo"
+	// MinerDebugApiGetHashboardsRecoveryInfoProcedure is the fully-qualified name of the
+	// MinerDebugApi's GetHashboardsRecoveryInfo RPC.
+	MinerDebugApiGetHashboardsRecoveryInfoProcedure = "/miner_debug_api.MinerDebugApi/GetHashboardsRecoveryInfo"
 	// MinerDebugApiCreateMinerNotificationEventProcedure is the fully-qualified name of the
 	// MinerDebugApi's CreateMinerNotificationEvent RPC.
 	MinerDebugApiCreateMinerNotificationEventProcedure = "/miner_debug_api.MinerDebugApi/CreateMinerNotificationEvent"
@@ -177,12 +177,11 @@ type MinerDebugApiClient interface {
 	GetPsuFaults(context.Context, *connect.Request[miner_debug_api.PsuRequest]) (*connect.Response[miner_debug_api.PsuFaultsResponse], error)
 	ClearPsuFaults(context.Context, *connect.Request[miner_debug_api.PsuRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	SetVoltageTuningMode(context.Context, *connect.Request[miner_debug_api.VoltageTuningModeRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
-	// Hashboard parameters
+	// Hashboard debug functionality
 	GetHashboardParameter(context.Context, *connect.Request[miner_debug_api.HashboardParameterRequest]) (*connect.Response[miner_debug_api.HashboardParameterResponse], error)
 	SetHashboardParameter(context.Context, *connect.Request[miner_debug_api.HashboardParameterRequest]) (*connect.Response[miner_debug_api.HashboardParameterResponse], error)
 	GetHashboardSupportedParameters(context.Context, *connect.Request[miner_debug_api.HashboardSupportedParametersRequest]) (*connect.Response[miner_debug_api.HashboardSupportedParametersResponse], error)
-	// REL hashboard info service
-	GetRelHashboardsInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.HashboardsRelInfoResponse], error)
+	GetHashboardsRecoveryInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.HashboardsRecoveryInfoResponse], error)
 	// Notifications
 	CreateMinerNotificationEvent(context.Context, *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_debug_api.CreateMinerNotificationEventResponse], error)
 	ClearAsicNotificationEvent(context.Context, *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_common_api.ApiResultResponse], error)
@@ -301,9 +300,9 @@ func NewMinerDebugApiClient(httpClient connect.HTTPClient, baseURL string, opts 
 			baseURL+MinerDebugApiGetHashboardSupportedParametersProcedure,
 			opts...,
 		),
-		getRelHashboardsInfo: connect.NewClient[miner_common_api.EmptyRequest, miner_debug_api.HashboardsRelInfoResponse](
+		getHashboardsRecoveryInfo: connect.NewClient[miner_common_api.EmptyRequest, miner_debug_api.HashboardsRecoveryInfoResponse](
 			httpClient,
-			baseURL+MinerDebugApiGetRelHashboardsInfoProcedure,
+			baseURL+MinerDebugApiGetHashboardsRecoveryInfoProcedure,
 			opts...,
 		),
 		createMinerNotificationEvent: connect.NewClient[miner_debug_api.MinerNotificationEvent, miner_debug_api.CreateMinerNotificationEventResponse](
@@ -427,7 +426,7 @@ type minerDebugApiClient struct {
 	getHashboardParameter           *connect.Client[miner_debug_api.HashboardParameterRequest, miner_debug_api.HashboardParameterResponse]
 	setHashboardParameter           *connect.Client[miner_debug_api.HashboardParameterRequest, miner_debug_api.HashboardParameterResponse]
 	getHashboardSupportedParameters *connect.Client[miner_debug_api.HashboardSupportedParametersRequest, miner_debug_api.HashboardSupportedParametersResponse]
-	getRelHashboardsInfo            *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.HashboardsRelInfoResponse]
+	getHashboardsRecoveryInfo       *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.HashboardsRecoveryInfoResponse]
 	createMinerNotificationEvent    *connect.Client[miner_debug_api.MinerNotificationEvent, miner_debug_api.CreateMinerNotificationEventResponse]
 	clearAsicNotificationEvent      *connect.Client[miner_debug_api.MinerNotificationEvent, miner_common_api.ApiResultResponse]
 	clearHashboardNotificationEvent *connect.Client[miner_debug_api.MinerNotificationEvent, miner_common_api.ApiResultResponse]
@@ -532,9 +531,9 @@ func (c *minerDebugApiClient) GetHashboardSupportedParameters(ctx context.Contex
 	return c.getHashboardSupportedParameters.CallUnary(ctx, req)
 }
 
-// GetRelHashboardsInfo calls miner_debug_api.MinerDebugApi.GetRelHashboardsInfo.
-func (c *minerDebugApiClient) GetRelHashboardsInfo(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.HashboardsRelInfoResponse], error) {
-	return c.getRelHashboardsInfo.CallUnary(ctx, req)
+// GetHashboardsRecoveryInfo calls miner_debug_api.MinerDebugApi.GetHashboardsRecoveryInfo.
+func (c *minerDebugApiClient) GetHashboardsRecoveryInfo(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.HashboardsRecoveryInfoResponse], error) {
+	return c.getHashboardsRecoveryInfo.CallUnary(ctx, req)
 }
 
 // CreateMinerNotificationEvent calls miner_debug_api.MinerDebugApi.CreateMinerNotificationEvent.
@@ -654,12 +653,11 @@ type MinerDebugApiHandler interface {
 	GetPsuFaults(context.Context, *connect.Request[miner_debug_api.PsuRequest]) (*connect.Response[miner_debug_api.PsuFaultsResponse], error)
 	ClearPsuFaults(context.Context, *connect.Request[miner_debug_api.PsuRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	SetVoltageTuningMode(context.Context, *connect.Request[miner_debug_api.VoltageTuningModeRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
-	// Hashboard parameters
+	// Hashboard debug functionality
 	GetHashboardParameter(context.Context, *connect.Request[miner_debug_api.HashboardParameterRequest]) (*connect.Response[miner_debug_api.HashboardParameterResponse], error)
 	SetHashboardParameter(context.Context, *connect.Request[miner_debug_api.HashboardParameterRequest]) (*connect.Response[miner_debug_api.HashboardParameterResponse], error)
 	GetHashboardSupportedParameters(context.Context, *connect.Request[miner_debug_api.HashboardSupportedParametersRequest]) (*connect.Response[miner_debug_api.HashboardSupportedParametersResponse], error)
-	// REL hashboard info service
-	GetRelHashboardsInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.HashboardsRelInfoResponse], error)
+	GetHashboardsRecoveryInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.HashboardsRecoveryInfoResponse], error)
 	// Notifications
 	CreateMinerNotificationEvent(context.Context, *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_debug_api.CreateMinerNotificationEventResponse], error)
 	ClearAsicNotificationEvent(context.Context, *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_common_api.ApiResultResponse], error)
@@ -774,9 +772,9 @@ func NewMinerDebugApiHandler(svc MinerDebugApiHandler, opts ...connect.HandlerOp
 		svc.GetHashboardSupportedParameters,
 		opts...,
 	)
-	minerDebugApiGetRelHashboardsInfoHandler := connect.NewUnaryHandler(
-		MinerDebugApiGetRelHashboardsInfoProcedure,
-		svc.GetRelHashboardsInfo,
+	minerDebugApiGetHashboardsRecoveryInfoHandler := connect.NewUnaryHandler(
+		MinerDebugApiGetHashboardsRecoveryInfoProcedure,
+		svc.GetHashboardsRecoveryInfo,
 		opts...,
 	)
 	minerDebugApiCreateMinerNotificationEventHandler := connect.NewUnaryHandler(
@@ -913,8 +911,8 @@ func NewMinerDebugApiHandler(svc MinerDebugApiHandler, opts ...connect.HandlerOp
 			minerDebugApiSetHashboardParameterHandler.ServeHTTP(w, r)
 		case MinerDebugApiGetHashboardSupportedParametersProcedure:
 			minerDebugApiGetHashboardSupportedParametersHandler.ServeHTTP(w, r)
-		case MinerDebugApiGetRelHashboardsInfoProcedure:
-			minerDebugApiGetRelHashboardsInfoHandler.ServeHTTP(w, r)
+		case MinerDebugApiGetHashboardsRecoveryInfoProcedure:
+			minerDebugApiGetHashboardsRecoveryInfoHandler.ServeHTTP(w, r)
 		case MinerDebugApiCreateMinerNotificationEventProcedure:
 			minerDebugApiCreateMinerNotificationEventHandler.ServeHTTP(w, r)
 		case MinerDebugApiClearAsicNotificationEventProcedure:
@@ -1028,8 +1026,8 @@ func (UnimplementedMinerDebugApiHandler) GetHashboardSupportedParameters(context
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.GetHashboardSupportedParameters is not implemented"))
 }
 
-func (UnimplementedMinerDebugApiHandler) GetRelHashboardsInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.HashboardsRelInfoResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.GetRelHashboardsInfo is not implemented"))
+func (UnimplementedMinerDebugApiHandler) GetHashboardsRecoveryInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.HashboardsRecoveryInfoResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.GetHashboardsRecoveryInfo is not implemented"))
 }
 
 func (UnimplementedMinerDebugApiHandler) CreateMinerNotificationEvent(context.Context, *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_debug_api.CreateMinerNotificationEventResponse], error) {

@@ -24,9 +24,11 @@ export interface HashboardData {
   serial: string;
   asics: Map<number, AsicData>;
   lastUpdated?: number;
-  power_usage_watts?: number;
-  avg_asic_temp_c?: number;
-  hashrate_ghs?: number;
+  powerUsageWatts?: number;
+  avgAsicTempC?: number;
+  inletTempC?: number;
+  outletTempC?: number;
+  hashrateGhs?: number;
 }
 
 export interface HistoricalData {
@@ -82,16 +84,18 @@ interface HashboardAsicStore {
   updateAsicTemp: (
     hashboardSerial: string,
     asicId: number,
-    temp: number,
+    temp?: number,
   ) => void;
   updateAsicHashrate: (
     hashboardSerial: string,
     asicId: number,
-    hashrate: number,
+    hashrate?: number,
   ) => void;
-  updatePowerUsage: (hashboardSerial: string, powerUsage: number) => void;
-  updateAvgAsicTemp: (hashboardSerial: string, avgTemp: number) => void;
-  updateBoardHashrate: (hashboardSerial: string, avgHashrate: number) => void;
+  updatePowerUsage: (hashboardSerial: string, powerUsage?: number) => void;
+  updateAvgAsicTemp: (hashboardSerial: string, avgTemp?: number) => void;
+  updateInletTemp: (hashboardSerial: string, inletTemp?: number) => void;
+  updateOutletTemp: (hashboardSerial: string, outletTemp?: number) => void;
+  updateBoardHashrate: (hashboardSerial: string, avgHashrate?: number) => void;
 
   // Bulk initialization
   initializeHashboardAsics: (
@@ -302,6 +306,8 @@ const useHashboardAsicStore = create<HashboardAsicStore>()(
 
         // Convenient single-property updates
         updateAsicTemp: (hashboardSerial, asicId, temp) => {
+          if (temp === undefined) return;
+
           set((state) => {
             const hashboard = state.hashboards.get(hashboardSerial);
             const asic = hashboard?.asics.get(asicId);
@@ -314,6 +320,8 @@ const useHashboardAsicStore = create<HashboardAsicStore>()(
         },
 
         updateAsicHashrate: (hashboardSerial, asicId, hashrate) => {
+          if (hashrate === undefined) return;
+
           set((state) => {
             const hashboard = state.hashboards.get(hashboardSerial);
             const asic = hashboard?.asics.get(asicId);
@@ -326,30 +334,59 @@ const useHashboardAsicStore = create<HashboardAsicStore>()(
         },
 
         updateAvgAsicTemp: (hashboardSerial, avgTemp) => {
+          if (avgTemp === undefined) return;
+
           set((state) => {
             const hashboard = state.hashboards.get(hashboardSerial);
             if (hashboard) {
-              hashboard.avg_asic_temp_c = avgTemp;
+              hashboard.avgAsicTempC = avgTemp;
+              updateHashboardTimestamp(hashboard);
+            }
+          });
+        },
+
+        updateInletTemp: (hashboardSerial, inletTemp) => {
+          if (inletTemp === undefined) return;
+
+          set((state) => {
+            const hashboard = state.hashboards.get(hashboardSerial);
+            if (hashboard) {
+              hashboard.inletTempC = inletTemp;
+              updateHashboardTimestamp(hashboard);
+            }
+          });
+        },
+
+        updateOutletTemp: (hashboardSerial, outletTemp) => {
+          if (outletTemp === undefined) return;
+
+          set((state) => {
+            const hashboard = state.hashboards.get(hashboardSerial);
+            if (hashboard) {
+              hashboard.outletTempC = outletTemp;
               updateHashboardTimestamp(hashboard);
             }
           });
         },
 
         updatePowerUsage: (hashboardSerial, powerUsage) => {
+          if (powerUsage === undefined) return;
           set((state) => {
             const hashboard = state.hashboards.get(hashboardSerial);
             if (hashboard) {
-              hashboard.power_usage_watts = powerUsage;
+              hashboard.powerUsageWatts = powerUsage;
               updateHashboardTimestamp(hashboard);
             }
           });
         },
 
         updateBoardHashrate: (hashboardSerial, hashrate) => {
+          if (hashrate === undefined) return;
+
           set((state) => {
             const hashboard = state.hashboards.get(hashboardSerial);
             if (hashboard) {
-              hashboard.hashrate_ghs = hashrate;
+              hashboard.hashrateGhs = hashrate;
               updateHashboardTimestamp(hashboard);
             }
           });

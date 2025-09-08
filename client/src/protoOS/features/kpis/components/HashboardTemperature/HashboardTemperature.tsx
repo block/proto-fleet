@@ -30,6 +30,7 @@ import {
   convertWtoKW,
   getAsicTempValue,
 } from "@/shared/utils/utility";
+import { getDisplayValue } from "@/shared/utils/stringUtils";
 
 const getStats = (
   avgHashboardTemp: Aggregates["avg"],
@@ -72,6 +73,7 @@ type HashboardTemperatureProps = {
 const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   const { getItem } = useLocalStorage();
   const { temperatureUnits } = usePreferences();
+  const isFahrenheit = temperatureUnits === TEMP_UNITS.fahrenheit;
   const getSlotByHbSn = useHashboardLocationStore(
     (state) => state.getSlotByHbSn,
   );
@@ -91,14 +93,17 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
     navigate(minerRoot + `/temperature`);
   };
 
-  const { avgAsicTempC, powerUsageWatts } = useHashboardAsicStore(
-    useShallow((state) => {
-      return {
-        avgAsicTempC: state.hashboards.get(serial)?.avg_asic_temp_c,
-        powerUsageWatts: state.hashboards.get(serial)?.power_usage_watts,
-      };
-    }),
-  );
+  const { avgAsicTempC, powerUsageWatts, inletTempC, outletTempC } =
+    useHashboardAsicStore(
+      useShallow((state) => {
+        return {
+          avgAsicTempC: state.hashboards.get(serial)?.avgAsicTempC,
+          powerUsageWatts: state.hashboards.get(serial)?.powerUsageWatts,
+          inletTempC: state.hashboards.get(serial)?.inletTempC,
+          outletTempC: state.hashboards.get(serial)?.outletTempC,
+        };
+      }),
+    );
 
   // TODO: Data that doesnt change often like hashboard serials
   // should be cached in the context, data store or local storage
@@ -194,9 +199,27 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
       <div className={`${containerPadX} pt-4`}>
         {serial && (
           <div className="before:w-ful relative flex items-center justify-between font-mono text-mono-text-50 text-text-primary-50 before:absolute before:top-[50%] before:left-0 before:h-[1px] before:w-full before:bg-border-5">
-            <div className="relative bg-surface-base pr-4">Front</div>
+            <div className="relative bg-surface-base pr-4">
+              Front
+              {inletTempC && (
+                <>
+                  {isFahrenheit
+                    ? ` ${getDisplayValue(convertCtoF(inletTempC))}º`
+                    : ` ${getDisplayValue(inletTempC)}º`}
+                </>
+              )}
+            </div>
             <div className="relative bg-surface-base px-4">{serial}</div>
-            <div className="relative bg-surface-base pl-4">Rear</div>
+            <div className="relative bg-surface-base pl-4">
+              Rear
+              {outletTempC && (
+                <>
+                  {isFahrenheit
+                    ? ` ${getDisplayValue(convertCtoF(outletTempC))}º`
+                    : ` ${getDisplayValue(outletTempC)}º`}
+                </>
+              )}
+            </div>
           </div>
         )}
       </div>

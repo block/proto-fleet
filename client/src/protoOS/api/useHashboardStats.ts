@@ -21,6 +21,8 @@ const useHashboardStats = ({
     updateCompleteAsicData,
     initializeHashboardAsics,
     updateBoardHashrate,
+    updateInletTemp,
+    updateOutletTemp,
     updateAvgAsicTemp,
     updatePowerUsage,
   } = useHashboardAsicStore();
@@ -68,9 +70,11 @@ const useHashboardStats = ({
         }
       }
 
-      updateAvgAsicTemp(hashboardSerialNumber, data.avg_asic_temp_c ?? 0);
-      updateBoardHashrate(hashboardSerialNumber, data.hashrate_ghs ?? 0);
-      updatePowerUsage(hashboardSerialNumber, data.power_usage_watts ?? 0);
+      updateAvgAsicTemp(hashboardSerialNumber, data.avg_asic_temp_c);
+      updateBoardHashrate(hashboardSerialNumber, data.hashrate_ghs);
+      updateInletTemp(hashboardSerialNumber, data.inlet_temp_c);
+      updateOutletTemp(hashboardSerialNumber, data.outlet_temp_c);
+      updatePowerUsage(hashboardSerialNumber, data.power_usage_watts);
     }
   }, [data]);
 

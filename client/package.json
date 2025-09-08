@@ -81,7 +81,7 @@
     "prettier-plugin-tailwindcss": "0.6.14",
     "storybook": "8.6.14",
     "storybook-dark-mode": "4.0.2",
-    "swagger-typescript-api": "13.2.9",
+    "swagger-typescript-api": "13.2.8",
     "tailwindcss": "4.1.12",
     "tsx": "4.20.5",
     "typescript": "5.9.2",

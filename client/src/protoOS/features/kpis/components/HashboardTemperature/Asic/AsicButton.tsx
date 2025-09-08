@@ -44,10 +44,10 @@ const AsicButton = ({
   return (
     <div
       className={clsx(
-        "relative grow basis-0 rounded-xl border-[3px] p-[2px] phone:truncate",
+        "relative mb-1.5 grow basis-0 rounded-xl p-[2px] shadow-[0_0_0_3px] phone:truncate",
         {
-          "border-transparent": !shouldShowPopover,
-          "border-intent-info-fill": shouldShowPopover,
+          "shadow-transparent": !shouldShowPopover,
+          "shadow-intent-info-fill": shouldShowPopover,
         },
       )}
       ref={asicRef}
@@ -72,7 +72,8 @@ const AsicButton = ({
         }
       >
         <div className="bg-transparent hover:bg-surface-overlay">
-          <div className="px-1 py-3">
+          <div className="flex flex-col items-center gap-1 px-1 py-3">
+            <div className="text-text-primary-50">{asic.id}</div>
             {asic.temp_c && isFahrenheit
               ? getDisplayValue(convertCtoF(asic.temp_c))
               : getDisplayValue(asic.temp_c)}

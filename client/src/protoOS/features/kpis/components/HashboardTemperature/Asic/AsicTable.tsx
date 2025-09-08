@@ -40,7 +40,7 @@ const AsicTable = ({
             <div className="w-full -space-y-[2px]">
               {/* Individual ASICs */}
               {getAsicsRows(asics).map((row) => (
-                <div className="-mr-[4px] flex" key={`asic-${row}`}>
+                <div className="flex gap-1.5" key={`asic-${row}`}>
                   {asics
                     .filter((asic) => asic.row === row)
                     .map((asic) => (
