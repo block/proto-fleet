@@ -1,16 +1,7 @@
-import {
-  createContext,
-  ReactNode,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { createContext, ReactNode, useEffect, useMemo, useState } from "react";
 import { useFirmwareUpdate } from "@/protoOS/api";
 import { SystemInfoSysteminfo, UpdateStatus } from "@/protoOS/api/types";
 import { useSystemContext } from "@/protoOS/contexts/SystemContext/useSystemContext";
-
-const FIRMWARE_UPDATE_CHECK_INTERVAL = 60000; // 60 seconds
 
 const FirmwareUpdateContext = createContext({
   updateStatus: undefined as UpdateStatus | undefined,
@@ -32,7 +23,6 @@ export const FirmwareUpdateProvider = ({
   systemInfo,
 }: FirmwareUpdateProviderProps) => {
   const [dismissed, setDismissed] = useState<boolean>(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { checkFirmwareUpdate } = useFirmwareUpdate();
   const { reload: reloadSystemInfo } = useSystemContext();
 
@@ -66,19 +56,6 @@ export const FirmwareUpdateProvider = ({
 
     // Immediately check on component mount
     checkForFirmwareUpdates();
-
-    // Setup periodic check
-    intervalRef.current = setInterval(
-      checkForFirmwareUpdates,
-      FIRMWARE_UPDATE_CHECK_INTERVAL,
-    );
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
   }, [checkFirmwareUpdate, reloadSystemInfo]);
 
   return (
