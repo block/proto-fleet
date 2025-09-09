@@ -1,7 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import clsx from "clsx";
 
 import KpiTooltipItem from "./KpiTooltipItem";
-import Divider from "@/shared/components/Divider";
+import StatusCircle, {
+  statuses,
+  variants,
+} from "@/shared/components/StatusCircle";
 import { omit } from "@/shared/utils/object";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 
@@ -27,7 +31,9 @@ export interface HashboardLocationStore {
 }
 
 interface KpiTooltipProps {
+  aggregateLabel?: string;
   active?: boolean;
+  activeSeries?: string[];
   coordinate?: { x: number; y: number };
   marginValue?: number;
   onHover: ({ payload, x, y }: TooltipData) => void;
@@ -35,91 +41,146 @@ interface KpiTooltipProps {
   tooltipData: TooltipData;
   units?: string;
   hashboardLocationStore?: HashboardLocationStore;
+  showAggregate?: boolean;
+  tooltipWidth?: number;
 }
 
+// Default value for lastUpdateRef flag to indicate no last update
+const LAST_UPDATE_DEFAULT = {
+  x: -1,
+  y: -1,
+  payloadLength: -1,
+  active: false,
+};
+
 const KpiTooltip = ({
+  aggregateLabel,
   active,
+  activeSeries = [],
   coordinate = { x: 0, y: 0 },
   onHover,
   payload: payloads,
   tooltipData,
   units,
   hashboardLocationStore,
+  showAggregate,
+  tooltipWidth = 269,
 }: KpiTooltipProps) => {
   // Safely handle undefined hashboardLocationStore
   const getSlotByHbSn = hashboardLocationStore?.getSlotByHbSn || (() => null);
-  const getBayByHbSn = hashboardLocationStore?.getBayByHbSn || (() => null);
+
+  const lastUpdateRef = useRef(LAST_UPDATE_DEFAULT);
 
   useEffect(() => {
-    const x = coordinate.x < 310 ? coordinate.x + 310 : coordinate.x;
-    if (active && payloads && payloads.length > 0 && x !== tooltipData.x) {
-      onHover({ payload: payloads, x, y: coordinate.y });
-    } else if (!active && tooltipData.payload.length > 0) {
+    if (active && payloads && payloads.length > 0) {
+      // Only update if the data has actually changed
+      const newX = coordinate.x;
+      const newY = coordinate.y;
+      const payloadLength = payloads.length;
+
+      if (
+        lastUpdateRef.current.x !== newX ||
+        lastUpdateRef.current.y !== newY ||
+        lastUpdateRef.current.payloadLength !== payloadLength ||
+        lastUpdateRef.current.active !== active
+      ) {
+        lastUpdateRef.current = { x: newX, y: newY, payloadLength, active };
+        onHover({ payload: payloads, x: newX, y: newY });
+      }
+    } else if (!active && lastUpdateRef.current.active) {
+      lastUpdateRef.current = LAST_UPDATE_DEFAULT;
       onHover({ payload: [], x: 0, y: 0 });
     }
-  }, [active, coordinate, onHover, payloads, tooltipData]);
+  }, [active, coordinate.x, coordinate.y, payloads, onHover]);
 
   const payload = tooltipData.payload[0]?.payload || {};
-  const total = payload[payload.aggregateName];
-  const partials = omit(payload, [
+  const hashboards = omit(payload, [
     "datetime",
     "aggregateName",
     "units",
     payload.aggregateName,
   ]);
 
-  const entries = Object.entries(partials);
-  const sorted = entries.sort((a, b) => {
+  const entries = Object.entries(hashboards);
+  const sortedHashboards = entries.sort((a, b) => {
     return (
       (getSlotByHbSn(a[0]) ?? entries.length) -
       (getSlotByHbSn(b[0]) ?? entries.length)
     );
   });
-  // Get last occupied slot
-  const totalSlots = sorted?.length
-    ? (getSlotByHbSn(sorted[sorted.length - 1]?.[0]) ?? 0)
+
+  const totalSlots = sortedHashboards.length
+    ? (getSlotByHbSn(sortedHashboards[sortedHashboards.length - 1][0]) ?? 0)
     : 0;
 
-  const hasPartials = Object.keys(sorted).length > 0;
+  const filteredPayload = Object.entries(payload).reduce(
+    (acc, [key, value]) => {
+      if (activeSeries?.includes(key)) {
+        acc[key] = value;
+      }
+      return acc;
+    },
+    {} as { [key: string]: string | number },
+  );
+
+  const sortedEntries = Object.entries(filteredPayload);
+  const sortedFilteredHashboards = sortedEntries.sort((a, b) => {
+    return (
+      (getSlotByHbSn(a[0]) ?? sortedEntries.length) -
+      (getSlotByHbSn(b[0]) ?? sortedEntries.length)
+    );
+  });
 
   return (
     <>
       {payload.datetime && (
         <div className="rounded-xl bg-surface-elevated-base/70 pt-6 pb-4 shadow-200 backdrop-blur-[7px]">
-          <div className="w-[269px]">
-            <div className="flex space-x-2 px-6">
-              <div>
-                <div className="mb-1 text-200 text-text-primary-70">
-                  {payload.aggregateName}
-                </div>
-                <div className="text-heading-100 text-text-primary">
-                  {getDisplayValue(total)}{" "}
-                  {payload.units && <span>{payload.units}</span>}
+          <div className="px-6" style={{ width: tooltipWidth + "px" }}>
+            {showAggregate && (
+              <div
+                className={clsx("flex space-x-2", {
+                  "pb-4": sortedFilteredHashboards.length > 0,
+                })}
+              >
+                <div>
+                  <div className="mb-1 text-200 text-text-primary-70">
+                    {aggregateLabel || payload.aggregateName}
+                  </div>
+                  <div className="inline-flex items-center gap-2 text-heading-100 text-text-primary">
+                    <StatusCircle
+                      width="w-2"
+                      status={statuses.warning}
+                      variant={variants.simple}
+                    />
+                    {getDisplayValue(payload[payload.aggregateName])}{" "}
+                    {payload.units && <span>{payload.units}</span>}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
-            {hasPartials ? <Divider className="mt-4 mb-6" /> : null}
+            {sortedFilteredHashboards.length > 0 && (
+              <div>
+                <div className="mb-1 text-200 text-text-primary-70">
+                  Hashboards
+                </div>
+                {sortedFilteredHashboards.map(([serial], idx) => {
+                  if (!hashboardLocationStore) return null;
 
-            {sorted.map(([serial], idx) => {
-              if (!hashboardLocationStore) return null;
-
-              return (
-                <KpiTooltipItem
-                  key={idx}
-                  currentPartial={idx}
-                  totalSlots={totalSlots}
-                  serial={serial}
-                  units={units}
-                  bayDivider={
-                    sorted[idx - 1] !== undefined &&
-                    getBayByHbSn(serial) !== getBayByHbSn(sorted[idx - 1]?.[0])
-                  }
-                  value={getDisplayValue(payload[serial])}
-                  hashboardLocationStore={hashboardLocationStore}
-                />
-              );
-            })}
+                  return (
+                    <KpiTooltipItem
+                      key={idx}
+                      currentPartial={idx}
+                      totalSlots={totalSlots}
+                      serial={serial}
+                      units={units}
+                      value={getDisplayValue(payload[serial])}
+                      hashboardLocationStore={hashboardLocationStore}
+                    />
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}

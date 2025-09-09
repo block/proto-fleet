@@ -1,8 +1,8 @@
 import { type ElementType, useEffect, useState } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { criticalTemp } from "@/protoOS/features/kpis/constants";
 import HbTempPreviewComponent from "../HbTempPreview";
 import { asics, hbData } from "./mocks";
+import { criticalTemp } from "@/protoOS/features/kpis/constants";
 
 import { lerp } from "@/shared/utils/math";
 

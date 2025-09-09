@@ -1,4 +1,4 @@
-import { hashboardColors } from "./constants";
+import { hashboardColors, defaultHashboardColor } from "./constants";
 import { TimeSeries, TimeSeriesWithSerial } from "./types";
 import { TimeSeriesDataPoint } from "@/shared/features/kpis";
 import { getDayFromEpoch, getTimeFromEpoch } from "@/shared/utils/datetime";
@@ -86,23 +86,7 @@ export const getChartData = ({
   return chartData || [];
 };
 
-export const getHashboardColor = (
-  slot: number,
-  bay: number,
-  baySlotIndex: number,
-  bayCount: number,
-) => {
-  if (bayCount === 1) {
-    return {
-      text: hashboardColors[(slot - 1) % hashboardColors.length]?.text,
-      line: hashboardColors[(slot - 1) % hashboardColors.length]?.colors[0],
-    };
-  }
-
-  return {
-    text: hashboardColors[(bay - 1) % hashboardColors.length].text,
-    line: hashboardColors[(bay - 1) % hashboardColors.length].colors[
-      baySlotIndex
-    ],
-  };
+export const getHashboardColor = (slot: number | null) => {
+  if (slot === null) return defaultHashboardColor;
+  return hashboardColors[(slot - 1) % hashboardColors.length];
 };

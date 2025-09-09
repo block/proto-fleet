@@ -1,11 +1,11 @@
 import { Dispatch, SetStateAction, useMemo } from "react";
 
-import useHashboardAsicStore from "@/protoOS/store/useHashboardAsicStore";
 import AsicTable from "./AsicTable";
-import { GetAsicHashrateParams } from "@/protoOS/api/types";
-import { type Duration } from "@/shared/components/DurationSelector";
-import { sortAsics } from "@/protoOS/features/kpis/components/Temperature/utility";
 import { useHashboardStats } from "@/protoOS/api";
+import { GetAsicHashrateParams } from "@/protoOS/api/types";
+import { sortAsics } from "@/protoOS/features/kpis/components/Temperature/utility";
+import useHashboardAsicStore from "@/protoOS/store/useHashboardAsicStore";
+import { type Duration } from "@/shared/components/DurationSelector";
 
 interface AsicTableWrapperProps {
   duration: Duration;
@@ -34,7 +34,7 @@ const AsicTableWrapper = ({
   const asics = useMemo(() => {
     if (!hashboard) return [];
     return sortAsics(Array.from(hashboard.asics.values()));
-  }, [hashboard?.asics]);
+  }, [hashboard]);
 
   return (
     <AsicTable

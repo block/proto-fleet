@@ -6,10 +6,10 @@ import {
 } from "./types";
 import { usePoll } from "./usePoll";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { type Duration } from "@/shared/components/DurationSelector";
 import useHashboardAsicStore, {
   HistoricalData,
 } from "@/protoOS/store/useHashboardAsicStore";
+import { type Duration } from "@/shared/components/DurationSelector";
 
 interface UseAsicTemperatureProps {
   asicId?: number;
@@ -79,7 +79,14 @@ const useAsicTemperature = ({
     updateAsicCurrentData(hashboardSerial, asicId, {
       temp: data.data?.[data.data.length - 1].value,
     });
-  }, [data, hashboardSerial]);
+  }, [
+    data,
+    hashboardSerial,
+    asicId,
+    initializeAsic,
+    updateAsicCurrentData,
+    updateAsicHistoricalData,
+  ]);
 
   useEffect(() => {
     if (

@@ -5,8 +5,8 @@ import AsicPopover from "./AsicPopover";
 import { convertHashrateValues, convertTemperatureValues } from "./utility";
 import { useAsicHashrate, useAsicTemperature } from "@/protoOS/api";
 import { AsicStats, GetAsicTemperatureParams } from "@/protoOS/api/types";
-import { type Duration } from "@/shared/components/DurationSelector";
 import useHashboardAsicStore from "@/protoOS/store/useHashboardAsicStore";
+import { type Duration } from "@/shared/components/DurationSelector";
 
 interface AsicPopoverWrapperProps {
   asic: AsicStats;

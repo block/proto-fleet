@@ -17,6 +17,14 @@
   --base_white_100: 255 255 255; /* #FFFFFF */
   --base_yellow_100: 253 138 0; /* #FD8A00 */
   --base_beige_100: 201 201 186; /* #C9C9BA */
+  --base_sky_100: 38 147 255; /* #2693FF */
+  --base_taupe_100: 166 124 83; /* #A67C53 */
+  --base_dark_red_100: 204 0 35; /* #CC0023 */
+  --base_pink_100: 217 54 176; /* #D936B0 */
+  --base_purple_100: 126 87 194; /* #7E57C2 */
+  --base_forest_100: 25 128 42; /* #19842A */
+  --base_teal_100: 18 191 148; /* #12BF94 */
+  --base_navy_100: 0 95 229; /* #005FE5 */
   --base_text_accent: 51 18 0; /* #331200 */
   --base_text_accent_contrast: 249 115 42; /* #F9732A ** */
   --base_text_critical: 116 20 13; /* #74140D */
@@ -160,6 +168,14 @@ WOuld be best to switch over to mobile first stying  */
     0px 24px 32px 0px rgba(var(--base_black_100) / 0.02),
     0px 4px 8px 0px rgba(var(--base_black_100) / 0.04),
     0px 0px 1px 0px rgba(var(--base_black_100) / 0.3);
+  --color-extended-sky-fill: rgb(var(--base_sky_100));
+  --color-extended-taupe-fill: rgb(var(--base_taupe_100));
+  --color-extended-dark-red-fill: rgb(var(--base_dark_red_100));
+  --color-extended-pink-fill: rgb(var(--base_pink_100));
+  --color-extended-purple-fill: rgb(var(--base_purple_100));
+  --color-extended-forest-fill: rgb(var(--base_forest_100));
+  --color-extended-teal-fill: rgb(var(--base_teal_100));
+  --color-extended-navy-fill: rgb(var(--base_navy_100));
 
   /* Common colors for light and dark mode */
   --color-grayscale-white-90: rgb(var(--base_white_100) / 90%);
@@ -400,5 +416,15 @@ WOuld be best to switch over to mobile first stying  */
   .no-spinner::-webkit-inner-spin-button {
     margin: 0;
     -webkit-appearance: none;
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
   }
 }

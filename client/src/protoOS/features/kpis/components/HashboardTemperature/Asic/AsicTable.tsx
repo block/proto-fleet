@@ -1,8 +1,8 @@
 import { Dispatch, SetStateAction } from "react";
 
-import { getAsicsRows } from "@/protoOS/features/kpis/components/Temperature/utility";
 import AsicButton from "./AsicButton";
 import { AsicStats, GetAsicHashrateParams } from "@/protoOS/api/types";
+import { getAsicsRows } from "@/protoOS/features/kpis/components/Temperature/utility";
 import { type Duration } from "@/shared/components/DurationSelector";
 import { PopoverProvider } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";

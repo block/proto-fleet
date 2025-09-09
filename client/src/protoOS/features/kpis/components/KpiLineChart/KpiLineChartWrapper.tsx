@@ -1,3 +1,5 @@
+import { useCallback, useState } from "react";
+import HashboardSelector from "../HashboardSelector";
 import useHashboardLocationStore from "@/protoOS/store/useHashboardLocationStore";
 import KpiChart, {
   type HashboardLocationStore,
@@ -8,7 +10,7 @@ import { getHashboardColor } from "@/shared/features/kpis/components/KpiLineChar
 
 // Wrapper component for ProtoOS that uses the shared KpiLineChart component
 const KpiLineChartWrapper = (
-  props: Omit<KpiChartProps, "hashboardLocationStore" | "getHashboardColorMap">,
+  props: Omit<KpiChartProps, "hashboardLocationStore" | "getSeriesColorMap">,
 ) => {
   const getSlotByHbSn = useHashboardLocationStore(
     (state) => state.getSlotByHbSn,
@@ -19,7 +21,11 @@ const KpiLineChartWrapper = (
     (state) => state.getBaySlotIndexByHbSn,
   );
 
-  // Create location provider for ProtoOS
+  const [showAggregate, setShowAggregate] = useState(true);
+  const [activeHashboards, setActiveHashboards] = useState<string[]>(
+    props.series.map((s) => s.serial),
+  );
+
   const hashboardLocationStore: HashboardLocationStore = {
     getSlotByHbSn: (serial) => getSlotByHbSn(serial) ?? null,
     getBayByHbSn: (serial) => getBayByHbSn(serial) ?? null,
@@ -27,33 +33,41 @@ const KpiLineChartWrapper = (
     getBaySlotIndexByHbSn: (serial) => getBaySlotIndexByHbSn(serial) ?? 1,
   };
 
-  // Create a function to generate the hashboard color map for ProtoOS
-  const getHashboardColorMap = (series: TimeSeriesWithSerial[]) => {
-    type HbColorMap = {
-      [key: string]: {
-        line: string;
-        text: string;
-      };
-    };
+  const getHashboardColorMap = useCallback(
+    (series: TimeSeriesWithSerial[]) => {
+      return series.reduce(
+        (acc, { serial }) => {
+          acc[serial] = getHashboardColor(getSlotByHbSn(serial) ?? 1);
 
-    return series.reduce((acc, { serial }) => {
-      acc[serial] = getHashboardColor(
-        getSlotByHbSn(serial) ?? 1,
-        getBayByHbSn(serial) ?? 1,
-        getBaySlotIndexByHbSn(serial) ?? 1,
-        getBayCount(),
+          return acc;
+        },
+        {} as { [key: string]: string },
       );
-
-      return acc;
-    }, {} as HbColorMap);
-  };
+    },
+    [getSlotByHbSn],
+  );
 
   return (
-    <KpiChart
-      {...props}
-      hashboardLocationStore={hashboardLocationStore}
-      getHashboardColorMap={getHashboardColorMap}
-    />
+    <>
+      <div className="scrollbar-hide w-[calc(100%+theme(space.28))] -translate-x-14 overflow-x-auto phone:w-[calc(100%+theme(space.12))] phone:-translate-x-6 tablet:w-[calc(100%+theme(space.20))] tablet:-translate-x-10">
+        <HashboardSelector
+          series={props.series}
+          hashboardLocationStore={hashboardLocationStore}
+          setActiveHashboards={setActiveHashboards}
+          activeHashboards={activeHashboards}
+          showAggregate={showAggregate}
+          setShowAggregate={setShowAggregate}
+          className={"px-14 phone:px-6 tablet:px-10"}
+        />
+      </div>
+      <KpiChart
+        {...props}
+        showAggregate={showAggregate}
+        activeSeries={activeHashboards}
+        hashboardLocationStore={hashboardLocationStore}
+        getSeriesColorMap={getHashboardColorMap}
+      />
+    </>
   );
 };
 

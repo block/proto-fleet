@@ -1,9 +1,9 @@
 import { MemoryRouter } from "react-router-dom";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
-import { HbTemperature } from "@/protoOS/features/kpis/hooks";
 import HbTempPreview from "./HbTempPreview"; // Adjust the import path as necessary
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
+import { HbTemperature } from "@/protoOS/features/kpis/hooks";
 import { TEMP_UNITS, usePreferences } from "@/shared/features/preferences/";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 import { convertCtoF } from "@/shared/utils/utility";

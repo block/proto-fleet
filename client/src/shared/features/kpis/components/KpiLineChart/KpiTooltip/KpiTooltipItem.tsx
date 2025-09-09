@@ -1,11 +1,11 @@
-import { useMemo } from "react";
 import { getHashboardColor } from "../utility";
 import { HashboardLocationStore } from "./KpiTooltip";
 import { HashboardIndicator } from "@/shared/assets/icons";
-import Divider from "@/shared/components/Divider";
+import { Circle } from "@/shared/assets/icons";
+import useCssVariable from "@/shared/hooks/useCssVariable";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 interface KpiTooltipItemProps {
-  bayDivider: boolean;
   serial: string;
   currentPartial: number;
   totalSlots: number;
@@ -16,57 +16,42 @@ interface KpiTooltipItemProps {
 
 const KpiTooltipItem = ({
   serial,
-  bayDivider,
   currentPartial,
   totalSlots,
   value,
   units,
   hashboardLocationStore,
 }: KpiTooltipItemProps) => {
-  const { getSlotByHbSn, getBayByHbSn, getBayCount, getBaySlotIndexByHbSn } =
-    hashboardLocationStore;
+  const { getSlotByHbSn } = hashboardLocationStore;
+  const { isPhone } = useWindowDimensions();
 
-  const color = useMemo(() => {
-    return getHashboardColor(
-      getSlotByHbSn(serial) ?? 1,
-      getBayByHbSn(serial) ?? 1,
-      getBaySlotIndexByHbSn(serial),
-      getBayCount(),
-    );
-  }, [serial, getBayByHbSn, getSlotByHbSn, getBaySlotIndexByHbSn, getBayCount]);
+  const color = useCssVariable(
+    getHashboardColor(getSlotByHbSn(serial)) || "--color-bg-core-primary-5",
+  );
 
   if (!value) return null;
 
   return (
     <>
-      {bayDivider && (
-        <div className="mb-2 px-6">
-          <Divider />
+      <div className="-mt-2 flex items-center justify-between space-x-3 py-2">
+        <div className="inline-flex items-center gap-2">
+          <Circle style={{ backgroundColor: color }} width="w-2" />
+          <div className="grow text-end text-300 text-text-primary">
+            {value} {units && <span>{units}</span>}
+          </div>
         </div>
-      )}
-      <div className="-mt-2 flex items-center space-x-3 px-6 py-2">
-        <div
-          className="flex h-5 w-5 items-center justify-center text-emphasis-200"
-          style={{
-            color: `var(${color.text})`,
-          }}
-        >
-          <div
-            className="absolute h-5 w-5 rounded-3xl opacity-20"
-            style={{
-              backgroundColor: `var(${color.line})`,
-            }}
-          />
-          {getSlotByHbSn(serial) ?? ""}
-        </div>
-        <HashboardIndicator
-          activeHashboardSlot={getSlotByHbSn(serial) ?? currentPartial + 1}
-          totalHashboards={totalSlots}
-          color={color.line}
-        />
-        <div className="grow text-end text-300 text-text-primary">
-          {value} {units && <span>{units}</span>}
-        </div>
+
+        {!isPhone && (
+          <div className="inline-flex items-center gap-2">
+            <div className="flex h-5 w-5 items-center justify-center rounded-3xl bg-core-primary-5 text-emphasis-200 text-text-primary">
+              {getSlotByHbSn(serial) ?? ""}
+            </div>
+            <HashboardIndicator
+              activeHashboardSlot={getSlotByHbSn(serial) ?? currentPartial + 1}
+              totalHashboards={totalSlots}
+            />
+          </div>
+        )}
       </div>
     </>
   );

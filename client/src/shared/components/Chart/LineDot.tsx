@@ -7,7 +7,7 @@ interface LineDotProps {
 const LineDot = ({ fillClassName, cx = 0, cy = 0 }: LineDotProps) => {
   return (
     <svg
-      x={cx - 32.5}
+      x={cx - 33}
       y={cy - 30}
       width="66"
       height="66"

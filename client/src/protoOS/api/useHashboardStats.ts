@@ -76,7 +76,17 @@ const useHashboardStats = ({
       updateOutletTemp(hashboardSerialNumber, data.outlet_temp_c);
       updatePowerUsage(hashboardSerialNumber, data.power_usage_watts);
     }
-  }, [data]);
+  }, [
+    data,
+    hashboardSerialNumber,
+    initializeHashboardAsics,
+    updateCompleteAsicData,
+    updateAvgAsicTemp,
+    updateBoardHashrate,
+    updateInletTemp,
+    updateOutletTemp,
+    updatePowerUsage,
+  ]);
 
   return useMemo(() => ({ pending, error, data }), [pending, error, data]);
 };

@@ -1,11 +1,11 @@
 import { useShallow } from "zustand/shallow";
 
+import HbTempPreview from "./HbTempPreview";
+import { useHashboardStats } from "@/protoOS/api";
+import { sortAsics } from "@/protoOS/features/kpis/components/Temperature/utility";
 import { HbTemperature } from "@/protoOS/features/kpis/hooks";
 import useHashboardAsicStore from "@/protoOS/store/useHashboardAsicStore";
 import { AsicData } from "@/protoOS/store/useHashboardAsicStore";
-import { sortAsics } from "@/protoOS/features/kpis/components/Temperature/utility";
-import HbTempPreview from "./HbTempPreview";
-import { useHashboardStats } from "@/protoOS/api";
 
 type HbTempPreviewWrapperProps = {
   hbData: HbTemperature;

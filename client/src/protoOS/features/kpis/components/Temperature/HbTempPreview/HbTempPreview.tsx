@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
-import { criticalTemp } from "@/protoOS/features/kpis/constants";
 import AsicTablePreview from "./AsicTablePreview";
 import { useMinerHosting } from "@/protoOS/api";
 import { type AsicStats } from "@/protoOS/api/types";
+import { criticalTemp } from "@/protoOS/features/kpis/constants";
 import { type HbTemperature } from "@/protoOS/features/kpis/hooks";
 import {
   TEMP_UNITS,

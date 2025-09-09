@@ -8,6 +8,7 @@ import C1Chip from "./C1Chip";
 import Checkmark from "./Checkmark";
 import ChevronDown from "./ChevronDown";
 import ChevronUpDown from "./ChevronUpDown";
+import Circle from "./Circle";
 import ConcentricCircles from "./ConcentricCircles";
 import ControlBoard from "./ControlBoard";
 import Curtail from "./Curtail";
@@ -76,6 +77,7 @@ export {
   Checkmark,
   ChevronDown,
   ChevronUpDown,
+  Circle,
   ConcentricCircles,
   ControlBoard,
   Curtail,

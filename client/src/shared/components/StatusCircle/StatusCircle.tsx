@@ -1,21 +1,9 @@
 import clsx from "clsx";
 
 import { StatusCircleProps } from "./types";
-import { ConcentricCircles } from "@/shared/assets/icons";
-import { iconSizes } from "@/shared/assets/icons/constants";
+import { Circle, ConcentricCircles } from "@/shared/assets/icons";
 
-// This has to be duplicated because the class names have to be complete
-// Otherwise tailwind might not bundle them due to tree shaking and the colors won't work
-const bgStatusColors = {
-  normal: "bg-intent-success-fill",
-  error: "bg-intent-critical-fill",
-  warning: "bg-intent-warning-fill",
-  inactive: "bg-grayscale-gray-50",
-  pending: "bg-intent-info-fill",
-  sleeping: "bg-core-primary-20",
-};
-
-const textStatusColors = {
+const statusColors = {
   normal: "text-intent-success-fill",
   error: "text-intent-critical-fill",
   warning: "text-intent-warning-fill",
@@ -31,27 +19,20 @@ const StatusCircle = ({
   removeMargin = false,
   isSelected = false,
 }: StatusCircleProps) => {
-  const bgColorClass = isSelected
-    ? "bg-intent-info-fill"
-    : bgStatusColors[status];
-  const textColorClass = isSelected
+  const colorClass = isSelected
     ? "text-intent-info-fill"
-    : textStatusColors[status];
+    : statusColors[status];
 
   return (
     <>
       {variant == "simple" ? (
-        <div
-          className={clsx(
-            "aspect-square rounded-[50%]",
-            !removeMargin && "mr-1",
-            bgColorClass,
-            width || iconSizes.xSmall,
-          )}
+        <Circle
+          className={clsx(colorClass, { "mr-1": !removeMargin })}
+          width={width}
         />
       ) : (
         <ConcentricCircles
-          className={clsx(!removeMargin && "mr-1", textColorClass)}
+          className={clsx(colorClass, { "mr-1": !removeMargin })}
           width={width}
         />
       )}

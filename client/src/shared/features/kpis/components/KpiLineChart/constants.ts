@@ -24,30 +24,15 @@ export const nullLineProps = {
 };
 
 export const lineColors = ["#00A4FB", "#38A600", "#783EED"];
-
+export const defaultHashboardColor = "--color-text-primary-50";
 export const hashboardColors = [
-  {
-    text: "--color-intent-info-text",
-    colors: [
-      "--color-intent-info-fill",
-      "--color-intent-info-80",
-      "--color-intent-info-60",
-    ],
-  },
-  {
-    text: "--color-core-indigo-text",
-    colors: [
-      "--color-core-indigo-fill",
-      "--color-core-indigo-80",
-      "--color-core-indigo-60",
-    ],
-  },
-  {
-    text: "--color-intent-success-text",
-    colors: [
-      "--color-intent-success-fill",
-      "--color-intent-success-80",
-      "--color-intent-success-60",
-    ],
-  },
+  "--color-extended-sky-fill",
+  "--color-extended-taupe-fill",
+  "--color-extended-dark-red-fill",
+  "--color-core-primary-fill",
+  "--color-extended-pink-fill",
+  "--color-extended-purple-fill",
+  "--color-extended-forest-fill",
+  "--color-extended-teal-fill",
+  "--color-extended-navy-fill",
 ];

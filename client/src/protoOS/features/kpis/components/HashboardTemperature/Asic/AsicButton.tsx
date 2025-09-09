@@ -1,10 +1,10 @@
 import { Dispatch, SetStateAction } from "react";
 import clsx from "clsx";
 
-import { useAsicColor } from "@/protoOS/features/kpis/hooks";
 import AsicPopover from "./AsicPopover";
 import { getAsicUniqueId } from "./utility";
 import { AsicStats, GetAsicHashrateParams } from "@/protoOS/api/types";
+import { useAsicColor } from "@/protoOS/features/kpis/hooks";
 import { type Duration } from "@/shared/components/DurationSelector";
 import { usePopover } from "@/shared/components/Popover";
 import { TEMP_UNITS, usePreferences } from "@/shared/features/preferences";

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/shallow";
-import useHashboardAsicStore from "@/protoOS/store/useHashboardAsicStore";
 import AsicTable from "./Asic/AsicTableWrapper";
 import HashboardSelector from "./HashboardSelector";
 import {
@@ -11,6 +10,7 @@ import {
 } from "@/protoOS/api";
 import { Aggregates, HashboardStatsHashboardstats } from "@/protoOS/api/types";
 import { useGranularity } from "@/protoOS/features/kpis/hooks";
+import useHashboardAsicStore from "@/protoOS/store/useHashboardAsicStore";
 import useHashboardLocationStore from "@/protoOS/store/useHashboardLocationStore";
 import { Dismiss } from "@/shared/assets/icons";
 import { Duration } from "@/shared/components/DurationSelector";
@@ -25,12 +25,12 @@ import {
   usePreferences,
 } from "@/shared/features/preferences";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
+import { getDisplayValue } from "@/shared/utils/stringUtils";
 import {
   convertCtoF,
   convertWtoKW,
   getAsicTempValue,
 } from "@/shared/utils/utility";
-import { getDisplayValue } from "@/shared/utils/stringUtils";
 
 const getStats = (
   avgHashboardTemp: Aggregates["avg"],

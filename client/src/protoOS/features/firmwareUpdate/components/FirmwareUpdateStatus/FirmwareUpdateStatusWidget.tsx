@@ -7,8 +7,8 @@ import { statusLabelFromUpdateStatus } from "@/protoOS/features/firmwareUpdate/u
 import { variants as buttonVariants } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import StatusCircle, {
-  variants,
   type StatusCircleProps,
+  variants,
 } from "@/shared/components/StatusCircle";
 import { statuses } from "@/shared/components/StatusCircle/constants";
 

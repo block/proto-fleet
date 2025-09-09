@@ -1,6 +1,6 @@
-import { getAsicsRows } from "@/protoOS/features/kpis/components/Temperature/utility"; //TODO
 import AsicCell from "./AsicCell";
 import { AsicStats } from "@/protoOS/api/types";
+import { getAsicsRows } from "@/protoOS/features/kpis/components/Temperature/utility"; //TODO
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
 interface AsicTablePreviewProps {

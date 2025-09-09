@@ -70,6 +70,10 @@ export const getStatusErrorTitle = (errors: ErrorListResponse) => {
     },
   };
 
+  const relevantErrors = Object.values(errorsByType).flatMap(
+    (category) => category.errors,
+  );
+
   const errTypes = Object.keys(errorsByType).filter(
     (key) => errorsByType[key as keyof typeof errorsByType].errors.length > 0,
   );
@@ -80,15 +84,15 @@ export const getStatusErrorTitle = (errors: ErrorListResponse) => {
     subtitle = "Repair now to prevent downtime.";
 
     // multiple issues on 1 component
-  } else if (errors.length > 1) {
+  } else if (relevantErrors.length > 1) {
     const component =
       errorsByType[errTypes[0] as keyof typeof errorsByType].name;
     title = `Multiple ${component} issues detected`;
     subtitle = "Repair now to prevent downtime.";
 
     // exactly one issue
-  } else if (errors.length === 1) {
-    switch (errors[0].error_code) {
+  } else if (relevantErrors.length === 1) {
+    switch (relevantErrors[0].error_code) {
       case "AsicOverheat":
         title = "Your miner's ASICs are overheating";
         subtitle =

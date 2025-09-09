@@ -3,10 +3,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { GetAsicHashrateParams, HashrateResponseHashratedata } from "./types";
 import { usePoll } from "./usePoll";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { type Duration } from "@/shared/components/DurationSelector";
 import useHashboardAsicStore, {
   HistoricalData,
 } from "@/protoOS/store/useHashboardAsicStore";
+import { type Duration } from "@/shared/components/DurationSelector";
 
 interface UseAsicHashrateProps {
   asicId?: number;
@@ -85,7 +85,14 @@ const useAsicHashrate = ({
       updateAsicCurrentData(hashboardSerial, asicId, {
         hashrate: current / 1e3,
       });
-  }, [data, hashboardSerial]);
+  }, [
+    data,
+    asicId,
+    hashboardSerial,
+    initializeAsic,
+    updateAsicCurrentData,
+    updateAsicHistoricalData,
+  ]);
 
   usePoll({
     fetchData,
