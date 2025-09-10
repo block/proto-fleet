@@ -57,9 +57,6 @@ export const isControlBoardError = (error: NotificationError) =>
 // Comprehensive title/ subtitle that descibes all errors
 // This displayed on the MinerStatusModal and ErrorCallout
 export const getStatusErrorTitle = (errors: ErrorListResponse) => {
-  let title = "Your miner is not functioning properly";
-  let subtitle = "";
-
   const errorsByType = {
     hashboard: { errors: errors.filter(isHashboardError), name: "hashboard" },
     psu: { errors: errors.filter(isPSUError), name: "PSU" },
@@ -78,15 +75,21 @@ export const getStatusErrorTitle = (errors: ErrorListResponse) => {
     (key) => errorsByType[key as keyof typeof errorsByType].errors.length > 0,
   );
 
+  let title = "Your miner is not functioning properly";
+  let subtitle = "";
+
   // issues on more than one component
-  if (errTypes.length > 1) {
+  if (errTypes.length === 0) {
+    title = "All systems are operational";
+    subtitle = "";
+  } else if (errTypes.length > 1) {
     title = "Multiple issues detected";
     subtitle = "Repair now to prevent downtime.";
 
     // multiple issues on 1 component
   } else if (relevantErrors.length > 1) {
     const component =
-      errorsByType[errTypes[0] as keyof typeof errorsByType].name;
+      errorsByType[errTypes[0] as keyof typeof errorsByType]?.name;
     title = `Multiple ${component} issues detected`;
     subtitle = "Repair now to prevent downtime.";
 
@@ -122,7 +125,7 @@ export const getStatusErrorTitle = (errors: ErrorListResponse) => {
           "Repair now to prevent reduced hashrate and board shutdowns.";
         break;
       case "HashboardOverVoltage":
-        title = "Your miner's hashboard voltage to high";
+        title = "Your miner's hashboard voltage is too high";
         subtitle = "Repair now to prevent overheating.";
         break;
       case "HashboardPowerLost":
@@ -239,7 +242,7 @@ export const getErrorMessage = (error?: NotificationError) => {
         message = `Slot ${details.hb_slot} Hashboard's ASIC (${getRowLabel(details.asic_row)}${details.asic_col}) is overheating at ${details.temperature}°C`;
         break;
       case "AsicOverVoltage":
-        message = `Slot ${details.hb_slot} Hashboard's ASIC (${getRowLabel(details.asic_row)}${details.asic_col}) is drawing too much voltage at ${details.voltage}mV`;
+        message = `Slot ${details.hb_slot} Hashboard's ASIC (${getRowLabel(details.asic_row)}${details.asic_col}) is drawing too much voltage at ${details.voltage}V`;
         break;
       case "AsicFailure":
         message = `Slot ${details.hb_slot} Hashboard's ASIC (${getRowLabel(details.asic_row)}${details.asic_col}) experienced an unspecified failure`;
@@ -257,13 +260,13 @@ export const getErrorMessage = (error?: NotificationError) => {
         message = `Slot ${details.hb_slot} Hashboard is overheating at ${details.temperature}°C`;
         break;
       case "HashboardOverVoltage":
-        message = `Slot ${details.hb_slot} Hashboard is drawing too much voltage at ${details.voltage}mV`;
+        message = `Slot ${details.hb_slot} Hashboard is drawing too much voltage at ${details.voltage}V`;
         break;
       case "HashboardPowerLost":
         message = `Slot ${details.hb_slot} Hashboard has lost power`;
         break;
       case "HashboardUnderVoltage":
-        message = `Slot ${details.hb_slot} Hashboard does not have enough power at ${details.voltage}mV`;
+        message = `Slot ${details.hb_slot} Hashboard does not have enough power at ${details.voltage}V`;
         break;
       case "HashboardUsbConnectionLost":
         message = `Slot ${details.hb_slot} Hashboard has lost USB connection. Serial number: ${details.hb_sn}`;

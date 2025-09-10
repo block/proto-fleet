@@ -116,13 +116,8 @@ const useComprehensiveStatus = (
         title: "Miner is asleep",
         subtitle: undefined,
       };
-    } else if (errTitle) {
-      return errTitle;
     } else {
-      return {
-        title: "All systems are operational",
-        subtitle: undefined,
-      };
+      return errTitle;
     }
   }, [errors, isSleeping]);
 
