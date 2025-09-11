@@ -190,7 +190,9 @@ export const getStatusSummary = (
         case fanIssues.length > 1:
           return "Multiple fan Issues";
         case fanIssues.length === 1: {
-          const fanNum = fanIssues[0].component_index || "";
+          const [{ error_code: errorCode = "", details: rawDetails = "{}" }] =
+            fanIssues;
+          const fanNum = safeParseJSON(rawDetails)[errorCode]?.fan_id ?? "";
           return `Fan ${fanNum} issue`;
         }
         case psuIssues.length > 1:
@@ -236,7 +238,7 @@ export const getErrorMessage = (error?: NotificationError) => {
   if (error?.error_code) {
     // split error code by capital letters as a fallback
     let message = error.error_code.match(/[A-Z][a-z]+/g)?.join(" ");
-    const details = JSON.parse(error.details || "{}")[error.error_code];
+    const details = safeParseJSON(error.details)[error.error_code];
     switch (error.error_code) {
       case "AsicOverheat":
         message = `Slot ${details.hb_slot} Hashboard's ASIC (${getRowLabel(details.asic_row)}${details.asic_col}) is overheating at ${details.temperature}°C`;
@@ -289,3 +291,11 @@ export const getErrorMessage = (error?: NotificationError) => {
   }
   return error?.message || "Unknown error";
 };
+
+function safeParseJSON(str?: string) {
+  try {
+    return str ? JSON.parse(str) : {};
+  } catch {
+    return {};
+  }
+}
