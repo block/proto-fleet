@@ -62,7 +62,7 @@ const AsicChartTooltip = ({
           {payload.temp_c !== undefined ? (
             <AsicPopoverRow
               label="Temperature"
-              value={`${convertAndFormatTemperature(payload.temp_c, temperatureUnits)}º`}
+              value={`${convertAndFormatTemperature(payload.temp_c, temperatureUnits)}`}
               className="text-core-accent-fill"
             />
           ) : null}

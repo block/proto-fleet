@@ -29,12 +29,18 @@ export const convertHashrateValues = (
 };
 
 export const convertAndFormatTemperature = (
-  tempC: number,
+  tempC: number | null | undefined,
   temperatureUnits: TemperatureUnits,
+  showUnits: boolean = true,
 ) => {
-  if (temperatureUnits === TEMP_UNITS.fahrenheit) {
-    return `${getDisplayValue(convertCtoF(tempC))}ºF`;
+  // Assume 0 means not available
+  if (tempC === 0 || tempC === null || tempC === undefined) {
+    return "N/A";
   }
 
-  return `${getDisplayValue(tempC)}ºC`;
+  if (temperatureUnits === TEMP_UNITS.fahrenheit) {
+    return `${getDisplayValue(convertCtoF(tempC))}º${showUnits ? "F" : ""}`;
+  }
+
+  return `${getDisplayValue(tempC)}º${showUnits ? "C" : ""}`;
 };

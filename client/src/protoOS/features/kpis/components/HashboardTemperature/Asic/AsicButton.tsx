@@ -2,14 +2,13 @@ import { Dispatch, SetStateAction } from "react";
 import clsx from "clsx";
 
 import AsicPopover from "./AsicPopover";
+import { convertAndFormatTemperature } from "./AsicPopover/utility";
 import { getAsicUniqueId } from "./utility";
 import { AsicStats, GetAsicHashrateParams } from "@/protoOS/api/types";
 import { useAsicColor } from "@/protoOS/features/kpis/hooks";
 import { type Duration } from "@/shared/components/DurationSelector";
 import { usePopover } from "@/shared/components/Popover";
-import { TEMP_UNITS, usePreferences } from "@/shared/features/preferences";
-import { getDisplayValue } from "@/shared/utils/stringUtils";
-import { convertCtoF } from "@/shared/utils/utility";
+import { usePreferences } from "@/shared/features/preferences";
 
 interface AsicButtonProps {
   asic: AsicStats;
@@ -30,7 +29,6 @@ const AsicButton = ({
 }: AsicButtonProps) => {
   const { triggerRef: asicRef } = usePopover();
   const { temperatureUnits } = usePreferences();
-  const isFahrenheit = temperatureUnits === TEMP_UNITS.fahrenheit;
 
   const currentAsicId =
     asic.id !== undefined
@@ -74,10 +72,7 @@ const AsicButton = ({
         <div className="bg-transparent hover:bg-surface-overlay">
           <div className="flex flex-col items-center gap-1 px-1 py-3">
             <div className="text-text-primary-50">{asic.id}</div>
-            {asic.temp_c && isFahrenheit
-              ? getDisplayValue(convertCtoF(asic.temp_c))
-              : getDisplayValue(asic.temp_c)}
-            º
+            {convertAndFormatTemperature(asic.temp_c, temperatureUnits, false)}
           </div>
         </div>
       </button>
