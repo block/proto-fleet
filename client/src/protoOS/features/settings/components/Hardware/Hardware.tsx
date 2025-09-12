@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { getControlBoardGeneration, getHashboardIdentifier } from "./utility";
+import { getControlBoardGeneration } from "./utility";
 import { useHardware } from "@/protoOS/api/useHardware";
 import {
   FanIndicator,
@@ -10,6 +10,7 @@ import { DataNullState } from "@/shared/components/DataNullState";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
 import SkeletonBar from "@/shared/components/SkeletonBar";
+import SlotNumber from "@/shared/components/SlotNumber";
 
 const Hardware = () => {
   const {
@@ -82,28 +83,30 @@ const Hardware = () => {
         {hashboardsInfo?.length ? (
           <>
             <Row className="flex" attributes={{ role: "row" }}>
-              <h4 className="w-22 text-emphasis-300">Position</h4>
+              <h4 className="w-46 text-emphasis-300">Position</h4>
               <h4 className="w-46 text-emphasis-300">Hashboard</h4>
               <h4 className="w-46 text-emphasis-300">Serial Number</h4>
             </Row>
-            {sortedHashboards?.map((hashboard, index) => (
-              <Row
-                key={index}
-                className="flex items-center"
-                attributes={{ role: "row" }}
-              >
-                <div className="w-22 text-300">
-                  <HashboardIndicator
-                    activeHashboardSlot={hashboard.slot ?? index + 1}
-                    totalHashboards={totalSlots}
-                  />
-                </div>
-                <div className="w-46 text-300">
-                  Hashboard {getHashboardIdentifier(hashboard)}
-                </div>
-                <div className="w-46 text-300">{hashboard.hb_sn}</div>
-              </Row>
-            ))}
+            {sortedHashboards?.map((hashboard, idx) => {
+              const slotNumber = hashboard.slot ?? idx + 1; // idx is 0-indexed, but we want to display it as 1-indexed
+              return (
+                <Row
+                  key={idx}
+                  className="flex items-center"
+                  attributes={{ role: "row" }}
+                >
+                  <div className="flex w-46 items-center gap-2 text-300">
+                    <SlotNumber number={slotNumber} />
+                    <HashboardIndicator
+                      activeHashboardSlot={slotNumber}
+                      totalHashboards={totalSlots}
+                    />
+                  </div>
+                  <div className="w-46 text-300"> Model {hashboard.board}</div>
+                  <div className="w-46 text-300">{hashboard.hb_sn}</div>
+                </Row>
+              );
+            })}
           </>
         ) : (
           <div className="flex justify-center">
@@ -116,26 +119,29 @@ const Hardware = () => {
         {fansInfo?.length ? (
           <>
             <Row className="flex" attributes={{ role: "row" }}>
-              <h4 className="w-22 text-emphasis-300">Position</h4>
+              <h4 className="w-46 text-emphasis-300">Position</h4>
               <h4 className="w-46 text-emphasis-300">Fan</h4>
               {/* <h4 className="w-46 text-emphasis-300">Serial number</h4> */}
             </Row>
-            {fansInfo?.map((fan, idx) => (
-              <Row
-                className="flex items-center"
-                key={fan.id}
-                attributes={{ role: "row" }}
-              >
-                <div className="w-22 text-300">
-                  <FanIndicator
-                    fanPosition={fan.id ?? idx + 1} // id is 0-indexed, but we want to display it as 1-indexed
-                    numFans={fansInfo.length}
-                  />
-                </div>
-                <div className="w-46 text-300">{fan.name}</div>
-                {/* <div className="w-46 text-300">{fan.fan_sn}</div> */}
-              </Row>
-            ))}
+            {fansInfo?.map((fan, idx) => {
+              const fanPosition = fan.id ?? idx + 1;
+              return (
+                <Row
+                  className="flex items-center"
+                  key={fan.id}
+                  attributes={{ role: "row" }}
+                >
+                  <div className="flex w-46 items-center gap-2 text-300">
+                    <SlotNumber number={fanPosition} />
+                    <FanIndicator
+                      fanPosition={fanPosition}
+                      numFans={fansInfo.length}
+                    />
+                  </div>
+                  <div className="w-46 text-300">Fan {fan.id}</div>
+                </Row>
+              );
+            })}
           </>
         ) : (
           <div className="flex justify-center">
@@ -149,26 +155,30 @@ const Hardware = () => {
         {psusInfo?.length ? (
           <>
             <Row className="flex" attributes={{ role: "row" }}>
-              <h4 className="w-22 text-emphasis-300">Position</h4>
+              <h4 className="w-46 text-emphasis-300">Position</h4>
               <h4 className="w-46 text-emphasis-300">PSU</h4>
               <h4 className="w-46 text-emphasis-300">Serial number</h4>
             </Row>
-            {psusInfo?.map((psu) => (
-              <Row
-                className="flex items-center"
-                key={psu.psu_sn}
-                attributes={{ role: "row" }}
-              >
-                <div className="w-22 text-300">
-                  <PsuIndicator
-                    totalSlots={psusInfo.length}
-                    slotPlacement={psu.slot}
-                  />
-                </div>
-                <div className="w-46 text-300">{psu.model}</div>
-                <div className="w-46 text-300">{psu.psu_sn}</div>
-              </Row>
-            ))}
+            {psusInfo?.map((psu, idx) => {
+              const slotNumber = psu.slot ?? idx + 1;
+              return (
+                <Row
+                  className="flex items-center"
+                  key={psu.psu_sn}
+                  attributes={{ role: "row" }}
+                >
+                  <div className="flex w-46 items-center gap-2 text-300">
+                    <SlotNumber number={slotNumber} />
+                    <PsuIndicator
+                      totalSlots={psusInfo.length}
+                      slotPlacement={slotNumber}
+                    />
+                  </div>
+                  <div className="w-46 text-300">Model {psu.model}</div>
+                  <div className="w-46 text-300">{psu.psu_sn}</div>
+                </Row>
+              );
+            })}
           </>
         ) : (
           <div className="flex justify-center">
