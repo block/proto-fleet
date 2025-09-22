@@ -63,11 +63,11 @@ const Hardware = () => {
       <div className="mb-10">
         <h3 className="mb-2 text-heading-100">Control Board</h3>
         <Row className="flex" attributes={{ role: "row" }}>
-          <h4 className="w-68 text-emphasis-300">Type</h4>
+          <h4 className="w-92 text-emphasis-300">Type</h4>
           <h4 className="w-46 text-emphasis-300">Serial number</h4>
         </Row>
         <Row className="flex items-center">
-          <div className="w-68 text-300">
+          <div className="w-92 text-300">
             {controlBoardInfo?.board_id
               ? `Control Board ${getControlBoardGeneration(controlBoardInfo) ?? "Unknown"}`
               : skeletonBar}
