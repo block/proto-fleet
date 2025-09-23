@@ -1,4 +1,4 @@
-import { hashboardColors, defaultHashboardColor } from "./constants";
+import { defaultHashboardColor, hashboardColors } from "./constants";
 import { TimeSeries, TimeSeriesWithSerial } from "./types";
 import { TimeSeriesDataPoint } from "@/shared/features/kpis";
 import { getDayFromEpoch, getTimeFromEpoch } from "@/shared/utils/datetime";

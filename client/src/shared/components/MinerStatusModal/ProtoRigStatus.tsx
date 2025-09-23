@@ -1,13 +1,17 @@
 import { ReactNode } from "react";
 import clsx from "clsx";
 
-type R2StatusIconProps = {
+type ProtoRigStatusIconProps = {
   hasIssue: boolean;
   icon: ReactNode;
   disabled?: boolean;
 };
 
-const R2Status = ({ hasIssue, icon, disabled }: R2StatusIconProps) => {
+const ProtoRigStatus = ({
+  hasIssue,
+  icon,
+  disabled,
+}: ProtoRigStatusIconProps) => {
   return (
     <div className="py-1.5">
       <div
@@ -23,4 +27,4 @@ const R2Status = ({ hasIssue, icon, disabled }: R2StatusIconProps) => {
   );
 };
 
-export default R2Status;
+export default ProtoRigStatus;

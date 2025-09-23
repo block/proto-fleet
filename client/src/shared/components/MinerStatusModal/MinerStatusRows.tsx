@@ -7,6 +7,7 @@ interface MinerStatusRowsProps {
   icon?: ReactNode;
   componentName: string;
   disabled?: boolean;
+  isProtoRig?: boolean;
 }
 
 const MinerStatusRows = ({
@@ -14,6 +15,7 @@ const MinerStatusRows = ({
   icon,
   componentName,
   disabled = false,
+  isProtoRig,
 }: MinerStatusRowsProps) => (
   <>
     {issues.length === 0 || disabled ? (
@@ -21,6 +23,7 @@ const MinerStatusRows = ({
         icon={icon}
         componentName={componentName}
         disabled={disabled}
+        isProtoRig={isProtoRig}
       />
     ) : (
       <>
@@ -30,6 +33,7 @@ const MinerStatusRows = ({
             key={`${componentName.replace(" ", "_")}_${idx}`}
             icon={icon}
             componentName={componentName}
+            isProtoRig={isProtoRig}
           />
         ))}
       </>

@@ -1,12 +1,9 @@
 import { motion } from "motion/react";
-import { useEffect, useState } from "react";
-import { useHashboards } from "@/protoOS/api";
+import { useState } from "react";
 import { useSystemContext } from "@/protoOS/contexts/SystemContext";
 import CheckForUpdate from "@/protoOS/features/firmwareUpdate/components/CheckForUpdate";
-import R1Image from "@/shared/assets/images/R1.png";
-import R2Image from "@/shared/assets/images/R2.png";
+import ProtoRigImage from "@/shared/assets/images/ProtoRig.png";
 import Picture from "@/shared/components/Picture";
-import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import {
@@ -20,44 +17,25 @@ const General = () => {
   const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
   const [showTemperatureUnitsSwitcher, setShowTemperatureUnitsSwitcher] =
     useState(false);
-  const [isR2, setIsR2] = useState<boolean>();
   const { theme, temperatureUnits } = usePreferences();
 
-  const { data: systemInfo } = useSystemContext();
-  const { data: hashboards, pending } = useHashboards();
-
-  useEffect(() => {
-    if (pending || !hashboards || !hashboards.length) {
-      return;
-    }
-
-    // TODO: Swap this logic with model API when available
-    if (hashboards.length > 3) {
-      setIsR2(true);
-    } else {
-      setIsR2(false);
-    }
-  }, [hashboards, pending]);
-
-  const model = systemInfo?.product_name ?? "Proto Rig";
+  const { data: systemInfo, isProtoRig } = useSystemContext();
 
   return (
     <>
       <h2 className="mb-10 text-heading-300">General</h2>
       <div className="mb-10 flex h-68 w-full items-center justify-center rounded-2xl bg-core-primary-5">
-        {isR2 !== undefined ? (
+        {isProtoRig && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3 }}
           >
-            <Picture image={isR2 ? R2Image : R1Image} alt={model} />
+            <Picture image={ProtoRigImage} alt={systemInfo?.product_name} />
             <div className="mt-2 text-center text-heading-100 text-text-primary-50">
-              {model}
+              {systemInfo?.product_name}
             </div>
           </motion.div>
-        ) : (
-          <ProgressCircular indeterminate />
         )}
       </div>
       <div className="mb-10">
@@ -65,7 +43,7 @@ const General = () => {
         <Row className="flex justify-between">
           <h4 className="text-emphasis-300">Model</h4>
           <div className="text-300">
-            {model || <SkeletonBar className="w-20" />}
+            {systemInfo?.product_name || <SkeletonBar className="w-20" />}
           </div>
         </Row>
         <Row className="flex justify-between">

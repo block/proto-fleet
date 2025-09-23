@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { R2_ICONS } from "./icons";
+import { ProtoRigIcons } from "./icons";
 import MinerStatusRows from "./MinerStatusRows";
 
 import { type MinerStatus } from "./types";
@@ -14,12 +14,14 @@ interface MinerStatusModalProps {
   status: MinerStatus;
   onDismiss: () => void;
   onWake?: () => void;
+  isProtoRig?: boolean;
 }
 
 const MinerStatusModal = ({
   onDismiss,
   status,
   onWake,
+  isProtoRig,
 }: MinerStatusModalProps) => {
   const hasIssues = Object.values(status?.issues || {}).some(
     (issueList) => issueList.length > 0,
@@ -72,26 +74,30 @@ const MinerStatusModal = ({
           <MinerStatusRows
             issues={status.isSleeping ? undefined : status.issues?.controlBoard}
             disabled={status.isSleeping}
-            icon={R2_ICONS.controlBoard}
+            icon={ProtoRigIcons.controlBoard}
             componentName="Control board"
+            isProtoRig={isProtoRig}
           />
           <MinerStatusRows
             issues={status.isSleeping ? undefined : status.issues?.fans}
             disabled={status.isSleeping}
-            icon={R2_ICONS.fan}
+            icon={ProtoRigIcons.fan}
             componentName="Fan"
+            isProtoRig={isProtoRig}
           />
           <MinerStatusRows
             issues={status.isSleeping ? undefined : status.issues?.hashboards}
             disabled={status.isSleeping}
-            icon={R2_ICONS.hashboard}
+            icon={ProtoRigIcons.hashboard}
             componentName="Hashboard"
+            isProtoRig={isProtoRig}
           />
           <MinerStatusRows
             issues={status.isSleeping ? undefined : status.issues?.psus}
             disabled={status.isSleeping}
-            icon={R2_ICONS.psu}
+            icon={ProtoRigIcons.psu}
             componentName="Power supply"
+            isProtoRig={isProtoRig}
           />
         </div>
       </div>

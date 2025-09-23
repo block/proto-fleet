@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 
+import { useSystemContext } from "@/protoOS/contexts/SystemContext";
 import { Alert } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Callout, { intents } from "@/shared/components/Callout";
@@ -23,6 +24,8 @@ const ErrorCallout = ({ status }: { status: MinerStatus }) => {
     return undefined;
   }, [status.hasIssues]);
 
+  const { isProtoRig } = useSystemContext();
+
   return (
     <>
       {status.hasIssues && !dismissed && (
@@ -44,6 +47,7 @@ const ErrorCallout = ({ status }: { status: MinerStatus }) => {
             <MinerStatusModal
               status={status}
               onDismiss={() => setShowModal(false)}
+              isProtoRig={isProtoRig}
             />
           )}
         </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -258,7 +258,7 @@ const KpiChart = ({
       // position tooltip on the left side
       return TOOLTIP_OFFSET;
     }
-  }, [tooltipData.x, chartBoundingRect.width, isPhone, toolTipWidth]);
+  }, [tooltipData.x, chartBoundingRect.width, toolTipWidth, isPhone]);
 
   return (
     <div ref={chartRef} className="min-h-100 flex-1">

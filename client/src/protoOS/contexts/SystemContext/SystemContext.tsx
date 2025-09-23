@@ -5,6 +5,7 @@ interface SystemContextValue {
   pending: boolean;
   error?: string;
   data?: SystemInfoSysteminfo;
+  isProtoRig?: boolean;
   processedData?: {
     isWebServerRunning: boolean;
     isMiningDriverRunning: boolean;

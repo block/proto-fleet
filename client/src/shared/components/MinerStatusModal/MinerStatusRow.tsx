@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 import { clsx } from "clsx";
 
-import R2Status from "./R2Status";
+import ProtoRigStatus from "./ProtoRigStatus";
 import { type Issue } from "./types";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Row from "@/shared/components/Row";
@@ -12,24 +12,21 @@ interface MinerStatusRowProps {
   icon?: ReactNode;
   componentName: string;
   disabled?: boolean;
+  isProtoRig?: boolean;
 }
-
-// TODO: once api is available for system model
-// we should keep this at a context that wraps the entire app
-// for now we can just assume R2
-const isR2 = true;
 
 const MinerStatusRow = ({
   issue,
   icon,
   componentName,
   disabled = false,
+  isProtoRig,
 }: MinerStatusRowProps) => {
   return (
     <Row
       prefixIcon={
-        icon && isR2 ? (
-          <R2Status
+        icon && isProtoRig ? (
+          <ProtoRigStatus
             icon={icon}
             hasIssue={issue !== undefined}
             disabled={disabled}
