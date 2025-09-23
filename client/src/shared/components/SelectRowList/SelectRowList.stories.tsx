@@ -2,7 +2,6 @@ import { ReactNode, useCallback, useEffect, useState } from "react";
 import type { StoryObj } from "@storybook/react";
 
 import SelectRowListComponent from ".";
-import { rowListVariants } from "@/shared/components/SelectRowList/constants";
 import { SelectType, selectTypes } from "@/shared/constants";
 import { BaseIcon } from "@/shared/stories/icons";
 
@@ -19,7 +18,6 @@ interface SelectRowProps {
   hasPrefixIcon: boolean;
   hasSubtext: boolean;
   type: SelectType;
-  variant: keyof typeof rowListVariants;
 }
 
 const selectRows = {
@@ -34,7 +32,6 @@ const SelectRowListForStory = ({
   hasPrefixIcon,
   hasSubtext,
   type,
-  variant,
 }: SelectRowProps) => {
   const [selected, setSelected] = useState<SelectRow[]>([selectRows.one]);
 
@@ -66,7 +63,6 @@ const SelectRowListForStory = ({
     <SelectRowListComponent
       className="w-96"
       type={type}
-      variant={variant}
       selectRows={[
         {
           id: selectRows.one,
@@ -106,7 +102,6 @@ export default {
     hasPrefixIcon: true,
     hasSubtext: true,
     type: selectTypes.radio,
-    variant: rowListVariants.stack,
   },
   argTypes: {
     disabled: {
@@ -121,10 +116,6 @@ export default {
     type: {
       control: "select",
       options: Object.values(selectTypes),
-    },
-    variant: {
-      control: "select",
-      options: Object.values(rowListVariants),
     },
   },
 };

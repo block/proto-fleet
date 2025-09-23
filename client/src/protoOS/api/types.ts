@@ -802,6 +802,8 @@ export interface MiningTarget {
 
 /** Response containing current mining target configuration */
 export interface MiningTargetResponse {
+  /** @example 2500 */
+  default_power_target_watts?: number;
   /**
    * The performance mode the miner will operate in. Modes:
    *  - MaximumHashrate: Will run at the power target to maximum hashrate.
@@ -1696,7 +1698,7 @@ export class HttpClient<SecurityDataType = unknown> {
 
 /**
  * @title Mining Development Kit API
- * @version 1.2.0
+ * @version 1.2.1
  * @license MIT (https://opensource.org/license/mit)
  * @baseUrl https://virtserver.swaggerhub.com/kkurucz/mining_development_kit_api/1.0.0
  * @contact <mining.support@block.xyz>

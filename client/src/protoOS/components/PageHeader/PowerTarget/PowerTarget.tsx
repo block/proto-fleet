@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { DEFAULT_POWER_TARGET } from "./constants";
 import PowerTargetPopover from "./PowerTargetPopover";
 import { useMiningTarget } from "@/protoOS/api";
 import WidgetWrapper from "@/protoOS/components/PageHeader/WidgetWrapper";
@@ -9,16 +8,16 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
 const PowerTarget = () => {
-  const { miningTarget, bounds, pending } = useMiningTarget();
+  const { miningTarget, defaultTarget, bounds, pending } = useMiningTarget();
   const [showPopover, setShowPopover] = useState<boolean>(false);
   const { triggerRef: widgetRef, setIsTriggerFixed } = usePopover();
 
   const isMax = useMemo(() => {
-    return bounds?.max && miningTarget === bounds?.max * 1000;
+    return bounds?.max && miningTarget === bounds?.max;
   }, [miningTarget, bounds?.max]);
 
   const isMin = useMemo(() => {
-    return bounds?.min && miningTarget === bounds?.min * 1000;
+    return bounds?.min && miningTarget === bounds?.min;
   }, [miningTarget, bounds?.min]);
 
   const chipText = useMemo(() => {
@@ -28,17 +27,17 @@ const PowerTarget = () => {
 
     let targetType;
     if (isMax) {
-      targetType = "max";
+      targetType = "Max";
     } else if (isMin) {
-      targetType = "min";
-    } else if (miningTarget === DEFAULT_POWER_TARGET) {
-      targetType = "default";
+      targetType = "Min";
+    } else if (miningTarget === defaultTarget) {
+      targetType = "Default";
     } else {
-      targetType = "custom";
+      targetType = `${miningTarget / 1000} kW`;
     }
 
-    return `${miningTarget / 1000} kW ${targetType} target`;
-  }, [isMax, isMin, miningTarget, pending]);
+    return `${targetType} power target`;
+  }, [isMax, isMin, miningTarget, pending, defaultTarget]);
 
   useEffect(() => {
     setIsTriggerFixed(true);
@@ -57,17 +56,17 @@ const PowerTarget = () => {
           setShowPopover(true);
         }}
       >
-        <>
+        <div className="flex items-center">
           {pending && (
             <ProgressCircular
               className="mr-1"
               indeterminate
               dataTestId="mining-pool-spinner"
-              size={14}
+              size={12}
             />
           )}
           {chipText}
-        </>
+        </div>
       </WidgetWrapper>
       {showPopover && (
         <PowerTargetPopover onDismiss={() => setShowPopover(false)} />

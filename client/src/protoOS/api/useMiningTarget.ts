@@ -4,6 +4,7 @@ import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 
 type MiningTargetState = {
   value?: MiningTarget["power_target_watts"];
+  default?: number;
   performanceMode?: MiningTarget["performance_mode"];
   bounds?: {
     min: number;
@@ -16,6 +17,7 @@ type MiningTargetState = {
 
 const miningTargetStore: MiningTargetState = {
   value: undefined,
+  default: undefined,
   performanceMode: undefined,
   bounds: undefined,
   pending: false,
@@ -28,6 +30,7 @@ const updateStore = (update: Partial<Omit<MiningTargetState, "listeners">>) => {
 
   const state = {
     value: miningTargetStore.value,
+    default: miningTargetStore.default,
     performanceMode: miningTargetStore.performanceMode,
     bounds: miningTargetStore.bounds,
     pending: miningTargetStore.pending,
@@ -47,6 +50,7 @@ const fetchData = (api: any) => {
     .then((res: HttpResponse<MiningTargetResponse>) => {
       updateStore({
         value: res?.data.power_target_watts,
+        default: res?.data.default_power_target_watts,
         performanceMode: res?.data.performance_mode,
         bounds: {
           min: res?.data.power_target_min_watts ?? 0,
@@ -97,6 +101,7 @@ const useMiningTarget = () => {
   const { api } = useMinerHosting();
   const [localState, setLocalState] = useState({
     miningTarget: miningTargetStore.value,
+    defaultTarget: miningTargetStore.default,
     performanceMode: miningTargetStore.performanceMode,
     bounds: miningTargetStore.bounds,
     pending: miningTargetStore.pending,
@@ -107,6 +112,7 @@ const useMiningTarget = () => {
     const listener = (state: Omit<MiningTargetState, "listeners">) => {
       setLocalState({
         miningTarget: state.value,
+        defaultTarget: state.default,
         performanceMode: state.performanceMode,
         bounds: state.bounds,
         pending: state.pending,
@@ -141,6 +147,7 @@ const useMiningTarget = () => {
   return useMemo(
     () => ({
       miningTarget: localState.miningTarget,
+      defaultTarget: localState.defaultTarget,
       performanceMode: localState.performanceMode,
       bounds: localState.bounds,
       pending: localState.pending,
