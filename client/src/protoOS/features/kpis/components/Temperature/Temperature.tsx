@@ -73,17 +73,17 @@ const Temperature = () => {
           grid={clsx(
             fanSpeeds.length < 6
               ? "grid-cols-4 phone:grid-cols-2"
-              : "grid-cols-6 tablet:grid-cols-3 phone:grid-cols-2",
+              : "grid-cols-6 laptop:grid-cols-3 laptop:grid-rows-2 tablet:grid-cols-3 tablet:grid-rows-2 phone:grid-cols-2 phone:grid-rows-3 grid-flow-col phone:grid-flow-row",
           )}
           // use padding and negative margin instead of gap-x to create even spacing around divider
           gap={clsx(
             "gap-y-6",
             fanSpeeds.length < 6
               ? "*:px-10 -mx-10 phone:*:px-6 phone:-mx-6"
-              : "*:px-10 -mx-10 phone:*:px-6 phone:-mx-6",
+              : "*:px-10 -mx-10 desktop:*:px-5 desktop:-mx-5 phone:*:px-6 phone:-mx-6",
           )}
           padding="pb-4"
-          divide="divide-x divide-border-5"
+          divide="*:border-r *:border-border-5 *:last:border-0 laptop:*:nth-last-2:border-0 tablet:*:nth-last-2:border-0  phone:*:even:border-0"
           stats={fanSpeeds
             .map((fanSpeed, index) =>
               getFanStats(
