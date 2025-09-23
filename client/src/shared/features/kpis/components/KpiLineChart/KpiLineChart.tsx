@@ -22,7 +22,6 @@ import {
   LineCursor,
   TimeXAxisTick,
   xAxisProps,
-  yAxisProps,
 } from "@/shared/components/Chart";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 import useMeasure from "@/shared/hooks/useMeasure";
@@ -32,7 +31,7 @@ const ANIMATION_DURATION = 1500;
 const TOOLTIP_WIDTH = 269;
 const TOOLTIP_WIDTH_PHONE = 150;
 const TOOLTIP_OFFSET = 24;
-const Y_AXIS_TICK_WIDTH = 43;
+const Y_AXIS_TICK_WIDTH = 50;
 
 export interface KpiChartProps {
   series: TimeSeriesWithSerial[];
@@ -68,7 +67,7 @@ const KpiChart = ({
     payload: [],
   });
 
-  const corePrimary5 = useCssVariable("--color-core-primary-5");
+  const corePrimary10 = useCssVariable("--color-core-primary-10");
 
   const [shouldAnimate, setShouldAnimate] = useState(true);
   const { isDesktop, isTablet, isLaptop, isPhone } = useWindowDimensions();
@@ -76,6 +75,49 @@ const KpiChart = ({
   const [maxDomain, setMaxDomain] = useState<number>(0);
   const [minDomain, setMinDomain] = useState<number>(0);
   const [yAxisTicks, setYAxisTicks] = useState<number[]>([]);
+
+  // Custom Y-axis tick that hides the first (lowest) tick
+  const CustomYAxisTick = ({ payload, x, y }: any) => {
+    // Don't render if this is the first (lowest) tick value
+    const isFirstTick =
+      yAxisTicks.length > 0 && payload.value === yAxisTicks[0];
+
+    if (isFirstTick) {
+      return null;
+    }
+
+    // Calculate text dimensions for background rectangle
+    const text = String(payload.value);
+    const textWidth = text.length * 7; // Approximate width based on font size
+    const textHeight = 16; // Based on fontSize + padding
+    const textPadding = 4;
+
+    return (
+      <g transform={`translate(${x},${y})`}>
+        {/* Background rectangle */}
+        <rect
+          x={8 - textPadding / 2}
+          y={20 - textHeight + textPadding / 2}
+          width={textWidth + textPadding}
+          height={textHeight}
+          fill="var(--color-surface-base)"
+          fillOpacity={0.8}
+          rx={2}
+        />
+        {/* Text */}
+        <text
+          x={8}
+          y={20}
+          textAnchor="start"
+          fontSize={12}
+          fill="var(--color-text-primary)"
+          fillOpacity={0.5}
+        >
+          {payload.value}
+        </text>
+      </g>
+    );
+  };
 
   const [seriesColors, setSeriesColors] = useState<{
     [key: string]: string;
@@ -214,7 +256,7 @@ const KpiChart = ({
       return chartBoundingRect.width - TOOLTIP_OFFSET - toolTipWidth;
     } else {
       // position tooltip on the left side
-      return TOOLTIP_OFFSET + Y_AXIS_TICK_WIDTH;
+      return TOOLTIP_OFFSET;
     }
   }, [tooltipData.x, chartBoundingRect.width, isPhone, toolTipWidth]);
 
@@ -227,16 +269,20 @@ const KpiChart = ({
             margin={{
               top: 0,
               right: 0,
-              left: -17,
+              left: -1 * Y_AXIS_TICK_WIDTH,
               bottom: 5,
             }}
           >
-            <CartesianGrid stroke="#eee" strokeWidth={1} vertical={false} />
+            <CartesianGrid vertical={false} stroke={corePrimary10} />
 
             <XAxis
               {...xAxisProps}
               tickMargin={28}
-              axisLine={{ stroke: corePrimary5, strokeWidth: 1 }}
+              axisLine={{
+                stroke: "#000",
+                strokeWidth: 1,
+                strokeOpacity: 0, // hide the line because bottom tickline serves as axis line
+              }}
               dataKey="datetime"
               scale="time"
               tick={
@@ -250,15 +296,6 @@ const KpiChart = ({
                   maxXPosition={isPhone ? 303 : 871}
                 />
               }
-            />
-
-            <YAxis
-              {...yAxisProps}
-              axisLine={{ stroke: corePrimary5, strokeWidth: 1 }}
-              domain={[minDomain, maxDomain]}
-              ticks={yAxisTicks}
-              allowDecimals={false}
-              allowDataOverflow
             />
 
             <Tooltip
@@ -309,6 +346,22 @@ const KpiChart = ({
                 animationDuration={ANIMATION_DURATION}
               />
             )}
+
+            <YAxis
+              axisLine={{
+                stroke: corePrimary10,
+              }}
+              tickLine={false}
+              tick={<CustomYAxisTick />}
+              tickSize={0}
+              width={Y_AXIS_TICK_WIDTH}
+              interval={0}
+              tickMargin={0}
+              domain={[minDomain, maxDomain]}
+              ticks={yAxisTicks}
+              allowDecimals={false}
+              allowDataOverflow
+            />
           </LineChart>
         ) : (
           <></>
