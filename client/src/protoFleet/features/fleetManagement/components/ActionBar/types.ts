@@ -1,5 +1,5 @@
 import { ReactNode } from "react";
-import { variants } from "@/shared/components/Button";
+import { type ButtonVariant } from "@/shared/components/Button";
 
 export type BulkAction<ActionType> = {
   action: ActionType;
@@ -15,7 +15,7 @@ export type ActionWarnDialogOptions = {
   subtitle: string;
   confirmAction: {
     title: string;
-    variant: keyof typeof variants;
+    variant: ButtonVariant;
   };
   testId: string;
 };

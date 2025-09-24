@@ -81,6 +81,7 @@ WOuld be best to switch over to mobile first stying  */
    * in the [data-theme="dark"] block
    */
   --color-*: initial;
+  --color-transparent: transparent;
   --color-text-primary: rgb(var(--base_black_100) / 90%);
   --color-text-primary-70: rgb(var(--base_black_100) / 70%);
   --color-text-primary-50: rgb(var(--base_black_100) / 50%);

@@ -1,7 +1,11 @@
 import { useMemo } from "react";
 import clsx from "clsx";
 import { Circle } from "@/shared/assets/icons";
-import Button, { sizes, variants } from "@/shared/components/Button";
+import Button, {
+  type ButtonVariant,
+  sizes,
+  variants,
+} from "@/shared/components/Button";
 import { type HashboardLocationStore } from "@/shared/features/kpis/components/KpiLineChart/KpiTooltip";
 import { type TimeSeriesWithSerial } from "@/shared/features/kpis/components/KpiLineChart/types";
 import { getHashboardColor } from "@/shared/features/kpis/components/KpiLineChart/utility";
@@ -12,7 +16,7 @@ import useCssVariable from "@/shared/hooks/useCssVariable";
 type HashboardSelectorItemProps = {
   slot: number | null;
   onClick: () => void;
-  variant: (typeof variants)[keyof typeof variants];
+  variant: ButtonVariant;
 };
 
 const HashboardSelectorItem = ({

@@ -4,6 +4,8 @@ import clsx from "clsx";
 import { sizes, variants } from "./constants";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
+export type ButtonVariant = keyof typeof variants;
+
 interface ButtonProps {
   borderColor?: string;
   className?: string;
@@ -17,7 +19,7 @@ interface ButtonProps {
   testId?: string;
   text?: string;
   textColor?: string;
-  variant: keyof typeof variants;
+  variant: ButtonVariant;
 }
 
 const Button = ({

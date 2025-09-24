@@ -23,8 +23,7 @@ import {
 
 interface AppLayoutProps {
   children: ReactNode;
-  customButtonsLeft?: ReactNode;
-  customButtonsRight?: ReactNode;
+  customHeaderButtons?: ReactNode;
   networkInfo?: NetworkInfoNetworkinfo;
   onDismissLogin?: () => void;
   onSuccessLogin: () => void;
@@ -39,8 +38,7 @@ interface AppLayoutProps {
 
 const AppLayout = ({
   children,
-  customButtonsRight,
-  customButtonsLeft,
+  customHeaderButtons,
   networkInfo,
   onDismissLogin,
   onSuccessLogin,
@@ -95,12 +93,9 @@ const AppLayout = ({
           <PageHeader
             title={title}
             openMenu={() => setIsMenuOpen(true)}
-            customButtons={{
-              left: customButtonsLeft,
-              right: customButtonsRight,
-            }}
+            customButtons={customHeaderButtons}
           />
-          <div className="relative w-full pt-[60px] pl-60 phone:pl-0 tablet:pl-0">
+          <div className="relative w-full pt-[60px] pl-60 phone:pt-[100px] phone:pl-0 tablet:pt-[100px] tablet:pl-0">
             <ErrorBoundary>
               <ContentLayout>{children}</ContentLayout>
             </ErrorBoundary>

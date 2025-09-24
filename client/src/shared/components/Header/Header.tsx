@@ -1,7 +1,11 @@
 import { ReactNode } from "react";
 import clsx from "clsx";
 
-import Button, { sizes, variants } from "@/shared/components/Button";
+import Button, {
+  type ButtonVariant,
+  sizes,
+  variants,
+} from "@/shared/components/Button";
 import ButtonGroup, {
   ButtonProps,
   groupVariants,
@@ -17,7 +21,7 @@ interface HeaderProps {
   icon?: ReactNode;
   iconOnClick?: () => void;
   iconTextColor?: string;
-  iconVariant?: keyof typeof variants;
+  iconVariant?: ButtonVariant;
   inline?: boolean;
   showSubtitleTooltip?: boolean;
   subtitle?: string;

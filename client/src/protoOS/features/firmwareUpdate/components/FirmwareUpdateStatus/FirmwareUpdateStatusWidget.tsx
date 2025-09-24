@@ -3,7 +3,6 @@ import clsx from "clsx";
 
 import { UpdateStatus } from "@/protoOS/api/types";
 import WidgetWrapper from "@/protoOS/components/PageHeader/WidgetWrapper";
-import { statusLabelFromUpdateStatus } from "@/protoOS/features/firmwareUpdate/utility";
 import { variants as buttonVariants } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import StatusCircle, {
@@ -16,19 +15,17 @@ interface FirmwareUpdateStatusWidgetProps {
   updateStatus?: UpdateStatus;
   loading?: boolean;
   installing?: boolean;
+  statusMessage?: string;
   onClick: () => void;
 }
 
 const FirmwareUpdateStatusWidget = ({
   updateStatus,
   installing,
+  statusMessage,
   loading = false,
   onClick,
 }: FirmwareUpdateStatusWidgetProps) => {
-  const firmwareStatusMessage = useMemo(() => {
-    return statusLabelFromUpdateStatus(updateStatus);
-  }, [updateStatus]);
-
   const status: StatusCircleProps["status"] = useMemo(() => {
     switch (updateStatus?.status) {
       case "error":
@@ -45,10 +42,6 @@ const FirmwareUpdateStatusWidget = ({
       onClick={loading ? undefined : onClick}
       className={clsx({
         "hover:cursor-progress": loading,
-        hidden:
-          !updateStatus ||
-          updateStatus.status === "current" ||
-          firmwareStatusMessage === undefined,
       })}
       variant={
         updateStatus?.status === "installed"
@@ -77,7 +70,7 @@ const FirmwareUpdateStatusWidget = ({
           />
         </div>
       ) : null}
-      {firmwareStatusMessage}
+      {statusMessage}
     </WidgetWrapper>
   );
 };

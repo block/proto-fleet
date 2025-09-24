@@ -258,7 +258,7 @@ const KpiChart = ({
       // position tooltip on the left side
       return TOOLTIP_OFFSET;
     }
-  }, [tooltipData.x, chartBoundingRect.width, toolTipWidth, isPhone]);
+  }, [tooltipData.x, chartBoundingRect.width, toolTipWidth]);
 
   return (
     <div ref={chartRef} className="min-h-100 flex-1">

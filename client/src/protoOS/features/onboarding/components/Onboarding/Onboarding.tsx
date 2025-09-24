@@ -153,7 +153,7 @@ const Onboarding = ({
 
   return (
     <AppLayout
-      customButtonsRight={
+      customHeaderButtons={
         <Button
           onClick={() => onContinue()}
           size={sizes.compact}

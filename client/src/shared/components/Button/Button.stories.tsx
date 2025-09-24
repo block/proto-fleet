@@ -1,13 +1,13 @@
 import { action } from "@storybook/addon-actions";
 
-import Button, { sizes, variants } from ".";
+import Button, { type ButtonVariant, sizes, variants } from ".";
 import { BaseIcon, CompactIcon } from "@/shared/stories/icons";
 
 const onClick = action("Button clicked");
 
 interface ButtonProps {
   size: keyof typeof sizes;
-  variant: keyof typeof variants;
+  variant: ButtonVariant;
 }
 
 export const Buttons = ({ size, variant }: ButtonProps) => {

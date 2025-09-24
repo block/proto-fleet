@@ -6,88 +6,94 @@ import PowerWidget from "./Power";
 import PowerTarget from "./PowerTarget";
 import FirmwareUpdateStatus from "@/protoOS/features/firmwareUpdate/components/FirmwareUpdateStatus";
 import { Pause } from "@/shared/assets/icons";
+import { variants as buttonVariants } from "@/shared/components/Button";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
-type CustomButtons =
-  | ReactNode
-  | { left: ReactNode; right: ReactNode }
-  | { right: ReactNode }
-  | { left: ReactNode };
 interface PageHeaderProps {
-  customButtons?: CustomButtons;
+  customButtons?: ReactNode;
   openMenu?: () => void;
   title: string;
 }
 
-function getCustomButtons(
-  customButtons: CustomButtons | undefined,
-): [ReactNode | undefined, ReactNode | undefined] {
-  let customLeftButtons: ReactNode | undefined;
-  let customRightButtons: ReactNode | undefined;
+const MobileHeader = ({ openMenu, title, customButtons }: PageHeaderProps) => {
+  return (
+    <div className="w-full">
+      {/* Top bar */}
+      <div className="flex h-12 w-full items-center justify-between gap-2 self-start px-4 py-2">
+        <div className="inline-flex items-center gap-2">
+          <Pause
+            className="text-text-primary hover:cursor-pointer"
+            onClick={openMenu}
+          />
+          <div className="text-300 text-text-primary-70">{title}</div>
+        </div>
+        <div className="inline-flex items-center gap-2">
+          {customButtons ?? (
+            <>
+              <MinerStatus variant={buttonVariants.textOnly} />
+              <PowerWidget />
+            </>
+          )}
+        </div>
+      </div>
+      {/* Bottom bar */
+      /* If custom buttons are passed (Onboarding flow), dont render bottom bar*/}
+      {!customButtons && (
+        <div className="scrollbar-hide flex w-full gap-2 overflow-auto px-4 pb-6">
+          <FirmwareUpdateStatus />
+          <PowerTarget />
+          <PoolStatus />
+        </div>
+      )}
+    </div>
+  );
+};
 
-  if (
-    customButtons &&
-    typeof customButtons === "object" &&
-    "left" in customButtons
-  ) {
-    customLeftButtons = customButtons.left;
-  }
-  if (
-    customButtons &&
-    typeof customButtons === "object" &&
-    "right" in customButtons
-  ) {
-    customRightButtons = customButtons.right;
-  }
-  if (
-    customButtons &&
-    typeof customButtons === "object" &&
-    !("left" in customButtons) &&
-    !("right" in customButtons)
-  ) {
-    customRightButtons = customButtons;
-  }
-  return [customLeftButtons, customRightButtons];
-}
+const DesktopHeader = ({
+  customButtons,
+}: {
+  customButtons: PageHeaderProps["customButtons"];
+}) => {
+  return (
+    <div className="flex w-full items-center justify-end gap-4 pl-60">
+      <div className="flex grow justify-between space-x-3 self-center px-4 [scrollbar-width:none]">
+        <div className="flex space-x-3 phone:flex-shrink-0">
+          {!customButtons && (
+            <>
+              <MinerStatus />
+              <FirmwareUpdateStatus />
+            </>
+          )}
+        </div>
+
+        <div className="flex space-x-3 phone:flex-shrink-0">
+          {customButtons ?? (
+            <>
+              <PowerTarget />
+              <PoolStatus />
+              <PowerWidget />
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const PageHeader = ({ customButtons, openMenu, title }: PageHeaderProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
 
-  const [customLeftButtons, customRightButtons] =
-    getCustomButtons(customButtons);
-
   return (
-    <div className="fixed top-0 right-0 left-0 z-20 flex h-[60px] border-b border-border-5 bg-surface-base phone:h-fit phone:py-2 tablet:h-fit tablet:py-2">
-      <div className="flex w-full items-center justify-end gap-4 pl-60 phone:flex-col phone:justify-start phone:px-0 tablet:flex-col tablet:px-0">
-        {(isPhone || isTablet) && (
-          <div className="flex grow items-center gap-2 self-start px-4">
-            <Pause
-              className="text-text-primary hover:cursor-pointer"
-              onClick={openMenu}
-            />
-            <div className="text-300 text-text-primary-70">{title}</div>
-          </div>
-        )}
-        <div className="flex grow justify-between space-x-3 self-center px-4 [scrollbar-width:none] phone:w-full phone:justify-start phone:self-end phone:overflow-x-auto phone:py-[1px] tablet:w-full tablet:justify-start">
-          <div className="flex space-x-3 phone:flex-shrink-0">
-            {customLeftButtons ?? (
-              <>
-                <MinerStatus />
-                <FirmwareUpdateStatus />
-              </>
-            )}
-          </div>
-          <div className="flex space-x-3 phone:flex-shrink-0">
-            {customRightButtons ?? (
-              <>
-                <PowerTarget />
-                <PoolStatus />
-                <PowerWidget />
-              </>
-            )}
-          </div>
-        </div>
-      </div>
+    <div className="fixed top-0 right-0 left-0 z-20 flex h-[60px] border-b border-border-5 bg-surface-base phone:h-fit tablet:h-fit">
+      {isPhone || isTablet ? (
+        <MobileHeader
+          openMenu={openMenu}
+          title={title}
+          customButtons={customButtons}
+        />
+      ) : (
+        <DesktopHeader customButtons={customButtons} />
+      )}
     </div>
   );
 };
