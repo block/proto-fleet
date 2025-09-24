@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import FirmwareUpdateStatus from "./FirmwareUpdateStatus";
 import { useSystemReboot } from "@/protoOS/api";
 import { useFirmwareUpdate } from "@/protoOS/api";
+import { useAuthContext } from "@/protoOS/features/auth/contexts/AuthContext/hooks/useAuthContext";
 import { useFirmwareUpdateContext } from "@/protoOS/features/firmwareUpdate/contexts/FirmwareUpdateContext/";
 import {
   pushToast,
@@ -12,8 +13,22 @@ const FirmwareUpdateStatusWrapper = () => {
   const { rebootSystem, pending: rebootPending } = useSystemReboot();
   const { updateFirmware } = useFirmwareUpdate();
   const { installing, updateStatus, pending } = useFirmwareUpdateContext();
+  const { dismissedLoginModal, setDismissedLoginModal, setPausedAuthAction } =
+    useAuthContext();
 
   const [updatePending, setUpdatePending] = useState(false);
+
+  useEffect(() => {
+    if (dismissedLoginModal) {
+      setUpdatePending(false);
+      setDismissedLoginModal(false);
+      setPausedAuthAction(null);
+    }
+
+    return () => {
+      setUpdatePending(false);
+    };
+  }, [dismissedLoginModal, setDismissedLoginModal, setPausedAuthAction]);
 
   const handleReboot = () => {
     rebootSystem({
@@ -43,6 +58,7 @@ const FirmwareUpdateStatusWrapper = () => {
       });
     } catch (error: any) {
       console.error(error);
+      setUpdatePending(false);
       pushToast({
         message: "Update failed. Please try again.",
         status: TOAST_STATUSES.error,
