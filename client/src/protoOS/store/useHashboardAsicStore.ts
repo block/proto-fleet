@@ -109,6 +109,9 @@ interface HashboardAsicStore {
   getAsic: (hashboardSerial: string, asicId: number) => AsicData | undefined;
   getAllAsics: (hashboardSerial: string) => AsicData[];
   getAsicIds: (hashboardSerial: string) => number[];
+  getAsicCount: (hashboardSerial: string) => number;
+  getMaxAsicTemp: (hashboardSerial: string) => number | undefined;
+  getMaxCurrentAsicTemp: (hashboardSerial: string) => number | undefined;
 
   // Utility
   clearHashboard: (serial: string) => void;
@@ -438,6 +441,58 @@ const useHashboardAsicStore = create<HashboardAsicStore>()(
         getAsicIds: (hashboardSerial) => {
           const hashboard = get().hashboards.get(hashboardSerial);
           return hashboard ? Array.from(hashboard.asics.keys()) : [];
+        },
+
+        getAsicCount: (hashboardSerial) => {
+          const hashboard = get().hashboards.get(hashboardSerial);
+          return hashboard ? hashboard.asics.size : 0;
+        },
+
+        getMaxAsicTemp: (hashboardSerial) => {
+          const hashboard = get().hashboards.get(hashboardSerial);
+          if (!hashboard) {
+            return undefined;
+          }
+
+          let maxTemp: number | undefined;
+
+          // Iterate through all ASICs in the specified hashboard
+          for (const asic of hashboard.asics.values()) {
+            // Get the last temperature value from tempHistory
+            const lastTempData = asic.tempHistory[asic.tempHistory.length - 1];
+            const lastTemp = lastTempData?.value;
+
+            if (lastTemp !== undefined && lastTemp !== null) {
+              if (maxTemp === undefined || lastTemp > maxTemp) {
+                maxTemp = lastTemp;
+              }
+            }
+          }
+
+          return maxTemp;
+        },
+
+        getMaxCurrentAsicTemp: (hashboardSerial) => {
+          const hashboard = get().hashboards.get(hashboardSerial);
+          if (!hashboard) {
+            return undefined;
+          }
+
+          let maxTemp: number | undefined;
+
+          // Iterate through all ASICs in the specified hashboard
+          for (const asic of hashboard.asics.values()) {
+            // Get the current temperature value (temp_c from AsicStats)
+            const currentTemp = asic.temp_c;
+
+            if (currentTemp !== undefined && currentTemp !== null) {
+              if (maxTemp === undefined || currentTemp > maxTemp) {
+                maxTemp = currentTemp;
+              }
+            }
+          }
+
+          return maxTemp;
         },
 
         // Utility

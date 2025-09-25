@@ -7,7 +7,7 @@ import {
   type TemperatureUnits,
 } from "@/shared/features/preferences";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
-import { convertMhSToThS } from "@/shared/utils/utility";
+import { convertMegahashSecToTerahashSec } from "@/shared/utils/utility";
 import { convertCtoF } from "@/shared/utils/utility";
 
 export const convertTemperatureValues = (
@@ -24,7 +24,7 @@ export const convertHashrateValues = (
 ) => {
   return data?.map((hashrate) => ({
     datetime: hashrate.datetime || 0,
-    value: convertMhSToThS(hashrate.value) || 0,
+    value: convertMegahashSecToTerahashSec(hashrate.value) || 0,
   }));
 };
 

@@ -1,10 +1,13 @@
 import { Aggregates, TimeSeriesData } from "@/protoOS/api/types";
 import { Duration } from "@/shared/components/DurationSelector";
 import { getDateFromEpoch } from "@/shared/utils/datetime";
-import { convertMhSToThS, convertWtoKW } from "@/shared/utils/utility";
+import {
+  convertMegahashSecToTerahashSec,
+  convertWtoKW,
+} from "@/shared/utils/utility";
 
 export const conversionFns = {
-  hashrate: convertMhSToThS,
+  hashrate: convertMegahashSecToTerahashSec,
   powerUsage: convertWtoKW,
   temperature: (value?: number) => (value ? value : 0),
   efficiency: (value?: number) => (value ? value : 0),
@@ -15,7 +18,7 @@ export const convertHashrateValues = (data: TimeSeriesData[]) => {
   return (
     data?.map((hashrate) => ({
       datetime: hashrate.datetime || 0,
-      value: convertMhSToThS(hashrate.value) || 0,
+      value: convertMegahashSecToTerahashSec(hashrate.value) || 0,
     })) || []
   );
 };
@@ -114,7 +117,7 @@ export const aggregateValues = (
 
 export const convertAggregateValues = (
   aggregates?: Aggregates,
-  convertFn: (value?: number) => number = convertMhSToThS,
+  convertFn: (value?: number) => number = convertMegahashSecToTerahashSec,
 ) => {
   return Object.keys(aggregates || {}).reduce((acc = {}, key: string) => {
     const aggregateKey = key as keyof Aggregates;

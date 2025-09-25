@@ -55,8 +55,10 @@ export const getRandomFloat = (
   );
 };
 
-export const convertMhSToThS = (value: number = 0) => value / 1000000;
-
+export const convertMegahashSecToTerahashSec = (value: number = 0) =>
+  value / 1000000;
+export const convertGigahashSecToTerahashSec = (value: number = 0) =>
+  value / 1000;
 export const convertWtoKW = (value: number = 0) => value / 1000;
 
 export const formatHashrateWithUnit = (value: number = 0) => {
