@@ -1,7 +1,7 @@
 import { ElementType } from "react";
 import { MemoryRouter } from "react-router-dom";
 
-import { action } from "@storybook/addon-actions";
+import { action } from "storybook/actions";
 import NavigationMenuComponent from ".";
 import routes from "@/protoFleet/routes";
 

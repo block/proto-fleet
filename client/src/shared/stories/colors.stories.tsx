@@ -1,6 +1,5 @@
-import { ElementType, ReactNode, useMemo } from "react";
+import { ElementType, ReactNode, useEffect, useMemo, useState } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { useDarkMode } from "storybook-dark-mode";
 import Divider from "@/shared/components/Divider";
 
 interface ChildrenProps {
@@ -41,6 +40,31 @@ const Swatch = ({ className, hex }: SwatchProps) => {
 
 const SectionDivider = () => {
   return <Divider className="mt-8 mb-4" />;
+};
+
+const useDarkMode = () => {
+  const [isDark, setIsDark] = useState(() => {
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    return mediaQuery.matches;
+  });
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+
+    const handleChange = (event: MediaQueryListEvent) => {
+      setIsDark(event.matches);
+    };
+
+    // Add listener for changes
+    mediaQuery.addEventListener("change", handleChange);
+
+    // Cleanup listener on unmount
+    return () => {
+      mediaQuery.removeEventListener("change", handleChange);
+    };
+  }, []);
+
+  return isDark;
 };
 
 export const Colors = () => {

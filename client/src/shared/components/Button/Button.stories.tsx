@@ -1,4 +1,4 @@
-import { action } from "@storybook/addon-actions";
+import { action } from "storybook/actions";
 
 import Button, { type ButtonVariant, sizes, variants } from ".";
 import { BaseIcon, CompactIcon } from "@/shared/stories/icons";

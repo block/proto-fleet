@@ -1,4 +1,4 @@
-import { action } from "@storybook/addon-actions";
+import { action } from "storybook/actions";
 import SegmentedControlComponent from "@/shared/components/SegmentedControl/SegmentedControl";
 import { type Segment } from "@/shared/components/SegmentedControl/types";
 

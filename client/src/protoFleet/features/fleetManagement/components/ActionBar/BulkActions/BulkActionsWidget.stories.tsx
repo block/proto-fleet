@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { action } from "@storybook/addon-actions";
+import { action } from "storybook/actions";
 import { DeviceAction, deviceActions } from "../DeviceWidget/constants";
 import {
   PerformanceAction,

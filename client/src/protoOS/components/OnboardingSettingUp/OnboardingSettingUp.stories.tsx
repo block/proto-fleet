@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { action } from "@storybook/addon-actions";
+import { action } from "storybook/actions";
 
 import OnboardingSettingUp from "@/shared/components/OnboardingSettingUp/OnboardingSettingUp";
 import { statuses } from "@/shared/constants/statuses";

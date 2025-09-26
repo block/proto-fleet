@@ -1,4 +1,4 @@
-import { action } from "@storybook/addon-actions";
+import { action } from "storybook/actions";
 import ListComponent from ".";
 import { defaultListFilter } from "@/shared/components/List/constants";
 import { ActiveFilters } from "@/shared/components/List/Filters/types";

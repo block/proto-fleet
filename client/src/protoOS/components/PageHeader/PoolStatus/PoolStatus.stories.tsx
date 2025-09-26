@@ -1,6 +1,6 @@
 import { ElementType } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { action } from "@storybook/addon-actions";
+import { action } from "storybook/actions";
 
 import PoolStatusComponent from "./PoolStatus";
 import { Pool } from "@/protoOS/api/types";

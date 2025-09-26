@@ -1,5 +1,5 @@
 import { ReactNode, useCallback, useEffect, useState } from "react";
-import type { StoryObj } from "@storybook/react";
+import type { StoryObj } from "@storybook/react-vite";
 
 import SelectRowListComponent from ".";
 import { SelectType, selectTypes } from "@/shared/constants";

@@ -1,4 +1,4 @@
-import { action } from "@storybook/addon-actions";
+import { action } from "storybook/actions";
 import MiningPoolsFormComponent from "@/protoFleet/components/MiningPools/MiningPoolsForm";
 import { OnboardingProvider } from "@/protoFleet/features/onboarding/contexts/OnboardingContext";
 

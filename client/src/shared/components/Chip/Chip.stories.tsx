@@ -1,4 +1,4 @@
-import { action } from "@storybook/addon-actions";
+import { action } from "storybook/actions";
 import Chip from ".";
 import { CompactIcon } from "@/shared/stories/icons";
 

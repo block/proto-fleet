@@ -1,4 +1,4 @@
-import { action } from "@storybook/addon-actions";
+import { action } from "storybook/actions";
 
 import ButtonGroup, { groupVariants } from ".";
 import { sizes, variants } from "@/shared/components/Button";

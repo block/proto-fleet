@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { action } from "@storybook/addon-actions";
+import { action } from "storybook/actions";
 import MinersComponent from "./Miners";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 

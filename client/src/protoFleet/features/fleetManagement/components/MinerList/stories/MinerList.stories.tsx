@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { action } from "@storybook/addon-actions";
+import { action } from "storybook/actions";
 import MinerListComponent from "../MinerList";
 import { miners } from "@/protoFleet/features/fleetManagement/components/MinerList/stories/mocks";
 import { useFleetStore } from "@/protoFleet/features/fleetManagement/store/useFleetStore";

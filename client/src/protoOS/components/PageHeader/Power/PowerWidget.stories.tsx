@@ -1,6 +1,6 @@
 import { ElementType, useState } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { action } from "@storybook/addon-actions";
+import { action } from "storybook/actions";
 
 import PowerWidgetComponent from "./PowerWidget";
 import { MiningStatusMiningstatus } from "@/protoOS/api/types";

@@ -1,4 +1,4 @@
-import sizeOf from "image-size";
+import { imageSizeFromFile } from "image-size/fromFile";
 import { promises } from "fs";
 import path from "path";
 
@@ -11,7 +11,7 @@ export function responsiveImagePlugin() {
       // Only handle non-retina images and skip _2x images
       if (/\.(png|jpe?g|gif|webp|avif)$/.test(id) && !id.includes("_2x.")) {
         try {
-          const dimensions = sizeOf(id);
+          const dimensions = await imageSizeFromFile(id);
           const parsedPath = path.parse(id);
           const retinaPath = path.join(
             parsedPath.dir,
