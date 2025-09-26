@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { PoolConnectedCallout, PoolNotConnectedCallout } from "../Callouts";
+import { PoolNotConnectedCallout } from "../Callouts";
 import { info } from "../constants";
 import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "../types";
 import { urlValidationErrors } from "./constants";
 import Input from "@/shared/components/Input";
+import {
+  pushToast,
+  STATUSES as TOAST_STATUSES,
+} from "@/shared/features/toaster";
 import { deepClone } from "@/shared/utils/utility";
 
 interface PoolFormProps {
@@ -35,10 +39,6 @@ const PoolForm = ({
   const [validationErrors, setValidationErrors] = useState<
     Partial<Record<keyof typeof info, string>>
   >({});
-  const showConnectedCallout = useMemo(
-    () => showCallout && !isTestingConnection && !error,
-    [showCallout, error, isTestingConnection],
-  );
 
   const showNotConnectedCallout = useMemo(
     () => showCallout && !isTestingConnection && error,
@@ -60,6 +60,12 @@ const PoolForm = ({
         poolInfo: pools[poolIndex],
         onError: () => {
           setError(true);
+        },
+        onSuccess: () => {
+          pushToast({
+            message: "Mining pool connection successful",
+            status: TOAST_STATUSES.success,
+          });
         },
         onFinally: () => setShowCallout(true),
       });
@@ -105,10 +111,6 @@ const PoolForm = ({
 
   return (
     <>
-      <PoolConnectedCallout
-        onDismiss={() => setShowCallout(false)}
-        show={showConnectedCallout}
-      />
       <PoolNotConnectedCallout
         currentPoolIndex={poolIndex}
         onDismiss={() => setShowCallout(false)}
