@@ -31,6 +31,7 @@ import Hashboard from "./Hashboard";
 import HashboardIndicator from "./HashboardIndicator";
 import Hashrate from "./Hashrate";
 import Home from "./Home";
+import Immersion from "./Immersion";
 import Info from "./Info";
 import InfoInverted from "./InfoInverted";
 import LEDIndicator from "./LEDIndicator";
@@ -101,6 +102,7 @@ export {
   Hashrate,
   Home,
   type IconProps,
+  Immersion,
   Info,
   InfoInverted,
   LEDIndicator,

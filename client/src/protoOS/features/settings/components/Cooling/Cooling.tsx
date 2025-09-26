@@ -1,10 +1,43 @@
-import { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 import { useCoolingStatus } from "@/protoOS/api";
 import { CoolingConfig } from "@/protoOS/api/types";
+import { Fan } from "@/shared/assets/icons";
+import Immersion from "@/shared/assets/icons/Immersion";
 import SelectRow from "@/shared/components/SelectRow";
 import { selectTypes } from "@/shared/constants";
 import { pushToast, updateToast } from "@/shared/features/toaster";
+
+interface CoolingOptionProps {
+  title: string;
+  description: string;
+  icon?: React.ReactNode;
+  isSelected?: boolean;
+}
+
+const CoolingOption = ({
+  title,
+  description,
+  icon,
+  isSelected = false,
+}: CoolingOptionProps) => (
+  <div className="flex items-center justify-start gap-4">
+    {icon ? (
+      <div
+        className={clsx("flex h-8 w-8 items-center justify-center rounded-lg", {
+          "bg-core-primary-5": isSelected,
+          "bg-surface-5": !isSelected,
+        })}
+      >
+        {icon}
+      </div>
+    ) : null}
+    <div>
+      <h4 className="text-emphasis-300">{title}</h4>
+      <p className="text-200 text-text-primary-70">{description}</p>
+    </div>
+  </div>
+);
 
 const COOLING_MODES = {
   air: "air-cooled",
@@ -112,12 +145,12 @@ const Cooling = () => {
             [disabledClassName]: loading,
           })}
           text={
-            <>
-              <h4 className="text-emphasis-300">Air Cooled</h4>
-              <p className="text-200 text-text-primary-70">
-                Your fans will be used to cool your miner.
-              </p>
-            </>
+            <CoolingOption
+              title="Air Cooled"
+              description="Fans will be used to cool the miner."
+              icon={<Fan />}
+              isSelected={coolingMode === COOLING_MODES.air}
+            />
           }
           type={selectTypes.radio}
         />
@@ -136,12 +169,12 @@ const Cooling = () => {
             [disabledClassName]: loading,
           })}
           text={
-            <>
-              <h4 className="text-emphasis-300">Immersion Cooled</h4>
-              <p className="text-200 text-text-primary-70">
-                Your fans will be disabled.
-              </p>
-            </>
+            <CoolingOption
+              title="Immersion Cooled"
+              description="Fans must be removed."
+              icon={<Immersion />}
+              isSelected={coolingMode === COOLING_MODES.immersion}
+            />
           }
           type={selectTypes.radio}
         />

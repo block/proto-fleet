@@ -21,7 +21,7 @@ import {
 } from "@/protoOS/features/onboarding";
 import {
   Authentication as AuthenticationSettings,
-  // Cooling,
+  Cooling,
   General,
   Hardware,
   MiningPools,
@@ -120,6 +120,10 @@ export const routerConfig = [
       {
         path: "hardware",
         element: <Hardware />,
+      },
+      {
+        path: "cooling",
+        element: <Cooling />,
       },
     ],
   },
