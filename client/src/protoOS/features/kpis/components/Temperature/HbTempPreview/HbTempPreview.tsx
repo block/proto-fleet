@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
 import AsicTablePreview from "./AsicTablePreview";
@@ -17,6 +16,8 @@ import { convertCtoF } from "@/shared/utils/utility";
 type HbTempPreviewProps = {
   hbData: HbTemperature;
   asics?: AsicStats[];
+  avgAsicTempC?: number;
+  maxAsicTempC?: number;
 };
 
 const convertedTemp = (temp: number, units: TemperatureUnits) => {
@@ -25,19 +26,24 @@ const convertedTemp = (temp: number, units: TemperatureUnits) => {
   return getDisplayValue(converted) + " " + unitLabel;
 };
 
-const HbTempPreview = ({ hbData, asics }: HbTempPreviewProps) => {
-  const [isOverheating, setIsOverheating] = useState<boolean>(false);
+const HbTempPreview = ({
+  hbData,
+  asics,
+  avgAsicTempC,
+  maxAsicTempC,
+}: HbTempPreviewProps) => {
   const { minerRoot } = useMinerHosting();
   const { temperatureUnits } = usePreferences();
-  const [currentTemp, setCurrentTemp] = useState<string>();
+  const isOverheating = (maxAsicTempC || 0) > criticalTemp;
 
-  useEffect(() => {
-    if (!hbData.data || !hbData.data.length) return;
-
-    const lastTemp = hbData.data[hbData.data.length - 1].value || 0;
-    setCurrentTemp(convertedTemp(lastTemp, temperatureUnits));
-    setIsOverheating(lastTemp > criticalTemp);
-  }, [hbData, temperatureUnits]);
+  const TempDisplay = ({ value, label }: { value?: number; label: string }) => (
+    <div className="flex flex-col">
+      <div className="text-emphasis-300 text-text-primary-70">
+        {value ? convertedTemp(value, temperatureUnits) : "N/A"}
+      </div>
+      <div className="text-xs text-text-primary-50">{label}</div>
+    </div>
+  );
 
   return (
     <Link
@@ -68,11 +74,13 @@ const HbTempPreview = ({ hbData, asics }: HbTempPreviewProps) => {
         >
           {hbData.name}
         </h3>
-        {currentTemp && (
-          <div className="text-emphasis-300 text-text-primary-50">
-            {currentTemp}
-          </div>
-        )}
+      </div>
+
+      <div className="px-4 py-2">
+        <div className="grid grid-cols-2 gap-x-4">
+          <TempDisplay value={avgAsicTempC} label="ASIC avg" />
+          <TempDisplay value={maxAsicTempC} label="ASIC high" />
+        </div>
       </div>
 
       <div className="p-4">

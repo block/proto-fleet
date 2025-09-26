@@ -635,6 +635,11 @@ export interface HashboardStatsHashboardstats {
    */
   inlet_temp_c?: number;
   /**
+   * Current maximum temperature of the hashboard in celsius.
+   * @example 75
+   */
+  max_asic_temp_c?: number;
+  /**
    * The measured temperature at the air exhaust side of the hashboard.
    * @example 78.64
    */
@@ -1698,7 +1703,7 @@ export class HttpClient<SecurityDataType = unknown> {
 
 /**
  * @title Mining Development Kit API
- * @version 1.2.1
+ * @version 1.2.2
  * @license MIT (https://opensource.org/license/mit)
  * @baseUrl https://virtserver.swaggerhub.com/kkurucz/mining_development_kit_api/1.0.0
  * @contact <mining.support@block.xyz>
@@ -2251,7 +2256,7 @@ export class Api<
      * @name GetAsicStatus
      * @request GET:/api/v1/hashboards/{hb_sn}/{asic_id}
      */
-    getAsicStatus: (hbSn: string, asicId: string, params: RequestParams = {}) =>
+    getAsicStatus: (hbSn: string, asicId: number, params: RequestParams = {}) =>
       this.request<AsicStatsResponse, MessageResponse>({
         path: `/api/v1/hashboards/${hbSn}/${asicId}`,
         method: "GET",

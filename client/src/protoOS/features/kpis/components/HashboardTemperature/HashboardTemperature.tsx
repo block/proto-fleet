@@ -105,7 +105,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
     useShallow((state) => {
       return {
         avgAsicTempC: state.hashboards.get(serial)?.avgAsicTempC,
-        maxAsicTempC: state.getMaxCurrentAsicTemp(serial),
+        maxAsicTempC: state.hashboards.get(serial)?.maxAsicTempC,
         powerUsageWatts: state.hashboards.get(serial)?.powerUsageWatts,
         inletTempC: state.hashboards.get(serial)?.inletTempC,
         outletTempC: state.hashboards.get(serial)?.outletTempC,

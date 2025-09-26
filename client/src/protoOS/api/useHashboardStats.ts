@@ -24,6 +24,7 @@ const useHashboardStats = ({
     updateInletTemp,
     updateOutletTemp,
     updateAvgAsicTemp,
+    updateMaxAsicTemp,
     updatePowerUsage,
   } = useHashboardAsicStore();
 
@@ -71,6 +72,7 @@ const useHashboardStats = ({
       }
 
       updateAvgAsicTemp(hashboardSerialNumber, data.avg_asic_temp_c);
+      updateMaxAsicTemp(hashboardSerialNumber, data.max_asic_temp_c);
       updateBoardHashrate(hashboardSerialNumber, data.hashrate_ghs);
       updateInletTemp(hashboardSerialNumber, data.inlet_temp_c);
       updateOutletTemp(hashboardSerialNumber, data.outlet_temp_c);
@@ -82,6 +84,7 @@ const useHashboardStats = ({
     initializeHashboardAsics,
     updateCompleteAsicData,
     updateAvgAsicTemp,
+    updateMaxAsicTemp,
     updateBoardHashrate,
     updateInletTemp,
     updateOutletTemp,

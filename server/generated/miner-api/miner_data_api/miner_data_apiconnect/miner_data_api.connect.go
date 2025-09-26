@@ -77,6 +77,9 @@ const (
 	// MinerDataApiGetTimeSeriesDataProcedure is the fully-qualified name of the MinerDataApi's
 	// GetTimeSeriesData RPC.
 	MinerDataApiGetTimeSeriesDataProcedure = "/miner_data_api.MinerDataApi/GetTimeSeriesData"
+	// MinerDataApiGetUnifiedTimeSeriesDataProcedure is the fully-qualified name of the MinerDataApi's
+	// GetUnifiedTimeSeriesData RPC.
+	MinerDataApiGetUnifiedTimeSeriesDataProcedure = "/miner_data_api.MinerDataApi/GetUnifiedTimeSeriesData"
 	// MinerDataApiGetPoolsProcedure is the fully-qualified name of the MinerDataApi's GetPools RPC.
 	MinerDataApiGetPoolsProcedure = "/miner_data_api.MinerDataApi/GetPools"
 	// MinerDataApiGetErrorsProcedure is the fully-qualified name of the MinerDataApi's GetErrors RPC.
@@ -99,6 +102,7 @@ type MinerDataApiClient interface {
 	GetHashboardStatus(context.Context, *connect.Request[miner_data_api.HashboardStatusRequest]) (*connect.Response[miner_data_api.HashboardStatusResponse], error)
 	GetAsicStatus(context.Context, *connect.Request[miner_data_api.AsicStatusRequest]) (*connect.Response[miner_data_api.AsicStatusResponse], error)
 	GetTimeSeriesData(context.Context, *connect.Request[miner_data_api.TimeSeriesDataRequest]) (*connect.Response[miner_data_api.TimeSeriesDataResponse], error)
+	GetUnifiedTimeSeriesData(context.Context, *connect.Request[miner_data_api.UnifiedTimeSeriesDataRequest]) (*connect.Response[miner_data_api.UnifiedTimeSeriesDataResponse], error)
 	GetPools(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PoolsResponse], error)
 	GetErrors(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.ErrorsResponse], error)
 	GetPsuStatusList(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PsuStatusListResponse], error)
@@ -155,6 +159,11 @@ func NewMinerDataApiClient(httpClient connect.HTTPClient, baseURL string, opts .
 			baseURL+MinerDataApiGetTimeSeriesDataProcedure,
 			opts...,
 		),
+		getUnifiedTimeSeriesData: connect.NewClient[miner_data_api.UnifiedTimeSeriesDataRequest, miner_data_api.UnifiedTimeSeriesDataResponse](
+			httpClient,
+			baseURL+MinerDataApiGetUnifiedTimeSeriesDataProcedure,
+			opts...,
+		),
 		getPools: connect.NewClient[miner_common_api.EmptyRequest, miner_data_api.PoolsResponse](
 			httpClient,
 			baseURL+MinerDataApiGetPoolsProcedure,
@@ -180,18 +189,19 @@ func NewMinerDataApiClient(httpClient connect.HTTPClient, baseURL string, opts .
 
 // minerDataApiClient implements MinerDataApiClient.
 type minerDataApiClient struct {
-	getSoftwareInfo    *connect.Client[miner_common_api.EmptyRequest, miner_data_api.SoftwareInfoResponse]
-	getCoolingMode     *connect.Client[miner_common_api.EmptyRequest, miner_data_api.CoolingModeResponse]
-	getMiningStatus    *connect.Client[miner_common_api.EmptyRequest, miner_data_api.MiningStatusResponse]
-	getPowerTarget     *connect.Client[miner_common_api.EmptyRequest, miner_data_api.PowerTargetResponse]
-	getHardwareInfo    *connect.Client[miner_common_api.EmptyRequest, miner_data_api.HardwareInfoResponse]
-	getHashboardStatus *connect.Client[miner_data_api.HashboardStatusRequest, miner_data_api.HashboardStatusResponse]
-	getAsicStatus      *connect.Client[miner_data_api.AsicStatusRequest, miner_data_api.AsicStatusResponse]
-	getTimeSeriesData  *connect.Client[miner_data_api.TimeSeriesDataRequest, miner_data_api.TimeSeriesDataResponse]
-	getPools           *connect.Client[miner_common_api.EmptyRequest, miner_data_api.PoolsResponse]
-	getErrors          *connect.Client[miner_common_api.EmptyRequest, miner_data_api.ErrorsResponse]
-	getPsuStatusList   *connect.Client[miner_common_api.EmptyRequest, miner_data_api.PsuStatusListResponse]
-	getPsuInfoList     *connect.Client[miner_common_api.EmptyRequest, miner_data_api.PsuInfoListResponse]
+	getSoftwareInfo          *connect.Client[miner_common_api.EmptyRequest, miner_data_api.SoftwareInfoResponse]
+	getCoolingMode           *connect.Client[miner_common_api.EmptyRequest, miner_data_api.CoolingModeResponse]
+	getMiningStatus          *connect.Client[miner_common_api.EmptyRequest, miner_data_api.MiningStatusResponse]
+	getPowerTarget           *connect.Client[miner_common_api.EmptyRequest, miner_data_api.PowerTargetResponse]
+	getHardwareInfo          *connect.Client[miner_common_api.EmptyRequest, miner_data_api.HardwareInfoResponse]
+	getHashboardStatus       *connect.Client[miner_data_api.HashboardStatusRequest, miner_data_api.HashboardStatusResponse]
+	getAsicStatus            *connect.Client[miner_data_api.AsicStatusRequest, miner_data_api.AsicStatusResponse]
+	getTimeSeriesData        *connect.Client[miner_data_api.TimeSeriesDataRequest, miner_data_api.TimeSeriesDataResponse]
+	getUnifiedTimeSeriesData *connect.Client[miner_data_api.UnifiedTimeSeriesDataRequest, miner_data_api.UnifiedTimeSeriesDataResponse]
+	getPools                 *connect.Client[miner_common_api.EmptyRequest, miner_data_api.PoolsResponse]
+	getErrors                *connect.Client[miner_common_api.EmptyRequest, miner_data_api.ErrorsResponse]
+	getPsuStatusList         *connect.Client[miner_common_api.EmptyRequest, miner_data_api.PsuStatusListResponse]
+	getPsuInfoList           *connect.Client[miner_common_api.EmptyRequest, miner_data_api.PsuInfoListResponse]
 }
 
 // GetSoftwareInfo calls miner_data_api.MinerDataApi.GetSoftwareInfo.
@@ -234,6 +244,11 @@ func (c *minerDataApiClient) GetTimeSeriesData(ctx context.Context, req *connect
 	return c.getTimeSeriesData.CallUnary(ctx, req)
 }
 
+// GetUnifiedTimeSeriesData calls miner_data_api.MinerDataApi.GetUnifiedTimeSeriesData.
+func (c *minerDataApiClient) GetUnifiedTimeSeriesData(ctx context.Context, req *connect.Request[miner_data_api.UnifiedTimeSeriesDataRequest]) (*connect.Response[miner_data_api.UnifiedTimeSeriesDataResponse], error) {
+	return c.getUnifiedTimeSeriesData.CallUnary(ctx, req)
+}
+
 // GetPools calls miner_data_api.MinerDataApi.GetPools.
 func (c *minerDataApiClient) GetPools(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PoolsResponse], error) {
 	return c.getPools.CallUnary(ctx, req)
@@ -264,6 +279,7 @@ type MinerDataApiHandler interface {
 	GetHashboardStatus(context.Context, *connect.Request[miner_data_api.HashboardStatusRequest]) (*connect.Response[miner_data_api.HashboardStatusResponse], error)
 	GetAsicStatus(context.Context, *connect.Request[miner_data_api.AsicStatusRequest]) (*connect.Response[miner_data_api.AsicStatusResponse], error)
 	GetTimeSeriesData(context.Context, *connect.Request[miner_data_api.TimeSeriesDataRequest]) (*connect.Response[miner_data_api.TimeSeriesDataResponse], error)
+	GetUnifiedTimeSeriesData(context.Context, *connect.Request[miner_data_api.UnifiedTimeSeriesDataRequest]) (*connect.Response[miner_data_api.UnifiedTimeSeriesDataResponse], error)
 	GetPools(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PoolsResponse], error)
 	GetErrors(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.ErrorsResponse], error)
 	GetPsuStatusList(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PsuStatusListResponse], error)
@@ -316,6 +332,11 @@ func NewMinerDataApiHandler(svc MinerDataApiHandler, opts ...connect.HandlerOpti
 		svc.GetTimeSeriesData,
 		opts...,
 	)
+	minerDataApiGetUnifiedTimeSeriesDataHandler := connect.NewUnaryHandler(
+		MinerDataApiGetUnifiedTimeSeriesDataProcedure,
+		svc.GetUnifiedTimeSeriesData,
+		opts...,
+	)
 	minerDataApiGetPoolsHandler := connect.NewUnaryHandler(
 		MinerDataApiGetPoolsProcedure,
 		svc.GetPools,
@@ -354,6 +375,8 @@ func NewMinerDataApiHandler(svc MinerDataApiHandler, opts ...connect.HandlerOpti
 			minerDataApiGetAsicStatusHandler.ServeHTTP(w, r)
 		case MinerDataApiGetTimeSeriesDataProcedure:
 			minerDataApiGetTimeSeriesDataHandler.ServeHTTP(w, r)
+		case MinerDataApiGetUnifiedTimeSeriesDataProcedure:
+			minerDataApiGetUnifiedTimeSeriesDataHandler.ServeHTTP(w, r)
 		case MinerDataApiGetPoolsProcedure:
 			minerDataApiGetPoolsHandler.ServeHTTP(w, r)
 		case MinerDataApiGetErrorsProcedure:
@@ -401,6 +424,10 @@ func (UnimplementedMinerDataApiHandler) GetAsicStatus(context.Context, *connect.
 
 func (UnimplementedMinerDataApiHandler) GetTimeSeriesData(context.Context, *connect.Request[miner_data_api.TimeSeriesDataRequest]) (*connect.Response[miner_data_api.TimeSeriesDataResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_data_api.MinerDataApi.GetTimeSeriesData is not implemented"))
+}
+
+func (UnimplementedMinerDataApiHandler) GetUnifiedTimeSeriesData(context.Context, *connect.Request[miner_data_api.UnifiedTimeSeriesDataRequest]) (*connect.Response[miner_data_api.UnifiedTimeSeriesDataResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_data_api.MinerDataApi.GetUnifiedTimeSeriesData is not implemented"))
 }
 
 func (UnimplementedMinerDataApiHandler) GetPools(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_data_api.PoolsResponse], error) {
