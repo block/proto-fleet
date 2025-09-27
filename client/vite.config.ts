@@ -25,39 +25,8 @@ const createModeConfig = (mode) => {
         input: `src/${mode}/index.html`,
         output: {
           manualChunks: (id: string) => {
-            // Critical first-load dependencies - bundle with main
-            if (
-              id.includes("node_modules/react/") ||
-              id.includes("node_modules/react-dom/") ||
-              id.includes("node_modules/react-router-dom/")
-            ) {
-              return "runtime";
-            }
-
-            // API/Protobuf libraries - needed for most pages
-            if (
-              id.includes("node_modules/@bufbuild/") ||
-              id.includes("node_modules/@connectrpc/")
-            ) {
-              return "runtime";
-            }
-
-            // Small utilities - bundle with main
-            if (
-              id.includes("node_modules/zustand/") ||
-              id.includes("node_modules/immer/") ||
-              id.includes("node_modules/clsx/")
-            ) {
-              return "runtime";
-            }
-
-            // Heavy visualization libraries - lazy load
-            if (id.includes("node_modules/recharts/")) {
-              return "charts";
-            }
-
-            // Other node_modules
-            if (id.includes("node_modules/")) {
+            // Replicate splitVendorChunkPlugin behavior
+            if (id.includes("node_modules")) {
               return "vendor";
             }
           },
