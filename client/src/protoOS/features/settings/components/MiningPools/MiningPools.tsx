@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { SimpleErrorProps } from "apiResponseTypes";
 import { STATUS_MESSAGES } from "./constants";
-import { useCreatePools } from "@/protoOS/api";
+import { useCreatePools, useEditPool } from "@/protoOS/api";
 
 import MiningPools, {
   getEmptyPoolsInfo,
@@ -26,12 +26,15 @@ import { debounce } from "@/shared/utils/utility";
 
 const SettingsMiningPools = () => {
   const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
+  const [previousPools, setPreviousPools] =
+    useState<PoolInfo[]>(getEmptyPoolsInfo());
   const [toastStatus, setToastStatus] = useState<ToastStatusType | null>(null);
   const [isStalePools, setIsStalePools] = useState(false);
   const toastId = useRef<number | null>(null);
 
   const { poolsInfo, poolsInfoStatus } = useMinerStatus();
   const { createPools } = useCreatePools();
+  const { editPool } = useEditPool();
   const [createPoolsError, setCreatePoolsError] = useState<SimpleErrorProps>();
 
   useEffect(() => {
@@ -43,8 +46,34 @@ const SettingsMiningPools = () => {
         priority: poolsInfo[index]?.priority || index,
       }));
       setPools(newPools);
+      setPreviousPools(newPools);
     }
   }, [poolsInfo]);
+
+  const findChangedPool = useCallback(
+    (currentPools: PoolInfo[], previousPools: PoolInfo[]) => {
+      let changedIndex = -1;
+      let changesCount = 0;
+
+      for (let i = 0; i < currentPools.length; i++) {
+        const current = currentPools[i];
+        const previous = previousPools[i];
+
+        if (
+          current.url !== previous.url ||
+          current.username !== previous.username ||
+          current.password !== previous.password
+        ) {
+          changedIndex = i;
+          changesCount++;
+        }
+      }
+
+      // Return the index only if exactly one pool changed
+      return changesCount === 1 ? changedIndex : -1;
+    },
+    [],
+  );
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedSubmitPools = useCallback(
@@ -56,26 +85,68 @@ const SettingsMiningPools = () => {
         status: TOAST_STATUSES.loading,
       });
 
+      const changedPoolIndex = findChangedPool(newPools, previousPools);
       const validPools = newPools.filter(isValidPool);
-      createPools({
-        poolInfo: validPools,
-        onSuccess: () => {
-          setCreatePoolsError(undefined);
-          setIsStalePools(true);
-        },
-        onError: (error) => {
-          setCreatePoolsError(error);
+
+      // If only one pool changed and it exists in the server data, use edit
+      if (changedPoolIndex >= 0 && poolsInfo?.[changedPoolIndex]) {
+        const changedPool = newPools[changedPoolIndex];
+        if (isValidPool(changedPool)) {
+          editPool({
+            poolId: changedPoolIndex,
+            poolInfo: {
+              url: changedPool.url,
+              username: changedPool.username,
+              password: changedPool.password,
+              priority: changedPool.priority,
+            },
+            onSuccess: () => {
+              setCreatePoolsError(undefined);
+              setIsStalePools(true);
+              setPreviousPools(newPools);
+            },
+            onError: (error) => {
+              setCreatePoolsError(error);
+              setToastStatus(TOAST_STATUSES.error);
+              removeToast(toastId.current);
+              toastId.current = pushToast({
+                message: STATUS_MESSAGES.error,
+                status: TOAST_STATUSES.error,
+              });
+            },
+            retryOnMinerDown: true,
+          });
+        } else {
           setToastStatus(TOAST_STATUSES.error);
           removeToast(toastId.current);
           toastId.current = pushToast({
-            message: STATUS_MESSAGES.error,
+            message: "Invalid pool configuration",
             status: TOAST_STATUSES.error,
           });
-        },
-        retryOnMinerDown: true,
-      });
+        }
+      } else {
+        // Multiple changes or new pools, use create (replace all)
+        createPools({
+          poolInfo: validPools,
+          onSuccess: () => {
+            setCreatePoolsError(undefined);
+            setIsStalePools(true);
+            setPreviousPools(newPools);
+          },
+          onError: (error) => {
+            setCreatePoolsError(error);
+            setToastStatus(TOAST_STATUSES.error);
+            removeToast(toastId.current);
+            toastId.current = pushToast({
+              message: STATUS_MESSAGES.error,
+              status: TOAST_STATUSES.error,
+            });
+          },
+          retryOnMinerDown: true,
+        });
+      }
     }),
-    [createPools],
+    [createPools, editPool, findChangedPool, previousPools, poolsInfo],
   );
 
   useEffect(() => {

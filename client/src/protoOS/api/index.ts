@@ -2,6 +2,7 @@ import { useAsicHashrate } from "./useAsicHashrate";
 import { useAsicTemperature } from "./useAsicTemperature";
 import { useCoolingStatus } from "./useCoolingStatus";
 import { useCreatePools } from "./useCreatePools";
+import { useEditPool } from "./useEditPool";
 import { useEfficiency } from "./useEfficiency";
 import { useErrors } from "./useErrors";
 import { useFirmwareUpdate } from "./useFirmwareUpdate";
@@ -36,6 +37,7 @@ export {
   useAsicTemperature,
   useCoolingStatus,
   useCreatePools,
+  useEditPool,
   useEfficiency,
   useErrors,
   useFirmwareUpdate,
