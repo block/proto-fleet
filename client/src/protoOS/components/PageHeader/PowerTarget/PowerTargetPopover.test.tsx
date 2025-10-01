@@ -30,7 +30,7 @@ describe("Power Target Popover", () => {
   it("shows error when input value is below minimum bound", () => {
     const { getByText, getByLabelText } = render(
       <PopoverProvider>
-        <PowerTargetPopover onDismiss={vi.fn()} />,
+        <PowerTargetPopover onDismiss={vi.fn()} onUpdateStart={vi.fn()} />,
       </PopoverProvider>,
     );
     const input = getByLabelText("Power target");
@@ -43,7 +43,7 @@ describe("Power Target Popover", () => {
   it("shows error when input value is above maximum bound", () => {
     const { getByText, getByLabelText } = render(
       <PopoverProvider>
-        <PowerTargetPopover onDismiss={vi.fn()} />,
+        <PowerTargetPopover onDismiss={vi.fn()} onUpdateStart={vi.fn()} />,
       </PopoverProvider>,
     );
     const input = getByLabelText("Power target");
@@ -56,7 +56,7 @@ describe("Power Target Popover", () => {
   it("calls updateMiningTarget with correct values when Apply is clicked", async () => {
     const { getByText, getByLabelText } = render(
       <PopoverProvider>
-        <PowerTargetPopover onDismiss={vi.fn()} />,
+        <PowerTargetPopover onDismiss={vi.fn()} onUpdateStart={vi.fn()} />,
       </PopoverProvider>,
     );
     const input = getByLabelText("Power target");
@@ -73,7 +73,7 @@ describe("Power Target Popover", () => {
   it("disables Apply button when error is present", () => {
     const { getByTestId, getByLabelText } = render(
       <PopoverProvider>
-        <PowerTargetPopover onDismiss={vi.fn()} />,
+        <PowerTargetPopover onDismiss={vi.fn()} onUpdateStart={vi.fn()} />,
       </PopoverProvider>,
     );
     const input = getByLabelText("Power target");
@@ -85,7 +85,7 @@ describe("Power Target Popover", () => {
     const onDismiss = vi.fn();
     const { getByText } = render(
       <PopoverProvider>
-        <PowerTargetPopover onDismiss={onDismiss} />,
+        <PowerTargetPopover onDismiss={onDismiss} onUpdateStart={vi.fn()} />,
       </PopoverProvider>,
     );
     fireEvent.click(getByText("Cancel"));
@@ -96,7 +96,7 @@ describe("Power Target Popover", () => {
     mockedPending = true;
     const { getByText } = render(
       <PopoverProvider>
-        <PowerTargetPopover onDismiss={vi.fn()} />,
+        <PowerTargetPopover onDismiss={vi.fn()} onUpdateStart={vi.fn()} />,
       </PopoverProvider>,
     );
     expect(getByText("Applying")).toBeInTheDocument();

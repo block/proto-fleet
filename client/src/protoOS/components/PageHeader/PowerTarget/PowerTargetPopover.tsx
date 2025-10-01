@@ -16,6 +16,10 @@ import { convertWtoKW } from "@/shared/utils/utility";
 
 export type PowerTargetPopoverProps = {
   onDismiss: () => void;
+  onUpdateStart?: (miningTarget: {
+    performance_mode?: PerformanceMode;
+    power_target_watts?: number;
+  }) => void;
 };
 
 const getInitialPowerTargetMode = (
@@ -32,7 +36,10 @@ const getInitialPowerTargetMode = (
   }
 };
 
-const PowerTargetPopover = ({ onDismiss }: PowerTargetPopoverProps) => {
+const PowerTargetPopover = ({
+  onDismiss,
+  onUpdateStart,
+}: PowerTargetPopoverProps) => {
   const {
     miningTarget,
     defaultTarget,
@@ -111,17 +118,25 @@ const PowerTargetPopover = ({ onDismiss }: PowerTargetPopoverProps) => {
     }
 
     const powerTarget = calculatePowerTarget();
-
-    updateMiningTarget({
+    const miningTargetUpdate = {
       performance_mode: selectedPerformanceMode,
       power_target_watts: powerTarget,
-    });
+    };
+
+    try {
+      onUpdateStart?.(miningTargetUpdate);
+    } catch (error) {
+      console.error("onUpdateStart callback failed:", error);
+    }
+
+    updateMiningTarget(miningTargetUpdate);
   }, [
     pending,
     selectedPerformanceMode,
     selectedPowerTargetMode,
     calculatePowerTarget,
     updateMiningTarget,
+    onUpdateStart,
   ]);
 
   return (
