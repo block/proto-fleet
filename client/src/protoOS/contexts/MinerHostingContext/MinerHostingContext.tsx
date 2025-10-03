@@ -1,5 +1,5 @@
 import { createContext, ReactNode, useMemo } from "react";
-import { Api } from "@/protoOS/api/types";
+import { Api } from "@/protoOS/api/generatedApi";
 
 const CreateApi = (baseUrl: string) => {
   const url = (baseUrl.length ? "/" : "") + baseUrl;

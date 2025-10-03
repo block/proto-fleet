@@ -1,6 +1,6 @@
 import React from "react";
 
-import { UpdateStatus } from "@/protoOS/api/types";
+import { UpdateStatus } from "@/protoOS/api/generatedApi";
 import { SettingsSolid, Stop, Success } from "@/shared/assets/icons";
 import { ButtonProps } from "@/shared/components/ButtonGroup";
 import Dialog from "@/shared/components/Dialog";

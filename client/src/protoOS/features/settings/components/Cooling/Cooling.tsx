@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 import { useCoolingStatus } from "@/protoOS/api";
-import { CoolingConfig } from "@/protoOS/api/types";
+import { CoolingConfig } from "@/protoOS/api/generatedApi";
 import { Fan } from "@/shared/assets/icons";
 import Immersion from "@/shared/assets/icons/Immersion";
 import SelectRow from "@/shared/components/SelectRow";

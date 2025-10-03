@@ -27,8 +27,6 @@ export const AsicTable = ({ pending }: AsicTableProps) => {
       </div>
       <AsicTableComponent
         asics={pending ? [] : mockHashboardStats.asics}
-        duration={duration}
-        granularity="1m"
         hashboardSerialNumber={mockHashboardStats.hb_sn}
         pending={pending}
         showPopover={showPopover}

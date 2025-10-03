@@ -75,12 +75,13 @@ export const formatHashrateWithUnit = (value: number = 0) => {
 };
 
 export const convertCtoF = (value: number = 0) => (value * 9) / 5 + 32;
+export const convertFtoC = (value: number = 0) => ((value - 32) * 5) / 9;
 
 export const getAsicTempValue = (
   avgAsicTemp: number | undefined,
   isFahrenheit: boolean,
 ) => {
-  if (!avgAsicTemp) return "N/A";
+  if (!avgAsicTemp) return "N/A"; // TODO: why not return undefined, so we can show skeleton, also 0 cound be falsey
   return isFahrenheit ? convertCtoF(avgAsicTemp) : avgAsicTemp;
 };
 

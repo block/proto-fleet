@@ -1,5 +1,8 @@
 import { ErrorLevel } from "./constants";
-import { ErrorListResponse, NotificationError } from "@/protoOS/api/types";
+import {
+  ErrorListResponse,
+  NotificationError,
+} from "@/protoOS/api/generatedApi";
 
 import { getRowLabel } from "@/shared/utils/utility";
 

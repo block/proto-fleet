@@ -1,33 +1,35 @@
-import { useOutletContext } from "react-router-dom";
-
-import { useProcessedHashboardPowerUsages } from "../../hooks";
-import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart/KpiLineChartWrapper";
-import { KpiOutletContext } from "@/protoOS/features/kpis/types";
+import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart";
+import {
+  convertAndFormatMeasurement,
+  useChartDataForMetric,
+  useMiner,
+} from "@/protoOS/store";
+import { MetricTimeSeries } from "@/protoOS/store";
+import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import { type StatProps } from "@/shared/components/Stat";
-import { AggregateStats } from "@/shared/features/kpis";
-import Stats from "@/shared/features/kpis/components/Stats";
+import Stats from "@/shared/components/Stats";
 
-type StatsArgs = AggregateStats & { lowestPerformer?: string };
+type StatsArgs = MetricTimeSeries["aggregates"] & { lowestPerformer?: string };
 
-const getStats = (stats: StatsArgs = {}): StatProps[] => {
+const getStats = (stats: StatsArgs): StatProps[] => {
   const { avg, max, min } = stats;
 
   return [
     {
       label: "Average",
-      value: avg,
+      value: convertAndFormatMeasurement(avg, "kW", false),
       units: "kW",
       size: "small",
     },
     {
       label: "Highest",
-      value: max,
+      value: convertAndFormatMeasurement(max, "kW", false),
       units: "kW",
       size: "small",
     },
     {
       label: "Lowest",
-      value: min,
+      value: convertAndFormatMeasurement(min, "kW", false),
       units: "kW",
       size: "small",
     },
@@ -35,28 +37,20 @@ const getStats = (stats: StatsArgs = {}): StatProps[] => {
 };
 
 const PowerUsage = () => {
-  const {
-    minerPowerUsage: { powerUsage: totalPowerUsage, aggregates },
-    duration,
-    hashboardSerials,
-  } = useOutletContext<KpiOutletContext>();
-
-  const hbPowerUsages = useProcessedHashboardPowerUsages({
-    serials: hashboardSerials,
-    duration,
-  });
+  const { chartData, chartLines } = useChartDataForMetric("power");
+  const miner = useMiner();
+  const aggregates = miner?.power?.aggregates;
 
   return (
     <>
-      {aggregates && <Stats stats={getStats(aggregates)} />}
-      <KpiLineChart
-        series={hbPowerUsages}
-        units="kW"
-        aggregateSeries={{
-          name: "Total Power Usage",
-          data: totalPowerUsage,
-        }}
-      />
+      {aggregates && (
+        <ErrorBoundary>
+          <Stats stats={getStats(aggregates)} />
+        </ErrorBoundary>
+      )}
+      <ErrorBoundary>
+        <KpiLineChart chartData={chartData} chartLines={chartLines} units="W" />
+      </ErrorBoundary>
     </>
   );
 };

@@ -7,7 +7,6 @@ import {
   nullLineProps,
   temperatureLineProps,
 } from "./constants";
-import { ChartData } from "./types";
 import { getChartData } from "./utility";
 import {
   ChartWrapper,
@@ -16,6 +15,7 @@ import {
   TimeXAxisTick,
   xAxisProps,
 } from "@/shared/components/Chart";
+import { ChartData } from "@/shared/components/LineChart/types";
 
 const ANIMATION_DURATION = 500;
 

@@ -1,39 +1,22 @@
 import { ElementType } from "react";
 import { mockHashboardStats } from "../constants";
 import AsicPopoverComponent from "./AsicPopover";
-import { mockAsicHashrateData, mockAsicTemperatureData } from "./constants";
-import { convertHashrateValues, convertTemperatureValues } from "./utility";
 import { PopoverProvider, usePopover } from "@/shared/components/Popover";
 
-interface AsicTableProps {
-  pendingAsicHashrateData: boolean;
-  pendingAsicTemperatureData: boolean;
+interface AsicPopoverStoryProps {
+  asicIndex: number;
 }
 
-export const AsicPopover = ({
-  pendingAsicHashrateData,
-  pendingAsicTemperatureData,
-}: AsicTableProps) => {
+export const AsicPopover = ({ asicIndex }: AsicPopoverStoryProps) => {
   const { triggerRef } = usePopover();
+
+  // Get the ASIC at the specified index from mock data
+  const asic =
+    mockHashboardStats.asics[asicIndex] || mockHashboardStats.asics[0];
 
   return (
     <div ref={triggerRef} className="relative mt-96 ml-40">
-      <AsicPopoverComponent
-        closePopover={() => {}}
-        asic={mockHashboardStats.asics[0]}
-        hashrateData={
-          pendingAsicHashrateData
-            ? []
-            : convertHashrateValues(mockAsicHashrateData.data)
-        }
-        pendingAsicHashrateData={pendingAsicHashrateData}
-        pendingAsicTemperatureData={pendingAsicTemperatureData}
-        temperatureData={
-          pendingAsicTemperatureData
-            ? []
-            : convertTemperatureValues(mockAsicTemperatureData.data)
-        }
-      />
+      <AsicPopoverComponent asic={asic} closePopover={() => {}} />
     </div>
   );
 };
@@ -48,19 +31,16 @@ export default {
     ),
   ],
   args: {
-    pendingAsicHashrateData: false,
-    pendingAsicTemperatureData: false,
+    asicIndex: 0,
   },
   argTypes: {
-    pendingAsicHashrateData: {
+    asicIndex: {
       control: {
-        type: "boolean",
+        type: "number",
+        min: 0,
+        max: 99,
       },
-    },
-    pendingAsicTemperatureData: {
-      control: {
-        type: "boolean",
-      },
+      description: "Index of the ASIC to display (0-99)",
     },
   },
 };

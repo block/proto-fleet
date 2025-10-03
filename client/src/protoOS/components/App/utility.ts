@@ -1,4 +1,4 @@
-import { MiningStatusMiningstatus } from "@/protoOS/api/types";
+import { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
 
 export const isWarmingUp = (miningStatus?: MiningStatusMiningstatus) => {
   const mining = {

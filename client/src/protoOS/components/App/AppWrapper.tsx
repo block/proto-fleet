@@ -10,6 +10,7 @@ import App from "./App";
 import { isMining, isWarmingUp } from "./utility";
 import {
   useErrors,
+  useHardware,
   useMiningStart,
   useMiningStatus,
   usePoll,
@@ -40,6 +41,7 @@ interface AppProps {
 const AppWrapper = ({
   children,
   hideErrors,
+  fullScreen,
   title,
   ContentLayout = DefaultContentLayout,
 }: AppProps) => {
@@ -68,6 +70,15 @@ const AppWrapper = ({
   } = useSystemContext();
   const { getItem, setItem } = useLocalStorage();
   const navigate = useNavigate();
+
+  // TODO: (STORE_REFACTOR) get fw to add more data in this EP
+  // Currently this gets us most of the data we need to populate the hardware slice
+  // But we are missing data around asics that currently only comes from the hashboard status EP
+  // - add hashboard.asics - each asic should have index, row, column
+  // - update hashboard.slot to hashboard.index for consistency with TS API
+  // - add hasbboard.bayIndex
+  // - add mine-info to response - miner infro should include bayCount
+  useHardware();
 
   // navigate to onboarding page if miner has not been onboarded
   useEffect(() => {
@@ -163,18 +174,29 @@ const AppWrapper = ({
             pendingErrors={pendingErrors}
           >
             <FirmwareUpdateProvider systemInfo={systemInfo}>
-              <App
-                title={title}
-                onWake={handleWake}
-                wakeError={startMiningError}
-                afterWake={afterWake}
-                systemInfo={systemInfo}
-                pendingSystemInfo={pendingSystemInfo}
-                hideErrors={hideErrors}
-                ContentLayout={ContentLayout}
-              >
-                {children}
-              </App>
+              {/* TODO: [STORE_REFACTOR] 
+                Once we add miner status, system info etc to global store, we should
+                be able to remove the nesting of wrapper components that comprise App.tsx
+
+                Needed to add this conditional because full screen views were not rendering inside of App wrapper
+                which is where we make calls to useHardware to populate the hardware slice
+              */}
+              {fullScreen ? (
+                <ContentLayout />
+              ) : (
+                <App
+                  title={title}
+                  onWake={handleWake}
+                  wakeError={startMiningError}
+                  afterWake={afterWake}
+                  systemInfo={systemInfo}
+                  pendingSystemInfo={pendingSystemInfo}
+                  hideErrors={hideErrors}
+                  ContentLayout={ContentLayout}
+                >
+                  {children}
+                </App>
+              )}
             </FirmwareUpdateProvider>
           </MinerStatusProvider>
         );

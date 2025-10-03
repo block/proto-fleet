@@ -2,7 +2,7 @@ import { ElementType, useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 
 import App from "./App";
-import { MiningStatusMiningstatus } from "@/protoOS/api/types";
+import { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
 import { MinerStatusProvider } from "@/protoOS/contexts/MinerStatusContext";
 
 export const WakeUpMiner = () => {

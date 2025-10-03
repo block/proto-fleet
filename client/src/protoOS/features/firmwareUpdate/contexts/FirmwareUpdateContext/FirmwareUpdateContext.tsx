@@ -1,6 +1,6 @@
 import { createContext, ReactNode, useEffect, useMemo, useState } from "react";
 import { useFirmwareUpdate } from "@/protoOS/api";
-import { SystemInfoSysteminfo, UpdateStatus } from "@/protoOS/api/types";
+import { SystemInfoSysteminfo, UpdateStatus } from "@/protoOS/api/generatedApi";
 import { useSystemContext } from "@/protoOS/contexts/SystemContext/useSystemContext";
 
 const FirmwareUpdateContext = createContext({

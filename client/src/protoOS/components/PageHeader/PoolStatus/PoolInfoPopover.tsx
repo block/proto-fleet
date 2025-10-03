@@ -1,7 +1,7 @@
 import PoolInfoRow from "./PoolInfoRow";
 import { PoolInfo } from "./types";
 import { getTexts } from "./utility";
-import { Pool } from "@/protoOS/api/types";
+import { Pool } from "@/protoOS/api/generatedApi";
 import { Alert, Success } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Card, { cardType } from "@/shared/components/Card";

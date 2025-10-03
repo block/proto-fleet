@@ -1,6 +1,6 @@
 import React, { ReactNode, useEffect, useMemo, useState } from "react";
 import { SystemContext } from "./SystemContext";
-import { useSystemInfo } from "@/protoOS/api/useSystemInfo";
+import { useSystemInfo } from "@/protoOS/api";
 
 interface SystemContextProviderProps {
   children: ReactNode;
@@ -10,7 +10,7 @@ interface SystemContextProviderProps {
 
 const PROTO_RIG_MODEL_NAME = "Proto Rig";
 
-// TODO: remove system context in favor of zustand store for consistency
+// TODO: [STORE_REFACTOR] remove system context in favor of zustand store for consistency
 export const SystemContextProvider: React.FC<SystemContextProviderProps> = ({
   children,
   poll = true,

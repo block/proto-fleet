@@ -1,78 +1,52 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Outlet } from "react-router-dom";
-import { useHashboards } from "@/protoOS/api";
+import { useTimeSeries } from "@/protoOS/api";
+import { HashboardFieldType, MinerFieldType } from "@/protoOS/api/generatedApi";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
+import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
 import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
 import TabMenu from "@/protoOS/features/kpis/components/TabMenu";
-import {
-  useProcessedEfficiency,
-  useProcessedHashrate,
-  useProcessedPowerUsage,
-  useProcessedTemperature,
-} from "@/protoOS/features/kpis/hooks";
-import { type KpiOutletContext } from "@/protoOS/features/kpis/types";
-import DurationSelector, {
-  Duration,
-  durations,
-} from "@/shared/components/DurationSelector";
+import { useDuration, useSetDuration } from "@/protoOS/store";
+import DurationSelector from "@/shared/components/DurationSelector";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
-import ProgressCircular from "@/shared/components/ProgressCircular";
-import NoPoolsCallout from "@/shared/features/kpis/components/NoPoolsCallout";
-import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 
 const KpiLayout = ({ children }: ContentLayoutProps) => {
-  const { getItem, setItem } = useLocalStorage();
-  const [hashboardSerials, setHashboardSerials] = useState<string[]>();
-
-  const { data: hashboardsInfo } = useHashboards();
   const { poolsInfo, poolsInfoStatus } = useMinerStatus();
-  const [duration, setDuration] = useState<Duration>(
-    getItem("duration") || durations[0],
+  const duration = useDuration();
+  const setDuration = useSetDuration();
+
+  // Memoize levels to prevent recreating on every render
+  const levels = useMemo(
+    () => [
+      {
+        type: "miner" as const,
+        fields: [
+          MinerFieldType.Hashrate,
+          MinerFieldType.Temperature,
+          MinerFieldType.Power,
+          MinerFieldType.Efficiency,
+        ],
+      },
+      {
+        type: "hashboard" as const,
+        fields: [
+          HashboardFieldType.Hashrate,
+          HashboardFieldType.Temperature,
+          HashboardFieldType.Power,
+          HashboardFieldType.Efficiency,
+        ],
+      },
+    ],
+    [],
   );
-  const [outletContext, setOutletContext] = useState<KpiOutletContext | null>();
-  const minerHashrate = useProcessedHashrate({ duration });
-  const minerEfficiency = useProcessedEfficiency({ duration });
-  const minerPowerUsage = useProcessedPowerUsage({ duration });
-  const minerTemperature = useProcessedTemperature({ duration });
 
-  useEffect(() => {
-    setItem("duration", duration);
-  }, [duration, setItem]);
-
-  useEffect(() => {
-    if (hashboardsInfo) {
-      setHashboardSerials(
-        hashboardsInfo
-          ?.sort(
-            (a, b) =>
-              (a.slot || hashboardsInfo.length) -
-              (b.slot || hashboardsInfo.length),
-          )
-          .map((hashboardInfo) => hashboardInfo.hb_sn)
-          .filter(Boolean) as string[],
-      );
-    }
-  }, [hashboardsInfo]);
-
-  useEffect(() => {
-    if (!hashboardSerials || !duration) return;
-
-    setOutletContext({
-      duration,
-      hashboardSerials,
-      minerHashrate,
-      minerTemperature,
-      minerPowerUsage,
-      minerEfficiency,
-    });
-  }, [
+  // Fetch telemetry data with polling
+  useTimeSeries({
     duration,
-    hashboardSerials,
-    minerHashrate,
-    minerTemperature,
-    minerPowerUsage,
-    minerEfficiency,
-  ]);
+    levels,
+    poll: true,
+    pollIntervalMs: 10000, // 10 seconds
+  });
 
   const noPoolsLive = useMemo(() => {
     return (
@@ -103,38 +77,12 @@ const KpiLayout = ({ children }: ContentLayoutProps) => {
           </div>
 
           <div className="pb-6 phone:pb-6">
-            <TabMenu
-              hashrate={
-                minerHashrate?.hashrate[minerHashrate?.hashrate?.length - 1]
-                  ?.value
-              }
-              efficiency={
-                minerEfficiency?.efficiency[
-                  minerEfficiency?.efficiency?.length - 1
-                ]?.value
-              }
-              powerUsage={
-                minerPowerUsage?.powerUsage[
-                  minerPowerUsage?.powerUsage?.length - 1
-                ]?.value
-              }
-              temperature={
-                minerTemperature?.temperature[
-                  minerTemperature?.temperature?.length - 1
-                ]?.value
-              }
-            />
+            <TabMenu />
           </div>
 
-          {outletContext ? (
-            <ErrorBoundary>
-              <Outlet context={outletContext} />
-            </ErrorBoundary>
-          ) : (
-            <div className="flex h-full flex-1 items-center justify-center">
-              <ProgressCircular indeterminate />
-            </div>
-          )}
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </div>
       </div>
     </ErrorBoundary>

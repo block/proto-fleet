@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import clsx from "clsx";
 
-import { UpdateStatus } from "@/protoOS/api/types";
+import { UpdateStatus } from "@/protoOS/api/generatedApi";
 import WidgetWrapper from "@/protoOS/components/PageHeader/WidgetWrapper";
 import { variants as buttonVariants } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";

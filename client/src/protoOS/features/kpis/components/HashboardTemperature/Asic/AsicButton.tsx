@@ -2,52 +2,29 @@ import { Dispatch, SetStateAction } from "react";
 import clsx from "clsx";
 
 import AsicPopover from "./AsicPopover";
-import { convertAndFormatTemperature } from "./AsicPopover/utility";
 import { getAsicUniqueId } from "./utility";
-import { AsicStats, GetAsicHashrateParams } from "@/protoOS/api/types";
 import { useAsicColor } from "@/protoOS/features/kpis/hooks";
-import useHashboardAsicStore from "@/protoOS/store/useHashboardAsicStore";
-import { type Duration } from "@/shared/components/DurationSelector";
+import { AsicData, getAsicName, useMinerHashboard } from "@/protoOS/store";
+import { getCurrentValue } from "@/protoOS/store";
 import { usePopover } from "@/shared/components/Popover";
 import { usePreferences } from "@/shared/features/preferences";
 
 interface AsicButtonProps {
-  asic: AsicStats;
-  duration: Duration;
-  granularity: GetAsicHashrateParams["granularity"];
+  asic: AsicData;
   hashboardSerial: string;
   showPopover: string | undefined;
   setShowPopover: Dispatch<SetStateAction<string | undefined>>;
 }
 
-// TODO: temporary work around to derive name from asic ID until name is included in API
-const getAsicName = (
-  idx: number | undefined,
-  asicCount: number | undefined,
-) => {
-  if (idx === undefined || asicCount === undefined) {
-    return "";
-  }
-
-  const group = idx + 1 > asicCount / 2 ? "B" : "A";
-  const groupSize = Math.floor(asicCount / 2);
-
-  return `${group}${idx % groupSize}`;
-};
-
 const AsicButton = ({
   asic,
-  duration,
-  granularity,
   hashboardSerial,
   showPopover,
   setShowPopover,
 }: AsicButtonProps) => {
   const { triggerRef: asicRef } = usePopover();
   const { temperatureUnits } = usePreferences();
-  const asicCount = useHashboardAsicStore((state) =>
-    state.getAsicCount(hashboardSerial),
-  );
+  const hashboard = useMinerHashboard(hashboardSerial);
 
   const currentAsicId =
     asic.id !== undefined
@@ -57,6 +34,12 @@ const AsicButton = ({
     currentAsicId !== undefined && showPopover === currentAsicId;
 
   const backgroundColor = useAsicColor(asic);
+
+  // Generate ASIC name using utility function
+  const asicName =
+    hashboard?.asicIds && asic.index
+      ? getAsicName(hashboard.asicIds.length, asic.index)
+      : "";
 
   return (
     <div
@@ -72,9 +55,6 @@ const AsicButton = ({
       {shouldShowPopover ? (
         <AsicPopover
           asic={asic}
-          duration={duration}
-          granularity={granularity}
-          hashboardSerial={hashboardSerial}
           closePopover={() => setShowPopover(undefined)}
           closeIgnoreSelectors={[".asic-button"]}
         />
@@ -92,10 +72,14 @@ const AsicButton = ({
       >
         <div className="bg-transparent hover:bg-surface-overlay">
           <div className="flex flex-col items-center gap-1 px-1 py-3">
-            <div className="text-text-primary-50">
-              {getAsicName(asic.id, asicCount)}
-            </div>
-            {convertAndFormatTemperature(asic.temp_c, temperatureUnits, false)}
+            <div className="text-text-primary-50">{asicName}</div>
+            {
+              getCurrentValue(
+                asic.temperature,
+                temperatureUnits === "fahrenheit" ? "F" : "C",
+                false,
+              )?.formatted
+            }
           </div>
         </div>
       </button>

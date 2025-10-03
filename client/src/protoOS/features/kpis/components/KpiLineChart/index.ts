@@ -1,3 +1,3 @@
-import KpiLineChartWrapper from "./KpiLineChartWrapper";
+import KpiLineChart from "./KpiLineChart";
 
-export default KpiLineChartWrapper;
+export default KpiLineChart;

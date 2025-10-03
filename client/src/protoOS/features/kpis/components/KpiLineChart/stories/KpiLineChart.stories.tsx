@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-import KpiLineChartComponent from "../KpiLineChartWrapper";
+import LineChartComponent from "../KpiLineChart";
 import {
   mockHashrateData,
   mockHashrateData1,
@@ -15,7 +15,7 @@ import {
 
 import { Duration } from "@/shared/components/DurationSelector";
 
-interface KpiLineChartProps {
+interface LineChartProps {
   duration: Duration;
   hashboards: number;
   units?: string;
@@ -26,36 +26,52 @@ const processData = (data: any, duration: Duration) => {
   return convertValues(downsampledData, conversionFns.hashrate);
 };
 
-export const KpiLineChart = ({
-  duration,
-  hashboards,
-  units,
-}: KpiLineChartProps) => {
-  const aggregateSeriesData = useMemo(() => {
-    return {
-      name: "Total Data",
-      data: processData(mockHashrateData.data, duration),
-    };
-  }, [duration]);
-
-  const seriesData = useMemo(() => {
-    let sd = [mockHashrateData1, mockHashrateData2, mockHashrateData3].map(
-      (data, index) => ({
-        name: "Hashboard Data " + (index + 1),
+export const LineChart = ({ duration, hashboards, units }: LineChartProps) => {
+  const chartData = useMemo(() => {
+    const aggregateData = processData(mockHashrateData.data, duration);
+    const hashboardData = [
+      mockHashrateData1,
+      mockHashrateData2,
+      mockHashrateData3,
+    ]
+      .slice(0, hashboards)
+      .map((data, index) => ({
+        serial: `hb${index}`,
         data: processData(data.data, duration),
-        serial: index.toString(),
-      }),
-    );
+      }));
 
-    return sd.slice(0, hashboards);
-  }, [hashboards, duration]);
+    // Convert to the format expected by KpiLineChart
+    return aggregateData.map((point: any, index: number) => {
+      const chartPoint: any = {
+        datetime: point.datetime,
+        miner: point.value,
+      };
+
+      // Add hashboard data for this timestamp
+      hashboardData.forEach((hb) => {
+        if (hb.data[index]) {
+          chartPoint[hb.serial] = hb.data[index].value;
+        }
+      });
+
+      return chartPoint;
+    });
+  }, [duration, hashboards]);
+
+  const chartLines = useMemo(() => {
+    const lines = ["miner"];
+    for (let i = 0; i < hashboards; i++) {
+      lines.push(`hb${i}`);
+    }
+    return lines;
+  }, [hashboards]);
 
   return (
     <div className="my-8 flex justify-center">
       <div className="flex h-[486px] w-[928px]">
-        <KpiLineChartComponent
-          aggregateSeries={aggregateSeriesData}
-          series={seriesData}
+        <LineChartComponent
+          chartData={chartData}
+          chartLines={chartLines}
           units={units}
         />
       </div>
@@ -64,7 +80,7 @@ export const KpiLineChart = ({
 };
 
 export default {
-  title: "protoOS/KpiLineChart",
+  title: "protoOS/LineChart",
   args: {
     duration: "12h",
     hashboards: 3,

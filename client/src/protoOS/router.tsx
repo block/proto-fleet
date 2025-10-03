@@ -58,7 +58,9 @@ export const routerConfig = [
   },
   {
     path: "temperature/:serial",
-    element: <HashboardTemperature />,
+    element: (
+      <App title="Home" ContentLayout={HashboardTemperature} fullScreen />
+    ),
   },
   {
     path: "logs",

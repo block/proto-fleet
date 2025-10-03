@@ -1,7 +1,12 @@
+// TODO: [STORE_REFACTOR] we can probably remove some of these utils in favor of the store hooks (chartDataForMetric, getCurrentValue, etc.)
+// Deprioritize for now, since this feature is turned off
+
 import {
   HashrateResponseHashratedata,
   TemperatureResponseTemperaturedata,
-} from "@/protoOS/api/types";
+} from "@/protoOS/api/generatedApi";
+import { type MetricTimeSeries } from "@/protoOS/store";
+import { ChartData } from "@/shared/components/LineChart/types";
 import {
   TEMP_UNITS,
   type TemperatureUnits,
@@ -43,4 +48,34 @@ export const convertAndFormatTemperature = (
   }
 
   return `${getDisplayValue(tempC)}º${showUnits ? "C" : ""}`;
+};
+
+/**
+ * Convert MetricTimeSeries temperature data to ChartData format
+ */
+export const convertTelemetryTemperatureToChartData = (
+  metric: MetricTimeSeries,
+  intervalMs: number = 60000, // Default 1 minute intervals
+): ChartData[] => {
+  if (!metric?.values?.length) return [];
+
+  return metric.values.map((value, index) => ({
+    datetime: Math.floor((metric.startTime + index * intervalMs) / 1000), // Convert to seconds
+    value,
+  }));
+};
+
+/**
+ * Convert MetricTimeSeries hashrate data to ChartData format
+ */
+export const convertTelemetryHashrateToChartData = (
+  metric: MetricTimeSeries,
+  intervalMs: number = 60000, // Default 1 minute intervals
+): ChartData[] => {
+  if (!metric?.values?.length) return [];
+
+  return metric.values.map((value, index) => ({
+    datetime: Math.floor((metric.startTime + index * intervalMs) / 1000), // Convert to seconds
+    value: value ? convertMegahashSecToTerahashSec(value) : value, // Convert from MH/s to TH/s
+  }));
 };

@@ -1,33 +1,39 @@
-import { useOutletContext } from "react-router-dom";
-import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart/index.ts";
-import { useProcessedHashboardHashrates } from "@/protoOS/features/kpis/hooks/index.ts";
-import { KpiOutletContext } from "@/protoOS/features/kpis/types";
+import { useMemo } from "react";
+import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart";
+import {
+  convertAndFormatMeasurement,
+  useChartDataForMetric,
+  useMiner,
+  useMinerHashboards,
+  useMinerStore,
+} from "@/protoOS/store";
+import { MetricTimeSeries } from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import { type StatProps } from "@/shared/components/Stat";
-import { AggregateStats } from "@/shared/features/kpis";
-import Stats from "@/shared/features/kpis/components/Stats";
+import Stats from "@/shared/components/Stats";
 
-type StatsArgs = AggregateStats & { lowestPerformer?: string };
+type StatsArgs = MetricTimeSeries["aggregates"] & { lowestPerformer?: string };
 
-const getStats = (stats: StatsArgs = {}): StatProps[] => {
+const getStats = (stats: StatsArgs): StatProps[] => {
   const { avg, max, min, lowestPerformer } = stats;
 
   return [
     {
       label: "Average",
-      value: avg,
+      value: convertAndFormatMeasurement(avg, "TH/s", false),
       units: "TH/s",
       size: "small",
     },
     {
       label: "Highest",
-      value: max,
+      value: convertAndFormatMeasurement(max, "TH/s", false),
       units: "TH/s",
       size: "small",
     },
     {
       label: "Lowest",
-      value: min,
+      value: convertAndFormatMeasurement(min, "TH/s", false),
       units: "TH/s",
       size: "small",
     },
@@ -40,17 +46,29 @@ const getStats = (stats: StatsArgs = {}): StatProps[] => {
 };
 
 const Hashrate = () => {
-  const {
-    minerHashrate: { hashrate: totalHashrates, aggregates },
-    duration,
-    hashboardSerials,
-  } = useOutletContext<KpiOutletContext>();
+  const { chartData, chartLines } = useChartDataForMetric("hashrate");
+  const miner = useMiner();
+  const hashboards = useMinerHashboards();
+  const aggregates = miner?.hashrate?.aggregates;
 
-  const { hashrates: hbHashrates, lowestPerformer } =
-    useProcessedHashboardHashrates({
-      serials: hashboardSerials,
-      duration,
+  const lowestPerformer = useMemo(() => {
+    if (!hashboards) return undefined;
+
+    let lowestSlot: number | undefined;
+    let lowestAvg = Infinity;
+
+    hashboards.forEach((hashboard) => {
+      const hashboardAvg = hashboard.hashrate?.aggregates?.avg?.value;
+      if (!!hashboardAvg && hashboardAvg < lowestAvg) {
+        lowestAvg = hashboardAvg;
+        lowestSlot = useMinerStore
+          .getState()
+          .hardware.getSlotByHbSn(hashboard.serial);
+      }
     });
+
+    return lowestSlot ? "Hashboard " + lowestSlot : undefined;
+  }, [hashboards]);
 
   return (
     <>
@@ -59,16 +77,19 @@ const Hashrate = () => {
           <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
         </ErrorBoundary>
       )}
-      <ErrorBoundary>
-        <KpiLineChart
-          series={hbHashrates}
-          units="TH/s"
-          aggregateSeries={{
-            name: "Total Hashrate",
-            data: totalHashrates,
-          }}
-        />
-      </ErrorBoundary>
+      {chartData.length > 0 ? (
+        <ErrorBoundary>
+          <KpiLineChart
+            chartData={chartData}
+            chartLines={chartLines}
+            units="TH/s"
+          />
+        </ErrorBoundary>
+      ) : (
+        <div className="flex h-full w-full items-center justify-center">
+          <ProgressCircular indeterminate />
+        </div>
+      )}
     </>
   );
 };

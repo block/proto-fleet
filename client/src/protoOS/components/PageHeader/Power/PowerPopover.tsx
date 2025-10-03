@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-import { MiningStatusMiningstatus } from "@/protoOS/api/types";
+import { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
 
 import { isSleeping } from "@/protoOS/components/App/utility";
 import { variants } from "@/shared/components/Button";

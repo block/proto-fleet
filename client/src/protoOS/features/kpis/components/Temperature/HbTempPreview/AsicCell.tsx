@@ -1,7 +1,7 @@
-import type { AsicStats } from "@/protoOS/api/types";
 import { useAsicColor } from "@/protoOS/features/kpis/hooks";
+import type { AsicData } from "@/protoOS/store";
 
-const AsicCell = ({ asic }: { asic: AsicStats }) => {
+const AsicCell = ({ asic }: { asic: AsicData }) => {
   const backgroundColor = useAsicColor(asic);
 
   return (

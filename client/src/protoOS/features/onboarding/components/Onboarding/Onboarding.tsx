@@ -5,7 +5,7 @@ import { SimpleErrorProps } from "@/protoOS/api/apiResponseTypes";
 import {
   NetworkInfoNetworkinfo,
   SystemInfoSysteminfo,
-} from "@/protoOS/api/types";
+} from "@/protoOS/api/generatedApi";
 
 import AppLayout from "@/protoOS/components/AppLayout";
 import SettingsContentLayout from "@/protoOS/components/ContentLayout/SettingsContentLayout";

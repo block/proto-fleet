@@ -37,7 +37,7 @@ const WidgetWrapper = ({
       size={sizes.compact}
       className={clsx(baseClasses, className)}
       onClick={onClick}
-      data-testid={testId}
+      testId={testId}
     >
       <div className="flex gap-2">{children}</div>
     </Button>

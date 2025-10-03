@@ -3,40 +3,26 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import HbTempPreview from "./HbTempPreview"; // Adjust the import path as necessary
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
-import { HbTemperature } from "@/protoOS/features/kpis/hooks";
+import { useAsicRowsByHbSn, useMinerHashboardAsics } from "@/protoOS/store";
+import { type HashboardData } from "@/protoOS/store";
 import { TEMP_UNITS, usePreferences } from "@/shared/features/preferences/";
-import { getDisplayValue } from "@/shared/utils/stringUtils";
-import { convertCtoF } from "@/shared/utils/utility";
 
-const mockHbData: HbTemperature = {
-  name: "Hashboard 1",
+const mockHbData: HashboardData = {
   serial: "1234567890",
-  aggregates: {
-    avg: 60,
-    max: 80,
-    min: 40,
-  },
-  data: [
-    { datetime: 1234567890, value: 40 },
-    { datetime: 1234567891, value: 60 },
-    { datetime: 1234567892, value: 80 },
-  ],
   slot: 1,
-};
-
-const createMockAsics = (temp = 80) => {
-  return Array(100)
-    .fill(0)
-    .map((_, index) => ({
-      id: index,
-      row: Math.floor(index / 10),
-      column: index % 10,
-      freq_mhz: 800,
-      temp_c: temp,
-      hashrate_ghs: 756.62,
-      ideal_hashrate_ghs: 251.73,
-      error_rate: 0.49,
-    }));
+  bay: 1,
+  asicIds: [],
+  temperature: {
+    units: "C",
+    values: [40, 60, 80],
+    aggregates: {
+      avg: { value: 60, units: "C" },
+      max: { value: 80, units: "C" },
+      min: { value: 40, units: "C" },
+    },
+    startTime: 1234567890000,
+    endTime: 1234567892000,
+  },
 };
 
 vi.mock("@/shared/features/preferences/", async () => {
@@ -51,18 +37,52 @@ vi.mock("@/shared/features/preferences/", async () => {
   };
 });
 
+vi.mock("@/protoOS/api", () => ({
+  useHashboardStatus: vi.fn(),
+}));
+
+vi.mock("@/protoOS/store", async (importOriginal) => {
+  const actual = (await importOriginal()) as any;
+  return {
+    ...actual,
+    useMinerHashboard: vi.fn(() => ({
+      avgAsicTemp: { value: 60, units: "C" },
+      maxAsicTemp: { value: 80, units: "C" },
+    })),
+    useMinerHashboardAsics: vi.fn(() => []), // Default to empty asics array
+    useAsicRowsByHbSn: vi.fn(() => []),
+  };
+});
+
+// Let AsicTablePreview use real logic to decide when to show spinner vs table
+vi.mock("./AsicCell", () => ({
+  default: ({ asic }: { asic: any }) => (
+    <div data-testid="asic-cell">Asic {asic.id}</div>
+  ),
+}));
+
 beforeEach(() => {
   (usePreferences as Mock).mockReturnValue({
     temperatureUnits: "celsius",
   });
+  // Reset asic mocks to default (empty) state
+  (useMinerHashboardAsics as Mock).mockReturnValue([]);
+  (useAsicRowsByHbSn as Mock).mockReturnValue([]);
 });
 
 describe("HbTempPreview", () => {
   it("renders the component with correct initial state", () => {
+    // Override the mock to return some asic data for this test
+    (useMinerHashboardAsics as Mock).mockReturnValue([
+      { id: 1, row: 0, column: 0, temp_c: 60 },
+      { id: 2, row: 0, column: 1, temp_c: 65 },
+    ]);
+    (useAsicRowsByHbSn as Mock).mockReturnValue([0]); // Return row 0
+
     render(
       <MemoryRouter>
         <MinerHostingProvider>
-          <HbTempPreview hbData={mockHbData} asics={createMockAsics()} />
+          <HbTempPreview hbData={mockHbData} />
         </MinerHostingProvider>
       </MemoryRouter>,
     );
@@ -79,16 +99,22 @@ describe("HbTempPreview", () => {
       temperatureUnits: TEMP_UNITS.fahrenheit,
     });
 
-    const hbData = {
-      name: "Hashboard 1",
+    const hbData: HashboardData = {
       serial: "12345",
-      aggregates: {
-        avg: 50,
-        max: 60,
-        min: 40,
-      },
-      data: [{ value: 55 }],
       slot: 1,
+      bay: 1,
+      asicIds: [],
+      temperature: {
+        units: "C",
+        values: [55],
+        aggregates: {
+          avg: { value: 50, units: "C" },
+          max: { value: 60, units: "C" },
+          min: { value: 40, units: "C" },
+        },
+        startTime: 1234567890000,
+        endTime: 1234567892000,
+      },
     };
 
     render(
@@ -99,18 +125,16 @@ describe("HbTempPreview", () => {
       </MemoryRouter>,
     );
 
-    // Verify that the stats render with Fahrenheit units
-    const temp = screen.getByText(
-      `${getDisplayValue(convertCtoF(55)) + " ºF"}`,
-    );
-    expect(temp).toBeInTheDocument();
+    // Verify that the component renders with Fahrenheit units - using the actual converted values from the mock
+    expect(screen.getByText("140.0º F")).toBeInTheDocument(); // Mock avgAsicTemp: 60°C -> 140°F
+    expect(screen.getByText("176.0º F")).toBeInTheDocument(); // Mock maxAsicTemp: 80°C -> 176°F
   });
 
   it("renders spinner if there is no asic data", () => {
     render(
       <MemoryRouter>
         <MinerHostingProvider>
-          <HbTempPreview hbData={mockHbData} asics={undefined} />
+          <HbTempPreview hbData={mockHbData} />
         </MinerHostingProvider>
       </MemoryRouter>,
     );
@@ -119,19 +143,25 @@ describe("HbTempPreview", () => {
   });
 
   it("correctly renders overheated state", () => {
-    const overheatedHbData = {
+    const overheatedHbData: HashboardData = {
       ...mockHbData,
-      data: [
-        { datetime: 1234567890, value: 40 },
-        { datetime: 1234567891, value: 60 },
-        { datetime: 1234567892, value: 100 }, // Overheated
-      ],
+      temperature: {
+        units: "C",
+        values: [40, 60, 100], // Overheated
+        aggregates: {
+          avg: { value: 60, units: "C" },
+          max: { value: 100, units: "C" },
+          min: { value: 40, units: "C" },
+        },
+        startTime: 1234567890000,
+        endTime: 1234567892000,
+      },
     };
 
     render(
       <MemoryRouter>
         <MinerHostingProvider>
-          <HbTempPreview hbData={overheatedHbData} asics={undefined} />
+          <HbTempPreview hbData={overheatedHbData} />
         </MinerHostingProvider>
       </MemoryRouter>,
     );

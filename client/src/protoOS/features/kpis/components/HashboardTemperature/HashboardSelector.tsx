@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useMinerHosting } from "@/protoOS/api";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { ChevronUpDown } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
 import Popover, { usePopover } from "@/shared/components/Popover";

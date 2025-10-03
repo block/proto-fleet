@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import WidgetWrapper from "../WidgetWrapper";
 import PowerPopover from "./PowerPopover";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
-import { MiningStatusMiningstatus } from "@/protoOS/api/types";
+import { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
 
 import {
   isAwake,
@@ -175,7 +175,7 @@ const PowerWidget = ({
   ]);
 
   return (
-    <div className="relative" ref={WidgetRef}>
+    <div className="relative" ref={WidgetRef} data-testid="power-widget">
       <WidgetWrapper
         onClick={() => setIsOpen((prev) => !prev)}
         className="w-[28px] p-0 text-text-primary"

@@ -18,7 +18,7 @@ import {
 import {
   MiningStatusMiningstatus,
   NotificationError,
-} from "@/protoOS/api/types";
+} from "@/protoOS/api/generatedApi";
 import {
   isMining as checkIsMining,
   isSleeping as checkIsSleeping,

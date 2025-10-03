@@ -1,17 +1,18 @@
-import { useEffect, useState } from "react";
-import { useOutletContext } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
+import { useShallow } from "zustand/react/shallow";
 import HbBayPreview from "./HbBayPreview";
 import { useCoolingStatus } from "@/protoOS/api";
-import { type FanStatus } from "@/protoOS/api/types";
-import { useProcessedHashboardTemperature } from "@/protoOS/features/kpis/hooks";
-import { KpiOutletContext } from "@/protoOS/features/kpis/types";
+import { useTimeSeries } from "@/protoOS/api";
+import {
+  AsicFieldType,
+  type FanStatus,
+  HashboardFieldType,
+} from "@/protoOS/api/generatedApi";
+import { useMinerHashboards, useMinerStore } from "@/protoOS/store";
 import { FanIndicator } from "@/shared/assets/icons";
 import { type StatProps } from "@/shared/components/Stat";
-import Stats from "@/shared/features/kpis/components/Stats";
-
-const BAYS_COUNT = 3;
-const HB_IN_BAY_COUNT = 3;
+import Stats from "@/shared/components/Stats";
 
 const getFanStats = (
   fanSpeed: FanStatus | undefined,
@@ -48,16 +49,48 @@ const getFanStats = (
 };
 
 const Temperature = () => {
-  const { duration, hashboardSerials } = useOutletContext<KpiOutletContext>();
   const [fanSpeeds, setFanSpeeds] = useState<FanStatus[]>();
+  const bayCount = useMinerStore(
+    useShallow((state) => state.hardware.getBayCount()),
+  );
+  const duration = useMinerStore((state) => state.ui.duration);
 
-  const hbTempData = useProcessedHashboardTemperature({
-    serials: hashboardSerials,
-    duration: duration,
+  // Memoize levels to prevent recreating on every render
+  const levels = useMemo(
+    () => [
+      { type: "hashboard" as const, fields: [HashboardFieldType.Temperature] },
+      { type: "asic" as const, fields: [AsicFieldType.Temperature] },
+    ],
+    [],
+  );
+
+  // Fetch telemetry data with polling
+  useTimeSeries({
+    duration,
+    levels,
+    poll: true,
+    pollIntervalMs: 10000, // 10 seconds
   });
+
+  // Get integrated hashboard data directly from stores
+  // Only fetch after hashboards are loaded
+  const hashboards = useMinerHashboards();
 
   const { data: coolingStatus, pending: pendingCoolingStatus } =
     useCoolingStatus({ poll: true });
+
+  // Organize hashboards by bay to avoid filtering on every render
+  const hashboardsByBay = useMemo(() => {
+    const byBay: { [bay: number]: typeof hashboards } = {};
+    hashboards.forEach((hashboard) => {
+      if (!hashboard.bay) return;
+      if (!byBay[hashboard.bay]) {
+        byBay[hashboard.bay] = [];
+      }
+      byBay[hashboard.bay].push(hashboard);
+    });
+    return byBay;
+  }, [hashboards]);
 
   useEffect(() => {
     if (!pendingCoolingStatus || coolingStatus?.fans) {
@@ -98,16 +131,16 @@ const Temperature = () => {
       )}
 
       <div className="flex grid-cols-3 flex-col gap-4 sm:grid">
-        {Array.from({ length: BAYS_COUNT }).map((_, groupIndex) => (
-          <div key={groupIndex}>
-            <HbBayPreview
-              data={hbTempData.filter(
-                (value) =>
-                  Math.ceil(value.slot / HB_IN_BAY_COUNT) === groupIndex + 1,
-              )}
-            />
-          </div>
-        ))}
+        {Array.from({ length: bayCount }).map((_, bayIndex) => {
+          const bayNumber = bayIndex + 1;
+          const bayData = hashboardsByBay[bayNumber] || [];
+
+          return (
+            <div key={bayIndex}>
+              <HbBayPreview data={bayData} />
+            </div>
+          );
+        })}
       </div>
     </>
   );

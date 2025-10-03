@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import FirmwareUpdateStatus from "./FirmwareUpdateStatus";
-import { UpdateStatus } from "@/protoOS/api/types";
+import { UpdateStatus } from "@/protoOS/api/generatedApi";
 
 const meta: Meta<typeof FirmwareUpdateStatus> = {
   title: "ProtoOS/Firmware Update/FirmwareUpdateStatus",

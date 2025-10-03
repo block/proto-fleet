@@ -13,12 +13,12 @@ import {
   processAllMetrics,
   processAllMetricsWithStreaming,
 } from "@/protoFleet/features/kpis/utils/telemetryTransforms";
+import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
 import DurationSelector, {
   Duration,
   durations,
 } from "@/shared/components/DurationSelector";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-import NoPoolsCallout from "@/shared/features/kpis/components/NoPoolsCallout";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 interface KpiLayoutProps {
   children?: ReactNode;

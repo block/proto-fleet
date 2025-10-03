@@ -1,24 +1,15 @@
 import { type ElementType, useEffect, useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 import HbTempPreviewComponent from "../HbTempPreview";
-import { asics, hbData } from "./mocks";
+import { hbData } from "./mocks";
 import { criticalTemp } from "@/protoOS/features/kpis/constants";
 
 import { lerp } from "@/shared/utils/math";
 
 export const HbTempPreview = ({ heatRatio }: { heatRatio: number }) => {
-  const [heatedAsics, setHeatedAsics] = useState(asics);
   const [heatedHbData, setHeatedHbData] = useState(hbData);
 
-  // simulate overheating
   useEffect(() => {
-    setHeatedAsics(
-      asics.map((asic) => ({
-        ...asic,
-        temp_c: lerp(asic.temp_c, criticalTemp + 10, heatRatio),
-      })),
-    );
-
     const lastTemp = hbData.data[hbData.data.length - 1].value || 0;
     const lastTime = hbData.data[hbData.data.length - 1].datetime || 0;
     setHeatedHbData({
@@ -32,7 +23,7 @@ export const HbTempPreview = ({ heatRatio }: { heatRatio: number }) => {
     });
   }, [heatRatio]);
 
-  return <HbTempPreviewComponent hbData={heatedHbData} asics={heatedAsics} />;
+  return <HbTempPreviewComponent hbData={heatedHbData} />;
 };
 
 export default {

@@ -1,3 +1,3 @@
-import HbTempPreviewWrapper from "./HbTempPreviewWrapper";
+import HbTempPreview from "./HbTempPreview";
 
-export default HbTempPreviewWrapper;
+export default HbTempPreview;

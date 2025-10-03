@@ -1,4 +1,4 @@
-import type { UpdateStatus } from "@/protoOS/api/types";
+import type { UpdateStatus } from "@/protoOS/api/generatedApi";
 
 export const statusLabelFromUpdateStatus = (
   updateStatus?: UpdateStatus,

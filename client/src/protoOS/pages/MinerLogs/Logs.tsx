@@ -18,7 +18,7 @@ import {
   formatLogType,
   getErrorWarningCount,
 } from "./utility";
-import { LogsResponseLogs } from "@/protoOS/api/types";
+import { LogsResponseLogs } from "@/protoOS/api/generatedApi";
 import { DismissTiny } from "@/shared/assets/icons";
 
 import Button, { sizes, variants } from "@/shared/components/Button";

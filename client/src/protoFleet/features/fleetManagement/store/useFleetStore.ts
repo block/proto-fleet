@@ -1,6 +1,7 @@
 import { create as createSchema } from "@bufbuild/protobuf";
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
+import { devtools } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { useShallow } from "zustand/react/shallow";
 import { MeasurementSchema } from "@/protoFleet/api/generated/common/v1/measurement_pb";
@@ -248,162 +249,165 @@ const isHashing = (minerSnapshot: MinerStateSnapshot) => {
 };
 
 export const useFleetStore = create<FleetState>()(
-  subscribeWithSelector(
-    immer((set, get) => ({
-      // Initial state
-      miners: {},
-      minerIds: [],
-      totalMiners: 0,
-      minerStateCounts: createSchema(MinerStateCountsSchema, {}),
-      currentFilter: undefined,
-      isLoading: false,
-      isStreaming: false,
-      cursor: "",
-      refetchMiners: undefined,
+  devtools(
+    subscribeWithSelector(
+      immer((set, get) => ({
+        // Initial state
+        miners: {},
+        minerIds: [],
+        totalMiners: 0,
+        minerStateCounts: createSchema(MinerStateCountsSchema, {}),
+        currentFilter: undefined,
+        isLoading: false,
+        isStreaming: false,
+        cursor: "",
+        refetchMiners: undefined,
 
-      // Actions
-      setMiners: (miners) =>
-        set((state) => {
-          state.miners = {};
-          state.minerIds = [];
+        // Actions
+        setMiners: (miners) =>
+          set((state) => {
+            state.miners = {};
+            state.minerIds = [];
 
-          miners.forEach((miner) => {
-            state.miners[miner.deviceIdentifier] = miner;
-            state.minerIds.push(miner.deviceIdentifier);
-          });
-        }),
-
-      appendMiners: (miners) =>
-        set((state) => {
-          const existingIds = new Set(state.minerIds);
-
-          miners.forEach((miner) => {
-            // Only add if not already present
-            if (!existingIds.has(miner.deviceIdentifier)) {
+            miners.forEach((miner) => {
               state.miners[miner.deviceIdentifier] = miner;
               state.minerIds.push(miner.deviceIdentifier);
-            }
-          });
-        }),
+            });
+          }),
 
-      setTotalMiners: (count) =>
-        set((state) => {
-          state.totalMiners = count;
-        }),
+        appendMiners: (miners) =>
+          set((state) => {
+            const existingIds = new Set(state.minerIds);
 
-      setMinerStateCounts: (counts) =>
-        set((state) => {
-          state.minerStateCounts = counts;
-        }),
-
-      handleMinerStateCountsChange: (previousCounts, newCounts) => {
-        const { refetchMiners, currentFilter } = get();
-
-        // If we have a refetch callback and a filter is active, check if relevant counts changed
-        if (refetchMiners && currentFilter) {
-          const previousRelevantCounts = getRelevantCounts(
-            currentFilter,
-            previousCounts,
-          );
-          const currentRelevantCounts = getRelevantCounts(
-            currentFilter,
-            newCounts,
-          );
-
-          // Check if any of the relevant counts have changed
-          const hasRelevantChange =
-            previousRelevantCounts.hashingCount !==
-              currentRelevantCounts.hashingCount ||
-            previousRelevantCounts.brokenCount !==
-              currentRelevantCounts.brokenCount ||
-            previousRelevantCounts.offlineCount !==
-              currentRelevantCounts.offlineCount ||
-            previousRelevantCounts.sleepingCount !==
-              currentRelevantCounts.sleepingCount;
-
-          if (hasRelevantChange) {
-            // Use setTimeout to avoid calling during state update
-            setTimeout(() => {
-              const currentState = get();
-              if (currentState.refetchMiners) {
-                currentState.refetchMiners();
+            miners.forEach((miner) => {
+              // Only add if not already present
+              if (!existingIds.has(miner.deviceIdentifier)) {
+                state.miners[miner.deviceIdentifier] = miner;
+                state.minerIds.push(miner.deviceIdentifier);
               }
-            }, 0);
+            });
+          }),
+
+        setTotalMiners: (count) =>
+          set((state) => {
+            state.totalMiners = count;
+          }),
+
+        setMinerStateCounts: (counts) =>
+          set((state) => {
+            state.minerStateCounts = counts;
+          }),
+
+        handleMinerStateCountsChange: (previousCounts, newCounts) => {
+          const { refetchMiners, currentFilter } = get();
+
+          // If we have a refetch callback and a filter is active, check if relevant counts changed
+          if (refetchMiners && currentFilter) {
+            const previousRelevantCounts = getRelevantCounts(
+              currentFilter,
+              previousCounts,
+            );
+            const currentRelevantCounts = getRelevantCounts(
+              currentFilter,
+              newCounts,
+            );
+
+            // Check if any of the relevant counts have changed
+            const hasRelevantChange =
+              previousRelevantCounts.hashingCount !==
+                currentRelevantCounts.hashingCount ||
+              previousRelevantCounts.brokenCount !==
+                currentRelevantCounts.brokenCount ||
+              previousRelevantCounts.offlineCount !==
+                currentRelevantCounts.offlineCount ||
+              previousRelevantCounts.sleepingCount !==
+                currentRelevantCounts.sleepingCount;
+
+            if (hasRelevantChange) {
+              // Use setTimeout to avoid calling during state update
+              setTimeout(() => {
+                const currentState = get();
+                if (currentState.refetchMiners) {
+                  currentState.refetchMiners();
+                }
+              }, 0);
+            }
           }
-        }
-      },
+        },
 
-      setCurrentFilter: (filter) =>
-        set((state) => {
-          state.currentFilter = filter;
-        }),
+        setCurrentFilter: (filter) =>
+          set((state) => {
+            state.currentFilter = filter;
+          }),
 
-      setRefetchCallback: (callback) =>
-        set((state) => {
-          state.refetchMiners = callback;
-        }),
+        setRefetchCallback: (callback) =>
+          set((state) => {
+            state.refetchMiners = callback;
+          }),
 
-      updateMinerMeasurement: (deviceId, measurementUpdate) =>
-        set((state) => {
-          const miner = state.miners[deviceId];
-          if (miner) {
-            updateMeasurement(measurementUpdate, miner);
-          }
-        }),
+        updateMinerMeasurement: (deviceId, measurementUpdate) =>
+          set((state) => {
+            const miner = state.miners[deviceId];
+            if (miner) {
+              updateMeasurement(measurementUpdate, miner);
+            }
+          }),
 
-      updateMinerTelemetry: (deviceId, telemetryUpdate) =>
-        set((state) => {
-          const miner = state.miners[deviceId];
-          if (miner) {
-            updateTelemetryMeasurement(telemetryUpdate, miner);
-          }
-        }),
+        updateMinerTelemetry: (deviceId, telemetryUpdate) =>
+          set((state) => {
+            const miner = state.miners[deviceId];
+            if (miner) {
+              updateTelemetryMeasurement(telemetryUpdate, miner);
+            }
+          }),
 
-      updateMinerComponentStatus: (deviceId, statusUpdate) =>
-        set((state) => {
-          const miner = state.miners[deviceId];
-          if (miner) {
-            updateComponentStatus(statusUpdate, miner);
-          }
-        }),
+        updateMinerComponentStatus: (deviceId, statusUpdate) =>
+          set((state) => {
+            const miner = state.miners[deviceId];
+            if (miner) {
+              updateComponentStatus(statusUpdate, miner);
+            }
+          }),
 
-      updateMinerDeviceStatus: (deviceId, deviceStatusUpdate) =>
-        set((state) => {
-          const miner = state.miners[deviceId];
-          if (miner) {
-            updateDeviceStatus(deviceStatusUpdate, miner);
-          }
-        }),
+        updateMinerDeviceStatus: (deviceId, deviceStatusUpdate) =>
+          set((state) => {
+            const miner = state.miners[deviceId];
+            if (miner) {
+              updateDeviceStatus(deviceStatusUpdate, miner);
+            }
+          }),
 
-      updateMinerTimestamp: (deviceId, timestamp) =>
-        set((state) => {
-          const miner = state.miners[deviceId];
-          if (miner) {
-            miner.timestamp = timestamp;
-          }
-        }),
+        updateMinerTimestamp: (deviceId, timestamp) =>
+          set((state) => {
+            const miner = state.miners[deviceId];
+            if (miner) {
+              miner.timestamp = timestamp;
+            }
+          }),
 
-      setLoading: (loading) =>
-        set((state) => {
-          state.isLoading = loading;
-        }),
+        setLoading: (loading) =>
+          set((state) => {
+            state.isLoading = loading;
+          }),
 
-      setStreaming: (streaming) =>
-        set((state) => {
-          state.isStreaming = streaming;
-        }),
+        setStreaming: (streaming) =>
+          set((state) => {
+            state.isStreaming = streaming;
+          }),
 
-      setCursor: (cursor) =>
-        set((state) => {
-          state.cursor = cursor;
-        }),
+        setCursor: (cursor) =>
+          set((state) => {
+            state.cursor = cursor;
+          }),
 
-      // Selectors
-      getMinersArray: () => {
-        const state = get();
-        return state.minerIds.map((id) => state.miners[id]).filter(Boolean);
-      },
-    })),
+        // Selectors
+        getMinersArray: () => {
+          const state = get();
+          return state.minerIds.map((id) => state.miners[id]).filter(Boolean);
+        },
+      })),
+    ),
+    { name: "fleet-store" },
   ),
 );
 

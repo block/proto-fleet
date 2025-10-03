@@ -1,4 +1,5 @@
 export const hbData = {
+  id: "404FP95302000053",
   name: "Hashboard 1",
   serial: "404FP95302000053",
   data: [
@@ -12,9 +13,9 @@ export const hbData = {
     },
   ],
   aggregates: {
-    min: 54.48,
-    avg: 60.01,
-    max: 66.69,
+    min: { value: 54.48, units: "C" },
+    avg: { value: 60.01, units: "C" },
+    max: { value: 66.69, units: "C" },
   },
   slot: 1,
 };

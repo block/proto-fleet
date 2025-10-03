@@ -7,7 +7,7 @@ import WakeCallout from "./WakeCallout";
 import WarmingUpCallout from "./WarmingUpCallout";
 import { useNetworkInfo } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
-import { SystemInfoSysteminfo } from "@/protoOS/api/types";
+import { SystemInfoSysteminfo } from "@/protoOS/api/generatedApi";
 import AppLayout from "@/protoOS/components/AppLayout";
 import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";

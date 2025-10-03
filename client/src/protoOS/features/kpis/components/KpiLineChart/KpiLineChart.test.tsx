@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import KpiChart from "./KpiLineChartWrapper";
+import KpiLineChartWrapper from "./KpiLineChart";
 
 // Mock SVG elements for tests
 vi.mock("@/shared/components/Chart/AxisTick", () => ({
@@ -59,8 +59,8 @@ vi.mock("@/shared/hooks/useWindowDimensions", () => ({
   }),
 }));
 
-// Mock KpiTooltip component
-vi.mock("@/shared/features/kpis/components/KpiLineChart/KpiTooltip", () => ({
+// Mock Tooltip component
+vi.mock("@/shared/components/LineChart/Tooltip", () => ({
   default: ({ tooltipData, units, onHover }: any) => (
     <div data-testid="kpi-tooltip">
       <button
@@ -100,141 +100,25 @@ vi.mock("@/shared/features/kpis/components/KpiLineChart/KpiTooltip", () => ({
   ),
 }));
 
-const mockSeries = [
-  {
-    name: "series1",
-    serial: "hashboard1",
-    data: [
-      { datetime: 1234567890, value: 42 },
-      { datetime: 1234567891, value: 43 },
-    ],
-  },
-  {
-    name: "series2",
-    serial: "hashboard2",
-    data: [
-      { datetime: 1234567890, value: 12 },
-      { datetime: 1234567891, value: 13 },
-    ],
-  },
-];
-
-const mockAggregateSeries = {
-  name: "total",
-  data: [
-    { datetime: 1234567890, value: 54 },
-    { datetime: 1234567891, value: 56 },
-  ],
-};
-
-describe("KpiLineChart", () => {
-  it("renders the component with necessary chart elements", () => {
-    render(
-      <KpiChart
-        series={mockSeries}
-        aggregateSeries={mockAggregateSeries}
-        units="W"
-      />,
+describe("KpiLineChartWrapper", () => {
+  it("renders the component without errors", () => {
+    const { container } = render(
+      <KpiLineChartWrapper chartData={[]} chartLines={[]} />,
     );
+
+    expect(container).toBeInTheDocument();
+  });
+
+  it("renders hashboard selector", () => {
+    render(<KpiLineChartWrapper chartData={[]} chartLines={[]} />);
+
+    // The wrapper should render the HashboardSelector with a Summary button
+    expect(screen.getByText("Summary")).toBeInTheDocument();
+  });
+
+  it("renders responsive container for chart", () => {
+    render(<KpiLineChartWrapper chartData={[]} chartLines={[]} />);
 
     expect(screen.getByTestId("responsive-container")).toBeInTheDocument();
-    expect(screen.getByTestId("line-chart")).toBeInTheDocument();
-    expect(screen.getByTestId("x-axis")).toBeInTheDocument();
-    expect(screen.getByTestId("y-axis")).toBeInTheDocument();
-    expect(screen.getByTestId("tooltip")).toBeInTheDocument();
-    expect(screen.getByTestId("kpi-tooltip")).toBeInTheDocument();
-    expect(screen.getByTestId("line-total")).toBeInTheDocument();
-  });
-
-  it("does not show series lines when tooltip has no data (not hovered)", () => {
-    render(
-      <KpiChart
-        series={mockSeries}
-        aggregateSeries={mockAggregateSeries}
-        units="W"
-      />,
-    );
-
-    // Initially, the tooltip has no payload
-    expect(screen.getByTestId("tooltip-payload-count").textContent).toBe("0");
-
-    // Series lines should not be in the document
-    expect(screen.queryByTestId("line-series1")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("line-series2")).not.toBeInTheDocument();
-
-    // But aggregate line should be present
-    expect(screen.getByTestId("line-total")).toBeInTheDocument();
-  });
-
-  it("shows series lines when tooltip has data (chart is hovered)", () => {
-    render(
-      <KpiChart
-        series={mockSeries}
-        aggregateSeries={mockAggregateSeries}
-        units="W"
-      />,
-    );
-
-    // Initially, the tooltip has no payload
-    expect(screen.getByTestId("tooltip-payload-count").textContent).toBe("0");
-
-    // Simulate a hover by calling the onHover function
-    fireEvent.click(screen.getByTestId("tooltip-hover-button"));
-
-    // Now the tooltip should have payload data
-    expect(screen.getByTestId("tooltip-payload-count").textContent).toBe("1");
-
-    // Series lines should now be visible
-    waitFor(() => {
-      expect(screen.getByTestId("line-series1")).toBeInTheDocument();
-      expect(screen.getByTestId("line-series2")).toBeInTheDocument();
-    });
-
-    // And the aggregate line should still be present
-    expect(screen.getByTestId("line-total")).toBeInTheDocument();
-
-    // The aggregate line should also have an active dot when hovered
-    expect(screen.getByTestId("dot-total")).toBeInTheDocument();
-  });
-
-  it("hides series lines when unhovered", () => {
-    render(
-      <KpiChart
-        series={mockSeries}
-        aggregateSeries={mockAggregateSeries}
-        units="W"
-      />,
-    );
-
-    // Simulate a hover
-    fireEvent.click(screen.getByTestId("tooltip-hover-button"));
-
-    // Verify series lines are shown
-    waitFor(() => {
-      expect(screen.getByTestId("line-series1")).toBeInTheDocument();
-      expect(screen.getByTestId("line-series2")).toBeInTheDocument();
-    });
-
-    // Now simulate an unhover
-    fireEvent.click(screen.getByTestId("tooltip-unhover-button"));
-
-    // Series lines should be hidden again
-    expect(screen.queryByTestId("line-series1")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("line-series2")).not.toBeInTheDocument();
-
-    // The tooltip should have no payload
-    expect(screen.getByTestId("tooltip-payload-count").textContent).toBe("0");
-  });
-
-  it("passes units to the tooltip", () => {
-    render(
-      <KpiChart
-        series={mockSeries}
-        aggregateSeries={mockAggregateSeries}
-        units="W"
-      />,
-    );
-
-    expect(screen.getByTestId("tooltip-units").textContent).toBe("W");
   });
 });

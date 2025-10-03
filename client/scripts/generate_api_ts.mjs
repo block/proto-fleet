@@ -18,7 +18,7 @@ if (!fs.existsSync(swaggerSchemaPath)) {
   process.exitCode = 1;
 }
 
-const [fileName = "types.ts"] = process.argv.slice(2);
+const [fileName = "generatedApi.ts"] = process.argv.slice(2);
 const fileDir = path.resolve(__dirname, "../src/protoOS/api");
 
 generateApi({

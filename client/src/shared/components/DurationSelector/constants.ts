@@ -1,4 +1,4 @@
-import { TimeSeriesDuration } from "@/protoOS/api/types";
+import { TimeSeriesDuration } from "@/protoOS/api/generatedApi";
 
 export const durations = [
   TimeSeriesDuration.Value1H,

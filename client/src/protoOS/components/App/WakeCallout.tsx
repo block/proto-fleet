@@ -1,5 +1,5 @@
 import { isSleeping } from "./utility";
-import { MiningStatusMiningstatus } from "@/protoOS/api/types";
+import { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
 
 import { WakingDialog } from "@/protoOS/components/Power";
 import { useWakeMiner } from "@/protoOS/hooks/useWakeMiner";

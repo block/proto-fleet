@@ -1,5 +1,5 @@
 import { createContext } from "react";
-import { SystemInfoSysteminfo } from "@/protoOS/api/types";
+import { SystemInfoSysteminfo } from "@/protoOS/api/generatedApi";
 
 interface SystemContextValue {
   pending: boolean;

@@ -1,4 +1,4 @@
-import { ControlBoardInfo } from "@/protoOS/api/types";
+import { ControlBoardInfo } from "@/protoOS/api/generatedApi";
 
 export const getControlBoardGeneration = (
   controlBoardInfo: ControlBoardInfo,

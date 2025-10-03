@@ -1,53 +1,40 @@
-import { useAsicHashrate } from "./useAsicHashrate";
-import { useAsicTemperature } from "./useAsicTemperature";
-import { useCoolingStatus } from "./useCoolingStatus";
-import { useCreatePools } from "./useCreatePools";
-import { useEditPool } from "./useEditPool";
-import { useEfficiency } from "./useEfficiency";
-import { useErrors } from "./useErrors";
-import { useFirmwareUpdate } from "./useFirmwareUpdate";
-import { useHashboardEfficiency } from "./useHashboardEfficiency";
-import { useHashboardHashrate } from "./useHashboardHashrate";
-import { useHashboardPower } from "./useHashboardPower";
-import { useHashboards } from "./useHashboards";
-import { useHashboardStats } from "./useHashboardStats";
-import { useHashboardTemperature } from "./useHashboardTemperature";
-import { useHashrate } from "./useHashrate";
-import { useLogin } from "./useLogin";
-import { useMiningStart } from "./useMiningStart";
-import { useMiningStatus } from "./useMiningStatus";
-import { useMiningStop } from "./useMiningStop";
-import { useMiningTarget } from "./useMiningTarget";
-import { useNetworkInfo } from "./useNetworkInfo";
-import { usePassword } from "./usePassword";
-import { usePoll } from "./usePoll";
-import { usePoolsInfo } from "./usePoolsInfo";
-import { usePower } from "./usePower";
-import { useRefresh } from "./useRefresh";
-import { useSystemInfo } from "./useSystemInfo";
-import { useSystemLogs } from "./useSystemLogs";
-import { useSystemReboot } from "./useSystemReboot";
-import { useSystemStatus } from "./useSystemStatus";
-import { useTemperature } from "./useTemperature";
-import { TestConnectionProps, useTestConnection } from "./useTestConnection";
-import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { useCoolingStatus } from "./hooks/useCoolingStatus";
+import { useCreatePools } from "./hooks/useCreatePools";
+import { useEditPool } from "./hooks/useEditPool";
+import { useErrors } from "./hooks/useErrors";
+import { useFirmwareUpdate } from "./hooks/useFirmwareUpdate";
+import { useHardware } from "./hooks/useHardware";
+import { useHashboards } from "./hooks/useHashboards";
+import { useHashboardStatus } from "./hooks/useHashboardStatus";
+import { useLogin } from "./hooks/useLogin";
+import { useMiningStart } from "./hooks/useMiningStart";
+import { useMiningStatus } from "./hooks/useMiningStatus";
+import { useMiningStop } from "./hooks/useMiningStop";
+import { useMiningTarget } from "./hooks/useMiningTarget";
+import { useNetworkInfo } from "./hooks/useNetworkInfo";
+import { usePassword } from "./hooks/usePassword";
+import { usePoll } from "./hooks/usePoll";
+import { type FetchPoolsInfoProps, usePoolsInfo } from "./hooks/usePoolsInfo";
+import { useRefresh } from "./hooks/useRefresh";
+import { useSystemInfo } from "./hooks/useSystemInfo";
+import { useSystemLogs } from "./hooks/useSystemLogs";
+import { useSystemReboot } from "./hooks/useSystemReboot";
+import { useSystemStatus } from "./hooks/useSystemStatus";
+import {
+  type TestConnectionProps,
+  useTestConnection,
+} from "./hooks/useTestConnection";
+import { useTimeSeries } from "./hooks/useTimeSeries";
 
 export {
-  useAsicHashrate,
-  useAsicTemperature,
   useCoolingStatus,
   useCreatePools,
   useEditPool,
-  useEfficiency,
   useErrors,
   useFirmwareUpdate,
-  useHashboardEfficiency,
-  useHashboardHashrate,
-  useHashboardPower,
   useHashboards,
-  useHashboardStats,
-  useHashboardTemperature,
-  useHashrate,
+  useHashboardStatus,
+  useHardware,
   useLogin,
   useMiningStart,
   useMiningStatus,
@@ -57,14 +44,13 @@ export {
   usePassword,
   usePoll,
   usePoolsInfo,
-  usePower,
   useRefresh,
-  useMinerHosting,
   useSystemInfo,
   useSystemLogs,
   useSystemReboot,
   useSystemStatus,
-  useTemperature,
   useTestConnection,
+  useTimeSeries,
   type TestConnectionProps,
+  type FetchPoolsInfoProps,
 };

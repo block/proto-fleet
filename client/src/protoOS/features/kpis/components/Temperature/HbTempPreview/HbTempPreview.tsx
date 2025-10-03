@@ -1,49 +1,68 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
 import AsicTablePreview from "./AsicTablePreview";
-import { useMinerHosting } from "@/protoOS/api";
-import { type AsicStats } from "@/protoOS/api/types";
+import { useHashboardStatus } from "@/protoOS/api";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { criticalTemp } from "@/protoOS/features/kpis/constants";
-import { type HbTemperature } from "@/protoOS/features/kpis/hooks";
 import {
-  TEMP_UNITS,
-  type TemperatureUnits,
-  usePreferences,
-} from "@/shared/features/preferences/";
-import { getDisplayValue } from "@/shared/utils/stringUtils";
-import { convertCtoF } from "@/shared/utils/utility";
+  convertAndFormatMeasurement,
+  getCurrentValue,
+  type HashboardData,
+  useMinerHashboard,
+} from "@/protoOS/store";
+import SkeletonBar from "@/shared/components/SkeletonBar";
+import { TEMP_UNITS, usePreferences } from "@/shared/features/preferences/";
 
 type HbTempPreviewProps = {
-  hbData: HbTemperature;
-  asics?: AsicStats[];
-  avgAsicTempC?: number;
-  maxAsicTempC?: number;
+  hbData: HashboardData;
 };
 
-const convertedTemp = (temp: number, units: TemperatureUnits) => {
-  const unitLabel = units === TEMP_UNITS.fahrenheit ? "ºF" : "ºC";
-  const converted = units === TEMP_UNITS.fahrenheit ? convertCtoF(temp) : temp;
-  return getDisplayValue(converted) + " " + unitLabel;
-};
-
-const HbTempPreview = ({
-  hbData,
-  asics,
-  avgAsicTempC,
-  maxAsicTempC,
-}: HbTempPreviewProps) => {
-  const { minerRoot } = useMinerHosting();
-  const { temperatureUnits } = usePreferences();
-  const isOverheating = (maxAsicTempC || 0) > criticalTemp;
-
-  const TempDisplay = ({ value, label }: { value?: number; label: string }) => (
+// TODO: [STRORE_REFACTOR] We should add an xsmall variant of share/componentes/Stat and use here
+const TempDisplay = ({
+  formattedTemp,
+  label,
+}: {
+  formattedTemp: string | undefined;
+  label: string;
+}) => {
+  return (
     <div className="flex flex-col">
       <div className="text-emphasis-300 text-text-primary-70">
-        {value ? convertedTemp(value, temperatureUnits) : "N/A"}
+        {formattedTemp ? formattedTemp : <SkeletonBar className="my-1" />}
       </div>
       <div className="text-xs text-text-primary-50">{label}</div>
     </div>
   );
+};
+
+const HbTempPreview = ({ hbData }: HbTempPreviewProps) => {
+  const [isOverheating, setIsOverheating] = useState<boolean>(false);
+  const { minerRoot } = useMinerHosting();
+  const { temperatureUnits } = usePreferences();
+
+  // TODO: [STORE_REFACTOR] Do we need this call?  can we move it up the tree to avoid multiple calls?
+  // populates hardware store with AsicInfo[]
+  // populates telemetry store with hashboard inlet, outlet, avg asic temp, and max asic temp
+  useHashboardStatus({
+    hashboardSerialNumber: hbData.serial,
+    poll: true,
+  });
+
+  const hashboard = useMinerHashboard(hbData.serial);
+
+  useEffect(() => {
+    if (!hbData.temperature?.values?.length) return;
+
+    const lastTemp = getCurrentValue(
+      hbData.temperature,
+      // TODO: [STORE_REFACTOR] clean this redundant expression up when we move preferences to zustand store,
+      // and share the same unit types that telemetry uses. that way we just pass tempUnits
+      temperatureUnits === TEMP_UNITS.fahrenheit ? "F" : "C",
+      false,
+    );
+    setIsOverheating(!!lastTemp?.value && lastTemp.value > criticalTemp);
+  }, [hbData, temperatureUnits]);
 
   return (
     <Link
@@ -72,19 +91,34 @@ const HbTempPreview = ({
               : "text-text-primary-70",
           )}
         >
-          {hbData.name}
+          Hashboard {hbData.slot}
         </h3>
       </div>
 
       <div className="px-4 py-2">
         <div className="grid grid-cols-2 gap-x-4">
-          <TempDisplay value={avgAsicTempC} label="ASIC avg" />
-          <TempDisplay value={maxAsicTempC} label="ASIC high" />
+          <TempDisplay
+            formattedTemp={convertAndFormatMeasurement(
+              hashboard?.avgAsicTemp,
+              temperatureUnits === TEMP_UNITS.fahrenheit ? "F" : "C",
+              true,
+            )}
+            label="ASIC avg"
+          />
+
+          <TempDisplay
+            formattedTemp={convertAndFormatMeasurement(
+              hashboard?.maxAsicTemp,
+              temperatureUnits === TEMP_UNITS.fahrenheit ? "F" : "C",
+              true,
+            )}
+            label="ASIC high"
+          />
         </div>
       </div>
 
       <div className="p-4">
-        <AsicTablePreview asics={asics} />
+        <AsicTablePreview hashboardSerial={hbData.serial} />
       </div>
     </Link>
   );

@@ -5,7 +5,7 @@ import {
 } from "@/protoFleet/features/kpis/constants";
 import { type StatProps } from "@/shared/components/Stat";
 import { chartStatus } from "@/shared/components/Stat/constants";
-import Stats from "@/shared/features/kpis/components/Stats";
+import Stats from "@/shared/components/Stats";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 
 interface MinersStatusProps {

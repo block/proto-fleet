@@ -1,12 +1,11 @@
 import { createContext, ReactNode, useEffect, useState } from "react";
 
+import { FetchPoolsInfoProps, usePoll, usePoolsInfo } from "@/protoOS/api";
 import {
   ErrorListResponse,
   MiningStatusMiningstatus,
   Pool,
-} from "../../api/types";
-import { usePoll } from "@/protoOS/api";
-import { FetchPoolsInfoProps, usePoolsInfo } from "@/protoOS/api/usePoolsInfo";
+} from "@/protoOS/api/generatedApi";
 
 type WakeDialog = {
   show: boolean;

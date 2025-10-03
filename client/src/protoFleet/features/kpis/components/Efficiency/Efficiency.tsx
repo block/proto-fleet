@@ -1,12 +1,10 @@
 import { useOutletContext } from "react-router-dom";
 
-import KpiLineChart from "@/protoFleet/features/kpis/components/KpiLineChart/KpiLineChartWrapper";
+import { StatsArgs } from "../../types";
+import KpiLineChart from "@/protoFleet/features/kpis/components/KpiLineChart/KpiLineChart";
 import { KpiOutletContext } from "@/protoFleet/features/kpis/types";
 import { type StatProps } from "@/shared/components/Stat";
-import Stats from "@/shared/features/kpis/components/Stats";
-import { AggregateStats } from "@/shared/features/kpis/types";
-
-type StatsArgs = AggregateStats & { lowestPerformer?: string };
+import Stats from "@/shared/components/Stats";
 
 const getStats = (stats: StatsArgs = {}): StatProps[] => {
   const { avg, max, min } = stats;
@@ -14,19 +12,19 @@ const getStats = (stats: StatsArgs = {}): StatProps[] => {
   return [
     {
       label: "Average",
-      value: avg,
+      value: avg == null ? "N/A" : avg,
       units: "J/TH",
       size: "small",
     },
     {
       label: "Highest",
-      value: max,
+      value: max == null ? "N/A" : max,
       units: "J/TH",
       size: "small",
     },
     {
       label: "Lowest",
-      value: min,
+      value: min == null ? "N/A" : min,
       units: "J/TH",
       size: "small",
     },
@@ -42,12 +40,9 @@ const Efficiency = () => {
     <>
       {aggregates && <Stats stats={getStats(aggregates)} />}
       <KpiLineChart
-        series={[]}
         units="J/TH"
-        aggregateSeries={{
-          name: "Average Efficiency",
-          data: totalEfficiency,
-        }}
+        chartData={totalEfficiency}
+        aggregateKey="totalEfficiency"
       />
     </>
   );

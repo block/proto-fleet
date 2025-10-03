@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { getControlBoardGeneration } from "./utility";
-import { useHardware } from "@/protoOS/api/useHardware";
+import { useHardware } from "@/protoOS/api";
 import {
   FanIndicator,
   HashboardIndicator,
@@ -13,6 +13,8 @@ import SkeletonBar from "@/shared/components/SkeletonBar";
 import SlotNumber from "@/shared/components/SlotNumber";
 
 const Hardware = () => {
+  // TODO: [STORE_REFACTOR] Remove this useHardware call once we update this page to read directly from the store
+  // Hardware data is now populated by useHardware in AppWrapper.tsx
   const {
     hashboardsInfo,
     controlBoardInfo,

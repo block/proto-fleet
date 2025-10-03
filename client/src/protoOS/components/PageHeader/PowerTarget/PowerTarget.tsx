@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import PowerTargetPopover from "./PowerTargetPopover";
 import { useMiningTarget } from "@/protoOS/api";
-import { MiningTarget } from "@/protoOS/api/types";
+import { MiningTarget } from "@/protoOS/api/generatedApi";
 import WidgetWrapper from "@/protoOS/components/PageHeader/WidgetWrapper";
 import {
   AUTH_ACTIONS,

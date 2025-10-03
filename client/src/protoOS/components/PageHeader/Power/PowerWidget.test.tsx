@@ -1,3 +1,4 @@
+import { BrowserRouter } from "react-router-dom";
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import PowerWidget from "./PowerWidget";
@@ -19,12 +20,14 @@ describe("Power Widget", () => {
 
   test("renders power widget popover with reboot and sleep if miner is running", () => {
     const { getByTestId, queryByTestId } = render(
-      <PopoverProvider>
-        <PowerWidget
-          {...PowerWidgetProps}
-          miningStatus={{ status: "Mining" }}
-        />
-      </PopoverProvider>,
+      <BrowserRouter>
+        <PopoverProvider>
+          <PowerWidget
+            {...PowerWidgetProps}
+            miningStatus={{ status: "Mining" }}
+          />
+        </PopoverProvider>
+      </BrowserRouter>,
     );
     const buttonElement = getByTestId(powerButton);
     fireEvent.click(buttonElement);
@@ -37,12 +40,14 @@ describe("Power Widget", () => {
 
   test("renders power widget popover with reboot and wake up if miner is stopped", () => {
     const { getByTestId, queryByTestId } = render(
-      <PopoverProvider>
-        <PowerWidget
-          {...PowerWidgetProps}
-          miningStatus={{ status: "Stopped" }}
-        />
-      </PopoverProvider>,
+      <BrowserRouter>
+        <PopoverProvider>
+          <PowerWidget
+            {...PowerWidgetProps}
+            miningStatus={{ status: "Stopped" }}
+          />
+        </PopoverProvider>
+      </BrowserRouter>,
     );
     const buttonElement = getByTestId(powerButton);
     fireEvent.click(buttonElement);
@@ -55,9 +60,11 @@ describe("Power Widget", () => {
 
   test("closes popover on click of reboot", () => {
     const { getByTestId, queryByTestId } = render(
-      <PopoverProvider>
-        <PowerWidget shouldShowPopover {...PowerWidgetProps} />
-      </PopoverProvider>,
+      <BrowserRouter>
+        <PopoverProvider>
+          <PowerWidget shouldShowPopover {...PowerWidgetProps} />
+        </PopoverProvider>
+      </BrowserRouter>,
     );
     const buttonElement = getByTestId(popoverRebootButton);
     fireEvent.click(buttonElement);
@@ -66,9 +73,11 @@ describe("Power Widget", () => {
 
   test("closes popover on click of sleep", () => {
     const { getByTestId, queryByTestId } = render(
-      <PopoverProvider>
-        <PowerWidget shouldShowPopover {...PowerWidgetProps} />
-      </PopoverProvider>,
+      <BrowserRouter>
+        <PopoverProvider>
+          <PowerWidget shouldShowPopover {...PowerWidgetProps} />
+        </PopoverProvider>
+      </BrowserRouter>,
     );
     const buttonElement = getByTestId(popoverSleepButton);
     fireEvent.click(buttonElement);
@@ -77,13 +86,15 @@ describe("Power Widget", () => {
 
   test("closes popover on click of wake up", () => {
     const { getByTestId, queryByTestId } = render(
-      <PopoverProvider>
-        <PowerWidget
-          shouldShowPopover
-          {...PowerWidgetProps}
-          miningStatus={{ status: "Stopped" }}
-        />
-      </PopoverProvider>,
+      <BrowserRouter>
+        <PopoverProvider>
+          <PowerWidget
+            shouldShowPopover
+            {...PowerWidgetProps}
+            miningStatus={{ status: "Stopped" }}
+          />
+        </PopoverProvider>
+      </BrowserRouter>,
     );
     const buttonElement = getByTestId(popoverWakeUpButton);
     fireEvent.click(buttonElement);

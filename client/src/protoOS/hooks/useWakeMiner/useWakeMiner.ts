@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useMiningStart, useMiningStatus } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
-import { MiningStatusMiningstatus } from "@/protoOS/api/types";
+import { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
 import { isSleeping } from "@/protoOS/components/App/utility";
 import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
 import {

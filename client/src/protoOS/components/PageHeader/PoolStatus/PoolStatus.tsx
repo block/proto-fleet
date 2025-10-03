@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import PoolInfoPopover from "./PoolInfoPopover";
 import PoolWidget from "./PoolWidget";
 import { PoolInfo } from "./types";
-import { Pool } from "@/protoOS/api/types";
+import { Pool } from "@/protoOS/api/generatedApi";
 import { usePopover } from "@/shared/components/Popover";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 

@@ -10,7 +10,7 @@ import {
   OnboardingNavigationItems,
 } from "./NavigationItems";
 import { NavigationItemValue, NavigationMenuType } from "./types";
-import { useMinerHosting } from "@/protoOS/api";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { Logo } from "@/shared/assets/icons";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 

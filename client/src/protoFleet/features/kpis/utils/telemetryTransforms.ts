@@ -1,3 +1,4 @@
+import { AggregateStats, TimeSeriesDataPoint, Value } from "../types";
 import {
   AggregationType,
   GetCombinedMetricsResponse,
@@ -5,13 +6,9 @@ import {
   StreamCombinedMetricUpdatesResponse,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { Duration } from "@/shared/components/DurationSelector";
-import {
-  AggregateStats,
-  TimeSeriesDataPoint,
-} from "@/shared/features/kpis/types";
 
 // ProtoFleet server returns data in desired units so no need to convert
-const conversionFn = (value?: number) => value || 0;
+const conversionFn = (value: Value) => value;
 
 /**
  * Convert duration string to milliseconds
@@ -238,7 +235,7 @@ export const transformStreamingMetricsToTimeSeries = (
           datetime: metric.openTime
             ? Number(metric.openTime.seconds) * 1000
             : Date.now(),
-          value: aggregatedValue?.value,
+          value: aggregatedValue?.value || null,
         });
       }
 
@@ -410,9 +407,9 @@ export const processMetricData = (
     measurementType,
   );
   const aggregates = {
-    avg: conversionFn(rawAggregates.avg),
-    max: conversionFn(rawAggregates.max),
-    min: conversionFn(rawAggregates.min),
+    avg: conversionFn(rawAggregates.avg || null),
+    max: conversionFn(rawAggregates.max || null),
+    min: conversionFn(rawAggregates.min || null),
   };
 
   return { timeSeries, aggregates };

@@ -1,3 +1,4 @@
+// Additional types for API responses that are not included in the generatedApi.ts
 interface ResponseErrorProps {
   error: {
     message: string;

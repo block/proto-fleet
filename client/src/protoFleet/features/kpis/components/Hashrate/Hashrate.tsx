@@ -1,13 +1,11 @@
 import { useOutletContext } from "react-router-dom";
 
-import KpiLineChart from "@/protoFleet/features/kpis/components/KpiLineChart/KpiLineChartWrapper";
+import { StatsArgs } from "../../types";
+import KpiLineChart from "@/protoFleet/features/kpis/components/KpiLineChart/KpiLineChart";
 import { KpiOutletContext } from "@/protoFleet/features/kpis/types";
 import { type StatProps } from "@/shared/components/Stat";
-import Stats from "@/shared/features/kpis/components/Stats";
-import { AggregateStats } from "@/shared/features/kpis/types";
+import Stats from "@/shared/components/Stats";
 import { formatHashrateWithUnit } from "@/shared/utils/utility";
-
-type StatsArgs = AggregateStats & { lowestPerformer?: string };
 
 const getStats = (stats: StatsArgs = {}): StatProps[] => {
   const { avg, max, min } = stats;
@@ -50,12 +48,9 @@ const Hashrate = () => {
     <>
       {aggregates && <Stats stats={getStats(aggregates)} />}
       <KpiLineChart
-        series={[]}
+        chartData={totalHashrate}
+        aggregateKey="totalHashrate"
         units="TH/s"
-        aggregateSeries={{
-          name: "Total Hashrate",
-          data: totalHashrate,
-        }}
       />
     </>
   );

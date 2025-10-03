@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { action } from "storybook/actions";
 
 import PowerWidgetComponent from "./PowerWidget";
-import { MiningStatusMiningstatus } from "@/protoOS/api/types";
+import { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
 import { PopoverProvider } from "@/shared/components/Popover";
 
 export const PowerWidget = () => {

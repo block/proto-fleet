@@ -1,33 +1,38 @@
-import { useOutletContext } from "react-router-dom";
-
-import { useProcessedHashboardEfficiencies } from "../../hooks";
-import KpiLineChart from "../KpiLineChart";
-import { KpiOutletContext } from "@/protoOS/features/kpis/types";
+import { useMemo } from "react";
+import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart";
+import {
+  convertAndFormatMeasurement,
+  useChartDataForMetric,
+  useMiner,
+  useMinerHashboards,
+  useMinerStore,
+} from "@/protoOS/store";
+import { MetricTimeSeries } from "@/protoOS/store";
+import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import { type StatProps } from "@/shared/components/Stat";
-import { AggregateStats } from "@/shared/features/kpis";
-import Stats from "@/shared/features/kpis/components/Stats";
+import Stats from "@/shared/components/Stats";
 
-type StatsArgs = AggregateStats & { lowestPerformer?: string };
+type StatsArgs = MetricTimeSeries["aggregates"] & { lowestPerformer?: string };
 
-const getStats = (stats: StatsArgs = {}): StatProps[] => {
+const getStats = (stats: StatsArgs): StatProps[] => {
   const { avg, max, min, lowestPerformer } = stats;
 
   return [
     {
       label: "Average",
-      value: avg,
+      value: convertAndFormatMeasurement(avg, "J/TH", false),
       units: "J/TH",
       size: "small",
     },
     {
       label: "Highest",
-      value: max,
+      value: convertAndFormatMeasurement(max, "J/TH", false),
       units: "J/TH",
       size: "small",
     },
     {
       label: "Lowest",
-      value: min,
+      value: convertAndFormatMeasurement(min, "J/TH", false),
       units: "J/TH",
       size: "small",
     },
@@ -40,31 +45,44 @@ const getStats = (stats: StatsArgs = {}): StatProps[] => {
 };
 
 const Efficiency = () => {
-  const {
-    minerEfficiency: { efficiency: totalEfficiency, aggregates },
-    duration,
-    hashboardSerials,
-  } = useOutletContext<KpiOutletContext>();
+  const { chartData, chartLines } = useChartDataForMetric("efficiency");
+  const miner = useMiner();
+  const hashboards = useMinerHashboards();
+  const aggregates = miner?.efficiency?.aggregates;
 
-  const { efficiencies: hbEfficiencies, lowestPerformer } =
-    useProcessedHashboardEfficiencies({
-      serials: hashboardSerials,
-      duration,
+  const lowestPerformer = useMemo(() => {
+    if (!hashboards) return undefined;
+
+    let lowestSlot: number | undefined;
+    let lowestAvg = -Infinity; // For efficiency, lower is worse, so we want highest value (worst efficiency)
+
+    hashboards.forEach((hashboard) => {
+      const hashboardAvg = hashboard.efficiency?.aggregates?.avg?.value;
+      if (!!hashboardAvg && hashboardAvg > lowestAvg) {
+        lowestAvg = hashboardAvg;
+        lowestSlot = useMinerStore
+          .getState()
+          .hardware.getSlotByHbSn(hashboard.serial);
+      }
     });
+
+    return lowestSlot ? "Hashboard " + lowestSlot : undefined;
+  }, [hashboards]);
 
   return (
     <>
       {aggregates && (
-        <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
+        <ErrorBoundary>
+          <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
+        </ErrorBoundary>
       )}
-      <KpiLineChart
-        series={hbEfficiencies}
-        units="J/TH"
-        aggregateSeries={{
-          name: "Average Efficiency",
-          data: totalEfficiency,
-        }}
-      />
+      <ErrorBoundary>
+        <KpiLineChart
+          chartData={chartData}
+          chartLines={chartLines}
+          units="J/TH"
+        />
+      </ErrorBoundary>
     </>
   );
 };

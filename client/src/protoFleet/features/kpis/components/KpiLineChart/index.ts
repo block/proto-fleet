@@ -1,9 +1,8 @@
-import KpiLineChartWrapper from "./KpiLineChartWrapper";
+import KpiLineChartWrapper from "./KpiLineChart";
 import {
-  type TimeSeries,
-  type TimeSeriesWithSerial,
+  type ChartData,
   type TooltipData,
-} from "@/shared/features/kpis/components/KpiLineChart";
+} from "@/shared/components/LineChart";
 
-export { type TooltipData, type TimeSeries, type TimeSeriesWithSerial };
+export { type TooltipData, type ChartData };
 export default KpiLineChartWrapper;

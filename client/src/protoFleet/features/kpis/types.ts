@@ -1,8 +1,19 @@
 import { Duration } from "@/shared/components/DurationSelector";
-import {
-  AggregateStats,
-  TimeSeriesDataPoint,
-} from "@/shared/features/kpis/types";
+
+export type Value = number | null;
+
+export type AggregateStats = {
+  avg?: Value;
+  max?: Value;
+  min?: Value;
+};
+
+export type TimeSeriesDataPoint = {
+  datetime: number;
+  value: Value;
+};
+
+export type StatsArgs = AggregateStats & { lowestPerformer?: string };
 
 /**
  * ProtoFleet specific outlet context for KPI data

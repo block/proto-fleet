@@ -1,17 +1,18 @@
 import AsicCell from "./AsicCell";
-import { AsicStats } from "@/protoOS/api/types";
-import { getAsicsRows } from "@/protoOS/features/kpis/components/Temperature/utility"; //TODO
+import { useAsicRowsByHbSn, useMinerHashboardAsics } from "@/protoOS/store";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
 interface AsicTablePreviewProps {
-  asics?: AsicStats[];
+  hashboardSerial: string;
 }
 
-const AsicTablePreview = ({ asics }: AsicTablePreviewProps) => {
+const AsicTablePreview = ({ hashboardSerial }: AsicTablePreviewProps) => {
+  const asics = useMinerHashboardAsics(hashboardSerial);
+  const asicRows = useAsicRowsByHbSn(hashboardSerial);
   return (
     <div className="relative h-full">
       <div className="flex h-full phone:overflow-x-scroll">
-        {asics == undefined ? (
+        {asics.length === 0 ? (
           <div
             data-testid="asic-loader"
             className="flex h-full w-full items-center justify-center pb-4"
@@ -24,7 +25,7 @@ const AsicTablePreview = ({ asics }: AsicTablePreviewProps) => {
             data-testid="asic-table-preview"
           >
             {/* Individual ASICs */}
-            {getAsicsRows(asics).map((row) => (
+            {asicRows.map((row) => (
               <div className="flex gap-1" key={`asic-${row}`}>
                 {asics
                   .filter((asic) => asic.row === row)

@@ -1,18 +1,22 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import PowerTargetPopover from "./PowerTargetPopover";
 import { PopoverProvider } from "@/shared/components/Popover";
 
-let mockedPending = false;
 const mockedUpdateMiningTarget = vi.fn();
-vi.mock("@/protoOS/api/useMiningTarget", () => ({
-  useMiningTarget: vi.fn(() => ({
-    miningTarget: 1500,
-    performanceMode: "MaximumHashrate",
-    bounds: { min: 400, max: 2000 },
-    pending: mockedPending,
-    updateMiningTarget: mockedUpdateMiningTarget,
-  })),
+
+// Create mock return value that we can modify per test
+let mockReturnValue = {
+  miningTarget: 1500,
+  defaultTarget: 1200,
+  performanceMode: "MaximumHashrate",
+  bounds: { min: 400, max: 2000 },
+  pending: false,
+  updateMiningTarget: mockedUpdateMiningTarget,
+};
+
+vi.mock("@/protoOS/api", () => ({
+  useMiningTarget: vi.fn(() => mockReturnValue),
 }));
 
 // mock canvas used in useValueWidth hook
@@ -26,18 +30,68 @@ beforeAll(() => {
   });
 });
 
+beforeEach(() => {
+  // Reset mock values for each test
+  mockReturnValue.miningTarget = 1500;
+  mockReturnValue.defaultTarget = 1200;
+  mockReturnValue.performanceMode = "MaximumHashrate";
+  mockReturnValue.bounds = { min: 400, max: 2000 };
+  mockReturnValue.pending = false;
+  mockReturnValue.updateMiningTarget = mockedUpdateMiningTarget;
+});
+
 describe("Power Target Popover", () => {
+  it("renders the power target options correctly", () => {
+    const { getByText } = render(
+      <PopoverProvider>
+        <PowerTargetPopover onDismiss={vi.fn()} />,
+      </PopoverProvider>,
+    );
+
+    // Check that all options are present
+    expect(getByText("Default")).toBeInTheDocument();
+    expect(getByText("Max")).toBeInTheDocument();
+    expect(getByText("Custom")).toBeInTheDocument();
+
+    // Check that the power values are showing correctly
+    expect(getByText("1.2 kW")).toBeInTheDocument(); // Default target
+    expect(getByText("2 kW")).toBeInTheDocument(); // Max target
+  });
+
+  it("shows input field when Custom is selected", () => {
+    // Set miningTarget equal to defaultTarget so component starts in "default" mode
+    mockReturnValue.miningTarget = 1200; // Same as defaultTarget
+
+    const { getByText, queryByLabelText } = render(
+      <PopoverProvider>
+        <PowerTargetPopover onDismiss={vi.fn()} />,
+      </PopoverProvider>,
+    );
+
+    // Initially, input should not be visible (in default mode)
+    expect(queryByLabelText("Power target")).not.toBeInTheDocument();
+
+    // Click Custom option
+    fireEvent.click(getByText("Custom"));
+
+    // Now input should be visible
+    expect(queryByLabelText("Power target")).toBeInTheDocument();
+  });
+
   it("shows error when input value is below minimum bound", () => {
     const { getByText, getByLabelText } = render(
       <PopoverProvider>
         <PowerTargetPopover onDismiss={vi.fn()} onUpdateStart={vi.fn()} />,
       </PopoverProvider>,
     );
+
+    // First select Custom mode to make the input appear
+    fireEvent.click(getByText("Custom"));
     const input = getByLabelText("Power target");
     fireEvent.change(input, { target: { value: "0.1" } });
-    expect(
-      getByText("Value must be between 0.4kW and 2kW"),
-    ).toBeInTheDocument();
+
+    // Check for error that contains minimum power text
+    expect(getByText(/minimum power target/i)).toBeInTheDocument();
   });
 
   it("shows error when input value is above maximum bound", () => {
@@ -46,11 +100,12 @@ describe("Power Target Popover", () => {
         <PowerTargetPopover onDismiss={vi.fn()} onUpdateStart={vi.fn()} />,
       </PopoverProvider>,
     );
+    // First select Custom mode to make the input appear
+    fireEvent.click(getByText("Custom"));
     const input = getByLabelText("Power target");
     fireEvent.change(input, { target: { value: "4" } });
-    expect(
-      getByText("Value must be between 0.4kW and 2kW"),
-    ).toBeInTheDocument();
+    // Check for error that contains maximum power text
+    expect(getByText(/maximum power target/i)).toBeInTheDocument();
   });
 
   it("calls updateMiningTarget with correct values when Apply is clicked", async () => {
@@ -59,6 +114,8 @@ describe("Power Target Popover", () => {
         <PowerTargetPopover onDismiss={vi.fn()} onUpdateStart={vi.fn()} />,
       </PopoverProvider>,
     );
+    // First select Custom mode to make the input appear
+    fireEvent.click(getByText("Custom"));
     const input = getByLabelText("Power target");
     fireEvent.change(input, { target: { value: "1" } });
     fireEvent.click(getByText("Apply"));
@@ -71,11 +128,13 @@ describe("Power Target Popover", () => {
   });
 
   it("disables Apply button when error is present", () => {
-    const { getByTestId, getByLabelText } = render(
+    const { getByTestId, getByLabelText, getByText } = render(
       <PopoverProvider>
         <PowerTargetPopover onDismiss={vi.fn()} onUpdateStart={vi.fn()} />,
       </PopoverProvider>,
     );
+    // First select Custom mode to make the input appear
+    fireEvent.click(getByText("Custom"));
     const input = getByLabelText("Power target");
     fireEvent.change(input, { target: { value: "0" } });
     expect(getByTestId("power-target-apply-button")).toBeDisabled();
@@ -93,7 +152,9 @@ describe("Power Target Popover", () => {
   });
 
   it("shows loading state when pending is true", () => {
-    mockedPending = true;
+    // Override mock to set pending to true for this test
+    mockReturnValue.pending = true;
+
     const { getByText } = render(
       <PopoverProvider>
         <PowerTargetPopover onDismiss={vi.fn()} onUpdateStart={vi.fn()} />,

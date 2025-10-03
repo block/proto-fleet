@@ -1,20 +1,19 @@
-import { useMemo } from "react";
 import clsx from "clsx";
+import { getHashboardColor } from "@/protoOS/features/kpis/utility";
+import { useMinerStore } from "@/protoOS/store";
 import { Circle } from "@/shared/assets/icons";
 import Button, {
   type ButtonVariant,
   sizes,
   variants,
 } from "@/shared/components/Button";
-import { type HashboardLocationStore } from "@/shared/features/kpis/components/KpiLineChart/KpiTooltip";
-import { type TimeSeriesWithSerial } from "@/shared/features/kpis/components/KpiLineChart/types";
-import { getHashboardColor } from "@/shared/features/kpis/components/KpiLineChart/utility";
+
 import useCssVariable from "@/shared/hooks/useCssVariable";
 
 // TODO: remove this when we update to new API
 
 type HashboardSelectorItemProps = {
-  slot: number | null;
+  slot?: number;
   onClick: () => void;
   variant: ButtonVariant;
 };
@@ -24,67 +23,76 @@ const HashboardSelectorItem = ({
   onClick,
   variant,
 }: HashboardSelectorItemProps) => {
-  const colorVariable = useMemo(() => {
-    if (!slot) return "";
-    return getHashboardColor(slot);
-  }, [slot]);
-
+  const colorVariable = slot ? getHashboardColor(slot) : "";
   const color = useCssVariable(colorVariable);
 
-  if (slot === null) return null;
-
   return (
-    <Button
-      key={"hashboard-selector-" + slot}
-      size={sizes.compact}
-      variant={variant}
-      prefixIcon={
-        <Circle
-          className={clsx("mr-1")}
-          width={"w-2"}
-          style={{ background: color }}
+    <>
+      {slot !== undefined ? (
+        <Button
+          key={"hashboard-selector-" + slot}
+          size={sizes.compact}
+          variant={variant}
+          prefixIcon={
+            <Circle
+              className={clsx("mr-1")}
+              width={"w-2"}
+              style={{ background: color }}
+            />
+          }
+          text={slot ? slot.toString() : ""}
+          onClick={onClick}
         />
-      }
-      text={slot.toString()}
-      onClick={onClick}
-    />
+      ) : null}
+    </>
   );
 };
 
 type HashboardSelectorProps = {
-  series: TimeSeriesWithSerial[];
-  hashboardLocationStore: HashboardLocationStore;
-  setActiveHashboards: (serials: string[]) => void;
-  activeHashboards: string[];
-  showAggregate: boolean;
-  setShowAggregate: (show: boolean) => void;
+  chartLines: string[];
+  setActiveChartLines: (serials: string[]) => void;
+  activeChartLines: string[];
+  aggregateKey: string;
   className?: string;
 };
 
 const HashboardSelector = ({
-  series,
-  hashboardLocationStore,
-  setActiveHashboards,
-  activeHashboards,
-  showAggregate,
-  setShowAggregate,
+  chartLines,
+  setActiveChartLines,
+  activeChartLines,
+  aggregateKey,
   className = "",
 }: HashboardSelectorProps) => {
-  const { getSlotByHbSn } = hashboardLocationStore;
+  const handleSummaryClick = () => {
+    if (activeChartLines.includes(aggregateKey)) {
+      setActiveChartLines(activeChartLines.filter((a) => a !== aggregateKey));
+    } else {
+      setActiveChartLines([...activeChartLines, aggregateKey]);
+    }
+  };
 
   const handleAllHashboardsClick = () => {
-    if (activeHashboards.length === series.length) {
-      setActiveHashboards([]);
+    const hashboardLines = chartLines.filter((key) => key !== aggregateKey);
+    const activeHashboardLines = activeChartLines.filter(
+      (key) => key !== aggregateKey,
+    );
+
+    if (activeHashboardLines.length === hashboardLines.length) {
+      setActiveChartLines(
+        activeChartLines.filter((key) => hashboardLines.indexOf(key) === -1),
+      );
     } else {
-      setActiveHashboards(series.map((s) => s.serial));
+      setActiveChartLines([
+        ...new Set([...activeChartLines, ...hashboardLines]),
+      ]);
     }
   };
 
   const handleHashboardClick = (serial: string) => {
-    if (activeHashboards.includes(serial)) {
-      setActiveHashboards(activeHashboards.filter((a) => a !== serial));
+    if (activeChartLines.includes(serial)) {
+      setActiveChartLines(activeChartLines.filter((a) => a !== serial));
     } else {
-      setActiveHashboards([...activeHashboards, serial]);
+      setActiveChartLines([...activeChartLines, serial]);
     }
   };
 
@@ -92,15 +100,19 @@ const HashboardSelector = ({
     <div className={`inline-flex gap-2 py-4 ${className}`}>
       <Button
         size={sizes.compact}
-        variant={showAggregate ? variants.secondary : variants.ghost}
+        variant={
+          activeChartLines.includes(aggregateKey)
+            ? variants.secondary
+            : variants.ghost
+        }
         text={"Summary"}
-        onClick={() => setShowAggregate(!showAggregate)}
+        onClick={handleSummaryClick}
       />
-      {series.length > 0 && (
+      {chartLines.length > 0 && (
         <Button
           size={sizes.compact}
           variant={
-            activeHashboards.length === series.length
+            activeChartLines.length === chartLines.length
               ? variants.secondary
               : variants.ghost
           }
@@ -109,17 +121,17 @@ const HashboardSelector = ({
         />
       )}
 
-      {series.map((s) => (
+      {chartLines.map((serial) => (
         <HashboardSelectorItem
-          key={s.serial}
-          slot={getSlotByHbSn(s.serial)}
+          key={serial}
+          slot={useMinerStore.getState().hardware.getHashboard(serial)?.slot}
           variant={
-            activeHashboards.includes(s.serial)
+            activeChartLines.includes(serial)
               ? variants.secondary
               : variants.ghost
           }
           onClick={() => {
-            handleHashboardClick(s.serial);
+            handleHashboardClick(serial);
           }}
         />
       ))}

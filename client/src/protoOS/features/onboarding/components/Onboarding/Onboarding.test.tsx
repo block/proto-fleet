@@ -6,16 +6,19 @@ import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
 import { SystemContextProvider } from "@/protoOS/contexts/SystemContext";
 import { urlValidationErrors } from "@/shared/components/MiningPools/PoolForm/constants";
 
-vi.mock("react-router-dom", () => ({
-  ...vi.importActual("react-router-dom"),
-  useNavigate: () => ({
-    Navigation: vi.fn(),
-  }),
-  useLocation: () => ({
-    pathname: "/onboarding",
-  }),
-  Link: vi.fn(),
-}));
+vi.mock("react-router-dom", async (importOriginal) => {
+  const actual = (await importOriginal()) as any;
+  return {
+    ...actual,
+    useNavigate: () => ({
+      Navigation: vi.fn(),
+    }),
+    useLocation: () => ({
+      pathname: "/onboarding",
+    }),
+    Link: vi.fn(),
+  };
+});
 
 const poolUrl = "stratum+tcp://ckpool:3333";
 

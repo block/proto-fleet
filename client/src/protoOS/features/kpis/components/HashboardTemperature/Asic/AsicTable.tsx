@@ -1,16 +1,13 @@
 import { Dispatch, SetStateAction } from "react";
 
 import AsicButton from "./AsicButton";
-import { AsicStats, GetAsicHashrateParams } from "@/protoOS/api/types";
 import { getAsicsRows } from "@/protoOS/features/kpis/components/Temperature/utility";
-import { type Duration } from "@/shared/components/DurationSelector";
+import { AsicData } from "@/protoOS/store";
 import { PopoverProvider } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
 interface AsicTableProps {
-  asics: AsicStats[];
-  duration: Duration;
-  granularity: GetAsicHashrateParams["granularity"];
+  asics: AsicData[];
   hashboardSerialNumber: string;
   pending: boolean;
   showPopover: string | undefined;
@@ -19,8 +16,6 @@ interface AsicTableProps {
 
 const AsicTable = ({
   asics,
-  duration,
-  granularity,
   hashboardSerialNumber,
   pending,
   showPopover,
@@ -47,8 +42,6 @@ const AsicTable = ({
                       <PopoverProvider key={`asic-${asic.row}-${asic.column}`}>
                         <AsicButton
                           asic={asic}
-                          duration={duration}
-                          granularity={granularity}
                           hashboardSerial={hashboardSerialNumber}
                           showPopover={showPopover}
                           setShowPopover={setShowPopover}

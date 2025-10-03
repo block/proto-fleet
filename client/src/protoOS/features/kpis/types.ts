@@ -1,4 +1,4 @@
-import { Aggregates, TimeSeriesData } from "@/protoOS/api/types";
+import { Aggregates, TimeSeriesData } from "@/protoOS/api/generatedApi";
 import { Duration } from "@/shared/components/DurationSelector";
 
 export type KpiOutletContext = {

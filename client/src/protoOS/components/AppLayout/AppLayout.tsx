@@ -3,7 +3,7 @@ import { ComponentType, ReactNode, useState } from "react";
 import {
   NetworkInfoNetworkinfo,
   SystemInfoSysteminfo,
-} from "@/protoOS/api/types";
+} from "@/protoOS/api/generatedApi";
 
 import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";

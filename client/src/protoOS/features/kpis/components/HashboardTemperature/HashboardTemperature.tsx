@@ -1,66 +1,53 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useShallow } from "zustand/shallow";
 import AsicTable from "./Asic/AsicTableWrapper";
 import HashboardSelector from "./HashboardSelector";
-import { useHashboards, useMinerHosting } from "@/protoOS/api";
-import { HashboardStatsHashboardstats } from "@/protoOS/api/types";
-import { useGranularity } from "@/protoOS/features/kpis/hooks";
-import useHashboardAsicStore from "@/protoOS/store/useHashboardAsicStore";
-import useHashboardLocationStore from "@/protoOS/store/useHashboardLocationStore";
+import { useHashboardStatus, useTimeSeries } from "@/protoOS/api";
+import { AsicFieldType, HashboardFieldType } from "@/protoOS/api/generatedApi";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import {
+  convertAndFormatMeasurement,
+  convertValueUnits,
+  formatValue,
+  getCurrentValue,
+  HashboardData,
+  type Measurement,
+  useDuration,
+  useMinerHashboard,
+  useMinerHashboards,
+} from "@/protoOS/store";
 import { Dismiss } from "@/shared/assets/icons";
-import { Duration } from "@/shared/components/DurationSelector";
 import Header from "@/shared/components/Header";
 import { PopoverProvider } from "@/shared/components/Popover";
-import Stats, {
-  type StatsProps,
-} from "@/shared/features/kpis/components/Stats";
-import {
-  TEMP_UNITS,
-  TemperatureUnits,
-  usePreferences,
-} from "@/shared/features/preferences";
-import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
-import { getDisplayValue } from "@/shared/utils/stringUtils";
-import {
-  convertCtoF,
-  convertGigahashSecToTerahashSec,
-  convertWtoKW,
-  getAsicTempValue,
-} from "@/shared/utils/utility";
+import Stats, { type StatsProps } from "@/shared/components/Stats";
+import { TEMP_UNITS, usePreferences } from "@/shared/features/preferences";
 
 const getStats = (
-  avgAsicTemp: HashboardStatsHashboardstats["avg_asic_temp_c"],
-  maxAsicTemp: number | undefined,
-  powerUsage: HashboardStatsHashboardstats["power_usage_watts"],
-  hashrateGhs: HashboardStatsHashboardstats["hashrate_ghs"],
-  temperatureUnits: TemperatureUnits,
+  avgAsicTemp: Measurement | undefined,
+  maxAsicTemp: Measurement | undefined,
+  powerUsage: Measurement | undefined,
+  hashrate: Measurement | undefined,
 ): StatsProps["stats"] => {
-  const isFahrenheit = temperatureUnits === TEMP_UNITS.fahrenheit;
-  const unit = isFahrenheit ? "ºF" : "ºC";
-
   return [
     {
       label: "Highest ASIC temp",
-      value: getAsicTempValue(maxAsicTemp, isFahrenheit),
-      units: maxAsicTemp ? unit : undefined,
+      value: formatValue(maxAsicTemp),
+      units: maxAsicTemp?.units,
     },
     {
       label: "Avg ASIC temp",
-      value: getAsicTempValue(avgAsicTemp, isFahrenheit),
-      units: avgAsicTemp ? unit : undefined,
+      value: formatValue(avgAsicTemp),
+      units: avgAsicTemp?.units,
     },
     {
       label: "Board power usage",
-      value: powerUsage ? convertWtoKW(powerUsage) : undefined,
-      units: "kW",
+      value: powerUsage?.formatted,
+      units: powerUsage?.units,
     },
     {
       label: "Board hashrate",
-      value: hashrateGhs
-        ? convertGigahashSecToTerahashSec(hashrateGhs)
-        : undefined,
-      units: "TH/S",
+      value: hashrate?.formatted,
+      units: hashrate?.units,
     },
   ];
 };
@@ -73,80 +60,66 @@ type HashboardTemperatureProps = {
 };
 
 const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
-  const { getItem } = useLocalStorage();
   const { temperatureUnits } = usePreferences();
   const isFahrenheit = temperatureUnits === TEMP_UNITS.fahrenheit;
-  const getSlotByHbSn = useHashboardLocationStore(
-    (state) => state.getSlotByHbSn,
-  );
   const [showPopover, setShowPopover] = useState<string | undefined>(undefined);
   const { minerRoot } = useMinerHosting();
-  const [hashboardList, setHashboardList] = useState<
-    { serial: string; name: string }[]
-  >([]);
-
-  const duration = getItem("duration") as Duration;
+  const duration = useDuration();
 
   const navigate = useNavigate();
-  const granularity = useGranularity();
+
+  // TODO: [STORE_REFACTOR] Eventually we should be able to remove this api call
+  // currently it fills in gaps between our useHardware call and useTimeSeries calls
+  // - asic rows and columns are missing from useHardware
+  // - inlet/outlet temps and avg/max asic temps are missing from useTimeSeries
+  useHashboardStatus({
+    hashboardSerialNumber: serial,
+  });
+
+  // Memoize levels to prevent recreating on every render
+  const levels = useMemo(
+    () => [
+      {
+        type: "hashboard" as const,
+        fields: [
+          HashboardFieldType.Temperature,
+          HashboardFieldType.Power,
+          HashboardFieldType.Hashrate,
+        ],
+      },
+      {
+        type: "asic" as const,
+        fields: [AsicFieldType.Temperature, AsicFieldType.Hashrate],
+      },
+    ],
+    [],
+  );
+
+  // Fetch telemetry data with polling
+  useTimeSeries({
+    duration,
+    levels,
+    poll: true,
+    pollIntervalMs: 10000,
+  });
 
   const close = () => {
     navigate(minerRoot + `/temperature`);
   };
 
-  const {
-    avgAsicTempC,
-    maxAsicTempC,
-    powerUsageWatts,
-    inletTempC,
-    outletTempC,
-    hashrateGhs,
-  } = useHashboardAsicStore(
-    useShallow((state) => {
-      return {
-        avgAsicTempC: state.hashboards.get(serial)?.avgAsicTempC,
-        maxAsicTempC: state.hashboards.get(serial)?.maxAsicTempC,
-        powerUsageWatts: state.hashboards.get(serial)?.powerUsageWatts,
-        inletTempC: state.hashboards.get(serial)?.inletTempC,
-        outletTempC: state.hashboards.get(serial)?.outletTempC,
-        hashrateGhs: state.hashboards.get(serial)?.hashrateGhs,
-      };
-    }),
-  );
+  // Get hashboard data from store
+  const hashboard = useMinerHashboard(serial);
+  const hashboards = useMinerHashboards();
+  const hashboardList = useMemo(() => {
+    return hashboards
+      .filter((h): h is HashboardData & { slot: number } => !!h.slot)
+      .sort((a, b) => a.slot - b.slot)
+      .map((hashboard) => ({
+        serial: hashboard.serial,
+        name: `Hashboard ${hashboard.slot}`,
+      }));
+  }, [hashboards]);
 
-  // TODO: Data that doesnt change often like hashboard serials
-  // should be cached in the context, data store or local storage
-  // [DASH-228]
-  const { data: hashboardsInfo } = useHashboards();
-
-  useEffect(() => {
-    if (hashboardsInfo) {
-      setHashboardList(
-        hashboardsInfo
-          .filter((hashboardInfo) => hashboardInfo.hb_sn !== undefined)
-          .sort(
-            (a, b) =>
-              (getSlotByHbSn(a.hb_sn as string) ?? Number.MAX_SAFE_INTEGER) -
-              (getSlotByHbSn(b.hb_sn as string) ?? Number.MAX_SAFE_INTEGER),
-          )
-          .map((hashboardInfo) => ({
-            serial: hashboardInfo.hb_sn as string,
-            name: "Hashboard " + getSlotByHbSn(hashboardInfo.hb_sn as string),
-          })),
-      );
-    }
-  }, [hashboardsInfo, getSlotByHbSn]);
-
-  // TODO: This is the lightest touch way to include model with current data pipeline,
-  // this is all refactored in mflesher/dash-671-part-2 so I wanted to keep rebase conflicts minimal
-  const model = useMemo(() => {
-    if (!hashboardsInfo) return;
-    const hashboard = hashboardsInfo.find((hboard) => hboard.hb_sn === serial);
-    return hashboard?.board;
-  }, [hashboardsInfo, serial]);
-
-  // Updates average asic temp and power usage
-  // unset the state when the serial changes showing the loading state
   return (
     <div className="min-h-[100vh] w-full bg-surface-base">
       <Header
@@ -179,11 +152,16 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
         <div className={`${containerPadX} phone:mx-6 phone:!px-0`}>
           <Stats
             stats={getStats(
-              avgAsicTempC,
-              maxAsicTempC,
-              powerUsageWatts,
-              hashrateGhs,
-              temperatureUnits,
+              convertValueUnits(
+                hashboard?.avgAsicTemp,
+                isFahrenheit ? "F" : "C",
+              ),
+              convertValueUnits(
+                hashboard?.maxAsicTemp,
+                isFahrenheit ? "F" : "C",
+              ),
+              getCurrentValue(hashboard?.power, "kW", false),
+              getCurrentValue(hashboard?.hashrate, "TH/S", false),
             )}
             size="medium"
             gap="gap-10"
@@ -196,22 +174,28 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
           <div className="before:w-ful relative flex items-center justify-between font-mono text-mono-text-50 text-text-primary-50 before:absolute before:top-[50%] before:left-0 before:h-[1px] before:w-full before:bg-border-5">
             <div className="relative bg-surface-base pr-4">
               Front
-              {inletTempC && (
+              {hashboard?.inletTemp && (
                 <>
-                  {isFahrenheit
-                    ? ` ${getDisplayValue(convertCtoF(inletTempC))}º`
-                    : ` ${getDisplayValue(inletTempC)}º`}
+                  {" "}
+                  {convertAndFormatMeasurement(
+                    hashboard.inletTemp,
+                    isFahrenheit ? "F" : "C",
+                    false,
+                  )}
                 </>
               )}
             </div>
             <div className="relative bg-surface-base px-4">{serial}</div>
             <div className="relative bg-surface-base pl-4">
               Rear
-              {outletTempC && (
+              {hashboard?.outletTemp && (
                 <>
-                  {isFahrenheit
-                    ? ` ${getDisplayValue(convertCtoF(outletTempC))}º`
-                    : ` ${getDisplayValue(outletTempC)}º`}
+                  {" "}
+                  {convertAndFormatMeasurement(
+                    hashboard.outletTemp,
+                    isFahrenheit ? "F" : "C",
+                    false,
+                  )}
                 </>
               )}
             </div>
@@ -222,8 +206,6 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
         <div className="scrollbar-hide max-w-screen overflow-x-auto">
           <div className={`relative ${containerMarginX} mb-2 min-w-[800px]`}>
             <AsicTable
-              duration={duration}
-              granularity={granularity}
               hashboardSerialNumber={serial}
               showPopover={showPopover}
               setShowPopover={setShowPopover}
@@ -232,9 +214,11 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
         </div>
       )}
       <div className={`${containerPadX} mb-5`}>
-        {model && (
+        {hashboard?.board && (
           <div className="before:w-ful relative flex items-center justify-around font-mono text-mono-text-50 text-text-primary-50 before:absolute before:top-[50%] before:left-0 before:h-[1px] before:w-full before:bg-border-5">
-            <div className="relative bg-surface-base px-4">{model}</div>
+            <div className="relative bg-surface-base px-4">
+              {hashboard.board}
+            </div>
           </div>
         )}
       </div>

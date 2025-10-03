@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import Logs from "./Logs";
 import { usePoll, useSystemLogs } from "@/protoOS/api";
-import { LogsResponseLogs } from "@/protoOS/api/types";
+import { LogsResponseLogs } from "@/protoOS/api/generatedApi";
 
 const MAX_LOG_LINES = 10000;
 const POLL_LOG_LINES = 1000;
