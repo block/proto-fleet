@@ -126,6 +126,7 @@ export const routerConfig = [
       {
         path: "cooling",
         element: <Cooling />,
+        requiresAuth: true,
       },
     ],
   },

@@ -1,4 +1,7 @@
+import { useState } from "react";
+import FansDetectedDialog from "./FansDetectedDialog";
 import { isSleeping } from "./utility";
+import { useCoolingStatus } from "@/protoOS/api";
 import { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
 
 import { WakingDialog } from "@/protoOS/components/Power";
@@ -18,13 +21,50 @@ const WakeCallout = ({ afterWake, miningStatus, onWake }: WakeCalloutProps) => {
     miningStatus,
     onSuccess: onWake,
   });
+  const { data: coolingStatus, setCooling } = useCoolingStatus({ poll: false });
+  const [showFansDetectedDialog, setShowFansDetectedDialog] = useState(false);
+  const [isUpdatingCooling, setIsUpdatingCooling] = useState(false);
+
+  const handleWake = () => {
+    // Check if fans are running and cooling mode is immersion
+    const hasFansRunning = coolingStatus?.fans?.some(
+      (fan) => (fan.rpm ?? 0) > 0,
+    );
+    const isImmersionMode = coolingStatus?.fan_mode === "Off";
+
+    if (hasFansRunning && isImmersionMode) {
+      setShowFansDetectedDialog(true);
+    } else {
+      wakeMiner();
+    }
+  };
+
+  const handleConfirmImmersion = () => {
+    setShowFansDetectedDialog(false);
+    wakeMiner();
+  };
+
+  const handleSwitchToAirCooled = () => {
+    setIsUpdatingCooling(true);
+    setCooling({
+      mode: "Auto",
+      onSuccess: () => {
+        setIsUpdatingCooling(false);
+        setShowFansDetectedDialog(false);
+        wakeMiner();
+      },
+      onError: () => {
+        setIsUpdatingCooling(false);
+      },
+    });
+  };
 
   return (
     <>
       {isSleeping(miningStatus?.status) && (
         <div className="mb-10">
           <Callout
-            buttonOnClick={wakeMiner}
+            buttonOnClick={handleWake}
             buttonText="Wake up miner"
             intent={intents.information}
             prefixIcon={<Power />}
@@ -33,6 +73,13 @@ const WakeCallout = ({ afterWake, miningStatus, onWake }: WakeCalloutProps) => {
         </div>
       )}
       <WakingDialog show={shouldWake} />
+
+      <FansDetectedDialog
+        onConfirmImmersion={handleConfirmImmersion}
+        onSwitchToAirCooled={handleSwitchToAirCooled}
+        isLoading={isUpdatingCooling}
+        show={showFansDetectedDialog}
+      />
     </>
   );
 };

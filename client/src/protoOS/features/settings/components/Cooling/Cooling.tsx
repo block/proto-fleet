@@ -1,9 +1,14 @@
 import React, { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
+import ImmersionConfirmationModal from "./ImmersionConfirmationModal";
+import ImmersionLearnMoreModal from "./ImmersionLearnMoreModal";
 import { useCoolingStatus } from "@/protoOS/api";
 import { CoolingConfig } from "@/protoOS/api/generatedApi";
+import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
 import { Fan } from "@/shared/assets/icons";
 import Immersion from "@/shared/assets/icons/Immersion";
+import Button from "@/shared/components/Button";
+import Dialog from "@/shared/components/Dialog";
 import SelectRow from "@/shared/components/SelectRow";
 import { selectTypes } from "@/shared/constants";
 import { pushToast, updateToast } from "@/shared/features/toaster";
@@ -77,6 +82,10 @@ const Cooling = () => {
   const [userSelectedCoolingMode, setUserSelectedCoolingMode] =
     useState<CoolingMode>();
   const [loading, setLoading] = useState<boolean>(true);
+  const [showImmersionModal, setShowImmersionModal] = useState<boolean>(false);
+  const [showLearnMoreModal, setShowLearnMoreModal] = useState<boolean>(false);
+  const [showSleepDialog, setShowSleepDialog] = useState<boolean>(false);
+  const { comprehensiveStatus } = useMinerStatus();
 
   useEffect(() => {
     if (coolingStatus) {
@@ -92,8 +101,22 @@ const Cooling = () => {
     }
   }, [coolingStatus]);
 
+  useEffect(() => {
+    if (comprehensiveStatus?.isSleeping) {
+      setShowSleepDialog(false);
+    }
+  }, [comprehensiveStatus?.isSleeping]);
+
   const handleChange = useCallback(
-    (id: string) => {
+    (id: string, confirmed = false) => {
+      if (coolingStatus?.fan_mode === FAN_MODES[id as CoolingMode]) {
+        // ignore change if same as currently selected
+        return;
+      }
+      if (id === COOLING_MODES.immersion && !confirmed) {
+        setShowImmersionModal(true);
+        return;
+      }
       setLoading(true);
       setUserSelectedCoolingMode(id as CoolingMode);
 
@@ -111,20 +134,37 @@ const Cooling = () => {
             status: "success",
             ttl: 3000,
           });
+          if (id === COOLING_MODES.immersion) {
+            setShowSleepDialog(true);
+          }
         },
         onError: (error) => {
           updateToast(toast, {
             message: `Failed to update cooling mode: ${error?.status}`,
             status: "error",
-            ttl: 3000,
+            ttl: 6000,
           });
           setLoading(false);
           setUserSelectedCoolingMode(undefined);
         },
       });
     },
-    [setCooling, setLoading, setUserSelectedCoolingMode],
+    [coolingStatus?.fan_mode, setCooling],
   );
+
+  const handleImmersionConfirm = useCallback(() => {
+    setShowImmersionModal(false);
+    handleChange(COOLING_MODES.immersion, true);
+  }, [handleChange]);
+
+  const handleImmersionCancel = useCallback(() => {
+    setShowImmersionModal(false);
+    setUserSelectedCoolingMode(undefined);
+  }, []);
+
+  const handleShowLearnMoreModal = () => {
+    setShowLearnMoreModal(true);
+  };
 
   return (
     <>
@@ -138,7 +178,7 @@ const Cooling = () => {
             pending,
             COOLING_MODES.air,
           )}
-          onChange={handleChange}
+          onChange={(id) => handleChange(id)}
           divider={false}
           className={clsx("border-1 border-border-5", {
             "border-border-20": coolingMode === COOLING_MODES.air,
@@ -154,31 +194,65 @@ const Cooling = () => {
           }
           type={selectTypes.radio}
         />
-        <SelectRow
-          id={COOLING_MODES.immersion}
-          isSelected={isSelected(
-            coolingMode,
-            userSelectedCoolingMode,
-            pending,
-            COOLING_MODES.immersion,
-          )}
-          onChange={handleChange}
-          divider={false}
-          className={clsx("border-1 border-border-5", {
-            "border-border-20": coolingMode === COOLING_MODES.immersion,
-            [disabledClassName]: loading,
-          })}
-          text={
-            <CoolingOption
-              title="Immersion Cooled"
-              description="Fans must be removed."
-              icon={<Immersion />}
-              isSelected={coolingMode === COOLING_MODES.immersion}
-            />
-          }
-          type={selectTypes.radio}
-        />
+        <div className="flex flex-col gap-3">
+          <SelectRow
+            id={COOLING_MODES.immersion}
+            isSelected={isSelected(
+              coolingMode,
+              userSelectedCoolingMode,
+              pending,
+              COOLING_MODES.immersion,
+            )}
+            onChange={(id) => handleChange(id)}
+            divider={false}
+            className={clsx("border-1 border-border-5", {
+              "border-border-20": coolingMode === COOLING_MODES.immersion,
+              [disabledClassName]: loading,
+            })}
+            text={
+              <CoolingOption
+                title="Immersion Cooled"
+                description="Fans must be removed."
+                icon={<Immersion />}
+                isSelected={coolingMode === COOLING_MODES.immersion}
+              />
+            }
+            type={selectTypes.radio}
+          />
+          <div className="text-200 text-text-primary-70">
+            <Button
+              className="inline"
+              textColor="text-text-emphasis"
+              variant="textOnly"
+              size="textOnly"
+              onClick={handleShowLearnMoreModal}
+            >
+              <span className="text-200">Learn more</span>
+            </Button>
+            <> about preparing your miner for immersion.</>
+          </div>
+        </div>
       </div>
+      {showImmersionModal && (
+        <ImmersionConfirmationModal
+          onDismiss={handleImmersionCancel}
+          onConfirm={handleImmersionConfirm}
+          isLoading={loading}
+        />
+      )}
+
+      {showLearnMoreModal && (
+        <ImmersionLearnMoreModal
+          onDismiss={() => setShowLearnMoreModal(false)}
+        />
+      )}
+
+      <Dialog
+        title="Entering sleep mode"
+        subtitle="Your mminer is entering sleep mode. This may take a few seconds."
+        loading
+        show={showSleepDialog}
+      />
     </>
   );
 };
