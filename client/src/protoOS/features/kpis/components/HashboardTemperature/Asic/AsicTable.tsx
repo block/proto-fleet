@@ -45,6 +45,7 @@ const AsicTable = ({
                           hashboardSerial={hashboardSerialNumber}
                           showPopover={showPopover}
                           setShowPopover={setShowPopover}
+                          totalAsicCount={asics.length}
                         />
                       </PopoverProvider>
                     ))}

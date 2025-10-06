@@ -17,10 +17,11 @@ const LogsWrapper = () => {
   }, [fetchLogs]);
 
   usePoll({
-    fetchData: () =>
-      fetchLogs({
+    fetchData: async () => {
+      await fetchLogs({
         lines: POLL_LOG_LINES,
-      }),
+      });
+    },
     poll: true,
     pollIntervalMs: POLL_INTERVAL_MS,
   });

@@ -64,6 +64,7 @@ export {
 
 export {
   useMinerHardware,
+  useHashboardsHardware,
   useHashboardHardware,
   useHashboardsByBay,
   useBayCount,

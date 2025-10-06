@@ -29,6 +29,7 @@ const AsicTablePreview = ({ hashboardSerial }: AsicTablePreviewProps) => {
               <div className="flex gap-1" key={`asic-${row}`}>
                 {asics
                   .filter((asic) => asic.row === row)
+                  .sort((a, b) => a.column - b.column)
                   .map((asic) => (
                     <AsicCell key={`asic-${asic.id}`} asic={asic} />
                   ))}

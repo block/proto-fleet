@@ -13,8 +13,8 @@ import {
   HashboardData,
   type Measurement,
   useDuration,
+  useHashboardsHardware,
   useMinerHashboard,
-  useMinerHashboards,
 } from "@/protoOS/store";
 import { Dismiss } from "@/shared/assets/icons";
 import Header from "@/shared/components/Header";
@@ -109,16 +109,38 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
 
   // Get hashboard data from store
   const hashboard = useMinerHashboard(serial);
-  const hashboards = useMinerHashboards();
+
+  // Subscribe only to hardware slice to avoid telemetry updates triggering hashboardList recomputation
+  const hardwareHashboards = useHashboardsHardware();
+
+  // Memoize hashboard list - only recreate when hardware changes, not on telemetry updates
   const hashboardList = useMemo(() => {
-    return hashboards
+    return hardwareHashboards
       .filter((h): h is HashboardData & { slot: number } => !!h.slot)
       .sort((a, b) => a.slot - b.slot)
       .map((hashboard) => ({
         serial: hashboard.serial,
         name: `Hashboard ${hashboard.slot}`,
       }));
-  }, [hashboards]);
+  }, [hardwareHashboards]);
+
+  // Memoize stats computation
+  const stats = useMemo(
+    () =>
+      getStats(
+        convertValueUnits(hashboard?.avgAsicTemp, isFahrenheit ? "F" : "C"),
+        convertValueUnits(hashboard?.maxAsicTemp, isFahrenheit ? "F" : "C"),
+        getCurrentValue(hashboard?.power, "kW", false),
+        getCurrentValue(hashboard?.hashrate, "TH/S", false),
+      ),
+    [
+      hashboard?.avgAsicTemp,
+      hashboard?.maxAsicTemp,
+      hashboard?.power,
+      hashboard?.hashrate,
+      isFahrenheit,
+    ],
+  );
 
   return (
     <div className="min-h-[100vh] w-full bg-surface-base">
@@ -150,23 +172,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
       </div>
       <div className="max-w-screen overflow-visible overflow-x-auto">
         <div className={`${containerPadX} phone:mx-6 phone:!px-0`}>
-          <Stats
-            stats={getStats(
-              convertValueUnits(
-                hashboard?.avgAsicTemp,
-                isFahrenheit ? "F" : "C",
-              ),
-              convertValueUnits(
-                hashboard?.maxAsicTemp,
-                isFahrenheit ? "F" : "C",
-              ),
-              getCurrentValue(hashboard?.power, "kW", false),
-              getCurrentValue(hashboard?.hashrate, "TH/S", false),
-            )}
-            size="medium"
-            gap="gap-10"
-            padding="pb-4"
-          />
+          <Stats stats={stats} size="medium" gap="gap-10" padding="pb-4" />
         </div>
       </div>
       <div className={`${containerPadX} pt-4`}>

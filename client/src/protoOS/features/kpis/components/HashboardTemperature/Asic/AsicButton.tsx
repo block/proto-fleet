@@ -1,10 +1,10 @@
-import { Dispatch, SetStateAction } from "react";
+import { Dispatch, SetStateAction, useMemo } from "react";
 import clsx from "clsx";
 
 import AsicPopover from "./AsicPopover";
 import { getAsicUniqueId } from "./utility";
 import { useAsicColor } from "@/protoOS/features/kpis/hooks";
-import { AsicData, getAsicName, useMinerHashboard } from "@/protoOS/store";
+import { AsicData, getAsicName } from "@/protoOS/store";
 import { getCurrentValue } from "@/protoOS/store";
 import { usePopover } from "@/shared/components/Popover";
 import { usePreferences } from "@/shared/features/preferences";
@@ -14,6 +14,7 @@ interface AsicButtonProps {
   hashboardSerial: string;
   showPopover: string | undefined;
   setShowPopover: Dispatch<SetStateAction<string | undefined>>;
+  totalAsicCount: number; // Pass this in to avoid calling useMinerHashboard
 }
 
 const AsicButton = ({
@@ -21,25 +22,40 @@ const AsicButton = ({
   hashboardSerial,
   showPopover,
   setShowPopover,
+  totalAsicCount,
 }: AsicButtonProps) => {
   const { triggerRef: asicRef } = usePopover();
   const { temperatureUnits } = usePreferences();
-  const hashboard = useMinerHashboard(hashboardSerial);
 
-  const currentAsicId =
-    asic.id !== undefined
-      ? getAsicUniqueId(asic.id, hashboardSerial)
-      : undefined;
+  const currentAsicId = useMemo(
+    () =>
+      asic.id !== undefined
+        ? getAsicUniqueId(asic.id, hashboardSerial)
+        : undefined,
+    [asic.id, hashboardSerial],
+  );
+
   const shouldShowPopover =
     currentAsicId !== undefined && showPopover === currentAsicId;
 
   const backgroundColor = useAsicColor(asic);
 
-  // Generate ASIC name using utility function
-  const asicName =
-    hashboard?.asicIds && asic.index
-      ? getAsicName(hashboard.asicIds.length, asic.index)
-      : "";
+  // Generate ASIC name using utility function - now using passed-in totalAsicCount
+  const asicName = useMemo(
+    () =>
+      asic.index !== undefined ? getAsicName(totalAsicCount, asic.index) : "",
+    [totalAsicCount, asic.index],
+  );
+
+  const temperatureDisplay = useMemo(
+    () =>
+      getCurrentValue(
+        asic.temperature,
+        temperatureUnits === "fahrenheit" ? "F" : "C",
+        false,
+      )?.formatted,
+    [asic.temperature, temperatureUnits],
+  );
 
   return (
     <div
@@ -73,13 +89,7 @@ const AsicButton = ({
         <div className="bg-transparent hover:bg-surface-overlay">
           <div className="flex flex-col items-center gap-1 px-1 py-3">
             <div className="text-text-primary-50">{asicName}</div>
-            {
-              getCurrentValue(
-                asic.temperature,
-                temperatureUnits === "fahrenheit" ? "F" : "C",
-                false,
-              )?.formatted
-            }
+            {temperatureDisplay}
           </div>
         </div>
       </button>

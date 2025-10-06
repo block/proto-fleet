@@ -1,7 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 interface UsePollProps {
-  fetchData: () => void;
+  fetchData: () => Promise<void> | void;
   params?: any;
   poll?: boolean;
   pollIntervalMs?: number;
@@ -13,17 +13,47 @@ const usePoll = ({
   poll,
   pollIntervalMs = 10 * 1000,
 }: UsePollProps) => {
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMountedRef = useRef(true);
+  const fetchDataRef = useRef(fetchData);
+
+  // Keep fetchData ref up to date
+  // store this in a ref to avoid re-running the effect below on every
+  // render in the case that usePoll is called inline without memoizing fetchData
   useEffect(() => {
-    fetchData();
-    if (poll) {
-      const interval = setInterval(fetchData, pollIntervalMs);
-      return () => {
-        clearInterval(interval);
-      };
-    }
-    // disable deps so we run and clear the interval only on mount/unmount and when the params change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params]);
+    fetchDataRef.current = fetchData;
+  }, [fetchData]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    const pollWithDelay = async () => {
+      if (!isMountedRef.current) return;
+
+      try {
+        await fetchDataRef.current();
+      } catch (error) {
+        // Error handling is done in the fetchData function
+        console.error("Poll request failed:", error);
+      }
+
+      // Only schedule next poll if still mounted and polling is enabled
+      if (isMountedRef.current && poll) {
+        timeoutRef.current = setTimeout(pollWithDelay, pollIntervalMs);
+      }
+    };
+
+    // Start polling
+    pollWithDelay();
+
+    return () => {
+      isMountedRef.current = false;
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    };
+  }, [params, poll, pollIntervalMs]);
 };
 
 export { usePoll };

@@ -10,6 +10,12 @@ export const useMinerHardware = () =>
   useMinerStore((state) => state.hardware.miner);
 
 // Hashboard hooks
+export const useHashboardsHardware = () => {
+  const hashboards = useMinerStore((state) => state.hardware.hashboards);
+
+  return useMemo(() => Array.from(hashboards.values()), [hashboards]);
+};
+
 export const useHashboardHardware = (serial: string) =>
   useMinerStore((state) => state.hardware.getHashboard(serial));
 
