@@ -15,7 +15,7 @@ import { type StatProps } from "@/shared/components/Stat";
 import Stats from "@/shared/components/Stats";
 
 const getFanStats = (
-  fanSpeed: FanStatus | undefined,
+  fanSpeed: FanStatus | null | undefined,
   numFans: number,
   fanIndex: number,
   isR1?: boolean,
@@ -49,7 +49,7 @@ const getFanStats = (
 };
 
 const Temperature = () => {
-  const [fanSpeeds, setFanSpeeds] = useState<FanStatus[]>();
+  const [fanSpeeds, setFanSpeeds] = useState<(FanStatus | null)[]>();
   const bayCount = useMinerStore(
     useShallow((state) => state.hardware.getBayCount()),
   );

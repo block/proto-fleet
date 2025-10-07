@@ -1,10 +1,12 @@
 import { useCallback, useMemo, useState } from "react";
 
+import { TOTAL_FAN_SLOTS } from "../constants";
 import { usePoll } from "./usePoll";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import {
   CoolingConfig,
   CoolingStatusCoolingstatus,
+  FanStatus,
   HttpResponse,
 } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
@@ -13,6 +15,14 @@ import {
   useAuthContext,
   useAuthErrors,
 } from "@/protoOS/features/auth/contexts/AuthContext";
+
+// Extended type to account for null fan statuses when slots are missing
+export type CoolingStatusWithNullableFans = Omit<
+  CoolingStatusCoolingstatus,
+  "fans"
+> & {
+  fans?: (FanStatus | null)[];
+};
 
 interface UseCoolingStatusProps {
   poll?: boolean;
@@ -27,7 +37,7 @@ interface SetCoolingProps {
 
 const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
   const { api } = useMinerHosting();
-  const [data, setData] = useState<CoolingStatusCoolingstatus>();
+  const [data, setData] = useState<CoolingStatusWithNullableFans>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
   const { authTokens } = useAuthContext();
@@ -40,7 +50,29 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
     api
       .getCooling()
       .then((res) => {
-        setData(res?.data["cooling-status"]);
+        const coolingData = res?.data["cooling-status"];
+
+        // Fill out fans array with all slots
+        if (coolingData) {
+          const fans = coolingData.fans;
+          const fansBySlot = new Map<number, FanStatus>();
+          fans?.forEach((fan) => {
+            if (fan.id !== undefined) {
+              fansBySlot.set(fan.id, fan);
+            }
+          });
+          const allFans = Array.from({ length: TOTAL_FAN_SLOTS }, (_, i) => {
+            const slot = i + 1;
+            return fansBySlot.get(slot) || null;
+          });
+
+          setData({
+            ...coolingData,
+            fans: allFans,
+          });
+        } else {
+          setData(coolingData);
+        }
       })
       .catch((err) => {
         setError(err?.error?.message ?? err);
