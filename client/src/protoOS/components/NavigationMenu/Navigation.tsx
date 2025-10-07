@@ -3,8 +3,14 @@ import { Link, useLocation } from "react-router-dom";
 import clsx from "clsx";
 
 import { navigationItems, navigationMenuTypes } from "./constants";
-import MacAddressInfo, { MacAddressInfoProps } from "./InfoItem/MacAddressInfo";
-import VersionInfo, { VersionInfoProps } from "./InfoItem/VersionInfo";
+import IpAddressInfo from "./InfoItem/IpAddressInfo";
+import type { IpAddressInfoProps } from "./InfoItem/IpAddressInfo";
+import MacAddressInfo from "./InfoItem/MacAddressInfo";
+import type { MacAddressInfoProps } from "./InfoItem/MacAddressInfo";
+import MinerNameInfo from "./InfoItem/MinerNameInfo";
+import type { MinerNameInfoProps } from "./InfoItem/MinerNameInfo";
+import VersionInfo from "./InfoItem/VersionInfo";
+import type { VersionInfoProps } from "./InfoItem/VersionInfo";
 import {
   AppNavigationItems,
   OnboardingNavigationItems,
@@ -15,14 +21,18 @@ import { Logo } from "@/shared/assets/icons";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 interface NavigationProps {
+  ipAddressInfo?: IpAddressInfoProps;
   macInfo?: MacAddressInfoProps;
+  minerNameInfo?: MinerNameInfoProps;
   onItemClick?: () => void;
   versionInfo?: VersionInfoProps;
   type: NavigationMenuType;
 }
 
 const Navigation = ({
+  ipAddressInfo,
   macInfo,
+  minerNameInfo,
   onItemClick,
   versionInfo,
   type,
@@ -60,9 +70,9 @@ const Navigation = ({
   return (
     <div
       className={clsx(
-        "flex min-h-screen w-[240px] flex-col border-r border-border-5 bg-surface-base text-text-primary-70",
-        "tablet:absolute tablet:z-30 tablet:min-h-[calc(100vh-16px)] tablet:rounded-lg",
-        "phone:absolute phone:z-30 phone:min-h-[calc(100vh-16px)] phone:rounded-lg",
+        "flex h-full max-h-screen w-[240px] flex-col border-r border-border-5 bg-surface-base text-text-primary-70",
+        "tablet:absolute tablet:z-30 tablet:max-h-[calc(100vh-16px)] tablet:rounded-lg",
+        "overflow-scroll phone:absolute phone:z-30 phone:max-h-[calc(100vh-16px)] phone:rounded-lg",
       )}
     >
       <div className="grow">
@@ -95,6 +105,16 @@ const Navigation = ({
       </div>
 
       <div className="px-3 pb-3">
+        <MinerNameInfo
+          loading={minerNameInfo?.loading}
+          value={minerNameInfo?.value}
+        />
+
+        <IpAddressInfo
+          loading={ipAddressInfo?.loading}
+          value={ipAddressInfo?.value}
+        />
+
         <VersionInfo
           loading={versionInfo?.loading}
           value={versionInfo?.value}

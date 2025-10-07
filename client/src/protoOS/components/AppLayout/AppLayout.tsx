@@ -86,6 +86,14 @@ const AppLayout = ({
               value: systemInfo?.os?.version,
               loading: pendingSystemInfo,
             }}
+            ipAddressInfo={{
+              value: networkInfo?.ip,
+              loading: pendingSystemInfo,
+            }}
+            minerNameInfo={{
+              value: systemInfo?.product_name,
+              loading: pendingSystemInfo,
+            }}
             type={type}
           />
         </div>
