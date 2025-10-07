@@ -16,6 +16,7 @@ const MacAddressInfo = ({ loading, value }: MacAddressInfoProps) => {
       label="MAC Address"
       loading={loading}
       value={displayValue}
+      divider={false}
       testId="mac-address-info-item"
     />
   );

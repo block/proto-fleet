@@ -101,7 +101,7 @@ const Modal = ({
   });
 
   return (
-    <PageOverlay show={showModal}>
+    <PageOverlay show={showModal} position="top">
       <div
         className={clsx(
           "h-fit rounded-3xl bg-surface-elevated-base p-6 shadow-300",

@@ -66,7 +66,7 @@ const Navigation = ({
       )}
     >
       <div className="grow">
-        <div className="mb-3 flex h-[60px] items-center border-b border-border-5 px-3 py-2">
+        <div className="mb-3 flex h-[60px] items-center px-3 py-2">
           {closeButton ? (
             closeButton
           ) : (
@@ -94,7 +94,7 @@ const Navigation = ({
         </div>
       </div>
 
-      <div className="border-t border-border-5 px-3 pb-3">
+      <div className="px-3 pb-3">
         <VersionInfo
           loading={versionInfo?.loading}
           value={versionInfo?.value}

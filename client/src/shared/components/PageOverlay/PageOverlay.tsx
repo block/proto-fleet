@@ -10,6 +10,7 @@ interface PageOverlayProps {
   show: boolean;
   zIndex?: string;
   animate?: boolean;
+  position?: "top" | "center";
 }
 
 const PageOverlay = ({
@@ -18,6 +19,7 @@ const PageOverlay = ({
   show,
   animate = true,
   zIndex = "z-50",
+  position = "center",
 }: PageOverlayProps) => {
   const { preventScroll } = usePreventScroll();
   useEffect(() => {
@@ -31,11 +33,13 @@ const PageOverlay = ({
       {createPortal(
         <div
           className={clsx(
-            "fixed top-0 left-0 m-0! flex h-screen w-screen items-center justify-center overflow-hidden! bg-grayscale-gray-5 p-0!",
+            "fixed top-0 left-0 m-0! flex h-screen w-screen justify-center overflow-hidden! bg-grayscale-gray-5",
             zIndex,
             {
               "animate-[fade-in_.3s_ease-in-out]": animate && show,
               "animate-[fade-out_.31s_ease-in-out]": animate && !show,
+              "items-center-safe p-0!": position === "center",
+              "pt-16": position === "top",
             },
           )}
         >
