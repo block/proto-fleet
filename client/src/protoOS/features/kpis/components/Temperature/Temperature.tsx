@@ -99,7 +99,7 @@ const Temperature = () => {
   }, [coolingStatus, pendingCoolingStatus]);
 
   return (
-    <>
+    <div className="flex flex-col gap-y-8 pt-4">
       {fanSpeeds && (
         <Stats
           size="medium"
@@ -115,7 +115,7 @@ const Temperature = () => {
               ? "*:px-10 -mx-10 phone:*:px-6 phone:-mx-6"
               : "*:px-10 -mx-10 desktop:*:px-5 desktop:-mx-5 phone:*:px-6 phone:-mx-6",
           )}
-          padding="pb-4"
+          padding="pb-0"
           divide="*:border-r *:border-border-5 *:last:border-0 laptop:*:nth-last-2:border-0 tablet:*:nth-last-2:border-0  phone:*:even:border-0"
           stats={fanSpeeds
             .map((fanSpeed, index) =>
@@ -142,7 +142,7 @@ const Temperature = () => {
           );
         })}
       </div>
-    </>
+    </div>
   );
 };
 
