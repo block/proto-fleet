@@ -7,3 +7,4 @@ breaking:
     - FILE
 modules:
   - path: miner-protos
+  - path: sdk/v1

@@ -1,0 +1,322 @@
+syntax = "proto3";
+package sdk.v1;
+option go_package = "github.com/btc-mining/proto-fleet/server/sdk/v1/pb;pb";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/empty.proto";
+
+// Capabilities represents the features supported by a driver
+message Capabilities { 
+  map<string, bool> flags = 1; 
+}
+
+// Handshake response containing driver identification and capabilities
+message HandshakeResponse { 
+  string driver_name = 1;    // e.g., "antminer", "proto", "whatsminer"
+  string api_version = 2;    // e.g., "v1"
+}
+
+message DescribeDriverResponse {
+  string driver_name = 1;    // e.g., "antminer", "proto", "whatsminer"
+  string api_version = 2;    // e.g., "v1"
+  Capabilities caps = 3;     // Runtime capabilities
+}
+
+// Request to create a new device instance
+message NewDeviceRequest { 
+  string device_id = 1;     // Unique device instance ID
+  DeviceInfo info = 2;     // Device connection info
+  SecretBundle secret = 3;   // Secret for device access
+}
+
+// Response containing the created device identifier
+message NewDeviceResponse { 
+  string device_id = 1;      // Unique device instance ID
+}
+
+// Reference to a specific device instance
+message DeviceRef { 
+  string device_id = 1; 
+}
+
+enum HealthStatus {
+  HEALTH_STATUS_UNSPECIFIED = 0;
+  HEALTHY_INACTIVE = 1;
+  HEALTHY_ACTIVE = 2;
+  WARNING = 3;
+  CRITICAL = 4;
+  UNKNOWN = 5;
+}
+// Status response for a single device
+message DeviceStatusResponse { 
+  string device_id = 1;      // Device instance ID
+  google.protobuf.Timestamp timestamp = 2;         // Timestamp when status was collected
+  string summary = 3;        // Human-readable status summary
+  HealthStatus health = 4;   // Overall health status
+  
+  // Metrics (optional based on device type)
+  optional double hashrate_hs = 5;     // Hashrate in H/s
+  optional double power_watts = 6;      // Power consumption in watts
+  optional double temperature_celsius = 7;     // Temperature in Celsius
+  optional double efficiency_j_per_hash = 8;   // Efficiency in J/H
+  optional int32 fan_rpm = 9;          // Fan speed in RPM
+
+  // Defaults for this sample; applies to all metrics unless overridden below
+  SampleSemantics sample = 10;
+
+  // Optional per-metric overrides (keys: "hashrate_hps", "power_watts", …)
+  map<string, MetricDetail> metric_details = 11;
+
+  // Driver-specific text metadata
+  map<string, string> metadata = 12;
+
+  // Extensibility for additional metrics (Prometheus-style bag)
+  repeated Metric extra_metrics = 13;
+}
+
+message SampleSemantics {
+  Aggregation aggregation = 1;                   // If uniform for all metrics
+  google.protobuf.Duration averaging_window = 2; // e.g., 5s rolling avg
+  google.protobuf.Timestamp start_of_window = 3; // Start time of the window
+}
+
+enum Aggregation {
+  AGGREGATION_UNSPECIFIED = 0;
+  GAUGE   = 1;  // instantaneous best-effort
+  COUNTER = 2;  // monotonically increasing (e.g., energy_joules_total)
+  RATE    = 3;  // rate derived from counter over window (e.g., H/s)
+  DERIVED = 4;  // function of other metrics (e.g., J/H)
+}
+
+message MetricDetail {
+  Aggregation aggregation = 1;
+  google.protobuf.Duration averaging_window = 2;
+  // Optional stats if you compute a window: min/max/stddev are helpful
+  optional double min = 3;
+  optional double max = 4;
+  optional double stddev = 5;
+  optional string sensor_id = 6; // which sensor/board/die produced it
+}
+
+// Generic bag for additional telemetry
+message Metric {
+  string name = 1; // canonical snake_case, e.g., "board_voltage", "die_temp_celsius"
+  oneof value {
+    double double_value = 2;
+    int64  int_value    = 3;
+    bool   bool_value   = 4;
+    string string_value = 5;
+  }
+  Unit unit = 6;                        // pragmatic enum; include HPS, J_PER_HASH, etc.
+  MetricKind kind = 7;                  // GAUGE/COUNTER/RATE/HISTOGRAM
+  google.protobuf.Timestamp observed_at = 8;
+  google.protobuf.Duration window = 9;
+  map<string, string> labels = 10;      // board="1", die="0", etc.
+}
+
+enum MetricKind {
+  METRIC_KIND_UNSPECIFIED = 0;
+  METRIC_KIND_GAUGE   = 1;  // instantaneous best-effort
+  METRIC_KIND_COUNTER = 2;  // monotonically increasing (e.g., energy_joules_total)
+  METRIC_KIND_RATE    = 3;  // rate derived from counter over window (e.g., H/s)
+  METRIC_KIND_HISTOGRAM = 4; // distribution of values over window (e.g., temp_celsius)
+}
+
+enum Unit {
+  UNIT_UNSPECIFIED   = 0;
+  WATT               = 1;
+  CELSIUS            = 2;
+  RPM                = 3;
+  HPS                = 10;  // hashes per second
+  JOULE_PER_HASH     = 11;
+  VOLT               = 20;
+  AMPERE             = 21;
+  BYTES              = 22;
+  PERCENT            = 23;
+}
+
+
+// Request to describe device capabilities
+message DescribeDeviceRequest { 
+  string device_id = 1; 
+}
+
+// Response with device-specific capabilities
+message DescribeDeviceResponse { 
+  DeviceInfo device = 1; 
+  Capabilities caps = 2;
+}
+
+// Batch of status responses
+message StatusBatchResponse { 
+  repeated DeviceStatusResponse items = 1; 
+}
+
+// Request for batch status of multiple devices
+message BatchStatusRequest { 
+  repeated DeviceRef refs = 1; 
+}
+
+// Request to subscribe to streaming status updates
+message SubscribeRequest { 
+  repeated string device_ids = 1;       // Device IDs to monitor
+  optional int32 batch_size = 2;        // Max items per batch (default: 10)
+  optional int32 interval_seconds = 3;  // Collection interval (default: 30)
+}
+
+// -- Secret "kinds" (typed) --
+message APIKey { 
+  string key = 1;
+}
+message UsernamePassword { string username = 1; string password = 2; }
+message BearerToken { string token = 1; }
+message TlsClientCert { bytes client_cert_pem = 1; bytes key_pem = 2; bytes ca_cert_pem = 3; }
+message SecretBundle {
+  string version = 1;
+  oneof kind {
+    APIKey api_key = 2;
+    UsernamePassword user_pass = 3;
+    BearerToken bearer_token = 4;
+    TlsClientCert tls_client_cert = 5;
+  }
+  google.protobuf.Duration ttl = 6; // optional
+}
+
+enum CoolingMode {
+  COOLING_MODE_UNSPECIFIED = 0;
+  COOLING_MODE_AIR_COOLED = 1;
+  COOLING_MODE_IMMERSION_COOLED = 2;
+  COOLING_MODE_MANUAL = 3; // e.g., user sets fan speed manually
+} 
+message SetCoolingModeRequest {
+  DeviceRef ref = 1;
+  CoolingMode mode = 2;
+}
+
+message MiningPool {
+  int32 priority = 1;        // 0 = default, 1 = backup1, 2 = backup2
+  string url = 2;            // e.g., stratum+tcp://pool.example:3333
+  string worker_name = 3;    // Worker name or address
+}
+
+message UpdateMiningPoolsRequest {
+  DeviceRef ref = 1;
+  repeated MiningPool pools = 2;
+}
+
+message DownloadLogsRequest {
+  DeviceRef ref = 1;
+  google.protobuf.Timestamp since = 2; // optional: only logs since this time
+  string batch_log_uuid = 3;      // optional: for batching large log downloads
+}
+
+message DownloadLogsResponse {
+  string log_data = 1; // log content as text
+  bool more_data = 2;  // true if more data is available (use same batch_log_uuid)
+}
+
+message DeviceInfo {
+  string host = 1; // e.g., "192.168.1.100"
+  int32 port = 2;      // e.g., "22"
+  string url_scheme = 3; // e.g., "ssh", "http", "https"
+  string serial_number = 4; // e.g., "SN123456789"
+  string model = 5;         // e.g., "Antminer S19"
+  string manufacturer = 6;  // e.g., "Bitmain"
+  DeviceType type = 7;          // e.g., "ASIC", "GPU"
+  string mac_address = 8; // e.g., "00:1A:2B:3C:4D:5E"
+}
+
+enum DeviceType {
+  DEVICE_TYPE_UNSPECIFIED = 0;
+  DEVICE_TYPE_ASIC = 1;
+  DEVICE_TYPE_GPU = 2;
+  DEVICE_TYPE_FPGA = 3;
+}
+
+message DiscoverDeviceRequest {
+  string ip_address = 1; // e.g., "192.168.1.100"
+  string port = 2;      // e.g., "22"
+}
+
+message DiscoverDeviceResponse {
+  DeviceInfo device = 1; // Discovered device
+}
+
+message PairDeviceRequest {
+  DeviceInfo device = 1; // Device to pair
+  SecretBundle access = 2; // Access credentials
+}
+
+message PairDeviceResponse {
+  string message = 1;    // Optional message (e.g., error details)
+}
+
+message GetDeviceWebViewURLResponse {
+  string url = 1; // URL to access device web interface
+}
+
+message GetDeviceWebViewURLRequest {
+  DeviceRef ref = 1;
+}
+
+message GetTimeSeriesDataRequest {
+  DeviceRef ref = 1;
+  repeated string metric_names = 2; // e.g., "hashrate_hps", "temp_celsius"
+  google.protobuf.Timestamp start_time = 3; // Start of time range
+  google.protobuf.Timestamp end_time = 4;   // End of time range
+
+  // This is optional, we prefer to get unaggregated/raw data if possible.
+  google.protobuf.Duration granularity = 5; // e.g., 1m, 5m
+
+  // Max number of data points to return (default: 1000)
+  int32 max_points = 6;
+
+  string page_token = 7; // For pagination
+}
+
+message GetTimeSeriesDataResponse {
+  repeated DeviceStatusResponse series = 1;
+  string next_page_token = 2; // For pagination
+}
+
+// Driver service interface - all drivers must implement CoreV1
+service Driver {
+  // CoreV1 - Driver Info - Required methods
+  rpc Handshake(google.protobuf.Empty) returns (HandshakeResponse);
+  rpc DescribeDriver(google.protobuf.Empty) returns (DescribeDriverResponse);
+
+  /// CoreV1 - Device Pairing - Required methods
+  rpc DiscoverDevice(DiscoverDeviceRequest) returns (DiscoverDeviceResponse);
+  rpc PairDevice(PairDeviceRequest) returns (PairDeviceResponse);
+  
+  // CoreV1 - Device Management - Required methods
+  rpc NewDevice(NewDeviceRequest) returns (NewDeviceResponse);
+  rpc DescribeDevice(DescribeDeviceRequest) returns (DescribeDeviceResponse);
+  rpc CloseDevice(DeviceRef) returns (google.protobuf.Empty);
+
+  // CoreV1 - Control methods - Required methods
+  rpc StartMining(DeviceRef) returns (google.protobuf.Empty);
+  rpc StopMining(DeviceRef) returns (google.protobuf.Empty);
+  rpc BlinkLED(DeviceRef) returns (google.protobuf.Empty);
+  rpc Reboot(DeviceRef) returns (google.protobuf.Empty);
+
+  // CoreV1 - Configuration methods - Required methods
+  rpc SetCoolingMode(SetCoolingModeRequest) returns (google.protobuf.Empty);
+  rpc UpdateMiningPools(UpdateMiningPoolsRequest) returns (google.protobuf.Empty);
+  rpc DownloadLogs(DownloadLogsRequest) returns (DownloadLogsResponse);
+  rpc UpdateFirmware(DeviceRef) returns (google.protobuf.Empty);
+
+  // CoreV1 - Base Telemetry - Required methods
+  rpc DeviceStatus(DeviceRef) returns (DeviceStatusResponse);
+
+  // CoreV1 - Advanced Telemetry - Optional methods
+  rpc GetTimeSeriesData(GetTimeSeriesDataRequest) returns (GetTimeSeriesDataResponse);
+
+  // CoreV1 - Device Info - Optional methods
+  rpc GetDeviceWebViewURL(GetDeviceWebViewURLRequest) returns (GetDeviceWebViewURLResponse);
+
+  // Optional capabilities - return Unimplemented if not supported
+  rpc BatchStatus(BatchStatusRequest) returns (StatusBatchResponse);
+  rpc Subscribe(SubscribeRequest) returns (stream DeviceStatusResponse);
+}

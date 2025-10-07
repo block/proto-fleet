@@ -3,9 +3,23 @@ plugins:
   - local: protoc-gen-go
     out: generated/miner-api
     opt: module=github.com/btc-mining/proto-fleet/server/generated/miner-api
+    exclude_types:
+      - sdk.v1
   - local: protoc-gen-connect-go
     out: generated/miner-api
     opt: module=github.com/btc-mining/proto-fleet/server/generated/miner-api
+    exclude_types:
+      - sdk.v1
+  - local: protoc-gen-go
+    out: sdk/v1/pb/generated
+    opt: module=github.com/btc-mining/proto-fleet/server/sdk/v1/pb
+    types:
+      - sdk.v1
+  - local: protoc-gen-go-grpc
+    out: sdk/v1/pb/generated
+    opt: module=github.com/btc-mining/proto-fleet/server/sdk/v1/pb
+    types:
+      - sdk.v1
 managed:
   enabled: true
   override:
