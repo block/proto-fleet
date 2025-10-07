@@ -48,7 +48,7 @@ const Efficiency = () => {
   const { chartData, chartLines } = useChartDataForMetric("efficiency");
   const miner = useMiner();
   const hashboards = useMinerHashboards();
-  const aggregates = miner?.efficiency?.aggregates;
+  const aggregates = miner?.efficiency?.timeSeries?.aggregates;
 
   const lowestPerformer = useMemo(() => {
     if (!hashboards) return undefined;
@@ -57,7 +57,8 @@ const Efficiency = () => {
     let lowestAvg = -Infinity; // For efficiency, lower is worse, so we want highest value (worst efficiency)
 
     hashboards.forEach((hashboard) => {
-      const hashboardAvg = hashboard.efficiency?.aggregates?.avg?.value;
+      const hashboardAvg =
+        hashboard.efficiency?.timeSeries?.aggregates?.avg?.value;
       if (!!hashboardAvg && hashboardAvg > lowestAvg) {
         lowestAvg = hashboardAvg;
         lowestSlot = useMinerStore

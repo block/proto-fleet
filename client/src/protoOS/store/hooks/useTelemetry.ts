@@ -27,21 +27,3 @@ export const useAsicTelemetry = (id: string) =>
 
 export const useIntervalMs = () =>
   useMinerStore((state) => state.telemetry.intervalMs);
-
-// =============================================================================
-// Action Hooks
-// =============================================================================
-
-/**
- * Hook to get the updateTelemetryData action
- * Used by API hooks to update the store with fresh telemetry data
- */
-export const useUpdateTelemetryData = () =>
-  useMinerStore((state) => state.telemetry.updateTelemetryData);
-
-/**
- * Hook to get the updateHashboardTemperatures action
- * Used by API hooks to update hashboard inlet/outlet temperatures
- */
-export const useUpdateHashboardTemperatures = () =>
-  useMinerStore((state) => state.telemetry.updateHashboardTemperatures);

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Outlet } from "react-router-dom";
-import { useTimeSeries } from "@/protoOS/api";
+import { useTelemetry, useTimeSeries } from "@/protoOS/api";
 import { HashboardFieldType, MinerFieldType } from "@/protoOS/api/generatedApi";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
@@ -15,6 +15,9 @@ const KpiLayout = ({ children }: ContentLayoutProps) => {
   const duration = useDuration();
   const setDuration = useSetDuration();
 
+  // Get latest miner level telemetry fo tabnav summary
+  useTelemetry({ level: "miner" });
+
   // Memoize levels to prevent recreating on every render
   const levels = useMemo(
     () => [
@@ -22,7 +25,6 @@ const KpiLayout = ({ children }: ContentLayoutProps) => {
         type: "miner" as const,
         fields: [
           MinerFieldType.Hashrate,
-          MinerFieldType.Temperature,
           MinerFieldType.Power,
           MinerFieldType.Efficiency,
         ],
@@ -31,7 +33,6 @@ const KpiLayout = ({ children }: ContentLayoutProps) => {
         type: "hashboard" as const,
         fields: [
           HashboardFieldType.Hashrate,
-          HashboardFieldType.Temperature,
           HashboardFieldType.Power,
           HashboardFieldType.Efficiency,
         ],
@@ -40,12 +41,12 @@ const KpiLayout = ({ children }: ContentLayoutProps) => {
     [],
   );
 
-  // Fetch telemetry data with polling
+  // Fetch all time series data here for hashrate/eff/power in one request
+  // Used by multiple KPI tabs. Temperature uses latest values for asics so not included here
   useTimeSeries({
     duration,
     levels,
     poll: true,
-    pollIntervalMs: 10000, // 10 seconds
   });
 
   const noPoolsLive = useMemo(() => {

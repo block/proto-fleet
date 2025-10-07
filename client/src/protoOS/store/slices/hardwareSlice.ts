@@ -36,7 +36,9 @@ export interface HardwareSlice {
   addAsic: (asic: AsicHardwareData) => void;
   getAsic: (id: string) => AsicHardwareData | undefined;
   getAsicsByHashboard: (hashboardSerial: string) => AsicHardwareData[];
-  getAsicPosition: (id: string) => { row: number; column: number } | undefined;
+  getAsicPosition: (
+    id: string,
+  ) => { row?: number; column?: number } | undefined;
   getAsicRowsByHashboard: (hashboardSerial: string) => number[];
 
   // Relationship Actions

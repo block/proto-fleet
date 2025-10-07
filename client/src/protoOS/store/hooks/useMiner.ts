@@ -20,7 +20,7 @@ export const useMiner = (): MinerData | null => {
   const telemetry = useMinerStore((state) => state.telemetry.miner);
 
   return useMemo(() => {
-    if (!hardware) return null;
+    if (!hardware || !telemetry) return null;
 
     return {
       ...hardware,
@@ -145,7 +145,7 @@ export const useChartDataForMetric = (
   return useMemo(() => {
     if (!miner) return { chartData: [], chartLines: [] };
 
-    const minerMetric = miner[metricName];
+    const minerMetric = miner[metricName]?.timeSeries;
     if (!minerMetric?.values.length) return { chartData: [], chartLines: [] };
 
     // Get hashboards associated with this miner
@@ -177,7 +177,7 @@ export const useChartDataForMetric = (
 
       // Add hashboard values for the same metric and timestamp
       sortedMinerHashboards.forEach((hashboard) => {
-        const hashboardMetric = hashboard[metricName];
+        const hashboardMetric = hashboard[metricName]?.timeSeries;
         if (hashboardMetric?.values && hashboardMetric?.values.length > index) {
           dataPoint[hashboard.serial] = hashboardMetric?.values[index];
         }

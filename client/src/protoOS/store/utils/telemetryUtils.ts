@@ -1,4 +1,4 @@
-import type { Measurement, MetricTimeSeries, MetricUnit } from "../types";
+import type { Measurement, MetricUnit } from "../types";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 import {
   convertCtoF,
@@ -225,43 +225,6 @@ export function formatValue(
     (isTemperature ? "º" : "") +
     (currentValue.units && displayUnits ? ` ${currentValue.units}` : "")
   );
-}
-
-/**
- * Get latest value from a metric time series
- * convert values to preferred units and format it
- * @param metric - The metric time series (can be undefined)
- * @param preferredUnits - Optional preferred units to convert to
- * @param displayUnits - Whether to display the units in formatted string, for temp º will always be included
- * @returns The { value, units } of the latest data point, or undefined if no data
- */
-
-export function getCurrentValue(
-  metric?: MetricTimeSeries,
-  preferredUnits?: MetricUnit,
-  displayUnits?: boolean,
-): Measurement | undefined {
-  if (!metric?.values?.length) return undefined;
-
-  const currentValue: Measurement = {
-    value: metric.values[metric.values.length - 1],
-    units: metric.units,
-  };
-
-  // If no preferred units specified, return as-is
-  if (!preferredUnits) {
-    return {
-      ...currentValue,
-      formatted: formatValue(currentValue, displayUnits),
-    };
-  }
-
-  // Convert units if needed and possible
-  const converted = convertValueUnits(currentValue, preferredUnits);
-
-  return converted
-    ? { ...converted, formatted: formatValue(converted, displayUnits) }
-    : converted;
 }
 
 export function convertAndFormatMeasurement(

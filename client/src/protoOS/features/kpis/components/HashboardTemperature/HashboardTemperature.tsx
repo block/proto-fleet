@@ -2,17 +2,14 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AsicTable from "./Asic/AsicTableWrapper";
 import HashboardSelector from "./HashboardSelector";
-import { useHashboardStatus, useTimeSeries } from "@/protoOS/api";
-import { AsicFieldType, HashboardFieldType } from "@/protoOS/api/generatedApi";
+import { useTelemetry } from "@/protoOS/api";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import {
   convertAndFormatMeasurement,
   convertValueUnits,
   formatValue,
-  getCurrentValue,
   HashboardData,
   type Measurement,
-  useDuration,
   useHashboardsHardware,
   useMinerHashboard,
 } from "@/protoOS/store";
@@ -41,12 +38,12 @@ const getStats = (
     },
     {
       label: "Board power usage",
-      value: powerUsage?.formatted,
+      value: formatValue(powerUsage),
       units: powerUsage?.units,
     },
     {
       label: "Board hashrate",
-      value: hashrate?.formatted,
+      value: formatValue(hashrate),
       units: hashrate?.units,
     },
   ];
@@ -64,43 +61,15 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   const isFahrenheit = temperatureUnits === TEMP_UNITS.fahrenheit;
   const [showPopover, setShowPopover] = useState<string | undefined>(undefined);
   const { minerRoot } = useMinerHosting();
-  const duration = useDuration();
 
   const navigate = useNavigate();
 
-  // TODO: [STORE_REFACTOR] Eventually we should be able to remove this api call
-  // currently it fills in gaps between our useHardware call and useTimeSeries calls
-  // - asic rows and columns are missing from useHardware
-  // - inlet/outlet temps and avg/max asic temps are missing from useTimeSeries
-  useHashboardStatus({
-    hashboardSerialNumber: serial,
-  });
-
-  // Memoize levels to prevent recreating on every render
-  const levels = useMemo(
-    () => [
-      {
-        type: "hashboard" as const,
-        fields: [
-          HashboardFieldType.Temperature,
-          HashboardFieldType.Power,
-          HashboardFieldType.Hashrate,
-        ],
-      },
-      {
-        type: "asic" as const,
-        fields: [AsicFieldType.Temperature, AsicFieldType.Hashrate],
-      },
-    ],
-    [],
-  );
-
-  // Fetch telemetry data with polling
-  useTimeSeries({
-    duration,
-    levels,
-    poll: true,
-    pollIntervalMs: 10000,
+  // Fetch latest telemetry data with polling
+  // TODO: [STORE_REFACTOR] Telemetry API will give include miner and hashboard level data when we specify level=asic
+  // We have another polling call in parent component KpiLayout.  If we want to remove extra requests we could add some logic to useTelemetry
+  // so that the keeps track of the polling requests somehow and only lets the most specific one (level=asic) poll
+  useTelemetry({
+    level: "asic",
   });
 
   const close = () => {
@@ -128,10 +97,16 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   const stats = useMemo(
     () =>
       getStats(
-        convertValueUnits(hashboard?.avgAsicTemp, isFahrenheit ? "F" : "C"),
-        convertValueUnits(hashboard?.maxAsicTemp, isFahrenheit ? "F" : "C"),
-        getCurrentValue(hashboard?.power, "kW", false),
-        getCurrentValue(hashboard?.hashrate, "TH/S", false),
+        convertValueUnits(
+          hashboard?.avgAsicTemp?.latest,
+          isFahrenheit ? "F" : "C",
+        ),
+        convertValueUnits(
+          hashboard?.maxAsicTemp?.latest,
+          isFahrenheit ? "F" : "C",
+        ),
+        convertValueUnits(hashboard?.power?.latest, "kW"),
+        convertValueUnits(hashboard?.hashrate?.latest, "TH/S"),
       ),
     [
       hashboard?.avgAsicTemp,
@@ -180,11 +155,11 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
           <div className="before:w-ful relative flex items-center justify-between font-mono text-mono-text-50 text-text-primary-50 before:absolute before:top-[50%] before:left-0 before:h-[1px] before:w-full before:bg-border-5">
             <div className="relative bg-surface-base pr-4">
               Front
-              {hashboard?.inletTemp && (
+              {hashboard?.inletTemp?.latest && (
                 <>
                   {" "}
                   {convertAndFormatMeasurement(
-                    hashboard.inletTemp,
+                    hashboard.inletTemp.latest,
                     isFahrenheit ? "F" : "C",
                     false,
                   )}
@@ -194,11 +169,11 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
             <div className="relative bg-surface-base px-4">{serial}</div>
             <div className="relative bg-surface-base pl-4">
               Rear
-              {hashboard?.outletTemp && (
+              {hashboard?.outletTemp?.latest && (
                 <>
                   {" "}
                   {convertAndFormatMeasurement(
-                    hashboard.outletTemp,
+                    hashboard.outletTemp.latest,
                     isFahrenheit ? "F" : "C",
                     false,
                   )}

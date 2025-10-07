@@ -24,7 +24,6 @@ export type {
 
 // Utilities
 export {
-  getCurrentValue,
   convertValueUnits,
   formatValue,
   convertAndFormatMeasurement,
@@ -49,8 +48,6 @@ export {
   useHashboardTelemetry,
   useAsicsTelemetry,
   useAsicTelemetry,
-  useUpdateTelemetryData,
-  useUpdateHashboardTemperatures,
   useIntervalMs,
 } from "./hooks/useTelemetry";
 
@@ -65,6 +62,7 @@ export {
 export {
   useMinerHardware,
   useHashboardsHardware,
+  useHashboardSerials,
   useHashboardHardware,
   useHashboardsByBay,
   useBayCount,

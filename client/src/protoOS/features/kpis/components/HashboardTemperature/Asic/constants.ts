@@ -19,26 +19,30 @@ const createMockAsic = (
 
   // Telemetry data (simplified for stories)
   temperature: {
-    units: "C" as const,
-    values: [tempC],
-    aggregates: {
-      avg: { value: tempC, units: "C" },
-      min: { value: tempC, units: "C" },
-      max: { value: tempC, units: "C" },
+    timeSeries: {
+      units: "C" as const,
+      values: [tempC],
+      aggregates: {
+        avg: { value: tempC, units: "C" },
+        min: { value: tempC, units: "C" },
+        max: { value: tempC, units: "C" },
+      },
+      startTime: Date.now() - 3600000,
+      endTime: Date.now(),
     },
-    startTime: Date.now() - 3600000,
-    endTime: Date.now(),
   },
   hashrate: {
-    units: "GH/s" as const,
-    values: [hashrateGhs],
-    aggregates: {
-      avg: { value: hashrateGhs, units: "GH/s" },
-      min: { value: hashrateGhs, units: "GH/s" },
-      max: { value: hashrateGhs, units: "GH/s" },
+    timeSeries: {
+      units: "GH/s" as const,
+      values: [hashrateGhs],
+      aggregates: {
+        avg: { value: hashrateGhs, units: "GH/s" },
+        min: { value: hashrateGhs, units: "GH/s" },
+        max: { value: hashrateGhs, units: "GH/s" },
+      },
+      startTime: Date.now() - 3600000,
+      endTime: Date.now(),
     },
-    startTime: Date.now() - 3600000,
-    endTime: Date.now(),
   },
 });
 

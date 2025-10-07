@@ -91,13 +91,13 @@ export default useMinerStore;
 // Store Subscriptions
 // =============================================================================
 
-// Clear telemetry data when duration changes (preserving existing behavior)
+// Clear time series data when duration changes (preserve latest values)
 useMinerStore.subscribe(
   (state) => state.ui.duration,
   (duration, prevDuration) => {
     if (duration !== prevDuration) {
-      // Clear all telemetry data when duration changes
-      useMinerStore.getState().telemetry.clearAllData();
+      // Clear only time series data, preserve latest polling data
+      useMinerStore.getState().telemetry.clearTimeSeriesData();
     }
   },
 );

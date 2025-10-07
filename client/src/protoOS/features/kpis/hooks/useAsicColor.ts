@@ -2,7 +2,6 @@ import { useMemo } from "react";
 
 import { criticalTemp, dangerTemp, warningTemp } from "../constants";
 import { type AsicData } from "@/protoOS/store";
-import { getCurrentValue } from "@/protoOS/store";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 import { map } from "@/shared/utils/math";
 
@@ -13,7 +12,7 @@ const useAsicColor = (asic: AsicData) => {
   const defaultColor = useCssVariable("--color-core-primary-2");
 
   const backgroundColor = useMemo(() => {
-    const currentTemp = getCurrentValue(asic?.temperature)?.value;
+    const currentTemp = asic?.temperature?.latest?.value;
 
     if (currentTemp === undefined || currentTemp === null) {
       return defaultColor;

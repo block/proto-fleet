@@ -5,7 +5,7 @@ import {
   convertTelemetryHashrateToChartData,
   convertTelemetryTemperatureToChartData,
 } from "./utility";
-import { AsicData, getCurrentValue } from "@/protoOS/store";
+import { AsicData, convertAndFormatMeasurement } from "@/protoOS/store";
 import { useIntervalMs } from "@/protoOS/store";
 import Popover from "@/shared/components/Popover";
 import { minimalMargin } from "@/shared/components/Popover/constants.ts";
@@ -34,16 +34,22 @@ const AsicPopover = ({
 
   // Convert telemetry data to chart format
   const { temperatureData, hashrateData } = useMemo(() => {
-    const temperatureData = asic.temperature
-      ? convertTelemetryTemperatureToChartData(asic.temperature, intervalMs)
+    const temperatureData = asic.temperature?.timeSeries
+      ? convertTelemetryTemperatureToChartData(
+          asic.temperature.timeSeries,
+          intervalMs,
+        )
       : [];
 
-    const hashrateData = asic.hashrate
-      ? convertTelemetryHashrateToChartData(asic.hashrate, intervalMs)
+    const hashrateData = asic.hashrate?.timeSeries
+      ? convertTelemetryHashrateToChartData(
+          asic.hashrate.timeSeries,
+          intervalMs,
+        )
       : [];
 
     return { temperatureData, hashrateData };
-  }, [asic.temperature, asic.hashrate, intervalMs]);
+  }, [asic.temperature?.timeSeries, asic.hashrate?.timeSeries, intervalMs]);
 
   const hashRateValue = hashrateData.length
     ? hashrateData[hashrateData.length - 1].value
@@ -56,7 +62,7 @@ const AsicPopover = ({
   );
 
   // Check if we're still loading data (no telemetry data available)
-  const isLoading = !asic.temperature && !asic.hashrate;
+  const isLoading = !asic.temperature?.timeSeries && !asic.hashrate?.timeSeries;
 
   return (
     <Popover
@@ -103,8 +109,12 @@ const AsicPopover = ({
         <AsicPopoverRow
           label="Current temperature"
           value={
-            temperatureData.length
-              ? `${getCurrentValue(asic.temperature, temperatureUnits === TEMP_UNITS.fahrenheit ? "F" : "C", false)?.formatted}`
+            asic.temperature?.latest
+              ? convertAndFormatMeasurement(
+                  asic.temperature.latest,
+                  temperatureUnits === TEMP_UNITS.fahrenheit ? "F" : "C",
+                  false,
+                )
               : undefined
           }
           className="text-core-accent-fill"

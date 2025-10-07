@@ -20,6 +20,7 @@ import { useSystemInfo } from "./hooks/useSystemInfo";
 import { useSystemLogs } from "./hooks/useSystemLogs";
 import { useSystemReboot } from "./hooks/useSystemReboot";
 import { useSystemStatus } from "./hooks/useSystemStatus";
+import { useTelemetry } from "./hooks/useTelemetry";
 import {
   type TestConnectionProps,
   useTestConnection,
@@ -49,6 +50,7 @@ export {
   useSystemLogs,
   useSystemReboot,
   useSystemStatus,
+  useTelemetry,
   useTestConnection,
   useTimeSeries,
   type TestConnectionProps,

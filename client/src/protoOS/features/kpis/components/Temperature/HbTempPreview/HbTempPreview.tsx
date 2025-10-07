@@ -2,12 +2,10 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
 import AsicTablePreview from "./AsicTablePreview";
-import { useHashboardStatus } from "@/protoOS/api";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { criticalTemp } from "@/protoOS/features/kpis/constants";
 import {
   convertAndFormatMeasurement,
-  getCurrentValue,
   type HashboardData,
   useMinerHashboard,
 } from "@/protoOS/store";
@@ -41,27 +39,13 @@ const HbTempPreview = ({ hbData }: HbTempPreviewProps) => {
   const { minerRoot } = useMinerHosting();
   const { temperatureUnits } = usePreferences();
 
-  // TODO: [STORE_REFACTOR] Do we need this call?  can we move it up the tree to avoid multiple calls?
-  // populates hardware store with AsicInfo[]
-  // populates telemetry store with hashboard inlet, outlet, avg asic temp, and max asic temp
-  useHashboardStatus({
-    hashboardSerialNumber: hbData.serial,
-    poll: true,
-  });
-
   const hashboard = useMinerHashboard(hbData.serial);
 
   useEffect(() => {
-    if (!hbData.temperature?.values?.length) return;
+    if (!hbData.temperature?.latest) return;
 
-    const lastTemp = getCurrentValue(
-      hbData.temperature,
-      // TODO: [STORE_REFACTOR] clean this redundant expression up when we move preferences to zustand store,
-      // and share the same unit types that telemetry uses. that way we just pass tempUnits
-      temperatureUnits === TEMP_UNITS.fahrenheit ? "F" : "C",
-      false,
-    );
-    setIsOverheating(!!lastTemp?.value && lastTemp.value > criticalTemp);
+    const lastTemp = hbData.temperature.latest.value;
+    setIsOverheating(!!lastTemp && lastTemp > criticalTemp);
   }, [hbData, temperatureUnits]);
 
   return (
@@ -99,7 +83,7 @@ const HbTempPreview = ({ hbData }: HbTempPreviewProps) => {
         <div className="grid grid-cols-2 gap-x-4">
           <TempDisplay
             formattedTemp={convertAndFormatMeasurement(
-              hashboard?.avgAsicTemp,
+              hashboard?.avgAsicTemp?.latest,
               temperatureUnits === TEMP_UNITS.fahrenheit ? "F" : "C",
               true,
             )}
@@ -108,7 +92,7 @@ const HbTempPreview = ({ hbData }: HbTempPreviewProps) => {
 
           <TempDisplay
             formattedTemp={convertAndFormatMeasurement(
-              hashboard?.maxAsicTemp,
+              hashboard?.maxAsicTemp?.latest,
               temperatureUnits === TEMP_UNITS.fahrenheit ? "F" : "C",
               true,
             )}

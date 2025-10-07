@@ -1,5 +1,5 @@
 import { memo, useMemo } from "react";
-import { getCurrentValue, useMiner } from "@/protoOS/store";
+import { convertAndFormatMeasurement, useMiner } from "@/protoOS/store";
 import TabMenu from "@/shared/components/TabMenu";
 import { TEMP_UNITS, usePreferences } from "@/shared/features/preferences";
 
@@ -16,29 +16,37 @@ const TabMenuWrapper = memo(({ basePath }: TabMenuWrapperProps) => {
     () => ({
       hashrate: {
         name: "Hashrate",
-        value: getCurrentValue(miner?.hashrate, "TH/S", false)?.formatted,
+        value: convertAndFormatMeasurement(
+          miner?.hashrate?.latest,
+          "TH/S",
+          false,
+        ),
         units: "TH/S",
         path: "/hashrate",
       },
       efficiency: {
         name: "Efficiency",
-        value: getCurrentValue(miner?.efficiency, "J/TH", false)?.formatted,
+        value: convertAndFormatMeasurement(
+          miner?.efficiency?.latest,
+          "J/TH",
+          false,
+        ),
         units: "J/TH",
         path: "/efficiency",
       },
       powerUsage: {
         name: "Power Usage",
-        value: getCurrentValue(miner?.power, "kW", false)?.formatted,
+        value: convertAndFormatMeasurement(miner?.power?.latest, "kW", false),
         units: "kW",
         path: "/power-usage",
       },
       temperature: {
         name: "Temperature",
-        value: getCurrentValue(
-          miner?.temperature,
+        value: convertAndFormatMeasurement(
+          miner?.temperature?.latest,
           isFahrenheit ? "F" : "C",
           false,
-        )?.formatted,
+        ),
         units: miner?.temperature ? unit : undefined,
         path: "/temperature",
       },

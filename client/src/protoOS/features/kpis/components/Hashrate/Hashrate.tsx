@@ -49,7 +49,7 @@ const Hashrate = () => {
   const { chartData, chartLines } = useChartDataForMetric("hashrate");
   const miner = useMiner();
   const hashboards = useMinerHashboards();
-  const aggregates = miner?.hashrate?.aggregates;
+  const aggregates = miner?.hashrate?.timeSeries?.aggregates;
 
   const lowestPerformer = useMemo(() => {
     if (!hashboards) return undefined;
@@ -58,7 +58,8 @@ const Hashrate = () => {
     let lowestAvg = Infinity;
 
     hashboards.forEach((hashboard) => {
-      const hashboardAvg = hashboard.hashrate?.aggregates?.avg?.value;
+      const hashboardAvg =
+        hashboard.hashrate?.timeSeries?.aggregates?.avg?.value;
       if (!!hashboardAvg && hashboardAvg < lowestAvg) {
         lowestAvg = hashboardAvg;
         lowestSlot = useMinerStore

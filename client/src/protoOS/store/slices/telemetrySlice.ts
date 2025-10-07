@@ -4,6 +4,7 @@ import type {
   AsicTelemetryData,
   HashboardTelemetryData,
   Measurement,
+  MetricTelemetry,
   MetricTimeSeries,
   MetricUnit,
   MinerTelemetryData,
@@ -11,10 +12,29 @@ import type {
 import { getAsicId } from "../utils/getAsicId";
 import { type HardwareSlice } from "./hardwareSlice";
 import { type UISlice } from "./uiSlice";
-import type { TimeSeriesResponse } from "@/protoOS/api/generatedApi";
+import type {
+  TelemetryData,
+  TimeSeriesResponse,
+} from "@/protoOS/api/generatedApi";
 
 // Enable Map/Set support for Immer
 enableMapSet();
+
+// Type helpers to extract metric fields
+type MetricKeys<T> = {
+  [K in keyof T]: T[K] extends MetricTelemetry | undefined ? K : never;
+}[keyof T] &
+  string;
+
+type MinerMetricKeys = MetricKeys<MinerTelemetryData>;
+type HashboardMetricKeys = MetricKeys<HashboardTelemetryData>;
+type AsicMetricKeys = MetricKeys<AsicTelemetryData>;
+
+// Helper to check if a field is a metric field
+const isMetricField = (obj: any, key: string): boolean => {
+  const value = obj[key];
+  return value && typeof value === "object" && "unit" in value;
+};
 
 // Helper functions for API data transformation
 const parseISODateToTimestamp = (isoString?: string): number | undefined => {
@@ -61,7 +81,8 @@ export interface TelemetrySlice {
   intervalMs: number; // sampling interval from API
 
   // Data Update Actions
-  updateTelemetryData: (apiResponse: TimeSeriesResponse) => void;
+  updateTimeSeriesTelemetry: (apiResponse: TimeSeriesResponse) => void;
+  updateLatestTelemetry: (telemetryData: TelemetryData) => void;
 
   // need this because time series API currently doesn not return
   // inlet/outlet temps so we need to get them from separate API call
@@ -75,6 +96,8 @@ export interface TelemetrySlice {
 
   // Utility Actions
   clearOldData: (olderThanTimestamp: number) => void;
+  clearTimeSeriesData: () => void;
+  clearLatestData: () => void;
   clearAllData: () => void;
 }
 
@@ -96,8 +119,8 @@ export const createTelemetrySlice: StateCreator<
   lastUpdated: Date.now(),
   intervalMs: 900000, // Default 15 minutes
 
-  // Primary data update method - transforms and stores API response
-  updateTelemetryData: (apiResponse: TimeSeriesResponse) =>
+  // Update time series telemetry data from time series API
+  updateTimeSeriesTelemetry: (apiResponse: TimeSeriesResponse) =>
     set((state) => {
       // adds ms equivalent to ISO8601 timestamps returned by API
       const transformedApiResponse = {
@@ -138,7 +161,6 @@ export const createTelemetrySlice: StateCreator<
       // Initialize miner if it doesn't exist
       if (!state.telemetry.miner) {
         state.telemetry.miner = {
-          controlBoardSerial: "MAIN_001", // TODO: [STORE_REFACTOR] get from API
           hashboards: [],
         };
       }
@@ -147,20 +169,22 @@ export const createTelemetrySlice: StateCreator<
       if (transformedApiResponse.data?.miner) {
         const minerData = transformedApiResponse.data.miner;
 
-        Object.keys(minerData).forEach((field) => {
-          // Only process known metric fields
-          // TODO: [STORE_REFACTOR] could make this more generic so we dont have to add to this list every time we add a new metric
-          const knownMetrics = [
-            "hashrate",
-            "temperature",
-            "power",
-            "efficiency",
-          ];
-          if (knownMetrics.includes(field)) {
-            const metric = minerData[field];
-            (state.telemetry.miner![
-              field as keyof MinerTelemetryData
-            ] as MetricTimeSeries) = {
+        Object.keys(minerData)
+          .filter((key) => isMetricField(minerData, key))
+          .forEach((field) => {
+            const metric = minerData[field as MinerMetricKeys];
+
+            // Get or create the metric object
+            if (!state.telemetry.miner![field as MinerMetricKeys]) {
+              state.telemetry.miner![field as MinerMetricKeys] = {};
+            }
+
+            const metricTelemetry = state.telemetry.miner![
+              field as MinerMetricKeys
+            ] as MetricTelemetry;
+
+            // Update only timeSeries, Immer preserves latest automatically
+            metricTelemetry.timeSeries = {
               aggregates: metric.aggregates
                 ? {
                     min: createMeasurement(
@@ -182,8 +206,7 @@ export const createTelemetrySlice: StateCreator<
               startTime,
               endTime,
             };
-          }
-        });
+          });
       }
 
       // Update hashboards
@@ -218,19 +241,22 @@ export const createTelemetrySlice: StateCreator<
           const hashboard = state.telemetry.hashboards.get(hashboardId)!;
 
           // Update hashboard metrics
-          Object.keys(hashboardData).forEach((field) => {
-            // Only process known metric fields, skip metadata fields
-            const knownMetrics = [
-              "hashrate",
-              "temperature",
-              "power",
-              "efficiency",
-            ];
-            if (knownMetrics.includes(field)) {
-              const metric = hashboardData[field];
-              (hashboard[
-                field as keyof HashboardTelemetryData
-              ] as MetricTimeSeries) = {
+          Object.keys(hashboardData)
+            .filter((key) => isMetricField(hashboardData, key))
+            .forEach((field) => {
+              const metric = hashboardData[field as HashboardMetricKeys];
+
+              // Get or create the metric object
+              if (!hashboard[field as HashboardMetricKeys]) {
+                hashboard[field as HashboardMetricKeys] = {};
+              }
+
+              const metricTelemetry = hashboard[
+                field as HashboardMetricKeys
+              ] as MetricTelemetry;
+
+              // Update only timeSeries, Immer preserves latest automatically
+              metricTelemetry.timeSeries = {
                 aggregates: metric.aggregates
                   ? {
                       min: createMeasurement(
@@ -252,8 +278,7 @@ export const createTelemetrySlice: StateCreator<
                 startTime,
                 endTime,
               };
-            }
-          });
+            });
         });
 
         // Update miner's hashboard reference
@@ -307,17 +332,22 @@ export const createTelemetrySlice: StateCreator<
           const asic = state.telemetry.asics.get(asicId)!;
 
           // Update ASIC metrics
-          Object.keys(asicData).forEach((field) => {
-            // Only process known metric fields, skip metadata fields
-            const knownMetrics = [
-              "hashrate",
-              "temperature",
-              "power",
-              "efficiency",
-            ];
-            if (knownMetrics.includes(field)) {
-              const metric = asicData[field];
-              (asic[field as keyof AsicTelemetryData] as MetricTimeSeries) = {
+          Object.keys(asicData)
+            .filter((key) => isMetricField(asicData, key))
+            .forEach((field) => {
+              const metric = asicData[field as AsicMetricKeys];
+
+              // Get or create the metric object
+              if (!asic[field as AsicMetricKeys]) {
+                asic[field as AsicMetricKeys] = {};
+              }
+
+              const metricTelemetry = asic[
+                field as AsicMetricKeys
+              ] as MetricTelemetry;
+
+              // Update only timeSeries, Immer preserves latest automatically
+              metricTelemetry.timeSeries = {
                 aggregates: metric.aggregates
                   ? {
                       min: createMeasurement(
@@ -339,8 +369,215 @@ export const createTelemetrySlice: StateCreator<
                 startTime,
                 endTime,
               };
+            });
+        });
+      }
+    }),
+
+  // Update latest telemetry values from real-time telemetry API
+  updateLatestTelemetry: (telemetryData: TelemetryData) =>
+    set((state) => {
+      const now = Date.now();
+      state.telemetry.lastUpdated = now;
+
+      // Initialize miner if it doesn't exist
+      if (!state.telemetry.miner) {
+        state.telemetry.miner = {
+          hashboards: [],
+        };
+      }
+
+      // Update miner latest metrics
+      if (telemetryData.miner) {
+        const minerData = telemetryData.miner;
+
+        Object.keys(minerData)
+          .filter((key) => isMetricField(minerData, key))
+          .forEach((field) => {
+            const metric = minerData[field as MinerMetricKeys];
+
+            // Get or create the metric object
+            if (!state.telemetry.miner![field as MinerMetricKeys]) {
+              state.telemetry.miner![field as MinerMetricKeys] = {};
             }
+
+            const metricTelemetry = state.telemetry.miner![
+              field as MinerMetricKeys
+            ] as MetricTelemetry;
+
+            // Update only latest, Immer preserves timeSeries automatically
+            metricTelemetry.latest = createMeasurement(
+              metric.value,
+              metric.unit as MetricUnit,
+            );
           });
+      }
+
+      // Update hashboard latest metrics
+      if (telemetryData.hashboards) {
+        telemetryData.hashboards.forEach((hashboardData) => {
+          const hashboardId = hashboardData.serial_number;
+          if (!hashboardId) return;
+
+          // Create or get hashboard
+          if (!state.telemetry.hashboards.has(hashboardId)) {
+            state.telemetry.hashboards.set(hashboardId, {
+              serial: hashboardId,
+            });
+          }
+
+          const hashboard = state.telemetry.hashboards.get(hashboardId)!;
+
+          // Update standard metrics (excluding special temperature handling below)
+          Object.keys(hashboardData)
+            .filter(
+              (key) =>
+                key !== "temperature" && isMetricField(hashboardData, key),
+            )
+            .forEach((field) => {
+              const metric = hashboardData[field as keyof typeof hashboardData];
+              if (metric && typeof metric === "object" && "value" in metric) {
+                // Get or create the metric object
+                if (!hashboard[field as HashboardMetricKeys]) {
+                  hashboard[field as HashboardMetricKeys] = {};
+                }
+
+                const metricTelemetry = hashboard[
+                  field as HashboardMetricKeys
+                ] as MetricTelemetry;
+
+                // Update only latest, Immer preserves timeSeries automatically
+                metricTelemetry.latest = createMeasurement(
+                  metric.value,
+                  metric.unit as MetricUnit,
+                );
+              }
+            });
+
+          // Update temperature metrics (special handling for hashboard temperature structure)
+          if (hashboardData.temperature) {
+            const temp = hashboardData.temperature;
+
+            // Update aggregate temperature
+            if (temp.average !== undefined) {
+              if (!hashboard.temperature) {
+                hashboard.temperature = {};
+              }
+              hashboard.temperature.latest = createMeasurement(
+                temp.average,
+                temp.unit as MetricUnit,
+              );
+            }
+
+            // Update inlet temp
+            if (temp.inlet !== undefined) {
+              if (!hashboard.inletTemp) {
+                hashboard.inletTemp = {};
+              }
+              hashboard.inletTemp.latest = createMeasurement(
+                temp.inlet,
+                temp.unit as MetricUnit,
+              );
+            }
+
+            // Update outlet temp
+            if (temp.outlet !== undefined) {
+              if (!hashboard.outletTemp) {
+                hashboard.outletTemp = {};
+              }
+              hashboard.outletTemp.latest = createMeasurement(
+                temp.outlet,
+                temp.unit as MetricUnit,
+              );
+            }
+          }
+
+          // Update ASIC latest metrics (nested within hashboard)
+          if (hashboardData.asics && hashboardData.serial_number) {
+            const asicTelemetry = hashboardData.asics;
+
+            // ASICs are returned as arrays of values indexed by ASIC position
+            const numAsics =
+              asicTelemetry.hashrate?.values?.length ||
+              asicTelemetry.temperature?.values?.length ||
+              0;
+
+            // Collect valid temperatures while updating ASICs (for avg/max computation)
+            const temps: number[] = [];
+            const tempUnit = asicTelemetry.temperature?.unit as
+              | MetricUnit
+              | undefined;
+
+            for (let asicIndex = 0; asicIndex < numAsics; asicIndex++) {
+              const asicId = getAsicId(
+                hashboardData.serial_number,
+                asicIndex.toString(),
+              );
+
+              // Create or get ASIC
+              if (!state.telemetry.asics.has(asicId)) {
+                state.telemetry.asics.set(asicId, {
+                  id: asicId,
+                });
+              }
+
+              const asic = state.telemetry.asics.get(asicId)!;
+
+              // Update temperature
+              if (
+                asicTelemetry.temperature?.values?.[asicIndex] !== undefined
+              ) {
+                const tempValue = asicTelemetry.temperature.values[asicIndex];
+
+                if (!asic.temperature) {
+                  asic.temperature = {};
+                }
+                asic.temperature.latest = createMeasurement(
+                  tempValue,
+                  asicTelemetry.temperature.unit as MetricUnit,
+                );
+
+                // Collect valid temperature for avg/max computation
+                if (tempValue !== null && tempValue !== undefined) {
+                  temps.push(tempValue);
+                }
+              }
+
+              // Update hashrate
+              if (asicTelemetry.hashrate?.values?.[asicIndex] !== undefined) {
+                if (!asic.hashrate) {
+                  asic.hashrate = {};
+                }
+                asic.hashrate.latest = createMeasurement(
+                  asicTelemetry.hashrate.values[asicIndex],
+                  asicTelemetry.hashrate.unit as MetricUnit,
+                );
+              }
+            }
+
+            // Compute avg/max ASIC temperatures for this hashboard
+            if (temps.length > 0 && tempUnit) {
+              const avgTemp =
+                temps.reduce((sum, t) => sum + t, 0) / temps.length;
+              const maxTemp = Math.max(...temps);
+
+              if (!hashboard.avgAsicTemp) {
+                hashboard.avgAsicTemp = {};
+              }
+              hashboard.avgAsicTemp.latest = createMeasurement(
+                avgTemp,
+                tempUnit,
+              );
+
+              if (!hashboard.maxAsicTemp) {
+                hashboard.maxAsicTemp = {};
+              }
+              hashboard.maxAsicTemp.latest = createMeasurement(
+                maxTemp,
+                tempUnit,
+              );
+            }
+          }
         });
       }
     }),
@@ -434,14 +671,90 @@ export const createTelemetrySlice: StateCreator<
         state.telemetry.hashboards.set(hashboardSerial, hashboard);
       }
 
-      // Update temperature data
-      hashboard.inletTemp = inletTemp;
-      hashboard.outletTemp = outletTemp;
-      hashboard.avgAsicTemp = avgAsicTemp;
-      hashboard.maxAsicTemp = maxAsicTemp;
+      // Update temperature data - wrap Measurement in MetricTelemetry structure
+      if (inletTemp) {
+        hashboard.inletTemp = { latest: inletTemp };
+      }
+      if (outletTemp) {
+        hashboard.outletTemp = { latest: outletTemp };
+      }
+      if (avgAsicTemp) {
+        hashboard.avgAsicTemp = { latest: avgAsicTemp };
+      }
+      if (maxAsicTemp) {
+        hashboard.maxAsicTemp = { latest: maxAsicTemp };
+      }
     }),
 
   // Clear all telemetry data (useful when duration changes)
+  clearTimeSeriesData: () =>
+    set((state) => {
+      // Clear timeSeries from miner metrics, preserve latest
+      if (state.telemetry.miner) {
+        Object.keys(state.telemetry.miner).forEach((key) => {
+          const metric =
+            state.telemetry.miner![key as keyof MinerTelemetryData];
+          if (metric && typeof metric === "object" && "timeSeries" in metric) {
+            delete (metric as MetricTelemetry).timeSeries;
+          }
+        });
+      }
+
+      // Clear timeSeries from hashboard metrics, preserve latest
+      for (const hashboard of state.telemetry.hashboards.values()) {
+        Object.keys(hashboard).forEach((key) => {
+          const metric = hashboard[key as keyof HashboardTelemetryData];
+          if (metric && typeof metric === "object" && "timeSeries" in metric) {
+            delete (metric as MetricTelemetry).timeSeries;
+          }
+        });
+      }
+
+      // Clear timeSeries from ASIC metrics, preserve latest
+      for (const asic of state.telemetry.asics.values()) {
+        Object.keys(asic).forEach((key) => {
+          const metric = asic[key as keyof AsicTelemetryData];
+          if (metric && typeof metric === "object" && "timeSeries" in metric) {
+            delete (metric as MetricTelemetry).timeSeries;
+          }
+        });
+      }
+    }),
+
+  clearLatestData: () =>
+    set((state) => {
+      // Clear latest from miner metrics, preserve timeSeries
+      if (state.telemetry.miner) {
+        Object.keys(state.telemetry.miner).forEach((key) => {
+          const metric =
+            state.telemetry.miner![key as keyof MinerTelemetryData];
+          if (metric && typeof metric === "object" && "latest" in metric) {
+            delete (metric as MetricTelemetry).latest;
+          }
+        });
+      }
+
+      // Clear latest from hashboard metrics, preserve timeSeries
+      for (const hashboard of state.telemetry.hashboards.values()) {
+        Object.keys(hashboard).forEach((key) => {
+          const metric = hashboard[key as keyof HashboardTelemetryData];
+          if (metric && typeof metric === "object" && "latest" in metric) {
+            delete (metric as MetricTelemetry).latest;
+          }
+        });
+      }
+
+      // Clear latest from ASIC metrics, preserve timeSeries
+      for (const asic of state.telemetry.asics.values()) {
+        Object.keys(asic).forEach((key) => {
+          const metric = asic[key as keyof AsicTelemetryData];
+          if (metric && typeof metric === "object" && "latest" in metric) {
+            delete (metric as MetricTelemetry).latest;
+          }
+        });
+      }
+    }),
+
   clearAllData: () =>
     set((state) => {
       state.telemetry.miner = null;

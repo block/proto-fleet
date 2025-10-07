@@ -2,13 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { useShallow } from "zustand/react/shallow";
 import HbBayPreview from "./HbBayPreview";
-import { useCoolingStatus } from "@/protoOS/api";
-import { useTimeSeries } from "@/protoOS/api";
-import {
-  AsicFieldType,
-  type FanStatus,
-  HashboardFieldType,
-} from "@/protoOS/api/generatedApi";
+import { useCoolingStatus, useTelemetry } from "@/protoOS/api";
+import { type FanStatus } from "@/protoOS/api/generatedApi";
 import { useMinerHashboards, useMinerStore } from "@/protoOS/store";
 import { FanIndicator } from "@/shared/assets/icons";
 import { type StatProps } from "@/shared/components/Stat";
@@ -53,23 +48,10 @@ const Temperature = () => {
   const bayCount = useMinerStore(
     useShallow((state) => state.hardware.getBayCount()),
   );
-  const duration = useMinerStore((state) => state.ui.duration);
 
-  // Memoize levels to prevent recreating on every render
-  const levels = useMemo(
-    () => [
-      { type: "hashboard" as const, fields: [HashboardFieldType.Temperature] },
-      { type: "asic" as const, fields: [AsicFieldType.Temperature] },
-    ],
-    [],
-  );
-
-  // Fetch telemetry data with polling
-  useTimeSeries({
-    duration,
-    levels,
-    poll: true,
-    pollIntervalMs: 10000, // 10 seconds
+  // Fetch latest telemetry data with polling
+  useTelemetry({
+    level: "asic",
   });
 
   // Get integrated hashboard data directly from stores

@@ -8,7 +8,7 @@
 //              - allowing to set/get temperature targets
 //              - enable/disable PSUs, set/get PSU voltage
 //              - set/get hashboard operating parameters
-//              - returning information about hashboards pertitent to
+//              - returning information about hashboards pertinent to
 //              reliability testing This file is used to define the messages
 //              that implement miner debug API service.
 //

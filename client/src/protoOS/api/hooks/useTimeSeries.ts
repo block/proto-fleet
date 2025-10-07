@@ -60,7 +60,7 @@ const useTimeSeries = ({
   duration,
   levels,
   poll = true,
-  pollIntervalMs = 15 * 1000,
+  pollIntervalMs = 30 * 1000,
 }: UseTimeSeriesProps) => {
   const { api } = useMinerHosting();
   const [data, setData] = useState<TimeSeriesResponse>();
@@ -153,7 +153,9 @@ const useTimeSeries = ({
       }
 
       // Update the telemetry store with the new data
-      useMinerStore.getState().telemetry.updateTelemetryData(response.data);
+      useMinerStore
+        .getState()
+        .telemetry.updateTimeSeriesTelemetry(response.data);
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "Unknown error occurred";

@@ -11,6 +11,7 @@ import { isMining, isWarmingUp } from "./utility";
 import {
   useErrors,
   useHardware,
+  useHashboardStatus,
   useMiningStart,
   useMiningStatus,
   usePoll,
@@ -24,6 +25,7 @@ import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
 import { MinerStatusProvider } from "@/protoOS/contexts/MinerStatusContext";
 import { useSystemContext } from "@/protoOS/contexts/SystemContext";
 import { FirmwareUpdateProvider } from "@/protoOS/features/firmwareUpdate/contexts/FirmwareUpdateContext";
+import { useHashboardSerials } from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { BootingUp } from "@/shared/components/Setup";
@@ -71,14 +73,25 @@ const AppWrapper = ({
   const { getItem, setItem } = useLocalStorage();
   const navigate = useNavigate();
 
+  // Fetch and populate hardware store
+  useHardware();
+
   // TODO: (STORE_REFACTOR) get fw to add more data in this EP
-  // Currently this gets us most of the data we need to populate the hardware slice
+  // Currently useHardware gets us most of the data we need to populate the hardware slice
   // But we are missing data around asics that currently only comes from the hashboard status EP
   // - add hashboard.asics - each asic should have index, row, column
-  // - update hashboard.slot to hashboard.index for consistency with TS API
   // - add hasbboard.bayIndex
   // - add mine-info to response - miner infro should include bayCount
-  useHardware();
+
+  // Get hashboard serials from store to fetch ASIC layout data
+  const hashboardSerials = useHashboardSerials();
+
+  // Fetch ASIC layout data for all hashboards
+  // No polling needed - ASIC positions don't change
+  useHashboardStatus({
+    hashboardSerialNumbers: hashboardSerials,
+    poll: false,
+  });
 
   // navigate to onboarding page if miner has not been onboarded
   useEffect(() => {

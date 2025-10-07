@@ -39,7 +39,7 @@ const getStats = (stats: StatsArgs): StatProps[] => {
 const PowerUsage = () => {
   const { chartData, chartLines } = useChartDataForMetric("power");
   const miner = useMiner();
-  const aggregates = miner?.power?.aggregates;
+  const aggregates = miner?.power?.timeSeries?.aggregates;
 
   return (
     <>

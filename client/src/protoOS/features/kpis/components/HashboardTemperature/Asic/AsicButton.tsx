@@ -4,8 +4,11 @@ import clsx from "clsx";
 import AsicPopover from "./AsicPopover";
 import { getAsicUniqueId } from "./utility";
 import { useAsicColor } from "@/protoOS/features/kpis/hooks";
-import { AsicData, getAsicName } from "@/protoOS/store";
-import { getCurrentValue } from "@/protoOS/store";
+import {
+  AsicData,
+  convertAndFormatMeasurement,
+  getAsicName,
+} from "@/protoOS/store";
 import { usePopover } from "@/shared/components/Popover";
 import { usePreferences } from "@/shared/features/preferences";
 
@@ -41,19 +44,19 @@ const AsicButton = ({
   const backgroundColor = useAsicColor(asic);
 
   // Generate ASIC name using utility function - now using passed-in totalAsicCount
-  const asicName = useMemo(
-    () =>
-      asic.index !== undefined ? getAsicName(totalAsicCount, asic.index) : "",
-    [totalAsicCount, asic.index],
-  );
+  const asicName = useMemo(() => {
+    return asic.index !== undefined
+      ? getAsicName(totalAsicCount, asic.index)
+      : "";
+  }, [totalAsicCount, asic.index]);
 
   const temperatureDisplay = useMemo(
     () =>
-      getCurrentValue(
-        asic.temperature,
+      convertAndFormatMeasurement(
+        asic.temperature?.latest,
         temperatureUnits === "fahrenheit" ? "F" : "C",
         false,
-      )?.formatted,
+      ),
     [asic.temperature, temperatureUnits],
   );
 

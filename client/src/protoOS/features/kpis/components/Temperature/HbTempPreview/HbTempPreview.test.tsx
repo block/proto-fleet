@@ -13,15 +13,17 @@ const mockHbData: HashboardData = {
   bay: 1,
   asicIds: [],
   temperature: {
-    units: "C",
-    values: [40, 60, 80],
-    aggregates: {
-      avg: { value: 60, units: "C" },
-      max: { value: 80, units: "C" },
-      min: { value: 40, units: "C" },
+    timeSeries: {
+      units: "C",
+      values: [40, 60, 80],
+      aggregates: {
+        avg: { value: 60, units: "C" },
+        max: { value: 80, units: "C" },
+        min: { value: 40, units: "C" },
+      },
+      startTime: 1234567890000,
+      endTime: 1234567892000,
     },
-    startTime: 1234567890000,
-    endTime: 1234567892000,
   },
 };
 
@@ -105,15 +107,17 @@ describe("HbTempPreview", () => {
       bay: 1,
       asicIds: [],
       temperature: {
-        units: "C",
-        values: [55],
-        aggregates: {
-          avg: { value: 50, units: "C" },
-          max: { value: 60, units: "C" },
-          min: { value: 40, units: "C" },
+        timeSeries: {
+          units: "C",
+          values: [55],
+          aggregates: {
+            avg: { value: 50, units: "C" },
+            max: { value: 60, units: "C" },
+            min: { value: 40, units: "C" },
+          },
+          startTime: 1234567890000,
+          endTime: 1234567892000,
         },
-        startTime: 1234567890000,
-        endTime: 1234567892000,
       },
     };
 
@@ -146,15 +150,17 @@ describe("HbTempPreview", () => {
     const overheatedHbData: HashboardData = {
       ...mockHbData,
       temperature: {
-        units: "C",
-        values: [40, 60, 100], // Overheated
-        aggregates: {
-          avg: { value: 60, units: "C" },
-          max: { value: 100, units: "C" },
-          min: { value: 40, units: "C" },
+        timeSeries: {
+          units: "C",
+          values: [40, 60, 100], // Overheated
+          aggregates: {
+            avg: { value: 60, units: "C" },
+            max: { value: 100, units: "C" },
+            min: { value: 40, units: "C" },
+          },
+          startTime: 1234567890000,
+          endTime: 1234567892000,
         },
-        startTime: 1234567890000,
-        endTime: 1234567892000,
       },
     };
 

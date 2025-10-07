@@ -11,10 +11,16 @@ export const sortAsics = (asics: AsicData[]) => {
   });
 };
 
-// returns the unique rows from the asics
+// returns the unique rows from the asics that have position data
 // e.g. [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 export const getAsicsRows = (asics: AsicData[]) => {
-  return [...new Set(asics.map((asic) => asic.row))];
+  return [
+    ...new Set(
+      asics
+        .filter((asic) => asic.row !== undefined && asic.column !== undefined)
+        .map((asic) => asic.row as number),
+    ),
+  ];
 };
 
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";

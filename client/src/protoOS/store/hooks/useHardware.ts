@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import useMinerStore from "../useMinerStore";
 
 // =============================================================================
@@ -15,6 +16,13 @@ export const useHashboardsHardware = () => {
 
   return useMemo(() => Array.from(hashboards.values()), [hashboards]);
 };
+
+export const useHashboardSerials = () =>
+  useMinerStore(
+    useShallow((state) =>
+      Array.from(state.hardware.hashboards.values()).map((hb) => hb.serial),
+    ),
+  );
 
 export const useHashboardHardware = (serial: string) =>
   useMinerStore((state) => state.hardware.getHashboard(serial));

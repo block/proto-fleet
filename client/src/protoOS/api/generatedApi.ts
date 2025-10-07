@@ -88,6 +88,14 @@ export interface AsicStatsResponse {
   "asic-stats"?: AsicStats;
 }
 
+/** ASIC-level telemetry metrics */
+export interface AsicTelemetry {
+  /** An array of metric values with a shared unit */
+  hashrate: MetricArray;
+  /** An array of metric values with a shared unit */
+  temperature: MetricArray;
+}
+
 /** JWT authentication tokens for access and refresh operations */
 export interface AuthTokens {
   /**
@@ -429,6 +437,14 @@ export interface GetAsicTemperatureParams {
   hbSn: string;
 }
 
+export interface GetCurrentTelemetryParams {
+  /**
+   * Controls which metrics are included: miner (aggregated data only), hashboard (includes per-hashboard metrics), or asic (full detail with ASIC data)
+   * @default "miner"
+   */
+  level?: "miner" | "hashboard" | "asic";
+}
+
 export interface GetHashboardEfficiencyParams {
   /**
    * Time duration for historical data retrieval. Defaults to 1h if not specified.
@@ -697,6 +713,43 @@ export interface HashboardStatsHashboardstats {
   voltage_mv?: number;
 }
 
+/** Individual hashboard telemetry metrics. Contains hashboard-specific measurements. The 'asics' field with ASIC-level detail is only populated when the level parameter is 'asic' */
+export interface HashboardTelemetry {
+  /** ASIC-level telemetry metrics */
+  asics?: AsicTelemetry;
+  /** A metric value with its unit */
+  current?: MetricValue;
+  /** A metric value with its unit */
+  efficiency: MetricValue;
+  /** A metric value with its unit */
+  hashrate: MetricValue;
+  /** Hashboard index */
+  index: number;
+  /** A metric value with its unit */
+  power: MetricValue;
+  /**
+   * Hashboard serial number
+   * @example "HB001"
+   */
+  serial_number?: string;
+  /** Hashboard temperature measurements */
+  temperature: HashboardTemperature;
+  /** A metric value with its unit */
+  voltage?: MetricValue;
+}
+
+/** Hashboard temperature measurements */
+export interface HashboardTemperature {
+  /** Average temperature value */
+  average: number;
+  /** Inlet temperature value */
+  inlet: number;
+  /** Outlet temperature value */
+  outlet: number;
+  /** Unit of measurement for metrics */
+  unit: MetricUnit;
+}
+
 /** Information about all hashboards connected to the mining device */
 export interface HashboardsInfo {
   /** @example [{"hb_sn":"HB001234567890","api_version":"1.0","board":"PROTO0_B","mining_asic":"BZM","mining_asic_count":126,"temp_sensor_count":3,"slot":0}] */
@@ -757,12 +810,56 @@ export interface MessageResponse {
   message?: string;
 }
 
+/** An array of metric values with a shared unit */
+export interface MetricArray {
+  /** Unit of measurement for metrics */
+  unit: MetricUnit;
+  /** Array of values where index corresponds to ASIC index */
+  values: number[];
+}
+
+/**
+ * Unit of measurement for metrics
+ * @example "TH/s"
+ */
+export enum MetricUnit {
+  THS = "TH/s",
+  C = "C",
+  W = "W",
+  JTH = "J/TH",
+  V = "V",
+  A = "A",
+}
+
+/** A metric value with its unit */
+export interface MetricValue {
+  /** Unit of measurement for metrics */
+  unit: MetricUnit;
+  /** The numeric value of the metric */
+  value: number;
+}
+
 /** Available field types for miner-level data */
 export enum MinerFieldType {
   Hashrate = "hashrate",
   Temperature = "temperature",
   Power = "power",
   Efficiency = "efficiency",
+}
+
+/**
+ * Miner-level telemetry metrics
+ * @example {"hashrate":{"value":95.5,"unit":"TH/s"},"temperature":{"value":65.5,"unit":"°C"},"power":{"value":3250,"unit":"W"},"efficiency":{"value":34.03,"unit":"J/TH"}}
+ */
+export interface MinerTelemetry {
+  /** A metric value with its unit */
+  efficiency: MetricValue;
+  /** A metric value with its unit */
+  hashrate: MetricValue;
+  /** A metric value with its unit */
+  power: MetricValue;
+  /** A metric value with its unit */
+  temperature: MetricValue;
 }
 
 /** Mining statistics */
@@ -1344,6 +1441,23 @@ export interface TelemetryConfig {
   enabled: boolean;
 }
 
+/** Current telemetry data response. Contains 'miner' field with aggregated metrics (always present) and 'hashboards' array with per-hashboard data (only included when level is 'hashboard' or 'asic'). ASIC data is nested within each hashboard when level is 'asic' */
+export interface TelemetryData {
+  /**
+   * Array of per-hashboard telemetry data. Only included when level parameter is 'hashboard' or 'asic'. Each hashboard object contains its metrics, with ASIC-level data nested within when level is 'asic'
+   * @example [{"index":0,"serial_number":"HB001","hashrate":{"value":31.8,"unit":"TH/s"},"temperature":{"unit":"°C","inlet":45.2,"outlet":68.5,"average":56.85},"power":{"value":1080,"unit":"W"},"efficiency":{"value":33.96,"unit":"J/TH"},"voltage":{"value":12.1,"unit":"V"},"current":{"value":89.3,"unit":"A"},"asics":{"hashrate":{"unit":"TH/s","values":[0.265,0.264]},"temperature":{"unit":"°C","values":[72.5,73]}}}]
+   */
+  hashboards?: HashboardTelemetry[];
+  /** Miner-level telemetry metrics */
+  miner: MinerTelemetry;
+  /**
+   * Timestamp when the telemetry data was collected
+   * @format date-time
+   * @example "2024-01-15T14:30:00Z"
+   */
+  timestamp: string;
+}
+
 /** Response containing telemetry status information */
 export interface TelemetryResponse {
   /**
@@ -1527,11 +1641,8 @@ export interface TimeSeriesMeta {
 export interface TimeSeriesMetricData {
   /** Statistical aggregates for the entire time series */
   aggregates?: TimeSeriesAggregates;
-  /**
-   * Unit of measurement for this metric
-   * @example "TH/s"
-   */
-  unit?: string;
+  /** Unit of measurement for metrics */
+  unit?: MetricUnit;
   /**
    * Array of values at each time interval
    * @example [95,94.5,94.8]
@@ -1583,7 +1694,7 @@ export interface TimeSeriesRequest {
 export interface TimeSeriesResponse {
   /**
    * Hierarchical data organized by level
-   * @example {"miner":{"hashrate":{"unit":"TH/s","values":[95,94.5,94.8],"aggregates":{"min":94,"avg":94.75,"max":95.5}},"temperature":{"unit":"C","values":[65.5,65.7,66],"aggregates":{"min":65,"avg":65.8,"max":67.2}}},"hashboards":[{"serial_number":"HB001","hashrate":{"unit":"TH/s","values":[31.5,31.45,31.52],"aggregates":{"min":31,"avg":31.49,"max":32}},"temperature":{"unit":"C","values":[66,66.2,66.1],"aggregates":{"min":65.5,"avg":66.1,"max":67}}}]}
+   * @example {"miner":{"hashrate":{"unit":"TH/s","values":[95,94.5,94.8],"aggregates":{"min":94,"avg":94.75,"max":95.5}},"temperature":{"unit":"°C","values":[65.5,65.7,66],"aggregates":{"min":65,"avg":65.8,"max":67.2}}},"hashboards":[{"serial_number":"HB001","hashrate":{"unit":"TH/s","values":[31.5,31.45,31.52],"aggregates":{"min":31,"avg":31.49,"max":32}},"temperature":{"unit":"°C","values":[66,66.2,66.1],"aggregates":{"min":65.5,"avg":66.1,"max":67}}}]}
    */
   data?: {
     /** Array of ASIC-level data with zero-based indexing (present when 'asic' in levels) */
@@ -2781,13 +2892,13 @@ export class Api<
       }),
 
     /**
-     * @description Get the current telemetry status.
+     * @description Get the current system telemetry enabled status.
      *
      * @tags System
-     * @name GetTelemetry
+     * @name GetSystemTelemetryEnabled
      * @request GET:/api/v1/system/telemetry
      */
-    getTelemetry: (params: RequestParams = {}) =>
+    getSystemTelemetryEnabled: (params: RequestParams = {}) =>
       this.request<TelemetryResponse, MessageResponse>({
         path: `/api/v1/system/telemetry`,
         method: "GET",
@@ -2796,13 +2907,16 @@ export class Api<
       }),
 
     /**
-     * @description Configure telemetry settings.
+     * @description Configure system telemetry enabled settings.
      *
      * @tags System
-     * @name SetTelemetry
+     * @name SetSystemTelemetryEnabled
      * @request PUT:/api/v1/system/telemetry
      */
-    setTelemetry: (data: TelemetryConfig, params: RequestParams = {}) =>
+    setSystemTelemetryEnabled: (
+      data: TelemetryConfig,
+      params: RequestParams = {},
+    ) =>
       this.request<TelemetryResponse, MessageResponse>({
         path: `/api/v1/system/telemetry`,
         method: "PUT",
@@ -2825,6 +2939,26 @@ export class Api<
         method: "POST",
         body: data,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns current telemetry values for all metrics. The 'level' parameter controls which metrics are included in the response: 'miner' returns only miner-level aggregated data, 'hashboard' adds individual hashboard metrics, and 'asic' includes full detail with ASIC-level data nested within each hashboard.
+     *
+     * @tags Telemetry
+     * @name GetCurrentTelemetry
+     * @summary Get current telemetry data
+     * @request GET:/api/v1/telemetry
+     */
+    getCurrentTelemetry: (
+      query: GetCurrentTelemetryParams,
+      params: RequestParams = {},
+    ) =>
+      this.request<TelemetryData, MessageResponse>({
+        path: `/api/v1/telemetry`,
+        method: "GET",
+        query: query,
         format: "json",
         ...params,
       }),

@@ -43,14 +43,42 @@ export type Measurement = {
   formatted?: string;
 };
 
-// TODO : [STORE_REFACTOR] Now that Telemetry API for getting latest values is in flight we should rethink this interface expose
-// latest values as well as time series values (last time series value is an average over an interval so they dont match latest value)
-// either current value counld be a child of MetricTimeSeris or we could have the time series and latest values be siblings
-export interface Telemetry {
-  hashrate?: MetricTimeSeries;
-  temperature?: MetricTimeSeries;
-  power?: MetricTimeSeries;
-  efficiency?: MetricTimeSeries;
+export type MetricTelemetry = {
+  timeSeries?: MetricTimeSeries;
+  latest?: Measurement;
+};
+
+// Telemetry Types
+export interface MinerTelemetryData {
+  hashboards: string[]; // hashboard ids
+  hashrate?: MetricTelemetry;
+  temperature?: MetricTelemetry;
+  power?: MetricTelemetry;
+  efficiency?: MetricTelemetry;
+}
+
+export interface HashboardTelemetryData {
+  serial: string;
+  inletTemp?: MetricTelemetry;
+  outletTemp?: MetricTelemetry;
+  avgAsicTemp?: MetricTelemetry;
+  maxAsicTemp?: MetricTelemetry;
+  hashrate?: MetricTelemetry;
+  temperature?: MetricTelemetry;
+  power?: MetricTelemetry;
+  efficiency?: MetricTelemetry;
+}
+
+export interface AsicTelemetryData {
+  id: string;
+  hashrate?: MetricTelemetry;
+  temperature?: MetricTelemetry;
+}
+
+// Chart data transformation types
+export interface ChartDataPoint {
+  datetime: number;
+  [key: string]: number; // Dynamic keys for hashboard_1, hashboard_2, miner, etc.
 }
 
 // Hardware Types
@@ -71,11 +99,13 @@ export interface HashboardHardwareData {
 export interface AsicHardwareData {
   id: string;
   hashboardSerial: string;
-  row: number;
-  column: number;
 
-  // TODO: [STORE_REFACTOR] these should be required but currently we populate part of hardware slice
-  // from older APIs that do not provide index or hashboardIndex
+  // TODO: [STORE_REFACTOR] these should be required but currently we populate hardware slice
+  // from multiple APIs that provide different subsets of data
+  // - useTelemetry provides: index, hashboardIndex
+  // - useHashboardStatus provides: row, column
+  row?: number;
+  column?: number;
   index?: number;
   hashboardIndex?: number;
 }
@@ -83,33 +113,9 @@ export interface AsicHardwareData {
 export type HashboardMap = Map<string, HashboardHardwareData>;
 export type AsicMap = Map<string, AsicHardwareData>;
 
-// Telemetry Entity Types
-export interface MinerTelemetryData extends Telemetry {
-  controlBoardSerial: string;
-  hashboards: string[]; // hashboard ids
-}
-
-export interface HashboardTelemetryData extends Telemetry {
-  serial: string;
-  inletTemp?: Measurement;
-  outletTemp?: Measurement;
-  avgAsicTemp?: Measurement;
-  maxAsicTemp?: Measurement;
-}
-
-export interface AsicTelemetryData extends Telemetry {
-  id: string;
-}
-
-// Chart data transformation types
-export interface ChartDataPoint {
-  datetime: number;
-  [key: string]: number; // Dynamic keys for hashboard_1, hashboard_2, miner, etc.
-}
-
 // Data Types (combining hardware + telemetry)
 export type AsicData = AsicHardwareData & AsicTelemetryData;
 
 export type HashboardData = HashboardHardwareData & HashboardTelemetryData;
 
-export type MinerData = MinerHardwareData & Telemetry;
+export type MinerData = MinerHardwareData & MinerTelemetryData;

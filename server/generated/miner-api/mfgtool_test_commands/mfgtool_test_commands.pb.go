@@ -819,7 +819,7 @@ type PsuGetResponse struct {
 	PsuId         uint32                           `protobuf:"varint,2,opt,name=psu_id,json=psuId,proto3" json:"psu_id,omitempty"`
 	State         miner_data_api.PsuState          `protobuf:"varint,3,opt,name=state,proto3,enum=miner_data_api.PsuState" json:"state,omitempty"`
 	Measurements  []*miner_data_api.PsuMeasurement `protobuf:"bytes,4,rep,name=measurements,proto3" json:"measurements,omitempty"`
-	TemperaturesC []*miner_data_api.PsuTemperature `protobuf:"bytes,5,rep,name=temperatures_c,json=temperaturesC,proto3" json:"temperatures_c,omitempty"`
+	TemperaturesC []*miner_data_api.PsuMeasurement `protobuf:"bytes,5,rep,name=temperatures_c,json=temperaturesC,proto3" json:"temperatures_c,omitempty"`
 	FanSpeeds     []*miner_data_api.FanStatus      `protobuf:"bytes,6,rep,name=fan_speeds,json=fanSpeeds,proto3" json:"fan_speeds,omitempty"`
 	Faults        []*miner_data_api.PsuFault       `protobuf:"bytes,7,rep,name=faults,proto3" json:"faults,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -884,7 +884,7 @@ func (x *PsuGetResponse) GetMeasurements() []*miner_data_api.PsuMeasurement {
 	return nil
 }
 
-func (x *PsuGetResponse) GetTemperaturesC() []*miner_data_api.PsuTemperature {
+func (x *PsuGetResponse) GetTemperaturesC() []*miner_data_api.PsuMeasurement {
 	if x != nil {
 		return x.TemperaturesC
 	}
@@ -1394,8 +1394,8 @@ var file_mfgtool_test_commands_proto_rawDesc = string([]byte{
 	0x65, 0x6e, 0x74, 0x52, 0x0c, 0x6d, 0x65, 0x61, 0x73, 0x75, 0x72, 0x65, 0x6d, 0x65, 0x6e, 0x74,
 	0x73, 0x12, 0x45, 0x0a, 0x0e, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65,
 	0x73, 0x5f, 0x63, 0x18, 0x05, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x1e, 0x2e, 0x6d, 0x69, 0x6e, 0x65,
-	0x72, 0x5f, 0x64, 0x61, 0x74, 0x61, 0x5f, 0x61, 0x70, 0x69, 0x2e, 0x50, 0x73, 0x75, 0x54, 0x65,
-	0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x52, 0x0d, 0x74, 0x65, 0x6d, 0x70, 0x65,
+	0x72, 0x5f, 0x64, 0x61, 0x74, 0x61, 0x5f, 0x61, 0x70, 0x69, 0x2e, 0x50, 0x73, 0x75, 0x4d, 0x65,
+	0x61, 0x73, 0x75, 0x72, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x52, 0x0d, 0x74, 0x65, 0x6d, 0x70, 0x65,
 	0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x73, 0x43, 0x12, 0x38, 0x0a, 0x0a, 0x66, 0x61, 0x6e, 0x5f,
 	0x73, 0x70, 0x65, 0x65, 0x64, 0x73, 0x18, 0x06, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x19, 0x2e, 0x6d,
 	0x69, 0x6e, 0x65, 0x72, 0x5f, 0x64, 0x61, 0x74, 0x61, 0x5f, 0x61, 0x70, 0x69, 0x2e, 0x46, 0x61,
@@ -1587,12 +1587,11 @@ var file_mfgtool_test_commands_proto_goTypes = []any{
 	(*miner_debug_api.LedState)(nil),           // 21: miner_debug_api.LedState
 	(miner_data_api.PsuState)(0),               // 22: miner_data_api.PsuState
 	(*miner_data_api.PsuMeasurement)(nil),      // 23: miner_data_api.PsuMeasurement
-	(*miner_data_api.PsuTemperature)(nil),      // 24: miner_data_api.PsuTemperature
-	(*miner_data_api.FanStatus)(nil),           // 25: miner_data_api.FanStatus
-	(*miner_data_api.PsuFault)(nil),            // 26: miner_data_api.PsuFault
-	(*miner_debug_api.PsuRequest)(nil),         // 27: miner_debug_api.PsuRequest
-	(*miner_common_api.EmptyRequest)(nil),      // 28: miner_common_api.EmptyRequest
-	(*miner_common_api.ApiResultResponse)(nil), // 29: miner_common_api.ApiResultResponse
+	(*miner_data_api.FanStatus)(nil),           // 24: miner_data_api.FanStatus
+	(*miner_data_api.PsuFault)(nil),            // 25: miner_data_api.PsuFault
+	(*miner_debug_api.PsuRequest)(nil),         // 26: miner_debug_api.PsuRequest
+	(*miner_common_api.EmptyRequest)(nil),      // 27: miner_common_api.EmptyRequest
+	(*miner_common_api.ApiResultResponse)(nil), // 28: miner_common_api.ApiResultResponse
 }
 var file_mfgtool_test_commands_proto_depIdxs = []int32{
 	20, // 0: mfgtool_test_commands.GetConnectedUSBDevicesResponse.result:type_name -> miner_common_api.ApiResult
@@ -1604,9 +1603,9 @@ var file_mfgtool_test_commands_proto_depIdxs = []int32{
 	20, // 6: mfgtool_test_commands.PsuGetResponse.result:type_name -> miner_common_api.ApiResult
 	22, // 7: mfgtool_test_commands.PsuGetResponse.state:type_name -> miner_data_api.PsuState
 	23, // 8: mfgtool_test_commands.PsuGetResponse.measurements:type_name -> miner_data_api.PsuMeasurement
-	24, // 9: mfgtool_test_commands.PsuGetResponse.temperatures_c:type_name -> miner_data_api.PsuTemperature
-	25, // 10: mfgtool_test_commands.PsuGetResponse.fan_speeds:type_name -> miner_data_api.FanStatus
-	26, // 11: mfgtool_test_commands.PsuGetResponse.faults:type_name -> miner_data_api.PsuFault
+	23, // 9: mfgtool_test_commands.PsuGetResponse.temperatures_c:type_name -> miner_data_api.PsuMeasurement
+	24, // 10: mfgtool_test_commands.PsuGetResponse.fan_speeds:type_name -> miner_data_api.FanStatus
+	25, // 11: mfgtool_test_commands.PsuGetResponse.faults:type_name -> miner_data_api.PsuFault
 	20, // 12: mfgtool_test_commands.PingTestResponse.result:type_name -> miner_common_api.ApiResult
 	19, // 13: mfgtool_test_commands.PingTestResponse.ping_stats:type_name -> mfgtool_test_commands.PingTestResponse.PingStats
 	20, // 14: mfgtool_test_commands.I2CDevicesResponse.result:type_name -> miner_common_api.ApiResult
@@ -1617,20 +1616,20 @@ var file_mfgtool_test_commands_proto_depIdxs = []int32{
 	7,  // 19: mfgtool_test_commands.MfgToolTestCommandsApi.LedsSet:input_type -> mfgtool_test_commands.LedsSetRequest
 	8,  // 20: mfgtool_test_commands.MfgToolTestCommandsApi.LedSequenceSet:input_type -> mfgtool_test_commands.LedSequenceSetRequest
 	12, // 21: mfgtool_test_commands.MfgToolTestCommandsApi.PsuSet:input_type -> mfgtool_test_commands.PsuSetRequest
-	27, // 22: mfgtool_test_commands.MfgToolTestCommandsApi.PsuGet:input_type -> miner_debug_api.PsuRequest
-	27, // 23: mfgtool_test_commands.MfgToolTestCommandsApi.PsuClearFaults:input_type -> miner_debug_api.PsuRequest
+	26, // 22: mfgtool_test_commands.MfgToolTestCommandsApi.PsuGet:input_type -> miner_debug_api.PsuRequest
+	26, // 23: mfgtool_test_commands.MfgToolTestCommandsApi.PsuClearFaults:input_type -> miner_debug_api.PsuRequest
 	5,  // 24: mfgtool_test_commands.MfgToolTestCommandsApi.GetButtonState:input_type -> mfgtool_test_commands.GetButtonStateRequest
-	28, // 25: mfgtool_test_commands.MfgToolTestCommandsApi.GetConnectedUSBDevices:input_type -> miner_common_api.EmptyRequest
+	27, // 25: mfgtool_test_commands.MfgToolTestCommandsApi.GetConnectedUSBDevices:input_type -> miner_common_api.EmptyRequest
 	14, // 26: mfgtool_test_commands.MfgToolTestCommandsApi.PingTest:input_type -> mfgtool_test_commands.PingTestRequest
 	17, // 27: mfgtool_test_commands.MfgToolTestCommandsApi.GetI2CDevices:input_type -> mfgtool_test_commands.I2CDevicesRequest
-	29, // 28: mfgtool_test_commands.MfgToolTestCommandsApi.FanSet:output_type -> miner_common_api.ApiResultResponse
+	28, // 28: mfgtool_test_commands.MfgToolTestCommandsApi.FanSet:output_type -> miner_common_api.ApiResultResponse
 	11, // 29: mfgtool_test_commands.MfgToolTestCommandsApi.FanGet:output_type -> mfgtool_test_commands.FanGetResponse
-	29, // 30: mfgtool_test_commands.MfgToolTestCommandsApi.LedSet:output_type -> miner_common_api.ApiResultResponse
-	29, // 31: mfgtool_test_commands.MfgToolTestCommandsApi.LedsSet:output_type -> miner_common_api.ApiResultResponse
-	29, // 32: mfgtool_test_commands.MfgToolTestCommandsApi.LedSequenceSet:output_type -> miner_common_api.ApiResultResponse
-	29, // 33: mfgtool_test_commands.MfgToolTestCommandsApi.PsuSet:output_type -> miner_common_api.ApiResultResponse
+	28, // 30: mfgtool_test_commands.MfgToolTestCommandsApi.LedSet:output_type -> miner_common_api.ApiResultResponse
+	28, // 31: mfgtool_test_commands.MfgToolTestCommandsApi.LedsSet:output_type -> miner_common_api.ApiResultResponse
+	28, // 32: mfgtool_test_commands.MfgToolTestCommandsApi.LedSequenceSet:output_type -> miner_common_api.ApiResultResponse
+	28, // 33: mfgtool_test_commands.MfgToolTestCommandsApi.PsuSet:output_type -> miner_common_api.ApiResultResponse
 	13, // 34: mfgtool_test_commands.MfgToolTestCommandsApi.PsuGet:output_type -> mfgtool_test_commands.PsuGetResponse
-	29, // 35: mfgtool_test_commands.MfgToolTestCommandsApi.PsuClearFaults:output_type -> miner_common_api.ApiResultResponse
+	28, // 35: mfgtool_test_commands.MfgToolTestCommandsApi.PsuClearFaults:output_type -> miner_common_api.ApiResultResponse
 	4,  // 36: mfgtool_test_commands.MfgToolTestCommandsApi.GetButtonState:output_type -> mfgtool_test_commands.GetButtonStateResponse
 	3,  // 37: mfgtool_test_commands.MfgToolTestCommandsApi.GetConnectedUSBDevices:output_type -> mfgtool_test_commands.GetConnectedUSBDevicesResponse
 	15, // 38: mfgtool_test_commands.MfgToolTestCommandsApi.PingTest:output_type -> mfgtool_test_commands.PingTestResponse
