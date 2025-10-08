@@ -2,12 +2,14 @@ import { enableMapSet } from "immer";
 import type { StateCreator } from "zustand";
 import type {
   AsicTelemetryData,
+  FanTelemetryData,
   HashboardTelemetryData,
   Measurement,
   MetricTelemetry,
   MetricTimeSeries,
   MetricUnit,
   MinerTelemetryData,
+  PsuTelemetryData,
 } from "../types";
 import { getAsicId } from "../utils/getAsicId";
 import { type HardwareSlice } from "./hardwareSlice";
@@ -76,6 +78,8 @@ export interface TelemetrySlice {
   miner: MinerTelemetryData | null;
   hashboards: Map<string, HashboardTelemetryData>;
   asics: Map<string, AsicTelemetryData>;
+  psus: Map<number, PsuTelemetryData>;
+  fans: Map<number, FanTelemetryData>;
   lastApiResponse: any | null; // Store the API response
   lastUpdated: number;
   intervalMs: number; // sampling interval from API
@@ -92,6 +96,16 @@ export interface TelemetrySlice {
     outletTemp?: Measurement,
     avgAsicTemp?: Measurement,
     maxAsicTemp?: Measurement,
+  ) => void;
+
+  // PSU/Fan Update Actions
+  updatePsuTelemetry: (
+    psuId: number,
+    telemetryData: Partial<PsuTelemetryData>,
+  ) => void;
+  updateFanTelemetry: (
+    fanId: number,
+    telemetryData: Partial<FanTelemetryData>,
   ) => void;
 
   // Utility Actions
@@ -115,6 +129,8 @@ export const createTelemetrySlice: StateCreator<
   miner: null,
   hashboards: new Map(),
   asics: new Map(),
+  psus: new Map(),
+  fans: new Map(),
   lastApiResponse: null,
   lastUpdated: Date.now(),
   intervalMs: 900000, // Default 15 minutes
@@ -686,6 +702,43 @@ export const createTelemetrySlice: StateCreator<
       }
     }),
 
+  // PSU/Fan Update Actions
+  updatePsuTelemetry: (psuId, telemetryData) =>
+    set((state) => {
+      let psu = state.telemetry.psus.get(psuId);
+
+      // Create PSU if it doesn't exist
+      if (!psu) {
+        psu = { id: psuId };
+        state.telemetry.psus.set(psuId, psu);
+      }
+
+      // Update telemetry data
+      Object.entries(telemetryData).forEach(([key, value]) => {
+        if (key !== "id" && value !== undefined) {
+          (psu as any)[key] = value;
+        }
+      });
+    }),
+
+  updateFanTelemetry: (fanId, telemetryData) =>
+    set((state) => {
+      let fan = state.telemetry.fans.get(fanId);
+
+      // Create Fan if it doesn't exist
+      if (!fan) {
+        fan = { id: fanId };
+        state.telemetry.fans.set(fanId, fan);
+      }
+
+      // Update telemetry data
+      Object.entries(telemetryData).forEach(([key, value]) => {
+        if (key !== "id" && value !== undefined) {
+          (fan as any)[key] = value;
+        }
+      });
+    }),
+
   // Clear all telemetry data (useful when duration changes)
   clearTimeSeriesData: () =>
     set((state) => {
@@ -760,6 +813,8 @@ export const createTelemetrySlice: StateCreator<
       state.telemetry.miner = null;
       state.telemetry.hashboards = new Map();
       state.telemetry.asics = new Map();
+      state.telemetry.psus = new Map();
+      state.telemetry.fans = new Map();
       state.telemetry.lastApiResponse = null;
       state.telemetry.lastUpdated = Date.now();
     }),

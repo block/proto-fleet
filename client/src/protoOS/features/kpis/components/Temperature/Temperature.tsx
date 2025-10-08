@@ -1,21 +1,25 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import clsx from "clsx";
-import { useShallow } from "zustand/react/shallow";
 import HbBayPreview from "./HbBayPreview";
 import { useCoolingStatus, useTelemetry } from "@/protoOS/api";
-import { type FanStatus } from "@/protoOS/api/generatedApi";
-import { useMinerHashboards, useMinerStore } from "@/protoOS/store";
+import {
+  type FanTelemetryData,
+  formatValue,
+  useBayCount,
+  useFansTelemetry,
+  useMinerHashboards,
+} from "@/protoOS/store";
 import { FanIndicator } from "@/shared/assets/icons";
 import { type StatProps } from "@/shared/components/Stat";
 import Stats from "@/shared/components/Stats";
 
 const getFanStats = (
-  fanSpeed: FanStatus | null | undefined,
+  fanData: FanTelemetryData | undefined,
   numFans: number,
   fanIndex: number,
   isR1?: boolean,
 ) => {
-  if (!fanSpeed) return null;
+  if (!fanData?.rpm?.latest || !fanData?.percentage?.latest) return null;
 
   const fanPosition = fanIndex + 1;
   let label = `Fan ${fanPosition}`;
@@ -36,30 +40,27 @@ const getFanStats = (
 
   return {
     label: label,
-    value: fanSpeed.percentage,
-    text: `${fanSpeed.rpm} RPM`,
+    value: formatValue(fanData.percentage.latest, false),
+    text: formatValue(fanData.rpm.latest, true),
     units: "%",
     icon: <FanIndicator {...fanProps} />,
   } as StatProps;
 };
 
 const Temperature = () => {
-  const [fanSpeeds, setFanSpeeds] = useState<(FanStatus | null)[]>();
-  const bayCount = useMinerStore(
-    useShallow((state) => state.hardware.getBayCount()),
-  );
-
   // Fetch latest telemetry data with polling
+  // this fetches miner, hashboard, and asic level data
   useTelemetry({
     level: "asic",
   });
 
-  // Get integrated hashboard data directly from stores
-  // Only fetch after hashboards are loaded
-  const hashboards = useMinerHashboards();
+  // Fetch fan telemetry which is not yet included in Telemetry API
+  useCoolingStatus({ poll: true });
 
-  const { data: coolingStatus, pending: pendingCoolingStatus } =
-    useCoolingStatus({ poll: true });
+  // Fetch data from store
+  const hashboards = useMinerHashboards(); // integrated hashboard data (telemetry + hardware)
+  const bayCount = useBayCount(); // number of hashboard bays supported by miner
+  const fans = useFansTelemetry(); // fan telemetry data
 
   // Organize hashboards by bay to avoid filtering on every render
   const hashboardsByBay = useMemo(() => {
@@ -74,39 +75,28 @@ const Temperature = () => {
     return byBay;
   }, [hashboards]);
 
-  useEffect(() => {
-    if (!pendingCoolingStatus || coolingStatus?.fans) {
-      setFanSpeeds(coolingStatus?.fans);
-    }
-  }, [coolingStatus, pendingCoolingStatus]);
-
   return (
     <div className="flex flex-col gap-y-8 pt-4">
-      {fanSpeeds && (
+      {fans.length > 0 && (
         <Stats
           size="medium"
           grid={clsx(
-            fanSpeeds.length < 6
+            fans.length < 6
               ? "grid-cols-4 phone:grid-cols-2"
               : "grid-cols-6 laptop:grid-cols-3 laptop:grid-rows-2 tablet:grid-cols-3 tablet:grid-rows-2 phone:grid-cols-2 phone:grid-rows-3 grid-flow-col phone:grid-flow-row",
           )}
           // use padding and negative margin instead of gap-x to create even spacing around divider
           gap={clsx(
             "gap-y-6",
-            fanSpeeds.length < 6
+            fans.length < 6
               ? "*:px-10 -mx-10 phone:*:px-6 phone:-mx-6"
               : "*:px-10 -mx-10 desktop:*:px-5 desktop:-mx-5 phone:*:px-6 phone:-mx-6",
           )}
           padding="pb-0"
           divide="*:border-r *:border-border-5 *:last:border-0 laptop:*:nth-last-2:border-0 tablet:*:nth-last-2:border-0  phone:*:even:border-0"
-          stats={fanSpeeds
-            .map((fanSpeed, index) =>
-              getFanStats(
-                fanSpeed,
-                fanSpeeds.length,
-                index,
-                fanSpeeds.length === 4,
-              ),
+          stats={fans
+            .map((fanData, index) =>
+              getFanStats(fanData, fans.length, index, fans.length === 4),
             )
             .filter((stat) => stat !== null)}
         />

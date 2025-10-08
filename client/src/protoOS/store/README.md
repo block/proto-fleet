@@ -12,7 +12,7 @@ The ProtoOS store uses a **slice-based architecture** with a single unified stor
 ├── index.ts                      # Clean public API exports
 ├── types.ts                      # TypeScript interfaces and types
 ├── slices/
-│   ├── hardwareSlice.ts          # Hardware state (miner, hashboards, ASICs)
+│   ├── hardwareSlice.ts          # Hardware state (miner, hashboards, ASICs, PSUs, fans, control board)
 │   ├── telemetrySlice.ts         # Real-time telemetry data
 │   └── uiSlice.ts               # UI state (duration, etc.)
 ├── hooks/
@@ -36,6 +36,124 @@ interface MinerStore {
 }
 ```
 
+## Hardware Slice
+
+The hardware slice stores structural information about the miner and its components:
+
+### State
+
+- **miner**: `MinerHardwareData | null` - Top-level miner info
+- **controlBoard**: `ControlBoardHardwareData | null` - Control board info (serial, firmware, CPU/MPU details)
+- **hashboards**: `Map<string, HashboardHardwareData>` - Hashboards keyed by serial number
+- **asics**: `Map<string, AsicHardwareData>` - ASICs keyed by unique ID
+- **psus**: `Map<number, PsuHardwareData>` - PSUs keyed by slot number (1-3)
+- **fans**: `Map<number, FanHardwareData>` - Fans keyed by ID
+
+### Hardware Data Types
+
+```typescript
+// Control Board
+export interface ControlBoardHardwareData {
+  serial?: string;
+  boardId?: string;
+  machineName?: string;
+  firmware?: {
+    name?: string;
+    version?: string;
+    variant?: string;
+    gitHash?: string;
+    imageHash?: string;
+  };
+  mpu?: {
+    /* CPU/MPU details */
+  };
+}
+
+// Hashboard
+export interface HashboardHardwareData {
+  serial: string;
+  slot?: number;
+  bay?: number;
+  board?: string;
+  slotIndexByBay?: number;
+  asicIds?: string[];
+  // Additional fields from API
+  apiVersion?: string;
+  chipId?: string;
+  port?: number;
+  miningAsic?: "BZM" | "MC1" | "MC2";
+  miningAsicCount?: number;
+  temperatureSensorCount?: number;
+  ecLogsPath?: string;
+  firmware?: {
+    /* firmware details */
+  };
+  bootloader?: {
+    /* bootloader details */
+  };
+}
+
+// PSU
+export interface PsuHardwareData {
+  id: number; // Slot number (1-3)
+  serial?: string;
+  slot?: number;
+  manufacturer?: string;
+  model?: string;
+  hwRevision?: string;
+  firmware?: {
+    appVersion?: string;
+    bootloaderVersion?: string;
+  };
+}
+
+// Fan
+export interface FanHardwareData {
+  id: number; // Fan identifier
+  name?: string;
+}
+```
+
+## Telemetry Slice
+
+The telemetry slice stores real-time measurement data:
+
+### State
+
+- **miner**: `MinerTelemetryData | null` - Miner-level metrics
+- **hashboards**: `Map<string, HashboardTelemetryData>` - Hashboard telemetry keyed by serial
+- **asics**: `Map<string, AsicTelemetryData>` - ASIC telemetry keyed by ID
+- **psus**: `Map<number, PsuTelemetryData>` - PSU telemetry keyed by slot number
+- **fans**: `Map<number, FanTelemetryData>` - Fan telemetry keyed by ID
+- **lastApiResponse**: `any | null` - Last API response
+- **lastUpdated**: `number` - Last update timestamp
+- **intervalMs**: `number` - Sampling interval
+
+### Telemetry Data Types
+
+```typescript
+// PSU Telemetry
+export interface PsuTelemetryData {
+  id: number;
+  inputVoltage?: MetricTelemetry;
+  inputCurrent?: MetricTelemetry;
+  inputPower?: MetricTelemetry;
+  outputVoltage?: MetricTelemetry;
+  outputCurrent?: MetricTelemetry;
+  outputPower?: MetricTelemetry;
+  temperatures?: MetricTelemetry[];
+}
+
+// Fan Telemetry
+export interface FanTelemetryData {
+  id: number;
+  rpm?: MetricTelemetry;
+  percentage?: MetricTelemetry;
+  minRpm?: MetricTelemetry;
+  maxRpm?: MetricTelemetry;
+}
+```
+
 ## Key Data Types
 
 ### Measurement Type
@@ -50,11 +168,26 @@ export type Measurement = {
 
 The `Measurement` type represents a single data point with value, units, and optional formatted display string. This is used throughout the store for temperature readings, power measurements, hashrate values, etc.
 
+### MetricTelemetry
+
+```typescript
+export type MetricTelemetry = {
+  timeSeries?: MetricTimeSeries;
+  latest?: Measurement;
+};
+```
+
+Combines both historical time series data and the latest measurement for a given metric.
+
 ### MetricTimeSeries
 
 ```typescript
 export interface MetricTimeSeries {
-  aggregates: { min: number; avg: number; max: number };
+  aggregates?: {
+    min?: Measurement;
+    avg?: Measurement;
+    max?: Measurement;
+  };
   units: MetricUnit;
   values: (number | null)[];
   startTime: number;
@@ -64,27 +197,72 @@ export interface MetricTimeSeries {
 
 Used for time-series data like hashrate, temperature, power, and efficiency over time.
 
-### Enhanced Telemetry Data
+### Supported Units
 
 ```typescript
-export interface HashboardTelemetryData extends Telemetry {
-  serial: string;
-  inletTemp?: Measurement;
-  outletTemp?: Measurement;
-  avgAsicTemp?: Measurement;
-  maxAsicTemp?: Measurement;
-}
-
-export interface AsicTelemetryData extends Telemetry {
-  id: string;
-}
+export type MetricUnit =
+  | TemperatureUnit // "C" | "F"
+  | PowerUnit // "W" | "kW" | "MW"
+  | HashrateUnit // "TH/s" | "GH/s" | "MH/s"
+  | EfficiencyUnit // "J/TH"
+  | PercentageUnit // "%"
+  | RpmUnit // "RPM"
+  | VoltageUnit // "V" | "mV"
+  | CurrentUnit; // "A" | "mA"
 ```
 
-**Recent Changes:**
+## API Integration
 
-- Removed redundant `id` field from `HashboardTelemetryData` (serial serves as the identifier)
-- Simplified `AsicTelemetryData` to only contain telemetry data
-- Positional data (`index`, `hashboardIndex`) moved to hardware slice where it belongs
+### Data Population Pattern
+
+API hooks follow a clean separation pattern:
+
+1. **Fetch data** - API hook fetches data and sets local state
+2. **useEffect watches** - Separate `useEffect` listens for data changes
+3. **Update store** - useEffect updates the appropriate store slice(s)
+
+Example from `useHardware`:
+
+```typescript
+// Fetch and set local state
+useEffect(() => {
+  api.getHardware().then((res) => {
+    setHashboardsInfo(res.hashboards);
+    setPsusInfo(res.psus);
+    setFansInfo(res.fans);
+    setControlBoardInfo(res.controlBoard);
+  });
+}, [api]);
+
+// Separate useEffect updates store when data changes
+useEffect(() => {
+  if (!hashboardsInfo) return;
+  hashboardsInfo.forEach((hb) => {
+    useMinerStore.getState().hardware.addHashboard(hb);
+  });
+}, [hashboardsInfo]);
+
+// Similar pattern for psusInfo, fansInfo, controlBoardInfo
+```
+
+### Store Update Actions
+
+**Hardware Slice Actions:**
+
+- `setMiner()`, `getMiner()`
+- `setControlBoard()`, `getControlBoard()`
+- `addHashboard()`, `getHashboard()`, `getHashboardsByBay()`
+- `addAsic()`, `getAsic()`, `getAsicsByHashboard()`
+- `addPsu()`, `getPsu()`, `getAllPsus()`
+- `addFan()`, `getFan()`, `getAllFans()`
+
+**Telemetry Slice Actions:**
+
+- `updateTimeSeriesTelemetry()` - Updates from time series API
+- `updateLatestTelemetry()` - Updates from real-time API
+- `updatePsuTelemetry()` - Updates PSU metrics
+- `updateFanTelemetry()` - Updates fan metrics
+- `updateHashboardTemperatures()` - Updates inlet/outlet temps
 
 ## Usage Patterns
 
@@ -100,9 +278,14 @@ const store = useMinerStore();
 const hardware = useMinerStore((state) => state.hardware);
 const telemetry = useMinerStore((state) => state.telemetry);
 
+// Get specific data with useShallow for better performance
+const fans = useMinerStore(
+  useShallow((state) => Array.from(state.telemetry.fans.values())),
+);
+
 // Call slice actions
 useMinerStore.getState().hardware.addHashboard(hashboard);
-useMinerStore.getState().telemetry.updateTelemetryData(data);
+useMinerStore.getState().telemetry.updateFanTelemetry(fanId, data);
 ```
 
 ### Convenience Hooks (Recommended)
@@ -110,12 +293,22 @@ useMinerStore.getState().telemetry.updateTelemetryData(data);
 ```typescript
 import {
   useMinerHashboards,
+  useBayCount,
+  useFansTelemetry,
+  usePsusTelemetry,
   useDuration,
   useChartDataForMetric,
 } from "@/protoOS/store";
 
 // Get integrated data (hardware + telemetry combined)
 const hashboards = useMinerHashboards(); // HashboardData[]
+
+// Get hardware info
+const bayCount = useBayCount();
+
+// Get telemetry data
+const fans = useFansTelemetry(); // FanTelemetryData[]
+const psus = usePsusTelemetry(); // PsuTelemetryData[]
 
 // Get UI state
 const duration = useDuration();
@@ -128,85 +321,49 @@ const chartData = useChartDataForMetric("hashrate");
 
 ```typescript
 import {
-  getCurrentValue,
   convertValueUnits,
   formatValue,
   convertAndFormatMeasurement,
 } from "@/protoOS/store";
-
-// Get current value from time series with unit conversion
-const currentTemp = getCurrentValue(
-  metric.temperature,
-  "F", // preferred units
-  true, // display units
-); // Returns Measurement with formatted string
-
-// Convert and format in one step
-const formattedPower = convertAndFormatMeasurement(measurement, "kW", true); // Returns formatted string directly
 
 // Convert units while preserving type
 const converted = convertValueUnits(measurement, "F");
 
 // Format measurement for display
 const formatted = formatValue(measurement, true);
+
+// Convert and format in one step
+const formattedPower = convertAndFormatMeasurement(measurement, "kW", true);
 ```
 
-### Slice-Specific Hooks
+## Component Integration Examples
+
+### Reading Fan Data from Store
 
 ```typescript
-import {
-  useHashboardHardware,
-  useMinerTelemetry,
-  useSetDuration,
-  useUpdateTelemetryData,
-} from "@/protoOS/store";
+import { useFansTelemetry, useBayCount } from "@/protoOS/store";
+import { useCoolingStatus } from "@/protoOS/api";
 
-// Hardware data
-const hashboardHardware = useHashboardHardware();
+const Temperature = () => {
+  // Use convenience hooks to get data from store
+  const bayCount = useBayCount();
+  const fans = useFansTelemetry();
 
-// Telemetry data and actions
-const minerTelemetry = useMinerTelemetry();
-const updateTelemetry = useUpdateTelemetryData();
+  // Fetch cooling status to populate store (hook handles store updates)
+  useCoolingStatus({ poll: true });
 
-// UI actions
-const setDuration = useSetDuration();
+  return (
+    <div>
+      {fans.map(fan => (
+        <div key={fan.id}>
+          RPM: {fan.rpm?.latest?.value}
+          Speed: {fan.percentage?.latest?.value}%
+        </div>
+      ))}
+    </div>
+  );
+};
 ```
-
-## Chart Integration
-
-### KPI Line Chart Integration
-
-The store provides seamless integration with KPI charts through the `useChartDataForMetric` hook:
-
-```typescript
-import { useChartDataForMetric } from "@/protoOS/store";
-import { ChartData } from "@/shared/components/LineChart";
-
-// Get chart-ready data for any metric
-const chartData: ChartData[] = useChartDataForMetric("hashrate");
-// Returns: [{ datetime: number, miner: number, HB001: number, HB002: number, ... }]
-```
-
-This hook automatically:
-
-- Combines miner and hashboard telemetry data
-- Transforms it into chart-compatible format
-- Handles proper datetime alignment
-- Includes all hashboard series for the selected metric
-
-## Utility Functions
-
-### Telemetry Processing
-
-- `getAsicId(hashboardSerial, asicIndex)` - Get standardized ASIC identifiers
-- `getAsicName(totalAsics, asicIndex)` - Generate ASIC display names (A0, A1, B0, B1, etc.)
-
-### Unit Conversion & Formatting
-
-- `getCurrentValue(metric, preferredUnits, displayUnits)` - Extract current value with conversion
-- `convertValueUnits(measurement, preferredUnits)` - Convert between compatible units
-- `formatValue(measurement, displayUnits)` - Format measurement for display
-- `convertAndFormatMeasurement(measurement, preferredUnits, displayUnits)` - Convert and format in one step
 
 ## Key Benefits
 
@@ -218,56 +375,44 @@ This hook automatically:
 6. **Chart Ready**: Built-in chart data transformation for KPI components
 7. **Unit Conversion**: Intelligent unit conversion system with type safety
 8. **Formatted Display**: Automatic value formatting with proper unit display
+9. **Comprehensive Hardware Tracking**: Tracks all miner components (hashboards, ASICs, PSUs, fans, control board)
+10. **Flexible Telemetry**: Supports both time-series and latest values for all metrics
 
 ## Recent Architectural Improvements
+
+### Hardware Expansion
+
+- Added **PSU support** (hardware info + telemetry for voltage, current, power, temperatures)
+- Added **Fan support** (hardware info + telemetry for RPM, speed percentage, min/max RPM)
+- Added **Control Board support** (serial, firmware, CPU/MPU details)
+- Enhanced **Hashboard data** with additional API fields (firmware, bootloader, chip ID, etc.)
 
 ### Data Separation and Clean Architecture
 
 **Hardware vs Telemetry Data Separation**
 
-- **Hardware Slice**: Stores structural data (IDs, positions, relationships)
-  - ASIC `index` and `hashboardIndex` now live in hardware slice
-  - Hardware data populated by `useHardware()` and `useHashboardStatus()`
+- **Hardware Slice**: Stores structural data (IDs, positions, relationships, firmware versions)
 - **Telemetry Slice**: Stores only time-series measurement data
-  - No longer stores positional/structural information
-  - Focused purely on metrics and measurements
+- Clean separation prevents data duplication and confusion
 
-**ASIC Naming System**
+**API Hook Pattern**
 
-- Removed `name` storage from store interfaces
-- Added `getAsicName(totalAsics, asicIndex)` utility for dynamic name generation
-- Names computed on-demand: A0, A1, B0, B1, etc.
-- Cleaner architecture without redundant stored data
+- Hooks fetch data and set local state
+- Separate `useEffect` blocks watch for changes and update store
+- Pattern used in: `useHardware`, `useCoolingStatus`, `useHashboardStatus`
+- Better separation of concerns and easier testing
 
-**Enhanced API Integration**
+### Type System Enhancements
 
-- `useTimeSeries` now updates both hardware and telemetry slices appropriately
-- Hardware slice receives positional data from time series API
-- Telemetry slice receives measurement data
-- Better data flow and single source of truth
-
-### Hook Improvements
-
-**Simplified Data Access**
-
-```typescript
-// All hooks now use spread pattern for cleaner code
-const asicData = useMinerAsic(asicId); // Contains both hardware + telemetry
-// No need to manually list every property - spreads both objects
-```
-
-**Better Performance**
-
-- Removed unnecessary type predicate filters
-- More efficient array operations (reduce vs filter+map)
-- Optimized dependency arrays to prevent infinite loops
+- Added unit types: `RpmUnit`, `VoltageUnit`, `CurrentUnit`
+- Expanded `MetricUnit` union to support all hardware metrics
+- Comprehensive type definitions for all hardware components
+- Proper generic types for combined data (`PsuData`, `FanData`)
 
 ## Migration Notes
 
 - `CurrentValue` type has been renamed to `Measurement` for better semantic clarity
-- All temperature measurements now use `Measurement` objects instead of raw values
-- Chart data hook moved from features to store for better organization
-- New utility functions provide streamlined value conversion and formatting
-- Enhanced telemetry types include direct `Measurement` objects for common temperature readings
-- **Breaking**: `useHashboardStats` renamed to `useHashboardStatus` for better clarity
-- **Breaking**: ASIC positional data moved from telemetry to hardware slice
+- All measurements now use `Measurement` objects with proper unit types
+- New hardware components (PSUs, fans, control board) are available in the store
+- Use `useShallow` from zustand for better performance when reading arrays/objects from store
+- Fan min/max RPM stored in telemetry slice (not hardware) as they're metric constraints

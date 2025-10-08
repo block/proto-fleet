@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { TOTAL_FAN_SLOTS } from "../constants";
 import { usePoll } from "./usePoll";
@@ -15,6 +15,7 @@ import {
   useAuthContext,
   useAuthErrors,
 } from "@/protoOS/features/auth/contexts/AuthContext";
+import { useMinerStore } from "@/protoOS/store";
 
 // Extended type to account for null fan statuses when slots are missing
 export type CoolingStatusWithNullableFans = Omit<
@@ -86,6 +87,37 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
     fetchData,
     poll,
   });
+
+  // Update telemetry store when data changes
+  useEffect(() => {
+    if (!data?.fans) return;
+
+    data.fans.forEach((fan) => {
+      if (fan?.id !== undefined) {
+        useMinerStore.getState().telemetry.updateFanTelemetry(fan.id, {
+          id: fan.id,
+          rpm:
+            fan.rpm !== undefined
+              ? {
+                  latest: {
+                    value: fan.rpm,
+                    units: "RPM",
+                  },
+                }
+              : undefined,
+          percentage:
+            fan.percentage !== undefined
+              ? {
+                  latest: {
+                    value: fan.percentage,
+                    units: "%",
+                  },
+                }
+              : undefined,
+        });
+      }
+    });
+  }, [data]);
 
   const setCooling = useCallback(
     async ({ mode, accessTokenValue, onSuccess, onError }: SetCoolingProps) => {

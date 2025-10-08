@@ -84,35 +84,6 @@ const useHardware = () => {
           return fansBySlot.get(slot) || null;
         });
         setFansInfo(allFans);
-
-        // Update hardware store with hashboard board field
-        if (hashboards) {
-          hashboards.forEach((hb) => {
-            if (hb.hb_sn) {
-              const existingHashboard = useMinerStore
-                .getState()
-                .hardware.getHashboard(hb.hb_sn);
-              if (existingHashboard) {
-                // Update existing hashboard with board info
-                useMinerStore.getState().hardware.addHashboard({
-                  ...existingHashboard,
-                  board: hb.board, // Add board field from getHardware API
-                });
-              } else {
-                // Create new hashboard with available info
-                useMinerStore.getState().hardware.addHashboard({
-                  serial: hb.hb_sn,
-                  slot: hb.slot || 1,
-
-                  // TODO: [STORE_REFACTOR] can we get bay from the api directly?
-                  bay: Math.floor(((hb.slot || 1) - 1) / 3) + 1,
-                  board: hb.board,
-                  asicIds: [], // Will be populated by useHashboardStatus
-                });
-              }
-            }
-          });
-        }
       })
       .catch((err) => {
         setError(err?.error?.message ?? err);
@@ -122,6 +93,7 @@ const useHardware = () => {
       });
   }, [api]);
 
+  // Update hardware store with hashboard data
   useEffect(() => {
     if (!hashboardsInfo) return;
 
@@ -132,15 +104,39 @@ const useHardware = () => {
         const existingHashboard = useMinerStore
           .getState()
           .hardware.getHashboard(hb.hb_sn);
-        if (!existingHashboard) {
-          useMinerStore.getState().hardware.addHashboard({
-            serial: hb.hb_sn,
-            slot: hb.slot,
-            board: hb.board,
-            bay: Math.floor((hb.slot - 1) / 3) + 1,
-            asicIds: [], // Will be populated later by useHashboardStatus
-          });
-        }
+
+        const hashboardData = {
+          ...existingHashboard, // Preserve all existing data
+          serial: hb.hb_sn,
+          slot: hb.slot,
+          board: hb.board,
+          bay: Math.floor((hb.slot - 1) / 3) + 1, // TODO: this should come from API
+          apiVersion: hb.api_version,
+          chipId: hb.chip_id,
+          port: hb.port,
+          miningAsic: hb.mining_asic,
+          miningAsicCount: hb.mining_asic_count,
+          temperatureSensorCount: hb.temp_sensor_count,
+          ecLogsPath: hb.ec_logs_path,
+          firmware: hb.firmware
+            ? {
+                version: hb.firmware.version,
+                build: hb.firmware.build,
+                gitHash: hb.firmware.git_hash,
+                imageHash: hb.firmware.image_hash,
+              }
+            : undefined,
+          bootloader: hb.bootloader
+            ? {
+                version: hb.bootloader.version,
+                build: hb.bootloader.build,
+                gitHash: hb.bootloader.git_hash,
+                imageHash: hb.bootloader.image_hash,
+              }
+            : undefined,
+        };
+
+        useMinerStore.getState().hardware.addHashboard(hashboardData);
         hashboardSerials.push(hb.hb_sn);
       }
     });
@@ -153,6 +149,170 @@ const useHardware = () => {
       });
     }
   }, [hashboardsInfo]);
+
+  // Update hardware and telemetry stores with PSU data
+  useEffect(() => {
+    if (!psusInfo) return;
+
+    psusInfo.forEach((psu) => {
+      if (psu?.slot !== undefined) {
+        // Update hardware store
+        useMinerStore.getState().hardware.addPsu({
+          id: psu.slot,
+          serial: psu.psu_sn,
+          slot: psu.slot,
+          manufacturer: psu.manufacturer,
+          model: psu.model,
+          hwRevision: psu.hw_revision,
+          firmware: psu.firmware
+            ? {
+                appVersion: psu.firmware.app_version,
+                bootloaderVersion: psu.firmware.bootloader_version,
+              }
+            : undefined,
+        });
+
+        // Update telemetry store with PSU power and temperature data
+        useMinerStore.getState().telemetry.updatePsuTelemetry(psu.slot, {
+          id: psu.slot,
+          inputVoltage:
+            psu.power?.input_voltage_mv !== undefined
+              ? {
+                  latest: {
+                    value: psu.power.input_voltage_mv / 1000, // Convert mV to V
+                    units: "V",
+                  },
+                }
+              : undefined,
+          inputCurrent:
+            psu.power?.input_current_ma !== undefined
+              ? {
+                  latest: {
+                    value: psu.power.input_current_ma / 1000, // Convert mA to A
+                    units: "A",
+                  },
+                }
+              : undefined,
+          inputPower:
+            psu.power?.input_power_mw !== undefined
+              ? {
+                  latest: {
+                    value: psu.power.input_power_mw / 1000, // Convert mW to W
+                    units: "W",
+                  },
+                }
+              : undefined,
+          outputVoltage:
+            psu.power?.output_voltage_mv !== undefined
+              ? {
+                  latest: {
+                    value: psu.power.output_voltage_mv / 1000, // Convert mV to V
+                    units: "V",
+                  },
+                }
+              : undefined,
+          outputCurrent:
+            psu.power?.output_current_ma !== undefined
+              ? {
+                  latest: {
+                    value: psu.power.output_current_ma / 1000, // Convert mA to A
+                    units: "A",
+                  },
+                }
+              : undefined,
+          outputPower:
+            psu.power?.output_power_mw !== undefined
+              ? {
+                  latest: {
+                    value: psu.power.output_power_mw / 1000, // Convert mW to W
+                    units: "W",
+                  },
+                }
+              : undefined,
+          temperatures: psu.temperatures
+            ?.filter((temp) => temp.temperature_c !== undefined)
+            .map((temp) => ({
+              latest: {
+                value: temp.temperature_c!,
+                units: "C" as const,
+              },
+            })),
+        });
+      }
+    });
+  }, [psusInfo]);
+
+  // Update hardware and telemetry stores with Fan data
+  useEffect(() => {
+    if (!fansInfo) return;
+
+    fansInfo.forEach((fan) => {
+      if (fan?.id !== undefined) {
+        // Update hardware store
+        useMinerStore.getState().hardware.addFan({
+          id: fan.id,
+          slot: fan.id,
+          name: fan.name,
+        });
+
+        // Update telemetry store with fan min/max RPM
+        useMinerStore.getState().telemetry.updateFanTelemetry(fan.id, {
+          id: fan.id,
+          minRpm:
+            fan.min_rpm !== undefined
+              ? {
+                  latest: {
+                    value: fan.min_rpm,
+                    units: "RPM",
+                  },
+                }
+              : undefined,
+          maxRpm:
+            fan.max_rpm !== undefined
+              ? {
+                  latest: {
+                    value: fan.max_rpm,
+                    units: "RPM",
+                  },
+                }
+              : undefined,
+        });
+      }
+    });
+  }, [fansInfo]);
+
+  // Update hardware store with control board data
+  useEffect(() => {
+    if (!controlBoardInfo) return;
+
+    useMinerStore.getState().hardware.setControlBoard({
+      serial: controlBoardInfo.serial_number,
+      boardId: controlBoardInfo.board_id,
+      machineName: controlBoardInfo.machine_name,
+      firmware: controlBoardInfo.firmware
+        ? {
+            name: controlBoardInfo.firmware.name,
+            version: controlBoardInfo.firmware.version,
+            variant: controlBoardInfo.firmware.variant,
+            gitHash: controlBoardInfo.firmware.git_hash,
+            imageHash: controlBoardInfo.firmware.image_hash,
+          }
+        : undefined,
+      mpu: controlBoardInfo.mpu
+        ? {
+            cpuArchitecture: controlBoardInfo.mpu.cpu_architecture,
+            cpuImplementer: controlBoardInfo.mpu.cpu_implementer,
+            cpuPart: controlBoardInfo.mpu.cpu_part,
+            cpuRevision: controlBoardInfo.mpu.cpu_revision,
+            cpuVariant: controlBoardInfo.mpu.cpu_variant,
+            hardware: controlBoardInfo.mpu.hardware,
+            modelName: controlBoardInfo.mpu.model_name,
+            processor: controlBoardInfo.mpu.processor,
+            revision: controlBoardInfo.mpu.revision,
+          }
+        : undefined,
+    });
+  }, [controlBoardInfo]);
 
   return useMemo(
     () => ({

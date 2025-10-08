@@ -2,9 +2,14 @@ import type { StateCreator } from "zustand";
 import type {
   AsicHardwareData,
   AsicMap,
+  ControlBoardHardwareData,
+  FanHardwareData,
+  FanMap,
   HashboardHardwareData,
   HashboardMap,
   MinerHardwareData,
+  PsuHardwareData,
+  PsuMap,
 } from "../types";
 
 // =============================================================================
@@ -14,12 +19,19 @@ import type {
 export interface HardwareSlice {
   // State
   miner: MinerHardwareData | null;
+  controlBoard: ControlBoardHardwareData | null;
   hashboards: HashboardMap;
   asics: AsicMap;
+  psus: PsuMap;
+  fans: FanMap;
 
   // Miner Actions
   setMiner: (miner: MinerHardwareData) => void;
   getMiner: () => MinerHardwareData | null;
+
+  // Control Board Actions
+  setControlBoard: (controlBoard: ControlBoardHardwareData) => void;
+  getControlBoard: () => ControlBoardHardwareData | null;
 
   // Hashboard Actions
   setHashboards: (hashboards: HashboardHardwareData[]) => void;
@@ -44,11 +56,26 @@ export interface HardwareSlice {
   // Relationship Actions
   linkAsicToHashboard: (asicId: string, hashboardSerial: string) => void;
 
+  // PSU Actions
+  setPsus: (psus: PsuHardwareData[]) => void;
+  addPsu: (psu: PsuHardwareData) => void;
+  getPsu: (id: number) => PsuHardwareData | undefined;
+  getAllPsus: () => PsuHardwareData[];
+
+  // Fan Actions
+  setFans: (fans: FanHardwareData[]) => void;
+  addFan: (fan: FanHardwareData) => void;
+  getFan: (id: number) => FanHardwareData | undefined;
+  getAllFans: () => FanHardwareData[];
+
   // Bulk Operations
   initializeMinerStructure: (
     miner: MinerHardwareData,
     hashboards: HashboardHardwareData[],
     asics: AsicHardwareData[],
+    psus?: PsuHardwareData[],
+    fans?: FanHardwareData[],
+    controlBoard?: ControlBoardHardwareData,
   ) => void;
 }
 
@@ -64,8 +91,11 @@ export const createHardwareSlice: StateCreator<
 > = (set, get) => ({
   // Initial state
   miner: null,
+  controlBoard: null,
   hashboards: new Map(),
   asics: new Map(),
+  psus: new Map(),
+  fans: new Map(),
 
   // Miner Actions
   setMiner: (miner) =>
@@ -80,6 +110,21 @@ export const createHardwareSlice: StateCreator<
       ui: any;
     };
     return fullState.hardware.miner;
+  },
+
+  // Control Board Actions
+  setControlBoard: (controlBoard) =>
+    set((state) => {
+      state.hardware.controlBoard = controlBoard;
+    }),
+
+  getControlBoard: () => {
+    const fullState = get() as {
+      hardware: HardwareSlice;
+      telemetry: any;
+      ui: any;
+    };
+    return fullState.hardware.controlBoard;
   },
 
   // Hashboard Actions
@@ -234,10 +279,86 @@ export const createHardwareSlice: StateCreator<
     });
   },
 
+  // PSU Actions
+  setPsus: (psus) =>
+    set((state) => {
+      state.hardware.psus.clear();
+      psus.forEach((psu) => {
+        state.hardware.psus.set(psu.id, psu);
+      });
+    }),
+
+  addPsu: (psu) =>
+    set((state) => {
+      state.hardware.psus.set(psu.id, psu);
+    }),
+
+  getPsu: (id) => {
+    const fullState = get() as {
+      hardware: HardwareSlice;
+      telemetry: any;
+      ui: any;
+    };
+    return fullState.hardware.psus.get(id);
+  },
+
+  getAllPsus: () => {
+    const fullState = get() as {
+      hardware: HardwareSlice;
+      telemetry: any;
+      ui: any;
+    };
+    return Array.from(fullState.hardware.psus.values());
+  },
+
+  // Fan Actions
+  setFans: (fans) =>
+    set((state) => {
+      state.hardware.fans.clear();
+      fans.forEach((fan) => {
+        state.hardware.fans.set(fan.id, fan);
+      });
+    }),
+
+  addFan: (fan) =>
+    set((state) => {
+      state.hardware.fans.set(fan.id, fan);
+    }),
+
+  getFan: (id) => {
+    const fullState = get() as {
+      hardware: HardwareSlice;
+      telemetry: any;
+      ui: any;
+    };
+    return fullState.hardware.fans.get(id);
+  },
+
+  getAllFans: () => {
+    const fullState = get() as {
+      hardware: HardwareSlice;
+      telemetry: any;
+      ui: any;
+    };
+    return Array.from(fullState.hardware.fans.values());
+  },
+
   // Bulk Operations
-  initializeMinerStructure: (miner, hashboards, asics) =>
+  initializeMinerStructure: (
+    miner,
+    hashboards,
+    asics,
+    psus,
+    fans,
+    controlBoard,
+  ) =>
     set((state) => {
       state.hardware.miner = miner;
+
+      // Initialize control board
+      if (controlBoard) {
+        state.hardware.controlBoard = controlBoard;
+      }
 
       // Initialize hashboards
       state.hardware.hashboards.clear();
@@ -250,5 +371,21 @@ export const createHardwareSlice: StateCreator<
       asics.forEach((asic) => {
         state.hardware.asics.set(asic.id, asic);
       });
+
+      // Initialize PSUs
+      if (psus) {
+        state.hardware.psus.clear();
+        psus.forEach((psu) => {
+          state.hardware.psus.set(psu.id, psu);
+        });
+      }
+
+      // Initialize Fans
+      if (fans) {
+        state.hardware.fans.clear();
+        fans.forEach((fan) => {
+          state.hardware.fans.set(fan.id, fan);
+        });
+      }
     }),
 });

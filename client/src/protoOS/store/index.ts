@@ -13,6 +13,7 @@ export type {
   AsicHardwareData,
   HashboardHardwareData,
   MinerHardwareData,
+  ControlBoardHardwareData,
   AsicTelemetryData,
   HashboardTelemetryData,
   MinerTelemetryData,
@@ -20,6 +21,12 @@ export type {
   HashboardData,
   MinerData,
   MetricTimeSeries,
+  PsuHardwareData,
+  PsuTelemetryData,
+  PsuData,
+  FanHardwareData,
+  FanTelemetryData,
+  FanData,
 } from "./types";
 
 // Utilities
@@ -48,6 +55,10 @@ export {
   useHashboardTelemetry,
   useAsicsTelemetry,
   useAsicTelemetry,
+  usePsusTelemetry,
+  usePsuTelemetry,
+  useFansTelemetry,
+  useFanTelemetry,
   useIntervalMs,
 } from "./hooks/useTelemetry";
 

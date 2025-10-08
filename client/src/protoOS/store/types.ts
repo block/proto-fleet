@@ -14,6 +14,9 @@ export type PowerUnit = "W" | "kW" | "MW";
 export type HashrateUnit = "TH/s" | "TH/S" | "GH/s" | "GH/S" | "MH/s" | "MH/S";
 export type EfficiencyUnit = "J/TH";
 export type PercentageUnit = "%";
+export type RpmUnit = "RPM";
+export type VoltageUnit = "V" | "mV";
+export type CurrentUnit = "A" | "mA";
 
 type Value = number | null;
 
@@ -22,7 +25,10 @@ export type MetricUnit =
   | PowerUnit
   | HashrateUnit
   | EfficiencyUnit
-  | PercentageUnit;
+  | PercentageUnit
+  | RpmUnit
+  | VoltageUnit
+  | CurrentUnit;
 
 // Time Series Data Types
 export interface MetricTimeSeries {
@@ -82,6 +88,30 @@ export interface ChartDataPoint {
 }
 
 // Hardware Types
+export interface ControlBoardHardwareData {
+  serial?: string;
+  boardId?: string;
+  machineName?: string;
+  firmware?: {
+    name?: string;
+    version?: string;
+    variant?: string;
+    gitHash?: string;
+    imageHash?: string;
+  };
+  mpu?: {
+    cpuArchitecture?: number;
+    cpuImplementer?: string;
+    cpuPart?: string;
+    cpuRevision?: number;
+    cpuVariant?: string;
+    hardware?: string;
+    modelName?: string;
+    processor?: number;
+    revision?: string;
+  };
+}
+
 export interface MinerHardwareData {
   controlBoardSerial?: string;
   hashboardSerials: string[];
@@ -94,6 +124,27 @@ export interface HashboardHardwareData {
   board?: string;
   slotIndexByBay?: number;
   asicIds?: string[];
+
+  // Additional fields from HashboardInfo API
+  apiVersion?: string;
+  chipId?: string;
+  port?: number;
+  miningAsic?: "BZM" | "MC1" | "MC2";
+  miningAsicCount?: number;
+  temperatureSensorCount?: number;
+  ecLogsPath?: string;
+  firmware?: {
+    version?: string;
+    build?: "debug" | "release";
+    gitHash?: string;
+    imageHash?: string;
+  };
+  bootloader?: {
+    version?: string;
+    build?: "debug" | "release";
+    gitHash?: string;
+    imageHash?: string;
+  };
 }
 
 export interface AsicHardwareData {
@@ -119,3 +170,49 @@ export type AsicData = AsicHardwareData & AsicTelemetryData;
 export type HashboardData = HashboardHardwareData & HashboardTelemetryData;
 
 export type MinerData = MinerHardwareData & MinerTelemetryData;
+
+// PSU Types
+export interface PsuHardwareData {
+  id: number; // unique identifier (1-3 for slots)
+  serial?: string;
+  slot?: number;
+  manufacturer?: string;
+  model?: string;
+  hwRevision?: string;
+  firmware?: {
+    appVersion?: string;
+    bootloaderVersion?: string;
+  };
+}
+
+export interface PsuTelemetryData {
+  id: number;
+  inputVoltage?: MetricTelemetry;
+  inputCurrent?: MetricTelemetry;
+  inputPower?: MetricTelemetry;
+  outputVoltage?: MetricTelemetry;
+  outputCurrent?: MetricTelemetry;
+  outputPower?: MetricTelemetry;
+  temperatures?: MetricTelemetry[];
+}
+
+export type PsuMap = Map<number, PsuHardwareData>;
+export type PsuData = PsuHardwareData & PsuTelemetryData;
+
+// Fan Types
+export interface FanHardwareData {
+  id: number; // unique identifier starting from 0
+  slot?: number; // physical slot number starting from 1
+  name?: string;
+}
+
+export interface FanTelemetryData {
+  id: number;
+  rpm?: MetricTelemetry;
+  percentage?: MetricTelemetry;
+  minRpm?: MetricTelemetry;
+  maxRpm?: MetricTelemetry;
+}
+
+export type FanMap = Map<number, FanHardwareData>;
+export type FanData = FanHardwareData & FanTelemetryData;
