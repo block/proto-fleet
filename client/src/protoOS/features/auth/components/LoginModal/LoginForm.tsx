@@ -115,11 +115,11 @@ const LoginForm = ({
       </div>
 
       <button
-        className="flex text-200 text-text-primary-50 hover:cursor-pointer"
+        className="flex text-200 text-intent-warning-fill hover:cursor-pointer"
         onClick={onClickForgotPassword}
         data-testid="forgot-password"
       >
-        Forgot password &rarr;
+        Forgot password
       </button>
 
       <ButtonGroup
