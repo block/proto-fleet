@@ -32,5 +32,5 @@ StatusCircle.argTypes = {
 };
 
 export default {
-  title: "Components (Shared)/StatusCircle",
+  title: "Shared/StatusCircle",
 };

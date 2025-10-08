@@ -24,7 +24,7 @@ export const SettingsWidget = ({ numberOfMiners }: SettingsWidgetArgs) => {
 };
 
 export default {
-  title: "Components (ProtoFleet)/Action Bar/Settings Widget",
+  title: "Proto Fleet/Action Bar/Settings Widget",
   args: {
     numberOfMiners: 1,
   },

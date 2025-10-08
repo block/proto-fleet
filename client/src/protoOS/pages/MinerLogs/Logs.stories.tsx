@@ -13,5 +13,5 @@ export const Logs = () => {
 };
 
 export default {
-  title: "Components/Logs",
+  title: "ProtoOS/Logs",
 };

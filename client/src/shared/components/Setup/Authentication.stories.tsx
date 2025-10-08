@@ -35,7 +35,7 @@ export const Authentication = ({
 };
 
 export default {
-  title: "Components (Shared)/Setup/Authentication",
+  title: "Shared/Setup/Authentication",
   args: {
     inputPrefix: "Fleet",
     initUsername: "admin",

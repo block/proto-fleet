@@ -9,5 +9,5 @@ export const TemperatureUnitsSwitcher = () => {
 };
 
 export default {
-  title: "Components (Shared)/Temperature Units Switcher",
+  title: "Shared/Temperature Units Switcher",
 };

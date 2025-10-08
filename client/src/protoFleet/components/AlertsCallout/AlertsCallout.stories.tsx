@@ -21,7 +21,7 @@ export const AlertsCallout = ({
 };
 
 export default {
-  title: "Components (protoFleet)/Alerts Callout",
+  title: "Proto Fleet/Alerts Callout",
   decorators: [
     (Story: ElementType) => (
       <MemoryRouter>

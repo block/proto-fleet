@@ -16,5 +16,5 @@ export const BackgroundImage = () => {
 };
 
 export default {
-  title: "Components (Shared)/Background Image",
+  title: "Shared/Background Image",
 };

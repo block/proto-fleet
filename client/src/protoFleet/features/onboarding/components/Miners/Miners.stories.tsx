@@ -38,7 +38,7 @@ export const Miners = ({ minersCount }: MinersProps) => {
 };
 
 export default {
-  title: "ProtoFleet/Onboarding/Miners",
+  title: "Proto Fleet/Onboarding/Miners",
   args: {
     minersCount: 10,
   },

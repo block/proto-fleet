@@ -9,5 +9,5 @@ export const SetupHeader = () => {
 };
 
 export default {
-  title: "Components (Shared)/Setup/Setup Header",
+  title: "Shared/Setup/Setup Header",
 };

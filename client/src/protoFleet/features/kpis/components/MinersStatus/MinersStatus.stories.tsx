@@ -24,7 +24,7 @@ export const OfflineMiners = ({
 };
 
 export default {
-  title: "Components (ProtoFleet)/Offline Miners",
+  title: "Proto Fleet/Offline Miners",
   args: {
     activeMiners: 210,
     inactiveMiners: 12,

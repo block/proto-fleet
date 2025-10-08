@@ -62,7 +62,7 @@ export const Modal = ({
 };
 
 export default {
-  title: "Components (Shared)/Modal",
+  title: "Shared/Modal",
   args: {
     hasButtons: true,
     hasTitle: true,

@@ -26,7 +26,7 @@ export const WarmingUpMiner = () => {
 };
 
 export default {
-  title: "Pages/App/Warming Up Miner",
+  title: "ProtoOS/Warming Up Miner",
   decorators: [
     (Story: ElementType) => (
       <MemoryRouter>

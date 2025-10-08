@@ -5,5 +5,5 @@ export const BootingUp = () => {
 };
 
 export default {
-  title: "Components (Shared)/Setup/Booting Up",
+  title: "Shared/Setup/Booting Up",
 };

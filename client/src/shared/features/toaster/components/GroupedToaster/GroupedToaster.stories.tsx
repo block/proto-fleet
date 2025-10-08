@@ -33,7 +33,7 @@ export const GroupedToaster = ({ progress }: GroupedToasterArgs) => {
 };
 
 export default {
-  title: "Components (Shared)/Grouped Toaster",
+  title: "Shared/Grouped Toaster",
   args: {
     progress: 0,
   },

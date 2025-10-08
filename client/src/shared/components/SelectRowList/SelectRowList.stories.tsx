@@ -95,7 +95,7 @@ const SelectRowListForStory = ({
 export const SelectRowList: StoryObj<typeof SelectRowListForStory> = {};
 
 export default {
-  title: "Components (Shared)/Select Row List",
+  title: "Shared/Select Row List",
   component: SelectRowListForStory,
   args: {
     disabled: false,

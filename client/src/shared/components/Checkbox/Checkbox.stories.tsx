@@ -5,5 +5,5 @@ export const Checkbox = () => {
 };
 
 export default {
-  title: "Components (Shared)/Checkbox",
+  title: "Shared/Checkbox",
 };

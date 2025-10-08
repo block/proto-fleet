@@ -25,7 +25,7 @@ export const Row = ({ clickable, compact, removeLastDivider }: RowProps) => {
 };
 
 export default {
-  title: "Components (Shared)/Row",
+  title: "Shared/Row",
   args: {
     clickable: false,
     compact: false,

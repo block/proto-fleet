@@ -135,5 +135,5 @@ export const Toaster = () => {
 };
 
 export default {
-  title: "Components (Shared)/Toaster",
+  title: "Shared/Toaster",
 };

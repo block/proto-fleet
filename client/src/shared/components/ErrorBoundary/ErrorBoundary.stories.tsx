@@ -5,7 +5,7 @@ import { DefaultErrorFallback } from "./DefaultErrorFallback";
 import { ErrorBoundary } from "./ErrorBoundary";
 
 const meta: Meta<typeof ErrorBoundary> = {
-  title: "Components (Shared)/ErrorBoundary",
+  title: "Shared/ErrorBoundary",
   component: ErrorBoundary,
   parameters: {
     layout: "centered",

@@ -35,7 +35,7 @@ export const SettingUp = ({ poolStatus }: OnboardingSettingUpProps) => {
 };
 
 export default {
-  title: "Components (Shared)/Onboarding/Setting Up",
+  title: "Shared/Onboarding/Setting Up",
   args: {
     poolStatus: statuses.success,
   },

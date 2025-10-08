@@ -451,7 +451,7 @@ export const Colors = () => {
 };
 
 export default {
-  title: "Style/Colors",
+  title: "Foundation/Colors",
   decorators: [
     (Story: ElementType) => (
       <MemoryRouter>

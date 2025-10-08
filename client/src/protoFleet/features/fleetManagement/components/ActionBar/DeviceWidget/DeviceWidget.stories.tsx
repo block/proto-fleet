@@ -24,7 +24,7 @@ export const DeviceWidget = ({ numberOfMiners }: DeviceWidgetArgs) => {
 };
 
 export default {
-  title: "Components (ProtoFleet)/Action Bar/Device Widget",
+  title: "Proto Fleet/Action Bar/Device Widget",
   args: {
     numberOfMiners: 1,
   },

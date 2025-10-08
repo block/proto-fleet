@@ -14,7 +14,7 @@ export const Toast = ({ status }: ToastProps) => (
 );
 
 export default {
-  title: "Components (Shared)/Toast",
+  title: "Shared/Toast",
   args: {
     type: "success",
   },

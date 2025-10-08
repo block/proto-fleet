@@ -16,7 +16,7 @@ export const Search = ({ compact }: SearchProps) => {
 };
 
 export default {
-  title: "Components (Shared)/Search",
+  title: "Shared/Search",
   args: {
     compact: false,
   },

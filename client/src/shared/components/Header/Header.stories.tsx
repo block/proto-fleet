@@ -79,7 +79,7 @@ export const Header = ({
 const fontSizes = ["text-heading-100", "text-heading-200", "text-heading-300"];
 
 export default {
-  title: "Components (Shared)/Header",
+  title: "Shared/Header",
   component: Header,
   args: {
     button: buttons.both,

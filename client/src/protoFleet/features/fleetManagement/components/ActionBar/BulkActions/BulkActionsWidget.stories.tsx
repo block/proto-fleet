@@ -125,7 +125,7 @@ export const BulkActionsWidget = ({
 };
 
 export default {
-  title: "Components (ProtoFleet)/Action Bar/Bulk Actions Widget",
+  title: "Proto Fleet/Action Bar/Bulk Actions Widget",
   parameters: {
     docs: {
       source: {

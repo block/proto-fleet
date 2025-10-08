@@ -18,7 +18,7 @@ export const AlertStatus = ({ loading, numberOfAlerts }: AlertStatusArgs) => {
 };
 
 export default {
-  title: "Components (protoFleet)/Page Header/Alert Status",
+  title: "Proto Fleet/Page Header/Alert Status",
   decorators: [
     (Story: ElementType) => (
       <MemoryRouter>

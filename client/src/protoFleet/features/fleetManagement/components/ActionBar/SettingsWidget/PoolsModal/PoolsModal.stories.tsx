@@ -34,7 +34,7 @@ export const PoolsModal = ({
 };
 
 export default {
-  title: "Components (ProtoFleet)/Action Bar/Settings widget/Pools modal",
+  title: "Proto Fleet/Action Bar/Settings widget/Pools modal",
   args: {
     numberOfMiners: 1,
     numberOfPools: 1,

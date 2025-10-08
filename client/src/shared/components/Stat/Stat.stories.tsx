@@ -65,5 +65,5 @@ Stat.argTypes = {
 };
 
 export default {
-  title: "Components (Shared)/Stat",
+  title: "Shared/Stat",
 };

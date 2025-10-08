@@ -35,5 +35,5 @@ Chips.args = {
 };
 
 export default {
-  title: "Components (Shared)/Chips",
+  title: "Shared/Chips",
 };

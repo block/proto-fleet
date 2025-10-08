@@ -13,7 +13,7 @@ export const LocationSelector = ({
 };
 
 export default {
-  title: "Components (protoFleet)/Page Header/Location Selector",
+  title: "Proto Fleet/Page Header/Location Selector",
   args: {
     loading: false,
     location: "ProtoFleet test lab",

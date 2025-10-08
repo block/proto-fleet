@@ -39,8 +39,7 @@ export const PoolsList = ({
 };
 
 export default {
-  title:
-    "Components (ProtoFleet)/Action Bar/Settings widget/Pools modal/Pools list",
+  title: "Proto Fleet/Action Bar/Settings widget/Pools modal/Pools list",
   args: {
     title: "Default pool",
     subtitle: "Select one default pool",

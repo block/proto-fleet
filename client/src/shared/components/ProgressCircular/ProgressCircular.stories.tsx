@@ -24,7 +24,7 @@ export const ProgressCircular = ({ value }: ProgressCircularArgs) => {
 };
 
 export default {
-  title: "Components (Shared)/Progress/Progress Circular",
+  title: "Shared/Progress/Progress Circular",
   args: {
     value: 0,
   },

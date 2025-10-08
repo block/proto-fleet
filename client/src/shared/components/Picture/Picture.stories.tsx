@@ -10,5 +10,5 @@ export const Picture = () => {
 };
 
 export default {
-  title: "Components (Shared)/Picture",
+  title: "Shared/Picture",
 };

@@ -18,7 +18,7 @@ export const BitcoinExchangeRate = ({
 };
 
 export default {
-  title: "Components (protoFleet)/Page Header/Bitcoin Exchange Rate",
+  title: "Proto Fleet/Page Header/Bitcoin Exchange Rate",
   args: {
     loading: false,
     exchangeRate: 89729.88,

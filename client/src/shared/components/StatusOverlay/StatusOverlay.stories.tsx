@@ -5,5 +5,5 @@ export const StatusOverlay = () => {
 };
 
 export default {
-  title: "Components (Shared)/Status Overlay",
+  title: "Shared/Status Overlay",
 };

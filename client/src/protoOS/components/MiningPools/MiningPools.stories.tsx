@@ -44,7 +44,7 @@ export const MiningPools = ({
 };
 
 export default {
-  title: "Components/Mining Pools",
+  title: "Shared/Mining Pools",
   args: {
     defaultPoolUrl: "stratum+tcp://stratum.slushpool.com:2222",
     defaultPoolUsername: "proto_mining_sw_test_1",

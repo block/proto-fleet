@@ -1,8 +1,6 @@
 import React from "react";
 import type { Preview } from "@storybook/react-vite";
-
 import { PreferencesProvider } from "../src/shared/features/preferences";
-
 import "../src/shared/styles/index.css";
 
 export const decorators = [
@@ -26,6 +24,11 @@ const preview: Preview = {
     },
     darkMode: {
       current: "light",
+    },
+    options: {
+      storySort: {
+        order: ["Foundation", "Shared", "ProtoOS", "Proto Fleet", "*"],
+      },
     },
   },
 };

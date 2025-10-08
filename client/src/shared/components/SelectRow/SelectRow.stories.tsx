@@ -71,7 +71,7 @@ export const SelectRow = ({
 };
 
 export default {
-  title: "Components (Shared)/Select Row",
+  title: "Shared/Select Row",
   args: {
     hasPrefixIcon: true,
     hasSideText: true,

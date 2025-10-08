@@ -50,5 +50,5 @@ export const WithDirectProps = () => {
 };
 
 export default {
-  title: "Components (ProtoFleet)/MinerList/Hashrate",
+  title: "Proto Fleet/MinerList/Hashrate",
 };

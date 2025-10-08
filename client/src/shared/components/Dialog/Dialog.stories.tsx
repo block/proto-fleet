@@ -48,5 +48,5 @@ export const IconDialog = () => {
 };
 
 export default {
-  title: "Components (Shared)/Dialog",
+  title: "Shared/Dialog",
 };

@@ -18,7 +18,7 @@ export const ImmersionConfirmationModal = ({
 };
 
 export default {
-  title: "Components (ProtoOS)/Settings/Cooling/Immersion Confirmation Modal",
+  title: "Shared/Immersion Confirmation Modal",
   args: {
     isLoading: false,
   },

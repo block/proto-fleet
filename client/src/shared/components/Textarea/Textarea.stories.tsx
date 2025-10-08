@@ -95,7 +95,7 @@ export const Textarea = ({
 };
 
 export default {
-  title: "Components (Shared)/Textarea",
+  title: "Shared/Textarea",
   args: {
     dismiss: false,
     compact: false,

@@ -16,7 +16,7 @@ export const NavigationMenu = () => {
 };
 
 export default {
-  title: "Components (ProtoFleet)/NavigationMenu",
+  title: "Proto Fleet/NavigationMenu",
   args: {},
   argTypes: {},
   decorators: [

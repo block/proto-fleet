@@ -12,5 +12,5 @@ export const DataNullState = () => {
 };
 
 export default {
-  title: "Components (Shared)/DataNullState",
+  title: "Shared/DataNullState",
 };

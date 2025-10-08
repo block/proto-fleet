@@ -16,5 +16,5 @@ export const Sparkline = () => {
 };
 
 export default {
-  title: "Components (Shared)/Sparkline",
+  title: "Shared/Sparkline",
 };

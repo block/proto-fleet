@@ -25,5 +25,5 @@ AnimatedDots.argTypes = {
 };
 
 export default {
-  title: "Components (Shared)/Animation",
+  title: "Shared/Animation",
 };

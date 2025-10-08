@@ -17,7 +17,7 @@ export const Filters = ({ numberOfFilters }: FiltersArgs) => {
 };
 
 export default {
-  title: "Components (Shared)/List/Filters",
+  title: "Shared/List/Filters",
   parameters: {
     docs: {
       description: {

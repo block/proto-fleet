@@ -108,7 +108,7 @@ export const List = ({
 };
 
 export default {
-  title: "Components (Shared)/List",
+  title: "Shared/List",
   parameters: {
     docs: {
       description: {

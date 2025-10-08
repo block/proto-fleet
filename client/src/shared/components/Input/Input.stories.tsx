@@ -81,7 +81,7 @@ export const Input = ({ dismiss, compact, hideLabelOnFocus }: InputArgs) => {
 };
 
 export default {
-  title: "Components (Shared)/Input",
+  title: "Shared/Input",
   args: {
     dismiss: false,
     compact: false,

@@ -28,7 +28,7 @@ export const Onboarding = ({
 };
 
 export default {
-  title: "Pages/Onboarding",
+  title: "ProtoOS/Onboarding/Mining Pools",
   args: {
     pendingNetworkInfo: false,
     pendingSystemInfo: false,

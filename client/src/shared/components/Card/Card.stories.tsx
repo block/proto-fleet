@@ -18,5 +18,5 @@ export const Card = () => {
 };
 
 export default {
-  title: "Components (Shared)/Card",
+  title: "Shared/Card",
 };

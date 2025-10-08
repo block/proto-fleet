@@ -28,5 +28,5 @@ export const SegmentedControl = () => {
 };
 
 export default {
-  title: "Components (Shared)/Segmented Control",
+  title: "Shared/Segmented Control",
 };

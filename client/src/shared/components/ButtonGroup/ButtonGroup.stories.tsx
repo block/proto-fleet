@@ -74,5 +74,5 @@ export const TextOnly = () => {
 };
 
 export default {
-  title: "Components (Shared)/Button Groups",
+  title: "Shared/Button Groups",
 };

@@ -9,7 +9,7 @@ export const SecondaryNavigation = () => {
 };
 
 export default {
-  title: "Components (ProtoFleet)/SecondaryNavigation",
+  title: "Proto Fleet/SecondaryNavigation",
   args: {},
   argTypes: {},
   decorators: [

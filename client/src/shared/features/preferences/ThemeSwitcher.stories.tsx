@@ -7,5 +7,5 @@ export const ThemeSwitcher = () => {
 };
 
 export default {
-  title: "Components (Shared)/Theme Switcher",
+  title: "Shared/Theme Switcher",
 };

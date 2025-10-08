@@ -10,7 +10,7 @@ export const BankBalance = ({ loading, balance }: BankBalanceArgs) => {
 };
 
 export default {
-  title: "Components (protoFleet)/Page Header/Bank Balance",
+  title: "Proto Fleet/Page Header/Bank Balance",
   args: {
     loading: false,
     balance: 1630,

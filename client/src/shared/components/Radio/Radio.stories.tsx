@@ -5,5 +5,5 @@ export const Radio = () => {
 };
 
 export default {
-  title: "Components (Shared)/Radio",
+  title: "Shared/Radio",
 };

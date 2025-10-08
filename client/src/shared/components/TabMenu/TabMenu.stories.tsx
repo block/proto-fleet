@@ -33,7 +33,7 @@ export const CustomTabMenu = () => {
 };
 
 export default {
-  title: "shared/TabMenu",
+  title: "Shared/TabMenu",
   decorators: [
     (Story: any) => (
       <MemoryRouter initialEntries={["/hashrate"]}>

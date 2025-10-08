@@ -51,7 +51,7 @@ export const ActionBar = ({
 };
 
 export default {
-  title: "Components (ProtoFleet)/Action Bar",
+  title: "Proto Fleet/Action Bar",
   args: {
     numberOfMiners: 1,
     numberOfActions: 2,

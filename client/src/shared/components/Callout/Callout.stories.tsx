@@ -107,7 +107,7 @@ export const Callout = ({
 };
 
 export default {
-  title: "Components (Shared)/Callout",
+  title: "Shared/Callout",
   args: {
     hasButton: true,
     hasShortSubtitle: true,

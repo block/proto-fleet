@@ -10,7 +10,7 @@ export const Switch = ({ label, disabled }: SwitchArgs) => {
 };
 
 export default {
-  title: "Components (Shared)/Switch",
+  title: "Shared/Switch",
   args: {
     label: "Show passwords",
     disabled: false,

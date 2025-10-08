@@ -29,7 +29,7 @@ export const WakeUpMiner = () => {
 };
 
 export default {
-  title: "Pages/App/Wake Up Miner",
+  title: "ProtoOS/Wake Up Miner",
   decorators: [
     (Story: ElementType) => (
       <MemoryRouter>

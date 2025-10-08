@@ -17,7 +17,7 @@ export const Network = ({ subnet }: NetworkArgs) => {
 };
 
 export default {
-  title: "Components (Shared)/Setup/Network",
+  title: "Shared/Setup/Network",
   args: {
     subnet: "192.168.1.0/24",
   },

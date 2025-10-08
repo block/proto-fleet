@@ -8,7 +8,7 @@ export const SignUp = () => {
 };
 
 export default {
-  title: "Pages/Sign Up",
+  title: "ProtoOS/Sign Up",
   decorators: [
     (Story: ElementType) => (
       <MemoryRouter>

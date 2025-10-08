@@ -13,5 +13,5 @@ export const WelcomeScreen = () => {
 };
 
 export default {
-  title: "Components (Shared)/Setup/Welcome Screen",
+  title: "Shared/Setup/Welcome Screen",
 };

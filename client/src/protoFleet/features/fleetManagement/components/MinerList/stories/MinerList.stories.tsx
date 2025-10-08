@@ -30,5 +30,5 @@ export const MinerList = () => {
 };
 
 export default {
-  title: "Components (ProtoFleet)/MinerList",
+  title: "Proto Fleet/MinerList",
 };

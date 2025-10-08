@@ -11,5 +11,5 @@ export const Tabs = () => {
 };
 
 export default {
-  title: "Components (Shared)/Tabs",
+  title: "Shared/Tabs",
 };

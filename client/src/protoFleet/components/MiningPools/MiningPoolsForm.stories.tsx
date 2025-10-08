@@ -19,7 +19,7 @@ export const MiningPoolsForm = ({ buttonLabel }: MiningPoolsFormArgs) => {
 };
 
 export default {
-  title: "Components (protoFleet)/MiningPoolsForm",
+  title: "Proto Fleet/MiningPoolsForm",
   args: {
     buttonLabel: "Continue",
   },

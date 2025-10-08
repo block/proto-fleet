@@ -26,7 +26,7 @@ export const PerformanceWidget = ({
 };
 
 export default {
-  title: "Components (ProtoFleet)/Action Bar/Performance Widget",
+  title: "Proto Fleet/Action Bar/Performance Widget",
   args: {
     numberOfMiners: 1,
   },

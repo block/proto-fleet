@@ -18,7 +18,7 @@ export const AlertsModal = ({ numberOfAlerts }: AlertsModalArgs) => {
 };
 
 export default {
-  title: "Components (ProtoFleet)/Alerts Modal",
+  title: "Proto Fleet/Alerts Modal",
   decorators: [
     (Story: ElementType) => (
       <MemoryRouter>

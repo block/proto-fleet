@@ -31,5 +31,5 @@ export const Typography = () => {
 };
 
 export default {
-  title: "Style/Typography",
+  title: "Foundation/Typography",
 };

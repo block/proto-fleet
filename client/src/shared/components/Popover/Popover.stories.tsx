@@ -54,7 +54,7 @@ export const Popover = ({ hasSubtitle, numberOfButtons }: PopoverProps) => {
 };
 
 export default {
-  title: "Components (Shared)/Popover",
+  title: "Shared/Popover",
   decorators: [
     (Story: ElementType) => (
       <PopoverProvider>
