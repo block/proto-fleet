@@ -54,7 +54,7 @@ const Row = ({
         >
           {children}
         </Element>
-        <div>{suffixIcon}</div>
+        <div className="m-4">{suffixIcon}</div>
       </div>
       {divider && (
         <Divider

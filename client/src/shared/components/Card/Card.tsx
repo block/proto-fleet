@@ -23,7 +23,7 @@ const Card = ({ children, title, type }: CardProps) => {
       >
         {title}
       </div>
-      <div className="px-4">{children}</div>
+      <div>{children}</div>
     </div>
   );
 };
