@@ -215,7 +215,10 @@ const PowerTargetPopover = ({
           variant={variants.primary}
           className="grow"
           size={sizes.base}
-          disabled={!pending && !!error}
+          disabled={
+            pending ||
+            (!!error && selectedPowerTargetMode === powerTargetModes.custom)
+          }
           prefixIcon={
             pending ? <ProgressCircular indeterminate size={12} /> : undefined
           }

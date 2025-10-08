@@ -52,17 +52,18 @@ const PowerTarget = () => {
     }
 
     let targetType;
+    let targetValue = `${miningTarget / 1000} kW`;
     if (isMax) {
-      targetType = "Max";
+      targetType = `${targetValue} max target`;
     } else if (isMin) {
-      targetType = "Min";
+      targetType = `${targetValue} min target`;
     } else if (miningTarget === defaultTarget) {
-      targetType = "Default";
+      targetType = `${targetValue} default target`;
     } else {
-      targetType = `${miningTarget / 1000} kW`;
+      targetType = `${targetValue} custom target`;
     }
 
-    return `${targetType} power target`;
+    return targetType;
   }, [isMax, isMin, miningTarget, pending, defaultTarget]);
 
   useEffect(() => {
