@@ -67,7 +67,7 @@ const KpiLayout = ({ children }: ContentLayoutProps) => {
           <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} />
         )}
 
-        <div className="relative mb-4 flex h-[calc(100vh-theme(spacing.36))] min-h-[800px] flex-col phone:min-h-[1000px]">
+        <div className="relative flex h-[calc(100vh-theme(spacing.36))] min-h-[800px] flex-col phone:min-h-[1000px]">
           <div className="flex items-center pb-6">
             <div className="grow text-heading-300">Home</div>
             <DurationSelector
@@ -80,7 +80,6 @@ const KpiLayout = ({ children }: ContentLayoutProps) => {
           <div className="pb-6 phone:pb-6">
             <TabMenu />
           </div>
-
           <ErrorBoundary>
             <Outlet />
           </ErrorBoundary>
