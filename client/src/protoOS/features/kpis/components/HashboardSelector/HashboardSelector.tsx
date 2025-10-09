@@ -2,11 +2,7 @@ import clsx from "clsx";
 import { getHashboardColor } from "@/protoOS/features/kpis/utility";
 import { useMinerStore } from "@/protoOS/store";
 import { Circle } from "@/shared/assets/icons";
-import Button, {
-  type ButtonVariant,
-  sizes,
-  variants,
-} from "@/shared/components/Button";
+import Button, { sizes, variants } from "@/shared/components/Button";
 
 import useCssVariable from "@/shared/hooks/useCssVariable";
 
@@ -14,17 +10,18 @@ import useCssVariable from "@/shared/hooks/useCssVariable";
 
 type HashboardSelectorItemProps = {
   slot?: number;
+  selected: boolean;
   onClick: () => void;
-  variant: ButtonVariant;
 };
 
 const HashboardSelectorItem = ({
   slot,
   onClick,
-  variant,
+  selected,
 }: HashboardSelectorItemProps) => {
   const colorVariable = slot ? getHashboardColor(slot) : "";
   const color = useCssVariable(colorVariable);
+  const variant = selected ? variants.secondary : variants.ghost;
 
   return (
     <>
@@ -33,6 +30,10 @@ const HashboardSelectorItem = ({
           key={"hashboard-selector-" + slot}
           size={sizes.compact}
           variant={variant}
+          className={clsx("border-2", {
+            "border-core-primary-fill": selected,
+            "border-transparent": !selected,
+          })}
           prefixIcon={
             <Circle
               className={clsx("mr-1")}
@@ -105,6 +106,7 @@ const HashboardSelector = ({
             ? variants.secondary
             : variants.ghost
         }
+        className="border-2 border-transparent"
         text={"Summary"}
         onClick={handleSummaryClick}
       />
@@ -116,6 +118,7 @@ const HashboardSelector = ({
               ? variants.secondary
               : variants.ghost
           }
+          className="border-2 border-transparent"
           text={"All Hashboards"}
           onClick={handleAllHashboardsClick}
         />
@@ -125,11 +128,7 @@ const HashboardSelector = ({
         <HashboardSelectorItem
           key={serial}
           slot={useMinerStore.getState().hardware.getHashboard(serial)?.slot}
-          variant={
-            activeChartLines.includes(serial)
-              ? variants.secondary
-              : variants.ghost
-          }
+          selected={activeChartLines.includes(serial)}
           onClick={() => {
             handleHashboardClick(serial);
           }}
