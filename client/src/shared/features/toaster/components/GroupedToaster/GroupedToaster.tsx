@@ -95,7 +95,9 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
             <motion.div layout transition={{ duration: 0.3 }}>
               <div className="flex flex-col">
                 <div className="text-emphasis-300 text-text-primary">
-                  {toasts.length + " updates in progress"}
+                  {toasts.length === 1
+                    ? "Update in progress"
+                    : `${toasts.length} updates in progress`}
                 </div>
               </div>
             </motion.div>

@@ -200,22 +200,18 @@ const Authentication = ({
         }
         setShowWeakPasswordWarning(false);
         setIsSubmitting(true);
-        try {
-          if (isUpdateMode) {
-            if (!values.currentPassword) return;
+        if (isUpdateMode) {
+          if (!values.currentPassword) return;
 
-            (submit as (currentPassword: string, newPassword: string) => void)(
-              values.currentPassword,
-              values.password,
-            );
-          } else {
-            (submit as (password: string, username: string) => void)(
-              values.password,
-              values.username,
-            );
-          }
-        } finally {
-          setIsSubmitting(false);
+          (submit as (currentPassword: string, newPassword: string) => void)(
+            values.currentPassword,
+            values.password,
+          );
+        } else {
+          (submit as (password: string, username: string) => void)(
+            values.password,
+            values.username,
+          );
         }
       }
     },

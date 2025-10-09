@@ -5,6 +5,7 @@ import { Authentication } from "@/shared/components/Setup";
 import {
   pushToast,
   STATUSES as TOAST_STATUSES,
+  updateToast,
 } from "@/shared/features/toaster";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
@@ -18,11 +19,20 @@ const AuthenticationSettings = () => {
 
   const submit = useCallback(
     (currentPassword: string, newPassword: string) => {
+      setIsSubmitting(true);
+
+      const toast = pushToast({
+        message: "Updating your password...",
+        status: TOAST_STATUSES.loading,
+        ttl: false,
+      });
+
       const handleError = (message?: string) => {
         setIsSubmitting(false);
-        pushToast({
+        updateToast(toast, {
           message: message || "Something went wrong, please try again",
           status: TOAST_STATUSES.error,
+          ttl: 3000,
         });
       };
 
@@ -38,9 +48,11 @@ const AuthenticationSettings = () => {
             login({
               password: newPassword,
               onSuccess: () => {
-                pushToast({
+                setIsSubmitting(false);
+                updateToast(toast, {
                   message: "Your password has been updated",
                   status: TOAST_STATUSES.success,
+                  ttl: 2000,
                 });
                 navigate("/");
               },
