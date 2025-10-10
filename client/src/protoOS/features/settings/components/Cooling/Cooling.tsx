@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
-import ImmersionConfirmationModal from "./ImmersionConfirmationModal";
+import ImmersionConfirmationDialog from "./ImmersionConfirmationDialog";
 import ImmersionLearnMoreModal from "./ImmersionLearnMoreModal";
-import { useCoolingStatus } from "@/protoOS/api";
+import { useCoolingStatus, useMiningStatus } from "@/protoOS/api";
 import { CoolingConfig } from "@/protoOS/api/generatedApi";
-import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
+import { isSleeping } from "@/protoOS/components/App/utility";
 import { Fan } from "@/shared/assets/icons";
 import Immersion from "@/shared/assets/icons/Immersion";
 import Button from "@/shared/components/Button";
@@ -77,15 +77,16 @@ const Cooling = () => {
     data: coolingStatus,
     pending,
     setCooling,
-  } = useCoolingStatus({ poll: false });
+  } = useCoolingStatus({ poll: true });
   const [coolingMode, setCoolingMode] = useState<CoolingMode>();
+  const { data: miningStatus } = useMiningStatus({ poll: true });
+
   const [userSelectedCoolingMode, setUserSelectedCoolingMode] =
     useState<CoolingMode>();
   const [loading, setLoading] = useState<boolean>(true);
   const [showImmersionModal, setShowImmersionModal] = useState<boolean>(false);
   const [showLearnMoreModal, setShowLearnMoreModal] = useState<boolean>(false);
   const [showSleepDialog, setShowSleepDialog] = useState<boolean>(false);
-  const { comprehensiveStatus } = useMinerStatus();
 
   useEffect(() => {
     if (coolingStatus) {
@@ -102,10 +103,10 @@ const Cooling = () => {
   }, [coolingStatus]);
 
   useEffect(() => {
-    if (comprehensiveStatus?.isSleeping) {
+    if (isSleeping(miningStatus?.status)) {
       setShowSleepDialog(false);
     }
-  }, [comprehensiveStatus?.isSleeping]);
+  }, [miningStatus?.status]);
 
   const handleChange = useCallback(
     (id: string, confirmed = false) => {
@@ -113,12 +114,14 @@ const Cooling = () => {
         // ignore change if same as currently selected
         return;
       }
+
+      setUserSelectedCoolingMode(id as CoolingMode);
+
       if (id === COOLING_MODES.immersion && !confirmed) {
         setShowImmersionModal(true);
         return;
       }
       setLoading(true);
-      setUserSelectedCoolingMode(id as CoolingMode);
 
       const toast = pushToast({
         message: `Updating cooling mode...`,
@@ -233,13 +236,12 @@ const Cooling = () => {
           </div>
         </div>
       </div>
-      {showImmersionModal && (
-        <ImmersionConfirmationModal
-          onDismiss={handleImmersionCancel}
-          onConfirm={handleImmersionConfirm}
-          isLoading={loading}
-        />
-      )}
+      <ImmersionConfirmationDialog
+        show={showImmersionModal}
+        onDismiss={handleImmersionCancel}
+        onConfirm={handleImmersionConfirm}
+        isLoading={loading}
+      />
 
       {showLearnMoreModal && (
         <ImmersionLearnMoreModal

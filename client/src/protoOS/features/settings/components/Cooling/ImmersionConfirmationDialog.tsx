@@ -1,44 +1,44 @@
-import { Alert } from "@/shared/assets/icons";
+import { Immersion } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 
-interface FansDetectedDialogProps {
-  onConfirmImmersion: () => void;
-  onSwitchToAirCooled: () => void;
+interface ImmersionConfirmationDialogProps {
+  onDismiss: () => void;
+  onConfirm: () => void;
   show: boolean;
   isLoading?: boolean;
 }
 
-const FansDetectedDialog = ({
-  onConfirmImmersion,
-  onSwitchToAirCooled,
+const ImmersionConfirmationDialog = ({
+  onDismiss,
+  onConfirm,
   show,
   isLoading = false,
-}: FansDetectedDialogProps) => {
+}: ImmersionConfirmationDialogProps) => {
   return (
     <Dialog
       show={show}
-      title="Fans detected"
+      title="Confirm immersion cooling"
       titleSize="text-heading-200"
-      subtitle="Fans are detected for this miner, are you sure you want to continue with immersion cooling?"
+      subtitle="Confirming will disable the fans and power down the miner. The fans will not turn on when the miner is powered on again."
       subtitleSize="text-300"
       icon={
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-5">
-          <Alert className="text-text-critical" width={iconSizes.medium} />
+          <Immersion width={iconSizes.xLarge} />
         </div>
       }
       buttons={[
         {
-          text: "Use air cooled",
+          text: "Cancel",
           variant: variants.secondary,
-          onClick: onSwitchToAirCooled,
+          onClick: onDismiss,
           disabled: isLoading,
         },
         {
-          text: "Confirm immersion cooling",
+          text: "Confirm & sleep",
           variant: variants.primary,
-          onClick: onConfirmImmersion,
+          onClick: onConfirm,
           disabled: isLoading,
         },
       ]}
@@ -47,4 +47,4 @@ const FansDetectedDialog = ({
   );
 };
 
-export default FansDetectedDialog;
+export default ImmersionConfirmationDialog;
