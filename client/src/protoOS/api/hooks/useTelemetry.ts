@@ -3,7 +3,11 @@ import { useCallback, useMemo, useState } from "react";
 import { usePoll } from "./usePoll";
 import { type TelemetryData } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { getAsicId, useMinerStore } from "@/protoOS/store";
+import {
+  type AsicHardwareData,
+  getAsicId,
+  useMinerStore,
+} from "@/protoOS/store";
 
 interface UseTelemetryProps {
   level?: "miner" | "hashboard" | "asic";
@@ -53,6 +57,9 @@ const useTelemetry = ({
     // TODO: [STORE_REFACTOR] We shouldnt need to populate hardware data from telemetry api
     // ideally the useHardware hook would fetch and populate this data
     if (data?.hashboards) {
+      // Collect all ASIC updates in a single array for batch processing
+      const asicsToUpdate: Array<AsicHardwareData> = [];
+
       data.hashboards.forEach((hashboardData) => {
         if (
           hashboardData.asics &&
@@ -77,9 +84,9 @@ const useTelemetry = ({
               .getState()
               .hardware.getAsic(asicId);
 
-            // Only add if it doesn't exist yet
+            // Prepare ASIC data for batch update
             if (!existingAsic) {
-              useMinerStore.getState().hardware.addAsic({
+              asicsToUpdate.push({
                 id: asicId,
                 hashboardSerial: hashboardData.serial_number,
                 index: asicIndex,
@@ -88,7 +95,7 @@ const useTelemetry = ({
               });
             } else {
               // Update existing ASIC with index/hashboardIndex data
-              useMinerStore.getState().hardware.addAsic({
+              asicsToUpdate.push({
                 ...existingAsic,
                 index: asicIndex,
                 hashboardIndex: hashboardData.index,
@@ -97,6 +104,11 @@ const useTelemetry = ({
           }
         }
       });
+
+      // Batch update all ASICs in a single store mutation
+      if (asicsToUpdate.length > 0) {
+        useMinerStore.getState().hardware.batchAddAsics(asicsToUpdate);
+      }
     }
   };
 

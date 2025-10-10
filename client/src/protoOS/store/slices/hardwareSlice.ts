@@ -46,6 +46,7 @@ export interface HardwareSlice {
   // ASIC Actions
   setAsics: (asics: AsicHardwareData[]) => void;
   addAsic: (asic: AsicHardwareData) => void;
+  batchAddAsics: (asics: AsicHardwareData[]) => void;
   getAsic: (id: string) => AsicHardwareData | undefined;
   getAsicsByHashboard: (hashboardSerial: string) => AsicHardwareData[];
   getAsicPosition: (
@@ -220,6 +221,13 @@ export const createHardwareSlice: StateCreator<
   addAsic: (asic) =>
     set((state) => {
       state.hardware.asics.set(asic.id, asic);
+    }),
+
+  batchAddAsics: (asics) =>
+    set((state) => {
+      asics.forEach((asic) => {
+        state.hardware.asics.set(asic.id, asic);
+      });
     }),
 
   getAsic: (id) => {

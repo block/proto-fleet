@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePoll } from "./usePoll";
 import { HashboardStatsHashboardstats } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { getAsicId } from "@/protoOS/store";
+import { AsicHardwareData, getAsicId } from "@/protoOS/store";
 import { useMinerStore } from "@/protoOS/store";
 interface UseHashboardStatusProps {
   hashboardSerialNumbers: string[];
@@ -63,6 +63,9 @@ const useHashboardStatus = ({
   useEffect(() => {
     if (Object.keys(data).length === 0) return;
 
+    // Collect all ASICs to add in a single batch
+    const asicsToAdd: Array<AsicHardwareData> = [];
+
     // Process each hashboard's data
     Object.entries(data).forEach(([hashboardSerialNumber, hashboardData]) => {
       const asics = hashboardData?.asics;
@@ -92,7 +95,7 @@ const useHashboardStatus = ({
         });
       }
 
-      // Add ASIC info with positional data
+      // Collect ASIC info with positional data for batch processing
       for (const asic of asics) {
         if (
           asic !== undefined &&
@@ -114,7 +117,7 @@ const useHashboardStatus = ({
               column: asic.column,
             };
 
-            useMinerStore.getState().hardware.addAsic(asicInfo);
+            asicsToAdd.push(asicInfo);
             useMinerStore
               .getState()
               .hardware.linkAsicToHashboard(asicId, hashboardSerialNumber);
@@ -122,6 +125,11 @@ const useHashboardStatus = ({
         }
       }
     });
+
+    // Batch add all ASICs in a single store mutation
+    if (asicsToAdd.length > 0) {
+      useMinerStore.getState().hardware.batchAddAsics(asicsToAdd);
+    }
   }, [data]);
 
   return useMemo(() => ({ pending, error, data }), [pending, error, data]);
