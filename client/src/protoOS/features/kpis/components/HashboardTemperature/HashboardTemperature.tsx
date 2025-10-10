@@ -12,12 +12,12 @@ import {
   type Measurement,
   useHashboardsHardware,
   useMinerHashboard,
+  useTemperatureUnit,
 } from "@/protoOS/store";
 import { Dismiss } from "@/shared/assets/icons";
 import Header from "@/shared/components/Header";
 import { PopoverProvider } from "@/shared/components/Popover";
 import Stats, { type StatsProps } from "@/shared/components/Stats";
-import { TEMP_UNITS, usePreferences } from "@/shared/features/preferences";
 
 const getStats = (
   avgAsicTemp: Measurement | undefined,
@@ -57,8 +57,7 @@ type HashboardTemperatureProps = {
 };
 
 const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
-  const { temperatureUnits } = usePreferences();
-  const isFahrenheit = temperatureUnits === TEMP_UNITS.fahrenheit;
+  const temperatureUnit = useTemperatureUnit();
   const [showPopover, setShowPopover] = useState<string | undefined>(undefined);
   const { minerRoot } = useMinerHosting();
 
@@ -97,23 +96,17 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   const stats = useMemo(
     () =>
       getStats(
-        convertValueUnits(
-          hashboard?.avgAsicTemp?.latest,
-          isFahrenheit ? "F" : "C",
-        ),
-        convertValueUnits(
-          hashboard?.maxAsicTemp?.latest,
-          isFahrenheit ? "F" : "C",
-        ),
+        convertValueUnits(hashboard?.avgAsicTemp?.latest, temperatureUnit),
+        convertValueUnits(hashboard?.maxAsicTemp?.latest, temperatureUnit),
         convertValueUnits(hashboard?.power?.latest, "kW"),
         convertValueUnits(hashboard?.hashrate?.latest, "TH/S"),
       ),
     [
+      temperatureUnit,
       hashboard?.avgAsicTemp,
       hashboard?.maxAsicTemp,
       hashboard?.power,
       hashboard?.hashrate,
-      isFahrenheit,
     ],
   );
 
@@ -160,7 +153,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
                   {" "}
                   {convertAndFormatMeasurement(
                     hashboard.inletTemp.latest,
-                    isFahrenheit ? "F" : "C",
+                    temperatureUnit,
                     false,
                   )}
                 </>
@@ -174,7 +167,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
                   {" "}
                   {convertAndFormatMeasurement(
                     hashboard.outletTemp.latest,
-                    isFahrenheit ? "F" : "C",
+                    temperatureUnit,
                     false,
                   )}
                 </>

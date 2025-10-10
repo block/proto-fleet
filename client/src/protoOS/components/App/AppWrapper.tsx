@@ -25,10 +25,16 @@ import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
 import { MinerStatusProvider } from "@/protoOS/contexts/MinerStatusContext";
 import { useSystemContext } from "@/protoOS/contexts/SystemContext";
 import { FirmwareUpdateProvider } from "@/protoOS/features/firmwareUpdate/contexts/FirmwareUpdateContext";
-import { useHashboardSerials } from "@/protoOS/store";
+import {
+  useDeviceTheme,
+  useHashboardSerials,
+  useSetDeviceTheme,
+  useTheme,
+} from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { BootingUp } from "@/shared/components/Setup";
+import { useApplyTheme } from "@/shared/features/preferences";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
@@ -47,6 +53,13 @@ const AppWrapper = ({
   title,
   ContentLayout = DefaultContentLayout,
 }: AppProps) => {
+  const theme = useTheme();
+  const deviceTheme = useDeviceTheme();
+  const setDeviceTheme = useSetDeviceTheme();
+
+  // Apply theme effects on mount
+  useApplyTheme({ theme, deviceTheme, setDeviceTheme });
+
   const { setMiningStatus } = useMinerStatus();
   const [initPage, setInitPage] = useState(false);
   const {

@@ -6,12 +6,11 @@ import {
   convertTelemetryTemperatureToChartData,
 } from "./utility";
 import { AsicData, convertAndFormatMeasurement } from "@/protoOS/store";
-import { useIntervalMs } from "@/protoOS/store";
+import { useIntervalMs, useTemperatureUnit } from "@/protoOS/store";
 import Popover from "@/shared/components/Popover";
 import { minimalMargin } from "@/shared/components/Popover/constants.ts";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { positions } from "@/shared/constants";
-import { TEMP_UNITS, usePreferences } from "@/shared/features/preferences";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 import { formatHashrateWithUnit } from "@/shared/utils/utility";
 
@@ -29,7 +28,7 @@ const AsicPopover = ({
   closePopover,
   closeIgnoreSelectors,
 }: AsicPopoverProps) => {
-  const { temperatureUnits } = usePreferences();
+  const temperatureUnit = useTemperatureUnit();
   const intervalMs = useIntervalMs();
 
   // Convert telemetry data to chart format
@@ -112,7 +111,7 @@ const AsicPopover = ({
             asic.temperature?.latest
               ? convertAndFormatMeasurement(
                   asic.temperature.latest,
-                  temperatureUnits === TEMP_UNITS.fahrenheit ? "F" : "C",
+                  temperatureUnit,
                   false,
                 )
               : undefined

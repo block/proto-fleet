@@ -41,11 +41,13 @@ const useMinerStore = create<MinerStore>()(
           ui: createUISlice(set, get, api),
         })),
         {
-          name: "miner-store-ui",
+          name: "proto-ui-preferences", // Shared across protoOS and protoFleet
           partialize: (state) => ({
             ui: {
               duration: state.ui.duration,
               activeChartLines: state.ui.activeChartLines,
+              theme: state.ui.theme,
+              temperatureUnit: state.ui.temperatureUnit,
             },
           }),
           merge: (persistedState, currentState) => {
@@ -60,6 +62,9 @@ const useMinerStore = create<MinerStore>()(
                 setDuration: currentState.ui.setDuration,
                 setActiveChartLines: currentState.ui.setActiveChartLines,
                 toggleActiveChartLine: currentState.ui.toggleActiveChartLine,
+                setTheme: currentState.ui.setTheme,
+                setDeviceTheme: currentState.ui.setDeviceTheme,
+                setTemperatureUnit: currentState.ui.setTemperatureUnit,
               },
             };
           },

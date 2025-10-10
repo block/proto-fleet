@@ -1,7 +1,6 @@
 import { memo, useMemo } from "react";
+import { useTemperatureUnit } from "@/protoFleet/features/fleetManagement/store/useFleetStore";
 import TabMenu from "@/shared/components/TabMenu";
-import { usePreferences } from "@/shared/features/preferences";
-import { TEMP_UNITS } from "@/shared/features/preferences/constants";
 import { convertCtoF, formatHashrateWithUnit } from "@/shared/utils/utility";
 
 type TabMenuWrapperProps = {
@@ -20,7 +19,7 @@ const TabMenuWrapper = memo(
     temperature,
     basePath = "",
   }: TabMenuWrapperProps) => {
-    const { temperatureUnits } = usePreferences();
+    const temperatureUnit = useTemperatureUnit();
     const { value: hashrateValue, unit: hashUnit } = formatHashrateWithUnit(
       hashrate ?? 0,
     );
@@ -50,10 +49,10 @@ const TabMenuWrapper = memo(
         temperature: {
           name: "Temperature",
           value:
-            temperatureUnits === TEMP_UNITS.fahrenheit
+            temperatureUnit === "F"
               ? convertCtoF(temperature ?? 0)
               : temperature,
-          units: temperatureUnits === TEMP_UNITS.fahrenheit ? "°F" : "°C",
+          units: `°${temperatureUnit}`,
           path: "/temperature",
         },
       }),
@@ -63,7 +62,7 @@ const TabMenuWrapper = memo(
         powerUsage,
         temperature,
         hashUnit,
-        temperatureUnits,
+        temperatureUnit,
       ],
     );
 

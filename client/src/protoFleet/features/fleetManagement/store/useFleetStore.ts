@@ -2,6 +2,7 @@ import { create as createSchema } from "@bufbuild/protobuf";
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { devtools } from "zustand/middleware";
+import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { useShallow } from "zustand/react/shallow";
 import { MeasurementSchema } from "@/protoFleet/api/generated/common/v1/measurement_pb";
@@ -23,7 +24,26 @@ import {
   MinerStateCountsSchema,
   type TelemetryUpdate,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import {
+  type TemperatureUnit,
+  type Theme,
+  type ThemeColor,
+} from "@/shared/features/preferences";
 import { getLatestMeasurementWithData } from "@/shared/utils/measurementUtils";
+
+// =============================================================================
+// UI Preference Types
+// TODO: [STORE_REFACTOR] Refactor to use slice pattern so UI slice can be
+// shared between protoFleet and protoOS stores. This will allow common UI
+// preferences (theme, temperatureUnit) to live in a reusable slice instead
+// of being duplicated in each store.
+// =============================================================================
+
+export type { Theme, ThemeColor, TemperatureUnit };
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
 
 // Helper function to determine which state counts are relevant for a given filter
 function getRelevantCounts(
@@ -96,6 +116,12 @@ interface FleetState {
   // Refetch callback
   refetchMiners?: () => void;
 
+  // UI Preferences
+  // TODO: [STORE_REFACTOR] Move to shared UI slice
+  theme: Theme;
+  deviceTheme: ThemeColor | undefined;
+  temperatureUnit: TemperatureUnit;
+
   // Actions
   setMiners: (miners: MinerStateSnapshot[]) => void;
   appendMiners: (miners: MinerStateSnapshot[]) => void;
@@ -127,6 +153,12 @@ interface FleetState {
   setLoading: (loading: boolean) => void;
   setStreaming: (streaming: boolean) => void;
   setCursor: (cursor: string) => void;
+
+  // UI Preference Actions
+  // TODO: [STORE_REFACTOR] Move to shared UI slice
+  setTheme: (theme: Theme) => void;
+  setDeviceTheme: (theme: ThemeColor) => void;
+  setTemperatureUnit: (unit: TemperatureUnit) => void;
 
   // Selectors
   getMinersArray: () => MinerStateSnapshot[];
@@ -251,161 +283,210 @@ const isHashing = (minerSnapshot: MinerStateSnapshot) => {
 export const useFleetStore = create<FleetState>()(
   devtools(
     subscribeWithSelector(
-      immer((set, get) => ({
-        // Initial state
-        miners: {},
-        minerIds: [],
-        totalMiners: 0,
-        minerStateCounts: createSchema(MinerStateCountsSchema, {}),
-        currentFilter: undefined,
-        isLoading: false,
-        isStreaming: false,
-        cursor: "",
-        refetchMiners: undefined,
+      persist(
+        immer((set, get) => ({
+          // Initial state
+          miners: {},
+          minerIds: [],
+          totalMiners: 0,
+          minerStateCounts: createSchema(MinerStateCountsSchema, {}),
+          currentFilter: undefined,
+          isLoading: false,
+          isStreaming: false,
+          cursor: "",
+          refetchMiners: undefined,
 
-        // Actions
-        setMiners: (miners) =>
-          set((state) => {
-            state.miners = {};
-            state.minerIds = [];
+          // UI Preferences Initial State
+          // TODO: [STORE_REFACTOR] Move to shared UI slice
+          theme: "system",
+          deviceTheme: undefined,
+          temperatureUnit: "C",
 
-            miners.forEach((miner) => {
-              state.miners[miner.deviceIdentifier] = miner;
-              state.minerIds.push(miner.deviceIdentifier);
-            });
-          }),
+          // Actions
+          setMiners: (miners) =>
+            set((state) => {
+              state.miners = {};
+              state.minerIds = [];
 
-        appendMiners: (miners) =>
-          set((state) => {
-            const existingIds = new Set(state.minerIds);
-
-            miners.forEach((miner) => {
-              // Only add if not already present
-              if (!existingIds.has(miner.deviceIdentifier)) {
+              miners.forEach((miner) => {
                 state.miners[miner.deviceIdentifier] = miner;
                 state.minerIds.push(miner.deviceIdentifier);
-              }
-            });
-          }),
+              });
+            }),
 
-        setTotalMiners: (count) =>
-          set((state) => {
-            state.totalMiners = count;
-          }),
+          appendMiners: (miners) =>
+            set((state) => {
+              const existingIds = new Set(state.minerIds);
 
-        setMinerStateCounts: (counts) =>
-          set((state) => {
-            state.minerStateCounts = counts;
-          }),
-
-        handleMinerStateCountsChange: (previousCounts, newCounts) => {
-          const { refetchMiners, currentFilter } = get();
-
-          // If we have a refetch callback and a filter is active, check if relevant counts changed
-          if (refetchMiners && currentFilter) {
-            const previousRelevantCounts = getRelevantCounts(
-              currentFilter,
-              previousCounts,
-            );
-            const currentRelevantCounts = getRelevantCounts(
-              currentFilter,
-              newCounts,
-            );
-
-            // Check if any of the relevant counts have changed
-            const hasRelevantChange =
-              previousRelevantCounts.hashingCount !==
-                currentRelevantCounts.hashingCount ||
-              previousRelevantCounts.brokenCount !==
-                currentRelevantCounts.brokenCount ||
-              previousRelevantCounts.offlineCount !==
-                currentRelevantCounts.offlineCount ||
-              previousRelevantCounts.sleepingCount !==
-                currentRelevantCounts.sleepingCount;
-
-            if (hasRelevantChange) {
-              // Use setTimeout to avoid calling during state update
-              setTimeout(() => {
-                const currentState = get();
-                if (currentState.refetchMiners) {
-                  currentState.refetchMiners();
+              miners.forEach((miner) => {
+                // Only add if not already present
+                if (!existingIds.has(miner.deviceIdentifier)) {
+                  state.miners[miner.deviceIdentifier] = miner;
+                  state.minerIds.push(miner.deviceIdentifier);
                 }
-              }, 0);
+              });
+            }),
+
+          setTotalMiners: (count) =>
+            set((state) => {
+              state.totalMiners = count;
+            }),
+
+          setMinerStateCounts: (counts) =>
+            set((state) => {
+              state.minerStateCounts = counts;
+            }),
+
+          handleMinerStateCountsChange: (previousCounts, newCounts) => {
+            const { refetchMiners, currentFilter } = get();
+
+            // If we have a refetch callback and a filter is active, check if relevant counts changed
+            if (refetchMiners && currentFilter) {
+              const previousRelevantCounts = getRelevantCounts(
+                currentFilter,
+                previousCounts,
+              );
+              const currentRelevantCounts = getRelevantCounts(
+                currentFilter,
+                newCounts,
+              );
+
+              // Check if any of the relevant counts have changed
+              const hasRelevantChange =
+                previousRelevantCounts.hashingCount !==
+                  currentRelevantCounts.hashingCount ||
+                previousRelevantCounts.brokenCount !==
+                  currentRelevantCounts.brokenCount ||
+                previousRelevantCounts.offlineCount !==
+                  currentRelevantCounts.offlineCount ||
+                previousRelevantCounts.sleepingCount !==
+                  currentRelevantCounts.sleepingCount;
+
+              if (hasRelevantChange) {
+                // Use setTimeout to avoid calling during state update
+                setTimeout(() => {
+                  const currentState = get();
+                  if (currentState.refetchMiners) {
+                    currentState.refetchMiners();
+                  }
+                }, 0);
+              }
             }
-          }
+          },
+
+          setCurrentFilter: (filter) =>
+            set((state) => {
+              state.currentFilter = filter;
+            }),
+
+          setRefetchCallback: (callback) =>
+            set((state) => {
+              state.refetchMiners = callback;
+            }),
+
+          updateMinerMeasurement: (deviceId, measurementUpdate) =>
+            set((state) => {
+              const miner = state.miners[deviceId];
+              if (miner) {
+                updateMeasurement(measurementUpdate, miner);
+              }
+            }),
+
+          updateMinerTelemetry: (deviceId, telemetryUpdate) =>
+            set((state) => {
+              const miner = state.miners[deviceId];
+              if (miner) {
+                updateTelemetryMeasurement(telemetryUpdate, miner);
+              }
+            }),
+
+          updateMinerComponentStatus: (deviceId, statusUpdate) =>
+            set((state) => {
+              const miner = state.miners[deviceId];
+              if (miner) {
+                updateComponentStatus(statusUpdate, miner);
+              }
+            }),
+
+          updateMinerDeviceStatus: (deviceId, deviceStatusUpdate) =>
+            set((state) => {
+              const miner = state.miners[deviceId];
+              if (miner) {
+                updateDeviceStatus(deviceStatusUpdate, miner);
+              }
+            }),
+
+          updateMinerTimestamp: (deviceId, timestamp) =>
+            set((state) => {
+              const miner = state.miners[deviceId];
+              if (miner) {
+                miner.timestamp = timestamp;
+              }
+            }),
+
+          setLoading: (loading) =>
+            set((state) => {
+              state.isLoading = loading;
+            }),
+
+          setStreaming: (streaming) =>
+            set((state) => {
+              state.isStreaming = streaming;
+            }),
+
+          setCursor: (cursor) =>
+            set((state) => {
+              state.cursor = cursor;
+            }),
+
+          // UI Preference Actions
+          // TODO: [STORE_REFACTOR] Move to shared UI slice
+          setTheme: (theme) =>
+            set((state) => {
+              state.theme = theme;
+            }),
+
+          setDeviceTheme: (theme) =>
+            set((state) => {
+              state.deviceTheme = theme;
+            }),
+
+          setTemperatureUnit: (unit) =>
+            set((state) => {
+              state.temperatureUnit = unit;
+            }),
+
+          // Selectors
+          getMinersArray: () => {
+            const state = get();
+            return state.minerIds.map((id) => state.miners[id]).filter(Boolean);
+          },
+        })),
+        {
+          name: "proto-ui-preferences", // Shared across protoOS and protoFleet
+          // TODO: [STORE_REFACTOR] We're mimicking protoOS's nested storage structure
+          // ({ ui: { theme, temperatureUnit } }) to share localStorage between apps.
+          // When we refactor to use slice architecture in protoFleet, we can use
+          // a shared UI slice and remove this custom merge logic.
+          partialize: (state) => ({
+            ui: {
+              theme: state.theme,
+              temperatureUnit: state.temperatureUnit,
+            },
+          }),
+          merge: (persistedState, currentState) => {
+            const persisted = persistedState as any;
+            const ui = persisted?.ui;
+
+            return {
+              ...currentState,
+              theme: ui?.theme ?? currentState.theme,
+              temperatureUnit:
+                ui?.temperatureUnit ?? currentState.temperatureUnit,
+            };
+          },
         },
-
-        setCurrentFilter: (filter) =>
-          set((state) => {
-            state.currentFilter = filter;
-          }),
-
-        setRefetchCallback: (callback) =>
-          set((state) => {
-            state.refetchMiners = callback;
-          }),
-
-        updateMinerMeasurement: (deviceId, measurementUpdate) =>
-          set((state) => {
-            const miner = state.miners[deviceId];
-            if (miner) {
-              updateMeasurement(measurementUpdate, miner);
-            }
-          }),
-
-        updateMinerTelemetry: (deviceId, telemetryUpdate) =>
-          set((state) => {
-            const miner = state.miners[deviceId];
-            if (miner) {
-              updateTelemetryMeasurement(telemetryUpdate, miner);
-            }
-          }),
-
-        updateMinerComponentStatus: (deviceId, statusUpdate) =>
-          set((state) => {
-            const miner = state.miners[deviceId];
-            if (miner) {
-              updateComponentStatus(statusUpdate, miner);
-            }
-          }),
-
-        updateMinerDeviceStatus: (deviceId, deviceStatusUpdate) =>
-          set((state) => {
-            const miner = state.miners[deviceId];
-            if (miner) {
-              updateDeviceStatus(deviceStatusUpdate, miner);
-            }
-          }),
-
-        updateMinerTimestamp: (deviceId, timestamp) =>
-          set((state) => {
-            const miner = state.miners[deviceId];
-            if (miner) {
-              miner.timestamp = timestamp;
-            }
-          }),
-
-        setLoading: (loading) =>
-          set((state) => {
-            state.isLoading = loading;
-          }),
-
-        setStreaming: (streaming) =>
-          set((state) => {
-            state.isStreaming = streaming;
-          }),
-
-        setCursor: (cursor) =>
-          set((state) => {
-            state.cursor = cursor;
-          }),
-
-        // Selectors
-        getMinersArray: () => {
-          const state = get();
-          return state.minerIds.map((id) => state.miners[id]).filter(Boolean);
-        },
-      })),
+      ),
     ),
     { name: "fleet-store" },
   ),
@@ -472,3 +553,20 @@ export const useMinerTemperature = (deviceId: string) =>
 
 export const useMinerUrl = (deviceId: string) =>
   useFleetStore((state) => state.miners[deviceId]?.url);
+
+// UI Preference Selectors
+// TODO: [STORE_REFACTOR] Move to shared UI slice
+export const useTheme = () => useFleetStore((state) => state.theme);
+
+export const useDeviceTheme = () => useFleetStore((state) => state.deviceTheme);
+
+export const useTemperatureUnit = () =>
+  useFleetStore((state) => state.temperatureUnit);
+
+export const useSetTheme = () => useFleetStore((state) => state.setTheme);
+
+export const useSetDeviceTheme = () =>
+  useFleetStore((state) => state.setDeviceTheme);
+
+export const useSetTemperatureUnit = () =>
+  useFleetStore((state) => state.setTemperatureUnit);

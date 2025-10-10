@@ -1,17 +1,19 @@
 import { memo, useMemo } from "react";
-import { convertAndFormatMeasurement, useMiner } from "@/protoOS/store";
+import {
+  convertAndFormatMeasurement,
+  useMiner,
+  useTemperatureUnit,
+} from "@/protoOS/store";
 import TabMenu from "@/shared/components/TabMenu";
-import { TEMP_UNITS, usePreferences } from "@/shared/features/preferences";
 
 type TabMenuWrapperProps = {
   basePath?: string; // Optional base path for navigation
 };
 
 const TabMenuWrapper = memo(({ basePath }: TabMenuWrapperProps) => {
-  const { temperatureUnits } = usePreferences();
+  const temperatureUnit = useTemperatureUnit();
   const miner = useMiner();
-  const isFahrenheit = temperatureUnits === TEMP_UNITS.fahrenheit;
-  const unit = isFahrenheit ? "F" : "C";
+
   const tabItems = useMemo(
     () => ({
       hashrate: {
@@ -44,14 +46,14 @@ const TabMenuWrapper = memo(({ basePath }: TabMenuWrapperProps) => {
         name: "Temperature",
         value: convertAndFormatMeasurement(
           miner?.temperature?.latest,
-          isFahrenheit ? "F" : "C",
+          temperatureUnit,
           false,
         ),
-        units: miner?.temperature ? unit : undefined,
+        units: miner?.temperature ? temperatureUnit : undefined,
         path: "/temperature",
       },
     }),
-    [miner, isFahrenheit, unit],
+    [miner, temperatureUnit],
   );
 
   return <TabMenu items={tabItems} basePath={basePath} />;

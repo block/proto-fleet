@@ -6,11 +6,8 @@ import {
   TemperatureResponseTemperaturedata,
 } from "@/protoOS/api/generatedApi";
 import { type MetricTimeSeries } from "@/protoOS/store";
+import { type TemperatureUnit } from "@/protoOS/store";
 import { ChartData } from "@/shared/components/LineChart/types";
-import {
-  TEMP_UNITS,
-  type TemperatureUnits,
-} from "@/shared/features/preferences";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 import { convertMegahashSecToTerahashSec } from "@/shared/utils/utility";
 import { convertCtoF } from "@/shared/utils/utility";
@@ -35,7 +32,7 @@ export const convertHashrateValues = (
 
 export const convertAndFormatTemperature = (
   tempC: number | null | undefined,
-  temperatureUnits: TemperatureUnits,
+  temperatureUnit: TemperatureUnit,
   showUnits: boolean = true,
 ) => {
   // Assume 0 means not available
@@ -43,11 +40,11 @@ export const convertAndFormatTemperature = (
     return "N/A";
   }
 
-  if (temperatureUnits === TEMP_UNITS.fahrenheit) {
-    return `${getDisplayValue(convertCtoF(tempC))}º${showUnits ? "F" : ""}`;
+  if (temperatureUnit === "F") {
+    return `${getDisplayValue(convertCtoF(tempC))}º${showUnits ? temperatureUnit : ""}`;
   }
 
-  return `${getDisplayValue(tempC)}º${showUnits ? "C" : ""}`;
+  return `${getDisplayValue(tempC)}º${showUnits ? temperatureUnit : ""}`;
 };
 
 /**

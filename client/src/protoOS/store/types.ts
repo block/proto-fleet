@@ -8,8 +8,16 @@
 // Currently we do this separately on each client before passing built-in types to shared components.
 // This could also help with rendering single miner views in ProtoFleet.
 
-// TODO: [STORE_REFACTOR] ideally these would come from generated API types but currently unit is just string there
-export type TemperatureUnit = "C" | "F";
+import type {
+  TemperatureUnit,
+  Theme,
+  ThemeColor,
+} from "@/shared/features/preferences/types";
+
+// reexporting types defined in shared.  Eventually all of these types should be defined in shared
+// and we wont need to do any reexporting
+export { Theme, ThemeColor, TemperatureUnit };
+
 export type PowerUnit = "W" | "kW" | "MW";
 export type HashrateUnit = "TH/s" | "TH/S" | "GH/s" | "GH/S" | "MH/s" | "MH/S";
 export type EfficiencyUnit = "J/TH";

@@ -68,7 +68,15 @@ export {
   useActiveChartLines,
   useSetActiveChartLines,
   useToggleActiveChartLine,
+  useTheme,
+  useDeviceTheme,
+  useSetTheme,
+  useSetDeviceTheme,
+  useTemperatureUnit,
+  useSetTemperatureUnit,
 } from "./hooks/useUI";
+
+export type { Theme, ThemeColor, TemperatureUnit } from "./types";
 
 export {
   useMinerHardware,

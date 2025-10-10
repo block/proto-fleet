@@ -8,9 +8,9 @@ import {
   convertAndFormatMeasurement,
   type HashboardData,
   useMinerHashboard,
+  useTemperatureUnit,
 } from "@/protoOS/store";
 import SkeletonBar from "@/shared/components/SkeletonBar";
-import { TEMP_UNITS, usePreferences } from "@/shared/features/preferences/";
 
 type HbTempPreviewProps = {
   hbData: HashboardData;
@@ -37,7 +37,7 @@ const TempDisplay = ({
 const HbTempPreview = ({ hbData }: HbTempPreviewProps) => {
   const [isOverheating, setIsOverheating] = useState<boolean>(false);
   const { minerRoot } = useMinerHosting();
-  const { temperatureUnits } = usePreferences();
+  const temperatureUnit = useTemperatureUnit();
 
   const hashboard = useMinerHashboard(hbData.serial);
 
@@ -46,7 +46,7 @@ const HbTempPreview = ({ hbData }: HbTempPreviewProps) => {
 
     const lastTemp = hbData.temperature.latest.value;
     setIsOverheating(!!lastTemp && lastTemp > criticalTemp);
-  }, [hbData, temperatureUnits]);
+  }, [hbData, temperatureUnit]);
 
   return (
     <Link
@@ -84,7 +84,7 @@ const HbTempPreview = ({ hbData }: HbTempPreviewProps) => {
           <TempDisplay
             formattedTemp={convertAndFormatMeasurement(
               hashboard?.avgAsicTemp?.latest,
-              temperatureUnits === TEMP_UNITS.fahrenheit ? "F" : "C",
+              temperatureUnit,
               true,
             )}
             label="ASIC avg"
@@ -93,7 +93,7 @@ const HbTempPreview = ({ hbData }: HbTempPreviewProps) => {
           <TempDisplay
             formattedTemp={convertAndFormatMeasurement(
               hashboard?.maxAsicTemp?.latest,
-              temperatureUnits === TEMP_UNITS.fahrenheit ? "F" : "C",
+              temperatureUnit,
               true,
             )}
             label="ASIC high"

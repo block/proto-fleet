@@ -1,7 +1,5 @@
-import { TEMP_UNITS, THEMES } from "./constants";
+export type Theme = "dark" | "light" | "system";
 
-export type Themes = keyof typeof THEMES;
+export type ThemeColor = Exclude<Theme, "system">;
 
-export type ThemeColors = keyof Omit<typeof THEMES, "system">;
-
-export type TemperatureUnits = keyof typeof TEMP_UNITS;
+export type TemperatureUnit = "C" | "F";

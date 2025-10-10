@@ -1,8 +1,6 @@
 import { useCallback } from "react";
 
-import { THEMES } from "./constants";
-import usePreferences from "./hooks/usePreferences";
-import { Themes } from "./types";
+import { type Theme } from "./types";
 import { ThemeDark, ThemeLight, ThemeSystem } from "@/shared/assets/icons";
 
 import { variants } from "@/shared/components/Button";
@@ -14,16 +12,20 @@ import { selectTypes } from "@/shared/constants";
 
 interface ThemeSwitcherProps {
   onClickDone: () => void;
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
 }
 
-const ThemeSwitcher = ({ onClickDone }: ThemeSwitcherProps) => {
-  const { theme, setTheme } = usePreferences();
-
+const ThemeSwitcher = ({
+  onClickDone,
+  theme,
+  setTheme,
+}: ThemeSwitcherProps) => {
   const handleChange = useCallback(
     (id: string, isSelected: boolean) => {
-      const theme = id as Themes;
+      const newTheme = id as Theme;
       if (isSelected) {
-        setTheme(theme);
+        setTheme(newTheme);
       }
     },
     [setTheme],
@@ -47,9 +49,9 @@ const ThemeSwitcher = ({ onClickDone }: ThemeSwitcherProps) => {
       >
         <div className="-mt-3">
           <SelectRow
-            id={THEMES.system}
+            id={"system"}
             text="System"
-            isSelected={theme === THEMES.system}
+            isSelected={theme === "system"}
             onChange={handleChange}
             prefixIcon={
               <div
@@ -62,14 +64,14 @@ const ThemeSwitcher = ({ onClickDone }: ThemeSwitcherProps) => {
             type={selectTypes.radio}
           />
           <SelectRow
-            id={THEMES.light}
+            id={"light"}
             text="Light"
-            isSelected={theme === THEMES.light}
+            isSelected={theme === "light"}
             onChange={handleChange}
             prefixIcon={
               <div
                 className="rounded-lg bg-surface-5 p-[6px]"
-                data-theme={THEMES.light}
+                data-theme={"light"}
               >
                 <ThemeLight className="text-text-primary-70" />
               </div>
@@ -77,14 +79,14 @@ const ThemeSwitcher = ({ onClickDone }: ThemeSwitcherProps) => {
             type={selectTypes.radio}
           />
           <SelectRow
-            id={THEMES.dark}
+            id={"dark"}
             text="Dark"
-            isSelected={theme === THEMES.dark}
+            isSelected={theme === "dark"}
             onChange={handleChange}
             prefixIcon={
               <div
                 className="rounded-lg bg-surface-5 p-[6px]"
-                data-theme={THEMES.dark}
+                data-theme={"dark"}
               >
                 <ThemeDark className="text-text-primary-70" />
               </div>

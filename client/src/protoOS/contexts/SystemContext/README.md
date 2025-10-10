@@ -138,9 +138,7 @@ const Main = () => {
     <MinerHostingProvider>
       <AuthProvider>
         <SystemContextProvider>
-          <PreferencesProvider>
-            <RouterProvider router={router} />
-          </PreferencesProvider>
+          <RouterProvider router={router} />
         </SystemContextProvider>
       </AuthProvider>
     </MinerHostingProvider>

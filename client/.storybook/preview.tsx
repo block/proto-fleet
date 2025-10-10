@@ -1,15 +1,10 @@
-import React from "react";
+import React, { ComponentType } from "react";
 import type { Preview } from "@storybook/react-vite";
-import { PreferencesProvider } from "../src/shared/features/preferences";
 import "../src/shared/styles/index.css";
 
 export const decorators = [
-  (Story) => {
-    return (
-      <PreferencesProvider>
-        <Story />
-      </PreferencesProvider>
-    );
+  (Story: ComponentType) => {
+    return <Story />;
   },
 ];
 

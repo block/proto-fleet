@@ -3,9 +3,15 @@ import { Outlet, useMatches } from "react-router-dom";
 
 import AppLayout from "@/protoFleet/components/AppLayout";
 import { useIsAuthenticated } from "@/protoFleet/features/auth/contexts/AuthContext";
+import {
+  useDeviceTheme,
+  useSetDeviceTheme,
+  useTheme,
+} from "@/protoFleet/features/fleetManagement/store/useFleetStore";
 import { OnboardingProvider } from "@/protoFleet/features/onboarding/contexts/OnboardingContext";
 import { getRouteMetadata } from "@/protoFleet/routes";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import { useApplyTheme } from "@/shared/features/preferences";
 import { Toaster } from "@/shared/features/toaster";
 
 const AppContent = () => {
@@ -48,6 +54,13 @@ const AppContent = () => {
 };
 
 const App = () => {
+  const theme = useTheme();
+  const deviceTheme = useDeviceTheme();
+  const setDeviceTheme = useSetDeviceTheme();
+
+  // Apply theme effects on mount
+  useApplyTheme({ theme, deviceTheme, setDeviceTheme });
+
   return (
     <OnboardingProvider>
       <AppContent />

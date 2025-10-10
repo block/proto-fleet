@@ -2,6 +2,12 @@ import { motion } from "motion/react";
 import { useState } from "react";
 import { useSystemContext } from "@/protoOS/contexts/SystemContext";
 import CheckForUpdate from "@/protoOS/features/firmwareUpdate/components/CheckForUpdate";
+import {
+  useSetTemperatureUnit,
+  useSetTheme,
+  useTemperatureUnit,
+  useTheme,
+} from "@/protoOS/store";
 import ProtoRigImage from "@/shared/assets/images/ProtoRig.png";
 import Picture from "@/shared/components/Picture";
 import Row from "@/shared/components/Row";
@@ -10,14 +16,16 @@ import {
   TemperatureUnitsSwitcher,
   ThemeSwitcher,
 } from "@/shared/features/preferences";
-import usePreferences from "@/shared/features/preferences/hooks/usePreferences";
 import { convertToSentenceCase } from "@/shared/utils/stringUtils";
 
 const General = () => {
   const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
   const [showTemperatureUnitsSwitcher, setShowTemperatureUnitsSwitcher] =
     useState(false);
-  const { theme, temperatureUnits } = usePreferences();
+  const theme = useTheme();
+  const setTheme = useSetTheme();
+  const temperatureUnit = useTemperatureUnit();
+  const setTemperatureUnit = useSetTemperatureUnit();
 
   const { data: systemInfo, isProtoRig } = useSystemContext();
 
@@ -80,7 +88,11 @@ const General = () => {
             {convertToSentenceCase(theme)}
           </a>
           {showThemeSwitcher && (
-            <ThemeSwitcher onClickDone={() => setShowThemeSwitcher(false)} />
+            <ThemeSwitcher
+              onClickDone={() => setShowThemeSwitcher(false)}
+              theme={theme}
+              setTheme={setTheme}
+            />
           )}
         </Row>
         <Row className="flex justify-between">
@@ -93,11 +105,13 @@ const General = () => {
             }}
             className="text-300 text-intent-warning-fill hover:underline"
           >
-            {convertToSentenceCase(temperatureUnits)}
+            {temperatureUnit === "C" ? "Celsius" : "Fahrenheit"}
           </a>
           {showTemperatureUnitsSwitcher && (
             <TemperatureUnitsSwitcher
               onClickDone={() => setShowTemperatureUnitsSwitcher(false)}
+              temperatureUnit={temperatureUnit}
+              setTemperatureUnit={setTemperatureUnit}
             />
           )}
         </Row>

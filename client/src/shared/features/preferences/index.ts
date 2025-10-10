@@ -1,16 +1,13 @@
-import { TEMP_UNITS } from "./constants";
-import usePreferences from "./hooks/usePreferences";
-import { PreferencesProvider } from "./PreferencesContext";
 import TemperatureUnitsSwitcher from "./TemperatureUnitsSwitcher";
 import ThemeSwitcher from "./ThemeSwitcher";
-import type { TemperatureUnits, Themes } from "./types";
+import type { TemperatureUnit, Theme, ThemeColor } from "./types";
 
 export {
-  PreferencesProvider,
   ThemeSwitcher,
   TemperatureUnitsSwitcher,
-  TEMP_UNITS,
-  usePreferences,
-  type Themes,
-  type TemperatureUnits,
+  type Theme,
+  type ThemeColor,
+  type TemperatureUnit,
 };
+
+export { useApplyTheme } from "./useApplyTheme";

@@ -9,8 +9,8 @@ import {
   convertAndFormatMeasurement,
   getAsicName,
 } from "@/protoOS/store";
+import { useTemperatureUnit } from "@/protoOS/store";
 import { usePopover } from "@/shared/components/Popover";
-import { usePreferences } from "@/shared/features/preferences";
 
 interface AsicButtonProps {
   asic: AsicData;
@@ -28,7 +28,7 @@ const AsicButton = ({
   totalAsicCount,
 }: AsicButtonProps) => {
   const { triggerRef: asicRef } = usePopover();
-  const { temperatureUnits } = usePreferences();
+  const temperatureUnit = useTemperatureUnit();
 
   const currentAsicId = useMemo(
     () =>
@@ -54,10 +54,10 @@ const AsicButton = ({
     () =>
       convertAndFormatMeasurement(
         asic.temperature?.latest,
-        temperatureUnits === "fahrenheit" ? "F" : "C",
+        temperatureUnit,
         false,
       ),
-    [asic.temperature, temperatureUnits],
+    [asic.temperature, temperatureUnit],
   );
 
   return (

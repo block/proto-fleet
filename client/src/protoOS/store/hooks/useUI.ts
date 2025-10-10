@@ -1,7 +1,7 @@
 import useMinerStore from "../useMinerStore";
 
 // =============================================================================
-// UI State Hooks
+// Chart State Hooks
 // =============================================================================
 
 export const useDuration = () => useMinerStore((state) => state.ui.duration);
@@ -17,3 +17,23 @@ export const useSetActiveChartLines = () =>
 
 export const useToggleActiveChartLine = () =>
   useMinerStore((state) => state.ui.toggleActiveChartLine);
+
+// =============================================================================
+// Preference Hooks
+// =============================================================================
+
+export const useTheme = () => useMinerStore((state) => state.ui.theme);
+
+export const useDeviceTheme = () =>
+  useMinerStore((state) => state.ui.deviceTheme);
+
+export const useSetTheme = () => useMinerStore((state) => state.ui.setTheme);
+
+export const useSetDeviceTheme = () =>
+  useMinerStore((state) => state.ui.setDeviceTheme);
+
+export const useTemperatureUnit = () =>
+  useMinerStore((state) => state.ui.temperatureUnit);
+
+export const useSetTemperatureUnit = () =>
+  useMinerStore((state) => state.ui.setTemperatureUnit);

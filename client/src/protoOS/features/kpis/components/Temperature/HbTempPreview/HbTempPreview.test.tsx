@@ -3,9 +3,12 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import HbTempPreview from "./HbTempPreview"; // Adjust the import path as necessary
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
-import { useAsicRowsByHbSn, useMinerHashboardAsics } from "@/protoOS/store";
+import {
+  useAsicRowsByHbSn,
+  useMinerHashboardAsics,
+  useTemperatureUnit,
+} from "@/protoOS/store";
 import { type HashboardData } from "@/protoOS/store";
-import { TEMP_UNITS, usePreferences } from "@/shared/features/preferences/";
 
 const mockHbData: HashboardData = {
   serial: "1234567890",
@@ -27,15 +30,11 @@ const mockHbData: HashboardData = {
   },
 };
 
-vi.mock("@/shared/features/preferences/", async () => {
-  const actual = await vi.importActual("@/shared/features/preferences/");
+vi.mock("@/protoOS/store", async () => {
+  const actual = await vi.importActual("@/protoOS/store");
   return {
     ...actual,
-    usePreferences: vi.fn(() => ({
-      temperatureUnits: "celsius",
-      theme: "light", // Mock theme
-      setTheme: vi.fn(), // Mock setTheme function
-    })),
+    useTemperatureUnit: vi.fn(() => "C"),
   };
 });
 
@@ -64,9 +63,7 @@ vi.mock("./AsicCell", () => ({
 }));
 
 beforeEach(() => {
-  (usePreferences as Mock).mockReturnValue({
-    temperatureUnits: "celsius",
-  });
+  (useTemperatureUnit as Mock).mockReturnValue("C");
   // Reset asic mocks to default (empty) state
   (useMinerHashboardAsics as Mock).mockReturnValue([]);
   (useAsicRowsByHbSn as Mock).mockReturnValue([]);
@@ -96,10 +93,8 @@ describe("HbTempPreview", () => {
     expect(screen.getByTestId("asic-table-preview")).toBeInTheDocument();
   });
 
-  it("renders temperature with correct units when temperatureUnits is set to 'fahrenheit'", () => {
-    (usePreferences as Mock).mockReturnValue({
-      temperatureUnits: TEMP_UNITS.fahrenheit,
-    });
+  it("renders temperature with correct units when temperatureUnit is set to 'F'", () => {
+    (useTemperatureUnit as Mock).mockReturnValue("F");
 
     const hbData: HashboardData = {
       serial: "12345",

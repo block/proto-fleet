@@ -1,8 +1,5 @@
 import { useCallback } from "react";
-
-import { TEMP_UNITS } from "./constants";
-import usePreferences from "./hooks/usePreferences";
-import { TemperatureUnits } from "./types";
+import { type TemperatureUnit } from "./types";
 
 import { variants } from "@/shared/components/Button";
 import PageOverlay from "@/shared/components/PageOverlay";
@@ -13,21 +10,23 @@ import { selectTypes } from "@/shared/constants";
 
 interface TemperatureUnitsSwitcherProps {
   onClickDone: () => void;
+  temperatureUnit: TemperatureUnit;
+  setTemperatureUnit: (unit: TemperatureUnit) => void;
 }
 
 const TemperatureUnitsSwitcher = ({
   onClickDone,
+  temperatureUnit,
+  setTemperatureUnit,
 }: TemperatureUnitsSwitcherProps) => {
-  const { temperatureUnits, setTemperatureUnits } = usePreferences();
-
   const handleChange = useCallback(
     (id: string, isSelected: boolean) => {
-      const units = id as TemperatureUnits;
+      const unit = id as TemperatureUnit;
       if (isSelected) {
-        setTemperatureUnits(units);
+        setTemperatureUnit(unit);
       }
     },
-    [setTemperatureUnits],
+    [setTemperatureUnit],
   );
 
   // TODO should be modal instead of Popover
@@ -48,16 +47,16 @@ const TemperatureUnitsSwitcher = ({
       >
         <div className="-mt-3">
           <SelectRow
-            id={TEMP_UNITS.celsius}
+            id={"C"}
             text="Celsius (ºC)"
-            isSelected={temperatureUnits === TEMP_UNITS.celsius}
+            isSelected={temperatureUnit === "C"}
             onChange={handleChange}
             type={selectTypes.radio}
           />
           <SelectRow
-            id={TEMP_UNITS.fahrenheit}
+            id={"F"}
             text="Fahrenheit (ºF)"
-            isSelected={temperatureUnits === TEMP_UNITS.fahrenheit}
+            isSelected={temperatureUnit === "F"}
             onChange={handleChange}
             type={selectTypes.radio}
           />

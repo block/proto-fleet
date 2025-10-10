@@ -2,7 +2,7 @@ import { useEffect, useMemo } from "react";
 
 import AsicPopoverRow from "../AsicPopoverRow";
 import { convertAndFormatTemperature } from "@/protoOS/features/kpis/components/HashboardTemperature/Asic/AsicPopover/utility";
-import { usePreferences } from "@/shared/features/preferences";
+import { useTemperatureUnit } from "@/protoOS/store";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 
 type PayloadType = {
@@ -35,7 +35,7 @@ const AsicChartTooltip = ({
   payload: payloads,
   tooltipData,
 }: AsicChartTooltipProps) => {
-  const { temperatureUnits } = usePreferences();
+  const temperatureUnit = useTemperatureUnit();
 
   useEffect(() => {
     if (
@@ -62,7 +62,7 @@ const AsicChartTooltip = ({
           {payload.temp_c !== undefined ? (
             <AsicPopoverRow
               label="Temperature"
-              value={`${convertAndFormatTemperature(payload.temp_c, temperatureUnits)}`}
+              value={`${convertAndFormatTemperature(payload.temp_c, temperatureUnit)}`}
               className="text-core-accent-fill"
             />
           ) : null}
