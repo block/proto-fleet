@@ -68,7 +68,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   // We have another polling call in parent component KpiLayout.  If we want to remove extra requests we could add some logic to useTelemetry
   // so that the keeps track of the polling requests somehow and only lets the most specific one (level=asic) poll
   useTelemetry({
-    level: "asic",
+    level: ["asic"],
   });
 
   const close = () => {

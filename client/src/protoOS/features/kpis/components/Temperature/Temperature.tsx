@@ -51,7 +51,7 @@ const Temperature = () => {
   // Fetch latest telemetry data with polling
   // this fetches miner, hashboard, and asic level data
   useTelemetry({
-    level: "asic",
+    level: ["asic"],
   });
 
   // Fetch fan telemetry which is not yet included in Telemetry API

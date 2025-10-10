@@ -1,7 +1,10 @@
 import { useCallback, useMemo, useState } from "react";
 
 import { usePoll } from "./usePoll";
-import { type TelemetryData } from "@/protoOS/api/generatedApi";
+import {
+  type GetCurrentTelemetryParams,
+  type TelemetryData,
+} from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import {
   type AsicHardwareData,
@@ -10,13 +13,13 @@ import {
 } from "@/protoOS/store";
 
 interface UseTelemetryProps {
-  level?: "miner" | "hashboard" | "asic";
+  level?: GetCurrentTelemetryParams["level"];
   poll?: boolean;
   pollIntervalMs?: number;
 }
 
 const useTelemetry = ({
-  level = "hashboard",
+  level = ["miner", "hashboard"],
   poll = true,
   pollIntervalMs = 15 * 1000,
 }: UseTelemetryProps = {}) => {

@@ -438,11 +438,8 @@ export interface GetAsicTemperatureParams {
 }
 
 export interface GetCurrentTelemetryParams {
-  /**
-   * Controls which metrics are included: miner (aggregated data only), hashboard (includes per-hashboard metrics), or asic (full detail with ASIC data)
-   * @default "miner"
-   */
-  level?: "miner" | "hashboard" | "asic";
+  /** Data types to include in response. Defaults to 'miner' if not specified. */
+  level?: ("miner" | "hashboard" | "psu" | "asic")[];
 }
 
 export interface GetHashboardEfficiencyParams {
@@ -740,7 +737,7 @@ export interface HashboardTelemetry {
 
 /** Hashboard temperature measurements */
 export interface HashboardTemperature {
-  /** Average temperature value */
+  /** Average temperature value of all temperature sensors on hashboard */
   average: number;
   /** Inlet temperature value */
   inlet: number;
@@ -824,7 +821,7 @@ export interface MetricArray {
  */
 export enum MetricUnit {
   THS = "TH/s",
-  C = "C",
+  ValueC = "°C",
   W = "W",
   JTH = "J/TH",
   V = "V",
@@ -1245,6 +1242,19 @@ export interface PowerResponsePowerdata {
   duration?: TimeSeriesDuration;
 }
 
+/** Available field types for PSU-level data */
+export enum PsuFieldType {
+  OutputVoltage = "outputVoltage",
+  OutputCurrent = "outputCurrent",
+  OutputPower = "outputPower",
+  InputVoltage = "inputVoltage",
+  InputCurrent = "inputCurrent",
+  InputPower = "inputPower",
+  HotspotTemp = "hotspotTemp",
+  AmbientTemp = "ambientTemp",
+  AverageTemp = "averageTemp",
+}
+
 /**
  * Power supply unit information and status
  * @example {"psu_sn":"517CP81302000721","slot":2,"manufacturer":"Chicony","hw_revision":"v1.0","model":"PSU3200","vendor":"Chicony","firmware":{"app_version":"1.0","bootloader_version":"1.0"},"power":{"input_voltage":240,"output_voltage":15.38,"input_current":20.34,"output_current":251.5,"input_power":3868,"output_power":4000},"temperatures":[]}
@@ -1325,6 +1335,47 @@ export interface PsuInfo {
    * @example ""
    */
   vendor?: string;
+}
+
+/** PSU metric with input and output values */
+export interface PsuInputOutputMetric {
+  /** Input value */
+  input: number;
+  /** Output value */
+  output: number;
+  /** Unit of measurement for metrics */
+  unit: MetricUnit;
+}
+
+/** Individual PSU telemetry metrics */
+export interface PsuTelemetry {
+  /** PSU metric with input and output values */
+  current: PsuInputOutputMetric;
+  /** PSU index */
+  index: number;
+  /** PSU metric with input and output values */
+  power: PsuInputOutputMetric;
+  /**
+   * PSU serial number
+   * @example "PSU001234"
+   */
+  serial_number?: string;
+  /** PSU temperature measurements */
+  temperature: PsuTemperature;
+  /** PSU metric with input and output values */
+  voltage: PsuInputOutputMetric;
+}
+
+/** PSU temperature measurements */
+export interface PsuTemperature {
+  /** Ambient temperature value */
+  ambient: number;
+  /** Average temperature value of all temperature sensors on PSU */
+  average: number;
+  /** Hotspot temperature value */
+  hotspot: number;
+  /** Unit of measurement for metrics */
+  unit: MetricUnit;
 }
 
 /**
@@ -1441,15 +1492,20 @@ export interface TelemetryConfig {
   enabled: boolean;
 }
 
-/** Current telemetry data response. Contains 'miner' field with aggregated metrics (always present) and 'hashboards' array with per-hashboard data (only included when level is 'hashboard' or 'asic'). ASIC data is nested within each hashboard when level is 'asic' */
+/** Current telemetry data response. Contains 'miner' field with aggregated metrics (included when level=miner or by default if no level specified), 'hashboards' array with per-hashboard data (included when level=hashboard or level=asic), 'psus' array with per-PSU data (included when level=psu). ASIC data is nested within each hashboard when level=asic is specified. All fields except 'timestamp' are optional based on requested levels. */
 export interface TelemetryData {
   /**
-   * Array of per-hashboard telemetry data. Only included when level parameter is 'hashboard' or 'asic'. Each hashboard object contains its metrics, with ASIC-level data nested within when level is 'asic'
+   * Array of per-hashboard telemetry data. Included when level=hashboard or level=asic is specified. Each hashboard object contains its metrics, with ASIC-level data nested within when level=asic is specified.
    * @example [{"index":0,"serial_number":"HB001","hashrate":{"value":31.8,"unit":"TH/s"},"temperature":{"unit":"°C","inlet":45.2,"outlet":68.5,"average":56.85},"power":{"value":1080,"unit":"W"},"efficiency":{"value":33.96,"unit":"J/TH"},"voltage":{"value":12.1,"unit":"V"},"current":{"value":89.3,"unit":"A"},"asics":{"hashrate":{"unit":"TH/s","values":[0.265,0.264]},"temperature":{"unit":"°C","values":[72.5,73]}}}]
    */
   hashboards?: HashboardTelemetry[];
   /** Miner-level telemetry metrics */
-  miner: MinerTelemetry;
+  miner?: MinerTelemetry;
+  /**
+   * Array of per-PSU telemetry data. Included when level=psu is specified.
+   * @example [{"index":0,"serial_number":"PSU001234","voltage":{"unit":"V","input":240,"output":12.1},"current":{"unit":"A","input":14.5,"output":268.6},"power":{"unit":"W","input":3480,"output":3250},"temperature":{"unit":"°C","hotspot":65.5,"ambient":45.2,"average":55.4}}]
+   */
+  psus?: PsuTelemetry[];
   /**
    * Timestamp when the telemetry data was collected
    * @format date-time
@@ -1604,6 +1660,21 @@ export type TimeSeriesLevelConfig =
       indexes?: number[];
       /** ASIC level type */
       type: "asic";
+    }
+  | {
+      /**
+       * List of data types to retrieve for PSU level
+       * @minItems 1
+       * @example ["inputVoltage","outputPower","hotspotTemp"]
+       */
+      fields: PsuFieldType[];
+      /**
+       * Optional array of zero-based PSU indexes to filter data. If omitted, returns all available PSUs
+       * @example [0,1]
+       */
+      indexes?: number[];
+      /** PSU level type */
+      type: "psu";
     };
 
 /** Metadata about the time series query and response */
@@ -1694,7 +1765,7 @@ export interface TimeSeriesRequest {
 export interface TimeSeriesResponse {
   /**
    * Hierarchical data organized by level
-   * @example {"miner":{"hashrate":{"unit":"TH/s","values":[95,94.5,94.8],"aggregates":{"min":94,"avg":94.75,"max":95.5}},"temperature":{"unit":"°C","values":[65.5,65.7,66],"aggregates":{"min":65,"avg":65.8,"max":67.2}}},"hashboards":[{"serial_number":"HB001","hashrate":{"unit":"TH/s","values":[31.5,31.45,31.52],"aggregates":{"min":31,"avg":31.49,"max":32}},"temperature":{"unit":"°C","values":[66,66.2,66.1],"aggregates":{"min":65.5,"avg":66.1,"max":67}}}]}
+   * @example {"miner":{"hashrate":{"unit":"TH/s","values":[95,94.5,94.8],"aggregates":{"min":94,"avg":94.75,"max":95.5}},"temperature":{"unit":"°C","values":[65.5,65.7,66],"aggregates":{"min":65,"avg":65.8,"max":67.2}}},"hashboards":[{"index":0,"serial_number":"HB001","hashrate":{"unit":"TH/s","values":[31.5,31.45,31.52],"aggregates":{"min":31,"avg":31.49,"max":32}},"temperature":{"unit":"°C","values":[66,66.2,66.1],"aggregates":{"min":65.5,"avg":66.1,"max":67}}}],"psus":[{"index":0,"serial_number":"PSU001","inputVoltage":{"unit":"V","values":[240,240.1,239.9],"aggregates":{"min":239.5,"avg":240,"max":240.5}},"outputVoltage":{"unit":"V","values":[12.1,12.09,12.11],"aggregates":{"min":12,"avg":12.1,"max":12.2}},"outputPower":{"unit":"W","values":[3250,3245,3255],"aggregates":{"min":3200,"avg":3250,"max":3300}},"hotspotTemp":{"unit":"°C","values":[65.5,65.7,65.6],"aggregates":{"min":65,"avg":65.6,"max":66}}}]}
    */
   data?: {
     /** Array of ASIC-level data with zero-based indexing (present when 'asic' in levels) */
@@ -1713,6 +1784,14 @@ export interface TimeSeriesResponse {
     }[];
     /** Miner-level data (present when 'miner' in levels) */
     miner?: Record<string, TimeSeriesMetricData>;
+    /** Array of PSU-level data with zero-based indexing (present when 'psu' in levels) */
+    psus?: {
+      /** Zero-based index of the PSU */
+      index?: number;
+      /** Serial number of the PSU */
+      serial_number?: string;
+      [key: string]: any;
+    }[];
   };
   /** Metadata about the time series query and response */
   meta?: TimeSeriesMeta;
@@ -2036,7 +2115,7 @@ export class HttpClient<SecurityDataType = unknown> {
 
 /**
  * @title Mining Development Kit API
- * @version 1.4.0
+ * @version 1.5.0
  * @license MIT (https://opensource.org/license/mit)
  * @baseUrl https://virtserver.swaggerhub.com/kkurucz/mining_development_kit_api/1.0.0
  * @contact <mining.support@block.xyz>
@@ -2892,6 +2971,61 @@ export class Api<
       }),
 
     /**
+     * @description Retrieve the current system tag value.
+     *
+     * @tags System Tag
+     * @name GetSystemTag
+     * @request GET:/api/v1/system/tag
+     */
+    getSystemTag: (params: RequestParams = {}) =>
+      this.request<string | number | boolean | object | any[], MessageResponse>(
+        {
+          path: `/api/v1/system/tag`,
+          method: "GET",
+          format: "json",
+          ...params,
+        },
+      ),
+
+    /**
+     * @description Set or update the system tag value. Accepts any non-null JSON value (string, number, boolean, object, or array). Maximum size is 10 KiB when serialized.
+     *
+     * @tags System Tag
+     * @name PutSystemTag
+     * @request PUT:/api/v1/system/tag
+     * @secure
+     */
+    putSystemTag: (
+      data: string | number | boolean | object | any[],
+      params: RequestParams = {},
+    ) =>
+      this.request<MessageResponse, MessageResponse>({
+        path: `/api/v1/system/tag`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Remove the current system tag.
+     *
+     * @tags System Tag
+     * @name DeleteSystemTag
+     * @request DELETE:/api/v1/system/tag
+     * @secure
+     */
+    deleteSystemTag: (params: RequestParams = {}) =>
+      this.request<void, MessageResponse>({
+        path: `/api/v1/system/tag`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get the current system telemetry enabled status.
      *
      * @tags System
@@ -2927,7 +3061,7 @@ export class Api<
       }),
 
     /**
-     * @description The time series endpoint provides unified access to historical data for multiple metrics and levels. It allows querying hashrate, temperature, power, and efficiency data for both miner and hashboard levels in a single request with flexible time ranges and aggregation options.
+     * @description The time series endpoint provides unified access to historical data for multiple metrics and levels. It allows querying hashrate, temperature, power, and efficiency data for miner, hashboard, ASIC, and PSU levels in a single request with flexible time ranges and aggregation options.
      *
      * @tags Time Series
      * @name GetTimeSeries
@@ -2944,7 +3078,7 @@ export class Api<
       }),
 
     /**
-     * @description Returns current telemetry values for all metrics. The 'level' parameter controls which metrics are included in the response: 'miner' returns only miner-level aggregated data, 'hashboard' adds individual hashboard metrics, and 'asic' includes full detail with ASIC-level data nested within each hashboard.
+     * @description Returns current telemetry values. The 'level' parameter is a comma-separated list that controls which data types are included. If not specified, defaults to 'miner'. Note: 'asic' implicitly includes 'hashboard' since ASIC data is nested within hashboards. Examples: no level param (miner only), ?level=hashboard (hashboards only), ?level=asic (hashboards with ASIC data), ?level=miner,asic,psu (all data).
      *
      * @tags Telemetry
      * @name GetCurrentTelemetry

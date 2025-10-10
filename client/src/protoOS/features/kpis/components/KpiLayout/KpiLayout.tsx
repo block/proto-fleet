@@ -16,7 +16,7 @@ const KpiLayout = ({ children }: ContentLayoutProps) => {
   const setDuration = useSetDuration();
 
   // Get latest miner level telemetry fo tabnav summary
-  useTelemetry({ level: "miner" });
+  useTelemetry({ level: ["miner"] });
 
   // Memoize levels to prevent recreating on every render
   const levels = useMemo(
