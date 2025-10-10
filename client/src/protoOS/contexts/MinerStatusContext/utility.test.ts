@@ -62,24 +62,24 @@ const createErrorTestData = (componentType: string, isLegacy = true) => {
         error: {
           error_code: "AsicOverheat",
           details:
-            '{"AsicOverheat":{"hb_slot":"1","asic_row":0,"asic_col":"1","temperature":"105"}}',
+            '{"AsicOverheat":{"hb_slot":"1","asic_index":"1","temperature":"105"}}',
         },
         warning: {
           error_code: "AsicOverheat",
           details:
-            '{"AsicOverheat":{"hb_slot":"1","asic_row":0,"asic_col":"1","temperature":"95"}}',
+            '{"AsicOverheat":{"hb_slot":"1","asic_index":"1","temperature":"95"}}',
         },
       },
       new: {
         error: {
           error_code: "04:0001",
           details:
-            '{"AsicOverheat":{"hb_slot":"1","asic_row":1,"asic_col":"3","temperature":"110"}}',
+            '{"AsicOverheat":{"hb_slot":"1","asic_index":"3","temperature":"110"}}',
         },
         warning: {
           error_code: "04:0001",
           details:
-            '{"AsicOverheat":{"hb_slot":"1","asic_row":1,"asic_col":"3","temperature":"100"}}',
+            '{"AsicOverheat":{"hb_slot":"1","asic_index":"3","temperature":"100"}}',
         },
       },
     },
@@ -88,24 +88,24 @@ const createErrorTestData = (componentType: string, isLegacy = true) => {
         error: {
           error_code: "FanNotSpinning",
           details:
-            '{"FanNotSpinning":{"fan_id":"1","fan_bay_index":"1","fan_rpm_target":"50","fan_rpm_tach":"0"}}',
+            '{"FanNotSpinning":{"fan_id":"1","fan_bay_index":"1","fan_pwm_target_pct":"50","fan_rpm_tach":"0"}}',
         },
         warning: {
           error_code: "FanSlow",
           details:
-            '{"FanSlow":{"fan_id":"1","fan_bay_index":"1","fan_rpm_target":"50","fan_rpm_tach":"20"}}',
+            '{"FanSlow":{"fan_id":"1","fan_bay_index":"1","fan_pwm_target_pct":"50","fan_rpm_tach":"20"}}',
         },
       },
       new: {
         error: {
           error_code: "01:0002",
           details:
-            '{"FanNotSpinning":{"fan_id":"2","fan_bay_index":"1","fan_rpm_target":"60","fan_rpm_tach":"0"}}',
+            '{"FanNotSpinning":{"fan_id":"2","fan_bay_index":"1","fan_pwm_target_pct":"60","fan_rpm_tach":"0"}}',
         },
         warning: {
           error_code: "01:0001",
           details:
-            '{"FanSlow":{"fan_id":"2","fan_bay_index":"1","fan_rpm_target":"60","fan_rpm_tach":"30"}}',
+            '{"FanSlow":{"fan_id":"2","fan_bay_index":"1","fan_pwm_target_pct":"60","fan_rpm_tach":"30"}}',
         },
       },
     },
@@ -176,7 +176,7 @@ const fanError = createMockError({
   error_code: "FanNotSpinning",
   error_level: "Error",
   details:
-    '{"FanNotSpinning":{"fan_id":"1","fan_bay_index":"1","fan_rpm_target":"50","fan_rpm_tach":"0"}}',
+    '{"FanNotSpinning":{"fan_id":"1","fan_bay_index":"1","fan_pwm_target_pct":"50","fan_rpm_tach":"0"}}',
 });
 
 const psuError = createMockError({
@@ -582,6 +582,42 @@ describe("getStatusErrorTitle", () => {
         subtitle: "Repair now to prevent downtime.",
       });
     });
+
+    it("should handle PSU recovery error (00:0014)", () => {
+      const error = createMockError({
+        error_code: "00:0014",
+        error_level: "Error",
+      });
+      const result = getStatusErrorTitle([error]);
+      expect(result).toEqual({
+        title: "Your miner's power supply is recovering",
+        subtitle: "Hashboards in affected bay may be impacted.",
+      });
+    });
+
+    it("should handle insufficient cooling error (01:0004)", () => {
+      const error = createMockError({
+        error_code: "01:0004",
+        error_level: "Error",
+      });
+      const result = getStatusErrorTitle([error]);
+      expect(result).toEqual({
+        title: "Your miner has insufficient cooling",
+        subtitle: "Repair now to prevent overheating.",
+      });
+    });
+
+    it("should handle hashboard recovery error (04:0017)", () => {
+      const error = createMockError({
+        error_code: "04:0017",
+        error_level: "Error",
+      });
+      const result = getStatusErrorTitle([error]);
+      expect(result).toEqual({
+        title: "Your miner's hashboard is recovering",
+        subtitle: "Repair now to prevent reduced hashrate and board shutdowns.",
+      });
+    });
   });
 });
 
@@ -930,37 +966,36 @@ describe("getErrorMessage", () => {
           errorData: {
             error_code: "AsicOverheat",
             details:
-              '{"AsicOverheat":{"hb_slot":"1","asic_row":"A","asic_col":"2","temperature":"105"}}',
+              '{"AsicOverheat":{"hb_slot":"1","asic_index":"2","temperature":"105"}}',
           },
           expectedMessage:
-            "Slot 1 Hashboard's ASIC (A2) is overheating at 105°C",
+            "Slot 1 Hashboard's ASIC (2) is overheating at 105°C",
         },
         {
           name: "AsicOverVoltage",
           errorData: {
             error_code: "AsicOverVoltage",
             details:
-              '{"AsicOverVoltage":{"hb_slot":"2","asic_row":1,"asic_col":"3","voltage":"3.5"}}',
+              '{"AsicOverVoltage":{"hb_slot":"2","asic_index":"3","voltage":"3.5"}}',
           },
           expectedMessage:
-            "Slot 2 Hashboard's ASIC (B3) is drawing too much voltage at 3.5V",
+            "Slot 2 Hashboard's ASIC (3) is drawing too much voltage at 3.5V",
         },
         {
           name: "AsicFailure",
           errorData: {
             error_code: "AsicFailure",
-            details:
-              '{"AsicFailure":{"hb_slot":"1","asic_row":2,"asic_col":"1"}}',
+            details: '{"AsicFailure":{"hb_slot":"1","asic_index":"1"}}',
           },
           expectedMessage:
-            "Slot 1 Hashboard's ASIC (C1) experienced an unspecified failure",
+            "Slot 1 Hashboard's ASIC (1) experienced an unspecified failure",
         },
         {
           name: "FanSlow",
           errorData: {
             error_code: "FanSlow",
             details:
-              '{"FanSlow":{"fan_id":"1","fan_bay_index":"2","fan_rpm_target":"75","fan_rpm_tach":"1200"}}',
+              '{"FanSlow":{"fan_id":"1","fan_bay_index":"2","fan_pwm_target_pct":"75","fan_rpm_tach":"1200"}}',
           },
           expectedMessage:
             "Fan 1 in bay 2 is running slow. Target fan speed: 75%, Actual RPM: 1200",
@@ -970,7 +1005,7 @@ describe("getErrorMessage", () => {
           errorData: {
             error_code: "FanNotSpinning",
             details:
-              '{"FanNotSpinning":{"fan_id":"2","fan_bay_index":"1","fan_rpm_target":"50","fan_rpm_tach":"0"}}',
+              '{"FanNotSpinning":{"fan_id":"2","fan_bay_index":"1","fan_pwm_target_pct":"50","fan_rpm_tach":"0"}}',
           },
           expectedMessage:
             "Fan 2 in bay 1 is not spinning. Target fan speed: 50%, Actual RPM: 0",
@@ -1100,10 +1135,10 @@ describe("getErrorMessage", () => {
           errorData: {
             error_code: "04:0001",
             details:
-              '{"AsicOverheat":{"hb_slot":"2","asic_row":2,"asic_col":"4","temperature":"108"}}',
+              '{"AsicOverheat":{"hb_slot":"2","asic_index":"4","temperature":"108"}}',
           },
           expectedMessage:
-            "Slot 2 Hashboard's ASIC (C4) is overheating at 108°C",
+            "Slot 2 Hashboard's ASIC (4) is overheating at 108°C",
         },
         {
           name: "new hashboard overheating error (04:0006)",
@@ -1118,7 +1153,7 @@ describe("getErrorMessage", () => {
           errorData: {
             error_code: "01:0002",
             details:
-              '{"FanNotSpinning":{"fan_id":"3","fan_bay_index":"2","fan_rpm_target":"55","fan_rpm_tach":"0"}}',
+              '{"FanNotSpinning":{"fan_id":"3","fan_bay_index":"2","fan_pwm_target_pct":"55","fan_rpm_tach":"0"}}',
           },
           expectedMessage:
             "Fan 3 in bay 2 is not spinning. Target fan speed: 55%, Actual RPM: 0",
@@ -1152,6 +1187,46 @@ describe("getErrorMessage", () => {
           },
           expectedMessage:
             "Incompatible hashboard types detected in the same bay: TypeA, TypeB",
+        },
+        {
+          name: "PSU recovery error (00:0014) with details",
+          errorData: {
+            error_code: "00:0014",
+            details:
+              '{"PsuRecoveryInProgress":{"psu_bay_index":"2","psu_index":"1","psu_sn":"PSU789"}}',
+          },
+          expectedMessage:
+            "Power supply in bay 2 (ID: 1) is recovering from overtemperature. Serial number: PSU789",
+        },
+        {
+          name: "Insufficient cooling error (01:0004) with multiple fans",
+          errorData: {
+            error_code: "01:0004",
+            details:
+              '{"InsufficientCooling":{"bay_index":"2","num_operational_fans":1,"num_expected_fans":1,"failed_fans":[4,5],"required_fans":[4,6]}}',
+          },
+          expectedMessage:
+            "Bay 2 has insufficient cooling. Required fans: [4, 6]. Failed fans: [4, 5]",
+        },
+        {
+          name: "Insufficient cooling error (01:0004) with single fan",
+          errorData: {
+            error_code: "01:0004",
+            details:
+              '{"InsufficientCooling":{"bay_index":"1","num_operational_fans":1,"num_expected_fans":1,"failed_fans":[3],"required_fans":[3]}}',
+          },
+          expectedMessage:
+            "Bay 1 has insufficient cooling. Required fan: 3. Failed fan: 3",
+        },
+        {
+          name: "Hashboard recovery error (04:0017) with details",
+          errorData: {
+            error_code: "04:0017",
+            details:
+              '{"HbRecoveryInProgress":{"hb_slot":"3","hb_sn":"531PP78310003192"}}',
+          },
+          expectedMessage:
+            "Slot 3 Hashboard is recovering from overtemperature. Serial number: 531PP78310003192",
         },
       ],
     },
