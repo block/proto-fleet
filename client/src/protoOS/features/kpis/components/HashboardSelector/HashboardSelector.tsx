@@ -8,6 +8,13 @@ import useCssVariable from "@/shared/hooks/useCssVariable";
 
 // TODO: remove this when we update to new API
 
+// Helper to generate consistent button className based on selection state
+const getButtonClassName = (isSelected: boolean) =>
+  clsx("border-2", {
+    "border-core-primary-fill": isSelected,
+    "border-transparent": !isSelected,
+  });
+
 type HashboardSelectorItemProps = {
   slot?: number;
   selected: boolean;
@@ -30,10 +37,7 @@ const HashboardSelectorItem = ({
           key={"hashboard-selector-" + slot}
           size={sizes.compact}
           variant={variant}
-          className={clsx("border-2", {
-            "border-core-primary-fill": selected,
-            "border-transparent": !selected,
-          })}
+          className={getButtonClassName(selected)}
           prefixIcon={
             <Circle
               className={clsx("mr-1")}
@@ -97,34 +101,36 @@ const HashboardSelector = ({
     }
   };
 
+  // Check if all hashboards are selected (excluding the aggregate/miner key)
+  const hashboardLines = chartLines.filter((key) => key !== aggregateKey);
+
+  // Check if every hashboard in hashboardLines is in activeChartLines
+  const allHashboardsSelected =
+    hashboardLines.length > 0 &&
+    hashboardLines.every((line) => activeChartLines.includes(line));
+
+  const summarySelected = activeChartLines.includes(aggregateKey);
+
   return (
     <div className={`inline-flex gap-2 py-4 ${className}`}>
       <Button
         size={sizes.compact}
-        variant={
-          activeChartLines.includes(aggregateKey)
-            ? variants.secondary
-            : variants.ghost
-        }
-        className="border-2 border-transparent"
+        variant={summarySelected ? variants.secondary : variants.ghost}
+        className={getButtonClassName(summarySelected)}
         text={"Summary"}
         onClick={handleSummaryClick}
       />
       {chartLines.length > 0 && (
         <Button
           size={sizes.compact}
-          variant={
-            activeChartLines.length === chartLines.length
-              ? variants.secondary
-              : variants.ghost
-          }
-          className="border-2 border-transparent"
+          variant={allHashboardsSelected ? variants.secondary : variants.ghost}
+          className={getButtonClassName(allHashboardsSelected)}
           text={"All Hashboards"}
           onClick={handleAllHashboardsClick}
         />
       )}
 
-      {chartLines.map((serial) => (
+      {hashboardLines.map((serial) => (
         <HashboardSelectorItem
           key={serial}
           slot={useMinerStore.getState().hardware.getHashboard(serial)?.slot}
