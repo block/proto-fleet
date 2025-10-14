@@ -11,6 +11,9 @@ import type {
   PsuHardwareData,
   PsuMap,
 } from "../types";
+import type { MinerStatusSlice } from "./minerStatusSlice";
+import type { TelemetrySlice } from "./telemetrySlice";
+import type { UISlice } from "./uiSlice";
 
 // =============================================================================
 // Hardware Slice Interface
@@ -85,7 +88,12 @@ export interface HardwareSlice {
 // =============================================================================
 
 export const createHardwareSlice: StateCreator<
-  { hardware: HardwareSlice; telemetry: any; ui: any },
+  {
+    hardware: HardwareSlice;
+    telemetry: TelemetrySlice;
+    ui: UISlice;
+    minerStatus: MinerStatusSlice;
+  },
   [["zustand/immer", never]],
   [],
   HardwareSlice
@@ -107,8 +115,9 @@ export const createHardwareSlice: StateCreator<
   getMiner: () => {
     const fullState = get() as {
       hardware: HardwareSlice;
-      telemetry: any;
-      ui: any;
+      telemetry: TelemetrySlice;
+      ui: UISlice;
+      minerStatus: MinerStatusSlice;
     };
     return fullState.hardware.miner;
   },
@@ -122,8 +131,9 @@ export const createHardwareSlice: StateCreator<
   getControlBoard: () => {
     const fullState = get() as {
       hardware: HardwareSlice;
-      telemetry: any;
-      ui: any;
+      telemetry: TelemetrySlice;
+      ui: UISlice;
+      minerStatus: MinerStatusSlice;
     };
     return fullState.hardware.controlBoard;
   },
@@ -152,8 +162,9 @@ export const createHardwareSlice: StateCreator<
   getHashboard: (serial) => {
     const fullState = get() as {
       hardware: HardwareSlice;
-      telemetry: any;
-      ui: any;
+      telemetry: TelemetrySlice;
+      ui: UISlice;
+      minerStatus: MinerStatusSlice;
     };
     return fullState.hardware.hashboards.get(serial);
   },
@@ -161,8 +172,9 @@ export const createHardwareSlice: StateCreator<
   getHashboardsByBay: (bay) => {
     const fullState = get() as {
       hardware: HardwareSlice;
-      telemetry: any;
-      ui: any;
+      telemetry: TelemetrySlice;
+      ui: UISlice;
+      minerStatus: MinerStatusSlice;
     };
     return Array.from(fullState.hardware.hashboards.values()).filter(
       (hb) => hb.bay === bay,
@@ -172,8 +184,9 @@ export const createHardwareSlice: StateCreator<
   getBayCount: () => {
     const fullState = get() as {
       hardware: HardwareSlice;
-      telemetry: any;
-      ui: any;
+      telemetry: TelemetrySlice;
+      ui: UISlice;
+      minerStatus: MinerStatusSlice;
     };
     const hashboards = Array.from(fullState.hardware.hashboards.values());
     if (hashboards.length === 0) return 0;
@@ -183,8 +196,9 @@ export const createHardwareSlice: StateCreator<
   getSlotByHbSn: (serial) => {
     const fullState = get() as {
       hardware: HardwareSlice;
-      telemetry: any;
-      ui: any;
+      telemetry: TelemetrySlice;
+      ui: UISlice;
+      minerStatus: MinerStatusSlice;
     };
     return fullState.hardware.hashboards.get(serial)?.slot;
   },
@@ -192,8 +206,9 @@ export const createHardwareSlice: StateCreator<
   getBayByHbSn: (serial) => {
     const fullState = get() as {
       hardware: HardwareSlice;
-      telemetry: any;
-      ui: any;
+      telemetry: TelemetrySlice;
+      ui: UISlice;
+      minerStatus: MinerStatusSlice;
     };
     return fullState.hardware.hashboards.get(serial)?.bay;
   },
@@ -203,8 +218,9 @@ export const createHardwareSlice: StateCreator<
   getBaySlotIndexByHbSn: (serial) => {
     const fullState = get() as {
       hardware: HardwareSlice;
-      telemetry: any;
-      ui: any;
+      telemetry: TelemetrySlice;
+      ui: UISlice;
+      minerStatus: MinerStatusSlice;
     };
     return fullState.hardware.hashboards.get(serial)?.slotIndexByBay;
   },
@@ -233,8 +249,9 @@ export const createHardwareSlice: StateCreator<
   getAsic: (id) => {
     const fullState = get() as {
       hardware: HardwareSlice;
-      telemetry: any;
-      ui: any;
+      telemetry: TelemetrySlice;
+      ui: UISlice;
+      minerStatus: MinerStatusSlice;
     };
     return fullState.hardware.asics.get(id);
   },
@@ -242,8 +259,9 @@ export const createHardwareSlice: StateCreator<
   getAsicsByHashboard: (hashboardSerial) => {
     const fullState = get() as {
       hardware: HardwareSlice;
-      telemetry: any;
-      ui: any;
+      telemetry: TelemetrySlice;
+      ui: UISlice;
+      minerStatus: MinerStatusSlice;
     };
     return Array.from(fullState.hardware.asics.values()).filter(
       (asic) => asic.hashboardSerial === hashboardSerial,
@@ -253,8 +271,9 @@ export const createHardwareSlice: StateCreator<
   getAsicPosition: (id) => {
     const fullState = get() as {
       hardware: HardwareSlice;
-      telemetry: any;
-      ui: any;
+      telemetry: TelemetrySlice;
+      ui: UISlice;
+      minerStatus: MinerStatusSlice;
     };
     const asic = fullState.hardware.asics.get(id);
     return asic ? { row: asic.row, column: asic.column } : undefined;
@@ -263,8 +282,9 @@ export const createHardwareSlice: StateCreator<
   getAsicRowsByHashboard: (hashboardSerial) => {
     const fullState = get() as {
       hardware: HardwareSlice;
-      telemetry: any;
-      ui: any;
+      telemetry: TelemetrySlice;
+      ui: UISlice;
+      minerStatus: MinerStatusSlice;
     };
     const hashboard = fullState.hardware.hashboards.get(hashboardSerial);
     if (!hashboard?.asicIds) return [];
@@ -304,8 +324,9 @@ export const createHardwareSlice: StateCreator<
   getPsu: (id) => {
     const fullState = get() as {
       hardware: HardwareSlice;
-      telemetry: any;
-      ui: any;
+      telemetry: TelemetrySlice;
+      ui: UISlice;
+      minerStatus: MinerStatusSlice;
     };
     return fullState.hardware.psus.get(id);
   },
@@ -313,8 +334,9 @@ export const createHardwareSlice: StateCreator<
   getAllPsus: () => {
     const fullState = get() as {
       hardware: HardwareSlice;
-      telemetry: any;
-      ui: any;
+      telemetry: TelemetrySlice;
+      ui: UISlice;
+      minerStatus: MinerStatusSlice;
     };
     return Array.from(fullState.hardware.psus.values());
   },
@@ -336,8 +358,9 @@ export const createHardwareSlice: StateCreator<
   getFan: (id) => {
     const fullState = get() as {
       hardware: HardwareSlice;
-      telemetry: any;
-      ui: any;
+      telemetry: TelemetrySlice;
+      ui: UISlice;
+      minerStatus: MinerStatusSlice;
     };
     return fullState.hardware.fans.get(id);
   },
@@ -345,8 +368,9 @@ export const createHardwareSlice: StateCreator<
   getAllFans: () => {
     const fullState = get() as {
       hardware: HardwareSlice;
-      telemetry: any;
-      ui: any;
+      telemetry: TelemetrySlice;
+      ui: UISlice;
+      minerStatus: MinerStatusSlice;
     };
     return Array.from(fullState.hardware.fans.values());
   },

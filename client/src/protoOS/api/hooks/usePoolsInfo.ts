@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { usePoll } from "./usePoll";
 import { Pool } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { useSetPoolsInfo } from "@/protoOS/store";
 
 export interface FetchPoolsInfoProps {
   onError?: (response?: string) => void;
@@ -9,11 +11,20 @@ export interface FetchPoolsInfoProps {
   retryOnMinerDown?: boolean;
 }
 
-const usePoolsInfo = () => {
+type UsePoolsInfoProps = {
+  poll?: boolean;
+  pollIntervalMs?: number;
+};
+
+const usePoolsInfo = ({
+  poll = false,
+  pollIntervalMs,
+}: UsePoolsInfoProps = {}) => {
   const { api } = useMinerHosting();
   const [data, setData] = useState<Pool[]>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
+  const setPoolsInfo = useSetPoolsInfo();
 
   const fetchData = useCallback(
     ({ onSuccess, onError, retryOnMinerDown }: FetchPoolsInfoProps = {}) => {
@@ -62,6 +73,17 @@ const usePoolsInfo = () => {
     },
     [api],
   );
+
+  usePoll({
+    fetchData,
+    poll,
+    pollIntervalMs,
+  });
+
+  // Update store whenever pools info changes
+  useEffect(() => {
+    setPoolsInfo(data, error, pending);
+  }, [data, error, pending, setPoolsInfo]);
 
   return useMemo(
     () => ({ fetchData, pending, error, data }),

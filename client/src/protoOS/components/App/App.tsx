@@ -2,7 +2,6 @@ import { ComponentType, ReactNode, useCallback, useMemo } from "react";
 import { useLocation } from "react-router-dom";
 
 import ErrorCallout from "./ErrorCallout";
-import { isSleeping, isWarmingUp } from "./utility";
 import WakeCallout from "./WakeCallout";
 import WarmingUpCallout from "./WarmingUpCallout";
 import { useNetworkInfo } from "@/protoOS/api";
@@ -13,11 +12,17 @@ import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultCont
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
 import { WarnWakeDialog } from "@/protoOS/components/Power";
-import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
 import {
   useAccessToken,
   useAuthContext,
 } from "@/protoOS/features/auth/contexts/AuthContext";
+import {
+  useComprehensiveStatus,
+  useIsSleeping,
+  useIsWarmingUp,
+  useMinerErrors,
+  useWakeDialog,
+} from "@/protoOS/store";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 interface AppProps {
@@ -57,8 +62,13 @@ const App = ({
     setDismissedLoginModal(true);
   }, [navigate, pathname, setDismissedLoginModal, location]);
 
-  const { miningStatus, errors, comprehensiveStatus, wakeDialog } =
-    useMinerStatus();
+  // Use granular hooks to avoid unnecessary re-renders at the app level
+  const isWarmingUp = useIsWarmingUp();
+  const isSleeping = useIsSleeping();
+  const errors = useMinerErrors();
+  const comprehensiveStatus = useComprehensiveStatus();
+  const wakeDialog = useWakeDialog();
+
   useAccessToken();
 
   return (
@@ -75,19 +85,12 @@ const App = ({
         type={navigationMenuTypes.app}
         ContentLayout={ContentLayout}
       >
-        {isWarmingUp(miningStatus) ? (
+        {isWarmingUp ? (
           <WarmingUpCallout />
         ) : (
-          <WakeCallout
-            afterWake={afterWake}
-            miningStatus={miningStatus}
-            onWake={onWake}
-          />
+          <WakeCallout afterWake={afterWake} onWake={onWake} />
         )}
-        {!isWarmingUp(miningStatus) &&
-        !isSleeping(miningStatus?.status) &&
-        errors.errors?.length &&
-        !hideErrors ? (
+        {!isWarmingUp && !isSleeping && errors.errors?.length && !hideErrors ? (
           <ErrorCallout status={comprehensiveStatus} />
         ) : null}
         {children}

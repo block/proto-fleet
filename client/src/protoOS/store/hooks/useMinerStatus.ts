@@ -1,4 +1,6 @@
 import { useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
+import useMinerStore from "../useMinerStore";
 import {
   getErrorMessage,
   getErrorTitle,
@@ -14,22 +16,22 @@ import {
   isHashboardWarning,
   isPSUError,
   isPSUWarning,
-} from "./utility";
-import {
-  MiningStatusMiningstatus,
-  NotificationError,
-} from "@/protoOS/api/generatedApi";
-import {
-  isMining as checkIsMining,
-  isSleeping as checkIsSleeping,
-} from "@/protoOS/components/App/utility";
+} from "../utils/errorUtils";
+import { NotificationError } from "@/protoOS/api/generatedApi";
 import { type StatusCircleProps } from "@/shared/components/StatusCircle";
 import { statuses } from "@/shared/components/StatusCircle/constants";
 import { createOrPredicate } from "@/shared/utils/predicate";
 
-const useComprehensiveStatus = (
+// =============================================================================
+// Comprehensive Status Calculation
+// this combines errors and mining status to create a comprehensive status object
+// that is the type expected by our shared components (ie MinerStatusModal.status)
+// =============================================================================
+
+const useComprehensiveStatusCalc = (
   errors: NotificationError[],
-  miningStatus?: MiningStatusMiningstatus,
+  isSleeping: boolean,
+  isMining: boolean,
 ) => {
   const hashboardIssues = useMemo(
     () =>
@@ -80,14 +82,6 @@ const useComprehensiveStatus = (
       controlBoardIssues,
     );
   }, [hashboardIssues, psuIssues, fanIssues, controlBoardIssues]);
-
-  const isSleeping = useMemo(() => {
-    return checkIsSleeping(miningStatus?.status);
-  }, [miningStatus]);
-
-  const isMining = useMemo(() => {
-    return checkIsMining(miningStatus?.status);
-  }, [miningStatus]);
 
   /**
    * Determines the status summary based on priority of various miningStatuses and error states
@@ -195,4 +189,117 @@ const useComprehensiveStatus = (
   ]);
 };
 
-export default useComprehensiveStatus;
+// =============================================================================
+// Granular Hooks for Specific Data
+// =============================================================================
+
+export const useMiningStatus = () => {
+  return useMinerStore((state) => state.minerStatus.miningStatus);
+};
+
+export const useMiningUptime = () => {
+  return useMinerStore((state) => state.minerStatus.miningUptime);
+};
+
+export const useRebootUptime = () => {
+  return useMinerStore((state) => state.minerStatus.rebootUptime);
+};
+
+export const useHwErrors = () => {
+  return useMinerStore((state) => state.minerStatus.hwErrors);
+};
+
+export const useMiningStatusMessage = () => {
+  return useMinerStore((state) => state.minerStatus.message);
+};
+
+// Derived flag hooks - compute from state
+export const useIsWarmingUp = () => {
+  return useMinerStore((state) => {
+    const status = state.minerStatus.miningStatus || "";
+    const miningUptimeS = state.minerStatus.miningUptime?.value || 0;
+    const rebootUptimeS = state.minerStatus.rebootUptime?.value || 0;
+
+    return (
+      /Uninitialized|PoweringOn|NoPools/i.test(status) &&
+      (miningUptimeS < 60 || rebootUptimeS < 60)
+    );
+  });
+};
+
+export const useIsSleeping = () => {
+  return useMinerStore((state) => {
+    const status = state.minerStatus.miningStatus || "";
+    return /PoweringOff|Stopped/i.test(status);
+  });
+};
+
+export const useIsMining = () => {
+  return useMinerStore((state) => {
+    const status = state.minerStatus.miningStatus || "";
+    return /Mining/i.test(status);
+  });
+};
+
+export const useIsAwake = () => {
+  return useMinerStore((state) => {
+    const status = state.minerStatus.miningStatus || "";
+    return /PoweringOn|Mining|DegradedMining|NoPools|Error/i.test(status);
+  });
+};
+
+export const useMinerErrors = () => {
+  return useMinerStore(useShallow((state) => state.minerStatus.errors));
+};
+
+export const usePoolsInfo = () => {
+  return useMinerStore(
+    useShallow((state) => ({
+      poolsInfo: state.minerStatus.poolsInfo,
+      poolsInfoStatus: state.minerStatus.poolsInfoStatus,
+    })),
+  );
+};
+
+export const useWakeDialog = () => {
+  return useMinerStore(useShallow((state) => state.ui.wakeDialog));
+};
+
+/**
+ * Hook to get the comprehensive status computed from errors and mining status
+ * This hook basically combines useMinerErrors and useMiningStatus to creates a status object
+ * with the type that our shared components expect (ie MinerStatusModal.status)
+ */
+export const useComprehensiveStatus = () => {
+  const errors = useMinerStore(
+    (state) => state.minerStatus.errors.errors || [],
+  );
+  const isSleeping = useIsSleeping();
+  const isMining = useIsMining();
+
+  return useComprehensiveStatusCalc(errors, isSleeping, isMining);
+};
+
+// =============================================================================
+// Action Hooks
+// =============================================================================
+
+export const useSetMiningStatus = () => {
+  return useMinerStore((state) => state.minerStatus.setMiningStatus);
+};
+
+export const useSetErrors = () => {
+  return useMinerStore((state) => state.minerStatus.setErrors);
+};
+
+export const useSetPoolsInfo = () => {
+  return useMinerStore((state) => state.minerStatus.setPoolsInfo);
+};
+
+export const useShowWakeDialog = () => {
+  return useMinerStore((state) => state.ui.showWakeDialog);
+};
+
+export const useHideWakeDialog = () => {
+  return useMinerStore((state) => state.ui.hideWakeDialog);
+};

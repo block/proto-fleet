@@ -1,30 +1,17 @@
-import { useMemo } from "react";
-
-import { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
-
-import { isSleeping } from "@/protoOS/components/App/utility";
+import { useIsAwake } from "@/protoOS/store";
 import { variants } from "@/shared/components/Button";
 import { groupVariants } from "@/shared/components/ButtonGroup";
 import Popover, { popoverSizes } from "@/shared/components/Popover";
 import { positions } from "@/shared/constants";
 
 interface PowerPopoverProps {
-  miningStatus: MiningStatusMiningstatus;
   onReboot: () => void;
   onSleep: () => void;
   onWake: () => void;
 }
 
-const PowerPopover = ({
-  miningStatus,
-  onReboot,
-  onSleep,
-  onWake,
-}: PowerPopoverProps) => {
-  const isAwake = useMemo(
-    () => !isSleeping(miningStatus?.status),
-    [miningStatus],
-  );
+const PowerPopover = ({ onReboot, onSleep, onWake }: PowerPopoverProps) => {
+  const isAwake = useIsAwake();
 
   return (
     <Popover

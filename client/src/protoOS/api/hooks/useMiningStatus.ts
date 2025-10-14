@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { usePoll } from "./usePoll";
 import { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { useSetMiningStatus } from "@/protoOS/store";
 
 interface getMiningStatusProps {
   onSuccess?: (res?: MiningStatusMiningstatus) => void;
@@ -10,13 +11,18 @@ interface getMiningStatusProps {
 
 type UseMiningStatusProps = {
   poll?: boolean;
+  pollIntervalMs?: number;
 };
 
-const useMiningStatus = ({ poll = false }: UseMiningStatusProps) => {
+const useMiningStatus = ({
+  poll = false,
+  pollIntervalMs,
+}: UseMiningStatusProps = {}) => {
   const { api } = useMinerHosting();
   const [data, setData] = useState<MiningStatusMiningstatus>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
+  const setMiningStatus = useSetMiningStatus();
 
   const fetchData = useCallback(
     ({ onSuccess }: getMiningStatusProps = {}) => {
@@ -42,7 +48,15 @@ const useMiningStatus = ({ poll = false }: UseMiningStatusProps) => {
   usePoll({
     fetchData,
     poll,
+    pollIntervalMs,
   });
+
+  // Update store whenever mining status changes
+  useEffect(() => {
+    if (data !== undefined) {
+      setMiningStatus(data);
+    }
+  }, [data, setMiningStatus]);
 
   return useMemo(
     () => ({ fetchData, data, pending, error }),

@@ -2,7 +2,6 @@ import { useState } from "react";
 
 import MinerStatusWidget from "./MinerStatusWidget";
 import { WakingDialog } from "@/protoOS/components/Power";
-import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
 import { useSystemContext } from "@/protoOS/contexts/SystemContext";
 import { useWakeMiner } from "@/protoOS/hooks/useWakeMiner";
 import { type ButtonVariant } from "@/shared/components/Button";
@@ -17,12 +16,9 @@ interface MinerStatusProps {
 
 const MinerStatus = ({ status, variant }: MinerStatusProps) => {
   const [showModal, setShowModal] = useState(false);
-  const { miningStatus } = useMinerStatus();
   const { isProtoRig } = useSystemContext();
 
-  const { wakeMiner, shouldWake } = useWakeMiner({
-    miningStatus,
-  });
+  const { wakeMiner, shouldWake } = useWakeMiner();
 
   return (
     <div className="relative">

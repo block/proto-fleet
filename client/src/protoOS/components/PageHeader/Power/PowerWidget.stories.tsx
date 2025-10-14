@@ -1,29 +1,21 @@
-import { ElementType, useState } from "react";
+import { ElementType } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { action } from "storybook/actions";
 
 import PowerWidgetComponent from "./PowerWidget";
-import { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
 import { PopoverProvider } from "@/shared/components/Popover";
 
 export const PowerWidget = () => {
-  const [miningStatus, setMiningStatus] = useState<MiningStatusMiningstatus>({
-    status: "Mining",
-  });
-
   const handleReboot = () => {
     action("rebooting")();
-    setTimeout(() => setMiningStatus({ status: "Mining" }), 2000);
   };
 
   const handleSleep = () => {
     action("sleeping")();
-    setTimeout(() => setMiningStatus({ status: "Stopped" }), 2000);
   };
 
   const handleWake = () => {
     action("waking up")();
-    setTimeout(() => setMiningStatus({ status: "Mining" }), 2000);
   };
 
   return (
@@ -31,7 +23,6 @@ export const PowerWidget = () => {
       <PopoverProvider>
         <PowerWidgetComponent
           shouldShowPopover
-          miningStatus={miningStatus}
           onReboot={handleReboot}
           onSleep={handleSleep}
           onWake={handleWake}

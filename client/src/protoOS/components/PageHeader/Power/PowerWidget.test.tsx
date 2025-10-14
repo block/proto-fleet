@@ -1,8 +1,36 @@
 import { BrowserRouter } from "react-router-dom";
 import { fireEvent, render } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, type Mock, test, vi } from "vitest";
 import PowerWidget from "./PowerWidget";
+import { useIsAwake, useIsSleeping } from "@/protoOS/store";
 import { PopoverProvider } from "@/shared/components/Popover";
+
+vi.mock("@/protoOS/store", async (importOriginal) => {
+  const actual = (await importOriginal()) as any;
+  return {
+    ...actual,
+    useIsAwake: vi.fn(() => true),
+    useIsSleeping: vi.fn(() => false),
+  };
+});
+
+vi.mock("@/protoOS/features/auth/contexts/AuthContext", () => ({
+  AUTH_ACTIONS: {
+    reboot: "reboot",
+    sleep: "sleep",
+  },
+  useAccessToken: vi.fn(() => ({
+    checkAccess: vi.fn(),
+    hasAccess: false,
+    setHasAccess: vi.fn(),
+  })),
+  useAuthContext: vi.fn(() => ({
+    dismissedLoginModal: false,
+    setDismissedLoginModal: vi.fn(),
+    pausedAuthAction: null,
+    setPausedAuthAction: vi.fn(),
+  })),
+}));
 
 describe("Power Widget", () => {
   const powerButton = "power-button";
@@ -15,17 +43,21 @@ describe("Power Widget", () => {
     onReboot: vi.fn(),
     onSleep: vi.fn(),
     onWake: vi.fn(),
-    miningStatus: {},
   };
 
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (useIsAwake as Mock).mockReturnValue(true);
+    (useIsSleeping as Mock).mockReturnValue(false);
+  });
+
   test("renders power widget popover with reboot and sleep if miner is running", () => {
+    (useIsAwake as Mock).mockReturnValue(true);
+
     const { getByTestId, queryByTestId } = render(
       <BrowserRouter>
         <PopoverProvider>
-          <PowerWidget
-            {...PowerWidgetProps}
-            miningStatus={{ status: "Mining" }}
-          />
+          <PowerWidget {...PowerWidgetProps} />
         </PopoverProvider>
       </BrowserRouter>,
     );
@@ -39,13 +71,12 @@ describe("Power Widget", () => {
   });
 
   test("renders power widget popover with reboot and wake up if miner is stopped", () => {
+    (useIsAwake as Mock).mockReturnValue(false);
+
     const { getByTestId, queryByTestId } = render(
       <BrowserRouter>
         <PopoverProvider>
-          <PowerWidget
-            {...PowerWidgetProps}
-            miningStatus={{ status: "Stopped" }}
-          />
+          <PowerWidget {...PowerWidgetProps} />
         </PopoverProvider>
       </BrowserRouter>,
     );
@@ -85,14 +116,12 @@ describe("Power Widget", () => {
   });
 
   test("closes popover on click of wake up", () => {
+    (useIsAwake as Mock).mockReturnValue(false);
+
     const { getByTestId, queryByTestId } = render(
       <BrowserRouter>
         <PopoverProvider>
-          <PowerWidget
-            shouldShowPopover
-            {...PowerWidgetProps}
-            miningStatus={{ status: "Stopped" }}
-          />
+          <PowerWidget shouldShowPopover {...PowerWidgetProps} />
         </PopoverProvider>
       </BrowserRouter>,
     );

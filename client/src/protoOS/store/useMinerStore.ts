@@ -9,6 +9,10 @@ import {
   type HardwareSlice,
 } from "./slices/hardwareSlice";
 import {
+  createMinerStatusSlice,
+  type MinerStatusSlice,
+} from "./slices/minerStatusSlice";
+import {
   createTelemetrySlice,
   type TelemetrySlice,
 } from "./slices/telemetrySlice";
@@ -25,6 +29,7 @@ export interface MinerStore {
   hardware: HardwareSlice;
   telemetry: TelemetrySlice;
   ui: UISlice;
+  minerStatus: MinerStatusSlice;
 }
 
 // =============================================================================
@@ -39,6 +44,7 @@ const useMinerStore = create<MinerStore>()(
           hardware: createHardwareSlice(set, get, api),
           telemetry: createTelemetrySlice(set, get, api),
           ui: createUISlice(set, get, api),
+          minerStatus: createMinerStatusSlice(set, get, api),
         })),
         {
           name: "proto-ui-preferences", // Shared across protoOS and protoFleet
@@ -48,16 +54,30 @@ const useMinerStore = create<MinerStore>()(
               activeChartLines: state.ui.activeChartLines,
               theme: state.ui.theme,
               temperatureUnit: state.ui.temperatureUnit,
+              // Note: deviceTheme is intentionally excluded from persistence
+              // as it should be detected from the OS on each load
             },
           }),
           merge: (persistedState, currentState) => {
+            const persisted = persistedState as any;
+
             // Ensure functions are preserved during rehydration
             return {
               ...currentState,
-              ...(persistedState as any),
               ui: {
                 ...currentState.ui,
-                ...(persistedState as any)?.ui,
+                // Apply persisted UI state values, preserving functions
+                duration: persisted?.ui?.duration ?? currentState.ui.duration,
+                activeChartLines:
+                  persisted?.ui?.activeChartLines ??
+                  currentState.ui.activeChartLines,
+                theme: persisted?.ui?.theme ?? currentState.ui.theme,
+                temperatureUnit:
+                  persisted?.ui?.temperatureUnit ??
+                  currentState.ui.temperatureUnit,
+                // deviceTheme is not persisted and should remain as currentState value (undefined initially)
+                // It will be detected from OS by useApplyTheme on mount
+                deviceTheme: currentState.ui.deviceTheme,
                 // Preserve the functions from currentState
                 setDuration: currentState.ui.setDuration,
                 setActiveChartLines: currentState.ui.setActiveChartLines,

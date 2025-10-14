@@ -3,13 +3,6 @@ import { useCallback, useEffect, useState } from "react";
 import WidgetWrapper from "../WidgetWrapper";
 import PowerPopover from "./PowerPopover";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
-import { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
-
-import {
-  isAwake,
-  isSleeping,
-  isWarmingUp,
-} from "@/protoOS/components/App/utility";
 import {
   EnteringSleepDialog,
   RebootingDialog,
@@ -21,6 +14,7 @@ import {
   useAccessToken,
   useAuthContext,
 } from "@/protoOS/features/auth/contexts/AuthContext";
+import { useIsAwake, useIsSleeping } from "@/protoOS/store";
 import { Power } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 
@@ -31,7 +25,6 @@ interface PowerWidgetProps {
   afterReboot?: () => void;
   afterSleep?: () => void;
   afterWake?: () => void;
-  miningStatus: MiningStatusMiningstatus;
   onReboot: () => void;
   onSleep: () => void;
   onWake: () => void;
@@ -44,7 +37,6 @@ interface PowerWidgetProps {
 const PowerWidget = ({
   afterReboot,
   afterSleep,
-  miningStatus,
   onReboot,
   onSleep,
   onWake,
@@ -53,15 +45,16 @@ const PowerWidget = ({
   shouldShowPopover,
 }: PowerWidgetProps) => {
   const { triggerRef: WidgetRef, setIsTriggerFixed } = usePopover();
+  const isAwake = useIsAwake();
+  const isSleeping = useIsSleeping();
+
   useEffect(() => {
     setIsTriggerFixed(true);
   }, [setIsTriggerFixed]);
 
   const [isOpen, setIsOpen] = useState(shouldShowPopover);
   const [warnReboot, setWarnReboot] = useState(false);
-  const [shouldReboot, setShouldReboot] = useState(
-    miningStatus.reboot_uptime_s ? isWarmingUp(miningStatus) : false,
-  );
+  const [shouldReboot, setShouldReboot] = useState(false);
   const [warnSleep, setWarnSleep] = useState(false);
   const [shouldSleep, setShouldSleep] = useState(false);
   const {
@@ -137,14 +130,14 @@ const PowerWidget = ({
           setPausedAuthAction(AUTH_ACTIONS.reboot);
         }
         // TODO: handle other errors
-      } else if (isAwake(miningStatus.status)) {
+      } else if (isAwake) {
         setShouldReboot(false);
         afterReboot?.();
       }
     }
   }, [
     shouldReboot,
-    miningStatus,
+    isAwake,
     afterReboot,
     rebootError,
     setHasAccess,
@@ -160,14 +153,14 @@ const PowerWidget = ({
           setPausedAuthAction(AUTH_ACTIONS.sleep);
         }
         // TODO: handle other errors
-      } else if (isSleeping(miningStatus.status)) {
+      } else if (isSleeping) {
         setShouldSleep(false);
         afterSleep?.();
       }
     }
   }, [
     afterSleep,
-    miningStatus,
+    isSleeping,
     setHasAccess,
     shouldSleep,
     sleepError,
@@ -186,7 +179,6 @@ const PowerWidget = ({
       </WidgetWrapper>
       {isOpen && (
         <PowerPopover
-          miningStatus={miningStatus}
           onReboot={handleRebootButton}
           onSleep={handleSleepButton}
           onWake={handleWakeButton}

@@ -1,10 +1,19 @@
 import type { StateCreator } from "zustand";
+import type { HardwareSlice } from "./hardwareSlice";
+import type { MinerStatusSlice } from "./minerStatusSlice";
+import type { TelemetrySlice } from "./telemetrySlice";
 import type { TemperatureUnit, Theme, ThemeColor } from "@/protoOS/store/types";
 import { Duration, durations } from "@/shared/components/DurationSelector";
 
 // =============================================================================
 // UI Slice Interface
 // =============================================================================
+
+export interface WakeDialog {
+  show: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}
 
 export interface UISlice {
   // Chart State
@@ -16,6 +25,9 @@ export interface UISlice {
   deviceTheme: ThemeColor | undefined; // OS theme preference
   temperatureUnit: TemperatureUnit;
 
+  // Dialog State
+  wakeDialog: WakeDialog;
+
   // Chart Actions
   setDuration: (duration: Duration) => void;
   setActiveChartLines: (lines: string[]) => void;
@@ -25,6 +37,10 @@ export interface UISlice {
   setTheme: (theme: Theme) => void;
   setDeviceTheme: (theme: ThemeColor) => void;
   setTemperatureUnit: (unit: TemperatureUnit) => void;
+
+  // Dialog Actions
+  showWakeDialog: (onConfirm: () => void, onClose: () => void) => void;
+  hideWakeDialog: () => void;
 }
 
 // =============================================================================
@@ -32,7 +48,12 @@ export interface UISlice {
 // =============================================================================
 
 export const createUISlice: StateCreator<
-  { hardware: any; telemetry: any; ui: UISlice },
+  {
+    hardware: HardwareSlice;
+    telemetry: TelemetrySlice;
+    ui: UISlice;
+    minerStatus: MinerStatusSlice;
+  },
   [["zustand/immer", never]],
   [],
   UISlice
@@ -45,6 +66,13 @@ export const createUISlice: StateCreator<
   theme: "system",
   deviceTheme: undefined,
   temperatureUnit: "C",
+
+  // Dialog Initial State
+  wakeDialog: {
+    show: false,
+    onConfirm: () => {},
+    onClose: () => {},
+  },
 
   // Chart Actions
   setDuration: (duration) =>
@@ -81,5 +109,24 @@ export const createUISlice: StateCreator<
   setTemperatureUnit: (unit) =>
     set((state) => {
       state.ui.temperatureUnit = unit;
+    }),
+
+  // Dialog Actions
+  showWakeDialog: (onConfirm, onClose) =>
+    set((state) => {
+      state.ui.wakeDialog = {
+        show: true,
+        onConfirm,
+        onClose,
+      };
+    }),
+
+  hideWakeDialog: () =>
+    set((state) => {
+      state.ui.wakeDialog = {
+        show: false,
+        onConfirm: () => {},
+        onClose: () => {},
+      };
     }),
 });

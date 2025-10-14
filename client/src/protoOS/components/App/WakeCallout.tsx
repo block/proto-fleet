@@ -1,27 +1,25 @@
 import { useState } from "react";
 import FansDetectedDialog from "./FansDetectedDialog";
-import { isSleeping } from "./utility";
 import { useCoolingStatus } from "@/protoOS/api";
-import { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
 
 import { WakingDialog } from "@/protoOS/components/Power";
 import { useWakeMiner } from "@/protoOS/hooks/useWakeMiner";
+import { useIsSleeping } from "@/protoOS/store";
 import { Power } from "@/shared/assets/icons";
 import Callout, { intents } from "@/shared/components/Callout";
 
 interface WakeCalloutProps {
   afterWake?: () => void;
-  miningStatus?: MiningStatusMiningstatus;
   onWake?: () => void;
 }
 
-const WakeCallout = ({ afterWake, miningStatus, onWake }: WakeCalloutProps) => {
+const WakeCallout = ({ afterWake, onWake }: WakeCalloutProps) => {
   const { wakeMiner, shouldWake } = useWakeMiner({
     afterWake,
-    miningStatus,
     onSuccess: onWake,
   });
   const { data: coolingStatus, setCooling } = useCoolingStatus({ poll: false });
+  const isSleeping = useIsSleeping();
   const [showFansDetectedDialog, setShowFansDetectedDialog] = useState(false);
   const [isUpdatingCooling, setIsUpdatingCooling] = useState(false);
 
@@ -61,7 +59,7 @@ const WakeCallout = ({ afterWake, miningStatus, onWake }: WakeCalloutProps) => {
 
   return (
     <>
-      {isSleeping(miningStatus?.status) && (
+      {isSleeping && (
         <div className="mb-10">
           <Callout
             buttonOnClick={handleWake}

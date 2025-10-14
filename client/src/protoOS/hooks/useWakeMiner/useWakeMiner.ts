@@ -1,32 +1,35 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-
 import { useMiningStart, useMiningStatus } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
-import { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
-import { isSleeping } from "@/protoOS/components/App/utility";
-import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
 import {
   AUTH_ACTIONS,
   useAccessToken,
   useAuthContext,
 } from "@/protoOS/features/auth/contexts/AuthContext";
+import {
+  useHideWakeDialog,
+  useIsSleeping,
+  useSetMiningStatus,
+  useShowWakeDialog,
+} from "@/protoOS/store";
 
 interface UseWakeMinerProps {
   afterWake?: () => void;
-  miningStatus?: MiningStatusMiningstatus;
   onSuccess?: () => void;
   onError?: (error: ErrorProps) => void;
 }
 
 export const useWakeMiner = ({
   afterWake,
-  miningStatus,
   onSuccess,
   onError,
 }: UseWakeMinerProps = {}) => {
   const { startMining } = useMiningStart();
   const { fetchData: fetchMiningStatus } = useMiningStatus({ poll: false });
-  const { setMiningStatus, showWakeDialog, hideWakeDialog } = useMinerStatus();
+  const setMiningStatus = useSetMiningStatus();
+  const showWakeDialog = useShowWakeDialog();
+  const hideWakeDialog = useHideWakeDialog();
+  const isSleeping = useIsSleeping();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<ErrorProps>();
   const [shouldWake, setShouldWake] = useState(false);
@@ -58,16 +61,6 @@ export const useWakeMiner = ({
       fetchMiningStatus({
         onSuccess: (newMiningStatus) => {
           setMiningStatus(newMiningStatus);
-          if (newMiningStatus && !isSleeping(newMiningStatus.status)) {
-            // Miner is awake - stop polling and reset state
-            clearInterval(newIntervalId);
-            intervalIdRef.current = undefined;
-            setShouldWake(false);
-            setPending(false);
-            isWakingRef.current = false;
-            afterWakeRef.current?.();
-            onSuccessRef.current?.();
-          }
         },
       });
     }, 2000);
@@ -84,18 +77,19 @@ export const useWakeMiner = ({
   }, [dismissedLoginModal, setDismissedLoginModal, setPausedAuthAction]);
 
   useEffect(() => {
-    if (
-      miningStatus &&
-      !isSleeping(miningStatus.status) &&
-      isWakingRef.current
-    ) {
+    if (!isSleeping && isWakingRef.current) {
+      // Miner is awake - stop polling and reset state
+      if (intervalIdRef.current) {
+        clearInterval(intervalIdRef.current);
+        intervalIdRef.current = undefined;
+      }
       setShouldWake(false);
       setPending(false);
       isWakingRef.current = false;
       afterWakeRef.current?.();
       onSuccessRef.current?.();
     }
-  }, [miningStatus]);
+  }, [isSleeping]);
 
   const executeWake = useCallback(() => {
     setError(undefined);

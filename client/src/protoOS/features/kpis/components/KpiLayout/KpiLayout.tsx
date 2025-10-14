@@ -4,14 +4,14 @@ import { useTelemetry, useTimeSeries } from "@/protoOS/api";
 import { HashboardFieldType, MinerFieldType } from "@/protoOS/api/generatedApi";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
-import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
 import TabMenu from "@/protoOS/features/kpis/components/TabMenu";
+import { usePoolsInfo } from "@/protoOS/store";
 import { useDuration, useSetDuration } from "@/protoOS/store";
 import DurationSelector from "@/shared/components/DurationSelector";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 
 const KpiLayout = ({ children }: ContentLayoutProps) => {
-  const { poolsInfo, poolsInfoStatus } = useMinerStatus();
+  const { poolsInfo, poolsInfoStatus } = usePoolsInfo();
   const duration = useDuration();
   const setDuration = useSetDuration();
 

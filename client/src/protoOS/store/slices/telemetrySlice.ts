@@ -13,6 +13,7 @@ import type {
 } from "../types";
 import { getAsicId } from "../utils/getAsicId";
 import { type HardwareSlice } from "./hardwareSlice";
+import { type MinerStatusSlice } from "./minerStatusSlice";
 import { type UISlice } from "./uiSlice";
 import type {
   TelemetryData,
@@ -120,7 +121,12 @@ export interface TelemetrySlice {
 // =============================================================================
 
 export const createTelemetrySlice: StateCreator<
-  { hardware: HardwareSlice; telemetry: TelemetrySlice; ui: UISlice },
+  {
+    hardware: HardwareSlice;
+    telemetry: TelemetrySlice;
+    ui: UISlice;
+    minerStatus: MinerStatusSlice;
+  },
   [["zustand/immer", never]],
   [],
   TelemetrySlice

@@ -2,9 +2,9 @@ import React, { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 import ImmersionConfirmationDialog from "./ImmersionConfirmationDialog";
 import ImmersionLearnMoreModal from "./ImmersionLearnMoreModal";
-import { useCoolingStatus, useMiningStatus } from "@/protoOS/api";
+import { useCoolingStatus } from "@/protoOS/api";
 import { CoolingConfig } from "@/protoOS/api/generatedApi";
-import { isSleeping } from "@/protoOS/components/App/utility";
+import { useIsSleeping } from "@/protoOS/store";
 import { Fan } from "@/shared/assets/icons";
 import Immersion from "@/shared/assets/icons/Immersion";
 import Button from "@/shared/components/Button";
@@ -79,7 +79,7 @@ const Cooling = () => {
     setCooling,
   } = useCoolingStatus({ poll: true });
   const [coolingMode, setCoolingMode] = useState<CoolingMode>();
-  const { data: miningStatus } = useMiningStatus({ poll: true });
+  const isSleeping = useIsSleeping();
 
   const [userSelectedCoolingMode, setUserSelectedCoolingMode] =
     useState<CoolingMode>();
@@ -103,10 +103,10 @@ const Cooling = () => {
   }, [coolingStatus]);
 
   useEffect(() => {
-    if (isSleeping(miningStatus?.status)) {
+    if (isSleeping) {
       setShowSleepDialog(false);
     }
-  }, [miningStatus?.status]);
+  }, [isSleeping]);
 
   const handleChange = useCallback(
     (id: string, confirmed = false) => {

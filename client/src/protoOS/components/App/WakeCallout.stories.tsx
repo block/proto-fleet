@@ -1,15 +1,16 @@
-import { ElementType, useState } from "react";
+import { ElementType, useEffect } from "react";
 import { MemoryRouter } from "react-router-dom";
 
 import App from "./App";
-import { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
-import { MinerStatusProvider } from "@/protoOS/contexts/MinerStatusContext";
 import { SystemContextProvider } from "@/protoOS/contexts/SystemContext";
+import { useSetMiningStatus } from "@/protoOS/store";
 
 export const WakeUpMiner = () => {
-  const [miningStatus, setMiningStatus] = useState<MiningStatusMiningstatus>({
-    status: "Stopped",
-  });
+  const setMiningStatus = useSetMiningStatus();
+
+  useEffect(() => {
+    setMiningStatus({ status: "Stopped" });
+  }, [setMiningStatus]);
 
   const handleWake = () => {
     setTimeout(() => {
@@ -19,11 +20,9 @@ export const WakeUpMiner = () => {
 
   return (
     <SystemContextProvider poll={false}>
-      <MinerStatusProvider apiMiningStatus={miningStatus}>
-        <App title="Page title" onWake={handleWake} pendingSystemInfo={false}>
-          Page content
-        </App>
-      </MinerStatusProvider>
+      <App title="Page title" onWake={handleWake} pendingSystemInfo={false}>
+        Page content
+      </App>
     </SystemContextProvider>
   );
 };

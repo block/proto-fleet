@@ -4,8 +4,8 @@ import PowerWidget from "./PowerWidget";
 import { useMiningStatus, useMiningStop, useSystemReboot } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import { WakingDialog } from "@/protoOS/components/Power";
-import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
 import { useWakeMiner } from "@/protoOS/hooks/useWakeMiner";
+import { useSetMiningStatus } from "@/protoOS/store";
 import { PopoverProvider } from "@/shared/components/Popover";
 
 interface PowerWidgetWrapperProps {
@@ -17,12 +17,11 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
   const [rebootSystemError, setRebootSystemError] = useState<ErrorProps>();
   const { stopMining } = useMiningStop();
   const [stopMiningError, setStopMiningError] = useState<ErrorProps>();
-  const { miningStatus, setMiningStatus } = useMinerStatus();
+  const setMiningStatus = useSetMiningStatus();
   const { fetchData: fetchMiningStatus } = useMiningStatus({ poll: false });
 
   const [intervalId, setIntervalId] =
     useState<ReturnType<typeof setInterval>>();
-  const [isMiningStatusStale, setIsMiningStatusStale] = useState(false);
 
   const handleClear = useCallback(() => {
     clearInterval(intervalId);
@@ -33,7 +32,6 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
       const newIntervalId = setInterval(() => {
         fetchMiningStatus({
           onSuccess: (newMiningStatus) => {
-            setIsMiningStatusStale(false);
             setMiningStatus(newMiningStatus);
           },
         });
@@ -48,17 +46,14 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
     error: wakeError,
     shouldWake,
   } = useWakeMiner({
-    miningStatus,
     afterWake: handleClear,
   });
 
   const reboot = () => {
     setRebootSystemError(undefined);
-    setIsMiningStatusStale(true);
     rebootSystem({
       onError: (error) => {
         setRebootSystemError(error);
-        setIsMiningStatusStale(false);
       },
       onSuccess: () => {
         pollMiningStatus(5000);
@@ -72,11 +67,9 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
 
   const handleSleep = () => {
     setStopMiningError(undefined);
-    setIsMiningStatusStale(true);
     stopMining({
       onError: (error) => {
         setStopMiningError(error);
-        setIsMiningStatusStale(false);
       },
       onSuccess: () => {
         pollMiningStatus(2500);
@@ -87,7 +80,6 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
   return (
     <PopoverProvider>
       <PowerWidget
-        miningStatus={!miningStatus || isMiningStatusStale ? {} : miningStatus}
         onReboot={handleReboot}
         rebootError={rebootSystemError}
         onSleep={handleSleep}

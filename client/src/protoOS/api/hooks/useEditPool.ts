@@ -3,8 +3,8 @@ import { useCallback } from "react";
 import { SimpleErrorProps } from "@/protoOS/api/apiResponseTypes";
 import { PoolConfigInner } from "@/protoOS/api/generatedApi";
 
+import { usePoolsInfo } from "@/protoOS/api/hooks/usePoolsInfo";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext/useMinerStatus";
 import {
   getAuthHeader,
   useAuthContext,
@@ -22,7 +22,7 @@ interface EditPoolProps {
 const useEditPool = () => {
   const { api } = useMinerHosting();
 
-  const { fetchPoolsInfo } = useMinerStatus();
+  const { fetchData } = usePoolsInfo();
   const { authTokens } = useAuthContext();
   const { handleAuthErrors } = useAuthErrors();
 
@@ -62,10 +62,10 @@ const useEditPool = () => {
           });
         })
         .finally(() => {
-          fetchPoolsInfo({ retryOnMinerDown });
+          fetchData({ retryOnMinerDown });
         });
     },
-    [authTokens.accessToken.value, handleAuthErrors, fetchPoolsInfo, api],
+    [authTokens.accessToken.value, handleAuthErrors, fetchData, api],
   );
 
   return {

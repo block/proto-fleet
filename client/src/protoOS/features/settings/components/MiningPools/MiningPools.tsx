@@ -10,7 +10,7 @@ import MiningPools, {
   isValidPool,
   PoolInfo,
 } from "@/protoOS/components/MiningPools";
-import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
+import { usePoolsInfo } from "@/protoOS/store";
 import { Alert } from "@/shared/assets/icons";
 import {
   DismissibleCalloutWrapper,
@@ -32,7 +32,7 @@ const SettingsMiningPools = () => {
   const [isStalePools, setIsStalePools] = useState(false);
   const toastId = useRef<number | null>(null);
 
-  const { poolsInfo, poolsInfoStatus } = useMinerStatus();
+  const { poolsInfo, poolsInfoStatus } = usePoolsInfo();
   const { createPools } = useCreatePools();
   const { editPool } = useEditPool();
   const [createPoolsError, setCreatePoolsError] = useState<SimpleErrorProps>();

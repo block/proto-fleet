@@ -1,5 +1,5 @@
 import MinerStatus from "./MinerStatus";
-import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext/useMinerStatus";
+import { useComprehensiveStatus } from "@/protoOS/store";
 import { type ButtonVariant } from "@/shared/components/Button";
 
 interface MinerStatusWrapperProps {
@@ -7,7 +7,7 @@ interface MinerStatusWrapperProps {
 }
 
 const MinerStatusWrapper = ({ variant }: MinerStatusWrapperProps) => {
-  const { comprehensiveStatus } = useMinerStatus();
+  const comprehensiveStatus = useComprehensiveStatus();
 
   return <MinerStatus status={comprehensiveStatus} variant={variant} />;
 };

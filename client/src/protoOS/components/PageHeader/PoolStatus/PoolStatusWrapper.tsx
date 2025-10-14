@@ -1,13 +1,13 @@
 import { useCallback } from "react";
 
 import PoolStatus from "./PoolStatus";
-import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext/useMinerStatus";
+import { usePoolsInfo } from "@/protoOS/store";
 import { PopoverProvider } from "@/shared/components/Popover";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const PoolStatusWrapper = () => {
   const navigate = useNavigate();
-  const { poolsInfo, poolsInfoStatus } = useMinerStatus();
+  const { poolsInfo, poolsInfoStatus } = usePoolsInfo();
 
   const handleClickViewPools = useCallback(() => {
     navigate("/settings/mining-pools");

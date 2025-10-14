@@ -97,3 +97,26 @@ export {
   useAsicPosition,
   useAsicsByHashboard,
 } from "./hooks/useHardware";
+
+export {
+  useMiningStatus,
+  useMiningUptime,
+  useRebootUptime,
+  useHwErrors,
+  useMiningStatusMessage,
+  useIsWarmingUp,
+  useIsSleeping,
+  useIsMining,
+  useIsAwake,
+  useMinerErrors,
+  usePoolsInfo,
+  useWakeDialog,
+  useComprehensiveStatus,
+  useSetMiningStatus,
+  useSetErrors,
+  useSetPoolsInfo,
+  useShowWakeDialog,
+  useHideWakeDialog,
+} from "./hooks/useMinerStatus";
+
+export type { MiningStatus } from "./slices/minerStatusSlice";

@@ -7,24 +7,22 @@ import {
 } from "react";
 
 import App from "./App";
-import { isMining, isWarmingUp } from "./utility";
 import {
   useErrors,
   useHardware,
   useHashboardStatus,
   useMiningStart,
   useMiningStatus,
-  usePoll,
+  usePoolsInfo,
   useSystemStatus,
 } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 
 import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
-import { useMinerStatus } from "@/protoOS/contexts/MinerStatusContext";
-import { MinerStatusProvider } from "@/protoOS/contexts/MinerStatusContext";
 import { useSystemContext } from "@/protoOS/contexts/SystemContext";
 import { FirmwareUpdateProvider } from "@/protoOS/features/firmwareUpdate/contexts/FirmwareUpdateContext";
+import { useIsMining, useIsWarmingUp } from "@/protoOS/store";
 import {
   useDeviceTheme,
   useHashboardSerials,
@@ -60,16 +58,15 @@ const AppWrapper = ({
   // Apply theme effects on mount
   useApplyTheme({ theme, deviceTheme, setDeviceTheme });
 
-  const { setMiningStatus } = useMinerStatus();
+  const isMining = useIsMining();
+  const isWarmingUp = useIsWarmingUp();
   const [initPage, setInitPage] = useState(false);
-  const {
-    data: errors,
-    fetchData: fetchErrors,
-    pending: pendingErrors,
-  } = useErrors();
+  useErrors({ poll: true, pollIntervalMs: 15 * 1000 });
   const { data: miningStatus, fetchData: fetchMiningStatus } = useMiningStatus({
-    poll: false,
+    poll: true,
+    pollIntervalMs: 15 * 1000,
   });
+  usePoolsInfo({ poll: true, pollIntervalMs: 15 * 1000 });
   const [intervalId, setIntervalId] =
     useState<ReturnType<typeof setInterval>>();
   const [wakeIntervalId, setWakeIntervalId] =
@@ -118,12 +115,6 @@ const AppWrapper = ({
     }
   }, [navigate, setItem, systemStatus, pendingSystemStatus]);
 
-  usePoll({
-    fetchData: fetchErrors,
-    poll: true,
-    pollIntervalMs: 10000,
-  });
-
   useEffect(() => {
     if (!systemStatus?.onboarded) {
       return;
@@ -131,24 +122,25 @@ const AppWrapper = ({
     if (!miningStatus) {
       fetchMiningStatus();
       // as long as the mining status is not normal, keep checking the mining status
-    } else if (isMining(miningStatus?.status)) {
+    } else if (isMining) {
       clearInterval(intervalId);
       setInitPage(true);
       // on first load, if the device is booting up, check the mining status until it's running
-    } else if (isWarmingUp(miningStatus) && !intervalId && !initPage) {
+    } else if (isWarmingUp && !intervalId && !initPage) {
       setInitPage(true);
       const newIntervalId = setInterval(() => {
-        fetchMiningStatus({ onSuccess: setMiningStatus });
+        fetchMiningStatus();
       }, 5000);
       setIntervalId(newIntervalId);
     }
   }, [
     fetchMiningStatus,
-    setMiningStatus,
     intervalId,
     initPage,
     miningStatus,
     systemStatus,
+    isMining,
+    isWarmingUp,
   ]);
 
   const handleWake = () => {
@@ -157,7 +149,7 @@ const AppWrapper = ({
       onError: setStartMiningError,
       onSuccess: () => {
         const newIntervalId = setInterval(() => {
-          fetchMiningStatus({ onSuccess: setMiningStatus });
+          fetchMiningStatus();
         }, 5000);
         setWakeIntervalId(newIntervalId);
       },
@@ -194,37 +186,31 @@ const AppWrapper = ({
         }
 
         return (
-          <MinerStatusProvider
-            apiErrors={errors}
-            apiMiningStatus={miningStatus}
-            pendingErrors={pendingErrors}
-          >
-            <FirmwareUpdateProvider systemInfo={systemInfo}>
-              {/* TODO: [STORE_REFACTOR] 
-                Once we add miner status, system info etc to global store, we should
-                be able to remove the nesting of wrapper components that comprise App.tsx
+          <FirmwareUpdateProvider systemInfo={systemInfo}>
+            {/* TODO: [STORE_REFACTOR]
+              Once we add system info etc to global store, we should
+              be able to remove the nesting of wrapper components that comprise App.tsx
 
-                Needed to add this conditional because full screen views were not rendering inside of App wrapper
-                which is where we make calls to useHardware to populate the hardware slice
-              */}
-              {fullScreen ? (
-                <ContentLayout />
-              ) : (
-                <App
-                  title={title}
-                  onWake={handleWake}
-                  wakeError={startMiningError}
-                  afterWake={afterWake}
-                  systemInfo={systemInfo}
-                  pendingSystemInfo={pendingSystemInfo}
-                  hideErrors={hideErrors}
-                  ContentLayout={ContentLayout}
-                >
-                  {children}
-                </App>
-              )}
-            </FirmwareUpdateProvider>
-          </MinerStatusProvider>
+              Needed to add this conditional because full screen views were not rendering inside of App wrapper
+              which is where we make calls to useHardware to populate the hardware slice
+            */}
+            {fullScreen ? (
+              <ContentLayout />
+            ) : (
+              <App
+                title={title}
+                onWake={handleWake}
+                wakeError={startMiningError}
+                afterWake={afterWake}
+                systemInfo={systemInfo}
+                pendingSystemInfo={pendingSystemInfo}
+                hideErrors={hideErrors}
+                ContentLayout={ContentLayout}
+              >
+                {children}
+              </App>
+            )}
+          </FirmwareUpdateProvider>
         );
       })()}
     </ErrorBoundary>
