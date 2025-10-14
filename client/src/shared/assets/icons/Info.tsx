@@ -1,7 +1,9 @@
 import clsx from "clsx";
+
+import { iconSizes } from "./constants";
 import { IconProps } from "./types";
 
-const Info = ({ className, width }: IconProps) => {
+const Info = ({ className, width = iconSizes.medium }: IconProps) => {
   return (
     <div className={clsx(width, className)}>
       <svg
@@ -10,7 +12,7 @@ const Info = ({ className, width }: IconProps) => {
         viewBox="0 0 20 20"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
-        className={className}
+        preserveAspectRatio="xMidYMid meet"
       >
         <path
           className="fill-surface-base"

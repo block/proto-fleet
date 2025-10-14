@@ -22,6 +22,7 @@ import Ellipsis from "./Ellipsis";
 import Eye from "./Eye";
 import Fan from "./Fan";
 import FanIndicator from "./FanIndicator";
+import FanIndicatorV2 from "./FanIndicatorV2";
 import Fleet from "./Fleet";
 import FleetWordmark from "./FleetWordmark";
 import Globe from "./Globe";
@@ -29,6 +30,7 @@ import Graph from "./Graph";
 import Grip from "./Grip";
 import Hashboard from "./Hashboard";
 import HashboardIndicator from "./HashboardIndicator";
+import HashboardIndicatorV2 from "./HashboardIndicatorV2";
 import Hashrate from "./Hashrate";
 import Home from "./Home";
 import Immersion from "./Immersion";
@@ -51,6 +53,7 @@ import Play from "./Play";
 import Plus from "./Plus";
 import Power from "./Power";
 import PsuIndicator from "./PsuIndicator";
+import PsuIndicatorV2 from "./PsuIndicatorV2";
 import Question from "./Question";
 import Racks from "./Racks";
 import Reboot from "./Reboot";
@@ -92,6 +95,7 @@ export {
   Eye,
   Fan,
   FanIndicator,
+  FanIndicatorV2,
   Fleet,
   FleetWordmark,
   Globe,
@@ -99,6 +103,7 @@ export {
   Grip,
   Hashboard,
   HashboardIndicator,
+  HashboardIndicatorV2,
   Hashrate,
   Home,
   type IconProps,
@@ -122,6 +127,7 @@ export {
   Plus,
   Power,
   PsuIndicator,
+  PsuIndicatorV2,
   Question,
   Racks,
   Reboot,

@@ -1,9 +1,11 @@
 import { useMemo } from "react";
 import type {
   AsicData,
+  FanData,
   HashboardData,
   HashboardTelemetryData,
   MinerData,
+  PsuData,
 } from "../types";
 import useMinerStore from "../useMinerStore";
 import type { ChartData } from "@/shared/components/LineChart";
@@ -119,6 +121,82 @@ export const useMinerHashboardAsics = (hashboardSerial: string): AsicData[] => {
       return acc;
     }, []);
   }, [hashboard, allAsics, telemetryData]);
+};
+
+/**
+ * Get combined PSU data combining hardware info + telemetry
+ */
+export const useMinerPsu = (id: number): PsuData | null => {
+  const hardware = useMinerStore((state) => state.hardware.psus.get(id));
+  const telemetry = useMinerStore((state) => state.telemetry.psus.get(id));
+
+  return useMemo(() => {
+    if (!hardware) return null;
+
+    return {
+      ...hardware,
+      ...telemetry,
+    };
+  }, [hardware, telemetry]);
+};
+
+/**
+ * Get all combined PSUs for the miner
+ */
+export const useMinerPsus = (): PsuData[] => {
+  const hardwarePsus = useMinerStore((state) => state.hardware.psus);
+  const telemetryPsus = useMinerStore((state) => state.telemetry.psus);
+
+  return useMemo(() => {
+    const psus = Array.from(hardwarePsus.values());
+
+    return psus.map((hardware) => {
+      const telemetry = telemetryPsus.get(hardware.id);
+
+      return {
+        ...hardware,
+        ...telemetry,
+      };
+    });
+  }, [hardwarePsus, telemetryPsus]);
+};
+
+/**
+ * Get combined Fan data combining hardware info + telemetry
+ */
+export const useMinerFan = (id: number): FanData | null => {
+  const hardware = useMinerStore((state) => state.hardware.fans.get(id));
+  const telemetry = useMinerStore((state) => state.telemetry.fans.get(id));
+
+  return useMemo(() => {
+    if (!hardware) return null;
+
+    return {
+      ...hardware,
+      ...telemetry,
+    };
+  }, [hardware, telemetry]);
+};
+
+/**
+ * Get all combined Fans for the miner
+ */
+export const useMinerFans = (): FanData[] => {
+  const hardwareFans = useMinerStore((state) => state.hardware.fans);
+  const telemetryFans = useMinerStore((state) => state.telemetry.fans);
+
+  return useMemo(() => {
+    const fans = Array.from(hardwareFans.values());
+
+    return fans.map((hardware) => {
+      const telemetry = telemetryFans.get(hardware.id);
+
+      return {
+        ...hardware,
+        ...telemetry,
+      };
+    });
+  }, [hardwareFans, telemetryFans]);
 };
 
 // =============================================================================

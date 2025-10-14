@@ -117,6 +117,8 @@ export default defineConfig(({ mode, command }) => {
       "/api-proxy": {
         target: proxyUrl,
         rewrite: (path: string) => path.replace(/^\/api-proxy/, ""),
+        changeOrigin: true,
+        secure: false,
       },
     };
   } else {
@@ -124,6 +126,8 @@ export default defineConfig(({ mode, command }) => {
       ? {
           "/api/v1": {
             target: env.PROXY_URL,
+            changeOrigin: true,
+            secure: false,
           },
         }
       : {};

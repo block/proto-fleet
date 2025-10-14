@@ -69,3 +69,10 @@ export const useAsicPosition = (id: string) =>
 
 export const useAsicsByHashboard = (hashboardSerial: string) =>
   useMinerStore((state) => state.hardware.getAsicsByHashboard(hashboardSerial));
+
+// Controlboard hooks
+export const useControlBoard = () =>
+  useMinerStore((state) => state.hardware.controlBoard);
+
+export const usePsus = () =>
+  useMinerStore((state) => state.hardware.getAllPsus());

@@ -46,6 +46,10 @@ export {
   useMinerHashboards,
   useMinerAsic,
   useMinerHashboardAsics,
+  useMinerPsu,
+  useMinerPsus,
+  useMinerFan,
+  useMinerFans,
   useChartDataForMetric,
 } from "./hooks/useMiner";
 

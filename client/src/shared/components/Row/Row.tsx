@@ -32,37 +32,38 @@ const Row = ({
 }: RowProps) => {
   const Element = onClick ? "button" : "div";
   return (
-    <div {...attributes} className="w-full">
-      <div
+    <div {...attributes} className={clsx("w-full")}>
+      <Element
         className={clsx("peer", {
-          "flex items-center": suffixIcon || prefixIcon,
+          "flex items-center gap-4": suffixIcon || prefixIcon,
+          "hover:bg-core-primary-5": onClick && !isActive,
+          "-ml-3 w-[calc(100%+24px)] rounded-lg px-3": onClick,
         })}
+        onClick={onClick}
+        data-testid={testId}
+        {...(Element === "button" && { type: "button" })}
       >
-        <div className="mr-4">{prefixIcon}</div>
-        <Element
+        {prefixIcon && <div>{prefixIcon}</div>}
+        <div
           className={clsx(
-            "truncate text-left",
+            "grow text-left",
             { "py-2": compact },
             { "py-3": !compact },
-            { "-ml-3 w-[calc(100%+24px)] rounded-lg px-3": onClick },
-            { "hover:bg-core-primary-5": onClick && !isActive },
             { "w-full": !onClick },
             className,
           )}
-          onClick={onClick}
-          data-testid={testId}
         >
           {children}
-        </Element>
-        <div className="m-4">{suffixIcon}</div>
-      </div>
-      {divider && (
-        <Divider
-          className={clsx("mt-[-1px]", {
-            "px-4 peer-hover:invisible": onClick,
-          })}
-        />
-      )}
+        </div>
+        {suffixIcon && <div className="m-4">{suffixIcon}</div>}
+        {divider && (
+          <Divider
+            className={clsx("mt-[-1px]", {
+              "px-4 peer-hover:invisible": onClick,
+            })}
+          />
+        )}
+      </Element>
     </div>
   );
 };
