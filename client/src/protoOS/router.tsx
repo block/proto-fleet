@@ -70,6 +70,8 @@ export const routerConfig = [
       </App>
     ),
   },
+
+  // TODO: These should all be rendered inside the App component
   {
     path: "onboarding",
     element: <Onboarding />,

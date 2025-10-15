@@ -12,7 +12,11 @@ const OnboardingWrapper = () => {
     useSystemStatus();
   const navigate = useNavigate();
   const { getItem } = useLocalStorage();
-  const { data: networkInfo, pending: pendingNetworkInfo } = useNetworkInfo();
+
+  // Fetch network info and populate store
+  useNetworkInfo({
+    poll: false,
+  });
 
   const isOnboarded = useMemo(() => getItem("isOnboarded"), [getItem]);
 
@@ -37,8 +41,6 @@ const OnboardingWrapper = () => {
         </div>
       ) : (
         <Onboarding
-          networkInfo={networkInfo}
-          pendingNetworkInfo={pendingNetworkInfo}
           settingUpMiner={settingUpMiner}
           onChangeSettingUpMiner={setSettingUpMiner}
         />

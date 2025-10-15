@@ -52,8 +52,6 @@ describe("Onboarding", () => {
     component = render(
       <MinerHostingProvider>
         <Onboarding
-          networkInfo={undefined}
-          pendingNetworkInfo={false}
           settingUpMiner={false}
           onChangeSettingUpMiner={() => vi.fn()}
         />

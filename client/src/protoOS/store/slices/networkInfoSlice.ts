@@ -1,18 +1,18 @@
 import type { StateCreator } from "zustand";
 import type { MinerStore } from "../useMinerStore";
-import type { SystemInfoSysteminfo } from "@/protoOS/api/generatedApi";
+import type { NetworkInfoNetworkinfo } from "@/protoOS/api/generatedApi";
 
 // =============================================================================
 // Slice Interface
 // =============================================================================
 
-export interface SystemInfoSlice extends SystemInfoSysteminfo {
+export interface NetworkInfoSlice extends NetworkInfoNetworkinfo {
   // Request state
   pending?: boolean;
   error?: string;
 
   // Actions
-  setSystemInfo: (systemInfo: SystemInfoSysteminfo | undefined) => void;
+  setNetworkInfo: (networkInfo: NetworkInfoNetworkinfo | undefined) => void;
   setError: (error: string | undefined) => void;
   setPending: (pending: boolean) => void;
 }
@@ -21,31 +21,28 @@ export interface SystemInfoSlice extends SystemInfoSysteminfo {
 // Slice Creator
 // =============================================================================
 
-export const createSystemInfoSlice: StateCreator<
+export const createNetworkInfoSlice: StateCreator<
   MinerStore,
   [["zustand/immer", never]],
   [],
-  SystemInfoSlice
+  NetworkInfoSlice
 > = (set) => ({
   // Actions
-  setSystemInfo: (systemInfo) =>
+  setNetworkInfo: (networkInfo) =>
     set((state) => {
-      if (systemInfo) {
-        // Spread all fields from systemInfo into the root level
-        Object.assign(state.systemInfo, systemInfo);
+      if (networkInfo) {
+        Object.assign(state.networkInfo, networkInfo);
       }
-      // Note: When systemInfo is undefined, we don't clear fields -
-      // they remain as is. To clear, pass an empty object {} instead.
     }),
 
   setError: (error) =>
     set((state) => {
-      state.systemInfo.error = error;
-      state.systemInfo.pending = false;
+      state.networkInfo.error = error;
+      state.networkInfo.pending = false;
     }),
 
   setPending: (pending) =>
     set((state) => {
-      state.systemInfo.pending = pending;
+      state.networkInfo.pending = pending;
     }),
 });

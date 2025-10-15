@@ -1,32 +1,76 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef } from "react";
 
-import { NetworkInfoNetworkinfo } from "@/protoOS/api/generatedApi";
+import { usePoll } from "./usePoll";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import {
+  useNetworkInfoError,
+  useNetworkInfo as useNetworkInfoFromStore,
+  useNetworkInfoPending,
+  useSetNetworkInfo,
+  useSetNetworkInfoError,
+  useSetNetworkInfoPending,
+} from "@/protoOS/store";
 
-const useNetworkInfo = () => {
+interface UseNetworkInfoProps {
+  poll?: boolean;
+  pollIntervalMs?: number;
+}
+
+/**
+ * API hook for fetching network info.
+ *
+ * Manages fetching network info from the API and updates the centralized Zustand store.
+ *
+ * For accessing network info data, use the store hooks directly:
+ *   import { useNetworkInfo, useIpAddress, useMacAddress, etc. } from "@/protoOS/store";
+ */
+
+const useNetworkInfo = ({ poll, pollIntervalMs }: UseNetworkInfoProps) => {
   const { api } = useMinerHosting();
-  const [data, setData] = useState<NetworkInfoNetworkinfo>();
-  const [error, setError] = useState<string>();
-  const [pending, setPending] = useState<boolean>(false);
+  const setNetworkInfo = useSetNetworkInfo();
+  const setNetworkInfoError = useSetNetworkInfoError();
+  const setNetworkInfoPending = useSetNetworkInfoPending();
+  const data = useNetworkInfoFromStore();
+  const pending = useNetworkInfoPending();
+  const error = useNetworkInfoError();
+  const isFetchingRef = useRef<boolean>(false);
 
-  useEffect(() => {
-    if (!api) return;
+  const fetchData = useCallback(() => {
+    if (!api || isFetchingRef.current) return;
 
-    setPending(true);
+    isFetchingRef.current = true;
+    setNetworkInfoPending(true);
+
     api
       .getNetwork()
       .then((res) => {
-        setData(res?.data["network-info"]);
+        const responseData = res?.data["network-info"];
+        setNetworkInfo(responseData);
+        setNetworkInfoPending(false);
       })
       .catch((err) => {
-        setError(err?.error?.message ?? err);
+        setNetworkInfoError(err?.error?.message ?? err);
       })
       .finally(() => {
-        setPending(false);
+        isFetchingRef.current = false;
       });
-  }, [api]);
+  }, [api, setNetworkInfo, setNetworkInfoError, setNetworkInfoPending]);
 
-  return useMemo(() => ({ pending, error, data }), [pending, error, data]);
+  const reload = useCallback(() => {
+    if (isFetchingRef.current) return;
+    fetchData();
+  }, [fetchData]);
+
+  usePoll({
+    fetchData: reload,
+    poll,
+    pollIntervalMs,
+  });
+
+  return useMemo(
+    () => ({ pending, error, data, reload }),
+    [pending, error, data, reload],
+  );
 };
 
 export { useNetworkInfo };

@@ -3,7 +3,9 @@ import { Network, OnboardingLayout } from "@/shared/components/Setup";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const NetworkPage = () => {
-  const { data: networkInfo } = useNetworkInfo();
+  // TODO: We should refactor onboarding page to render as a child of App.tsx in the router
+  // so that we dont need to make this call here
+  const { data: networkInfo } = useNetworkInfo({ poll: false });
   const navigate = useNavigate();
 
   return (

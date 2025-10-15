@@ -1,7 +1,5 @@
 import { ComponentType, ReactNode, useState } from "react";
 
-import { NetworkInfoNetworkinfo } from "@/protoOS/api/generatedApi";
-
 import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 
@@ -12,6 +10,9 @@ import NavigationMenu, {
 import PageHeader from "@/protoOS/components/PageHeader";
 import LoginModal from "@/protoOS/features/auth/components/LoginModal";
 import {
+  useIpAddress,
+  useMacAddress,
+  useNetworkInfoPending,
   useOSVersion,
   useProductName,
   useSystemInfoPending,
@@ -26,10 +27,8 @@ import {
 interface AppLayoutProps {
   children: ReactNode;
   customHeaderButtons?: ReactNode;
-  networkInfo?: NetworkInfoNetworkinfo;
   onDismissLogin?: () => void;
   onSuccessLogin: () => void;
-  pendingNetworkInfo: boolean;
   showLoginModal: boolean;
   title: string;
   type: NavigationMenuType;
@@ -39,10 +38,8 @@ interface AppLayoutProps {
 const AppLayout = ({
   children,
   customHeaderButtons,
-  networkInfo,
   onDismissLogin,
   onSuccessLogin,
-  pendingNetworkInfo,
   showLoginModal,
   title,
   type,
@@ -54,6 +51,11 @@ const AppLayout = ({
   const osVersion = useOSVersion();
   const productName = useProductName();
   const pendingSystemInfo = useSystemInfoPending();
+
+  // Read network info from store
+  const macAddress = useMacAddress();
+  const ipAddress = useIpAddress();
+  const pendingNetworkInfo = useNetworkInfoPending();
 
   const handleOnSuccessLogin = () => {
     onSuccessLogin();
@@ -80,7 +82,7 @@ const AppLayout = ({
         <div className="fixed top-0 left-0 z-40 h-screen grow overflow-hidden">
           <NavigationMenu
             macInfo={{
-              value: networkInfo?.mac,
+              value: macAddress,
               loading: pendingNetworkInfo,
             }}
             isVisible={isMenuOpen}
@@ -90,8 +92,8 @@ const AppLayout = ({
               loading: pendingSystemInfo,
             }}
             ipAddressInfo={{
-              value: networkInfo?.ip,
-              loading: pendingSystemInfo,
+              value: ipAddress,
+              loading: pendingNetworkInfo,
             }}
             minerNameInfo={{
               value: productName,

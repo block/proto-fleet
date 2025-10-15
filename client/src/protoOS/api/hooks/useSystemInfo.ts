@@ -52,7 +52,7 @@ const useSystemInfo = ({ poll, pollIntervalMs }: UseSystemInfoProps) => {
         setSystemInfoPending(false);
       })
       .catch((err) => {
-        setSystemInfoError(err?.error?.message ?? err, false);
+        setSystemInfoError(err?.error?.message ?? err);
       })
       .finally(() => {
         isFetchingRef.current = false;

@@ -13,6 +13,10 @@ import {
   type MinerStatusSlice,
 } from "./slices/minerStatusSlice";
 import {
+  createNetworkInfoSlice,
+  type NetworkInfoSlice,
+} from "./slices/networkInfoSlice";
+import {
   createSystemInfoSlice,
   type SystemInfoSlice,
 } from "./slices/systemInfoSlice";
@@ -35,6 +39,7 @@ export interface MinerStore {
   ui: UISlice;
   minerStatus: MinerStatusSlice;
   systemInfo: SystemInfoSlice;
+  networkInfo: NetworkInfoSlice;
 }
 
 // =============================================================================
@@ -51,6 +56,7 @@ const useMinerStore = create<MinerStore>()(
           ui: createUISlice(set, get, api),
           minerStatus: createMinerStatusSlice(set, get, api),
           systemInfo: createSystemInfoSlice(set, get, api),
+          networkInfo: createNetworkInfoSlice(set, get, api),
         })),
         {
           name: "proto-ui-preferences", // Shared across protoOS and protoFleet

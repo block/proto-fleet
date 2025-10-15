@@ -3,11 +3,11 @@ import PsuInfoModal from "./PsuInfoModal";
 import Card from "@/protoOS/features/diagnostic/components/Card";
 import CardHeader from "@/protoOS/features/diagnostic/components/CardHeader";
 import LabeledValue from "@/protoOS/features/diagnostic/components/LabeledValue";
+import type { PsuData } from "@/protoOS/features/diagnostic/types";
+import { Alert, PsuIndicatorV2 as PsuIndicator } from "@/shared/assets/icons";
 import PowerValue from "@/shared/components/PowerValue";
 import TemperatureValue from "@/shared/components/TemperatureValue";
 import VoltageValue from "@/shared/components/VoltageValue";
-import type { PsuData } from "@/protoOS/features/diagnostic/types";
-import { Alert, PsuIndicatorV2 as PsuIndicator } from "@/shared/assets/icons";
 
 export type { PsuData };
 

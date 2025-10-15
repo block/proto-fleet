@@ -139,4 +139,19 @@ export {
   useSetSystemInfoPending,
 } from "./hooks/useSystemInfo";
 
+export {
+  useNetworkInfo,
+  useHostname,
+  useIpAddress,
+  useMacAddress,
+  useGateway,
+  useNetmask,
+  useDhcp,
+  useNetworkInfoPending,
+  useNetworkInfoError,
+  useSetNetworkInfo,
+  useSetNetworkInfoError,
+  useSetNetworkInfoPending,
+} from "./hooks/useNetworkInfo";
+
 export type { MiningStatus } from "./slices/minerStatusSlice";

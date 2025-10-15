@@ -14,6 +14,7 @@ import {
   useHashboardStatus,
   useMiningStart,
   useMiningStatus,
+  useNetworkInfo,
   usePoolsInfo,
   useSystemInfo,
   useSystemStatus,
@@ -92,6 +93,11 @@ const AppWrapper = ({
   const { reload: reloadSystemInfo } = useSystemInfo({
     poll: true,
     pollIntervalMs: 35000,
+  });
+
+  // Fetch network info once (updates store)
+  useNetworkInfo({
+    poll: false,
   });
 
   // Check for firmware updates on mount

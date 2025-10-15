@@ -4,7 +4,6 @@ import { useLocation } from "react-router-dom";
 import ErrorCallout from "./ErrorCallout";
 import WakeCallout from "./WakeCallout";
 import WarmingUpCallout from "./WarmingUpCallout";
-import { useNetworkInfo } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import AppLayout from "@/protoOS/components/AppLayout";
 import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultContentLayout";
@@ -42,7 +41,6 @@ const App = ({
   title,
   ContentLayout = DefaultContentLayout,
 }: AppProps) => {
-  const { data: networkInfo, pending: pendingNetworkInfo } = useNetworkInfo();
   const { showLoginModal, setShowLoginModal, setDismissedLoginModal } =
     useAuthContext();
   const navigate = useNavigate();
@@ -69,10 +67,8 @@ const App = ({
   return (
     <>
       <AppLayout
-        networkInfo={networkInfo}
         onSuccessLogin={() => setShowLoginModal(false)}
         onDismissLogin={handleDismissLogin}
-        pendingNetworkInfo={pendingNetworkInfo}
         showLoginModal={showLoginModal}
         title={title}
         type={navigationMenuTypes.app}
