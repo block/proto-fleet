@@ -1,6 +1,5 @@
 import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { ChevronUpDown } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
 import Popover, { usePopover } from "@/shared/components/Popover";
@@ -21,7 +20,6 @@ const HashboardSelector = ({
   const popoverRef = useRef(null);
   const { triggerRef } = usePopover();
   const navigate = useNavigate();
-  const { minerRoot } = useMinerHosting();
   useClickOutside({
     ref: popoverRef,
     onClickOutside: () => setShowPopover(false),
@@ -57,7 +55,10 @@ const HashboardSelector = ({
                 id={hashboard.serial}
                 isSelected={currentHashboard === hashboard.serial}
                 onChange={() => {
-                  navigate(`${minerRoot}/temperature/${hashboard.serial}`);
+                  navigate(`../${hashboard.serial}`, {
+                    replace: true,
+                    relative: "path",
+                  });
                   setShowPopover(false);
                 }}
                 text={hashboard.name}

@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import AsicTable from "./Asic/AsicTableWrapper";
 import HashboardSelector from "./HashboardSelector";
 import { useTelemetry } from "@/protoOS/api";
-import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import {
   convertAndFormatMeasurement,
   convertValueUnits,
@@ -59,7 +58,6 @@ type HashboardTemperatureProps = {
 const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   const temperatureUnit = useTemperatureUnit();
   const [showPopover, setShowPopover] = useState<string | undefined>(undefined);
-  const { minerRoot } = useMinerHosting();
 
   const navigate = useNavigate();
 
@@ -72,7 +70,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   });
 
   const close = () => {
-    navigate(minerRoot + `/temperature`);
+    navigate("..", { relative: "path" });
   };
 
   // Get hashboard data from store
