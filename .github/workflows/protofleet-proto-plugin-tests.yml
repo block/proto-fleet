@@ -1,0 +1,61 @@
+name: ProtoFleet proto plugin tests
+
+on:
+  pull_request:
+    paths:
+      # - ".github/workflows/protofleet-proto-plugin-tests.yml"
+      - "plugin/proto/**"
+  push:
+    branches:
+      - main
+    paths:
+      # - ".github/workflows/protofleet-proto-plugin-tests.yml"
+      - "plugin/proto/**"
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318    # v1.1.4
+
+      - name: Lint protocol buffers
+        run: |
+          just lint
+
+      - name: Lint protocol golang
+        run: |
+          cd plugin/proto
+          just lint
+
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugin/proto
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318    # v1.1.4
+
+      - name: Configure cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Compile project
+        run: just build
+
+      - name: Run tests
+        run: just test
