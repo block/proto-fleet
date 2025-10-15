@@ -1,18 +1,26 @@
 import { useEffect, useState } from "react";
-import { useFirmwareUpdate, useSystemReboot } from "@/protoOS/api";
-import { useSystemContext } from "@/protoOS/contexts/SystemContext";
-import { useFirmwareUpdateContext } from "@/protoOS/features/firmwareUpdate/";
+import {
+  useFirmwareUpdate,
+  useSystemInfo,
+  useSystemReboot,
+} from "@/protoOS/api";
 import { statusLabelFromUpdateStatus } from "@/protoOS/features/firmwareUpdate/utility";
+import {
+  useFirmwareUpdateInstalling,
+  useFwUpdateStatus,
+  useSystemInfoPending,
+} from "@/protoOS/store";
 import { SettingsSolid } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import { convertToSentenceCase } from "@/shared/utils/stringUtils";
 
 const CheckForUpdate = () => {
-  const { updateStatus, installing } = useFirmwareUpdateContext();
+  const updateStatus = useFwUpdateStatus();
+  const installing = useFirmwareUpdateInstalling();
   const { checkFirmwareUpdate, updateFirmware } = useFirmwareUpdate();
-  const { reload: reloadSystemInfo, pending: systemInfoPending } =
-    useSystemContext();
+  const systemInfoPending = useSystemInfoPending();
+  const { reload: reloadSystemInfo } = useSystemInfo({ poll: false });
   const { rebootSystem, pending: rebootPending } = useSystemReboot();
   const [pendingUpdate, setPendingUpdate] = useState(false);
 

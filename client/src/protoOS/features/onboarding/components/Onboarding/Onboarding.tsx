@@ -2,10 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import clsx from "clsx";
 import { SimpleErrorProps } from "@/protoOS/api/apiResponseTypes";
-import {
-  NetworkInfoNetworkinfo,
-  SystemInfoSysteminfo,
-} from "@/protoOS/api/generatedApi";
+import { NetworkInfoNetworkinfo } from "@/protoOS/api/generatedApi";
 
 import AppLayout from "@/protoOS/components/AppLayout";
 import SettingsContentLayout from "@/protoOS/components/ContentLayout/SettingsContentLayout";
@@ -34,18 +31,14 @@ interface OnboardingProps {
   networkInfo?: NetworkInfoNetworkinfo;
   onChangeSettingUpMiner: (settingUpMiner: boolean) => void;
   pendingNetworkInfo: boolean;
-  pendingSystemInfo: boolean;
   settingUpMiner: boolean;
-  systemInfo?: SystemInfoSysteminfo;
 }
 
 const Onboarding = ({
   networkInfo,
   onChangeSettingUpMiner,
   pendingNetworkInfo,
-  pendingSystemInfo,
   settingUpMiner,
-  systemInfo,
 }: OnboardingProps) => {
   const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
 
@@ -165,9 +158,7 @@ const Onboarding = ({
       networkInfo={networkInfo}
       onSuccessLogin={() => setShowLoginModal(false)}
       pendingNetworkInfo={pendingNetworkInfo}
-      pendingSystemInfo={pendingSystemInfo}
       showLoginModal={showLoginModal}
-      systemInfo={systemInfo}
       title="Miner setup"
       type={navigationMenuTypes.onboarding}
       ContentLayout={SettingsContentLayout}

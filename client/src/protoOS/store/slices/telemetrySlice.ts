@@ -11,10 +11,8 @@ import type {
   MinerTelemetryData,
   PsuTelemetryData,
 } from "../types";
+import type { MinerStore } from "../useMinerStore";
 import { getAsicId } from "../utils/getAsicId";
-import { type HardwareSlice } from "./hardwareSlice";
-import { type MinerStatusSlice } from "./minerStatusSlice";
-import { type UISlice } from "./uiSlice";
 import type {
   TelemetryData,
   TimeSeriesResponse,
@@ -121,12 +119,7 @@ export interface TelemetrySlice {
 // =============================================================================
 
 export const createTelemetrySlice: StateCreator<
-  {
-    hardware: HardwareSlice;
-    telemetry: TelemetrySlice;
-    ui: UISlice;
-    minerStatus: MinerStatusSlice;
-  },
+  MinerStore,
   [["zustand/immer", never]],
   [],
   TelemetrySlice

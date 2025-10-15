@@ -13,6 +13,10 @@ import {
   type MinerStatusSlice,
 } from "./slices/minerStatusSlice";
 import {
+  createSystemInfoSlice,
+  type SystemInfoSlice,
+} from "./slices/systemInfoSlice";
+import {
   createTelemetrySlice,
   type TelemetrySlice,
 } from "./slices/telemetrySlice";
@@ -30,6 +34,7 @@ export interface MinerStore {
   telemetry: TelemetrySlice;
   ui: UISlice;
   minerStatus: MinerStatusSlice;
+  systemInfo: SystemInfoSlice;
 }
 
 // =============================================================================
@@ -45,6 +50,7 @@ const useMinerStore = create<MinerStore>()(
           telemetry: createTelemetrySlice(set, get, api),
           ui: createUISlice(set, get, api),
           minerStatus: createMinerStatusSlice(set, get, api),
+          systemInfo: createSystemInfoSlice(set, get, api),
         })),
         {
           name: "proto-ui-preferences", // Shared across protoOS and protoFleet
@@ -85,6 +91,8 @@ const useMinerStore = create<MinerStore>()(
                 setTheme: currentState.ui.setTheme,
                 setDeviceTheme: currentState.ui.setDeviceTheme,
                 setTemperatureUnit: currentState.ui.setTemperatureUnit,
+                showWakeDialog: currentState.ui.showWakeDialog,
+                hideWakeDialog: currentState.ui.hideWakeDialog,
               },
             };
           },

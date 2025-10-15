@@ -1,11 +1,11 @@
 import type { StateCreator } from "zustand";
+import type { Measurement } from "../types";
 import type { MinerStore } from "../useMinerStore";
 import type {
   ErrorListResponse,
   MiningStatusMiningstatus,
   Pool,
 } from "@/protoOS/api/generatedApi";
-import type { Measurement } from "../types";
 
 // =============================================================================
 // Types

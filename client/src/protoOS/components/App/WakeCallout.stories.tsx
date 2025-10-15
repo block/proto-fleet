@@ -2,7 +2,6 @@ import { ElementType, useEffect } from "react";
 import { MemoryRouter } from "react-router-dom";
 
 import App from "./App";
-import { SystemContextProvider } from "@/protoOS/contexts/SystemContext";
 import { useSetMiningStatus } from "@/protoOS/store";
 
 export const WakeUpMiner = () => {
@@ -19,11 +18,9 @@ export const WakeUpMiner = () => {
   };
 
   return (
-    <SystemContextProvider poll={false}>
-      <App title="Page title" onWake={handleWake} pendingSystemInfo={false}>
-        Page content
-      </App>
-    </SystemContextProvider>
+    <App title="Page title" onWake={handleWake}>
+      Page content
+    </App>
   );
 };
 

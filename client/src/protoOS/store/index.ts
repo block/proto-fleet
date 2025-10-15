@@ -78,6 +78,8 @@ export {
   useSetDeviceTheme,
   useTemperatureUnit,
   useSetTemperatureUnit,
+  useFirmwareUpdateDismissed,
+  useSetFirmwareUpdateDismissed,
 } from "./hooks/useUI";
 
 export type { Theme, ThemeColor, TemperatureUnit } from "./types";
@@ -118,5 +120,23 @@ export {
   useShowWakeDialog,
   useHideWakeDialog,
 } from "./hooks/useMinerStatus";
+
+export {
+  useSystemInfo,
+  useProductName,
+  useSerialNumber,
+  useOSVersion,
+  useFwUpdateStatus,
+  useSystemInfoPending,
+  useSystemInfoError,
+  useIsProtoRig,
+  useIsWebServerRunning,
+  useIsMiningDriverRunning,
+  useHasFirmwareUpdate,
+  useFirmwareUpdateInstalling,
+  useSetSystemInfo,
+  useSetSystemInfoError,
+  useSetSystemInfoPending,
+} from "./hooks/useSystemInfo";
 
 export type { MiningStatus } from "./slices/minerStatusSlice";

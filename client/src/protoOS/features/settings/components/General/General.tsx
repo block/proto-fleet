@@ -1,10 +1,11 @@
 import { motion } from "motion/react";
 import { useState } from "react";
-import { useSystemContext } from "@/protoOS/contexts/SystemContext";
 import CheckForUpdate from "@/protoOS/features/firmwareUpdate/components/CheckForUpdate";
 import {
+  useIsProtoRig,
   useSetTemperatureUnit,
   useSetTheme,
+  useSystemInfo,
   useTemperatureUnit,
   useTheme,
 } from "@/protoOS/store";
@@ -27,7 +28,8 @@ const General = () => {
   const temperatureUnit = useTemperatureUnit();
   const setTemperatureUnit = useSetTemperatureUnit();
 
-  const { data: systemInfo, isProtoRig } = useSystemContext();
+  const systemInfo = useSystemInfo();
+  const isProtoRig = useIsProtoRig();
 
   return (
     <>

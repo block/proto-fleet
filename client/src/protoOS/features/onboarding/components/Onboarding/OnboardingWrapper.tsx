@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 
 import Onboarding from "./Onboarding";
 import { useNetworkInfo, useSystemStatus } from "@/protoOS/api";
-import { useSystemContext } from "@/protoOS/contexts/SystemContext";
 
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
@@ -14,7 +13,6 @@ const OnboardingWrapper = () => {
   const navigate = useNavigate();
   const { getItem } = useLocalStorage();
   const { data: networkInfo, pending: pendingNetworkInfo } = useNetworkInfo();
-  const { data: systemInfo, pending: pendingSystemInfo } = useSystemContext();
 
   const isOnboarded = useMemo(() => getItem("isOnboarded"), [getItem]);
 
@@ -41,8 +39,6 @@ const OnboardingWrapper = () => {
         <Onboarding
           networkInfo={networkInfo}
           pendingNetworkInfo={pendingNetworkInfo}
-          systemInfo={systemInfo}
-          pendingSystemInfo={pendingSystemInfo}
           settingUpMiner={settingUpMiner}
           onChangeSettingUpMiner={setSettingUpMiner}
         />

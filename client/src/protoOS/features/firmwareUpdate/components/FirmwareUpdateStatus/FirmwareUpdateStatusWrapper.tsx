@@ -3,7 +3,11 @@ import FirmwareUpdateStatus from "./FirmwareUpdateStatus";
 import { useSystemReboot } from "@/protoOS/api";
 import { useFirmwareUpdate } from "@/protoOS/api";
 import { useAuthContext } from "@/protoOS/features/auth/contexts/AuthContext/hooks/useAuthContext";
-import { useFirmwareUpdateContext } from "@/protoOS/features/firmwareUpdate/contexts/FirmwareUpdateContext/";
+import {
+  useFirmwareUpdateInstalling,
+  useFwUpdateStatus,
+  useSystemInfoPending,
+} from "@/protoOS/store";
 import {
   pushToast,
   STATUSES as TOAST_STATUSES,
@@ -12,7 +16,9 @@ import {
 const FirmwareUpdateStatusWrapper = () => {
   const { rebootSystem, pending: rebootPending } = useSystemReboot();
   const { updateFirmware } = useFirmwareUpdate();
-  const { installing, updateStatus, pending } = useFirmwareUpdateContext();
+  const installing = useFirmwareUpdateInstalling();
+  const updateStatus = useFwUpdateStatus();
+  const pending = useSystemInfoPending();
   const { dismissedLoginModal, setDismissedLoginModal, setPausedAuthAction } =
     useAuthContext();
 

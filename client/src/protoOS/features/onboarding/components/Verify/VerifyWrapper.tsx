@@ -1,12 +1,12 @@
 import Verify from "./Verify";
 import { useNetworkInfo } from "@/protoOS/api";
-import { useSystemContext } from "@/protoOS/contexts/SystemContext";
+import { useSystemInfo } from "@/protoOS/store";
 import { OnboardingLayout } from "@/shared/components/Setup";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const VerifyWrapper = () => {
   const { data: networkInfo } = useNetworkInfo();
-  const { data: systemInfo } = useSystemContext();
+  const systemInfo = useSystemInfo();
 
   const navigate = useNavigate();
 

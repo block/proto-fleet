@@ -1,98 +1,63 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef } from "react";
 
 import { usePoll } from "./usePoll";
-import { SystemInfoSysteminfo } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import {
+  useSetSystemInfo,
+  useSetSystemInfoError,
+  useSetSystemInfoPending,
+  useSystemInfoError,
+  // TODO: currently have a naming conflict.  Rather than renaming this hook individually,
+  // We should update all the API hooks to adopt a consistent naming scheme that would conflict, ie. useFetchSystemInfo
+  useSystemInfo as useSystemInfoFromStore,
+  useSystemInfoPending,
+} from "@/protoOS/store";
 
 interface UseSystemInfoProps {
   poll?: boolean;
   pollIntervalMs?: number;
 }
 
-interface ProcessedSystemInfo {
-  // miner API server
-  isWebServerRunning: boolean;
-  // MCDD
-  isMiningDriverRunning: boolean;
-  hasFirmwareUpdate: boolean;
-}
-
 /**
- * Do NOT use this hook directly.
+ * API hook for fetching system info.
  *
- * Instead, use the centralized SystemContext:
- *   import { useSystemContext } from "@/protoOS/contexts/SystemContext";
+ * Manages fetching system info from the API and updates the centralized Zustand store.
+ * Use this hook with polling in AppWrapper to keep system info up to date.
  *
- * This hook is wrapped by the SystemContextProvider to ensure a single polling instance
- * and consistent system info data across the app.
- *
- * See SystemContext documentation for details and migration instructions.
+ * For accessing system info data, use the store hooks directly:
+ *   import { useSystemInfo, useIsProtoRig, etc. } from "@/protoOS/store";
  */
 
 const useSystemInfo = ({ poll, pollIntervalMs }: UseSystemInfoProps) => {
   const { api } = useMinerHosting();
-  const [data, setData] = useState<SystemInfoSysteminfo>();
-  const [processedData, setProcessedData] = useState<ProcessedSystemInfo>();
-  const [error, setError] = useState<string>();
-  const [pending, setPending] = useState<boolean>(false);
+  const setSystemInfo = useSetSystemInfo();
+  const setSystemInfoError = useSetSystemInfoError();
+  const setSystemInfoPending = useSetSystemInfoPending();
+  const data = useSystemInfoFromStore();
+  const pending = useSystemInfoPending();
+  const error = useSystemInfoError();
   const isFetchingRef = useRef<boolean>(false);
 
   const fetchData = useCallback(() => {
     if (!api || isFetchingRef.current) return;
 
     isFetchingRef.current = true;
-    setPending(true);
+    setSystemInfoPending(true);
 
     api
       .getSystemInfo()
       .then((res) => {
         const responseData = res?.data["system-info"];
-        setData(responseData);
-
-        if (responseData === undefined) {
-          // no data to examine the state of the system
-          setProcessedData({
-            isWebServerRunning: false,
-            isMiningDriverRunning: false,
-            hasFirmwareUpdate: false,
-          });
-        } else {
-          let isMiningDriverRunning = true;
-          // look for error message
-          const miningDriverSwName = responseData.mining_driver_sw?.name;
-          if (
-            miningDriverSwName === undefined ||
-            /tcp connect error: Connection refused|Failed to connect to MinerDataApiClient/.test(
-              miningDriverSwName,
-            )
-          ) {
-            // service name not found or indicates that the connection to the MCDD cannot be established
-            isMiningDriverRunning = false;
-          }
-
-          setProcessedData({
-            isWebServerRunning: true,
-            isMiningDriverRunning: isMiningDriverRunning,
-            hasFirmwareUpdate:
-              responseData.sw_update_status?.status === "available",
-          });
-        }
+        setSystemInfo(responseData);
+        setSystemInfoPending(false);
       })
       .catch((err) => {
-        setError(err?.error?.message ?? err);
-        // error response means the web server is not running
-        // we don't know the state of the MCDD, however we don't care since we cannot reach it without the server
-        setProcessedData({
-          isWebServerRunning: false,
-          isMiningDriverRunning: false,
-          hasFirmwareUpdate: false,
-        });
+        setSystemInfoError(err?.error?.message ?? err, false);
       })
       .finally(() => {
         isFetchingRef.current = false;
-        setPending(false);
       });
-  }, [api]);
+  }, [api, setSystemInfo, setSystemInfoError, setSystemInfoPending]);
 
   const reload = useCallback(() => {
     if (isFetchingRef.current) return;
@@ -106,8 +71,8 @@ const useSystemInfo = ({ poll, pollIntervalMs }: UseSystemInfoProps) => {
   });
 
   return useMemo(
-    () => ({ pending, error, data, processedData, reload }),
-    [pending, error, data, processedData, reload],
+    () => ({ pending, error, data, reload }),
+    [pending, error, data, reload],
   );
 };
 

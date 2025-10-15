@@ -1,7 +1,5 @@
 import type { StateCreator } from "zustand";
-import type { HardwareSlice } from "./hardwareSlice";
-import type { MinerStatusSlice } from "./minerStatusSlice";
-import type { TelemetrySlice } from "./telemetrySlice";
+import type { MinerStore } from "../useMinerStore";
 import type { TemperatureUnit, Theme, ThemeColor } from "@/protoOS/store/types";
 import { Duration, durations } from "@/shared/components/DurationSelector";
 
@@ -28,6 +26,9 @@ export interface UISlice {
   // Dialog State
   wakeDialog: WakeDialog;
 
+  // Firmware Update State
+  firmwareUpdateDismissed: boolean;
+
   // Chart Actions
   setDuration: (duration: Duration) => void;
   setActiveChartLines: (lines: string[]) => void;
@@ -41,6 +42,9 @@ export interface UISlice {
   // Dialog Actions
   showWakeDialog: (onConfirm: () => void, onClose: () => void) => void;
   hideWakeDialog: () => void;
+
+  // Firmware Update Actions
+  setFirmwareUpdateDismissed: (dismissed: boolean) => void;
 }
 
 // =============================================================================
@@ -48,12 +52,7 @@ export interface UISlice {
 // =============================================================================
 
 export const createUISlice: StateCreator<
-  {
-    hardware: HardwareSlice;
-    telemetry: TelemetrySlice;
-    ui: UISlice;
-    minerStatus: MinerStatusSlice;
-  },
+  MinerStore,
   [["zustand/immer", never]],
   [],
   UISlice
@@ -73,6 +72,9 @@ export const createUISlice: StateCreator<
     onConfirm: () => {},
     onClose: () => {},
   },
+
+  // Firmware Update Initial State
+  firmwareUpdateDismissed: false,
 
   // Chart Actions
   setDuration: (duration) =>
@@ -128,5 +130,11 @@ export const createUISlice: StateCreator<
         onConfirm: () => {},
         onClose: () => {},
       };
+    }),
+
+  // Firmware Update Actions
+  setFirmwareUpdateDismissed: (dismissed) =>
+    set((state) => {
+      state.ui.firmwareUpdateDismissed = dismissed;
     }),
 });

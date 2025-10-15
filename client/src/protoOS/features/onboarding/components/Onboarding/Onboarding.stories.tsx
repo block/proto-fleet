@@ -6,21 +6,17 @@ import OnboardingComponent from "./Onboarding";
 
 interface OnboardingProps {
   pendingNetworkInfo: boolean;
-  pendingSystemInfo: boolean;
   settingUpMiner: boolean;
 }
 
 export const Onboarding = ({
   pendingNetworkInfo,
-  pendingSystemInfo,
   settingUpMiner,
 }: OnboardingProps) => {
   return (
     <OnboardingComponent
       networkInfo={{ mac: "42:08:59:58:84:c6" }}
       pendingNetworkInfo={pendingNetworkInfo}
-      systemInfo={{ os: { version: "0.2.45" } }}
-      pendingSystemInfo={pendingSystemInfo}
       settingUpMiner={settingUpMiner}
       onChangeSettingUpMiner={action("onChangeSettingUpMiner")}
     />
@@ -31,14 +27,10 @@ export default {
   title: "ProtoOS/Onboarding/Mining Pools",
   args: {
     pendingNetworkInfo: false,
-    pendingSystemInfo: false,
     settingUpMiner: false,
   },
   argTypes: {
     pendingNetworkInfo: {
-      control: "boolean",
-    },
-    pendingSystemInfo: {
       control: "boolean",
     },
     settingUpMiner: {

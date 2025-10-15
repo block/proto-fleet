@@ -9,23 +9,25 @@ import {
 import App from "./App";
 import {
   useErrors,
+  useFirmwareUpdate,
   useHardware,
   useHashboardStatus,
   useMiningStart,
   useMiningStatus,
   usePoolsInfo,
+  useSystemInfo,
   useSystemStatus,
 } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 
 import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
-import { useSystemContext } from "@/protoOS/contexts/SystemContext";
-import { FirmwareUpdateProvider } from "@/protoOS/features/firmwareUpdate/contexts/FirmwareUpdateContext";
 import { useIsMining, useIsWarmingUp } from "@/protoOS/store";
 import {
   useDeviceTheme,
   useHashboardSerials,
+  useIsMiningDriverRunning,
+  useIsWebServerRunning,
   useSetDeviceTheme,
   useTheme,
 } from "@/protoOS/store";
@@ -75,16 +77,47 @@ const AppWrapper = ({
     useSystemStatus();
   const { startMining } = useMiningStart();
   const [startMiningError, setStartMiningError] = useState<ErrorProps>();
-  const {
-    data: systemInfo,
-    processedData: processedSystemInfo,
-    pending: pendingSystemInfo,
-  } = useSystemContext();
+
+  // Derived flags from store
+  const isWebServerRunning = useIsWebServerRunning();
+  const isMiningDriverRunning = useIsMiningDriverRunning();
+
   const { getItem, setItem } = useLocalStorage();
   const navigate = useNavigate();
 
   // Fetch and populate hardware store
   useHardware();
+
+  // Fetch and poll system info (updates store)
+  const { reload: reloadSystemInfo } = useSystemInfo({
+    poll: true,
+    pollIntervalMs: 35000,
+  });
+
+  // Check for firmware updates on mount
+  const { checkFirmwareUpdate } = useFirmwareUpdate();
+  useEffect(() => {
+    const checkForFirmwareUpdates = () => {
+      checkFirmwareUpdate()
+        .then(() => {
+          reloadSystemInfo();
+        })
+        .catch((error) => {
+          // Check if this is a JSON parsing error we should ignore
+          if (
+            error?.error?.message?.includes("Unexpected end of JSON input") ||
+            error?.message?.includes("Unexpected end of JSON input")
+          ) {
+            // JSON parsing error from empty response - this is normal, ignore it
+            return;
+          }
+          console.error("Error checking for firmware updates:", error);
+        });
+    };
+
+    // Immediately check on component mount
+    checkForFirmwareUpdates();
+  }, [checkFirmwareUpdate, reloadSystemInfo]);
 
   // TODO: (STORE_REFACTOR) get fw to add more data in this EP
   // Currently useHardware gets us most of the data we need to populate the hardware slice
@@ -165,11 +198,7 @@ const AppWrapper = ({
   return (
     <ErrorBoundary>
       {(() => {
-        if (
-          (pendingSystemInfo && processedSystemInfo === undefined) ||
-          !processedSystemInfo?.isWebServerRunning ||
-          !processedSystemInfo.isMiningDriverRunning
-        ) {
+        if (!isWebServerRunning || !isMiningDriverRunning) {
           return <BootingUp />;
         }
 
@@ -186,7 +215,7 @@ const AppWrapper = ({
         }
 
         return (
-          <FirmwareUpdateProvider systemInfo={systemInfo}>
+          <>
             {/* TODO: [STORE_REFACTOR]
               Once we add system info etc to global store, we should
               be able to remove the nesting of wrapper components that comprise App.tsx
@@ -202,15 +231,13 @@ const AppWrapper = ({
                 onWake={handleWake}
                 wakeError={startMiningError}
                 afterWake={afterWake}
-                systemInfo={systemInfo}
-                pendingSystemInfo={pendingSystemInfo}
                 hideErrors={hideErrors}
                 ContentLayout={ContentLayout}
               >
                 {children}
               </App>
             )}
-          </FirmwareUpdateProvider>
+          </>
         );
       })()}
     </ErrorBoundary>

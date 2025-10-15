@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 
-import { useSystemContext } from "@/protoOS/contexts/SystemContext";
+import { useIsProtoRig } from "@/protoOS/store";
 import { Alert } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Callout, { intents } from "@/shared/components/Callout";
@@ -24,7 +24,7 @@ const ErrorCallout = ({ status }: { status: MinerStatus }) => {
     return undefined;
   }, [status.hasIssues]);
 
-  const { isProtoRig } = useSystemContext();
+  const isProtoRig = useIsProtoRig();
 
   return (
     <>

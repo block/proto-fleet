@@ -37,3 +37,13 @@ export const useTemperatureUnit = () =>
 
 export const useSetTemperatureUnit = () =>
   useMinerStore((state) => state.ui.setTemperatureUnit);
+
+// =============================================================================
+// Firmware Update Hooks
+// =============================================================================
+
+export const useFirmwareUpdateDismissed = () =>
+  useMinerStore((state) => state.ui.firmwareUpdateDismissed);
+
+export const useSetFirmwareUpdateDismissed = () =>
+  useMinerStore((state) => state.ui.setFirmwareUpdateDismissed);

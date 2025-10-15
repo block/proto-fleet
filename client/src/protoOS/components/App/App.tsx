@@ -6,7 +6,6 @@ import WakeCallout from "./WakeCallout";
 import WarmingUpCallout from "./WarmingUpCallout";
 import { useNetworkInfo } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
-import { SystemInfoSysteminfo } from "@/protoOS/api/generatedApi";
 import AppLayout from "@/protoOS/components/AppLayout";
 import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
@@ -30,8 +29,6 @@ interface AppProps {
   children?: ReactNode;
   hideErrors?: boolean;
   onWake?: () => void;
-  pendingSystemInfo: boolean;
-  systemInfo?: SystemInfoSysteminfo;
   title: string;
   wakeError?: ErrorProps;
   ContentLayout?: ComponentType<ContentLayoutProps>;
@@ -42,8 +39,6 @@ const App = ({
   children,
   hideErrors,
   onWake,
-  pendingSystemInfo,
-  systemInfo,
   title,
   ContentLayout = DefaultContentLayout,
 }: AppProps) => {
@@ -78,9 +73,7 @@ const App = ({
         onSuccessLogin={() => setShowLoginModal(false)}
         onDismissLogin={handleDismissLogin}
         pendingNetworkInfo={pendingNetworkInfo}
-        pendingSystemInfo={pendingSystemInfo}
         showLoginModal={showLoginModal}
-        systemInfo={systemInfo}
         title={title}
         type={navigationMenuTypes.app}
         ContentLayout={ContentLayout}

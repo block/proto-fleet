@@ -1,9 +1,6 @@
 import { ComponentType, ReactNode, useState } from "react";
 
-import {
-  NetworkInfoNetworkinfo,
-  SystemInfoSysteminfo,
-} from "@/protoOS/api/generatedApi";
+import { NetworkInfoNetworkinfo } from "@/protoOS/api/generatedApi";
 
 import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
@@ -14,6 +11,11 @@ import NavigationMenu, {
 
 import PageHeader from "@/protoOS/components/PageHeader";
 import LoginModal from "@/protoOS/features/auth/components/LoginModal";
+import {
+  useOSVersion,
+  useProductName,
+  useSystemInfoPending,
+} from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import {
   pushToast,
@@ -28,9 +30,7 @@ interface AppLayoutProps {
   onDismissLogin?: () => void;
   onSuccessLogin: () => void;
   pendingNetworkInfo: boolean;
-  pendingSystemInfo: boolean;
   showLoginModal: boolean;
-  systemInfo?: SystemInfoSysteminfo;
   title: string;
   type: NavigationMenuType;
   ContentLayout?: ComponentType<ContentLayoutProps>;
@@ -43,14 +43,17 @@ const AppLayout = ({
   onDismissLogin,
   onSuccessLogin,
   pendingNetworkInfo,
-  pendingSystemInfo,
   showLoginModal,
-  systemInfo,
   title,
   type,
   ContentLayout = DefaultContentLayout,
 }: AppLayoutProps) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  // Read system info from store
+  const osVersion = useOSVersion();
+  const productName = useProductName();
+  const pendingSystemInfo = useSystemInfoPending();
 
   const handleOnSuccessLogin = () => {
     onSuccessLogin();
@@ -83,7 +86,7 @@ const AppLayout = ({
             isVisible={isMenuOpen}
             closeMenu={() => setIsMenuOpen(false)}
             versionInfo={{
-              value: systemInfo?.os?.version,
+              value: osVersion,
               loading: pendingSystemInfo,
             }}
             ipAddressInfo={{
@@ -91,7 +94,7 @@ const AppLayout = ({
               loading: pendingSystemInfo,
             }}
             minerNameInfo={{
-              value: systemInfo?.product_name,
+              value: productName,
               loading: pendingSystemInfo,
             }}
             type={type}
