@@ -4,8 +4,6 @@ import {
   NotificationError,
 } from "@/protoOS/api/generatedApi";
 
-import { getRowLabel } from "@/shared/utils/utility";
-
 const ERROR_CODE = {
   PSU_FAILURE_TO_START: {
     code: "00:0001",
@@ -42,21 +40,42 @@ const ERROR_CODE = {
     code: "00:0012",
     description: () => "Undertemperature",
   },
+  PSU_RECOVERY: {
+    code: "00:0014",
+    description: (details: any) =>
+      `Power supply in bay ${details?.psu_bay_index} (ID: ${details?.psu_index}) is recovering from overtemperature. Serial number: ${details?.psu_sn}`,
+  },
 
   FAN_SLOW: {
     code: "01:0001",
     description: (details: any) =>
-      `Fan ${details?.fan_id} in bay ${details?.fan_bay_index} is running slow. Target fan speed: ${details?.fan_rpm_target}%, Actual RPM: ${details?.fan_rpm_tach}`,
+      `Fan ${details?.fan_id} in bay ${details?.fan_bay_index} is running slow. Target fan speed: ${details?.fan_pwm_target_pct}%, Actual RPM: ${details?.fan_rpm_tach}`,
   },
   FAN_NOT_SPINNING: {
     code: "01:0002",
     description: (details: any) =>
-      `Fan ${details?.fan_id} in bay ${details?.fan_bay_index} is not spinning. Target fan speed: ${details?.fan_rpm_target}%, Actual RPM: ${details?.fan_rpm_tach}`,
+      `Fan ${details?.fan_id} in bay ${details?.fan_bay_index} is not spinning. Target fan speed: ${details?.fan_pwm_target_pct}%, Actual RPM: ${details?.fan_rpm_tach}`,
   },
   FAN_IMMERSION_MODE: {
     code: "01:0003",
     description: (details: any) =>
       `Fan ${details?.fan_id} in bay ${details?.fan_bay_index} is connected in immersion mode`,
+  },
+  INSUFFICIENT_COOLING: {
+    code: "01:0004",
+    description: (details: any) => {
+      const requiredFans = details?.required_fans || [];
+      const failedFans = details?.failed_fans || [];
+      const requiredText =
+        requiredFans.length === 1
+          ? `Required fan: ${requiredFans[0]}`
+          : `Required fans: [${requiredFans.join(", ")}]`;
+      const failedText =
+        failedFans.length === 1
+          ? `Failed fan: ${failedFans[0]}`
+          : `Failed fans: [${failedFans.join(", ")}]`;
+      return `Bay ${details?.bay_index} has insufficient cooling. ${requiredText}. ${failedText}`;
+    },
   },
 
   IO_MODULE_MISMATCH: {
@@ -112,12 +131,12 @@ const ERROR_CODE = {
   ASIC_OVERHEATING: {
     code: "04:0001",
     description: (details: any) =>
-      `Slot ${details?.hb_slot} Hashboard's ASIC (${getRowLabel(details?.asic_row)}${details?.asic_col}) is overheating at ${details?.temperature}°C`,
+      `Slot ${details?.hb_slot} Hashboard's ASIC (${details?.asic_index}) is overheating at ${details?.temperature}°C`,
   },
   ASIC_OVERVOLTAGE: {
     code: "04:0002",
     description: (details: any) =>
-      `Slot ${details?.hb_slot} Hashboard's ASIC (${getRowLabel(details?.asic_row)}${details?.asic_col}) is drawing too much voltage at ${details?.voltage}V`,
+      `Slot ${details?.hb_slot} Hashboard's ASIC (${details?.asic_index}) is drawing too much voltage at ${details?.voltage}V`,
   },
   ASIC_UNDERVOLTAGE: {
     code: "04:0003",
@@ -127,12 +146,12 @@ const ERROR_CODE = {
   ASIC_ENUMERATION_ERROR: {
     code: "04:0005",
     description: (details: any) =>
-      `Slot ${details?.hb_slot} Hashboard's ASIC (${getRowLabel(details?.asic_row)}${details?.asic_col}) experienced an unspecified failure`,
+      `Slot ${details?.hb_slot} Hashboard's ASIC (${details?.asic_index}) experienced an unspecified failure`,
   },
   ASIC_UNDERTEMPERATURE: {
     code: "04:0014",
     description: (details: any) =>
-      `Slot ${details?.hb_slot} Hashboard's ASIC (${getRowLabel(details?.asic_row)}${details?.asic_col}) is outside of operating temperature, ambient too cold at ${details?.temperature}°C`,
+      `Slot ${details?.hb_slot} Hashboard's ASIC (${details?.asic_index}) is outside of operating temperature, ambient too cold at ${details?.temperature}°C`,
   },
   ASIC_NOT_MINING: {
     code: "04:0016",
@@ -178,6 +197,11 @@ const ERROR_CODE = {
     code: "04:0015",
     description: (details: any) =>
       `Slot ${details?.hb_slot} Hashboard has lost USB connection. Serial number: ${details?.hb_sn}`,
+  },
+  HB_RECOVERY: {
+    code: "04:0017",
+    description: (details: any) =>
+      `Slot ${details?.hb_slot} Hashboard is recovering from overtemperature. Serial number: ${details?.hb_sn}`,
   },
 } as const;
 
@@ -438,6 +462,11 @@ export const getStatusErrorTitle = (errors: ErrorListResponse) => {
         title = "Your miner's hashboard has lost power";
         subtitle = "Repair now to prevent downtime.";
         break;
+      case ERROR_CODE.HB_RECOVERY.code:
+        title = "Your miner's hashboard is recovering";
+        subtitle =
+          "Repair now to prevent reduced hashrate and board shutdowns.";
+        break;
 
       // Fan Errors
       case ERROR_CODE.FAN_SLOW.code:
@@ -451,6 +480,10 @@ export const getStatusErrorTitle = (errors: ErrorListResponse) => {
       case ERROR_CODE.FAN_IMMERSION_MODE.code:
         title = "Your miner's fan is connected in immersion mode";
         subtitle = "Check cooling configuration.";
+        break;
+      case ERROR_CODE.INSUFFICIENT_COOLING.code:
+        title = "Your miner has insufficient cooling";
+        subtitle = "Repair now to prevent overheating.";
         break;
 
       // PSU Errors
@@ -501,6 +534,10 @@ export const getStatusErrorTitle = (errors: ErrorListResponse) => {
       case ERROR_CODE.PSU_UNDERTEMPERATURE.code:
         title = "Your miner's power supply is too cold";
         subtitle = "Check environment conditions.";
+        break;
+      case ERROR_CODE.PSU_RECOVERY.code:
+        title = "Your miner's power supply is recovering";
+        subtitle = "Hashboards in affected bay may be impacted.";
         break;
 
       // Control Board Errors
@@ -560,22 +597,24 @@ export const getStatusSummary = (
         case hashboardIssues.length > 1:
           return "Multiple hashboard Issues";
         case hashboardIssues.length === 1: {
-          const hashboardNum = hashboardIssues[0].hashboard_index || "";
-          return `Hashboard ${hashboardNum} issue`;
+          const details = getErrorDetails(hashboardIssues[0]);
+          return details.hb_slot
+            ? `Hashboard ${details.hb_slot} issue`
+            : "Hashboard issue";
         }
         case fanIssues.length > 1:
           return "Multiple fan Issues";
         case fanIssues.length === 1: {
-          const [{ error_code: errorCode = "", details: rawDetails = "{}" }] =
-            fanIssues;
-          const fanNum = safeParseJSON(rawDetails)[errorCode]?.fan_id ?? "";
-          return `Fan ${fanNum} issue`;
+          const details = getErrorDetails(fanIssues[0]);
+          return details.fan_id ? `Fan ${details.fan_id} issue` : "Fan issue";
         }
         case psuIssues.length > 1:
           return "Multiple psu Issues";
         case psuIssues.length === 1: {
-          const psuNum = psuIssues[0].component_index || "";
-          return `PSU ${psuNum} issue`;
+          const details = getErrorDetails(psuIssues[0]);
+          return details.psu_bay_index
+            ? `PSU ${details.psu_bay_index} issue`
+            : "PSU issue";
         }
         case controlBoardIssues.length > 1:
           return "Multiple control board Issues";
