@@ -32,10 +32,10 @@ const BulkActionsWidget = <ActionType extends Key>({
   renderPopover,
   testId,
 }: BulkActionsWidgetProps<ActionType>) => {
-  const { triggerRef, setIsTriggerFixed } = usePopover();
+  const { triggerRef, setPopoverRenderMode } = usePopover();
   useEffect(() => {
-    setIsTriggerFixed(true);
-  }, [setIsTriggerFixed]);
+    setPopoverRenderMode("inline");
+  }, [setPopoverRenderMode]);
 
   const [isOpen, setIsOpen] = useState(false);
 

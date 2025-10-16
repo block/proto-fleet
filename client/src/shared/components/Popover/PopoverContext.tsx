@@ -6,10 +6,19 @@ import {
   useState,
 } from "react";
 
+type PopoverRenderMode = "inline" | "portal-fixed" | "portal-scrolling";
+
 type PopoverContextType = {
   triggerRef: MutableRefObject<HTMLDivElement | null>;
-  isTriggerFixed: boolean;
-  setIsTriggerFixed: (isTriggerFixed: boolean) => void;
+  /**
+   * Set how the popover should render.
+   * - "inline": Render as child of trigger (best for desktop, no overflow issues)
+   * - "portal-fixed": Render via portal with fixed positioning (for mobile with fixed headers)
+   * - "portal-scrolling": Render via portal with absolute positioning (for scrolling containers)
+   */
+  setPopoverRenderMode: (mode: PopoverRenderMode) => void;
+  /** @internal */
+  renderMode: PopoverRenderMode;
 };
 
 const PopoverContext = createContext<PopoverContextType | null>(null);
@@ -20,11 +29,16 @@ type PopoverProviderProps = {
 
 export const PopoverProvider = ({ children }: PopoverProviderProps) => {
   const triggerRef = useRef<HTMLDivElement>(null);
-  const [isTriggerFixed, setIsTriggerFixed] = useState(false);
+  const [renderMode, setPopoverRenderMode] =
+    useState<PopoverRenderMode>("inline");
 
   return (
     <PopoverContext.Provider
-      value={{ triggerRef, isTriggerFixed, setIsTriggerFixed }}
+      value={{
+        triggerRef,
+        setPopoverRenderMode,
+        renderMode,
+      }}
     >
       {children}
     </PopoverContext.Provider>

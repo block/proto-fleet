@@ -56,11 +56,11 @@ const Popover = ({
   closePopover = () => {},
   closeIgnoreSelectors = [],
 }: PopoverProps) => {
-  const { triggerRef, isTriggerFixed } = usePopover();
+  const { triggerRef, renderMode } = usePopover();
   const { popoverAnimation, popoverStyle, popoverRef } = usePopoverPosition(
     triggerRef,
     offset ?? minimalMargin,
-    isTriggerFixed,
+    renderMode,
     position,
   );
 
@@ -68,7 +68,8 @@ const Popover = ({
     <div
       ref={popoverRef}
       className={clsx(
-        "absolute z-50 rounded-3xl backdrop-blur-[7px]",
+        "z-50 rounded-3xl backdrop-blur-[7px]",
+        renderMode === "portal-fixed" ? "fixed" : "absolute",
         popoverAnimation,
       )}
       style={popoverStyle}
@@ -89,7 +90,7 @@ const Popover = ({
     </div>
   );
 
-  if (isTriggerFixed) {
+  if (renderMode === "inline") {
     return popoverElement;
   }
   return createPortal(popoverElement, document.body);

@@ -9,7 +9,7 @@ import {
   useAccessToken,
   useAuthContext,
 } from "@/protoOS/features/auth/contexts/AuthContext";
-import { usePopover } from "@/shared/components/Popover";
+import { useResponsivePopover } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
@@ -23,7 +23,7 @@ const PowerTarget = () => {
     setPending,
   } = useMiningTarget();
   const [showPopover, setShowPopover] = useState<boolean>(false);
-  const { triggerRef: widgetRef, setIsTriggerFixed } = usePopover();
+  const { triggerRef: widgetRef } = useResponsivePopover();
   const {
     dismissedLoginModal,
     setDismissedLoginModal,
@@ -65,10 +65,6 @@ const PowerTarget = () => {
 
     return targetType;
   }, [isMax, isMin, miningTarget, pending, defaultTarget]);
-
-  useEffect(() => {
-    setIsTriggerFixed(true);
-  }, [setIsTriggerFixed]);
 
   useEffect(() => {
     if (

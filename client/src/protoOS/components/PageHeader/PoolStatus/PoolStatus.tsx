@@ -4,7 +4,7 @@ import PoolInfoPopover from "./PoolInfoPopover";
 import PoolWidget from "./PoolWidget";
 import { PoolInfo } from "./types";
 import { Pool } from "@/protoOS/api/generatedApi";
-import { usePopover } from "@/shared/components/Popover";
+import { useResponsivePopover } from "@/shared/components/Popover";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
 interface PoolStatusProps {
@@ -20,10 +20,7 @@ const PoolStatus = ({
   poolsInfo,
   shouldShowPopover = false,
 }: PoolStatusProps) => {
-  const { triggerRef: WidgetRef, setIsTriggerFixed } = usePopover();
-  useEffect(() => {
-    setIsTriggerFixed(true);
-  }, [setIsTriggerFixed]);
+  const { triggerRef: WidgetRef } = useResponsivePopover();
 
   const [poolInfo, setPoolInfo] = useState<PoolInfo>();
   const [showPopover, setShowPopover] = useState(shouldShowPopover);

@@ -58,10 +58,12 @@ const computeBasePosition = (
   return { top, left };
 };
 
+type PopoverRenderMode = "inline" | "portal-fixed" | "portal-scrolling";
+
 const usePopoverPosition = (
   triggerRef: MutableRefObject<HTMLDivElement | null>,
   offset: number,
-  isTriggerFixed: boolean,
+  renderMode: PopoverRenderMode,
   position?: Position,
 ) => {
   const { width: viewportWidth, height: viewportHeight } =
@@ -177,15 +179,17 @@ const usePopoverPosition = (
           : "animate-slide-up-popover",
       );
 
-      // when trigger is fixed on page, popover will be child element of trigger element
-      // this way we do not need to recompute position on scroll
-      if (!isTriggerFixed) {
-        // otherwise popover will be teleported to document body, set absolute document position
-        // we assume both popover and trigger element will move in sync on scroll,
-        // therefore there is no need to recompute position on scroll
+      // Adjust positioning based on render mode
+      if (renderMode === "portal-fixed") {
+        // Portal with fixed positioning: use viewport coordinates (no page offset)
+        top = triggerRect.top + top;
+        left = triggerRect.left + left;
+      } else if (renderMode === "portal-scrolling") {
+        // Portal with scrolling: use document coordinates (with page offset)
         top = triggerRect.top + top + initialPageOffset;
         left = triggerRect.left + left;
       }
+      // For "inline" mode, keep relative positioning (no adjustment needed)
       setPopoverStyle({
         top: `${top}px`,
         left: `${left}px`,
@@ -196,7 +200,7 @@ const usePopoverPosition = (
     computePosition();
   }, [
     triggerRect,
-    isTriggerFixed,
+    renderMode,
     popoverRef,
     popoverRect,
     position,

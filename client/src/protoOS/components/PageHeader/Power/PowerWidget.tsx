@@ -18,7 +18,7 @@ import { useIsAwake, useIsSleeping } from "@/protoOS/store";
 import { Power } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 
-import { usePopover } from "@/shared/components/Popover";
+import { useResponsivePopover } from "@/shared/components/Popover";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
 interface PowerWidgetProps {
@@ -44,13 +44,9 @@ const PowerWidget = ({
   sleepError,
   shouldShowPopover,
 }: PowerWidgetProps) => {
-  const { triggerRef: WidgetRef, setIsTriggerFixed } = usePopover();
+  const { triggerRef: WidgetRef } = useResponsivePopover();
   const isAwake = useIsAwake();
   const isSleeping = useIsSleeping();
-
-  useEffect(() => {
-    setIsTriggerFixed(true);
-  }, [setIsTriggerFixed]);
 
   const [isOpen, setIsOpen] = useState(shouldShowPopover);
   const [warnReboot, setWarnReboot] = useState(false);
