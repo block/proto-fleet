@@ -1,5 +1,6 @@
 export const navigationItems = {
   home: "hashrate",
+  diagnostics: "diagnostics",
   logs: "logs",
   miningPools: "settings/mining-pools",
   authentication: "settings/authentication",

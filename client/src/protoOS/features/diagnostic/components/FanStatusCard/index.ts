@@ -1,2 +1,2 @@
 export { default } from "./FanStatusCard";
-export type { FanData } from "./FanStatusCard";
+export type { FanData } from "../../types";

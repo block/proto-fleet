@@ -57,8 +57,8 @@ export interface PsuData {
   outputVoltage: number;
   inputPower: number;
   outputPower: number;
-  avgTemp: number;
-  maxTemp: number;
+  avgTemp: number | undefined | null;
+  maxTemp: number | undefined | null;
   hasWarning?: boolean;
   meta: PsuMetadata;
 }

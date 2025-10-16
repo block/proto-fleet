@@ -1,17 +1,158 @@
+import { useEffect } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
 import PsuStatusCard from "./PsuStatusCard";
+import useMinerStore from "@/protoOS/store/useMinerStore";
+
+// Configuration for different stories
+const storyConfigs: Record<
+  number,
+  {
+    slot: number;
+    inputVoltage: number;
+    outputVoltage: number;
+    inputPower: number;
+    outputPower: number;
+    temps: number[];
+  }
+> = {
+  1: {
+    slot: 1,
+    inputVoltage: 220.0,
+    outputVoltage: 12.5,
+    inputPower: 3200,
+    outputPower: 3000,
+    temps: [45.0, 48.0, 52.0],
+  }, // Default - normal operation
+  2: {
+    slot: 2,
+    inputVoltage: 218.0,
+    outputVoltage: 12.3,
+    inputPower: 3400,
+    outputPower: 3150,
+    temps: [62.0, 68.0, 72.0],
+  }, // WithWarning - high temps
+  3: {
+    slot: 3,
+    inputVoltage: 222.0,
+    outputVoltage: 12.6,
+    inputPower: 3800,
+    outputPower: 3600,
+    temps: [55.0, 58.0, 61.0],
+  }, // HighLoad - high power
+  4: {
+    slot: 4,
+    inputVoltage: 215.0,
+    outputVoltage: 11.8,
+    inputPower: 3900,
+    outputPower: 3500,
+    temps: [78.0, 82.0, 85.0],
+  }, // CriticalState - critical temps and voltage issues
+  5: {
+    slot: 5,
+    inputVoltage: 0,
+    outputVoltage: 0,
+    inputPower: 0,
+    outputPower: 0,
+    temps: [25.0, 25.0, 25.0],
+  }, // Offline - no power
+};
+
+// Store decorator that provides mock data
+const StoreDecorator = (Story: any, context: any) => {
+  const psuId = context.args.psuId;
+
+  useEffect(() => {
+    const store = useMinerStore.getState();
+
+    // Get config for this PSU ID
+    const config = storyConfigs[psuId] || {
+      slot: 1,
+      inputVoltage: 220.0,
+      outputVoltage: 12.5,
+      inputPower: 3200,
+      outputPower: 3000,
+      temps: [45.0, 48.0, 52.0],
+    };
+
+    // Mock PSU hardware data
+    store.hardware.addPsu({
+      id: psuId,
+      slot: config.slot,
+      serial: `PSU-${psuId.toString().padStart(6, "0")}`,
+      manufacturer: "Murata Power Solutions",
+      model: "D3K3-W-3000-12-HC4C5",
+      hwRevision: "v2.1",
+      firmware: {
+        appVersion: "2.1.5",
+        bootloaderVersion: "1.2.0",
+      },
+    });
+
+    // Mock PSU telemetry data
+    store.telemetry.updatePsuTelemetry(psuId, {
+      inputVoltage: {
+        latest: { value: config.inputVoltage, units: "V" },
+        timeSeries: {
+          units: "V",
+          values: [],
+          startTime: Date.now(),
+          endTime: Date.now(),
+        },
+      },
+      outputVoltage: {
+        latest: { value: config.outputVoltage, units: "V" },
+        timeSeries: {
+          units: "V",
+          values: [],
+          startTime: Date.now(),
+          endTime: Date.now(),
+        },
+      },
+      inputPower: {
+        latest: { value: config.inputPower, units: "W" },
+        timeSeries: {
+          units: "W",
+          values: [],
+          startTime: Date.now(),
+          endTime: Date.now(),
+        },
+      },
+      outputPower: {
+        latest: { value: config.outputPower, units: "W" },
+        timeSeries: {
+          units: "W",
+          values: [],
+          startTime: Date.now(),
+          endTime: Date.now(),
+        },
+      },
+      temperatures: config.temps.map((temp) => ({
+        latest: { value: temp, units: "C" },
+        timeSeries: {
+          units: "C",
+          values: [],
+          startTime: Date.now(),
+          endTime: Date.now(),
+        },
+      })),
+    });
+  }, [psuId]);
+
+  return <Story />;
+};
 
 const meta: Meta<typeof PsuStatusCard> = {
   title: "ProtoOS/Diagnostic/PsuStatusCard",
   component: PsuStatusCard,
+  decorators: [StoreDecorator],
   parameters: {
     layout: "padded",
   },
   tags: ["autodocs"],
   argTypes: {
-    psuData: {
-      control: "object",
-      description: "PSU data object",
+    psuId: {
+      control: "number",
+      description: "PSU ID",
     },
   },
 };
@@ -21,88 +162,30 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
   args: {
-    psuData: {
-      id: 1,
-      name: "PSU 1",
-      position: 1,
-      inputVoltage: 110.0,
-      outputVoltage: 12.0,
-      inputPower: 120.0,
-      outputPower: 102.0,
-      avgTemp: 45.2,
-      maxTemp: 52.1,
-      meta: {},
-    },
+    psuId: 1,
   },
 };
 
 export const WithWarning: Story = {
   args: {
-    psuData: {
-      id: 2,
-      name: "PSU 2",
-      position: 2,
-      inputVoltage: 108.5,
-      outputVoltage: 11.8,
-      inputPower: 135.0,
-      outputPower: 120.4,
-      avgTemp: 58.7,
-      maxTemp: 65.3,
-      hasWarning: true,
-      meta: {},
-    },
+    psuId: 2,
   },
 };
 
 export const HighLoad: Story = {
   args: {
-    psuData: {
-      id: 3,
-      name: "PSU 3",
-      position: 3,
-      inputVoltage: 112.0,
-      outputVoltage: 12.1,
-      inputPower: 210.0,
-      outputPower: 191.2,
-      avgTemp: 62.1,
-      maxTemp: 68.5,
-      meta: {},
-    },
+    psuId: 3,
   },
 };
 
 export const CriticalState: Story = {
   args: {
-    psuData: {
-      id: 4,
-      name: "PSU 4",
-      position: 4,
-      inputVoltage: 105.0,
-      outputVoltage: 11.2,
-      inputPower: 240.0,
-      outputPower: 211.7,
-      avgTemp: 75.3,
-      maxTemp: 82.1,
-      hasWarning: true,
-      meta: {},
-    },
+    psuId: 4,
   },
 };
 
 export const Offline: Story = {
   args: {
-    psuData: {
-      id: 5,
-      name: "PSU 5",
-      position: 5,
-      inputVoltage: 0.0,
-      outputVoltage: 0.0,
-      inputPower: 0.0,
-      outputPower: 0.0,
-      avgTemp: 25.0,
-      maxTemp: 25.0,
-      hasWarning: true,
-      meta: {},
-    },
+    psuId: 5,
   },
 };

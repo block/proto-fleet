@@ -2,17 +2,25 @@ import { useState } from "react";
 import FanInfoModal from "./FanInfoModal";
 import Card from "@/protoOS/features/diagnostic/components/Card";
 import CardHeader from "@/protoOS/features/diagnostic/components/CardHeader";
-import type { FanData } from "@/protoOS/features/diagnostic/types";
-import { Alert, FanIndicatorV2 as FanIndicator } from "@/shared/assets/icons";
-
-export type { FanData };
+import { useMinerFan } from "@/protoOS/store";
+import { FanIndicatorV2 as FanIndicator } from "@/shared/assets/icons";
 
 interface FanStatusCardProps {
-  fanData: FanData;
+  fanId: number;
 }
 
-function FanStatusCard({ fanData }: FanStatusCardProps) {
+function FanStatusCard({ fanId }: FanStatusCardProps) {
+  // Fetch data directly from store
+  const fanData = useMinerFan(fanId);
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // Compute display values
+  const rpm = fanData?.rpm?.latest?.value ?? 0;
+  const pwm = fanData?.percentage?.latest?.value ?? 0;
+  const position = fanData?.slot ?? fanData?.id ?? 0;
+  const name = fanData?.name ?? `Fan ${position}`;
+  // TODO: Add hasWarning logic based on error state
+
   const formatRPM = (rpm: number) => {
     return rpm.toLocaleString() + " RPM";
   };
@@ -24,26 +32,34 @@ function FanStatusCard({ fanData }: FanStatusCardProps) {
   return (
     <Card>
       <CardHeader
-        title={fanData.name}
-        statusIcon={
-          fanData.hasWarning ? <Alert className="text-text-critical" /> : null
-        }
-        componentIcon={<FanIndicator position={fanData.position} />}
+        title={name}
+        statusIcon={null /* TODO: Add warning icon based on error state */}
+        componentIcon={<FanIndicator position={position} />}
         onInfoIconClick={() => setIsModalOpen(true)}
       />
 
       <div>
         <div className="text-emphasis-300 text-text-primary">
-          {formatRPM(fanData.rpm)}
+          {formatRPM(rpm)}
         </div>
-        <div className="text-300 text-text-primary-70">
-          {formatPWM(fanData.pwm)}
-        </div>
+        <div className="text-300 text-text-primary-70">{formatPWM(pwm)}</div>
       </div>
-      {isModalOpen && (
+      {isModalOpen && fanData && (
         <FanInfoModal
           onDismiss={() => setIsModalOpen(false)}
-          fanData={fanData}
+          fanData={{
+            id: fanId,
+            position,
+            name,
+            rpm,
+            pwm,
+            meta: {
+              serialNumber: undefined,
+              manufacturer: undefined,
+              model: undefined,
+              firmwareVersion: undefined,
+            },
+          }}
         />
       )}
     </Card>

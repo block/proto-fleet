@@ -98,6 +98,13 @@ export {
   useAsicHardware,
   useAsicPosition,
   useAsicsByHashboard,
+  useControlBoard,
+  usePsus,
+  usePsuIds,
+  usePsu,
+  useFans,
+  useFanIds,
+  useFan,
 } from "./hooks/useHardware";
 
 export {

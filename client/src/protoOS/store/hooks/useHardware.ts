@@ -74,5 +74,30 @@ export const useAsicsByHashboard = (hashboardSerial: string) =>
 export const useControlBoard = () =>
   useMinerStore((state) => state.hardware.controlBoard);
 
+// PSU hooks
 export const usePsus = () =>
   useMinerStore((state) => state.hardware.getAllPsus());
+
+export const usePsuIds = () =>
+  useMinerStore(
+    useShallow((state) =>
+      Array.from(state.hardware.psus.values()).map((psu) => psu.id),
+    ),
+  );
+
+export const usePsu = (id: number) =>
+  useMinerStore((state) => state.hardware.getPsu(id));
+
+// Fan hooks
+export const useFans = () =>
+  useMinerStore((state) => state.hardware.getAllFans());
+
+export const useFanIds = () =>
+  useMinerStore(
+    useShallow((state) =>
+      Array.from(state.hardware.fans.values()).map((fan) => fan.id),
+    ),
+  );
+
+export const useFan = (id: number) =>
+  useMinerStore((state) => state.hardware.getFan(id));

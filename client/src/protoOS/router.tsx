@@ -1,5 +1,6 @@
 import { createBrowserRouter, Outlet, redirect } from "react-router-dom";
 
+import { DiagnosticView } from "./features/diagnostic/components";
 import App from "@/protoOS/components/App";
 import FullScreenContentLayout from "@/protoOS/components/ContentLayout/FullScreenContentLayout";
 import SettingsContentLayout from "@/protoOS/components/ContentLayout/SettingsContentLayout";
@@ -72,6 +73,18 @@ export const routerConfig = [
   },
 
   // TODO: These should all be rendered inside the App component
+  {
+    path: "diagnostics",
+    element: (
+      <App title="Diagnostics" hideErrors>
+        <DiagnosticView />
+      </App>
+    ),
+  },
+  {
+    path: "diagnostics/:serial",
+    element: <HashboardTemperature />,
+  },
   {
     path: "onboarding",
     element: <Onboarding />,
