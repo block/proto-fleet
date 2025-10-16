@@ -1,15 +1,21 @@
 import HbTempPreview from "../HbTempPreview";
-import { type HashboardData } from "@/protoOS/store";
+import { useSlotsPerBay } from "@/protoOS/store";
 
 type HbBayPreviewProps = {
-  data: HashboardData[];
+  serials: (string | null)[];
+  bay: number;
 };
 
-const HbBayPreview = ({ data }: HbBayPreviewProps) => {
+const HbBayPreview = ({ serials, bay }: HbBayPreviewProps) => {
+  const slotsPerBay = useSlotsPerBay();
   return (
     <div className="mb-4 flex flex-col overflow-hidden rounded-xl border-1 border-border-10 phone:grid-cols-1 phone:gap-y-4 phone:rounded-none phone:shadow-none">
-      {data.map((hbData) => (
-        <HbTempPreview key={hbData.serial} hbData={hbData} />
+      {serials.map((serial, idx) => (
+        <HbTempPreview
+          key={`${bay}-${idx}`}
+          serial={serial}
+          slot={bay * slotsPerBay + idx + 1}
+        />
       ))}
     </div>
   );

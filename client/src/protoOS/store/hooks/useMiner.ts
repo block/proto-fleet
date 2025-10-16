@@ -34,22 +34,24 @@ export const useMiner = (): MinerData | null => {
 /**
  * Get combined hashboard data combining hardware info + telemetry
  */
-export const useMinerHashboard = (serial: string): HashboardData | null => {
+export const useMinerHashboard = (
+  serial: string | null,
+): HashboardData | null => {
   const hardware = useMinerStore((state) =>
-    state.hardware.getHashboard(serial),
+    serial ? state.hardware.getHashboard(serial) : null,
   );
   const telemetry = useMinerStore((state) =>
-    state.telemetry.hashboards.get(serial),
+    serial ? state.telemetry.hashboards.get(serial) : undefined,
   );
 
   return useMemo(() => {
-    if (!hardware) return null;
+    if (!serial || !hardware) return null;
 
     return {
       ...hardware,
       ...telemetry,
     };
-  }, [hardware, telemetry]);
+  }, [serial, hardware, telemetry]);
 };
 
 /**

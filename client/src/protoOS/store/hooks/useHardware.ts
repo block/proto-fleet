@@ -2,6 +2,9 @@ import { useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import useMinerStore from "../useMinerStore";
 
+// TODO: This should come from the API when available
+const SLOTS_PER_BAY = 3;
+
 // =============================================================================
 // Hardware Convenience Hooks
 // =============================================================================
@@ -20,15 +23,78 @@ export const useHashboardsHardware = () => {
 export const useHashboardSerials = () =>
   useMinerStore(
     useShallow((state) =>
-      Array.from(state.hardware.hashboards.values()).map((hb) => hb.serial),
+      Array.from(state.hardware.hashboards.values())
+        .sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0))
+        .map((hb) => hb.serial),
     ),
   );
+
+/**
+ * Returns hashboard serials grouped by bay, with null for empty slots
+ * @returns Object with bay indices as keys, arrays of serials (or null) as values
+ * @example
+ * // For a miner with 2 bays, 3 slots per bay, with one missing hashboard:
+ * // Returns: { 1: ["serial1", "serial2", "serial3"], 2: ["serial4", null, "serial6"] }
+ */
+export const useHashboardSerialsByBay = () => {
+  const hashboards = useMinerStore((state) => state.hardware.hashboards);
+  const maxBayIndex = useMinerStore((state) => state.hardware.getBayCount());
+
+  return useMemo(() => {
+    const hashboardsArray = Array.from(hashboards.values());
+    const hashboardsByBay: Record<number, (string | null)[]> = {};
+
+    // Bay indices are 1-based, so iterate from 1 to maxBayIndex
+    for (let bay = 1; bay <= maxBayIndex; bay++) {
+      // Filter hashboards that belong to this bay
+      // If bay property is not set, try to derive it from slot
+      const hashboardsInBay = hashboardsArray.filter((hb) => {
+        if (hb.bay !== undefined) {
+          return hb.bay === bay;
+        }
+        // Fallback: calculate bay from slot if bay is not set
+        // slot / SLOTS_PER_BAY gives us the bay (0-indexed), add 1 to make it 1-indexed
+        if (hb.slot !== undefined) {
+          const calculatedBay = Math.floor(hb.slot / SLOTS_PER_BAY) + 1;
+          return calculatedBay === bay;
+        }
+        return false;
+      });
+
+      // Initialize array with nulls for all slots in the bay
+      const serialsArray: (string | null)[] = Array(SLOTS_PER_BAY).fill(null);
+
+      // Fill in the serials at their slot positions
+      hashboardsInBay.forEach((hb) => {
+        // Use slotIndexByBay if available, otherwise calculate from slot
+        let slotIndex = hb.slotIndexByBay;
+        if (slotIndex === undefined && hb.slot !== undefined) {
+          slotIndex = hb.slot % SLOTS_PER_BAY;
+        }
+        slotIndex = slotIndex ?? 0;
+
+        if (slotIndex < SLOTS_PER_BAY) {
+          serialsArray[slotIndex] = hb.serial;
+        }
+      });
+
+      hashboardsByBay[bay] = serialsArray;
+    }
+
+    return hashboardsByBay;
+  }, [hashboards, maxBayIndex]);
+};
 
 export const useHashboardHardware = (serial: string) =>
   useMinerStore((state) => state.hardware.getHashboard(serial));
 
 export const useHashboardsByBay = (bay: number) =>
   useMinerStore((state) => state.hardware.getHashboardsByBay(bay));
+
+export const useSlotsPerBay = () => {
+  // TODO: This should come from the API when available
+  return SLOTS_PER_BAY;
+};
 
 export const useBayCount = () =>
   useMinerStore((state) => state.hardware.getBayCount());

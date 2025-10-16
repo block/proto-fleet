@@ -81,7 +81,10 @@ describe("HbTempPreview", () => {
     render(
       <MemoryRouter>
         <MinerHostingProvider>
-          <HbTempPreview hbData={mockHbData} />
+          <HbTempPreview
+            serial={mockHbData.serial}
+            slot={mockHbData.slot ?? 1}
+          />
         </MinerHostingProvider>
       </MemoryRouter>,
     );
@@ -119,7 +122,7 @@ describe("HbTempPreview", () => {
     render(
       <MemoryRouter>
         <MinerHostingProvider>
-          <HbTempPreview hbData={hbData} />
+          <HbTempPreview serial={hbData.serial} slot={hbData.slot ?? 1} />
         </MinerHostingProvider>
       </MemoryRouter>,
     );
@@ -133,7 +136,10 @@ describe("HbTempPreview", () => {
     render(
       <MemoryRouter>
         <MinerHostingProvider>
-          <HbTempPreview hbData={mockHbData} />
+          <HbTempPreview
+            serial={mockHbData.serial}
+            slot={mockHbData.slot ?? 1}
+          />
         </MinerHostingProvider>
       </MemoryRouter>,
     );
@@ -162,7 +168,10 @@ describe("HbTempPreview", () => {
     render(
       <MemoryRouter>
         <MinerHostingProvider>
-          <HbTempPreview hbData={overheatedHbData} />
+          <HbTempPreview
+            serial={overheatedHbData.serial}
+            slot={overheatedHbData.slot ?? 1}
+          />
         </MinerHostingProvider>
       </MemoryRouter>,
     );

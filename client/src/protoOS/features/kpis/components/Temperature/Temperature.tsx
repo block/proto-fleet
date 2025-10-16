@@ -1,13 +1,11 @@
-import { useMemo } from "react";
 import clsx from "clsx";
 import HbBayPreview from "./HbBayPreview";
 import { useCoolingStatus, useTelemetry } from "@/protoOS/api";
 import {
   type FanTelemetryData,
   formatValue,
-  useBayCount,
   useFansTelemetry,
-  useMinerHashboards,
+  useHashboardSerialsByBay,
 } from "@/protoOS/store";
 import { FanIndicator } from "@/shared/assets/icons";
 import { type StatProps } from "@/shared/components/Stat";
@@ -57,23 +55,9 @@ const Temperature = () => {
   // Fetch fan telemetry which is not yet included in Telemetry API
   useCoolingStatus({ poll: true });
 
-  // Fetch data from store
-  const hashboards = useMinerHashboards(); // integrated hashboard data (telemetry + hardware)
-  const bayCount = useBayCount(); // number of hashboard bays supported by miner
+  // fetch hashboard serials organized by bay
+  const hashboardSerialsByBay = useHashboardSerialsByBay();
   const fans = useFansTelemetry(); // fan telemetry data
-
-  // Organize hashboards by bay to avoid filtering on every render
-  const hashboardsByBay = useMemo(() => {
-    const byBay: { [bay: number]: typeof hashboards } = {};
-    hashboards.forEach((hashboard) => {
-      if (!hashboard.bay) return;
-      if (!byBay[hashboard.bay]) {
-        byBay[hashboard.bay] = [];
-      }
-      byBay[hashboard.bay].push(hashboard);
-    });
-    return byBay;
-  }, [hashboards]);
 
   return (
     <div className="flex flex-col gap-y-8 pt-4">
@@ -103,13 +87,10 @@ const Temperature = () => {
       )}
 
       <div className="flex grid-cols-3 flex-col gap-4 sm:grid">
-        {Array.from({ length: bayCount }).map((_, bayIndex) => {
-          const bayNumber = bayIndex + 1;
-          const bayData = hashboardsByBay[bayNumber] || [];
-
+        {Object.values(hashboardSerialsByBay).map((serials, bayIndex) => {
           return (
             <div key={bayIndex}>
-              <HbBayPreview data={bayData} />
+              <HbBayPreview serials={serials} bay={bayIndex} />
             </div>
           );
         })}
