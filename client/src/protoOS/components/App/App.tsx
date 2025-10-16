@@ -47,9 +47,12 @@ const App = ({
   const location = useLocation();
   const { pathname } = useMemo(() => location, [location]);
   const handleDismissLogin = useCallback(() => {
-    if (pathname === "/settings/mining-pools") {
-      // if user landed on mining pools page from within the app, navigate back
-      // else navigate to home
+    if (
+      pathname === "/settings/mining-pools" ||
+      pathname === "/settings/cooling"
+    ) {
+      // if user landed on an auth protected setting page from within the app,
+      //  navigate back else navigate to home
       navigate(location.state?.from || "/");
     }
     setDismissedLoginModal(true);
