@@ -24,7 +24,7 @@ const PoolInfoRow = ({
         subtitle={url}
         subtitleClassName="truncate"
         subtitleSize="text-200"
-        className="bg-transparent!"
+        className="bg-transparent! pl-4"
         compact
         showSubtitleTooltip
       />

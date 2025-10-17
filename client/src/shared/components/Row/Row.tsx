@@ -8,7 +8,6 @@ interface RowProps {
   compact?: boolean;
   className?: string;
   divider?: boolean;
-  isActive?: boolean;
   onClick?: () => void;
   prefixIcon?: ReactNode;
   suffixIcon?: ReactNode;
@@ -23,7 +22,6 @@ const Row = ({
   compact,
   className,
   divider = true,
-  isActive,
   onClick,
   prefixIcon,
   suffixIcon,
@@ -36,7 +34,6 @@ const Row = ({
       <Element
         className={clsx("peer", {
           "flex items-center gap-4": suffixIcon || prefixIcon,
-          "hover:bg-core-primary-5": onClick && !isActive,
           "-ml-3 w-[calc(100%+24px)] rounded-lg px-3": onClick,
         })}
         onClick={onClick}
@@ -50,20 +47,21 @@ const Row = ({
             { "py-2": compact },
             { "py-3": !compact },
             { "w-full": !onClick },
+            { "min-w-0": suffixIcon || prefixIcon },
             className,
           )}
         >
           {children}
         </div>
         {suffixIcon && <div className="m-4">{suffixIcon}</div>}
-        {divider && (
-          <Divider
-            className={clsx("mt-[-1px]", {
-              "px-4 peer-hover:invisible": onClick,
-            })}
-          />
-        )}
       </Element>
+      {divider && (
+        <Divider
+          className={clsx("mt-[-1px]", {
+            "px-4 peer-hover:invisible": onClick,
+          })}
+        />
+      )}
     </div>
   );
 };
