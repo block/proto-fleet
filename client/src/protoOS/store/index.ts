@@ -95,7 +95,6 @@ export {
   useSlotsPerBay,
   useHashboardSlot,
   useHashboardBay,
-  useHashboardBaySlotIndex,
   useAsicRowsByHbSn,
   useAsicHardware,
   useAsicPosition,

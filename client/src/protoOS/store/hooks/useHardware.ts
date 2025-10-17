@@ -66,12 +66,10 @@ export const useHashboardSerialsByBay = () => {
 
       // Fill in the serials at their slot positions
       hashboardsInBay.forEach((hb) => {
-        // Use slotIndexByBay if available, otherwise calculate from slot
-        let slotIndex = hb.slotIndexByBay;
-        if (slotIndex === undefined && hb.slot !== undefined) {
-          slotIndex = hb.slot % SLOTS_PER_BAY;
-        }
-        slotIndex = slotIndex ?? 0;
+        // Calculate slot index within the bay from slot number
+        // Slots are 1-based, so subtract 1 to get 0-based index within the bay
+        const slotIndex =
+          hb.slot !== undefined ? (hb.slot - 1) % SLOTS_PER_BAY : 0;
 
         if (slotIndex < SLOTS_PER_BAY) {
           serialsArray[slotIndex] = hb.serial;
@@ -104,9 +102,6 @@ export const useHashboardSlot = (serial: string) =>
 
 export const useHashboardBay = (serial: string) =>
   useMinerStore((state) => state.hardware.getBayByHbSn(serial));
-
-export const useHashboardBaySlotIndex = (serial: string) =>
-  useMinerStore((state) => state.hardware.getBaySlotIndexByHbSn(serial));
 
 export const useAsicRowsByHbSn = (serial: string) => {
   const hashboard = useMinerStore((state) =>

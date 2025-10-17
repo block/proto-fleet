@@ -130,7 +130,6 @@ export interface HashboardHardwareData {
   slot?: number;
   bay?: number;
   board?: string;
-  slotIndexByBay?: number;
   asicIds?: string[];
 
   // Additional fields from HashboardInfo API

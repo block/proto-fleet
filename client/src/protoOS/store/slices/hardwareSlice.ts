@@ -42,7 +42,6 @@ export interface HardwareSlice {
   getBayCount: () => number;
   getSlotByHbSn: (serial: string) => number | undefined;
   getBayByHbSn: (serial: string) => number | undefined;
-  getBaySlotIndexByHbSn: (serial: string) => number | undefined;
 
   // ASIC Actions
   setAsics: (asics: AsicHardwareData[]) => void;
@@ -162,12 +161,6 @@ export const createHardwareSlice: StateCreator<
 
   getBayByHbSn: (serial) => {
     return get().hardware.hashboards.get(serial)?.bay;
-  },
-
-  // returns the index of of the slot within a given bay
-  // e.g. slot 4 would be index 0 of bay 2
-  getBaySlotIndexByHbSn: (serial) => {
-    return get().hardware.hashboards.get(serial)?.slotIndexByBay;
   },
 
   // ASIC Actions
