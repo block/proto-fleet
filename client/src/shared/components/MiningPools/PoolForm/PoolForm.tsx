@@ -80,7 +80,7 @@ const PoolForm = ({
     validationErrors,
   ]);
 
-  const onChange = useCallback(
+  const onPoolChange = useCallback(
     (value: string, id: string) => {
       setShowCallout(false);
       // in order to avoid multiple instances of the same id in the form,
@@ -121,7 +121,7 @@ const PoolForm = ({
           id={`${info.url} ${poolIndex}`}
           label="Pool URL"
           maxLength={2083}
-          onChange={onChange}
+          onChangeBlur={onPoolChange}
           onKeyDown={onKeyDown}
           initValue={pools[poolIndex].url}
           testId={`${info.url}-${poolIndex}-input`}
@@ -136,7 +136,7 @@ const PoolForm = ({
         <Input
           id={`${info.username} ${poolIndex}`}
           label="Username"
-          onChange={onChange}
+          onChangeBlur={onPoolChange}
           onKeyDown={onKeyDown}
           initValue={pools[poolIndex].username}
           tooltip={{

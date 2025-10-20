@@ -32,6 +32,7 @@ interface InputProps {
   label: string;
   maxLength?: number;
   onChange?: (value: string, id: string) => void;
+  onChangeBlur?: (value: string, id: string) => void;
   onKeyDown?: (key: string) => void;
   testId?: string;
   tooltip?: { header: string; body: string };
@@ -64,6 +65,7 @@ const Input = ({
   label,
   maxLength,
   onChange,
+  onChangeBlur,
   onKeyDown,
   testId,
   tooltip,
@@ -171,6 +173,7 @@ const Input = ({
             setFocused(true);
           }}
           onBlur={() => {
+            onChangeBlur?.(String(value), id);
             onBlur && onBlur();
             setFocused(false);
           }}
