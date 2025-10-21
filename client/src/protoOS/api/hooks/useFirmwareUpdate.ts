@@ -4,16 +4,18 @@ import { HttpResponse, MessageResponse } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import {
   AUTH_ACTIONS,
-  getAuthHeader,
   useAccessToken,
-  useAuthContext,
-} from "@/protoOS/features/auth/contexts/AuthContext";
+  useAuthHeader,
+  usePausedAuthAction,
+  useSetPausedAuthAction,
+} from "@/protoOS/store";
 
 const useFirmwareUpdate = () => {
   const { checkAccess, hasAccess } = useAccessToken(true);
   const { api } = useMinerHosting();
-  const { authTokens, pausedAuthAction, setPausedAuthAction } =
-    useAuthContext();
+  const authHeader = useAuthHeader();
+  const pausedAuthAction = usePausedAuthAction();
+  const setPausedAuthAction = useSetPausedAuthAction();
 
   // called when you click install.
   // adds a paused action and calls check access
@@ -30,9 +32,7 @@ const useFirmwareUpdate = () => {
       if (hasAccess && pausedAuthAction === AUTH_ACTIONS.update) {
         setPausedAuthAction(null);
         try {
-          const response = await api?.postUpdateSystem(
-            getAuthHeader(authTokens.accessToken.value),
-          );
+          const response = await api?.postUpdateSystem(authHeader);
 
           // Check if the response has a JSON parsing error embedded in it
           if (
@@ -75,13 +75,7 @@ const useFirmwareUpdate = () => {
     };
 
     handleUpdate();
-  }, [
-    api,
-    authTokens.accessToken.value,
-    hasAccess,
-    pausedAuthAction,
-    setPausedAuthAction,
-  ]);
+  }, [api, authHeader, hasAccess, pausedAuthAction, setPausedAuthAction]);
 
   const checkFirmwareUpdate = useCallback(async () => {
     try {

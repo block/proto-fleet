@@ -5,11 +5,7 @@ import { PoolConfigInner } from "@/protoOS/api/generatedApi";
 
 import { usePoolsInfo } from "@/protoOS/api/hooks/usePoolsInfo";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import {
-  getAuthHeader,
-  useAuthContext,
-  useAuthErrors,
-} from "@/protoOS/features/auth/contexts/AuthContext";
+import { useAuthErrors, useAuthHeader } from "@/protoOS/store";
 
 interface EditPoolProps {
   onError?: (err: SimpleErrorProps) => void;
@@ -23,7 +19,7 @@ const useEditPool = () => {
   const { api } = useMinerHosting();
 
   const { fetchData } = usePoolsInfo();
-  const { authTokens } = useAuthContext();
+  const authHeader = useAuthHeader();
   const { handleAuthErrors } = useAuthErrors();
 
   const editPool = useCallback(
@@ -37,11 +33,7 @@ const useEditPool = () => {
       if (!api) return;
 
       await api
-        .editPool(
-          { id: poolId },
-          poolInfo,
-          getAuthHeader(authTokens.accessToken.value),
-        )
+        .editPool({ id: poolId }, poolInfo, authHeader)
         .then(() => {
           onSuccess?.();
         })
@@ -65,7 +57,7 @@ const useEditPool = () => {
           fetchData({ retryOnMinerDown });
         });
     },
-    [authTokens.accessToken.value, handleAuthErrors, fetchData, api],
+    [authHeader, handleAuthErrors, fetchData, api],
   );
 
   return {

@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { useLogin, usePassword } from "@/protoOS/api";
-import { useAccessToken } from "@/protoOS/features/auth/contexts/AuthContext";
+import { useAccessToken } from "@/protoOS/store";
 import { Authentication } from "@/shared/components/Setup";
 import {
   pushToast,

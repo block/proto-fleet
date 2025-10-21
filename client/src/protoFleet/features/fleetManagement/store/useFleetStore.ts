@@ -488,7 +488,26 @@ export const useFleetStore = create<FleetState>()(
         },
       ),
     ),
-    { name: "fleet-store" },
+    {
+      name: "fleet-store",
+      serialize: {
+        replacer: (_: string, value: unknown) => {
+          // Handle BigInt (protobuf uses BigInt for 64-bit integers)
+          if (typeof value === "bigint") {
+            return value.toString();
+          }
+          // Handle Maps
+          if (value instanceof Map) {
+            return Object.fromEntries(value);
+          }
+          // Handle functions (don't serialize them, just show their names)
+          if (typeof value === "function") {
+            return `[Function: ${value.name || "anonymous"}]`;
+          }
+          return value;
+        },
+      },
+    },
   ),
 );
 

@@ -5,14 +5,9 @@ import { PoolConfig } from "@/protoOS/api/generatedApi";
 
 import { usePoolsInfo } from "@/protoOS/api/hooks/usePoolsInfo";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import {
-  getAuthHeader,
-  useAuthContext,
-  useAuthErrors,
-} from "@/protoOS/features/auth/contexts/AuthContext";
+import { useAuthErrors, useAuthHeader } from "@/protoOS/store";
 
 interface CreatePoolsProps {
-  accessTokenValue?: string;
   onError?: (err: SimpleErrorProps) => void;
   onSuccess?: () => void;
   poolInfo: PoolConfig;
@@ -23,12 +18,11 @@ const useCreatePools = () => {
   const { api } = useMinerHosting();
 
   const { fetchData } = usePoolsInfo();
-  const { authTokens } = useAuthContext();
+  const authHeader = useAuthHeader();
   const { handleAuthErrors } = useAuthErrors();
 
   const createPools = useCallback(
     async ({
-      accessTokenValue,
       poolInfo,
       onSuccess,
       onError,
@@ -37,10 +31,7 @@ const useCreatePools = () => {
       if (!api) return;
 
       await api
-        .createPools(
-          poolInfo,
-          getAuthHeader(accessTokenValue || authTokens.accessToken.value),
-        )
+        .createPools(poolInfo, authHeader)
         .then(() => {
           onSuccess?.();
         })
@@ -49,9 +40,8 @@ const useCreatePools = () => {
             error,
             // @ts-ignore
             onError,
-            onSuccess: (accessTokenValue) => {
+            onSuccess: () => {
               createPools({
-                accessTokenValue,
                 poolInfo,
                 onSuccess,
                 onError,
@@ -64,7 +54,7 @@ const useCreatePools = () => {
           fetchData({ retryOnMinerDown });
         });
     },
-    [authTokens.accessToken.value, handleAuthErrors, fetchData, api],
+    [authHeader, handleAuthErrors, fetchData, api],
   );
 
   return {

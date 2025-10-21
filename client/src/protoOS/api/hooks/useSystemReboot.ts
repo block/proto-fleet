@@ -3,14 +3,9 @@ import { useCallback, useMemo, useState } from "react";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import {
-  getAuthHeader,
-  useAuthContext,
-  useAuthErrors,
-} from "@/protoOS/features/auth/contexts/AuthContext";
+import { useAuthErrors, useAuthHeader } from "@/protoOS/store";
 
 interface RebootSystemProps {
-  accessTokenValue?: string;
   onError?: (err: ErrorProps) => void;
   onSuccess?: () => void;
 }
@@ -18,18 +13,16 @@ interface RebootSystemProps {
 const useSystemReboot = () => {
   const { api } = useMinerHosting();
   const [pending, setPending] = useState<boolean>(false);
-  const { authTokens } = useAuthContext();
+  const authHeader = useAuthHeader();
   const { handleAuthErrors } = useAuthErrors();
 
   const rebootSystem = useCallback(
-    ({ accessTokenValue, onError, onSuccess }: RebootSystemProps = {}) => {
+    ({ onError, onSuccess }: RebootSystemProps = {}) => {
       if (!api) return;
 
       setPending(true);
       api
-        .rebootSystem(
-          getAuthHeader(accessTokenValue || authTokens.accessToken.value),
-        )
+        .rebootSystem(authHeader)
         .then(() => {
           onSuccess?.();
         })
@@ -38,13 +31,13 @@ const useSystemReboot = () => {
           handleAuthErrors({
             error,
             onError,
-            onSuccess: (accessTokenValue) => {
-              rebootSystem({ accessTokenValue, onError, onSuccess });
+            onSuccess: () => {
+              rebootSystem({ onError, onSuccess });
             },
           });
         });
     },
-    [authTokens.accessToken.value, handleAuthErrors, api],
+    [authHeader, handleAuthErrors, api],
   );
 
   return useMemo(() => ({ pending, rebootSystem }), [pending, rebootSystem]);

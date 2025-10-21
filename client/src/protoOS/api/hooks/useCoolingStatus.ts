@@ -10,12 +10,7 @@ import {
   HttpResponse,
 } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import {
-  getAuthHeader,
-  useAuthContext,
-  useAuthErrors,
-} from "@/protoOS/features/auth/contexts/AuthContext";
-import { useMinerStore } from "@/protoOS/store";
+import { useAuthErrors, useAuthHeader, useMinerStore } from "@/protoOS/store";
 
 // Extended type to account for null fan statuses when slots are missing
 export type CoolingStatusWithNullableFans = Omit<
@@ -31,7 +26,6 @@ interface UseCoolingStatusProps {
 
 interface SetCoolingProps {
   mode: CoolingConfig["mode"];
-  accessTokenValue?: string;
   onSuccess?: (res: HttpResponse<CoolingConfig>) => void;
   onError?: (error: ErrorProps) => void;
 }
@@ -41,7 +35,7 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
   const [data, setData] = useState<CoolingStatusWithNullableFans>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
-  const { authTokens } = useAuthContext();
+  const authHeader = useAuthHeader();
   const { handleAuthErrors } = useAuthErrors();
 
   const fetchData = useCallback(() => {
@@ -120,14 +114,11 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
   }, [data]);
 
   const setCooling = useCallback(
-    async ({ mode, accessTokenValue, onSuccess, onError }: SetCoolingProps) => {
+    async ({ mode, onSuccess, onError }: SetCoolingProps) => {
       if (!api) return;
       setPending(true);
       await api
-        .setCoolingMode(
-          { mode },
-          getAuthHeader(accessTokenValue || authTokens.accessToken.value),
-        )
+        .setCoolingMode({ mode }, authHeader)
         .then(async (res) => {
           const data = await res.json();
           setData(data.mode);
@@ -140,13 +131,13 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
             onError: (error) => {
               (onError?.(error), setPending(false));
             },
-            onSuccess: (accessTokenValue) => {
-              setCooling({ mode, accessTokenValue, onSuccess, onError });
+            onSuccess: () => {
+              setCooling({ mode, onSuccess, onError });
             },
           });
         });
     },
-    [api, authTokens.accessToken.value, handleAuthErrors],
+    [api, authHeader, handleAuthErrors],
   );
 
   return useMemo(

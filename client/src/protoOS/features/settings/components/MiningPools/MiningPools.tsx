@@ -202,7 +202,7 @@ const SettingsMiningPools = () => {
         // TODO intent here has no effect, because callout doesn't have a header
         intent={intents.danger}
         show={createPoolsError?.error !== undefined}
-        title={createPoolsError?.error}
+        title={createPoolsError?.error ?? "An error occurred"}
         onDismiss={() => setCreatePoolsError(undefined)}
       />
     </MiningPools>

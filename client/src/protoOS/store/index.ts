@@ -80,6 +80,12 @@ export {
   useSetTemperatureUnit,
   useFirmwareUpdateDismissed,
   useSetFirmwareUpdateDismissed,
+  useShowLoginModal,
+  useDismissedLoginModal,
+  usePausedAuthAction,
+  useSetShowLoginModal,
+  useSetDismissedLoginModal,
+  useSetPausedAuthAction,
 } from "./hooks/useUI";
 
 export type { Theme, ThemeColor, TemperatureUnit } from "./types";
@@ -163,3 +169,19 @@ export {
 } from "./hooks/useNetworkInfo";
 
 export type { MiningStatus } from "./slices/minerStatusSlice";
+
+export {
+  useAuthTokens,
+  useRefreshToken,
+  useAuthLoading,
+  useSetAuthTokens,
+  useSetAuthLoading,
+  useLogout,
+  useAuthHeader,
+  useAuthErrors,
+  useAccessToken,
+} from "./hooks/useAuth";
+
+export type { AuthTokens } from "./slices/authSlice";
+export { AUTH_ACTIONS } from "./types";
+export type { AuthAction } from "./types";

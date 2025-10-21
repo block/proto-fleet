@@ -13,10 +13,13 @@ import MiningPools, {
 import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
 import OnboardingHeader from "@/protoOS/components/OnboardingHeader";
 import SettingUp from "@/protoOS/components/OnboardingSettingUp";
+import { useAccessToken } from "@/protoOS/store";
 import {
-  useAccessToken,
-  useAuthContext,
-} from "@/protoOS/features/auth/contexts/AuthContext";
+  useDismissedLoginModal,
+  useSetDismissedLoginModal,
+  useSetShowLoginModal,
+  useShowLoginModal,
+} from "@/protoOS/store";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import {
@@ -40,12 +43,10 @@ const Onboarding = ({
   const [warnDefaultPool, setWarnDefaultPool] = useState(false);
   const [warnBackupPool, setWarnBackupPool] = useState(false);
 
-  const {
-    dismissedLoginModal,
-    setDismissedLoginModal,
-    showLoginModal,
-    setShowLoginModal,
-  } = useAuthContext();
+  const dismissedLoginModal = useDismissedLoginModal();
+  const setDismissedLoginModal = useSetDismissedLoginModal();
+  const showLoginModal = useShowLoginModal();
+  const setShowLoginModal = useSetShowLoginModal();
   const [pausedAction, setPausedAction] = useState(false);
   const [waitingForAuth, setWaitingForAuth] = useState(false);
 

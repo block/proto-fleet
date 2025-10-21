@@ -9,12 +9,16 @@ import {
   WarnRebootDialog,
   WarnSleepDialog,
 } from "@/protoOS/components/Power";
+import { useAccessToken } from "@/protoOS/store";
 import {
   AUTH_ACTIONS,
-  useAccessToken,
-  useAuthContext,
-} from "@/protoOS/features/auth/contexts/AuthContext";
-import { useIsAwake, useIsSleeping } from "@/protoOS/store";
+  useDismissedLoginModal,
+  useIsAwake,
+  useIsSleeping,
+  usePausedAuthAction,
+  useSetDismissedLoginModal,
+  useSetPausedAuthAction,
+} from "@/protoOS/store";
 import { Power } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 
@@ -53,12 +57,10 @@ const PowerWidget = ({
   const [shouldReboot, setShouldReboot] = useState(false);
   const [warnSleep, setWarnSleep] = useState(false);
   const [shouldSleep, setShouldSleep] = useState(false);
-  const {
-    dismissedLoginModal,
-    setDismissedLoginModal,
-    pausedAuthAction,
-    setPausedAuthAction,
-  } = useAuthContext();
+  const dismissedLoginModal = useDismissedLoginModal();
+  const setDismissedLoginModal = useSetDismissedLoginModal();
+  const pausedAuthAction = usePausedAuthAction();
+  const setPausedAuthAction = useSetPausedAuthAction();
 
   const { checkAccess, hasAccess, setHasAccess } = useAccessToken(
     !!pausedAuthAction && !dismissedLoginModal,

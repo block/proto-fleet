@@ -47,3 +47,29 @@ export const useFirmwareUpdateDismissed = () =>
 
 export const useSetFirmwareUpdateDismissed = () =>
   useMinerStore((state) => state.ui.setFirmwareUpdateDismissed);
+
+// =============================================================================
+// Auth UI State Hooks
+// =============================================================================
+
+export const useShowLoginModal = () =>
+  useMinerStore((state) => state.ui.showLoginModal);
+
+export const useDismissedLoginModal = () =>
+  useMinerStore((state) => state.ui.dismissedLoginModal);
+
+export const usePausedAuthAction = () =>
+  useMinerStore((state) => state.ui.pausedAuthAction);
+
+// =============================================================================
+// Auth UI Action Hooks
+// =============================================================================
+
+export const useSetShowLoginModal = () =>
+  useMinerStore((state) => state.ui.setShowLoginModal);
+
+export const useSetDismissedLoginModal = () =>
+  useMinerStore((state) => state.ui.setDismissedLoginModal);
+
+export const useSetPausedAuthAction = () =>
+  useMinerStore((state) => state.ui.setPausedAuthAction);

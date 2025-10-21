@@ -4,11 +4,14 @@ import PowerTargetPopover from "./PowerTargetPopover";
 import { useMiningTarget } from "@/protoOS/api";
 import { MiningTarget } from "@/protoOS/api/generatedApi";
 import WidgetWrapper from "@/protoOS/components/PageHeader/WidgetWrapper";
+import { useAccessToken } from "@/protoOS/store";
 import {
   AUTH_ACTIONS,
-  useAccessToken,
-  useAuthContext,
-} from "@/protoOS/features/auth/contexts/AuthContext";
+  useDismissedLoginModal,
+  usePausedAuthAction,
+  useSetDismissedLoginModal,
+  useSetPausedAuthAction,
+} from "@/protoOS/store";
 import { useResponsivePopover } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
@@ -24,12 +27,10 @@ const PowerTarget = () => {
   } = useMiningTarget();
   const [showPopover, setShowPopover] = useState<boolean>(false);
   const { triggerRef: widgetRef } = useResponsivePopover();
-  const {
-    dismissedLoginModal,
-    setDismissedLoginModal,
-    pausedAuthAction,
-    setPausedAuthAction,
-  } = useAuthContext();
+  const dismissedLoginModal = useDismissedLoginModal();
+  const setDismissedLoginModal = useSetDismissedLoginModal();
+  const pausedAuthAction = usePausedAuthAction();
+  const setPausedAuthAction = useSetPausedAuthAction();
   const [lastMiningTarget, setLastMiningTarget] = useState<MiningTarget | null>(
     null,
   );

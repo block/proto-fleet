@@ -7,7 +7,7 @@ import MiningPools, {
   PoolInfo,
 } from "@/protoOS/components/MiningPools";
 import SettingUp from "@/protoOS/components/OnboardingSettingUp";
-import { useAccessToken } from "@/protoOS/features/auth/contexts/AuthContext";
+import { useAccessToken } from "@/protoOS/store";
 import { Alert } from "@/shared/assets/icons";
 import AnimatedDotsBackground from "@/shared/components/Animation";
 import ButtonGroup, { groupVariants } from "@/shared/components/ButtonGroup";

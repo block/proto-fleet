@@ -5,10 +5,7 @@ import {
   PasswordRequest,
 } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import {
-  getAuthHeader,
-  useAuthContext,
-} from "@/protoOS/features/auth/contexts/AuthContext";
+import { useAuthHeader } from "@/protoOS/store";
 
 interface SetPasswordProps {
   onError?: (message: string) => void;
@@ -28,7 +25,7 @@ interface ChangePasswordProps {
 const usePassword = () => {
   const { api } = useMinerHosting();
 
-  const { authTokens } = useAuthContext();
+  const authHeader = useAuthHeader();
 
   const setPassword = useCallback(
     async ({ password, onSuccess, onError, onFinally }: SetPasswordProps) => {
@@ -51,17 +48,14 @@ const usePassword = () => {
   const changePassword = useCallback(
     async ({
       changePasswordRequest,
-      accessTokenValue,
+      accessTokenValue: _accessTokenValue,
       onSuccess,
       onError,
       onFinally,
     }: ChangePasswordProps) => {
       if (!api) return;
       await api
-        .changePassword(
-          changePasswordRequest,
-          getAuthHeader(accessTokenValue ?? authTokens.accessToken.value),
-        )
+        .changePassword(changePasswordRequest, authHeader)
         .then(() => {
           onSuccess?.();
         })
@@ -72,7 +66,7 @@ const usePassword = () => {
           onFinally?.();
         });
     },
-    [authTokens.accessToken.value, api],
+    [authHeader, api],
   );
 
   return useMemo(

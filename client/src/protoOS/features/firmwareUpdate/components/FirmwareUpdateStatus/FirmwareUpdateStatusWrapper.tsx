@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import FirmwareUpdateStatus from "./FirmwareUpdateStatus";
 import { useSystemReboot } from "@/protoOS/api";
 import { useFirmwareUpdate } from "@/protoOS/api";
-import { useAuthContext } from "@/protoOS/features/auth/contexts/AuthContext/hooks/useAuthContext";
 import {
+  useDismissedLoginModal,
   useFirmwareUpdateInstalling,
   useFwUpdateStatus,
+  useSetDismissedLoginModal,
+  useSetPausedAuthAction,
   useSystemInfoPending,
 } from "@/protoOS/store";
 import {
@@ -19,8 +21,9 @@ const FirmwareUpdateStatusWrapper = () => {
   const installing = useFirmwareUpdateInstalling();
   const updateStatus = useFwUpdateStatus();
   const pending = useSystemInfoPending();
-  const { dismissedLoginModal, setDismissedLoginModal, setPausedAuthAction } =
-    useAuthContext();
+  const dismissedLoginModal = useDismissedLoginModal();
+  const setDismissedLoginModal = useSetDismissedLoginModal();
+  const setPausedAuthAction = useSetPausedAuthAction();
 
   const [updatePending, setUpdatePending] = useState(false);
 

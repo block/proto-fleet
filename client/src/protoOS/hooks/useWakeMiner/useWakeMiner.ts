@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMiningStart, useMiningStatus } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
+import { useAccessToken } from "@/protoOS/store";
 import {
   AUTH_ACTIONS,
-  useAccessToken,
-  useAuthContext,
-} from "@/protoOS/features/auth/contexts/AuthContext";
-import {
+  useDismissedLoginModal,
   useHideWakeDialog,
   useIsSleeping,
+  usePausedAuthAction,
+  useSetDismissedLoginModal,
   useSetMiningStatus,
+  useSetPausedAuthAction,
   useShowWakeDialog,
 } from "@/protoOS/store";
 
@@ -33,12 +34,10 @@ export const useWakeMiner = ({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<ErrorProps>();
   const [shouldWake, setShouldWake] = useState(false);
-  const {
-    dismissedLoginModal,
-    setDismissedLoginModal,
-    pausedAuthAction,
-    setPausedAuthAction,
-  } = useAuthContext();
+  const dismissedLoginModal = useDismissedLoginModal();
+  const setDismissedLoginModal = useSetDismissedLoginModal();
+  const pausedAuthAction = usePausedAuthAction();
+  const setPausedAuthAction = useSetPausedAuthAction();
   const { checkAccess, hasAccess } = useAccessToken(
     !!pausedAuthAction && !dismissedLoginModal,
   );

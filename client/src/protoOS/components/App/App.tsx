@@ -10,15 +10,15 @@ import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultCont
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
 import { WarnWakeDialog } from "@/protoOS/components/Power";
-import {
-  useAccessToken,
-  useAuthContext,
-} from "@/protoOS/features/auth/contexts/AuthContext";
+import { useAccessToken } from "@/protoOS/store";
 import {
   useComprehensiveStatus,
   useIsSleeping,
   useIsWarmingUp,
   useMinerErrors,
+  useSetDismissedLoginModal,
+  useSetShowLoginModal,
+  useShowLoginModal,
   useWakeDialog,
 } from "@/protoOS/store";
 import { useNavigate } from "@/shared/hooks/useNavigate";
@@ -41,8 +41,9 @@ const App = ({
   title,
   ContentLayout = DefaultContentLayout,
 }: AppProps) => {
-  const { showLoginModal, setShowLoginModal, setDismissedLoginModal } =
-    useAuthContext();
+  const showLoginModal = useShowLoginModal();
+  const setShowLoginModal = useSetShowLoginModal();
+  const setDismissedLoginModal = useSetDismissedLoginModal();
   const navigate = useNavigate();
   const location = useLocation();
   const { pathname } = useMemo(() => location, [location]);

@@ -1,6 +1,11 @@
 import type { StateCreator } from "zustand";
 import type { MinerStore } from "../useMinerStore";
-import type { TemperatureUnit, Theme, ThemeColor } from "@/protoOS/store/types";
+import type {
+  AuthAction,
+  TemperatureUnit,
+  Theme,
+  ThemeColor,
+} from "@/protoOS/store/types";
 import { Duration, durations } from "@/shared/components/DurationSelector";
 
 // =============================================================================
@@ -29,6 +34,11 @@ export interface UISlice {
   // Firmware Update State
   firmwareUpdateDismissed: boolean;
 
+  // Auth UI State
+  showLoginModal: boolean;
+  dismissedLoginModal: boolean;
+  pausedAuthAction: AuthAction;
+
   // Chart Actions
   setDuration: (duration: Duration) => void;
   setActiveChartLines: (lines: string[]) => void;
@@ -45,6 +55,11 @@ export interface UISlice {
 
   // Firmware Update Actions
   setFirmwareUpdateDismissed: (dismissed: boolean) => void;
+
+  // Auth UI Actions
+  setShowLoginModal: (show: boolean) => void;
+  setDismissedLoginModal: (dismissed: boolean) => void;
+  setPausedAuthAction: (action: AuthAction) => void;
 }
 
 // =============================================================================
@@ -75,6 +90,11 @@ export const createUISlice: StateCreator<
 
   // Firmware Update Initial State
   firmwareUpdateDismissed: false,
+
+  // Auth UI Initial State
+  showLoginModal: false,
+  dismissedLoginModal: false,
+  pausedAuthAction: null,
 
   // Chart Actions
   setDuration: (duration) =>
@@ -136,5 +156,25 @@ export const createUISlice: StateCreator<
   setFirmwareUpdateDismissed: (dismissed) =>
     set((state) => {
       state.ui.firmwareUpdateDismissed = dismissed;
+    }),
+
+  // Auth UI Actions
+  setShowLoginModal: (show) =>
+    set((state) => {
+      state.ui.showLoginModal = show;
+      // When showing modal, reset dismissed state
+      if (show) {
+        state.ui.dismissedLoginModal = false;
+      }
+    }),
+
+  setDismissedLoginModal: (dismissed) =>
+    set((state) => {
+      state.ui.dismissedLoginModal = dismissed;
+    }),
+
+  setPausedAuthAction: (action) =>
+    set((state) => {
+      state.ui.pausedAuthAction = action;
     }),
 });

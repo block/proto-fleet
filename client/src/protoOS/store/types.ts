@@ -223,3 +223,14 @@ export interface FanTelemetryData {
 
 export type FanMap = Map<number, FanHardwareData>;
 export type FanData = FanHardwareData & FanTelemetryData;
+
+// Auth Types
+export const AUTH_ACTIONS = {
+  sleep: "sleep",
+  wake: "wake",
+  reboot: "reboot",
+  update: "update",
+  miningTarget: "miningTarget",
+} as const;
+
+export type AuthAction = keyof typeof AUTH_ACTIONS | null;

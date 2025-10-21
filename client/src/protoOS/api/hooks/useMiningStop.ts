@@ -3,14 +3,9 @@ import { useCallback, useMemo, useState } from "react";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import {
-  getAuthHeader,
-  useAuthContext,
-  useAuthErrors,
-} from "@/protoOS/features/auth/contexts/AuthContext";
+import { useAuthErrors, useAuthHeader } from "@/protoOS/store";
 
 interface StopMiningProps {
-  accessTokenValue?: string;
   onError?: (err: ErrorProps) => void;
   onSuccess?: () => void;
 }
@@ -18,18 +13,16 @@ interface StopMiningProps {
 const useMiningStop = () => {
   const { api } = useMinerHosting();
   const [pending, setPending] = useState<boolean>(false);
-  const { authTokens } = useAuthContext();
+  const authHeader = useAuthHeader();
   const { handleAuthErrors } = useAuthErrors();
 
   const stopMining = useCallback(
-    ({ accessTokenValue, onError, onSuccess }: StopMiningProps = {}) => {
+    ({ onError, onSuccess }: StopMiningProps = {}) => {
       if (!api) return;
 
       setPending(true);
       api
-        .stopMining(
-          getAuthHeader(accessTokenValue || authTokens.accessToken.value),
-        )
+        .stopMining(authHeader)
         .then(() => {
           onSuccess?.();
         })
@@ -37,8 +30,8 @@ const useMiningStop = () => {
           handleAuthErrors({
             error,
             onError,
-            onSuccess: (accessTokenValue) => {
-              stopMining({ accessTokenValue, onError, onSuccess });
+            onSuccess: () => {
+              stopMining({ onError, onSuccess });
             },
           });
         })
@@ -46,7 +39,7 @@ const useMiningStop = () => {
           setPending(false);
         });
     },
-    [authTokens.accessToken.value, handleAuthErrors, api],
+    [authHeader, handleAuthErrors, api],
   );
 
   return useMemo(() => ({ pending, stopMining }), [pending, stopMining]);

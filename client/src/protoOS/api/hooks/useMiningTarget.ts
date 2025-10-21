@@ -7,10 +7,10 @@ import {
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import {
   AUTH_ACTIONS,
-  getAuthHeader,
-  useAuthContext,
-} from "@/protoOS/features/auth/contexts/AuthContext";
-import { AuthActions } from "@/protoOS/features/auth/contexts/AuthContext/AuthContext";
+  useAuthHeader,
+  useSetPausedAuthAction,
+} from "@/protoOS/store";
+import { AuthAction } from "@/protoOS/store/types";
 
 type MiningTargetState = {
   value?: MiningTarget["power_target_watts"];
@@ -85,8 +85,8 @@ const fetchData = (api: any) => {
 const sharedUpdateMiningTarget = (
   api: any,
   newTarget: MiningTarget,
-  authTokens: { accessToken: { value: string } },
-  setPausedAuthAction: (action: AuthActions) => void,
+  authHeader: { headers: { Authorization: string } },
+  setPausedAuthAction: (action: AuthAction) => void,
 ) => {
   if (!api) return;
 
@@ -96,7 +96,7 @@ const sharedUpdateMiningTarget = (
   });
 
   api
-    .editMiningTarget(newTarget, getAuthHeader(authTokens.accessToken.value))
+    .editMiningTarget(newTarget, authHeader)
     .then((res: HttpResponse<MiningTargetResponse>) => {
       updateStore({
         value: res?.data.power_target_watts,
@@ -122,7 +122,8 @@ const sharedUpdateMiningTarget = (
 
 const useMiningTarget = () => {
   const { api } = useMinerHosting();
-  const { authTokens, setPausedAuthAction } = useAuthContext();
+  const authHeader = useAuthHeader();
+  const setPausedAuthAction = useSetPausedAuthAction();
   const [localState, setLocalState] = useState({
     miningTarget: miningTargetStore.value,
     defaultTarget: miningTargetStore.default,
@@ -163,9 +164,9 @@ const useMiningTarget = () => {
 
   const updateMiningTarget = useCallback(
     (newTarget: MiningTarget) => {
-      sharedUpdateMiningTarget(api, newTarget, authTokens, setPausedAuthAction);
+      sharedUpdateMiningTarget(api, newTarget, authHeader, setPausedAuthAction);
     },
-    [api, authTokens, setPausedAuthAction],
+    [api, authHeader, setPausedAuthAction],
   );
 
   const setPending = useCallback((pending: boolean) => {

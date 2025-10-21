@@ -2,8 +2,13 @@ import { enableMapSet } from "immer";
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { devtools } from "zustand/middleware";
-import { persist } from "zustand/middleware";
+import { persist, PersistStorage, StorageValue } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
+import {
+  type AuthSlice,
+  type AuthTokens,
+  createAuthSlice,
+} from "./slices/authSlice";
 import {
   createHardwareSlice,
   type HardwareSlice,
@@ -25,6 +30,8 @@ import {
   type TelemetrySlice,
 } from "./slices/telemetrySlice";
 import { createUISlice, type UISlice } from "./slices/uiSlice";
+import type { TemperatureUnit, Theme } from "@/protoOS/store/types";
+import { type Duration } from "@/shared/components/DurationSelector";
 
 // Enable Map/Set support for Immer
 enableMapSet();
@@ -40,7 +47,110 @@ export interface MinerStore {
   minerStatus: MinerStatusSlice;
   systemInfo: SystemInfoSlice;
   networkInfo: NetworkInfoSlice;
+  auth: AuthSlice;
 }
+
+// =============================================================================
+// Custom Multi-Key Storage
+// =============================================================================
+
+// Type for the partial state that we persist - matches what partialize returns
+type PersistedState = {
+  auth: {
+    authTokens: AuthTokens;
+  };
+  ui: {
+    duration: Duration;
+    activeChartLines: string[];
+    theme: Theme;
+    temperatureUnit: TemperatureUnit;
+  };
+};
+
+const createMultiKeyStorage = (): PersistStorage<PersistedState> => {
+  const AUTH_KEY = "proto-os-auth";
+  const UI_KEY = "proto-ui-preferences";
+
+  return {
+    getItem: (): StorageValue<PersistedState> | null => {
+      // Load from both keys
+      const authData = localStorage.getItem(AUTH_KEY);
+      const uiData = localStorage.getItem(UI_KEY);
+
+      let auth = null;
+      if (authData) {
+        try {
+          auth = JSON.parse(authData);
+        } catch (e) {
+          console.error("Failed to parse auth data from localStorage:", e);
+          auth = null;
+        }
+      }
+      let ui = null;
+      if (uiData) {
+        try {
+          ui = JSON.parse(uiData);
+        } catch (e) {
+          console.error("Failed to parse UI data from localStorage:", e);
+          ui = null;
+        }
+      }
+
+      if (!auth && !ui) return null;
+
+      // Combine the data
+      return {
+        state: {
+          ...(auth?.state || {}),
+          ...(ui?.state || {}),
+        },
+        version: auth?.version || ui?.version || 0,
+      } as StorageValue<PersistedState>;
+    },
+
+    setItem: (_, value): void => {
+      const state = value.state as PersistedState;
+
+      // Save auth tokens separately
+      if (state.auth) {
+        localStorage.setItem(
+          AUTH_KEY,
+          JSON.stringify({
+            state: {
+              auth: {
+                authTokens: state.auth.authTokens,
+              },
+            },
+            version: value.version,
+          }),
+        );
+      }
+
+      // Save UI preferences separately
+      if (state.ui) {
+        localStorage.setItem(
+          UI_KEY,
+          JSON.stringify({
+            state: {
+              ui: {
+                duration: state.ui.duration,
+                activeChartLines: state.ui.activeChartLines,
+                theme: state.ui.theme,
+                temperatureUnit: state.ui.temperatureUnit,
+              },
+            },
+            version: value.version,
+          }),
+        );
+      }
+    },
+
+    removeItem: (): void => {
+      localStorage.removeItem(AUTH_KEY);
+      localStorage.removeItem(UI_KEY);
+    },
+  };
+};
 
 // =============================================================================
 // Store Implementation
@@ -57,28 +167,34 @@ const useMinerStore = create<MinerStore>()(
           minerStatus: createMinerStatusSlice(set, get, api),
           systemInfo: createSystemInfoSlice(set, get, api),
           networkInfo: createNetworkInfoSlice(set, get, api),
+          auth: createAuthSlice(set, get, api),
         })),
         {
-          name: "proto-ui-preferences", // Shared across protoOS and protoFleet
+          name: "miner-store",
+          storage: createMultiKeyStorage(),
           partialize: (state) => ({
+            auth: {
+              authTokens: state.auth.authTokens,
+            },
             ui: {
               duration: state.ui.duration,
               activeChartLines: state.ui.activeChartLines,
               theme: state.ui.theme,
               temperatureUnit: state.ui.temperatureUnit,
-              // Note: deviceTheme is intentionally excluded from persistence
-              // as it should be detected from the OS on each load
             },
           }),
           merge: (persistedState, currentState) => {
             const persisted = persistedState as any;
 
-            // Ensure functions are preserved during rehydration
             return {
               ...currentState,
+              auth: {
+                ...currentState.auth,
+                authTokens:
+                  persisted?.auth?.authTokens ?? currentState.auth.authTokens,
+              },
               ui: {
                 ...currentState.ui,
-                // Apply persisted UI state values, preserving functions
                 duration: persisted?.ui?.duration ?? currentState.ui.duration,
                 activeChartLines:
                   persisted?.ui?.activeChartLines ??
@@ -87,18 +203,6 @@ const useMinerStore = create<MinerStore>()(
                 temperatureUnit:
                   persisted?.ui?.temperatureUnit ??
                   currentState.ui.temperatureUnit,
-                // deviceTheme is not persisted and should remain as currentState value (undefined initially)
-                // It will be detected from OS by useApplyTheme on mount
-                deviceTheme: currentState.ui.deviceTheme,
-                // Preserve the functions from currentState
-                setDuration: currentState.ui.setDuration,
-                setActiveChartLines: currentState.ui.setActiveChartLines,
-                toggleActiveChartLine: currentState.ui.toggleActiveChartLine,
-                setTheme: currentState.ui.setTheme,
-                setDeviceTheme: currentState.ui.setDeviceTheme,
-                setTemperatureUnit: currentState.ui.setTemperatureUnit,
-                showWakeDialog: currentState.ui.showWakeDialog,
-                hideWakeDialog: currentState.ui.hideWakeDialog,
               },
             };
           },

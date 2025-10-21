@@ -2,7 +2,7 @@ import { useCallback } from "react";
 
 import { PasswordRequest } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useAuthContext } from "@/protoOS/features/auth/contexts/AuthContext";
+import { useSetAuthTokens } from "@/protoOS/store";
 import {
   accessTokenExpiryTime,
   refreshTokenExpiryTime,
@@ -17,7 +17,7 @@ interface LoginProps {
 
 const useLogin = () => {
   const { api } = useMinerHosting();
-  const { setAuthTokens } = useAuthContext();
+  const setAuthTokens = useSetAuthTokens();
 
   const login = useCallback(
     async ({ password, onSuccess, onError, onFinally }: LoginProps) => {
