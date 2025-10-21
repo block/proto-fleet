@@ -68,14 +68,22 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
         } else {
           setData(coolingData);
         }
+        setPending(false);
       })
       .catch((err) => {
-        setError(err?.error?.message ?? err);
-      })
-      .finally(() => {
-        setPending(false);
+        handleAuthErrors({
+          error: err,
+          onError: (error) => {
+            setError(error?.error?.message ?? "An error occurred");
+            setPending(false);
+          },
+          onSuccess: () => {
+            // Retry fetch after successful token refresh
+            fetchData();
+          },
+        });
       });
-  }, [api]);
+  }, [api, handleAuthErrors]);
 
   usePoll({
     fetchData,

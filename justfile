@@ -35,7 +35,13 @@ fmt-client:
   npm run format
 
 [working-directory: 'server']
-clean-build: 
+clean-build:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  # Generate a random JWT secret (44 characters to match original length)
+  export AUTH_CLIENT_SECRET_KEY=$(openssl rand -hex 22)
+  echo "AUTH_CLIENT_SECRET_KEY=${AUTH_CLIENT_SECRET_KEY}" > .env
+  echo "Generated new JWT secret for clean build"
   docker-compose down --rmi all --volumes && docker-compose up --build -d
 
 [working-directory: 'server']

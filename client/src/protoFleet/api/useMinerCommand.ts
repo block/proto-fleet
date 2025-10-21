@@ -9,10 +9,7 @@ import {
   StreamCommandBatchUpdatesRequest,
   StreamCommandBatchUpdatesResponse,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
-import {
-  getAuthHeader,
-  useAuthContext,
-} from "@/protoFleet/features/auth/contexts/AuthContext";
+import { useAuthErrors, useAuthHeader } from "@/protoFleet/store";
 
 interface StartMiningProps {
   startMiningRequest: StartMiningRequest;
@@ -34,30 +31,41 @@ interface StreamCommandBatchUpdatesProps {
 }
 
 const useMinerCommand = () => {
-  const { authTokens } = useAuthContext();
+  const authHeader = useAuthHeader();
+  const { handleAuthErrors } = useAuthErrors();
 
   const startMining = useCallback(
     async ({ startMiningRequest, onSuccess, onError }: StartMiningProps) => {
       await minerCommandClient
-        .startMining(startMiningRequest, getAuthHeader(authTokens))
+        .startMining(startMiningRequest, authHeader)
         .then((response) => onSuccess(response))
         .catch((err) => {
-          onError?.(err?.message ?? err);
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
         });
     },
-    [authTokens],
+    [authHeader, handleAuthErrors],
   );
 
   const stopMining = useCallback(
     async ({ stopMiningRequest, onSuccess, onError }: StopMiningProps) => {
       await minerCommandClient
-        .stopMining(stopMiningRequest, getAuthHeader(authTokens))
+        .stopMining(stopMiningRequest, authHeader)
         .then((response) => onSuccess(response))
         .catch((err) => {
-          onError?.(err?.message ?? err);
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
         });
     },
-    [authTokens],
+    [authHeader, handleAuthErrors],
   );
 
   const streamCommandBatchUpdates = useCallback(
@@ -71,7 +79,7 @@ const useMinerCommand = () => {
         for await (const updateResponse of minerCommandClient.streamCommandBatchUpdates(
           streamRequest,
           {
-            ...getAuthHeader(authTokens),
+            ...authHeader,
             signal: streamAbortController?.signal,
           },
         )) {
@@ -85,13 +93,18 @@ const useMinerCommand = () => {
           // The stream was aborted, do nothing
           return;
         } else if (error instanceof ConnectError) {
-          onError?.(error.message);
+          handleAuthErrors({
+            error,
+            onError: () => {
+              onError?.(error.message);
+            },
+          });
         } else if (typeof error === "string") {
           onError?.(error);
         }
       }
     },
-    [authTokens],
+    [authHeader, handleAuthErrors],
   );
 
   return useMemo(

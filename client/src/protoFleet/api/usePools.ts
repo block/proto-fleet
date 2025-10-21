@@ -9,10 +9,7 @@ import type {
   UpdatePoolRequest,
   ValidatePoolRequest,
 } from "@/protoFleet/api/generated/pools/v1/pools_pb";
-import {
-  getAuthHeader,
-  useAuthContext,
-} from "@/protoFleet/features/auth/contexts/AuthContext";
+import { useAuthErrors, useAuthHeader } from "@/protoFleet/store";
 
 interface SetDefaultPoolProps {
   defaultPoolRequest: SetDefaultPoolRequest;
@@ -46,23 +43,26 @@ export interface ValidatePoolProps {
 }
 
 const usePools = () => {
-  const { authTokens } = useAuthContext();
+  const authHeader = useAuthHeader();
+  const { handleAuthErrors } = useAuthErrors();
 
   const [pools, setPools] = useState<ListPoolsResponse["pools"]>([]);
 
   const fetchPools = useCallback(async () => {
     try {
-      const response = await poolsClient.listPools(
-        {},
-        getAuthHeader(authTokens),
-      );
+      const response = await poolsClient.listPools({}, authHeader);
 
       setPools(response.pools);
     } catch (error) {
-      console.error("Error fetching pools:", error);
-      throw error;
+      handleAuthErrors({
+        error: error,
+        onError: () => {
+          console.error("Error fetching pools:", error);
+          throw error;
+        },
+      });
     }
-  }, [authTokens, setPools]);
+  }, [authHeader, setPools, handleAuthErrors]);
 
   useEffect(() => {
     fetchPools();
@@ -71,57 +71,77 @@ const usePools = () => {
   const setDefaultPool = useCallback(
     async ({ defaultPoolRequest, onSuccess, onError }: SetDefaultPoolProps) => {
       await poolsClient
-        .setDefaultPool(defaultPoolRequest, getAuthHeader(authTokens))
+        .setDefaultPool(defaultPoolRequest, authHeader)
         .then(() => {
           onSuccess();
         })
         .catch((err) => {
-          onError?.(err?.error?.message ?? err);
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
         });
     },
-    [authTokens],
+    [authHeader, handleAuthErrors],
   );
 
   const createPool = useCallback(
     async ({ createPoolRequest, onSuccess, onError }: CreatePoolProps) => {
       await poolsClient
-        .createPool(createPoolRequest, getAuthHeader(authTokens))
+        .createPool(createPoolRequest, authHeader)
         .then(() => {
           onSuccess?.();
         })
         .catch((err) => {
-          onError?.(err?.error?.message ?? err);
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
         });
     },
-    [authTokens],
+    [authHeader, handleAuthErrors],
   );
 
   const updatePool = useCallback(
     async ({ updatePoolRequest, onSuccess, onError }: UpdatePoolProps) => {
       await poolsClient
-        .updatePool(updatePoolRequest, getAuthHeader(authTokens))
+        .updatePool(updatePoolRequest, authHeader)
         .then(() => {
           onSuccess?.();
         })
         .catch((err) => {
-          onError?.(err?.error?.message ?? err);
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
         });
     },
-    [authTokens],
+    [authHeader, handleAuthErrors],
   );
 
   const deletePool = useCallback(
     async ({ deletePoolRequest, onSuccess, onError }: DeletePoolProps) => {
       await poolsClient
-        .deletePool(deletePoolRequest, getAuthHeader(authTokens))
+        .deletePool(deletePoolRequest, authHeader)
         .then(() => {
           onSuccess?.();
         })
         .catch((err) => {
-          onError?.(err?.error?.message ?? err);
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
         });
     },
-    [authTokens],
+    [authHeader, handleAuthErrors],
   );
 
   const [validatePoolPending, setValidatePoolPending] = useState(false);
@@ -141,19 +161,24 @@ const usePools = () => {
       };
 
       await poolsClient
-        .validatePool(request, getAuthHeader(authTokens))
+        .validatePool(request, authHeader)
         .then(() => {
           onSuccess?.();
         })
         .catch((err) => {
-          onError?.(err?.error?.message ?? err);
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
         })
         .finally(() => {
           onFinally?.();
           setValidatePoolPending(false);
         });
     },
-    [authTokens],
+    [authHeader, handleAuthErrors],
   );
 
   return useMemo(

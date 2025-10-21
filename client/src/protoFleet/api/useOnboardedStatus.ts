@@ -1,19 +1,29 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { onboardingClient } from "@/protoFleet/api/clients";
 import type { FleetOnboardingStatus } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
-import { useAuthContext } from "@/protoFleet/features/auth/contexts/AuthContext";
-import { getAuthHeader } from "@/protoFleet/features/auth/contexts/AuthContext";
+import {
+  useAuthErrors,
+  useAuthHeader,
+  useAuthTokens,
+  useDevicePaired,
+  usePoolConfigured,
+  useSetOnboardingStatus,
+} from "@/protoFleet/store";
 
 const useOnboardedStatus = () => {
-  const { authTokens } = useAuthContext();
-  const [status, setStatus] = useState<FleetOnboardingStatus | null>(null);
+  const authTokens = useAuthTokens();
+  const authHeader = useAuthHeader();
+  const poolConfigured = usePoolConfigured();
+  const devicePaired = useDevicePaired();
+  const setStatus = useSetOnboardingStatus();
+  const { handleAuthErrors } = useAuthErrors();
 
   const fetchStatus =
     useCallback(async (): Promise<FleetOnboardingStatus | null> => {
       try {
         const response = await onboardingClient.getFleetOnboardingStatus(
           {},
-          getAuthHeader(authTokens),
+          authHeader,
         );
 
         if (response.status) {
@@ -22,10 +32,18 @@ const useOnboardedStatus = () => {
         }
         return null;
       } catch (err: any) {
-        const errorMessage = err?.error?.message ?? String(err);
-        throw new Error(`Failed to fetch Onboarded Status: ${errorMessage}`);
+        handleAuthErrors({
+          error: err,
+          onError: () => {
+            const errorMessage = err?.message ?? String(err);
+            throw new Error(
+              `Failed to fetch Onboarded Status: ${errorMessage}`,
+            );
+          },
+        });
+        return null;
       }
-    }, [authTokens]);
+    }, [authHeader, setStatus, handleAuthErrors]);
 
   useEffect(() => {
     if (!authTokens.accessToken.value) {
@@ -34,9 +52,13 @@ const useOnboardedStatus = () => {
     }
 
     fetchStatus();
-  }, [fetchStatus, authTokens]);
+  }, [fetchStatus, authTokens, setStatus]);
 
-  return { status: status ?? null, refetch: fetchStatus };
+  return {
+    poolConfigured,
+    devicePaired,
+    refetch: fetchStatus,
+  };
 };
 
 export { useOnboardedStatus };

@@ -4,7 +4,7 @@ import { create } from "@bufbuild/protobuf";
 import { AuthenticateRequestSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { useAuth } from "@/protoFleet/api/useAuth";
 import { useLogin } from "@/protoFleet/api/useLogin";
-import { useAuthContext } from "@/protoFleet/features/auth/contexts/AuthContext";
+import { useUsername } from "@/protoFleet/store";
 import Button from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
@@ -76,7 +76,7 @@ const FormattedDate = ({
 };
 
 const AuthenticationSettings = () => {
-  const { username } = useAuthContext();
+  const username = useUsername();
 
   const { updatePassword, updateUsername, passwordLastUpdatedAt } = useAuth();
   const login = useLogin();

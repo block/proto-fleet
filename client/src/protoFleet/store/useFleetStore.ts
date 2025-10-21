@@ -1,0 +1,188 @@
+import { create } from "zustand";
+import {
+  devtools,
+  persist,
+  PersistStorage,
+  StorageValue,
+  subscribeWithSelector,
+} from "zustand/middleware";
+import { immer } from "zustand/middleware/immer";
+import { type AuthSlice, createAuthSlice } from "./slices/authSlice";
+import { createFleetSlice, type FleetSlice } from "./slices/fleetSlice";
+import {
+  createOnboardingSlice,
+  type OnboardingSlice,
+} from "./slices/onboardingSlice";
+import { createUISlice, type UISlice } from "./slices/uiSlice";
+
+// =============================================================================
+// Combined Store Interface
+// =============================================================================
+
+export interface FleetStore {
+  auth: AuthSlice;
+  ui: UISlice;
+  fleet: FleetSlice;
+  onboarding: OnboardingSlice;
+}
+
+// =============================================================================
+// Custom Multi-Key Storage
+// =============================================================================
+
+// Type for the partial state that we persist
+type PersistedFleetState = {
+  auth: Pick<AuthSlice, "authTokens">;
+  ui: Pick<UISlice, "theme" | "temperatureUnit">;
+};
+
+const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
+  const AUTH_KEY = "proto-fleet-auth";
+  const UI_KEY = "proto-ui-preferences";
+
+  return {
+    getItem: (): StorageValue<PersistedFleetState> | null => {
+      // Load from both keys
+      const authData = localStorage.getItem(AUTH_KEY);
+      const uiData = localStorage.getItem(UI_KEY);
+
+      const auth = authData ? JSON.parse(authData) : null;
+      const ui = uiData ? JSON.parse(uiData) : null;
+
+      if (!auth && !ui) return null;
+
+      // Reconstruct Date objects from stored ISO strings
+      if (auth?.state?.auth?.authTokens?.accessToken?.expiry) {
+        auth.state.auth.authTokens.accessToken.expiry = new Date(
+          auth.state.auth.authTokens.accessToken.expiry,
+        );
+      }
+
+      // Combine the data
+      return {
+        state: {
+          ...(auth?.state || {}),
+          ...(ui?.state || {}),
+        },
+        version: auth?.version || ui?.version || 0,
+      } as StorageValue<PersistedFleetState>;
+    },
+
+    setItem: (_, value): void => {
+      const state = value.state as PersistedFleetState;
+
+      // Save auth tokens separately
+      if (state.auth) {
+        localStorage.setItem(
+          AUTH_KEY,
+          JSON.stringify({
+            state: {
+              auth: {
+                authTokens: state.auth.authTokens,
+              },
+            },
+            version: value.version,
+          }),
+        );
+      }
+
+      // Save UI preferences separately
+      if (state.ui) {
+        localStorage.setItem(
+          UI_KEY,
+          JSON.stringify({
+            state: {
+              ui: {
+                theme: state.ui.theme,
+                temperatureUnit: state.ui.temperatureUnit,
+              },
+            },
+            version: value.version,
+          }),
+        );
+      }
+    },
+
+    removeItem: (): void => {
+      localStorage.removeItem(AUTH_KEY);
+      localStorage.removeItem(UI_KEY);
+    },
+  };
+};
+
+// =============================================================================
+// Store Implementation
+// =============================================================================
+
+export const useFleetStore = create<FleetStore>()(
+  devtools(
+    subscribeWithSelector(
+      persist(
+        immer((set, get, api) => ({
+          auth: createAuthSlice(set as any, get as any, api as any),
+          ui: createUISlice(set as any, get as any, api as any),
+          fleet: createFleetSlice(set as any, get as any, api as any),
+          onboarding: createOnboardingSlice(set as any, get as any, api as any),
+        })),
+        {
+          name: "fleet-store",
+          storage: createMultiKeyStorage(),
+          partialize: (state) => ({
+            auth: {
+              authTokens: state.auth.authTokens,
+            },
+            ui: {
+              theme: state.ui.theme,
+              temperatureUnit: state.ui.temperatureUnit,
+            },
+          }),
+          merge: (persistedState, currentState) => {
+            const persisted = persistedState as any;
+            const hasPersistedTokens =
+              persisted?.auth?.authTokens?.accessToken?.value;
+
+            return {
+              ...currentState,
+              auth: {
+                ...currentState.auth,
+                authTokens:
+                  persisted?.auth?.authTokens ?? currentState.auth.authTokens,
+                // If we have persisted tokens, set loading to false
+                authLoading: hasPersistedTokens
+                  ? false
+                  : currentState.auth.authLoading,
+              },
+              ui: {
+                ...currentState.ui,
+                theme: persisted?.ui?.theme ?? currentState.ui.theme,
+                temperatureUnit:
+                  persisted?.ui?.temperatureUnit ??
+                  currentState.ui.temperatureUnit,
+              },
+            };
+          },
+        },
+      ),
+    ),
+    {
+      name: "fleet-store",
+      serialize: {
+        replacer: (_: string, value: unknown) => {
+          // Handle BigInt (protobuf uses BigInt for 64-bit integers)
+          if (typeof value === "bigint") {
+            return value.toString();
+          }
+          // Handle Maps
+          if (value instanceof Map) {
+            return Object.fromEntries(value);
+          }
+          // Handle functions (don't serialize them, just show their names)
+          if (typeof value === "function") {
+            return `[Function: ${value.name || "anonymous"}]`;
+          }
+          return value;
+        },
+      },
+    },
+  ),
+);

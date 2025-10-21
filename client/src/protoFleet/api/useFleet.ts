@@ -17,13 +17,11 @@ import {
   UpdateType,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import {
-  getAuthHeader,
-  useAuthContext,
-} from "@/protoFleet/features/auth/contexts/AuthContext";
-import {
+  useAuthErrors,
+  useAuthHeader,
   useFleetStore,
   useMinerIds,
-} from "@/protoFleet/features/fleetManagement/store/useFleetStore";
+} from "@/protoFleet/store";
 import { debounce } from "@/shared/utils/utility";
 
 type UseFleetOptions = {
@@ -70,7 +68,8 @@ type UseFleetOptions = {
  */
 const useFleet = (options: UseFleetOptions = {}) => {
   const { initialFilter, pageSize = 100 } = options;
-  const { authTokens } = useAuthContext();
+  const authHeader = useAuthHeader();
+  const { handleAuthErrors } = useAuthErrors();
 
   const minerIds = useMinerIds();
   const streamAbortController = useRef<AbortController | null>(null);
@@ -101,9 +100,9 @@ const useFleet = (options: UseFleetOptions = {}) => {
       update.minerStateCounts
     ) {
       const store = useFleetStore.getState();
-      const previousCounts = store.minerStateCounts;
-      store.setMinerStateCounts(update.minerStateCounts);
-      store.handleMinerStateCountsChange(
+      const previousCounts = store.fleet.minerStateCounts;
+      store.fleet.setMinerStateCounts(update.minerStateCounts);
+      store.fleet.handleMinerStateCountsChange(
         previousCounts,
         update.minerStateCounts,
       );
@@ -117,14 +116,16 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
     // Handle telemetry data updates
     if (update.type === UpdateType.TELEMETRY && update.data) {
-      useFleetStore.getState().updateMinerTelemetry(update.deviceId, update);
+      useFleetStore
+        .getState()
+        .fleet.updateMinerTelemetry(update.deviceId, update);
 
       // Handle device status updates
     } else if (
       update.type === UpdateType.DEVICE_STATUS &&
       update.deviceStatus
     ) {
-      useFleetStore.getState().updateMinerDeviceStatus(
+      useFleetStore.getState().fleet.updateMinerDeviceStatus(
         update.deviceId,
         create(DeviceStatusUpdateSchema, {
           status: update.deviceStatus,
@@ -135,7 +136,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
     if (update.timestamp) {
       useFleetStore
         .getState()
-        .updateMinerTimestamp(update.deviceId, update.timestamp);
+        .fleet.updateMinerTimestamp(update.deviceId, update.timestamp);
     }
   }, []);
 
@@ -151,7 +152,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
       streamAbortController.current = new AbortController();
 
-      useFleetStore.getState().setStreaming(true);
+      useFleetStore.getState().fleet.setStreaming(true);
 
       (async () => {
         try {
@@ -171,7 +172,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
           });
 
           for await (const response of telemetryClient.streamUpdates(request, {
-            ...getAuthHeader(authTokens),
+            ...authHeader,
             signal: streamAbortController.current?.signal,
           })) {
             updateMinerState(response);
@@ -190,13 +191,18 @@ const useFleet = (options: UseFleetOptions = {}) => {
             return;
           }
 
-          console.error("Error streaming telemetry updates:", error);
+          handleAuthErrors({
+            error: error,
+            onError: (err) => {
+              console.error("Error streaming telemetry updates:", err);
+            },
+          });
         } finally {
-          useFleetStore.getState().setStreaming(false);
+          useFleetStore.getState().fleet.setStreaming(false);
         }
       })();
     },
-    [authTokens, updateMinerState],
+    [authHeader, updateMinerState, handleAuthErrors],
   );
 
   const doFetchMiners = useCallback(
@@ -229,7 +235,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
               },
             ],
           },
-          getAuthHeader(authTokens),
+          authHeader,
         );
 
         const {
@@ -241,9 +247,9 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
         // Update store based on append flag
         if (append) {
-          useFleetStore.getState().appendMiners(miners);
+          useFleetStore.getState().fleet.appendMiners(miners);
         } else {
-          useFleetStore.getState().setMiners(miners);
+          useFleetStore.getState().fleet.setMiners(miners);
         }
 
         const totalMinersStates =
@@ -252,12 +258,15 @@ const useFleet = (options: UseFleetOptions = {}) => {
           (totalStateCounts?.offlineCount || 0) +
           (totalStateCounts?.sleepingCount || 0);
         const store = useFleetStore.getState();
-        store.setCursor(newCursor);
-        store.setTotalMiners(totalMinersStates);
+        store.fleet.setCursor(newCursor);
+        store.fleet.setTotalMiners(totalMinersStates);
         if (totalStateCounts) {
-          const previousCounts = store.minerStateCounts;
-          store.setMinerStateCounts(totalStateCounts);
-          store.handleMinerStateCountsChange(previousCounts, totalStateCounts);
+          const previousCounts = store.fleet.minerStateCounts;
+          store.fleet.setMinerStateCounts(totalStateCounts);
+          store.fleet.handleMinerStateCountsChange(
+            previousCounts,
+            totalStateCounts,
+          );
         }
 
         // Update internal state
@@ -277,13 +286,18 @@ const useFleet = (options: UseFleetOptions = {}) => {
           totalStateCounts,
         };
       } catch (error) {
-        console.error("Error fetching fleet data:", error);
-        throw error;
+        handleAuthErrors({
+          error: error,
+          onError: (err) => {
+            console.error("Error fetching fleet data:", err);
+            throw err;
+          },
+        });
       } finally {
         setIsLoading(false);
       }
     },
-    [authTokens, startStreamingUpdates, pageSize],
+    [authHeader, startStreamingUpdates, pageSize, handleAuthErrors],
   );
 
   const fetchMiners = useMemo(() => {
@@ -293,7 +307,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
   const setFilter = useCallback(
     (filter: MinerListFilter) => {
       setCurrentFilter(filter);
-      useFleetStore.getState().setCurrentFilter(filter);
+      useFleetStore.getState().fleet.setCurrentFilter(filter);
       setCursor(undefined); // Reset cursor when filter changes
       fetchMiners(filter, undefined, false);
     },
@@ -314,16 +328,16 @@ const useFleet = (options: UseFleetOptions = {}) => {
       }
     };
 
-    useFleetStore.getState().setRefetchCallback(refetchCallback);
+    useFleetStore.getState().fleet.setRefetchCallback(refetchCallback);
 
     return () => {
-      useFleetStore.getState().setRefetchCallback(undefined);
+      useFleetStore.getState().fleet.setRefetchCallback(undefined);
     };
   }, [fetchMiners, currentFilter, isLoading]);
 
   // Initial load on mount
   useEffect(() => {
-    useFleetStore.getState().setCurrentFilter(initialFilter);
+    useFleetStore.getState().fleet.setCurrentFilter(initialFilter);
     fetchMiners(initialFilter, undefined, false);
 
     // Cleanup streaming on unmount to prevent memory leaks

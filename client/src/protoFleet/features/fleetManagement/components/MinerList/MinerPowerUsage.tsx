@@ -1,5 +1,5 @@
 import MinerMeasurement from "./MinerMeasurement";
-import { useMinerPowerUsage } from "@/protoFleet/features/fleetManagement/store/useFleetStore";
+import { useMinerPowerUsage } from "@/protoFleet/store";
 
 type MinerPowerUsageProps = {
   deviceIdentifier: string;

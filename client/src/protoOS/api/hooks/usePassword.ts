@@ -5,7 +5,7 @@ import {
   PasswordRequest,
 } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useAuthHeader } from "@/protoOS/store";
+import { useAuthErrors, useAuthHeader } from "@/protoOS/store";
 
 interface SetPasswordProps {
   onError?: (message: string) => void;
@@ -16,7 +16,6 @@ interface SetPasswordProps {
 
 interface ChangePasswordProps {
   changePasswordRequest: ChangePasswordRequest;
-  accessTokenValue?: string;
   onError?: (message: string) => void;
   onFinally?: () => void;
   onSuccess?: () => void;
@@ -24,8 +23,8 @@ interface ChangePasswordProps {
 
 const usePassword = () => {
   const { api } = useMinerHosting();
-
   const authHeader = useAuthHeader();
+  const { handleAuthErrors } = useAuthErrors();
 
   const setPassword = useCallback(
     async ({ password, onSuccess, onError, onFinally }: SetPasswordProps) => {
@@ -36,19 +35,28 @@ const usePassword = () => {
           onSuccess?.();
         })
         .catch((err) => {
-          onError?.(err?.error?.message ?? err?.error ?? err);
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(
+                err?.error?.message ?? err?.message ?? "An error occurred",
+              );
+            },
+            onSuccess: () => {
+              setPassword({ password, onSuccess, onError, onFinally });
+            },
+          });
         })
         .finally(() => {
           onFinally?.();
         });
     },
-    [api],
+    [api, handleAuthErrors],
   );
 
   const changePassword = useCallback(
     async ({
       changePasswordRequest,
-      accessTokenValue: _accessTokenValue,
       onSuccess,
       onError,
       onFinally,
@@ -60,13 +68,28 @@ const usePassword = () => {
           onSuccess?.();
         })
         .catch((err) => {
-          onError?.(err?.error?.message ?? err?.error ?? err);
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(
+                err?.error?.message ?? err?.message ?? "An error occurred",
+              );
+            },
+            onSuccess: () => {
+              changePassword({
+                changePasswordRequest,
+                onSuccess,
+                onError,
+                onFinally,
+              });
+            },
+          });
         })
         .finally(() => {
           onFinally?.();
         });
     },
-    [authHeader, api],
+    [authHeader, api, handleAuthErrors],
   );
 
   return useMemo(

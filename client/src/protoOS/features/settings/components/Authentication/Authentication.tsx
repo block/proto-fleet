@@ -36,14 +36,12 @@ const AuthenticationSettings = () => {
         });
       };
 
-      // access token takes a while to propagate, allow caller to pass it from login response
-      const doChangePassword = (newAccessToken?: string) => {
+      const doChangePassword = () => {
         changePassword({
           changePasswordRequest: {
             current_password: currentPassword,
             new_password: newPassword,
           },
-          accessTokenValue: newAccessToken,
           onSuccess: () => {
             login({
               password: newPassword,
@@ -72,7 +70,7 @@ const AuthenticationSettings = () => {
         });
       } else {
         // use existing access token
-        doChangePassword(undefined);
+        doChangePassword();
       }
     },
     [hasAccess, changePassword, login, navigate],

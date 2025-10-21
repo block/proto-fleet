@@ -1,5 +1,5 @@
 import { memo, useMemo } from "react";
-import { useTemperatureUnit } from "@/protoFleet/features/fleetManagement/store/useFleetStore";
+import { useTemperatureUnit } from "@/protoFleet/store";
 import TabMenu from "@/shared/components/TabMenu";
 import { convertCtoF, formatHashrateWithUnit } from "@/shared/utils/utility";
 

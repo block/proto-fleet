@@ -4,11 +4,7 @@ import { subscribeWithSelector } from "zustand/middleware";
 import { devtools } from "zustand/middleware";
 import { persist, PersistStorage, StorageValue } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import {
-  type AuthSlice,
-  type AuthTokens,
-  createAuthSlice,
-} from "./slices/authSlice";
+import { type AuthSlice, createAuthSlice } from "./slices/authSlice";
 import {
   createHardwareSlice,
   type HardwareSlice,
@@ -17,6 +13,10 @@ import {
   createMinerStatusSlice,
   type MinerStatusSlice,
 } from "./slices/minerStatusSlice";
+import {
+  createMiningTargetSlice,
+  type MiningTargetSlice,
+} from "./slices/miningTargetSlice";
 import {
   createNetworkInfoSlice,
   type NetworkInfoSlice,
@@ -30,8 +30,6 @@ import {
   type TelemetrySlice,
 } from "./slices/telemetrySlice";
 import { createUISlice, type UISlice } from "./slices/uiSlice";
-import type { TemperatureUnit, Theme } from "@/protoOS/store/types";
-import { type Duration } from "@/shared/components/DurationSelector";
 
 // Enable Map/Set support for Immer
 enableMapSet();
@@ -48,23 +46,20 @@ export interface MinerStore {
   systemInfo: SystemInfoSlice;
   networkInfo: NetworkInfoSlice;
   auth: AuthSlice;
+  miningTarget: MiningTargetSlice;
 }
 
 // =============================================================================
 // Custom Multi-Key Storage
 // =============================================================================
 
-// Type for the partial state that we persist - matches what partialize returns
+// Type for the partial state that we persist
 type PersistedState = {
-  auth: {
-    authTokens: AuthTokens;
-  };
-  ui: {
-    duration: Duration;
-    activeChartLines: string[];
-    theme: Theme;
-    temperatureUnit: TemperatureUnit;
-  };
+  auth: Pick<AuthSlice, "authTokens">;
+  ui: Pick<
+    UISlice,
+    "duration" | "activeChartLines" | "theme" | "temperatureUnit"
+  >;
 };
 
 const createMultiKeyStorage = (): PersistStorage<PersistedState> => {
@@ -168,6 +163,7 @@ const useMinerStore = create<MinerStore>()(
           systemInfo: createSystemInfoSlice(set, get, api),
           networkInfo: createNetworkInfoSlice(set, get, api),
           auth: createAuthSlice(set, get, api),
+          miningTarget: createMiningTargetSlice(set, get, api),
         })),
         {
           name: "miner-store",

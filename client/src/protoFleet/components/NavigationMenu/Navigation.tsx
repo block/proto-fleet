@@ -1,8 +1,8 @@
 import { createElement, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import clsx from "clsx";
-import { useAuthContext } from "@/protoFleet/features/auth/contexts/AuthContext";
 import { NavRoute } from "@/protoFleet/routes";
+import { useLogout } from "@/protoFleet/store";
 import { Logo, LogoAlt } from "@/shared/assets/icons";
 import { ArrowLeftCompact } from "@/shared/assets/icons";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
@@ -17,7 +17,7 @@ type NavigationProps = {
 const Navigation = ({ routes, className }: NavigationProps) => {
   const { pathname } = useLocation();
   const { isPhone, isTablet } = useWindowDimensions();
-  const { logout } = useAuthContext();
+  const logout = useLogout();
 
   const navigationItems = useMemo(
     () =>

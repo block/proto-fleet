@@ -4,10 +4,7 @@ import {
   NetworkInfo,
   UpdateNetworkNicknameRequest,
 } from "@/protoFleet/api/generated/networkinfo/v1/networkinfo_pb";
-import {
-  getAuthHeader,
-  useAuthContext,
-} from "@/protoFleet/features/auth/contexts/AuthContext";
+import { useAuthErrors, useAuthHeader } from "@/protoFleet/store";
 
 interface UpdateNetworkInfoProps {
   networkUpdateRequest: UpdateNetworkNicknameRequest;
@@ -16,7 +13,8 @@ interface UpdateNetworkInfoProps {
 }
 
 const useNetworkInfo = () => {
-  const { authTokens } = useAuthContext();
+  const authHeader = useAuthHeader();
+  const { handleAuthErrors } = useAuthErrors();
 
   const [data, setData] = useState<NetworkInfo>();
   const [error, setError] = useState<string>();
@@ -26,17 +24,22 @@ const useNetworkInfo = () => {
     setPending(true);
 
     networkInfoClient
-      .getNetworkInfo({}, getAuthHeader(authTokens))
+      .getNetworkInfo({}, authHeader)
       .then((res) => {
         setData(res?.networkInfo);
       })
       .catch((err) => {
-        setError(err?.error?.message ?? err);
+        handleAuthErrors({
+          error: err,
+          onError: () => {
+            setError(err?.message ?? String(err));
+          },
+        });
       })
       .finally(() => {
         setPending(false);
       });
-  }, [authTokens]);
+  }, [authHeader, handleAuthErrors]);
 
   useEffect(() => {
     fetchData();
@@ -50,18 +53,23 @@ const useNetworkInfo = () => {
     }: UpdateNetworkInfoProps) => {
       setPending(true);
       await networkInfoClient
-        .updateNetworkNickname(networkUpdateRequest, getAuthHeader(authTokens))
+        .updateNetworkNickname(networkUpdateRequest, authHeader)
         .then(() => {
           onSuccess();
         })
         .catch((err) => {
-          onError?.(err?.error?.message ?? err);
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.error?.message ?? err);
+            },
+          });
         })
         .finally(() => {
           setPending(false);
         });
     },
-    [authTokens],
+    [authHeader, handleAuthErrors],
   );
 
   return useMemo(

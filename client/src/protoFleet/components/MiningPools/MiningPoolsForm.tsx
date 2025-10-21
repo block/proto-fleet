@@ -7,8 +7,8 @@ import {
 } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import { Pool } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 
+import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import usePools from "@/protoFleet/api/usePools";
-import { useOnboardingContext } from "@/protoFleet/features/onboarding/contexts/OnboardingContext";
 import Button from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import PoolModal from "@/shared/components/MiningPools/PoolModal";
@@ -50,7 +50,7 @@ const MiningPoolsForm = ({
     validatePoolPending,
   } = usePools();
 
-  const { refetch: refetchOnboardingStatus } = useOnboardingContext();
+  const { refetch: refetchOnboardingStatus } = useOnboardedStatus();
 
   useEffect(() => {
     if (existingPools.length !== 0) {

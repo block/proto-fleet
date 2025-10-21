@@ -6,10 +6,7 @@ import {
   DiscoverRequest,
   PairRequest,
 } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
-import {
-  getAuthHeader,
-  useAuthContext,
-} from "@/protoFleet/features/auth/contexts/AuthContext";
+import { useAuthErrors, useAuthHeader } from "@/protoFleet/store";
 
 interface DiscoverMinersProps {
   discoverRequest: DiscoverRequest;
@@ -25,7 +22,8 @@ interface PairMinersProps {
 }
 
 const useMinerPairing = () => {
-  const { authTokens } = useAuthContext();
+  const authHeader = useAuthHeader();
+  const { handleAuthErrors } = useAuthErrors();
 
   const [discoverPending, setDiscoverPending] = useState(false);
   const [pairingPending, setPairingPending] = useState(false);
@@ -42,7 +40,7 @@ const useMinerPairing = () => {
         for await (const discoveryResponse of pairingClient.discover(
           discoverRequest,
           {
-            ...getAuthHeader(authTokens),
+            ...authHeader,
             signal: discoverAbortController?.signal,
           },
         )) {
@@ -61,7 +59,12 @@ const useMinerPairing = () => {
           // The discovery was aborted, do nothing
           return;
         } else if (error instanceof ConnectError) {
-          onError?.(error.message);
+          handleAuthErrors({
+            error: error,
+            onError: () => {
+              onError?.(error.message);
+            },
+          });
         } else if (typeof error === "string") {
           onError?.(error);
         }
@@ -69,25 +72,30 @@ const useMinerPairing = () => {
         setDiscoverPending(false);
       }
     },
-    [authTokens],
+    [authHeader, handleAuthErrors],
   );
 
   const pair = useCallback(
     async ({ pairRequest, onSuccess, onError }: PairMinersProps) => {
       setPairingPending(true);
       await pairingClient
-        .pair(pairRequest, getAuthHeader(authTokens))
+        .pair(pairRequest, authHeader)
         .then(() => {
           onSuccess();
         })
         .catch((err) => {
-          onError?.(err?.error?.message ?? err);
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
         })
         .finally(() => {
           setPairingPending(false);
         });
     },
-    [authTokens],
+    [authHeader, handleAuthErrors],
   );
 
   return useMemo(

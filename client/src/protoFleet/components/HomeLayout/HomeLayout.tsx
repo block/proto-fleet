@@ -1,16 +1,13 @@
 import { ReactNode } from "react";
 import useFleet from "@/protoFleet/api/useFleet";
-import {
-  useMinerStateCounts,
-  useTotalMiners,
-} from "@/protoFleet/features/fleetManagement/store/useFleetStore";
 import MinersStatus from "@/protoFleet/features/kpis/components/MinersStatus";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
-import { useOnboardingContext } from "@/protoFleet/features/onboarding/contexts/OnboardingContext";
+import { useMinerStateCounts, useTotalMiners } from "@/protoFleet/store";
+import { useDevicePaired } from "@/protoFleet/store";
 
 const HomeLayout = ({ children }: { children?: ReactNode }) => {
-  const { devicePaired } = useOnboardingContext();
+  const devicePaired = useDevicePaired();
   useFleet(); // Ensure fleet data is loaded
   const fleetSize = useTotalMiners();
   const minerStateCounts = useMinerStateCounts();

@@ -40,14 +40,8 @@ const PowerTargetPopover = ({
   onDismiss,
   onUpdateStart,
 }: PowerTargetPopoverProps) => {
-  const {
-    miningTarget,
-    defaultTarget,
-    performanceMode,
-    bounds,
-    pending,
-    updateMiningTarget,
-  } = useMiningTarget();
+  const { miningTarget, defaultTarget, performanceMode, bounds, pending } =
+    useMiningTarget();
   const [selectedPerformanceMode, setSelectedPerformanceMode] = useState<
     PerformanceMode | undefined
   >(performanceMode);
@@ -123,19 +117,12 @@ const PowerTargetPopover = ({
       power_target_watts: powerTarget,
     };
 
-    try {
-      onUpdateStart?.(miningTargetUpdate);
-    } catch (error) {
-      console.error("onUpdateStart callback failed:", error);
-    }
-
-    updateMiningTarget(miningTargetUpdate);
+    onUpdateStart?.(miningTargetUpdate);
   }, [
     pending,
     selectedPerformanceMode,
     selectedPowerTargetMode,
     calculatePowerTarget,
-    updateMiningTarget,
     onUpdateStart,
   ]);
 

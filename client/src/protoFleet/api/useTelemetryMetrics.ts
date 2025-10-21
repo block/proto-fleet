@@ -9,10 +9,7 @@ import {
   GetCombinedMetricsResponse,
   MeasurementType,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import {
-  getAuthHeader,
-  useAuthContext,
-} from "@/protoFleet/features/auth/contexts/AuthContext";
+import { useAuthErrors, useAuthHeader } from "@/protoFleet/store";
 import { Duration } from "@/shared/components/DurationSelector";
 
 interface TelemetryMetricsOptions {
@@ -41,7 +38,8 @@ const durationToSeconds = (duration: Duration): number | undefined => {
 };
 
 export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
-  const { authTokens } = useAuthContext();
+  const authHeader = useAuthHeader();
+  const { handleAuthErrors } = useAuthErrors();
   const [data, setData] = useState<GetCombinedMetricsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -96,14 +94,19 @@ export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
 
       const response = await telemetryClient.getCombinedMetrics(
         request,
-        getAuthHeader(authTokens),
+        authHeader,
       );
 
       setData(response);
     } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      setError(error);
-      console.error("Error fetching combined metrics:", error);
+      handleAuthErrors({
+        error: err,
+        onError: () => {
+          const errorObj = err instanceof Error ? err : new Error(String(err));
+          setError(errorObj);
+          console.error("Error fetching combined metrics:", errorObj);
+        },
+      });
     } finally {
       setIsLoading(false);
     }
@@ -113,7 +116,8 @@ export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
     options.aggregations,
     options.duration,
     options.enabled,
-    authTokens,
+    authHeader,
+    handleAuthErrors,
   ]);
 
   useEffect(() => {

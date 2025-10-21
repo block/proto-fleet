@@ -10,12 +10,12 @@ import {
 } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
-import { useMinerIds } from "@/protoFleet/features/fleetManagement/store/useFleetStore";
+import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import {
   defaultDiscoveryPorts,
   defaultTimeout,
 } from "@/protoFleet/features/onboarding/constants";
-import { useOnboardingContext } from "@/protoFleet/features/onboarding/contexts/OnboardingContext";
+import { useMinerIds } from "@/protoFleet/store";
 import {
   pushToast,
   STATUSES as TOAST_STATUSES,
@@ -39,7 +39,7 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
 
   const [foundMiners, setFoundMiners] = useState<Device[]>([]);
 
-  const { refetch } = useOnboardingContext();
+  const { refetch } = useOnboardedStatus();
 
   const minerIds = useMinerIds();
   // Process discovered miners, ensuring no duplicates

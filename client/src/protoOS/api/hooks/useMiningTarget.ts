@@ -1,190 +1,119 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  HttpResponse,
-  MiningTarget,
-  MiningTargetResponse,
-} from "@/protoOS/api/generatedApi";
+import { useCallback, useEffect, useMemo } from "react";
+import type { MiningTarget } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import {
-  AUTH_ACTIONS,
+  useAuthErrors,
   useAuthHeader,
-  useSetPausedAuthAction,
+  useMiningTargetBounds,
+  useMiningTargetDefault,
+  useMiningTargetError,
+  useMiningTargetPending,
+  useMiningTargetPerformanceMode,
+  useMiningTargetValue,
+  useSetMiningTargetError,
+  useSetMiningTargetFromResponse,
+  useSetMiningTargetPending,
 } from "@/protoOS/store";
-import { AuthAction } from "@/protoOS/store/types";
-
-type MiningTargetState = {
-  value?: MiningTarget["power_target_watts"];
-  default?: number;
-  performanceMode?: MiningTarget["performance_mode"];
-  bounds?: {
-    min: number;
-    max: number;
-  };
-  pending: boolean;
-  error: string | null;
-  listeners: Set<(state: Omit<MiningTargetState, "listeners">) => void>;
-};
-
-const miningTargetStore: MiningTargetState = {
-  value: undefined,
-  default: undefined,
-  performanceMode: undefined,
-  bounds: undefined,
-  pending: false,
-  error: null,
-  listeners: new Set(),
-};
-
-const updateStore = (update: Partial<Omit<MiningTargetState, "listeners">>) => {
-  Object.assign(miningTargetStore, update);
-
-  const state = {
-    value: miningTargetStore.value,
-    default: miningTargetStore.default,
-    performanceMode: miningTargetStore.performanceMode,
-    bounds: miningTargetStore.bounds,
-    pending: miningTargetStore.pending,
-    error: miningTargetStore.error,
-  };
-
-  miningTargetStore.listeners.forEach((listener) => listener(state));
-};
-
-const setMiningTargetPending = (pending: boolean) => {
-  updateStore({ pending });
-};
-
-const fetchData = (api: any) => {
-  if (!api) return;
-
-  updateStore({ pending: true });
-
-  api
-    .getMiningTarget()
-    .then((res: HttpResponse<MiningTargetResponse>) => {
-      updateStore({
-        value: res?.data.power_target_watts,
-        default: res?.data.default_power_target_watts,
-        performanceMode: res?.data.performance_mode,
-        bounds: {
-          min: res?.data.power_target_min_watts ?? 0,
-          max: res?.data.power_target_max_watts ?? 0,
-        },
-        pending: false,
-      });
-    })
-    .catch((err: any) => {
-      updateStore({
-        error: err?.error?.message ?? err,
-        pending: false,
-      });
-    });
-};
-
-// Update data for all components
-const sharedUpdateMiningTarget = (
-  api: any,
-  newTarget: MiningTarget,
-  authHeader: { headers: { Authorization: string } },
-  setPausedAuthAction: (action: AuthAction) => void,
-) => {
-  if (!api) return;
-
-  updateStore({
-    pending: true,
-    error: null,
-  });
-
-  api
-    .editMiningTarget(newTarget, authHeader)
-    .then((res: HttpResponse<MiningTargetResponse>) => {
-      updateStore({
-        value: res?.data.power_target_watts,
-        performanceMode: res?.data.performance_mode,
-        bounds: {
-          min: res?.data.power_target_min_watts ?? 0,
-          max: res?.data.power_target_max_watts ?? 0,
-        },
-        pending: false,
-      });
-    })
-    .catch((error: any) => {
-      if (error?.status === 401) {
-        setPausedAuthAction(AUTH_ACTIONS.miningTarget);
-      } else {
-        updateStore({
-          error: error?.error?.message ?? error,
-          pending: false,
-        });
-      }
-    });
-};
 
 const useMiningTarget = () => {
   const { api } = useMinerHosting();
   const authHeader = useAuthHeader();
-  const setPausedAuthAction = useSetPausedAuthAction();
-  const [localState, setLocalState] = useState({
-    miningTarget: miningTargetStore.value,
-    defaultTarget: miningTargetStore.default,
-    performanceMode: miningTargetStore.performanceMode,
-    bounds: miningTargetStore.bounds,
-    pending: miningTargetStore.pending,
-    error: miningTargetStore.error,
-  });
+  const { handleAuthErrors } = useAuthErrors();
 
-  useEffect(() => {
-    const listener = (state: Omit<MiningTargetState, "listeners">) => {
-      setLocalState({
-        miningTarget: state.value,
-        defaultTarget: state.default,
-        performanceMode: state.performanceMode,
-        bounds: state.bounds,
-        pending: state.pending,
-        error: state.error,
+  // State selectors
+  const miningTarget = useMiningTargetValue();
+  const defaultTarget = useMiningTargetDefault();
+  const performanceMode = useMiningTargetPerformanceMode();
+  const bounds = useMiningTargetBounds();
+  const pending = useMiningTargetPending();
+  const error = useMiningTargetError();
+
+  // Action selectors
+  const setFromResponse = useSetMiningTargetFromResponse();
+  const setPending = useSetMiningTargetPending();
+  const setError = useSetMiningTargetError();
+
+  // Fetch mining target data
+  const fetchData = useCallback(() => {
+    if (!api) return;
+
+    setPending(true);
+    api
+      .getMiningTarget()
+      .then((res) => {
+        setFromResponse(res);
+      })
+      .catch((err) => {
+        handleAuthErrors({
+          error: err,
+          onError: (error) => {
+            setError(error?.error?.message ?? "An error occurred");
+          },
+          onSuccess: () => {
+            // Retry fetch after successful token refresh
+            fetchData();
+          },
+        });
       });
-    };
+  }, [api, setPending, setFromResponse, setError, handleAuthErrors]);
 
-    miningTargetStore.listeners.add(listener);
-
-    return () => {
-      miningTargetStore.listeners.delete(listener);
-    };
-  }, []);
-
+  // Load initial data
   useEffect(() => {
-    if (
-      api &&
-      miningTargetStore.value === undefined &&
-      !miningTargetStore.pending
-    ) {
-      fetchData(api);
+    if (api && miningTarget === undefined && !pending) {
+      fetchData();
     }
-  }, [api]);
+  }, [api, miningTarget, pending, fetchData]);
 
+  // Update mining target
   const updateMiningTarget = useCallback(
     (newTarget: MiningTarget) => {
-      sharedUpdateMiningTarget(api, newTarget, authHeader, setPausedAuthAction);
-    },
-    [api, authHeader, setPausedAuthAction],
-  );
+      if (!api) return;
 
-  const setPending = useCallback((pending: boolean) => {
-    setMiningTargetPending(pending);
-  }, []);
+      setPending(true);
+      setError(null);
+
+      api
+        .editMiningTarget(newTarget, authHeader)
+        .then((res) => {
+          setFromResponse(res);
+        })
+        .catch((err) => {
+          handleAuthErrors({
+            error: err,
+            onError: (error) => {
+              setError(error?.error?.message ?? "An error occurred");
+            },
+            onSuccess: () => {
+              // Refresh worked! Retry now
+              updateMiningTarget(newTarget);
+            },
+          });
+        });
+    },
+    [api, authHeader, handleAuthErrors, setPending, setError, setFromResponse],
+  );
 
   return useMemo(
     () => ({
-      miningTarget: localState.miningTarget,
-      defaultTarget: localState.defaultTarget,
-      performanceMode: localState.performanceMode,
-      bounds: localState.bounds,
-      pending: localState.pending,
-      error: localState.error,
+      miningTarget,
+      defaultTarget,
+      performanceMode,
+      bounds,
+      pending,
+      error,
       updateMiningTarget,
       setPending,
     }),
-    [localState, updateMiningTarget, setPending],
+    [
+      miningTarget,
+      defaultTarget,
+      performanceMode,
+      bounds,
+      pending,
+      error,
+      updateMiningTarget,
+      setPending,
+    ],
   );
 };
 

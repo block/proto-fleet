@@ -2,14 +2,13 @@ import { useMemo } from "react";
 import { Outlet, useMatches } from "react-router-dom";
 
 import AppLayout from "@/protoFleet/components/AppLayout";
-import { useIsAuthenticated } from "@/protoFleet/features/auth/contexts/AuthContext";
+import { getRouteMetadata } from "@/protoFleet/routes";
+import { useIsAuthenticated } from "@/protoFleet/store";
 import {
   useDeviceTheme,
   useSetDeviceTheme,
   useTheme,
-} from "@/protoFleet/features/fleetManagement/store/useFleetStore";
-import { OnboardingProvider } from "@/protoFleet/features/onboarding/contexts/OnboardingContext";
-import { getRouteMetadata } from "@/protoFleet/routes";
+} from "@/protoFleet/store";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useApplyTheme } from "@/shared/features/preferences";
 import { Toaster } from "@/shared/features/toaster";
@@ -28,7 +27,10 @@ const AppContent = () => {
     return !(metadata?.requireAuth === false);
   }, [metadata]);
 
-  const { loading } = useIsAuthenticated(requireAuth);
+  const { loading, hasAccess } = useIsAuthenticated(requireAuth);
+
+  // Show loading spinner while checking auth or if access is denied (redirect in progress)
+  const showLoading = loading || (requireAuth && hasAccess !== true);
 
   return (
     <>
@@ -37,7 +39,7 @@ const AppContent = () => {
       </div>
 
       {metadata.useAppLayout ? (
-        loading ? (
+        showLoading ? (
           <div className="flex min-h-screen items-center justify-center">
             <ProgressCircular indeterminate />
           </div>
@@ -61,11 +63,7 @@ const App = () => {
   // Apply theme effects on mount
   useApplyTheme({ theme, deviceTheme, setDeviceTheme });
 
-  return (
-    <OnboardingProvider>
-      <AppContent />
-    </OnboardingProvider>
-  );
+  return <AppContent />;
 };
 
 export default App;

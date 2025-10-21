@@ -1,16 +1,31 @@
 import { useCallback, useEffect, useState } from "react";
-
 import { useNavigate } from "react-router-dom";
-import { useAuthContext } from "./useAuthContext";
+import type { AuthTokens } from "../slices/authSlice";
+import { useAuthLoading, useAuthTokens } from "./useAuth";
 import {
   pushToast,
   STATUSES as TOAST_STATUSES,
 } from "@/shared/features/toaster";
 
+// =============================================================================
+// Auth Utility Functions
+// =============================================================================
+
+export const getAuthHeader = (authTokens: AuthTokens) => {
+  return {
+    headers: { Authorization: `Bearer ${authTokens.accessToken.value}` },
+  };
+};
+
+// =============================================================================
+// Auth Access Hook
+// =============================================================================
+
 const REDIRECT_DELAY = 600;
 
-const useIsAuthenticated = (shouldCheckAccess = true) => {
-  const { authTokens, loading } = useAuthContext();
+export const useIsAuthenticated = (shouldCheckAccess = true) => {
+  const authTokens = useAuthTokens();
+  const loading = useAuthLoading();
 
   // returns undefined if access is not needed
   // returns true if access token is valid
@@ -50,5 +65,3 @@ const useIsAuthenticated = (shouldCheckAccess = true) => {
 
   return { checkAccess, hasAccess, setHasAccess, loading };
 };
-
-export { useIsAuthenticated };

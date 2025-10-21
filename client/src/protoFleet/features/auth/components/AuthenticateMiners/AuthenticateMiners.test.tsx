@@ -4,10 +4,10 @@ import { create } from "@bufbuild/protobuf";
 import AuthenticateMiners from "./AuthenticateMiners";
 import { MinerStateSnapshotSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import useFleet from "@/protoFleet/api/useFleet";
-import { useFleetMiners } from "@/protoFleet/features/fleetManagement/store/useFleetStore";
+import { useFleetMiners } from "@/protoFleet/store";
 
 vi.mock("@/protoFleet/api/useFleet");
-vi.mock("@/protoFleet/features/fleetManagement/store/useFleetStore");
+vi.mock("@/protoFleet/store");
 vi.mock("@/shared/features/toaster");
 
 const mockMiners = [

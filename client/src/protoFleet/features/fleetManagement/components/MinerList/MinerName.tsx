@@ -1,9 +1,6 @@
 import React, { useState } from "react";
 import MinerFrame from "@/protoFleet/features/fleetManagement/components/MinerFrame";
-import {
-  useMinerName,
-  useMinerUrl,
-} from "@/protoFleet/features/fleetManagement/store/useFleetStore";
+import { useMinerName, useMinerUrl } from "@/protoFleet/store";
 
 type MinerNameProps = {
   deviceIdentifier: string;

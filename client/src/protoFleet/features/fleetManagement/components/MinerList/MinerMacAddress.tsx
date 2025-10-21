@@ -1,4 +1,4 @@
-import { useMinerMacAddress } from "@/protoFleet/features/fleetManagement/store/useFleetStore";
+import { useMinerMacAddress } from "@/protoFleet/store";
 
 type MinerMacAddressProps = {
   deviceIdentifier: string;

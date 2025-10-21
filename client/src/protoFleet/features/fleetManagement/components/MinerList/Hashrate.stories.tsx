@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import HashrateComponent from "./Hashrate";
 import { Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { useFleetStore } from "@/protoFleet/features/fleetManagement/store/useFleetStore";
+import { useFleetStore } from "@/protoFleet/store";
 
 const mockMiner = {
   deviceIdentifier: "story-miner-1",
@@ -28,7 +28,7 @@ const mockMiner = {
 };
 
 export const WithDeviceIdentifier = () => {
-  const { setMiners } = useFleetStore();
+  const setMiners = useFleetStore((state) => state.fleet.setMiners);
 
   useEffect(() => {
     setMiners([mockMiner as MinerStateSnapshot]);

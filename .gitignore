@@ -5,6 +5,7 @@ server/influx_config/.env
 **/.goose/
 
 **private.env**
+.env*
 
 # Binary files
 server/cmd/fleetd/fleetd

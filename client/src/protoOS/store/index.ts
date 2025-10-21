@@ -185,3 +185,20 @@ export {
 export type { AuthTokens } from "./slices/authSlice";
 export { AUTH_ACTIONS } from "./types";
 export type { AuthAction } from "./types";
+
+export {
+  useMiningTargetValue,
+  useMiningTargetDefault,
+  useMiningTargetPerformanceMode,
+  useMiningTargetBounds,
+  useMiningTargetPending,
+  useMiningTargetError,
+  useSetMiningTargetValue,
+  useSetMiningTargetDefault,
+  useSetMiningTargetPerformanceMode,
+  useSetMiningTargetBounds,
+  useSetMiningTargetPending,
+  useSetMiningTargetError,
+  useSetMiningTargetFromResponse,
+  useResetMiningTarget,
+} from "./hooks/useMiningTarget";

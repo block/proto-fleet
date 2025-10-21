@@ -9,7 +9,7 @@ import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_
 import {
   useMinerComponentStatus,
   useMinerDeviceStatus,
-} from "@/protoFleet/features/fleetManagement/store/useFleetStore";
+} from "@/protoFleet/store";
 import {
   Alert,
   ControlBoard,

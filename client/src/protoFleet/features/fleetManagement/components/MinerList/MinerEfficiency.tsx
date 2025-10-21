@@ -1,5 +1,5 @@
 import MinerMeasurement from "./MinerMeasurement";
-import { useMinerEfficiency } from "@/protoFleet/features/fleetManagement/store/useFleetStore";
+import { useMinerEfficiency } from "@/protoFleet/store";
 
 type MinerEfficiencyProps = {
   deviceIdentifier: string;

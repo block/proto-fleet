@@ -7,9 +7,10 @@ import {
 } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { CreateAdminLoginRequest } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
 import {
-  getAuthHeader,
-  useAuthContext,
-} from "@/protoFleet/features/auth/contexts/AuthContext";
+  useAuthErrors,
+  useAuthHeader,
+  useSetUsername,
+} from "@/protoFleet/store";
 
 interface SetPasswordProps {
   onError?: (message: string) => void;
@@ -33,7 +34,9 @@ interface UpdateUsernameProps {
 }
 
 const useAuth = () => {
-  const { authTokens, setUsername } = useAuthContext();
+  const authHeader = useAuthHeader();
+  const setUsername = useSetUsername();
+  const { handleAuthErrors } = useAuthErrors();
   const [passwordLastUpdatedAt, setPasswordLastUpdatedAt] =
     useState<Date | null>(null);
 
@@ -51,21 +54,23 @@ const useAuth = () => {
           onSuccess?.();
         })
         .catch((err) => {
-          onError?.(err?.error ?? err);
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
         })
         .finally(() => {
           onFinally?.();
         });
     },
-    [setUsername],
+    [setUsername, handleAuthErrors],
   );
 
   const fetchLastUpdatedPasswordDate = useCallback(async () => {
     try {
-      const response = await authClient.getUserAuditInfo(
-        {},
-        getAuthHeader(authTokens),
-      );
+      const response = await authClient.getUserAuditInfo({}, authHeader);
 
       if (response.info?.passwordUpdatedAt) {
         const seconds = Number(response.info?.passwordUpdatedAt?.seconds);
@@ -73,9 +78,14 @@ const useAuth = () => {
         setPasswordLastUpdatedAt(date);
       }
     } catch (error) {
-      console.error("Error fetching last updated password date:", error);
+      handleAuthErrors({
+        error,
+        onError: () => {
+          console.error("Error fetching last updated password date:", error);
+        },
+      });
     }
-  }, [authTokens]);
+  }, [authHeader, handleAuthErrors]);
 
   const updatePassword = useCallback(
     async ({
@@ -86,22 +96,24 @@ const useAuth = () => {
       onFinally,
     }: UpdatePasswordProps) => {
       await authClient
-        .updatePassword(
-          { currentPassword, newPassword },
-          getAuthHeader(authTokens),
-        )
+        .updatePassword({ currentPassword, newPassword }, authHeader)
         .then(() => {
           onSuccess?.();
           fetchLastUpdatedPasswordDate();
         })
         .catch((err) => {
-          onError?.(err?.error ?? err);
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
         })
         .finally(() => {
           onFinally?.();
         });
     },
-    [authTokens, fetchLastUpdatedPasswordDate],
+    [authHeader, fetchLastUpdatedPasswordDate, handleAuthErrors],
   );
 
   const updateUsername = useCallback(
@@ -112,19 +124,24 @@ const useAuth = () => {
       onFinally,
     }: UpdateUsernameProps) => {
       await authClient
-        .updateUsername({ username }, getAuthHeader(authTokens))
+        .updateUsername({ username }, authHeader)
         .then(() => {
           setUsername(username);
           onSuccess?.();
         })
         .catch((err) => {
-          onError?.(err?.error ?? err);
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
         })
         .finally(() => {
           onFinally?.();
         });
     },
-    [authTokens, setUsername],
+    [authHeader, setUsername, handleAuthErrors],
   );
 
   useEffect(() => {

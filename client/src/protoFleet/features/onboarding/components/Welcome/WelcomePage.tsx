@@ -88,7 +88,7 @@ const WelcomePage = () => {
   return (
     <>
       {showWelcome ? (
-        <div className="flex min-h-screen items-center justify-center">
+        <div className="flex min-h-screen items-center justify-center bg-surface-base">
           <ProgressCircular indeterminate />
         </div>
       ) : (

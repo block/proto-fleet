@@ -6,7 +6,7 @@ import {
   Credentials,
   UnauthenticatedMiner,
 } from "@/protoFleet/features/auth/components/AuthenticateMiners/types";
-import { useFleetMiners } from "@/protoFleet/features/fleetManagement/store/useFleetStore";
+import { useFleetMiners } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import { sizes, variants } from "@/shared/components/Button/constants";
 import Callout, { intents } from "@/shared/components/Callout";

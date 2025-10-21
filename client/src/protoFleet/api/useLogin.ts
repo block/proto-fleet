@@ -2,7 +2,12 @@ import { useCallback } from "react";
 
 import { authClient } from "@/protoFleet/api/clients";
 import type { AuthenticateRequest } from "@/protoFleet/api/generated/auth/v1/auth_pb";
-import { useAuthContext } from "@/protoFleet/features/auth/contexts/AuthContext";
+import {
+  useSetAuthLoading,
+  useSetAuthTokens,
+  useSetUsername,
+} from "@/protoFleet/store";
+import { useAuthErrors } from "@/protoFleet/store/hooks/useAuth";
 
 interface LoginProps {
   onError?: (message: string) => void;
@@ -12,7 +17,10 @@ interface LoginProps {
 }
 
 const useLogin = () => {
-  const { setAuthTokens, setUsername } = useAuthContext();
+  const setAuthTokens = useSetAuthTokens();
+  const setUsername = useSetUsername();
+  const setAuthLoading = useSetAuthLoading();
+  const { handleAuthErrors } = useAuthErrors();
 
   const login = useCallback(
     async ({ loginRequest, onSuccess, onError, onFinally }: LoginProps) => {
@@ -28,16 +36,22 @@ const useLogin = () => {
             },
           });
           setUsername(loginRequest.username);
+          setAuthLoading(false);
           onSuccess?.(accessTokenValue);
         })
         .catch((err) => {
-          onError?.(err?.error?.message ?? err);
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
         })
         .finally(() => {
           onFinally?.();
         });
     },
-    [setAuthTokens, setUsername],
+    [setAuthTokens, setUsername, setAuthLoading, handleAuthErrors],
   );
 
   return login;

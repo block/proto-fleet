@@ -18,10 +18,7 @@ import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_
 
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 
-import {
-  useMinerStateCounts,
-  useTotalMiners,
-} from "@/protoFleet/features/fleetManagement/store/useFleetStore";
+import { useMinerStateCounts, useTotalMiners } from "@/protoFleet/store";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import { defaultListFilter } from "@/shared/components/List/constants";

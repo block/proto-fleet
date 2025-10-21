@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { type Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
-import { useMinerHashrate } from "@/protoFleet/features/fleetManagement/store/useFleetStore";
+import { useMinerHashrate } from "@/protoFleet/store";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import Sparkline from "@/shared/components/Sparkline";
 import { getLatestMeasurementWithData } from "@/shared/utils/measurementUtils";

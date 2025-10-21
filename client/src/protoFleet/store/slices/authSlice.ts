@@ -1,5 +1,5 @@
 import type { StateCreator } from "zustand";
-import type { MinerStore } from "../useMinerStore";
+import type { FleetStore } from "../useFleetStore";
 
 // =============================================================================
 // Auth Types
@@ -7,7 +7,6 @@ import type { MinerStore } from "../useMinerStore";
 
 export interface AuthTokens {
   accessToken: { value: string; expiry: Date };
-  refreshToken: { value: string; expiry: Date };
 }
 
 // =============================================================================
@@ -15,34 +14,33 @@ export interface AuthTokens {
 // =============================================================================
 
 export interface AuthSlice {
-  // State
   authTokens: AuthTokens;
-  loading: boolean;
+  username: string;
+  authLoading: boolean;
 
   // Actions
   setAuthTokens: (tokens: AuthTokens) => void;
-  setLoading: (loading: boolean) => void;
+  setUsername: (username: string) => void;
+  setAuthLoading: (loading: boolean) => void;
   logout: () => void;
 }
 
 // =============================================================================
-// Auth Slice Implementation
+// Auth Slice Creator
 // =============================================================================
 
-const nullAuthTokens: AuthTokens = {
-  accessToken: { value: "", expiry: new Date() },
-  refreshToken: { value: "", expiry: new Date() },
-};
-
 export const createAuthSlice: StateCreator<
-  MinerStore,
+  FleetStore,
   [["zustand/immer", never]],
   [],
   AuthSlice
 > = (set) => ({
-  // Initial State
-  authTokens: nullAuthTokens,
-  loading: true,
+  // Initial state
+  authTokens: {
+    accessToken: { value: "", expiry: new Date() },
+  },
+  username: "",
+  authLoading: true,
 
   // Actions
   setAuthTokens: (tokens) =>
@@ -50,14 +48,22 @@ export const createAuthSlice: StateCreator<
       state.auth.authTokens = tokens;
     }),
 
-  setLoading: (loading) =>
+  setUsername: (username) =>
     set((state) => {
-      state.auth.loading = loading;
+      state.auth.username = username;
+    }),
+
+  setAuthLoading: (loading) =>
+    set((state) => {
+      state.auth.authLoading = loading;
     }),
 
   logout: () =>
     set((state) => {
-      state.auth.authTokens = nullAuthTokens;
-      state.auth.loading = false;
+      state.auth.authTokens = {
+        accessToken: { value: "", expiry: new Date() },
+      };
+      state.auth.username = "";
+      state.auth.authLoading = false;
     }),
 });

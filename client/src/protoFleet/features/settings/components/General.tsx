@@ -5,7 +5,7 @@ import {
   useSetTheme,
   useTemperatureUnit,
   useTheme,
-} from "@/protoFleet/features/fleetManagement/store/useFleetStore";
+} from "@/protoFleet/store";
 import Row from "@/shared/components/Row";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import {

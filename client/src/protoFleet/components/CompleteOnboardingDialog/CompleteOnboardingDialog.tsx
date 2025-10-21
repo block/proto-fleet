@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { FleetOnboardingStatus } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
-import { useAuthContext } from "@/protoFleet/features/auth/contexts/AuthContext";
+import { useSetAuthTokens } from "@/protoFleet/store";
 import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 
@@ -28,7 +28,7 @@ type CompleteOnboardingDialogProps = {
 const CompleteOnboardingDialog = ({
   onboardingStatus,
 }: CompleteOnboardingDialogProps) => {
-  const { setAuthTokens } = useAuthContext();
+  const setAuthTokens = useSetAuthTokens();
   const navigate = useNavigate();
 
   const completeOnboarding: {

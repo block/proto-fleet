@@ -35,7 +35,7 @@ const PowerTarget = () => {
     null,
   );
 
-  const { hasAccess } = useAccessToken(
+  const { hasAccess, checkAccess } = useAccessToken(
     !!pausedAuthAction && !dismissedLoginModal,
   );
 
@@ -66,6 +66,15 @@ const PowerTarget = () => {
 
     return targetType;
   }, [isMax, isMin, miningTarget, pending, defaultTarget]);
+
+  const handleUpdateStart = useCallback(
+    (miningTarget: MiningTarget) => {
+      setLastMiningTarget(miningTarget);
+      setPausedAuthAction(AUTH_ACTIONS.miningTarget);
+      checkAccess();
+    },
+    [setPausedAuthAction, checkAccess],
+  );
 
   useEffect(() => {
     if (
@@ -133,7 +142,7 @@ const PowerTarget = () => {
       {showPopover && (
         <PowerTargetPopover
           onDismiss={() => setShowPopover(false)}
-          onUpdateStart={(miningTarget) => setLastMiningTarget(miningTarget)}
+          onUpdateStart={handleUpdateStart}
         />
       )}
     </div>

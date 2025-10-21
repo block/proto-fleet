@@ -1,5 +1,5 @@
 import MinerMeasurement from "./MinerMeasurement";
-import { useMinerTemperature } from "@/protoFleet/features/fleetManagement/store/useFleetStore";
+import { useMinerTemperature } from "@/protoFleet/store";
 
 type MinerTemperatureProps = {
   deviceIdentifier: string;
