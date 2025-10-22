@@ -1,8 +1,7 @@
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
-import DeviceWidget from "./DeviceWidget";
 import ActionBar from ".";
-import PerformanceWidget from "@/protoFleet/features/fleetManagement/components/ActionBar/PerformanceWidget";
+import MinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu";
 
 describe("Action Bar", () => {
   const actionBarTestId = "action-bar";
@@ -29,25 +28,25 @@ describe("Action Bar", () => {
   });
 
   test("renders action bar with correct number of miners", () => {
-    const selectedItems = ["MAC1", "MAC2", "MAC3"];
+    const selectedMiners = ["MAC1", "MAC2", "MAC3"];
     const { getByText } = render(
-      <ActionBar {...actionBarProps} selectedItems={selectedItems} />,
+      <ActionBar {...actionBarProps} selectedItems={selectedMiners} />,
     );
 
-    const element = getByText(selectedItems.length + " miners selected");
+    const element = getByText(selectedMiners.length + " miners selected");
     expect(element).toBeInTheDocument();
   });
 
   test("hides action bar when there are no miners", () => {
-    let selectedItems = ["MAC1"];
+    let selectedMiners = ["MAC1"];
     const { getByTestId, queryByTestId, rerender } = render(
-      <ActionBar {...actionBarProps} selectedItems={selectedItems} />,
+      <ActionBar {...actionBarProps} selectedItems={selectedMiners} />,
     );
 
     expect(getByTestId(actionBarTestId)).toBeInTheDocument();
 
-    selectedItems = [];
-    rerender(<ActionBar {...actionBarProps} selectedItems={selectedItems} />);
+    selectedMiners = [];
+    rerender(<ActionBar {...actionBarProps} selectedItems={selectedMiners} />);
 
     expect(queryByTestId(actionBarTestId)).not.toBeInTheDocument();
   });
@@ -64,34 +63,29 @@ describe("Action Bar", () => {
     expect(queryByTestId(actionBarTestId)).not.toBeInTheDocument();
   });
 
-  test("renders all actions and calls setHidden method properly", async () => {
-    const setHiddenMock = vi.fn();
+  test("renders MinerActionsMenu and calls setHidden method properly", async () => {
+    const onActionStartMock = vi.fn();
+    const selectedMiners = ["MinerId1"];
 
     const { getByText, getByTestId } = render(
       <ActionBar
-        {...actionBarProps}
-        renderActions={(numberOfItems) => (
-          <>
-            <DeviceWidget
-              selectedMiners={Array(numberOfItems).fill("MinerId")}
-              setHidden={setHiddenMock}
-            />
-            <PerformanceWidget
-              numberOfMiners={numberOfItems}
-              setHidden={setHiddenMock}
-            />
-          </>
+        selectedItems={selectedMiners}
+        renderActions={(setHidden) => (
+          <MinerActionsMenu
+            selectedMiners={selectedMiners}
+            onActionStart={() => {
+              onActionStartMock();
+              setHidden(true);
+            }}
+          />
         )}
       />,
     );
 
-    const actionTexts = ["Device", "Performance"];
-    actionTexts.forEach((title) => {
-      expect(getByText(title)).toBeInTheDocument();
-    });
+    expect(getByText("All actions")).toBeInTheDocument();
 
-    fireEvent.click(getByTestId("device-widget-button"));
+    fireEvent.click(getByTestId("actions-menu-button"));
     fireEvent.click(getByTestId("factory-reset-popover-button"));
-    expect(setHiddenMock).toHaveBeenCalled();
+    expect(onActionStartMock).toHaveBeenCalled();
   });
 });

@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import { action } from "storybook/actions";
-import { DeviceAction, deviceActions } from "../DeviceWidget/constants";
 import {
+  DeviceAction,
+  deviceActions,
   PerformanceAction,
   performanceActions,
-} from "../PerformanceWidget/constants";
-import { BulkAction } from "../types";
+} from "../MinerActionsMenu/constants";
+import { BulkAction } from "./types";
 import { BulkActionsPopover } from ".";
 import BulkActionsWidgetComponent from ".";
 import {

@@ -34,7 +34,8 @@ const Row = ({
       <Element
         className={clsx("peer", {
           "flex items-center gap-4": suffixIcon || prefixIcon,
-          "-ml-3 w-[calc(100%+24px)] rounded-lg px-3": onClick,
+          "-ml-3 w-[calc(100%+24px)] rounded-lg px-3 hover:bg-core-primary-5":
+            onClick,
         })}
         onClick={onClick}
         data-testid={testId}
@@ -58,7 +59,7 @@ const Row = ({
       {divider && (
         <Divider
           className={clsx("mt-[-1px]", {
-            "px-4 peer-hover:invisible": onClick,
+            "px-4": onClick,
           })}
         />
       )}

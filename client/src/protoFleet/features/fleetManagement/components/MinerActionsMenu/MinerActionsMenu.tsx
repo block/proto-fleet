@@ -1,8 +1,13 @@
 import { useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import BulkActionsWidget, { BulkActionsPopover } from "../BulkActions";
-import { BulkAction } from "../types";
-import { DeviceAction, deviceActions } from "./constants";
+import { BulkAction } from "../BulkActions/types";
+import {
+  deviceActions,
+  performanceActions,
+  settingsActions,
+  SupportedAction,
+} from "./constants";
 import {
   DeviceListSchema,
   DeviceSelectorSchema,
@@ -15,11 +20,16 @@ import {
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import {
   ArrowLeftCompact,
+  ChevronDown,
+  Curtail,
+  Download,
+  Fan,
   LEDIndicator,
+  Lock,
   Play,
   Power,
   Reboot,
-  Rectangle,
+  Speedometer,
   Terminal,
 } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -31,16 +41,23 @@ import {
   updateToast,
 } from "@/shared/features/toaster";
 
-interface DeviceWidgetProps {
+interface MinerActionsMenuProps {
   selectedMiners: string[];
-  setHidden: (hidden: boolean) => void;
+  onActionStart?: () => void;
+  onActionComplete?: () => void;
 }
 
-const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
+const MinerActionsMenu = ({
+  selectedMiners,
+  onActionStart,
+  onActionComplete,
+}: MinerActionsMenuProps) => {
   const { startMining, stopMining, streamCommandBatchUpdates } =
     useMinerCommand();
 
-  const [currentAction, setCurrentAction] = useState<DeviceAction | null>(null);
+  const [currentAction, setCurrentAction] = useState<SupportedAction | null>(
+    null,
+  );
 
   const numberOfMiners = useMemo(() => selectedMiners.length, [selectedMiners]);
 
@@ -50,6 +67,7 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
   };
 
   const popoverActions = useMemo(() => {
+    // Device actions handlers
     const handleBlinkLEDs = () => {
       setCurrentAction(deviceActions.blinkLEDs);
       const message = "Blinking LEDs";
@@ -58,7 +76,6 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
         status: TOAST_STATUSES.loading,
         longRunning: true,
       });
-      // TODO call API
       simulateAPICall(() => {
         updateToast(id, {
           message: message,
@@ -74,7 +91,6 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
         status: TOAST_STATUSES.loading,
         longRunning: true,
       });
-      // TODO call API
       simulateAPICall(() => {
         updateToast(id, {
           message: "Downloaded logs",
@@ -85,25 +101,53 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
 
     const handleFactoryReset = () => {
       setCurrentAction(deviceActions.factoryReset);
-      setHidden(true);
+      onActionStart?.();
     };
 
     const handleReboot = () => {
       setCurrentAction(deviceActions.reboot);
-      setHidden(true);
+      onActionStart?.();
     };
 
     const handleShutDown = () => {
       setCurrentAction(deviceActions.shutdown);
-      setHidden(true);
+      onActionStart?.();
     };
 
     const handleWakeUp = () => {
       setCurrentAction(deviceActions.wakeUp);
-      setHidden(true);
+      onActionStart?.();
+    };
+
+    // Performance actions handlers
+    const handlePerformanceMode = () => {
+      setCurrentAction(performanceActions.performanceMode);
+      // TODO modal
+    };
+
+    const handleCurtail = () => {
+      setCurrentAction(performanceActions.curtail);
+      onActionStart?.();
+    };
+
+    // Settings actions handlers
+    const handleMiningPool = () => {
+      setCurrentAction(settingsActions.miningPool);
+      onActionStart?.();
+    };
+
+    const handleCoolingMode = () => {
+      setCurrentAction(settingsActions.coolingMode);
+      // TODO show modal
+    };
+
+    const handleSecurity = () => {
+      setCurrentAction(settingsActions.security);
+      // TODO show modal
     };
 
     return [
+      // Device actions
       {
         action: deviceActions.blinkLEDs,
         title: "Blink LEDs",
@@ -121,7 +165,7 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
       {
         action: deviceActions.factoryReset,
         title: "Factory reset",
-        icon: <ArrowLeftCompact className="opacity-30" />,
+        icon: <ArrowLeftCompact />,
         actionHandler: handleFactoryReset,
         requiresConfirmation: true,
         confirmation: {
@@ -153,7 +197,7 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
       {
         action: deviceActions.shutdown,
         title: "Sleep",
-        icon: <Power className="opacity-30" />,
+        icon: <Power />,
         actionHandler: handleShutDown,
         requiresConfirmation: true,
         confirmation: {
@@ -169,7 +213,7 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
       {
         action: deviceActions.wakeUp,
         title: "Wake up",
-        icon: <Play className="opacity-30" />,
+        icon: <Play />,
         actionHandler: handleWakeUp,
         requiresConfirmation: true,
         confirmation: {
@@ -182,25 +226,76 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
           testId: "wake-up-confirm-button",
         },
       },
-    ] as BulkAction<DeviceAction>[];
-  }, [numberOfMiners, setHidden]);
+      // Performance actions
+      {
+        action: performanceActions.performanceMode,
+        title: "Performance mode",
+        icon: <Speedometer />,
+        actionHandler: handlePerformanceMode,
+        requiresConfirmation: false,
+      },
+      {
+        action: performanceActions.curtail,
+        title: "Curtail",
+        icon: <Curtail />,
+        actionHandler: handleCurtail,
+        requiresConfirmation: true,
+        confirmation: {
+          title: `Curtail ${numberOfMiners} miners?`,
+          subtitle:
+            "These miners will reduce power to 0.1 kW and stop hashing.",
+          confirmAction: {
+            title: "Curtail",
+            variant: variants.primary,
+          },
+          testId: "curtail-confirm-button",
+        },
+      },
+      // Settings actions
+      {
+        action: settingsActions.miningPool,
+        title: "Mining pool",
+        icon: <Download />,
+        actionHandler: handleMiningPool,
+        requiresConfirmation: false,
+      },
+      {
+        action: settingsActions.coolingMode,
+        title: "Cooling mode",
+        icon: <Fan />,
+        actionHandler: handleCoolingMode,
+        requiresConfirmation: false,
+      },
+      {
+        action: settingsActions.security,
+        title: "Security",
+        icon: <Lock />,
+        actionHandler: handleSecurity,
+        requiresConfirmation: false,
+      },
+    ] as BulkAction<SupportedAction>[];
+  }, [numberOfMiners, onActionStart]);
 
   const minersMessage = "miners";
 
-  const loadingMessages = {
+  const loadingMessages: Record<string, string> = {
     [deviceActions.factoryReset]: "Resetting",
     [deviceActions.reboot]: "Rebooting",
     [deviceActions.shutdown]: "Shutting down",
     [deviceActions.wakeUp]: "Waking up",
+    [performanceActions.curtail]: "Curtailing miners",
   };
-  const successMessages = {
+
+  const successMessages: Record<string, string> = {
     [deviceActions.factoryReset]: "Reset",
     [deviceActions.reboot]: "Rebooted",
     [deviceActions.shutdown]: "Shut down",
     [deviceActions.wakeUp]: "Woke up",
+    [performanceActions.curtail]: "Miners curtailed",
   };
+
   const handleConfirmation = async () => {
-    setHidden(false);
+    onActionComplete?.();
     if (
       currentAction === null ||
       currentAction === deviceActions.blinkLEDs ||
@@ -214,7 +309,7 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
       longRunning: true,
     });
 
-    // TODO call API for rest of the actions
+    // Handle device action API calls
     switch (currentAction) {
       case deviceActions.shutdown: {
         const stopMiningRequest = create(StopMiningRequestSchema, {
@@ -254,12 +349,18 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
         });
         break;
       }
+      default:
+        // TODO remove this once all actions are implemented
+        updateToast(id, {
+          message: "Unimplemented action",
+          status: TOAST_STATUSES.error,
+        });
     }
     setCurrentAction(null);
   };
 
   const handleSuccess = (
-    action: DeviceAction,
+    action: SupportedAction,
     originalToastId: number,
     batchIdentifier: string,
   ) => {
@@ -269,39 +370,41 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
     )
       return;
 
-    // TODO: Do we need abort controller since actions are not cancellable?
-    // If not, we can remove the streamAbortController
     const streamAbortController = new AbortController();
 
     let errorToastId: number | null = null;
-    let successCount: number | bigint = 0;
-    let totalCount: number | bigint = 0;
+    let successCount: number;
+    let totalCount: number;
 
     streamCommandBatchUpdates({
       streamRequest: create(StreamCommandBatchUpdatesRequestSchema, {
         batchIdentifier,
       }),
       onStreamData: (response) => {
-        totalCount = response.status?.commandBatchDeviceCount?.total || 0;
-        successCount = response.status?.commandBatchDeviceCount?.success || 0;
+        totalCount = Number(
+          response.status?.commandBatchDeviceCount?.total || 0,
+        );
+        successCount = Number(
+          response.status?.commandBatchDeviceCount?.success || 0,
+        );
 
         updateToast(originalToastId, {
-          message: `${successMessages[action]} ${response.status?.commandBatchDeviceCount?.success} out of ${totalCount} ${minersMessage}`,
+          message: `${successMessages[action]} ${successCount} out of ${totalCount} ${minersMessage}`,
           status: TOAST_STATUSES.success,
         });
 
-        if (
-          response.status?.commandBatchDeviceCount?.failure &&
-          response.status?.commandBatchDeviceCount?.failure > 0
-        ) {
+        const failureCount = Number(
+          response.status?.commandBatchDeviceCount?.failure || 0,
+        );
+        if (failureCount > 0) {
           if (!errorToastId) {
             errorToastId = pushToast({
-              message: `Update failed on ${response.status.commandBatchDeviceCount.failure} out of ${totalCount} ${minersMessage}`,
+              message: `Update failed on ${failureCount} out of ${totalCount} ${minersMessage}`,
               status: TOAST_STATUSES.error,
             });
           } else {
             updateToast(errorToastId, {
-              message: `Update failed on ${response.status.commandBatchDeviceCount.failure} out of ${totalCount} ${minersMessage}`,
+              message: `Update failed on ${failureCount} out of ${totalCount} ${minersMessage}`,
               status: TOAST_STATUSES.error,
             });
           }
@@ -325,24 +428,24 @@ const DeviceWidget = ({ selectedMiners, setHidden }: DeviceWidgetProps) => {
 
   return (
     <PopoverProvider>
-      <BulkActionsWidget<DeviceAction>
-        buttonIcon={<Rectangle width={iconSizes.xSmall} />}
-        buttonTitle="Device"
+      <BulkActionsWidget<SupportedAction>
+        buttonIconSuffix={<ChevronDown width={iconSizes.xSmall} />}
+        buttonTitle="All actions"
         actions={popoverActions}
         onConfirmation={handleConfirmation}
-        onCancel={() => setHidden(false)}
+        onCancel={() => onActionComplete?.()}
         currentAction={currentAction}
         renderPopover={(beforeEach) => (
-          <BulkActionsPopover<DeviceAction>
+          <BulkActionsPopover<SupportedAction>
             actions={popoverActions}
             beforeEach={beforeEach}
-            testId="device-widget-popover"
+            testId="actions-menu-popover"
           />
         )}
-        testId="device-widget"
+        testId="actions-menu"
       />
     </PopoverProvider>
   );
 };
 
-export default DeviceWidget;
+export default MinerActionsMenu;

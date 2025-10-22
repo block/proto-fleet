@@ -1,4 +1,4 @@
-import { ActionWarnDialogOptions } from "../types";
+import { ActionWarnDialogOptions } from "./types";
 import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 

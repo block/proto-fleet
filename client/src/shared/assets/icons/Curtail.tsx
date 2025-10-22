@@ -16,7 +16,6 @@ const Curtail = ({ className, width = iconSizes.medium }: IconProps) => {
       >
         <path
           fill="currentColor"
-          fillOpacity=".3"
           fillRule="evenodd"
           d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16ZM0 10C0 4.477 4.477 0 10 0s10 4.477 10 10-4.477 10-10 10S0 15.523 0 10Zm7.75-3.7a1 1 0 0 1 1 1v5.4a1 1 0 1 1-2 0V7.3a1 1 0 0 1 1-1Zm4.5 0a1 1 0 0 1 1 1v5.4a1 1 0 1 1-2 0V7.3a1 1 0 0 1 1-1Z"
           clipRule="evenodd"

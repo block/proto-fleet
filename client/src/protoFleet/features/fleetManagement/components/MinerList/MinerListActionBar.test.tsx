@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 
@@ -14,8 +14,8 @@ describe("Miner list action bar", () => {
 
     const actionBarElement = getByTestId(actionBarTestId);
     expect(actionBarElement).toBeInTheDocument();
-    const deviceButton = getByTestId("device-widget-button");
-    fireEvent.click(deviceButton);
+    const actionsMenuButton = getByTestId("actions-menu-button");
+    fireEvent.click(actionsMenuButton);
     const rebootButton = getByTestId("reboot-popover-button");
     fireEvent.click(rebootButton);
 
@@ -27,23 +27,16 @@ describe("Miner list action bar", () => {
     expect(actionBarElement.classList.contains("invisible")).toBe(false);
   });
 
-  test("hides and displays action bar depending on modal visibility", async () => {
+  test("hides action bar when mining pool action is triggered", () => {
     const { getByTestId } = render(<MinerListActionBar {...actionBarProps} />);
 
     const actionBarElement = getByTestId(actionBarTestId);
     expect(actionBarElement).toBeInTheDocument();
-    const settingsButton = getByTestId("settings-widget-button");
-    fireEvent.click(settingsButton);
+    const actionsMenuButton = getByTestId("actions-menu-button");
+    fireEvent.click(actionsMenuButton);
     const miningPoolsButton = getByTestId("mining-pool-popover-button");
     fireEvent.click(miningPoolsButton);
 
     expect(actionBarElement.classList.contains("invisible")).toBe(true);
-
-    const closeModalButton = getByTestId("header-icon-button");
-    fireEvent.click(closeModalButton);
-
-    await waitFor(() => {
-      expect(actionBarElement.classList.contains("invisible")).toBe(false);
-    });
   });
 });

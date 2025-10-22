@@ -1,6 +1,6 @@
 import { useState } from "react";
 import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
-import BulkActionConfirmDialog from "@/protoFleet/features/fleetManagement/components/ActionBar/BulkActions/BulkActionConfirmDialog";
+import BulkActionConfirmDialog from "@/protoFleet/features/fleetManagement/components/BulkActions/BulkActionConfirmDialog";
 import { variants } from "@/shared/components/Button";
 import ButtonGroup, {
   groupVariants,
@@ -28,9 +28,9 @@ const AlertListActionBar = ({ selectedAlerts }: AlertListActionBarProps) => {
 
   return (
     <ActionBar
-      className="absolute right-0 bottom-4 left-0 z-20"
+      className="absolute right-0 bottom-4 left-0 z-20 mx-auto w-[calc(100%-theme(spacing.16))]"
       selectedItems={selectedAlerts}
-      renderActions={(numberOfItems, setHidden) => (
+      renderActions={(setHidden) => (
         <>
           <ButtonGroup
             variant={groupVariants.rightAligned}
@@ -55,7 +55,7 @@ const AlertListActionBar = ({ selectedAlerts }: AlertListActionBarProps) => {
           />
           <BulkActionConfirmDialog
             actionConfirmation={{
-              title: `Reboot ${numberOfItems} miners?`,
+              title: `Reboot ${selectedAlerts.length} miners?`,
               subtitle:
                 "These miners will temporarily go offline but will resume hashing automatically after they reboot.",
               confirmAction: {

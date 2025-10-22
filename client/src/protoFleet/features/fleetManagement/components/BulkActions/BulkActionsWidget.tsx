@@ -1,21 +1,20 @@
 import { Key, ReactNode, useCallback, useEffect, useState } from "react";
 import { clsx } from "clsx";
-import { DeviceAction } from "../DeviceWidget/constants";
-import { PerformanceAction } from "../PerformanceWidget/constants";
-import { BulkAction } from "../types";
-import BulkActionConfirmDialog from "@/protoFleet/features/fleetManagement/components/ActionBar/BulkActions/BulkActionConfirmDialog";
-import { SettingsAction } from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/constants";
+import { BulkAction } from "./types";
+import BulkActionConfirmDialog from "@/protoFleet/features/fleetManagement/components/BulkActions/BulkActionConfirmDialog";
+import { SupportedAction } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { usePopover } from "@/shared/components/Popover";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
 interface BulkActionsWidgetProps<ActionType> {
-  buttonIcon: ReactNode;
+  buttonIcon?: ReactNode;
+  buttonIconSuffix?: ReactNode;
   buttonTitle: string;
   actions: BulkAction<ActionType>[];
   onConfirmation?: () => void;
   onCancel: () => void;
-  currentAction: DeviceAction | PerformanceAction | SettingsAction | null;
+  currentAction: SupportedAction | null;
   renderPopover: (
     onAction: (requiresConfirmation: boolean) => void,
   ) => ReactNode;
@@ -24,6 +23,7 @@ interface BulkActionsWidgetProps<ActionType> {
 
 const BulkActionsWidget = <ActionType extends Key>({
   buttonIcon,
+  buttonIconSuffix,
   buttonTitle,
   actions,
   onConfirmation,
@@ -65,13 +65,21 @@ const BulkActionsWidget = <ActionType extends Key>({
   return (
     <div className="relative" ref={triggerRef}>
       <Button
-        className={clsx("text-grayscale-white-90!", {
-          "bg-grayscale-white-10!": !isOpen,
-          "bg-core-accent-fill!": isOpen,
-        })}
+        className="bg-grayscale-white-10! text-grayscale-white-90!"
         size={sizes.compact}
         variant={variants.secondary}
         prefixIcon={buttonIcon}
+        suffixIcon={
+          buttonIconSuffix ? (
+            <div
+              className={clsx("transition-transform duration-200", {
+                "rotate-180": isOpen,
+              })}
+            >
+              {buttonIconSuffix}
+            </div>
+          ) : undefined
+        }
         testId={testId + "-button"}
         onClick={() => setIsOpen((prev) => !prev)}
       >

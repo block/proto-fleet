@@ -17,11 +17,7 @@ const ConcentricCircles = ({
         xmlns="http://www.w3.org/2000/svg"
         preserveAspectRatio="xMidYMid meet"
       >
-        <path
-          className="fill-surface-base"
-          fillOpacity=".01"
-          d="M0 0h20v20H0z"
-        />
+        <path d="M0 0h20v20H0z" />
         <path
           fillRule="evenodd"
           clipRule="evenodd"
