@@ -200,7 +200,7 @@ func start(config *Config) error {
 		interceptors.NewErrorMappingInterceptor(),
 		interceptors.NewErrorStackTraceLoggingInterceptor(config.Log.Level),
 		interceptors.NewRequestLoggingInterceptor(config.Log.Level),
-		interceptors.NewAuthInterceptor(tokenSvc, interceptors.UnauthenticatedProcedures),
+		interceptors.NewAuthInterceptor(tokenSvc, userStore, interceptors.UnauthenticatedProcedures),
 		validateInterceptor,
 	)
 

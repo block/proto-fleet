@@ -49,7 +49,7 @@ type TestContext struct {
 }
 
 func NewInfrastructureProvider(t *testing.T, serviceProvider *ServiceProvider, authInterceptorAllowList []string) *InfrastructureProvider {
-	interceptorsOption := connect.WithInterceptors(interceptors.NewErrorMappingInterceptor(), interceptors.NewAuthInterceptor(serviceProvider.TokenService, authInterceptorAllowList))
+	interceptorsOption := connect.WithInterceptors(interceptors.NewErrorMappingInterceptor(), interceptors.NewAuthInterceptor(serviceProvider.TokenService, serviceProvider.UserStore, authInterceptorAllowList))
 
 	mux := http.NewServeMux()
 

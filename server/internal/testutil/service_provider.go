@@ -43,6 +43,7 @@ type ServiceProvider struct {
 	EncryptService         *encrypt.Service
 	FleetManagementService *fleetmanagement.Service
 	DeviceStore            *sqlstores.SQLDeviceStore
+	UserStore              *sqlstores.SQLUserStore
 	FilesService           *files.Service
 	MinerService           *miner.MinerService
 	CapabilitiesService    *capabilities.Service
@@ -120,6 +121,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 		EncryptService:         encryptService,
 		FleetManagementService: fleetManagementService,
 		DeviceStore:            deviceStore,
+		UserStore:              userStore,
 		FilesService:           filesService,
 		MinerService:           minerService,
 		CapabilitiesService:    capabilitiesService,

@@ -1,12 +1,14 @@
 -- name: GetUserByUsername :one
 SELECT *
 FROM user
-WHERE username = ?;
+WHERE username = ?
+AND deleted_at IS NULL;
 
 -- name: GetUserById :one
 SELECT *
 FROM user
-WHERE id = ?;
+WHERE id = ?
+AND deleted_at IS NULL;
 
 -- name: CreateUser :execresult
 INSERT INTO user (user_id, username, password_hash, created_at)

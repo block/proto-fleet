@@ -7,6 +7,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 
@@ -15,12 +16,13 @@ import (
 
 type AuthInterceptor struct {
 	tokenService *token.Service
+	userStore    interfaces.UserStore
 	allowList    map[string]struct{}
 }
 
 var _ connect.Interceptor = &AuthInterceptor{}
 
-func NewAuthInterceptor(tokenService *token.Service, allowedProcedures []string) *AuthInterceptor {
+func NewAuthInterceptor(tokenService *token.Service, userStore interfaces.UserStore, allowedProcedures []string) *AuthInterceptor {
 	allowList := make(map[string]struct{})
 	for _, item := range allowedProcedures {
 		allowList[item] = struct{}{}
@@ -28,6 +30,7 @@ func NewAuthInterceptor(tokenService *token.Service, allowedProcedures []string)
 
 	return &AuthInterceptor{
 		tokenService: tokenService,
+		userStore:    userStore,
 		allowList:    allowList,
 	}
 }
@@ -74,6 +77,11 @@ func (i *AuthInterceptor) authenticate(ctx context.Context, procedure string, re
 	claims, err := i.tokenService.VerifyClientAuthJWT(bearerToken)
 	if err != nil {
 		return ctx, err
+	}
+
+	_, err = i.userStore.GetUserByID(ctx, claims.UserID)
+	if err != nil {
+		return ctx, fleeterror.NewUnauthenticatedErrorf("User with id %d not found", claims.UserID)
 	}
 
 	return authn.SetInfo(ctx, claims), nil

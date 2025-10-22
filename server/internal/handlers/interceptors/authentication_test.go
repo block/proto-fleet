@@ -20,49 +20,54 @@ func TestAuthInterceptor(t *testing.T) {
 	}
 
 	t.Run("should respect allow list", func(t *testing.T) {
+		// Arrange
 		databaseService := testutil.NewDatabaseService(t, testConfig)
 		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB, testConfig)
 		infrastructureProvider := testutil.NewInfrastructureProvider(t, serviceProvider, allowList)
 
-		// Make request
 		req := connect.NewRequest(&pingv1.EchoRequest{
 			Text: "Hello",
 		})
 
+		// Act
 		resp, err := infrastructureProvider.PingClient.Echo(t.Context(), req)
-		assert.NoError(t, err)
 
-		// Verify response
+		// Assert
+		assert.NoError(t, err)
 		assert.Equal(t, "Hello", resp.Msg.Text)
 	})
 
 	t.Run("should fail auth when procedure not in allow list", func(t *testing.T) {
+		// Arrange
 		databaseService := testutil.NewDatabaseService(t, testConfig)
 		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB, testConfig)
 		infrastructureProvider := testutil.NewInfrastructureProvider(t, serviceProvider, []string{})
 
-		// Make request
 		req := connect.NewRequest(&pingv1.EchoRequest{
 			Text: "Hello",
 		})
 
+		// Act
 		_, err := infrastructureProvider.PingClient.Echo(t.Context(), req)
+
+		// Assert
 		assert.Error(t, err)
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})
 
 	t.Run("should pass auth check when token is valid", func(t *testing.T) {
-		// Setup test server
+		// Arrange
 		databaseService := testutil.NewDatabaseService(t, testConfig)
 		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB, testConfig)
 		infrastructureProvider := testutil.NewInfrastructureProvider(t, serviceProvider, allowList)
 
-		// Make request
+		testUser := databaseService.CreateSuperAdminUser()
+
 		req := connect.NewRequest(&pingv1.PingRequest{
 			Text: "Hello",
 		})
 
-		jwt, _, err := serviceProvider.TokenService.GenerateClientAuthJWT(123, 1)
+		jwt, _, err := serviceProvider.TokenService.GenerateClientAuthJWT(testUser.DatabaseID, testUser.OrganizationID)
 		assert.NoError(t, err)
 
 		req.Header().Set(
@@ -70,19 +75,20 @@ func TestAuthInterceptor(t *testing.T) {
 			"Bearer "+jwt,
 		)
 
+		// Act
 		resp, err := infrastructureProvider.PingClient.Ping(t.Context(), req)
-		assert.NoError(t, err)
 
-		// Verify response
+		// Assert
+		assert.NoError(t, err)
 		assert.Equal(t, "Hello", resp.Msg.Text)
 	})
 
 	t.Run("should fail auth check when token is invalid", func(t *testing.T) {
+		// Arrange
 		databaseService := testutil.NewDatabaseService(t, testConfig)
 		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB, testConfig)
 		infrastructureProvider := testutil.NewInfrastructureProvider(t, serviceProvider, allowList)
 
-		// Make request
 		req := connect.NewRequest(&pingv1.PingRequest{
 			Text: "Hello",
 		})
@@ -92,9 +98,40 @@ func TestAuthInterceptor(t *testing.T) {
 			"Bearer hvhjvghjvjvgvcghjvjvgj",
 		)
 
+		// Act
 		_, err := infrastructureProvider.PingClient.Ping(t.Context(), req)
 
-		// Verify response
+		// Assert
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+	})
+
+	t.Run("should fail auth check when user does not exist", func(t *testing.T) {
+		// Arrange
+		databaseService := testutil.NewDatabaseService(t, testConfig)
+		serviceProvider := testutil.NewServiceProvider(t, databaseService.DB, testConfig)
+		infrastructureProvider := testutil.NewInfrastructureProvider(t, serviceProvider, allowList)
+
+		nonExistentUserID := int64(999999)
+		nonExistentOrgID := int64(999999)
+
+		jwt, _, err := serviceProvider.TokenService.GenerateClientAuthJWT(nonExistentUserID, nonExistentOrgID)
+		assert.NoError(t, err, "JWT generation should succeed even for non-existent user")
+
+		req := connect.NewRequest(&pingv1.PingRequest{
+			Text: "Hello",
+		})
+
+		req.Header().Set(
+			"Authorization",
+			"Bearer "+jwt,
+		)
+
+		// Act
+		_, err = infrastructureProvider.PingClient.Ping(t.Context(), req)
+
+		// Assert
+		assert.Error(t, err, "Authentication should fail for non-existent user")
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+		assert.Contains(t, err.Error(), "User with id 999999 not found")
 	})
 }

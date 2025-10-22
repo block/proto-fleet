@@ -36,6 +36,7 @@ const getUserById = `-- name: GetUserById :one
 SELECT id, user_id, username, password_hash, created_at, updated_at, deleted_at, password_updated_at
 FROM user
 WHERE id = ?
+AND deleted_at IS NULL
 `
 
 func (q *Queries) GetUserById(ctx context.Context, id int64) (User, error) {
@@ -58,6 +59,7 @@ const getUserByUsername = `-- name: GetUserByUsername :one
 SELECT id, user_id, username, password_hash, created_at, updated_at, deleted_at, password_updated_at
 FROM user
 WHERE username = ?
+AND deleted_at IS NULL
 `
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User, error) {
