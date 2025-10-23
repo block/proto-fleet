@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/capabilities"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins"
 
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
 
@@ -115,9 +117,49 @@ func start(config *Config) error {
 		return err
 	}
 	authSvc := authDomain.NewService(userStore, transactor, tokenSvc, encryptSvc)
+
+	// Initialize plugin system
+	if err := config.Plugins.Validate(); err != nil {
+		return fmt.Errorf("invalid plugin configuration: %w", err)
+	}
+
+	pluginManager := plugins.NewManager(&config.Plugins)
+	pluginService := plugins.NewService(pluginManager)
+
+	// Load plugins early in the startup process with timeout
+	pluginLoadCtx, pluginLoadCancel := context.WithTimeout(context.Background(),
+		time.Duration(config.Plugins.MaxStartupTimeSeconds)*time.Second)
+	defer pluginLoadCancel()
+
+	if err := pluginManager.LoadPlugins(pluginLoadCtx); err != nil {
+		slog.Error("Failed to load plugins", "error", err)
+		if config.Plugins.FailOnUnhealthy {
+			return fmt.Errorf("failed to load plugins: %w", err)
+		}
+		// Continue startup even if plugins fail to load
+	}
+
+	// Validate plugin health
+	if err := pluginService.ValidatePluginHealth(pluginLoadCtx); err != nil {
+		if config.Plugins.FailOnUnhealthy {
+			return fmt.Errorf("plugin health check failed: %w", err)
+		}
+		slog.Warn("Plugin health check failed, continuing startup", "error", err)
+	}
+
+	// Create discoverers - plugins take priority over internal implementations
+	var discoverers []minerdiscovery.Discoverer
+
+	// Add plugin-based discoverers first (they take priority)
+	pluginDiscoverers := pluginService.CreateDiscoverers()
+	discoverers = append(discoverers, pluginDiscoverers...)
+
+	// Add internal discoverers as fallback
 	protoDiscoverer := protoDiscoverer.NewDiscoverer()
 	antminerDiscoverer := antminerDiscoverer.NewDiscoverer(antminerRPC.NewService())
-	discoveryService, err := minerdiscovery.NewService(protoDiscoverer, antminerDiscoverer)
+	discoverers = append(discoverers, protoDiscoverer, antminerDiscoverer)
+
+	discoveryService, err := minerdiscovery.NewService(discoverers...)
 	if err != nil {
 		return err
 	}
@@ -155,8 +197,20 @@ func start(config *Config) error {
 		return err
 	}
 
+	// Create pairers - plugins take priority over internal implementations
+	var pairers []pairingDomain.Pairer
+
+	// Add plugin-based pairers first (they take priority)
+	supportedTypes := pluginService.GetSupportedMinerTypes()
+	for _, minerType := range supportedTypes {
+		pluginPairer := plugins.NewPairer(pluginManager, minerType, transactor, deviceStore, userStore, tokenSvc, encryptSvc)
+		pairers = append(pairers, pluginPairer)
+	}
+
+	// Add internal pairers as fallback
 	protoPairer := pairingProto.NewService(transactor, deviceStore, userStore, minerService, tokenSvc, encryptSvc)
 	antminerPairer := pairingAntminer.NewService(transactor, deviceStore, encryptSvc, antminerWeb.NewService())
+	pairers = append(pairers, protoPairer, antminerPairer)
 
 	pairingSvc := pairingDomain.NewService(
 		discoveredDeviceStore,
@@ -166,14 +220,23 @@ func start(config *Config) error {
 		discoveryService,
 		capabilitiesSvc,
 		telemetryService,
-		protoPairer,
-		antminerPairer,
+		pairers...,
 	)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, telemetryService, minerService)
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
 
 	executionServiceCtx, executionServiceCancel := context.WithCancel(context.Background())
 	defer executionServiceCancel()
+
+	// Ensure plugin cleanup on shutdown
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(),
+			time.Duration(config.Plugins.ShutdownTimeoutSeconds)*time.Second)
+		defer cancel()
+		if err := pluginService.Shutdown(shutdownCtx); err != nil {
+			slog.Error("Failed to shutdown plugin service", "error", err)
+		}
+	}()
 
 	executionService := commandDomain.NewExecutionService(executionServiceCtx, &config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService)
 	err = executionService.Start(executionServiceCtx)

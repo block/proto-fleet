@@ -4,6 +4,8 @@ import (
 	"context"
 )
 
+//go:generate mockgen -source=transactor.go -destination=mocks/mock_transactor.go -package=mocks Transactor
+
 // Transactor is a wrapper for stores that allows for transactions.
 // It hides transaction boundaries and ensures stores use the right queries handle.
 type Transactor interface {

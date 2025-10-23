@@ -5,6 +5,7 @@ import (
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/capabilities"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/scheduler"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
@@ -35,4 +36,5 @@ type Config struct {
 	Telemetry    telemetry.Config    `embed:"" prefix:"telemetry" envprefix:"TELEMETRY_"`
 	Scheduler    scheduler.Config    `embed:"" prefix:"scheduler" envprefix:"SCHEDULER_"`
 	Capabilities capabilities.Config `embed:"" prefix:"capabilities" envprefix:"CAPABILITIES_"`
+	Plugins      plugins.Config      `embed:"" prefix:"plugins" envprefix:"PLUGINS_"`
 }
