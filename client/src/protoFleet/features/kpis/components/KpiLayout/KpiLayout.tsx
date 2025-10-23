@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Outlet } from "react-router-dom";
 
 import {
@@ -21,7 +21,6 @@ import DurationSelector, {
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 interface KpiLayoutProps {
-  children?: ReactNode;
   title: string;
   duration: Duration;
   setDuration: (duration: Duration) => void;
@@ -37,7 +36,6 @@ interface KpiLayoutProps {
 }
 
 const KpiLayout = ({
-  children,
   title,
   duration,
   setDuration,
@@ -48,8 +46,6 @@ const KpiLayout = ({
 }: KpiLayoutProps) => {
   return (
     <div className="px-14 pt-14 phone:px-6 phone:pt-6 tablet:px-10 tablet:pt-10">
-      {children}
-
       {noPoolsLive && (
         <NoPoolsCallout arePoolsConfigured={hasPoolsConfigured} />
       )}
@@ -85,11 +81,7 @@ const KpiLayout = ({
   );
 };
 
-interface KpiLayoutWrapperProps {
-  children?: ReactNode;
-}
-
-const KpiLayoutWrapper = ({ children }: KpiLayoutWrapperProps) => {
+const KpiLayoutWrapper = () => {
   const { getItem, setItem } = useLocalStorage();
   const [duration, setDuration] = useState<Duration>(
     getItem("duration") || durations[0],
@@ -272,9 +264,7 @@ const KpiLayoutWrapper = ({ children }: KpiLayoutWrapperProps) => {
         powerUsage: currentPowerUsageValue,
         temperature: currentTemperatureValue,
       }}
-    >
-      {children}
-    </KpiLayout>
+    />
   );
 };
 

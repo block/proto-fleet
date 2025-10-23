@@ -2,29 +2,24 @@ import { MemoryRouter } from "react-router-dom";
 import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import NavigationMenu from "./NavigationMenu";
+import { NavItem } from "@/protoFleet/config/navItems";
 
 describe("Navigation Menu", () => {
-  const routes = [
+  const items: NavItem[] = [
     {
       path: "/foo",
       label: "Foo",
-      navItem: true,
     },
     {
       path: "/bar",
       label: "Bar",
-      navItem: true,
-    },
-    {
-      path: "/baz",
-      label: "Baz",
     },
   ];
 
   it("should render the correct number nav items", () => {
     const { getByTestId } = render(
       <MemoryRouter>
-        <NavigationMenu routes={routes} />
+        <NavigationMenu items={items} />
       </MemoryRouter>,
     );
 
@@ -36,7 +31,7 @@ describe("Navigation Menu", () => {
   it("should show the correct active nav item", async () => {
     const { getByText } = render(
       <MemoryRouter initialEntries={["/foo"]}>
-        <NavigationMenu routes={routes} />
+        <NavigationMenu items={items} />
       </MemoryRouter>,
     );
 

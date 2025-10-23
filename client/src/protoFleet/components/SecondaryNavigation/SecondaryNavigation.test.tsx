@@ -2,44 +2,31 @@ import { MemoryRouter } from "react-router-dom";
 import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import SecondaryNavigation from "./SecondaryNavigation";
+import { SecondaryNavItem } from "@/protoFleet/config/navItems";
 
 describe("Secondary Navigation", () => {
-  const routes = [
-    {
-      path: "/foo",
-      label: "Foo",
-      navItem: true,
-    },
-    {
-      path: "/bar",
-      label: "Bar",
-      navItem: true,
-    },
+  const items: SecondaryNavItem[] = [
     {
       path: "/bar/foo",
       label: "Bar Foo",
-      secondaryNavItem: "/bar",
+      parent: "/bar",
     },
     {
       path: "/bar/bar",
       label: "Bar Bar",
-      secondaryNavItem: "/bar",
+      parent: "/bar",
     },
     {
       path: "/bar/baz",
       label: "Bar Baz",
-      secondaryNavItem: "/bar",
-    },
-    {
-      path: "/baz",
-      label: "Baz",
+      parent: "/bar",
     },
   ];
 
   it("should render the correct number nav items", () => {
     const { getByTestId } = render(
       <MemoryRouter initialEntries={["/bar/foo"]}>
-        <SecondaryNavigation routes={routes} />
+        <SecondaryNavigation items={items} />
       </MemoryRouter>,
     );
 
@@ -51,7 +38,7 @@ describe("Secondary Navigation", () => {
   it("should show the correct active nav item", async () => {
     const { getByText } = render(
       <MemoryRouter initialEntries={["/bar/foo"]}>
-        <SecondaryNavigation routes={routes} />
+        <SecondaryNavigation items={items} />
       </MemoryRouter>,
     );
 

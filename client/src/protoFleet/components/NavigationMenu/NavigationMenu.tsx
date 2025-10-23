@@ -1,16 +1,16 @@
 import FloatingNavigation from "@/protoFleet/components/NavigationMenu/FloatingNavigation";
 import Navigation from "@/protoFleet/components/NavigationMenu/Navigation";
-import { NavRoute } from "@/protoFleet/routes";
+import { NavItem } from "@/protoFleet/config/navItems";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 type NavigationMenuProps = {
-  routes: NavRoute[];
+  items: NavItem[];
   isVisible?: boolean;
   closeMenu?: () => void;
 };
 
 const NavigationMenu = ({
-  routes,
+  items,
   isVisible,
   closeMenu,
 }: NavigationMenuProps) => {
@@ -18,12 +18,12 @@ const NavigationMenu = ({
 
   if (isPhone || isTablet) {
     if (isVisible) {
-      return <FloatingNavigation routes={routes} closeMenu={closeMenu} />;
+      return <FloatingNavigation items={items} closeMenu={closeMenu} />;
     }
     return null;
   }
 
-  return <Navigation routes={routes} />;
+  return <Navigation items={items} />;
 };
 
 export default NavigationMenu;

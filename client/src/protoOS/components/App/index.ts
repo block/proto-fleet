@@ -1,3 +1,3 @@
-import AppWrapper from "./AppWrapper";
+import App from "./App";
 
-export default AppWrapper;
+export default App;

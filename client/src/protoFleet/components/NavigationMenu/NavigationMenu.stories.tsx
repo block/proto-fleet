@@ -3,12 +3,12 @@ import { MemoryRouter } from "react-router-dom";
 
 import { action } from "storybook/actions";
 import NavigationMenuComponent from ".";
-import routes from "@/protoFleet/routes";
+import { primaryNavItems } from "@/protoFleet/config/navItems";
 
 export const NavigationMenu = () => {
   return (
     <NavigationMenuComponent
-      routes={routes}
+      items={primaryNavItems}
       isVisible={true}
       closeMenu={action("close menu")}
     />

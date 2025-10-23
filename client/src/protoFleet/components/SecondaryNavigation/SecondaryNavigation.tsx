@@ -1,31 +1,22 @@
-import { Link, matchPath, useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { clsx } from "clsx";
 
-import { type NavRoute } from "@/protoFleet/routes";
+import { type SecondaryNavItem } from "@/protoFleet/config/navItems";
 import { stripLeadingSlash } from "@/shared/utils/stringUtils";
 
-const getSecondarybNavItems = (routes: NavRoute[], pathname: string) => {
-  const currentRoute = routes.find((r) => {
-    if (!r.path) return false;
-    return matchPath(r.path, pathname);
-  });
-
-  const secondaryNavItems = routes.filter(
-    (route) =>
-      currentRoute?.secondaryNavItem &&
-      route.secondaryNavItem == currentRoute.secondaryNavItem,
-  );
-
-  return secondaryNavItems;
-};
-
 type SecondaryNavigationProps = {
-  routes: NavRoute[];
+  items: SecondaryNavItem[];
 };
 
-const SecondaryNavigation = ({ routes }: SecondaryNavigationProps) => {
+const SecondaryNavigation = ({ items }: SecondaryNavigationProps) => {
   const { pathname } = useLocation();
-  const items = getSecondarybNavItems(routes, pathname);
+
+  // Filter items to only show those whose parent matches the current path
+  const visibleItems = items.filter((item) => {
+    const _pathname = stripLeadingSlash(pathname);
+    const _parent = stripLeadingSlash(item.parent);
+    return _pathname === _parent || _pathname.startsWith(`${_parent}/`);
+  });
 
   const isCurrentPath = (path: string) => {
     const _pathname = stripLeadingSlash(pathname);
@@ -35,16 +26,14 @@ const SecondaryNavigation = ({ routes }: SecondaryNavigationProps) => {
 
   // if current route has no secondary nav items
   // dont render anything
-  if (items.length === 0) return null;
+  if (visibleItems.length === 0) return null;
 
   return (
     <ul
       data-testid="secondary-nav"
       className="flex min-h-[calc(100vh-theme(spacing.1)*15)] w-[176px] flex-col gap-3 border-r border-border-5 px-2 pt-3 text-text-primary-70"
     >
-      {items.map((item, idx) => {
-        if (!item.path) return;
-
+      {visibleItems.map((item, idx) => {
         return (
           <li key={idx}>
             <Link

@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 import Navigation from "@/protoFleet/components/NavigationMenu/Navigation";
-import { NavRoute } from "@/protoFleet/routes";
+import { NavItem } from "@/protoFleet/config/navItems";
 import { usePreventScroll } from "@/shared/hooks/usePreventScroll";
 
 type FloatingNavigationProps = {
-  routes: NavRoute[];
+  items: NavItem[];
   closeMenu?: () => void;
 };
 
-const FloatingNavigation = ({ routes, closeMenu }: FloatingNavigationProps) => {
+const FloatingNavigation = ({ items, closeMenu }: FloatingNavigationProps) => {
   const [isVisible, setIsVisible] = useState(true);
   const { preventScroll } = usePreventScroll();
   useEffect(() => {
@@ -41,7 +41,7 @@ const FloatingNavigation = ({ routes, closeMenu }: FloatingNavigationProps) => {
           "animate-[slide-left-nav_.3s_ease-in-out]": !isVisible,
         })}
       >
-        <Navigation routes={routes} className="rounded-r-xl" />
+        <Navigation items={items} className="rounded-r-xl" />
       </div>
     </div>
   );

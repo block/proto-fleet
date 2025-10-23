@@ -17,8 +17,6 @@ import { useAccessToken } from "@/protoOS/store";
 import {
   useDismissedLoginModal,
   useSetDismissedLoginModal,
-  useSetShowLoginModal,
-  useShowLoginModal,
 } from "@/protoOS/store";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -45,8 +43,6 @@ const Onboarding = ({
 
   const dismissedLoginModal = useDismissedLoginModal();
   const setDismissedLoginModal = useSetDismissedLoginModal();
-  const showLoginModal = useShowLoginModal();
-  const setShowLoginModal = useSetShowLoginModal();
   const [pausedAction, setPausedAction] = useState(false);
   const [waitingForAuth, setWaitingForAuth] = useState(false);
 
@@ -151,8 +147,6 @@ const Onboarding = ({
           text="Finish setup"
         />
       }
-      onSuccessLogin={() => setShowLoginModal(false)}
-      showLoginModal={showLoginModal}
       title="Miner setup"
       type={navigationMenuTypes.onboarding}
       ContentLayout={SettingsContentLayout}

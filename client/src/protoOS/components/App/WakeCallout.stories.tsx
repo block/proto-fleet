@@ -11,17 +11,7 @@ export const WakeUpMiner = () => {
     setMiningStatus({ status: "Stopped" });
   }, [setMiningStatus]);
 
-  const handleWake = () => {
-    setTimeout(() => {
-      setMiningStatus({ status: "Mining" });
-    }, 2000);
-  };
-
-  return (
-    <App title="Page title" onWake={handleWake}>
-      Page content
-    </App>
-  );
+  return <App title="Page title">Page content</App>;
 };
 
 export default {

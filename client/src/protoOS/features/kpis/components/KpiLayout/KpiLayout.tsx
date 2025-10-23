@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { Outlet } from "react-router-dom";
 import { useTelemetry, useTimeSeries } from "@/protoOS/api";
 import { HashboardFieldType, MinerFieldType } from "@/protoOS/api/generatedApi";
-import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
 import TabMenu from "@/protoOS/features/kpis/components/TabMenu";
 import { usePoolsInfo } from "@/protoOS/store";
@@ -10,7 +9,7 @@ import { useDuration, useSetDuration } from "@/protoOS/store";
 import DurationSelector from "@/shared/components/DurationSelector";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 
-const KpiLayout = ({ children }: ContentLayoutProps) => {
+const KpiLayout = () => {
   const { poolsInfo, poolsInfoStatus } = usePoolsInfo();
   const duration = useDuration();
   const setDuration = useSetDuration();
@@ -61,8 +60,6 @@ const KpiLayout = ({ children }: ContentLayoutProps) => {
   return (
     <ErrorBoundary>
       <div className="px-14 pt-14 phone:px-6 phone:pt-6 tablet:px-10 tablet:pt-10">
-        {children}
-
         {noPoolsLive && (
           <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} />
         )}

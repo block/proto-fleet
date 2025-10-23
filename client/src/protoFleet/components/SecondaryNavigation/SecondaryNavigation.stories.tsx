@@ -2,10 +2,10 @@ import { ElementType } from "react";
 import { MemoryRouter } from "react-router-dom";
 
 import { default as StoryComponent } from ".";
-import routes from "@/protoFleet/routes";
+import { secondaryNavItems } from "@/protoFleet/config/navItems";
 
 export const SecondaryNavigation = () => {
-  return <StoryComponent routes={routes} />;
+  return <StoryComponent items={secondaryNavItems} />;
 };
 
 export default {

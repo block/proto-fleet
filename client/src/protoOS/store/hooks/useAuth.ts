@@ -3,7 +3,7 @@ import { matchRoutes, useLocation } from "react-router-dom";
 import useMinerStore from "../useMinerStore";
 import { useRefresh } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
-import { routerConfig } from "@/protoOS/router";
+import { CustomRouteObject, routerConfig } from "@/protoOS/router";
 
 // =============================================================================
 // Auth State Selectors
@@ -104,7 +104,8 @@ const getRouteAuthRequirement = (path: string, defaultValue = true) => {
   if (!matchedRoutes) return defaultValue;
   for (let i = matchedRoutes.length - 1; i >= 0; i--) {
     const match = matchedRoutes[i];
-    const requiresAuth = match.route.requiresAuth;
+    const route = match.route as CustomRouteObject;
+    const requiresAuth = route.requiresAuth;
     if (typeof requiresAuth === "boolean") {
       return requiresAuth;
     }

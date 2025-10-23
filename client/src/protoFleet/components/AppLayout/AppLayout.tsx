@@ -2,11 +2,10 @@ import { ReactNode, useState } from "react";
 
 import NavigationMenu from "../NavigationMenu";
 import PageHeader from "@/protoFleet/components/PageHeader";
-import routes from "@/protoFleet/routes";
+import { primaryNavItems } from "@/protoFleet/config/navItems";
 
 type Props = {
   children: ReactNode;
-  title: string;
 };
 
 const AppLayout = ({ children }: Props) => {
@@ -16,7 +15,7 @@ const AppLayout = ({ children }: Props) => {
     <div className="absolute top-0 right-0 bottom-0 left-0 bg-surface-base">
       <div className="fixed top-0 z-50 h-fit w-16 max-sm:hidden phone:w-0 tablet:w-0">
         <NavigationMenu
-          routes={routes}
+          items={primaryNavItems}
           isVisible={isMenuOpen}
           closeMenu={() => setIsMenuOpen(false)}
         />

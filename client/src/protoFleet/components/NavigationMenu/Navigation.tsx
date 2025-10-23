@@ -1,35 +1,26 @@
 import { createElement, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import clsx from "clsx";
-import { NavRoute } from "@/protoFleet/routes";
+import { NavItem } from "@/protoFleet/config/navItems";
 import { useLogout } from "@/protoFleet/store";
 import { Logo, LogoAlt } from "@/shared/assets/icons";
 import { ArrowLeftCompact } from "@/shared/assets/icons";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
-import { pick } from "@/shared/utils/object";
 import { stripLeadingSlash } from "@/shared/utils/stringUtils";
 
 type NavigationProps = {
-  routes: NavRoute[];
+  items: NavItem[];
   className?: string;
 };
 
-const Navigation = ({ routes, className }: NavigationProps) => {
+const Navigation = ({ items, className }: NavigationProps) => {
   const { pathname } = useLocation();
   const { isPhone, isTablet } = useWindowDimensions();
   const logout = useLogout();
 
-  const navigationItems = useMemo(
-    () =>
-      routes
-        .filter((route) => route.navItem)
-        .map((route) => pick(route, ["label", "path", "icon"])),
-    [routes],
-  );
-
   const homeItem = useMemo(
-    () => navigationItems.find((item) => item.label === "Home"),
-    [navigationItems],
+    () => items.find((item) => item.label === "Home"),
+    [items],
   );
 
   const isCurrentPath = (path: string) => {
@@ -77,7 +68,7 @@ const Navigation = ({ routes, className }: NavigationProps) => {
           data-testid="navigation-menu"
           className="flex w-full flex-col items-center justify-center gap-3 px-3"
         >
-          {navigationItems.map((item, idx) => {
+          {items.map((item, idx) => {
             return item.path ? (
               <li key={idx} className="w-full">
                 <Link

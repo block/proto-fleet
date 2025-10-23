@@ -1,9 +1,22 @@
-import { createBrowserRouter, Outlet, redirect } from "react-router-dom";
+import { ComponentType, ReactNode } from "react";
+import {
+  createBrowserRouter,
+  Outlet,
+  redirect,
+  RouteObject,
+} from "react-router-dom";
 
 import { DiagnosticView } from "./features/diagnostic/components";
 import App from "@/protoOS/components/App";
 import FullScreenContentLayout from "@/protoOS/components/ContentLayout/FullScreenContentLayout";
 import SettingsContentLayout from "@/protoOS/components/ContentLayout/SettingsContentLayout";
+import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
+
+// Custom route type with requiresAuth property
+export type CustomRouteObject = RouteObject & {
+  requiresAuth?: boolean;
+  children?: CustomRouteObject[];
+};
 import {
   Efficiency,
   HashboardTemperature,
@@ -29,10 +42,38 @@ import {
 } from "@/protoOS/features/settings";
 import Logs from "@/protoOS/pages/MinerLogs";
 
-export const routerConfig = [
+// Helper to create route objects with App wrapper
+interface CreateRouteOptions {
+  title: string;
+  fullscreen?: boolean;
+  hideErrors?: boolean;
+  ContentLayout?: ComponentType<ContentLayoutProps>;
+}
+
+const createRoute = (
+  path: string,
+  children: ReactNode,
+  options: CreateRouteOptions,
+) => ({
+  path,
+  element: (
+    <App
+      title={options.title}
+      fullscreen={options.fullscreen}
+      hideErrors={options.hideErrors}
+      ContentLayout={options.ContentLayout}
+    >
+      {children}
+    </App>
+  ),
+});
+
+export const routerConfig: CustomRouteObject[] = [
   {
-    path: "",
-    element: <App title="Home" ContentLayout={KpiLayout} />,
+    ...createRoute("", <Outlet />, {
+      title: "Home",
+      ContentLayout: KpiLayout,
+    }),
     requiresAuth: false,
     children: [
       {
@@ -57,65 +98,53 @@ export const routerConfig = [
       },
     ],
   },
+  createRoute("temperature/:serial", <HashboardTemperature />, {
+    title: "Temperature",
+    fullscreen: true,
+  }),
+  createRoute("logs", <Logs />, {
+    title: "Logs",
+    hideErrors: true,
+    ContentLayout: FullScreenContentLayout,
+  }),
+  createRoute("diagnostics", <DiagnosticView />, {
+    title: "Diagnostics",
+    hideErrors: true,
+  }),
+  createRoute("diagnostics/:serial", <HashboardTemperature />, {
+    title: "Diagnostics",
+    fullscreen: true,
+  }),
+  // Note: Onboarding renders AppLayout directly in fullscreen mode
+  createRoute("onboarding", <Onboarding />, {
+    title: "Onboarding",
+    fullscreen: true,
+  }),
+  createRoute("onboarding/welcome", <Welcome />, {
+    title: "Welcome",
+    fullscreen: true,
+  }),
+  createRoute("onboarding/verify", <Verify />, {
+    title: "Verify",
+    fullscreen: true,
+  }),
+  createRoute("onboarding/network", <Network />, {
+    title: "Network",
+    fullscreen: true,
+  }),
+  createRoute("onboarding/authentication", <Authentication />, {
+    title: "Authentication",
+    fullscreen: true,
+  }),
+  createRoute("onboarding/mining-pool", <MiningPool />, {
+    title: "Mining Pool",
+    fullscreen: true,
+  }),
   {
-    path: "temperature/:serial",
-    element: (
-      <App title="Home" ContentLayout={HashboardTemperature} fullScreen />
-    ),
-  },
-  {
-    path: "logs",
-    element: (
-      <App title="Logs" hideErrors ContentLayout={FullScreenContentLayout}>
-        <Logs />
-      </App>
-    ),
-  },
-
-  // TODO: These should all be rendered inside the App component
-  {
-    path: "diagnostics",
-    element: (
-      <App title="Diagnostics" hideErrors>
-        <DiagnosticView />
-      </App>
-    ),
-  },
-  {
-    path: "diagnostics/:serial",
-    element: <HashboardTemperature />,
-  },
-  {
-    path: "onboarding",
-    element: <Onboarding />,
-  },
-  {
-    path: "onboarding/welcome",
-    element: <Welcome />,
-  },
-  {
-    path: "onboarding/verify",
-    element: <Verify />,
-  },
-  {
-    path: "onboarding/network",
-    element: <Network />,
-  },
-  {
-    path: "onboarding/authentication",
-    element: <Authentication />,
-  },
-  {
-    path: "onboarding/mining-pool",
-    element: <MiningPool />,
-  },
-  {
-    path: "settings",
-    element: (
-      <App title="Settings" ContentLayout={SettingsContentLayout}>
-        <Outlet />
-      </App>
-    ),
+    ...createRoute("settings", <Outlet />, {
+      title: "Settings",
+      ContentLayout: SettingsContentLayout,
+    }),
     children: [
       {
         index: true,
