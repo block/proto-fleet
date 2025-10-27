@@ -1,7 +1,18 @@
 export const immersionModeInstructionSteps = [
-  "Unplug the miner",
-  "Remove the fan modules",
-  "Submerge the miner in the tank",
-  "Plug in the miner",
-  "Power on the miner",
+  {
+    title: "Unplug the miner",
+    subtitle: "Ensure power is disconnected before removing the fans.",
+  },
+  {
+    title: "Remove the fans",
+    subtitle: "Fans must be removed before submersion.",
+  },
+  {
+    title: "Submerge the miner",
+    subtitle: "Carefully lower the miner into the cooling fluid.",
+  },
+  {
+    title: "Plug in and power on the miner",
+    subtitle: "Once powered up, Rig is ready to hash.",
+  },
 ];

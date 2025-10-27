@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
-import ImmersionConfirmationDialog from "./ImmersionConfirmationDialog";
-import ImmersionLearnMoreModal from "./ImmersionLearnMoreModal";
+import InfoModal from "./InfoModal";
 import { useCoolingStatus } from "@/protoOS/api";
 import { CoolingConfig } from "@/protoOS/api/generatedApi";
 import { useIsSleeping } from "@/protoOS/store";
@@ -189,7 +188,7 @@ const Cooling = () => {
           })}
           text={
             <CoolingOption
-              title="Air Cooled"
+              title="Air cooled"
               description="Fans will be used to cool the miner."
               icon={<Fan />}
               isSelected={coolingMode === COOLING_MODES.air}
@@ -214,8 +213,8 @@ const Cooling = () => {
             })}
             text={
               <CoolingOption
-                title="Immersion Cooled"
-                description="Fans must be removed."
+                title="Immersion cooled"
+                description="Miner is submerged in tank with fans removed."
                 icon={<Immersion />}
                 isSelected={coolingMode === COOLING_MODES.immersion}
               />
@@ -236,17 +235,23 @@ const Cooling = () => {
           </div>
         </div>
       </div>
-      <ImmersionConfirmationDialog
-        show={showImmersionModal}
-        onDismiss={handleImmersionCancel}
-        onConfirm={handleImmersionConfirm}
-        isLoading={loading}
-      />
+
+      {showImmersionModal && (
+        <InfoModal
+          onDismiss={handleImmersionCancel}
+          buttons={[
+            {
+              text: "Enter sleep mode",
+              onClick: handleImmersionConfirm,
+              loading: loading,
+              variant: "primary",
+            },
+          ]}
+        />
+      )}
 
       {showLearnMoreModal && (
-        <ImmersionLearnMoreModal
-          onDismiss={() => setShowLearnMoreModal(false)}
-        />
+        <InfoModal onDismiss={() => setShowLearnMoreModal(false)} />
       )}
 
       <Dialog

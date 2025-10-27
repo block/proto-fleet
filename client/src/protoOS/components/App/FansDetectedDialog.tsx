@@ -4,15 +4,15 @@ import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 
 interface FansDetectedDialogProps {
-  onConfirmImmersion: () => void;
-  onSwitchToAirCooled: () => void;
+  onRetry: () => void;
+  onCancel: () => void;
   show: boolean;
   isLoading?: boolean;
 }
 
 const FansDetectedDialog = ({
-  onConfirmImmersion,
-  onSwitchToAirCooled,
+  onRetry,
+  onCancel,
   show,
   isLoading = false,
 }: FansDetectedDialogProps) => {
@@ -21,7 +21,7 @@ const FansDetectedDialog = ({
       show={show}
       title="Fans detected"
       titleSize="text-heading-200"
-      subtitle="Fans are detected for this miner, are you sure you want to continue with immersion cooling?"
+      subtitle="Fans are detected for this miner. Remove fans to continue in immersion mode, or switch back to air cooled mode."
       subtitleSize="text-300"
       icon={
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-5">
@@ -30,19 +30,19 @@ const FansDetectedDialog = ({
       }
       buttons={[
         {
-          text: "Use air cooled",
+          text: "Use air cooled mode",
           variant: variants.secondary,
-          onClick: onSwitchToAirCooled,
+          onClick: onCancel,
           disabled: isLoading,
         },
         {
-          text: "Confirm immersion cooling",
-          variant: variants.primary,
-          onClick: onConfirmImmersion,
+          text: "Try again",
+          variant: variants.secondary,
+          onClick: onRetry,
           disabled: isLoading,
+          loading: isLoading,
         },
       ]}
-      className="w-[380px]"
     />
   );
 };

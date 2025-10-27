@@ -33,13 +33,17 @@ const WakeCallout = ({ afterWake, onWake }: WakeCalloutProps) => {
     if (hasFansRunning && isImmersionMode) {
       setShowFansDetectedDialog(true);
     } else {
+      setShowFansDetectedDialog(false);
       wakeMiner();
     }
   };
 
-  const handleConfirmImmersion = () => {
-    setShowFansDetectedDialog(false);
-    wakeMiner();
+  const handleConfirmImmersion = async () => {
+    setIsUpdatingCooling(true);
+    // Add synthetic delay to show loading state
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    setIsUpdatingCooling(false);
+    handleWake();
   };
 
   const handleSwitchToAirCooled = () => {
@@ -73,8 +77,8 @@ const WakeCallout = ({ afterWake, onWake }: WakeCalloutProps) => {
       <WakingDialog show={shouldWake} />
 
       <FansDetectedDialog
-        onConfirmImmersion={handleConfirmImmersion}
-        onSwitchToAirCooled={handleSwitchToAirCooled}
+        onRetry={handleConfirmImmersion}
+        onCancel={handleSwitchToAirCooled}
         isLoading={isUpdatingCooling}
         show={showFansDetectedDialog}
       />
