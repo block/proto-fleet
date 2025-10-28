@@ -51,6 +51,7 @@ export {
   useIsStreaming,
   useMinerName,
   useMinerMacAddress,
+  useMinerIpAddress,
   useMinerComponentStatus,
   useMinerDeviceStatus,
   useMinerHashrate,

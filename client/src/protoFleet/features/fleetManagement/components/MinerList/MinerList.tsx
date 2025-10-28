@@ -44,6 +44,7 @@ type MinerListProps = {
 const activeCols = [
   minerCols.name,
   minerCols.macAddress,
+  minerCols.ipAddress,
   minerCols.status,
   minerCols.hashrate,
   minerCols.efficiency,

@@ -1,6 +1,7 @@
 import { minerCols } from "./constants";
 import Hashrate from "./Hashrate";
 import MinerEfficiency from "./MinerEfficiency";
+import MinerIpAddress from "./MinerIpAddress";
 import MinerMacAddress from "./MinerMacAddress";
 import MinerName from "./MinerName";
 import MinerPowerUsage from "./MinerPowerUsage";
@@ -25,6 +26,12 @@ const minerColConfig: ColConfig<MinerItem, string> = {
       <MinerMacAddress deviceIdentifier={item.deviceIdentifier} />
     ),
     width: "min-w-36",
+  },
+  [minerCols.ipAddress]: {
+    component: (item: MinerItem) => (
+      <MinerIpAddress deviceIdentifier={item.deviceIdentifier} />
+    ),
+    width: "min-w-24",
   },
   [minerCols.status]: {
     component: (item: MinerItem, selectedItems: string[]) => (

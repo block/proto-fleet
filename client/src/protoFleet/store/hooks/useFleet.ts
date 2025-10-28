@@ -35,6 +35,9 @@ export const useMinerName = (deviceId: string) =>
 export const useMinerMacAddress = (deviceId: string) =>
   useFleetStore((state) => state.fleet.miners[deviceId]?.macAddress);
 
+export const useMinerIpAddress = (deviceId: string) =>
+  useFleetStore((state) => state.fleet.miners[deviceId]?.ipAddress);
+
 export const useMinerComponentStatus = (deviceId: string) =>
   useFleetStore((state) => state.fleet.miners[deviceId]?.status);
 

@@ -4,6 +4,7 @@ import { ColTitles } from "@/shared/components/List/types";
 export const minerCols = {
   name: "name",
   macAddress: "macAddress",
+  ipAddress: "ipAddress",
   status: "status",
   hashrate: "hashrate",
   efficiency: "efficiency",
@@ -14,6 +15,7 @@ export const minerCols = {
 export const minerColTitles = {
   [minerCols.name]: "Name",
   [minerCols.macAddress]: "Mac Address",
+  [minerCols.ipAddress]: "IP Address",
   [minerCols.status]: "Status",
   [minerCols.hashrate]: "Hashrate",
   [minerCols.efficiency]: "Efficiency",
