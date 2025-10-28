@@ -1,10 +1,10 @@
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 
-import { PopoverProvider } from "../../Popover";
 import ButtonFilter from "./ButtonFilter";
-import DropdownFilter from "./DropdownFilter";
-import { sizes } from "@/shared/components/Button";
+import DropdownFilter, { type DropdownOption } from "./DropdownFilter";
+import { DismissTiny } from "@/shared/assets/icons";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import { defaultListFilter } from "@/shared/components/List/constants";
 import {
   ActiveFilters,
@@ -21,6 +21,10 @@ type FilterProps<ItemType> = {
   headerControls?: ReactNode;
 };
 
+type ActiveDropdownFilterItem = DropdownOption & {
+  filterValue: string;
+};
+
 const Filters = <ItemType,>({
   className,
   filterItems,
@@ -35,13 +39,15 @@ const Filters = <ItemType,>({
     dropdownFilters: {},
   });
 
+  // Initialize all dropdown filters with empty arrays (no selections)
   useEffect(() => {
     const initialDropdownValues: { [key: string]: string[] } = {};
 
     filterItems.forEach((filter) => {
-      if (filter.type === "dropdown" && filter.defaultOptionIds) {
+      if (filter.type === "dropdown") {
         const filterKey = filter.value as string;
-        initialDropdownValues[filterKey] = filter.defaultOptionIds;
+        // Start with empty selection (no filtering)
+        initialDropdownValues[filterKey] = [];
       }
     });
 
@@ -113,83 +119,112 @@ const Filters = <ItemType,>({
     });
   };
 
-  // Handle dropdown filter change
-  const handleDropdownFilterChange = (filterKey: string, value: string) => {
-    setActiveFilters((prev) => {
-      const currentValues = prev.dropdownFilters[filterKey] || [];
-      let newValues;
-      if (currentValues.includes(value)) {
-        newValues = currentValues.filter((v) => v !== value);
-      } else {
-        newValues = [...currentValues, value];
-      }
+  // Derive active dropdown filter items from activeFilters - no need for separate state
+  const activeDropdownFilterItems = useMemo(() => {
+    const items: ActiveDropdownFilterItem[] = [];
 
-      return {
+    filterItems.forEach((filter) => {
+      if (filter.type === "dropdown") {
+        const selectedIds = activeFilters.dropdownFilters[filter.value] || [];
+
+        // Only add items if there are selections (empty means no filtering)
+        if (selectedIds.length > 0) {
+          filter.options.forEach((option) => {
+            if (selectedIds.includes(option.id)) {
+              items.push({
+                ...option,
+                filterValue: filter.value,
+              });
+            }
+          });
+        }
+      }
+    });
+
+    return items;
+  }, [activeFilters.dropdownFilters, filterItems]);
+
+  const handleRemoveDropdownFilter = useCallback(
+    (optionId: string, filterValue: string) => {
+      const currentSelection = activeFilters.dropdownFilters[filterValue] || [];
+      const newSelection = currentSelection.filter((id) => id !== optionId);
+
+      setActiveFilters((prev) => ({
         ...prev,
         dropdownFilters: {
           ...prev.dropdownFilters,
-          [filterKey]: newValues,
+          [filterValue]: newSelection,
         },
-      };
-    });
-  };
+      }));
+    },
+    [activeFilters.dropdownFilters],
+  );
 
   return (
-    <div
-      className={clsx(
-        "sticky left-0 inline-flex flex-row flex-wrap items-center",
-        className,
-      )}
-    >
-      {filterItems.map((filter) => {
-        if (filter.type === "button") {
-          return (
-            <ButtonFilter
-              key={filter.value}
-              status={filter.status}
-              title={filter.title}
-              count={filter.count}
-              filter={filter.value}
-              activeFilters={activeFilters.buttonFilters}
-              setActiveFilter={handleButtonFilterChange}
-              size={filterSize}
-            />
-          );
-        } else if (filter.type === "dropdown") {
-          const selectedOptions = activeFilters.dropdownFilters[filter.value];
+    <div className={clsx("sticky left-0 flex flex-col gap-2", className)}>
+      {/* Filter buttons row */}
+      <div className="inline-flex flex-row flex-wrap items-center gap-2">
+        {filterItems.map((filter) => {
+          if (filter.type === "button") {
+            return (
+              <ButtonFilter
+                key={filter.value}
+                status={filter.status}
+                title={filter.title}
+                count={filter.count}
+                filter={filter.value}
+                activeFilters={activeFilters.buttonFilters}
+                setActiveFilter={handleButtonFilterChange}
+                size={filterSize}
+              />
+            );
+          } else if (filter.type === "dropdown") {
+            const selectedOptions = activeFilters.dropdownFilters[filter.value];
 
-          return (
-            <div key={filter.value}>
-              <PopoverProvider>
+            return (
+              <div key={filter.value}>
                 <DropdownFilter
                   title={filter.title}
-                  allSelectedTitle="All models"
+                  pluralTitle={filter.title + "s"}
                   options={filter.options}
-                  selectedOptions={selectedOptions}
-                  size={filterSize}
-                  onSelect={(value) =>
-                    handleDropdownFilterChange(filter.value as string, value)
-                  }
-                  onSelectAll={(selectAll) => {
-                    const newValues = selectAll
-                      ? filter.options.map((o) => o.id)
-                      : [];
+                  selectedOptions={selectedOptions || []}
+                  onSelect={(items) => {
                     setActiveFilters((prev) => ({
                       ...prev,
                       dropdownFilters: {
                         ...prev.dropdownFilters,
-                        [filter.value as string]: newValues,
+                        [filter.value]: items,
                       },
                     }));
                   }}
+                  withButtons={isServerSide}
                 />
-              </PopoverProvider>
-            </div>
-          );
-        }
-        return null;
-      })}
-      {headerControls && <div className="mr-6 ml-auto">{headerControls}</div>}
+              </div>
+            );
+          }
+          return null;
+        })}
+        {headerControls && <div className="mr-6 ml-auto">{headerControls}</div>}
+      </div>
+
+      {/* Active dropdown filters row */}
+      {activeDropdownFilterItems.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {activeDropdownFilterItems.map((item) => (
+            <Button
+              size={sizes.compact}
+              variant={variants.secondary}
+              key={`${item.filterValue}-${item.id}`}
+              prefixIcon={<DismissTiny />}
+              onClick={() =>
+                handleRemoveDropdownFilter(item.id, item.filterValue)
+              }
+            >
+              {item.label}
+            </Button>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

@@ -96,15 +96,18 @@ const FoundMinersModal = ({
 
   const filterItem = useCallback(
     (item: MinerWithSelectedAndAction, filters: ActiveFilters) => {
-      if (
-        filters.dropdownFilters &&
-        filters.dropdownFilters["model"] &&
-        !filters.dropdownFilters["model"].includes("all")
-      ) {
-        if (!filters.dropdownFilters["model"].includes(item.model)) {
-          return false;
-        }
+      const modelFilters = filters.dropdownFilters?.["model"];
+
+      // If no model filter is applied (empty array or undefined), show all items
+      if (!modelFilters || modelFilters.length === 0) {
+        return true;
       }
+
+      // If model filters are applied, only show items that match
+      if (!modelFilters.includes(item.model)) {
+        return false;
+      }
+
       return true;
     },
     [],
@@ -146,6 +149,7 @@ const FoundMinersModal = ({
           actions={[blinkAction]}
           containerClassName="max-h-[50vh]"
           overflowContainer={true}
+          stickyBgColor="bg-surface-elevated-base"
         />
       </div>
       <ModalSelectAllFooter

@@ -165,11 +165,31 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 		return nil, fleeterror.NewInternalErrorf("failed to get state counts: %v", err)
 	}
 
+	// Get available miner types
+	availableTypes, err := s.deviceStore.GetAvailableMinerTypes(ctx, claims.OrgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get available miner types: %v", err)
+	}
+
+	// Convert miner types to proto enum
+	pbMinerTypes := make([]pb.MinerType, 0, len(availableTypes))
+	for _, minerType := range availableTypes {
+		switch minerType {
+		case mm.TypeProto:
+			pbMinerTypes = append(pbMinerTypes, pb.MinerType_MINER_TYPE_PROTO_RIG)
+		case mm.TypeAntminer:
+			pbMinerTypes = append(pbMinerTypes, pb.MinerType_MINER_TYPE_BITMAIN)
+		case mm.TypeUnknown, mm.TypeWhatsminer, mm.TypeAvalon:
+			// Skip types that don't have corresponding proto enum values
+		}
+	}
+
 	return &pb.ListMinerStateSnapshotsResponse{
 		Miners:           snapshots,
 		Cursor:           nextCursor,
 		TotalMiners:      int32(total), //nolint:gosec
 		TotalStateCounts: stateCounts,
+		MinerTypes:       pbMinerTypes,
 	}, nil
 }
 
@@ -256,17 +276,31 @@ func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) 
 
 	filter := &interfaces.MinerFilter{}
 
-	if len(pbFilter.Status) > 0 {
-		statusFilters := make([]string, 0, len(pbFilter.Status))
-		for _, status := range pbFilter.Status {
-			dbStatus, exists := componentStatusMap[status]
-			if exists {
-				statusFilters = append(statusFilters, dbStatus)
-			} else {
-				return nil, fleeterror.NewInternalErrorf("unsupported miner status: %v", status)
+	// Handle component_filters field
+	if len(pbFilter.ComponentFilters) > 0 {
+		componentFilters := make([]interfaces.ComponentFilter, 0, len(pbFilter.ComponentFilters))
+		for _, cf := range pbFilter.ComponentFilters {
+			componentType, err := convertComponentType(cf.Component)
+			if err != nil {
+				return nil, err
 			}
+
+			statuses := make([]string, 0, len(cf.Statuses))
+			for _, status := range cf.Statuses {
+				dbStatus, exists := componentStatusMap[status]
+				if exists {
+					statuses = append(statuses, dbStatus)
+				} else {
+					return nil, fleeterror.NewInternalErrorf("unsupported component status: %v", status)
+				}
+			}
+
+			componentFilters = append(componentFilters, interfaces.ComponentFilter{
+				ComponentType: componentType,
+				Statuses:      statuses,
+			})
 		}
-		filter.ComponentStatusFilter = statusFilters
+		filter.ComponentFilters = componentFilters
 	}
 
 	if len(pbFilter.DeviceStatus) > 0 {
@@ -292,22 +326,43 @@ func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) 
 		filter.DeviceStatusFilter = statusFilters
 	}
 
-	var minerType mm.Type
-
-	switch pbFilter.Type {
-	case pb.MinerType_MINER_TYPE_PROTO_RIG:
-		minerType = mm.TypeProto
-	case pb.MinerType_MINER_TYPE_BITMAIN:
-		minerType = mm.TypeAntminer
-	case pb.MinerType_MINER_TYPE_UNSPECIFIED:
-		return filter, nil
-	default:
-		return nil, fleeterror.NewInternalErrorf("unsupported miner type: %v", pbFilter.Type)
+	// Handle types filter
+	if len(pbFilter.Types) > 0 {
+		minerTypes := make([]mm.Type, 0, len(pbFilter.Types))
+		for _, t := range pbFilter.Types {
+			switch t {
+			case pb.MinerType_MINER_TYPE_PROTO_RIG:
+				minerTypes = append(minerTypes, mm.TypeProto)
+			case pb.MinerType_MINER_TYPE_BITMAIN:
+				minerTypes = append(minerTypes, mm.TypeAntminer)
+			case pb.MinerType_MINER_TYPE_UNSPECIFIED:
+				// Skip unspecified types
+				continue
+			default:
+				return nil, fleeterror.NewInternalErrorf("unsupported miner type: %v", t)
+			}
+		}
+		filter.MinerType = minerTypes
 	}
 
-	filter.MinerType = []mm.Type{minerType}
-
 	return filter, nil
+}
+
+func convertComponentType(ct pb.ComponentType) (string, error) {
+	switch ct {
+	case pb.ComponentType_COMPONENT_TYPE_CONTROL_BOARD:
+		return "control_board", nil
+	case pb.ComponentType_COMPONENT_TYPE_FANS:
+		return "fans", nil
+	case pb.ComponentType_COMPONENT_TYPE_HASH_BOARDS:
+		return "hash_boards", nil
+	case pb.ComponentType_COMPONENT_TYPE_PSU:
+		return "psu", nil
+	case pb.ComponentType_COMPONENT_TYPE_UNSPECIFIED:
+		return "", fleeterror.NewInternalErrorf("component type must be specified")
+	default:
+		return "", fleeterror.NewInternalErrorf("unsupported component type: %v", ct)
+	}
 }
 
 var componentStatusMap = map[pb.ComponentStatus]string{

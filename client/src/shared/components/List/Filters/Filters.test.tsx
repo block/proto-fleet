@@ -151,12 +151,8 @@ describe("Filters", () => {
     );
 
     for (const dropdownFilter of dropdownFilters) {
-      const defaultOption = dropdownFilter.options.find((o) =>
-        dropdownFilter.defaultOptionIds.includes(o.id),
-      );
-      const dropdownButton = screen.getByText(
-        defaultOption?.label || "SHOULD FAIL",
-      );
+      // The dropdown button should show the title, not a selected option
+      const dropdownButton = screen.getByText(dropdownFilter.title);
       expect(dropdownButton).toBeInTheDocument();
 
       // Check it's a button component
@@ -173,11 +169,10 @@ describe("Filters", () => {
       title: "Test Dropdown",
       value: "test-dropdown",
       options: [
-        { id: "all", label: "All Test Items" },
         { id: "test1", label: "Test Option 1" },
         { id: "test2", label: "Test Option 2" },
       ],
-      defaultOptionIds: ["all"],
+      defaultOptionIds: [],
     };
 
     render(
@@ -188,29 +183,18 @@ describe("Filters", () => {
       />,
     );
 
-    // Find the first dropdown filter
-    const dropdownFilters = testFilters.filter(
-      (filter) => filter.type === "dropdown",
-    );
+    // Click the dropdown button to open it (shows title, not selected option)
+    const dropdownButton = screen.getByText("Test Dropdown");
+    fireEvent.click(dropdownButton);
 
-    if (dropdownFilters.length > 0) {
-      const firstDropdown = dropdownFilters[0];
-
-      // Click the dropdown button to open it
-      const dropdownButton = screen.getByText("All Test Items");
-      fireEvent.click(dropdownButton);
-
-      // Check that the options are displayed
-      // Wait for popover to appear
-      if (firstDropdown.options) {
-        for (const option of firstDropdown.options) {
-          waitFor(() => {
-            const optionElement = screen.queryByText(option.label);
-            expect(optionElement).toBeInTheDocument();
-          });
-        }
+    // Check that the options are displayed
+    // Wait for popover to appear
+    await waitFor(() => {
+      for (const option of testDropdownFilter.options) {
+        const optionElement = screen.queryByText(option.label);
+        expect(optionElement).toBeInTheDocument();
       }
-    }
+    });
   });
 
   it("updates filter state when a dropdown option is selected", async () => {
@@ -232,17 +216,12 @@ describe("Filters", () => {
       const firstDropdown = dropdownFilters[0];
       const secondOption = firstDropdown.options[1];
 
-      // Click the dropdown button to open it
-      const defaultOption = firstDropdown.options.find((o) =>
-        firstDropdown.defaultOptionIds.includes(o.id),
-      );
-      const dropdownButton = screen.getByText(
-        defaultOption?.label || "SHOULD FAIL",
-      );
+      // Click the dropdown button to open it (shows title)
+      const dropdownButton = screen.getByText(firstDropdown.title);
       fireEvent.click(dropdownButton);
 
       // Find and click the first option
-      waitFor(() => {
+      await waitFor(() => {
         screen.findByText(secondOption.label).then((el) => {
           fireEvent.click(el);
         });

@@ -21,6 +21,7 @@ import {
   useAuthHeader,
   useFleetStore,
   useMinerIds,
+  useTotalMiners,
 } from "@/protoFleet/store";
 import { debounce } from "@/shared/utils/utility";
 
@@ -72,6 +73,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
   const { handleAuthErrors } = useAuthErrors();
 
   const minerIds = useMinerIds();
+  const totalMiners = useTotalMiners();
   const streamAbortController = useRef<AbortController | null>(null);
 
   // Internal state for the hook
@@ -94,18 +96,13 @@ const useFleet = (options: UseFleetOptions = {}) => {
       return;
     }
 
-    // Handle miner state counts updates (fleet-wide, no deviceId required)
+    // Handle device status counts updates (fleet-wide, no deviceId required)
     if (
       update.type === UpdateType.MINER_STATE_COUNTS &&
       update.minerStateCounts
     ) {
       const store = useFleetStore.getState();
-      const previousCounts = store.fleet.minerStateCounts;
-      store.fleet.setMinerStateCounts(update.minerStateCounts);
-      store.fleet.handleMinerStateCountsChange(
-        previousCounts,
-        update.minerStateCounts,
-      );
+      store.fleet.setDeviceStatusCounts(update.minerStateCounts);
       return;
     }
 
@@ -252,21 +249,11 @@ const useFleet = (options: UseFleetOptions = {}) => {
           useFleetStore.getState().fleet.setMiners(miners);
         }
 
-        const totalMinersStates =
-          (totalStateCounts?.brokenCount || 0) +
-          (totalStateCounts?.hashingCount || 0) +
-          (totalStateCounts?.offlineCount || 0) +
-          (totalStateCounts?.sleepingCount || 0);
         const store = useFleetStore.getState();
         store.fleet.setCursor(newCursor);
-        store.fleet.setTotalMiners(totalMinersStates);
+        store.fleet.setTotalMiners(totalMiners);
         if (totalStateCounts) {
-          const previousCounts = store.fleet.minerStateCounts;
-          store.fleet.setMinerStateCounts(totalStateCounts);
-          store.fleet.handleMinerStateCountsChange(
-            previousCounts,
-            totalStateCounts,
-          );
+          store.fleet.setDeviceStatusCounts(totalStateCounts);
         }
 
         // Update internal state
@@ -352,6 +339,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
   return {
     minerIds,
+    totalMiners,
     hasMore,
     isLoading,
     setFilter,

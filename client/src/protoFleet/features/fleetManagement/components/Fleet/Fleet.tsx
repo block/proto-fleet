@@ -7,9 +7,10 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 
 const Fleet = () => {
-  const { minerIds, hasMore, isLoading, loadMore, setFilter } = useFleet({
-    pageSize: 100,
-  });
+  const { minerIds, totalMiners, hasMore, isLoading, loadMore, setFilter } =
+    useFleet({
+      pageSize: 100,
+    });
 
   const [showAddMinersModal, setShowAddMinersModal] = useState(false);
 
@@ -22,6 +23,7 @@ const Fleet = () => {
         <MinerList
           title="Miners"
           minerIds={minerIds}
+          totalMiners={totalMiners}
           paddingLeft={{
             phone: "24px",
             tablet: "24px",

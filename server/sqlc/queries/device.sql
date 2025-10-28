@@ -284,4 +284,14 @@ SELECT
 FROM device_status ds
 JOIN device d ON ds.device_id = d.id
 WHERE d.device_identifier IN (sqlc.slice('device_identifiers'))
+  AND d.deleted_at IS NULL;
+
+-- name: GetAvailableMinerTypes :many
+SELECT DISTINCT d.type
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+WHERE dp.pairing_status = 'PAIRED'
   AND d.deleted_at IS NULL
+  AND d.org_id = ?
+  AND d.type IS NOT NULL
+ORDER BY d.type

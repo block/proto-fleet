@@ -1,5 +1,9 @@
-import { DropdownOption } from "./DropdownFilter";
 import { StatusCircleStatus } from "@/shared/components/StatusCircle/constants";
+
+export type DropdownOption = {
+  id: string;
+  label: string;
+};
 
 export type FilterType = "button" | "dropdown";
 

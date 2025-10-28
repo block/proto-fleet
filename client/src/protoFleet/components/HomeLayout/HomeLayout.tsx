@@ -3,14 +3,14 @@ import useFleet from "@/protoFleet/api/useFleet";
 import MinersStatus from "@/protoFleet/features/kpis/components/MinersStatus";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
-import { useMinerStateCounts, useTotalMiners } from "@/protoFleet/store";
+import { useDeviceStatusCounts, useTotalMiners } from "@/protoFleet/store";
 import { useDevicePaired } from "@/protoFleet/store";
 
 const HomeLayout = ({ children }: { children?: ReactNode }) => {
   const devicePaired = useDevicePaired();
   useFleet(); // Ensure fleet data is loaded
   const fleetSize = useTotalMiners();
-  const minerStateCounts = useMinerStateCounts();
+  const deviceStatusCounts = useDeviceStatusCounts();
 
   return (
     <div className="h-full">
@@ -24,11 +24,11 @@ const HomeLayout = ({ children }: { children?: ReactNode }) => {
               </div>
               <MinersStatus
                 fleetSize={fleetSize ?? 1} // prevent division by zero
-                activeMiners={minerStateCounts?.hashingCount ?? 0}
-                offlineMiners={minerStateCounts?.offlineCount ?? 0}
+                activeMiners={deviceStatusCounts?.hashingCount ?? 0}
+                offlineMiners={deviceStatusCounts?.offlineCount ?? 0}
                 inactiveMiners={
-                  (minerStateCounts?.sleepingCount ?? 0) +
-                  (minerStateCounts?.brokenCount ?? 0)
+                  (deviceStatusCounts?.sleepingCount ?? 0) +
+                  (deviceStatusCounts?.brokenCount ?? 0)
                 }
               />
             </div>

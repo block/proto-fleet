@@ -41,12 +41,18 @@ type ListProps<ListItem, ItemKeyValueType> = {
   containerClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   overflowContainer?: boolean;
+  stickyBgColor?: string;
+  total?: number;
+  itemName?: {
+    singular: string;
+    plural: string;
+  };
 };
 
 const cellClassList = "text-left";
 const rowClassList = "border-b border-border-5";
 const thClassList = cellClassList + " py-3 text-emphasis-300 text-text-primary";
-const baseStickyClassList = "sticky z-1 bg-surface-base";
+const baseStickyClassList = "sticky z-1";
 const tdClassList = "text-left text-300";
 const tdPaddingClassList = "px-2 py-4";
 // use after element for shadow
@@ -75,6 +81,9 @@ const List = <ListItem, ItemKeyValueType>({
   containerClassName = "",
   paddingLeft,
   overflowContainer = true,
+  stickyBgColor = "bg-surface-base",
+  total,
+  itemName = { singular: "item", plural: "items" },
 }: ListProps<ListItem, ItemKeyValueType>) => {
   const { refs, stickyState } = useStickyState();
 
@@ -200,11 +209,13 @@ const List = <ListItem, ItemKeyValueType>({
   const firstStickyClasses = clsx(
     baseStickyClassList,
     "left-0",
+    stickyBgColor,
     paddingClasses,
   );
 
   const secondStickyClasses = clsx(
     baseStickyClassList,
+    stickyBgColor,
     "desktop:left-[calc(var(--list-padding-desktop)+theme(spacing.9))]",
     "laptop:left-[calc(var(--list-padding-laptop)+theme(spacing.9))]",
     "tablet:left-[calc(var(--list-padding-tablet)+theme(spacing.9))]",
@@ -212,13 +223,10 @@ const List = <ListItem, ItemKeyValueType>({
   );
 
   return (
-    <div
-      className={clsx("flex flex-col", containerClassName)}
-      style={paddingCssVariables}
-    >
-      <div>
+    <div style={paddingCssVariables}>
+      <div className={clsx("relative z-3 flex")}>
         <Filters<ListItem>
-          className={clsx("gap-4 py-4", paddingClasses)}
+          className={clsx("gap-4 py-10", paddingClasses)}
           filterItems={filters ?? []}
           filterSize={filterSize}
           items={items}
@@ -232,188 +240,207 @@ const List = <ListItem, ItemKeyValueType>({
         />
       </div>
 
-      <div className={clsx({ "overflow-x-auto": overflowContainer })}>
-        {!noDataElement || (items && items.length > 0) ? (
-          <>
-            <div ref={refs.vertical.start} />
-            <div className="sticky top-0 flex justify-between">
-              <div ref={refs.horizontal.start} />
-              <div ref={refs.horizontal.end} />
-            </div>
-            <table className="mb-6 min-w-full table-fixed border-collapse">
-              <thead data-testid="list-header">
-                <tr
-                  className={clsx("sticky top-0 z-2 bg-surface-base", {
-                    "shadow-[0_0_6px_6px_rgba(0,0,0,0.06)]":
-                      stickyState.vertical.isStuck,
-                  })}
-                >
-                  {itemSelectable && (
-                    <th
-                      className={clsx(thClassList, firstStickyClasses, "w-9")}
-                      style={paddingCssVariables}
-                    >
-                      <div className="w-9 truncate overflow-hidden">
-                        <Checkbox
-                          checked={allSelected}
-                          partiallyChecked={
-                            (selectedItems.length > 0 &&
-                              selectedItems.length < filteredItems.length) ||
-                            (customSelectedItems &&
-                              customSelectedItems.length > 0 &&
-                              customSelectedItems.length < filteredItems.length)
-                          }
-                          onChange={(e) => handleSelectAll(e.target.checked)}
-                        />
-                      </div>
-                    </th>
-                  )}
-
-                  {activeCols.map((row, idx) => (
-                    <th
-                      className={clsx(
-                        "pl-2",
-                        thClassList,
-                        idx === 0 &&
-                          (itemSelectable
-                            ? secondStickyClasses
-                            : firstStickyClasses),
-                        idx === 0 &&
-                          stickyState.horizontal.isStuck &&
-                          columnShadowClassList,
-                      )}
-                      key={idx}
-                      style={paddingCssVariables}
-                    >
-                      <div
-                        className={clsx(
-                          "truncate overflow-hidden",
-                          colConfig[row]?.width,
-                        )}
-                      >
-                        {colTitles[row]}
-                      </div>
-                    </th>
-                  ))}
-                  {actions.length > 0 && (
-                    <th className={thClassList}>
-                      <div className="w-11 truncate overflow-hidden">
-                        {actions.length > 1 && (
-                          <button className="align-middle text-text-primary-30 hover:cursor-pointer hover:text-text-primary-50">
-                            <Ellipsis />
-                          </button>
-                        )}
-                      </div>
-                    </th>
-                  )}
-                </tr>
-              </thead>
-              <tbody data-testid="list-body">
-                {filteredItems.map((item, i) => (
-                  <tr key={i} className={rowClassList}>
+      {total !== undefined && (
+        <div className="flex">
+          <div
+            className={clsx(
+              "sticky left-0 pb-4 text-emphasis-300 text-text-primary-70",
+              paddingClasses,
+            )}
+          >
+            {total} {total === 1 ? itemName.singular : itemName.plural}
+          </div>
+        </div>
+      )}
+      <div className={clsx("flex flex-col", containerClassName)}>
+        <div className={clsx({ "overflow-x-auto": overflowContainer })}>
+          {!noDataElement || (items && items.length > 0) ? (
+            <>
+              <div ref={refs.vertical.start} />
+              <div className="sticky top-0 flex justify-between">
+                <div ref={refs.horizontal.start} />
+                <div ref={refs.horizontal.end} />
+              </div>
+              <table className="mb-6 min-w-full table-fixed border-collapse">
+                <thead data-testid="list-header">
+                  <tr
+                    className={clsx("sticky top-0 z-2", stickyBgColor, {
+                      "shadow-[0_0_6px_6px_rgba(0,0,0,0.06)]":
+                        stickyState.vertical.isStuck,
+                    })}
+                  >
                     {itemSelectable && (
-                      <td
-                        className={clsx(tdClassList, firstStickyClasses, "w-9")}
+                      <th
+                        className={clsx(thClassList, firstStickyClasses, "w-9")}
                         style={paddingCssVariables}
                       >
-                        <div
-                          className={clsx(
-                            "w-9 truncate overflow-hidden",
-                            "py-4",
-                          )}
-                        >
+                        <div className="w-9 truncate overflow-hidden">
                           <Checkbox
-                            checked={
-                              customSelectedItems?.includes(
-                                item[itemKey] as ItemKeyValueType,
-                              ) ||
-                              selectedItems.includes(
-                                item[itemKey] as ItemKeyValueType,
-                              )
+                            checked={allSelected}
+                            partiallyChecked={
+                              (selectedItems.length > 0 &&
+                                selectedItems.length < filteredItems.length) ||
+                              (customSelectedItems &&
+                                customSelectedItems.length > 0 &&
+                                customSelectedItems.length <
+                                  filteredItems.length)
                             }
-                            onChange={(e) =>
-                              handleSelectItem(
-                                item[itemKey] as ItemKeyValueType,
-                                e.target.checked,
-                              )
-                            }
+                            onChange={(e) => handleSelectAll(e.target.checked)}
                           />
                         </div>
-                      </td>
+                      </th>
                     )}
 
-                    {activeCols.map((row, j) => (
-                      <td
+                    {activeCols.map((row, idx) => (
+                      <th
                         className={clsx(
-                          tdClassList,
-                          j === 0 &&
+                          "pl-2",
+                          thClassList,
+                          idx === 0 &&
                             (itemSelectable
                               ? secondStickyClasses
                               : firstStickyClasses),
-                          j === 0 &&
+                          idx === 0 &&
                             stickyState.horizontal.isStuck &&
                             columnShadowClassList,
                         )}
-                        key={j}
+                        key={idx}
                         style={paddingCssVariables}
                       >
                         <div
                           className={clsx(
                             "truncate overflow-hidden",
-                            tdPaddingClassList,
                             colConfig[row]?.width,
-                            {
-                              "text-core-primary-50": disabled,
-                            },
                           )}
                         >
-                          {colConfig[row]?.component
-                            ? colConfig[row].component(item, selectedItems)
-                            : (item[row] as ReactNode)}
+                          {colTitles[row]}
                         </div>
-                      </td>
+                      </th>
                     ))}
-                    {actions.length == 1 ? (
-                      <td className={tdClassList}>
-                        <div
-                          className={clsx(
-                            "flex justify-end",
-                            tdPaddingClassList,
+                    {actions.length > 0 && (
+                      <th className={thClassList}>
+                        <div className="w-11 truncate overflow-hidden">
+                          {actions.length > 1 && (
+                            <button className="align-middle text-text-primary-30 hover:cursor-pointer hover:text-text-primary-50">
+                              <Ellipsis />
+                            </button>
                           )}
-                        >
-                          <Button
-                            variant={variants.secondary}
-                            size={sizes.compact}
-                            text={actions[0].title}
-                            onClick={() => actions[0].actionHandler(item)}
-                          />
                         </div>
-                      </td>
-                    ) : actions.length > 1 ? (
-                      <td className={tdClassList}>
-                        <div className={clsx("w-11", tdPaddingClassList)}>
-                          <PopoverProvider>
-                            <ListActions<ListItem>
-                              item={item}
-                              actions={actions}
-                            />
-                          </PopoverProvider>
-                        </div>
-                      </td>
-                    ) : null}
+                      </th>
+                    )}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            <div ref={refs.vertical.end} />
-          </>
-        ) : (
-          noDataElement
+                </thead>
+                <tbody data-testid="list-body">
+                  {filteredItems.map((item, i) => (
+                    <tr key={i} className={rowClassList}>
+                      {itemSelectable && (
+                        <td
+                          className={clsx(
+                            tdClassList,
+                            firstStickyClasses,
+                            "w-9",
+                          )}
+                          style={paddingCssVariables}
+                        >
+                          <div
+                            className={clsx(
+                              "w-9 truncate overflow-hidden",
+                              "py-4",
+                            )}
+                          >
+                            <Checkbox
+                              checked={
+                                customSelectedItems?.includes(
+                                  item[itemKey] as ItemKeyValueType,
+                                ) ||
+                                selectedItems.includes(
+                                  item[itemKey] as ItemKeyValueType,
+                                )
+                              }
+                              onChange={(e) =>
+                                handleSelectItem(
+                                  item[itemKey] as ItemKeyValueType,
+                                  e.target.checked,
+                                )
+                              }
+                            />
+                          </div>
+                        </td>
+                      )}
+
+                      {activeCols.map((row, j) => (
+                        <td
+                          className={clsx(
+                            tdClassList,
+                            j === 0 &&
+                              (itemSelectable
+                                ? secondStickyClasses
+                                : firstStickyClasses),
+                            j === 0 &&
+                              stickyState.horizontal.isStuck &&
+                              columnShadowClassList,
+                          )}
+                          key={j}
+                          style={paddingCssVariables}
+                        >
+                          <div
+                            className={clsx(
+                              "truncate overflow-hidden",
+                              tdPaddingClassList,
+                              colConfig[row]?.width,
+                              {
+                                "text-core-primary-50": disabled,
+                              },
+                            )}
+                          >
+                            {colConfig[row]?.component
+                              ? colConfig[row].component(item, selectedItems)
+                              : (item[row] as ReactNode)}
+                          </div>
+                        </td>
+                      ))}
+                      {actions.length == 1 ? (
+                        <td className={tdClassList}>
+                          <div
+                            className={clsx(
+                              "flex justify-end",
+                              tdPaddingClassList,
+                            )}
+                          >
+                            <Button
+                              variant={variants.secondary}
+                              size={sizes.compact}
+                              text={actions[0].title}
+                              onClick={() => actions[0].actionHandler(item)}
+                            />
+                          </div>
+                        </td>
+                      ) : actions.length > 1 ? (
+                        <td className={tdClassList}>
+                          <div className={clsx("w-11", tdPaddingClassList)}>
+                            <PopoverProvider>
+                              <ListActions<ListItem>
+                                item={item}
+                                actions={actions}
+                              />
+                            </PopoverProvider>
+                          </div>
+                        </td>
+                      ) : null}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div ref={refs.vertical.end} />
+            </>
+          ) : (
+            noDataElement
+          )}
+        </div>
+        {renderActionBar && (
+          <div className="w-full">{renderActionBar(selectedItems)}</div>
         )}
       </div>
-      {renderActionBar && (
-        <div className="w-full">{renderActionBar(selectedItems)}</div>
-      )}
     </div>
   );
 };

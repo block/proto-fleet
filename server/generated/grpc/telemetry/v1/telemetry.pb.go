@@ -795,6 +795,8 @@ func (x *AggregatedTelemetry) GetTags() map[string]string {
 }
 
 // Represents counts of miners in different states
+// TODO: We'll need to add more counts to represent the totals for each of our filter categories.
+// We should also align the name of the messages, to match the filters MinerStatus -> DeviceStatus
 type MinerStateCounts struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Number of miners that are hashing

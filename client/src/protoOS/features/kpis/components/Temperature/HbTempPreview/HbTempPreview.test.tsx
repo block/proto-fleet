@@ -5,6 +5,7 @@ import HbTempPreview from "./HbTempPreview"; // Adjust the import path as necess
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
 import {
   useAsicRowsByHbSn,
+  useMinerHashboard,
   useMinerHashboardAsics,
   useTemperatureUnit,
 } from "@/protoOS/store";
@@ -30,14 +31,6 @@ const mockHbData: HashboardData = {
   },
 };
 
-vi.mock("@/protoOS/store", async () => {
-  const actual = await vi.importActual("@/protoOS/store");
-  return {
-    ...actual,
-    useTemperatureUnit: vi.fn(() => "C"),
-  };
-});
-
 vi.mock("@/protoOS/api", () => ({
   useHashboardStatus: vi.fn(),
 }));
@@ -46,9 +39,17 @@ vi.mock("@/protoOS/store", async (importOriginal) => {
   const actual = (await importOriginal()) as any;
   return {
     ...actual,
+    useTemperatureUnit: vi.fn(() => "C"),
     useMinerHashboard: vi.fn(() => ({
-      avgAsicTemp: { value: 60, units: "C" },
-      maxAsicTemp: { value: 80, units: "C" },
+      avgAsicTemp: {
+        latest: { value: 60, units: "C" },
+      },
+      maxAsicTemp: {
+        latest: { value: 80, units: "C" },
+      },
+      temperature: {
+        latest: { value: 60, units: "C" },
+      },
     })),
     useMinerHashboardAsics: vi.fn(() => []), // Default to empty asics array
     useAsicRowsByHbSn: vi.fn(() => []),
@@ -148,30 +149,23 @@ describe("HbTempPreview", () => {
   });
 
   it("correctly renders overheated state", () => {
-    const overheatedHbData: HashboardData = {
-      ...mockHbData,
-      temperature: {
-        timeSeries: {
-          units: "C",
-          values: [40, 60, 100], // Overheated
-          aggregates: {
-            avg: { value: 60, units: "C" },
-            max: { value: 100, units: "C" },
-            min: { value: 40, units: "C" },
-          },
-          startTime: 1234567890000,
-          endTime: 1234567892000,
-        },
+    // Override the mock to return overheated temperature
+    (useMinerHashboard as Mock).mockReturnValue({
+      avgAsicTemp: {
+        latest: { value: 95, units: "C" },
       },
-    };
+      maxAsicTemp: {
+        latest: { value: 100, units: "C" },
+      },
+      temperature: {
+        latest: { value: 100, units: "C" }, // > 90 (criticalTemp)
+      },
+    });
 
     render(
       <MemoryRouter>
         <MinerHostingProvider>
-          <HbTempPreview
-            serial={overheatedHbData.serial}
-            slot={overheatedHbData.slot ?? 1}
-          />
+          <HbTempPreview serial="overheated-serial" slot={1} />
         </MinerHostingProvider>
       </MemoryRouter>,
     );

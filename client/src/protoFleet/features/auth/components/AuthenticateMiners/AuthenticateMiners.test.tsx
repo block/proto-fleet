@@ -21,6 +21,7 @@ const mockOnClose = vi.fn();
 beforeEach(() => {
   vi.mocked(useFleet).mockReturnValue({
     minerIds: mockMiners.map((m) => m.deviceIdentifier),
+    totalMiners: mockMiners.length,
     hasMore: false,
     isLoading: false,
     setFilter: vi.fn(),
@@ -160,14 +161,23 @@ describe("AuthenticateMiners", () => {
   });
 
   it("filters miners by model", async () => {
-    const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} />);
+    const { getByText, getAllByText } = render(
+      <AuthenticateMiners onClose={mockOnClose} />,
+    );
 
     fireEvent.click(getByText(showMinersLabel));
 
-    fireEvent.click(getByText("Model"));
+    // Find the Model dropdown filter button (not the table header)
+    const modelButtons = getAllByText("Model");
+    // The dropdown filter button should be the first one
+    const modelDropdown = modelButtons[0].closest("button");
+    expect(modelDropdown).toBeInTheDocument();
 
-    const protoRigOption = getByText("Proto Rig");
-    expect(protoRigOption).toBeInTheDocument();
+    fireEvent.click(modelDropdown!);
+
+    // Check that Proto Rig option appears (could be multiple - in dropdown and in table)
+    const protoRigOptions = getAllByText("Proto Rig");
+    expect(protoRigOptions.length).toBeGreaterThan(0);
   });
 
   it("disables inputs during authentication", async () => {

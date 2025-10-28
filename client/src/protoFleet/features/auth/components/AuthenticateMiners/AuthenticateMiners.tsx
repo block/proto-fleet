@@ -140,15 +140,18 @@ const AuthenticateMiners = ({ onClose }: AuthenticateMinersProps) => {
 
   const filterItem = useCallback(
     (item: UnauthenticatedMiner, filters: ActiveFilters) => {
-      if (
-        filters.dropdownFilters &&
-        filters.dropdownFilters["model"] &&
-        !filters.dropdownFilters["model"].includes("all")
-      ) {
-        if (!filters.dropdownFilters["model"].includes(item.model)) {
-          return false;
-        }
+      const modelFilters = filters.dropdownFilters?.["model"];
+
+      // If no model filter is applied (empty array or undefined), show all items
+      if (!modelFilters || modelFilters.length === 0) {
+        return true;
       }
+
+      // If model filters are applied, only show items that match
+      if (!modelFilters.includes(item.model)) {
+        return false;
+      }
+
       return true;
     },
     [],

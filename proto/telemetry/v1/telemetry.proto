@@ -147,6 +147,8 @@ message AggregatedTelemetry {
 }
 
 // Represents counts of miners in different states
+// TODO: We'll need to add more counts to represent the totals for each of our filter categories.  
+// We should also align the name of the messages, to match the filters MinerStatus -> DeviceStatus
 message MinerStateCounts {
   // Number of miners that are hashing
   int32 hashing_count = 1;

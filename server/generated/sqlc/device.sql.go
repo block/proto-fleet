@@ -197,6 +197,40 @@ func (q *Queries) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]string, 
 	return items, nil
 }
 
+const getAvailableMinerTypes = `-- name: GetAvailableMinerTypes :many
+SELECT DISTINCT d.type
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+WHERE dp.pairing_status = 'PAIRED'
+  AND d.deleted_at IS NULL
+  AND d.org_id = ?
+  AND d.type IS NOT NULL
+ORDER BY d.type
+`
+
+func (q *Queries) GetAvailableMinerTypes(ctx context.Context, orgID int64) ([]string, error) {
+	rows, err := q.query(ctx, q.getAvailableMinerTypesStmt, getAvailableMinerTypes, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var type_ string
+		if err := rows.Scan(&type_); err != nil {
+			return nil, err
+		}
+		items = append(items, type_)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDeviceByDeviceIdentifier = `-- name: GetDeviceByDeviceIdentifier :one
 SELECT id, device_identifier, mac_address, serial_number, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, model, manufacturer, org_id, type
 FROM device

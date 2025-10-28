@@ -38,6 +38,9 @@ beforeEach(() => {
   mockReturnValue.bounds = { min: 400, max: 2000 };
   mockReturnValue.pending = false;
   mockReturnValue.updateMiningTarget = mockedUpdateMiningTarget;
+
+  // Clear mock call history
+  vi.clearAllMocks();
 });
 
 describe("Power Target Popover", () => {
@@ -109,9 +112,14 @@ describe("Power Target Popover", () => {
   });
 
   it("calls updateMiningTarget with correct values when Apply is clicked", async () => {
+    const mockOnUpdateStart = vi.fn();
     const { getByText, getByLabelText } = render(
       <PopoverProvider>
-        <PowerTargetPopover onDismiss={vi.fn()} onUpdateStart={vi.fn()} />,
+        <PowerTargetPopover
+          onDismiss={vi.fn()}
+          onUpdateStart={mockOnUpdateStart}
+        />
+        ,
       </PopoverProvider>,
     );
     // First select Custom mode to make the input appear
@@ -120,7 +128,7 @@ describe("Power Target Popover", () => {
     fireEvent.change(input, { target: { value: "1" } });
     fireEvent.click(getByText("Apply"));
     await waitFor(() => {
-      expect(mockedUpdateMiningTarget).toHaveBeenCalledWith({
+      expect(mockOnUpdateStart).toHaveBeenCalledWith({
         performance_mode: "MaximumHashrate",
         power_target_watts: 1000,
       });

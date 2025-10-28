@@ -13,8 +13,8 @@ export const useMinerIds = () => useFleetStore((state) => state.fleet.minerIds);
 export const useTotalMiners = () =>
   useFleetStore((state) => state.fleet.totalMiners);
 
-export const useMinerStateCounts = () =>
-  useFleetStore((state) => state.fleet.minerStateCounts);
+export const useDeviceStatusCounts = () =>
+  useFleetStore((state) => state.fleet.deviceStatusCounts);
 
 export const useFleetMiners = () =>
   useFleetStore(useShallow((state) => state.fleet.getMinersArray()));
@@ -84,11 +84,8 @@ export const useAppendMiners = () =>
 export const useSetTotalMiners = () =>
   useFleetStore((state) => state.fleet.setTotalMiners);
 
-export const useSetMinerStateCounts = () =>
-  useFleetStore((state) => state.fleet.setMinerStateCounts);
-
-export const useHandleMinerStateCountsChange = () =>
-  useFleetStore((state) => state.fleet.handleMinerStateCountsChange);
+export const useSetDeviceStatusCounts = () =>
+  useFleetStore((state) => state.fleet.setDeviceStatusCounts);
 
 export const useSetCurrentFilter = () =>
   useFleetStore((state) => state.fleet.setCurrentFilter);

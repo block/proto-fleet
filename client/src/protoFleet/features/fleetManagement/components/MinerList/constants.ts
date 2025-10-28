@@ -23,17 +23,24 @@ export const minerColTitles = {
   [minerCols.temperature]: "Temp",
 } as ColTitles<keyof MinerStateSnapshot>;
 
-export const minerFilterStates = {
+export const deviceStatusFilterStates = {
   hashing: "hashing",
-  broken: "broken",
   offline: "offline",
-  asleep: "asleep",
+  sleeping: "sleeping",
+  needsAttention: "needsAttention",
 };
 
-export type MinerFilterState =
-  (typeof minerFilterStates)[keyof typeof minerFilterStates];
+export type DeviceStatusFilterState =
+  (typeof deviceStatusFilterStates)[keyof typeof deviceStatusFilterStates];
 
 export const minerTypes = {
   protoRig: "proto",
   bitmain: "bitmain",
+};
+
+export const componentIssues = {
+  controlBoard: "control-board",
+  fans: "fans",
+  hashBoards: "hash-boards",
+  psu: "psu",
 };

@@ -1,9 +1,10 @@
-import { MouseEvent, useMemo, useRef, useState } from "react";
-import { ChevronUpDown, Dismiss } from "@/shared/assets/icons";
-import Button, { sizes } from "@/shared/components/Button";
-import Popover, { usePopover } from "@/shared/components/Popover";
-import SelectRow from "@/shared/components/SelectRow";
-import { selectTypes } from "@/shared/constants";
+import { useCallback, useEffect, useRef, useState } from "react";
+import clsx from "clsx";
+
+import DropdownFilterPopover from "./DropdownFilterPopover";
+import { ChevronDown } from "@/shared/assets/icons";
+import Button, { sizes, variants } from "@/shared/components/Button";
+import { PopoverProvider, usePopover } from "@/shared/components/Popover";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
 export type DropdownOption = {
@@ -13,133 +14,155 @@ export type DropdownOption = {
 
 type DropdownFilterProps = {
   title: string;
-  allSelectedTitle: string;
+  pluralTitle?: string;
   options: DropdownOption[];
-  selectedOptions: string[] | undefined;
-  size?: keyof typeof sizes;
-  onSelect: (value: string) => void;
-  onSelectAll: (value: boolean) => void;
+  selectedOptions: string[];
+  onSelect: (selectedItems: string[]) => void;
+  withButtons?: boolean;
+  className?: string;
+  testId?: string;
 };
 
-const DropdownFilter = ({
+const FilterContent = ({
   title,
-  allSelectedTitle = "All selected",
   options,
-  selectedOptions,
-  size = sizes.compact,
+  selectedOptions: externalSelectedItems,
   onSelect,
-  onSelectAll,
+  withButtons = false,
+  className,
+  testId,
 }: DropdownFilterProps) => {
-  const [showPopover, setShowPopover] = useState<boolean>(false);
-  const popoverRef = useRef(null);
+  const [showPopover, setShowPopover] = useState(false);
   const { triggerRef } = usePopover();
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  // Only use internal state when buttons are shown
+  const [internalSelectedItems, setInternalSelectedItems] = useState<string[]>(
+    externalSelectedItems,
+  );
+
+  // When buttons are shown, update internal state when external changes
+  useEffect(() => {
+    if (withButtons) {
+      setInternalSelectedItems(externalSelectedItems);
+    }
+  }, [externalSelectedItems, withButtons]);
 
   useClickOutside({
-    ref: popoverRef,
+    ref: triggerRef,
     onClickOutside: () => setShowPopover(false),
   });
 
-  const selectedLabel = useMemo(() => {
-    const selected = options.find((option) =>
-      selectedOptions?.includes(option.id),
-    );
-    return options.length === selectedOptions?.length
-      ? allSelectedTitle
-      : selected?.label || title;
-  }, [options, selectedOptions, allSelectedTitle, title]);
+  const handleToggleItem = useCallback(
+    (itemId: string) => {
+      if (withButtons) {
+        // With buttons - update internal state
+        setInternalSelectedItems((prev) => {
+          if (prev.includes(itemId)) {
+            return prev.filter((id) => id !== itemId);
+          }
+          return [...prev, itemId];
+        });
+      } else {
+        // Without buttons - toggle and call callback immediately
+        const newSelection = externalSelectedItems.includes(itemId)
+          ? externalSelectedItems.filter((id) => id !== itemId)
+          : [...externalSelectedItems, itemId];
+        onSelect(newSelection);
+      }
+    },
+    [withButtons, onSelect, externalSelectedItems],
+  );
 
-  // Prevent event bubbling to parent components
-  const handleButtonClick = (e: MouseEvent) => {
-    e.stopPropagation();
-    setShowPopover((prev) => !prev);
-  };
+  const handleSelectAll = useCallback(() => {
+    if (withButtons) {
+      // With buttons - update internal state
+      if (internalSelectedItems.length === options.length) {
+        setInternalSelectedItems([]);
+      } else {
+        setInternalSelectedItems(options.map((item) => item.id));
+      }
+    } else {
+      // Without buttons - call callback immediately
+      const shouldSelectAll = externalSelectedItems.length !== options.length;
+      const newSelection = shouldSelectAll ? options.map((o) => o.id) : [];
+      onSelect(newSelection);
+    }
+  }, [
+    withButtons,
+    externalSelectedItems,
+    options,
+    internalSelectedItems,
+    onSelect,
+  ]);
 
-  // Prevent click from bubbling up
-  const handleOptionClick = (optionId: string, e: MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    onSelect(optionId);
-  };
+  const handleApply = useCallback(() => {
+    onSelect(internalSelectedItems);
+    setShowPopover(false);
+  }, [internalSelectedItems, onSelect]);
+
+  const handleReset = useCallback(() => {
+    setInternalSelectedItems([]);
+    onSelect([]);
+  }, [onSelect]);
+
+  // Use appropriate selected items based on whether buttons are shown
+  const displaySelectedItems = withButtons
+    ? internalSelectedItems
+    : externalSelectedItems;
+
+  const allSelected = displaySelectedItems.length === options.length;
+  const partiallySelected =
+    displaySelectedItems.length > 0 &&
+    displaySelectedItems.length < options.length;
 
   return (
-    <>
-      {selectedOptions ? (
-        <div ref={triggerRef} className="relative min-w-32">
-          <div className="flex flex-row items-center gap-2">
-            <Button
-              textColor="text-text-primary"
-              className="min-w-32 text-emphasis-300"
-              variant="ghost"
-              size={size}
-              suffixIcon={<ChevronUpDown />}
-              onClick={handleButtonClick}
-            >
-              {selectedLabel}
-            </Button>
-            {selectedOptions.length !== options.length &&
-              selectedOptions.map((option) => {
-                return (
-                  <Button
-                    variant="accent"
-                    prefixIcon={<Dismiss />}
-                    key={option}
-                    size={size}
-                    onClick={(e) => handleOptionClick(option, e)}
-                  >
-                    {option}
-                  </Button>
-                );
+    <div className={clsx("flex flex-col gap-2", className)}>
+      <div ref={triggerRef} className="relative z-10">
+        <Button
+          variant={showPopover ? variants.secondary : variants.ghost}
+          size={sizes.compact}
+          textColor="text-text-primary"
+          className="overflow-hidden !px-3"
+          onClick={() => setShowPopover((prev) => !prev)}
+          testId={testId}
+          suffixIcon={
+            <div
+              className={clsx("opacity-60 transition-transform duration-200", {
+                "rotate-180": showPopover,
               })}
-          </div>
+            >
+              <ChevronDown width="w-3" />
+            </div>
+          }
+        >
+          {title}
+        </Button>
 
-          {showPopover && (
-            <Popover className="!space-y-0 px-0 py-0">
-              <div
-                ref={popoverRef}
-                className="popover-content px-6 py-2"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div
-                  key="all"
-                  onClick={() =>
-                    onSelectAll(options.length !== selectedOptions.length)
-                  }
-                >
-                  <SelectRow
-                    id="all"
-                    isSelected={selectedOptions.length === options.length}
-                    onChange={() => {}} // Handle in parent onClick instead
-                    text={allSelectedTitle}
-                    type={selectTypes.checkbox}
-                    partiallySelected={
-                      selectedOptions.length > 0 &&
-                      selectedOptions.length < options.length
-                    }
-                  />
-                </div>
-                {options.map((option, index) => (
-                  <div
-                    key={option.id}
-                    onClick={(e) => handleOptionClick(option.id, e)}
-                  >
-                    <SelectRow
-                      id={option.id}
-                      isSelected={selectedOptions.includes(option.id)}
-                      onChange={() => {}} // Handle in parent onClick instead
-                      text={option.label}
-                      type={selectTypes.checkbox}
-                      divider={index !== options.length - 1}
-                    />
-                  </div>
-                ))}
-              </div>
-            </Popover>
-          )}
-        </div>
-      ) : (
-        <div></div>
-      )}
-    </>
+        {showPopover && (
+          <DropdownFilterPopover
+            options={options}
+            displaySelectedItems={displaySelectedItems}
+            allSelected={allSelected}
+            partiallySelected={partiallySelected}
+            handleSelectAll={handleSelectAll}
+            handleToggleItem={handleToggleItem}
+            withButtons={withButtons}
+            handleReset={handleReset}
+            handleApply={handleApply}
+            popoverRef={popoverRef}
+          />
+        )}
+      </div>
+    </div>
+  );
+};
+
+const DropdownFilter = (props: DropdownFilterProps) => {
+  return (
+    <PopoverProvider>
+      <FilterContent {...props} />
+    </PopoverProvider>
   );
 };
 

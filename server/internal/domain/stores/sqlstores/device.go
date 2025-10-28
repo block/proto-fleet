@@ -362,6 +362,25 @@ func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, f
 	}, nil
 }
 
+func (s *SQLDeviceStore) GetAvailableMinerTypes(ctx context.Context, orgID int64) ([]minermodels.Type, error) {
+	typeStrings, err := s.getQueries(ctx).GetAvailableMinerTypes(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get available miner types: %w", err)
+	}
+
+	types := make([]minermodels.Type, 0, len(typeStrings))
+	for _, typeStr := range typeStrings {
+		minerType, err := minermodels.TypeFromString(typeStr)
+		if err != nil {
+			// Skip unknown types
+			continue
+		}
+		types = append(types, minerType)
+	}
+
+	return types, nil
+}
+
 func buildFilterParams(filter *stores.MinerFilter) (statusFilter, typeFilter sql.NullString) {
 	if filter != nil && len(filter.DeviceStatusFilter) > 0 {
 		deviceFilter := make([]string, 0, len(filter.DeviceStatusFilter))

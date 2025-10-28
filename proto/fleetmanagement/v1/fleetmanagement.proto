@@ -265,18 +265,42 @@ enum MinerType {
   MINER_TYPE_BITMAIN = 2;
 }
 
-// Filter criteria for miners, when status and type are specified, they act as AND condition.
+// Component type for filtering
+enum ComponentType {
+  COMPONENT_TYPE_UNSPECIFIED = 0;
+  COMPONENT_TYPE_CONTROL_BOARD = 1;
+  COMPONENT_TYPE_FANS = 2;
+  COMPONENT_TYPE_HASH_BOARDS = 3;
+  COMPONENT_TYPE_PSU = 4;
+}
+
+// Filter for a specific component with one or more statuses
+message ComponentStatusFilter {
+  // The component to filter by
+  ComponentType component = 1;
+
+  // One or more statuses to filter by (acts as OR condition)
+  // Returns miners where the specified component has any of these statuses
+  repeated ComponentStatus statuses = 2;
+}
+
+// Filter criteria for miners
+// Multiple filters act as AND condition (all must match)
 message MinerListFilter {
-  // Filter by component status - returns miners where any component has this status.
-  // When status is repeated, it acts as an OR condition.
-  // TODO do we want to change this to correspond to states shown on the client side?
-  repeated ComponentStatus status = 1;
-
-  // Filter by miner type
-  MinerType type = 2;
-
-  // Filter by device status
+  // Filter by device status (acts as OR condition)
+  // Returns miners that match any of the specified device statuses
   repeated DeviceStatus device_status = 3;
+
+  // Filter by specific component statuses
+  // Multiple component filters act as AND condition (all must match)
+  // Within each component filter, statuses act as OR condition
+  // Example: To find miners with fans in WARNING or ERROR status AND hash_boards in ERROR status,
+  // provide two ComponentStatusFilter entries
+  repeated ComponentStatusFilter component_filters = 4;
+
+  // Filter by miner types (acts as OR condition)
+  // Returns miners that match any of the specified types
+  repeated MinerType types = 5;
 }
 
 
@@ -298,6 +322,11 @@ message ListMinerStateSnapshotsResponse {
   // This includes counts for all miners, not just the ones in the current page
   // Status filters do not affect these counts, because they act as OR condition.
   telemetry.v1.MinerStateCounts total_state_counts = 4;
+
+  // List of all miner types that exist in the user's fleet
+  // Useful for dynamically building type filter options in the UI
+  // This includes all types across all pages, not just the current page
+  repeated MinerType miner_types = 5;
 }
 
 message StreamMinerUpdatesRequest {

@@ -2,13 +2,17 @@ import { useCallback, useMemo } from "react";
 
 import { create } from "@bufbuild/protobuf";
 import {
+  componentIssues,
+  deviceStatusFilterStates,
   minerCols,
   minerColTitles,
-  minerFilterStates,
   minerTypes,
 } from "./constants";
 import minerColConfig from "./minerColConfig";
 import {
+  ComponentStatus,
+  ComponentStatusFilterSchema,
+  ComponentType,
   MinerListFilter,
   MinerListFilterSchema,
   MinerStateSnapshot,
@@ -18,15 +22,12 @@ import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_
 
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 
-import { useMinerStateCounts, useTotalMiners } from "@/protoFleet/store";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
-import { defaultListFilter } from "@/shared/components/List/constants";
 import {
   ActiveFilters,
   FilterItem,
 } from "@/shared/components/List/Filters/types";
-import { statuses } from "@/shared/components/StatusCircle/constants";
 import { Breakpoint } from "@/shared/constants/breakpoints";
 
 type MinerListProps = {
@@ -37,6 +38,7 @@ type MinerListProps = {
   overflowContainer?: boolean;
   onFilterChange: (filter: MinerListFilter) => void;
   onAddMiners: () => void;
+  totalMiners?: number;
 };
 
 // TODO: move this to state when we
@@ -60,10 +62,8 @@ const MinerList = ({
   overflowContainer,
   onFilterChange,
   onAddMiners,
+  totalMiners,
 }: MinerListProps) => {
-  const totalMiners = useTotalMiners();
-  const minerStateCounts = useMinerStateCounts();
-
   // Convert string array to objects for List component compatibility
   // List generally expects object with all items used in the ListItem to be passed to it as props
   // but because we just pass deviceIdentifier, and use that to look up the rest of the data in the store,
@@ -80,85 +80,111 @@ const MinerList = ({
   const filters = useMemo(() => {
     return [
       {
-        type: "button",
-        title: "All miners",
-        value: defaultListFilter,
-        count: totalMiners,
+        type: "dropdown",
+        title: "Status",
+        value: "status",
+        options: [
+          { id: deviceStatusFilterStates.hashing, label: "Hashing" },
+          { id: deviceStatusFilterStates.offline, label: "Offline" },
+          { id: deviceStatusFilterStates.sleeping, label: "Sleeping" },
+          {
+            id: deviceStatusFilterStates.needsAttention,
+            label: "Needs Attention",
+          },
+        ],
+        defaultOptionIds: [],
       },
       {
-        type: "button",
-        title: "Hashing",
-        value: minerFilterStates.hashing,
-        count: minerStateCounts.hashingCount,
-        status: statuses.normal,
-      },
-      {
-        type: "button",
-        title: "Broken",
-        value: minerFilterStates.broken,
-        count: minerStateCounts.brokenCount,
-        status: statuses.error,
-      },
-      {
-        type: "button",
-        title: "Offline",
-        value: minerFilterStates.offline,
-        count: minerStateCounts.offlineCount,
-        status: statuses.warning,
-      },
-      {
-        type: "button",
-        title: "Asleep",
-        value: minerFilterStates.asleep,
-        count: minerStateCounts.sleepingCount,
-        status: statuses.inactive,
+        type: "dropdown",
+        title: "Issues",
+        value: "issues",
+        options: [
+          { id: componentIssues.controlBoard, label: "Control board issue" },
+          { id: componentIssues.fans, label: "Fan issue" },
+          { id: componentIssues.hashBoards, label: "Hash board issue" },
+          { id: componentIssues.psu, label: "PSU issue" },
+        ],
+        defaultOptionIds: [],
       },
       {
         type: "dropdown",
         title: "Type",
         value: "type",
         options: [
-          { id: "all", label: "All Types" },
           { id: minerTypes.protoRig, label: "Proto Rig" },
           { id: minerTypes.bitmain, label: "Bitmain" },
         ],
-        defaultOptionId: "all",
+        defaultOptionIds: [],
       },
     ] as FilterItem[];
-  }, [totalMiners, minerStateCounts]);
+  }, []);
 
   const handleServerFilter = useCallback(
     async (filters: ActiveFilters) => {
-      const minerFilter = create(MinerListFilterSchema, { status: [] });
+      const minerFilter = create(MinerListFilterSchema, {
+        componentFilters: [],
+      });
 
-      if (!filters.buttonFilters.includes(defaultListFilter)) {
-        filters.buttonFilters.forEach((filter) => {
+      // Handle status dropdown filter
+      const statusFilters = filters.dropdownFilters.status;
+      if (statusFilters !== undefined && statusFilters.length > 0) {
+        // Only apply status filtering if specific statuses are selected
+        statusFilters.forEach((filter) => {
           switch (filter) {
-            case minerFilterStates.hashing:
+            case deviceStatusFilterStates.hashing:
               minerFilter.deviceStatus.push(DeviceStatus.ONLINE);
               break;
-            case minerFilterStates.broken:
+            case deviceStatusFilterStates.needsAttention:
               minerFilter.deviceStatus.push(DeviceStatus.ERROR);
               break;
-            case minerFilterStates.offline:
+            case deviceStatusFilterStates.offline:
               minerFilter.deviceStatus.push(DeviceStatus.OFFLINE);
               break;
-            case minerFilterStates.asleep:
+            case deviceStatusFilterStates.sleeping:
               minerFilter.deviceStatus.push(DeviceStatus.INACTIVE);
               break;
           }
         });
       }
+      // If statusFilters is undefined or empty, don't add any status filter (show all)
 
-      // TODO: Add support for multiple types in dropdown
-      if (filters.dropdownFilters.type) {
-        if (filters.dropdownFilters.type.includes(minerTypes.protoRig)) {
-          minerFilter.type = MinerType.PROTO_RIG;
+      // Handle type dropdown filter
+      const typeFilters = filters.dropdownFilters.type;
+      typeFilters?.forEach((filter) => {
+        switch (filter) {
+          case minerTypes.protoRig:
+            minerFilter.types.push(MinerType.PROTO_RIG);
+            break;
+          case minerTypes.bitmain:
+            minerFilter.types.push(MinerType.BITMAIN);
+            break;
         }
-        if (filters.dropdownFilters.type.includes(minerTypes.bitmain)) {
-          minerFilter.type = MinerType.BITMAIN;
+      });
+      // Handle issues dropdown filter with component-specific filtering
+      const issueFilters = filters.dropdownFilters.issues;
+      issueFilters?.forEach((issue) => {
+        const componentFilter = create(ComponentStatusFilterSchema, {
+          statuses: [ComponentStatus.WARNING, ComponentStatus.ERROR],
+        });
+
+        switch (issue) {
+          case componentIssues.controlBoard:
+            componentFilter.component = ComponentType.CONTROL_BOARD;
+            break;
+          case componentIssues.fans:
+            componentFilter.component = ComponentType.FANS;
+            break;
+          case componentIssues.hashBoards:
+            componentFilter.component = ComponentType.HASH_BOARDS;
+            break;
+          case componentIssues.psu:
+            componentFilter.component = ComponentType.PSU;
+            break;
         }
-      }
+
+        minerFilter.componentFilters.push(componentFilter);
+      });
+
       onFilterChange(minerFilter);
     },
     [onFilterChange],
@@ -192,6 +218,8 @@ const MinerList = ({
         containerClassName={listClassName}
         paddingLeft={paddingLeft}
         overflowContainer={overflowContainer}
+        total={totalMiners}
+        itemName={{ singular: "miner", plural: "miners" }}
       />
     </>
   );

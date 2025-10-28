@@ -269,6 +269,8 @@ export const AggregatedTelemetrySchema: GenMessage<AggregatedTelemetry> =
 
 /**
  * Represents counts of miners in different states
+ * TODO: We'll need to add more counts to represent the totals for each of our filter categories.
+ * We should also align the name of the messages, to match the filters MinerStatus -> DeviceStatus
  *
  * @generated from message telemetry.v1.MinerStateCounts
  */
