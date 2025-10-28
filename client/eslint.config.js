@@ -49,6 +49,16 @@ export default [
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // TODO [DASH-827]: React 19 Migration - Re-enable these stricter rules incrementally
+      // These are new rules in eslint-plugin-react-hooks 5.x that have 75+ violations
+      // across the codebase. They should be fixed incrementally in follow-up PRs.
+      // Track progress: https://linear.app/squareup/issue/DASH-827
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/immutability": "off",
+      "react-hooks/refs": "off",
+      "react-hooks/preserve-manual-memoization": "off",
+      "react-hooks/purity": "off",
+      "react-hooks/static-components": "off",
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": [
         "error",

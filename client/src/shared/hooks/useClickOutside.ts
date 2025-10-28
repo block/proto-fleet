@@ -1,7 +1,7 @@
 import { RefObject, useEffect } from "react";
 
 interface ClickOutsideProps {
-  ref: RefObject<HTMLElement>;
+  ref: RefObject<HTMLElement | null>;
   onClickOutside: () => void;
   // Optional array of selectors for elements that should be considered "inside"
   ignoreSelectors?: string[];

@@ -253,11 +253,7 @@ func start(config *Config) error {
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
 	}
 
-	validateInterceptor, err := validate.NewInterceptor()
-	if err != nil {
-		slog.Error("failed to create validate interceptor", "error", err)
-		return fmt.Errorf("failed to create validate interceptor: %w", err)
-	}
+	validateInterceptor := validate.NewInterceptor()
 
 	li := connect.WithInterceptors(
 		interceptors.NewErrorMappingInterceptor(),

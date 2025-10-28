@@ -9,7 +9,7 @@ import {
 
 const useUnitOffset = (
   value: string | number,
-  inputRef: RefObject<HTMLInputElement>,
+  inputRef: RefObject<HTMLInputElement | null>,
   units?: string,
 ) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(

@@ -27,7 +27,7 @@ interface InputProps {
   hideLabelOnFocus?: boolean;
   id: string;
   initValue?: string | number;
-  inputRef?: RefObject<HTMLInputElement>;
+  inputRef?: RefObject<HTMLInputElement | null>;
   keyboardShortcuts?: string[];
   label: string;
   maxLength?: number;

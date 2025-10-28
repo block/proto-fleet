@@ -41,15 +41,8 @@ vi.mock("@/protoOS/store", async (importOriginal) => {
     ...actual,
     useTemperatureUnit: vi.fn(() => "C"),
     useMinerHashboard: vi.fn(() => ({
-      avgAsicTemp: {
-        latest: { value: 60, units: "C" },
-      },
-      maxAsicTemp: {
-        latest: { value: 80, units: "C" },
-      },
-      temperature: {
-        latest: { value: 60, units: "C" },
-      },
+      avgAsicTemp: { latest: { value: 60, units: "C" } },
+      maxAsicTemp: { latest: { value: 80, units: "C" } },
     })),
     useMinerHashboardAsics: vi.fn(() => []), // Default to empty asics array
     useAsicRowsByHbSn: vi.fn(() => []),
@@ -149,18 +142,29 @@ describe("HbTempPreview", () => {
   });
 
   it("correctly renders overheated state", () => {
-    // Override the mock to return overheated temperature
-    (useMinerHashboard as Mock).mockReturnValue({
-      avgAsicTemp: {
-        latest: { value: 95, units: "C" },
+    const overheatedHbData: HashboardData = {
+      ...mockHbData,
+      temperature: {
+        latest: { value: 100, units: "C" },
+        timeSeries: {
+          units: "C",
+          values: [40, 60, 100], // Overheated
+          aggregates: {
+            avg: { value: 60, units: "C" },
+            max: { value: 100, units: "C" },
+            min: { value: 40, units: "C" },
+          },
+          startTime: 1234567890000,
+          endTime: 1234567892000,
+        },
       },
       maxAsicTemp: {
         latest: { value: 100, units: "C" },
       },
-      temperature: {
-        latest: { value: 100, units: "C" }, // > 90 (criticalTemp)
-      },
-    });
+    };
+
+    // Mock useMinerHashboard to return overheated data
+    (useMinerHashboard as Mock).mockReturnValue(overheatedHbData);
 
     render(
       <MemoryRouter>

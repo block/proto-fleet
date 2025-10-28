@@ -45,7 +45,9 @@ export const useWakeMiner = ({
   const onSuccessRef = useRef(onSuccess);
   const onErrorRef = useRef(onError);
   const isWakingRef = useRef(false);
-  const intervalIdRef = useRef<ReturnType<typeof setInterval>>();
+  const intervalIdRef = useRef<ReturnType<typeof setInterval> | undefined>(
+    undefined,
+  );
 
   afterWakeRef.current = afterWake;
   onSuccessRef.current = onSuccess;
