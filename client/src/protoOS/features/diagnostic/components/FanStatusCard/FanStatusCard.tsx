@@ -4,6 +4,7 @@ import Card from "@/protoOS/features/diagnostic/components/Card";
 import CardHeader from "@/protoOS/features/diagnostic/components/CardHeader";
 import { useMinerFan } from "@/protoOS/store";
 import { FanIndicatorV2 as FanIndicator } from "@/shared/assets/icons";
+import FanValue from "@/shared/components/FanValue";
 
 interface FanStatusCardProps {
   fanId: number;
@@ -21,14 +22,6 @@ function FanStatusCard({ fanId }: FanStatusCardProps) {
   const name = fanData?.name ?? `Fan ${position}`;
   // TODO: Add hasWarning logic based on error state
 
-  const formatRPM = (rpm: number) => {
-    return rpm.toLocaleString() + " RPM";
-  };
-
-  const formatPWM = (pwm: number) => {
-    return pwm.toFixed(1) + "% PWM";
-  };
-
   return (
     <Card>
       <CardHeader
@@ -40,9 +33,11 @@ function FanStatusCard({ fanId }: FanStatusCardProps) {
 
       <div>
         <div className="text-emphasis-300 text-text-primary">
-          {formatRPM(rpm)}
+          <FanValue value={rpm} type="rpm" />
         </div>
-        <div className="text-300 text-text-primary-70">{formatPWM(pwm)}</div>
+        <div className="text-300 text-text-primary-70">
+          <FanValue value={pwm} type="pwm" />
+        </div>
       </div>
       {isModalOpen && fanData && (
         <FanInfoModal

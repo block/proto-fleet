@@ -4,6 +4,7 @@ import type { FanData } from "@/protoOS/features/diagnostic/types";
 import { Fan } from "@/shared/assets/icons";
 import Header from "@/shared/components/Header";
 import Modal from "@/shared/components/Modal";
+import FanValue from "@/shared/components/FanValue";
 
 interface FanInfoModalProps {
   fanData: FanData;
@@ -11,14 +12,6 @@ interface FanInfoModalProps {
 }
 
 function FanInfoModal({ fanData, onDismiss }: FanInfoModalProps) {
-  const formatRPM = (rpm: number) => {
-    return rpm.toLocaleString() + " RPM";
-  };
-
-  const formatPWM = (pwm: number) => {
-    return pwm.toFixed(1) + "%";
-  };
-
   return (
     <Modal
       onDismiss={onDismiss}
@@ -45,12 +38,12 @@ function FanInfoModal({ fanData, onDismiss }: FanInfoModalProps) {
 
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
           <LabeledValue
-            value={formatRPM(fanData.rpm)}
+            value={<FanValue value={fanData.rpm} type="rpm" />}
             label="Speed"
             variant="large"
           />
           <LabeledValue
-            value={formatPWM(fanData.pwm)}
+            value={<FanValue value={fanData.pwm} type="pwm" />}
             label="PWM"
             variant="large"
           />

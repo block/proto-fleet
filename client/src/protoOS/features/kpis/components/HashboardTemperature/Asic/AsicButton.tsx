@@ -4,13 +4,9 @@ import clsx from "clsx";
 import AsicPopover from "./AsicPopover";
 import { getAsicUniqueId } from "./utility";
 import { useAsicColor } from "@/protoOS/features/kpis/hooks";
-import {
-  AsicData,
-  convertAndFormatMeasurement,
-  getAsicName,
-} from "@/protoOS/store";
-import { useTemperatureUnit } from "@/protoOS/store";
+import { AsicData, getAsicName } from "@/protoOS/store";
 import { usePopover } from "@/shared/components/Popover";
+import TemperatureValue from "@/shared/components/TemperatureValue";
 
 interface AsicButtonProps {
   asic: AsicData;
@@ -28,7 +24,6 @@ const AsicButton = ({
   totalAsicCount,
 }: AsicButtonProps) => {
   const { triggerRef: asicRef } = usePopover();
-  const temperatureUnit = useTemperatureUnit();
 
   const currentAsicId = useMemo(
     () =>
@@ -49,16 +44,6 @@ const AsicButton = ({
       ? getAsicName(totalAsicCount, asic.index)
       : "";
   }, [totalAsicCount, asic.index]);
-
-  const temperatureDisplay = useMemo(
-    () =>
-      convertAndFormatMeasurement(
-        asic.temperature?.latest,
-        temperatureUnit,
-        false,
-      ),
-    [asic.temperature, temperatureUnit],
-  );
 
   return (
     <div
@@ -92,7 +77,7 @@ const AsicButton = ({
         <div className="bg-transparent hover:bg-surface-overlay">
           <div className="flex flex-col items-center gap-1 px-1 py-3">
             <div className="text-text-primary-50">{asicName}</div>
-            {temperatureDisplay}
+            <TemperatureValue value={asic.temperature?.latest?.value} />
           </div>
         </div>
       </button>

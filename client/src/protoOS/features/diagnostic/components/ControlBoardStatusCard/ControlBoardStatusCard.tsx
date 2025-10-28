@@ -4,6 +4,7 @@ import Card from "@/protoOS/features/diagnostic/components/Card";
 import CardHeader from "@/protoOS/features/diagnostic/components/CardHeader";
 import LabeledValue from "@/protoOS/features/diagnostic/components/LabeledValue";
 import { useControlBoard, useSystemInfo } from "@/protoOS/store";
+import LatencyValue from "@/shared/components/LatencyValue";
 
 function ControlBoardStatusCard() {
   // Fetch data directly from store
@@ -16,10 +17,6 @@ function ControlBoardStatusCard() {
   const latency = 0; // TODO: Add latency field to ControlBoardInfo type
   const cpuCapacity = systemInfo?.os?.status?.cpu_load_percent || 0;
   // TODO: Add hasWarning logic based on error state
-
-  const formatLatency = (latency: number) => {
-    return latency.toFixed(1) + "ms";
-  };
 
   const formatCpuCapacity = (capacity: number) => {
     return capacity.toFixed(1) + "%";
@@ -34,7 +31,10 @@ function ControlBoardStatusCard() {
       />
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-        <LabeledValue value={formatLatency(latency)} label="Latency" />
+        <LabeledValue
+          value={<LatencyValue value={latency} />}
+          label="Latency"
+        />
         <LabeledValue
           value={formatCpuCapacity(cpuCapacity)}
           label="CPU capacity"

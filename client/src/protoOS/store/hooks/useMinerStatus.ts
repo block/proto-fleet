@@ -272,7 +272,7 @@ export const useWakeDialog = () => {
  */
 export const useComprehensiveStatus = () => {
   const errors = useMinerStore(
-    (state) => state.minerStatus.errors.errors || [],
+    useShallow((state) => state.minerStatus.errors.errors || []),
   );
   const isSleeping = useIsSleeping();
   const isMining = useIsMining();

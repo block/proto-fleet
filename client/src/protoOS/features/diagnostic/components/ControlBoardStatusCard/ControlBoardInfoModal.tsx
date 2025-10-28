@@ -4,6 +4,7 @@ import type { ControlBoardData } from "@/protoOS/features/diagnostic/types";
 import { ControlBoard } from "@/shared/assets/icons";
 import Header from "@/shared/components/Header";
 import Modal from "@/shared/components/Modal";
+import LatencyValue from "@/shared/components/LatencyValue";
 
 interface ControlBoardInfoModalProps {
   onDismiss: () => void;
@@ -14,10 +15,6 @@ function ControlBoardInfoModal({
   onDismiss,
   controlBoardData,
 }: ControlBoardInfoModalProps) {
-  const formatLatency = (latency: number) => {
-    return latency.toFixed(1) + " ms";
-  };
-
   const formatCpuCapacity = (capacity: number) => {
     return capacity.toFixed(1) + "%";
   };
@@ -48,7 +45,7 @@ function ControlBoardInfoModal({
 
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
           <LabeledValue
-            value={formatLatency(controlBoardData.latency)}
+            value={<LatencyValue value={controlBoardData.latency} />}
             label="Latency"
             variant="large"
           />

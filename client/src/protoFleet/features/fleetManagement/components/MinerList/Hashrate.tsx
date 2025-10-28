@@ -1,11 +1,10 @@
 import { useMemo } from "react";
 import { type Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import { useMinerHashrate } from "@/protoFleet/store";
+import HashRateValue from "@/shared/components/HashRateValue";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import Sparkline from "@/shared/components/Sparkline";
 import { getLatestMeasurementWithData } from "@/shared/utils/measurementUtils";
-import { getDisplayValue } from "@/shared/utils/stringUtils";
-import { formatHashrateWithUnit } from "@/shared/utils/utility";
 
 type HashrateProps = {
   deviceIdentifier?: string;
@@ -24,7 +23,7 @@ const Hashrate = ({
     [hashrate],
   );
 
-  const { value, unit } = formatHashrateWithUnit(latestMeasurement?.value ?? 0);
+  const latestValue = latestMeasurement?.value;
 
   if (hashrate === undefined) return "N/A";
 
@@ -32,7 +31,7 @@ const Hashrate = ({
     <div className="relative inline-flex h-full w-full flex-row items-center gap-2 pr-6 whitespace-nowrap">
       {hashrate ? (
         <div>
-          {getDisplayValue(value)} {unit}
+          <HashRateValue value={latestValue} />
         </div>
       ) : (
         <SkeletonBar className="w-full" />
