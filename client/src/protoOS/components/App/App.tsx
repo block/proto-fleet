@@ -29,6 +29,7 @@ import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
 import { WarnWakeDialog } from "@/protoOS/components/Power";
 import LoginModal from "@/protoOS/features/auth/components/LoginModal";
+import { useOnboarded, usePasswordSet } from "@/protoOS/store";
 import {
   useAccessToken,
   useComprehensiveStatus,
@@ -56,7 +57,6 @@ import {
   STATUSES as TOAST_STATUSES,
   Toaster,
 } from "@/shared/features/toaster";
-import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 interface AppProps {
@@ -84,10 +84,12 @@ const App = ({
   // Apply theme effects on mount
   useApplyTheme({ theme, deviceTheme, setDeviceTheme });
 
-  const { getItem, setItem } = useLocalStorage();
   const navigate = useNavigate();
   const location = useLocation();
   const { pathname } = useMemo(() => location, [location]);
+
+  // Infer if this is an onboarding route from the pathname
+  const isOnboardingRoute = pathname.startsWith("/onboarding");
 
   // ============================================================================
   // STORE BOOTSTRAPPING - Fetch and populate stores
@@ -119,9 +121,13 @@ const App = ({
   // Poll for pools info
   usePoolsInfo({ poll: true, pollIntervalMs: 15 * 1000 });
 
-  // Get system status
-  const { data: systemStatus, pending: pendingSystemStatus } =
-    useSystemStatus();
+  // Fetch system status (populates store)
+  useSystemStatus();
+
+  // Get system status from store
+  // undefined = pending/not fetched yet
+  const isOnboarded = useOnboarded();
+  const isPasswordSet = usePasswordSet();
 
   // Get hashboard serials from store to fetch ASIC layout data
   const hashboardSerials = useHashboardSerials();
@@ -164,15 +170,15 @@ const App = ({
   // ONBOARDING NAVIGATION
   // ============================================================================
   useEffect(() => {
-    if (!pendingSystemStatus && systemStatus?.onboarded !== undefined) {
-      if (!systemStatus.onboarded && !systemStatus.password_set) {
-        setItem("isOnboarded", false);
+    // Only run navigation logic after we have data from the API
+    // undefined means we're still fetching
+    if (isOnboarded !== undefined) {
+      // Miner needs onboarding. redirect to onboarding flow
+      if (!isOnboarded && !isPasswordSet && !isOnboardingRoute) {
         navigate("/onboarding/welcome");
-      } else {
-        setItem("isOnboarded", true);
       }
     }
-  }, [navigate, setItem, systemStatus, pendingSystemStatus]);
+  }, [navigate, isOnboarded, isPasswordSet, isOnboardingRoute]);
 
   // ============================================================================
   // MINING STATUS CHECKING & WAKE LOGIC
@@ -188,7 +194,7 @@ const App = ({
   const { startMining } = useMiningStart();
 
   useEffect(() => {
-    if (!systemStatus?.onboarded) {
+    if (isOnboarded === false) {
       return;
     }
     if (!miningStatus) {
@@ -210,7 +216,7 @@ const App = ({
     intervalId,
     initPage,
     miningStatus,
-    systemStatus,
+    isOnboarded,
     isMining,
     isWarmingUp,
   ]);
@@ -286,15 +292,24 @@ const App = ({
   // ============================================================================
   // LOADING STATES
   // ============================================================================
-  if (!isWebServerRunning || !isMiningDriverRunning) {
+  // Skip the mining driver check during onboarding since the miner may not be fully operational yet
+  if (!isWebServerRunning || (!isOnboardingRoute && !isMiningDriverRunning)) {
     return <BootingUp />;
   }
 
-  if (
-    !getItem("isOnboarded") &&
-    pendingSystemStatus &&
-    systemStatus?.onboarded === undefined
-  ) {
+  // Show loading spinner while waiting for system status
+  // undefined = still fetching
+  if (isOnboarded === undefined) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <ProgressCircular indeterminate />
+      </div>
+    );
+  }
+
+  // Prevent flash of app UI before redirecting to onboarding
+  // If user needs onboarding and is NOT on an onboarding route, show loading
+  if (!isOnboarded && !isPasswordSet && !isOnboardingRoute) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <ProgressCircular indeterminate />

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { RefObject, useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import DropdownFilterPopover from "./DropdownFilterPopover";
@@ -34,7 +34,7 @@ const FilterContent = ({
 }: DropdownFilterProps) => {
   const [showPopover, setShowPopover] = useState(false);
   const { triggerRef } = usePopover();
-  const popoverRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null) as RefObject<HTMLDivElement>;
 
   // Only use internal state when buttons are shown
   const [internalSelectedItems, setInternalSelectedItems] = useState<string[]>(

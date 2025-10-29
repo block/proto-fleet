@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import Input from "@/shared/components/Input";
 import { useKeyDown } from "@/shared/hooks/useKeyDown";
@@ -21,7 +28,9 @@ const Search = ({
   shouldFocus,
 }: SearchProps) => {
   const [value, setValue] = useState(initValue);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(
+    null,
+  ) as RefObject<HTMLInputElement>;
 
   useEffect(() => {
     setValue(initValue);

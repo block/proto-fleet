@@ -39,7 +39,9 @@ const useSystemInfo = ({ poll, pollIntervalMs }: UseSystemInfoProps) => {
   const isFetchingRef = useRef<boolean>(false);
 
   const fetchData = useCallback(() => {
-    if (!api || isFetchingRef.current) return;
+    if (!api || isFetchingRef.current) {
+      return;
+    }
 
     isFetchingRef.current = true;
     setSystemInfoPending(true);

@@ -27,7 +27,7 @@ interface InputProps {
   hideLabelOnFocus?: boolean;
   id: string;
   initValue?: string | number;
-  inputRef?: RefObject<HTMLInputElement | null>;
+  inputRef?: RefObject<HTMLInputElement>;
   keyboardShortcuts?: string[];
   label: string;
   maxLength?: number;
@@ -81,7 +81,9 @@ const Input = ({
 
   const [inputType, setInputType] = useState(type);
   const [focused, setFocused] = useState(false);
-  const fallbackRef = useRef<HTMLInputElement>(null);
+  const fallbackRef = useRef<HTMLInputElement>(
+    null,
+  ) as RefObject<HTMLInputElement>;
   const valueWidth = useValueWidth(value, inputRef || fallbackRef, units);
 
   useEffect(() => {
@@ -165,7 +167,7 @@ const Input = ({
           maxLength={maxLength}
           autoComplete="off"
           value={value}
-          ref={inputRef || fallbackRef}
+          ref={inputRef ?? fallbackRef}
           disabled={disabled}
           autoFocus={autoFocus}
           onFocus={() => {

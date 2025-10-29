@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { useLogin, usePassword, useSystemStatus } from "@/protoOS/api";
+import { useLogin, usePassword } from "@/protoOS/api";
+import { usePasswordSet } from "@/protoOS/store";
 import { Authentication, OnboardingLayout } from "@/shared/components/Setup";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
@@ -7,18 +8,15 @@ const AuthenticationPage = () => {
   const navigate = useNavigate();
   const { setPassword } = usePassword();
   const login = useLogin();
+  const isPasswordSet = usePasswordSet();
   const [submitError, setSubmitError] = useState<string | undefined>();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { data: systemStatus, pending: pendingSystemStatus } =
-    useSystemStatus();
 
   useEffect(() => {
-    if (!pendingSystemStatus && systemStatus?.onboarded !== undefined) {
-      if (systemStatus.password_set) {
-        navigate("/onboarding/mining-pool");
-      }
+    if (isPasswordSet !== undefined && isPasswordSet) {
+      navigate("/onboarding/mining-pool");
     }
-  }, [navigate, systemStatus, pendingSystemStatus]);
+  }, [navigate, isPasswordSet]);
 
   function submit(password: string) {
     setIsSubmitting(true);

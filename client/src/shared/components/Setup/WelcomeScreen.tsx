@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useState } from "react";
 import { LogoAlt } from "@/shared/assets/icons";
 import AnimatedDotsBackground from "@/shared/components/Animation";
 import Button from "@/shared/components/Button";
@@ -43,6 +44,10 @@ const NetworkInfo = ({ ipAddress, networkName }: NetworkInfoProps) => {
   );
 };
 
+type WelcomeFlowProps = WelcomeScreenProps & {
+  isBootstrapComplete: boolean;
+};
+
 const WelcomeFlow = ({
   searching,
   handleSearch,
@@ -50,15 +55,41 @@ const WelcomeFlow = ({
   handleRetry,
   networkName,
   ipAddress,
-}: WelcomeScreenProps) => {
+  isBootstrapComplete,
+}: WelcomeFlowProps) => {
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
+  const [isReady, setIsReady] = useState(false);
+
+  // Wait for bootstrap to complete before animating
+  useEffect(() => {
+    if (isBootstrapComplete && !isReady) {
+      // Use requestIdleCallback to wait for the browser to be truly idle
+      // This ensures all heavy API work and renders are complete
+      const idleCallback = requestIdleCallback(
+        () => {
+          // Then use requestAnimationFrame for smooth animation start
+          requestAnimationFrame(() => {
+            setIsReady(true);
+          });
+        },
+        { timeout: 500 }, // Fallback after 500ms if browser never becomes idle
+      );
+
+      return () => cancelIdleCallback(idleCallback);
+    }
+  }, [isBootstrapComplete, isReady]);
+
+  if (!isReady) {
+    return null;
+  }
 
   return (
     <>
       {!noMinersFound && (
         <div className="absolute top-1/2 left-1/2 z-10 flex h-[314px] w-[418px] -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center gap-6 bg-surface-base p-5 backdrop-blur-2xl">
           <motion.div
-            animate={{ opacity: ["20%", "100%"], y: ["50%", "0%"] }}
+            initial={{ opacity: 0.2, y: "50%" }}
+            animate={{ opacity: 1, y: "0%" }}
             transition={{ duration: 1, ease: easeGentle }}
             className="z-10"
           >
@@ -68,9 +99,11 @@ const WelcomeFlow = ({
             <AnimatePresence>
               {!searching && (
                 <motion.div
-                  animate={{ y: ["-50%", "0%"], opacity: [0, 1] }}
-                  exit={{ y: ["0%", "50%"], opacity: [1, 0] }}
+                  initial={{ y: "-50%", opacity: 0 }}
+                  animate={{ y: "0%", opacity: 1 }}
+                  exit={{ y: "50%", opacity: 0 }}
                   transition={{ duration: 1, ease: easeGentle }}
+                  style={{ willChange: "transform, opacity" }}
                   className="col-start-1 row-start-1 flex flex-col items-center gap-6"
                 >
                   <p className="text-5xl font-medium">Miner setup</p>
@@ -80,29 +113,35 @@ const WelcomeFlow = ({
                 </motion.div>
               )}
             </AnimatePresence>
-            {searching &&
-              (ipAddress ? (
-                <motion.div
-                  className="col-start-1 row-start-1 text-center"
-                  animate={{ scale: [0, 1], opacity: [0, 1] }}
-                  transition={{ duration: 1, ease: easeGentle }}
-                >
-                  <p className="text-text-primary-70">
-                    Connecting to your miner
-                  </p>
-                  <p className="font-mono text-text-primary-70">{ipAddress}</p>
-                </motion.div>
-              ) : (
-                <motion.div
-                  animate={{ scale: [0, 1], opacity: [0, 1] }}
-                  transition={{ duration: 1, ease: easeGentle }}
-                  className="text-center"
-                >
-                  <p className="text-text-primary-70">
-                    Searching your network for miners
-                  </p>
-                </motion.div>
-              ))}
+            <AnimatePresence>
+              {searching &&
+                (ipAddress ? (
+                  <motion.div
+                    className="col-start-1 row-start-1 text-center"
+                    initial={{ scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ duration: 1, ease: easeGentle }}
+                  >
+                    <p className="text-text-primary-70">
+                      Connecting to your miner
+                    </p>
+                    <p className="font-mono text-text-primary-70">
+                      {ipAddress}
+                    </p>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    initial={{ scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ duration: 1, ease: easeGentle }}
+                    className="text-center"
+                  >
+                    <p className="text-text-primary-70">
+                      Searching your network for miners
+                    </p>
+                  </motion.div>
+                ))}
+            </AnimatePresence>
           </div>
         </div>
       )}
@@ -152,6 +191,7 @@ type WelcomeScreenProps = {
   handleRetry: () => void;
   networkName?: string;
   ipAddress?: string;
+  isBootstrapComplete?: boolean;
 };
 
 const WelcomeScreen = ({
@@ -162,6 +202,7 @@ const WelcomeScreen = ({
   // TODO: Get network name from the miner
   networkName = "WBurg-Wifi-5G",
   ipAddress,
+  isBootstrapComplete = true,
 }: WelcomeScreenProps) => {
   return (
     <div className="h-svh w-full bg-surface-base">
@@ -173,6 +214,7 @@ const WelcomeScreen = ({
           noMinersFound={noMinersFound}
           networkName={networkName}
           ipAddress={ipAddress}
+          isBootstrapComplete={isBootstrapComplete}
         />
       </AnimatedDotsBackground>
     </div>

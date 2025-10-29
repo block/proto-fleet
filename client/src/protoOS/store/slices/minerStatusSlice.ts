@@ -75,7 +75,7 @@ export const createMinerStatusSlice: StateCreator<
   hwErrors: undefined,
   message: undefined,
   errors: {
-    errors: undefined,
+    errors: [],
     pending: false,
   },
   poolsInfo: undefined,
@@ -89,7 +89,7 @@ export const createMinerStatusSlice: StateCreator<
     set(
       (state) => {
         state.minerStatus.errors = {
-          errors: errors || [],
+          errors: errors ?? [],
           pending: !!(pending && !errors),
         };
       },

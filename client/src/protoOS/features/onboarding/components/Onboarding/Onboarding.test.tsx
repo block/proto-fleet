@@ -52,10 +52,7 @@ describe("Onboarding", () => {
   beforeEach(() => {
     component = render(
       <MinerHostingProvider>
-        <Onboarding
-          settingUpMiner={false}
-          onChangeSettingUpMiner={() => vi.fn()}
-        />
+        <Onboarding />
       </MinerHostingProvider>,
     );
     getByTestId = component.getByTestId;

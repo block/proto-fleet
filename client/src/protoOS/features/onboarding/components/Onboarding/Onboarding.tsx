@@ -27,15 +27,8 @@ import {
 import { WarnBackupPoolDialog } from "@/shared/components/MiningPools/WarnBackupPoolDialog";
 import { WarnDefaultPoolCallout } from "@/shared/components/MiningPools/WarnDefaultPoolCallout";
 
-interface OnboardingProps {
-  onChangeSettingUpMiner: (settingUpMiner: boolean) => void;
-  settingUpMiner: boolean;
-}
-
-const Onboarding = ({
-  onChangeSettingUpMiner,
-  settingUpMiner,
-}: OnboardingProps) => {
+const Onboarding = () => {
+  const [settingUpMiner, setSettingUpMiner] = useState(false);
   const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
 
   const [warnDefaultPool, setWarnDefaultPool] = useState(false);
@@ -54,9 +47,9 @@ const Onboarding = ({
       setPausedAction(false);
       // have to reset the error here, otherwise it would cause an infinite cycle
       setCreatePoolsError(undefined);
-      onChangeSettingUpMiner(true);
+      setSettingUpMiner(true);
     }
-  }, [hasAccess, pausedAction, onChangeSettingUpMiner, waitingForAuth]);
+  }, [hasAccess, pausedAction, waitingForAuth]);
 
   useEffect(() => {
     const status = createPoolsError?.status;
@@ -64,16 +57,11 @@ const Onboarding = ({
       if (status === 401) {
         setHasAccess(false);
       }
-      onChangeSettingUpMiner(false);
+      setSettingUpMiner(false);
       setPausedAction(true);
     }
     setWaitingForAuth(false);
-  }, [
-    setHasAccess,
-    settingUpMiner,
-    createPoolsError?.status,
-    onChangeSettingUpMiner,
-  ]);
+  }, [setHasAccess, settingUpMiner, createPoolsError?.status]);
 
   useEffect(() => {
     if (dismissedLoginModal) {
@@ -128,7 +116,7 @@ const Onboarding = ({
             <SettingUp
               pools={pools}
               setCreatePoolsError={setCreatePoolsError}
-              onChangeSettingUpMiner={onChangeSettingUpMiner}
+              onChangeSettingUpMiner={setSettingUpMiner}
             />
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { RefObject, useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { useMiningTarget } from "@/protoOS/api";
 import { PerformanceMode } from "@/protoOS/api/generatedApi";
@@ -50,7 +50,9 @@ const PowerTargetPopover = ({
   >(getInitialPowerTargetMode(miningTarget, defaultTarget, bounds?.max));
   const [inputValue, setInputValue] = useState<string>();
   const [error, setError] = useState<string>();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(
+    null,
+  ) as RefObject<HTMLInputElement>;
 
   const onChange = (value: string) => {
     const parsedValue = parseFloat(value as string);

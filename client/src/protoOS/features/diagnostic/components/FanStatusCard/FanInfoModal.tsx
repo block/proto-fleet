@@ -2,9 +2,9 @@ import LabeledValue from "../LabeledValue";
 import MetadataRow from "../MetadataRow";
 import type { FanData } from "@/protoOS/features/diagnostic/types";
 import { Fan } from "@/shared/assets/icons";
+import FanValue from "@/shared/components/FanValue";
 import Header from "@/shared/components/Header";
 import Modal from "@/shared/components/Modal";
-import FanValue from "@/shared/components/FanValue";
 
 interface FanInfoModalProps {
   fanData: FanData;

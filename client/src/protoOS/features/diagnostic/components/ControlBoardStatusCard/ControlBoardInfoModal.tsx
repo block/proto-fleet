@@ -3,8 +3,8 @@ import MetadataRow from "../MetadataRow";
 import type { ControlBoardData } from "@/protoOS/features/diagnostic/types";
 import { ControlBoard } from "@/shared/assets/icons";
 import Header from "@/shared/components/Header";
-import Modal from "@/shared/components/Modal";
 import LatencyValue from "@/shared/components/LatencyValue";
+import Modal from "@/shared/components/Modal";
 
 interface ControlBoardInfoModalProps {
   onDismiss: () => void;

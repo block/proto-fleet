@@ -18,7 +18,7 @@ type DropdownFilterPopoverProps = {
   withButtons: boolean;
   handleReset: () => void;
   handleApply: () => void;
-  popoverRef: RefObject<HTMLDivElement | null>;
+  popoverRef: RefObject<HTMLDivElement>;
 };
 
 const DropdownFilterPopover = ({

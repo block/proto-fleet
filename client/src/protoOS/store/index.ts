@@ -154,6 +154,13 @@ export {
 } from "./hooks/useSystemInfo";
 
 export {
+  useSystemStatus,
+  useOnboarded,
+  usePasswordSet,
+  useSetSystemStatus,
+} from "./hooks/useSystemStatus";
+
+export {
   useNetworkInfo,
   useHostname,
   useIpAddress,

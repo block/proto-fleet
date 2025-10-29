@@ -5,7 +5,11 @@ import {
   PasswordRequest,
 } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useAuthErrors, useAuthHeader } from "@/protoOS/store";
+import {
+  useAuthErrors,
+  useAuthHeader,
+  useSetSystemStatus,
+} from "@/protoOS/store";
 
 interface SetPasswordProps {
   onError?: (message: string) => void;
@@ -25,6 +29,7 @@ const usePassword = () => {
   const { api } = useMinerHosting();
   const authHeader = useAuthHeader();
   const { handleAuthErrors } = useAuthErrors();
+  const setSystemStatus = useSetSystemStatus();
 
   const setPassword = useCallback(
     async ({ password, onSuccess, onError, onFinally }: SetPasswordProps) => {
@@ -32,6 +37,10 @@ const usePassword = () => {
       await api
         .setPassword({ password })
         .then(() => {
+          // Update store to reflect that password is now set
+          setSystemStatus({
+            passwordSet: true,
+          });
           onSuccess?.();
         })
         .catch((err) => {
@@ -51,7 +60,7 @@ const usePassword = () => {
           onFinally?.();
         });
     },
-    [api, handleAuthErrors],
+    [api, handleAuthErrors, setSystemStatus],
   );
 
   const changePassword = useCallback(

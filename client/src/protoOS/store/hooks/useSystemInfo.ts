@@ -58,7 +58,8 @@ export const useIsProtoRig = () => {
 export const useIsWebServerRunning = () => {
   return useMinerStore((state) => {
     // If we have product_name or any other field, web server is running
-    return !!state.systemInfo.product_name;
+    const isRunning = !!state.systemInfo.product_name;
+    return isRunning;
   });
 };
 
@@ -68,16 +69,12 @@ export const useIsWebServerRunning = () => {
 export const useIsMiningDriverRunning = () => {
   return useMinerStore((state) => {
     const miningDriverSwName = state.systemInfo.mining_driver_sw?.name;
-    if (
-      miningDriverSwName === undefined ||
-      /tcp connect error: Connection refused|Failed to connect to MinerDataApiClient/.test(
+    const isRunning =
+      miningDriverSwName !== undefined &&
+      !/tcp connect error: Connection refused|Failed to connect to MinerDataApiClient/.test(
         miningDriverSwName,
-      )
-    ) {
-      // Service name not found or indicates that the connection to the MCDD cannot be established
-      return false;
-    }
-    return true;
+      );
+    return isRunning;
   });
 };
 

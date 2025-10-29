@@ -1,3 +1,3 @@
-import OnboardingWrapper from "./OnboardingWrapper";
+import Onboarding from "./Onboarding";
 
-export default OnboardingWrapper;
+export default Onboarding;

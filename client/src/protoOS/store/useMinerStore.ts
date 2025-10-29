@@ -26,6 +26,10 @@ import {
   type SystemInfoSlice,
 } from "./slices/systemInfoSlice";
 import {
+  createSystemStatusSlice,
+  type SystemStatusSlice,
+} from "./slices/systemStatusSlice";
+import {
   createTelemetrySlice,
   type TelemetrySlice,
 } from "./slices/telemetrySlice";
@@ -44,6 +48,7 @@ export interface MinerStore {
   ui: UISlice;
   minerStatus: MinerStatusSlice;
   systemInfo: SystemInfoSlice;
+  systemStatus: SystemStatusSlice;
   networkInfo: NetworkInfoSlice;
   auth: AuthSlice;
   miningTarget: MiningTargetSlice;
@@ -161,6 +166,7 @@ const useMinerStore = create<MinerStore>()(
           ui: createUISlice(set, get, api),
           minerStatus: createMinerStatusSlice(set, get, api),
           systemInfo: createSystemInfoSlice(set, get, api),
+          systemStatus: createSystemStatusSlice(set, get, api),
           networkInfo: createNetworkInfoSlice(set, get, api),
           auth: createAuthSlice(set, get, api),
           miningTarget: createMiningTargetSlice(set, get, api),

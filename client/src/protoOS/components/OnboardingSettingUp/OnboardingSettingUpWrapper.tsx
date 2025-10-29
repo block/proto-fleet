@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { useCreatePools, usePoolsInfo } from "@/protoOS/api";
+import { useCreatePools, usePoolsInfo, useSystemStatus } from "@/protoOS/api";
 import { SimpleErrorProps } from "@/protoOS/api/apiResponseTypes";
 
 import { isValidPool, PoolInfo } from "@/protoOS/components/MiningPools";
@@ -22,6 +22,7 @@ const OnboardingSettingUpWrapper = ({
   const navigate = useNavigate();
   const { createPools } = useCreatePools();
   const { fetchData: fetchPools } = usePoolsInfo();
+  const { reload: reloadSystemStatus } = useSystemStatus();
   const [intervalId, setIntervalId] =
     useState<ReturnType<typeof setInterval>>();
   const [poolStatus, setPoolStatus] = useState<keyof typeof statuses>(
@@ -80,7 +81,13 @@ const OnboardingSettingUpWrapper = ({
     [isConfigured, poolStatus],
   );
 
-  const handleClickContinue = useCallback(() => navigate("/"), [navigate]);
+  const handleClickContinue = useCallback(() => {
+    // Refresh system status to get updated onboarded flag from API
+    // This will update the store, which will prevent redirect loops
+    reloadSystemStatus();
+    // Navigate to home
+    navigate("/");
+  }, [navigate, reloadSystemStatus]);
 
   const handleClickReconfigure = useCallback(
     () => onChangeSettingUpMiner(false),
