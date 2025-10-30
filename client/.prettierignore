@@ -10,4 +10,7 @@ dist
 node_modules
 
 # Ignore pnpm lock file
-pnpm-lock.yaml 
+pnpm-lock.yaml
+
+# Ignore CLAUDE.md documentation
+CLAUDE.md 
