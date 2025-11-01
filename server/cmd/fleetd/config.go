@@ -5,6 +5,7 @@ import (
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/capabilities"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/ipscanner"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/scheduler"
@@ -37,4 +38,5 @@ type Config struct {
 	Scheduler    scheduler.Config    `embed:"" prefix:"scheduler" envprefix:"SCHEDULER_"`
 	Capabilities capabilities.Config `embed:"" prefix:"capabilities" envprefix:"CAPABILITIES_"`
 	Plugins      plugins.Config      `embed:"" prefix:"plugins" envprefix:"PLUGINS_"`
+	IPScanner    ipscanner.Config    `embed:"" prefix:"ipscanner" envprefix:"IPSCANNER_"`
 }

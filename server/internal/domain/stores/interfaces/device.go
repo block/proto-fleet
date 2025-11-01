@@ -26,6 +26,18 @@ type MinerFilter struct {
 	ComponentFilters   []ComponentFilter
 }
 
+// OfflineDeviceInfo contains information about an offline device needed for IP scanning
+type OfflineDeviceInfo struct {
+	DeviceID           int64
+	DeviceIdentifier   string
+	MacAddress         string
+	DeviceType         string
+	LastKnownIP        string
+	LastKnownPort      string
+	LastKnownURLScheme string
+	OrgID              int64
+}
+
 //nolint:interfacebloat // DeviceStore defines the interface for device-related operations in the store layer. We are okay with bloat at this time.
 type DeviceStore interface {
 	UpsertDevice(ctx context.Context, device *pb.Device, orgID int64, deviceType string) error
@@ -43,4 +55,5 @@ type DeviceStore interface {
 	GetAvailableMinerTypes(ctx context.Context, orgID int64) ([]mm.Type, error)
 	UpsertDeviceStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, status mm.MinerStatus, details string) error
 	GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []models.DeviceIdentifier) (map[models.DeviceIdentifier]mm.MinerStatus, error)
+	GetOfflineDevices(ctx context.Context, limit int) ([]OfflineDeviceInfo, error)
 }

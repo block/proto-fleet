@@ -490,6 +490,75 @@ func (q *Queries) GetDeviceStatusForDeviceIdentifiers(ctx context.Context, devic
 	return items, nil
 }
 
+const getOfflineDevices = `-- name: GetOfflineDevices :many
+SELECT
+    d.id,
+    d.device_identifier,
+    d.mac_address,
+    d.type,
+    d.org_id,
+    dia.ip_address,
+    dia.port,
+    dia.url_scheme
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+JOIN device_status ds ON d.id = ds.device_id
+LEFT JOIN device_ip_assignment dia ON d.id = dia.device_id AND dia.is_current = TRUE
+WHERE dp.pairing_status = 'PAIRED'
+  AND d.deleted_at IS NULL
+  AND ds.status = 'OFFLINE'
+  AND d.mac_address IS NOT NULL
+  AND d.mac_address != ''
+  AND dia.ip_address IS NOT NULL
+  AND dia.port IS NOT NULL
+  AND dia.url_scheme IS NOT NULL
+ORDER BY ds.status_timestamp DESC
+LIMIT ?
+`
+
+type GetOfflineDevicesRow struct {
+	ID               int64
+	DeviceIdentifier string
+	MacAddress       string
+	Type             string
+	OrgID            int64
+	IpAddress        sql.NullString
+	Port             sql.NullString
+	UrlScheme        sql.NullString
+}
+
+func (q *Queries) GetOfflineDevices(ctx context.Context, limit int32) ([]GetOfflineDevicesRow, error) {
+	rows, err := q.query(ctx, q.getOfflineDevicesStmt, getOfflineDevices, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetOfflineDevicesRow
+	for rows.Next() {
+		var i GetOfflineDevicesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeviceIdentifier,
+			&i.MacAddress,
+			&i.Type,
+			&i.OrgID,
+			&i.IpAddress,
+			&i.Port,
+			&i.UrlScheme,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPairedDevicesIds = `-- name: GetPairedDevicesIds :many
 SELECT
     d.id as device_id

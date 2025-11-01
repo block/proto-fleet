@@ -28,7 +28,7 @@ start:
 stop:
   docker compose down
 
-# run all tests 
+# run all tests
 test:
     go test ./... -skip ./generated/...
 

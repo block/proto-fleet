@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/capabilities"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/ipscanner"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins"
 
@@ -179,6 +180,14 @@ func start(config *Config) error {
 	}
 	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, tokenSvc)
 
+	// Initialize IP scanner service
+	ipScannerService := ipscanner.NewIPScannerService(
+		config.IPScanner,
+		deviceStore,
+		discoveryService,
+		slog.Default(),
+	)
+
 	telemetryService := telemetry.NewTelemetryService(
 		config.Telemetry,
 		influxdbService,
@@ -191,6 +200,30 @@ func start(config *Config) error {
 		slog.Error("failed to start telemetry service", "error", err)
 		return fmt.Errorf("failed to start telemetry service: %w", err)
 	}
+
+	// Ensure telemetry service cleanup on shutdown
+	defer func() {
+		slog.Info("Stopping telemetry service")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := telemetryService.Stop(shutdownCtx); err != nil {
+			slog.Error("Failed to stop telemetry service", "error", err)
+		}
+	}()
+
+	// Start IP scanner service
+	if err := ipScannerService.Start(context.Background()); err != nil {
+		slog.Error("failed to start IP scanner service", "error", err)
+		return fmt.Errorf("failed to start IP scanner service: %w", err)
+	}
+
+	// Ensure IP scanner service cleanup on shutdown
+	defer func() {
+		slog.Info("Stopping IP scanner service")
+		if err := ipScannerService.Stop(); err != nil {
+			slog.Error("Failed to stop IP scanner service", "error", err)
+		}
+	}()
 
 	capabilitiesSvc, err := capabilities.NewService(config.Capabilities)
 	if err != nil {

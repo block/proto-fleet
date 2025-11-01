@@ -123,6 +123,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getMinerCredentialsByDeviceIDStmt, err = db.PrepareContext(ctx, getMinerCredentialsByDeviceID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMinerCredentialsByDeviceID: %w", err)
 	}
+	if q.getOfflineDevicesStmt, err = db.PrepareContext(ctx, getOfflineDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOfflineDevices: %w", err)
+	}
 	if q.getOrganizationByIDStmt, err = db.PrepareContext(ctx, getOrganizationByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrganizationByID: %w", err)
 	}
@@ -447,6 +450,11 @@ func (q *Queries) Close() error {
 	if q.getMinerCredentialsByDeviceIDStmt != nil {
 		if cerr := q.getMinerCredentialsByDeviceIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getMinerCredentialsByDeviceIDStmt: %w", cerr)
+		}
+	}
+	if q.getOfflineDevicesStmt != nil {
+		if cerr := q.getOfflineDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOfflineDevicesStmt: %w", cerr)
 		}
 	}
 	if q.getOrganizationByIDStmt != nil {
@@ -781,6 +789,7 @@ type Queries struct {
 	getDeviceWithCredentialsAndIPByIDStmt               *sql.Stmt
 	getMessagesToProcessStmt                            *sql.Stmt
 	getMinerCredentialsByDeviceIDStmt                   *sql.Stmt
+	getOfflineDevicesStmt                               *sql.Stmt
 	getOrganizationByIDStmt                             *sql.Stmt
 	getOrganizationByNameStmt                           *sql.Stmt
 	getOrganizationByOrgIDStmt                          *sql.Stmt
@@ -872,6 +881,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceWithCredentialsAndIPByIDStmt:               q.getDeviceWithCredentialsAndIPByIDStmt,
 		getMessagesToProcessStmt:                            q.getMessagesToProcessStmt,
 		getMinerCredentialsByDeviceIDStmt:                   q.getMinerCredentialsByDeviceIDStmt,
+		getOfflineDevicesStmt:                               q.getOfflineDevicesStmt,
 		getOrganizationByIDStmt:                             q.getOrganizationByIDStmt,
 		getOrganizationByNameStmt:                           q.getOrganizationByNameStmt,
 		getOrganizationByOrgIDStmt:                          q.getOrganizationByOrgIDStmt,

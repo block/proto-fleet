@@ -295,3 +295,30 @@ WHERE dp.pairing_status = 'PAIRED'
   AND d.org_id = ?
   AND d.type IS NOT NULL
 ORDER BY d.type
+;
+
+-- name: GetOfflineDevices :many
+SELECT
+    d.id,
+    d.device_identifier,
+    d.mac_address,
+    d.type,
+    d.org_id,
+    dia.ip_address,
+    dia.port,
+    dia.url_scheme
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+JOIN device_status ds ON d.id = ds.device_id
+LEFT JOIN device_ip_assignment dia ON d.id = dia.device_id AND dia.is_current = TRUE
+WHERE dp.pairing_status = 'PAIRED'
+  AND d.deleted_at IS NULL
+  AND ds.status = 'OFFLINE'
+  AND d.mac_address IS NOT NULL
+  AND d.mac_address != ''
+  AND dia.ip_address IS NOT NULL
+  AND dia.port IS NOT NULL
+  AND dia.url_scheme IS NOT NULL
+ORDER BY ds.status_timestamp DESC
+LIMIT ?;
+

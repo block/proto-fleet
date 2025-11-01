@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -484,4 +485,48 @@ func (s *SQLDeviceStore) GetDeviceStatusForDeviceIdentifiers(ctx context.Context
 	}
 
 	return statusMap, nil
+}
+
+// GetOfflineDevices retrieves a list of offline devices that need IP scanning
+func (s *SQLDeviceStore) GetOfflineDevices(ctx context.Context, limit int) ([]stores.OfflineDeviceInfo, error) {
+	// Validate limit parameter
+	if limit < 1 {
+		return nil, fmt.Errorf("limit must be at least 1, got %d", limit)
+	}
+	// Ensure limit is within valid int32 range to prevent overflow
+	if limit > math.MaxInt32 {
+		limit = math.MaxInt32
+	}
+
+	rows, err := s.getQueries(ctx).GetOfflineDevices(ctx, int32(limit)) // #nosec G115 -- overflow check above
+	if err != nil {
+		return nil, fmt.Errorf("failed to get offline devices: %w", err)
+	}
+
+	offlineDevices := make([]stores.OfflineDeviceInfo, 0, len(rows))
+	for _, row := range rows {
+		device := stores.OfflineDeviceInfo{
+			DeviceID:         row.ID,
+			DeviceIdentifier: row.DeviceIdentifier,
+			MacAddress:       row.MacAddress,
+			DeviceType:       row.Type,
+			OrgID:            row.OrgID,
+		}
+
+		if row.IpAddress.Valid {
+			device.LastKnownIP = row.IpAddress.String
+		}
+
+		if row.Port.Valid {
+			device.LastKnownPort = row.Port.String
+		}
+
+		if row.UrlScheme.Valid {
+			device.LastKnownURLScheme = row.UrlScheme.String
+		}
+
+		offlineDevices = append(offlineDevices, device)
+	}
+
+	return offlineDevices, nil
 }

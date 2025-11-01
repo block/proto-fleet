@@ -177,5 +177,13 @@ func toAntminerPool(payloadPool *dto.MiningPool) web.Pool {
 }
 
 func (a *Antminer) GetDeviceStatus(ctx context.Context) (models.MinerStatus, error) {
+	// Try to get summary from the device to check if it's reachable
+	_, err := a.rpcClient.GetSummary(ctx, a.getRPCConnectionInfo())
+	if err != nil {
+		// If we can't reach the device, it's offline (not an error condition)
+		return models.MinerStatusOffline, nil //nolint:nilerr // Connection error means offline status, not a method error
+	}
+
+	// Device is reachable, consider it active
 	return models.MinerStatusActive, nil
 }
