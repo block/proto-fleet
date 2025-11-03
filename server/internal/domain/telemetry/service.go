@@ -315,6 +315,22 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 	if err != nil {
 		return fmt.Errorf("failed to get miner from device ID %s: %w", device.ID, err)
 	}
+
+	// Try the new GetDeviceMetrics method (best effort - don't fail if it errors)
+	deviceMetrics, err := miner.GetDeviceMetrics(ctx)
+	if err == nil {
+		// Success - store using the new method
+		err = s.telemetryDataStore.StoreDeviceMetrics(ctx, deviceMetrics)
+		if err != nil {
+			slog.Error("failed to store device metrics", "deviceID", device.ID, "error", err)
+			// Don't return - we still want to collect the old telemetry format
+		}
+	} else {
+		// Log that GetDeviceMetrics is not yet implemented or failed
+		slog.Debug("GetDeviceMetrics not yet implemented or failed", "deviceID", device.ID, "error", err)
+	}
+
+	// Always call GetTelemetry to collect the old format
 	telemetry, err := miner.GetTelemetry(ctx, device.LastUpdatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to get telemetry measurements for device %s: %w", device.ID, err)
@@ -324,6 +340,7 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 		slog.Error("failed to store telemetry data", "deviceID", device.ID, "error", err)
 		return fmt.Errorf("failed to store telemetry data for device %s: %w", device.ID, err)
 	}
+
 	err = s.updateScheduler.AddDevices(ctx, models.Device{
 		ID:            device.ID,
 		LastUpdatedAt: time.Now(),

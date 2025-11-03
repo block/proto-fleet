@@ -34,6 +34,7 @@ import (
 	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
 	telemetryModels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 )
 
@@ -423,6 +424,10 @@ func (p *ProtoMiner) GetTelemetry(ctx context.Context, after time.Time) ([]telem
 	telemetryData := mapper.MapToTelemetryModels(responses)
 
 	return telemetryData, nil
+}
+
+func (p *ProtoMiner) GetDeviceMetrics(ctx context.Context) (modelsV2.DeviceMetrics, error) {
+	return modelsV2.DeviceMetrics{}, fleeterror.NewInternalErrorf("GetDeviceMetrics is not yet implemented for ProtoMiner")
 }
 
 func (p *ProtoMiner) GetDeviceStatus(ctx context.Context) (miner.MinerStatus, error) {

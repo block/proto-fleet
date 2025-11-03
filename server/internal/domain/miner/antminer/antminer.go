@@ -13,6 +13,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	telemetryModels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
@@ -166,6 +167,10 @@ func (a *Antminer) GetTelemetry(ctx context.Context, _ time.Time) ([]telemetryMo
 	telemetry := telemetryMapper.ToTelemetry(summary, devs, time.Now())
 
 	return telemetry, nil
+}
+
+func (a *Antminer) GetDeviceMetrics(ctx context.Context) (modelsV2.DeviceMetrics, error) {
+	return modelsV2.DeviceMetrics{}, fleeterror.NewInternalErrorf("GetDeviceMetrics is not yet implemented for Antminer")
 }
 
 func toAntminerPool(payloadPool *dto.MiningPool) web.Pool {

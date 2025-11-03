@@ -13,6 +13,7 @@ import (
 	dto "github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
 	models "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	models0 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	models1 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 	networking "github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	gomock "github.com/golang/mock/gomock"
 )
@@ -187,6 +188,21 @@ func (m *MockMiner) GetConnectionInfo() networking.ConnectionInfo {
 func (mr *MockMinerMockRecorder) GetConnectionInfo() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConnectionInfo", reflect.TypeOf((*MockMiner)(nil).GetConnectionInfo))
+}
+
+// GetDeviceMetrics mocks base method.
+func (m *MockMiner) GetDeviceMetrics(ctx context.Context) (models1.DeviceMetrics, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceMetrics", ctx)
+	ret0, _ := ret[0].(models1.DeviceMetrics)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeviceMetrics indicates an expected call of GetDeviceMetrics.
+func (mr *MockMinerMockRecorder) GetDeviceMetrics(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceMetrics", reflect.TypeOf((*MockMiner)(nil).GetDeviceMetrics), ctx)
 }
 
 // GetDeviceStatus mocks base method.

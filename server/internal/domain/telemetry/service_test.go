@@ -15,6 +15,7 @@ import (
 	storesMocks "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	mock "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/mocks"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
 
 func TestNewTelemetryService(t *testing.T) {
@@ -279,12 +280,15 @@ func FakeTelemetryData(deviceID models.DeviceIdentifier) models.Telemetry {
 
 func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 	type deviceScenario struct {
-		device            models.Device
-		telemetry         []models.Telemetry
-		hasStoreError     bool
-		hasSchedulerError bool
-		hasMinerError     bool
-		hasDiscoveryError bool
+		device                     models.Device
+		telemetry                  []models.Telemetry
+		deviceMetrics              *modelsV2.DeviceMetrics
+		hasStoreError              bool
+		hasSchedulerError          bool
+		hasMinerError              bool
+		hasDiscoveryError          bool
+		hasDeviceMetricsError      bool
+		hasDeviceMetricsStoreError bool
 	}
 
 	tests := []struct {
@@ -451,6 +455,65 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "validates GetDeviceMetrics succeeds and stores device metrics, GetTelemetry also succeeds",
+			devicesScenario: []deviceScenario{
+				{
+					device: models.Device{
+						ID:            "200",
+						LastUpdatedAt: time.Now().Add(-5 * time.Minute),
+					},
+					deviceMetrics: &modelsV2.DeviceMetrics{
+						DeviceID:  "200",
+						Timestamp: time.Now(),
+					},
+					telemetry: []models.Telemetry{FakeTelemetryData("200")},
+				},
+			},
+		},
+		{
+			name: "validates GetDeviceMetrics fails and falls back to GetTelemetry successfully",
+			devicesScenario: []deviceScenario{
+				{
+					device: models.Device{
+						ID:            "201",
+						LastUpdatedAt: time.Now().Add(-5 * time.Minute),
+					},
+					hasDeviceMetricsError: true,
+					telemetry:             []models.Telemetry{FakeTelemetryData("201")},
+				},
+			},
+		},
+		{
+			name: "validates GetDeviceMetrics fails and GetTelemetry also fails",
+			devicesScenario: []deviceScenario{
+				{
+					device: models.Device{
+						ID:            "202",
+						LastUpdatedAt: time.Now().Add(-5 * time.Minute),
+					},
+					hasDeviceMetricsError: true,
+					hasMinerError:         true,
+				},
+			},
+		},
+		{
+			name: "validates GetDeviceMetrics succeeds but StoreDeviceMetrics fails, GetTelemetry still succeeds",
+			devicesScenario: []deviceScenario{
+				{
+					device: models.Device{
+						ID:            "203",
+						LastUpdatedAt: time.Now().Add(-5 * time.Minute),
+					},
+					deviceMetrics: &modelsV2.DeviceMetrics{
+						DeviceID:  "203",
+						Timestamp: time.Now(),
+					},
+					telemetry:                  []models.Telemetry{FakeTelemetryData("203")},
+					hasDeviceMetricsStoreError: true,
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -490,6 +553,33 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 					GetMinerFromDeviceIdentifier(gomock.Any(), scenario.device.ID).
 					Return(mockMiner, nil)
 
+				// Setup GetDeviceMetrics expectation (always called)
+				if scenario.deviceMetrics != nil {
+					mockMiner.EXPECT().
+						GetDeviceMetrics(gomock.Any()).
+						Return(*scenario.deviceMetrics, nil)
+					if scenario.hasDeviceMetricsStoreError {
+						mockDataStore.EXPECT().
+							StoreDeviceMetrics(gomock.Any(), *scenario.deviceMetrics).
+							Return(errors.New("device metrics store error"))
+						// Don't continue - we still need to call GetTelemetry
+					} else {
+						mockDataStore.EXPECT().
+							StoreDeviceMetrics(gomock.Any(), *scenario.deviceMetrics).
+							Return(nil)
+					}
+				} else if scenario.hasDeviceMetricsError {
+					mockMiner.EXPECT().
+						GetDeviceMetrics(gomock.Any()).
+						Return(modelsV2.DeviceMetrics{}, errors.New("device metrics error"))
+				} else {
+					// Default case - GetDeviceMetrics not implemented
+					mockMiner.EXPECT().
+						GetDeviceMetrics(gomock.Any()).
+						Return(modelsV2.DeviceMetrics{}, errors.New("not implemented"))
+				}
+
+				// Setup GetTelemetry expectation (always called after GetDeviceMetrics)
 				if scenario.hasMinerError {
 					mockMiner.EXPECT().
 						GetTelemetry(gomock.Any(), scenario.device.LastUpdatedAt).
@@ -526,6 +616,7 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 
 			for _, scenario := range test.devicesScenario {
 				err := service.GetTelemetryFromDevice(t.Context(), scenario.device)
+				// Only error if GetTelemetry fails, not if GetDeviceMetrics fails
 				if scenario.hasMinerError || scenario.hasDiscoveryError || scenario.hasStoreError || scenario.hasSchedulerError {
 					require.Error(t, err)
 					continue

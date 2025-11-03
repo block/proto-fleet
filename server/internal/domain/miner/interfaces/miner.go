@@ -9,6 +9,7 @@ import (
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	telemetryModels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 )
 
@@ -42,6 +43,7 @@ type Miner interface {
 
 	// Telemetry operations
 	GetTelemetry(ctx context.Context, after time.Time) ([]telemetryModels.Telemetry, error)
+	GetDeviceMetrics(ctx context.Context) (modelsV2.DeviceMetrics, error)
 
 	// GetDeviceStatus
 	GetDeviceStatus(ctx context.Context) (models.MinerStatus, error)
