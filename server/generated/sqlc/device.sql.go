@@ -11,53 +11,6 @@ import (
 	"strings"
 )
 
-const activateNewIPAssignment = `-- name: ActivateNewIPAssignment :exec
-WITH params AS (
-  SELECT
-    ?  AS ip_address,
-    ?  AS port,
-    ?  AS url_scheme,
-    ?  AS device_id
-)
-UPDATE device_ip_assignment AS d
-JOIN params AS p ON TRUE
-SET
-  d.is_current = (d.ip_address = p.ip_address AND d.port = p.port AND d.url_scheme = p.url_scheme),
-  d.assigned_at = CASE
-    WHEN d.ip_address = p.ip_address
-     AND d.port       = p.port
-     AND d.url_scheme = p.url_scheme
-    THEN CURRENT_TIMESTAMP(6)
-    ELSE d.assigned_at
-  END,
-  d.unassigned_at = CASE
-    WHEN d.is_current = TRUE
-     AND NOT (d.ip_address = p.ip_address AND d.port = p.port AND d.url_scheme = p.url_scheme)
-    THEN CURRENT_TIMESTAMP(6)
-    ELSE d.unassigned_at
-  END
-WHERE d.device_id = p.device_id
-  AND (d.is_current = TRUE
-       OR (d.ip_address = p.ip_address AND d.port = p.port AND d.url_scheme = p.url_scheme))
-`
-
-type ActivateNewIPAssignmentParams struct {
-	IpAddress string
-	Port      string
-	UrlScheme string
-	DeviceID  int64
-}
-
-func (q *Queries) ActivateNewIPAssignment(ctx context.Context, arg ActivateNewIPAssignmentParams) error {
-	_, err := q.exec(ctx, q.activateNewIPAssignmentStmt, activateNewIPAssignment,
-		arg.IpAddress,
-		arg.Port,
-		arg.UrlScheme,
-		arg.DeviceID,
-	)
-	return err
-}
-
 const countMinersByState = `-- name: CountMinersByState :one
 SELECT
     COUNT(CASE WHEN ds.status = 'ACTIVE' THEN 1 END) as hashing_count,
@@ -66,13 +19,14 @@ SELECT
     COUNT(CASE WHEN ds.status = 'OFFLINE' THEN 1 END) as offline_count,
     COUNT(CASE WHEN ds.status = 'MAINTENANCE' THEN 1 END) as sleeping_count
 FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 WHERE dp.pairing_status = 'PAIRED'
   AND d.deleted_at IS NULL
   AND d.org_id = ?
   AND (? is null OR FIND_IN_SET(ds.status, ?))
-  AND (? is null OR FIND_IN_SET(d.type, ?))
+  AND (? is null OR FIND_IN_SET(dd.type, ?))
 `
 
 type CountMinersByStateParams struct {
@@ -104,64 +58,6 @@ func (q *Queries) CountMinersByState(ctx context.Context, arg CountMinersByState
 		&i.BrokenCount,
 		&i.OfflineCount,
 		&i.SleepingCount,
-	)
-	return i, err
-}
-
-const createInactiveDeviceIPAssignment = `-- name: CreateInactiveDeviceIPAssignment :exec
-INSERT INTO device_ip_assignment (
-    device_id,
-    ip_address,
-    port,
-    url_scheme,
-    is_current
-) VALUES (
-    ?,
-    ?,
-    ?,
-    ?,
-    FALSE
-)
-`
-
-type CreateInactiveDeviceIPAssignmentParams struct {
-	DeviceID  int64
-	IpAddress string
-	Port      string
-	UrlScheme string
-}
-
-func (q *Queries) CreateInactiveDeviceIPAssignment(ctx context.Context, arg CreateInactiveDeviceIPAssignmentParams) error {
-	_, err := q.exec(ctx, q.createInactiveDeviceIPAssignmentStmt, createInactiveDeviceIPAssignment,
-		arg.DeviceID,
-		arg.IpAddress,
-		arg.Port,
-		arg.UrlScheme,
-	)
-	return err
-}
-
-const getActiveDeviceIPAssignmentByDeviceID = `-- name: GetActiveDeviceIPAssignmentByDeviceID :one
-SELECT id, device_id, ip_address, port, assigned_at, unassigned_at, is_current, created_at, url_scheme
-FROM device_ip_assignment
-WHERE device_id = ?
-    AND is_current = TRUE
-LIMIT 1
-`
-
-func (q *Queries) GetActiveDeviceIPAssignmentByDeviceID(ctx context.Context, deviceID int64) (DeviceIpAssignment, error) {
-	row := q.queryRow(ctx, q.getActiveDeviceIPAssignmentByDeviceIDStmt, getActiveDeviceIPAssignmentByDeviceID, deviceID)
-	var i DeviceIpAssignment
-	err := row.Scan(
-		&i.ID,
-		&i.DeviceID,
-		&i.IpAddress,
-		&i.Port,
-		&i.AssignedAt,
-		&i.UnassignedAt,
-		&i.IsCurrent,
-		&i.CreatedAt,
-		&i.UrlScheme,
 	)
 	return i, err
 }
@@ -198,14 +94,15 @@ func (q *Queries) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]string, 
 }
 
 const getAvailableMinerTypes = `-- name: GetAvailableMinerTypes :many
-SELECT DISTINCT d.type
+SELECT DISTINCT dd.type
 FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 WHERE dp.pairing_status = 'PAIRED'
   AND d.deleted_at IS NULL
   AND d.org_id = ?
-  AND d.type IS NOT NULL
-ORDER BY d.type
+  AND dd.type IS NOT NULL
+ORDER BY dd.type
 `
 
 func (q *Queries) GetAvailableMinerTypes(ctx context.Context, orgID int64) ([]string, error) {
@@ -232,7 +129,7 @@ func (q *Queries) GetAvailableMinerTypes(ctx context.Context, orgID int64) ([]st
 }
 
 const getDeviceByDeviceIdentifier = `-- name: GetDeviceByDeviceIdentifier :one
-SELECT id, device_identifier, mac_address, serial_number, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, model, manufacturer, org_id, type
+SELECT id, device_identifier, mac_address, serial_number, created_at, updated_at, deleted_at, org_id, discovered_device_id
 FROM device
 WHERE device_identifier = ?
   AND org_id = ?
@@ -253,22 +150,17 @@ func (q *Queries) GetDeviceByDeviceIdentifier(ctx context.Context, arg GetDevice
 		&i.DeviceIdentifier,
 		&i.MacAddress,
 		&i.SerialNumber,
-		&i.FirstDiscovered,
-		&i.LastSeen,
-		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
-		&i.Model,
-		&i.Manufacturer,
 		&i.OrgID,
-		&i.Type,
+		&i.DiscoveredDeviceID,
 	)
 	return i, err
 }
 
 const getDeviceByID = `-- name: GetDeviceByID :one
-SELECT id, device_identifier, mac_address, serial_number, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, model, manufacturer, org_id, type
+SELECT id, device_identifier, mac_address, serial_number, created_at, updated_at, deleted_at, org_id, discovered_device_id
 FROM device
 WHERE id = ?
   AND org_id = ?
@@ -289,16 +181,11 @@ func (q *Queries) GetDeviceByID(ctx context.Context, arg GetDeviceByIDParams) (D
 		&i.DeviceIdentifier,
 		&i.MacAddress,
 		&i.SerialNumber,
-		&i.FirstDiscovered,
-		&i.LastSeen,
-		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
-		&i.Model,
-		&i.Manufacturer,
 		&i.OrgID,
-		&i.Type,
+		&i.DiscoveredDeviceID,
 	)
 	return i, err
 }
@@ -490,28 +377,63 @@ func (q *Queries) GetDeviceStatusForDeviceIdentifiers(ctx context.Context, devic
 	return items, nil
 }
 
+const getDiscoveredDeviceByID = `-- name: GetDiscoveredDeviceByID :one
+SELECT id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at
+FROM discovered_device
+WHERE id = ?
+    AND org_id = ?
+    AND deleted_at IS NULL
+LIMIT 1
+`
+
+type GetDiscoveredDeviceByIDParams struct {
+	ID    int64
+	OrgID int64
+}
+
+func (q *Queries) GetDiscoveredDeviceByID(ctx context.Context, arg GetDiscoveredDeviceByIDParams) (DiscoveredDevice, error) {
+	row := q.queryRow(ctx, q.getDiscoveredDeviceByIDStmt, getDiscoveredDeviceByID, arg.ID, arg.OrgID)
+	var i DiscoveredDevice
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.DeviceIdentifier,
+		&i.Model,
+		&i.Manufacturer,
+		&i.Type,
+		&i.IpAddress,
+		&i.Port,
+		&i.UrlScheme,
+		&i.DiscoveryMetadata,
+		&i.FirstDiscovered,
+		&i.LastSeen,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const getOfflineDevices = `-- name: GetOfflineDevices :many
 SELECT
     d.id,
     d.device_identifier,
     d.mac_address,
-    d.type,
     d.org_id,
-    dia.ip_address,
-    dia.port,
-    dia.url_scheme
+    dd.type,
+    dd.ip_address,
+    dd.port,
+    dd.url_scheme
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 JOIN device_status ds ON d.id = ds.device_id
-LEFT JOIN device_ip_assignment dia ON d.id = dia.device_id AND dia.is_current = TRUE
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
 WHERE dp.pairing_status = 'PAIRED'
   AND d.deleted_at IS NULL
   AND ds.status = 'OFFLINE'
   AND d.mac_address IS NOT NULL
   AND d.mac_address != ''
-  AND dia.ip_address IS NOT NULL
-  AND dia.port IS NOT NULL
-  AND dia.url_scheme IS NOT NULL
 ORDER BY ds.status_timestamp DESC
 LIMIT ?
 `
@@ -520,11 +442,11 @@ type GetOfflineDevicesRow struct {
 	ID               int64
 	DeviceIdentifier string
 	MacAddress       string
-	Type             string
 	OrgID            int64
-	IpAddress        sql.NullString
-	Port             sql.NullString
-	UrlScheme        sql.NullString
+	Type             string
+	IpAddress        string
+	Port             string
+	UrlScheme        string
 }
 
 func (q *Queries) GetOfflineDevices(ctx context.Context, limit int32) ([]GetOfflineDevicesRow, error) {
@@ -540,8 +462,8 @@ func (q *Queries) GetOfflineDevices(ctx context.Context, limit int32) ([]GetOffl
 			&i.ID,
 			&i.DeviceIdentifier,
 			&i.MacAddress,
-			&i.Type,
 			&i.OrgID,
+			&i.Type,
 			&i.IpAddress,
 			&i.Port,
 			&i.UrlScheme,
@@ -596,13 +518,14 @@ func (q *Queries) GetPairedDevicesIds(ctx context.Context, orgID int64) ([]int64
 const getTotalPairedDevices = `-- name: GetTotalPairedDevices :one
 SELECT COUNT(*)
 FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 WHERE dp.pairing_status = 'PAIRED'
     AND d.deleted_at IS NULL
     AND d.org_id = ?
     AND (? is null OR FIND_IN_SET(ds.status, ?))
-    AND (? is null OR FIND_IN_SET(d.type, ?))
+    AND (? is null OR FIND_IN_SET(dd.type, ?))
 `
 
 type GetTotalPairedDevicesParams struct {
@@ -624,17 +547,64 @@ func (q *Queries) GetTotalPairedDevices(ctx context.Context, arg GetTotalPairedD
 	return count, err
 }
 
+const insertDiscoveredDevice = `-- name: InsertDiscoveredDevice :execresult
+INSERT INTO discovered_device (
+    org_id,
+    device_identifier,
+    model,
+    manufacturer,
+    type,
+    ip_address,
+    port,
+    url_scheme
+) VALUES (
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?
+)
+`
+
+type InsertDiscoveredDeviceParams struct {
+	OrgID            int64
+	DeviceIdentifier string
+	Model            sql.NullString
+	Manufacturer     sql.NullString
+	Type             string
+	IpAddress        string
+	Port             string
+	UrlScheme        string
+}
+
+func (q *Queries) InsertDiscoveredDevice(ctx context.Context, arg InsertDiscoveredDeviceParams) (sql.Result, error) {
+	return q.exec(ctx, q.insertDiscoveredDeviceStmt, insertDiscoveredDevice,
+		arg.OrgID,
+		arg.DeviceIdentifier,
+		arg.Model,
+		arg.Manufacturer,
+		arg.Type,
+		arg.IpAddress,
+		arg.Port,
+		arg.UrlScheme,
+	)
+}
+
 const listPairedDevices = `-- name: ListPairedDevices :many
 SELECT
     d.device_identifier,
     d.mac_address,
     d.serial_number,
-    d.model,
-    d.manufacturer,
-    d.type,
+    dd.model,
+    dd.manufacturer,
+    dd.type,
     dp.id as cursor_id,
     d.id as device_id
 FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 WHERE dp.pairing_status = 'PAIRED'
     AND d.org_id = ?
@@ -711,21 +681,21 @@ SELECT
     d.device_identifier,
     d.mac_address,
     d.serial_number,
-    d.model,
-    d.manufacturer,
-    d.type,
+    dd.model,
+    dd.manufacturer,
+    dd.type,
     ds.status as device_status,
     ds.status_timestamp,
     ds.status_details,
-    dia.ip_address,
-    dia.port,
-    dia.url_scheme,
+    dd.ip_address,
+    dd.port,
+    dd.url_scheme,
     dp.id as cursor_id,
     d.id as device_id
 FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
-LEFT JOIN device_ip_assignment dia ON d.id = dia.device_id AND dia.is_current = TRUE
 WHERE dp.pairing_status = 'PAIRED'
     AND d.deleted_at IS NULL
     AND d.org_id = ?
@@ -736,7 +706,7 @@ WHERE dp.pairing_status = 'PAIRED'
         (dp.id > ? OR (dp.id = ? AND d.id > ?))
     )
     AND (? is null OR FIND_IN_SET(ds.status, ?))
-    AND (? is null OR FIND_IN_SET(d.type, ?))
+    AND (? is null OR FIND_IN_SET(dd.type, ?))
 ORDER BY dp.id, d.id
 LIMIT ?
 `
@@ -760,9 +730,9 @@ type ListPairedMinersWithStatusRow struct {
 	DeviceStatus     NullDeviceStatusStatus
 	StatusTimestamp  sql.NullTime
 	StatusDetails    sql.NullString
-	IpAddress        sql.NullString
-	Port             sql.NullString
-	UrlScheme        sql.NullString
+	IpAddress        string
+	Port             string
+	UrlScheme        string
 	CursorID         int64
 	DeviceID         int64
 }
@@ -816,20 +786,77 @@ func (q *Queries) ListPairedMinersWithStatus(ctx context.Context, arg ListPaired
 	return items, nil
 }
 
+const updateDeviceIPAssignment = `-- name: UpdateDeviceIPAssignment :exec
+UPDATE discovered_device dd
+INNER JOIN device d ON dd.id = d.discovered_device_id
+SET
+  dd.ip_address = ?,
+  dd.port = ?,
+  dd.url_scheme = ?
+WHERE d.id = ?
+`
+
+type UpdateDeviceIPAssignmentParams struct {
+	IpAddress string
+	Port      string
+	UrlScheme string
+	ID        int64
+}
+
+func (q *Queries) UpdateDeviceIPAssignment(ctx context.Context, arg UpdateDeviceIPAssignmentParams) error {
+	_, err := q.exec(ctx, q.updateDeviceIPAssignmentStmt, updateDeviceIPAssignment,
+		arg.IpAddress,
+		arg.Port,
+		arg.UrlScheme,
+		arg.ID,
+	)
+	return err
+}
+
+const updateDiscoveredDevice = `-- name: UpdateDiscoveredDevice :exec
+UPDATE discovered_device
+SET
+    model = ?,
+    manufacturer = ?,
+    type = ?,
+    ip_address = ?,
+    port = ?,
+    url_scheme = ?,
+    last_seen = CURRENT_TIMESTAMP(6)
+WHERE id = ?
+`
+
+type UpdateDiscoveredDeviceParams struct {
+	Model        sql.NullString
+	Manufacturer sql.NullString
+	Type         string
+	IpAddress    string
+	Port         string
+	UrlScheme    string
+	ID           int64
+}
+
+func (q *Queries) UpdateDiscoveredDevice(ctx context.Context, arg UpdateDiscoveredDeviceParams) error {
+	_, err := q.exec(ctx, q.updateDiscoveredDeviceStmt, updateDiscoveredDevice,
+		arg.Model,
+		arg.Manufacturer,
+		arg.Type,
+		arg.IpAddress,
+		arg.Port,
+		arg.UrlScheme,
+		arg.ID,
+	)
+	return err
+}
+
 const upsertDevice = `-- name: UpsertDevice :execresult
 INSERT INTO device (
     org_id,
+    discovered_device_id,
     device_identifier,
     mac_address,
-    serial_number,
-    model,
-    manufacturer,
-    type,
-    is_active
+    serial_number
 ) VALUES (
-    ?,
-    ?,
-    ?,
     ?,
     ?,
     ?,
@@ -838,37 +865,26 @@ INSERT INTO device (
 )
 ON DUPLICATE KEY UPDATE
     serial_number = VALUES(serial_number),
-    is_active = VALUES(is_active),
-    last_seen = CURRENT_TIMESTAMP(6),
     deleted_at = NULL,
-    model = VALUES(model),
-    manufacturer = VALUES(manufacturer),
-    type = VALUES(type),
     org_id = VALUES(org_id),
     id = LAST_INSERT_ID(id)
 `
 
 type UpsertDeviceParams struct {
-	OrgID            int64
-	DeviceIdentifier string
-	MacAddress       string
-	SerialNumber     sql.NullString
-	Model            sql.NullString
-	Manufacturer     sql.NullString
-	Type             string
-	IsActive         sql.NullBool
+	OrgID              int64
+	DiscoveredDeviceID int64
+	DeviceIdentifier   string
+	MacAddress         string
+	SerialNumber       sql.NullString
 }
 
 func (q *Queries) UpsertDevice(ctx context.Context, arg UpsertDeviceParams) (sql.Result, error) {
 	return q.exec(ctx, q.upsertDeviceStmt, upsertDevice,
 		arg.OrgID,
+		arg.DiscoveredDeviceID,
 		arg.DeviceIdentifier,
 		arg.MacAddress,
 		arg.SerialNumber,
-		arg.Model,
-		arg.Manufacturer,
-		arg.Type,
-		arg.IsActive,
 	)
 }
 

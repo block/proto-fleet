@@ -189,20 +189,22 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 		{"avalon", models.TypeAvalon},
 	}
 
-	for _, test := range tests {
+	for i, test := range tests {
 		t.Run(fmt.Sprintf("type_%s", test.deviceType), func(t *testing.T) {
 			deviceID := models.DeviceIdentifier(fmt.Sprintf("test-%s-device", test.deviceType))
+			// Use unique IP addresses for each subtest to avoid conflicts
+			testIPAddress := fmt.Sprintf("192.168.1.%d", 100+i)
 
 			queries := sqlc.New(testContext.ServiceProvider.DB)
+
+			discoveredDeviceID := createDiscoveredDevice(t, testContext.ServiceProvider.DB, "TestMiner", "TestCorp", test.deviceType)
+
 			result, err := queries.UpsertDevice(t.Context(), sqlc.UpsertDeviceParams{
-				OrgID:            1,
-				DeviceIdentifier: string(deviceID),
-				MacAddress:       "00:11:22:33:44:55",
-				SerialNumber:     sql.NullString{String: "SN-123", Valid: true},
-				Model:            sql.NullString{String: "TestMiner", Valid: true},
-				Manufacturer:     sql.NullString{String: "TestCorp", Valid: true},
-				Type:             test.deviceType,
-				IsActive:         sql.NullBool{Bool: true, Valid: true},
+				OrgID:              1,
+				DiscoveredDeviceID: discoveredDeviceID,
+				DeviceIdentifier:   string(deviceID),
+				MacAddress:         fmt.Sprintf("00:11:22:33:44:%02x", 50+i),
+				SerialNumber:       sql.NullString{String: fmt.Sprintf("SN-%d", 100+i), Valid: true},
 			})
 			require.NoError(t, err)
 
@@ -216,19 +218,11 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 			})
 			require.NoError(t, err)
 
-			err = queries.CreateInactiveDeviceIPAssignment(t.Context(), sqlc.CreateInactiveDeviceIPAssignmentParams{
-				DeviceID:  dbDeviceID,
-				IpAddress: "192.168.1.100",
+			err = queries.UpdateDeviceIPAssignment(t.Context(), sqlc.UpdateDeviceIPAssignmentParams{
+				IpAddress: testIPAddress,
 				Port:      "4028",
 				UrlScheme: "https",
-			})
-			require.NoError(t, err)
-
-			err = queries.ActivateNewIPAssignment(t.Context(), sqlc.ActivateNewIPAssignmentParams{
-				IpAddress: "192.168.1.100",
-				Port:      "4028",
-				DeviceID:  dbDeviceID,
-				UrlScheme: "https",
+				ID:        dbDeviceID,
 			})
 			require.NoError(t, err)
 
@@ -287,16 +281,15 @@ func TestMinerService_GetMinerFromDeviceID_WithUnpairedDevice_ShouldReturnError(
 
 	queries := sqlc.New(testContext.DatabaseService.DB)
 
+	discoveredDeviceID := createDiscoveredDevice(t, testContext.DatabaseService.DB, "TestMiner", "TestCorp", "antminer")
+
 	// Create device without pairing record
 	result, err := queries.UpsertDevice(t.Context(), sqlc.UpsertDeviceParams{
-		OrgID:            1,
-		DeviceIdentifier: "test-unpaired-device",
-		MacAddress:       "00:11:22:33:44:99",
-		SerialNumber:     sql.NullString{String: "SN-UNPAIRED", Valid: true},
-		Model:            sql.NullString{String: "TestMiner", Valid: true},
-		Manufacturer:     sql.NullString{String: "TestCorp", Valid: true},
-		Type:             "antminer",
-		IsActive:         sql.NullBool{Bool: true, Valid: true},
+		OrgID:              1,
+		DiscoveredDeviceID: discoveredDeviceID,
+		DeviceIdentifier:   "test-unpaired-device",
+		MacAddress:         "00:11:22:33:44:99",
+		SerialNumber:       sql.NullString{String: "SN-UNPAIRED", Valid: true},
 	})
 	require.NoError(t, err)
 
@@ -304,19 +297,11 @@ func TestMinerService_GetMinerFromDeviceID_WithUnpairedDevice_ShouldReturnError(
 	require.NoError(t, err)
 
 	// Create IP assignment and credentials but no pairing record
-	err = queries.CreateInactiveDeviceIPAssignment(t.Context(), sqlc.CreateInactiveDeviceIPAssignmentParams{
-		DeviceID:  dbDeviceID,
+	err = queries.UpdateDeviceIPAssignment(t.Context(), sqlc.UpdateDeviceIPAssignmentParams{
 		IpAddress: "192.168.1.100",
 		Port:      "4028",
 		UrlScheme: "https",
-	})
-	require.NoError(t, err)
-
-	err = queries.ActivateNewIPAssignment(t.Context(), sqlc.ActivateNewIPAssignmentParams{
-		IpAddress: "192.168.1.100",
-		Port:      "4028",
-		DeviceID:  dbDeviceID,
-		UrlScheme: "https",
+		ID:        dbDeviceID,
 	})
 	require.NoError(t, err)
 
@@ -347,16 +332,15 @@ func TestMinerService_GetMinerFromDeviceID_WithDeviceNeitherTokenNorCredentials_
 
 	queries := sqlc.New(testContext.DatabaseService.DB)
 
+	discoveredDeviceID := createDiscoveredDevice(t, testContext.DatabaseService.DB, "TestMiner", "TestCorp", "antminer")
+
 	// Create device with pairing but no credentials or token
 	result, err := queries.UpsertDevice(t.Context(), sqlc.UpsertDeviceParams{
-		OrgID:            1,
-		DeviceIdentifier: "test-no-auth-device",
-		MacAddress:       "00:11:22:33:44:88",
-		SerialNumber:     sql.NullString{String: "SN-NOAUTH", Valid: true},
-		Model:            sql.NullString{String: "TestMiner", Valid: true},
-		Manufacturer:     sql.NullString{String: "TestCorp", Valid: true},
-		Type:             "antminer",
-		IsActive:         sql.NullBool{Bool: true, Valid: true},
+		OrgID:              1,
+		DiscoveredDeviceID: discoveredDeviceID,
+		DeviceIdentifier:   "test-no-auth-device",
+		MacAddress:         "00:11:22:33:44:88",
+		SerialNumber:       sql.NullString{String: "SN-NOAUTH", Valid: true},
 	})
 	require.NoError(t, err)
 
@@ -371,19 +355,11 @@ func TestMinerService_GetMinerFromDeviceID_WithDeviceNeitherTokenNorCredentials_
 	require.NoError(t, err)
 
 	// Create IP assignment but no credentials
-	err = queries.CreateInactiveDeviceIPAssignment(t.Context(), sqlc.CreateInactiveDeviceIPAssignmentParams{
-		DeviceID:  dbDeviceID,
+	err = queries.UpdateDeviceIPAssignment(t.Context(), sqlc.UpdateDeviceIPAssignmentParams{
 		IpAddress: "192.168.1.100",
 		Port:      "4028",
 		UrlScheme: "https",
-	})
-	require.NoError(t, err)
-
-	err = queries.ActivateNewIPAssignment(t.Context(), sqlc.ActivateNewIPAssignmentParams{
-		IpAddress: "192.168.1.100",
-		Port:      "4028",
-		DeviceID:  dbDeviceID,
-		UrlScheme: "https",
+		ID:        dbDeviceID,
 	})
 	require.NoError(t, err)
 

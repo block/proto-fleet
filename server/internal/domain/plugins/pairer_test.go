@@ -208,7 +208,6 @@ func TestPairer_PairDevice_Success(t *testing.T) {
 
 	// Mock device store operations
 	deviceStore.EXPECT().UpsertDevice(gomock.Any(), &device.Device, device.OrgID, models.TypeAntminer.String()).Return(nil)
-	deviceStore.EXPECT().UpsertDeviceIPAssignment(gomock.Any(), &device.Device, device.OrgID).Return(nil)
 	deviceStore.EXPECT().UpsertMinerCredentials(gomock.Any(), &device.Device, device.OrgID, gomock.Any(), gomock.Any()).Return(nil)
 	deviceStore.EXPECT().UpsertDevicePairing(gomock.Any(), &device.Device, device.OrgID, "PAIRED").Return(nil)
 
@@ -311,7 +310,6 @@ fKx2N0uH2VQ8Z3xPjZSYGDCxKVHZKvJ8Ug==
 
 	// Mock device store operations
 	deviceStore.EXPECT().UpsertDevice(gomock.Any(), &device.Device, device.OrgID, models.TypeProto.String()).Return(nil)
-	deviceStore.EXPECT().UpsertDeviceIPAssignment(gomock.Any(), &device.Device, device.OrgID).Return(nil)
 	// No UpsertMinerCredentials call expected - org-level keys aren't stored
 	deviceStore.EXPECT().UpsertDevicePairing(gomock.Any(), &device.Device, device.OrgID, "PAIRED").Return(nil)
 

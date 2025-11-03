@@ -87,14 +87,9 @@ func (p *Pairer) PairDevice(ctx context.Context, device *minerdiscovery.Discover
 // handlePairViaStore saves the device to the database
 func (p *Pairer) handlePairViaStore(ctx context.Context, device *minerdiscovery.DiscoveredDevice, credentials *pb.Credentials) error {
 	return p.transactor.RunInTx(ctx, func(txCtx context.Context) error {
-		// Save device
+		// Save device (includes IP assignment)
 		if err := p.deviceStore.UpsertDevice(txCtx, &device.Device, device.OrgID, p.minerType.String()); err != nil {
 			return fleeterror.NewInternalErrorf("failed to upsert device: %v", err)
-		}
-
-		// Save IP assignment
-		if err := p.deviceStore.UpsertDeviceIPAssignment(txCtx, &device.Device, device.OrgID); err != nil {
-			return fleeterror.NewInternalErrorf("failed to upsert device IP assignment: %v", err)
 		}
 
 		// Save encrypted credentials based on SecretBundle type

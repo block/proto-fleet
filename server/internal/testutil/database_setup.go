@@ -35,8 +35,9 @@ func GetTestDB(t *testing.T) *sql.DB {
 	}
 
 	// Connect to MySQL without selecting a database to create our test database
+	// Use the migration connection since we need to run multiple SQL statements
 	config.Name = ""
-	conn, err := db.ConnectToDatabase(&config)
+	conn, err := db.ConnectToDatabaseForMigrations(&config)
 	assert.NoError(t, err)
 
 	// Create the test database
@@ -57,7 +58,8 @@ func GetTestDB(t *testing.T) *sql.DB {
 		err := conn.Close()
 		assert.NoError(t, err, "error closing db connection")
 		// Reconnect to MySQL without selecting a database to drop the test database
-		conn, err = db.ConnectToDatabase(&config)
+		// Use the migration connection since we need to run multiple SQL statements
+		conn, err = db.ConnectToDatabaseForMigrations(&config)
 		assert.NoError(t, err, "error connecting to MySQL")
 		defer conn.Close()
 		// nolint: usetesting

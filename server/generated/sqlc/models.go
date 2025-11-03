@@ -253,32 +253,15 @@ type CommandOnDeviceLog struct {
 }
 
 type Device struct {
-	ID               int64
-	DeviceIdentifier string
-	MacAddress       string
-	SerialNumber     sql.NullString
-	FirstDiscovered  sql.NullTime
-	LastSeen         sql.NullTime
-	IsActive         sql.NullBool
-	CreatedAt        sql.NullTime
-	UpdatedAt        sql.NullTime
-	DeletedAt        sql.NullTime
-	Model            sql.NullString
-	Manufacturer     sql.NullString
-	OrgID            int64
-	Type             string
-}
-
-type DeviceIpAssignment struct {
-	ID           int64
-	DeviceID     int64
-	IpAddress    string
-	Port         string
-	AssignedAt   sql.NullTime
-	UnassignedAt sql.NullTime
-	IsCurrent    sql.NullBool
-	CreatedAt    sql.NullTime
-	UrlScheme    string
+	ID                 int64
+	DeviceIdentifier   string
+	MacAddress         string
+	SerialNumber       sql.NullString
+	CreatedAt          sql.NullTime
+	UpdatedAt          sql.NullTime
+	DeletedAt          sql.NullTime
+	OrgID              int64
+	DiscoveredDeviceID int64
 }
 
 type DevicePairing struct {
@@ -298,6 +281,25 @@ type DeviceStatus struct {
 	StatusDetails   sql.NullString
 	CreatedAt       sql.NullTime
 	Status          DeviceStatusStatus
+}
+
+type DiscoveredDevice struct {
+	ID                int64
+	OrgID             int64
+	DeviceIdentifier  string
+	Model             sql.NullString
+	Manufacturer      sql.NullString
+	Type              string
+	IpAddress         string
+	Port              string
+	UrlScheme         string
+	DiscoveryMetadata sql.NullString
+	FirstDiscovered   sql.NullTime
+	LastSeen          sql.NullTime
+	IsActive          sql.NullBool
+	CreatedAt         sql.NullTime
+	UpdatedAt         sql.NullTime
+	DeletedAt         sql.NullTime
 }
 
 type MinerCredential struct {
@@ -391,22 +393,4 @@ type UserOrganization struct {
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	DeletedAt      sql.NullTime
-}
-
-type VCurrentDeviceIp struct {
-	ID               int64
-	DeviceIdentifier string
-	MacAddress       string
-	SerialNumber     sql.NullString
-	IpAddress        sql.NullString
-}
-
-type VLatestDeviceStatus struct {
-	ID               int64
-	DeviceIdentifier string
-	MacAddress       string
-	SerialNumber     sql.NullString
-	Status           NullDeviceStatusStatus
-	StatusTimestamp  sql.NullTime
-	StatusDetails    sql.NullString
 }

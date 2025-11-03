@@ -121,11 +121,30 @@ func (s *DatabaseService) CreateSuperAdminUser() *TestUser {
 func (s *DatabaseService) CreateDevice(organizationID int64, minerType models.Type) DeviceIdentification {
 	uuidCurrent := id.GenerateID()
 	deviceIdentification, err := db2.WithTransaction(context.Background(), s.DB, func(q *sqlc.Queries) (DeviceIdentification, error) {
-		result, err := q.UpsertDevice(context.Background(), sqlc.UpsertDeviceParams{
+		// First create a discovered_device
+		ddResult, err := q.InsertDiscoveredDevice(context.Background(), sqlc.InsertDiscoveredDeviceParams{
 			OrgID:            organizationID,
 			DeviceIdentifier: uuidCurrent,
-			MacAddress:       "00-1A-2B-3C-4D-5E",
+			Model:            sql.NullString{String: "TestMiner", Valid: true},
+			Manufacturer:     sql.NullString{String: "TestCorp", Valid: true},
 			Type:             minerType.String(),
+			IpAddress:        "127.0.0.1",
+			Port:             "4028",
+			UrlScheme:        "https",
+		})
+		if err != nil {
+			return DeviceIdentification{}, fleeterror.NewInternalErrorf("failed to create discovered device: %v", err)
+		}
+		discoveredDeviceID, err := ddResult.LastInsertId()
+		if err != nil {
+			return DeviceIdentification{}, fleeterror.NewInternalErrorf("failed to query discovered device last insert ID: %v", err)
+		}
+
+		result, err := q.UpsertDevice(context.Background(), sqlc.UpsertDeviceParams{
+			OrgID:              organizationID,
+			DiscoveredDeviceID: discoveredDeviceID,
+			DeviceIdentifier:   uuidCurrent,
+			MacAddress:         "00-1A-2B-3C-4D-5E",
 		})
 		if err != nil {
 			return DeviceIdentification{}, fleeterror.NewInternalErrorf("failed to create device: %v", err)
@@ -146,21 +165,11 @@ func (s *DatabaseService) CreateDevice(organizationID int64, minerType models.Ty
 
 func (s *DatabaseService) createDeviceIPAssignment(deviceID int64, ipAddress string, port string, urlScheme networking.Protocol) {
 	err := db2.WithTransactionNoResult(context.Background(), s.DB, func(q *sqlc.Queries) error {
-		err := q.CreateInactiveDeviceIPAssignment(context.Background(), sqlc.CreateInactiveDeviceIPAssignmentParams{
-			DeviceID:  deviceID,
+		return q.UpdateDeviceIPAssignment(context.Background(), sqlc.UpdateDeviceIPAssignmentParams{
 			IpAddress: ipAddress,
 			Port:      port,
 			UrlScheme: urlScheme.String(),
-		})
-		if err != nil {
-			return err
-		}
-
-		return q.ActivateNewIPAssignment(context.Background(), sqlc.ActivateNewIPAssignmentParams{
-			DeviceID:  deviceID,
-			IpAddress: ipAddress,
-			Port:      port,
-			UrlScheme: urlScheme.String(),
+			ID:        deviceID,
 		})
 	})
 	assert.NoError(s.t, err)
@@ -226,7 +235,7 @@ func (s *DatabaseService) CreateTestMiners(orgID int64, count int, mockMinerURL 
 
 		s.createDeviceIPAssignment(device.DatabaseID, host, portStr, protocol)
 
-		err := db2.WithTransactionNoResult(s.t.Context(), s.DB, func(q *sqlc.Queries) error {
+		err = db2.WithTransactionNoResult(s.t.Context(), s.DB, func(q *sqlc.Queries) error {
 			_, err := q.UpsertDevicePairing(s.t.Context(), sqlc.UpsertDevicePairingParams{
 				DeviceID:      device.DatabaseID,
 				PairingStatus: sqlc.DevicePairingPairingStatusPAIRED,
@@ -235,7 +244,7 @@ func (s *DatabaseService) CreateTestMiners(orgID int64, count int, mockMinerURL 
 		})
 		assert.NoError(s.t, err)
 
-		s.t.Logf("Created test miner with ID: %s", device.ID)
+		s.t.Logf("Created test miner with ID: %s at %s:%s", device.ID, host, portStr)
 	}
 
 	return deviceIDs

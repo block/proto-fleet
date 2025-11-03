@@ -207,8 +207,8 @@ func cleanupTestData(t *testing.T, db *sql.DB) {
 
 	queries := []string{
 		"DELETE FROM miner_credentials WHERE device_id IN (SELECT id FROM device WHERE device_identifier LIKE 'test-%')",
-		"DELETE FROM device_ip_assignment WHERE device_id IN (SELECT id FROM device WHERE device_identifier LIKE 'test-%')",
 		"DELETE FROM device_pairing WHERE device_id IN (SELECT id FROM device WHERE device_identifier LIKE 'test-%')",
+		"DELETE FROM discovered_device WHERE id IN (SELECT discovered_device_id FROM device WHERE device_identifier LIKE 'test-%')",
 		"DELETE FROM device WHERE device_identifier LIKE 'test-%'",
 	}
 
@@ -219,20 +219,49 @@ func cleanupTestData(t *testing.T, db *sql.DB) {
 	}
 }
 
+func createDiscoveredDevice(t *testing.T, db *sql.DB, model string, manufacturer string, deviceType string) int64 {
+	t.Helper()
+
+	orgID := int64(1)
+	var exists bool
+	err := db.QueryRow(`SELECT EXISTS(SELECT 1 FROM organization WHERE id = ?)`, orgID).Scan(&exists)
+	require.NoError(t, err, "Failed to check organization existence")
+	if !exists {
+		_, err := db.Exec(`INSERT INTO organization (id, org_id, name, miner_auth_private_key) VALUES (?, ?, ?, ?)`,
+			orgID, fmt.Sprintf("test-org-%d", orgID), fmt.Sprintf("Test Organization %d", orgID), "dummy-key-for-testing")
+		require.NoError(t, err, "Failed to insert organization")
+	}
+
+	// Generate a unique device_identifier for the discovered device
+	deviceIdentifier := fmt.Sprintf("test-discovered-%s-%d", deviceType, time.Now().UnixNano())
+
+	discoveredDeviceResult, err := db.Exec(`
+		INSERT INTO discovered_device (org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, orgID, deviceIdentifier, model, manufacturer, deviceType, "192.168.1.100", "4028", "https")
+	require.NoError(t, err)
+
+	discoveredDeviceID, err := discoveredDeviceResult.LastInsertId()
+	require.NoError(t, err)
+
+	return discoveredDeviceID
+}
+
 func createTestDevice(t *testing.T, db *sql.DB, deviceIdentifier string) int64 {
 	t.Helper()
+
+	orgID := int64(1)
+
+	discoveredDeviceID := createDiscoveredDevice(t, db, "TestMiner", "TestCorp", "antminer")
 
 	queries := sqlc.New(db)
 
 	result, err := queries.UpsertDevice(t.Context(), sqlc.UpsertDeviceParams{
-		OrgID:            0,
-		DeviceIdentifier: deviceIdentifier,
-		MacAddress:       fmt.Sprintf("00:11:22:33:44:%02x", len(deviceIdentifier)%256),
-		SerialNumber:     sql.NullString{String: fmt.Sprintf("SN-%s", deviceIdentifier), Valid: true},
-		Model:            sql.NullString{String: "TestMiner", Valid: true},
-		Manufacturer:     sql.NullString{String: "TestCorp", Valid: true},
-		Type:             "antminer",
-		IsActive:         sql.NullBool{Bool: true, Valid: true},
+		OrgID:              orgID,
+		DiscoveredDeviceID: discoveredDeviceID,
+		DeviceIdentifier:   deviceIdentifier,
+		MacAddress:         fmt.Sprintf("00:11:22:33:44:%02x", len(deviceIdentifier)%256),
+		SerialNumber:       sql.NullString{String: fmt.Sprintf("SN-%s", deviceIdentifier), Valid: true},
 	})
 	require.NoError(t, err)
 
@@ -246,19 +275,15 @@ func createTestDevice(t *testing.T, db *sql.DB, deviceIdentifier string) int64 {
 	})
 	require.NoError(t, err)
 
-	err = queries.CreateInactiveDeviceIPAssignment(t.Context(), sqlc.CreateInactiveDeviceIPAssignmentParams{
-		DeviceID:  deviceID,
-		IpAddress: "192.168.1.100",
-		Port:      "4028",
-		UrlScheme: "https",
-	})
-	require.NoError(t, err)
+	// Generate unique IP based on device ID to avoid duplicate IP constraint violations
+	// Use the last byte of the device ID for uniqueness
+	uniqueIP := fmt.Sprintf("192.168.1.%d", 100+(deviceID%150))
 
-	err = queries.ActivateNewIPAssignment(t.Context(), sqlc.ActivateNewIPAssignmentParams{
-		IpAddress: "192.168.1.100",
+	err = queries.UpdateDeviceIPAssignment(t.Context(), sqlc.UpdateDeviceIPAssignmentParams{
+		IpAddress: uniqueIP,
 		Port:      "4028",
-		DeviceID:  deviceID,
 		UrlScheme: "https",
+		ID:        deviceID,
 	})
 	require.NoError(t, err)
 
@@ -298,17 +323,16 @@ func createTestDeviceWithCredentials(t *testing.T, db *sql.DB, deviceIdentifier 
 func createTestProtoMinerWithToken(t *testing.T, db *sql.DB, deviceIdentifier string) int64 {
 	t.Helper()
 
+	discoveredDeviceID := createDiscoveredDevice(t, db, "ProtoMiner", "ProtoCorp", "proto")
+
 	queries := sqlc.New(db)
 
 	result, err := queries.UpsertDevice(t.Context(), sqlc.UpsertDeviceParams{
-		OrgID:            1,
-		DeviceIdentifier: deviceIdentifier,
-		MacAddress:       fmt.Sprintf("00:11:22:33:44:%02x", len(deviceIdentifier)%256),
-		SerialNumber:     sql.NullString{String: fmt.Sprintf("SN-%s", deviceIdentifier), Valid: true},
-		Model:            sql.NullString{String: "ProtoMiner", Valid: true},
-		Manufacturer:     sql.NullString{String: "ProtoCorp", Valid: true},
-		Type:             "proto",
-		IsActive:         sql.NullBool{Bool: true, Valid: true},
+		OrgID:              1,
+		DiscoveredDeviceID: discoveredDeviceID,
+		DeviceIdentifier:   deviceIdentifier,
+		MacAddress:         fmt.Sprintf("00:11:22:33:44:%02x", len(deviceIdentifier)%256),
+		SerialNumber:       sql.NullString{String: fmt.Sprintf("SN-%s", deviceIdentifier), Valid: true},
 	})
 	require.NoError(t, err)
 
@@ -322,19 +346,11 @@ func createTestProtoMinerWithToken(t *testing.T, db *sql.DB, deviceIdentifier st
 	})
 	require.NoError(t, err)
 
-	err = queries.CreateInactiveDeviceIPAssignment(t.Context(), sqlc.CreateInactiveDeviceIPAssignmentParams{
-		DeviceID:  deviceID,
+	err = queries.UpdateDeviceIPAssignment(t.Context(), sqlc.UpdateDeviceIPAssignmentParams{
 		IpAddress: "192.168.1.200",
 		Port:      "8080",
 		UrlScheme: "https",
-	})
-	require.NoError(t, err)
-
-	err = queries.ActivateNewIPAssignment(t.Context(), sqlc.ActivateNewIPAssignmentParams{
-		IpAddress: "192.168.1.200",
-		Port:      "8080",
-		DeviceID:  deviceID,
-		UrlScheme: "https",
+		ID:        deviceID,
 	})
 	require.NoError(t, err)
 

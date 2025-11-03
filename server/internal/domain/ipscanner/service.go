@@ -364,7 +364,7 @@ func (s *Service) handleScanResult(ctx context.Context, result SubnetScanResult)
 			Type:             match.TargetDevice.DeviceType,
 		}
 
-		if err := s.deviceStore.UpsertDeviceIPAssignment(ctx, device, match.TargetDevice.OrgID); err != nil {
+		if err := s.deviceStore.UpsertDevice(ctx, device, match.TargetDevice.OrgID, match.TargetDevice.DeviceType); err != nil {
 			s.logger.Error("Failed to update device IP assignment",
 				"device_identifier", match.TargetDevice.DeviceIdentifier,
 				"error", err,

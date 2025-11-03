@@ -16,7 +16,10 @@ import (
 )
 
 // ConnectAndMigrate creates a driver for the database, ensures the database is alive, and runs migrations if needed.
+// It uses a separate connection with multiStatements enabled for migrations, then returns a secure connection
+// without multiStatements for general application use.
 func ConnectAndMigrate(config *Config) (*sql.DB, error) {
+	// First, connect with the general (secure) connection to verify database access
 	connection, err := ConnectToDatabase(config)
 	if err != nil {
 		return nil, err
@@ -27,11 +30,21 @@ func ConnectAndMigrate(config *Config) (*sql.DB, error) {
 		return nil, err
 	}
 
-	err = MigrateDatabase(connection, config)
+	// Create a separate connection for migrations with multiStatements enabled
+	migrationConnection, err := ConnectToDatabaseForMigrations(config)
 	if err != nil {
+		connection.Close()
+		return nil, err
+	}
+	defer migrationConnection.Close()
+
+	err = MigrateDatabase(migrationConnection, config)
+	if err != nil {
+		connection.Close()
 		return nil, err
 	}
 
+	// Return the secure connection without multiStatements for application use
 	return connection, nil
 }
 
@@ -41,6 +54,21 @@ func ConnectToDatabase(config *Config) (*sql.DB, error) {
 	conn, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error creating mysql connection: %v", err)
+	}
+
+	return conn, nil
+}
+
+// ConnectToDatabaseForMigrations creates a database connection with multiStatements enabled,
+// which is required for running migrations that may contain multiple SQL statements.
+// This should only be used for migrations and never for general application queries
+// to reduce SQL injection risk.
+func ConnectToDatabaseForMigrations(config *Config) (*sql.DB, error) {
+	dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?parseTime=true&allowNativePasswords=true&multiStatements=true", config.Username, config.Password, config.Address, config.Name)
+
+	conn, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error creating mysql connection for migrations: %v", err)
 	}
 
 	return conn, nil

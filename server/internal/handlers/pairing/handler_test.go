@@ -98,7 +98,7 @@ func TestHandler_DiscoverAndPair(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, 1, len(devices))
 			assert.Equal(t, deviceIdentifier, devices[0].DeviceIdentifier)
-			assert.Equal(t, tc.expectedScheme, devices[0].UrlScheme.String)
+			assert.Equal(t, tc.expectedScheme, devices[0].UrlScheme)
 			mockMinerServer.Close()
 		})
 	}

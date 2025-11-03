@@ -73,10 +73,6 @@ func (s *Service) PairDevice(ctx context.Context, device *minerdiscovery.Discove
 		if err != nil {
 			return fleeterror.NewInternalErrorf("failed to upsert device: %v", err)
 		}
-		err = s.deviceStore.UpsertDeviceIPAssignment(ctx, &device.Device, device.OrgID)
-		if err != nil {
-			return fleeterror.NewInternalErrorf("failed to upsert device IP assignment: %v", err)
-		}
 		err = s.deviceStore.UpsertMinerCredentials(ctx, &device.Device, device.OrgID, encryptedUsername, secrets.NewText(encryptedPassword))
 		if err != nil {
 			return fleeterror.NewInternalErrorf("failed to upsert miner credentials: %v", err)

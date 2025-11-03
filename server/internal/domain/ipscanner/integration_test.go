@@ -122,12 +122,21 @@ func setupTestData(t *testing.T, conn *sql.DB) {
 	`)
 	require.NoError(t, err)
 
+	// Insert discovered devices
+	_, err = conn.Exec(`
+		INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme)
+		VALUES
+			(1, 1, 'test-miner-001', 'proto', 'test-manufacturer', 'proto', '192.168.1.100', '50051', 'grpc'),
+			(2, 1, 'test-miner-002', 'proto', 'test-manufacturer', 'proto', '192.168.1.101', '50051', 'grpc')
+	`)
+	require.NoError(t, err)
+
 	// Insert two devices
 	_, err = conn.Exec(`
-		INSERT INTO device (id, org_id, device_identifier, mac_address, type, is_active)
+		INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
 		VALUES
-			(1, 1, 'test-miner-001', 'AA:BB:CC:DD:EE:01', 'proto', 1),
-			(2, 1, 'test-miner-002', 'AA:BB:CC:DD:EE:02', 'proto', 1)
+			(1, 1, 1, 'test-miner-001', 'AA:BB:CC:DD:EE:01'),
+			(2, 1, 2, 'test-miner-002', 'AA:BB:CC:DD:EE:02')
 	`)
 	require.NoError(t, err)
 
@@ -148,15 +157,6 @@ func setupTestData(t *testing.T, conn *sql.DB) {
 			(2, 'OFFLINE', NOW())
 	`)
 	require.NoError(t, err)
-
-	// Insert IP assignments at old IPs (where devices WERE)
-	_, err = conn.Exec(`
-		INSERT INTO device_ip_assignment (device_id, ip_address, port, url_scheme, is_current)
-		VALUES
-			(1, '192.168.1.100', '50051', 'grpc', 1),
-			(2, '192.168.1.101', '50051', 'grpc', 1)
-	`)
-	require.NoError(t, err)
 }
 
 // verifyIPAssignmentUpdated checks that the device's IP assignment was updated
@@ -164,31 +164,17 @@ func verifyIPAssignmentUpdated(t *testing.T, conn *sql.DB, deviceID int64, expec
 	t.Helper()
 
 	var ipAddress, port, urlScheme string
-	var isCurrent bool
 
 	err := conn.QueryRow(`
-		SELECT ip_address, port, url_scheme, is_current
-		FROM device_ip_assignment
-		WHERE device_id = ? AND ip_address = ?
+		SELECT dd.ip_address, dd.port, dd.url_scheme
+		FROM device d
+		JOIN discovered_device dd ON d.discovered_device_id = dd.id
+		WHERE d.id = ?
 		LIMIT 1
-	`, deviceID, expectedIP).Scan(&ipAddress, &port, &urlScheme, &isCurrent)
+	`, deviceID).Scan(&ipAddress, &port, &urlScheme)
 
 	require.NoError(t, err, "IP assignment should exist in database")
 	require.Equal(t, expectedIP, ipAddress, "IP address should match")
 	require.Equal(t, expectedPort, port, "Port should match")
 	require.Equal(t, expectedScheme, urlScheme, "URL scheme should match")
-	require.True(t, isCurrent, "IP assignment should be current")
-
-	// Verify old IP is marked as not current
-	var oldIPCurrent bool
-	err = conn.QueryRow(`
-		SELECT is_current
-		FROM device_ip_assignment
-		WHERE device_id = ? AND ip_address != ?
-		LIMIT 1
-	`, deviceID, expectedIP).Scan(&oldIPCurrent)
-
-	if err == nil {
-		require.False(t, oldIPCurrent, "Old IP assignment should not be current")
-	}
 }

@@ -1,13 +1,21 @@
--- name: UpsertDevice :execresult
-INSERT INTO device (
+-- name: GetDiscoveredDeviceByID :one
+SELECT *
+FROM discovered_device
+WHERE id = ?
+    AND org_id = ?
+    AND deleted_at IS NULL
+LIMIT 1;
+
+-- name: InsertDiscoveredDevice :execresult
+INSERT INTO discovered_device (
     org_id,
     device_identifier,
-    mac_address,
-    serial_number,
     model,
     manufacturer,
     type,
-    is_active
+    ip_address,
+    port,
+    url_scheme
 ) VALUES (
     ?,
     ?,
@@ -17,15 +25,37 @@ INSERT INTO device (
     ?,
     ?,
     ?
+);
+
+-- name: UpdateDiscoveredDevice :exec
+UPDATE discovered_device
+SET
+    model = ?,
+    manufacturer = ?,
+    type = ?,
+    ip_address = ?,
+    port = ?,
+    url_scheme = ?,
+    last_seen = CURRENT_TIMESTAMP(6)
+WHERE id = ?;
+
+-- name: UpsertDevice :execresult
+INSERT INTO device (
+    org_id,
+    discovered_device_id,
+    device_identifier,
+    mac_address,
+    serial_number
+) VALUES (
+    ?,
+    ?,
+    ?,
+    ?,
+    ?
 )
 ON DUPLICATE KEY UPDATE
     serial_number = VALUES(serial_number),
-    is_active = VALUES(is_active),
-    last_seen = CURRENT_TIMESTAMP(6),
     deleted_at = NULL,
-    model = VALUES(model),
-    manufacturer = VALUES(manufacturer),
-    type = VALUES(type),
     org_id = VALUES(org_id),
     id = LAST_INSERT_ID(id);
 
@@ -36,68 +66,27 @@ WHERE device_identifier = ?
     AND org_id = ?
 LIMIT 1;
 
--- name: CreateInactiveDeviceIPAssignment :exec
-INSERT INTO device_ip_assignment (
-    device_id,
-    ip_address,
-    port,
-    url_scheme,
-    is_current
-) VALUES (
-    ?,
-    ?,
-    ?,
-    ?,
-    FALSE
-);
-
--- name: ActivateNewIPAssignment :exec
-WITH params AS (
-  SELECT
-    ?  AS ip_address,
-    ?  AS port,
-    ?  AS url_scheme,
-    ?  AS device_id
-)
-UPDATE device_ip_assignment AS d
-JOIN params AS p ON TRUE
+-- name: UpdateDeviceIPAssignment :exec
+UPDATE discovered_device dd
+INNER JOIN device d ON dd.id = d.discovered_device_id
 SET
-  d.is_current = (d.ip_address = p.ip_address AND d.port = p.port AND d.url_scheme = p.url_scheme),
-  d.assigned_at = CASE
-    WHEN d.ip_address = p.ip_address
-     AND d.port       = p.port
-     AND d.url_scheme = p.url_scheme
-    THEN CURRENT_TIMESTAMP(6)
-    ELSE d.assigned_at
-  END,
-  d.unassigned_at = CASE
-    WHEN d.is_current = TRUE
-     AND NOT (d.ip_address = p.ip_address AND d.port = p.port AND d.url_scheme = p.url_scheme)
-    THEN CURRENT_TIMESTAMP(6)
-    ELSE d.unassigned_at
-  END
-WHERE d.device_id = p.device_id
-  AND (d.is_current = TRUE
-       OR (d.ip_address = p.ip_address AND d.port = p.port AND d.url_scheme = p.url_scheme));
-
--- name: GetActiveDeviceIPAssignmentByDeviceID :one
-SELECT *
-FROM device_ip_assignment
-WHERE device_id = ?
-    AND is_current = TRUE
-LIMIT 1;
+  dd.ip_address = ?,
+  dd.port = ?,
+  dd.url_scheme = ?
+WHERE d.id = ?;
 
 -- name: ListPairedDevices :many
 SELECT
     d.device_identifier,
     d.mac_address,
     d.serial_number,
-    d.model,
-    d.manufacturer,
-    d.type,
+    dd.model,
+    dd.manufacturer,
+    dd.type,
     dp.id as cursor_id,
     d.id as device_id
 FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 WHERE dp.pairing_status = 'PAIRED'
     AND d.org_id = ?
@@ -124,13 +113,14 @@ ORDER BY dp.id, d.id;
 -- name: GetTotalPairedDevices :one
 SELECT COUNT(*)
 FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 WHERE dp.pairing_status = 'PAIRED'
     AND d.deleted_at IS NULL
     AND d.org_id = ?
     AND (sqlc.narg('status_filter') is null OR FIND_IN_SET(ds.status, sqlc.narg('status_filter')))
-    AND (sqlc.narg('type_filter') is null OR FIND_IN_SET(d.type, sqlc.narg('type_filter')));
+    AND (sqlc.narg('type_filter') is null OR FIND_IN_SET(dd.type, sqlc.narg('type_filter')));
 
 -- name: UpsertDevicePairing :execresult
 INSERT INTO device_pairing (
@@ -168,21 +158,21 @@ SELECT
     d.device_identifier,
     d.mac_address,
     d.serial_number,
-    d.model,
-    d.manufacturer,
-    d.type,
+    dd.model,
+    dd.manufacturer,
+    dd.type,
     ds.status as device_status,
     ds.status_timestamp,
     ds.status_details,
-    dia.ip_address,
-    dia.port,
-    dia.url_scheme,
+    dd.ip_address,
+    dd.port,
+    dd.url_scheme,
     dp.id as cursor_id,
     d.id as device_id
 FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
-LEFT JOIN device_ip_assignment dia ON d.id = dia.device_id AND dia.is_current = TRUE
 WHERE dp.pairing_status = 'PAIRED'
     AND d.deleted_at IS NULL
     AND d.org_id = ?
@@ -193,7 +183,7 @@ WHERE dp.pairing_status = 'PAIRED'
         (dp.id > sqlc.narg('cursor_id') OR (dp.id = sqlc.narg('cursor_id') AND d.id > sqlc.narg('device_cursor_id')))
     )
     AND (sqlc.narg('status_filter') is null OR FIND_IN_SET(ds.status, sqlc.narg('status_filter')))
-    AND (sqlc.narg('type_filter') is null OR FIND_IN_SET(d.type, sqlc.narg('type_filter')))
+    AND (sqlc.narg('type_filter') is null OR FIND_IN_SET(dd.type, sqlc.narg('type_filter')))
 ORDER BY dp.id, d.id
 LIMIT ?;
 
@@ -236,13 +226,14 @@ SELECT
     COUNT(CASE WHEN ds.status = 'OFFLINE' THEN 1 END) as offline_count,
     COUNT(CASE WHEN ds.status = 'MAINTENANCE' THEN 1 END) as sleeping_count
 FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 WHERE dp.pairing_status = 'PAIRED'
   AND d.deleted_at IS NULL
   AND d.org_id = ?
   AND (sqlc.narg('status_filter') is null OR FIND_IN_SET(ds.status, sqlc.narg('status_filter')))
-  AND (sqlc.narg('type_filter') is null OR FIND_IN_SET(d.type, sqlc.narg('type_filter')));
+  AND (sqlc.narg('type_filter') is null OR FIND_IN_SET(dd.type, sqlc.narg('type_filter')));
 
 -- name: UpsertDeviceStatus :exec
 INSERT INTO device_status (
@@ -287,14 +278,15 @@ WHERE d.device_identifier IN (sqlc.slice('device_identifiers'))
   AND d.deleted_at IS NULL;
 
 -- name: GetAvailableMinerTypes :many
-SELECT DISTINCT d.type
+SELECT DISTINCT dd.type
 FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 WHERE dp.pairing_status = 'PAIRED'
   AND d.deleted_at IS NULL
   AND d.org_id = ?
-  AND d.type IS NOT NULL
-ORDER BY d.type
+  AND dd.type IS NOT NULL
+ORDER BY dd.type
 ;
 
 -- name: GetOfflineDevices :many
@@ -302,23 +294,20 @@ SELECT
     d.id,
     d.device_identifier,
     d.mac_address,
-    d.type,
     d.org_id,
-    dia.ip_address,
-    dia.port,
-    dia.url_scheme
+    dd.type,
+    dd.ip_address,
+    dd.port,
+    dd.url_scheme
 FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 JOIN device_status ds ON d.id = ds.device_id
-LEFT JOIN device_ip_assignment dia ON d.id = dia.device_id AND dia.is_current = TRUE
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
 WHERE dp.pairing_status = 'PAIRED'
   AND d.deleted_at IS NULL
   AND ds.status = 'OFFLINE'
   AND d.mac_address IS NOT NULL
   AND d.mac_address != ''
-  AND dia.ip_address IS NOT NULL
-  AND dia.port IS NOT NULL
-  AND dia.url_scheme IS NOT NULL
 ORDER BY ds.status_timestamp DESC
 LIMIT ?;
 

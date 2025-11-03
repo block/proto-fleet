@@ -75,10 +75,6 @@ func (s *Service) handlePairViaStore(ctx context.Context, device *minerdiscovery
 			return fleeterror.NewInternalErrorf("failed to upsert device: %v", err)
 		}
 
-		if err := s.deviceStore.UpsertDeviceIPAssignment(txCtx, &device.Device, device.OrgID); err != nil {
-			return fleeterror.NewInternalErrorf("failed to upsert device IP assignment: %v", err)
-		}
-
 		if err := s.deviceStore.UpsertDevicePairing(txCtx, &device.Device, device.OrgID, pairing.StatusPaired); err != nil {
 			return fleeterror.NewInternalErrorf("failed to upsert device pairing: %v", err)
 		}

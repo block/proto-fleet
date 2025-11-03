@@ -110,13 +110,25 @@ func setupOfflineDeviceTestData(t *testing.T, conn *sql.DB) {
 	`)
 	require.NoError(t, err)
 
+	// Insert discovered devices
+	_, err = conn.Exec(`
+		INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme)
+		VALUES
+			(1, 1, 'test-device-001', 'proto', 'test-manufacturer', 'proto', '192.168.1.100', '50051', 'grpc'),
+			(2, 1, 'test-device-002', 'proto', 'test-manufacturer', 'proto', '192.168.1.101', '50051', 'grpc'),
+			(3, 1, 'test-device-003', 'proto', 'test-manufacturer', 'proto', '192.168.1.102', '50051', 'grpc')
+	`)
+	require.NoError(t, err)
+
+	// Insert devices
+	require.NoError(t, err)
 	// Insert devices
 	_, err = conn.Exec(`
-		INSERT INTO device (id, org_id, device_identifier, mac_address, type, is_active)
+		INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
 		VALUES
-			(1, 1, 'test-device-001', 'AA:BB:CC:DD:EE:01', 'proto', 1),
-			(2, 1, 'test-device-002', 'AA:BB:CC:DD:EE:02', 'proto', 1),
-			(3, 1, 'test-device-003', 'AA:BB:CC:DD:EE:03', 'proto', 1)
+			(1, 1, 1, 'test-device-001', 'AA:BB:CC:DD:EE:01'),
+			(2, 1, 2, 'test-device-002', 'AA:BB:CC:DD:EE:02'),
+			(3, 1, 3, 'test-device-003', 'AA:BB:CC:DD:EE:03')
 	`)
 	require.NoError(t, err)
 
@@ -137,16 +149,6 @@ func setupOfflineDeviceTestData(t *testing.T, conn *sql.DB) {
 			(1, 'OFFLINE', NOW()),
 			(2, 'OFFLINE', NOW()),
 			(3, 'ACTIVE', NOW())
-	`)
-	require.NoError(t, err)
-
-	// Insert IP assignments
-	_, err = conn.Exec(`
-		INSERT INTO device_ip_assignment (device_id, ip_address, port, url_scheme, is_current)
-		VALUES
-			(1, '192.168.1.100', '50051', 'grpc', 1),
-			(2, '192.168.1.101', '50051', 'grpc', 1),
-			(3, '192.168.1.102', '50051', 'grpc', 1)
 	`)
 	require.NoError(t, err)
 }
