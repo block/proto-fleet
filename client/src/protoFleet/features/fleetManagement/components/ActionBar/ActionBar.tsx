@@ -8,12 +8,14 @@ interface ActionBarProps {
   className?: string;
   selectedItems: string[];
   renderActions: (setHidden: (hidden: boolean) => void) => ReactNode;
+  onClose?: () => void;
 }
 
 const ActionBar = ({
   className,
   selectedItems,
   renderActions,
+  onClose,
 }: ActionBarProps) => {
   const [show, setShow] = useState(false);
   const [hidden, setHidden] = useState(false);
@@ -21,6 +23,11 @@ const ActionBar = ({
   useEffect(() => {
     setShow(selectedItems.length > 0);
   }, [selectedItems]);
+
+  const handleClose = () => {
+    setShow(false);
+    onClose?.();
+  };
 
   if (!show) {
     return null;
@@ -45,7 +52,7 @@ const ActionBar = ({
             variant={variants.secondary}
             size={sizes.compact}
             testId="close-button"
-            onClick={() => setShow(false)}
+            onClick={handleClose}
           />
           <div className="w-full text-emphasis-300 text-grayscale-white-90">
             {selectedItems.length} miners selected

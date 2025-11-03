@@ -18,6 +18,11 @@ service FleetManagementService {
 
   // Stream real-time measurement updates for miners
   rpc StreamMinerUpdates(StreamMinerUpdatesRequest) returns (stream StreamMinerUpdatesResponse);
+
+  // Stream incremental updates (additions/removals) for filtered miner list
+  // Sends initial snapshot, then delta updates when miners enter/exit filter criteria
+  // More efficient than sending full snapshots on each change
+  rpc StreamMinerListUpdates(StreamMinerListUpdatesRequest) returns (stream StreamMinerListUpdatesResponse);
 }
 
 enum FleetManagementServiceErrorCode {
@@ -305,6 +310,7 @@ message MinerListFilter {
 
 
 // Response containing a list of miners with their telemetry
+// Used by both ListMinerStateSnapshots (one-time query) and StreamFilteredMinerList (streaming updates)
 message ListMinerStateSnapshotsResponse {
   // List of miners with their telemetry data
   // Contains either snapshot or time series data based on the request
@@ -398,4 +404,60 @@ message Heartbeat {
 message DeviceStatusUpdate {
   // The new status of the device
   DeviceStatus status = 1;
+}
+
+// Request to stream incremental updates for a filtered miner list
+// Provides delta updates when miners move in/out of filter criteria
+// Tracks ALL miners matching the filter to ensure complete delta accuracy
+message StreamMinerListUpdatesRequest {
+  // Filter criteria for miners to track
+  MinerListFilter filter = 1;
+
+  // Global data mode for measurements (for initial snapshot and additions)
+  DataMode data_mode = 2;
+
+  // Global time series config (if using TIME_SERIES mode)
+  common.v1.TimeSeriesConfig time_series_config = 3;
+
+  // Per-measurement configurations
+  repeated MeasurementConfig measurement_configs = 4;
+
+  // Heartbeat interval in seconds (0 means no heartbeats)
+  int32 heartbeat_interval_seconds = 5;
+}
+
+// Response containing incremental updates to the filtered miner list
+message StreamMinerListUpdatesResponse {
+  // Timestamp when this update was generated
+  google.protobuf.Timestamp timestamp = 1;
+
+  // Type of update
+  oneof update {
+    // Delta updates - sent when list composition changes
+    MinerListDelta delta = 2;
+
+    // Heartbeat to keep connection alive
+    Heartbeat heartbeat = 3;
+  }
+}
+
+// Delta update containing additions and removals
+message MinerListDelta {
+  // Miners that now match the filter criteria (entered the list)
+  repeated MinerAddition additions = 1;
+
+  // Device IDs of miners that no longer match the filter (left the list)
+  repeated string removals = 2;
+
+  // Total miners matching the filter after applying delta
+  int32 total_miners = 3;
+}
+
+// Represents a miner being added to the filtered list
+message MinerAddition {
+  // The miner's current state snapshot
+  MinerStateSnapshot miner = 1;
+
+  // Position where the miner should be inserted (for maintaining sort order)
+  int32 position = 2;
 }

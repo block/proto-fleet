@@ -74,7 +74,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
   const minerIds = useMinerIds();
   const totalMiners = useTotalMiners();
-  const streamAbortController = useRef<AbortController | null>(null);
+  const telemetryStreamAbortController = useRef<AbortController | null>(null);
 
   // Internal state for the hook
   const [currentFilter, setCurrentFilter] = useState<
@@ -137,17 +137,17 @@ const useFleet = (options: UseFleetOptions = {}) => {
     }
   }, []);
 
-  const startStreamingUpdates = useCallback(
+  const startStreamingTelemetry = useCallback(
     (deviceIdentifiers: string[]) => {
       if (!deviceIdentifiers || deviceIdentifiers.length === 0) {
         return;
       }
 
-      if (streamAbortController.current) {
-        streamAbortController.current.abort();
+      if (telemetryStreamAbortController.current) {
+        telemetryStreamAbortController.current.abort();
       }
 
-      streamAbortController.current = new AbortController();
+      telemetryStreamAbortController.current = new AbortController();
 
       useFleetStore.getState().fleet.setStreaming(true);
 
@@ -170,7 +170,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
           for await (const response of telemetryClient.streamUpdates(request, {
             ...authHeader,
-            signal: streamAbortController.current?.signal,
+            signal: telemetryStreamAbortController.current?.signal,
           })) {
             updateMinerState(response);
           }
@@ -182,8 +182,8 @@ const useFleet = (options: UseFleetOptions = {}) => {
           if (
             errorMessage.includes("[canceled]") ||
             errorMessage.includes("AbortError") ||
-            (streamAbortController.current &&
-              streamAbortController.current.signal.aborted)
+            (telemetryStreamAbortController.current &&
+              telemetryStreamAbortController.current.signal.aborted)
           ) {
             return;
           }
@@ -202,12 +202,9 @@ const useFleet = (options: UseFleetOptions = {}) => {
     [authHeader, updateMinerState, handleAuthErrors],
   );
 
-  const doFetchMiners = useCallback(
-    async (
-      filter: MinerListFilter | undefined,
-      pageCursor?: string,
-      append = false,
-    ) => {
+  // Fetch initial list using one-time query
+  const fetchMinerList = useCallback(
+    async (filter: MinerListFilter | undefined, pageCursor?: string) => {
       setIsLoading(true);
       try {
         const response = await fleetManagementClient.listMinerStateSnapshots(
@@ -215,6 +212,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
             pageSize,
             cursor: pageCursor,
             filter,
+            dataMode: DataMode.METADATA,
             measurementConfigs: [
               {
                 measurementType: MeasurementConfig_MeasurementType.HASHRATE,
@@ -242,12 +240,8 @@ const useFleet = (options: UseFleetOptions = {}) => {
           totalStateCounts,
         } = response;
 
-        // Update store based on append flag
-        if (append) {
-          useFleetStore.getState().fleet.appendMiners(miners);
-        } else {
-          useFleetStore.getState().fleet.setMiners(miners);
-        }
+        // Update store
+        useFleetStore.getState().fleet.setMiners(miners);
 
         const store = useFleetStore.getState();
         store.fleet.setCursor(newCursor);
@@ -260,50 +254,46 @@ const useFleet = (options: UseFleetOptions = {}) => {
         setCursor(newCursor || undefined);
         setHasMore(!!newCursor);
 
-        // Start streaming updates for these miners
+        // Start telemetry streaming for these miners
         if (miners.length > 0) {
           const deviceIds = miners.map((miner) => miner.deviceIdentifier);
-          startStreamingUpdates(deviceIds);
+          startStreamingTelemetry(deviceIds);
         }
-
-        return {
-          miners,
-          cursor: newCursor,
-          totalMiners,
-          totalStateCounts,
-        };
       } catch (error) {
         handleAuthErrors({
           error: error,
           onError: (err) => {
-            console.error("Error fetching fleet data:", err);
-            throw err;
+            console.error("Error fetching miner list:", err);
           },
         });
       } finally {
         setIsLoading(false);
       }
     },
-    [authHeader, startStreamingUpdates, pageSize, handleAuthErrors],
+    [authHeader, pageSize, startStreamingTelemetry, handleAuthErrors],
   );
 
+  // Debounced version of fetchMinerList for internal use
   const fetchMiners = useMemo(() => {
-    return debounce(doFetchMiners, 300);
-  }, [doFetchMiners]);
+    return debounce(fetchMinerList, 300);
+  }, [fetchMinerList]);
 
   const setFilter = useCallback(
     (filter: MinerListFilter) => {
       setCurrentFilter(filter);
       useFleetStore.getState().fleet.setCurrentFilter(filter);
       setCursor(undefined); // Reset cursor when filter changes
-      fetchMiners(filter, undefined, false);
+
+      // Fetch immediately with debounce
+      fetchMiners(filter, undefined);
     },
     [fetchMiners],
   );
 
   const loadMore = useCallback(() => {
     if (hasMore && !isLoading) {
-      fetchMiners(currentFilter, cursor, true);
+      // Fetch next page with debounce
+      fetchMiners(currentFilter, cursor);
     }
   }, [hasMore, isLoading, currentFilter, cursor, fetchMiners]);
 
@@ -311,7 +301,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
   useEffect(() => {
     const refetchCallback = () => {
       if (!isLoading) {
-        fetchMiners(currentFilter, undefined, false);
+        fetchMiners(currentFilter, cursor);
       }
     };
 
@@ -320,19 +310,20 @@ const useFleet = (options: UseFleetOptions = {}) => {
     return () => {
       useFleetStore.getState().fleet.setRefetchCallback(undefined);
     };
-  }, [fetchMiners, currentFilter, isLoading]);
+  }, [fetchMiners, currentFilter, cursor, isLoading]);
 
   // Initial load on mount
   useEffect(() => {
     useFleetStore.getState().fleet.setCurrentFilter(initialFilter);
-    fetchMiners(initialFilter, undefined, false);
+
+    // Fetch immediately with debounce
+    fetchMiners(initialFilter, undefined);
 
     // Cleanup streaming on unmount to prevent memory leaks
     return () => {
-      fetchMiners.cancel();
-      if (streamAbortController.current) {
-        streamAbortController.current.abort();
-        streamAbortController.current = null;
+      if (telemetryStreamAbortController.current) {
+        telemetryStreamAbortController.current.abort();
+        telemetryStreamAbortController.current = null;
       }
     };
   }, [fetchMiners, initialFilter]); // Only run on mount

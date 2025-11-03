@@ -1,5 +1,5 @@
 import { fireEvent, render } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 
 describe("Miner list action bar", () => {
@@ -38,5 +38,29 @@ describe("Miner list action bar", () => {
     fireEvent.click(miningPoolsButton);
 
     expect(actionBarElement.classList.contains("invisible")).toBe(true);
+  });
+
+  test("calls onClearSelection when action bar close button is clicked", () => {
+    const onClearSelectionMock = vi.fn();
+    const { getByTestId } = render(
+      <MinerListActionBar
+        {...actionBarProps}
+        onClearSelection={onClearSelectionMock}
+      />,
+    );
+
+    const closeButton = getByTestId("close-button");
+    fireEvent.click(closeButton);
+
+    expect(onClearSelectionMock).toHaveBeenCalledOnce();
+  });
+
+  test("does not throw when onClearSelection is not provided", () => {
+    const { getByTestId } = render(<MinerListActionBar {...actionBarProps} />);
+
+    const closeButton = getByTestId("close-button");
+
+    // Should not throw error when clicking close without onClearSelection prop
+    expect(() => fireEvent.click(closeButton)).not.toThrow();
   });
 });

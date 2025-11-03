@@ -222,7 +222,7 @@ Configured in `tsconfig.json` and `vite.config.ts`:
 "@/*" // Maps to src/* (use this for all absolute imports)
 ```
 
-Always use `@/` for imports instead of backwareds relative paths. Examples:
+Always use `@/` for imports instead of backwards relative paths. Examples:
 
 ```typescript
 // Good
@@ -360,7 +360,7 @@ When developing features:
 6. Create Storybook stories for new components
 7. Write tests for new functionality
 8. Use the `@/` path alias for imports instead of relative paths
-9. Never use multiple ancestor paths like `../../` - always use absolute paths from the `@/` alias
+9. Never use multiple backwards relative paths like `../../` - always use absolute paths from the `@/` alias
 10. Maintain strict import boundaries:
     - Files in `src/shared/` must never import from `src/protoOS` or `src/protoFleet`
     - Files in `src/protoOS` must never import from `src/protoFleet`, and vice versa

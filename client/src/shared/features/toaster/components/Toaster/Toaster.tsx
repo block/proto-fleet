@@ -50,21 +50,28 @@ const Toaster = () => {
     });
   }, []);
 
+  const handleToastClose = (id: number, customOnClose?: () => void) => {
+    removeToast(id);
+    customOnClose?.();
+  };
+
   return (
     <>
       <motion.div whileHover="hover" className="group absolute -top-5 right-0">
         <AnimatePresence>
-          {basicToasts.map(({ message, status, id, ttl }: ToastType, idx) => (
-            <Toast
-              key={id}
-              message={message}
-              onClose={() => removeToast(id)}
-              status={status}
-              index={idx}
-              numToasts={basicToasts.length}
-              ttl={ttl}
-            />
-          ))}
+          {basicToasts.map(
+            ({ message, status, id, ttl, onClose }: ToastType, idx) => (
+              <Toast
+                key={id}
+                message={message}
+                onClose={() => handleToastClose(id, onClose)}
+                status={status}
+                index={idx}
+                numToasts={basicToasts.length}
+                ttl={ttl}
+              />
+            ),
+          )}
         </AnimatePresence>
       </motion.div>
       <GroupedToaster toasts={actionToasts} />

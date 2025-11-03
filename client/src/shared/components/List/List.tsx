@@ -37,7 +37,10 @@ type ListProps<ListItem, ItemKeyValueType> = {
   disabled?: boolean;
   actions?: ListAction<ListItem>[];
   noDataElement?: ReactNode;
-  renderActionBar?: (selectedItems: ItemKeyValueType[]) => ReactNode;
+  renderActionBar?: (
+    selectedItems: ItemKeyValueType[],
+    clearSelection: () => void,
+  ) => ReactNode;
   containerClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   overflowContainer?: boolean;
@@ -438,7 +441,9 @@ const List = <ListItem, ItemKeyValueType>({
           )}
         </div>
         {renderActionBar && (
-          <div className="w-full">{renderActionBar(selectedItems)}</div>
+          <div className="w-full">
+            {renderActionBar(selectedItems, () => handleSelectAll(false))}
+          </div>
         )}
       </div>
     </div>

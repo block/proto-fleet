@@ -11,6 +11,7 @@ export type ToastType = {
   ttl?: number | false;
   longRunning?: boolean;
   progress?: number;
+  onClose?: () => void;
 };
 
 // Props interface Toast component accepts

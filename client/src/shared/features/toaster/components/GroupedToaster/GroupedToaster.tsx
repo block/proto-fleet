@@ -17,6 +17,11 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const timeoutId = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const handleToastClose = (id: number, customOnClose?: () => void) => {
+    removeToast(id);
+    customOnClose?.();
+  };
+
   // When user doesn't expand the toaster, the toasts would never get removed
   useEffect(() => {
     const clearTimeoutWithCheck = () => {
@@ -42,7 +47,7 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
             )
               return;
 
-            removeToast(toast.id);
+            handleToastClose(toast.id, toast.onClose);
           });
         },
         toasts[0].ttl !== false && toasts[0].ttl !== undefined
@@ -111,14 +116,14 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
         {isExpanded && (
           <>
             <div className="w-full divide-y divide-border-5">
-              {toasts.map(({ message, status, id, progress, ttl }) => (
+              {toasts.map(({ message, status, id, progress, ttl, onClose }) => (
                 <GroupedToast
                   key={id}
                   message={message}
                   status={status}
                   progress={progress}
                   ttl={ttl}
-                  onClose={() => removeToast(id)}
+                  onClose={() => handleToastClose(id, onClose)}
                 />
               ))}
             </div>

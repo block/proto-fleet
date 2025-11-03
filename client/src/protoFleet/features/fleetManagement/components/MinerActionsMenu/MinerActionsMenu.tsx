@@ -295,7 +295,6 @@ const MinerActionsMenu = ({
   };
 
   const handleConfirmation = async () => {
-    onActionComplete?.();
     if (
       currentAction === null ||
       currentAction === deviceActions.blinkLEDs ||
@@ -307,6 +306,7 @@ const MinerActionsMenu = ({
       message: `${loadingMessages[currentAction]} ${minersMessage}`,
       status: TOAST_STATUSES.loading,
       longRunning: true,
+      onClose: () => onActionComplete?.(),
     });
 
     // Handle device action API calls
@@ -426,6 +426,11 @@ const MinerActionsMenu = ({
     });
   };
 
+  const handleCancel = () => {
+    setCurrentAction(null);
+    onActionComplete?.();
+  };
+
   return (
     <PopoverProvider>
       <BulkActionsWidget<SupportedAction>
@@ -433,7 +438,7 @@ const MinerActionsMenu = ({
         buttonTitle="All actions"
         actions={popoverActions}
         onConfirmation={handleConfirmation}
-        onCancel={() => onActionComplete?.()}
+        onCancel={handleCancel}
         currentAction={currentAction}
         renderPopover={(beforeEach) => (
           <BulkActionsPopover<SupportedAction>

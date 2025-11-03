@@ -13,6 +13,7 @@ import (
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
+	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 
 	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
@@ -82,6 +83,7 @@ type TelemetryService struct {
 	cancelFunc         context.CancelFunc
 	lookBackDuration   time.Duration
 	trackedDevices     sync.Map
+	broadcasters       sync.Map // map[int64]*TelemetryBroadcaster - keyed by orgID
 }
 
 func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager MinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore) *TelemetryService {
@@ -133,7 +135,55 @@ func (s *TelemetryService) Stop(ctx context.Context) error {
 	s.cancelFunc()
 	defer close(s.tasks)
 	defer close(s.statusTasks)
+
+	// Stop all broadcasters
+	s.broadcasters.Range(func(_, value interface{}) bool {
+		if broadcaster, ok := value.(*TelemetryBroadcaster); ok {
+			broadcaster.Stop()
+		}
+		return true
+	})
+
 	return nil
+}
+
+// GetOrCreateBroadcaster returns the broadcaster for an organization, creating it if needed
+func (s *TelemetryService) GetOrCreateBroadcaster(ctx context.Context, orgID int64) (*TelemetryBroadcaster, error) {
+	// Try to load existing broadcaster
+	if val, ok := s.broadcasters.Load(orgID); ok {
+		broadcaster, ok := val.(*TelemetryBroadcaster)
+		if !ok {
+			return nil, fmt.Errorf("invalid broadcaster type for org %d", orgID)
+		}
+		return broadcaster, nil
+	}
+
+	// Create new broadcaster
+	pollInterval := 5 * time.Second // default
+	if s.config.FetchInterval > 0 {
+		pollInterval = s.config.FetchInterval
+	}
+
+	broadcaster := NewTelemetryBroadcaster(orgID, s.telemetryDataStore, pollInterval)
+
+	// Try to store it (may race with another goroutine)
+	actual, loaded := s.broadcasters.LoadOrStore(orgID, broadcaster)
+	if loaded {
+		// Another goroutine created it first, use that one
+		actualBroadcaster, ok := actual.(*TelemetryBroadcaster)
+		if !ok {
+			return nil, fmt.Errorf("invalid broadcaster type for org %d", orgID)
+		}
+		return actualBroadcaster, nil
+	}
+
+	// We created it, start it
+	if err := broadcaster.Start(ctx); err != nil {
+		s.broadcasters.Delete(orgID)
+		return nil, fmt.Errorf("failed to start broadcaster for org %d: %w", orgID, err)
+	}
+
+	return broadcaster, nil
 }
 
 func (s *TelemetryService) gatherDeviceStatusRoutine(ctx context.Context) {
@@ -141,6 +191,7 @@ func (s *TelemetryService) gatherDeviceStatusRoutine(ctx context.Context) {
 	if interval <= 0 {
 		interval = 10 * time.Second // Default interval if not configured
 	}
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -274,17 +325,38 @@ func (s *TelemetryService) GetStatusForDevice(ctx context.Context, device models
 		return fmt.Errorf("failed to get miner from device ID %s: %w", device.ID, err)
 	}
 
-	status, err := miner.GetDeviceStatus(ctx)
+	// Get old status before updating
+	oldStatuses, err := s.deviceStore.GetDeviceStatusForDeviceIdentifiers(ctx, []models.DeviceIdentifier{device.ID})
+	if err != nil {
+		slog.Warn("failed to get old device status", "deviceID", device.ID, "error", err)
+	}
+	oldStatus, hadOldStatus := oldStatuses[device.ID]
+
+	// Get new status from miner
+	newStatus, err := miner.GetDeviceStatus(ctx)
 	if err != nil {
 		slog.Error("failed to get device status for miner", "deviceID", device.ID, "error", err)
 	}
 
-	err = s.deviceStore.UpsertDeviceStatus(ctx, device.ID, status, "")
+	// Update database
+	err = s.deviceStore.UpsertDeviceStatus(ctx, device.ID, newStatus, "")
 	if err != nil {
 		return fmt.Errorf("failed to upsert device status for device %s: %w", device.ID, err)
 	}
 
-	if status == mm.MinerStatusError || status == mm.MinerStatusOffline {
+	// Publish status change event if status changed
+	if hadOldStatus && oldStatus != newStatus {
+		// Publish to all organization broadcasters
+		// TODO: Optimize by caching device -> org mapping
+		s.broadcasters.Range(func(_, value interface{}) bool {
+			if broadcaster, ok := value.(*TelemetryBroadcaster); ok {
+				broadcaster.PublishStatusChange(device.ID, newStatus)
+			}
+			return true
+		})
+	}
+
+	if newStatus == mm.MinerStatusError || newStatus == mm.MinerStatusOffline {
 		return nil
 	}
 
@@ -668,6 +740,12 @@ func (s *TelemetryService) GetMinerComponentStatus(ctx context.Context, _ string
 
 // StreamMeasurements streams measurement updates for the specified miners and measurement types
 func (s *TelemetryService) StreamMeasurements(ctx context.Context, deviceIDs []string, measurementTypes []pb.MeasurementConfig_MeasurementType) (<-chan *pb.StreamMinerUpdatesResponse, error) {
+	// Get org ID from context
+	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get auth claims: %w", err)
+	}
+
 	responseChan := make(chan *pb.StreamMinerUpdatesResponse, 100)
 
 	// Convert device IDs and measurement types to internal models
@@ -684,22 +762,27 @@ func (s *TelemetryService) StreamMeasurements(ctx context.Context, deviceIDs []s
 		}
 	}
 
-	// Create stream query
-	streamQuery := models.StreamQuery{
-		DeviceIDs:        internalDeviceIDs,
-		MeasurementTypes: internalMeasurementTypes,
-		IncludeHeartbeat: true,
-	}
-
-	// Start streaming from the telemetry data store
-	updateChan, err := s.telemetryDataStore.StreamTelemetryUpdates(ctx, streamQuery)
+	// Get or create broadcaster for this organization
+	broadcaster, err := s.GetOrCreateBroadcaster(ctx, claims.OrgID)
 	if err != nil {
 		close(responseChan)
-		return nil, fmt.Errorf("failed to start telemetry stream: %w", err)
+		return nil, fmt.Errorf("failed to get broadcaster: %w", err)
+	}
+
+	// Subscribe to broadcaster with filters
+	updateChan, unsubscribe, err := broadcaster.Subscribe(ctx, SubscriptionConfig{
+		DeviceIDs:        internalDeviceIDs,
+		MeasurementTypes: internalMeasurementTypes,
+		BufferSize:       100,
+	})
+	if err != nil {
+		close(responseChan)
+		return nil, fmt.Errorf("failed to subscribe to broadcaster: %w", err)
 	}
 
 	go func() {
 		defer close(responseChan)
+		defer unsubscribe()
 
 		for {
 			select {
@@ -840,6 +923,36 @@ func (s *TelemetryService) StreamComponentStatus(ctx context.Context, deviceIDs 
 	}()
 
 	return responseChan, nil
+}
+
+// SubscribeToTelemetryUpdates subscribes to raw telemetry updates for an organization
+// This allows consumers to receive telemetry events without the conversion to protobuf responses
+// eventTypes filters which event types to receive (empty means all types)
+func (s *TelemetryService) SubscribeToTelemetryUpdates(ctx context.Context, orgID int64, deviceIDs []string, eventTypes []models.UpdateType) (<-chan models.TelemetryUpdate, func(), error) {
+	// Convert device IDs to internal models
+	internalDeviceIDs := make([]models.DeviceIdentifier, len(deviceIDs))
+	for i, id := range deviceIDs {
+		internalDeviceIDs[i] = models.DeviceIdentifier(id)
+	}
+
+	// Get or create broadcaster for this organization
+	broadcaster, err := s.GetOrCreateBroadcaster(ctx, orgID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get broadcaster: %w", err)
+	}
+
+	// Subscribe with optional event type filtering
+	updateChan, unsubscribe, err := broadcaster.Subscribe(ctx, SubscriptionConfig{
+		DeviceIDs:        internalDeviceIDs,
+		MeasurementTypes: nil, // Subscribe to all measurement types
+		EventTypes:       eventTypes,
+		BufferSize:       100,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to subscribe to broadcaster: %w", err)
+	}
+
+	return updateChan, unsubscribe, nil
 }
 
 // Helper functions for type conversions

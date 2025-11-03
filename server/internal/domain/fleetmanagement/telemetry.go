@@ -8,6 +8,7 @@ import (
 	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement/models"
+	telemetryModels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -24,6 +25,11 @@ type TelemetryCollector interface {
 
 	// StreamComponentStatus streams component status updates for the specified miners
 	StreamComponentStatus(ctx context.Context, deviceIDs []string) (<-chan *pb.StreamMinerUpdatesResponse, error)
+
+	// SubscribeToTelemetryUpdates subscribes to raw telemetry updates for an organization
+	// This allows consumers to receive telemetry events without the conversion to protobuf responses
+	// eventTypes filters which event types to receive (empty means all types)
+	SubscribeToTelemetryUpdates(ctx context.Context, orgID int64, deviceIDs []string, eventTypes []telemetryModels.UpdateType) (<-chan telemetryModels.TelemetryUpdate, func(), error)
 }
 
 // MockTelemetryCollector provides a mock implementation of TelemetryCollector for testing
@@ -260,4 +266,23 @@ func generateMockStatus() pb.ComponentStatus {
 		pb.ComponentStatus_COMPONENT_STATUS_ERROR,
 	}
 	return statuses[rand.Intn(len(statuses))]
+}
+
+func (m *MockTelemetryCollector) SubscribeToTelemetryUpdates(ctx context.Context, _ int64, _ []string, _ []telemetryModels.UpdateType) (<-chan telemetryModels.TelemetryUpdate, func(), error) {
+	ch := make(chan telemetryModels.TelemetryUpdate, 100)
+
+	// Use a cancel context to coordinate cleanup
+	subCtx, cancel := context.WithCancel(ctx)
+
+	// Mock implementation - just return an empty channel that closes when context is done
+	go func() {
+		<-subCtx.Done()
+		close(ch)
+	}()
+
+	unsubscribe := func() {
+		cancel() // Signal the goroutine to close the channel
+	}
+
+	return ch, unsubscribe, nil
 }

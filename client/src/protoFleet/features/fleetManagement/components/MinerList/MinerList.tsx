@@ -210,9 +210,12 @@ const MinerList = ({
         items={minerItems}
         itemKey={"deviceIdentifier"}
         itemSelectable
-        renderActionBar={(selectedItems) => (
+        renderActionBar={(selectedItems, clearSelection) => (
           <div className="flex w-full justify-center">
-            <MinerListActionBar selectedMiners={selectedItems} />
+            <MinerListActionBar
+              selectedMiners={selectedItems}
+              onClearSelection={clearSelection}
+            />
           </div>
         )}
         containerClassName={listClassName}

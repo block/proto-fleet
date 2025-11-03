@@ -3,11 +3,8 @@ package fleetmanagement_test
 import (
 	"testing"
 
-	"connectrpc.com/connect"
 	"github.com/alecthomas/assert/v2"
-	authv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	"github.com/btc-mining/proto-fleet/server/internal/handlers/fleetmanagement"
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -76,30 +73,22 @@ func TestHandler_ListMinerStateSnapshots(t *testing.T) {
 				minerIDs[i] = testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, url)[0]
 			}
 
-			authRequest := connect.NewRequest(&authv1.AuthenticateRequest{
-				Username: testUser.Username,
-				Password: testUser.Password,
-			})
-			authResponse, err := testContext.InfrastructureProvider.AuthClient.Authenticate(t.Context(), authRequest)
-			require.NoError(t, err)
-			authToken := authResponse.Msg.Token
+			ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+			service := testContext.ServiceProvider.FleetManagementService
 
-			handler := fleetmanagement.NewHandler(testContext.ServiceProvider.FleetManagementService)
-			req := connect.NewRequest(&pb.ListMinerStateSnapshotsRequest{
+			req := &pb.ListMinerStateSnapshotsRequest{
 				PageSize: 5,
 				DataMode: tc.dataMode,
-			})
-			req.Header().Set("Authorization", "Bearer "+authToken)
+			}
 
 			// Act
-			ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
-			resp, err := handler.ListMinerStateSnapshots(ctx, req)
+			resp, err := service.ListMinerStateSnapshots(ctx, req)
 
 			// Assert
 			require.NoError(t, err)
-			require.Len(t, resp.Msg.Miners, len(tc.minerURLs))
+			require.Len(t, resp.Miners, len(tc.minerURLs))
 
-			for i, miner := range resp.Msg.Miners {
+			for i, miner := range resp.Miners {
 				assert.Equal(t, miner.DeviceIdentifier, minerIDs[i])
 				assert.Equal(t, tc.expectedURLs[i], miner.Url)
 			}

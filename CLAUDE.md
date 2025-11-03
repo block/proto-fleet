@@ -310,11 +310,23 @@ Follow conventional commit format:
 
 ### Creating Pull Requests
 
-Use `gh` CLI to create PRs with consistent format:
+**Important**: Always use the Linear MCP to retrieve the correct issue URL before creating a PR.
+
+When creating a PR, follow these steps:
+
+1. Use the Linear MCP `get_issue` tool to retrieve the issue details and URL
+2. Use the returned URL in the PR body
+3. Create the PR with `gh` CLI using the consistent format below
+
+Example workflow:
 
 ```bash
+# First, use Linear MCP to get issue details (this returns the correct URL)
+# mcp__linear-server__get_issue with id: "DASH-123"
+
+# Then create PR with the URL from Linear
 gh pr create --title "[DASH-123] Brief description" --body "$(cat <<'EOF'
-## [[DASH-123] Brief description](${linearIssueUrl}$)
+## [[DASH-123] Brief description](https://linear.app/squareup/issue/DASH-123/brief-description)
 
 ## Summary
 - Bullet point summary of changes
@@ -327,6 +339,8 @@ gh pr create --title "[DASH-123] Brief description" --body "$(cat <<'EOF'
 EOF
 )"
 ```
+
+**Note**: Never manually construct Linear URLs. Always use the Linear MCP `get_issue` tool to get the correct URL format.
 
 ## Testing
 

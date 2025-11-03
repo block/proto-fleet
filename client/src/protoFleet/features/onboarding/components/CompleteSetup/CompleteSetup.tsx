@@ -1,6 +1,6 @@
 import { ReactNode, useState } from "react";
-import useFleet from "@/protoFleet/api/useFleet";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
+import { useMinerIds } from "@/protoFleet/store";
 import { Alert, Dismiss, MiningPools, Racks } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
@@ -108,7 +108,7 @@ const CompleteSetup = () => {
   };
 
   // TODO: remove this placeholder once we have a way to get the number of unauthenticated miners
-  const { minerIds } = useFleet({ pageSize: 200 });
+  const minerIds = useMinerIds();
 
   return (
     <>

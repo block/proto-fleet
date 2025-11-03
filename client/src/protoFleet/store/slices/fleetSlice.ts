@@ -163,6 +163,8 @@ export interface FleetSlice {
   // Actions
   setMiners: (miners: MinerStateSnapshot[]) => void;
   appendMiners: (miners: MinerStateSnapshot[]) => void;
+  addMiners: (additions: any[]) => void; // Add miners with position hints
+  removeMiners: (deviceIds: string[]) => void; // Remove miners by ID
   setTotalMiners: (count: number) => void;
   setDeviceStatusCounts: (counts: MinerStateCounts) => void;
   setCurrentFilter: (filter?: MinerListFilter) => void;
@@ -235,6 +237,54 @@ export const createFleetSlice: StateCreator<
         if (!existingIds.has(miner.deviceIdentifier)) {
           state.fleet.miners[miner.deviceIdentifier] = miner;
           state.fleet.minerIds.push(miner.deviceIdentifier);
+        }
+      });
+    }),
+
+  addMiners: (additions) =>
+    set((state) => {
+      // Sort additions by position to process in order
+      const sortedAdditions = [...additions].sort(
+        (a, b) => a.position - b.position,
+      );
+
+      sortedAdditions.forEach((addition) => {
+        const miner = addition.miner;
+        const position = addition.position;
+
+        // Skip if position is beyond what we've loaded
+        // This prevents gaps in our displayed list
+        if (position > state.fleet.minerIds.length) {
+          return;
+        }
+
+        // Add miner to the map
+        state.fleet.miners[miner.deviceIdentifier] = miner;
+
+        // Remove from current position if it exists
+        const currentIndex = state.fleet.minerIds.indexOf(
+          miner.deviceIdentifier,
+        );
+        if (currentIndex !== -1) {
+          state.fleet.minerIds.splice(currentIndex, 1);
+        }
+
+        // Insert at specified position
+        // Position is always provided by the server for consistent ordering
+        state.fleet.minerIds.splice(position, 0, miner.deviceIdentifier);
+      });
+    }),
+
+  removeMiners: (deviceIds) =>
+    set((state) => {
+      deviceIds.forEach((deviceId) => {
+        // Remove from map
+        delete state.fleet.miners[deviceId];
+
+        // Remove from ordered list
+        const index = state.fleet.minerIds.indexOf(deviceId);
+        if (index !== -1) {
+          state.fleet.minerIds.splice(index, 1);
         }
       });
     }),

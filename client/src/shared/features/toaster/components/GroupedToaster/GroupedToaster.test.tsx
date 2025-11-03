@@ -1,5 +1,5 @@
 import { fireEvent, render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import GroupedToaster from "./GroupedToaster";
 import { STATUSES } from "@/shared/features/toaster";
 
@@ -98,5 +98,98 @@ describe("Grouped toaster", () => {
     expect(getByText(toasts[0].message)).toBeInTheDocument();
     expect(getByText("Queued")).toBeInTheDocument();
     expect(getByTestId(queuedProgress)).toBeInTheDocument();
+  });
+
+  it("calls custom onClose callback when toast is removed", async () => {
+    vi.useFakeTimers();
+    const onCloseMock = vi.fn();
+    const toasts = [
+      {
+        id: 1,
+        message: "Success toast",
+        status: STATUSES.success,
+        ttl: 500, // Short TTL for quick test
+        onClose: onCloseMock,
+      },
+    ];
+
+    const { getByTestId } = render(<GroupedToaster toasts={toasts} />);
+
+    // Expand the toaster to see individual toasts
+    const headerElement = getByTestId(header);
+    fireEvent.click(headerElement);
+
+    // Verify onClose is not called initially
+    expect(onCloseMock).not.toHaveBeenCalled();
+
+    // Fast-forward time by TTL duration (individual toast auto-closes when expanded)
+    vi.advanceTimersByTime(600);
+    await vi.runOnlyPendingTimersAsync();
+
+    // The onClose callback should be called when toast is removed
+    expect(onCloseMock).toHaveBeenCalledOnce();
+
+    vi.useRealTimers();
+  });
+
+  it("calls custom onClose for completed toasts on auto-cleanup", async () => {
+    vi.useFakeTimers();
+    const onCloseMock = vi.fn();
+    const toasts = [
+      {
+        id: 1,
+        message: "Success toast",
+        status: STATUSES.success,
+        ttl: 1000, // 1 second TTL
+        onClose: onCloseMock,
+      },
+    ];
+
+    render(<GroupedToaster toasts={toasts} />);
+
+    // Verify onClose is not called initially
+    expect(onCloseMock).not.toHaveBeenCalled();
+
+    // Fast-forward time by TTL duration + a bit more
+    vi.advanceTimersByTime(1100);
+
+    // Wait for React to process state updates
+    await vi.runOnlyPendingTimersAsync();
+
+    // onClose should have been called for the completed toast
+    expect(onCloseMock).toHaveBeenCalledOnce();
+
+    vi.useRealTimers();
+  });
+
+  it("does not auto-cleanup when toaster is expanded", async () => {
+    vi.useFakeTimers();
+    const onCloseMock = vi.fn();
+    const toasts = [
+      {
+        id: 1,
+        message: "Success toast",
+        status: STATUSES.success,
+        ttl: false as const, // Disable TTL to test expansion behavior
+        onClose: onCloseMock,
+      },
+    ];
+
+    const { getByTestId } = render(<GroupedToaster toasts={toasts} />);
+
+    // Expand the toaster immediately
+    const headerElement = getByTestId(header);
+    fireEvent.click(headerElement);
+
+    // When expanded, the GroupedToaster's cleanup timer should be cleared
+    // Individual toasts may still have their own timers, but GroupedToaster won't bulk-remove them
+    // Since we set ttl: false, the individual toast won't auto-close either
+    vi.advanceTimersByTime(2000);
+    await vi.runOnlyPendingTimersAsync();
+
+    // Verify onClose was NOT called
+    expect(onCloseMock).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
   });
 });

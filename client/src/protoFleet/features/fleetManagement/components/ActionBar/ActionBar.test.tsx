@@ -88,4 +88,25 @@ describe("Action Bar", () => {
     fireEvent.click(getByTestId("factory-reset-popover-button"));
     expect(onActionStartMock).toHaveBeenCalled();
   });
+
+  test("calls onClose callback when close button is clicked", () => {
+    const onCloseMock = vi.fn();
+    const { getByTestId } = render(
+      <ActionBar {...actionBarProps} onClose={onCloseMock} />,
+    );
+
+    const closeButton = getByTestId("close-button");
+    fireEvent.click(closeButton);
+
+    expect(onCloseMock).toHaveBeenCalledOnce();
+  });
+
+  test("does not throw error when onClose is not provided", () => {
+    const { getByTestId } = render(<ActionBar {...actionBarProps} />);
+
+    const closeButton = getByTestId("close-button");
+
+    // Should not throw error when clicking close without onClose prop
+    expect(() => fireEvent.click(closeButton)).not.toThrow();
+  });
 });

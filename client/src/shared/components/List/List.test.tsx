@@ -140,8 +140,17 @@ describe("List", () => {
     ).toHaveLength(0);
   });
 
-  it("renders action bar when items are selected", () => {
-    const renderActionBar = vi.fn(() => <div>Action Bar</div>);
+  it("renders action bar when items are selected and provides clearSelection callback", () => {
+    const renderActionBar = vi.fn(
+      (_selectedItems: TestItemKey[], clearSelection: () => void) => (
+        <div>
+          <div>Action Bar</div>
+          <button onClick={clearSelection} data-testid="clear-selection-btn">
+            Clear
+          </button>
+        </div>
+      ),
+    );
 
     const { getByTestId } = render(
       <List<TestItem, TestItemKey>
@@ -160,9 +169,78 @@ describe("List", () => {
       // eslint-disable-next-line
     ) as NodeListOf<HTMLInputElement>;
 
+    // Select first item
     fireEvent.click(selectItemCheckboxes[0]);
-    expect(renderActionBar).toHaveBeenCalledWith([testItems[0].id]);
+
+    // Verify renderActionBar was called with selectedItems and clearSelection callback
+    expect(renderActionBar).toHaveBeenCalled();
+    const lastCall =
+      renderActionBar.mock.calls[renderActionBar.mock.calls.length - 1];
+    expect(lastCall[0]).toEqual([testItems[0].id]); // selectedItems
+    expect(typeof lastCall[1]).toBe("function"); // clearSelection callback
+
     expect(screen.getByText("Action Bar")).toBeInTheDocument();
+
+    // Click clear button
+    const clearButton = screen.getByTestId("clear-selection-btn");
+    fireEvent.click(clearButton);
+
+    // Verify all checkboxes are now unchecked
+    expect(
+      Array.from(selectItemCheckboxes).filter((c) => c.checked),
+    ).toHaveLength(0);
+  });
+
+  it("clearSelection callback deselects all items", async () => {
+    let clearSelectionCallback: (() => void) | null = null;
+
+    const renderActionBar = vi.fn(
+      (_selectedItems: TestItemKey[], clearSelection: () => void) => {
+        clearSelectionCallback = clearSelection;
+        return <div>Action Bar</div>;
+      },
+    );
+
+    const { getByTestId } = render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={testItems}
+        itemKey="id"
+        itemSelectable
+        renderActionBar={renderActionBar}
+      />,
+    );
+
+    const selectAllCheckbox = getByTestId("list-header").querySelector(
+      "input[type='checkbox']",
+    ) as HTMLInputElement;
+
+    const selectItemCheckboxes = getByTestId("list-body").querySelectorAll(
+      "input[type='checkbox']",
+      // eslint-disable-next-line
+    ) as NodeListOf<HTMLInputElement>;
+
+    // Select all items
+    fireEvent.click(selectAllCheckbox);
+    expect(selectAllCheckbox.checked).toBe(true);
+    expect(
+      Array.from(selectItemCheckboxes).filter((c) => c.checked),
+    ).toHaveLength(testItems.length);
+
+    // Call clearSelection callback
+    expect(clearSelectionCallback).not.toBeNull();
+    clearSelectionCallback!();
+
+    // Wait for React to update the DOM
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Verify all checkboxes are now unchecked
+    expect(selectAllCheckbox.checked).toBe(false);
+    expect(
+      Array.from(selectItemCheckboxes).filter((c) => c.checked),
+    ).toHaveLength(0);
   });
 
   it("renders actions popover and triggers the correct action", async () => {

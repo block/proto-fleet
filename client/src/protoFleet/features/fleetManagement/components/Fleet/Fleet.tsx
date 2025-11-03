@@ -1,8 +1,10 @@
 import { useState } from "react";
 import useFleet from "@/protoFleet/api/useFleet";
+import useStreamMinerListUpdates from "@/protoFleet/api/useStreamMinerListUpdates";
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
 import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup";
 import Miners from "@/protoFleet/features/onboarding/components/Miners";
+import { useFleetStore } from "@/protoFleet/store";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 
@@ -11,6 +13,14 @@ const Fleet = () => {
     useFleet({
       pageSize: 100,
     });
+
+  // Get current filter from store to pass to streaming updates
+  const currentFilter = useFleetStore((state) => state.fleet.currentFilter);
+
+  // Stream incremental updates for the current filter
+  useStreamMinerListUpdates({
+    filter: currentFilter,
+  });
 
   const [showAddMinersModal, setShowAddMinersModal] = useState(false);
 

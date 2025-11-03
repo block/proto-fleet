@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
+// TODO: Now that we've started using Zustand, this is no longer necessary.
+// Move usages of this hook to Zustand store instead.
 function useReactiveLocalStorage<T>(
   key: string,
   initialValue?: T,

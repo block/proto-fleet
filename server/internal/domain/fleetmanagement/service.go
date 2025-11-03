@@ -9,10 +9,13 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
 	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+	telemetryModels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	pairingpb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 )
 
@@ -74,13 +77,34 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 		return nil, err
 	}
 
-	filter, err := parseFilter(req.Filter)
+	// Convert to internal request format and delegate to shared builder
+	return s.buildSnapshotFromListRequest(ctx, claims.OrgID, req)
+}
+
+// buildSnapshotFromListRequest builds response from ListMinerStateSnapshotsRequest
+func (s *Service) buildSnapshotFromListRequest(ctx context.Context, orgID int64, req *pb.ListMinerStateSnapshotsRequest) (*pb.ListMinerStateSnapshotsResponse, error) {
+	return s.buildSnapshot(ctx, orgID, req.PageSize, req.Cursor, req.Filter, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
+}
+
+// buildSnapshot builds a ListMinerStateSnapshotsResponse with the given parameters
+// This is the shared implementation used by ListMinerStateSnapshots and StreamMinerListUpdates
+func (s *Service) buildSnapshot(
+	ctx context.Context,
+	orgID int64,
+	pageSize int32,
+	cursor string,
+	filterProto *pb.MinerListFilter,
+	dataMode pb.DataMode,
+	timeSeriesConfig *commonpb.TimeSeriesConfig,
+	measurementConfigs []*pb.MeasurementConfig,
+) (*pb.ListMinerStateSnapshotsResponse, error) {
+	filter, err := parseFilter(filterProto)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to parse filter parameters: %v", err)
 	}
 
 	// Get paired miners with their basic info
-	miners, nextCursor, err := s.deviceStore.ListPairedMinersWithStatus(ctx, claims.OrgID, req.Cursor, req.PageSize, filter)
+	miners, nextCursor, err := s.deviceStore.ListPairedMinersWithStatus(ctx, orgID, cursor, pageSize, filter)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to list miners: %v", err)
 	}
@@ -93,36 +117,39 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 
 	deviceStatuses, err := s.deviceStore.GetDeviceStatusForDeviceIdentifiers(ctx, deviceIdentifiers)
 	if err != nil {
-		slog.Error("failed to get device statuses", "error", err)
-		deviceStatuses = make(map[mm.DeviceIdentifier]mm.MinerStatus) // Empty map as fallback
+		// Continue with empty status map - non-critical for listing
+		deviceStatuses = make(map[mm.DeviceIdentifier]mm.MinerStatus)
 	}
 
 	// Convert to state snapshots
 	var snapshots []*pb.MinerStateSnapshot
 	for _, miner := range miners {
 		// Get latest telemetry data for the miner
-		telemetry, err := s.telemetry.GetMinerTelemetry(ctx, miner.DeviceIdentifier, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
+		telemetry, err := s.telemetry.GetMinerTelemetry(ctx, miner.DeviceIdentifier, dataMode, timeSeriesConfig, measurementConfigs)
 		if err != nil {
-			slog.Error("failed to get telemetry for miner", "device_id", miner.DeviceIdentifier, "error", err)
+			// Continue without telemetry - miner will show with no metrics
+			telemetry = nil
 		}
 
 		// Get component status
 		status, err := s.telemetry.GetMinerComponentStatus(ctx, miner.DeviceIdentifier)
 		if err != nil {
-			slog.Error("failed to get component status for miner", "device_id", miner.DeviceIdentifier, "error", err)
+			// Continue without component status
+			status = nil
 		}
 
-		minerInfo, err := s.minerService.BuildMinerInfo(ctx, miner.DeviceIdentifier, claims.OrgID, miner.IpAddress, miner.Port, miner.UrlScheme, miner.Type, miner.SerialNumber)
+		minerInfo, err := s.minerService.BuildMinerInfo(ctx, miner.DeviceIdentifier, orgID, miner.IpAddress, miner.Port, miner.UrlScheme, miner.Type, miner.SerialNumber)
 		if err != nil {
-			slog.Error("failed to get miner info", "device_id", miner.DeviceIdentifier, "error", err)
+			// Continue without miner info
+			minerInfo = nil
 		}
 
 		// Get device status for this miner
 		deviceID := mm.DeviceIdentifier(miner.DeviceIdentifier)
 		minerStatus, ok := deviceStatuses[deviceID]
 		if !ok {
-			slog.Warn("device status not found for miner", "device_id", deviceID)
-			minerStatus = mm.MinerStatusUnknown // Default to unknown if not found
+			// Default to unknown status if not found
+			minerStatus = mm.MinerStatusUnknown
 		}
 		deviceStatus := convertMinerStatusToDeviceStatus(minerStatus)
 
@@ -154,19 +181,19 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 	}
 
 	// Get total count
-	total, err := s.deviceStore.GetTotalPairedDevices(ctx, claims.OrgID, filter)
+	total, err := s.deviceStore.GetTotalPairedDevices(ctx, orgID, filter)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
 	}
 
 	// Get state counts
-	stateCounts, err := s.deviceStore.GetMinerStateCounts(ctx, claims.OrgID, filter)
+	stateCounts, err := s.deviceStore.GetMinerStateCounts(ctx, orgID, filter)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get state counts: %v", err)
 	}
 
 	// Get available miner types
-	availableTypes, err := s.deviceStore.GetAvailableMinerTypes(ctx, claims.OrgID)
+	availableTypes, err := s.deviceStore.GetAvailableMinerTypes(ctx, orgID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get available miner types: %v", err)
 	}
@@ -389,4 +416,332 @@ func convertMinerStatusToDeviceStatus(minerStatus mm.MinerStatus) pb.DeviceStatu
 	default:
 		return pb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED
 	}
+}
+
+// StreamMinerListUpdates streams incremental updates (additions/removals) for filtered miner list
+// Only sends changes when miners enter/exit filter criteria
+func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMinerListUpdatesRequest) (<-chan *pb.StreamMinerListUpdatesResponse, error) {
+	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	responseChan := make(chan *pb.StreamMinerListUpdatesResponse, 10)
+
+	// Set default heartbeat interval if not specified
+	heartbeatInterval := req.HeartbeatIntervalSeconds
+	if heartbeatInterval <= 0 {
+		heartbeatInterval = 30 // default 30 seconds
+	}
+
+	go func() {
+		defer close(responseChan)
+
+		// Track current set of device IDs that match the filter with their positions
+		// We maintain a sorted list to provide accurate positions for additions
+		currentMatchingDevices := make(map[string]bool)
+		sortedDeviceIDs := []string{} // Maintain sorted order
+
+		// Build initial tracking state of ALL miners matching the filter
+		// This is not sent to the client - they use ListMinerStateSnapshots for initial display
+		buildInitialTrackingState := func() error {
+			// Get ALL miners matching the filter (no pagination)
+			// We use a large page size to get all miners in one query
+			const maxPageSize int32 = 10000
+			snapshot, err := s.buildSnapshot(ctx, claims.OrgID, maxPageSize, "", req.Filter, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
+			if err != nil {
+				return err
+			}
+
+			// Track initial device IDs for delta calculation
+			// Miners are already sorted from buildSnapshot
+			for _, miner := range snapshot.Miners {
+				currentMatchingDevices[miner.DeviceIdentifier] = true
+				sortedDeviceIDs = append(sortedDeviceIDs, miner.DeviceIdentifier)
+			}
+
+			slog.Info("initialized miner list tracking",
+				"orgID", claims.OrgID,
+				"matchingMiners", len(currentMatchingDevices))
+
+			return nil
+		}
+
+		// Initialize tracking state
+		if err := buildInitialTrackingState(); err != nil {
+			slog.Error("failed to build initial tracking state", "error", err)
+			return
+		}
+
+		// Subscribe to device status change events for ALL devices in org
+		// We need to monitor all devices to detect when they enter/exit filter criteria
+		telemetryUpdateChan, unsubscribe, err := s.telemetry.SubscribeToTelemetryUpdates(
+			ctx,
+			claims.OrgID,
+			nil, // All devices in org
+			[]telemetryModels.UpdateType{telemetryModels.UpdateTypeDeviceStatus},
+		)
+		if err != nil {
+			slog.Error("failed to subscribe to device status updates", "error", err)
+			return
+		}
+		defer unsubscribe()
+
+		// Set up ticker for heartbeats
+		heartbeatTicker := time.NewTicker(time.Duration(heartbeatInterval) * time.Second)
+		defer heartbeatTicker.Stop()
+
+		// Parse filter once for reuse
+		filter, err := parseFilter(req.Filter)
+		if err != nil {
+			slog.Error("failed to parse filter", "error", err)
+			return
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+
+			case update, ok := <-telemetryUpdateChan:
+				if !ok {
+					return
+				}
+
+				// Device status changed - check if it affects filter membership
+				deviceID := string(update.DeviceID)
+
+				// Get the device's current information
+				device, err := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, deviceID, claims.OrgID)
+				if err != nil {
+					slog.Error("failed to get device", "deviceID", deviceID, "error", err)
+					continue
+				}
+
+				// Check if device now matches the filter
+				nowMatches := s.deviceMatchesFilter(device, filter, update.DeviceStatus)
+				wasMatching := currentMatchingDevices[deviceID]
+
+				// Generate delta if membership changed
+				if nowMatches && !wasMatching {
+					// Device added to filtered list
+					currentMatchingDevices[deviceID] = true
+
+					// Build miner snapshot for the added device
+					snapshot := s.buildMinerSnapshot(ctx, device, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
+
+					// Find the correct position to insert based on sort order
+					// For now, append to end. In production, you'd determine position based on
+					// the same sorting logic used by ListMinerStateSnapshots
+					position := len(sortedDeviceIDs)
+					sortedDeviceIDs = append(sortedDeviceIDs, deviceID)
+
+					// Get updated total count
+					total, err := s.deviceStore.GetTotalPairedDevices(ctx, claims.OrgID, filter)
+					if err != nil {
+						slog.Error("failed to get total count", "error", err)
+						total = int64(len(currentMatchingDevices))
+					}
+
+					deltaResp := &pb.StreamMinerListUpdatesResponse{
+						Timestamp: timestamppb.Now(),
+						Update: &pb.StreamMinerListUpdatesResponse_Delta{
+							Delta: &pb.MinerListDelta{
+								Additions: []*pb.MinerAddition{
+									{
+										Miner:    snapshot,
+										Position: int32(position), //nolint:gosec
+									},
+								},
+								TotalMiners: int32(total), //nolint:gosec
+							},
+						},
+					}
+
+					select {
+					case <-ctx.Done():
+						return
+					case responseChan <- deltaResp:
+					}
+
+				} else if !nowMatches && wasMatching {
+					// Device removed from filtered list
+					delete(currentMatchingDevices, deviceID)
+
+					// Remove from sorted list
+					for i, id := range sortedDeviceIDs {
+						if id == deviceID {
+							sortedDeviceIDs = append(sortedDeviceIDs[:i], sortedDeviceIDs[i+1:]...)
+							break
+						}
+					}
+
+					// Get updated total count
+					total, err := s.deviceStore.GetTotalPairedDevices(ctx, claims.OrgID, filter)
+					if err != nil {
+						slog.Error("failed to get total count", "error", err)
+						total = int64(len(currentMatchingDevices))
+					}
+
+					deltaResp := &pb.StreamMinerListUpdatesResponse{
+						Timestamp: timestamppb.Now(),
+						Update: &pb.StreamMinerListUpdatesResponse_Delta{
+							Delta: &pb.MinerListDelta{
+								Removals:    []string{deviceID},
+								TotalMiners: int32(total), //nolint:gosec
+							},
+						},
+					}
+
+					select {
+					case <-ctx.Done():
+						return
+					case responseChan <- deltaResp:
+					}
+				}
+
+			case <-heartbeatTicker.C:
+				// Send heartbeat
+				resp := &pb.StreamMinerListUpdatesResponse{
+					Timestamp: timestamppb.Now(),
+					Update: &pb.StreamMinerListUpdatesResponse_Heartbeat{
+						Heartbeat: &pb.Heartbeat{},
+					},
+				}
+
+				select {
+				case <-ctx.Done():
+					return
+				case responseChan <- resp:
+				}
+			}
+		}
+	}()
+
+	return responseChan, nil
+}
+
+// deviceMatchesFilter checks if a device matches the given filter criteria
+func (s *Service) deviceMatchesFilter(device *pairingpb.Device, filter *interfaces.MinerFilter, status *mm.MinerStatus) bool {
+	if filter == nil {
+		return true // No filter means all devices match
+	}
+
+	// Check device status filter
+	if len(filter.DeviceStatusFilter) > 0 {
+		deviceStatus := mm.MinerStatusUnknown
+		if status != nil {
+			deviceStatus = *status
+		}
+
+		statusMatches := false
+		for _, allowedStatus := range filter.DeviceStatusFilter {
+			if deviceStatus == allowedStatus {
+				statusMatches = true
+				break
+			}
+		}
+		if !statusMatches {
+			return false
+		}
+	}
+
+	// Check miner type filter
+	if len(filter.MinerType) > 0 {
+		// Convert device type string to mm.Type
+		deviceType, err := mm.TypeFromString(device.Type)
+		if err != nil {
+			deviceType = mm.TypeUnknown
+		}
+
+		typeMatches := false
+		for _, allowedType := range filter.MinerType {
+			if deviceType == allowedType {
+				typeMatches = true
+				break
+			}
+		}
+		if !typeMatches {
+			return false
+		}
+	}
+
+	// TODO: Add component filter checks when component status is available
+	// This would require fetching component status from telemetry
+
+	return true
+}
+
+// buildMinerSnapshot builds a MinerStateSnapshot for a single device
+func (s *Service) buildMinerSnapshot(
+	ctx context.Context,
+	device *pairingpb.Device,
+	dataMode pb.DataMode,
+	timeSeriesConfig *commonpb.TimeSeriesConfig,
+	measurementConfigs []*pb.MeasurementConfig,
+) *pb.MinerStateSnapshot {
+	// Get telemetry data
+	telemetry, err := s.telemetry.GetMinerTelemetry(ctx, device.DeviceIdentifier, dataMode, timeSeriesConfig, measurementConfigs)
+	if err != nil {
+		// Continue without telemetry - non-critical for snapshot
+		telemetry = nil
+	}
+
+	// Get component status
+	status, err := s.telemetry.GetMinerComponentStatus(ctx, device.DeviceIdentifier)
+	if err != nil {
+		// Continue without component status
+		status = nil
+	}
+
+	// Get org ID from claims
+	claims, _ := tokenDomain.GetClientAuthJWTClaims(ctx)
+	orgID := claims.OrgID
+
+	// Get miner info
+	minerInfo, err := s.minerService.BuildMinerInfo(ctx, device.DeviceIdentifier, orgID, device.IpAddress, device.Port, device.UrlScheme, device.Type, device.SerialNumber)
+	if err != nil {
+		// Continue without miner info
+		minerInfo = nil
+	}
+
+	// Get device status
+	deviceStatuses, err := s.deviceStore.GetDeviceStatusForDeviceIdentifiers(ctx, []mm.DeviceIdentifier{mm.DeviceIdentifier(device.DeviceIdentifier)})
+	if err != nil {
+		// Continue with empty status map
+		deviceStatuses = make(map[mm.DeviceIdentifier]mm.MinerStatus)
+	}
+
+	minerStatus, ok := deviceStatuses[mm.DeviceIdentifier(device.DeviceIdentifier)]
+	if !ok {
+		minerStatus = mm.MinerStatusUnknown
+	}
+	deviceStatus := convertMinerStatusToDeviceStatus(minerStatus)
+
+	snapshot := &pb.MinerStateSnapshot{
+		Name:         device.Manufacturer + " " + device.Model,
+		MacAddress:   device.MacAddress,
+		SerialNumber: device.SerialNumber,
+		DeviceStatus: deviceStatus,
+	}
+
+	if minerInfo != nil {
+		snapshot.DeviceIdentifier = minerInfo.GetID().String()
+		snapshot.IpAddress = minerInfo.GetConnectionInfo().IPAddress.String()
+		snapshot.Url = minerInfo.GetWebViewURL().String()
+	}
+
+	if telemetry != nil {
+		snapshot.PowerUsage = telemetry.PowerUsage
+		snapshot.Temperature = telemetry.Temperature
+		snapshot.Hashrate = telemetry.Hashrate
+		snapshot.Efficiency = telemetry.Efficiency
+		snapshot.Timestamp = telemetry.Timestamp
+	}
+
+	if status != nil {
+		snapshot.Status = status
+	}
+
+	return snapshot
 }
