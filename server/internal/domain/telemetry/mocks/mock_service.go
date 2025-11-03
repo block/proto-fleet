@@ -11,6 +11,7 @@ import (
 
 	interfaces "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	models "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	models0 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 	gomock "github.com/golang/mock/gomock"
 )
 
@@ -287,6 +288,25 @@ func (mr *MockTelemetryDataStoreMockRecorder) Store(ctx interface{}, data ...int
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]interface{}{ctx}, data...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Store", reflect.TypeOf((*MockTelemetryDataStore)(nil).Store), varargs...)
+}
+
+// StoreDeviceMetrics mocks base method.
+func (m *MockTelemetryDataStore) StoreDeviceMetrics(ctx context.Context, data ...models0.DeviceMetrics) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx}
+	for _, a := range data {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "StoreDeviceMetrics", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StoreDeviceMetrics indicates an expected call of StoreDeviceMetrics.
+func (mr *MockTelemetryDataStoreMockRecorder) StoreDeviceMetrics(ctx interface{}, data ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx}, data...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreDeviceMetrics", reflect.TypeOf((*MockTelemetryDataStore)(nil).StoreDeviceMetrics), varargs...)
 }
 
 // StreamTelemetryUpdates mocks base method.

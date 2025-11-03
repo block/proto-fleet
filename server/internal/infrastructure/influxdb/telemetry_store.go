@@ -12,8 +12,10 @@ import (
 	"time"
 
 	influxdb3 "github.com/InfluxCommunity/influxdb3-go/v2/influxdb3"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 	influxModels "github.com/btc-mining/proto-fleet/server/internal/infrastructure/influxdb/models"
 )
 
@@ -1198,4 +1200,60 @@ func (s *InfluxTelemetryStore) GetCombinedMetrics(ctx context.Context, query mod
 		Metrics:       allMetrics,
 		NextPageToken: nextPageToken,
 	}, nil
+}
+
+func (s *InfluxTelemetryStore) StoreDeviceMetrics(ctx context.Context, telemetry ...modelsV2.DeviceMetrics) error {
+	points := make([]*influxdb3.Point, 0, len(telemetry))
+	for _, tm := range telemetry {
+		devicePoints := influxModels.DeviceMetricsToPoints(tm)
+		points = append(points, devicePoints...)
+	}
+	if err := s.client.WritePoints(ctx, points); err != nil {
+		return newTelemetryWriteError(err, len(points))
+	}
+	return nil
+}
+
+const getLatestDeviceMetricsQuery = `
+SELECT
+*,
+'device_metrics' as measurement
+FROM device_metrics
+WHERE device_id = $device_id
+ORDER BY time DESC
+LIMIT 1
+`
+
+func (s *InfluxTelemetryStore) GetLatestDeviceMetrics(ctx context.Context, deviceID models.DeviceIdentifier) (modelsV2.DeviceMetrics, error) {
+	influxQuery := getLatestDeviceMetricsQuery
+	params := influxdb3.QueryParameters{
+		"device_id": string(deviceID),
+	}
+
+	iterator, err := s.client.QueryPointValueWithParameters(ctx, influxQuery, params)
+	if err != nil {
+		s.logger.Error("latest device metrics query failed",
+			slog.String("device_id", string(deviceID)),
+			slog.Any("error", err))
+		return modelsV2.DeviceMetrics{}, newTelemetryQueryError(err, "GetLatestDeviceMetrics")
+	}
+
+	point, err := iterator.Next()
+	if err == influxdb3.Done {
+		return modelsV2.DeviceMetrics{}, fleeterror.NewInternalErrorf("no device metrics found for device_id %s", deviceID)
+	}
+	if err != nil {
+		s.logger.Error("error reading point in GetLatestDeviceMetrics",
+			slog.String("device_id", string(deviceID)),
+			slog.Any("error", err))
+		return modelsV2.DeviceMetrics{}, newTelemetryIterationError(err, "GetLatestDeviceMetrics", 1, false)
+	}
+	metrics, err := influxModels.ToDeviceMetrics(point)
+	if err != nil {
+		s.logger.Error("error converting point to DeviceMetrics",
+			slog.String("device_id", string(deviceID)),
+			slog.Any("error", err))
+		return modelsV2.DeviceMetrics{}, newTelemetryIterationError(err, "GetLatestDeviceMetrics", 1, false)
+	}
+	return metrics, nil
 }

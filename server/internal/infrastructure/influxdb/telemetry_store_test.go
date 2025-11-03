@@ -12,6 +12,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/influxdb/testutils"
 )
 
@@ -154,6 +155,30 @@ func createTestTelemetryByTypeWithMetadata(deviceID string, measurementType mode
 			"test":        "metadata",
 		},
 		Timestamp: timestamp,
+	}
+}
+
+// createTestDeviceMetrics creates test device metrics with v2 model
+func createTestDeviceMetrics(deviceID string, timestamp time.Time, health modelsV2.HealthStatus) modelsV2.DeviceMetrics {
+	return modelsV2.DeviceMetrics{
+		DeviceID:  deviceID,
+		Timestamp: timestamp,
+		Health:    health,
+		HashrateHS: &modelsV2.MetricValue{
+			Value: 100000000.0, // 100 TH/s
+		},
+		TempC: &modelsV2.MetricValue{
+			Value: 65.5,
+		},
+		FanRPM: &modelsV2.MetricValue{
+			Value: 4500.0,
+		},
+		PowerW: &modelsV2.MetricValue{
+			Value: 3250.0,
+		},
+		EfficiencyJH: &modelsV2.MetricValue{
+			Value: 32.5,
+		},
 	}
 }
 
@@ -1447,4 +1472,258 @@ func TestInfluxTelemetryStore_GetCombinedMetrics_EmptyResult(t *testing.T) {
 	// Should return empty result without error
 	assert.Empty(t, result.Metrics, "Should have empty metrics for nonexistent data")
 	assert.Equal(t, "", result.NextPageToken, "Should have empty next page token for empty result")
+}
+
+func TestInfluxTelemetryStore_Ping(t *testing.T) {
+	t.Parallel()
+
+	store, container, ctx := setupIntegrationTest(t)
+	defer cleanupIntegrationTest(t, store, container)
+
+	// Test successful ping
+	err := store.Ping(ctx)
+	require.NoError(t, err, "Ping should succeed when InfluxDB is running")
+}
+
+func TestInfluxTelemetryStore_Ping_WithCancelledContext(t *testing.T) {
+	t.Parallel()
+
+	store, container, ctx := setupIntegrationTest(t)
+	defer cleanupIntegrationTest(t, store, container)
+
+	// Test ping with cancelled context
+	cancelledCtx, cancel := context.WithCancel(ctx)
+	cancel() // Cancel immediately
+
+	err := store.Ping(cancelledCtx)
+	require.Error(t, err, "Ping should fail with cancelled context")
+}
+
+func TestInfluxTelemetryStore_StoreDeviceMetrics(t *testing.T) {
+	t.Parallel()
+
+	store, container, ctx := setupIntegrationTest(t)
+	defer cleanupIntegrationTest(t, store, container)
+
+	// Create test device metrics
+	now := time.Now()
+	testMetrics := []modelsV2.DeviceMetrics{
+		createTestDeviceMetrics("v2-device1", now, modelsV2.HealthHealthyActive),
+		createTestDeviceMetrics("v2-device2", now.Add(-5*time.Minute), modelsV2.HealthWarning),
+		createTestDeviceMetrics("v2-device3", now.Add(-10*time.Minute), modelsV2.HealthHealthyInactive),
+	}
+
+	// Store device metrics
+	err := store.StoreDeviceMetrics(ctx, testMetrics...)
+	require.NoError(t, err, "Should successfully store device metrics")
+}
+
+func TestInfluxTelemetryStore_StoreDeviceMetrics_EmptyData(t *testing.T) {
+	t.Parallel()
+
+	store, container, ctx := setupIntegrationTest(t)
+	defer cleanupIntegrationTest(t, store, container)
+
+	// Store empty device metrics
+	err := store.StoreDeviceMetrics(ctx)
+	require.NoError(t, err, "Should successfully handle empty device metrics")
+}
+
+func TestInfluxTelemetryStore_StoreDeviceMetrics_SingleMetric(t *testing.T) {
+	t.Parallel()
+
+	store, container, ctx := setupIntegrationTest(t)
+	defer cleanupIntegrationTest(t, store, container)
+
+	// Create single device metric
+	singleMetric := createTestDeviceMetrics("v2-single-device", time.Now(), modelsV2.HealthHealthyActive)
+
+	// Store single device metric
+	err := store.StoreDeviceMetrics(ctx, singleMetric)
+	require.NoError(t, err, "Should successfully store single device metric")
+}
+
+func TestInfluxTelemetryStore_GetLatestDeviceMetrics(t *testing.T) {
+	t.Parallel()
+
+	store, container, ctx := setupIntegrationTest(t)
+	defer cleanupIntegrationTest(t, store, container)
+
+	// Create initial dummy data to ensure the device_metrics table is created
+	dummyMetrics := createTestDeviceMetrics("dummy-init-device", time.Now().Add(-1*time.Hour), modelsV2.HealthHealthyActive)
+	err := store.StoreDeviceMetrics(ctx, dummyMetrics)
+	require.NoError(t, err, "Should successfully store initial dummy metrics")
+	time.Sleep(200 * time.Millisecond) // Give InfluxDB time to create the table
+
+	// Create and store test device metrics with different timestamps
+	now := time.Now()
+	deviceID := "v2-latest-device1"
+
+	latest := createTestDeviceMetrics(deviceID, now.Add(-10*time.Minute), modelsV2.HealthHealthyActive)
+	testMetrics := []modelsV2.DeviceMetrics{
+		createTestDeviceMetrics(deviceID, now.Add(-30*time.Minute), modelsV2.HealthWarning),
+		createTestDeviceMetrics(deviceID, now.Add(-20*time.Minute), modelsV2.HealthHealthyActive),
+		latest,
+	}
+
+	// Store device metrics
+	err = store.StoreDeviceMetrics(ctx, testMetrics...)
+	require.NoError(t, err, "Should successfully store device metrics")
+
+	// Give InfluxDB time to process writes
+	time.Sleep(200 * time.Millisecond)
+
+	// Retrieve latest device metrics
+	result, err := store.GetLatestDeviceMetrics(ctx, models.DeviceIdentifier(deviceID))
+	require.NoError(t, err, "GetLatestDeviceMetrics should succeed - if this fails, there's a bug in the implementation")
+
+	// Verify the result
+	assert.Equal(t, deviceID, result.DeviceID, "DeviceID should match")
+	assert.Equal(t, modelsV2.HealthHealthyActive, result.Health, "Health status should match latest stored value")
+	assert.NotNil(t, result.HashrateHS, "HashrateHS should not be nil")
+	assert.InDelta(t, latest.HashrateHS.Value, result.HashrateHS.Value, 0.1, "HashrateHS should match stored value")
+	assert.NotNil(t, result.TempC, "TempC should not be nil")
+	assert.InDelta(t, latest.TempC.Value, result.TempC.Value, 0.1, "TempC should match stored value")
+	assert.NotNil(t, result.FanRPM, "FanRPM should not be nil")
+	assert.InDelta(t, latest.FanRPM.Value, result.FanRPM.Value, 0.1, "FanRPM should match stored value")
+	assert.NotNil(t, result.PowerW, "PowerW should not be nil")
+	assert.InDelta(t, latest.PowerW.Value, result.PowerW.Value, 0.1, "PowerW should match stored value")
+	assert.NotNil(t, result.EfficiencyJH, "EfficiencyJH should not be nil")
+	assert.InDelta(t, latest.EfficiencyJH.Value, result.EfficiencyJH.Value, 0.1, "EfficiencyJH should match stored value")
+
+	// Verify timestamp is the most recent one (within acceptable margin)
+	assert.WithinDuration(t, now.Add(-10*time.Minute), result.Timestamp, 5*time.Second,
+		"Timestamp should be from the most recent metric")
+}
+
+func TestInfluxTelemetryStore_GetLatestDeviceMetrics_NotFound(t *testing.T) {
+	t.Parallel()
+
+	store, container, ctx := setupIntegrationTest(t)
+	defer cleanupIntegrationTest(t, store, container)
+
+	// Try to retrieve metrics for a device that doesn't exist
+	deviceID := "v2-nonexistent-device"
+
+	result, err := store.GetLatestDeviceMetrics(ctx, models.DeviceIdentifier(deviceID))
+	require.Error(t, err, "GetLatestDeviceMetrics should return error for nonexistent device")
+
+	// Result should be empty
+	assert.Empty(t, result.DeviceID, "DeviceID should be empty for nonexistent device")
+}
+
+func TestInfluxTelemetryStore_GetLatestDeviceMetrics_MultipleDevices(t *testing.T) {
+	t.Parallel()
+
+	store, container, ctx := setupIntegrationTest(t)
+	defer cleanupIntegrationTest(t, store, container)
+
+	// Create initial dummy data to ensure the device_metrics table is created
+	dummyMetrics := createTestDeviceMetrics("dummy-init-device", time.Now().Add(-1*time.Hour), modelsV2.HealthHealthyActive)
+	err := store.StoreDeviceMetrics(ctx, dummyMetrics)
+	require.NoError(t, err, "Should successfully store initial dummy metrics")
+	time.Sleep(200 * time.Millisecond) // Give InfluxDB time to create the table
+
+	// Create and store metrics for multiple devices
+	now := time.Now()
+	device1ID := "v2-multi-device1"
+	device2ID := "v2-multi-device2"
+	device3ID := "v2-multi-device3"
+
+	testMetrics := []modelsV2.DeviceMetrics{
+		createTestDeviceMetrics(device1ID, now.Add(-10*time.Minute), modelsV2.HealthHealthyActive),
+		createTestDeviceMetrics(device2ID, now.Add(-5*time.Minute), modelsV2.HealthWarning),
+		createTestDeviceMetrics(device3ID, now.Add(-15*time.Minute), modelsV2.HealthCritical),
+		// Add older metrics for device1 to ensure we get the latest
+		createTestDeviceMetrics(device1ID, now.Add(-20*time.Minute), modelsV2.HealthWarning),
+		createTestDeviceMetrics(device1ID, now.Add(-30*time.Minute), modelsV2.HealthHealthyInactive),
+	}
+
+	// Store device metrics
+	err = store.StoreDeviceMetrics(ctx, testMetrics...)
+	require.NoError(t, err, "Should successfully store device metrics")
+
+	// Give InfluxDB time to process writes
+	time.Sleep(200 * time.Millisecond)
+
+	// Retrieve latest metrics for device1
+	result1, err := store.GetLatestDeviceMetrics(ctx, models.DeviceIdentifier(device1ID))
+	require.NoError(t, err, "GetLatestDeviceMetrics should succeed for device1")
+
+	assert.Equal(t, device1ID, result1.DeviceID, "DeviceID should match for device1")
+	assert.Equal(t, modelsV2.HealthHealthyActive, result1.Health, "Health should be latest for device1")
+	assert.WithinDuration(t, now.Add(-10*time.Minute), result1.Timestamp, 5*time.Second,
+		"Timestamp should be from the most recent metric for device1")
+
+	// Retrieve latest metrics for device2
+	result2, err := store.GetLatestDeviceMetrics(ctx, models.DeviceIdentifier(device2ID))
+	require.NoError(t, err, "GetLatestDeviceMetrics should succeed for device2")
+
+	assert.Equal(t, device2ID, result2.DeviceID, "DeviceID should match for device2")
+	assert.Equal(t, modelsV2.HealthWarning, result2.Health, "Health should be latest for device2")
+	assert.WithinDuration(t, now.Add(-5*time.Minute), result2.Timestamp, 5*time.Second,
+		"Timestamp should be from the most recent metric for device2")
+
+	// Retrieve latest metrics for device3
+	result3, err := store.GetLatestDeviceMetrics(ctx, models.DeviceIdentifier(device3ID))
+	require.NoError(t, err, "GetLatestDeviceMetrics should succeed for device3")
+
+	assert.Equal(t, device3ID, result3.DeviceID, "DeviceID should match for device3")
+	assert.Equal(t, modelsV2.HealthCritical, result3.Health, "Health should be latest for device3")
+	assert.WithinDuration(t, now.Add(-15*time.Minute), result3.Timestamp, 5*time.Second,
+		"Timestamp should be from the most recent metric for device3")
+}
+
+func TestInfluxTelemetryStore_GetLatestDeviceMetrics_WithPartialData(t *testing.T) {
+	t.Parallel()
+
+	store, container, ctx := setupIntegrationTest(t)
+	defer cleanupIntegrationTest(t, store, container)
+
+	// Create initial dummy data to ensure the device_metrics table is created
+	dummyMetrics := createTestDeviceMetrics("dummy-init-device", time.Now().Add(-1*time.Hour), modelsV2.HealthHealthyActive)
+	err := store.StoreDeviceMetrics(ctx, dummyMetrics)
+	require.NoError(t, err, "Should successfully store initial dummy metrics")
+	time.Sleep(200 * time.Millisecond) // Give InfluxDB time to create the table
+
+	// Create device metrics with partial data (some fields nil)
+	now := time.Now()
+	deviceID := "v2-partial-device"
+
+	partialMetrics := modelsV2.DeviceMetrics{
+		DeviceID:  deviceID,
+		Timestamp: now,
+		Health:    modelsV2.HealthHealthyActive,
+		HashrateHS: &modelsV2.MetricValue{
+			Value: 50000000.0,
+		},
+		TempC: &modelsV2.MetricValue{
+			Value: 60.0,
+		},
+		// PowerW, FanRPM, and EfficiencyJH are intentionally nil
+	}
+
+	// Store partial device metrics
+	err = store.StoreDeviceMetrics(ctx, partialMetrics)
+	require.NoError(t, err, "Should successfully store partial device metrics")
+
+	// Give InfluxDB time to process writes
+	time.Sleep(200 * time.Millisecond)
+
+	// Retrieve latest device metrics
+	result, err := store.GetLatestDeviceMetrics(ctx, models.DeviceIdentifier(deviceID))
+	require.NoError(t, err, "GetLatestDeviceMetrics should succeed with partial data")
+
+	// Verify the result
+	assert.Equal(t, deviceID, result.DeviceID, "DeviceID should match")
+	assert.Equal(t, modelsV2.HealthHealthyActive, result.Health, "Health status should match")
+	assert.NotNil(t, result.HashrateHS, "HashrateHS should not be nil")
+	assert.InDelta(t, 50000000.0, result.HashrateHS.Value, 0.1, "HashrateHS should match stored value")
+	assert.NotNil(t, result.TempC, "TempC should not be nil")
+	assert.InDelta(t, 60.0, result.TempC.Value, 0.1, "TempC should match stored value")
+
+	// These fields should be nil since they weren't stored
+	assert.Nil(t, result.PowerW, "PowerW should be nil")
+	assert.Nil(t, result.FanRPM, "FanRPM should be nil")
+	assert.Nil(t, result.EfficiencyJH, "EfficiencyJH should be nil")
 }

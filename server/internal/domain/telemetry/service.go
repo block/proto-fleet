@@ -12,6 +12,7 @@ import (
 	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 
 	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
@@ -55,6 +56,7 @@ type UpdateScheduler interface {
 
 type TelemetryDataStore interface {
 	Store(ctx context.Context, data ...models.Telemetry) error
+	StoreDeviceMetrics(ctx context.Context, data ...modelsV2.DeviceMetrics) error // Only need to store new data, will update read requests to use new data.
 	GetLatestTelemetry(ctx context.Context, query models.LatestTelemetryQuery) ([]models.Telemetry, error)
 	GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models.Telemetry, error)
 	GetTelemetryMetadata(ctx context.Context, query models.MetadataQuery) ([]models.DeviceMetadata, error)
