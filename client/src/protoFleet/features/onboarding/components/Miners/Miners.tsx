@@ -63,6 +63,7 @@ const Miners = ({
   // Handle loading state with minimum display time for network scan only
   useEffect(() => {
     if (scanDiscoveryPending) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShowScanLoading(true);
     } else {
       loadingTimeoutId.current = setTimeout(() => {

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useMemo } from "react";
 import clsx from "clsx";
 import type { MinerWithModel } from "./types";
 import { AuthenticationMethod } from "@/protoFleet/api/generated/capabilities/v1/capabilities_pb";
@@ -52,46 +52,38 @@ const FoundMiners = ({
   deselectedMiners,
   className,
 }: FoundMinersProps) => {
-  const [minersByModel, setMinersByModel] = useState<MinersByModel>({});
+  // Derive minersByModel directly from miners prop
+  const minersByModel = useMemo(() => {
+    const _minersByModel: MinersByModel = {};
 
-  useEffect(() => {
-    const getUpdatedMinersByModel = (prev: MinersByModel) => {
-      const _minersByModel: MinersByModel = { ...prev };
+    miners.forEach((miner) => {
+      const minerKey = new MinerKey(
+        miner.manufacturer || "unknown",
+        miner.model || "unknown",
+      );
 
-      miners.forEach((miner) => {
-        const minerKey = new MinerKey(
-          miner.manufacturer || "unknown",
-          miner.model || "unknown",
-        );
-        if (!_minersByModel[minerKey.toString()]) {
-          const supportedMethods =
-            miner.capabilities?.authentication?.supportedMethods || [];
+      if (!_minersByModel[minerKey.toString()]) {
+        const supportedMethods =
+          miner.capabilities?.authentication?.supportedMethods || [];
 
-          _minersByModel[minerKey.toString()] = {
-            model: miner.model,
-            manufacturer: miner.manufacturer || "unknown",
-            supportedAuthenticationMethods: supportedMethods,
-            miners: [miner],
-          };
-
-          return;
-
-          // if miner is already in our state dont add it again
-          // so that we dont have duplicates, and can maintain the selected state
-        } else if (
-          _minersByModel[minerKey.toString()].miners.find(
-            (m) => m.ipAddress === miner.ipAddress,
-          )
-        ) {
-          return;
-        }
-
+        _minersByModel[minerKey.toString()] = {
+          model: miner.model,
+          manufacturer: miner.manufacturer || "unknown",
+          supportedAuthenticationMethods: supportedMethods,
+          miners: [miner],
+        };
+      } else if (
+        // if miner is already in our state dont add it again
+        // so that we dont have duplicates
+        !_minersByModel[minerKey.toString()].miners.find(
+          (m) => m.ipAddress === miner.ipAddress,
+        )
+      ) {
         _minersByModel[minerKey.toString()].miners.push(miner);
-      });
-      return _minersByModel;
-    };
+      }
+    });
 
-    setMinersByModel((prev) => getUpdatedMinersByModel(prev));
+    return _minersByModel;
   }, [miners]);
 
   return (

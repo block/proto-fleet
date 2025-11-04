@@ -34,31 +34,36 @@ const usePassword = () => {
   const setPassword = useCallback(
     async ({ password, onSuccess, onError, onFinally }: SetPasswordProps) => {
       if (!api) return;
-      await api
-        .setPassword({ password })
-        .then(() => {
-          // Update store to reflect that password is now set
-          setSystemStatus({
-            passwordSet: true,
+
+      const performSetPassword = async () => {
+        await api
+          .setPassword({ password })
+          .then(() => {
+            // Update store to reflect that password is now set
+            setSystemStatus({
+              passwordSet: true,
+            });
+            onSuccess?.();
+          })
+          .catch((err) => {
+            handleAuthErrors({
+              error: err,
+              onError: () => {
+                onError?.(
+                  err?.error?.message ?? err?.message ?? "An error occurred",
+                );
+              },
+              onSuccess: () => {
+                performSetPassword();
+              },
+            });
+          })
+          .finally(() => {
+            onFinally?.();
           });
-          onSuccess?.();
-        })
-        .catch((err) => {
-          handleAuthErrors({
-            error: err,
-            onError: () => {
-              onError?.(
-                err?.error?.message ?? err?.message ?? "An error occurred",
-              );
-            },
-            onSuccess: () => {
-              setPassword({ password, onSuccess, onError, onFinally });
-            },
-          });
-        })
-        .finally(() => {
-          onFinally?.();
-        });
+      };
+
+      await performSetPassword();
     },
     [api, handleAuthErrors, setSystemStatus],
   );
@@ -71,32 +76,32 @@ const usePassword = () => {
       onFinally,
     }: ChangePasswordProps) => {
       if (!api) return;
-      await api
-        .changePassword(changePasswordRequest, authHeader)
-        .then(() => {
-          onSuccess?.();
-        })
-        .catch((err) => {
-          handleAuthErrors({
-            error: err,
-            onError: () => {
-              onError?.(
-                err?.error?.message ?? err?.message ?? "An error occurred",
-              );
-            },
-            onSuccess: () => {
-              changePassword({
-                changePasswordRequest,
-                onSuccess,
-                onError,
-                onFinally,
-              });
-            },
+
+      const performChangePassword = async () => {
+        await api
+          .changePassword(changePasswordRequest, authHeader)
+          .then(() => {
+            onSuccess?.();
+          })
+          .catch((err) => {
+            handleAuthErrors({
+              error: err,
+              onError: () => {
+                onError?.(
+                  err?.error?.message ?? err?.message ?? "An error occurred",
+                );
+              },
+              onSuccess: () => {
+                performChangePassword();
+              },
+            });
+          })
+          .finally(() => {
+            onFinally?.();
           });
-        })
-        .finally(() => {
-          onFinally?.();
-        });
+      };
+
+      await performChangePassword();
     },
     [authHeader, api, handleAuthErrors],
   );

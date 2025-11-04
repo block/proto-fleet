@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Outlet } from "react-router-dom";
 
 import {
@@ -86,9 +86,6 @@ const KpiLayoutWrapper = () => {
   const [duration, setDuration] = useState<Duration>(
     getItem("duration") || durations[0],
   );
-  const [outletContext, setOutletContext] = useState<KpiOutletContext | null>(
-    null,
-  );
 
   // For fleet-level KPI pages, we want to request data for all devices in the org
   // rather than just the specific miners loaded in the fleet store
@@ -140,70 +137,49 @@ const KpiLayoutWrapper = () => {
   const { latestData: streamingData } =
     useStreamingTelemetryMetrics(streamingOptions);
 
-  // Transform data when available
-  useEffect(() => {
-    if (!combinedMetricsData && !metricsError) return;
+  // Compute outlet context directly from metrics data
+  const outletContext = useMemo(() => {
+    // Return null if no data available
+    if (!combinedMetricsData && !metricsError) return null;
 
-    const processedMetrics = processAllMetrics(combinedMetricsData, duration);
-
-    setOutletContext({
-      duration,
-      minerHashrate: {
-        hashrate: processedMetrics.hashrate.timeSeries,
-        aggregates: processedMetrics.hashrate.aggregates,
-      },
-      minerEfficiency: {
-        efficiency: processedMetrics.efficiency.timeSeries,
-        aggregates: processedMetrics.efficiency.aggregates,
-      },
-      minerPowerUsage: {
-        powerUsage: processedMetrics.power.timeSeries,
-        aggregates: processedMetrics.power.aggregates,
-      },
-      minerTemperature: {
-        temperature: processedMetrics.temperature.timeSeries,
-        aggregates: processedMetrics.temperature.aggregates,
-      },
-    });
-  }, [combinedMetricsData, duration, metricsError]);
-
-  // Update with streaming data
-  useEffect(() => {
-    if (!streamingData || !combinedMetricsData) return;
-
-    // eslint-disable-next-line no-console
-    console.log("Streaming values:", {
-      hashrate: streamingData.metrics
-        .find((m) => m.measurementType === MeasurementType.HASHRATE)
-        ?.aggregatedValues.find(
-          (av) => av.aggregationType === AggregationType.SUM,
-        )?.value,
-      efficiency: streamingData.metrics
-        .find((m) => m.measurementType === MeasurementType.EFFICIENCY)
-        ?.aggregatedValues.find(
-          (av) => av.aggregationType === AggregationType.AVERAGE,
-        )?.value,
-      power: streamingData.metrics
-        .find((m) => m.measurementType === MeasurementType.POWER)
-        ?.aggregatedValues.find(
-          (av) => av.aggregationType === AggregationType.SUM,
-        )?.value,
-      temperature: streamingData.metrics
-        .find((m) => m.measurementType === MeasurementType.TEMPERATURE)
-        ?.aggregatedValues.find(
-          (av) => av.aggregationType === AggregationType.AVERAGE,
-        )?.value,
-    });
+    if (streamingData) {
+      // eslint-disable-next-line no-console
+      console.log("Streaming values:", {
+        hashrate: streamingData.metrics
+          .find((m) => m.measurementType === MeasurementType.HASHRATE)
+          ?.aggregatedValues.find(
+            (av) => av.aggregationType === AggregationType.SUM,
+          )?.value,
+        efficiency: streamingData.metrics
+          .find((m) => m.measurementType === MeasurementType.EFFICIENCY)
+          ?.aggregatedValues.find(
+            (av) => av.aggregationType === AggregationType.AVERAGE,
+          )?.value,
+        power: streamingData.metrics
+          .find((m) => m.measurementType === MeasurementType.POWER)
+          ?.aggregatedValues.find(
+            (av) => av.aggregationType === AggregationType.SUM,
+          )?.value,
+        temperature: streamingData.metrics
+          .find((m) => m.measurementType === MeasurementType.TEMPERATURE)
+          ?.aggregatedValues.find(
+            (av) => av.aggregationType === AggregationType.AVERAGE,
+          )?.value,
+      });
+    }
 
     try {
-      // Reprocess all data with streaming updates merged in
-      const processedMetrics = processAllMetricsWithStreaming(
-        combinedMetricsData,
-        streamingData,
-        duration,
-      );
+      // Process metrics, merging streaming data if available
+      const processedMetrics =
+        streamingData && combinedMetricsData
+          ? processAllMetricsWithStreaming(
+              combinedMetricsData,
+              streamingData,
+              duration,
+            )
+          : processAllMetrics(combinedMetricsData, duration);
 
-      setOutletContext({
+      return {
         duration,
         minerHashrate: {
           hashrate: processedMetrics.hashrate.timeSeries,
@@ -221,11 +197,35 @@ const KpiLayoutWrapper = () => {
           temperature: processedMetrics.temperature.timeSeries,
           aggregates: processedMetrics.temperature.aggregates,
         },
-      });
+      };
     } catch (error) {
       console.error("Error processing streaming data:", error);
+      // Fallback to non-streaming data if available
+      if (!combinedMetricsData) {
+        return null;
+      }
+      const processedMetrics = processAllMetrics(combinedMetricsData, duration);
+      return {
+        duration,
+        minerHashrate: {
+          hashrate: processedMetrics.hashrate.timeSeries,
+          aggregates: processedMetrics.hashrate.aggregates,
+        },
+        minerEfficiency: {
+          efficiency: processedMetrics.efficiency.timeSeries,
+          aggregates: processedMetrics.efficiency.aggregates,
+        },
+        minerPowerUsage: {
+          powerUsage: processedMetrics.power.timeSeries,
+          aggregates: processedMetrics.power.aggregates,
+        },
+        minerTemperature: {
+          temperature: processedMetrics.temperature.timeSeries,
+          aggregates: processedMetrics.temperature.aggregates,
+        },
+      };
     }
-  }, [streamingData, combinedMetricsData, duration]);
+  }, [combinedMetricsData, streamingData, duration, metricsError]);
 
   // Set the duration in local storage when it changes
   const handleDurationChange = (newDuration: Duration) => {

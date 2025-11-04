@@ -74,12 +74,14 @@ const PowerWidget = ({
 
   useEffect(() => {
     if (hasAccess && pausedAuthAction) {
+      /* eslint-disable react-hooks/set-state-in-effect */
       if (pausedAuthAction === AUTH_ACTIONS.reboot) {
         setWarnReboot(true);
       } else if (pausedAuthAction === AUTH_ACTIONS.sleep) {
         setWarnSleep(true);
       }
       setPausedAuthAction(null);
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [hasAccess, pausedAuthAction, setPausedAuthAction]);
 
@@ -121,6 +123,7 @@ const PowerWidget = ({
 
   useEffect(() => {
     if (shouldReboot) {
+      /* eslint-disable react-hooks/set-state-in-effect */
       if (rebootError) {
         setShouldReboot(false);
         if (rebootError?.status === 401) {
@@ -132,6 +135,7 @@ const PowerWidget = ({
         setShouldReboot(false);
         afterReboot?.();
       }
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [
     shouldReboot,
@@ -144,6 +148,7 @@ const PowerWidget = ({
 
   useEffect(() => {
     if (shouldSleep) {
+      /* eslint-disable react-hooks/set-state-in-effect */
       if (sleepError) {
         setShouldSleep(false);
         if (sleepError?.status === 401) {
@@ -155,6 +160,7 @@ const PowerWidget = ({
         setShouldSleep(false);
         afterSleep?.();
       }
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [
     afterSleep,

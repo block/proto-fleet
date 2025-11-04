@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import {
   useFirmwareUpdate,
   useSystemInfo,
@@ -18,18 +17,11 @@ import { convertToSentenceCase } from "@/shared/utils/stringUtils";
 const CheckForUpdate = () => {
   const updateStatus = useFwUpdateStatus();
   const installing = useFirmwareUpdateInstalling();
-  const { checkFirmwareUpdate, updateFirmware } = useFirmwareUpdate();
+  const { checkFirmwareUpdate, updateFirmware, pendingUpdate } =
+    useFirmwareUpdate();
   const systemInfoPending = useSystemInfoPending();
   const { reload: reloadSystemInfo } = useSystemInfo({ poll: false });
   const { rebootSystem, pending: rebootPending } = useSystemReboot();
-  const [pendingUpdate, setPendingUpdate] = useState(false);
-
-  // reset pending update if not installing
-  useEffect(() => {
-    if (!installing) {
-      setPendingUpdate(false);
-    }
-  }, [installing]);
 
   const checkForUpdates = () => {
     checkFirmwareUpdate()
@@ -64,8 +56,7 @@ const CheckForUpdate = () => {
               disabled: installing || pendingUpdate,
               loading: installing || pendingUpdate,
               onClick: () => {
-                setPendingUpdate(true);
-                updateFirmware().then();
+                updateFirmware();
               },
             },
             {

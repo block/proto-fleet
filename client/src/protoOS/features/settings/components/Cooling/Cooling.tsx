@@ -89,6 +89,7 @@ const Cooling = () => {
 
   useEffect(() => {
     if (coolingStatus) {
+      /* eslint-disable react-hooks/set-state-in-effect */
       if (coolingStatus.fan_mode === FAN_MODES[COOLING_MODES.air]) {
         setCoolingMode(COOLING_MODES.air);
         setLoading(false);
@@ -98,11 +99,13 @@ const Cooling = () => {
         setCoolingMode(COOLING_MODES.immersion);
         setLoading(false);
       }
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [coolingStatus]);
 
   useEffect(() => {
     if (isSleeping) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShowSleepDialog(false);
     }
   }, [isSleeping]);

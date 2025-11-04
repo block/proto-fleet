@@ -30,29 +30,28 @@ const useCreatePools = () => {
     }: CreatePoolsProps) => {
       if (!api) return;
 
-      await api
-        .createPools(poolInfo, authHeader)
-        .then(() => {
-          onSuccess?.();
-        })
-        .catch((error) => {
-          handleAuthErrors({
-            error,
-            // @ts-ignore
-            onError,
-            onSuccess: () => {
-              createPools({
-                poolInfo,
-                onSuccess,
-                onError,
-                retryOnMinerDown,
-              });
-            },
+      const performCreate = async () => {
+        await api
+          .createPools(poolInfo, authHeader)
+          .then(() => {
+            onSuccess?.();
+          })
+          .catch((error) => {
+            handleAuthErrors({
+              error,
+              // @ts-ignore
+              onError,
+              onSuccess: () => {
+                performCreate();
+              },
+            });
+          })
+          .finally(() => {
+            fetchData({ retryOnMinerDown });
           });
-        })
-        .finally(() => {
-          fetchData({ retryOnMinerDown });
-        });
+      };
+
+      await performCreate();
     },
     [authHeader, handleAuthErrors, fetchData, api],
   );

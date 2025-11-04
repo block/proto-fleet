@@ -1,10 +1,10 @@
-import { ReactNode, useEffect, useRef, useState } from "react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
 import "./style.css";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
-const Dot = (props: { connecting?: boolean }) => {
+const Dot = (props: { connecting?: boolean; delay: string }) => {
   return (
     <div className="relative flex">
       {props.connecting ? (
@@ -13,7 +13,7 @@ const Dot = (props: { connecting?: boolean }) => {
             "animate-dot-connecting absolute inline-flex size-1 rounded-full",
           )}
           style={{
-            animationDelay: `${Math.random() * 4}s`,
+            animationDelay: props.delay,
           }}
         ></span>
       ) : (
@@ -26,7 +26,7 @@ const Dot = (props: { connecting?: boolean }) => {
             },
           )}
           style={{
-            animationDelay: `${Math.random() * 4}s`,
+            animationDelay: props.delay,
           }}
         ></span>
       )}
@@ -59,6 +59,18 @@ const AnimatedDotsBackground = ({
   const [rowsCount, setRowsCount] = useState(
     Math.ceil(wnHeight / (spacing + dotSize)),
   );
+
+  // Generate random properties based on grid size
+  /* eslint-disable react-hooks/purity */
+  const dotProps = useMemo(
+    () =>
+      Array.from({ length: columnsCount * rowsCount }, () => ({
+        connecting: Math.random() > 0.9,
+        delay: `${Math.random() * 4}s`,
+      })),
+    [columnsCount, rowsCount],
+  );
+  /* eslint-enable react-hooks/purity */
 
   useEffect(() => {
     updateSize();
@@ -98,8 +110,12 @@ const AnimatedDotsBackground = ({
           gridTemplateRows: `repeat(${rowsCount}, minmax(0, 1fr))`,
         }}
       >
-        {Array.from({ length: columnsCount * rowsCount }).map((_, i) => (
-          <Dot key={i} connecting={connecting && Math.random() > 0.9} />
+        {dotProps.map((props, i) => (
+          <Dot
+            key={i}
+            connecting={connecting && props.connecting}
+            delay={props.delay}
+          />
         ))}
       </div>
     </div>

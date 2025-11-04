@@ -49,9 +49,11 @@ export const useWakeMiner = ({
     undefined,
   );
 
-  afterWakeRef.current = afterWake;
-  onSuccessRef.current = onSuccess;
-  onErrorRef.current = onError;
+  useEffect(() => {
+    afterWakeRef.current = afterWake;
+    onSuccessRef.current = onSuccess;
+    onErrorRef.current = onError;
+  }, [afterWake, onSuccess, onError]);
 
   const pollMiningStatus = useCallback(() => {
     if (intervalIdRef.current) {
@@ -84,9 +86,10 @@ export const useWakeMiner = ({
         clearInterval(intervalIdRef.current);
         intervalIdRef.current = undefined;
       }
+      isWakingRef.current = false;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShouldWake(false);
       setPending(false);
-      isWakingRef.current = false;
       afterWakeRef.current?.();
       onSuccessRef.current?.();
     }

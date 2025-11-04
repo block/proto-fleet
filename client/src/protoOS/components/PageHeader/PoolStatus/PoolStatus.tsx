@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import PoolInfoPopover from "./PoolInfoPopover";
 import PoolWidget from "./PoolWidget";
@@ -22,7 +22,6 @@ const PoolStatus = ({
 }: PoolStatusProps) => {
   const { triggerRef: WidgetRef } = useResponsivePopover();
 
-  const [poolInfo, setPoolInfo] = useState<PoolInfo>();
   const [showPopover, setShowPopover] = useState(shouldShowPopover);
 
   const isAlive = useCallback(
@@ -31,17 +30,18 @@ const PoolStatus = ({
     [],
   );
 
-  useEffect(() => {
-    if (poolsInfo) {
-      const activePool = poolsInfo.find(isAlive) || poolsInfo[0];
+  // Derive poolInfo directly from poolsInfo
+  const poolInfo = useMemo<PoolInfo | undefined>(() => {
+    if (!poolsInfo) return undefined;
 
-      setPoolInfo({
-        index: poolsInfo.indexOf(activePool),
-        status: activePool?.status,
-        url: activePool?.url,
-      });
-    }
-  }, [isAlive, poolsInfo]);
+    const activePool = poolsInfo.find(isAlive) || poolsInfo[0];
+
+    return {
+      index: poolsInfo.indexOf(activePool),
+      status: activePool?.status,
+      url: activePool?.url,
+    };
+  }, [poolsInfo, isAlive]);
 
   const isConnected = useMemo(() => isAlive(poolInfo), [isAlive, poolInfo]);
 

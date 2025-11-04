@@ -151,7 +151,12 @@ const Authentication = ({
   }
   const [values, setValues] = useState<Values>(defaultValues);
 
-  const [passwordsMatch, setPasswordsMatch] = useState<boolean>(false);
+  // Derive passwordsMatch from values instead of storing in state
+  const passwordsMatch = useMemo(
+    () =>
+      values.password === values.confirmPassword && values.password.length > 0,
+    [values.password, values.confirmPassword],
+  );
   const [errors, setErrors] = useState<Values>(deepClone(initErrors));
   const [score, setScore] = useState(0);
   const [showWeakPasswordWarning, setShowWeakPasswordWarning] = useState(false);
@@ -234,17 +239,6 @@ const Authentication = ({
     },
     [values],
   );
-
-  useEffect(() => {
-    if (
-      values.password === values.confirmPassword &&
-      values.password.length > 0
-    ) {
-      setPasswordsMatch(true);
-    } else {
-      setPasswordsMatch(false);
-    }
-  }, [values]);
 
   const hasErrors = useMemo(
     () => Object.values(errors).some((err) => err.length > 0),

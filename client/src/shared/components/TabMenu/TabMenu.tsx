@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import ActiveIndicator from "./ActiveIndicator/ActiveIndicator";
@@ -23,12 +23,6 @@ type TabMenuProps = {
 const TabMenu = memo(({ items, basePath = "" }: TabMenuProps) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [activeItem, setActiveItem] = useState<string>();
-  const [activeIndex, setActiveIndex] = useState<number>();
-  const [activeIndicatorTransX, setActiveIndicatorTransX] =
-    useState<string>("0");
-  const [activeIndicatorTransY, setActiveIndicatorTransY] =
-    useState<string>("0");
   const { isPhone } = useWindowDimensions();
   const prevIsPhone = useRef(isPhone);
   // Start with animation disabled on initial render
@@ -44,16 +38,18 @@ const TabMenu = memo(({ items, basePath = "" }: TabMenuProps) => {
     }, 300);
   }, []);
 
-  useEffect(() => {
-    const activeKey = Object.keys(items).find(
+  // Derive active item and index from location
+  const activeItem = useMemo(() => {
+    return Object.keys(items).find(
       (key) => basePath + items[key].path === location.pathname,
     );
-
-    const idx = activeKey ? Object.keys(items).indexOf(activeKey) : undefined;
-    setActiveIndex(idx);
-    setActiveItem(activeKey);
   }, [location.pathname, items, basePath]);
 
+  const activeIndex = useMemo(() => {
+    return activeItem ? Object.keys(items).indexOf(activeItem) : undefined;
+  }, [activeItem, items]);
+
+  // Handle animation disabling when window is resized
   useEffect(() => {
     if (activeIndex === undefined) {
       return;
@@ -62,22 +58,29 @@ const TabMenu = memo(({ items, basePath = "" }: TabMenuProps) => {
     // if the user resizes the window we dont want indicator to animate
     if (isPhone !== prevIsPhone.current) {
       prevIsPhone.current = isPhone;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShouldAnimate(false);
       setTimeout(() => {
         setShouldAnimate(true);
       }, 300);
     }
+  }, [activeIndex, isPhone]);
 
-    const transX = isPhone
+  // Derive indicator position from activeIndex and isPhone
+  const activeIndicatorTransX = useMemo(() => {
+    if (activeIndex === undefined) return "0";
+
+    return isPhone
       ? `calc(${(activeIndex % 2) * 100}% + 2 * var(--spacing) * ${activeIndex % 2})`
       : `calc(${activeIndex * 100}% + 2 * var(--spacing) * ${activeIndex})`;
+  }, [activeIndex, isPhone]);
 
-    const transY = isPhone
+  const activeIndicatorTransY = useMemo(() => {
+    if (activeIndex === undefined) return "0";
+
+    return isPhone
       ? `calc(${Math.floor(activeIndex / 2) * 100}% + 2 * var(--spacing) * ${Math.floor(activeIndex / 2)})`
       : "0";
-
-    setActiveIndicatorTransX(transX);
-    setActiveIndicatorTransY(transY);
   }, [activeIndex, isPhone]);
 
   // Create memoized tab elements to prevent them from re-rendering

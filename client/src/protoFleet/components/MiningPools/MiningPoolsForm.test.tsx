@@ -56,6 +56,13 @@ describe("MiningPoolsForm", () => {
       <MiningPoolsForm buttonLabel={buttonLabel} onSaveDone={vi.fn()} />,
     );
 
+    await waitFor(() => {
+      // When pools are initialized, at least one "Not configured" should change
+      const notConfiguredCount =
+        document.body.textContent?.match(/Not configured/g)?.length || 0;
+      expect(notConfiguredCount).toBeLessThan(3);
+    });
+
     const saveButton = getByRole("button", { name: buttonLabel });
     fireEvent.click(saveButton);
 
@@ -68,6 +75,9 @@ describe("MiningPoolsForm", () => {
     const mockOnSaveRequested = vi.fn();
     const mockOnSaveDone = vi.fn();
 
+    // Ensure we have a valid default pool
+    mocks.pools = [{ url: "https://example.com", username: "user" }];
+
     const { getByRole } = render(
       <MiningPoolsForm
         buttonLabel={buttonLabel}
@@ -75,6 +85,12 @@ describe("MiningPoolsForm", () => {
         onSaveDone={mockOnSaveDone}
       />,
     );
+
+    await waitFor(() => {
+      const notConfiguredCount =
+        document.body.textContent?.match(/Not configured/g)?.length || 0;
+      expect(notConfiguredCount).toBeLessThan(3);
+    });
 
     const saveButton = getByRole("button", { name: buttonLabel });
     fireEvent.click(saveButton);

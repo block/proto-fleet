@@ -20,22 +20,26 @@ const useSystemReboot = () => {
     ({ onError, onSuccess }: RebootSystemProps = {}) => {
       if (!api) return;
 
-      setPending(true);
-      api
-        .rebootSystem(authHeader)
-        .then(() => {
-          onSuccess?.();
-        })
-        .catch((error) => {
-          setPending(false);
-          handleAuthErrors({
-            error,
-            onError,
-            onSuccess: () => {
-              rebootSystem({ onError, onSuccess });
-            },
+      const performReboot = () => {
+        setPending(true);
+        api
+          .rebootSystem(authHeader)
+          .then(() => {
+            onSuccess?.();
+          })
+          .catch((error) => {
+            setPending(false);
+            handleAuthErrors({
+              error,
+              onError,
+              onSuccess: () => {
+                performReboot();
+              },
+            });
           });
-        });
+      };
+
+      performReboot();
     },
     [authHeader, handleAuthErrors, api],
   );

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { HttpResponse, MessageResponse } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
@@ -16,6 +16,7 @@ const useFirmwareUpdate = () => {
   const authHeader = useAuthHeader();
   const pausedAuthAction = usePausedAuthAction();
   const setPausedAuthAction = useSetPausedAuthAction();
+  const [pendingUpdate, setPendingUpdate] = useState(false);
 
   // called when you click install.
   // adds a paused action and calls check access
@@ -31,6 +32,7 @@ const useFirmwareUpdate = () => {
     const handleUpdate = async () => {
       if (hasAccess && pausedAuthAction === AUTH_ACTIONS.update) {
         setPausedAuthAction(null);
+        setPendingUpdate(true);
         try {
           const response = await api?.postUpdateSystem(authHeader);
 
@@ -70,6 +72,8 @@ const useFirmwareUpdate = () => {
 
           // Re-throw other errors
           throw error;
+        } finally {
+          setPendingUpdate(false);
         }
       }
     };
@@ -129,8 +133,9 @@ const useFirmwareUpdate = () => {
     () => ({
       updateFirmware,
       checkFirmwareUpdate,
+      pendingUpdate,
     }),
-    [updateFirmware, checkFirmwareUpdate],
+    [updateFirmware, checkFirmwareUpdate, pendingUpdate],
   );
 };
 

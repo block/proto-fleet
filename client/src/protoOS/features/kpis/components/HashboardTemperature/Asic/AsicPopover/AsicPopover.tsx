@@ -48,7 +48,7 @@ const AsicPopover = ({
       : [];
 
     return { temperatureData, hashrateData };
-  }, [asic.temperature?.timeSeries, asic.hashrate?.timeSeries, intervalMs]);
+  }, [asic.temperature, asic.hashrate, intervalMs]);
 
   const hashRateValue = hashrateData.length
     ? hashrateData[hashrateData.length - 1].value

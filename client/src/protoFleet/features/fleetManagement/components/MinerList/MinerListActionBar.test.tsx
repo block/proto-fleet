@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 
@@ -9,7 +9,7 @@ describe("Miner list action bar", () => {
     selectedMiners: ["MAC1"],
   };
 
-  test("hides and displays action bar depending on confirmation dialog visibility", () => {
+  test("hides and displays action bar depending on confirmation dialog visibility", async () => {
     const { getByTestId } = render(<MinerListActionBar {...actionBarProps} />);
 
     const actionBarElement = getByTestId(actionBarTestId);
@@ -21,7 +21,9 @@ describe("Miner list action bar", () => {
 
     expect(actionBarElement.classList.contains("invisible")).toBe(true);
 
-    const confirmRebootButton = getByTestId("reboot-confirm-button");
+    const confirmRebootButton = await waitFor(() =>
+      getByTestId("reboot-confirm-button"),
+    );
     fireEvent.click(confirmRebootButton);
 
     expect(actionBarElement.classList.contains("invisible")).toBe(false);

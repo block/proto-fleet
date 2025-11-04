@@ -32,30 +32,28 @@ const useEditPool = () => {
     }: EditPoolProps) => {
       if (!api) return;
 
-      await api
-        .editPool({ id: poolId }, poolInfo, authHeader)
-        .then(() => {
-          onSuccess?.();
-        })
-        .catch((error) => {
-          handleAuthErrors({
-            error,
-            // @ts-ignore
-            onError,
-            onSuccess: () => {
-              editPool({
-                poolId,
-                poolInfo,
-                onSuccess,
-                onError,
-                retryOnMinerDown,
-              });
-            },
+      const performEdit = async () => {
+        await api
+          .editPool({ id: poolId }, poolInfo, authHeader)
+          .then(() => {
+            onSuccess?.();
+          })
+          .catch((error) => {
+            handleAuthErrors({
+              error,
+              // @ts-ignore
+              onError,
+              onSuccess: () => {
+                performEdit();
+              },
+            });
+          })
+          .finally(() => {
+            fetchData({ retryOnMinerDown });
           });
-        })
-        .finally(() => {
-          fetchData({ retryOnMinerDown });
-        });
+      };
+
+      await performEdit();
     },
     [authHeader, handleAuthErrors, fetchData, api],
   );

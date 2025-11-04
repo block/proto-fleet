@@ -1,5 +1,5 @@
 import { MemoryRouter } from "react-router-dom";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import HbTempPreview from "./HbTempPreview"; // Adjust the import path as necessary
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
@@ -141,7 +141,7 @@ describe("HbTempPreview", () => {
     expect(screen.queryByTestId("asic-table-preview")).not.toBeInTheDocument();
   });
 
-  it("correctly renders overheated state", () => {
+  it("correctly renders overheated state", async () => {
     const overheatedHbData: HashboardData = {
       ...mockHbData,
       temperature: {
@@ -174,8 +174,10 @@ describe("HbTempPreview", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByTestId("hb-temp-preview")).toHaveClass(
-      "hover:bg-intent-critical-20",
-    );
+    await waitFor(() => {
+      expect(screen.getByTestId("hb-temp-preview")).toHaveClass(
+        "hover:bg-intent-critical-20",
+      );
+    });
   });
 });

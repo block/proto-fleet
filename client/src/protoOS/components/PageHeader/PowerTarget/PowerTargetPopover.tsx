@@ -1,4 +1,11 @@
-import { RefObject, useCallback, useEffect, useRef, useState } from "react";
+import {
+  RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import clsx from "clsx";
 import { useMiningTarget } from "@/protoOS/api";
 import { PerformanceMode } from "@/protoOS/api/generatedApi";
@@ -48,7 +55,14 @@ const PowerTargetPopover = ({
   const [selectedPowerTargetMode, setSelectedPowerTargetMode] = useState<
     PowerTargetMode | undefined
   >(getInitialPowerTargetMode(miningTarget, defaultTarget, bounds?.max));
-  const [inputValue, setInputValue] = useState<string>();
+
+  // Derive inputValue from miningTarget instead of storing in state
+  const inputValue = useMemo(
+    () =>
+      miningTarget === undefined ? undefined : `${convertWtoKW(miningTarget)}`,
+    [miningTarget],
+  );
+
   const [error, setError] = useState<string>();
   const inputRef = useRef<HTMLInputElement>(
     null,
@@ -77,17 +91,9 @@ const PowerTargetPopover = ({
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedPerformanceMode(performanceMode);
   }, [pending, performanceMode]);
-
-  useEffect(() => {
-    if (miningTarget === undefined) {
-      setInputValue(undefined);
-      return;
-    }
-
-    setInputValue(`${convertWtoKW(miningTarget)}`);
-  }, [pending, miningTarget]);
 
   const calculatePowerTarget = useCallback((): number | undefined => {
     if (selectedPowerTargetMode === powerTargetModes.default) {

@@ -71,11 +71,13 @@ describe("Onboarding", () => {
     expect(getByTestId(warnDefaultPoolCallout)).not.toHaveClass("max-h-0");
   });
 
-  test("Renders validation message on clicking test connection with no pool URL inputted", () => {
+  test("Renders validation message on clicking test connection with no pool URL inputted", async () => {
     const { getByText, queryByText } = within(getByTestId(validationError));
     expect(queryByText(urlValidationErrors.required)).not.toBeInTheDocument();
     fireEvent.click(getByTestId(testConnectionButton));
-    expect(getByText(urlValidationErrors.required)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(getByText(urlValidationErrors.required)).toBeInTheDocument();
+    });
   });
 
   test("Renders callout on clicking test connection with pool URL inputted", async () => {

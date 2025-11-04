@@ -70,6 +70,7 @@ const Modal = ({
 
   useEffect(() => {
     if (!show) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       closeModal();
     }
   }, [closeModal, show]);

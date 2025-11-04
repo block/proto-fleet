@@ -29,6 +29,65 @@ const TOOLTIP_WIDTH_PHONE = 150;
 const TOOLTIP_OFFSET = 24;
 const Y_AXIS_TICK_WIDTH = 50;
 
+interface CustomYAxisTickProps {
+  payload: {
+    value: number;
+    coordinate: number;
+    offset: number;
+    index: number;
+  };
+  x: number;
+  y: number;
+  yAxisTicks: number[];
+}
+
+// Custom Y-axis tick that hides the first (lowest) tick
+const CustomYAxisTick = ({
+  payload,
+  x,
+  y,
+  yAxisTicks,
+}: CustomYAxisTickProps) => {
+  // Don't render if this is the first (lowest) tick value
+  const isFirstTick = yAxisTicks.length > 0 && payload.value === yAxisTicks[0];
+
+  if (isFirstTick) {
+    return null;
+  }
+
+  // Calculate text dimensions for background rectangle
+  const text = String(payload.value);
+  const textWidth = text.length * 7; // Approximate width based on font size
+  const textHeight = 16; // Based on fontSize + padding
+  const textPadding = 4;
+
+  return (
+    <g transform={`translate(${x},${y})`}>
+      {/* Background rectangle */}
+      <rect
+        x={8 - textPadding / 2}
+        y={20 - textHeight + textPadding / 2}
+        width={textWidth + textPadding}
+        height={textHeight}
+        fill="var(--color-surface-base)"
+        fillOpacity={0.8}
+        rx={2}
+      />
+      {/* Text */}
+      <text
+        x={8}
+        y={20}
+        textAnchor="start"
+        fontSize={12}
+        fill="var(--color-text-primary)"
+        fillOpacity={0.5}
+      >
+        {payload.value}
+      </text>
+    </g>
+  );
+};
+
 export interface LineChartProps {
   chartData: ChartData[] | null;
   units?: string;
@@ -65,55 +124,10 @@ const LineChart = ({
 
   const [shouldAnimate, setShouldAnimate] = useState(true);
   const { isDesktop, isTablet, isLaptop, isPhone } = useWindowDimensions();
-  const [maxDomain, setMaxDomain] = useState<number>(0);
-  const [minDomain, setMinDomain] = useState<number>(0);
-  const [yAxisTicks, setYAxisTicks] = useState<number[]>([]);
-
-  // Custom Y-axis tick that hides the first (lowest) tick
-  const CustomYAxisTick = ({ payload, x, y }: any) => {
-    // Don't render if this is the first (lowest) tick value
-    const isFirstTick =
-      yAxisTicks.length > 0 && payload.value === yAxisTicks[0];
-
-    if (isFirstTick) {
-      return null;
-    }
-
-    // Calculate text dimensions for background rectangle
-    const text = String(payload.value);
-    const textWidth = text.length * 7; // Approximate width based on font size
-    const textHeight = 16; // Based on fontSize + padding
-    const textPadding = 4;
-
-    return (
-      <g transform={`translate(${x},${y})`}>
-        {/* Background rectangle */}
-        <rect
-          x={8 - textPadding / 2}
-          y={20 - textHeight + textPadding / 2}
-          width={textWidth + textPadding}
-          height={textHeight}
-          fill="var(--color-surface-base)"
-          fillOpacity={0.8}
-          rx={2}
-        />
-        {/* Text */}
-        <text
-          x={8}
-          y={20}
-          textAnchor="start"
-          fontSize={12}
-          fill="var(--color-text-primary)"
-          fillOpacity={0.5}
-        >
-          {payload.value}
-        </text>
-      </g>
-    );
-  };
 
   // initialize animation flags and chart data
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setShouldAnimate(true);
 
     const timeoutId = setTimeout(() => {
@@ -122,8 +136,11 @@ const LineChart = ({
     return () => clearTimeout(timeoutId);
   }, []);
 
-  useEffect(() => {
-    if (!chartData?.length) return;
+  // Calculate Y-axis domain and ticks from chart data
+  const { minDomain, maxDomain, yAxisTicks } = useMemo(() => {
+    if (!chartData?.length) {
+      return { minDomain: 0, maxDomain: 0, yAxisTicks: [] };
+    }
 
     // iterate over all data points and find the
     // highest and loweset values for all active keys
@@ -191,9 +208,11 @@ const LineChart = ({
       ticks = ticks.map((tick) => tick + shift);
     }
 
-    setMinDomain(ticks[0]);
-    setMaxDomain(ticks[ticks.length - 1]);
-    setYAxisTicks(ticks);
+    return {
+      minDomain: ticks[0],
+      maxDomain: ticks[ticks.length - 1],
+      yAxisTicks: ticks,
+    };
   }, [
     chartData,
     tickCount,
@@ -297,7 +316,9 @@ const LineChart = ({
                 stroke: corePrimary10,
               }}
               tickLine={false}
-              tick={<CustomYAxisTick />}
+              tick={(props) => (
+                <CustomYAxisTick {...props} yAxisTicks={yAxisTicks} />
+              )}
               tickSize={0}
               width={Y_AXIS_TICK_WIDTH}
               interval={0}

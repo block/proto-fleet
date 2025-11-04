@@ -1,4 +1,10 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { debounce } from "@/shared/utils/utility";
 
 export type UseMeasureRect = Pick<
@@ -105,15 +111,21 @@ function useMeasure<E extends Element = Element>(
   }, [element, getRectFromElement]);
 
   const updateBoundingRectRef = useRef(updateBoundingRect);
-  updateBoundingRectRef.current = updateBoundingRect;
+  const debouncedUpdateBoundingRectRef = useRef<
+    ReturnType<typeof debounce> | undefined
+  >(undefined);
 
-  const debouncedUpdateBoundingRect = useMemo(() => {
-    return debounce(() => {
-      if (hasRequiredAPIs()) {
-        updateBoundingRectRef.current();
-      }
-    }, MUTATION_DEBOUNCE_MS);
-  }, []);
+  useEffect(() => {
+    updateBoundingRectRef.current = updateBoundingRect;
+
+    if (debouncedUpdateBoundingRectRef.current == null) {
+      debouncedUpdateBoundingRectRef.current = debounce(() => {
+        if (hasRequiredAPIs()) {
+          updateBoundingRectRef.current();
+        }
+      }, MUTATION_DEBOUNCE_MS);
+    }
+  }, [updateBoundingRect]);
 
   const ref = useCallback((node: E | null) => {
     if (!node) return;
@@ -122,6 +134,7 @@ function useMeasure<E extends Element = Element>(
 
   useLayoutEffect(() => {
     if (!element) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setContentRect(defaultState);
       setBoundingRect(defaultState);
       return;
@@ -163,7 +176,7 @@ function useMeasure<E extends Element = Element>(
               return prevRect;
             });
 
-            debouncedUpdateBoundingRect();
+            debouncedUpdateBoundingRectRef.current?.();
           }
         } catch (error) {
           console.warn("useMeasure: ResizeObserver callback error", error);
@@ -176,7 +189,7 @@ function useMeasure<E extends Element = Element>(
       if (observeMutations) {
         const mutationObserver = new MutationObserver(() => {
           try {
-            debouncedUpdateBoundingRect();
+            debouncedUpdateBoundingRectRef.current?.();
           } catch (error) {
             console.warn("useMeasure: MutationObserver callback error", error);
           }
@@ -193,8 +206,6 @@ function useMeasure<E extends Element = Element>(
       }
 
       const initialBoundingRect = getRectFromElement(element);
-      setBoundingRect(initialBoundingRect);
-
       const initialContentRect = {
         x: 0,
         y: 0,
@@ -205,6 +216,8 @@ function useMeasure<E extends Element = Element>(
         bottom: initialBoundingRect.height,
         right: initialBoundingRect.width,
       };
+
+      setBoundingRect(initialBoundingRect);
       setContentRect(initialContentRect);
     } catch (error) {
       console.error("useMeasure: Failed to setup observers", error);
@@ -221,12 +234,7 @@ function useMeasure<E extends Element = Element>(
         mutationObserverRef.current = null;
       }
     };
-  }, [
-    element,
-    getRectFromElement,
-    observeMutations,
-    debouncedUpdateBoundingRect,
-  ]);
+  }, [element, getRectFromElement, observeMutations]);
 
   return [ref, contentRect, boundingRect];
 }

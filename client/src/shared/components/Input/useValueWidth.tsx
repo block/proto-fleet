@@ -15,7 +15,7 @@ const useUnitOffset = (
   const canvasRef = useRef<HTMLCanvasElement | null>(
     null,
   ) as MutableRefObject<HTMLCanvasElement | null>;
-  const [context, setContext] = useState<CanvasRenderingContext2D | null>(null);
+  const contextRef = useRef<CanvasRenderingContext2D | null>(null);
   const [valueWidth, setValueWidth] = useState<number>();
 
   // create a canvas element to measure text width
@@ -23,27 +23,28 @@ const useUnitOffset = (
   useEffect(() => {
     if (!units) return;
     canvasRef.current = document.createElement("canvas");
-    setContext(canvasRef.current.getContext("2d"));
+    contextRef.current = canvasRef.current.getContext("2d");
 
     return () => {
       canvasRef.current = null;
-      setContext(null);
+      contextRef.current = null;
     };
   }, [units]);
 
   // render text to canvas and measure
   const updateUnitPosition = useCallback(() => {
     const input = inputRef.current;
+    const context = contextRef.current;
     if (!input || !context || value === undefined) return;
 
     const inputStyle = window.getComputedStyle(input);
     context.font = inputStyle.font;
     setValueWidth(context.measureText(input.value).width);
-  }, [context, inputRef, value]);
+  }, [inputRef, value]);
 
   useEffect(() => {
     updateUnitPosition();
-  }, [value, context, updateUnitPosition]);
+  }, [value, updateUnitPosition]);
 
   // recompute on resize
   useEffect(() => {

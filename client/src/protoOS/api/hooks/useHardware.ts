@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   TOTAL_FAN_SLOTS,
@@ -29,7 +29,7 @@ const useHardware = () => {
   const [psusInfo, setPsusInfo] = useState<(PsuInfo | null)[] | undefined>();
   const [fansInfo, setFansInfo] = useState<(FanInfo | null)[] | undefined>();
 
-  useEffect(() => {
+  const fetchHardware = useCallback(() => {
     if (!api) return;
 
     setPending(true);
@@ -92,6 +92,11 @@ const useHardware = () => {
         setPending(false);
       });
   }, [api]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchHardware();
+  }, [fetchHardware]);
 
   // Update hardware store with hashboard data
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { ElementType, useState } from "react";
+import { ElementType, useMemo, useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 
 import MiningPoolsComponent from "./MiningPools";
@@ -22,13 +22,27 @@ export const MiningPools = ({
   backupPool2Url,
   backupPool2Username,
 }: MiningPoolsProps) => {
-  const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
-  pools[0].url = defaultPoolUrl;
-  pools[0].username = defaultPoolUsername;
-  pools[1].url = backupPool1Url;
-  pools[1].username = backupPool1Username;
-  pools[2].url = backupPool2Url;
-  pools[2].username = backupPool2Username;
+  const initialPools = useMemo(() => {
+    const poolConfigs = [
+      { url: defaultPoolUrl, username: defaultPoolUsername },
+      { url: backupPool1Url, username: backupPool1Username },
+      { url: backupPool2Url, username: backupPool2Username },
+    ];
+
+    return getEmptyPoolsInfo().map((pool, index) => ({
+      ...pool,
+      ...(poolConfigs[index] || {}),
+    }));
+  }, [
+    defaultPoolUrl,
+    defaultPoolUsername,
+    backupPool1Url,
+    backupPool1Username,
+    backupPool2Url,
+    backupPool2Username,
+  ]);
+
+  const [pools, setPools] = useState<PoolInfo[]>(initialPools);
 
   const onChangePools = (newPools: PoolInfo[]) => {
     setPools(newPools);

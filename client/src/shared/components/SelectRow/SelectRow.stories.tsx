@@ -26,6 +26,7 @@ export const SelectRow = ({
   const [selected, setSelected] = useState<number[]>([]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelected([0]);
   }, [type]);
 

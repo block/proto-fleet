@@ -41,48 +41,52 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
   const fetchData = useCallback(() => {
     if (!api) return;
 
-    setPending(true);
-    api
-      .getCooling()
-      .then((res) => {
-        const coolingData = res?.data["cooling-status"];
+    const performFetch = () => {
+      setPending(true);
+      api
+        .getCooling()
+        .then((res) => {
+          const coolingData = res?.data["cooling-status"];
 
-        // Fill out fans array with all slots
-        if (coolingData) {
-          const fans = coolingData.fans;
-          const fansBySlot = new Map<number, FanStatus>();
-          fans?.forEach((fan) => {
-            if (fan.id !== undefined) {
-              fansBySlot.set(fan.id, fan);
-            }
-          });
-          const allFans = Array.from({ length: TOTAL_FAN_SLOTS }, (_, i) => {
-            const slot = i + 1;
-            return fansBySlot.get(slot) || null;
-          });
+          // Fill out fans array with all slots
+          if (coolingData) {
+            const fans = coolingData.fans;
+            const fansBySlot = new Map<number, FanStatus>();
+            fans?.forEach((fan) => {
+              if (fan.id !== undefined) {
+                fansBySlot.set(fan.id, fan);
+              }
+            });
+            const allFans = Array.from({ length: TOTAL_FAN_SLOTS }, (_, i) => {
+              const slot = i + 1;
+              return fansBySlot.get(slot) || null;
+            });
 
-          setData({
-            ...coolingData,
-            fans: allFans,
+            setData({
+              ...coolingData,
+              fans: allFans,
+            });
+          } else {
+            setData(coolingData);
+          }
+          setPending(false);
+        })
+        .catch((err) => {
+          handleAuthErrors({
+            error: err,
+            onError: (error) => {
+              setError(error?.error?.message ?? "An error occurred");
+              setPending(false);
+            },
+            onSuccess: () => {
+              // Retry fetch after successful token refresh
+              performFetch();
+            },
           });
-        } else {
-          setData(coolingData);
-        }
-        setPending(false);
-      })
-      .catch((err) => {
-        handleAuthErrors({
-          error: err,
-          onError: (error) => {
-            setError(error?.error?.message ?? "An error occurred");
-            setPending(false);
-          },
-          onSuccess: () => {
-            // Retry fetch after successful token refresh
-            fetchData();
-          },
         });
-      });
+    };
+
+    performFetch();
   }, [api, handleAuthErrors]);
 
   usePoll({
@@ -124,26 +128,31 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
   const setCooling = useCallback(
     async ({ mode, onSuccess, onError }: SetCoolingProps) => {
       if (!api) return;
-      setPending(true);
-      await api
-        .setCoolingMode({ mode }, authHeader)
-        .then(async (res) => {
-          const data = await res.json();
-          setData(data.mode);
-          setPending(false);
-          onSuccess?.(data);
-        })
-        .catch((error) => {
-          handleAuthErrors({
-            error,
-            onError: (error) => {
-              (onError?.(error), setPending(false));
-            },
-            onSuccess: () => {
-              setCooling({ mode, onSuccess, onError });
-            },
+
+      const performSetCooling = async () => {
+        setPending(true);
+        await api
+          .setCoolingMode({ mode }, authHeader)
+          .then(async (res) => {
+            const data = await res.json();
+            setData(data.mode);
+            setPending(false);
+            onSuccess?.(data);
+          })
+          .catch((error) => {
+            handleAuthErrors({
+              error,
+              onError: (error) => {
+                (onError?.(error), setPending(false));
+              },
+              onSuccess: () => {
+                performSetCooling();
+              },
+            });
           });
-        });
+      };
+
+      await performSetCooling();
     },
     [api, authHeader, handleAuthErrors],
   );

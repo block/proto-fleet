@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type ScrollDirection = "horizontal" | "vertical";
 type StickyState = {
@@ -14,24 +14,24 @@ const useStickyState = () => {
     vertical: { mightStick: false, isStuck: false },
   });
 
+  // Create individual refs (stable across renders)
   const horizontalEndRef = useRef<HTMLDivElement>(null);
   const horizontalStartRef = useRef<HTMLDivElement>(null);
   const verticalEndRef = useRef<HTMLDivElement>(null);
   const verticalStartRef = useRef<HTMLDivElement>(null);
 
-  const refs = useMemo(
-    () => ({
-      horizontal: {
-        end: horizontalEndRef,
-        start: horizontalStartRef,
-      },
-      vertical: {
-        end: verticalEndRef,
-        start: verticalStartRef,
-      },
-    }),
-    [],
-  );
+  // Create refs object directly (not memoized, not wrapped in useRef)
+  // The object identity will change on each render, but the ref objects inside are stable
+  const refs = {
+    horizontal: {
+      end: horizontalEndRef,
+      start: horizontalStartRef,
+    },
+    vertical: {
+      end: verticalEndRef,
+      start: verticalStartRef,
+    },
+  };
 
   useEffect(() => {
     const observers: IntersectionObserver[] = [];
@@ -73,15 +73,13 @@ const useStickyState = () => {
     return () => {
       observers.forEach((observer) => observer.disconnect());
     };
-  }, [refs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  return useMemo(
-    () => ({
-      refs,
-      stickyState,
-    }),
-    [refs, stickyState],
-  );
+  return {
+    refs,
+    stickyState,
+  };
 };
 
 export { useStickyState };

@@ -52,37 +52,40 @@ const MiningPoolsForm = ({
 
   const { refetch: refetchOnboardingStatus } = useOnboardedStatus();
 
-  useEffect(() => {
-    if (existingPools.length !== 0) {
-      const currentPools = existingPools
-        .sort((a, b) =>
-          // always move default pool to the front, then sort by pool priority (lower number = higher priority)
-          // TODO fix me in the DASH-522
-          a.isDefault
-            ? -1
-            : b.isDefault
-              ? 1
-              : Number(a.poolId) - Number(b.poolId),
-        )
-        .map((pool: Pool) => ({
-          ...pool,
-          password: "",
-          // TODO fix me in the DASH-522
-          priority: pool.poolId,
-        }));
-      const maxExistingPriority = Math.max(
-        // TODO fix me in the DASH-522
-        ...existingPools.map((pool: Pool) => Number(pool.poolId)),
-      );
-      const emptyPools = getEmptyPoolsInfo(maxExistingPriority).slice(
-        existingPools.length,
-      );
-      setPools([...currentPools, ...emptyPools]);
-    }
-  }, [existingPools]);
-
-  const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
   const [loading, setLoading] = useState(false);
+  const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
+
+  // Initialize and sync pools from existingPools
+  useEffect(() => {
+    if (existingPools.length === 0) {
+      return;
+    }
+    const currentPools = existingPools
+      .sort((a, b) =>
+        // always move default pool to the front, then sort by pool priority (lower number = higher priority)
+        // TODO fix me in the DASH-522
+        a.isDefault
+          ? -1
+          : b.isDefault
+            ? 1
+            : Number(a.poolId) - Number(b.poolId),
+      )
+      .map((pool: Pool) => ({
+        ...pool,
+        password: "",
+        // TODO fix me in the DASH-522
+        priority: pool.poolId,
+      }));
+    const maxExistingPriority = Math.max(
+      // TODO fix me in the DASH-522
+      ...existingPools.map((pool: Pool) => Number(pool.poolId)),
+    );
+    const emptyPools = getEmptyPoolsInfo(maxExistingPriority).slice(
+      existingPools.length,
+    );
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPools([...currentPools, ...emptyPools]);
+  }, [existingPools]);
 
   // 0 is the default pool, 1 and 2 are backup pools
   const [currentPoolIndex, setCurrentPoolIndex] = useState<PoolIndex | null>(

@@ -20,24 +20,28 @@ const useMiningStop = () => {
     ({ onError, onSuccess }: StopMiningProps = {}) => {
       if (!api) return;
 
-      setPending(true);
-      api
-        .stopMining(authHeader)
-        .then(() => {
-          onSuccess?.();
-        })
-        .catch((error) => {
-          handleAuthErrors({
-            error,
-            onError,
-            onSuccess: () => {
-              stopMining({ onError, onSuccess });
-            },
+      const performStop = () => {
+        setPending(true);
+        api
+          .stopMining(authHeader)
+          .then(() => {
+            onSuccess?.();
+          })
+          .catch((error) => {
+            handleAuthErrors({
+              error,
+              onError,
+              onSuccess: () => {
+                performStop();
+              },
+            });
+          })
+          .finally(() => {
+            setPending(false);
           });
-        })
-        .finally(() => {
-          setPending(false);
-        });
+      };
+
+      performStop();
     },
     [authHeader, handleAuthErrors, api],
   );

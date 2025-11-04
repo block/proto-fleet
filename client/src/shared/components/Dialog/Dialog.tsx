@@ -57,6 +57,7 @@ const Dialog = ({
         setShowDialog(show);
       }, animationDuration);
     } else {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShowDialog(show);
     }
 

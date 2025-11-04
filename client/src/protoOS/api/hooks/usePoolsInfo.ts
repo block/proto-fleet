@@ -30,46 +30,44 @@ const usePoolsInfo = ({
     ({ onSuccess, onError, retryOnMinerDown }: FetchPoolsInfoProps = {}) => {
       if (!api) return;
 
-      setPending(true);
-      setError(undefined);
-      api
-        .listPools()
-        .then((res) => {
-          // find the highest priority pool
-          // highest priority is the lowest number
-          const sortedPools = res?.data["pools"]?.sort(
-            (a, b) => (a.priority || 0) - (b.priority || 0),
-          );
-          setData(sortedPools);
-          onSuccess?.(sortedPools);
-          if (retryOnMinerDown) {
-            // TODO: remove alive when cgminer is removed
-            const noLivePools = !sortedPools?.find((pool) =>
-              /alive|active/i.test(pool?.status ?? ""),
+      const performFetch = () => {
+        setPending(true);
+        setError(undefined);
+        api
+          .listPools()
+          .then((res) => {
+            // find the highest priority pool
+            // highest priority is the lowest number
+            const sortedPools = res?.data["pools"]?.sort(
+              (a, b) => (a.priority || 0) - (b.priority || 0),
             );
-            // if all pools are dead, refetch pools
-            if (noLivePools) {
-              setTimeout(
-                () => fetchData({ onSuccess, onError, retryOnMinerDown }),
-                5000,
+            setData(sortedPools);
+            onSuccess?.(sortedPools);
+            if (retryOnMinerDown) {
+              // TODO: remove alive when cgminer is removed
+              const noLivePools = !sortedPools?.find((pool) =>
+                /alive|active/i.test(pool?.status ?? ""),
               );
+              // if all pools are dead, refetch pools
+              if (noLivePools) {
+                setTimeout(() => performFetch(), 5000);
+              }
             }
-          }
-        })
-        .catch((err) => {
-          const newError = err?.error?.message ?? err;
-          if (retryOnMinerDown) {
-            setTimeout(
-              () => fetchData({ onSuccess, onError, retryOnMinerDown }),
-              5000,
-            );
-          }
-          setError(newError);
-          onError?.(newError);
-        })
-        .finally(() => {
-          setPending(false);
-        });
+          })
+          .catch((err) => {
+            const newError = err?.error?.message ?? err;
+            if (retryOnMinerDown) {
+              setTimeout(() => performFetch(), 5000);
+            }
+            setError(newError);
+            onError?.(newError);
+          })
+          .finally(() => {
+            setPending(false);
+          });
+      };
+
+      performFetch();
     },
     [api],
   );

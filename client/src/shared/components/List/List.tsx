@@ -261,7 +261,9 @@ const List = <ListItem, ItemKeyValueType>({
             <>
               <div ref={refs.vertical.start} />
               <div className="sticky top-0 flex justify-between">
+                {/* eslint-disable-next-line react-hooks/refs */}
                 <div ref={refs.horizontal.start} />
+                {/* eslint-disable-next-line react-hooks/refs */}
                 <div ref={refs.horizontal.end} />
               </div>
               <table className="mb-6 min-w-full table-fixed border-collapse">
@@ -434,6 +436,7 @@ const List = <ListItem, ItemKeyValueType>({
                   ))}
                 </tbody>
               </table>
+              {/* eslint-disable-next-line react-hooks/refs */}
               <div ref={refs.vertical.end} />
             </>
           ) : (

@@ -37,24 +37,28 @@ const useMiningTarget = () => {
   const fetchData = useCallback(() => {
     if (!api) return;
 
-    setPending(true);
-    api
-      .getMiningTarget()
-      .then((res) => {
-        setFromResponse(res);
-      })
-      .catch((err) => {
-        handleAuthErrors({
-          error: err,
-          onError: (error) => {
-            setError(error?.error?.message ?? "An error occurred");
-          },
-          onSuccess: () => {
-            // Retry fetch after successful token refresh
-            fetchData();
-          },
+    const performFetch = () => {
+      setPending(true);
+      api
+        .getMiningTarget()
+        .then((res) => {
+          setFromResponse(res);
+        })
+        .catch((err) => {
+          handleAuthErrors({
+            error: err,
+            onError: (error) => {
+              setError(error?.error?.message ?? "An error occurred");
+            },
+            onSuccess: () => {
+              // Retry fetch after successful token refresh
+              performFetch();
+            },
+          });
         });
-      });
+    };
+
+    performFetch();
   }, [api, setPending, setFromResponse, setError, handleAuthErrors]);
 
   // Load initial data
@@ -69,26 +73,30 @@ const useMiningTarget = () => {
     (newTarget: MiningTarget) => {
       if (!api) return;
 
-      setPending(true);
-      setError(null);
+      const performUpdate = () => {
+        setPending(true);
+        setError(null);
 
-      api
-        .editMiningTarget(newTarget, authHeader)
-        .then((res) => {
-          setFromResponse(res);
-        })
-        .catch((err) => {
-          handleAuthErrors({
-            error: err,
-            onError: (error) => {
-              setError(error?.error?.message ?? "An error occurred");
-            },
-            onSuccess: () => {
-              // Refresh worked! Retry now
-              updateMiningTarget(newTarget);
-            },
+        api
+          .editMiningTarget(newTarget, authHeader)
+          .then((res) => {
+            setFromResponse(res);
+          })
+          .catch((err) => {
+            handleAuthErrors({
+              error: err,
+              onError: (error) => {
+                setError(error?.error?.message ?? "An error occurred");
+              },
+              onSuccess: () => {
+                // Refresh worked! Retry now
+                performUpdate();
+              },
+            });
           });
-        });
+      };
+
+      performUpdate();
     },
     [api, authHeader, handleAuthErrors, setPending, setError, setFromResponse],
   );

@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useMemo } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
 import AsicTablePreview from "./AsicTablePreview";
@@ -69,18 +69,15 @@ const WrapperComponent = ({
 };
 
 const HbTempPreview = ({ serial, slot }: HbTempPreviewProps) => {
-  const [isOverheating, setIsOverheating] = useState<boolean>(false);
-
   const temperatureUnit = useTemperatureUnit();
 
   const hashboard = useMinerHashboard(serial);
 
-  useEffect(() => {
-    if (!hashboard || !hashboard.temperature?.latest) return;
-
+  const isOverheating = useMemo(() => {
+    if (!hashboard || !hashboard.temperature?.latest) return false;
     const lastTemp = hashboard.temperature.latest.value;
-    setIsOverheating(!!lastTemp && lastTemp > criticalTemp);
-  }, [hashboard, temperatureUnit]);
+    return !!lastTemp && lastTemp > criticalTemp;
+  }, [hashboard]);
 
   return (
     <WrapperComponent serial={serial} isOverheating={isOverheating}>
