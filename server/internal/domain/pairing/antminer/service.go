@@ -2,11 +2,11 @@ package antminer
 
 import (
 	"context"
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"strings"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 
@@ -44,7 +44,7 @@ func (s *Service) GetMinerType() models.Type {
 	return models.TypeAntminer
 }
 
-func (s *Service) PairDevice(ctx context.Context, device *minerdiscovery.DiscoveredDevice, credentials *pb.Credentials) error {
+func (s *Service) PairDevice(ctx context.Context, device *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
 	if credentials == nil || strings.TrimSpace(credentials.Username) == "" || credentials.Password == nil || strings.TrimSpace(*credentials.Password) == "" {
 		return fleeterror.NewInvalidArgumentErrorf("credentials are required for Antminer pairing")
 	}
@@ -85,7 +85,7 @@ func (s *Service) PairDevice(ctx context.Context, device *minerdiscovery.Discove
 	})
 }
 
-func authAndGetSystemInfo(ctx context.Context, device *minerdiscovery.DiscoveredDevice, s *Service, credentials *pb.Credentials) (*web.SystemInfo, error) {
+func authAndGetSystemInfo(ctx context.Context, device *discoverymodels.DiscoveredDevice, s *Service, credentials *pb.Credentials) (*web.SystemInfo, error) {
 	connInfo, err := networking.NewConnectionInfo(device.IpAddress, web.DefaultPort, networking.ProtocolHTTP)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to create connection info: %v", err)

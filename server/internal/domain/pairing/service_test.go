@@ -2,6 +2,7 @@ package pairing_test
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"net"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/integrationtesting"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	pairingAntminer "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/antminer"
 	pairingMocks "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/mocks"
@@ -32,12 +34,12 @@ type MockDiscoverer struct {
 	mock.Mock
 }
 
-func (m *MockDiscoverer) Discover(ctx context.Context, ipAddress string, port string) (*minerdiscovery.DiscoveredDevice, error) {
+func (m *MockDiscoverer) Discover(ctx context.Context, ipAddress string, port string) (*discoverymodels.DiscoveredDevice, error) {
 	args := m.Called(ctx, ipAddress, port)
 	if args.Get(0) == nil {
 		return nil, fmt.Errorf("discover error: %w", args.Error(1))
 	}
-	device, ok := args.Get(0).(*minerdiscovery.DiscoveredDevice)
+	device, ok := args.Get(0).(*discoverymodels.DiscoveredDevice)
 	if !ok {
 		return nil, fmt.Errorf("unexpected type for device: %T", args.Get(0))
 	}
@@ -70,7 +72,7 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 	ctx := testutil.MockAuthContextForTesting(t.Context(), adminUser.DatabaseID, adminUser.OrganizationID)
 
 	discoveryService, _ := minerdiscovery.NewService(discoverers...)
-	discoveredDeviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
 	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
 	userStore := sqlstores.NewSQLUserStore(testContext.ServiceProvider.DB)
@@ -100,14 +102,13 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 	return pairingService, ctx
 }
 
-func createMockDevice(ipAddress, port, serialNumber, deviceType string) *minerdiscovery.DiscoveredDevice {
-	return &minerdiscovery.DiscoveredDevice{
+func createMockDevice(ipAddress, port, deviceType string) *discoverymodels.DiscoveredDevice {
+	return &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
-			IpAddress:    ipAddress,
-			Port:         port,
-			SerialNumber: serialNumber,
-			UrlScheme:    "http",
-			Type:         deviceType,
+			IpAddress: ipAddress,
+			Port:      port,
+			UrlScheme: "http",
+			Type:      deviceType,
 		},
 	}
 }
@@ -133,8 +134,8 @@ func TestDiscoverWithIPList(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
 
-		mockDevice1 := createMockDevice("192.168.1.10", "8080", "SERIAL1", miner.TypeProto.String())
-		mockDevice2 := createMockDevice("192.168.1.11", "8080", "SERIAL2", miner.TypeAntminer.String())
+		mockDevice1 := createMockDevice("192.168.1.10", "8080", miner.TypeProto.String())
+		mockDevice2 := createMockDevice("192.168.1.11", "8080", miner.TypeAntminer.String())
 
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
@@ -172,7 +173,7 @@ func TestDiscoverWithIPList(t *testing.T) {
 		// Assert
 		mockDiscoverer.AssertExpectations(t)
 
-		assertDevicesEqual(t, devices, []*minerdiscovery.DiscoveredDevice{mockDevice1, mockDevice2})
+		assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice1, mockDevice2})
 	})
 }
 
@@ -185,9 +186,9 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
 
-		mockDevice1 := createMockDevice("192.168.1.10", "8080", "RANGE1", miner.TypeProto.String())
-		mockDevice2 := createMockDevice("192.168.1.11", "8080", "RANGE2", miner.TypeProto.String())
-		mockDevice3 := createMockDevice("192.168.1.12", "8080", "RANGE3", miner.TypeAntminer.String())
+		mockDevice1 := createMockDevice("192.168.1.10", "8080", miner.TypeProto.String())
+		mockDevice2 := createMockDevice("192.168.1.11", "8080", miner.TypeProto.String())
+		mockDevice3 := createMockDevice("192.168.1.12", "8080", miner.TypeAntminer.String())
 
 		// Set up mock calls that signal completion through WaitGroup
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").Run(func(_ mock.Arguments) {
@@ -231,7 +232,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		// Assert
 		mockDiscoverer.AssertExpectations(t)
 
-		assertDevicesEqual(t, devices, []*minerdiscovery.DiscoveredDevice{mockDevice1, mockDevice2, mockDevice3})
+		assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice1, mockDevice2, mockDevice3})
 	})
 
 	t.Run("supports updates to existing devices", func(t *testing.T) {
@@ -242,9 +243,9 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
 
-		mockDevice1 := createMockDevice("192.168.1.10", "8080", "RANGE1", miner.TypeProto.String())
-		mockDevice2 := createMockDevice("192.168.1.11", "8080", "RANGE2", miner.TypeProto.String())
-		mockDevice3 := createMockDevice("192.168.1.12", "8080", "RANGE3", miner.TypeAntminer.String())
+		mockDevice1 := createMockDevice("192.168.1.10", "8080", miner.TypeProto.String())
+		mockDevice2 := createMockDevice("192.168.1.11", "8080", miner.TypeProto.String())
+		mockDevice3 := createMockDevice("192.168.1.12", "8080", miner.TypeAntminer.String())
 
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.10", "8080").Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
@@ -301,7 +302,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		// Assert
 		mockDiscoverer.AssertExpectations(t)
 
-		assertDevicesEqual(t, devices, []*minerdiscovery.DiscoveredDevice{mockDevice1, mockDevice2, mockDevice3})
+		assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice1, mockDevice2, mockDevice3})
 	})
 
 	t.Run("does not lead to duplicate device pairings", func(t *testing.T) {
@@ -317,7 +318,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
 
-		mockDevice := createMockDevice(host, portStr, "RANGE1", miner.TypeProto.String())
+		mockDevice := createMockDevice(host, portStr, miner.TypeProto.String())
 
 		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
@@ -361,7 +362,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		// Assert
 		mockDiscoverer.AssertExpectations(t)
 
-		assertDevicesEqual(t, devices, []*minerdiscovery.DiscoveredDevice{mockDevice})
+		assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice})
 
 		totalPairedDevices, err := testContext.DatabaseService.GetTotalDevicePairings(adminUser.OrganizationID, 100)
 		require.NoError(t, err)
@@ -376,7 +377,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
 
-		mockDevice := createMockDevice("192.168.1.20", "80", "SUCCESS1", miner.TypeProto.String())
+		mockDevice := createMockDevice("192.168.1.20", "80", miner.TypeProto.String())
 
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.20", "80").Run(func(_ mock.Arguments) {
 			defer discoverWg.Done()
@@ -415,7 +416,7 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		// Assert
 		mockDiscoverer.AssertExpectations(t)
 
-		assertDevicesEqual(t, devices, []*minerdiscovery.DiscoveredDevice{mockDevice})
+		assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice})
 	})
 }
 
@@ -429,7 +430,7 @@ func TestPairDevices(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
 
-		mockDevice := createMockDevice(host, portStr, "PROTO-PAIR-001", miner.TypeProto.String())
+		mockDevice := createMockDevice(host, portStr, miner.TypeProto.String())
 		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
 
 		webClient := mocks.NewMockWebAPIClient(gomock.NewController(t))
@@ -473,7 +474,7 @@ func TestPairDevices(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDiscoverer.On("GetMinerType").Return(miner.TypeAntminer)
 
-		mockDevice := createMockDevice("192.168.1.101", "4028", "ANTMINER-PAIR-001", miner.TypeAntminer.String())
+		mockDevice := createMockDevice("192.168.1.101", "4028", miner.TypeAntminer.String())
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.101", "4028").Return(mockDevice, nil)
 
 		ctrl := gomock.NewController(t)
@@ -527,7 +528,7 @@ func TestPairDevices(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDiscoverer.On("GetMinerType").Return(miner.TypeAntminer)
 
-		mockDevice := createMockDevice("192.168.1.102", "4028", "ANTMINER-PAIR-002", miner.TypeAntminer.String())
+		mockDevice := createMockDevice("192.168.1.102", "4028", miner.TypeAntminer.String())
 		mockDiscoverer.On("Discover", mock.Anything, "192.168.1.102", "4028").Return(mockDevice, nil)
 
 		webClient := mocks.NewMockWebAPIClient(gomock.NewController(t))
@@ -574,8 +575,8 @@ func TestPairDevices(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
 
-		protoDevice := createMockDevice(host, portStr, "PROTO-MULTI-001", miner.TypeProto.String())
-		antminerDevice := createMockDevice("192.168.1.111", "4028", "ANTMINER-MULTI-001", miner.TypeAntminer.String())
+		protoDevice := createMockDevice(host, portStr, miner.TypeProto.String())
+		antminerDevice := createMockDevice("192.168.1.111", "4028", miner.TypeAntminer.String())
 
 		// Set up mocks for both devices
 		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(protoDevice, nil)
@@ -586,7 +587,7 @@ func TestPairDevices(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		webClient := mocks.NewMockWebAPIClient(ctrl)
 		webClient.EXPECT().GetSystemInfo(gomock.Any(), gomock.Any()).Return(&web.SystemInfo{
-			SerialNumber: "1234567890",
+			SerialNumber: rand.Text()[0:10],
 			MacAddr:      "00:11:22:33:44:55",
 		}, nil)
 
@@ -640,7 +641,7 @@ func TestPairDevices(t *testing.T) {
 		// Create a service with no pairers registered
 		tokenService := testContext.ServiceProvider.TokenService
 		discoveryService, _ := minerdiscovery.NewService()
-		discoveredDeviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
+		discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
 		transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
 		deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
 		capabilitiesService := testContext.ServiceProvider.CapabilitiesService
@@ -696,7 +697,7 @@ func TestPairDevices(t *testing.T) {
 		mockDiscoverer := &MockDiscoverer{}
 		mockDiscoverer.On("GetMinerType").Return(miner.TypeProto)
 
-		mockDevice := createMockDevice(host, portStr, "PROTO-PAIR-001", miner.TypeProto.String())
+		mockDevice := createMockDevice(host, portStr, miner.TypeProto.String())
 		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
 
 		webClient := mocks.NewMockWebAPIClient(gomock.NewController(t))
@@ -733,17 +734,19 @@ func TestPairDevices(t *testing.T) {
 	})
 }
 
-func assertDevicesEqual(t *testing.T, actual []*pb.Device, expected []*minerdiscovery.DiscoveredDevice) {
+func assertDevicesEqual(t *testing.T, actual []*pb.Device, expected []*discoverymodels.DiscoveredDevice) {
 	require.Len(t, actual, len(expected))
 
 	expectedDevicesMap := make(map[string]*pb.Device)
 	for _, device := range expected {
-		expectedDevicesMap[device.SerialNumber] = &device.Device
+		key := fmt.Sprintf("%s-%s", device.Type, device.IpAddress)
+		expectedDevicesMap[key] = &device.Device
 	}
 
 	actualDevicesMap := make(map[string]*pb.Device)
 	for _, device := range actual {
-		actualDevicesMap[device.SerialNumber] = device
+		key := fmt.Sprintf("%s-%s", device.Type, device.IpAddress)
+		actualDevicesMap[key] = device
 	}
 
 	assert.Equal(t, stripIdentifier(expectedDevicesMap), stripIdentifier(actualDevicesMap))

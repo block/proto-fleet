@@ -183,6 +183,22 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 	return sdk.DeviceInfo{}, fmt.Errorf("failed to discover proto miner at %s:%s", ipAddress, port)
 }
 
+func getAndValidateDeviceInfo(ctx context.Context, client *proto.Client) (*proto.DeviceInfo, error) {
+	info, err := client.GetDeviceInfo(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device info: %w", err)
+	}
+
+	if info.SerialNumber == "" {
+		return nil, fmt.Errorf("device did not provide serial number")
+	}
+	if info.MacAddress == "" {
+		return nil, fmt.Errorf("device did not provide MAC address")
+	}
+
+	return info, nil
+}
+
 // discoverWithScheme attempts device discovery using a specific URL scheme.
 func (d *Driver) discoverWithScheme(ctx context.Context, ipAddress string, port int32, scheme string) (sdk.DeviceInfo, error) {
 	// Create a client to communicate with the miner
@@ -192,18 +208,9 @@ func (d *Driver) discoverWithScheme(ctx context.Context, ipAddress string, port 
 	}
 	defer client.Close()
 
-	// Get device identification information
-	info, err := client.GetDeviceInfo(ctx)
+	info, err := getAndValidateDeviceInfo(ctx, client)
 	if err != nil {
-		return sdk.DeviceInfo{}, fmt.Errorf("failed to get device info: %w", err)
-	}
-
-	// Validate that we got the required information
-	if info.SerialNumber == "" {
-		return sdk.DeviceInfo{}, fmt.Errorf("device did not provide serial number")
-	}
-	if info.MacAddress == "" {
-		return sdk.DeviceInfo{}, fmt.Errorf("device did not provide MAC address")
+		return sdk.DeviceInfo{}, err
 	}
 
 	return sdk.DeviceInfo{
@@ -235,6 +242,13 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 	}
 	defer client.Close()
 
+	info, err := getAndValidateDeviceInfo(ctx, client)
+	if err != nil {
+		return "", err
+	}
+	deviceInfo.SerialNumber = info.SerialNumber
+	deviceInfo.MacAddress = info.MacAddress
+
 	publicKey, ok := access.Kind.(sdk.APIKey)
 	if !ok {
 		return "", fmt.Errorf("expected APIKey in secret bundle for pairing, got %T", access.Kind)
@@ -248,6 +262,10 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 
 	message := fmt.Sprintf("Successfully paired Proto miner %s at %s:%d",
 		deviceInfo.SerialNumber, deviceInfo.Host, deviceInfo.Port)
+
+	// TODO (DASH-857) Return device info to fleet so this data can be persisted
+	message += fmt.Sprintf(" (S/N: %s)", deviceInfo.SerialNumber)
+	message += fmt.Sprintf(" (MAC: %s)", deviceInfo.MacAddress)
 
 	slog.Debug("Device paired successfully", "serial", deviceInfo.SerialNumber)
 	return message, nil

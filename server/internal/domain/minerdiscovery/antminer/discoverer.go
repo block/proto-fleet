@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
+
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	antminerRPC "github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/rpc"
@@ -31,7 +33,7 @@ func NewDiscoverer(rpcClient antminerRPC.RPCClient) *Discoverer {
 	}
 }
 
-func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string) (*minerdiscovery.DiscoveredDevice, error) {
+func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string) (*discoverymodels.DiscoveredDevice, error) {
 	if port != requiredPort {
 		return nil, minerdiscovery.MinerNotFoundFleetError
 	}
@@ -61,7 +63,7 @@ func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string
 	}
 
 	// Create device information
-	return &minerdiscovery.DiscoveredDevice{
+	return &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
 			IpAddress:    ipAddress,
 			Port:         port,

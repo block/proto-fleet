@@ -14,6 +14,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/ipscanner"
 	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"
 )
@@ -21,14 +22,14 @@ import (
 // mockDiscoverer implements minerdiscovery.Discoverer for testing
 type mockDiscoverer struct {
 	minerType   miner.Type
-	devicesByIP map[string]*minerdiscovery.DiscoveredDevice
+	devicesByIP map[string]*discoverymodels.DiscoveredDevice
 }
 
 func (m *mockDiscoverer) GetMinerType() miner.Type {
 	return m.minerType
 }
 
-func (m *mockDiscoverer) Discover(ctx context.Context, ipAddress, port string) (*minerdiscovery.DiscoveredDevice, error) {
+func (m *mockDiscoverer) Discover(ctx context.Context, ipAddress, port string) (*discoverymodels.DiscoveredDevice, error) {
 	key := ipAddress + ":" + port
 	if device, ok := m.devicesByIP[key]; ok {
 		return device, nil
@@ -53,7 +54,7 @@ func TestIPScannerService_RediscoverOfflineDeviceAtNewIP(t *testing.T) {
 	// Set up mock discoverer to find both devices at new IPs
 	mockDisc := &mockDiscoverer{
 		minerType: miner.TypeProto,
-		devicesByIP: map[string]*minerdiscovery.DiscoveredDevice{
+		devicesByIP: map[string]*discoverymodels.DiscoveredDevice{
 			"192.168.1.150:50051": {
 				Device: pb.Device{
 					IpAddress:  "192.168.1.150",

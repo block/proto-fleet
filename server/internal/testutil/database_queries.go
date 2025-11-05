@@ -122,7 +122,7 @@ func (s *DatabaseService) CreateDevice(organizationID int64, minerType models.Ty
 	uuidCurrent := id.GenerateID()
 	deviceIdentification, err := db2.WithTransaction(context.Background(), s.DB, func(q *sqlc.Queries) (DeviceIdentification, error) {
 		// First create a discovered_device
-		ddResult, err := q.InsertDiscoveredDevice(context.Background(), sqlc.InsertDiscoveredDeviceParams{
+		ddResult, err := q.UpsertDiscoveredDevice(context.Background(), sqlc.UpsertDiscoveredDeviceParams{
 			OrgID:            organizationID,
 			DeviceIdentifier: uuidCurrent,
 			Model:            sql.NullString{String: "TestMiner", Valid: true},

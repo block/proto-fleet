@@ -3,13 +3,13 @@ package plugins
 import (
 	"context"
 	"fmt"
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"log/slog"
 	"strconv"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
@@ -44,7 +44,7 @@ func NewPairer(manager *Manager, minerType models.Type, transactor interfaces.Tr
 
 // PairDevice handles the entire pairing process using the plugin
 // TODO(DASH-818): Refactor Pairing to use something other than pb.Credentials, this limits us to only username/password with out bespoke miner integrations.
-func (p *Pairer) PairDevice(ctx context.Context, device *minerdiscovery.DiscoveredDevice, credentials *pb.Credentials) error {
+func (p *Pairer) PairDevice(ctx context.Context, device *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
 	plugin, exists := p.manager.GetPluginForMinerType(p.minerType)
 	if !exists {
 		return fleeterror.NewInternalErrorf("no plugin available for miner type %s", p.minerType)
@@ -85,7 +85,7 @@ func (p *Pairer) PairDevice(ctx context.Context, device *minerdiscovery.Discover
 }
 
 // handlePairViaStore saves the device to the database
-func (p *Pairer) handlePairViaStore(ctx context.Context, device *minerdiscovery.DiscoveredDevice, credentials *pb.Credentials) error {
+func (p *Pairer) handlePairViaStore(ctx context.Context, device *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
 	return p.transactor.RunInTx(ctx, func(txCtx context.Context) error {
 		// Save device (includes IP assignment)
 		if err := p.deviceStore.UpsertDevice(txCtx, &device.Device, device.OrgID, p.minerType.String()); err != nil {
@@ -111,7 +111,7 @@ func (p *Pairer) handlePairViaStore(ctx context.Context, device *minerdiscovery.
 // - APIKey: No storage (org-level keys derived on-demand, device-specific keys not yet supported)
 // Note: pb.Credentials currently only supports username/password. Device-specific API keys
 // will require extending pb.Credentials (see TODO DASH-818).
-func (p *Pairer) saveCredentials(ctx context.Context, device *minerdiscovery.DiscoveredDevice, credentials *pb.Credentials) error {
+func (p *Pairer) saveCredentials(ctx context.Context, device *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
 	// Recreate the secret bundle to determine credential type
 	bundle, err := p.createSecretBundle(ctx, device.OrgID, credentials)
 	if err != nil {

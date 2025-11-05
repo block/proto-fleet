@@ -2,6 +2,7 @@ package minerdiscovery_test
 
 import (
 	"context"
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"testing"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
@@ -13,12 +14,12 @@ import (
 
 type MockDiscoverer struct {
 	MinerType    miner.Type
-	DiscoverFunc func(ctx context.Context, ipAddress string, port string) (*minerdiscovery.DiscoveredDevice, error)
+	DiscoverFunc func(ctx context.Context, ipAddress string, port string) (*discoverymodels.DiscoveredDevice, error)
 }
 
 var _ minerdiscovery.Discoverer = (*MockDiscoverer)(nil)
 
-func (m *MockDiscoverer) Discover(ctx context.Context, ipAddress string, port string) (*minerdiscovery.DiscoveredDevice, error) {
+func (m *MockDiscoverer) Discover(ctx context.Context, ipAddress string, port string) (*discoverymodels.DiscoveredDevice, error) {
 	return m.DiscoverFunc(ctx, ipAddress, port)
 }
 
@@ -31,15 +32,15 @@ func TestService(t *testing.T) {
 	t.Run("should discover device using first successful discoverer", func(t *testing.T) {
 		failingDiscoverer := &MockDiscoverer{
 			MinerType: miner.TypeAntminer,
-			DiscoverFunc: func(ctx context.Context, _ string, _ string) (*minerdiscovery.DiscoveredDevice, error) {
+			DiscoverFunc: func(ctx context.Context, _ string, _ string) (*discoverymodels.DiscoveredDevice, error) {
 				return nil, assert.AnError
 			},
 		}
 
 		successfulDiscoverer := &MockDiscoverer{
 			MinerType: miner.TypeProto,
-			DiscoverFunc: func(ctx context.Context, ipAddress string, port string) (*minerdiscovery.DiscoveredDevice, error) {
-				return &minerdiscovery.DiscoveredDevice{
+			DiscoverFunc: func(ctx context.Context, ipAddress string, port string) (*discoverymodels.DiscoveredDevice, error) {
+				return &discoverymodels.DiscoveredDevice{
 					Device: pb.Device{
 						IpAddress:    ipAddress,
 						Port:         port,
@@ -61,14 +62,14 @@ func TestService(t *testing.T) {
 	t.Run("should return error if all discoverers fail", func(t *testing.T) {
 		failingDiscoverer1 := &MockDiscoverer{
 			MinerType: miner.TypeAntminer,
-			DiscoverFunc: func(ctx context.Context, _ string, _ string) (*minerdiscovery.DiscoveredDevice, error) {
+			DiscoverFunc: func(ctx context.Context, _ string, _ string) (*discoverymodels.DiscoveredDevice, error) {
 				return nil, assert.AnError
 			},
 		}
 
 		failingDiscoverer2 := &MockDiscoverer{
 			MinerType: miner.TypeProto,
-			DiscoverFunc: func(ctx context.Context, _ string, _ string) (*minerdiscovery.DiscoveredDevice, error) {
+			DiscoverFunc: func(ctx context.Context, _ string, _ string) (*discoverymodels.DiscoveredDevice, error) {
 				return nil, assert.AnError
 			},
 		}
@@ -83,14 +84,14 @@ func TestService(t *testing.T) {
 	t.Run("should return MinerNotFoundFleetError if all discoverers return not found", func(t *testing.T) {
 		notFoundDiscoverer1 := &MockDiscoverer{
 			MinerType: miner.TypeAntminer,
-			DiscoverFunc: func(ctx context.Context, _ string, _ string) (*minerdiscovery.DiscoveredDevice, error) {
+			DiscoverFunc: func(ctx context.Context, _ string, _ string) (*discoverymodels.DiscoveredDevice, error) {
 				return nil, minerdiscovery.MinerNotFoundFleetError
 			},
 		}
 
 		notFoundDiscoverer2 := &MockDiscoverer{
 			MinerType: miner.TypeProto,
-			DiscoverFunc: func(ctx context.Context, _ string, _ string) (*minerdiscovery.DiscoveredDevice, error) {
+			DiscoverFunc: func(ctx context.Context, _ string, _ string) (*discoverymodels.DiscoveredDevice, error) {
 				return nil, minerdiscovery.MinerNotFoundFleetError
 			},
 		}

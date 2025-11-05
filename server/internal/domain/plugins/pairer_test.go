@@ -2,11 +2,11 @@ package plugins
 
 import (
 	"context"
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"testing"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
@@ -68,7 +68,7 @@ func TestPairer_PairDevice_NoPlugin(t *testing.T) {
 	manager := NewManager(&Config{})
 	pairer := createTestPairer(ctrl, manager, models.TypeAntminer)
 
-	device := &minerdiscovery.DiscoveredDevice{
+	device := &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
 			DeviceIdentifier: "test-device",
 			IpAddress:        "192.168.1.100",
@@ -104,7 +104,7 @@ func TestPairer_PairDevice_PluginNoPairingCapability(t *testing.T) {
 
 	pairer := createTestPairer(ctrl, manager, models.TypeAntminer)
 
-	device := &minerdiscovery.DiscoveredDevice{
+	device := &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
 			DeviceIdentifier: "test-device",
 			IpAddress:        "192.168.1.100",
@@ -178,7 +178,7 @@ func TestPairer_PairDevice_Success(t *testing.T) {
 
 	pairer := NewPairer(manager, models.TypeAntminer, transactor, deviceStore, userStore, tokenService, encryptService)
 
-	device := &minerdiscovery.DiscoveredDevice{
+	device := &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
 			DeviceIdentifier: "test-device",
 			IpAddress:        "192.168.1.100",
@@ -267,7 +267,7 @@ func TestPairer_PairDevice_Success_APIKey(t *testing.T) {
 
 	pairer := NewPairer(manager, models.TypeProto, transactor, deviceStore, userStore, tokenService, encryptService)
 
-	device := &minerdiscovery.DiscoveredDevice{
+	device := &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
 			DeviceIdentifier: "proto-device-001",
 			IpAddress:        "192.168.1.100",

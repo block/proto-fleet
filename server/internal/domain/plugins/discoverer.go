@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"context"
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"log/slog"
 	"strings"
 	"time"
@@ -9,7 +10,6 @@ import (
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 )
 
@@ -55,7 +55,7 @@ func NewDiscoverer(manager *Manager, minerType models.Type) *Discoverer {
 //   - port: The port number to connect to on the device
 //
 // Returns the discovered device information or an error if discovery fails.
-func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string) (*minerdiscovery.DiscoveredDevice, error) {
+func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string) (*discoverymodels.DiscoveredDevice, error) {
 	plugin, exists := d.manager.GetPluginForMinerType(d.minerType)
 	if !exists {
 		return nil, fleeterror.NewInternalErrorf("no plugin available for miner type %s", d.minerType)
@@ -81,7 +81,7 @@ func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string
 	fleetDevice := convertSDKDeviceInfoToFleetDeviceWithType(deviceInfo, ipAddress, port, d.minerType.String())
 
 	// Create DiscoveredDevice
-	discoveredDevice := &minerdiscovery.DiscoveredDevice{
+	discoveredDevice := &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
 			DeviceIdentifier: fleetDevice.DeviceIdentifier,
 			IpAddress:        fleetDevice.IpAddress,
@@ -177,7 +177,7 @@ func NewMultiTypeDiscoverer(manager *Manager) *MultiTypeDiscoverer {
 }
 
 // Discover tries to discover a device using all available plugins until one succeeds
-func (d *MultiTypeDiscoverer) Discover(ctx context.Context, ipAddress string, port string) (*minerdiscovery.DiscoveredDevice, error) {
+func (d *MultiTypeDiscoverer) Discover(ctx context.Context, ipAddress string, port string) (*discoverymodels.DiscoveredDevice, error) {
 	plugins := d.manager.GetAllPlugins()
 
 	if len(plugins) == 0 {
@@ -207,7 +207,7 @@ func (d *MultiTypeDiscoverer) Discover(ctx context.Context, ipAddress string, po
 
 		fleetDevice := convertSDKDeviceInfoToFleetDevice(deviceInfo, ipAddress, port)
 
-		discoveredDevice := &minerdiscovery.DiscoveredDevice{
+		discoveredDevice := &discoverymodels.DiscoveredDevice{
 			Device: pb.Device{
 				DeviceIdentifier: fleetDevice.DeviceIdentifier,
 				IpAddress:        fleetDevice.IpAddress,

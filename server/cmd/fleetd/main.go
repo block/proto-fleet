@@ -164,7 +164,7 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
-	discoveredDeviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(conn)
 
 	influxdbService, err := influxdb.NewTelemetryStore(config.InfluxDB)
 	if err != nil {

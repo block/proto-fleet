@@ -3,16 +3,19 @@ package proto
 import (
 	"context"
 
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
+
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 )
@@ -69,7 +72,7 @@ func (s *Service) GetMinerPublicKey(ctx context.Context, orgID int64) (string, e
 	return key, nil
 }
 
-func (s *Service) handlePairViaStore(ctx context.Context, device *minerdiscovery.DiscoveredDevice) error {
+func (s *Service) handlePairViaStore(ctx context.Context, device *discoverymodels.DiscoveredDevice) error {
 	return s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
 		if err := s.deviceStore.UpsertDevice(txCtx, &device.Device, device.OrgID, models.TypeProto.String()); err != nil {
 			return fleeterror.NewInternalErrorf("failed to upsert device: %v", err)
@@ -83,8 +86,29 @@ func (s *Service) handlePairViaStore(ctx context.Context, device *minerdiscovery
 	})
 }
 
-func (s *Service) PairDevice(ctx context.Context, device *minerdiscovery.DiscoveredDevice, _ *pb.Credentials) error {
-	err := s.handlePairViaStore(ctx, device)
+func (s *Service) PairDevice(ctx context.Context, device *discoverymodels.DiscoveredDevice, _ *pb.Credentials) error {
+	protocol, err := networking.ProtocolFromString(device.Device.UrlScheme)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to parse protocol: %v", err)
+	}
+
+	pairingInfo, err := client.GetPairingInfo(ctx, device.IpAddress, device.Port, protocol)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error getting pairing info: %v", err)
+	}
+
+	if len(pairingInfo.Msg.CbSn) == 0 {
+		return fleeterror.NewInternalErrorf("miner at '%s' does not have a serial number which is required for pairing", device.IpAddress)
+	}
+
+	if len(pairingInfo.Msg.Mac) == 0 {
+		return fleeterror.NewInternalErrorf("miner at '%s' does not have a mac address which is required for pairing", device.IpAddress)
+	}
+
+	device.SerialNumber = pairingInfo.Msg.CbSn
+	device.MacAddress = pairingInfo.Msg.Mac
+
+	err = s.handlePairViaStore(ctx, device)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("error pairing in the DB: %v", err)
 	}

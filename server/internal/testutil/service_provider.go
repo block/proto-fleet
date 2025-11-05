@@ -75,7 +75,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	minerDiscoveryService, err := minerdiscovery.NewService(protoDiscoverer)
 	assert.NoError(t, err)
 
-	discoveredDeviceStore := minerdiscovery.NewInMemoryDiscoveredDeviceStore()
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(db)
 
 	filesService, err := files.NewService()
 	assert.NoError(t, err)

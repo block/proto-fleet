@@ -3,7 +3,6 @@ package pairing
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -15,6 +14,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	tmodels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 
@@ -35,7 +35,7 @@ type Listener interface {
 
 // Service handles the core device discovery functionality
 type Service struct {
-	discoveredDeviceStore minerdiscovery.DiscoveredDeviceStore
+	discoveredDeviceStore interfaces.DiscoveredDeviceStore
 	deviceStore           interfaces.DeviceStore
 	transactor            interfaces.Transactor
 	tokenService          *tokenDomain.Service
@@ -46,7 +46,7 @@ type Service struct {
 }
 
 func NewService(
-	discoveredDeviceStore minerdiscovery.DiscoveredDeviceStore,
+	discoveredDeviceStore interfaces.DiscoveredDeviceStore,
 	deviceStore interfaces.DeviceStore,
 	transactor interfaces.Transactor,
 	tokenService *tokenDomain.Service,
@@ -331,7 +331,7 @@ func (s *Service) discoverDevice(ctx context.Context, ipAddress string, port str
 	return s.processDiscoveredDevice(ctx, discoveredDevice, resultChan)
 }
 
-func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice *minerdiscovery.DiscoveredDevice, resultChan chan<- *pb.DiscoverResponse) error {
+func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, resultChan chan<- *pb.DiscoverResponse) error {
 	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return err
@@ -343,12 +343,12 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 		deviceIdentifier = id.GenerateID()
 	}
 
-	orgDeviceID := minerdiscovery.DeviceOrgIdentifier{
+	orgDeviceID := discoverymodels.DeviceOrgIdentifier{
 		DeviceIdentifier: deviceIdentifier,
 		OrgID:            claims.OrgID,
 	}
 
-	result, err := s.discoveredDeviceStore.Save(orgDeviceID, discoveredDevice)
+	result, err := s.discoveredDeviceStore.Save(ctx, orgDeviceID, discoveredDevice)
 	if err != nil {
 		return err
 	}
@@ -402,26 +402,15 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 }
 
 func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, credentials *pb.Credentials) error {
-	orgDeviceID := minerdiscovery.DeviceOrgIdentifier{
+	orgDeviceID := discoverymodels.DeviceOrgIdentifier{
 		DeviceIdentifier: deviceID,
 		OrgID:            orgID,
 	}
 
-	// Try to get discovered device from in-memory store first
-	discoveredDevice, err := s.discoveredDeviceStore.GetDevice(orgDeviceID)
+	discoveredDevice, err := s.discoveredDeviceStore.GetDevice(ctx, orgDeviceID)
 
-	// If device not in store, try database
-	if errors.Is(err, minerdiscovery.MinerNotFoundFleetError) {
-		discoveredDevice, err = s.deviceStore.GetDeviceWithIPAssignment(ctx, deviceID, orgID)
-		if err != nil {
-			return fleeterror.NewInternalErrorf("failed to get device with device_identifier=%s: %v", deviceID, err)
-		}
-	} else if err != nil {
+	if err != nil {
 		return fleeterror.NewInternalErrorf("error getting device from store: %v", err)
-	}
-
-	if discoveredDevice == nil {
-		return fleeterror.NewInternalErrorf("device not found: %s", deviceID)
 	}
 
 	deviceType, err := models.TypeFromString(discoveredDevice.Type)

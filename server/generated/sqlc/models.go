@@ -296,10 +296,10 @@ type DiscoveredDevice struct {
 	DiscoveryMetadata sql.NullString
 	FirstDiscovered   sql.NullTime
 	LastSeen          sql.NullTime
-	IsActive          sql.NullBool
 	CreatedAt         sql.NullTime
 	UpdatedAt         sql.NullTime
 	DeletedAt         sql.NullTime
+	IsActive          bool
 }
 
 type MinerCredential struct {

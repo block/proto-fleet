@@ -8,7 +8,7 @@ import (
 	fm "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	tm "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
@@ -45,7 +45,7 @@ type DeviceStore interface {
 	UpsertDevicePairing(ctx context.Context, device *pb.Device, orgID int64, pairingStatus string) error
 	GetMinerCredentials(ctx context.Context, device *pb.Device, orgID int64) (*pb.Credentials, error)
 	GetDeviceByDeviceIdentifier(ctx context.Context, identifier string, orgID int64) (*pb.Device, error)
-	GetDeviceWithIPAssignment(ctx context.Context, deviceIdentifier string, orgID int64) (*minerdiscovery.DiscoveredDevice, error)
+	GetDeviceWithIPAssignment(ctx context.Context, deviceIdentifier string, orgID int64) (*discoverymodels.DiscoveredDevice, error)
 	GetTotalPairedDevices(ctx context.Context, orgID int64, filter *MinerFilter) (int64, error)
 	ListPairedDevices(ctx context.Context, cursor string, pageSize int32) ([]*fm.PairedDevice, string, error)
 	ListPairedMinersWithStatus(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *MinerFilter) ([]*pb.Device, string, error)

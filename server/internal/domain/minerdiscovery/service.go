@@ -3,37 +3,17 @@ package minerdiscovery
 import (
 	"context"
 	"log/slog"
-	"time"
 
 	"connectrpc.com/connect"
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 )
 
 var MinerNotFoundFleetError = fleeterror.NewPlainError("miner not found at the specified address and port", connect.CodeNotFound).WithCallerStackTrace()
 
-type DeviceOrgIdentifier struct {
-	DeviceIdentifier string
-	OrgID            int64
-}
-
-type DiscoveredDevice struct {
-	pb.Device
-	OrgID           int64
-	FirstDiscovered time.Time
-	LastSeen        time.Time
-}
-
-func (d *DiscoveredDevice) GetDeviceOrgIdentifier() DeviceOrgIdentifier {
-	return DeviceOrgIdentifier{
-		DeviceIdentifier: d.Device.DeviceIdentifier,
-		OrgID:            d.OrgID,
-	}
-}
-
 type Discoverer interface {
-	Discover(ctx context.Context, ipAddress string, port string) (*DiscoveredDevice, error)
+	Discover(ctx context.Context, ipAddress string, port string) (*models.DiscoveredDevice, error)
 	GetMinerType() miner.Type
 }
 
@@ -60,7 +40,7 @@ func NewService(discoverers ...Discoverer) (*Service, error) {
 
 // Discover attempts to discover a device at the given IP address and port
 // using all available discoverers
-func (s *Service) Discover(ctx context.Context, ipAddress string, port string) (*DiscoveredDevice, error) {
+func (s *Service) Discover(ctx context.Context, ipAddress string, port string) (*models.DiscoveredDevice, error) {
 	var lastErr error
 
 	for minerType := range s.discoverers {
@@ -84,7 +64,7 @@ func (s *Service) Discover(ctx context.Context, ipAddress string, port string) (
 	return nil, lastErr
 }
 
-func (s *Service) DiscoverMinerWithType(ctx context.Context, ipAddress string, port string, minerType miner.Type) (*DiscoveredDevice, error) {
+func (s *Service) DiscoverMinerWithType(ctx context.Context, ipAddress string, port string, minerType miner.Type) (*models.DiscoveredDevice, error) {
 	discoverer, ok := s.discoverers[minerType]
 	if !ok {
 		return nil, fleeterror.NewInternalErrorf("no discoverer found for miner type: %s", minerType)

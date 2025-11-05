@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 )
@@ -17,6 +17,6 @@ const (
 
 type Pairer interface {
 	// PairDevice handles the entire pairing process including saving the device to the database
-	PairDevice(ctx context.Context, device *minerdiscovery.DiscoveredDevice, credentials *pb.Credentials) error
+	PairDevice(ctx context.Context, device *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error
 	GetMinerType() models.Type
 }

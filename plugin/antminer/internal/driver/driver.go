@@ -215,6 +215,7 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 	message := fmt.Sprintf("Successfully paired Antminer %s at %s:%d",
 		deviceInfo.Model, deviceInfo.Host, deviceInfo.Port)
 
+	// TODO (DASH-857) Return device info to fleet so this data can be persisted
 	message += fmt.Sprintf(" (S/N: %s)", serialNumber)
 	message += fmt.Sprintf(" (MAC: %s)", macAddress)
 

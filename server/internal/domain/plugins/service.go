@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"log/slog"
 	"sync"
 
@@ -66,7 +67,7 @@ type PluginInfo struct {
 }
 
 // TryDiscoverWithPlugin attempts to discover a device using plugins
-func (s *Service) TryDiscoverWithPlugin(ctx context.Context, ipAddress, port string, preferredType *models.Type) (*minerdiscovery.DiscoveredDevice, error) {
+func (s *Service) TryDiscoverWithPlugin(ctx context.Context, ipAddress, port string, preferredType *models.Type) (*discoverymodels.DiscoveredDevice, error) {
 	var preferredTypeError error
 	if preferredType != nil {
 		if s.manager.HasPluginForMinerType(*preferredType) {

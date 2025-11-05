@@ -377,44 +377,6 @@ func (q *Queries) GetDeviceStatusForDeviceIdentifiers(ctx context.Context, devic
 	return items, nil
 }
 
-const getDiscoveredDeviceByID = `-- name: GetDiscoveredDeviceByID :one
-SELECT id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at
-FROM discovered_device
-WHERE id = ?
-    AND org_id = ?
-    AND deleted_at IS NULL
-LIMIT 1
-`
-
-type GetDiscoveredDeviceByIDParams struct {
-	ID    int64
-	OrgID int64
-}
-
-func (q *Queries) GetDiscoveredDeviceByID(ctx context.Context, arg GetDiscoveredDeviceByIDParams) (DiscoveredDevice, error) {
-	row := q.queryRow(ctx, q.getDiscoveredDeviceByIDStmt, getDiscoveredDeviceByID, arg.ID, arg.OrgID)
-	var i DiscoveredDevice
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.DeviceIdentifier,
-		&i.Model,
-		&i.Manufacturer,
-		&i.Type,
-		&i.IpAddress,
-		&i.Port,
-		&i.UrlScheme,
-		&i.DiscoveryMetadata,
-		&i.FirstDiscovered,
-		&i.LastSeen,
-		&i.IsActive,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeletedAt,
-	)
-	return i, err
-}
-
 const getOfflineDevices = `-- name: GetOfflineDevices :many
 SELECT
     d.id,
@@ -545,52 +507,6 @@ func (q *Queries) GetTotalPairedDevices(ctx context.Context, arg GetTotalPairedD
 	var count int64
 	err := row.Scan(&count)
 	return count, err
-}
-
-const insertDiscoveredDevice = `-- name: InsertDiscoveredDevice :execresult
-INSERT INTO discovered_device (
-    org_id,
-    device_identifier,
-    model,
-    manufacturer,
-    type,
-    ip_address,
-    port,
-    url_scheme
-) VALUES (
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?
-)
-`
-
-type InsertDiscoveredDeviceParams struct {
-	OrgID            int64
-	DeviceIdentifier string
-	Model            sql.NullString
-	Manufacturer     sql.NullString
-	Type             string
-	IpAddress        string
-	Port             string
-	UrlScheme        string
-}
-
-func (q *Queries) InsertDiscoveredDevice(ctx context.Context, arg InsertDiscoveredDeviceParams) (sql.Result, error) {
-	return q.exec(ctx, q.insertDiscoveredDeviceStmt, insertDiscoveredDevice,
-		arg.OrgID,
-		arg.DeviceIdentifier,
-		arg.Model,
-		arg.Manufacturer,
-		arg.Type,
-		arg.IpAddress,
-		arg.Port,
-		arg.UrlScheme,
-	)
 }
 
 const listPairedDevices = `-- name: ListPairedDevices :many
@@ -805,42 +721,6 @@ type UpdateDeviceIPAssignmentParams struct {
 
 func (q *Queries) UpdateDeviceIPAssignment(ctx context.Context, arg UpdateDeviceIPAssignmentParams) error {
 	_, err := q.exec(ctx, q.updateDeviceIPAssignmentStmt, updateDeviceIPAssignment,
-		arg.IpAddress,
-		arg.Port,
-		arg.UrlScheme,
-		arg.ID,
-	)
-	return err
-}
-
-const updateDiscoveredDevice = `-- name: UpdateDiscoveredDevice :exec
-UPDATE discovered_device
-SET
-    model = ?,
-    manufacturer = ?,
-    type = ?,
-    ip_address = ?,
-    port = ?,
-    url_scheme = ?,
-    last_seen = CURRENT_TIMESTAMP(6)
-WHERE id = ?
-`
-
-type UpdateDiscoveredDeviceParams struct {
-	Model        sql.NullString
-	Manufacturer sql.NullString
-	Type         string
-	IpAddress    string
-	Port         string
-	UrlScheme    string
-	ID           int64
-}
-
-func (q *Queries) UpdateDiscoveredDevice(ctx context.Context, arg UpdateDiscoveredDeviceParams) error {
-	_, err := q.exec(ctx, q.updateDiscoveredDeviceStmt, updateDiscoveredDevice,
-		arg.Model,
-		arg.Manufacturer,
-		arg.Type,
 		arg.IpAddress,
 		arg.Port,
 		arg.UrlScheme,
