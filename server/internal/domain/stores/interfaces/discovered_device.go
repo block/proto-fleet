@@ -15,4 +15,7 @@ type DiscoveredDeviceStore interface {
 
 	// GetDevice retrieves a discovered device by its organization and device identifier
 	GetDevice(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier) (*discoverymodels.DiscoveredDevice, error)
+
+	// GetDatabaseID retrieves the database ID (primary key) for a discovered device
+	GetDatabaseID(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier) (int64, error)
 }

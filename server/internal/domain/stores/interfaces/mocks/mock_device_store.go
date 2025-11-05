@@ -177,6 +177,20 @@ func (mr *MockDeviceStoreMockRecorder) GetTotalPairedDevices(ctx, orgID, filter 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTotalPairedDevices", reflect.TypeOf((*MockDeviceStore)(nil).GetTotalPairedDevices), ctx, orgID, filter)
 }
 
+// InsertDevice mocks base method.
+func (m *MockDeviceStore) InsertDevice(ctx context.Context, device *pairingv1.Device, orgID int64, discoveredDeviceIdentifier string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertDevice", ctx, device, orgID, discoveredDeviceIdentifier)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertDevice indicates an expected call of InsertDevice.
+func (mr *MockDeviceStoreMockRecorder) InsertDevice(ctx, device, orgID, discoveredDeviceIdentifier interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertDevice", reflect.TypeOf((*MockDeviceStore)(nil).InsertDevice), ctx, device, orgID, discoveredDeviceIdentifier)
+}
+
 // ListPairedDevices mocks base method.
 func (m *MockDeviceStore) ListPairedDevices(ctx context.Context, cursor string, pageSize int32) ([]*fleetmanagementv1.PairedDevice, string, error) {
 	m.ctrl.T.Helper()
@@ -207,20 +221,6 @@ func (m *MockDeviceStore) ListPairedMinersWithStatus(ctx context.Context, orgID 
 func (mr *MockDeviceStoreMockRecorder) ListPairedMinersWithStatus(ctx, orgID, cursor, pageSize, filter interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPairedMinersWithStatus", reflect.TypeOf((*MockDeviceStore)(nil).ListPairedMinersWithStatus), ctx, orgID, cursor, pageSize, filter)
-}
-
-// UpsertDevice mocks base method.
-func (m *MockDeviceStore) UpsertDevice(ctx context.Context, device *pairingv1.Device, orgID int64, deviceType string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpsertDevice", ctx, device, orgID, deviceType)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpsertDevice indicates an expected call of UpsertDevice.
-func (mr *MockDeviceStoreMockRecorder) UpsertDevice(ctx, device, orgID, deviceType interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertDevice", reflect.TypeOf((*MockDeviceStore)(nil).UpsertDevice), ctx, device, orgID, deviceType)
 }
 
 // UpsertDevicePairing mocks base method.

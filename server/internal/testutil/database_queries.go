@@ -140,7 +140,7 @@ func (s *DatabaseService) CreateDevice(organizationID int64, minerType models.Ty
 			return DeviceIdentification{}, fleeterror.NewInternalErrorf("failed to query discovered device last insert ID: %v", err)
 		}
 
-		result, err := q.UpsertDevice(context.Background(), sqlc.UpsertDeviceParams{
+		result, err := q.InsertDevice(context.Background(), sqlc.InsertDeviceParams{
 			OrgID:              organizationID,
 			DiscoveredDeviceID: discoveredDeviceID,
 			DeviceIdentifier:   uuidCurrent,

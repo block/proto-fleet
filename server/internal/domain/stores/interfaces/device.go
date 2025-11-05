@@ -28,19 +28,20 @@ type MinerFilter struct {
 
 // OfflineDeviceInfo contains information about an offline device needed for IP scanning
 type OfflineDeviceInfo struct {
-	DeviceID           int64
-	DeviceIdentifier   string
-	MacAddress         string
-	DeviceType         string
-	LastKnownIP        string
-	LastKnownPort      string
-	LastKnownURLScheme string
-	OrgID              int64
+	DeviceID                   int64
+	DeviceIdentifier           string
+	MacAddress                 string
+	DeviceType                 string
+	LastKnownIP                string
+	LastKnownPort              string
+	LastKnownURLScheme         string
+	OrgID                      int64
+	DiscoveredDeviceIdentifier string
 }
 
 //nolint:interfacebloat // DeviceStore defines the interface for device-related operations in the store layer. We are okay with bloat at this time.
 type DeviceStore interface {
-	UpsertDevice(ctx context.Context, device *pb.Device, orgID int64, deviceType string) error
+	InsertDevice(ctx context.Context, device *pb.Device, orgID int64, discoveredDeviceIdentifier string) error
 	UpsertMinerCredentials(ctx context.Context, device *pb.Device, orgID int64, usernameEnc string, passwordEnc *secrets.Text) error
 	UpsertDevicePairing(ctx context.Context, device *pb.Device, orgID int64, pairingStatus string) error
 	GetMinerCredentials(ctx context.Context, device *pb.Device, orgID int64) (*pb.Credentials, error)

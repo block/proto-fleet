@@ -45,8 +45,8 @@ func TestIPScannerService_RediscoverOfflineDeviceAtNewIP(t *testing.T) {
 	// Get test database connection (migrations already applied)
 	conn := testutil.GetTestDB(t)
 
-	// Create real device store
 	deviceStore := sqlstores.NewSQLDeviceStore(conn)
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(conn)
 
 	// Seed test data - two offline devices on same subnet
 	setupTestData(t, conn)
@@ -91,7 +91,7 @@ func TestIPScannerService_RediscoverOfflineDeviceAtNewIP(t *testing.T) {
 	logger := slog.Default()
 
 	// Create and start the service
-	service := ipscanner.NewIPScannerService(config, deviceStore, discoveryService, logger)
+	service := ipscanner.NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, logger)
 
 	testCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()

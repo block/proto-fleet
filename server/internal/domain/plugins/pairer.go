@@ -3,9 +3,10 @@ package plugins
 import (
 	"context"
 	"fmt"
-	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"log/slog"
 	"strconv"
+
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
@@ -20,31 +21,33 @@ import (
 
 // Pairer implements the pairing.Pairer interface using plugins
 type Pairer struct {
-	manager        *Manager
-	minerType      models.Type
-	transactor     interfaces.Transactor
-	deviceStore    interfaces.DeviceStore
-	userStore      interfaces.UserStore
-	tokenService   *token.Service
-	encryptService *encrypt.Service
+	manager               *Manager
+	minerType             models.Type
+	transactor            interfaces.Transactor
+	discoveredDeviceStore interfaces.DiscoveredDeviceStore
+	deviceStore           interfaces.DeviceStore
+	userStore             interfaces.UserStore
+	tokenService          *token.Service
+	encryptService        *encrypt.Service
 }
 
 // NewPairer creates a new plugin-based pairer for a specific miner type
-func NewPairer(manager *Manager, minerType models.Type, transactor interfaces.Transactor, deviceStore interfaces.DeviceStore, userStore interfaces.UserStore, tokenService *token.Service, encryptService *encrypt.Service) *Pairer {
+func NewPairer(manager *Manager, minerType models.Type, transactor interfaces.Transactor, discoveredDeviceStore interfaces.DiscoveredDeviceStore, deviceStore interfaces.DeviceStore, userStore interfaces.UserStore, tokenService *token.Service, encryptService *encrypt.Service) *Pairer {
 	return &Pairer{
-		manager:        manager,
-		minerType:      minerType,
-		transactor:     transactor,
-		deviceStore:    deviceStore,
-		userStore:      userStore,
-		tokenService:   tokenService,
-		encryptService: encryptService,
+		manager:               manager,
+		minerType:             minerType,
+		transactor:            transactor,
+		discoveredDeviceStore: discoveredDeviceStore,
+		deviceStore:           deviceStore,
+		userStore:             userStore,
+		tokenService:          tokenService,
+		encryptService:        encryptService,
 	}
 }
 
 // PairDevice handles the entire pairing process using the plugin
 // TODO(DASH-818): Refactor Pairing to use something other than pb.Credentials, this limits us to only username/password with out bespoke miner integrations.
-func (p *Pairer) PairDevice(ctx context.Context, device *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
+func (p *Pairer) PairDevice(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
 	plugin, exists := p.manager.GetPluginForMinerType(p.minerType)
 	if !exists {
 		return fleeterror.NewInternalErrorf("no plugin available for miner type %s", p.minerType)
@@ -57,11 +60,11 @@ func (p *Pairer) PairDevice(ctx context.Context, device *discoverymodels.Discove
 	slog.Debug("Using plugin for device pairing",
 		"plugin", plugin.Name,
 		"type", p.minerType,
-		"device", device.DeviceIdentifier)
+		"device", discoveredDevice.DeviceIdentifier)
 
-	deviceInfo := convertFleetDeviceToSDKDeviceInfo(&device.Device)
+	deviceInfo := convertFleetDeviceToSDKDeviceInfo(&discoveredDevice.Device)
 
-	secretBundle, err := p.createSecretBundle(ctx, device.OrgID, credentials)
+	secretBundle, err := p.createSecretBundle(ctx, discoveredDevice.OrgID, credentials)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to create secret bundle: %v", err)
 	}
@@ -73,11 +76,11 @@ func (p *Pairer) PairDevice(ctx context.Context, device *discoverymodels.Discove
 
 	slog.Debug("Plugin pairing completed",
 		"plugin", plugin.Name,
-		"device", device.DeviceIdentifier,
+		"device", discoveredDevice.DeviceIdentifier,
 		"message", message)
 
 	// Save device to database
-	if err := p.handlePairViaStore(ctx, device, credentials); err != nil {
+	if err := p.handlePairViaStore(ctx, discoveredDevice, credentials); err != nil {
 		return fleeterror.NewInternalErrorf("error saving device to database: %v", err)
 	}
 
@@ -85,20 +88,19 @@ func (p *Pairer) PairDevice(ctx context.Context, device *discoverymodels.Discove
 }
 
 // handlePairViaStore saves the device to the database
-func (p *Pairer) handlePairViaStore(ctx context.Context, device *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
-	return p.transactor.RunInTx(ctx, func(txCtx context.Context) error {
-		// Save device (includes IP assignment)
-		if err := p.deviceStore.UpsertDevice(txCtx, &device.Device, device.OrgID, p.minerType.String()); err != nil {
-			return fleeterror.NewInternalErrorf("failed to upsert device: %v", err)
+func (p *Pairer) handlePairViaStore(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
+	return p.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		if err := p.deviceStore.InsertDevice(ctx, &discoveredDevice.Device, discoveredDevice.OrgID, discoveredDevice.DeviceIdentifier); err != nil {
+			return fleeterror.NewInternalErrorf("failed to insert device: %v", err)
 		}
 
 		// Save encrypted credentials based on SecretBundle type
-		if err := p.saveCredentials(txCtx, device, credentials); err != nil {
+		if err := p.saveCredentials(ctx, discoveredDevice, credentials); err != nil {
 			return err
 		}
 
 		// Mark device as paired
-		if err := p.deviceStore.UpsertDevicePairing(txCtx, &device.Device, device.OrgID, pairing.StatusPaired); err != nil {
+		if err := p.deviceStore.UpsertDevicePairing(ctx, &discoveredDevice.Device, discoveredDevice.OrgID, pairing.StatusPaired); err != nil {
 			return fleeterror.NewInternalErrorf("failed to upsert device pairing: %v", err)
 		}
 
@@ -111,9 +113,9 @@ func (p *Pairer) handlePairViaStore(ctx context.Context, device *discoverymodels
 // - APIKey: No storage (org-level keys derived on-demand, device-specific keys not yet supported)
 // Note: pb.Credentials currently only supports username/password. Device-specific API keys
 // will require extending pb.Credentials (see TODO DASH-818).
-func (p *Pairer) saveCredentials(ctx context.Context, device *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
+func (p *Pairer) saveCredentials(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
 	// Recreate the secret bundle to determine credential type
-	bundle, err := p.createSecretBundle(ctx, device.OrgID, credentials)
+	bundle, err := p.createSecretBundle(ctx, discoveredDevice.OrgID, credentials)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to create secret bundle: %v", err)
 	}
@@ -131,7 +133,7 @@ func (p *Pairer) saveCredentials(ctx context.Context, device *discoverymodels.Di
 			return fleeterror.NewInternalErrorf("failed to encrypt password: %v", err)
 		}
 
-		if err := p.deviceStore.UpsertMinerCredentials(ctx, &device.Device, device.OrgID, encryptedUsername, secrets.NewText(encryptedPassword)); err != nil {
+		if err := p.deviceStore.UpsertMinerCredentials(ctx, &discoveredDevice.Device, discoveredDevice.OrgID, encryptedUsername, secrets.NewText(encryptedPassword)); err != nil {
 			return fleeterror.NewInternalErrorf("failed to upsert miner credentials: %v", err)
 		}
 
@@ -139,12 +141,12 @@ func (p *Pairer) saveCredentials(ctx context.Context, device *discoverymodels.Di
 		// Org-level API keys are derived on-demand from org private key, no storage needed (e.g., Proto miners)
 		// Note: Device-specific API keys will require pb.Credentials extension (see TODO DASH-818)
 		slog.Debug("Using org-level API key, no credential storage needed",
-			"device", device.DeviceIdentifier)
+			"device", discoveredDevice.DeviceIdentifier)
 
 	default:
 		// Unsupported credential type - silent ignore for forward compatibility
 		slog.Debug("No credentials stored for device",
-			"device", device.DeviceIdentifier,
+			"device", discoveredDevice.DeviceIdentifier,
 			"type", fmt.Sprintf("%T", bundle.Kind))
 	}
 

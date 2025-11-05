@@ -408,7 +408,6 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 	}
 
 	discoveredDevice, err := s.discoveredDeviceStore.GetDevice(ctx, orgDeviceID)
-
 	if err != nil {
 		return fleeterror.NewInternalErrorf("error getting device from store: %v", err)
 	}
@@ -421,6 +420,12 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 	pairer, ok := s.pairers[deviceType]
 	if !ok {
 		return fleeterror.NewInvalidArgumentErrorf("device type '%s' is not supported for pairing yet", discoveredDevice.Type)
+	}
+
+	discoveredDevice.IsActive = true
+	_, err = s.discoveredDeviceStore.Save(ctx, orgDeviceID, discoveredDevice)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error activating discovered device: %v", err)
 	}
 
 	if err := pairer.PairDevice(ctx, discoveredDevice, credentials); err != nil {

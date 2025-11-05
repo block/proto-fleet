@@ -78,9 +78,9 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 	userStore := sqlstores.NewSQLUserStore(testContext.ServiceProvider.DB)
 	capabilitiesService := testContext.ServiceProvider.CapabilitiesService
 
-	protoPairer := pairingProto.NewService(transactor, deviceStore, userStore, testContext.ServiceProvider.MinerService, testContext.ServiceProvider.TokenService, testContext.ServiceProvider.EncryptService)
+	protoPairer := pairingProto.NewService(transactor, discoveredDeviceStore, deviceStore, userStore, testContext.ServiceProvider.MinerService, testContext.ServiceProvider.TokenService, testContext.ServiceProvider.EncryptService)
 
-	antminerPairer := pairingAntminer.NewService(transactor, deviceStore, testContext.ServiceProvider.EncryptService, webClient)
+	antminerPairer := pairingAntminer.NewService(transactor, discoveredDeviceStore, deviceStore, testContext.ServiceProvider.EncryptService, webClient)
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
@@ -461,6 +461,16 @@ func TestPairDevices(t *testing.T) {
 		_, err = pairingService.PairDevices(ctx, pairRequest)
 		require.NoError(t, err)
 
+		// Verify device is active after pairing
+		discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+		orgDeviceID := discoverymodels.DeviceOrgIdentifier{
+			DeviceIdentifier: devices[0].DeviceIdentifier,
+			OrgID:            adminUser.OrganizationID,
+		}
+		discoveredDevice, err := discoveredDeviceStore.GetDevice(ctx, orgDeviceID)
+		require.NoError(t, err)
+		assert.True(t, discoveredDevice.IsActive, "discovered device should be active after pairing")
+
 		// Verify pairing was successful
 		totalPairedDevices, err := testContext.DatabaseService.GetTotalDevicePairings(adminUser.OrganizationID, 10)
 		require.NoError(t, err)
@@ -514,6 +524,16 @@ func TestPairDevices(t *testing.T) {
 
 		_, err = pairingService.PairDevices(ctx, pairRequest)
 		require.NoError(t, err)
+
+		// Verify device is active after pairing
+		discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+		orgDeviceID := discoverymodels.DeviceOrgIdentifier{
+			DeviceIdentifier: devices[0].DeviceIdentifier,
+			OrgID:            adminUser.OrganizationID,
+		}
+		discoveredDevice, err := discoveredDeviceStore.GetDevice(ctx, orgDeviceID)
+		require.NoError(t, err)
+		assert.True(t, discoveredDevice.IsActive, "discovered device should be active after pairing")
 
 		// Verify pairing was successful
 		totalPairedDevices, err := testContext.DatabaseService.GetTotalDevicePairings(adminUser.OrganizationID, 10)

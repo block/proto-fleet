@@ -184,6 +184,7 @@ func start(config *Config) error {
 	ipScannerService := ipscanner.NewIPScannerService(
 		config.IPScanner,
 		deviceStore,
+		discoveredDeviceStore,
 		discoveryService,
 		slog.Default(),
 	)
@@ -236,13 +237,13 @@ func start(config *Config) error {
 	// Add plugin-based pairers first (they take priority)
 	supportedTypes := pluginService.GetSupportedMinerTypes()
 	for _, minerType := range supportedTypes {
-		pluginPairer := plugins.NewPairer(pluginManager, minerType, transactor, deviceStore, userStore, tokenSvc, encryptSvc)
+		pluginPairer := plugins.NewPairer(pluginManager, minerType, transactor, discoveredDeviceStore, deviceStore, userStore, tokenSvc, encryptSvc)
 		pairers = append(pairers, pluginPairer)
 	}
 
 	// Add internal pairers as fallback
-	protoPairer := pairingProto.NewService(transactor, deviceStore, userStore, minerService, tokenSvc, encryptSvc)
-	antminerPairer := pairingAntminer.NewService(transactor, deviceStore, encryptSvc, antminerWeb.NewService())
+	protoPairer := pairingProto.NewService(transactor, discoveredDeviceStore, deviceStore, userStore, minerService, tokenSvc, encryptSvc)
+	antminerPairer := pairingAntminer.NewService(transactor, discoveredDeviceStore, deviceStore, encryptSvc, antminerWeb.NewService())
 	pairers = append(pairers, protoPairer, antminerPairer)
 
 	pairingSvc := pairingDomain.NewService(

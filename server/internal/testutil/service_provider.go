@@ -82,8 +82,8 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 
 	minerService := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService)
 
-	protoPairer := pairingProto.NewService(transactor, deviceStore, userStore, minerService, tokenService, encryptService)
-	antminerPairer := pairingAntminer.NewService(transactor, deviceStore, encryptService, antminerWeb.NewService())
+	protoPairer := pairingProto.NewService(transactor, discoveredDeviceStore, deviceStore, userStore, minerService, tokenService, encryptService)
+	antminerPairer := pairingAntminer.NewService(transactor, discoveredDeviceStore, deviceStore, encryptService, antminerWeb.NewService())
 
 	capabilitiesService, err := capabilities.NewService(capabilities.Config{
 		CapabilitiesPath: filepath.Join("miner-configs", "capabilities.yaml"),

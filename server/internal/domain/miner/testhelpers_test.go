@@ -256,7 +256,7 @@ func createTestDevice(t *testing.T, db *sql.DB, deviceIdentifier string) int64 {
 
 	queries := sqlc.New(db)
 
-	result, err := queries.UpsertDevice(t.Context(), sqlc.UpsertDeviceParams{
+	result, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
 		OrgID:              orgID,
 		DiscoveredDeviceID: discoveredDeviceID,
 		DeviceIdentifier:   deviceIdentifier,
@@ -327,7 +327,7 @@ func createTestProtoMinerWithToken(t *testing.T, db *sql.DB, deviceIdentifier st
 
 	queries := sqlc.New(db)
 
-	result, err := queries.UpsertDevice(t.Context(), sqlc.UpsertDeviceParams{
+	result, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
 		OrgID:              1,
 		DiscoveredDeviceID: discoveredDeviceID,
 		DeviceIdentifier:   deviceIdentifier,

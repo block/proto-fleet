@@ -1,4 +1,4 @@
--- name: UpsertDevice :execresult
+-- name: InsertDevice :execresult
 INSERT INTO device (
     org_id,
     discovered_device_id,
@@ -11,12 +11,7 @@ INSERT INTO device (
     ?,
     ?,
     ?
-)
-ON DUPLICATE KEY UPDATE
-    serial_number = VALUES(serial_number),
-    deleted_at = NULL,
-    org_id = VALUES(org_id),
-    id = LAST_INSERT_ID(id);
+);
 
 -- name: GetDeviceByIdentifier :one
 SELECT id, device_identifier
@@ -254,6 +249,7 @@ SELECT
     d.device_identifier,
     d.mac_address,
     d.org_id,
+    dd.device_identifier AS discovered_device_identifier,
     dd.type,
     dd.ip_address,
     dd.port,

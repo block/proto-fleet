@@ -69,6 +69,30 @@ func GetLocalNetworkInfo() (NetworkInfo, error) {
 	return emptyNetworkInfo, fleeterror.NewInternalError("no suitable network interface found")
 }
 
+// NormalizeMAC normalizes a MAC address to IEEE 802 canonical format
+// Returns uppercase MAC address with dashes (e.g., 12-34-56-78-9A-BC)
+func NormalizeMAC(mac string) string {
+	cleaned := strings.ToUpper(mac)
+	cleaned = strings.ReplaceAll(cleaned, ":", "")
+	cleaned = strings.ReplaceAll(cleaned, "-", "")
+	cleaned = strings.ReplaceAll(cleaned, " ", "")
+	cleaned = strings.ReplaceAll(cleaned, ".", "")
+
+	if len(cleaned) != 12 {
+		return mac
+	}
+
+	// Format as XX-XX-XX-XX-XX-XX
+	return strings.Join([]string{
+		cleaned[0:2],
+		cleaned[2:4],
+		cleaned[4:6],
+		cleaned[6:8],
+		cleaned[8:10],
+		cleaned[10:12],
+	}, "-")
+}
+
 // discoverGateway asks the kernel for the gateway it would use to reach 8.8.8.8.
 // It parses the “via” field out of `ip route get` output and returns it as net.IP.
 func discoverGateway() (net.IP, error) {

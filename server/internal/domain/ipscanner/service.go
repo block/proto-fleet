@@ -6,18 +6,19 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // Service orchestrates automatic IP address discovery for offline devices
 type Service struct {
-	config           Config
-	deviceStore      stores.DeviceStore
-	discoveryService *minerdiscovery.Service
-	scanner          *NetworkScanner
-	logger           *slog.Logger
+	config                Config
+	deviceStore           stores.DeviceStore
+	discoveredDeviceStore stores.DiscoveredDeviceStore
+	discoveryService      *minerdiscovery.Service
+	scanner               *NetworkScanner
+	logger                *slog.Logger
 
 	// Worker pool
 	tasks      chan SubnetScanTask
@@ -31,17 +32,19 @@ type Service struct {
 func NewIPScannerService(
 	config Config,
 	deviceStore stores.DeviceStore,
+	discoveredDeviceStore stores.DiscoveredDeviceStore,
 	discoveryService *minerdiscovery.Service,
 	logger *slog.Logger,
 ) *Service {
 	return &Service{
-		config:           config,
-		deviceStore:      deviceStore,
-		discoveryService: discoveryService,
-		scanner:          NewNetworkScanner(discoveryService, config.MaxConcurrentIPScansPerSubnet, logger),
-		logger:           logger.With("component", "ipscanner"),
-		tasks:            make(chan SubnetScanTask, config.MaxConcurrentSubnetScans),
-		results:          make(chan SubnetScanResult, config.MaxConcurrentSubnetScans),
+		config:                config,
+		deviceStore:           deviceStore,
+		discoveredDeviceStore: discoveredDeviceStore,
+		discoveryService:      discoveryService,
+		scanner:               NewNetworkScanner(discoveryService, config.MaxConcurrentIPScansPerSubnet, logger),
+		logger:                logger.With("component", "ipscanner"),
+		tasks:                 make(chan SubnetScanTask, config.MaxConcurrentSubnetScans),
+		results:               make(chan SubnetScanResult, config.MaxConcurrentSubnetScans),
 	}
 }
 
@@ -190,13 +193,14 @@ func (s *Service) scanOfflineDevices(ctx context.Context) {
 
 		// Add device to subnet bucket
 		targetDevice := TargetDevice{
-			DeviceID:         device.DeviceID,
-			DeviceIdentifier: device.DeviceIdentifier,
-			DeviceMAC:        device.MacAddress,
-			DeviceType:       device.DeviceType,
-			Port:             device.LastKnownPort,
-			URLScheme:        device.LastKnownURLScheme,
-			OrgID:            device.OrgID,
+			DeviceID:                   device.DeviceID,
+			DeviceIdentifier:           device.DeviceIdentifier,
+			DiscoveredDeviceIdentifier: device.DiscoveredDeviceIdentifier,
+			DeviceMAC:                  device.MacAddress,
+			DeviceType:                 device.DeviceType,
+			Port:                       device.LastKnownPort,
+			URLScheme:                  device.LastKnownURLScheme,
+			OrgID:                      device.OrgID,
 		}
 		devicesBySubnet[subnet] = append(devicesBySubnet[subnet], targetDevice)
 	}
@@ -354,26 +358,35 @@ func (s *Service) handleScanResult(ctx context.Context, result SubnetScanResult)
 			"new_ip", match.DiscoveredIP,
 		)
 
-		// Update device IP assignment
-		device := &pb.Device{
-			DeviceIdentifier: match.TargetDevice.DeviceIdentifier,
-			IpAddress:        match.DiscoveredIP,
-			Port:             match.DiscoveredPort,
-			UrlScheme:        match.URLScheme,
-			MacAddress:       match.TargetDevice.DeviceMAC,
-			Type:             match.TargetDevice.DeviceType,
+		doi := discoverymodels.DeviceOrgIdentifier{
+			DeviceIdentifier: match.TargetDevice.DiscoveredDeviceIdentifier,
+			OrgID:            match.TargetDevice.OrgID,
 		}
 
-		if err := s.deviceStore.UpsertDevice(ctx, device, match.TargetDevice.OrgID, match.TargetDevice.DeviceType); err != nil {
-			s.logger.Error("Failed to update device IP assignment",
+		discoveredDevice, err := s.discoveredDeviceStore.GetDevice(ctx, doi)
+		if err != nil {
+			s.logger.Error("Failed to get discovered device",
 				"device_identifier", match.TargetDevice.DeviceIdentifier,
+				"discovered_device_identifier", match.TargetDevice.DiscoveredDeviceIdentifier,
 				"error", err,
 			)
 			continue
 		}
 
-		s.logger.Info("Successfully updated device IP assignment",
+		discoveredDevice.UpdateNetworkInfo(match.DiscoveredIP, match.DiscoveredPort, match.URLScheme)
+
+		if _, err := s.discoveredDeviceStore.Save(ctx, doi, discoveredDevice); err != nil {
+			s.logger.Error("Failed to save discovered device",
+				"device_identifier", match.TargetDevice.DeviceIdentifier,
+				"discovered_device_identifier", match.TargetDevice.DiscoveredDeviceIdentifier,
+				"error", err,
+			)
+			continue
+		}
+
+		s.logger.Info("Successfully updated discovered device network info",
 			"device_identifier", match.TargetDevice.DeviceIdentifier,
+			"discovered_device_identifier", match.TargetDevice.DiscoveredDeviceIdentifier,
 			"new_ip", match.DiscoveredIP,
 		)
 	}

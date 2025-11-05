@@ -3,10 +3,10 @@ package ipscanner
 import (
 	"context"
 	"log/slog"
-	"strings"
 	"sync"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 )
 
 // NetworkScanner handles the actual network scanning operations
@@ -39,7 +39,7 @@ func (n *NetworkScanner) ScanSubnetForDevices(
 	// Build a map of MAC addresses to target devices for quick lookup
 	targetsByMAC := make(map[string]TargetDevice)
 	for _, target := range targetDevices {
-		normalizedMAC := normalizeMAC(target.DeviceMAC)
+		normalizedMAC := networking.NormalizeMAC(target.DeviceMAC)
 		targetsByMAC[normalizedMAC] = target
 	}
 
@@ -132,7 +132,7 @@ func (n *NetworkScanner) scanIPsConcurrentlyForMultipleDevices(
 
 				// Check if we found a device
 				if device != nil {
-					deviceMAC := normalizeMAC(device.MacAddress)
+					deviceMAC := networking.NormalizeMAC(device.MacAddress)
 
 					// Only accept device if MAC address is available
 					// We cannot safely update IP assignments without MAC verification
@@ -175,13 +175,4 @@ func (n *NetworkScanner) scanIPsConcurrentlyForMultipleDevices(
 
 	wg.Wait()
 	return matches
-}
-
-// normalizeMAC normalizes a MAC address to a consistent format for comparison
-// Removes colons, hyphens, and converts to lowercase
-func normalizeMAC(mac string) string {
-	normalized := strings.ToLower(mac)
-	normalized = strings.ReplaceAll(normalized, ":", "")
-	normalized = strings.ReplaceAll(normalized, "-", "")
-	return normalized
 }

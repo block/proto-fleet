@@ -79,6 +79,22 @@ func (s *SQLDiscoveredDeviceStore) GetDevice(ctx context.Context, doi discoverym
 	return toDiscoveredDevice(dbDevice), nil
 }
 
+// GetDatabaseID retrieves the database ID (primary key) for a discovered device
+func (s *SQLDiscoveredDeviceStore) GetDatabaseID(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier) (int64, error) {
+	dbDevice, err := s.getQueries(ctx).GetDiscoveredDeviceByDeviceIdentifier(ctx, sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{
+		DeviceIdentifier: doi.DeviceIdentifier,
+		OrgID:            doi.OrgID,
+	})
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, minerdiscovery.MinerNotFoundFleetError
+		}
+		return 0, fleeterror.NewInternalErrorf("failed to query discovered device: %v", err)
+	}
+
+	return dbDevice.ID, nil
+}
+
 // toDiscoveredDevice converts a sqlc DiscoveredDevice to a domain DiscoveredDevice
 func toDiscoveredDevice(dbDevice sqlc.DiscoveredDevice) *discoverymodels.DiscoveredDevice {
 	return &discoverymodels.DiscoveredDevice{

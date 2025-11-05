@@ -5,14 +5,32 @@ import (
 	"database/sql"
 	"testing"
 
-	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
-	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
+	poolspb "github.com/btc-mining/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
+
+// setupTransactorTest creates the test infrastructure needed for transactor tests
+func setupTransactorTest(t *testing.T) (*sqlstores.SQLTransactor, *sqlstores.SQLPoolStore) {
+	t.Helper()
+
+	db := testutil.GetTestDB(t)
+	config, err := testutil.GetTestConfig()
+	require.NoError(t, err)
+	encryptService, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: config.ServiceMasterKey})
+	require.NoError(t, err)
+
+	transactor := sqlstores.NewSQLTransactor(db)
+	poolStore := sqlstores.NewSQLPoolStore(db, encryptService)
+
+	_, err = db.Exec(`INSERT IGNORE INTO organization (id, org_id, name, miner_auth_private_key) VALUES (1, 'test-org-1', 'Test Organization 1', 'dummy-key-for-testing')`)
+	require.NoError(t, err, "Failed to create test organization")
+
+	return transactor, poolStore
+}
 
 func TestWithTransaction_OuterRollback(t *testing.T) {
 	if testing.Short() {
@@ -20,31 +38,24 @@ func TestWithTransaction_OuterRollback(t *testing.T) {
 	}
 
 	// Arrange
-	db := testutil.GetTestDB(t)
-	transactor := sqlstores.NewSQLTransactor(db)
-	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
+	transactor, poolStore := setupTransactorTest(t)
 
-	_, err := db.Exec(`INSERT IGNORE INTO organization (id, org_id, name, miner_auth_private_key) VALUES (1, 'test-org-1', 'Test Organization 1', 'dummy-key-for-testing')`)
-	require.NoError(t, err, "Failed to create test organization")
-
-	testDevice := &pb.Device{
-		DeviceIdentifier: "test-device-rollback",
-		MacAddress:       "AA:BB:CC:DD:EE:FF",
-		SerialNumber:     "TEST654321",
-		Model:            "Rollback Model",
-		Manufacturer:     "Rollback Manufacturer",
-		IpAddress:        "192.168.1.100",
-		Port:             "4028",
-		UrlScheme:        "https",
+	testPoolConfig := &poolspb.PoolConfig{
+		Url:      "stratum+tcp://test.pool.com:3333",
+		Username: "test.worker",
+		Password: wrapperspb.String("test123"),
 	}
 
 	// Act
-	err = transactor.RunInTx(ctx, func(ctx context.Context) error {
-		err := transactor.RunInTx(ctx, func(ctx context.Context) error {
-			return deviceStore.UpsertDevice(ctx, testDevice, 1, miner.TypeProto.String())
+	var poolID int64
+	err := transactor.RunInTx(ctx, func(ctx context.Context) error {
+		innerErr := transactor.RunInTx(ctx, func(ctx context.Context) error {
+			var createErr error
+			poolID, createErr = poolStore.CreatePool(ctx, testPoolConfig, 1, false)
+			return createErr
 		})
-		require.NoError(t, err)
+		require.NoError(t, innerErr)
 
 		return sql.ErrTxDone
 	})
@@ -52,9 +63,8 @@ func TestWithTransaction_OuterRollback(t *testing.T) {
 	// Assert
 	require.Error(t, err)
 
-	_, err = deviceStore.GetDeviceByDeviceIdentifier(ctx, testDevice.DeviceIdentifier, 1)
-	require.Error(t, err, "Device should not exist after transaction rollback")
-	assert.Contains(t, err.Error(), "device not found with identifier=test-device-rollback")
+	_, err = poolStore.GetPool(ctx, 1, poolID)
+	require.Error(t, err, "Pool should not exist after transaction rollback")
 }
 
 func TestWithTransaction_InnerRollback(t *testing.T) {
@@ -63,29 +73,21 @@ func TestWithTransaction_InnerRollback(t *testing.T) {
 	}
 
 	// Arrange
-	db := testutil.GetTestDB(t)
-	transactor := sqlstores.NewSQLTransactor(db)
-	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
+	transactor, poolStore := setupTransactorTest(t)
 
-	_, err := db.Exec(`INSERT IGNORE INTO organization (id, org_id, name, miner_auth_private_key) VALUES (1, 'test-org-1', 'Test Organization 1', 'dummy-key-for-testing')`)
-	require.NoError(t, err, "Failed to create test organization")
-
-	testDevice := &pb.Device{
-		DeviceIdentifier: "test-device-rollback",
-		MacAddress:       "AA:BB:CC:DD:EE:FF",
-		SerialNumber:     "TEST654321",
-		Model:            "Rollback Model",
-		Manufacturer:     "Rollback Manufacturer",
-		IpAddress:        "192.168.1.100",
-		Port:             "4028",
-		UrlScheme:        "https",
+	testPoolConfig := &poolspb.PoolConfig{
+		Url:      "stratum+tcp://test.pool.com:3333",
+		Username: "test.worker",
+		Password: wrapperspb.String("test123"),
 	}
 
 	// Act
-	err = transactor.RunInTx(ctx, func(ctx context.Context) error {
-		err := deviceStore.UpsertDevice(ctx, testDevice, 1, miner.TypeProto.String())
-		require.NoError(t, err)
+	var poolID int64
+	err := transactor.RunInTx(ctx, func(ctx context.Context) error {
+		var createErr error
+		poolID, createErr = poolStore.CreatePool(ctx, testPoolConfig, 1, false)
+		require.NoError(t, createErr)
 		return transactor.RunInTx(ctx, func(_ context.Context) error {
 			return sql.ErrTxDone
 		})
@@ -94,9 +96,8 @@ func TestWithTransaction_InnerRollback(t *testing.T) {
 	// Assert
 	require.Error(t, err)
 
-	_, err = deviceStore.GetDeviceByDeviceIdentifier(ctx, testDevice.DeviceIdentifier, 1)
-	require.Error(t, err, "Device should not exist after transaction rollback")
-	assert.Contains(t, err.Error(), "device not found with identifier=test-device-rollback")
+	_, err = poolStore.GetPool(ctx, 1, poolID)
+	require.Error(t, err, "Pool should not exist after transaction rollback")
 }
 
 func TestNestedTransactions_DatabaseLevel(t *testing.T) {
@@ -105,73 +106,52 @@ func TestNestedTransactions_DatabaseLevel(t *testing.T) {
 	}
 
 	// Arrange
-	db := testutil.GetTestDB(t)
-	transactor := sqlstores.NewSQLTransactor(db)
-	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
+	transactor, poolStore := setupTransactorTest(t)
 
-	// Ensure organization exists for testing
-	_, err := db.Exec(`INSERT IGNORE INTO organization (id, org_id, name, miner_auth_private_key) VALUES (1, 'test-org-1', 'Test Organization 1', 'dummy-key-for-testing')`)
-	require.NoError(t, err, "Failed to create test organization")
-
-	outerDevice := &pb.Device{
-		DeviceIdentifier: "outer-device-txn",
-		MacAddress:       "AA:BB:CC:11:22:33",
-		SerialNumber:     "SN-OUTER-123",
-		Model:            "Outer Model",
-		Manufacturer:     "Test Manufacturer",
-		IpAddress:        "192.168.1.101",
-		Port:             "4028",
-		UrlScheme:        "https",
+	outerPoolConfig := &poolspb.PoolConfig{
+		Url:      "stratum+tcp://outer.pool.com:3333",
+		Username: "outer.worker",
+		Password: wrapperspb.String("outer123"),
 	}
 
-	innerDevice := &pb.Device{
-		DeviceIdentifier: "inner-device-txn",
-		MacAddress:       "AA:BB:CC:44:55:66",
-		SerialNumber:     "SN-INNER-456",
-		Model:            "Inner Model",
-		Manufacturer:     "Test Manufacturer",
-		IpAddress:        "192.168.1.102",
-		Port:             "4028",
-		UrlScheme:        "https",
+	innerPoolConfig := &poolspb.PoolConfig{
+		Url:      "stratum+tcp://inner.pool.com:3333",
+		Username: "inner.worker",
+		Password: wrapperspb.String("inner123"),
 	}
 
 	// Act - This test will deadlock if nested transactions are created at DB level
-	err = transactor.RunInTx(ctx, func(outerCtx context.Context) error {
-		err := deviceStore.UpsertDevice(outerCtx, outerDevice, 1, miner.TypeProto.String())
-		require.NoError(t, err)
+	var outerPoolID, innerPoolID int64
+	err := transactor.RunInTx(ctx, func(outerCtx context.Context) error {
+		var outerErr error
+		outerPoolID, outerErr = poolStore.CreatePool(outerCtx, outerPoolConfig, 1, false)
+		require.NoError(t, outerErr)
 
 		// Attempt a nested transaction
 		return transactor.RunInTx(outerCtx, func(innerCtx context.Context) error {
-			err := deviceStore.UpsertDevice(innerCtx, innerDevice, 1, miner.TypeProto.String())
-			require.NoError(t, err)
+			var innerErr error
+			innerPoolID, innerErr = poolStore.CreatePool(innerCtx, innerPoolConfig, 1, false)
+			require.NoError(t, innerErr)
 
 			// If these are truly separate transactions at DB level, this would likely cause a deadlock
 			// because the inner transaction would be waiting for a lock held by the outer transaction
 
-			// Attempt to update both records from the inner transaction context
-			// This should succeed if there's proper transaction handling
-			err = deviceStore.UpsertDevice(innerCtx, outerDevice, 1, miner.TypeProto.String())
-			return err
+			// Read the outer pool from the inner transaction context
+			// This should succeed if there's proper transaction handling (same transaction)
+			_, getErr := poolStore.GetPool(innerCtx, 1, outerPoolID)
+			return getErr
 		})
 	})
 
 	// Assert
 	require.NoError(t, err, "Nested transaction operations should complete without deadlock")
 
-	// Verify both devices were created in the same transaction
-	// by checking if they both exist or both don't exist
-	queries := sqlc.New(db)
-
-	_, outerErr := queries.GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
-		DeviceIdentifier: outerDevice.DeviceIdentifier,
-		OrgID:            1,
-	})
+	// Verify both pools were created in the same transaction
+	// by checking if they both exist
+	_, outerErr := poolStore.GetPool(ctx, 1, outerPoolID)
 	require.NoError(t, outerErr)
 
-	_, innerErr := queries.GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
-		DeviceIdentifier: innerDevice.DeviceIdentifier,
-		OrgID:            1,
-	})
+	_, innerErr := poolStore.GetPool(ctx, 1, innerPoolID)
 	require.NoError(t, innerErr)
 }

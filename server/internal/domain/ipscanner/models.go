@@ -2,13 +2,14 @@ package ipscanner
 
 // TargetDevice represents a device we're looking for during a subnet scan
 type TargetDevice struct {
-	DeviceID         int64
-	DeviceIdentifier string
-	DeviceMAC        string
-	DeviceType       string
-	Port             string
-	URLScheme        string
-	OrgID            int64
+	DeviceID                   int64
+	DeviceIdentifier           string
+	DiscoveredDeviceIdentifier string
+	DeviceMAC                  string
+	DeviceType                 string
+	Port                       string
+	URLScheme                  string
+	OrgID                      int64
 }
 
 // SubnetScanTask represents a task to scan a subnet for multiple devices

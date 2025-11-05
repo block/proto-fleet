@@ -23,16 +23,18 @@ import (
 var _ pairing.Pairer = &Service{}
 
 type Service struct {
-	transactor     stores.Transactor
-	deviceStore    stores.DeviceStore
-	userStore      stores.UserStore
-	minerService   *miner.MinerService
-	tokenService   *token.Service
-	encryptService *encrypt.Service
+	transactor            stores.Transactor
+	discoveredDeviceStore stores.DiscoveredDeviceStore
+	deviceStore           stores.DeviceStore
+	userStore             stores.UserStore
+	minerService          *miner.MinerService
+	tokenService          *token.Service
+	encryptService        *encrypt.Service
 }
 
 func NewService(
 	transactor stores.Transactor,
+	discoveredDeviceStore stores.DiscoveredDeviceStore,
 	deviceStore stores.DeviceStore,
 	userStore stores.UserStore,
 	minerService *miner.MinerService,
@@ -40,12 +42,13 @@ func NewService(
 	encryptService *encrypt.Service,
 ) *Service {
 	return &Service{
-		transactor:     transactor,
-		deviceStore:    deviceStore,
-		userStore:      userStore,
-		minerService:   minerService,
-		tokenService:   tokenService,
-		encryptService: encryptService,
+		transactor:            transactor,
+		discoveredDeviceStore: discoveredDeviceStore,
+		deviceStore:           deviceStore,
+		userStore:             userStore,
+		minerService:          minerService,
+		tokenService:          tokenService,
+		encryptService:        encryptService,
 	}
 }
 
@@ -73,12 +76,12 @@ func (s *Service) GetMinerPublicKey(ctx context.Context, orgID int64) (string, e
 }
 
 func (s *Service) handlePairViaStore(ctx context.Context, device *discoverymodels.DiscoveredDevice) error {
-	return s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
-		if err := s.deviceStore.UpsertDevice(txCtx, &device.Device, device.OrgID, models.TypeProto.String()); err != nil {
-			return fleeterror.NewInternalErrorf("failed to upsert device: %v", err)
+	return s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		if err := s.deviceStore.InsertDevice(ctx, &device.Device, device.OrgID, device.DeviceIdentifier); err != nil {
+			return fleeterror.NewInternalErrorf("failed to insert device: %v", err)
 		}
 
-		if err := s.deviceStore.UpsertDevicePairing(txCtx, &device.Device, device.OrgID, pairing.StatusPaired); err != nil {
+		if err := s.deviceStore.UpsertDevicePairing(ctx, &device.Device, device.OrgID, pairing.StatusPaired); err != nil {
 			return fleeterror.NewInternalErrorf("failed to upsert device pairing: %v", err)
 		}
 

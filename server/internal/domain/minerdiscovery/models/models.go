@@ -28,3 +28,9 @@ func (d *DiscoveredDevice) GetDeviceOrgIdentifier() DeviceOrgIdentifier {
 		OrgID:            d.OrgID,
 	}
 }
+
+func (d *DiscoveredDevice) UpdateNetworkInfo(ipAddress string, port string, urlScheme string) {
+	d.IpAddress = ipAddress
+	d.Port = port
+	d.UrlScheme = urlScheme
+}

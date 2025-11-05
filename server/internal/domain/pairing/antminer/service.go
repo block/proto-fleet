@@ -2,8 +2,9 @@ package antminer
 
 import (
 	"context"
-	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"strings"
+
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
@@ -20,23 +21,26 @@ import (
 var _ pairing.Pairer = &Service{}
 
 type Service struct {
-	transactor  stores.Transactor
-	deviceStore stores.DeviceStore
-	encryptor   *encrypt.Service
-	webClient   web.WebAPIClient
+	transactor            stores.Transactor
+	discoveredDeviceStore stores.DiscoveredDeviceStore
+	deviceStore           stores.DeviceStore
+	encryptor             *encrypt.Service
+	webClient             web.WebAPIClient
 }
 
 func NewService(
 	transactor stores.Transactor,
+	discoveredDeviceStore stores.DiscoveredDeviceStore,
 	deviceStore stores.DeviceStore,
 	encryptor *encrypt.Service,
 	webClient web.WebAPIClient,
 ) *Service {
 	return &Service{
-		transactor:  transactor,
-		deviceStore: deviceStore,
-		encryptor:   encryptor,
-		webClient:   webClient,
+		transactor:            transactor,
+		discoveredDeviceStore: discoveredDeviceStore,
+		deviceStore:           deviceStore,
+		encryptor:             encryptor,
+		webClient:             webClient,
 	}
 }
 
@@ -69,10 +73,10 @@ func (s *Service) PairDevice(ctx context.Context, device *discoverymodels.Discov
 	}
 
 	return s.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		err := s.deviceStore.UpsertDevice(ctx, &device.Device, device.OrgID, models.TypeAntminer.String())
-		if err != nil {
-			return fleeterror.NewInternalErrorf("failed to upsert device: %v", err)
+		if err := s.deviceStore.InsertDevice(ctx, &device.Device, device.OrgID, device.DeviceIdentifier); err != nil {
+			return fleeterror.NewInternalErrorf("failed to insert device: %v", err)
 		}
+
 		err = s.deviceStore.UpsertMinerCredentials(ctx, &device.Device, device.OrgID, encryptedUsername, secrets.NewText(encryptedPassword))
 		if err != nil {
 			return fleeterror.NewInternalErrorf("failed to upsert miner credentials: %v", err)

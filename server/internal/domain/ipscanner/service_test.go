@@ -26,10 +26,11 @@ func TestNewIPScannerService(t *testing.T) {
 	}
 
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
+	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
 	discoveryService := &minerdiscovery.Service{}
 	logger := slog.Default()
 
-	service := NewIPScannerService(config, deviceStore, discoveryService, logger)
+	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, logger)
 
 	if service == nil {
 		t.Fatal("NewIPScannerService returned nil")
@@ -50,6 +51,7 @@ func TestIPScannerService_StartStop(t *testing.T) {
 	}
 
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
+	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
 	discoveryService := &minerdiscovery.Service{}
 	logger := slog.Default()
 
@@ -59,7 +61,7 @@ func TestIPScannerService_StartStop(t *testing.T) {
 		Return([]stores.OfflineDeviceInfo{}, nil).
 		AnyTimes()
 
-	service := NewIPScannerService(config, deviceStore, discoveryService, logger)
+	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, logger)
 
 	ctx := t.Context()
 	err := service.Start(ctx)
@@ -91,10 +93,11 @@ func TestIPScannerService_DisabledService(t *testing.T) {
 	}
 
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
+	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
 	discoveryService := &minerdiscovery.Service{}
 	logger := slog.Default()
 
-	service := NewIPScannerService(config, deviceStore, discoveryService, logger)
+	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, logger)
 
 	ctx := t.Context()
 	err := service.Start(ctx)
@@ -120,6 +123,7 @@ func TestIPScannerService_PreventMultipleInstances(t *testing.T) {
 	}
 
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
+	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
 	discoveryService := &minerdiscovery.Service{}
 	logger := slog.Default()
 
@@ -130,7 +134,7 @@ func TestIPScannerService_PreventMultipleInstances(t *testing.T) {
 		Return([]stores.OfflineDeviceInfo{}, nil).
 		AnyTimes()
 
-	service := NewIPScannerService(config, deviceStore, discoveryService, logger)
+	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, logger)
 
 	ctx := t.Context()
 

@@ -2,8 +2,9 @@ package plugins
 
 import (
 	"context"
-	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"testing"
+
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
@@ -20,12 +21,13 @@ import (
 // Helper function to create test pairer with all required services
 func createTestPairer(ctrl *gomock.Controller, manager *Manager, minerType models.Type) *Pairer {
 	transactor := mocks.NewMockTransactor(ctrl)
+	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
 	userStore := mocks.NewMockUserStore(ctrl)
 	tokenService := &token.Service{}     // Simple instance for testing
 	encryptService := &encrypt.Service{} // Simple instance for testing
 
-	return NewPairer(manager, minerType, transactor, deviceStore, userStore, tokenService, encryptService)
+	return NewPairer(manager, minerType, transactor, discoveredDeviceStore, deviceStore, userStore, tokenService, encryptService)
 }
 
 func TestNewPairer(t *testing.T) {
@@ -168,6 +170,7 @@ func TestPairer_PairDevice_Success(t *testing.T) {
 
 	// Create pairer with mocked dependencies
 	transactor := mocks.NewMockTransactor(ctrl)
+	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
 	userStore := mocks.NewMockUserStore(ctrl)
 	tokenService := &token.Service{}
@@ -176,7 +179,7 @@ func TestPairer_PairDevice_Success(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	pairer := NewPairer(manager, models.TypeAntminer, transactor, deviceStore, userStore, tokenService, encryptService)
+	pairer := NewPairer(manager, models.TypeAntminer, transactor, discoveredDeviceStore, deviceStore, userStore, tokenService, encryptService)
 
 	device := &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
@@ -207,7 +210,7 @@ func TestPairer_PairDevice_Success(t *testing.T) {
 	)
 
 	// Mock device store operations
-	deviceStore.EXPECT().UpsertDevice(gomock.Any(), &device.Device, device.OrgID, models.TypeAntminer.String()).Return(nil)
+	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
 	deviceStore.EXPECT().UpsertMinerCredentials(gomock.Any(), &device.Device, device.OrgID, gomock.Any(), gomock.Any()).Return(nil)
 	deviceStore.EXPECT().UpsertDevicePairing(gomock.Any(), &device.Device, device.OrgID, "PAIRED").Return(nil)
 
@@ -257,6 +260,7 @@ func TestPairer_PairDevice_Success_APIKey(t *testing.T) {
 
 	// Create pairer with mocked dependencies
 	transactor := mocks.NewMockTransactor(ctrl)
+	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
 	userStore := mocks.NewMockUserStore(ctrl)
 	tokenService := &token.Service{}
@@ -265,7 +269,7 @@ func TestPairer_PairDevice_Success_APIKey(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	pairer := NewPairer(manager, models.TypeProto, transactor, deviceStore, userStore, tokenService, encryptService)
+	pairer := NewPairer(manager, models.TypeProto, transactor, discoveredDeviceStore, deviceStore, userStore, tokenService, encryptService)
 
 	device := &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
@@ -309,7 +313,7 @@ fKx2N0uH2VQ8Z3xPjZSYGDCxKVHZKvJ8Ug==
 	)
 
 	// Mock device store operations
-	deviceStore.EXPECT().UpsertDevice(gomock.Any(), &device.Device, device.OrgID, models.TypeProto.String()).Return(nil)
+	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
 	// No UpsertMinerCredentials call expected - org-level keys aren't stored
 	deviceStore.EXPECT().UpsertDevicePairing(gomock.Any(), &device.Device, device.OrgID, "PAIRED").Return(nil)
 

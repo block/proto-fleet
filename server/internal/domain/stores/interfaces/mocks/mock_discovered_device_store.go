@@ -35,6 +35,21 @@ func (m *MockDiscoveredDeviceStore) EXPECT() *MockDiscoveredDeviceStoreMockRecor
 	return m.recorder
 }
 
+// GetDatabaseID mocks base method.
+func (m *MockDiscoveredDeviceStore) GetDatabaseID(ctx context.Context, doi models.DeviceOrgIdentifier) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDatabaseID", ctx, doi)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDatabaseID indicates an expected call of GetDatabaseID.
+func (mr *MockDiscoveredDeviceStoreMockRecorder) GetDatabaseID(ctx, doi interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDatabaseID", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).GetDatabaseID), ctx, doi)
+}
+
 // GetDevice mocks base method.
 func (m *MockDiscoveredDeviceStore) GetDevice(ctx context.Context, doi models.DeviceOrgIdentifier) (*models.DiscoveredDevice, error) {
 	m.ctrl.T.Helper()

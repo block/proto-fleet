@@ -177,6 +177,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.hasUserStmt, err = db.PrepareContext(ctx, hasUser); err != nil {
 		return nil, fmt.Errorf("error preparing query HasUser: %w", err)
 	}
+	if q.insertDeviceStmt, err = db.PrepareContext(ctx, insertDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertDevice: %w", err)
+	}
 	if q.isBatchFinishedStmt, err = db.PrepareContext(ctx, isBatchFinished); err != nil {
 		return nil, fmt.Errorf("error preparing query IsBatchFinished: %w", err)
 	}
@@ -263,9 +266,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.upsertCommandOnDeviceLogStmt, err = db.PrepareContext(ctx, upsertCommandOnDeviceLog); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCommandOnDeviceLog: %w", err)
-	}
-	if q.upsertDeviceStmt, err = db.PrepareContext(ctx, upsertDevice); err != nil {
-		return nil, fmt.Errorf("error preparing query UpsertDevice: %w", err)
 	}
 	if q.upsertDevicePairingStmt, err = db.PrepareContext(ctx, upsertDevicePairing); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertDevicePairing: %w", err)
@@ -545,6 +545,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing hasUserStmt: %w", cerr)
 		}
 	}
+	if q.insertDeviceStmt != nil {
+		if cerr := q.insertDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertDeviceStmt: %w", cerr)
+		}
+	}
 	if q.isBatchFinishedStmt != nil {
 		if cerr := q.isBatchFinishedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing isBatchFinishedStmt: %w", cerr)
@@ -690,11 +695,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertCommandOnDeviceLogStmt: %w", cerr)
 		}
 	}
-	if q.upsertDeviceStmt != nil {
-		if cerr := q.upsertDeviceStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing upsertDeviceStmt: %w", cerr)
-		}
-	}
 	if q.upsertDevicePairingStmt != nil {
 		if cerr := q.upsertDevicePairingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertDevicePairingStmt: %w", cerr)
@@ -815,6 +815,7 @@ type Queries struct {
 	getUserRoleInOrganizationStmt                       *sql.Stmt
 	getUsersForOrganizationStmt                         *sql.Stmt
 	hasUserStmt                                         *sql.Stmt
+	insertDeviceStmt                                    *sql.Stmt
 	isBatchFinishedStmt                                 *sql.Stmt
 	isBatchProcessingStmt                               *sql.Stmt
 	listOrganizationsStmt                               *sql.Stmt
@@ -844,7 +845,6 @@ type Queries struct {
 	updateUserRoleStmt                                  *sql.Stmt
 	updateUserUsernameStmt                              *sql.Stmt
 	upsertCommandOnDeviceLogStmt                        *sql.Stmt
-	upsertDeviceStmt                                    *sql.Stmt
 	upsertDevicePairingStmt                             *sql.Stmt
 	upsertDeviceStatusStmt                              *sql.Stmt
 	upsertDiscoveredDeviceStmt                          *sql.Stmt
@@ -908,6 +908,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getUserRoleInOrganizationStmt:                       q.getUserRoleInOrganizationStmt,
 		getUsersForOrganizationStmt:                         q.getUsersForOrganizationStmt,
 		hasUserStmt:                                         q.hasUserStmt,
+		insertDeviceStmt:                                    q.insertDeviceStmt,
 		isBatchFinishedStmt:                                 q.isBatchFinishedStmt,
 		isBatchProcessingStmt:                               q.isBatchProcessingStmt,
 		listOrganizationsStmt:                               q.listOrganizationsStmt,
@@ -937,7 +938,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateUserRoleStmt:                                  q.updateUserRoleStmt,
 		updateUserUsernameStmt:                              q.updateUserUsernameStmt,
 		upsertCommandOnDeviceLogStmt:                        q.upsertCommandOnDeviceLogStmt,
-		upsertDeviceStmt:                                    q.upsertDeviceStmt,
 		upsertDevicePairingStmt:                             q.upsertDevicePairingStmt,
 		upsertDeviceStatusStmt:                              q.upsertDeviceStatusStmt,
 		upsertDiscoveredDeviceStmt:                          q.upsertDiscoveredDeviceStmt,
