@@ -165,7 +165,7 @@ func createTestDeviceMetrics(deviceID string, timestamp time.Time, health models
 		Timestamp: timestamp,
 		Health:    health,
 		HashrateHS: &modelsV2.MetricValue{
-			Value: 100000000.0, // 100 TH/s
+			Value: 100000000.0, // 100 MH/s (100 million H/s)
 		},
 		TempC: &modelsV2.MetricValue{
 			Value: 65.5,
@@ -1726,4 +1726,493 @@ func TestInfluxTelemetryStore_GetLatestDeviceMetrics_WithPartialData(t *testing.
 	assert.Nil(t, result.PowerW, "PowerW should be nil")
 	assert.Nil(t, result.FanRPM, "FanRPM should be nil")
 	assert.Nil(t, result.EfficiencyJH, "EfficiencyJH should be nil")
+}
+
+// Tests for new device_metrics query methods with fallback
+
+func TestInfluxTelemetryStore_GetLatestTelemetry_FromDeviceMetrics(t *testing.T) {
+	t.Parallel()
+
+	store, container, ctx := setupIntegrationTest(t)
+	defer cleanupIntegrationTest(t, store, container)
+
+	// Create and store device metrics with DIFFERENT values at different times
+	now := time.Now()
+	device1ID := "dm-latest-device1"
+	device2ID := "dm-latest-device2"
+
+	testMetrics := []modelsV2.DeviceMetrics{
+		// Device 1 - older metrics with lower values
+		{
+			DeviceID:   device1ID,
+			Timestamp:  now.Add(-30 * time.Minute),
+			Health:     modelsV2.HealthWarning,
+			HashrateHS: &modelsV2.MetricValue{Value: 80000000.0}, // 80 MH/s (80 million H/s)
+			TempC:      &modelsV2.MetricValue{Value: 60.0},
+			PowerW:     &modelsV2.MetricValue{Value: 3000.0},
+		},
+		{
+			DeviceID:   device1ID,
+			Timestamp:  now.Add(-20 * time.Minute),
+			Health:     modelsV2.HealthHealthyActive,
+			HashrateHS: &modelsV2.MetricValue{Value: 90000000.0}, // 90 MH/s (90 million H/s)
+			TempC:      &modelsV2.MetricValue{Value: 62.5},
+			PowerW:     &modelsV2.MetricValue{Value: 3100.0},
+		},
+		// Device 1 - LATEST (most recent)
+		{
+			DeviceID:   device1ID,
+			Timestamp:  now.Add(-10 * time.Minute),
+			Health:     modelsV2.HealthHealthyActive,
+			HashrateHS: &modelsV2.MetricValue{Value: 100000000.0}, // 100 MH/s (100 million H/s)
+			TempC:      &modelsV2.MetricValue{Value: 65.5},
+			PowerW:     &modelsV2.MetricValue{Value: 3250.0},
+		},
+		// Device 2 - LATEST
+		{
+			DeviceID:   device2ID,
+			Timestamp:  now.Add(-5 * time.Minute),
+			Health:     modelsV2.HealthHealthyActive,
+			HashrateHS: &modelsV2.MetricValue{Value: 110000000.0}, // 110 MH/s (110 million H/s)
+			TempC:      &modelsV2.MetricValue{Value: 68.0},
+			PowerW:     &modelsV2.MetricValue{Value: 3400.0},
+		},
+	}
+
+	err := store.StoreDeviceMetrics(ctx, testMetrics...)
+	require.NoError(t, err, "Should successfully store device metrics")
+	time.Sleep(200 * time.Millisecond)
+
+	// Query using GetLatestTelemetry (should use device_metrics and return LATEST for each device)
+	query := models.LatestTelemetryQuery{
+		DeviceIDs: []models.DeviceIdentifier{
+			models.DeviceIdentifier(device1ID),
+			models.DeviceIdentifier(device2ID),
+		},
+		MeasurementTypes: []models.MeasurementType{
+			models.MeasurementTypeHashrate,
+			models.MeasurementTypeTemperature,
+			models.MeasurementTypePower,
+		},
+	}
+
+	results, err := store.GetLatestTelemetry(ctx, query)
+	require.NoError(t, err, "GetLatestTelemetry should succeed with device_metrics data")
+
+	// Should have results for both devices
+	assert.NotEmpty(t, results, "Should have telemetry results")
+
+	// Group results by device and measurement
+	deviceMeasurements := make(map[string]map[string]float64)
+	for _, result := range results {
+		deviceID := result.Tags["device_id"]
+		if deviceMeasurements[deviceID] == nil {
+			deviceMeasurements[deviceID] = make(map[string]float64)
+		}
+		if value, ok := result.Fields["value"].(float64); ok {
+			deviceMeasurements[deviceID][result.Measurement] = value
+		}
+	}
+
+	// Verify device1 has LATEST values (from -10 minute metric)
+	require.Contains(t, deviceMeasurements, device1ID, "Should have data for device1")
+	assert.InDelta(t, 100.0, deviceMeasurements[device1ID][models.MeasurementTypeHashrate.InfluxMeasurementName()], 0.1,
+		"Device1 hashrate should be 100 MH/s (latest value, converted from 100000000 H/s)")
+	assert.InDelta(t, 65.5, deviceMeasurements[device1ID][models.MeasurementTypeTemperature.InfluxMeasurementName()], 0.1,
+		"Device1 temperature should be 65.5°C (latest value)")
+	assert.InDelta(t, 3250.0, deviceMeasurements[device1ID][models.MeasurementTypePower.InfluxMeasurementName()], 0.1,
+		"Device1 power should be 3250W (latest value)")
+
+	// Verify device2 has LATEST values (from -5 minute metric)
+	require.Contains(t, deviceMeasurements, device2ID, "Should have data for device2")
+	assert.InDelta(t, 110.0, deviceMeasurements[device2ID][models.MeasurementTypeHashrate.InfluxMeasurementName()], 0.1,
+		"Device2 hashrate should be 110 MH/s (latest value, converted from 110000000 H/s)")
+	assert.InDelta(t, 68.0, deviceMeasurements[device2ID][models.MeasurementTypeTemperature.InfluxMeasurementName()], 0.1,
+		"Device2 temperature should be 68.0°C (latest value)")
+	assert.InDelta(t, 3400.0, deviceMeasurements[device2ID][models.MeasurementTypePower.InfluxMeasurementName()], 0.1,
+		"Device2 power should be 3400W (latest value)")
+}
+
+func TestInfluxTelemetryStore_GetTimeSeriesTelemetry_FromDeviceMetrics(t *testing.T) {
+	t.Parallel()
+
+	store, container, ctx := setupIntegrationTest(t)
+	defer cleanupIntegrationTest(t, store, container)
+
+	// Create time series data with CHANGING VALUES over time
+	now := time.Now()
+	deviceID := "dm-timeseries-device1"
+
+	testMetrics := []modelsV2.DeviceMetrics{
+		{
+			DeviceID:   deviceID,
+			Timestamp:  now.Add(-60 * time.Minute),
+			Health:     modelsV2.HealthHealthyActive,
+			HashrateHS: &modelsV2.MetricValue{Value: 90000000.0}, // 90 MH/s (90 million H/s)
+			PowerW:     &modelsV2.MetricValue{Value: 3000.0},
+		},
+		{
+			DeviceID:   deviceID,
+			Timestamp:  now.Add(-45 * time.Minute),
+			Health:     modelsV2.HealthHealthyActive,
+			HashrateHS: &modelsV2.MetricValue{Value: 95000000.0}, // 95 MH/s (95 million H/s)
+			PowerW:     &modelsV2.MetricValue{Value: 3100.0},
+		},
+		{
+			DeviceID:   deviceID,
+			Timestamp:  now.Add(-30 * time.Minute),
+			Health:     modelsV2.HealthWarning,
+			HashrateHS: &modelsV2.MetricValue{Value: 100000000.0}, // 100 MH/s (100 million H/s)
+			PowerW:     &modelsV2.MetricValue{Value: 3200.0},
+		},
+		{
+			DeviceID:   deviceID,
+			Timestamp:  now.Add(-15 * time.Minute),
+			Health:     modelsV2.HealthHealthyActive,
+			HashrateHS: &modelsV2.MetricValue{Value: 105000000.0}, // 105 MH/s (105 million H/s)
+			PowerW:     &modelsV2.MetricValue{Value: 3300.0},
+		},
+		{
+			DeviceID:   deviceID,
+			Timestamp:  now.Add(-5 * time.Minute),
+			Health:     modelsV2.HealthHealthyActive,
+			HashrateHS: &modelsV2.MetricValue{Value: 110000000.0}, // 110 MH/s (110 million H/s)
+			PowerW:     &modelsV2.MetricValue{Value: 3400.0},
+		},
+		// Data outside the query range (should be excluded)
+		{
+			DeviceID:   deviceID,
+			Timestamp:  now.Add(-75 * time.Minute), // Before startTime
+			Health:     modelsV2.HealthHealthyActive,
+			HashrateHS: &modelsV2.MetricValue{Value: 85000000.0},
+			PowerW:     &modelsV2.MetricValue{Value: 2900.0},
+		},
+	}
+
+	err := store.StoreDeviceMetrics(ctx, testMetrics...)
+	require.NoError(t, err, "Should successfully store device metrics")
+	time.Sleep(200 * time.Millisecond)
+
+	// Query time series within a specific range
+	startTime := now.Add(-65 * time.Minute)
+	endTime := now
+	query := models.TimeSeriesTelemetryQuery{
+		DeviceIDs: []models.DeviceIdentifier{models.DeviceIdentifier(deviceID)},
+		MeasurementTypes: []models.MeasurementType{
+			models.MeasurementTypeHashrate,
+			models.MeasurementTypePower,
+		},
+		TimeRange: models.TimeRange{
+			StartTime: &startTime,
+			EndTime:   &endTime,
+		},
+	}
+
+	results, err := store.GetTimeSeriesTelemetry(ctx, query)
+	require.NoError(t, err, "GetTimeSeriesTelemetry should succeed with device_metrics data")
+
+	// Should have 5 metrics × 2 measurement types = 10 results
+	assert.NotEmpty(t, results, "Should have time series results")
+	assert.Len(t, results, 10, "Should have exactly 10 results (5 time points × 2 measurements)")
+
+	// Verify results are sorted by time ascending
+	for i := 1; i < len(results); i++ {
+		assert.True(t, results[i].Timestamp.After(results[i-1].Timestamp) || results[i].Timestamp.Equal(results[i-1].Timestamp),
+			"Results should be sorted by timestamp ascending")
+	}
+
+	// Verify the data points are within the time range
+	for _, result := range results {
+		assert.True(t, result.Timestamp.After(startTime) || result.Timestamp.Equal(startTime),
+			"All results should be after or equal to startTime")
+		assert.True(t, result.Timestamp.Before(endTime) || result.Timestamp.Equal(endTime),
+			"All results should be before or equal to endTime")
+	}
+
+	// Verify we have the expected measurements with correct conversions
+	hashrateCount := 0
+	powerCount := 0
+	for _, result := range results {
+		if result.Measurement == models.MeasurementTypeHashrate.InfluxMeasurementName() {
+			hashrateCount++
+			// Verify hashrate is in MH/s (converted from H/s)
+			value, ok := result.Fields["value"].(float64)
+			require.True(t, ok, "Hashrate value should be float64")
+			assert.GreaterOrEqual(t, value, 90.0, "Hashrate should be >= 90 MH/s")
+			assert.LessOrEqual(t, value, 110.0, "Hashrate should be <= 110 MH/s")
+		} else if result.Measurement == models.MeasurementTypePower.InfluxMeasurementName() {
+			powerCount++
+		}
+	}
+	assert.Equal(t, 5, hashrateCount, "Should have 5 hashrate measurements")
+	assert.Equal(t, 5, powerCount, "Should have 5 power measurements")
+}
+
+func TestInfluxTelemetryStore_GetAggregatedTelemetry_FromDeviceMetrics(t *testing.T) {
+	t.Parallel()
+
+	store, container, ctx := setupIntegrationTest(t)
+	defer cleanupIntegrationTest(t, store, container)
+
+	// Create multiple data points for aggregation
+	now := time.Now()
+	device1ID := "dm-agg-device1"
+	device2ID := "dm-agg-device2"
+
+	testMetrics := []modelsV2.DeviceMetrics{
+		// Device 1 data points
+		{
+			DeviceID:   device1ID,
+			Timestamp:  now.Add(-60 * time.Minute),
+			Health:     modelsV2.HealthHealthyActive,
+			HashrateHS: &modelsV2.MetricValue{Value: 90000000.0}, // 90 MH/s (90 million H/s)
+			PowerW:     &modelsV2.MetricValue{Value: 3000.0},
+		},
+		{
+			DeviceID:   device1ID,
+			Timestamp:  now.Add(-45 * time.Minute),
+			Health:     modelsV2.HealthHealthyActive,
+			HashrateHS: &modelsV2.MetricValue{Value: 95000000.0}, // 95 MH/s (95 million H/s)
+			PowerW:     &modelsV2.MetricValue{Value: 3100.0},
+		},
+		{
+			DeviceID:   device1ID,
+			Timestamp:  now.Add(-30 * time.Minute),
+			Health:     modelsV2.HealthHealthyActive,
+			HashrateHS: &modelsV2.MetricValue{Value: 100000000.0}, // 100 MH/s (100 million H/s)
+			PowerW:     &modelsV2.MetricValue{Value: 3200.0},
+		},
+		// Device 2 data points
+		{
+			DeviceID:   device2ID,
+			Timestamp:  now.Add(-50 * time.Minute),
+			Health:     modelsV2.HealthHealthyActive,
+			HashrateHS: &modelsV2.MetricValue{Value: 80000000.0}, // 80 MH/s (80 million H/s)
+			PowerW:     &modelsV2.MetricValue{Value: 2800.0},
+		},
+		{
+			DeviceID:   device2ID,
+			Timestamp:  now.Add(-35 * time.Minute),
+			Health:     modelsV2.HealthHealthyActive,
+			HashrateHS: &modelsV2.MetricValue{Value: 85000000.0}, // 85 MH/s (85 million H/s)
+			PowerW:     &modelsV2.MetricValue{Value: 2900.0},
+		},
+	}
+
+	err := store.StoreDeviceMetrics(ctx, testMetrics...)
+	require.NoError(t, err, "Should successfully store device metrics")
+	time.Sleep(200 * time.Millisecond)
+
+	// Query aggregated data
+	startTime := now.Add(-70 * time.Minute)
+	endTime := now
+	query := models.AggregationQuery{
+		DeviceIDs: []models.DeviceIdentifier{
+			models.DeviceIdentifier(device1ID),
+			models.DeviceIdentifier(device2ID),
+		},
+		MeasurementTypes: []models.MeasurementType{
+			models.MeasurementTypeHashrate,
+			models.MeasurementTypePower,
+		},
+		AggregationType: models.AggregationTypeAverage,
+		TimeRange: models.TimeRange{
+			StartTime: &startTime,
+			EndTime:   &endTime,
+		},
+	}
+
+	results, err := store.GetAggregatedTelemetry(ctx, query)
+	require.NoError(t, err, "GetAggregatedTelemetry should succeed with device_metrics data")
+
+	// Should have aggregated results per device per measurement type
+	assert.NotEmpty(t, results, "Should have aggregated results")
+	assert.GreaterOrEqual(t, len(results), 4, "Should have at least 4 results (2 devices × 2 measurements)")
+
+	// Verify aggregations
+	for _, result := range results {
+		assert.NotZero(t, result.Value, "Aggregated value should not be zero")
+		assert.Positive(t, result.DataPoints, "Should have data points counted")
+
+		if result.MeasurementType == models.MeasurementTypeHashrate {
+			// Values are in MH/s after conversion
+			assert.Greater(t, result.Value, 50.0, "Average hashrate should be reasonable (converted to MH/s)")
+			assert.Less(t, result.Value, 150.0, "Average hashrate should be within expected range")
+		}
+	}
+}
+
+func TestInfluxTelemetryStore_StreamTelemetryUpdates_FromDeviceMetrics(t *testing.T) {
+	t.Parallel()
+
+	store, container, setupCtx := setupIntegrationTest(t)
+
+	deviceID := "dm-stream-device1"
+
+	// Create a separate context for streaming that we can cancel
+	streamCtx, streamCancel := context.WithCancel(setupCtx)
+	defer streamCancel() // Cancel streaming before cleanup
+
+	// Start streaming
+	heartbeat := 500 * time.Millisecond
+	query := models.StreamQuery{
+		DeviceIDs: []models.DeviceIdentifier{models.DeviceIdentifier(deviceID)},
+		MeasurementTypes: []models.MeasurementType{
+			models.MeasurementTypeHashrate,
+			models.MeasurementTypePower,
+		},
+		HeartbeatInterval: &heartbeat,
+		IncludeHeartbeat:  true,
+	}
+
+	updateChan, err := store.StreamTelemetryUpdates(streamCtx, query)
+	require.NoError(t, err, "StreamTelemetryUpdates should start successfully")
+
+	// Store some device metrics after streaming starts
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		testMetric := createTestDeviceMetrics(deviceID, time.Now(), modelsV2.HealthHealthyActive)
+		_ = store.StoreDeviceMetrics(setupCtx, testMetric)
+	}()
+
+	// Collect updates for a short period
+	timeout := time.After(2 * time.Second)
+	updateCount := 0
+	heartbeatCount := 0
+
+	for {
+		select {
+		case update, ok := <-updateChan:
+			if !ok {
+				goto done
+			}
+
+			switch update.Type {
+			case models.UpdateTypeTelemetry:
+				updateCount++
+				assert.NotNil(t, update.Data, "Update should have data")
+			case models.UpdateTypeHeartbeat:
+				heartbeatCount++
+			case models.UpdateTypeError:
+				// Error updates are expected during fallback attempts
+			case models.UpdateTypeUnknown, models.UpdateTypeDeviceStatus, models.UpdateTypeMinerStateCounts:
+				// These types are not expected in this test
+			}
+		case <-timeout:
+			goto done
+		}
+	}
+
+done:
+	assert.Positive(t, heartbeatCount, "Should receive at least one heartbeat")
+
+	// Cancel the stream context and wait for channel to close
+	streamCancel()
+
+	// Drain any remaining messages - required to avoid goroutine leaks
+	//nolint:revive // Empty loop body is intentional for draining channel
+	for range updateChan {
+	}
+
+	// Now safe to cleanup
+	cleanupIntegrationTest(t, store, container)
+}
+
+func TestInfluxTelemetryStore_GetTelemetryMetadata_FromDeviceMetrics(t *testing.T) {
+	t.Parallel()
+
+	store, container, ctx := setupIntegrationTest(t)
+	defer cleanupIntegrationTest(t, store, container)
+
+	// Create device metrics with different health statuses
+	now := time.Now()
+	device1ID := "dm-meta-device1"
+	device2ID := "dm-meta-device2"
+	device3ID := "dm-meta-device3"
+
+	testMetrics := []modelsV2.DeviceMetrics{
+		createTestDeviceMetrics(device1ID, now.Add(-10*time.Minute), modelsV2.HealthHealthyActive),
+		createTestDeviceMetrics(device2ID, now.Add(-5*time.Minute), modelsV2.HealthWarning),
+		createTestDeviceMetrics(device3ID, now.Add(-15*time.Minute), modelsV2.HealthCritical),
+		// Add older metric for device1
+		createTestDeviceMetrics(device1ID, now.Add(-30*time.Minute), modelsV2.HealthWarning),
+	}
+
+	err := store.StoreDeviceMetrics(ctx, testMetrics...)
+	require.NoError(t, err, "Should successfully store device metrics")
+	time.Sleep(200 * time.Millisecond)
+
+	// Query metadata
+	query := models.MetadataQuery{
+		DeviceIDs: []models.DeviceIdentifier{
+			models.DeviceIdentifier(device1ID),
+			models.DeviceIdentifier(device2ID),
+			models.DeviceIdentifier(device3ID),
+		},
+	}
+
+	results, err := store.GetTelemetryMetadata(ctx, query)
+	require.NoError(t, err, "GetTelemetryMetadata should succeed with device_metrics data")
+
+	// Should have metadata for all devices
+	assert.Len(t, results, 3, "Should have metadata for 3 devices")
+
+	// Verify results are sorted by last seen (most recent first)
+	for i := 1; i < len(results); i++ {
+		assert.True(t, results[i].LastSeen.Before(results[i-1].LastSeen) || results[i].LastSeen.Equal(results[i-1].LastSeen),
+			"Results should be sorted by LastSeen descending")
+	}
+
+	// Verify device IDs
+	deviceIDsFound := make(map[string]bool)
+	for _, result := range results {
+		deviceIDsFound[string(result.DeviceID)] = true
+		assert.NotZero(t, result.LastSeen, "LastSeen should be set")
+	}
+	assert.True(t, deviceIDsFound[device1ID], "Should have metadata for device1")
+	assert.True(t, deviceIDsFound[device2ID], "Should have metadata for device2")
+	assert.True(t, deviceIDsFound[device3ID], "Should have metadata for device3")
+}
+
+func TestInfluxTelemetryStore_Fallback_WhenNoDeviceMetrics(t *testing.T) {
+	t.Parallel()
+
+	store, container, ctx := setupIntegrationTest(t)
+	defer cleanupIntegrationTest(t, store, container)
+
+	// Store ONLY legacy telemetry data (no device_metrics)
+	deviceID := "legacy-only-device"
+	now := time.Now()
+
+	legacyData := []models.Telemetry{
+		createTestTelemetryByTypeWithTimestamp(deviceID, models.MeasurementTypeHashrate, 100.0, now.Add(-10*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp(deviceID, models.MeasurementTypeTemperature, 65.0, now.Add(-10*time.Minute)),
+		createTestTelemetryByTypeWithTimestamp(deviceID, models.MeasurementTypePower, 3200.0, now.Add(-10*time.Minute)),
+	}
+
+	err := store.Store(ctx, legacyData...)
+	require.NoError(t, err, "Should successfully store legacy telemetry")
+	time.Sleep(200 * time.Millisecond)
+
+	// Query should fallback to legacy data
+	query := models.LatestTelemetryQuery{
+		DeviceIDs: []models.DeviceIdentifier{models.DeviceIdentifier(deviceID)},
+		MeasurementTypes: []models.MeasurementType{
+			models.MeasurementTypeHashrate,
+			models.MeasurementTypeTemperature,
+			models.MeasurementTypePower,
+		},
+	}
+
+	results, err := store.GetLatestTelemetry(ctx, query)
+	require.NoError(t, err, "GetLatestTelemetry should succeed with fallback to legacy data")
+
+	// Should get results from legacy data
+	assert.NotEmpty(t, results, "Should have telemetry results from legacy data")
+	assert.GreaterOrEqual(t, len(results), 3, "Should have at least 3 measurement types")
+
+	// Verify device ID
+	for _, result := range results {
+		assert.Equal(t, deviceID, result.Tags["device_id"], "Device ID should match")
+	}
 }

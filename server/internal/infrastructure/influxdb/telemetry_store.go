@@ -64,6 +64,100 @@ func NewTelemetryStore(config Config) (*InfluxTelemetryStore, error) {
 	return store, nil
 }
 
+// executeWithFallback tries the new device_metrics approach first, then falls back to legacy
+// It handles the common pattern of trying new implementation with graceful degradation
+func executeWithFallback[T any](
+	ctx context.Context,
+	logger *slog.Logger,
+	methodName string,
+	newFunc func(context.Context) (T, error),
+	legacyFunc func(context.Context) (T, error),
+	isEmpty func(T) bool,
+) (T, error) {
+	// Try the new device_metrics store first
+	result, err := newFunc(ctx)
+	if err == nil && !isEmpty(result) {
+		return result, nil
+	}
+
+	if err != nil {
+		logger.Error(fmt.Sprintf("failed to get %s from device_metrics, falling back to legacy", methodName),
+			slog.Any("error", err))
+	}
+
+	return legacyFunc(ctx)
+}
+
+// queryDeviceMetrics executes a device_metrics query and returns DeviceMetrics
+func (s *InfluxTelemetryStore) queryDeviceMetrics(
+	ctx context.Context,
+	queryTemplate string,
+	deviceIDs []models.DeviceIdentifier,
+	params influxdb3.QueryParameters,
+	methodName string,
+) ([]modelsV2.DeviceMetrics, error) {
+	deviceIDsStr := s.buildDeviceIDsString(deviceIDs)
+	influxQuery := fmt.Sprintf(queryTemplate, deviceIDsStr)
+
+	iterator, err := s.client.QueryPointValueWithParameters(ctx, influxQuery, params)
+	if err != nil {
+		return nil, fmt.Errorf("device_metrics query failed: %w", err)
+	}
+
+	var results []modelsV2.DeviceMetrics
+	for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
+		if err != nil {
+			s.logger.Debug(fmt.Sprintf("error reading point in %s", methodName),
+				slog.Any("error", err))
+			continue
+		}
+
+		deviceMetrics, err := influxModels.ToDeviceMetrics(point)
+		if err != nil {
+			s.logger.Error(fmt.Sprintf("error converting point to DeviceMetrics in %s", methodName),
+				slog.Any("error", err))
+			continue
+		}
+
+		results = append(results, deviceMetrics)
+	}
+
+	return results, nil
+}
+
+// filterLatestByDevice keeps only the most recent DeviceMetrics per device
+func filterLatestByDevice(metrics []modelsV2.DeviceMetrics) []modelsV2.DeviceMetrics {
+	latestMetricsByDevice := make(map[models.DeviceIdentifier]modelsV2.DeviceMetrics)
+
+	for _, deviceMetrics := range metrics {
+		deviceID := models.DeviceIdentifier(deviceMetrics.DeviceID)
+		if existing, exists := latestMetricsByDevice[deviceID]; !exists || deviceMetrics.Timestamp.After(existing.Timestamp) {
+			latestMetricsByDevice[deviceID] = deviceMetrics
+		}
+	}
+
+	var results []modelsV2.DeviceMetrics
+	for _, metrics := range latestMetricsByDevice {
+		results = append(results, metrics)
+	}
+
+	return results
+}
+
+// sortTelemetryByTimeDesc sorts telemetry by timestamp descending (most recent first)
+func sortTelemetryByTimeDesc(data []models.Telemetry) {
+	sort.Slice(data, func(i, j int) bool {
+		return data[i].Timestamp.After(data[j].Timestamp)
+	})
+}
+
+// sortTelemetryByTimeAsc sorts telemetry by timestamp ascending (oldest first)
+func sortTelemetryByTimeAsc(data []models.Telemetry) {
+	sort.Slice(data, func(i, j int) bool {
+		return data[i].Timestamp.Before(data[j].Timestamp)
+	})
+}
+
 func (s *InfluxTelemetryStore) Store(ctx context.Context, data ...models.Telemetry) error {
 	if len(data) == 0 {
 		return nil
@@ -139,6 +233,16 @@ func (s *InfluxTelemetryStore) Store(ctx context.Context, data ...models.Telemet
 	return finalErr
 }
 
+const getLatestDeviceMetricsForMultipleDevicesQuery = `
+SELECT
+*,
+'device_metrics' as measurement
+FROM device_metrics
+WHERE device_id IN (%s)
+AND time >= $max_age
+ORDER BY time DESC
+`
+
 const getLatestTelemetryQuery = `SELECT device_id, time, value, '%s' as measurement
 FROM %s
 WHERE device_id IN (%s)
@@ -147,6 +251,48 @@ ORDER BY time DESC
 LIMIT 1000`
 
 func (s *InfluxTelemetryStore) GetLatestTelemetry(ctx context.Context, query models.LatestTelemetryQuery) ([]models.Telemetry, error) {
+	return executeWithFallback(
+		ctx,
+		s.logger,
+		"latest telemetry",
+		func(ctx context.Context) ([]models.Telemetry, error) {
+			return s.getLatestTelemetryFromDeviceMetrics(ctx, query)
+		},
+		func(ctx context.Context) ([]models.Telemetry, error) {
+			return s.getLatestTelemetryLegacy(ctx, query)
+		},
+		func(results []models.Telemetry) bool {
+			return len(results) == 0
+		},
+	)
+}
+
+func (s *InfluxTelemetryStore) getLatestTelemetryFromDeviceMetrics(ctx context.Context, query models.LatestTelemetryQuery) ([]models.Telemetry, error) {
+	params := s.getLatestTelemetryParamsForMeasurement(query)
+
+	// Query device_metrics and get all matching points
+	allMetrics, err := s.queryDeviceMetrics(ctx, getLatestDeviceMetricsForMultipleDevicesQuery, query.DeviceIDs, params, "getLatestTelemetryFromDeviceMetrics")
+	if err != nil {
+		return nil, err
+	}
+
+	// Keep only the latest metrics per device
+	latestMetrics := filterLatestByDevice(allMetrics)
+
+	// Convert DeviceMetrics to legacy Telemetry format
+	var results []models.Telemetry
+	for _, deviceMetrics := range latestMetrics {
+		telemetryPoints := s.convertDeviceMetricsToTelemetry(deviceMetrics, query.MeasurementTypes)
+		results = append(results, telemetryPoints...)
+	}
+
+	// Sort by timestamp descending (most recent first)
+	sortTelemetryByTimeDesc(results)
+
+	return results, nil
+}
+
+func (s *InfluxTelemetryStore) getLatestTelemetryLegacy(ctx context.Context, query models.LatestTelemetryQuery) ([]models.Telemetry, error) {
 	var allResults []models.Telemetry
 	var allErrors []error
 	totalSuccessCount := 0
@@ -211,12 +357,22 @@ func (s *InfluxTelemetryStore) GetLatestTelemetry(ctx context.Context, query mod
 		}
 	}
 
-	sort.Slice(allResults, func(i, j int) bool {
-		return allResults[i].Timestamp.After(allResults[j].Timestamp)
-	})
+	sortTelemetryByTimeDesc(allResults)
 
 	return allResults, nil
 }
+
+const getTimeSeriesDeviceMetricsQuery = `
+SELECT
+*,
+'device_metrics' as measurement
+FROM device_metrics
+WHERE device_id IN (%s)
+AND time >= $start_time
+AND time <= $end_time
+ORDER BY time ASC
+LIMIT 5000
+`
 
 const getTimeSeriesTelemetryQuery = `SELECT device_id, time, value, '%s' as measurement
 FROM %s
@@ -227,6 +383,45 @@ ORDER BY time ASC
 LIMIT $limit`
 
 func (s *InfluxTelemetryStore) GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models.Telemetry, error) {
+	return executeWithFallback(
+		ctx,
+		s.logger,
+		"time series telemetry",
+		func(ctx context.Context) ([]models.Telemetry, error) {
+			return s.getTimeSeriesTelemetryFromDeviceMetrics(ctx, query)
+		},
+		func(ctx context.Context) ([]models.Telemetry, error) {
+			return s.getTimeSeriesTelemetryLegacy(ctx, query)
+		},
+		func(results []models.Telemetry) bool {
+			return len(results) == 0
+		},
+	)
+}
+
+func (s *InfluxTelemetryStore) getTimeSeriesTelemetryFromDeviceMetrics(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models.Telemetry, error) {
+	params := s.getTimeSeriesParamsForMeasurement(query)
+
+	// Query device_metrics and get all matching points
+	allMetrics, err := s.queryDeviceMetrics(ctx, getTimeSeriesDeviceMetricsQuery, query.DeviceIDs, params, "getTimeSeriesTelemetryFromDeviceMetrics")
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert DeviceMetrics to legacy Telemetry format
+	var results []models.Telemetry
+	for _, deviceMetrics := range allMetrics {
+		telemetryPoints := s.convertDeviceMetricsToTelemetry(deviceMetrics, query.MeasurementTypes)
+		results = append(results, telemetryPoints...)
+	}
+
+	// Sort by timestamp ascending
+	sortTelemetryByTimeAsc(results)
+
+	return results, nil
+}
+
+func (s *InfluxTelemetryStore) getTimeSeriesTelemetryLegacy(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models.Telemetry, error) {
 	var allResults []models.Telemetry
 	var allErrors []error
 	totalSuccessCount := 0
@@ -292,12 +487,19 @@ func (s *InfluxTelemetryStore) GetTimeSeriesTelemetry(ctx context.Context, query
 		}
 	}
 
-	sort.Slice(allResults, func(i, j int) bool {
-		return allResults[i].Timestamp.Before(allResults[j].Timestamp)
-	})
+	sortTelemetryByTimeAsc(allResults)
 
 	return allResults, nil
 }
+
+const getDeviceMetricsMetadataQuery = `
+SELECT device_id, time, health,
+'device_metrics' as measurement
+FROM device_metrics
+WHERE device_id IN (%s)
+ORDER BY time DESC
+LIMIT 1000
+`
 
 const getTelemetryMetadataQuery = `SELECT device_id, time, device_type, location, '%s' as measurement
 FROM %s
@@ -306,6 +508,87 @@ ORDER BY time DESC
 LIMIT 1000`
 
 func (s *InfluxTelemetryStore) GetTelemetryMetadata(ctx context.Context, query models.MetadataQuery) ([]models.DeviceMetadata, error) {
+	return executeWithFallback(
+		ctx,
+		s.logger,
+		"telemetry metadata",
+		func(ctx context.Context) ([]models.DeviceMetadata, error) {
+			return s.getTelemetryMetadataFromDeviceMetrics(ctx, query)
+		},
+		func(ctx context.Context) ([]models.DeviceMetadata, error) {
+			return s.getTelemetryMetadataLegacy(ctx, query)
+		},
+		func(results []models.DeviceMetadata) bool {
+			return len(results) == 0
+		},
+	)
+}
+
+func (s *InfluxTelemetryStore) getTelemetryMetadataFromDeviceMetrics(ctx context.Context, query models.MetadataQuery) ([]models.DeviceMetadata, error) {
+	deviceIDsStr := s.buildDeviceIDsString(query.DeviceIDs)
+	influxQuery := fmt.Sprintf(getDeviceMetricsMetadataQuery, deviceIDsStr)
+	params := s.getMetadataParamsForMeasurement(query)
+
+	iterator, err := s.client.QueryPointValueWithParameters(ctx, influxQuery, params)
+	if err != nil {
+		return nil, fmt.Errorf("device_metrics metadata query failed: %w", err)
+	}
+
+	deviceMetadataMap := make(map[models.DeviceIdentifier]*models.DeviceMetadata)
+
+	for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
+		if err != nil {
+			s.logger.Debug("error reading point in getTelemetryMetadataFromDeviceMetrics",
+				slog.Any("error", err))
+			continue
+		}
+
+		deviceID := models.DeviceIdentifier("")
+		if tagValue, exists := point.GetTag("device_id"); exists {
+			deviceID = models.DeviceIdentifier(tagValue)
+		}
+
+		if deviceID == "" {
+			continue
+		}
+
+		metadata, exists := deviceMetadataMap[deviceID]
+		if !exists {
+			metadata = &models.DeviceMetadata{
+				DeviceID: deviceID,
+			}
+			deviceMetadataMap[deviceID] = metadata
+		}
+
+		if point.Timestamp.After(metadata.LastSeen) {
+			metadata.LastSeen = point.Timestamp
+
+			// Extract health status if available
+			if healthTag, exists := point.GetTag("health"); exists && healthTag != "" {
+				// We can store health status in DeviceType or Location field
+				// since the DeviceMetadata model doesn't have a health field
+				metadata.DeviceType = healthTag
+			}
+		}
+	}
+
+	var allResults []models.DeviceMetadata
+	for _, metadata := range deviceMetadataMap {
+		allResults = append(allResults, *metadata)
+	}
+
+	if len(allResults) == 0 {
+		return nil, fmt.Errorf("no metadata found in device_metrics")
+	}
+
+	sort.Slice(allResults, func(i, j int) bool {
+		return allResults[i].LastSeen.After(allResults[j].LastSeen)
+	})
+
+	return allResults, nil
+}
+
+func (s *InfluxTelemetryStore) getTelemetryMetadataLegacy(ctx context.Context, query models.MetadataQuery) ([]models.DeviceMetadata, error) {
 	var allResults []models.DeviceMetadata
 	var allErrors []error
 	totalSuccessCount := 0
@@ -416,6 +699,16 @@ func (s *InfluxTelemetryStore) GetTelemetryMetadata(ctx context.Context, query m
 	return allResults, nil
 }
 
+const streamDeviceMetricsQuery = `
+SELECT
+*,
+'device_metrics' as measurement
+FROM device_metrics
+WHERE device_id IN (%s)
+AND time > $last_timestamp
+ORDER BY time ASC
+`
+
 const streamTelemetryUpdatesQuery = `SELECT device_id, time, value, '%s' as measurement
 FROM %s
 WHERE device_id IN (%s)
@@ -423,6 +716,11 @@ AND time > $last_timestamp
 ORDER BY time ASC`
 
 func (s *InfluxTelemetryStore) StreamTelemetryUpdates(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error) {
+	// Try to use the new device_metrics store, with fallback to legacy
+	return s.streamTelemetryUpdatesWithFallback(ctx, query)
+}
+
+func (s *InfluxTelemetryStore) streamTelemetryUpdatesWithFallback(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error) {
 	updateChan := make(chan models.TelemetryUpdate, defaultBufferSize)
 
 	go func() {
@@ -445,55 +743,97 @@ func (s *InfluxTelemetryStore) StreamTelemetryUpdates(ctx context.Context, query
 			case <-ticker.C:
 				hasNewData := false
 
-				for _, measurementType := range query.MeasurementTypes {
-					measurementName := measurementType.InfluxMeasurementName()
+				// First, try querying the new device_metrics store
+				deviceIDsStr := s.buildDeviceIDsString(query.DeviceIDs)
+				influxQuery := fmt.Sprintf(streamDeviceMetricsQuery, deviceIDsStr)
+				params := s.getStreamParamsForMeasurement(query, lastTimestamp)
 
-					deviceIDsStr := s.buildDeviceIDsString(query.DeviceIDs)
-
-					influxQuery := fmt.Sprintf(streamTelemetryUpdatesQuery, measurementName, measurementName, deviceIDsStr)
-					params := s.getStreamParamsForMeasurement(query, lastTimestamp)
-
-					iterator, err := s.client.QueryPointValueWithParameters(ctx, influxQuery, params)
-					if err != nil {
-						s.logger.Debug("stream query error",
-							slog.String("measurement", measurementName),
-							slog.Any("error", err))
-						updateChan <- models.TelemetryUpdate{
-							Type:      models.UpdateTypeError,
-							Timestamp: time.Now(),
-							Error:     stringPtr(fmt.Sprintf("query error for %s: %v", measurementName, err)),
-						}
-						continue
-					}
-
+				iterator, err := s.client.QueryPointValueWithParameters(ctx, influxQuery, params)
+				if err == nil {
+					// Process device_metrics results
 					for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
 						if err != nil {
+							s.logger.Debug("error reading device_metrics stream point", slog.Any("error", err))
+							continue
+						}
+
+						deviceMetrics, err := influxModels.ToDeviceMetrics(point)
+						if err != nil {
+							s.logger.Debug("error converting point to DeviceMetrics", slog.Any("error", err))
+							continue
+						}
+
+						// Convert to legacy telemetry format and send updates
+						telemetryPoints := s.convertDeviceMetricsToTelemetry(deviceMetrics, query.MeasurementTypes)
+						for _, telemetryData := range telemetryPoints {
+							updateChan <- models.TelemetryUpdate{
+								Type:      models.UpdateTypeTelemetry,
+								DeviceID:  models.DeviceIdentifier(deviceMetrics.DeviceID),
+								Timestamp: telemetryData.Timestamp,
+								Data:      &telemetryData,
+							}
+
+							if telemetryData.Timestamp.After(lastTimestamp) {
+								lastTimestamp = telemetryData.Timestamp
+							}
+							hasNewData = true
+						}
+					}
+				} else {
+					s.logger.Debug("device_metrics stream query error, trying legacy",
+						slog.Any("error", err))
+				}
+
+				// If no new data from device_metrics, fallback to legacy queries
+				if !hasNewData {
+					for _, measurementType := range query.MeasurementTypes {
+						measurementName := measurementType.InfluxMeasurementName()
+
+						legacyQuery := fmt.Sprintf(streamTelemetryUpdatesQuery, measurementName, measurementName, deviceIDsStr)
+						params := s.getStreamParamsForMeasurement(query, lastTimestamp)
+
+						iterator, err := s.client.QueryPointValueWithParameters(ctx, legacyQuery, params)
+						if err != nil {
+							s.logger.Debug("legacy stream query error",
+								slog.String("measurement", measurementName),
+								slog.Any("error", err))
 							updateChan <- models.TelemetryUpdate{
 								Type:      models.UpdateTypeError,
 								Timestamp: time.Now(),
-								Error:     stringPtr(err.Error()),
+								Error:     stringPtr(fmt.Sprintf("query error for %s: %v", measurementName, err)),
 							}
 							continue
 						}
 
-						telemetryData := influxModels.ToTelemetry(point)
+						for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
+							if err != nil {
+								updateChan <- models.TelemetryUpdate{
+									Type:      models.UpdateTypeError,
+									Timestamp: time.Now(),
+									Error:     stringPtr(err.Error()),
+								}
+								continue
+							}
 
-						deviceID := ""
-						if tagValue, exists := point.GetTag("device_id"); exists {
-							deviceID = tagValue
-						}
+							telemetryData := influxModels.ToTelemetry(point)
 
-						updateChan <- models.TelemetryUpdate{
-							Type:      models.UpdateTypeTelemetry,
-							DeviceID:  models.DeviceIdentifier(deviceID),
-							Timestamp: telemetryData.Timestamp,
-							Data:      &telemetryData,
-						}
+							deviceID := ""
+							if tagValue, exists := point.GetTag("device_id"); exists {
+								deviceID = tagValue
+							}
 
-						if telemetryData.Timestamp.After(lastTimestamp) {
-							lastTimestamp = telemetryData.Timestamp
+							updateChan <- models.TelemetryUpdate{
+								Type:      models.UpdateTypeTelemetry,
+								DeviceID:  models.DeviceIdentifier(deviceID),
+								Timestamp: telemetryData.Timestamp,
+								Data:      &telemetryData,
+							}
+
+							if telemetryData.Timestamp.After(lastTimestamp) {
+								lastTimestamp = telemetryData.Timestamp
+							}
+							hasNewData = true
 						}
-						hasNewData = true
 					}
 				}
 
@@ -510,6 +850,17 @@ func (s *InfluxTelemetryStore) StreamTelemetryUpdates(ctx context.Context, query
 	return updateChan, nil
 }
 
+const getAggregatedDeviceMetricsQueryTemplate = `SELECT device_id,
+%s(%s) as aggregated_value,
+COUNT(*) as data_points,
+'device_metrics' as measurement
+FROM device_metrics
+WHERE device_id IN (%s)
+AND time >= $start_time
+AND time <= $end_time
+GROUP BY device_id
+ORDER BY device_id ASC`
+
 const getAggregatedTelemetryQueryTemplate = `SELECT device_id,
 %s(value) as aggregated_value,
 COUNT(*) as data_points,
@@ -522,6 +873,125 @@ GROUP BY device_id
 ORDER BY device_id ASC`
 
 func (s *InfluxTelemetryStore) GetAggregatedTelemetry(ctx context.Context, query models.AggregationQuery) ([]models.AggregatedTelemetry, error) {
+	return executeWithFallback(
+		ctx,
+		s.logger,
+		"aggregated telemetry",
+		func(ctx context.Context) ([]models.AggregatedTelemetry, error) {
+			return s.getAggregatedTelemetryFromDeviceMetrics(ctx, query)
+		},
+		func(ctx context.Context) ([]models.AggregatedTelemetry, error) {
+			return s.getAggregatedTelemetryLegacy(ctx, query)
+		},
+		func(results []models.AggregatedTelemetry) bool {
+			return len(results) == 0
+		},
+	)
+}
+
+func (s *InfluxTelemetryStore) getAggregatedTelemetryFromDeviceMetrics(ctx context.Context, query models.AggregationQuery) ([]models.AggregatedTelemetry, error) {
+	var allResults []models.AggregatedTelemetry
+	aggFunc := getAggregationFunction(query.AggregationType)
+	deviceIDsStr := s.buildDeviceIDsString(query.DeviceIDs)
+
+	for _, measurementType := range query.MeasurementTypes {
+		// Map measurement type to device_metrics field name
+		fieldName := s.getMeasurementFieldName(measurementType)
+		if fieldName == "" {
+			s.logger.Debug("skipping unknown measurement type for aggregation in device_metrics")
+			continue // Skip unknown measurement types
+		}
+
+		influxQuery := fmt.Sprintf(getAggregatedDeviceMetricsQueryTemplate, aggFunc, fieldName, deviceIDsStr)
+		params := s.getAggregationParamsForMeasurement(query)
+
+		iterator, err := s.client.QueryPointValueWithParameters(ctx, influxQuery, params)
+		if err != nil {
+			s.logger.Debug("aggregated device_metrics query failed",
+				slog.String("field", fieldName),
+				slog.Any("error", err))
+			continue
+		}
+
+		for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
+			if err != nil {
+				s.logger.Debug("error reading point in getAggregatedTelemetryFromDeviceMetrics",
+					slog.String("field", fieldName),
+					slog.Any("error", err))
+				continue
+			}
+
+			deviceID := models.DeviceIdentifier("")
+			if tagValue, exists := point.GetTag("device_id"); exists {
+				deviceID = models.DeviceIdentifier(tagValue)
+			}
+
+			aggregatedValue := float64(0)
+			if valueField := point.GetField("aggregated_value"); valueField != nil {
+				if val, ok := valueField.(float64); ok {
+					aggregatedValue = val
+					// Convert HashRate from H/s to MH/s if needed
+					if measurementType == models.MeasurementTypeHashrate {
+						aggregatedValue /= 1_000_000
+					}
+				}
+			}
+
+			dataPoints := int64(0)
+			if countField := point.GetField("data_points"); countField != nil {
+				if count, ok := countField.(int64); ok {
+					dataPoints = count
+				}
+			}
+
+			result := models.AggregatedTelemetry{
+				DeviceID:        deviceID,
+				MeasurementType: measurementType,
+				Value:           aggregatedValue,
+				DataPoints:      int(dataPoints),
+				AggregationType: query.AggregationType,
+			}
+
+			allResults = append(allResults, result)
+		}
+	}
+
+	if len(allResults) == 0 {
+		return nil, fmt.Errorf("no aggregated data found in device_metrics")
+	}
+
+	sort.Slice(allResults, func(i, j int) bool {
+		return string(allResults[i].DeviceID) < string(allResults[j].DeviceID)
+	})
+
+	return allResults, nil
+}
+
+// getMeasurementFieldName maps MeasurementType to device_metrics field name
+func (s *InfluxTelemetryStore) getMeasurementFieldName(mt models.MeasurementType) string {
+	switch mt {
+	case models.MeasurementTypeHashrate:
+		return "hash_rate_hs"
+	case models.MeasurementTypeTemperature:
+		return "temp_c"
+	case models.MeasurementTypePower:
+		return "power_w"
+	case models.MeasurementTypeEfficiency:
+		return "efficiency_jh"
+	case models.MeasurementTypeFanSpeed:
+		return "fan_rpm"
+	case models.MeasurementTypeUnknown,
+		models.MeasurementTypeVoltage,
+		models.MeasurementTypeCurrent,
+		models.MeasurementTypeUptime,
+		models.MeasurementTypeErrorRate:
+		return ""
+	default:
+		return ""
+	}
+}
+
+func (s *InfluxTelemetryStore) getAggregatedTelemetryLegacy(ctx context.Context, query models.AggregationQuery) ([]models.AggregatedTelemetry, error) {
 	var allResults []models.AggregatedTelemetry
 	var allErrors []error
 	totalSuccessCount := 0
@@ -933,6 +1403,175 @@ type CombinedMetricsQueryParams struct {
 }
 
 func (s *InfluxTelemetryStore) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+	return executeWithFallback(
+		ctx,
+		s.logger,
+		"combined metrics",
+		func(ctx context.Context) (models.CombinedMetric, error) {
+			return s.getCombinedMetricsFromDeviceMetrics(ctx, query)
+		},
+		func(ctx context.Context) (models.CombinedMetric, error) {
+			return s.getCombinedMetricsLegacy(ctx, query)
+		},
+		func(result models.CombinedMetric) bool {
+			return len(result.Metrics) == 0
+		},
+	)
+}
+
+func (s *InfluxTelemetryStore) getCombinedMetricsFromDeviceMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+	// For device_metrics, we'll use a simpler approach with aggregation over time windows
+	// This is a simplified version compared to the complex windowing in legacy queries
+	var allMetrics []models.Metric
+
+	// Default slide interval if not specified
+	slideInterval := defaultSlideInterval
+	if query.SlideInterval != nil {
+		slideInterval = *query.SlideInterval
+	}
+
+	// Note: WindowDuration is not used in the simplified device_metrics query
+	// It's retained in the legacy query for complex windowing calculations
+
+	for _, measurementType := range query.MeasurementTypes {
+		fieldName := s.getMeasurementFieldName(measurementType)
+		if fieldName == "" {
+			continue
+		}
+
+		// Build a time-series aggregation query for device_metrics
+		deviceIDsStr := ""
+		if len(query.DeviceIDs) > 0 {
+			deviceIDsStr = fmt.Sprintf("AND device_id IN (%s)", s.buildDeviceIDsString(query.DeviceIDs))
+		}
+
+		// Simplified aggregation query
+		influxQuery := fmt.Sprintf(`
+SELECT
+	date_bin_wallclock_gapfill(INTERVAL '%d second', time) AS bucket,
+	AVG(%s) as avg_value,
+	MIN(%s) as min_value,
+	MAX(%s) as max_value,
+	SUM(%s) as sum_value
+FROM device_metrics
+WHERE time BETWEEN $start_time AND $stop_time
+%s
+GROUP BY bucket
+ORDER BY bucket ASC
+LIMIT 1000
+`, int(slideInterval.Seconds()), fieldName, fieldName, fieldName, fieldName, deviceIDsStr)
+
+		params := s.getCombinedMetricsParams(query)
+		iterator, err := s.client.QueryPointValueWithParameters(ctx, influxQuery, params)
+		if err != nil {
+			s.logger.Debug("combined metrics device_metrics query failed",
+				slog.String("field", fieldName),
+				slog.Any("error", err))
+			continue
+		}
+
+		for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
+			if err != nil {
+				s.logger.Debug("error reading point in getCombinedMetricsFromDeviceMetrics",
+					slog.String("field", fieldName),
+					slog.Any("error", err))
+				continue
+			}
+
+			bucketTime := point.Timestamp
+			var aggregatedValues []models.AggregatedValue
+
+			if avgField := point.GetField("avg_value"); avgField != nil {
+				if val, ok := avgField.(float64); ok {
+					// Convert hashrate from H/s to MH/s
+					if measurementType == models.MeasurementTypeHashrate {
+						val /= 1_000_000
+					}
+					aggregatedValues = append(aggregatedValues, models.AggregatedValue{
+						Type:  models.AggregationTypeAverage,
+						Value: val,
+					})
+				}
+			}
+
+			if minField := point.GetField("min_value"); minField != nil {
+				if val, ok := minField.(float64); ok {
+					if measurementType == models.MeasurementTypeHashrate {
+						val /= 1_000_000
+					}
+					aggregatedValues = append(aggregatedValues, models.AggregatedValue{
+						Type:  models.AggregationTypeMin,
+						Value: val,
+					})
+				}
+			}
+
+			if maxField := point.GetField("max_value"); maxField != nil {
+				if val, ok := maxField.(float64); ok {
+					if measurementType == models.MeasurementTypeHashrate {
+						val /= 1_000_000
+					}
+					aggregatedValues = append(aggregatedValues, models.AggregatedValue{
+						Type:  models.AggregationTypeMax,
+						Value: val,
+					})
+				}
+			}
+
+			if sumField := point.GetField("sum_value"); sumField != nil {
+				if val, ok := sumField.(float64); ok {
+					if measurementType == models.MeasurementTypeHashrate {
+						val /= 1_000_000
+					}
+					aggregatedValues = append(aggregatedValues, models.AggregatedValue{
+						Type:  models.AggregationTypeSum,
+						Value: val,
+					})
+				}
+			}
+
+			// Filter by requested aggregation types
+			if len(query.AggregationTypes) > 0 {
+				requestedTypes := make(map[models.AggregationType]bool)
+				for _, aggType := range query.AggregationTypes {
+					requestedTypes[aggType] = true
+				}
+
+				var filteredValues []models.AggregatedValue
+				for _, aggValue := range aggregatedValues {
+					if requestedTypes[aggValue.Type] {
+						filteredValues = append(filteredValues, aggValue)
+					}
+				}
+				aggregatedValues = filteredValues
+			}
+
+			if len(aggregatedValues) > 0 {
+				metric := models.Metric{
+					MeasurementType:  measurementType,
+					AggregatedValues: aggregatedValues,
+					OpenTime:         bucketTime,
+				}
+				allMetrics = append(allMetrics, metric)
+			}
+		}
+	}
+
+	if len(allMetrics) == 0 {
+		return models.CombinedMetric{}, fmt.Errorf("no combined metrics found in device_metrics")
+	}
+
+	sort.Slice(allMetrics, func(i, j int) bool {
+		return allMetrics[i].OpenTime.Before(allMetrics[j].OpenTime)
+	})
+
+	return models.CombinedMetric{
+		Metrics:       allMetrics,
+		NextPageToken: "", // Simplified - no pagination for device_metrics version
+	}, nil
+}
+
+func (s *InfluxTelemetryStore) getCombinedMetricsLegacy(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
 	var allMetrics []models.Metric
 	var allErrors []error
 	totalSuccessCount := 0
@@ -1212,6 +1851,105 @@ func (s *InfluxTelemetryStore) StoreDeviceMetrics(ctx context.Context, telemetry
 		return newTelemetryWriteError(err, len(points))
 	}
 	return nil
+}
+
+// convertDeviceMetricsToTelemetry converts a DeviceMetrics instance to legacy Telemetry format
+// It filters by the requested measurement types
+func (s *InfluxTelemetryStore) convertDeviceMetricsToTelemetry(deviceMetrics modelsV2.DeviceMetrics, requestedTypes []models.MeasurementType) []models.Telemetry {
+	var results []models.Telemetry
+	deviceID := models.DeviceIdentifier(deviceMetrics.DeviceID)
+
+	// Create a map of requested types for quick lookup
+	requestedTypesMap := make(map[models.MeasurementType]bool)
+	for _, mt := range requestedTypes {
+		requestedTypesMap[mt] = true
+	}
+
+	// Helper function to check if a measurement type is requested
+	isRequested := func(mt models.MeasurementType) bool {
+		if len(requestedTypesMap) == 0 {
+			return true // If no specific types requested, return all
+		}
+		return requestedTypesMap[mt]
+	}
+
+	// Convert HashrateHS (H/s) to hashrate_mhs (MH/s)
+	if deviceMetrics.HashrateHS != nil && isRequested(models.MeasurementTypeHashrate) {
+		valueInMhs := deviceMetrics.HashrateHS.Value / 1_000_000 // H/s to MH/s
+		results = append(results, models.Telemetry{
+			Measurement: models.MeasurementTypeHashrate.InfluxMeasurementName(),
+			Tags: map[string]string{
+				"device_id": deviceMetrics.DeviceID,
+			},
+			Fields: map[string]interface{}{
+				"value": valueInMhs,
+			},
+			Timestamp: deviceMetrics.Timestamp,
+		})
+	}
+
+	// Convert TempC to temperature_c
+	if deviceMetrics.TempC != nil && isRequested(models.MeasurementTypeTemperature) {
+		results = append(results, models.Telemetry{
+			Measurement: models.MeasurementTypeTemperature.InfluxMeasurementName(),
+			Tags: map[string]string{
+				"device_id": deviceMetrics.DeviceID,
+			},
+			Fields: map[string]interface{}{
+				"value": deviceMetrics.TempC.Value,
+			},
+			Timestamp: deviceMetrics.Timestamp,
+		})
+	}
+
+	// Convert PowerW to power_w
+	if deviceMetrics.PowerW != nil && isRequested(models.MeasurementTypePower) {
+		results = append(results, models.Telemetry{
+			Measurement: models.MeasurementTypePower.InfluxMeasurementName(),
+			Tags: map[string]string{
+				"device_id": deviceMetrics.DeviceID,
+			},
+			Fields: map[string]interface{}{
+				"value": deviceMetrics.PowerW.Value,
+			},
+			Timestamp: deviceMetrics.Timestamp,
+		})
+	}
+
+	// Convert EfficiencyJH to efficiency_jth
+	if deviceMetrics.EfficiencyJH != nil && isRequested(models.MeasurementTypeEfficiency) {
+		results = append(results, models.Telemetry{
+			Measurement: models.MeasurementTypeEfficiency.InfluxMeasurementName(),
+			Tags: map[string]string{
+				"device_id": deviceMetrics.DeviceID,
+			},
+			Fields: map[string]interface{}{
+				"value": deviceMetrics.EfficiencyJH.Value,
+			},
+			Timestamp: deviceMetrics.Timestamp,
+		})
+	}
+
+	// Convert FanRPM to fan_speed_rpm (if FanSpeed measurement type exists)
+	if deviceMetrics.FanRPM != nil && isRequested(models.MeasurementTypeFanSpeed) {
+		results = append(results, models.Telemetry{
+			Measurement: models.MeasurementTypeFanSpeed.InfluxMeasurementName(),
+			Tags: map[string]string{
+				"device_id": deviceMetrics.DeviceID,
+			},
+			Fields: map[string]interface{}{
+				"value": deviceMetrics.FanRPM.Value,
+			},
+			Timestamp: deviceMetrics.Timestamp,
+		})
+	}
+
+	// Set device_id as DeviceIdentifier for all results
+	for i := range results {
+		results[i].Tags["device_id"] = string(deviceID)
+	}
+
+	return results
 }
 
 const getLatestDeviceMetricsQuery = `
