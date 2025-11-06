@@ -393,6 +393,59 @@ EOF
 
 **Note**: Never manually construct Linear URLs. Always use the Linear MCP `get_issue` tool to get the correct URL format.
 
+## Code Quality Standards
+
+### Architectural Principles
+
+**Respect Abstraction Layers**
+- Each layer should only interact with its immediate dependencies
+- Example: In `plugin/proto`, only `client.go` should import miner API types
+- `device.go` should work with domain types, never directly with external APIs
+- When in doubt, check existing patterns before adding cross-layer imports
+
+**Magic Numbers Are Forbidden**
+- ALL numeric literals must be named constants, even if used 2-3 times
+- Constants should be grouped by purpose (conversions, timeouts, limits, etc.)
+- Include units in constant names: `timeoutSeconds`, `maxRetries`, `hashToTeraHashConversion`
+- Document what each constant represents in comments
+
+**Linter Suppressions = Last Resort**
+- `#nosec`, `//nolint`, etc. should be rare and justified
+- Before adding a suppression, ask: "Can I validate this properly instead?"
+- Example: Instead of `#nosec G115` on int conversions, add range validation
+- If suppression is necessary, include a detailed comment explaining why
+
+### Code Refactoring
+
+**Apply Rule of 3**
+- When you see the same pattern 3+ times, extract it into a helper function
+- Common patterns to watch for:
+  - Unit conversions with repeated math
+  - Type conversions with the same validation logic
+  - Similar data structure transformations
+- After initial implementation, actively scan for repetition before submitting PR
+
+**Data Mapping Validation**
+- Never assume data structure contracts without investigation
+- When dealing with arrays/indices from external systems:
+  1. Check the source code to understand how arrays are populated
+  2. Verify if indices are stable across calls/reboots
+  3. Document your findings in comments
+  4. Add defensive validation if contracts are implicit
+
+### Self-Review Checklist for Claude Code
+
+Before marking work as complete or asking the user to review, verify:
+
+1. ✅ **Architecture**: No abstraction layer violations (check imports match established patterns)
+2. ✅ **Magic Numbers**: All numeric literals replaced with named constants
+3. ✅ **Linter Clean**: `just lint` passes without suppressions (or suppressions are properly justified with validation)
+4. ✅ **Rule of 3**: Repeated patterns (3+ occurrences) extracted into helper functions
+5. ✅ **Tests Pass**: `just test` succeeds for all affected modules
+6. ✅ **Data Contracts**: External data mappings are investigated and validated (not assumed safe)
+
+This checklist helps catch common issues before user review rather than requiring corrections afterward.
+
 ## Testing
 
 The client and server each have their own testing approach:

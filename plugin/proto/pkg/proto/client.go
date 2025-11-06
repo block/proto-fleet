@@ -15,7 +15,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"log/slog"
 	"math"
 	"net"
 	"net/http"
@@ -34,6 +33,25 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api/miner_system_apiconnect"
 	"github.com/btc-mining/proto-fleet/server/sdk/v1"
 	"golang.org/x/net/http2"
+)
+
+const (
+	// HTTP client configuration
+	httpMaxIdleConnections        = 100
+	httpMaxIdleConnectionsPerHost = 10
+	httpIdleConnectionTimeout     = 90 * time.Second
+	httpTLSHandshakeTimeout       = 10 * time.Second
+	httpResponseHeaderTimeout     = 30 * time.Second
+	httpClientTimeout             = 30 * time.Second
+
+	// HTTP dialer configuration
+	httpDialerTimeout   = 10 * time.Second
+	httpDialerKeepAlive = 30 * time.Second
+
+	// HTTP/2 transport configuration
+	http2ReadIdleTimeout  = 30 * time.Second
+	http2PingTimeout      = 15 * time.Second
+	http2WriteByteTimeout = 10 * time.Second
 )
 
 var (
@@ -73,22 +91,57 @@ type Status struct {
 	FirmwareVersion string
 }
 
-// Telemetry represents telemetry data from a miner.
-type Telemetry struct {
-	HashrateHS         float64
-	PowerWatts         float64
-	TemperatureCelsius float64
-	EfficiencyJPerHash float64
-	FanRPM             int32
-	UptimeSeconds      int64
-	TimeInterval       time.Duration
-}
-
 // Pool represents a mining pool configuration.
 type Pool struct {
 	Priority   int
 	URL        string
 	WorkerName string
+}
+
+// TelemetryValues represents comprehensive telemetry data from a miner.
+type TelemetryValues struct {
+	Miner      *MinerTelemetry
+	Hashboards []*HashboardTelemetry
+	PSUs       []*PSUTelemetry
+}
+
+// MinerTelemetry represents device-level telemetry aggregates.
+type MinerTelemetry struct {
+	HashrateThS   float64
+	TemperatureC  float64
+	PowerW        float64
+	EfficiencyJTh float64
+}
+
+// HashboardTelemetry represents per-hashboard metrics.
+type HashboardTelemetry struct {
+	Index               uint32
+	SerialNumber        string
+	HashrateThS         float64
+	AverageTemperatureC float64
+	InletTemperatureC   float64
+	OutletTemperatureC  float64
+	VoltageV            *float64 // optional
+	CurrentA            *float64 // optional
+	ASICs               *ASICTelemetry
+}
+
+// ASICTelemetry represents per-ASIC metrics (array-based).
+type ASICTelemetry struct {
+	HashrateThS  []float64
+	TemperatureC []float64
+}
+
+// PSUTelemetry represents per-PSU metrics.
+type PSUTelemetry struct {
+	Index               uint32
+	InputVoltageV       float64
+	OutputVoltageV      float64
+	InputCurrentA       float64
+	OutputCurrentA      float64
+	InputPowerW         float64
+	OutputPowerW        float64
+	HotspotTemperatureC float64
 }
 
 // AuthTokenContextKey is the key used to store auth tokens in context
@@ -179,11 +232,11 @@ func NewClient(host string, port int32, scheme string) (*Client, error) {
 func createHTTPSClient() *http.Client {
 	httpsClientOnce.Do(func() {
 		transport := &http.Transport{
-			MaxIdleConns:          100,
-			MaxIdleConnsPerHost:   10,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ResponseHeaderTimeout: 30 * time.Second,
+			MaxIdleConns:          httpMaxIdleConnections,
+			MaxIdleConnsPerHost:   httpMaxIdleConnectionsPerHost,
+			IdleConnTimeout:       httpIdleConnectionTimeout,
+			TLSHandshakeTimeout:   httpTLSHandshakeTimeout,
+			ResponseHeaderTimeout: httpResponseHeaderTimeout,
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: shouldSkipTLSVerification(), // #nosec G402 -- Configurable via environment for development/testing
 				MinVersion:         tls.VersionTLS12,
@@ -193,7 +246,7 @@ func createHTTPSClient() *http.Client {
 
 		httpsClient = &http.Client{
 			Transport: transport,
-			Timeout:   30 * time.Second,
+			Timeout:   httpClientTimeout,
 		}
 	})
 	return httpsClient
@@ -206,20 +259,20 @@ func createHTTPClient() *http.Client {
 			AllowHTTP: true,
 			DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
 				dialer := &net.Dialer{
-					Timeout:   10 * time.Second,
-					KeepAlive: 30 * time.Second,
+					Timeout:   httpDialerTimeout,
+					KeepAlive: httpDialerKeepAlive,
 					DualStack: true,
 				}
 				return dialer.DialContext(ctx, network, addr)
 			},
-			ReadIdleTimeout:  30 * time.Second,
-			PingTimeout:      15 * time.Second,
-			WriteByteTimeout: 10 * time.Second,
+			ReadIdleTimeout:  http2ReadIdleTimeout,
+			PingTimeout:      http2PingTimeout,
+			WriteByteTimeout: http2WriteByteTimeout,
 		}
 
 		httpClient = &http.Client{
 			Transport: transport,
-			Timeout:   30 * time.Second,
+			Timeout:   httpClientTimeout,
 		}
 
 	})
@@ -284,23 +337,23 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 	case miner_data_api.MiningState_MINING_STATE_MINING:
 		state = sdk.HealthHealthyActive
 	case miner_data_api.MiningState_MINING_STATE_DEGRADED_MINING:
-		state = sdk.Warning
+		state = sdk.HealthWarning
 	case miner_data_api.MiningState_MINING_STATE_STOPPED:
 		state = sdk.HealthHealthyInactive
 	case miner_data_api.MiningState_MINING_STATE_UNKNOWN:
-		state = sdk.Unknown
+		state = sdk.HealthUnknown
 	case miner_data_api.MiningState_MINING_STATE_UNINITIALIZED:
-		state = sdk.Unknown
+		state = sdk.HealthUnknown
 	case miner_data_api.MiningState_MINING_STATE_POWERING_ON:
-		state = sdk.HealthyInactive
+		state = sdk.HealthHealthyInactive
 	case miner_data_api.MiningState_MINING_STATE_POWERING_OFF:
-		state = sdk.Unknown
+		state = sdk.HealthUnknown
 	case miner_data_api.MiningState_MINING_STATE_NO_POOLS:
 		state = sdk.HealthUnknown
 	case miner_data_api.MiningState_MINING_STATE_ERROR:
-		state = sdk.Critical
+		state = sdk.HealthCritical
 	default:
-		state = sdk.Unknown
+		state = sdk.HealthUnknown
 	}
 
 	return &Status{
@@ -308,6 +361,90 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 		ErrorMessage:    "", // TODO: Extract from API when available
 		FirmwareVersion: "", // TODO: Get from API when available
 	}, nil
+}
+
+// GetTelemetryValues retrieves comprehensive telemetry data from the miner.
+//
+// This method uses the GetTelemetryValues API which provides hierarchical
+// telemetry data in a single call, including:
+//   - Miner-level aggregates (hashrate, temp, power, efficiency)
+//   - Per-hashboard metrics with optional per-ASIC details
+//   - Per-PSU metrics
+func (c *Client) GetTelemetryValues(ctx context.Context) (*TelemetryValues, error) {
+	ctx = c.withAuth(ctx)
+
+	resp, err := c.dataClient.GetTelemetryValues(ctx, connect.NewRequest(&miner_data_api.GetTelemetryValuesRequest{
+		Levels: []miner_data_api.TelemetryLevel{
+			miner_data_api.TelemetryLevel_TELEMETRY_LEVEL_MINER,
+			miner_data_api.TelemetryLevel_TELEMETRY_LEVEL_HASHBOARD,
+			miner_data_api.TelemetryLevel_TELEMETRY_LEVEL_PSU,
+			miner_data_api.TelemetryLevel_TELEMETRY_LEVEL_ASIC,
+		},
+	}))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get telemetry values: %w", err)
+	}
+
+	return c.convertTelemetryValues(resp.Msg), nil
+}
+
+// convertTelemetryValues converts miner API telemetry response to client types.
+func (c *Client) convertTelemetryValues(resp *miner_data_api.GetTelemetryValuesResponse) *TelemetryValues {
+	result := &TelemetryValues{}
+
+	// Convert miner-level telemetry
+	if resp.Miner != nil {
+		result.Miner = &MinerTelemetry{
+			HashrateThS:   resp.Miner.HashrateThS,
+			TemperatureC:  resp.Miner.TemperatureC,
+			PowerW:        resp.Miner.PowerW,
+			EfficiencyJTh: resp.Miner.EfficiencyJTh,
+		}
+	}
+
+	// Convert hashboard telemetry
+	if len(resp.Hashboards) > 0 {
+		result.Hashboards = make([]*HashboardTelemetry, len(resp.Hashboards))
+		for i, hb := range resp.Hashboards {
+			result.Hashboards[i] = &HashboardTelemetry{
+				Index:               hb.Index,
+				SerialNumber:        hb.SerialNumber,
+				HashrateThS:         hb.HashrateThS,
+				AverageTemperatureC: hb.AverageTemperatureC,
+				InletTemperatureC:   hb.InletTemperatureC,
+				OutletTemperatureC:  hb.OutletTemperatureC,
+				VoltageV:            hb.VoltageV,
+				CurrentA:            hb.CurrentA,
+			}
+
+			// Convert ASIC telemetry
+			if hb.Asics != nil {
+				result.Hashboards[i].ASICs = &ASICTelemetry{
+					HashrateThS:  hb.Asics.HashrateThS,
+					TemperatureC: hb.Asics.TemperatureC,
+				}
+			}
+		}
+	}
+
+	// Convert PSU telemetry
+	if len(resp.Psus) > 0 {
+		result.PSUs = make([]*PSUTelemetry, len(resp.Psus))
+		for i, psu := range resp.Psus {
+			result.PSUs[i] = &PSUTelemetry{
+				Index:               psu.Index,
+				InputVoltageV:       psu.InputVoltageV,
+				OutputVoltageV:      psu.OutputVoltageV,
+				InputCurrentA:       psu.InputCurrentA,
+				OutputCurrentA:      psu.OutputCurrentA,
+				InputPowerW:         psu.InputPowerW,
+				OutputPowerW:        psu.OutputPowerW,
+				HotspotTemperatureC: psu.HotspotTemperatureC,
+			}
+		}
+	}
+
+	return result
 }
 
 func timeToAPITimestamp(t time.Time) *miner_common_api.Timestamp {
@@ -330,85 +467,6 @@ func timeToAPITimestamp(t time.Time) *miner_common_api.Timestamp {
 			return uint32(n)
 		}(),
 	}
-}
-
-// GetTelemetry retrieves telemetry data from the miner.
-func (c *Client) GetTelemetry(ctx context.Context) (*Telemetry, error) {
-	ctx = c.withAuth(ctx)
-
-	// Create time interval for recent data (last 5 minutes)
-	now := time.Now()
-	start := now.Add(-5 * time.Minute)
-
-	timeInterval := &miner_common_api.Interval{
-		StartTime: timeToAPITimestamp(start),
-		EndTime:   timeToAPITimestamp(now),
-	}
-
-	errorCount := 0
-
-	telemetry := &Telemetry{}
-
-	// Get hashrate data
-	hashrateResp, err := c.dataClient.GetTimeSeriesData(ctx, connect.NewRequest(&miner_data_api.TimeSeriesDataRequest{
-		TimeInterval: timeInterval,
-		DataType:     miner_data_api.DataType_DATA_TYPE_MINER_HASHRATE_MH_S,
-		ComponentId: &miner_data_api.ComponentId{
-			Id: &miner_data_api.ComponentId_ComponentId{ComponentId: 0},
-		},
-		HashrateType: miner_data_api.HashrateType_HASHRATE_TYPE_NORMAL,
-	}))
-	if err != nil {
-		errorCount++
-		slog.Error("Failed to get hashrate data", "error", err)
-	}
-	if err == nil && len(hashrateResp.Msg.DataPoints) > 0 {
-		latest := hashrateResp.Msg.DataPoints[len(hashrateResp.Msg.DataPoints)-1]
-		telemetry.HashrateHS = latest.Value * 1000000 // Convert MH/s to H/s
-		telemetry.TimeInterval = time.Duration(hashrateResp.Msg.TimeInterval.Granularity) * time.Second
-	}
-
-	// Get power data
-	powerResp, err := c.dataClient.GetTimeSeriesData(ctx, connect.NewRequest(&miner_data_api.TimeSeriesDataRequest{
-		TimeInterval: timeInterval,
-		DataType:     miner_data_api.DataType_DATA_TYPE_MINER_POWER_W,
-		ComponentId: &miner_data_api.ComponentId{
-			Id: &miner_data_api.ComponentId_ComponentId{ComponentId: 0},
-		},
-	}))
-	if err != nil {
-		slog.Error("Failed to get power data", "error", err)
-		errorCount++
-	}
-	if err == nil && len(powerResp.Msg.DataPoints) > 0 {
-		latest := powerResp.Msg.DataPoints[len(powerResp.Msg.DataPoints)-1]
-		telemetry.PowerWatts = latest.Value
-		telemetry.TimeInterval = time.Duration(powerResp.Msg.TimeInterval.Granularity) * time.Second
-	}
-
-	// Get temperature data
-	tempResp, err := c.dataClient.GetTimeSeriesData(ctx, connect.NewRequest(&miner_data_api.TimeSeriesDataRequest{
-		TimeInterval: timeInterval,
-		DataType:     miner_data_api.DataType_DATA_TYPE_MINER_TEMPERATURE_C,
-		ComponentId: &miner_data_api.ComponentId{
-			Id: &miner_data_api.ComponentId_ComponentId{ComponentId: 0},
-		},
-	}))
-	if err != nil {
-		slog.Error("Failed to get temperature data", "error", err)
-		errorCount++
-	}
-	if err == nil && len(tempResp.Msg.DataPoints) > 0 {
-		latest := tempResp.Msg.DataPoints[len(tempResp.Msg.DataPoints)-1]
-		telemetry.TemperatureCelsius = latest.Value
-		telemetry.TimeInterval = time.Duration(tempResp.Msg.TimeInterval.Granularity) * time.Second
-	}
-
-	if errorCount == 3 {
-		return nil, fmt.Errorf("failed to get telemetry data")
-	}
-
-	return telemetry, nil
 }
 
 // Pair performs device pairing with the provided credentials.

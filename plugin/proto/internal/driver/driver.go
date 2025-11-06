@@ -27,8 +27,9 @@ import (
 )
 
 const (
-	driverName = "proto"
-	apiVersion = "v1"
+	driverName         = "proto"
+	apiVersion         = "v1"
+	maxValidPortNumber = 65535 // Maximum valid TCP/UDP port number
 )
 
 var _ sdk.Driver = (*Driver)(nil) // Ensure Driver implements sdk.Driver
@@ -144,7 +145,7 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 	}
 
 	// Check for port range overflow
-	if portInt < 0 || portInt > 65535 {
+	if portInt < 0 || portInt > maxValidPortNumber {
 		return sdk.DeviceInfo{}, fmt.Errorf("port number out of range: %d", portInt)
 	}
 

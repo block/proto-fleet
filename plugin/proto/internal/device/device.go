@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"sync"
 	"time"
 
@@ -28,8 +29,13 @@ import (
 var _ sdk.Device = (*Device)(nil) // Ensure Device implements sdk.Device
 
 const (
-	defaultStatusTTL = 30 * time.Second // Default time-to-live for cached status
-	maxLogLines      = 10000            // Maximum number of log lines to retrieve
+	defaultStatusTTL          = 30 * time.Second // Default time-to-live for cached status
+	maxLogLines               = 10000            // Maximum number of log lines to retrieve
+	deviceVerificationTimeout = 10 * time.Second // Timeout for device verification during initialization
+
+	// Unit conversion factors for telemetry
+	teraHashToHashConversion                   = 1e12  // Converts TH/s to H/s
+	joulesPerTeraHashToJoulesPerHashConversion = 1e-12 // Converts J/TH to J/H
 )
 
 // Device implements the SDK Device interface for a single Proto miner.
@@ -45,7 +51,7 @@ type Device struct {
 	client *proto.Client
 
 	// Status caching to reduce API calls
-	lastStatus   *sdk.DeviceStatusResponse
+	lastStatus   *sdk.DeviceMetrics
 	lastStatusAt time.Time
 	statusTTL    time.Duration
 
@@ -91,7 +97,7 @@ func New(deviceID string, deviceInfo sdk.DeviceInfo, bearerToken sdk.BearerToken
 	}
 
 	// Verify we can communicate with the device
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), deviceVerificationTimeout)
 	defer cancel()
 
 	if _, err := device.Status(ctx); err != nil {
@@ -135,7 +141,7 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 //   - Comprehensive telemetry collection
 //   - Proper error handling and recovery
 //   - Health status determination
-func (d *Device) Status(ctx context.Context) (sdk.DeviceStatusResponse, error) {
+func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	// Check if we have a cached status that's still valid
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
@@ -149,24 +155,24 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceStatusResponse, error) {
 	// Get current status from the miner
 	minerStatus, err := d.client.GetStatus(ctx)
 	if err != nil {
-		return sdk.DeviceStatusResponse{}, fmt.Errorf("failed to get miner status: %w", err)
+		return sdk.DeviceMetrics{}, fmt.Errorf("failed to get miner status: %w", err)
 	}
 
 	// Get telemetry data
-	telemetry, err := d.client.GetTelemetry(ctx)
+	telemetryResp, err := d.client.GetTelemetryValues(ctx)
 	if err != nil {
-		slog.Warn("Failed to get telemetry data", "deviceID", d.id, "error", err)
+		slog.Warn("Failed to get telemetry values", "deviceID", d.id, "error", err)
 		// Continue without telemetry - status is more important
 	}
 
 	// Convert miner status to SDK format
-	status := d.convertStatus(minerStatus, telemetry)
+	metrics := d.convertStatus(minerStatus, telemetryResp)
 
 	// Cache the status
-	d.lastStatus = &status
+	d.lastStatus = &metrics
 	d.lastStatusAt = time.Now()
 
-	return status, nil
+	return metrics, nil
 }
 
 // convertStatus converts miner-specific status to SDK format.
@@ -174,94 +180,209 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceStatusResponse, error) {
 // This helper method demonstrates:
 //   - Status mapping between different formats
 //   - Health determination logic
-//   - Telemetry data integration
-func (d *Device) convertStatus(minerStatus *proto.Status, telemetry *proto.Telemetry) sdk.DeviceStatusResponse {
+//   - Hierarchical telemetry data integration
+func (d *Device) convertStatus(minerStatus *proto.Status, telemetryResp *proto.TelemetryValues) sdk.DeviceMetrics {
 	now := time.Now()
 
-	// Determine health status based on miner state
-	var health sdk.HealthStatus
-	var summary string
-
-	var minerState string
-	switch minerStatus.State {
-	case sdk.HealthHealthyActive:
-		minerState = "mining"
-		summary = "Mining"
-	case sdk.HealthyInactive:
-		minerState = "idle"
-		health = sdk.HealthyInactive
-		summary = "Idle"
-	case sdk.Critical:
-		minerState = "error"
-		health = sdk.Critical
-		summary = "Error: " + minerStatus.ErrorMessage
-	case sdk.Warning:
-		minerState = "warning"
-		health = sdk.Warning
-		summary = "Warning: " + minerStatus.ErrorMessage
-	case sdk.HealthStatusUnspecified, sdk.HealthUnknown:
-		minerState = "unknown"
-		health = sdk.Unknown
-		summary = "Unknown state"
-	default:
-		health = sdk.Unknown
-		summary = "Unknown state"
+	// Determine health status from miner state
+	health := minerStatus.State
+	var healthReason *string
+	if minerStatus.ErrorMessage != "" {
+		healthReason = &minerStatus.ErrorMessage
 	}
 
-	status := sdk.DeviceStatusResponse{
-		DeviceID:  d.id,
-		Timestamp: now,
-		Summary:   summary,
-		Health:    health,
-		Metadata: map[string]string{
-			"miner_state":      minerState,
-			"ip_address":       d.deviceInfo.Host,
-			"serial_number":    d.deviceInfo.SerialNumber,
-			"firmware_version": minerStatus.FirmwareVersion,
-		},
+	metrics := sdk.DeviceMetrics{
+		DeviceID:     d.id,
+		Timestamp:    now,
+		Health:       health,
+		HealthReason: healthReason,
 	}
 
 	// Add telemetry data if available
-	if telemetry != nil {
-		if telemetry.HashrateHS > 0 {
-			status.HashrateHS = &telemetry.HashrateHS
-		}
-		if telemetry.PowerWatts > 0 {
-			status.PowerWatts = &telemetry.PowerWatts
-		}
-		if telemetry.TemperatureCelsius > 0 {
-			status.TemperatureCelsius = &telemetry.TemperatureCelsius
-		}
-		if telemetry.EfficiencyJPerHash > 0 {
-			status.EfficiencyJPerHash = &telemetry.EfficiencyJPerHash
-		}
-		if telemetry.FanRPM > 0 {
-			status.FanRPM = &telemetry.FanRPM
+	if telemetryResp != nil {
+		// Device-level aggregates from miner telemetry
+		if telemetryResp.Miner != nil {
+			miner := telemetryResp.Miner
+			metrics.HashrateHS = convertHashrateToHS(miner.HashrateThS)
+			metrics.TempC = toMetricValue(miner.TemperatureC)
+			metrics.PowerW = toMetricValue(miner.PowerW)
+			metrics.EfficiencyJH = convertEfficiencyToJH(miner.EfficiencyJTh)
 		}
 
-		// Add additional metrics
-		status.ExtraMetrics = []sdk.Metric{
-			{
-				Name:       "uptime_seconds",
-				Value:      sdk.NewMetricValue(telemetry.UptimeSeconds),
-				Unit:       sdk.UnitUnspecified,
-				Kind:       sdk.MetricKindCounter,
-				ObservedAt: now,
-				Labels: map[string]string{
-					"device_id": d.id,
-				},
+		// Hashboards (with nested ASICs)
+		if len(telemetryResp.Hashboards) > 0 {
+			metrics.HashBoards = d.convertHashboards(telemetryResp.Hashboards, minerStatus.State)
+		}
+
+		// PSUs
+		if len(telemetryResp.PSUs) > 0 {
+			metrics.PSUMetrics = d.convertPSUs(telemetryResp.PSUs, minerStatus.State)
+		}
+	}
+
+	return metrics
+}
+
+// convertHashboards converts hashboard telemetry to SDK format
+func (d *Device) convertHashboards(hashboards []*proto.HashboardTelemetry, deviceHealth sdk.HealthStatus) []sdk.HashBoardMetrics {
+	result := make([]sdk.HashBoardMetrics, len(hashboards))
+
+	for i, hb := range hashboards {
+		// Determine component status from device health
+		componentStatus := deriveComponentStatus(deviceHealth)
+
+		hbMetrics := sdk.HashBoardMetrics{
+			ComponentInfo: sdk.ComponentInfo{
+				Index:  safeUint32ToInt32(hb.Index),
+				Name:   fmt.Sprintf("Hashboard %d", hb.Index),
+				Status: componentStatus,
+			},
+			HashRateHS:  convertHashrateToHS(hb.HashrateThS),
+			TempC:       toMetricValue(hb.AverageTemperatureC),
+			InletTempC:  toMetricValue(hb.InletTemperatureC),
+			OutletTempC: toMetricValue(hb.OutletTemperatureC),
+		}
+
+		// Serial number
+		if hb.SerialNumber != "" {
+			hbMetrics.SerialNumber = &hb.SerialNumber
+		}
+
+		// Optional voltage and current
+		if hb.VoltageV != nil {
+			hbMetrics.VoltageV = toMetricValue(*hb.VoltageV)
+		}
+		if hb.CurrentA != nil {
+			hbMetrics.CurrentA = toMetricValue(*hb.CurrentA)
+		}
+
+		// Convert nested ASICs if present
+		if hb.ASICs != nil {
+			hbMetrics.ASICs = d.convertASICs(hb.ASICs, int(safeUint32ToInt32(hb.Index)), componentStatus)
+		}
+
+		result[i] = hbMetrics
+	}
+
+	return result
+}
+
+// convertASICs converts ASIC telemetry to SDK format
+func (d *Device) convertASICs(asics *proto.ASICTelemetry, hashboardIndex int, hashboardStatus sdk.ComponentStatus) []sdk.ASICMetrics {
+	if asics == nil {
+		return nil
+	}
+
+	// Determine array length from hashrate array
+	numASICs := len(asics.HashrateThS)
+	if numASICs == 0 {
+		return nil
+	}
+
+	result := make([]sdk.ASICMetrics, numASICs)
+
+	for i := range numASICs {
+		asicMetrics := sdk.ASICMetrics{
+			ComponentInfo: sdk.ComponentInfo{
+				Index:  int32(i), // #nosec G115 -- Loop index inherently safe: bounded by slice length (max ~200)
+				Name:   fmt.Sprintf("HB%d ASIC %d", hashboardIndex, i),
+				Status: hashboardStatus, // Inherit status from parent hashboard
 			},
 		}
+
+		// Hashrate (TH/s to H/s)
+		if i < len(asics.HashrateThS) {
+			asicMetrics.HashrateHS = convertHashrateToHS(asics.HashrateThS[i])
+		}
+
+		// Temperature
+		if i < len(asics.TemperatureC) {
+			asicMetrics.TempC = toMetricValue(asics.TemperatureC[i])
+		}
+
+		result[i] = asicMetrics
 	}
 
-	// Set sampling semantics
-	status.Sample = &sdk.SampleSemantics{
-		Aggregation:     sdk.AggregationGauge,
-		AveragingWindow: telemetry.TimeInterval,
-		StartOfWindow:   now.Truncate(telemetry.TimeInterval),
+	return result
+}
+
+// convertPSUs converts PSU telemetry to SDK format
+func (d *Device) convertPSUs(psus []*proto.PSUTelemetry, deviceHealth sdk.HealthStatus) []sdk.PSUMetrics {
+	result := make([]sdk.PSUMetrics, len(psus))
+
+	for i, psu := range psus {
+		// Determine component status from device health
+		componentStatus := deriveComponentStatus(deviceHealth)
+
+		psuMetrics := sdk.PSUMetrics{
+			ComponentInfo: sdk.ComponentInfo{
+				Index:  safeUint32ToInt32(psu.Index),
+				Name:   fmt.Sprintf("PSU %d", psu.Index),
+				Status: componentStatus,
+			},
+			InputVoltageV:  toMetricValue(psu.InputVoltageV),
+			OutputVoltageV: toMetricValue(psu.OutputVoltageV),
+			InputCurrentA:  toMetricValue(psu.InputCurrentA),
+			OutputCurrentA: toMetricValue(psu.OutputCurrentA),
+			InputPowerW:    toMetricValue(psu.InputPowerW),
+			OutputPowerW:   toMetricValue(psu.OutputPowerW),
+			HotSpotTempC:   toMetricValue(psu.HotspotTemperatureC),
+		}
+
+		result[i] = psuMetrics
 	}
 
-	return status
+	return result
+}
+
+// toMetricValue converts a float64 to a MetricValue pointer
+func toMetricValue(value float64) *sdk.MetricValue {
+	return &sdk.MetricValue{
+		Value: value,
+		Kind:  sdk.MetricKindGauge,
+	}
+}
+
+// convertHashrateToHS converts terahash/s to hash/s with MetricValue wrapper
+func convertHashrateToHS(teraHashPerSec float64) *sdk.MetricValue {
+	return toMetricValue(teraHashPerSec * teraHashToHashConversion)
+}
+
+// convertEfficiencyToJH converts J/TH to J/H with MetricValue wrapper
+func convertEfficiencyToJH(joulesPerTeraHash float64) *sdk.MetricValue {
+	return toMetricValue(joulesPerTeraHash * joulesPerTeraHashToJoulesPerHashConversion)
+}
+
+// safeUint32ToInt32 safely converts uint32 to int32 for hardware indices.
+// Returns the value clamped to math.MaxInt32 if overflow would occur.
+// Hardware indices (hashboards, ASICs, PSUs) are bounded by physical constraints,
+// so this conversion is safe in practice.
+func safeUint32ToInt32(value uint32) int32 {
+	if value > math.MaxInt32 {
+		slog.Warn("Hardware index exceeds int32 max, clamping value",
+			"original", value,
+			"clamped", math.MaxInt32)
+		return math.MaxInt32
+	}
+	return int32(value)
+}
+
+// deriveComponentStatus derives component status from device health status
+func deriveComponentStatus(deviceHealth sdk.HealthStatus) sdk.ComponentStatus {
+	switch deviceHealth {
+	case sdk.HealthHealthyActive, sdk.HealthHealthyInactive:
+		return sdk.ComponentStatusHealthy
+	case sdk.HealthWarning:
+		return sdk.ComponentStatusWarning
+	case sdk.HealthCritical:
+		return sdk.ComponentStatusCritical
+	case sdk.HealthUnknown:
+		return sdk.ComponentStatusUnknown
+	case sdk.HealthStatusUnspecified:
+		return sdk.ComponentStatusUnknown
+	default:
+		return sdk.ComponentStatusUnknown
+	}
 }
 
 // Close implements the SDK Device interface.
@@ -411,11 +532,11 @@ func (d *Device) FirmwareUpdate(ctx context.Context) error {
 
 // Optional capabilities - these return false to indicate they're not supported
 
-func (d *Device) TryBatchStatus(ctx context.Context, _ []string) (map[string]sdk.DeviceStatusResponse, bool, error) {
+func (d *Device) TryBatchStatus(ctx context.Context, _ []string) (map[string]sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil // Not supported by individual devices
 }
 
-func (d *Device) TrySubscribe(ctx context.Context, _ []string) (<-chan sdk.DeviceStatusResponse, bool, error) {
+func (d *Device) TrySubscribe(ctx context.Context, _ []string) (<-chan sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil // Streaming not supported
 }
 
@@ -425,6 +546,6 @@ func (d *Device) TryGetWebViewURL(ctx context.Context) (string, bool, error) {
 	return url, true, nil
 }
 
-func (d *Device) TryGetTimeSeriesData(ctx context.Context, _ []string, _, _ time.Time, _ *time.Duration, _ int32, _ string) ([]sdk.DeviceStatusResponse, string, bool, error) {
+func (d *Device) TryGetTimeSeriesData(ctx context.Context, _ []string, _, _ time.Time, _ *time.Duration, _ int32, _ string) ([]sdk.DeviceMetrics, string, bool, error) {
 	return nil, "", false, nil // Time series not supported
 }

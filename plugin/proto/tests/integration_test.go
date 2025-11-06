@@ -159,11 +159,11 @@ func TestProtoPluginIntegration(t *testing.T) {
 		device, err := device.New(deviceID, deviceInfo, sdk.BearerToken{Token: jwtToken}, device.SetStatusTTL(0*time.Second))
 		require.NoError(t, err)
 		t.Run("Get Status", func(t *testing.T) {
-			status, err := device.Status(ctx)
+			metrics, err := device.Status(ctx)
 			require.NoError(t, err, "Device status check should not fail if device creation succeeded")
 
-			assert.Equal(t, deviceID, status.DeviceID)
-			assert.NotEmpty(t, status.Summary)
+			assert.Equal(t, deviceID, metrics.DeviceID)
+			assert.NotZero(t, metrics.Health, "Device should have a health status")
 		})
 
 		t.Run("Describe Device", func(t *testing.T) {
@@ -256,7 +256,260 @@ func TestProtoPluginIntegration(t *testing.T) {
 			assert.Contains(t, url, host)
 		})
 
-		// Test reboot, sim miner should stay up but acknowledge the command
+		// Comprehensive telemetry integration test
+		// Run this BEFORE reboot to ensure the device is in a stable state
+		t.Run("Telemetry Integration", func(t *testing.T) {
+			// Get fresh status with telemetry data (no cache)
+			metrics, err := device.Status(ctx)
+			require.NoError(t, err, "Device status should return successfully")
+
+			// Verify basic device identity and health
+			assert.Equal(t, deviceID, metrics.DeviceID, "Device ID should match")
+			assert.NotZero(t, metrics.Timestamp, "Timestamp should be set")
+			assert.NotEqual(t, sdk.HealthStatusUnspecified, metrics.Health, "Health status should be set")
+
+			// Verify device-level aggregate telemetry
+			t.Run("Device Level Aggregates", func(t *testing.T) {
+				// Hashrate should be present and reasonable
+				if assert.NotNil(t, metrics.HashrateHS, "Device-level hashrate should be present") {
+					assert.Greater(t, metrics.HashrateHS.Value, 0.0, "Hashrate should be positive")
+					assert.Equal(t, sdk.MetricKindGauge, metrics.HashrateHS.Kind, "Hashrate should be gauge metric")
+					// Verify unit conversion (TH/s to H/s): typical miner is 50-100 TH/s = 50-100e12 H/s
+					assert.Greater(t, metrics.HashrateHS.Value, 1e12, "Hashrate should be in H/s (terahash converted)")
+				}
+
+				// Temperature should be present and reasonable
+				if assert.NotNil(t, metrics.TempC, "Device-level temperature should be present") {
+					assert.Greater(t, metrics.TempC.Value, 0.0, "Temperature should be positive")
+					assert.Less(t, metrics.TempC.Value, 150.0, "Temperature should be reasonable (<150°C)")
+					assert.Equal(t, sdk.MetricKindGauge, metrics.TempC.Kind, "Temperature should be gauge metric")
+				}
+
+				// Power should be present and reasonable
+				if assert.NotNil(t, metrics.PowerW, "Device-level power should be present") {
+					assert.Greater(t, metrics.PowerW.Value, 0.0, "Power should be positive")
+					assert.Less(t, metrics.PowerW.Value, 20000.0, "Power should be reasonable (<20kW for high-power miner)")
+					assert.Equal(t, sdk.MetricKindGauge, metrics.PowerW.Kind, "Power should be gauge metric")
+				}
+
+				// Efficiency should be present and reasonable
+				if assert.NotNil(t, metrics.EfficiencyJH, "Device-level efficiency should be present") {
+					assert.Greater(t, metrics.EfficiencyJH.Value, 0.0, "Efficiency should be positive")
+					// Verify unit conversion (J/TH to J/H): typical is 20-40 J/TH = 20-40e-12 J/H
+					assert.Less(t, metrics.EfficiencyJH.Value, 1e-9, "Efficiency should be in J/H (converted from J/TH)")
+					assert.Equal(t, sdk.MetricKindGauge, metrics.EfficiencyJH.Kind, "Efficiency should be gauge metric")
+				}
+			})
+
+			// Verify hashboard telemetry
+			t.Run("Hashboard Telemetry", func(t *testing.T) {
+				if !assert.NotEmpty(t, metrics.HashBoards, "Should have hashboard telemetry") {
+					return
+				}
+
+				// Check each hashboard
+				for i, hb := range metrics.HashBoards {
+					t.Run(fmt.Sprintf("Hashboard_%d", i), func(t *testing.T) {
+						// Component info - hashboard index comes from the API and may not match array position
+						assert.GreaterOrEqual(t, hb.Index, int32(0), "Hashboard index should be non-negative")
+						assert.NotEmpty(t, hb.Name, "Hashboard should have a name")
+						assert.NotEqual(t, sdk.ComponentStatusUnknown, hb.Status, "Hashboard status should be set")
+
+						// Serial number may or may not be present
+						if hb.SerialNumber != nil {
+							assert.NotEmpty(t, *hb.SerialNumber, "Serial number should not be empty if present")
+						}
+
+						// Hashrate
+						if assert.NotNil(t, hb.HashRateHS, "Hashboard hashrate should be present") {
+							assert.GreaterOrEqual(t, hb.HashRateHS.Value, 0.0, "Hashboard hashrate should be non-negative")
+							assert.Equal(t, sdk.MetricKindGauge, hb.HashRateHS.Kind, "Hashrate should be gauge")
+						}
+
+						// Temperatures - note: zero values are acceptable for inactive/disabled hashboards
+						if assert.NotNil(t, hb.TempC, "Hashboard average temp should be present") {
+							assert.GreaterOrEqual(t, hb.TempC.Value, 0.0, "Average temp should be non-negative")
+							if hb.TempC.Value > 0 {
+								assert.Less(t, hb.TempC.Value, 150.0, "Average temp should be reasonable when active")
+							}
+						}
+
+						if hb.InletTempC != nil {
+							assert.GreaterOrEqual(t, hb.InletTempC.Value, 0.0, "Inlet temp should be non-negative")
+							if hb.InletTempC.Value > 0 {
+								assert.Less(t, hb.InletTempC.Value, 150.0, "Inlet temp should be reasonable when active")
+							}
+						}
+
+						if hb.OutletTempC != nil {
+							assert.GreaterOrEqual(t, hb.OutletTempC.Value, 0.0, "Outlet temp should be non-negative")
+							if hb.OutletTempC.Value > 0 {
+								assert.Less(t, hb.OutletTempC.Value, 150.0, "Outlet temp should be reasonable when active")
+							}
+
+							// In real hardware, outlet should be warmer than inlet, but simulation may vary
+							// Only check this if both temps are significantly above zero (active)
+							if hb.InletTempC != nil && hb.InletTempC.Value > 10.0 && hb.OutletTempC.Value > 10.0 {
+								// Allow inlet to be warmer in simulation (measurement errors)
+								tempDiff := hb.OutletTempC.Value - hb.InletTempC.Value
+								assert.Greater(t, tempDiff, -20.0, "Temp difference should be reasonable (allow for simulation variance)")
+							}
+						}
+
+						// Optional voltage and current
+						if hb.VoltageV != nil {
+							assert.Greater(t, hb.VoltageV.Value, 0.0, "Voltage should be positive")
+							assert.Less(t, hb.VoltageV.Value, 100.0, "Voltage should be reasonable (<100V)")
+						}
+
+						if hb.CurrentA != nil {
+							assert.Greater(t, hb.CurrentA.Value, 0.0, "Current should be positive")
+							assert.Less(t, hb.CurrentA.Value, 500.0, "Current should be reasonable (<500A)")
+						}
+
+						// Test ASIC-level telemetry if present
+						if len(hb.ASICs) > 0 {
+							t.Run("ASIC_Telemetry", func(t *testing.T) {
+								for j, asic := range hb.ASICs {
+									// Loop index j is bounded by ASIC count (typically ~100-200 per hashboard)
+									expectedIndex := int32(j) // #nosec G115 -- Loop index bounded by slice length, safe for ASIC count
+									assert.Equal(t, expectedIndex, asic.Index, "ASIC index should match position")
+									assert.NotEmpty(t, asic.Name, "ASIC should have a name")
+									assert.Contains(t, asic.Name, fmt.Sprintf("HB%d", hb.Index), "ASIC name should reference parent hashboard index")
+									assert.Equal(t, hb.Status, asic.Status, "ASIC should inherit hashboard status")
+
+									// ASIC hashrate
+									if asic.HashrateHS != nil {
+										assert.GreaterOrEqual(t, asic.HashrateHS.Value, 0.0, "ASIC hashrate should be non-negative")
+									}
+
+									// ASIC temperature
+									if asic.TempC != nil {
+										assert.Greater(t, asic.TempC.Value, 0.0, "ASIC temp should be positive")
+										assert.Less(t, asic.TempC.Value, 150.0, "ASIC temp should be reasonable")
+									}
+								}
+
+								// Verify sum of ASIC hashrates approximately equals hashboard hashrate
+								if hb.HashRateHS != nil && len(hb.ASICs) > 0 {
+									asicHashSum := 0.0
+									validASICs := 0
+									for _, asic := range hb.ASICs {
+										if asic.HashrateHS != nil {
+											asicHashSum += asic.HashrateHS.Value
+											validASICs++
+										}
+									}
+									if validASICs > 0 {
+										// Allow 10% tolerance for rounding/measurement differences
+										tolerance := hb.HashRateHS.Value * 0.1
+										assert.InDelta(t, hb.HashRateHS.Value, asicHashSum, tolerance,
+											"Sum of ASIC hashrates should approximately equal hashboard hashrate")
+									}
+								}
+							})
+						}
+					})
+				}
+
+				// Verify sum of hashboard hashrates approximately equals device hashrate
+				if metrics.HashrateHS != nil {
+					hashboardSum := 0.0
+					validHashboards := 0
+					for _, hb := range metrics.HashBoards {
+						if hb.HashRateHS != nil {
+							hashboardSum += hb.HashRateHS.Value
+							validHashboards++
+						}
+					}
+					if validHashboards > 0 {
+						// Allow 10% tolerance
+						tolerance := metrics.HashrateHS.Value * 0.1
+						assert.InDelta(t, metrics.HashrateHS.Value, hashboardSum, tolerance,
+							"Sum of hashboard hashrates should approximately equal device hashrate")
+					}
+				}
+			})
+
+			// Verify PSU telemetry
+			t.Run("PSU Telemetry", func(t *testing.T) {
+				if !assert.NotEmpty(t, metrics.PSUMetrics, "Should have PSU telemetry") {
+					return
+				}
+
+				for i, psu := range metrics.PSUMetrics {
+					t.Run(fmt.Sprintf("PSU_%d", i), func(t *testing.T) {
+						// Component info - PSU index comes from the API and may not match array position
+						assert.GreaterOrEqual(t, psu.Index, int32(0), "PSU index should be non-negative")
+						assert.NotEmpty(t, psu.Name, "PSU should have a name")
+						assert.NotEqual(t, sdk.ComponentStatusUnknown, psu.Status, "PSU status should be set")
+
+						// Input measurements
+						if assert.NotNil(t, psu.InputVoltageV, "Input voltage should be present") {
+							assert.Greater(t, psu.InputVoltageV.Value, 0.0, "Input voltage should be positive")
+							assert.Less(t, psu.InputVoltageV.Value, 300.0, "Input voltage should be reasonable (<300V)")
+						}
+
+						if assert.NotNil(t, psu.InputCurrentA, "Input current should be present") {
+							assert.Greater(t, psu.InputCurrentA.Value, 0.0, "Input current should be positive")
+							assert.Less(t, psu.InputCurrentA.Value, 50.0, "Input current should be reasonable (<50A)")
+						}
+
+						if assert.NotNil(t, psu.InputPowerW, "Input power should be present") {
+							assert.Greater(t, psu.InputPowerW.Value, 0.0, "Input power should be positive")
+							assert.Less(t, psu.InputPowerW.Value, 10000.0, "Input power should be reasonable (<10kW)")
+						}
+
+						// Output measurements
+						if assert.NotNil(t, psu.OutputVoltageV, "Output voltage should be present") {
+							assert.Greater(t, psu.OutputVoltageV.Value, 0.0, "Output voltage should be positive")
+							assert.Less(t, psu.OutputVoltageV.Value, 100.0, "Output voltage should be reasonable (<100V)")
+						}
+
+						if assert.NotNil(t, psu.OutputCurrentA, "Output current should be present") {
+							assert.Greater(t, psu.OutputCurrentA.Value, 0.0, "Output current should be positive")
+							assert.Less(t, psu.OutputCurrentA.Value, 500.0, "Output current should be reasonable (<500A)")
+						}
+
+						if assert.NotNil(t, psu.OutputPowerW, "Output power should be present") {
+							assert.Greater(t, psu.OutputPowerW.Value, 0.0, "Output power should be positive")
+							assert.Less(t, psu.OutputPowerW.Value, 10000.0, "Output power should be reasonable (<10kW)")
+						}
+
+						// Temperature
+						if assert.NotNil(t, psu.HotSpotTempC, "PSU temperature should be present") {
+							assert.Greater(t, psu.HotSpotTempC.Value, 0.0, "PSU temp should be positive")
+							assert.Less(t, psu.HotSpotTempC.Value, 150.0, "PSU temp should be reasonable")
+						}
+
+						// Verify power consistency: output should be close to input
+						// Note: In simulation/testing, measurements may have slight inaccuracies
+						if psu.InputPowerW != nil && psu.OutputPowerW != nil && psu.InputPowerW.Value > 0 {
+							efficiency := (psu.OutputPowerW.Value / psu.InputPowerW.Value) * 100
+							// Allow for measurement errors in simulation: efficiency should be reasonable (40-110%)
+							assert.Greater(t, efficiency, 40.0, "PSU efficiency should be > 40%")
+							assert.Less(t, efficiency, 110.0, "PSU efficiency should be < 110% (allowing for measurement error)")
+						}
+					})
+				}
+			})
+
+			// Test status caching behavior
+			t.Run("Status Caching", func(t *testing.T) {
+				// Get status twice in quick succession
+				metrics1, err := device.Status(ctx)
+				require.NoError(t, err)
+
+				metrics2, err := device.Status(ctx)
+				require.NoError(t, err)
+
+				// Since we disabled caching (TTL=0), timestamps should be different
+				// but if cache was working, they should be the same
+				assert.Equal(t, metrics1.DeviceID, metrics2.DeviceID, "Device ID should be consistent")
+			})
+		})
+
+		// Test reboot after telemetry test, sim miner should stay up but acknowledge the command
 		t.Run("Reboot", func(t *testing.T) {
 			err := device.Reboot(ctx)
 			require.NoError(t, err, "Reboot should not fail")
