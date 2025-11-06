@@ -52,6 +52,7 @@ const FilterContent = ({
   useClickOutside({
     ref: triggerRef,
     onClickOutside: () => setShowPopover(false),
+    ignoreSelectors: [".popover-content"],
   });
 
   const handleToggleItem = useCallback(

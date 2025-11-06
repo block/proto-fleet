@@ -5,8 +5,8 @@ interface ClickOutsideProps {
   onClickOutside: () => void;
   // Optional array of selectors for elements that should be considered "inside"
   ignoreSelectors?: string[];
-  // Optional function to determine if a click should be ignored
-  shouldIgnore?: (event: MouseEvent) => boolean;
+  // Optional function to determine if a click/touch should be ignored
+  shouldIgnore?: (event: MouseEvent | TouchEvent) => boolean;
 }
 
 const useClickOutside = ({
@@ -16,7 +16,7 @@ const useClickOutside = ({
   shouldIgnore,
 }: ClickOutsideProps) => {
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
+    function handleClickOutside(event: MouseEvent | TouchEvent) {
       // Skip if we should ignore this event
       if (shouldIgnore && shouldIgnore(event)) {
         return;
@@ -56,8 +56,10 @@ const useClickOutside = ({
     }
 
     document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("touchstart", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
     };
   }, [onClickOutside, ref, ignoreSelectors, shouldIgnore]);
 };

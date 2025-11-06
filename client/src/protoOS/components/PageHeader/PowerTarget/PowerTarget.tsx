@@ -122,7 +122,11 @@ const PowerTarget = () => {
     setShowPopover(false);
   }, []);
 
-  useClickOutside({ ref: widgetRef, onClickOutside });
+  useClickOutside({
+    ref: widgetRef,
+    onClickOutside,
+    ignoreSelectors: [".popover-content"],
+  });
 
   return (
     <div ref={widgetRef} className="relative">

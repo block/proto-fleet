@@ -49,7 +49,11 @@ const PoolStatus = ({
     setShowPopover(false);
   }, []);
 
-  useClickOutside({ ref: WidgetRef, onClickOutside });
+  useClickOutside({
+    ref: WidgetRef,
+    onClickOutside,
+    ignoreSelectors: [".popover-content"],
+  });
 
   const handleClickViewPools = useCallback(() => {
     setShowPopover(false);

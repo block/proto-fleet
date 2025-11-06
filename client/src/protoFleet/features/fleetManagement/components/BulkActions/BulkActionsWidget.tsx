@@ -43,7 +43,11 @@ const BulkActionsWidget = <ActionType extends Key>({
     setIsOpen(false);
   }, []);
 
-  useClickOutside({ ref: triggerRef, onClickOutside });
+  useClickOutside({
+    ref: triggerRef,
+    onClickOutside,
+    ignoreSelectors: [".popover-content"],
+  });
 
   const [showWarnDialog, setShowWarnDialog] = useState(false);
 

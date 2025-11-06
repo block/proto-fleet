@@ -70,7 +70,11 @@ const PowerWidget = ({
     setIsOpen(false);
   }, []);
 
-  useClickOutside({ ref: WidgetRef, onClickOutside });
+  useClickOutside({
+    ref: WidgetRef,
+    onClickOutside,
+    ignoreSelectors: [".popover-content"],
+  });
 
   useEffect(() => {
     if (hasAccess && pausedAuthAction) {
