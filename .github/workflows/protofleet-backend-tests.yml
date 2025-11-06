@@ -50,8 +50,9 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-workspace-${{ hashFiles('**/go.sum', 'go.work') }}
           restore-keys: |
+            ${{ runner.os }}-go-workspace-
             ${{ runner.os }}-go-
 
       - name: Compile project

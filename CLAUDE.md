@@ -28,6 +28,23 @@ For detailed development commands, testing instructions, and component-specific 
 - **API**: Protocol Buffers for type-safe cross-language communication
 - **Build Tools**: Just (task runner), Buf (Protobuf), Docker Compose
 
+## Go Workspace Setup
+
+**Note**: This repository uses a Go workspace (`go.work`) for integrated development across the server and plugin modules. This is a temporary setup for pre-launch development to maximize development speed and will be removed before launch.
+
+The workspace includes:
+- `server/` - Main fleet backend service
+- `plugin/proto/` - Proto miner plugin
+- `plugin/antminer/` - Antminer plugin
+
+Benefits:
+- Local changes across modules are immediately available
+- No need to publish module versions during development
+- Shared Go module cache in CI/CD
+- Simplified cross-module refactoring
+
+The workspace is automatically active when running Go commands from the root directory.
+
 ## Initial Setup
 
 ```bash
@@ -56,6 +73,28 @@ For running individual components or other development commands, see:
 
 - Client commands: `client/CLAUDE.md`
 - Server commands: `server/CLAUDE.md`
+
+### Working with the Go Workspace
+
+The workspace enables seamless development across server and plugin modules:
+
+```bash
+# Build all modules from root
+go build ./...
+
+# Test all modules from root
+go test ./...
+
+# Run tests for a specific module
+go test ./server/...
+go test ./plugin/proto/...
+go test ./plugin/antminer/...
+
+# Sync workspace dependencies
+go work sync
+```
+
+When you make changes to the server module, the plugins automatically see those changes without needing to publish or manually update versions.
 
 ### Working with Protocol Buffers
 
@@ -229,6 +268,18 @@ See `client/CLAUDE.md` for detailed component organization, import rules, and de
 See `server/CLAUDE.md` for detailed domain patterns, testing infrastructure, and database workflows.
 
 ## Important Development Notes
+
+### Go Workspace
+
+The repository uses a Go workspace for integrated development:
+
+- The `go.work` file at the root defines the workspace
+- All Go modules (server and plugins) are included in the workspace
+- Changes across modules are immediately available without version bumps
+- Both `go.work` and `go.work.sum` are committed to Git for reproducible builds
+- Run `go work sync` after updating dependencies to sync the workspace
+
+**Important**: This workspace is temporary for pre-launch development speed and will be removed before launch.
 
 ### Code Generation
 
