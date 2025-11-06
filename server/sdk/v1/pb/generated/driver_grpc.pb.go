@@ -67,7 +67,7 @@ type DriverClient interface {
 	DownloadLogs(ctx context.Context, in *DownloadLogsRequest, opts ...grpc.CallOption) (*DownloadLogsResponse, error)
 	UpdateFirmware(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// CoreV1 - Base Telemetry - Required methods
-	DeviceStatus(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*DeviceStatusResponse, error)
+	DeviceStatus(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*DeviceMetrics, error)
 	// CoreV1 - Advanced Telemetry - Optional methods
 	GetTimeSeriesData(ctx context.Context, in *GetTimeSeriesDataRequest, opts ...grpc.CallOption) (*GetTimeSeriesDataResponse, error)
 	// CoreV1 - Device Info - Optional methods
@@ -220,8 +220,8 @@ func (c *driverClient) UpdateFirmware(ctx context.Context, in *DeviceRef, opts .
 	return out, nil
 }
 
-func (c *driverClient) DeviceStatus(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*DeviceStatusResponse, error) {
-	out := new(DeviceStatusResponse)
+func (c *driverClient) DeviceStatus(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*DeviceMetrics, error) {
+	out := new(DeviceMetrics)
 	err := c.cc.Invoke(ctx, Driver_DeviceStatus_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -272,7 +272,7 @@ func (c *driverClient) Subscribe(ctx context.Context, in *SubscribeRequest, opts
 }
 
 type Driver_SubscribeClient interface {
-	Recv() (*DeviceStatusResponse, error)
+	Recv() (*DeviceMetrics, error)
 	grpc.ClientStream
 }
 
@@ -280,8 +280,8 @@ type driverSubscribeClient struct {
 	grpc.ClientStream
 }
 
-func (x *driverSubscribeClient) Recv() (*DeviceStatusResponse, error) {
-	m := new(DeviceStatusResponse)
+func (x *driverSubscribeClient) Recv() (*DeviceMetrics, error) {
+	m := new(DeviceMetrics)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -313,7 +313,7 @@ type DriverServer interface {
 	DownloadLogs(context.Context, *DownloadLogsRequest) (*DownloadLogsResponse, error)
 	UpdateFirmware(context.Context, *DeviceRef) (*emptypb.Empty, error)
 	// CoreV1 - Base Telemetry - Required methods
-	DeviceStatus(context.Context, *DeviceRef) (*DeviceStatusResponse, error)
+	DeviceStatus(context.Context, *DeviceRef) (*DeviceMetrics, error)
 	// CoreV1 - Advanced Telemetry - Optional methods
 	GetTimeSeriesData(context.Context, *GetTimeSeriesDataRequest) (*GetTimeSeriesDataResponse, error)
 	// CoreV1 - Device Info - Optional methods
@@ -373,7 +373,7 @@ func (UnimplementedDriverServer) DownloadLogs(context.Context, *DownloadLogsRequ
 func (UnimplementedDriverServer) UpdateFirmware(context.Context, *DeviceRef) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateFirmware not implemented")
 }
-func (UnimplementedDriverServer) DeviceStatus(context.Context, *DeviceRef) (*DeviceStatusResponse, error) {
+func (UnimplementedDriverServer) DeviceStatus(context.Context, *DeviceRef) (*DeviceMetrics, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeviceStatus not implemented")
 }
 func (UnimplementedDriverServer) GetTimeSeriesData(context.Context, *GetTimeSeriesDataRequest) (*GetTimeSeriesDataResponse, error) {
@@ -752,7 +752,7 @@ func _Driver_Subscribe_Handler(srv interface{}, stream grpc.ServerStream) error 
 }
 
 type Driver_SubscribeServer interface {
-	Send(*DeviceStatusResponse) error
+	Send(*DeviceMetrics) error
 	grpc.ServerStream
 }
 
@@ -760,7 +760,7 @@ type driverSubscribeServer struct {
 	grpc.ServerStream
 }
 
-func (x *driverSubscribeServer) Send(m *DeviceStatusResponse) error {
+func (x *driverSubscribeServer) Send(m *DeviceMetrics) error {
 	return x.ServerStream.SendMsg(m)
 }
 

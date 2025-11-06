@@ -15,21 +15,9 @@ type DriverIdentifier struct {
 // Capabilities represents feature supported by a driver or device
 type Capabilities map[string]bool
 
-// Aggregation represents how a metric value is computed
-type Aggregation int
-
-const (
-	// AggregationUnspecified represents an unspecified aggregation type
-	AggregationUnspecified Aggregation = iota
-	// AggregationGauge represents instantaneous best-effort aggregation
-	AggregationGauge // instantaneous best-effort
-	// AggregationCounter represents monotonically increasing aggregation
-	AggregationCounter // monotonically increasing
-	// AggregationRate represents rate derived from counter over window
-	AggregationRate // rate derived from counter over window
-	// AggregationDerived represents function of other metrics
-	AggregationDerived // function of other metrics
-)
+// ============================================================================
+// V2 Telemetry Model - Go Types
+// ============================================================================
 
 // MetricKind represents the kind of metric
 type MetricKind int
@@ -37,69 +25,170 @@ type MetricKind int
 const (
 	// MetricKindUnspecified represents an unspecified metric kind
 	MetricKindUnspecified MetricKind = iota
-	// MetricKindGauge represents instantaneous best-effort metric
-	MetricKindGauge // instantaneous best-effort
+	// MetricKindGauge represents instantaneous best-effort metric (point-in-time measurement)
+	MetricKindGauge
+	// MetricKindRate represents rate derived from counter over window (rate of change per second)
+	MetricKindRate
 	// MetricKindCounter represents monotonically increasing metric
-	MetricKindCounter // monotonically increasing
-	// MetricKindRate represents rate derived from counter over window
-	MetricKindRate // rate derived from counter over window
-	// MetricKindHistogram represents distribution of values over window
-	MetricKindHistogram // distribution of values over window
+	MetricKindCounter
 )
 
-// Unit represents the unit of measurement
-type Unit int
+// MetricValue represents a single telemetry measurement with optional statistical metadata
+type MetricValue struct {
+	Value    float64
+	Kind     MetricKind
+	MetaData *MetricValueMetaData
+}
+
+// MetricValueMetaData provides statistical context for a metric value
+type MetricValueMetaData struct {
+	Window    *time.Duration
+	Min       *float64
+	Max       *float64
+	Avg       *float64
+	StdDev    *float64
+	Timestamp *time.Time
+}
+
+// ComponentStatus represents the health and operational state of an individual component
+type ComponentStatus int
 
 const (
-	// UnitUnspecified represents an unspecified unit
-	UnitUnspecified Unit = iota
-	// UnitWatt represents watts
-	UnitWatt
-	// UnitCelsius represents degrees Celsius
-	UnitCelsius
-	// UnitRPM represents revolutions per minute
-	UnitRPM
-	// UnitHPS represents hashes per second
-	UnitHPS = 10 // hashes per second
-	// UnitJoulePerHash represents joules per hash
-	UnitJoulePerHash = 11
-	// UnitVolt represents volts
-	UnitVolt = 20
-	// UnitAmpere represents amperes
-	UnitAmpere = 21
-	// UnitBytes represents bytes
-	UnitBytes = 22
-	// UnitPercent represents percentage
-	UnitPercent = 23
+	// ComponentStatusUnspecified represents an unspecified component status
+	ComponentStatusUnspecified ComponentStatus = iota
+	// ComponentStatusUnknown represents unknown status (no telemetry data)
+	ComponentStatusUnknown
+	// ComponentStatusHealthy represents operating normally within acceptable parameters
+	ComponentStatusHealthy
+	// ComponentStatusWarning represents degraded performance but still functional
+	ComponentStatusWarning
+	// ComponentStatusCritical represents failed, malfunctioning, or out of safe operating range
+	ComponentStatusCritical
+	// ComponentStatusOffline represents not responding or unreachable
+	ComponentStatusOffline
+	// ComponentStatusDisabled represents intentionally disabled by operator or firmware
+	ComponentStatusDisabled
 )
 
-// SampleSemantics represents default sampling semantics for metrics
-type SampleSemantics struct {
-	Aggregation     Aggregation
-	AveragingWindow time.Duration
-	StartOfWindow   time.Time
+// ComponentInfo contains common metadata for all hardware components
+type ComponentInfo struct {
+	Index        int32
+	Name         string
+	Status       ComponentStatus
+	StatusReason *string
+	Timestamp    *time.Time
 }
 
-// MetricDetail provides per-metric override information
-type MetricDetail struct {
-	Aggregation     Aggregation
-	AveragingWindow time.Duration
-	Min             *float64
-	Max             *float64
-	StdDev          *float64
-	SensorID        *string
+// HashBoardMetrics represents telemetry from an ASIC hashboard
+type HashBoardMetrics struct {
+	ComponentInfo
+	SerialNumber *string
+
+	// Performance metrics
+	HashRateHS *MetricValue
+	TempC      *MetricValue
+
+	// Electrical metrics
+	VoltageV *MetricValue
+	CurrentA *MetricValue
+
+	// Temperature sensors
+	InletTempC   *MetricValue
+	OutletTempC  *MetricValue
+	AmbientTempC *MetricValue
+
+	// Chip information
+	ChipCount        *int32
+	ChipFrequencyMHz *MetricValue
+
+	// Sub-components
+	ASICs      []ASICMetrics
+	FanMetrics []FanMetrics
 }
 
-// Metric represents additional telemetry data
-type Metric struct {
-	Name       string
-	Value      MetricValue
-	Unit       Unit
-	Kind       MetricKind
-	ObservedAt time.Time
-	Window     time.Duration
-	Labels     map[string]string
+// ASICMetrics represents telemetry from an individual ASIC chip
+type ASICMetrics struct {
+	ComponentInfo
+
+	TempC        *MetricValue
+	FrequencyMHz *MetricValue
+	VoltageV     *MetricValue
+	HashrateHS   *MetricValue
 }
+
+// PSUMetrics represents telemetry from a power supply unit
+type PSUMetrics struct {
+	ComponentInfo
+
+	// Output measurements
+	OutputPowerW   *MetricValue
+	OutputVoltageV *MetricValue
+	OutputCurrentA *MetricValue
+
+	// Input measurements
+	InputPowerW   *MetricValue
+	InputVoltageV *MetricValue
+	InputCurrentA *MetricValue
+
+	// Additional metrics
+	HotSpotTempC      *MetricValue
+	EfficiencyPercent *MetricValue
+
+	// Sub-components
+	FanMetrics []FanMetrics
+}
+
+// FanMetrics represents telemetry from a cooling fan
+type FanMetrics struct {
+	ComponentInfo
+
+	RPM     *MetricValue
+	TempC   *MetricValue
+	Percent *MetricValue
+}
+
+// ControlBoardMetrics represents telemetry from the device control board
+type ControlBoardMetrics struct {
+	ComponentInfo
+}
+
+// SensorMetrics represents miscellaneous sensors on the device
+type SensorMetrics struct {
+	ComponentInfo
+
+	Type  string
+	Unit  string
+	Value *MetricValue
+}
+
+// DeviceMetrics represents the complete telemetry snapshot for a mining device
+type DeviceMetrics struct {
+	// Identity
+	DeviceID  string
+	Timestamp time.Time
+
+	// Device-level health
+	Health       HealthStatus
+	HealthReason *string
+
+	// Device-level aggregated metrics
+	HashrateHS   *MetricValue
+	TempC        *MetricValue
+	FanRPM       *MetricValue
+	PowerW       *MetricValue
+	EfficiencyJH *MetricValue
+
+	// Component-level metrics
+	HashBoards          []HashBoardMetrics
+	PSUMetrics          []PSUMetrics
+	ControlBoardMetrics []ControlBoardMetrics
+	FanMetrics          []FanMetrics
+	SensorMetrics       []SensorMetrics
+}
+
+// ============================================================================
+// Other SDK Types
+// ============================================================================
 
 // CoolingMode represents the cooling mode of a device
 type CoolingMode int
@@ -205,44 +294,17 @@ type HealthStatus int
 const (
 	// HealthStatusUnspecified represents an unspecified health status
 	HealthStatusUnspecified HealthStatus = iota
-	// HealthyInactive represents a healthy but inactive device
-	HealthyInactive
-	// HealthyActive represents a healthy and active device
-	HealthyActive
-	// Warning represents a device with warnings
-	Warning
-	// Critical represents a device in critical state
-	Critical
-	// Unknown represents a device with unknown status
-	Unknown
+	// HealthUnknown represents unknown health state (device unreachable)
+	HealthUnknown
+	// HealthHealthyActive represents mining and all systems healthy
+	HealthHealthyActive
+	// HealthHealthyInactive represents all systems healthy but not actively mining
+	HealthHealthyInactive
+	// HealthWarning represents degraded performance but still operational
+	HealthWarning
+	// HealthCritical represents failed, non-functional, or requires immediate attention
+	HealthCritical
 )
-
-// DeviceStatusResponse represents the current state of a device
-type DeviceStatusResponse struct {
-	DeviceID  string
-	Timestamp time.Time
-	Summary   string
-	Health    HealthStatus // Overall health status
-
-	// Metrics (nil if not supported/available)
-	HashrateHS         *float64 // Hashrate in H/s (maps to proto 'hashrate_hs')
-	PowerWatts         *float64 // Power consumption in watts (maps to proto 'power_watts')
-	TemperatureCelsius *float64 // Temperature in Celsius (maps to proto 'temperature_celsius')
-	EfficiencyJPerHash *float64 // Efficiency in J/H (maps to proto 'efficiency_j_per_hash')
-	FanRPM             *int32   // Fan speed in RPM (maps to proto 'fan_rpm')
-
-	// Sampling semantics
-	Sample *SampleSemantics
-
-	// Per-metric overrides
-	MetricDetails map[string]MetricDetail
-
-	// Driver-specific metadata
-	Metadata map[string]string
-
-	// Extensibility for additional metrics (Prometheus-style bag)
-	ExtraMetrics []Metric
-}
 
 // DeviceCore represents the core functionality that all devices must implement
 type DeviceCore interface {
@@ -253,7 +315,7 @@ type DeviceCore interface {
 	DescribeDevice(ctx context.Context) (DeviceInfo, Capabilities, error)
 
 	// Status returns current device status (CoreV1 - required)
-	Status(ctx context.Context) (DeviceStatusResponse, error)
+	Status(ctx context.Context) (DeviceMetrics, error)
 
 	// Close releases device resources
 	Close(ctx context.Context) error
@@ -284,10 +346,10 @@ type DeviceMaintenance interface {
 // DeviceOptional represents optional device capabilities
 type DeviceOptional interface {
 	// Optional capabilities - return (result, false, nil) if unsupported
-	TryBatchStatus(ctx context.Context, ids []string) (map[string]DeviceStatusResponse, bool, error)
-	TrySubscribe(ctx context.Context, ids []string) (<-chan DeviceStatusResponse, bool, error)
+	TryBatchStatus(ctx context.Context, ids []string) (map[string]DeviceMetrics, bool, error)
+	TrySubscribe(ctx context.Context, ids []string) (<-chan DeviceMetrics, bool, error)
 	TryGetWebViewURL(ctx context.Context) (string, bool, error)
-	TryGetTimeSeriesData(ctx context.Context, metricNames []string, startTime, endTime time.Time, granularity *time.Duration, maxPoints int32, pageToken string) (series []DeviceStatusResponse, nextPageToken string, supported bool, err error)
+	TryGetTimeSeriesData(ctx context.Context, metricNames []string, startTime, endTime time.Time, granularity *time.Duration, maxPoints int32, pageToken string) (series []DeviceMetrics, nextPageToken string, supported bool, err error)
 }
 
 // Device represents a single device instance managed by a driver
@@ -332,13 +394,4 @@ const (
 	CapabilityReboot     = "reboot"      // Device reboot support
 	CapabilityFirmware   = "firmware"    // Firmware update support
 	CapabilityPoolConfig = "pool_config" // Pool configuration support
-)
-
-// Health status constants
-const (
-	HealthHealthyInactive = HealthyInactive
-	HealthHealthyActive   = HealthyActive
-	HealthWarning         = Warning
-	HealthCritical        = Critical
-	HealthUnknown         = Unknown
 )

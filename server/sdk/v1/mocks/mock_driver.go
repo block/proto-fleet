@@ -81,10 +81,10 @@ func (mr *MockDeviceCoreMockRecorder) ID() *gomock.Call {
 }
 
 // Status mocks base method.
-func (m *MockDeviceCore) Status(ctx context.Context) (sdk.DeviceStatusResponse, error) {
+func (m *MockDeviceCore) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Status", ctx)
-	ret0, _ := ret[0].(sdk.DeviceStatusResponse)
+	ret0, _ := ret[0].(sdk.DeviceMetrics)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -302,10 +302,10 @@ func (m *MockDeviceOptional) EXPECT() *MockDeviceOptionalMockRecorder {
 }
 
 // TryBatchStatus mocks base method.
-func (m *MockDeviceOptional) TryBatchStatus(ctx context.Context, ids []string) (map[string]sdk.DeviceStatusResponse, bool, error) {
+func (m *MockDeviceOptional) TryBatchStatus(ctx context.Context, ids []string) (map[string]sdk.DeviceMetrics, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "TryBatchStatus", ctx, ids)
-	ret0, _ := ret[0].(map[string]sdk.DeviceStatusResponse)
+	ret0, _ := ret[0].(map[string]sdk.DeviceMetrics)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
@@ -318,10 +318,10 @@ func (mr *MockDeviceOptionalMockRecorder) TryBatchStatus(ctx, ids interface{}) *
 }
 
 // TryGetTimeSeriesData mocks base method.
-func (m *MockDeviceOptional) TryGetTimeSeriesData(ctx context.Context, metricNames []string, startTime, endTime time.Time, granularity *time.Duration, maxPoints int32, pageToken string) ([]sdk.DeviceStatusResponse, string, bool, error) {
+func (m *MockDeviceOptional) TryGetTimeSeriesData(ctx context.Context, metricNames []string, startTime, endTime time.Time, granularity *time.Duration, maxPoints int32, pageToken string) ([]sdk.DeviceMetrics, string, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "TryGetTimeSeriesData", ctx, metricNames, startTime, endTime, granularity, maxPoints, pageToken)
-	ret0, _ := ret[0].([]sdk.DeviceStatusResponse)
+	ret0, _ := ret[0].([]sdk.DeviceMetrics)
 	ret1, _ := ret[1].(string)
 	ret2, _ := ret[2].(bool)
 	ret3, _ := ret[3].(error)
@@ -351,10 +351,10 @@ func (mr *MockDeviceOptionalMockRecorder) TryGetWebViewURL(ctx interface{}) *gom
 }
 
 // TrySubscribe mocks base method.
-func (m *MockDeviceOptional) TrySubscribe(ctx context.Context, ids []string) (<-chan sdk.DeviceStatusResponse, bool, error) {
+func (m *MockDeviceOptional) TrySubscribe(ctx context.Context, ids []string) (<-chan sdk.DeviceMetrics, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "TrySubscribe", ctx, ids)
-	ret0, _ := ret[0].(<-chan sdk.DeviceStatusResponse)
+	ret0, _ := ret[0].(<-chan sdk.DeviceMetrics)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
@@ -520,10 +520,10 @@ func (mr *MockDeviceMockRecorder) StartMining(ctx interface{}) *gomock.Call {
 }
 
 // Status mocks base method.
-func (m *MockDevice) Status(ctx context.Context) (sdk.DeviceStatusResponse, error) {
+func (m *MockDevice) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Status", ctx)
-	ret0, _ := ret[0].(sdk.DeviceStatusResponse)
+	ret0, _ := ret[0].(sdk.DeviceMetrics)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -549,10 +549,10 @@ func (mr *MockDeviceMockRecorder) StopMining(ctx interface{}) *gomock.Call {
 }
 
 // TryBatchStatus mocks base method.
-func (m *MockDevice) TryBatchStatus(ctx context.Context, ids []string) (map[string]sdk.DeviceStatusResponse, bool, error) {
+func (m *MockDevice) TryBatchStatus(ctx context.Context, ids []string) (map[string]sdk.DeviceMetrics, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "TryBatchStatus", ctx, ids)
-	ret0, _ := ret[0].(map[string]sdk.DeviceStatusResponse)
+	ret0, _ := ret[0].(map[string]sdk.DeviceMetrics)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
@@ -565,10 +565,10 @@ func (mr *MockDeviceMockRecorder) TryBatchStatus(ctx, ids interface{}) *gomock.C
 }
 
 // TryGetTimeSeriesData mocks base method.
-func (m *MockDevice) TryGetTimeSeriesData(ctx context.Context, metricNames []string, startTime, endTime time.Time, granularity *time.Duration, maxPoints int32, pageToken string) ([]sdk.DeviceStatusResponse, string, bool, error) {
+func (m *MockDevice) TryGetTimeSeriesData(ctx context.Context, metricNames []string, startTime, endTime time.Time, granularity *time.Duration, maxPoints int32, pageToken string) ([]sdk.DeviceMetrics, string, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "TryGetTimeSeriesData", ctx, metricNames, startTime, endTime, granularity, maxPoints, pageToken)
-	ret0, _ := ret[0].([]sdk.DeviceStatusResponse)
+	ret0, _ := ret[0].([]sdk.DeviceMetrics)
 	ret1, _ := ret[1].(string)
 	ret2, _ := ret[2].(bool)
 	ret3, _ := ret[3].(error)
@@ -598,10 +598,10 @@ func (mr *MockDeviceMockRecorder) TryGetWebViewURL(ctx interface{}) *gomock.Call
 }
 
 // TrySubscribe mocks base method.
-func (m *MockDevice) TrySubscribe(ctx context.Context, ids []string) (<-chan sdk.DeviceStatusResponse, bool, error) {
+func (m *MockDevice) TrySubscribe(ctx context.Context, ids []string) (<-chan sdk.DeviceMetrics, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "TrySubscribe", ctx, ids)
-	ret0, _ := ret[0].(<-chan sdk.DeviceStatusResponse)
+	ret0, _ := ret[0].(<-chan sdk.DeviceMetrics)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2

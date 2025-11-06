@@ -47,6 +47,85 @@ func safeIntToInt32(i int) int32 {
 	return int32(i)
 }
 
+// ============================================================================
+// Conversion Helpers - Rule of 3 Refactoring
+// ============================================================================
+
+// convertOptionalMetricToProto converts an optional MetricValue pointer to protobuf format
+func convertOptionalMetricToProto(src *MetricValue) *pb.MetricValue {
+	if src == nil {
+		return nil
+	}
+	return metricValueToProto(*src)
+}
+
+// convertOptionalMetricFromProto converts a protobuf MetricValue to an optional pointer
+func convertOptionalMetricFromProto(src *pb.MetricValue) *MetricValue {
+	if src == nil {
+		return nil
+	}
+	mv := metricValueFromProto(src)
+	return &mv
+}
+
+// convertSliceToProto converts a slice of SDK types to protobuf using the provided converter
+func convertSliceToProto[T any, P any](src []T, converter func(T) *P) []*P {
+	if len(src) == 0 {
+		return nil
+	}
+	result := make([]*P, len(src))
+	for i, item := range src {
+		result[i] = converter(item)
+	}
+	return result
+}
+
+// convertSliceFromProto converts a slice of protobuf pointers to SDK types using the provided converter
+func convertSliceFromProto[T any, P any](src []*P, converter func(*P) T) []T {
+	if len(src) == 0 {
+		return nil
+	}
+	result := make([]T, len(src))
+	for i, item := range src {
+		result[i] = converter(item)
+	}
+	return result
+}
+
+// convertOptionalDuration converts an optional duration pointer to protobuf format
+func convertOptionalDuration(src *time.Duration) *durationpb.Duration {
+	if src == nil {
+		return nil
+	}
+	return durationpb.New(*src)
+}
+
+// convertOptionalDurationFromProto converts a protobuf duration to an optional pointer
+func convertOptionalDurationFromProto(src *durationpb.Duration) *time.Duration {
+	if src == nil {
+		return nil
+	}
+	d := src.AsDuration()
+	return &d
+}
+
+// convertOptionalTimestamp converts an optional time pointer to protobuf format
+func convertOptionalTimestamp(src *time.Time) *timestamppb.Timestamp {
+	if src == nil {
+		return nil
+	}
+	return timestamppb.New(*src)
+}
+
+// convertOptionalTimestampFromProto converts a protobuf timestamp to an optional pointer
+func convertOptionalTimestampFromProto(src *timestamppb.Timestamp) *time.Time {
+	if src == nil {
+		return nil
+	}
+	t := src.AsTime()
+	return &t
+}
+
 // DriverPlugin implements the go-plugin interface for gRPC
 type DriverPlugin struct {
 	plugin.Plugin
@@ -171,7 +250,7 @@ func (s *DriverGRPCServer) DescribeDevice(ctx context.Context, req *pb.DescribeD
 	}, nil
 }
 
-func (s *DriverGRPCServer) DeviceStatus(ctx context.Context, req *pb.DeviceRef) (*pb.DeviceStatusResponse, error) {
+func (s *DriverGRPCServer) DeviceStatus(ctx context.Context, req *pb.DeviceRef) (*pb.DeviceMetrics, error) {
 	s.mu.RLock()
 	device, exists := s.devices[req.DeviceId]
 	s.mu.RUnlock()
@@ -180,12 +259,12 @@ func (s *DriverGRPCServer) DeviceStatus(ctx context.Context, req *pb.DeviceRef) 
 		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
 	}
 
-	statusResp, err := device.Status(ctx)
+	metrics, err := device.Status(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return statusResponseToProto(statusResp), nil
+	return deviceMetricsToProto(metrics), nil
 }
 
 func (s *DriverGRPCServer) CloseDevice(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {
@@ -361,9 +440,9 @@ func (s *DriverGRPCServer) GetTimeSeriesData(ctx context.Context, req *pb.GetTim
 		return nil, err
 	}
 
-	pbSeries := make([]*pb.DeviceStatusResponse, len(series))
+	pbSeries := make([]*pb.DeviceMetrics, len(series))
 	for i, s := range series {
-		pbSeries[i] = statusResponseToProto(s)
+		pbSeries[i] = deviceMetricsToProto(s)
 	}
 
 	return &pb.GetTimeSeriesDataResponse{
@@ -422,11 +501,11 @@ func (s *DriverGRPCServer) BatchStatus(ctx context.Context, req *pb.BatchStatusR
 	}
 
 	batch := &pb.StatusBatchResponse{
-		Items: make([]*pb.DeviceStatusResponse, 0, len(results)),
+		Items: make([]*pb.DeviceMetrics, 0, len(results)),
 	}
 
-	for _, statusResp := range results {
-		batch.Items = append(batch.Items, statusResponseToProto(statusResp))
+	for _, metrics := range results {
+		batch.Items = append(batch.Items, deviceMetricsToProto(metrics))
 	}
 
 	return batch, nil
@@ -456,12 +535,12 @@ func (s *DriverGRPCServer) Subscribe(req *pb.SubscribeRequest, stream pb.Driver_
 
 	for {
 		select {
-		case status, ok := <-statusChan:
+		case metrics, ok := <-statusChan:
 			if !ok {
 				return nil // Stream closed
 			}
 
-			if err := stream.Send(statusResponseToProto(status)); err != nil {
+			if err := stream.Send(deviceMetricsToProto(metrics)); err != nil {
 				return err
 			}
 
@@ -582,15 +661,15 @@ func (d *DeviceGRPCClient) DescribeDevice(ctx context.Context) (DeviceInfo, Capa
 	return deviceInfo, caps, nil
 }
 
-func (d *DeviceGRPCClient) Status(ctx context.Context) (DeviceStatusResponse, error) {
+func (d *DeviceGRPCClient) Status(ctx context.Context) (DeviceMetrics, error) {
 	resp, err := d.client.DeviceStatus(ctx, &pb.DeviceRef{
 		DeviceId: d.deviceID,
 	})
 	if err != nil {
-		return DeviceStatusResponse{}, err
+		return DeviceMetrics{}, err
 	}
 
-	return statusResponseFromProto(resp), nil
+	return deviceMetricsFromProto(resp), nil
 }
 
 func (d *DeviceGRPCClient) Close(ctx context.Context) error {
@@ -692,7 +771,7 @@ func (d *DeviceGRPCClient) TryGetWebViewURL(ctx context.Context) (string, bool, 
 	return resp.Url, true, nil
 }
 
-func (d *DeviceGRPCClient) TryGetTimeSeriesData(ctx context.Context, metricNames []string, startTime, endTime time.Time, granularity *time.Duration, maxPoints int32, pageToken string) ([]DeviceStatusResponse, string, bool, error) {
+func (d *DeviceGRPCClient) TryGetTimeSeriesData(ctx context.Context, metricNames []string, startTime, endTime time.Time, granularity *time.Duration, maxPoints int32, pageToken string) ([]DeviceMetrics, string, bool, error) {
 	req := &pb.GetTimeSeriesDataRequest{
 		Ref:         &pb.DeviceRef{DeviceId: d.deviceID},
 		MetricNames: metricNames,
@@ -714,15 +793,15 @@ func (d *DeviceGRPCClient) TryGetTimeSeriesData(ctx context.Context, metricNames
 		return nil, "", false, err
 	}
 
-	series := make([]DeviceStatusResponse, len(resp.Series))
-	for i, pbStatus := range resp.Series {
-		series[i] = statusResponseFromProto(pbStatus)
+	series := make([]DeviceMetrics, len(resp.Series))
+	for i, pbMetrics := range resp.Series {
+		series[i] = deviceMetricsFromProto(pbMetrics)
 	}
 
 	return series, resp.NextPageToken, true, nil
 }
 
-func (d *DeviceGRPCClient) TryBatchStatus(ctx context.Context, ids []string) (map[string]DeviceStatusResponse, bool, error) {
+func (d *DeviceGRPCClient) TryBatchStatus(ctx context.Context, ids []string) (map[string]DeviceMetrics, bool, error) {
 	refs := make([]*pb.DeviceRef, len(ids))
 	for i, id := range ids {
 		refs[i] = &pb.DeviceRef{DeviceId: id}
@@ -736,15 +815,15 @@ func (d *DeviceGRPCClient) TryBatchStatus(ctx context.Context, ids []string) (ma
 		return nil, false, err
 	}
 
-	results := make(map[string]DeviceStatusResponse)
+	results := make(map[string]DeviceMetrics)
 	for _, item := range resp.Items {
-		results[item.DeviceId] = statusResponseFromProto(item)
+		results[item.DeviceId] = deviceMetricsFromProto(item)
 	}
 
 	return results, true, nil
 }
 
-func (d *DeviceGRPCClient) TrySubscribe(ctx context.Context, ids []string) (<-chan DeviceStatusResponse, bool, error) {
+func (d *DeviceGRPCClient) TrySubscribe(ctx context.Context, ids []string) (<-chan DeviceMetrics, bool, error) {
 	stream, err := d.client.Subscribe(ctx, &pb.SubscribeRequest{
 		DeviceIds: ids,
 	})
@@ -755,221 +834,397 @@ func (d *DeviceGRPCClient) TrySubscribe(ctx context.Context, ids []string) (<-ch
 		return nil, false, err
 	}
 
-	statusChan := make(chan DeviceStatusResponse)
+	metricsChan := make(chan DeviceMetrics)
 
 	go func() {
-		defer close(statusChan)
+		defer close(metricsChan)
 
 		for {
-			statusResp, err := stream.Recv()
+			metricsResp, err := stream.Recv()
 			if err != nil {
 				return
 			}
 
-			status := statusResponseFromProto(statusResp)
+			metrics := deviceMetricsFromProto(metricsResp)
 
 			select {
-			case statusChan <- status:
+			case metricsChan <- metrics:
 			case <-ctx.Done():
 				return
 			}
 		}
 	}()
 
-	return statusChan, true, nil
+	return metricsChan, true, nil
 }
 
-// Helper functions for proto conversion
-func statusResponseToProto(s DeviceStatusResponse) *pb.DeviceStatusResponse {
-	timestamp := timestamppb.New(s.Timestamp)
-	resp := &pb.DeviceStatusResponse{
-		DeviceId:  s.DeviceID,
-		Timestamp: timestamp,
-		Summary:   s.Summary,
-		Health:    pb.HealthStatus(safeIntToInt32(int(s.Health))),
-		Metadata:  s.Metadata,
+// ============================================================================
+// V2 Telemetry Model - Conversion Functions
+// ============================================================================
+
+// deviceMetricsToProto converts SDK DeviceMetrics to protobuf DeviceMetrics
+func deviceMetricsToProto(dm DeviceMetrics) *pb.DeviceMetrics {
+	pbMetrics := &pb.DeviceMetrics{
+		DeviceId:  dm.DeviceID,
+		Timestamp: timestamppb.New(dm.Timestamp),
+		Health:    pb.HealthStatus(safeIntToInt32(int(dm.Health))),
 	}
 
-	if s.HashrateHS != nil {
-		resp.HashrateHs = &(*s.HashrateHS)
-	}
-	if s.PowerWatts != nil {
-		resp.PowerWatts = &(*s.PowerWatts)
-	}
-	if s.TemperatureCelsius != nil {
-		resp.TemperatureCelsius = &(*s.TemperatureCelsius)
-	}
-	if s.EfficiencyJPerHash != nil {
-		resp.EfficiencyJPerHash = &(*s.EfficiencyJPerHash)
-	}
-	if s.FanRPM != nil {
-		resp.FanRpm = s.FanRPM
+	if dm.HealthReason != nil {
+		pbMetrics.HealthReason = dm.HealthReason
 	}
 
-	// Convert sample semantics
-	if s.Sample != nil {
-		resp.Sample = &pb.SampleSemantics{
-			Aggregation:     pb.Aggregation(safeIntToInt32(int(s.Sample.Aggregation))),
-			AveragingWindow: durationpb.New(s.Sample.AveragingWindow),
-			StartOfWindow:   timestamppb.New(s.Sample.StartOfWindow),
-		}
-	}
+	// Device-level aggregated metrics - using helper for optional metrics
+	pbMetrics.HashrateHs = convertOptionalMetricToProto(dm.HashrateHS)
+	pbMetrics.TempC = convertOptionalMetricToProto(dm.TempC)
+	pbMetrics.FanRpm = convertOptionalMetricToProto(dm.FanRPM)
+	pbMetrics.PowerW = convertOptionalMetricToProto(dm.PowerW)
+	pbMetrics.EfficiencyJh = convertOptionalMetricToProto(dm.EfficiencyJH)
 
-	// Convert metric details
-	if s.MetricDetails != nil {
-		resp.MetricDetails = make(map[string]*pb.MetricDetail)
-		for key, detail := range s.MetricDetails {
-			pbDetail := &pb.MetricDetail{
-				Aggregation:     pb.Aggregation(safeIntToInt32(int(detail.Aggregation))),
-				AveragingWindow: durationpb.New(detail.AveragingWindow),
-			}
-			if detail.Min != nil {
-				pbDetail.Min = detail.Min
-			}
-			if detail.Max != nil {
-				pbDetail.Max = detail.Max
-			}
-			if detail.StdDev != nil {
-				pbDetail.Stddev = detail.StdDev
-			}
-			if detail.SensorID != nil {
-				pbDetail.SensorId = detail.SensorID
-			}
-			resp.MetricDetails[key] = pbDetail
-		}
-	}
+	// Component-level metrics - using generic slice converters
+	pbMetrics.HashBoards = convertSliceToProto(dm.HashBoards, hashBoardMetricsToProto)
+	pbMetrics.PsuMetrics = convertSliceToProto(dm.PSUMetrics, psuMetricsToProto)
+	pbMetrics.ControlBoardMetrics = convertSliceToProto(dm.ControlBoardMetrics, controlBoardMetricsToProto)
+	pbMetrics.FanMetrics = convertSliceToProto(dm.FanMetrics, fanMetricsToProto)
+	pbMetrics.SensorMetrics = convertSliceToProto(dm.SensorMetrics, sensorMetricsToProto)
 
-	// Convert extra metrics
-	if s.ExtraMetrics != nil {
-		resp.ExtraMetrics = make([]*pb.Metric, len(s.ExtraMetrics))
-		for i, metric := range s.ExtraMetrics {
-			pbMetric := &pb.Metric{
-				Name:       metric.Name,
-				Unit:       pb.Unit(safeIntToInt32(int(metric.Unit))),
-				Kind:       pb.MetricKind(safeIntToInt32(int(metric.Kind))),
-				ObservedAt: timestamppb.New(metric.ObservedAt),
-				Window:     durationpb.New(metric.Window),
-				Labels:     metric.Labels,
-			}
-
-			// Handle different value types using MetricValue interface
-			if metric.Value != nil {
-				switch metric.Value.Type() {
-				case ValueTypeFloat64:
-					if val, ok := metric.Value.AsFloat64(); ok {
-						pbMetric.Value = &pb.Metric_DoubleValue{DoubleValue: val}
-					}
-				case ValueTypeInt:
-					if val, ok := metric.Value.AsInt(); ok {
-						pbMetric.Value = &pb.Metric_IntValue{IntValue: int64(val)}
-					}
-				case ValueTypeBool:
-					if val, ok := metric.Value.AsBool(); ok {
-						pbMetric.Value = &pb.Metric_BoolValue{BoolValue: val}
-					}
-				case ValueTypeString:
-					if val, ok := metric.Value.AsString(); ok {
-						pbMetric.Value = &pb.Metric_StringValue{StringValue: val}
-					}
-				}
-			}
-
-			resp.ExtraMetrics[i] = pbMetric
-		}
-	}
-
-	return resp
+	return pbMetrics
 }
 
-func statusResponseFromProto(p *pb.DeviceStatusResponse) DeviceStatusResponse {
-	resp := DeviceStatusResponse{
-		DeviceID:  p.DeviceId,
-		Timestamp: p.Timestamp.AsTime(),
-		Summary:   p.Summary,
-		Health:    HealthStatus(p.Health),
-		Metadata:  p.Metadata,
+// deviceMetricsFromProto converts protobuf DeviceMetrics to SDK DeviceMetrics
+func deviceMetricsFromProto(pb *pb.DeviceMetrics) DeviceMetrics {
+	dm := DeviceMetrics{
+		DeviceID:  pb.DeviceId,
+		Timestamp: pb.Timestamp.AsTime(),
+		Health:    HealthStatus(pb.Health),
 	}
 
-	if p.HashrateHs != nil {
-		resp.HashrateHS = p.HashrateHs
-	}
-	if p.PowerWatts != nil {
-		resp.PowerWatts = p.PowerWatts
-	}
-	if p.TemperatureCelsius != nil {
-		resp.TemperatureCelsius = p.TemperatureCelsius
-	}
-	if p.EfficiencyJPerHash != nil {
-		resp.EfficiencyJPerHash = p.EfficiencyJPerHash
-	}
-	if p.FanRpm != nil {
-		resp.FanRPM = p.FanRpm
+	if pb.HealthReason != nil {
+		dm.HealthReason = pb.HealthReason
 	}
 
-	// Convert sample semantics
-	if p.Sample != nil {
-		resp.Sample = &SampleSemantics{
-			Aggregation:     Aggregation(p.Sample.Aggregation),
-			AveragingWindow: p.Sample.AveragingWindow.AsDuration(),
-			StartOfWindow:   p.Sample.StartOfWindow.AsTime(),
-		}
-	}
+	// Device-level aggregated metrics - using helper for optional metrics
+	dm.HashrateHS = convertOptionalMetricFromProto(pb.HashrateHs)
+	dm.TempC = convertOptionalMetricFromProto(pb.TempC)
+	dm.FanRPM = convertOptionalMetricFromProto(pb.FanRpm)
+	dm.PowerW = convertOptionalMetricFromProto(pb.PowerW)
+	dm.EfficiencyJH = convertOptionalMetricFromProto(pb.EfficiencyJh)
 
-	// Convert metric details
-	if p.MetricDetails != nil {
-		resp.MetricDetails = make(map[string]MetricDetail)
-		for key, pbDetail := range p.MetricDetails {
-			detail := MetricDetail{
-				Aggregation:     Aggregation(pbDetail.Aggregation),
-				AveragingWindow: pbDetail.AveragingWindow.AsDuration(),
-			}
-			if pbDetail.Min != nil {
-				detail.Min = pbDetail.Min
-			}
-			if pbDetail.Max != nil {
-				detail.Max = pbDetail.Max
-			}
-			if pbDetail.Stddev != nil {
-				detail.StdDev = pbDetail.Stddev
-			}
-			if pbDetail.SensorId != nil {
-				detail.SensorID = pbDetail.SensorId
-			}
-			resp.MetricDetails[key] = detail
-		}
-	}
+	// Component-level metrics - using generic slice converters
+	dm.HashBoards = convertSliceFromProto(pb.HashBoards, hashBoardMetricsFromProto)
+	dm.PSUMetrics = convertSliceFromProto(pb.PsuMetrics, psuMetricsFromProto)
+	dm.ControlBoardMetrics = convertSliceFromProto(pb.ControlBoardMetrics, controlBoardMetricsFromProto)
+	dm.FanMetrics = convertSliceFromProto(pb.FanMetrics, fanMetricsFromProto)
+	dm.SensorMetrics = convertSliceFromProto(pb.SensorMetrics, sensorMetricsFromProto)
 
-	// Convert extra metrics
-	if p.ExtraMetrics != nil {
-		resp.ExtraMetrics = make([]Metric, len(p.ExtraMetrics))
-		for i, pbMetric := range p.ExtraMetrics {
-			metric := Metric{
-				Name:       pbMetric.Name,
-				Unit:       Unit(pbMetric.Unit),
-				Kind:       MetricKind(pbMetric.Kind),
-				ObservedAt: pbMetric.ObservedAt.AsTime(),
-				Window:     pbMetric.Window.AsDuration(),
-				Labels:     pbMetric.Labels,
-			}
-
-			// Handle different value types and convert to MetricValue interface
-			switch v := pbMetric.Value.(type) {
-			case *pb.Metric_DoubleValue:
-				metric.Value = NewMetricValue(v.DoubleValue)
-			case *pb.Metric_IntValue:
-				metric.Value = NewMetricValue(int(v.IntValue))
-			case *pb.Metric_BoolValue:
-				metric.Value = NewMetricValue(v.BoolValue)
-			case *pb.Metric_StringValue:
-				metric.Value = NewMetricValue(v.StringValue)
-			}
-
-			resp.ExtraMetrics[i] = metric
-		}
-	}
-
-	return resp
+	return dm
 }
+
+// metricValueToProto converts SDK MetricValue to protobuf MetricValue
+func metricValueToProto(mv MetricValue) *pb.MetricValue {
+	pbMV := &pb.MetricValue{
+		Value: mv.Value,
+		Kind:  pb.MetricKind(safeIntToInt32(int(mv.Kind))),
+	}
+
+	if mv.MetaData != nil {
+		pbMD := &pb.MetricValueMetaData{}
+
+		// Using helper functions for optional time-based fields
+		pbMD.Window = convertOptionalDuration(mv.MetaData.Window)
+		pbMD.Min = mv.MetaData.Min
+		pbMD.Max = mv.MetaData.Max
+		pbMD.Avg = mv.MetaData.Avg
+		pbMD.StdDev = mv.MetaData.StdDev
+		pbMD.Timestamp = convertOptionalTimestamp(mv.MetaData.Timestamp)
+
+		pbMV.Metadata = pbMD
+	}
+
+	return pbMV
+}
+
+// metricValueFromProto converts protobuf MetricValue to SDK MetricValue
+func metricValueFromProto(pbMV *pb.MetricValue) MetricValue {
+	mv := MetricValue{
+		Value: pbMV.Value,
+		Kind:  MetricKind(pbMV.Kind),
+	}
+
+	if pbMV.Metadata != nil {
+		md := &MetricValueMetaData{}
+
+		// Using helper functions for optional time-based fields
+		md.Window = convertOptionalDurationFromProto(pbMV.Metadata.Window)
+		md.Min = pbMV.Metadata.Min
+		md.Max = pbMV.Metadata.Max
+		md.Avg = pbMV.Metadata.Avg
+		md.StdDev = pbMV.Metadata.StdDev
+		md.Timestamp = convertOptionalTimestampFromProto(pbMV.Metadata.Timestamp)
+
+		mv.MetaData = md
+	}
+
+	return mv
+}
+
+// componentInfoToProto converts SDK ComponentInfo to protobuf ComponentInfo
+func componentInfoToProto(ci ComponentInfo) *pb.ComponentInfo {
+	pbCI := &pb.ComponentInfo{
+		Index:  ci.Index,
+		Name:   ci.Name,
+		Status: pb.ComponentStatus(safeIntToInt32(int(ci.Status))),
+	}
+
+	if ci.StatusReason != nil {
+		pbCI.StatusReason = ci.StatusReason
+	}
+	if ci.Timestamp != nil {
+		pbCI.Timestamp = timestamppb.New(*ci.Timestamp)
+	}
+
+	return pbCI
+}
+
+// componentInfoFromProto converts protobuf ComponentInfo to SDK ComponentInfo
+func componentInfoFromProto(pbCI *pb.ComponentInfo) ComponentInfo {
+	ci := ComponentInfo{
+		Index:  pbCI.Index,
+		Name:   pbCI.Name,
+		Status: ComponentStatus(pbCI.Status),
+	}
+
+	if pbCI.StatusReason != nil {
+		ci.StatusReason = pbCI.StatusReason
+	}
+	if pbCI.Timestamp != nil {
+		timestamp := pbCI.Timestamp.AsTime()
+		ci.Timestamp = &timestamp
+	}
+
+	return ci
+}
+
+// hashBoardMetricsToProto converts SDK HashBoardMetrics to protobuf HashBoardMetrics
+func hashBoardMetricsToProto(hb HashBoardMetrics) *pb.HashBoardMetrics {
+	pbHB := &pb.HashBoardMetrics{
+		ComponentInfo: componentInfoToProto(hb.ComponentInfo),
+	}
+
+	if hb.SerialNumber != nil {
+		pbHB.SerialNumber = hb.SerialNumber
+	}
+
+	// Using helper for optional metrics
+	pbHB.HashRateHs = convertOptionalMetricToProto(hb.HashRateHS)
+	pbHB.TempC = convertOptionalMetricToProto(hb.TempC)
+	pbHB.VoltageV = convertOptionalMetricToProto(hb.VoltageV)
+	pbHB.CurrentA = convertOptionalMetricToProto(hb.CurrentA)
+	pbHB.InletTempC = convertOptionalMetricToProto(hb.InletTempC)
+	pbHB.OutletTempC = convertOptionalMetricToProto(hb.OutletTempC)
+	pbHB.AmbientTempC = convertOptionalMetricToProto(hb.AmbientTempC)
+	pbHB.ChipFrequencyMhz = convertOptionalMetricToProto(hb.ChipFrequencyMHz)
+
+	if hb.ChipCount != nil {
+		pbHB.ChipCount = hb.ChipCount
+	}
+
+	// Using generic slice converters
+	pbHB.Asics = convertSliceToProto(hb.ASICs, asicMetricsToProto)
+	pbHB.FanMetrics = convertSliceToProto(hb.FanMetrics, fanMetricsToProto)
+
+	return pbHB
+}
+
+// hashBoardMetricsFromProto converts protobuf HashBoardMetrics to SDK HashBoardMetrics
+func hashBoardMetricsFromProto(pbHB *pb.HashBoardMetrics) HashBoardMetrics {
+	hb := HashBoardMetrics{
+		ComponentInfo: componentInfoFromProto(pbHB.ComponentInfo),
+	}
+
+	if pbHB.SerialNumber != nil {
+		hb.SerialNumber = pbHB.SerialNumber
+	}
+
+	// Using helper for optional metrics
+	hb.HashRateHS = convertOptionalMetricFromProto(pbHB.HashRateHs)
+	hb.TempC = convertOptionalMetricFromProto(pbHB.TempC)
+	hb.VoltageV = convertOptionalMetricFromProto(pbHB.VoltageV)
+	hb.CurrentA = convertOptionalMetricFromProto(pbHB.CurrentA)
+	hb.InletTempC = convertOptionalMetricFromProto(pbHB.InletTempC)
+	hb.OutletTempC = convertOptionalMetricFromProto(pbHB.OutletTempC)
+	hb.AmbientTempC = convertOptionalMetricFromProto(pbHB.AmbientTempC)
+	hb.ChipFrequencyMHz = convertOptionalMetricFromProto(pbHB.ChipFrequencyMhz)
+
+	if pbHB.ChipCount != nil {
+		hb.ChipCount = pbHB.ChipCount
+	}
+
+	// Using generic slice converters
+	hb.ASICs = convertSliceFromProto(pbHB.Asics, asicMetricsFromProto)
+	hb.FanMetrics = convertSliceFromProto(pbHB.FanMetrics, fanMetricsFromProto)
+
+	return hb
+}
+
+// asicMetricsToProto converts SDK ASICMetrics to protobuf ASICMetrics
+func asicMetricsToProto(asic ASICMetrics) *pb.ASICMetrics {
+	pbASIC := &pb.ASICMetrics{
+		ComponentInfo: componentInfoToProto(asic.ComponentInfo),
+	}
+
+	// Using helper for optional metrics
+	pbASIC.TempC = convertOptionalMetricToProto(asic.TempC)
+	pbASIC.FrequencyMhz = convertOptionalMetricToProto(asic.FrequencyMHz)
+	pbASIC.VoltageV = convertOptionalMetricToProto(asic.VoltageV)
+	pbASIC.HashrateHs = convertOptionalMetricToProto(asic.HashrateHS)
+
+	return pbASIC
+}
+
+// asicMetricsFromProto converts protobuf ASICMetrics to SDK ASICMetrics
+func asicMetricsFromProto(pbASIC *pb.ASICMetrics) ASICMetrics {
+	asic := ASICMetrics{
+		ComponentInfo: componentInfoFromProto(pbASIC.ComponentInfo),
+	}
+
+	// Using helper for optional metrics
+	asic.TempC = convertOptionalMetricFromProto(pbASIC.TempC)
+	asic.FrequencyMHz = convertOptionalMetricFromProto(pbASIC.FrequencyMhz)
+	asic.VoltageV = convertOptionalMetricFromProto(pbASIC.VoltageV)
+	asic.HashrateHS = convertOptionalMetricFromProto(pbASIC.HashrateHs)
+
+	return asic
+}
+
+// psuMetricsToProto converts SDK PSUMetrics to protobuf PSUMetrics
+func psuMetricsToProto(psu PSUMetrics) *pb.PSUMetrics {
+	pbPSU := &pb.PSUMetrics{
+		ComponentInfo: componentInfoToProto(psu.ComponentInfo),
+	}
+
+	// Using helper for optional metrics
+	pbPSU.OutputPowerW = convertOptionalMetricToProto(psu.OutputPowerW)
+	pbPSU.OutputVoltageV = convertOptionalMetricToProto(psu.OutputVoltageV)
+	pbPSU.OutputCurrentA = convertOptionalMetricToProto(psu.OutputCurrentA)
+	pbPSU.InputPowerW = convertOptionalMetricToProto(psu.InputPowerW)
+	pbPSU.InputVoltageV = convertOptionalMetricToProto(psu.InputVoltageV)
+	pbPSU.InputCurrentA = convertOptionalMetricToProto(psu.InputCurrentA)
+	pbPSU.HotspotTempC = convertOptionalMetricToProto(psu.HotSpotTempC)
+	pbPSU.EfficiencyPercent = convertOptionalMetricToProto(psu.EfficiencyPercent)
+
+	// Using generic slice converter
+	pbPSU.FanMetrics = convertSliceToProto(psu.FanMetrics, fanMetricsToProto)
+
+	return pbPSU
+}
+
+// psuMetricsFromProto converts protobuf PSUMetrics to SDK PSUMetrics
+func psuMetricsFromProto(pbPSU *pb.PSUMetrics) PSUMetrics {
+	psu := PSUMetrics{
+		ComponentInfo: componentInfoFromProto(pbPSU.ComponentInfo),
+	}
+
+	// Using helper for optional metrics
+	psu.OutputPowerW = convertOptionalMetricFromProto(pbPSU.OutputPowerW)
+	psu.OutputVoltageV = convertOptionalMetricFromProto(pbPSU.OutputVoltageV)
+	psu.OutputCurrentA = convertOptionalMetricFromProto(pbPSU.OutputCurrentA)
+	psu.InputPowerW = convertOptionalMetricFromProto(pbPSU.InputPowerW)
+	psu.InputVoltageV = convertOptionalMetricFromProto(pbPSU.InputVoltageV)
+	psu.InputCurrentA = convertOptionalMetricFromProto(pbPSU.InputCurrentA)
+	psu.HotSpotTempC = convertOptionalMetricFromProto(pbPSU.HotspotTempC)
+	psu.EfficiencyPercent = convertOptionalMetricFromProto(pbPSU.EfficiencyPercent)
+
+	// Using generic slice converter
+	psu.FanMetrics = convertSliceFromProto(pbPSU.FanMetrics, fanMetricsFromProto)
+
+	return psu
+}
+
+// fanMetricsToProto converts SDK FanMetrics to protobuf FanMetrics
+func fanMetricsToProto(fan FanMetrics) *pb.FanMetrics {
+	pbFan := &pb.FanMetrics{
+		ComponentInfo: componentInfoToProto(fan.ComponentInfo),
+	}
+
+	// Using helper for optional metrics
+	pbFan.Rpm = convertOptionalMetricToProto(fan.RPM)
+	pbFan.TempC = convertOptionalMetricToProto(fan.TempC)
+	pbFan.Percent = convertOptionalMetricToProto(fan.Percent)
+
+	return pbFan
+}
+
+// fanMetricsFromProto converts protobuf FanMetrics to SDK FanMetrics
+func fanMetricsFromProto(pbFan *pb.FanMetrics) FanMetrics {
+	fan := FanMetrics{
+		ComponentInfo: componentInfoFromProto(pbFan.ComponentInfo),
+	}
+
+	// Using helper for optional metrics
+	fan.RPM = convertOptionalMetricFromProto(pbFan.Rpm)
+	fan.TempC = convertOptionalMetricFromProto(pbFan.TempC)
+	fan.Percent = convertOptionalMetricFromProto(pbFan.Percent)
+
+	return fan
+}
+
+// controlBoardMetricsToProto converts SDK ControlBoardMetrics to protobuf ControlBoardMetrics
+func controlBoardMetricsToProto(cb ControlBoardMetrics) *pb.ControlBoardMetrics {
+	return &pb.ControlBoardMetrics{
+		ComponentInfo: componentInfoToProto(cb.ComponentInfo),
+	}
+}
+
+// controlBoardMetricsFromProto converts protobuf ControlBoardMetrics to SDK ControlBoardMetrics
+func controlBoardMetricsFromProto(pbCB *pb.ControlBoardMetrics) ControlBoardMetrics {
+	return ControlBoardMetrics{
+		ComponentInfo: componentInfoFromProto(pbCB.ComponentInfo),
+	}
+}
+
+// sensorMetricsToProto converts SDK SensorMetrics to protobuf SensorMetrics
+func sensorMetricsToProto(sensor SensorMetrics) *pb.SensorMetrics {
+	pbSensor := &pb.SensorMetrics{
+		ComponentInfo: componentInfoToProto(sensor.ComponentInfo),
+	}
+
+	if sensor.Type != "" {
+		pbSensor.Type = &sensor.Type
+	}
+	if sensor.Unit != "" {
+		pbSensor.Unit = &sensor.Unit
+	}
+	if sensor.Value != nil {
+		pbSensor.Value = metricValueToProto(*sensor.Value)
+	}
+
+	return pbSensor
+}
+
+// sensorMetricsFromProto converts protobuf SensorMetrics to SDK SensorMetrics
+func sensorMetricsFromProto(pbSensor *pb.SensorMetrics) SensorMetrics {
+	sensor := SensorMetrics{
+		ComponentInfo: componentInfoFromProto(pbSensor.ComponentInfo),
+	}
+
+	if pbSensor.Type != nil {
+		sensor.Type = *pbSensor.Type
+	}
+	if pbSensor.Unit != nil {
+		sensor.Unit = *pbSensor.Unit
+	}
+	if pbSensor.Value != nil {
+		mv := metricValueFromProto(pbSensor.Value)
+		sensor.Value = &mv
+	}
+
+	return sensor
+}
+
+// ============================================================================
+// Other Conversion Functions
+// ============================================================================
 
 // SecretBundle conversion functions
 func secretBundleToProto(s SecretBundle) *pb.SecretBundle {

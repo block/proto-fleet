@@ -40,100 +40,197 @@ message DeviceRef {
   string device_id = 1; 
 }
 
+// ============================================================================
+// V2 Telemetry Model - Enums
+// ============================================================================
+
+// HealthStatus represents the overall health state of a mining device.
+// Status progression typically follows: HEALTH_UNKNOWN → HEALTH_HEALTHY_* → HEALTH_WARNING → HEALTH_CRITICAL
 enum HealthStatus {
   HEALTH_STATUS_UNSPECIFIED = 0;
-  HEALTHY_INACTIVE = 1;
-  HEALTHY_ACTIVE = 2;
-  WARNING = 3;
-  CRITICAL = 4;
-  UNKNOWN = 5;
-}
-// Status response for a single device
-message DeviceStatusResponse { 
-  string device_id = 1;      // Device instance ID
-  google.protobuf.Timestamp timestamp = 2;         // Timestamp when status was collected
-  string summary = 3;        // Human-readable status summary
-  HealthStatus health = 4;   // Overall health status
-  
-  // Metrics (optional based on device type)
-  optional double hashrate_hs = 5;     // Hashrate in H/s
-  optional double power_watts = 6;      // Power consumption in watts
-  optional double temperature_celsius = 7;     // Temperature in Celsius
-  optional double efficiency_j_per_hash = 8;   // Efficiency in J/H
-  optional int32 fan_rpm = 9;          // Fan speed in RPM
-
-  // Defaults for this sample; applies to all metrics unless overridden below
-  SampleSemantics sample = 10;
-
-  // Optional per-metric overrides (keys: "hashrate_hps", "power_watts", …)
-  map<string, MetricDetail> metric_details = 11;
-
-  // Driver-specific text metadata
-  map<string, string> metadata = 12;
-
-  // Extensibility for additional metrics (Prometheus-style bag)
-  repeated Metric extra_metrics = 13;
+  HEALTH_UNKNOWN = 1;             // Unknown health state (e.g., device unreachable)
+  HEALTH_HEALTHY_ACTIVE = 2;      // Mining and all systems healthy
+  HEALTH_HEALTHY_INACTIVE = 3;    // All systems healthy but not actively mining
+  HEALTH_WARNING = 4;             // Degraded performance but still operational
+  HEALTH_CRITICAL = 5;            // Failed, non-functional, or requires immediate attention
 }
 
-message SampleSemantics {
-  Aggregation aggregation = 1;                   // If uniform for all metrics
-  google.protobuf.Duration averaging_window = 2; // e.g., 5s rolling avg
-  google.protobuf.Timestamp start_of_window = 3; // Start time of the window
+// ComponentStatus represents the health and operational state of an individual component.
+// Typical status progression: COMPONENT_STATUS_UNKNOWN → COMPONENT_STATUS_HEALTHY → COMPONENT_STATUS_WARNING → COMPONENT_STATUS_CRITICAL/COMPONENT_STATUS_OFFLINE
+enum ComponentStatus {
+  COMPONENT_STATUS_UNSPECIFIED = 0;
+  COMPONENT_STATUS_UNKNOWN = 1;   // Unknown status (e.g., no telemetry data)
+  COMPONENT_STATUS_HEALTHY = 2;   // Operating normally within acceptable parameters
+  COMPONENT_STATUS_WARNING = 3;   // Degraded performance but still functional
+  COMPONENT_STATUS_CRITICAL = 4;  // Failed, malfunctioning, or out of safe operating range
+  COMPONENT_STATUS_OFFLINE = 5;   // Not responding or unreachable
+  COMPONENT_STATUS_DISABLED = 6;  // Intentionally disabled by operator or firmware
 }
 
-enum Aggregation {
-  AGGREGATION_UNSPECIFIED = 0;
-  GAUGE   = 1;  // instantaneous best-effort
-  COUNTER = 2;  // monotonically increasing (e.g., energy_joules_total)
-  RATE    = 3;  // rate derived from counter over window (e.g., H/s)
-  DERIVED = 4;  // function of other metrics (e.g., J/H)
-}
-
-message MetricDetail {
-  Aggregation aggregation = 1;
-  google.protobuf.Duration averaging_window = 2;
-  // Optional stats if you compute a window: min/max/stddev are helpful
-  optional double min = 3;
-  optional double max = 4;
-  optional double stddev = 5;
-  optional string sensor_id = 6; // which sensor/board/die produced it
-}
-
-// Generic bag for additional telemetry
-message Metric {
-  string name = 1; // canonical snake_case, e.g., "board_voltage", "die_temp_celsius"
-  oneof value {
-    double double_value = 2;
-    int64  int_value    = 3;
-    bool   bool_value   = 4;
-    string string_value = 5;
-  }
-  Unit unit = 6;                        // pragmatic enum; include HPS, J_PER_HASH, etc.
-  MetricKind kind = 7;                  // GAUGE/COUNTER/RATE/HISTOGRAM
-  google.protobuf.Timestamp observed_at = 8;
-  google.protobuf.Duration window = 9;
-  map<string, string> labels = 10;      // board="1", die="0", etc.
-}
-
+// MetricKind represents the type of metric value and how it should be interpreted.
+// This classification affects how metrics are aggregated, displayed, and stored.
 enum MetricKind {
   METRIC_KIND_UNSPECIFIED = 0;
-  METRIC_KIND_GAUGE   = 1;  // instantaneous best-effort
-  METRIC_KIND_COUNTER = 2;  // monotonically increasing (e.g., energy_joules_total)
-  METRIC_KIND_RATE    = 3;  // rate derived from counter over window (e.g., H/s)
-  METRIC_KIND_HISTOGRAM = 4; // distribution of values over window (e.g., temp_celsius)
+  METRIC_KIND_GAUGE = 1;    // Point-in-time measurement (e.g., temperature, RPM)
+  METRIC_KIND_RATE = 2;     // Rate of change per second (e.g., hashrate as H/s)
+  METRIC_KIND_COUNTER = 3;  // Monotonically increasing counter (e.g., shares accepted, uptime seconds)
 }
 
-enum Unit {
-  UNIT_UNSPECIFIED   = 0;
-  WATT               = 1;
-  CELSIUS            = 2;
-  RPM                = 3;
-  HPS                = 10;  // hashes per second
-  JOULE_PER_HASH     = 11;
-  VOLT               = 20;
-  AMPERE             = 21;
-  BYTES              = 22;
-  PERCENT            = 23;
+// ============================================================================
+// V2 Telemetry Model - Metric Values
+// ============================================================================
+
+// MetricValue represents a single telemetry measurement with optional statistical metadata.
+// The value field is always present, while metadata is optional and provides additional context.
+message MetricValue {
+  double value = 1;                            // The measured value
+  MetricKind kind = 2;                         // Type of metric (defaults to gauge if not set)
+  optional MetricValueMetaData metadata = 3;   // Optional statistical context
+}
+
+// MetricValueMetaData provides statistical context for a metric value.
+// It supports aggregated values (min/max/avg/stddev over a time window).
+message MetricValueMetaData {
+  optional google.protobuf.Duration window = 1;      // Time window for aggregated values
+  optional double min = 2;                           // Minimum value in the window
+  optional double max = 3;                           // Maximum value in the window
+  optional double avg = 4;                           // Average value over the window
+  optional double std_dev = 5;                       // Standard deviation
+  optional google.protobuf.Timestamp timestamp = 6;  // Optional timestamp, only if differs from parent
+}
+
+// ============================================================================
+// V2 Telemetry Model - Components
+// ============================================================================
+
+// ComponentInfo contains common metadata for all hardware components.
+// It provides identification (index, name) and health status information.
+message ComponentInfo {
+  int32 index = 1;                                   // Component position/number (0-based)
+  string name = 2;                                   // Component identifier (e.g., "HashBoard 1", "PSU 0")
+  ComponentStatus status = 3;                        // Component health status
+  optional string status_reason = 4;                 // Human-readable reason for status
+  optional google.protobuf.Timestamp timestamp = 5;  // Optional timestamp, only if differs from device timestamp
+}
+
+// HashBoardMetrics represents telemetry from an ASIC hashboard.
+// Hash boards are the primary computing components containing ASIC chips.
+message HashBoardMetrics {
+  ComponentInfo component_info = 1;
+  optional string serial_number = 2;
+
+  // Performance metrics
+  optional MetricValue hash_rate_hs = 3;        // Hashrate in H/s
+  optional MetricValue temp_c = 4;              // Temperature in °C
+
+  // Electrical metrics
+  optional MetricValue voltage_v = 5;           // Voltage in V
+  optional MetricValue current_a = 6;           // Current in A
+
+  // Temperature sensors
+  optional MetricValue inlet_temp_c = 7;        // Inlet temperature in °C
+  optional MetricValue outlet_temp_c = 8;       // Outlet temperature in °C
+  optional MetricValue ambient_temp_c = 9;      // Ambient temperature in °C
+
+  // Chip information
+  optional int32 chip_count = 10;               // Total chips on this board
+  optional MetricValue chip_frequency_mhz = 11; // Board-level chip frequency in MHz
+
+  // Sub-components
+  repeated ASICMetrics asics = 12;              // Individual ASIC chip telemetry
+  repeated FanMetrics fan_metrics = 13;         // Fans associated with this hashboard
+}
+
+// ASICMetrics represents telemetry from an individual ASIC chip.
+// ASICs are sub-components of hash boards and can have independent health status.
+message ASICMetrics {
+  ComponentInfo component_info = 1;
+
+  optional MetricValue temp_c = 2;          // Temperature in °C
+  optional MetricValue frequency_mhz = 3;   // Chip frequency in MHz
+  optional MetricValue voltage_v = 4;       // Voltage in V
+  optional MetricValue hashrate_hs = 5;     // Hashrate in H/s
+}
+
+// PSUMetrics represents telemetry from a power supply unit.
+// PSUs can report both input (from wall) and output (to device) measurements.
+message PSUMetrics {
+  ComponentInfo component_info = 1;
+
+  // Output measurements (to device)
+  optional MetricValue output_power_w = 2;      // Output power in W
+  optional MetricValue output_voltage_v = 3;    // Output voltage in V
+  optional MetricValue output_current_a = 4;    // Output current in A
+
+  // Input measurements (from wall)
+  optional MetricValue input_power_w = 5;       // Input power in W
+  optional MetricValue input_voltage_v = 6;     // Input voltage in V
+  optional MetricValue input_current_a = 7;     // Input current in A
+
+  // Additional metrics
+  optional MetricValue hotspot_temp_c = 8;      // Hot spot temperature in °C
+  optional MetricValue efficiency_percent = 9;  // Efficiency as percentage
+
+  // Sub-components
+  repeated FanMetrics fan_metrics = 10;         // Fans associated with this PSU
+}
+
+// FanMetrics represents telemetry from a cooling fan.
+// Fans can report speed in both RPM (absolute) and percent (relative to max).
+message FanMetrics {
+  ComponentInfo component_info = 1;
+
+  optional MetricValue rpm = 2;       // Fan speed in RPM
+  optional MetricValue temp_c = 3;    // Temperature in °C
+  optional MetricValue percent = 4;   // Fan speed as percentage of max
+}
+
+// ControlBoardMetrics represents telemetry from the device control board.
+// Currently a placeholder for future control board specific metrics.
+message ControlBoardMetrics {
+  ComponentInfo component_info = 1;
+}
+
+// SensorMetrics represents miscellaneous sensors on the device
+// that don't fit into other specific component categories.
+// Examples: ambient temperature, humidity, vibration sensors, etc.
+message SensorMetrics {
+  ComponentInfo component_info = 1;
+
+  optional string type = 2;         // Sensor type (e.g., "humidity", "vibration")
+  optional string unit = 3;         // Measurement unit (e.g., "C", "rpm", "%")
+  optional MetricValue value = 4;   // Sensor reading
+}
+
+// ============================================================================
+// V2 Telemetry Model - Device Metrics (Top Level)
+// ============================================================================
+
+// DeviceMetrics represents the complete telemetry snapshot for a mining device.
+// It includes device-level health and aggregated metrics, as well as detailed
+// component-level metrics for hashboards, PSUs, fans, control boards, and sensors.
+message DeviceMetrics {
+  // Identity
+  string device_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+
+  // Device-level health
+  HealthStatus health = 3;
+  optional string health_reason = 4;  // Human-readable reason for health status
+
+  // Device-level aggregated metrics (optional)
+  optional MetricValue hashrate_hs = 5;      // H/s - sum of all hashrates
+  optional MetricValue temp_c = 6;           // °C - max of all temps
+  optional MetricValue fan_rpm = 7;          // RPM - max of all fan speeds
+  optional MetricValue power_w = 8;          // W - sum of all power draws
+  optional MetricValue efficiency_jh = 9;    // J/H - power efficiency
+
+  // Component-level metrics
+  repeated HashBoardMetrics hash_boards = 10;
+  repeated PSUMetrics psu_metrics = 11;
+  repeated ControlBoardMetrics control_board_metrics = 12;
+  repeated FanMetrics fan_metrics = 13;
+  repeated SensorMetrics sensor_metrics = 14;
 }
 
 
@@ -149,8 +246,8 @@ message DescribeDeviceResponse {
 }
 
 // Batch of status responses
-message StatusBatchResponse { 
-  repeated DeviceStatusResponse items = 1; 
+message StatusBatchResponse {
+  repeated DeviceMetrics items = 1;
 }
 
 // Request for batch status of multiple devices
@@ -276,7 +373,7 @@ message GetTimeSeriesDataRequest {
 }
 
 message GetTimeSeriesDataResponse {
-  repeated DeviceStatusResponse series = 1;
+  repeated DeviceMetrics series = 1;
   string next_page_token = 2; // For pagination
 }
 
@@ -308,7 +405,7 @@ service Driver {
   rpc UpdateFirmware(DeviceRef) returns (google.protobuf.Empty);
 
   // CoreV1 - Base Telemetry - Required methods
-  rpc DeviceStatus(DeviceRef) returns (DeviceStatusResponse);
+  rpc DeviceStatus(DeviceRef) returns (DeviceMetrics);
 
   // CoreV1 - Advanced Telemetry - Optional methods
   rpc GetTimeSeriesData(GetTimeSeriesDataRequest) returns (GetTimeSeriesDataResponse);
@@ -318,5 +415,5 @@ service Driver {
 
   // Optional capabilities - return Unimplemented if not supported
   rpc BatchStatus(BatchStatusRequest) returns (StatusBatchResponse);
-  rpc Subscribe(SubscribeRequest) returns (stream DeviceStatusResponse);
+  rpc Subscribe(SubscribeRequest) returns (stream DeviceMetrics);
 }
