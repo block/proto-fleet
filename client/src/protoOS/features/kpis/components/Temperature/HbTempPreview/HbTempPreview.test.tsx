@@ -49,12 +49,7 @@ vi.mock("@/protoOS/store", async (importOriginal) => {
   };
 });
 
-// Let AsicTablePreview use real logic to decide when to show spinner vs table
-vi.mock("./AsicCell", () => ({
-  default: ({ asic }: { asic: any }) => (
-    <div data-testid="asic-cell">Asic {asic.id}</div>
-  ),
-}));
+// The shared AsicTablePreview component doesn't need mocking
 
 beforeEach(() => {
   (useTemperatureUnit as Mock).mockReturnValue("C");
@@ -87,7 +82,8 @@ describe("HbTempPreview", () => {
     expect(screen.getByTestId("hb-temp-preview")).not.toHaveClass(
       "hover:bg-intent-critical-20",
     );
-    expect(screen.getByTestId("asic-table-preview")).toBeInTheDocument();
+    // Check that asic cells are rendered (the new shared component doesn't have asic-table-preview testid)
+    expect(screen.getByTestId("asic-0-0")).toBeInTheDocument();
   });
 
   it("renders temperature with correct units when temperatureUnit is set to 'F'", () => {
@@ -138,7 +134,8 @@ describe("HbTempPreview", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.queryByTestId("asic-table-preview")).not.toBeInTheDocument();
+    // Check that no asic cells are rendered when there's no data
+    expect(screen.queryByTestId("asic-0-0")).not.toBeInTheDocument();
   });
 
   it("correctly renders overheated state", async () => {

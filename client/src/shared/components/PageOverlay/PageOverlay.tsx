@@ -39,7 +39,6 @@ const PageOverlay = ({
               "animate-[fade-in_.3s_ease-in-out]": animate && show,
               "animate-[fade-out_.31s_ease-in-out]": animate && !show,
               "items-center-safe p-0!": position === "center",
-              "pt-16": position === "top",
             },
           )}
         >

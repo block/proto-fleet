@@ -4,9 +4,14 @@ import HashboardInfoModal from "./HashboardInfoModal";
 import Card from "@/protoOS/features/diagnostic/components/Card";
 import CardHeader from "@/protoOS/features/diagnostic/components/CardHeader";
 import LabeledValue from "@/protoOS/features/diagnostic/components/LabeledValue";
-import AsicTablePreview from "@/protoOS/features/kpis/components/Temperature/HbTempPreview/AsicTablePreview";
-import { useHashboardSlot, useMinerHashboard } from "@/protoOS/store";
+import {
+  useAsicDataTransform,
+  useHashboardSlot,
+  useMinerHashboard,
+  useMinerHashboardAsics,
+} from "@/protoOS/store";
 import { HashboardIndicatorV2 as HashboardIndicator } from "@/shared/assets/icons";
+import AsicTablePreview from "@/shared/components/AsicTablePreview";
 import Button from "@/shared/components/Button";
 import TemperatureValue from "@/shared/components/TemperatureValue";
 
@@ -18,8 +23,12 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
   // Fetch data directly from store
   const hashboardData = useMinerHashboard(serialNumber);
   const slot = useHashboardSlot(serialNumber);
+  const asics = useMinerHashboardAsics(serialNumber);
   const navigate = useNavigate();
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // Transform protoOS asic data to shared component format
+  const asicData = useAsicDataTransform(asics);
 
   const handleViewClick = () => {
     navigate(`${serialNumber}`);
@@ -57,7 +66,7 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
             label="Asic high"
           />
         </div>
-        <AsicTablePreview hashboardSerial={serialNumber} />
+        <AsicTablePreview asics={asicData} />
       </div>
       {isModalOpen && (
         <HashboardInfoModal

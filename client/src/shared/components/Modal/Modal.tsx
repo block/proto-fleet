@@ -27,11 +27,12 @@ interface ModalProps {
   onDismiss?: (buttonClicked?: boolean) => void;
   buttonSize?: keyof typeof buttonSizes;
   buttons?: ModalButtonProps[];
+  icon?: ReactNode | null;
+  onIconClick?: () => void;
   show?: boolean;
   showHeader?: boolean;
   title?: string;
   description?: string;
-  preventClose?: boolean;
   divider?: boolean;
   size?: keyof typeof sizes;
 }
@@ -41,6 +42,8 @@ const Modal = ({
   className,
   bodyClassName,
   contentHeader,
+  icon = <Dismiss />,
+  onIconClick,
   onDismiss,
   buttonSize,
   buttons,
@@ -48,7 +51,6 @@ const Modal = ({
   showHeader = true,
   title,
   description,
-  preventClose,
   divider = true,
   size = sizes.large,
 }: ModalProps) => {
@@ -70,7 +72,6 @@ const Modal = ({
 
   useEffect(() => {
     if (!show) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       closeModal();
     }
   }, [closeModal, show]);
@@ -105,7 +106,7 @@ const Modal = ({
     <PageOverlay show={showModal} position="top">
       <div
         className={clsx(
-          "h-fit rounded-3xl bg-surface-elevated-base p-6 shadow-300",
+          "relative h-fit rounded-3xl bg-surface-elevated-base p-6 pt-0 shadow-300",
           {
             "min-w-[min(calc(100vw-theme(spacing.4)),360px)]":
               size === sizes.small,
@@ -120,6 +121,9 @@ const Modal = ({
             "max-w-[1280px]": size === sizes.extraLarge,
             "h-full w-full max-w-full overflow-y-auto rounded-none":
               size === sizes.fullscreen,
+            "mt-16 max-h-[calc(100vh-theme(spacing.32))] overflow-auto":
+              size !== sizes.fullscreen,
+            "pt-0": showHeader,
           },
           className,
         )}
@@ -127,16 +131,15 @@ const Modal = ({
         data-testid="modal"
       >
         {showHeader && (
-          <>
+          <div className="sticky top-0 bg-surface-base pt-6">
             <Header
-              className={clsx({
-                "sticky top-0": size === sizes.fullscreen,
-              })}
               title={title}
               description={description}
               titleSize="text-heading-200"
-              icon={preventClose ? undefined : <Dismiss />}
-              iconOnClick={preventClose ? undefined : dismissModal}
+              icon={icon == null ? undefined : icon}
+              iconOnClick={
+                icon === null ? undefined : onIconClick || dismissModal
+              }
               buttonSize={buttonSize}
               buttons={buttons?.map((button) => ({
                 ...button,
@@ -145,9 +148,8 @@ const Modal = ({
               inline
               centerButton
             />
-            {!preventClose && divider && <Divider className="mt-6" />}
-            {(preventClose || !divider) && <div className="mt-6" />}
-          </>
+            {divider ? <Divider className="mt-6" /> : <div className="mt-6" />}
+          </div>
         )}
         {contentHeader && (
           <div className="mb-1 text-heading-200 text-text-primary">

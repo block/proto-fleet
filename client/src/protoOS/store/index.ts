@@ -51,6 +51,7 @@ export {
   useMinerFan,
   useMinerFans,
   useChartDataForMetric,
+  useAsicDataTransform,
 } from "./hooks/useMiner";
 
 export {

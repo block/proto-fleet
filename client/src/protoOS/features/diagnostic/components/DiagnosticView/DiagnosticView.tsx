@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import ComponentSection from "../ComponentSection";
 import ComponentSelector from "../ComponentSelector";
 import type { ComponentFilterType } from "../ComponentSelector/types";
@@ -7,8 +7,9 @@ import EmptySlotCard from "../EmptySlotCard";
 import FanStatusCard from "../FanStatusCard";
 import HashboardStatusCard from "../HashboardStatusCard";
 import PsuStatusCard from "../PsuStatusCard";
-import { useErrors, useTelemetry } from "@/protoOS/api";
-import { transformNotificationErrors } from "@/protoOS/features/diagnostic/utils/componentErrorUtils";
+import { useTelemetry } from "@/protoOS/api";
+// import { useErrors, useTelemetry } from "@/protoOS/api";
+// import { transformNotificationErrors } from "@/protoOS/features/diagnostic/utils/componentErrorUtils";
 import {
   useControlBoard,
   useFanIds,
@@ -18,7 +19,7 @@ import {
   useMinerPsus,
   usePsuIds,
 } from "@/protoOS/store";
-import ComponentStatusModal from "@/shared/components/ComponentStatusModal";
+// import ComponentStatusModal from "@/shared/components/ComponentStatusModal";
 import { ErrorBoundary } from "@/shared/components/ErrorBoundary";
 
 interface DiagnosticViewProps {
@@ -131,20 +132,20 @@ function DiagnosticView({ className }: DiagnosticViewProps) {
   useTelemetry({ level: ["asic"] });
 
   // Fetch errors
-  const { data: errors } = useErrors();
+  // const { data: errors } = useErrors();
 
   // Component filter state
   const [selectedComponent, setSelectedComponent] =
     useState<ComponentFilterType>("all");
 
   // Error modal state
-  const [showErrorModal, setShowErrorModal] = useState(false);
+  // const [showErrorModal, setShowErrorModal] = useState(false);
 
   // Transform errors for modal
-  const componentErrors = useMemo(() => {
-    if (!errors || errors.length === 0) return [];
-    return transformNotificationErrors(errors);
-  }, [errors]);
+  // const componentErrors = useMemo(() => {
+  //   if (!errors || errors.length === 0) return [];
+  //   return transformNotificationErrors(errors);
+  // }, [errors]);
 
   const shouldShowComponent = (component: ComponentFilterType) => {
     return selectedComponent === "all" || selectedComponent === component;
@@ -191,13 +192,15 @@ function DiagnosticView({ className }: DiagnosticViewProps) {
         )}
       </div>
 
-      {/* Component Errors Modal */}
-      {showErrorModal && (
+      {/* Component Errors Modal - TODO: Update to use new ComponentStatusModal interface */}
+      {/* {showErrorModal && (
         <ComponentStatusModal
-          errors={componentErrors}
+          summary="Component errors"
+          componentType="controlBoard"
+          issues={componentErrors}
           onDismiss={() => setShowErrorModal(false)}
         />
-      )}
+      )} */}
     </div>
   );
 }

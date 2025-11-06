@@ -8,6 +8,7 @@ import type {
   PsuData,
 } from "../types";
 import useMinerStore from "../useMinerStore";
+import type { AsicData as AsicTableData } from "@/shared/components/AsicTablePreview";
 import type { ChartData } from "@/shared/components/LineChart";
 
 // =============================================================================
@@ -268,4 +269,42 @@ export const useChartDataForMetric = (
 
     return { chartData, chartLines };
   }, [miner, hashboardsTelemetry, hashboardsHardware, intervalMs, metricName]);
+};
+
+// =============================================================================
+// Data Transformation Hooks
+// =============================================================================
+
+/**
+ * Transforms ProtoOS ASIC data to the shared AsicData format used by AsicTablePreview component.
+ *
+ * This hook provides a consistent way to transform the store's ASIC data structure
+ * (which includes hardware and telemetry information) into the simplified format
+ * expected by the shared AsicTablePreview component.
+ *
+ * @param asics - Array of ProtoOS ASIC data from the store
+ * @returns Array of AsicData formatted for AsicTablePreview component
+ *
+ * @example
+ * ```typescript
+ * const asics = useMinerHashboardAsics(serialNumber);
+ * const asicData = useAsicDataTransform(asics);
+ *
+ * return <AsicTablePreview asics={asicData} />;
+ * ```
+ */
+export const useAsicDataTransform = (
+  asics: AsicData[] | undefined | null,
+): AsicTableData[] => {
+  return useMemo((): AsicTableData[] => {
+    if (!asics || asics.length === 0) return [];
+
+    return asics
+      .filter((asic) => asic.row !== undefined && asic.column !== undefined)
+      .map((asic) => ({
+        row: asic.row!,
+        col: asic.column!,
+        value: asic.temperature?.latest?.value ?? null,
+      }));
+  }, [asics]);
 };

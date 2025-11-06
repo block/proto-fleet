@@ -150,7 +150,7 @@ const WelcomeFlow = ({
           title="No Proto miners found"
           description="Ensure that your miner is plugged in with blinking LEDs and that
               it is connected to the network shown below."
-          preventClose
+          showHeader={false}
           size="small"
         >
           <div className="py-4">

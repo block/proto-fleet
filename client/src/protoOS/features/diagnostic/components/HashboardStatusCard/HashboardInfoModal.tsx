@@ -1,13 +1,15 @@
 import { useMemo } from "react";
 import { useHashboards } from "@/protoOS/api";
 import MetadataRow from "@/protoOS/features/diagnostic/components/MetadataRow";
-import AsicTablePreview from "@/protoOS/features/kpis/components/Temperature/HbTempPreview/AsicTablePreview";
 import {
+  useAsicDataTransform,
   useHashboardSlot,
   useMinerHashboard,
+  useMinerHashboardAsics,
   useTemperatureUnit,
 } from "@/protoOS/store";
 import { Hashboard } from "@/shared/assets/icons";
+import AsicTablePreview from "@/shared/components/AsicTablePreview";
 import Header from "@/shared/components/Header";
 import Modal from "@/shared/components/Modal";
 import Stats, { type StatsProps } from "@/shared/components/Stats";
@@ -66,8 +68,12 @@ function HashboardInfoModal({ serial, onDismiss }: HashboardInfoModalProps) {
   // Get hashboard data from store (combines hardware + telemetry)
   const hashboardData = useMinerHashboard(serial);
   const slotNumber = useHashboardSlot(serial);
+  const asics = useMinerHashboardAsics(serial);
 
   const { data: hashboardsInfo } = useHashboards();
+
+  // Transform protoOS asic data to shared component format
+  const asicData = useAsicDataTransform(asics);
 
   // Get hashboard metadata
   const hashboardMetadata = useMemo(() => {
@@ -156,7 +162,7 @@ function HashboardInfoModal({ serial, onDismiss }: HashboardInfoModalProps) {
             </div>
           )}
           {/* ASIC Table */}
-          <AsicTablePreview hashboardSerial={serial} />
+          <AsicTablePreview asics={asicData} />
         </div>
 
         <div className="flex flex-col">

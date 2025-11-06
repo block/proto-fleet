@@ -1,14 +1,16 @@
 import { ReactNode, useMemo } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
-import AsicTablePreview from "./AsicTablePreview";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { criticalTemp } from "@/protoOS/features/kpis/constants";
 import {
   convertAndFormatMeasurement,
+  useAsicDataTransform,
   useMinerHashboard,
+  useMinerHashboardAsics,
   useTemperatureUnit,
 } from "@/protoOS/store";
+import AsicTablePreview from "@/shared/components/AsicTablePreview";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
 type HbTempPreviewProps = {
@@ -72,6 +74,10 @@ const HbTempPreview = ({ serial, slot }: HbTempPreviewProps) => {
   const temperatureUnit = useTemperatureUnit();
 
   const hashboard = useMinerHashboard(serial);
+  const asics = useMinerHashboardAsics(serial || "");
+
+  // Transform protoOS asic data to shared component format
+  const asicData = useAsicDataTransform(asics);
 
   const isOverheating = useMemo(() => {
     if (!hashboard || !hashboard.temperature?.latest) return false;
@@ -126,7 +132,13 @@ const HbTempPreview = ({ serial, slot }: HbTempPreviewProps) => {
           </div>
 
           <div className="p-4">
-            <AsicTablePreview hashboardSerial={serial} />
+            {asicData.length > 0 ? (
+              <AsicTablePreview asics={asicData} />
+            ) : (
+              <div className="flex h-10 items-center justify-center">
+                <div className="text-text-primary-50">Loading...</div>
+              </div>
+            )}
           </div>
         </>
       ) : (

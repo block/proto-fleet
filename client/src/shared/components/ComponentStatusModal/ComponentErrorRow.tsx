@@ -1,35 +1,19 @@
-import type { ComponentError, ComponentType } from "./types";
-import {
-  ControlBoard,
-  Fan,
-  Hashboard,
-  LightningAlt,
-} from "@/shared/assets/icons";
+import type { ComponentError } from "./types";
+import { Alert } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
+import Divider from "@/shared/components/Divider";
 import Row from "@/shared/components/Row";
 
 interface ComponentErrorRowProps {
   error: ComponentError;
+  divider: boolean;
 }
 
-const getComponentIcon = (type: ComponentType) => {
-  switch (type) {
-    case "fan":
-      return <Fan width={iconSizes.medium} />;
-    case "hashboard":
-      return <Hashboard width={iconSizes.medium} />;
-    case "psu":
-      return <LightningAlt width={iconSizes.medium} />;
-    case "controlBoard":
-      return <ControlBoard width={iconSizes.medium} />;
-  }
-};
-
-const ComponentErrorRow = ({ error }: ComponentErrorRowProps) => {
+const ComponentErrorRow = ({ error, divider }: ComponentErrorRowProps) => {
   const formatTimestamp = (timestamp?: number) => {
     if (!timestamp) return "";
     const date = new Date(timestamp * 1000);
-    return `on ${date.toLocaleDateString(undefined, {
+    return `${date.toLocaleDateString(undefined, {
       month: "numeric",
       day: "numeric",
       year: "2-digit",
@@ -41,21 +25,26 @@ const ComponentErrorRow = ({ error }: ComponentErrorRowProps) => {
   };
 
   return (
-    <Row
-      prefixIcon={
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-core-primary-5">
-          {getComponentIcon(error.componentType)}
+    <>
+      <Row
+        prefixIcon={
+          <div className="flex h-6 w-6 items-center justify-center rounded bg-core-primary-5">
+            <Alert className="text-text-critical" width={iconSizes.small} />
+          </div>
+        }
+        divider={false}
+      >
+        <div className="flex flex-col">
+          <div className="text-emphasis-300 font-medium text-text-primary">
+            {error.message}
+          </div>
+          <div className="text-200 text-text-primary-50">
+            {formatTimestamp(error.timestamp)}
+          </div>
         </div>
-      }
-      divider={false}
-    >
-      <div className="text-emphasis-300 text-text-primary">
-        {error.componentName}
-      </div>
-      <div className="text-200 text-text-primary-70">
-        {error.message} {formatTimestamp(error.timestamp)}
-      </div>
-    </Row>
+      </Row>
+      {divider && <Divider />}
+    </>
   );
 };
 
