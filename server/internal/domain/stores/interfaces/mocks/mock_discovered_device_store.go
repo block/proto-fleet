@@ -35,6 +35,37 @@ func (m *MockDiscoveredDeviceStore) EXPECT() *MockDiscoveredDeviceStoreMockRecor
 	return m.recorder
 }
 
+// CountActiveUnpairedDevices mocks base method.
+func (m *MockDiscoveredDeviceStore) CountActiveUnpairedDevices(ctx context.Context, orgID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountActiveUnpairedDevices", ctx, orgID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountActiveUnpairedDevices indicates an expected call of CountActiveUnpairedDevices.
+func (mr *MockDiscoveredDeviceStoreMockRecorder) CountActiveUnpairedDevices(ctx, orgID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountActiveUnpairedDevices", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).CountActiveUnpairedDevices), ctx, orgID)
+}
+
+// GetActiveUnpairedDevices mocks base method.
+func (m *MockDiscoveredDeviceStore) GetActiveUnpairedDevices(ctx context.Context, orgID int64, cursor string, limit int32) ([]*models.DiscoveredDevice, string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetActiveUnpairedDevices", ctx, orgID, cursor, limit)
+	ret0, _ := ret[0].([]*models.DiscoveredDevice)
+	ret1, _ := ret[1].(string)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetActiveUnpairedDevices indicates an expected call of GetActiveUnpairedDevices.
+func (mr *MockDiscoveredDeviceStoreMockRecorder) GetActiveUnpairedDevices(ctx, orgID, cursor, limit interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveUnpairedDevices", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).GetActiveUnpairedDevices), ctx, orgID, cursor, limit)
+}
+
 // GetDatabaseID mocks base method.
 func (m *MockDiscoveredDeviceStore) GetDatabaseID(ctx context.Context, doi models.DeviceOrgIdentifier) (int64, error) {
 	m.ctrl.T.Helper()

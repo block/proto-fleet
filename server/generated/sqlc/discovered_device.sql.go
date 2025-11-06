@@ -10,6 +10,113 @@ import (
 	"database/sql"
 )
 
+const countActiveUnpairedDiscoveredDevices = `-- name: CountActiveUnpairedDiscoveredDevices :one
+SELECT COUNT(*) as total
+FROM discovered_device dd
+LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL
+WHERE dd.org_id = ?
+    AND dd.is_active = TRUE
+    AND dd.deleted_at IS NULL
+    AND d.id IS NULL
+`
+
+func (q *Queries) CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgID int64) (int64, error) {
+	row := q.queryRow(ctx, q.countActiveUnpairedDiscoveredDevicesStmt, countActiveUnpairedDiscoveredDevices, orgID)
+	var total int64
+	err := row.Scan(&total)
+	return total, err
+}
+
+const getActiveUnpairedDiscoveredDevices = `-- name: GetActiveUnpairedDiscoveredDevices :many
+SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer,
+       dd.type, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata,
+       dd.first_discovered, dd.last_seen, dd.is_active,
+       dd.created_at, dd.updated_at, dd.deleted_at
+FROM discovered_device dd
+LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL
+WHERE dd.org_id = ?
+    AND dd.is_active = TRUE
+    AND dd.deleted_at IS NULL
+    AND d.id IS NULL
+    AND (
+        -- If cursor provided, filter by it, otherwise return all
+        COALESCE(?, 0) = 0
+        OR dd.id > ?
+    )
+ORDER BY dd.id
+LIMIT ?
+`
+
+type GetActiveUnpairedDiscoveredDevicesParams struct {
+	OrgID    int64
+	CursorID sql.NullInt64
+	Limit    int32
+}
+
+type GetActiveUnpairedDiscoveredDevicesRow struct {
+	ID                int64
+	OrgID             int64
+	DeviceIdentifier  string
+	Model             sql.NullString
+	Manufacturer      sql.NullString
+	Type              string
+	IpAddress         string
+	Port              string
+	UrlScheme         string
+	DiscoveryMetadata sql.NullString
+	FirstDiscovered   sql.NullTime
+	LastSeen          sql.NullTime
+	IsActive          bool
+	CreatedAt         sql.NullTime
+	UpdatedAt         sql.NullTime
+	DeletedAt         sql.NullTime
+}
+
+func (q *Queries) GetActiveUnpairedDiscoveredDevices(ctx context.Context, arg GetActiveUnpairedDiscoveredDevicesParams) ([]GetActiveUnpairedDiscoveredDevicesRow, error) {
+	rows, err := q.query(ctx, q.getActiveUnpairedDiscoveredDevicesStmt, getActiveUnpairedDiscoveredDevices,
+		arg.OrgID,
+		arg.CursorID,
+		arg.CursorID,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetActiveUnpairedDiscoveredDevicesRow
+	for rows.Next() {
+		var i GetActiveUnpairedDiscoveredDevicesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.DeviceIdentifier,
+			&i.Model,
+			&i.Manufacturer,
+			&i.Type,
+			&i.IpAddress,
+			&i.Port,
+			&i.UrlScheme,
+			&i.DiscoveryMetadata,
+			&i.FirstDiscovered,
+			&i.LastSeen,
+			&i.IsActive,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDiscoveredDeviceByDeviceIdentifier = `-- name: GetDiscoveredDeviceByDeviceIdentifier :one
 SELECT id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, created_at, updated_at, deleted_at, is_active
 FROM discovered_device

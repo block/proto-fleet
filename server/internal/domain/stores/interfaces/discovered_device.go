@@ -18,4 +18,12 @@ type DiscoveredDeviceStore interface {
 
 	// GetDatabaseID retrieves the database ID (primary key) for a discovered device
 	GetDatabaseID(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier) (int64, error)
+
+	// GetActiveUnpairedDevices retrieves active discovered devices that haven't been paired yet
+	// cursor is an opaque pagination token (empty string for first page)
+	// Returns devices, nextCursor (empty if no more pages), and error
+	GetActiveUnpairedDevices(ctx context.Context, orgID int64, cursor string, limit int32) ([]*discoverymodels.DiscoveredDevice, string, error)
+
+	// CountActiveUnpairedDevices returns the total count of active unpaired devices for an organization
+	CountActiveUnpairedDevices(ctx context.Context, orgID int64) (int64, error)
 }

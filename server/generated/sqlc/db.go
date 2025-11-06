@@ -27,6 +27,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.addPoolToConfigurationStmt, err = db.PrepareContext(ctx, addPoolToConfiguration); err != nil {
 		return nil, fmt.Errorf("error preparing query AddPoolToConfiguration: %w", err)
 	}
+	if q.countActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, countActiveUnpairedDiscoveredDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query CountActiveUnpairedDiscoveredDevices: %w", err)
+	}
 	if q.countMinersByStateStmt, err = db.PrepareContext(ctx, countMinersByState); err != nil {
 		return nil, fmt.Errorf("error preparing query CountMinersByState: %w", err)
 	}
@@ -59,6 +62,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.deletePoolConfigurationPoolsStmt, err = db.PrepareContext(ctx, deletePoolConfigurationPools); err != nil {
 		return nil, fmt.Errorf("error preparing query DeletePoolConfigurationPools: %w", err)
+	}
+	if q.getActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, getActiveUnpairedDiscoveredDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query GetActiveUnpairedDiscoveredDevices: %w", err)
 	}
 	if q.getAllPairedDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getAllPairedDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllPairedDeviceIdentifiers: %w", err)
@@ -295,6 +301,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing addPoolToConfigurationStmt: %w", cerr)
 		}
 	}
+	if q.countActiveUnpairedDiscoveredDevicesStmt != nil {
+		if cerr := q.countActiveUnpairedDiscoveredDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countActiveUnpairedDiscoveredDevicesStmt: %w", cerr)
+		}
+	}
 	if q.countMinersByStateStmt != nil {
 		if cerr := q.countMinersByStateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countMinersByStateStmt: %w", cerr)
@@ -348,6 +359,11 @@ func (q *Queries) Close() error {
 	if q.deletePoolConfigurationPoolsStmt != nil {
 		if cerr := q.deletePoolConfigurationPoolsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deletePoolConfigurationPoolsStmt: %w", cerr)
+		}
+	}
+	if q.getActiveUnpairedDiscoveredDevicesStmt != nil {
+		if cerr := q.getActiveUnpairedDiscoveredDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getActiveUnpairedDiscoveredDevicesStmt: %w", cerr)
 		}
 	}
 	if q.getAllPairedDeviceIdentifiersStmt != nil {
@@ -765,6 +781,7 @@ type Queries struct {
 	db                                                  DBTX
 	tx                                                  *sql.Tx
 	addPoolToConfigurationStmt                          *sql.Stmt
+	countActiveUnpairedDiscoveredDevicesStmt            *sql.Stmt
 	countMinersByStateStmt                              *sql.Stmt
 	createCommandBatchLogStmt                           *sql.Stmt
 	createOrganizationStmt                              *sql.Stmt
@@ -776,6 +793,7 @@ type Queries struct {
 	deletePoolStmt                                      *sql.Stmt
 	deletePoolConfigurationStmt                         *sql.Stmt
 	deletePoolConfigurationPoolsStmt                    *sql.Stmt
+	getActiveUnpairedDiscoveredDevicesStmt              *sql.Stmt
 	getAllPairedDeviceIdentifiersStmt                   *sql.Stmt
 	getAvailableMinerTypesStmt                          *sql.Stmt
 	getBatchLogStmt                                     *sql.Stmt
@@ -858,6 +876,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		db:                                                  tx,
 		tx:                                                  tx,
 		addPoolToConfigurationStmt:                          q.addPoolToConfigurationStmt,
+		countActiveUnpairedDiscoveredDevicesStmt:            q.countActiveUnpairedDiscoveredDevicesStmt,
 		countMinersByStateStmt:                              q.countMinersByStateStmt,
 		createCommandBatchLogStmt:                           q.createCommandBatchLogStmt,
 		createOrganizationStmt:                              q.createOrganizationStmt,
@@ -869,6 +888,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deletePoolStmt:                                      q.deletePoolStmt,
 		deletePoolConfigurationStmt:                         q.deletePoolConfigurationStmt,
 		deletePoolConfigurationPoolsStmt:                    q.deletePoolConfigurationPoolsStmt,
+		getActiveUnpairedDiscoveredDevicesStmt:              q.getActiveUnpairedDiscoveredDevicesStmt,
 		getAllPairedDeviceIdentifiersStmt:                   q.getAllPairedDeviceIdentifiersStmt,
 		getAvailableMinerTypesStmt:                          q.getAvailableMinerTypesStmt,
 		getBatchLogStmt:                                     q.getBatchLogStmt,
