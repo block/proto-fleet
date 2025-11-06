@@ -37,6 +37,9 @@ const (
 	// FleetManagementServiceListPairedMinersProcedure is the fully-qualified name of the
 	// FleetManagementService's ListPairedMiners RPC.
 	FleetManagementServiceListPairedMinersProcedure = "/fleetmanagement.v1.FleetManagementService/ListPairedMiners"
+	// FleetManagementServiceListUnpairedDevicesProcedure is the fully-qualified name of the
+	// FleetManagementService's ListUnpairedDevices RPC.
+	FleetManagementServiceListUnpairedDevicesProcedure = "/fleetmanagement.v1.FleetManagementService/ListUnpairedDevices"
 	// FleetManagementServiceListMinerStateSnapshotsProcedure is the fully-qualified name of the
 	// FleetManagementService's ListMinerStateSnapshots RPC.
 	FleetManagementServiceListMinerStateSnapshotsProcedure = "/fleetmanagement.v1.FleetManagementService/ListMinerStateSnapshots"
@@ -54,6 +57,9 @@ type FleetManagementServiceClient interface {
 	// Lists all miners that have been paired with the fleet management system
 	// Supports pagination for handling large fleets efficiently
 	ListPairedMiners(context.Context, *connect.Request[v1.ListPairedMinersRequest]) (*connect.Response[v1.ListPairedMinersResponse], error)
+	// Lists all discovered devices that have not been paired yet
+	// Returns active discovered devices with pagination support
+	ListUnpairedDevices(context.Context, *connect.Request[v1.ListUnpairedDevicesRequest]) (*connect.Response[v1.ListUnpairedDevicesResponse], error)
 	// List all miners in the fleet optionally with their telemetry data
 	// Returns a paginated list of miners with their operational status and metrics
 	ListMinerStateSnapshots(context.Context, *connect.Request[v1.ListMinerStateSnapshotsRequest]) (*connect.Response[v1.ListMinerStateSnapshotsResponse], error)
@@ -80,6 +86,11 @@ func NewFleetManagementServiceClient(httpClient connect.HTTPClient, baseURL stri
 			baseURL+FleetManagementServiceListPairedMinersProcedure,
 			opts...,
 		),
+		listUnpairedDevices: connect.NewClient[v1.ListUnpairedDevicesRequest, v1.ListUnpairedDevicesResponse](
+			httpClient,
+			baseURL+FleetManagementServiceListUnpairedDevicesProcedure,
+			opts...,
+		),
 		listMinerStateSnapshots: connect.NewClient[v1.ListMinerStateSnapshotsRequest, v1.ListMinerStateSnapshotsResponse](
 			httpClient,
 			baseURL+FleetManagementServiceListMinerStateSnapshotsProcedure,
@@ -101,6 +112,7 @@ func NewFleetManagementServiceClient(httpClient connect.HTTPClient, baseURL stri
 // fleetManagementServiceClient implements FleetManagementServiceClient.
 type fleetManagementServiceClient struct {
 	listPairedMiners        *connect.Client[v1.ListPairedMinersRequest, v1.ListPairedMinersResponse]
+	listUnpairedDevices     *connect.Client[v1.ListUnpairedDevicesRequest, v1.ListUnpairedDevicesResponse]
 	listMinerStateSnapshots *connect.Client[v1.ListMinerStateSnapshotsRequest, v1.ListMinerStateSnapshotsResponse]
 	streamMinerUpdates      *connect.Client[v1.StreamMinerUpdatesRequest, v1.StreamMinerUpdatesResponse]
 	streamMinerListUpdates  *connect.Client[v1.StreamMinerListUpdatesRequest, v1.StreamMinerListUpdatesResponse]
@@ -109,6 +121,11 @@ type fleetManagementServiceClient struct {
 // ListPairedMiners calls fleetmanagement.v1.FleetManagementService.ListPairedMiners.
 func (c *fleetManagementServiceClient) ListPairedMiners(ctx context.Context, req *connect.Request[v1.ListPairedMinersRequest]) (*connect.Response[v1.ListPairedMinersResponse], error) {
 	return c.listPairedMiners.CallUnary(ctx, req)
+}
+
+// ListUnpairedDevices calls fleetmanagement.v1.FleetManagementService.ListUnpairedDevices.
+func (c *fleetManagementServiceClient) ListUnpairedDevices(ctx context.Context, req *connect.Request[v1.ListUnpairedDevicesRequest]) (*connect.Response[v1.ListUnpairedDevicesResponse], error) {
+	return c.listUnpairedDevices.CallUnary(ctx, req)
 }
 
 // ListMinerStateSnapshots calls fleetmanagement.v1.FleetManagementService.ListMinerStateSnapshots.
@@ -132,6 +149,9 @@ type FleetManagementServiceHandler interface {
 	// Lists all miners that have been paired with the fleet management system
 	// Supports pagination for handling large fleets efficiently
 	ListPairedMiners(context.Context, *connect.Request[v1.ListPairedMinersRequest]) (*connect.Response[v1.ListPairedMinersResponse], error)
+	// Lists all discovered devices that have not been paired yet
+	// Returns active discovered devices with pagination support
+	ListUnpairedDevices(context.Context, *connect.Request[v1.ListUnpairedDevicesRequest]) (*connect.Response[v1.ListUnpairedDevicesResponse], error)
 	// List all miners in the fleet optionally with their telemetry data
 	// Returns a paginated list of miners with their operational status and metrics
 	ListMinerStateSnapshots(context.Context, *connect.Request[v1.ListMinerStateSnapshotsRequest]) (*connect.Response[v1.ListMinerStateSnapshotsResponse], error)
@@ -154,6 +174,11 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 		svc.ListPairedMiners,
 		opts...,
 	)
+	fleetManagementServiceListUnpairedDevicesHandler := connect.NewUnaryHandler(
+		FleetManagementServiceListUnpairedDevicesProcedure,
+		svc.ListUnpairedDevices,
+		opts...,
+	)
 	fleetManagementServiceListMinerStateSnapshotsHandler := connect.NewUnaryHandler(
 		FleetManagementServiceListMinerStateSnapshotsProcedure,
 		svc.ListMinerStateSnapshots,
@@ -173,6 +198,8 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 		switch r.URL.Path {
 		case FleetManagementServiceListPairedMinersProcedure:
 			fleetManagementServiceListPairedMinersHandler.ServeHTTP(w, r)
+		case FleetManagementServiceListUnpairedDevicesProcedure:
+			fleetManagementServiceListUnpairedDevicesHandler.ServeHTTP(w, r)
 		case FleetManagementServiceListMinerStateSnapshotsProcedure:
 			fleetManagementServiceListMinerStateSnapshotsHandler.ServeHTTP(w, r)
 		case FleetManagementServiceStreamMinerUpdatesProcedure:
@@ -190,6 +217,10 @@ type UnimplementedFleetManagementServiceHandler struct{}
 
 func (UnimplementedFleetManagementServiceHandler) ListPairedMiners(context.Context, *connect.Request[v1.ListPairedMinersRequest]) (*connect.Response[v1.ListPairedMinersResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.ListPairedMiners is not implemented"))
+}
+
+func (UnimplementedFleetManagementServiceHandler) ListUnpairedDevices(context.Context, *connect.Request[v1.ListUnpairedDevicesRequest]) (*connect.Response[v1.ListUnpairedDevicesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.ListUnpairedDevices is not implemented"))
 }
 
 func (UnimplementedFleetManagementServiceHandler) ListMinerStateSnapshots(context.Context, *connect.Request[v1.ListMinerStateSnapshotsRequest]) (*connect.Response[v1.ListMinerStateSnapshotsResponse], error) {

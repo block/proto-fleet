@@ -5,12 +5,17 @@ package fleetmanagement.v1;
 import "google/protobuf/timestamp.proto";
 import "common/v1/measurement.proto";
 import "telemetry/v1/telemetry.proto";
+import "capabilities/v1/capabilities.proto";
 
 // Service for managing fleet-wide settings and configurations
 service FleetManagementService {
   // Lists all miners that have been paired with the fleet management system
   // Supports pagination for handling large fleets efficiently
   rpc ListPairedMiners(ListPairedMinersRequest) returns (ListPairedMinersResponse);
+
+  // Lists all discovered devices that have not been paired yet
+  // Returns active discovered devices with pagination support
+  rpc ListUnpairedDevices(ListUnpairedDevicesRequest) returns (ListUnpairedDevicesResponse);
 
   // List all miners in the fleet optionally with their telemetry data
   // Returns a paginated list of miners with their operational status and metrics
@@ -72,6 +77,59 @@ message PairedDevice {
   // Format: XX:XX:XX:XX:XX:XX
   // Used for network identification
   string mac_address = 3;
+}
+
+// Request to list unpaired discovered devices with pagination support
+message ListUnpairedDevicesRequest {
+  // Maximum number of devices to return in a single response
+  // Server may return fewer devices than specified
+  // If not specified, a server-defined default will be used
+  int32 page_size = 1;
+
+  // A pagination cursor returned by a previous call to this endpoint
+  // Provide this cursor to retrieve the next set of results
+  // Leave empty for first request
+  string cursor = 2;
+}
+
+// Response containing a list of unpaired discovered devices with pagination support
+message ListUnpairedDevicesResponse {
+  // List of discovered devices that have not been paired yet
+  repeated DiscoveredDevice devices = 1;
+
+  // The pagination cursor to be used in a subsequent request
+  // If empty, this is the final page of results
+  string cursor = 2;
+
+  // Total number of unpaired devices available across all pages
+  int32 total_devices = 3;
+}
+
+// Represents a device that has been discovered but not yet paired
+message DiscoveredDevice {
+  // unique identifier
+  string device_identifier = 1;
+
+  // IP address of the discovered device
+  string ip_address = 2;
+
+  // Port number the device is listening on
+  string port = 3;
+
+  // URL scheme (http or https)
+  string url_scheme = 4;
+
+  // Device model name
+  string model = 5;
+
+  // Manufacturer name
+  string manufacturer = 6;
+
+  // Device type (e.g., antminer, proto)
+  string type = 7;
+
+  // Device capabilities indicating supported features
+  capabilities.v1.MinerCapabilities capabilities = 8;
 }
 
 // MinerStateSnapshot represents the operational state of a mining device

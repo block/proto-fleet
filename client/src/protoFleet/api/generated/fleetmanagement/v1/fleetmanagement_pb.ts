@@ -23,6 +23,8 @@ import type {
 import { file_common_v1_measurement } from "../../common/v1/measurement_pb";
 import type { MinerStateCounts } from "../../telemetry/v1/telemetry_pb";
 import { file_telemetry_v1_telemetry } from "../../telemetry/v1/telemetry_pb";
+import type { MinerCapabilities } from "../../capabilities/v1/capabilities_pb";
+import { file_capabilities_v1_capabilities } from "../../capabilities/v1/capabilities_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
@@ -31,11 +33,12 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_fleetmanagement_v1_fleetmanagement: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "CihmbGVldG1hbmFnZW1lbnQvdjEvZmxlZXRtYW5hZ2VtZW50LnByb3RvEhJmbGVldG1hbmFnZW1lbnQudjEiPAoXTGlzdFBhaXJlZE1pbmVyc1JlcXVlc3QSEQoJcGFnZV9zaXplGAEgASgFEg4KBmN1cnNvchgCIAEoCSJyChhMaXN0UGFpcmVkTWluZXJzUmVzcG9uc2USMAoGbWluZXJzGAEgAygLMiAuZmxlZXRtYW5hZ2VtZW50LnYxLlBhaXJlZERldmljZRIOCgZjdXJzb3IYAiABKAkSFAoMdG90YWxfbWluZXJzGAMgASgFIlUKDFBhaXJlZERldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIVCg1zZXJpYWxfbnVtYmVyGAIgASgJEhMKC21hY19hZGRyZXNzGAMgASgJItwDChJNaW5lclN0YXRlU25hcHNob3QSGQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAkSDAoEbmFtZRgCIAEoCRITCgttYWNfYWRkcmVzcxgDIAEoCRIVCg1zZXJpYWxfbnVtYmVyGAQgASgJEisKC3Bvd2VyX3VzYWdlGAUgAygLMhYuY29tbW9uLnYxLk1lYXN1cmVtZW50EisKC3RlbXBlcmF0dXJlGAYgAygLMhYuY29tbW9uLnYxLk1lYXN1cmVtZW50EigKCGhhc2hyYXRlGAcgAygLMhYuY29tbW9uLnYxLk1lYXN1cmVtZW50EioKCmVmZmljaWVuY3kYCCADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSOAoGc3RhdHVzGAkgASgLMiguZmxlZXRtYW5hZ2VtZW50LnYxLk1pbmVyQ29tcG9uZW50U3RhdHVzEi0KCXRpbWVzdGFtcBgKIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKaXBfYWRkcmVzcxgLIAEoCRILCgN1cmwYDCABKAkSNwoNZGV2aWNlX3N0YXR1cxgNIAEoDjIgLmZsZWV0bWFuYWdlbWVudC52MS5EZXZpY2VTdGF0dXMi8QEKFE1pbmVyQ29tcG9uZW50U3RhdHVzEjoKDWNvbnRyb2xfYm9hcmQYASABKA4yIy5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzEjEKBGZhbnMYAiABKA4yIy5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzEjgKC2hhc2hfYm9hcmRzGAMgASgOMiMuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1cxIwCgNwc3UYBCABKA4yIy5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzIogDChFNZWFzdXJlbWVudENvbmZpZxJPChBtZWFzdXJlbWVudF90eXBlGAEgASgOMjUuZmxlZXRtYW5hZ2VtZW50LnYxLk1lYXN1cmVtZW50Q29uZmlnLk1lYXN1cmVtZW50VHlwZRIvCglkYXRhX21vZGUYAiABKA4yHC5mbGVldG1hbmFnZW1lbnQudjEuRGF0YU1vZGUSNwoSdGltZV9zZXJpZXNfY29uZmlnGAMgASgLMhsuY29tbW9uLnYxLlRpbWVTZXJpZXNDb25maWcitwEKD01lYXN1cmVtZW50VHlwZRIgChxNRUFTVVJFTUVOVF9UWVBFX1VOU1BFQ0lGSUVEEAASIAocTUVBU1VSRU1FTlRfVFlQRV9QT1dFUl9VU0FHRRABEiAKHE1FQVNVUkVNRU5UX1RZUEVfVEVNUEVSQVRVUkUQAhIdChlNRUFTVVJFTUVOVF9UWVBFX0hBU0hSQVRFEAMSHwobTUVBU1VSRU1FTlRfVFlQRV9FRkZJQ0lFTkNZEAQipgIKHkxpc3RNaW5lclN0YXRlU25hcHNob3RzUmVxdWVzdBIRCglwYWdlX3NpemUYASABKAUSDgoGY3Vyc29yGAIgASgJEi8KCWRhdGFfbW9kZRgDIAEoDjIcLmZsZWV0bWFuYWdlbWVudC52MS5EYXRhTW9kZRI3ChJ0aW1lX3Nlcmllc19jb25maWcYBCABKAsyGy5jb21tb24udjEuVGltZVNlcmllc0NvbmZpZxJCChNtZWFzdXJlbWVudF9jb25maWdzGAUgAygLMiUuZmxlZXRtYW5hZ2VtZW50LnYxLk1lYXN1cmVtZW50Q29uZmlnEjMKBmZpbHRlchgGIAEoCzIjLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lckxpc3RGaWx0ZXIihAEKFUNvbXBvbmVudFN0YXR1c0ZpbHRlchI0Cgljb21wb25lbnQYASABKA4yIS5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50VHlwZRI1CghzdGF0dXNlcxgCIAMoDjIjLmZsZWV0bWFuYWdlbWVudC52MS5Db21wb25lbnRTdGF0dXMivgEKD01pbmVyTGlzdEZpbHRlchI3Cg1kZXZpY2Vfc3RhdHVzGAMgAygOMiAuZmxlZXRtYW5hZ2VtZW50LnYxLkRldmljZVN0YXR1cxJEChFjb21wb25lbnRfZmlsdGVycxgEIAMoCzIpLmZsZWV0bWFuYWdlbWVudC52MS5Db21wb25lbnRTdGF0dXNGaWx0ZXISLAoFdHlwZXMYBSADKA4yHS5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJUeXBlIu8BCh9MaXN0TWluZXJTdGF0ZVNuYXBzaG90c1Jlc3BvbnNlEjYKBm1pbmVycxgBIAMoCzImLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lclN0YXRlU25hcHNob3QSDgoGY3Vyc29yGAIgASgJEhQKDHRvdGFsX21pbmVycxgDIAEoBRI6ChJ0b3RhbF9zdGF0ZV9jb3VudHMYBCABKAsyHi50ZWxlbWV0cnkudjEuTWluZXJTdGF0ZUNvdW50cxIyCgttaW5lcl90eXBlcxgFIAMoDjIdLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lclR5cGUizQEKGVN0cmVhbU1pbmVyVXBkYXRlc1JlcXVlc3QSGgoSZGV2aWNlX2lkZW50aWZpZXJzGAEgAygJElAKEW1lYXN1cmVtZW50X3R5cGVzGAIgAygOMjUuZmxlZXRtYW5hZ2VtZW50LnYxLk1lYXN1cmVtZW50Q29uZmlnLk1lYXN1cmVtZW50VHlwZRIeChZpbmNsdWRlX3N0YXR1c191cGRhdGVzGAMgASgIEiIKGmhlYXJ0YmVhdF9pbnRlcnZhbF9zZWNvbmRzGAQgASgFIuACChpTdHJlYW1NaW5lclVwZGF0ZXNSZXNwb25zZRItCgl0aW1lc3RhbXAYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhkKEWRldmljZV9pZGVudGlmaWVyGAIgASgJEjwKC21lYXN1cmVtZW50GAMgASgLMiUuZmxlZXRtYW5hZ2VtZW50LnYxLk1lYXN1cmVtZW50VXBkYXRlSAASOwoGc3RhdHVzGAQgASgLMikuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1c1VwZGF0ZUgAEjIKCWhlYXJ0YmVhdBgFIAEoCzIdLmZsZWV0bWFuYWdlbWVudC52MS5IZWFydGJlYXRIABI/Cg1kZXZpY2Vfc3RhdHVzGAYgASgLMiYuZmxlZXRtYW5hZ2VtZW50LnYxLkRldmljZVN0YXR1c1VwZGF0ZUgAQggKBnVwZGF0ZSKRAQoRTWVhc3VyZW1lbnRVcGRhdGUSTwoQbWVhc3VyZW1lbnRfdHlwZRgBIAEoDjI1LmZsZWV0bWFuYWdlbWVudC52MS5NZWFzdXJlbWVudENvbmZpZy5NZWFzdXJlbWVudFR5cGUSKwoLbWVhc3VyZW1lbnQYAiABKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQinAIKFUNvbXBvbmVudFN0YXR1c1VwZGF0ZRJGCgljb21wb25lbnQYASABKA4yMy5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzVXBkYXRlLkNvbXBvbmVudBIzCgZzdGF0dXMYAiABKA4yIy5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzIoUBCglDb21wb25lbnQSGQoVQ09NUE9ORU5UX1VOU1BFQ0lGSUVEEAASGwoXQ09NUE9ORU5UX0NPTlRST0xfQk9BUkQQARISCg5DT01QT05FTlRfRkFOUxACEhkKFUNPTVBPTkVOVF9IQVNIX0JPQVJEUxADEhEKDUNPTVBPTkVOVF9QU1UQBCILCglIZWFydGJlYXQiRgoSRGV2aWNlU3RhdHVzVXBkYXRlEjAKBnN0YXR1cxgBIAEoDjIgLmZsZWV0bWFuYWdlbWVudC52MS5EZXZpY2VTdGF0dXMipgIKHVN0cmVhbU1pbmVyTGlzdFVwZGF0ZXNSZXF1ZXN0EjMKBmZpbHRlchgBIAEoCzIjLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lckxpc3RGaWx0ZXISLwoJZGF0YV9tb2RlGAIgASgOMhwuZmxlZXRtYW5hZ2VtZW50LnYxLkRhdGFNb2RlEjcKEnRpbWVfc2VyaWVzX2NvbmZpZxgDIAEoCzIbLmNvbW1vbi52MS5UaW1lU2VyaWVzQ29uZmlnEkIKE21lYXN1cmVtZW50X2NvbmZpZ3MYBCADKAsyJS5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnRDb25maWcSIgoaaGVhcnRiZWF0X2ludGVydmFsX3NlY29uZHMYBSABKAUiwgEKHlN0cmVhbU1pbmVyTGlzdFVwZGF0ZXNSZXNwb25zZRItCgl0aW1lc3RhbXAYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjMKBWRlbHRhGAIgASgLMiIuZmxlZXRtYW5hZ2VtZW50LnYxLk1pbmVyTGlzdERlbHRhSAASMgoJaGVhcnRiZWF0GAMgASgLMh0uZmxlZXRtYW5hZ2VtZW50LnYxLkhlYXJ0YmVhdEgAQggKBnVwZGF0ZSJuCg5NaW5lckxpc3REZWx0YRI0CglhZGRpdGlvbnMYASADKAsyIS5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJBZGRpdGlvbhIQCghyZW1vdmFscxgCIAMoCRIUCgx0b3RhbF9taW5lcnMYAyABKAUiWAoNTWluZXJBZGRpdGlvbhI1CgVtaW5lchgBIAEoCzImLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lclN0YXRlU25hcHNob3QSEAoIcG9zaXRpb24YAiABKAUqmQEKH0ZsZWV0TWFuYWdlbWVudFNlcnZpY2VFcnJvckNvZGUSMwovRkxFRVRfTUFOQUdFTUVOVF9TRVJWSUNFX0VSUk9SX0NPREVfVU5TUEVDSUZJRUQQABJBCj1GTEVFVF9NQU5BR0VNRU5UX1NFUlZJQ0VfRVJST1JfQ09ERV9JTlZBTElEX1BBR0lOQVRJT05fQ1VSU09SEAEqwgEKD0NvbXBvbmVudFN0YXR1cxIgChxDT01QT05FTlRfU1RBVFVTX1VOU1BFQ0lGSUVEEAASFwoTQ09NUE9ORU5UX1NUQVRVU19PSxABEhwKGENPTVBPTkVOVF9TVEFUVVNfV0FSTklORxACEhoKFkNPTVBPTkVOVF9TVEFUVVNfRVJST1IQAxIcChhDT01QT05FTlRfU1RBVFVTX09GRkxJTkUQBBIcChhDT01QT05FTlRfU1RBVFVTX1BFTkRJTkcQBSq2AQoMRGV2aWNlU3RhdHVzEh0KGURFVklDRV9TVEFUVVNfVU5TUEVDSUZJRUQQABIYChRERVZJQ0VfU1RBVFVTX09OTElORRABEhkKFURFVklDRV9TVEFUVVNfT0ZGTElORRACEh0KGURFVklDRV9TVEFUVVNfTUFJTlRFTkFOQ0UQAxIXChNERVZJQ0VfU1RBVFVTX0VSUk9SEAQSGgoWREVWSUNFX1NUQVRVU19JTkFDVElWRRAFKnAKCERhdGFNb2RlEhkKFURBVEFfTU9ERV9VTlNQRUNJRklFRBAAEhYKEkRBVEFfTU9ERV9NRVRBREFUQRABEhYKEkRBVEFfTU9ERV9TTkFQU0hPVBACEhkKFURBVEFfTU9ERV9USU1FX1NFUklFUxADKlkKCU1pbmVyVHlwZRIaChZNSU5FUl9UWVBFX1VOU1BFQ0lGSUVEEAASGAoUTUlORVJfVFlQRV9QUk9UT19SSUcQARIWChJNSU5FUl9UWVBFX0JJVE1BSU4QAiqiAQoNQ29tcG9uZW50VHlwZRIeChpDT01QT05FTlRfVFlQRV9VTlNQRUNJRklFRBAAEiAKHENPTVBPTkVOVF9UWVBFX0NPTlRST0xfQk9BUkQQARIXChNDT01QT05FTlRfVFlQRV9GQU5TEAISHgoaQ09NUE9ORU5UX1RZUEVfSEFTSF9CT0FSRFMQAxIWChJDT01QT05FTlRfVFlQRV9QU1UQBDKHBAoWRmxlZXRNYW5hZ2VtZW50U2VydmljZRJtChBMaXN0UGFpcmVkTWluZXJzEisuZmxlZXRtYW5hZ2VtZW50LnYxLkxpc3RQYWlyZWRNaW5lcnNSZXF1ZXN0GiwuZmxlZXRtYW5hZ2VtZW50LnYxLkxpc3RQYWlyZWRNaW5lcnNSZXNwb25zZRKCAQoXTGlzdE1pbmVyU3RhdGVTbmFwc2hvdHMSMi5mbGVldG1hbmFnZW1lbnQudjEuTGlzdE1pbmVyU3RhdGVTbmFwc2hvdHNSZXF1ZXN0GjMuZmxlZXRtYW5hZ2VtZW50LnYxLkxpc3RNaW5lclN0YXRlU25hcHNob3RzUmVzcG9uc2USdQoSU3RyZWFtTWluZXJVcGRhdGVzEi0uZmxlZXRtYW5hZ2VtZW50LnYxLlN0cmVhbU1pbmVyVXBkYXRlc1JlcXVlc3QaLi5mbGVldG1hbmFnZW1lbnQudjEuU3RyZWFtTWluZXJVcGRhdGVzUmVzcG9uc2UwARKBAQoWU3RyZWFtTWluZXJMaXN0VXBkYXRlcxIxLmZsZWV0bWFuYWdlbWVudC52MS5TdHJlYW1NaW5lckxpc3RVcGRhdGVzUmVxdWVzdBoyLmZsZWV0bWFuYWdlbWVudC52MS5TdHJlYW1NaW5lckxpc3RVcGRhdGVzUmVzcG9uc2UwAUL1AQoWY29tLmZsZWV0bWFuYWdlbWVudC52MUIURmxlZXRtYW5hZ2VtZW50UHJvdG9QAVpcZ2l0aHViLmNvbS9idGMtbWluaW5nL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9mbGVldG1hbmFnZW1lbnQvdjE7ZmxlZXRtYW5hZ2VtZW50djGiAgNGWFiqAhJGbGVldG1hbmFnZW1lbnQuVjHKAhJGbGVldG1hbmFnZW1lbnRcVjHiAh5GbGVldG1hbmFnZW1lbnRcVjFcR1BCTWV0YWRhdGHqAhNGbGVldG1hbmFnZW1lbnQ6OlYxYgZwcm90bzM",
+    "CihmbGVldG1hbmFnZW1lbnQvdjEvZmxlZXRtYW5hZ2VtZW50LnByb3RvEhJmbGVldG1hbmFnZW1lbnQudjEiPAoXTGlzdFBhaXJlZE1pbmVyc1JlcXVlc3QSEQoJcGFnZV9zaXplGAEgASgFEg4KBmN1cnNvchgCIAEoCSJyChhMaXN0UGFpcmVkTWluZXJzUmVzcG9uc2USMAoGbWluZXJzGAEgAygLMiAuZmxlZXRtYW5hZ2VtZW50LnYxLlBhaXJlZERldmljZRIOCgZjdXJzb3IYAiABKAkSFAoMdG90YWxfbWluZXJzGAMgASgFIlUKDFBhaXJlZERldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIVCg1zZXJpYWxfbnVtYmVyGAIgASgJEhMKC21hY19hZGRyZXNzGAMgASgJIj8KGkxpc3RVbnBhaXJlZERldmljZXNSZXF1ZXN0EhEKCXBhZ2Vfc2l6ZRgBIAEoBRIOCgZjdXJzb3IYAiABKAkiewobTGlzdFVucGFpcmVkRGV2aWNlc1Jlc3BvbnNlEjUKB2RldmljZXMYASADKAsyJC5mbGVldG1hbmFnZW1lbnQudjEuRGlzY292ZXJlZERldmljZRIOCgZjdXJzb3IYAiABKAkSFQoNdG90YWxfZGV2aWNlcxgDIAEoBSLQAQoQRGlzY292ZXJlZERldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRISCgppcF9hZGRyZXNzGAIgASgJEgwKBHBvcnQYAyABKAkSEgoKdXJsX3NjaGVtZRgEIAEoCRINCgVtb2RlbBgFIAEoCRIUCgxtYW51ZmFjdHVyZXIYBiABKAkSDAoEdHlwZRgHIAEoCRI4CgxjYXBhYmlsaXRpZXMYCCABKAsyIi5jYXBhYmlsaXRpZXMudjEuTWluZXJDYXBhYmlsaXRpZXMi3AMKEk1pbmVyU3RhdGVTbmFwc2hvdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIMCgRuYW1lGAIgASgJEhMKC21hY19hZGRyZXNzGAMgASgJEhUKDXNlcmlhbF9udW1iZXIYBCABKAkSKwoLcG93ZXJfdXNhZ2UYBSADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKwoLdGVtcGVyYXR1cmUYBiADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKAoIaGFzaHJhdGUYByADKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQSKgoKZWZmaWNpZW5jeRgIIAMoCzIWLmNvbW1vbi52MS5NZWFzdXJlbWVudBI4CgZzdGF0dXMYCSABKAsyKC5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJDb21wb25lbnRTdGF0dXMSLQoJdGltZXN0YW1wGAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBISCgppcF9hZGRyZXNzGAsgASgJEgsKA3VybBgMIAEoCRI3Cg1kZXZpY2Vfc3RhdHVzGA0gASgOMiAuZmxlZXRtYW5hZ2VtZW50LnYxLkRldmljZVN0YXR1cyLxAQoUTWluZXJDb21wb25lbnRTdGF0dXMSOgoNY29udHJvbF9ib2FyZBgBIAEoDjIjLmZsZWV0bWFuYWdlbWVudC52MS5Db21wb25lbnRTdGF0dXMSMQoEZmFucxgCIAEoDjIjLmZsZWV0bWFuYWdlbWVudC52MS5Db21wb25lbnRTdGF0dXMSOAoLaGFzaF9ib2FyZHMYAyABKA4yIy5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzEjAKA3BzdRgEIAEoDjIjLmZsZWV0bWFuYWdlbWVudC52MS5Db21wb25lbnRTdGF0dXMiiAMKEU1lYXN1cmVtZW50Q29uZmlnEk8KEG1lYXN1cmVtZW50X3R5cGUYASABKA4yNS5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnRDb25maWcuTWVhc3VyZW1lbnRUeXBlEi8KCWRhdGFfbW9kZRgCIAEoDjIcLmZsZWV0bWFuYWdlbWVudC52MS5EYXRhTW9kZRI3ChJ0aW1lX3Nlcmllc19jb25maWcYAyABKAsyGy5jb21tb24udjEuVGltZVNlcmllc0NvbmZpZyK3AQoPTWVhc3VyZW1lbnRUeXBlEiAKHE1FQVNVUkVNRU5UX1RZUEVfVU5TUEVDSUZJRUQQABIgChxNRUFTVVJFTUVOVF9UWVBFX1BPV0VSX1VTQUdFEAESIAocTUVBU1VSRU1FTlRfVFlQRV9URU1QRVJBVFVSRRACEh0KGU1FQVNVUkVNRU5UX1RZUEVfSEFTSFJBVEUQAxIfChtNRUFTVVJFTUVOVF9UWVBFX0VGRklDSUVOQ1kQBCKmAgoeTGlzdE1pbmVyU3RhdGVTbmFwc2hvdHNSZXF1ZXN0EhEKCXBhZ2Vfc2l6ZRgBIAEoBRIOCgZjdXJzb3IYAiABKAkSLwoJZGF0YV9tb2RlGAMgASgOMhwuZmxlZXRtYW5hZ2VtZW50LnYxLkRhdGFNb2RlEjcKEnRpbWVfc2VyaWVzX2NvbmZpZxgEIAEoCzIbLmNvbW1vbi52MS5UaW1lU2VyaWVzQ29uZmlnEkIKE21lYXN1cmVtZW50X2NvbmZpZ3MYBSADKAsyJS5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnRDb25maWcSMwoGZmlsdGVyGAYgASgLMiMuZmxlZXRtYW5hZ2VtZW50LnYxLk1pbmVyTGlzdEZpbHRlciKEAQoVQ29tcG9uZW50U3RhdHVzRmlsdGVyEjQKCWNvbXBvbmVudBgBIAEoDjIhLmZsZWV0bWFuYWdlbWVudC52MS5Db21wb25lbnRUeXBlEjUKCHN0YXR1c2VzGAIgAygOMiMuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1cyK+AQoPTWluZXJMaXN0RmlsdGVyEjcKDWRldmljZV9zdGF0dXMYAyADKA4yIC5mbGVldG1hbmFnZW1lbnQudjEuRGV2aWNlU3RhdHVzEkQKEWNvbXBvbmVudF9maWx0ZXJzGAQgAygLMikuZmxlZXRtYW5hZ2VtZW50LnYxLkNvbXBvbmVudFN0YXR1c0ZpbHRlchIsCgV0eXBlcxgFIAMoDjIdLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lclR5cGUi7wEKH0xpc3RNaW5lclN0YXRlU25hcHNob3RzUmVzcG9uc2USNgoGbWluZXJzGAEgAygLMiYuZmxlZXRtYW5hZ2VtZW50LnYxLk1pbmVyU3RhdGVTbmFwc2hvdBIOCgZjdXJzb3IYAiABKAkSFAoMdG90YWxfbWluZXJzGAMgASgFEjoKEnRvdGFsX3N0YXRlX2NvdW50cxgEIAEoCzIeLnRlbGVtZXRyeS52MS5NaW5lclN0YXRlQ291bnRzEjIKC21pbmVyX3R5cGVzGAUgAygOMh0uZmxlZXRtYW5hZ2VtZW50LnYxLk1pbmVyVHlwZSLNAQoZU3RyZWFtTWluZXJVcGRhdGVzUmVxdWVzdBIaChJkZXZpY2VfaWRlbnRpZmllcnMYASADKAkSUAoRbWVhc3VyZW1lbnRfdHlwZXMYAiADKA4yNS5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnRDb25maWcuTWVhc3VyZW1lbnRUeXBlEh4KFmluY2x1ZGVfc3RhdHVzX3VwZGF0ZXMYAyABKAgSIgoaaGVhcnRiZWF0X2ludGVydmFsX3NlY29uZHMYBCABKAUi4AIKGlN0cmVhbU1pbmVyVXBkYXRlc1Jlc3BvbnNlEi0KCXRpbWVzdGFtcBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGQoRZGV2aWNlX2lkZW50aWZpZXIYAiABKAkSPAoLbWVhc3VyZW1lbnQYAyABKAsyJS5mbGVldG1hbmFnZW1lbnQudjEuTWVhc3VyZW1lbnRVcGRhdGVIABI7CgZzdGF0dXMYBCABKAsyKS5mbGVldG1hbmFnZW1lbnQudjEuQ29tcG9uZW50U3RhdHVzVXBkYXRlSAASMgoJaGVhcnRiZWF0GAUgASgLMh0uZmxlZXRtYW5hZ2VtZW50LnYxLkhlYXJ0YmVhdEgAEj8KDWRldmljZV9zdGF0dXMYBiABKAsyJi5mbGVldG1hbmFnZW1lbnQudjEuRGV2aWNlU3RhdHVzVXBkYXRlSABCCAoGdXBkYXRlIpEBChFNZWFzdXJlbWVudFVwZGF0ZRJPChBtZWFzdXJlbWVudF90eXBlGAEgASgOMjUuZmxlZXRtYW5hZ2VtZW50LnYxLk1lYXN1cmVtZW50Q29uZmlnLk1lYXN1cmVtZW50VHlwZRIrCgttZWFzdXJlbWVudBgCIAEoCzIWLmNvbW1vbi52MS5NZWFzdXJlbWVudCKcAgoVQ29tcG9uZW50U3RhdHVzVXBkYXRlEkYKCWNvbXBvbmVudBgBIAEoDjIzLmZsZWV0bWFuYWdlbWVudC52MS5Db21wb25lbnRTdGF0dXNVcGRhdGUuQ29tcG9uZW50EjMKBnN0YXR1cxgCIAEoDjIjLmZsZWV0bWFuYWdlbWVudC52MS5Db21wb25lbnRTdGF0dXMihQEKCUNvbXBvbmVudBIZChVDT01QT05FTlRfVU5TUEVDSUZJRUQQABIbChdDT01QT05FTlRfQ09OVFJPTF9CT0FSRBABEhIKDkNPTVBPTkVOVF9GQU5TEAISGQoVQ09NUE9ORU5UX0hBU0hfQk9BUkRTEAMSEQoNQ09NUE9ORU5UX1BTVRAEIgsKCUhlYXJ0YmVhdCJGChJEZXZpY2VTdGF0dXNVcGRhdGUSMAoGc3RhdHVzGAEgASgOMiAuZmxlZXRtYW5hZ2VtZW50LnYxLkRldmljZVN0YXR1cyKmAgodU3RyZWFtTWluZXJMaXN0VXBkYXRlc1JlcXVlc3QSMwoGZmlsdGVyGAEgASgLMiMuZmxlZXRtYW5hZ2VtZW50LnYxLk1pbmVyTGlzdEZpbHRlchIvCglkYXRhX21vZGUYAiABKA4yHC5mbGVldG1hbmFnZW1lbnQudjEuRGF0YU1vZGUSNwoSdGltZV9zZXJpZXNfY29uZmlnGAMgASgLMhsuY29tbW9uLnYxLlRpbWVTZXJpZXNDb25maWcSQgoTbWVhc3VyZW1lbnRfY29uZmlncxgEIAMoCzIlLmZsZWV0bWFuYWdlbWVudC52MS5NZWFzdXJlbWVudENvbmZpZxIiChpoZWFydGJlYXRfaW50ZXJ2YWxfc2Vjb25kcxgFIAEoBSLCAQoeU3RyZWFtTWluZXJMaXN0VXBkYXRlc1Jlc3BvbnNlEi0KCXRpbWVzdGFtcBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMwoFZGVsdGEYAiABKAsyIi5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJMaXN0RGVsdGFIABIyCgloZWFydGJlYXQYAyABKAsyHS5mbGVldG1hbmFnZW1lbnQudjEuSGVhcnRiZWF0SABCCAoGdXBkYXRlIm4KDk1pbmVyTGlzdERlbHRhEjQKCWFkZGl0aW9ucxgBIAMoCzIhLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lckFkZGl0aW9uEhAKCHJlbW92YWxzGAIgAygJEhQKDHRvdGFsX21pbmVycxgDIAEoBSJYCg1NaW5lckFkZGl0aW9uEjUKBW1pbmVyGAEgASgLMiYuZmxlZXRtYW5hZ2VtZW50LnYxLk1pbmVyU3RhdGVTbmFwc2hvdBIQCghwb3NpdGlvbhgCIAEoBSqZAQofRmxlZXRNYW5hZ2VtZW50U2VydmljZUVycm9yQ29kZRIzCi9GTEVFVF9NQU5BR0VNRU5UX1NFUlZJQ0VfRVJST1JfQ09ERV9VTlNQRUNJRklFRBAAEkEKPUZMRUVUX01BTkFHRU1FTlRfU0VSVklDRV9FUlJPUl9DT0RFX0lOVkFMSURfUEFHSU5BVElPTl9DVVJTT1IQASrCAQoPQ29tcG9uZW50U3RhdHVzEiAKHENPTVBPTkVOVF9TVEFUVVNfVU5TUEVDSUZJRUQQABIXChNDT01QT05FTlRfU1RBVFVTX09LEAESHAoYQ09NUE9ORU5UX1NUQVRVU19XQVJOSU5HEAISGgoWQ09NUE9ORU5UX1NUQVRVU19FUlJPUhADEhwKGENPTVBPTkVOVF9TVEFUVVNfT0ZGTElORRAEEhwKGENPTVBPTkVOVF9TVEFUVVNfUEVORElORxAFKrYBCgxEZXZpY2VTdGF0dXMSHQoZREVWSUNFX1NUQVRVU19VTlNQRUNJRklFRBAAEhgKFERFVklDRV9TVEFUVVNfT05MSU5FEAESGQoVREVWSUNFX1NUQVRVU19PRkZMSU5FEAISHQoZREVWSUNFX1NUQVRVU19NQUlOVEVOQU5DRRADEhcKE0RFVklDRV9TVEFUVVNfRVJST1IQBBIaChZERVZJQ0VfU1RBVFVTX0lOQUNUSVZFEAUqcAoIRGF0YU1vZGUSGQoVREFUQV9NT0RFX1VOU1BFQ0lGSUVEEAASFgoSREFUQV9NT0RFX01FVEFEQVRBEAESFgoSREFUQV9NT0RFX1NOQVBTSE9UEAISGQoVREFUQV9NT0RFX1RJTUVfU0VSSUVTEAMqWQoJTWluZXJUeXBlEhoKFk1JTkVSX1RZUEVfVU5TUEVDSUZJRUQQABIYChRNSU5FUl9UWVBFX1BST1RPX1JJRxABEhYKEk1JTkVSX1RZUEVfQklUTUFJThACKqIBCg1Db21wb25lbnRUeXBlEh4KGkNPTVBPTkVOVF9UWVBFX1VOU1BFQ0lGSUVEEAASIAocQ09NUE9ORU5UX1RZUEVfQ09OVFJPTF9CT0FSRBABEhcKE0NPTVBPTkVOVF9UWVBFX0ZBTlMQAhIeChpDT01QT05FTlRfVFlQRV9IQVNIX0JPQVJEUxADEhYKEkNPTVBPTkVOVF9UWVBFX1BTVRAEMv8EChZGbGVldE1hbmFnZW1lbnRTZXJ2aWNlEm0KEExpc3RQYWlyZWRNaW5lcnMSKy5mbGVldG1hbmFnZW1lbnQudjEuTGlzdFBhaXJlZE1pbmVyc1JlcXVlc3QaLC5mbGVldG1hbmFnZW1lbnQudjEuTGlzdFBhaXJlZE1pbmVyc1Jlc3BvbnNlEnYKE0xpc3RVbnBhaXJlZERldmljZXMSLi5mbGVldG1hbmFnZW1lbnQudjEuTGlzdFVucGFpcmVkRGV2aWNlc1JlcXVlc3QaLy5mbGVldG1hbmFnZW1lbnQudjEuTGlzdFVucGFpcmVkRGV2aWNlc1Jlc3BvbnNlEoIBChdMaXN0TWluZXJTdGF0ZVNuYXBzaG90cxIyLmZsZWV0bWFuYWdlbWVudC52MS5MaXN0TWluZXJTdGF0ZVNuYXBzaG90c1JlcXVlc3QaMy5mbGVldG1hbmFnZW1lbnQudjEuTGlzdE1pbmVyU3RhdGVTbmFwc2hvdHNSZXNwb25zZRJ1ChJTdHJlYW1NaW5lclVwZGF0ZXMSLS5mbGVldG1hbmFnZW1lbnQudjEuU3RyZWFtTWluZXJVcGRhdGVzUmVxdWVzdBouLmZsZWV0bWFuYWdlbWVudC52MS5TdHJlYW1NaW5lclVwZGF0ZXNSZXNwb25zZTABEoEBChZTdHJlYW1NaW5lckxpc3RVcGRhdGVzEjEuZmxlZXRtYW5hZ2VtZW50LnYxLlN0cmVhbU1pbmVyTGlzdFVwZGF0ZXNSZXF1ZXN0GjIuZmxlZXRtYW5hZ2VtZW50LnYxLlN0cmVhbU1pbmVyTGlzdFVwZGF0ZXNSZXNwb25zZTABQvUBChZjb20uZmxlZXRtYW5hZ2VtZW50LnYxQhRGbGVldG1hbmFnZW1lbnRQcm90b1ABWlxnaXRodWIuY29tL2J0Yy1taW5pbmcvcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2ZsZWV0bWFuYWdlbWVudC92MTtmbGVldG1hbmFnZW1lbnR2MaICA0ZYWKoCEkZsZWV0bWFuYWdlbWVudC5WMcoCEkZsZWV0bWFuYWdlbWVudFxWMeICHkZsZWV0bWFuYWdlbWVudFxWMVxHUEJNZXRhZGF0YeoCE0ZsZWV0bWFuYWdlbWVudDo6VjFiBnByb3RvMw",
     [
       file_google_protobuf_timestamp,
       file_common_v1_measurement,
       file_telemetry_v1_telemetry,
+      file_capabilities_v1_capabilities,
     ],
   );
 
@@ -154,6 +157,150 @@ export const PairedDeviceSchema: GenMessage<PairedDevice> =
   messageDesc(file_fleetmanagement_v1_fleetmanagement, 2);
 
 /**
+ * Request to list unpaired discovered devices with pagination support
+ *
+ * @generated from message fleetmanagement.v1.ListUnpairedDevicesRequest
+ */
+export type ListUnpairedDevicesRequest =
+  Message<"fleetmanagement.v1.ListUnpairedDevicesRequest"> & {
+    /**
+     * Maximum number of devices to return in a single response
+     * Server may return fewer devices than specified
+     * If not specified, a server-defined default will be used
+     *
+     * @generated from field: int32 page_size = 1;
+     */
+    pageSize: number;
+
+    /**
+     * A pagination cursor returned by a previous call to this endpoint
+     * Provide this cursor to retrieve the next set of results
+     * Leave empty for first request
+     *
+     * @generated from field: string cursor = 2;
+     */
+    cursor: string;
+  };
+
+/**
+ * Describes the message fleetmanagement.v1.ListUnpairedDevicesRequest.
+ * Use `create(ListUnpairedDevicesRequestSchema)` to create a new message.
+ */
+export const ListUnpairedDevicesRequestSchema: GenMessage<ListUnpairedDevicesRequest> =
+  /*@__PURE__*/
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 3);
+
+/**
+ * Response containing a list of unpaired discovered devices with pagination support
+ *
+ * @generated from message fleetmanagement.v1.ListUnpairedDevicesResponse
+ */
+export type ListUnpairedDevicesResponse =
+  Message<"fleetmanagement.v1.ListUnpairedDevicesResponse"> & {
+    /**
+     * List of discovered devices that have not been paired yet
+     *
+     * @generated from field: repeated fleetmanagement.v1.DiscoveredDevice devices = 1;
+     */
+    devices: DiscoveredDevice[];
+
+    /**
+     * The pagination cursor to be used in a subsequent request
+     * If empty, this is the final page of results
+     *
+     * @generated from field: string cursor = 2;
+     */
+    cursor: string;
+
+    /**
+     * Total number of unpaired devices available across all pages
+     *
+     * @generated from field: int32 total_devices = 3;
+     */
+    totalDevices: number;
+  };
+
+/**
+ * Describes the message fleetmanagement.v1.ListUnpairedDevicesResponse.
+ * Use `create(ListUnpairedDevicesResponseSchema)` to create a new message.
+ */
+export const ListUnpairedDevicesResponseSchema: GenMessage<ListUnpairedDevicesResponse> =
+  /*@__PURE__*/
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 4);
+
+/**
+ * Represents a device that has been discovered but not yet paired
+ *
+ * @generated from message fleetmanagement.v1.DiscoveredDevice
+ */
+export type DiscoveredDevice =
+  Message<"fleetmanagement.v1.DiscoveredDevice"> & {
+    /**
+     * unique identifier
+     *
+     * @generated from field: string device_identifier = 1;
+     */
+    deviceIdentifier: string;
+
+    /**
+     * IP address of the discovered device
+     *
+     * @generated from field: string ip_address = 2;
+     */
+    ipAddress: string;
+
+    /**
+     * Port number the device is listening on
+     *
+     * @generated from field: string port = 3;
+     */
+    port: string;
+
+    /**
+     * URL scheme (http or https)
+     *
+     * @generated from field: string url_scheme = 4;
+     */
+    urlScheme: string;
+
+    /**
+     * Device model name
+     *
+     * @generated from field: string model = 5;
+     */
+    model: string;
+
+    /**
+     * Manufacturer name
+     *
+     * @generated from field: string manufacturer = 6;
+     */
+    manufacturer: string;
+
+    /**
+     * Device type (e.g., antminer, proto)
+     *
+     * @generated from field: string type = 7;
+     */
+    type: string;
+
+    /**
+     * Device capabilities indicating supported features
+     *
+     * @generated from field: capabilities.v1.MinerCapabilities capabilities = 8;
+     */
+    capabilities?: MinerCapabilities;
+  };
+
+/**
+ * Describes the message fleetmanagement.v1.DiscoveredDevice.
+ * Use `create(DiscoveredDeviceSchema)` to create a new message.
+ */
+export const DiscoveredDeviceSchema: GenMessage<DiscoveredDevice> =
+  /*@__PURE__*/
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 5);
+
+/**
  * MinerStateSnapshot represents the operational state of a mining device
  * including performance metrics and component health status
  * Can contain either a single point-in-time snapshot or a time series of measurements
@@ -266,7 +413,7 @@ export type MinerStateSnapshot =
  */
 export const MinerStateSnapshotSchema: GenMessage<MinerStateSnapshot> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 3);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 6);
 
 /**
  * Status information for all major components in a miner
@@ -310,7 +457,7 @@ export type MinerComponentStatus =
  */
 export const MinerComponentStatusSchema: GenMessage<MinerComponentStatus> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 4);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 7);
 
 /**
  * Configuration for a specific measurement type
@@ -348,7 +495,7 @@ export type MeasurementConfig =
  */
 export const MeasurementConfigSchema: GenMessage<MeasurementConfig> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 5);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 8);
 
 /**
  * Type of measurement this configuration applies to
@@ -397,7 +544,7 @@ export enum MeasurementConfig_MeasurementType {
  */
 export const MeasurementConfig_MeasurementTypeSchema: GenEnum<MeasurementConfig_MeasurementType> =
   /*@__PURE__*/
-  enumDesc(file_fleetmanagement_v1_fleetmanagement, 5, 0);
+  enumDesc(file_fleetmanagement_v1_fleetmanagement, 8, 0);
 
 /**
  * Request to list miners with their telemetry data
@@ -462,7 +609,7 @@ export type ListMinerStateSnapshotsRequest =
  */
 export const ListMinerStateSnapshotsRequestSchema: GenMessage<ListMinerStateSnapshotsRequest> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 6);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 9);
 
 /**
  * Filter for a specific component with one or more statuses
@@ -493,7 +640,7 @@ export type ComponentStatusFilter =
  */
 export const ComponentStatusFilterSchema: GenMessage<ComponentStatusFilter> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 7);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 10);
 
 /**
  * Filter criteria for miners
@@ -536,7 +683,7 @@ export type MinerListFilter = Message<"fleetmanagement.v1.MinerListFilter"> & {
  */
 export const MinerListFilterSchema: GenMessage<MinerListFilter> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 8);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 11);
 
 /**
  * Response containing a list of miners with their telemetry
@@ -595,7 +742,7 @@ export type ListMinerStateSnapshotsResponse =
  */
 export const ListMinerStateSnapshotsResponseSchema: GenMessage<ListMinerStateSnapshotsResponse> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 9);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 12);
 
 /**
  * @generated from message fleetmanagement.v1.StreamMinerUpdatesRequest
@@ -637,7 +784,7 @@ export type StreamMinerUpdatesRequest =
  */
 export const StreamMinerUpdatesRequestSchema: GenMessage<StreamMinerUpdatesRequest> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 10);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 13);
 
 /**
  * @generated from message fleetmanagement.v1.StreamMinerUpdatesResponse
@@ -709,7 +856,7 @@ export type StreamMinerUpdatesResponse =
  */
 export const StreamMinerUpdatesResponseSchema: GenMessage<StreamMinerUpdatesResponse> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 11);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 14);
 
 /**
  * @generated from message fleetmanagement.v1.MeasurementUpdate
@@ -737,7 +884,7 @@ export type MeasurementUpdate =
  */
 export const MeasurementUpdateSchema: GenMessage<MeasurementUpdate> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 12);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 15);
 
 /**
  * @generated from message fleetmanagement.v1.ComponentStatusUpdate
@@ -765,7 +912,7 @@ export type ComponentStatusUpdate =
  */
 export const ComponentStatusUpdateSchema: GenMessage<ComponentStatusUpdate> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 13);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 16);
 
 /**
  * The component that changed status
@@ -804,7 +951,7 @@ export enum ComponentStatusUpdate_Component {
  */
 export const ComponentStatusUpdate_ComponentSchema: GenEnum<ComponentStatusUpdate_Component> =
   /*@__PURE__*/
-  enumDesc(file_fleetmanagement_v1_fleetmanagement, 13, 0);
+  enumDesc(file_fleetmanagement_v1_fleetmanagement, 16, 0);
 
 /**
  * Empty message for heartbeat
@@ -819,7 +966,7 @@ export type Heartbeat = Message<"fleetmanagement.v1.Heartbeat"> & {};
  */
 export const HeartbeatSchema: GenMessage<Heartbeat> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 14);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 17);
 
 /**
  * @generated from message fleetmanagement.v1.DeviceStatusUpdate
@@ -840,7 +987,7 @@ export type DeviceStatusUpdate =
  */
 export const DeviceStatusUpdateSchema: GenMessage<DeviceStatusUpdate> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 15);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 18);
 
 /**
  * Request to stream incremental updates for a filtered miner list
@@ -893,7 +1040,7 @@ export type StreamMinerListUpdatesRequest =
  */
 export const StreamMinerListUpdatesRequestSchema: GenMessage<StreamMinerListUpdatesRequest> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 16);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 19);
 
 /**
  * Response containing incremental updates to the filtered miner list
@@ -942,7 +1089,7 @@ export type StreamMinerListUpdatesResponse =
  */
 export const StreamMinerListUpdatesResponseSchema: GenMessage<StreamMinerListUpdatesResponse> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 17);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 20);
 
 /**
  * Delta update containing additions and removals
@@ -978,7 +1125,7 @@ export type MinerListDelta = Message<"fleetmanagement.v1.MinerListDelta"> & {
  */
 export const MinerListDeltaSchema: GenMessage<MinerListDelta> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 18);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 21);
 
 /**
  * Represents a miner being added to the filtered list
@@ -1007,7 +1154,7 @@ export type MinerAddition = Message<"fleetmanagement.v1.MinerAddition"> & {
  */
 export const MinerAdditionSchema: GenMessage<MinerAddition> =
   /*@__PURE__*/
-  messageDesc(file_fleetmanagement_v1_fleetmanagement, 19);
+  messageDesc(file_fleetmanagement_v1_fleetmanagement, 22);
 
 /**
  * @generated from enum fleetmanagement.v1.FleetManagementServiceErrorCode
@@ -1275,6 +1422,17 @@ export const FleetManagementService: GenService<{
     methodKind: "unary";
     input: typeof ListPairedMinersRequestSchema;
     output: typeof ListPairedMinersResponseSchema;
+  };
+  /**
+   * Lists all discovered devices that have not been paired yet
+   * Returns active discovered devices with pagination support
+   *
+   * @generated from rpc fleetmanagement.v1.FleetManagementService.ListUnpairedDevices
+   */
+  listUnpairedDevices: {
+    methodKind: "unary";
+    input: typeof ListUnpairedDevicesRequestSchema;
+    output: typeof ListUnpairedDevicesResponseSchema;
   };
   /**
    * List all miners in the fleet optionally with their telemetry data
