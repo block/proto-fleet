@@ -18,5 +18,7 @@ const (
 type Pairer interface {
 	// PairDevice handles the entire pairing process including saving the device to the database
 	PairDevice(ctx context.Context, device *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error
+	// GetDeviceInfo returns the device information for a discovered device without pairing
+	GetDeviceInfo(ctx context.Context, device *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) (*pb.Device, error)
 	GetMinerType() models.Type
 }

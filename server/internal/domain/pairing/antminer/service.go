@@ -89,6 +89,22 @@ func (s *Service) PairDevice(ctx context.Context, device *discoverymodels.Discov
 	})
 }
 
+func (s *Service) GetDeviceInfo(ctx context.Context, device *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) (*pb.Device, error) {
+	if credentials == nil || strings.TrimSpace(credentials.Username) == "" || credentials.Password == nil || strings.TrimSpace(*credentials.Password) == "" {
+		return nil, fleeterror.NewInvalidArgumentErrorf("credentials are required to get device info")
+	}
+
+	systemInfo, err := authAndGetSystemInfo(ctx, device, s, credentials)
+	if err != nil {
+		return nil, err
+	}
+
+	device.SerialNumber = systemInfo.SerialNumber
+	device.MacAddress = systemInfo.MacAddr
+
+	return &device.Device, nil
+}
+
 func authAndGetSystemInfo(ctx context.Context, device *discoverymodels.DiscoveredDevice, s *Service, credentials *pb.Credentials) (*web.SystemInfo, error) {
 	connInfo, err := networking.NewConnectionInfo(device.IpAddress, web.DefaultPort, networking.ProtocolHTTP)
 	if err != nil {

@@ -19,6 +19,8 @@ import (
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 )
 
+var _ pairing.Pairer = &Pairer{}
+
 // Pairer implements the pairing.Pairer interface using plugins
 type Pairer struct {
 	manager               *Manager
@@ -43,6 +45,38 @@ func NewPairer(manager *Manager, minerType models.Type, transactor interfaces.Tr
 		tokenService:          tokenService,
 		encryptService:        encryptService,
 	}
+}
+
+func (p *Pairer) GetDeviceInfo(ctx context.Context, device *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) (*pb.Device, error) {
+	plugin, exists := p.manager.GetPluginForMinerType(p.minerType)
+	if !exists {
+		return nil, fleeterror.NewInternalErrorf("no plugin available for miner type %s", p.minerType)
+	}
+
+	if !plugin.Caps[sdk.CapabilityPairing] {
+		return nil, fleeterror.NewInternalErrorf("plugin %s does not support pairing", plugin.Name)
+	}
+
+	deviceInfo := convertFleetDeviceToSDKDeviceInfo(&device.Device)
+
+	secretBundle, err := p.createSecretBundle(ctx, device.OrgID, credentials)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to create secret bundle: %v", err)
+	}
+
+	result, err := plugin.Driver.NewDevice(ctx, device.DeviceIdentifier, deviceInfo, secretBundle)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to create device: %v", err)
+	}
+
+	newDeviceInfo, _, err := result.Device.DescribeDevice(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to describe device: %v", err)
+	}
+
+	updatedDevice := convertSDKDeviceInfoToFleetDevice(newDeviceInfo, device.IpAddress, device.Port)
+
+	return updatedDevice, nil
 }
 
 // PairDevice handles the entire pairing process using the plugin

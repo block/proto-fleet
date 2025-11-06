@@ -102,6 +102,10 @@ func (s *SQLDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identi
 		SerialNumber:     device.SerialNumber.String,
 		Model:            discoveredDevice.Model.String,
 		Manufacturer:     discoveredDevice.Manufacturer.String,
+		IpAddress:        discoveredDevice.IpAddress,
+		Port:             discoveredDevice.Port,
+		UrlScheme:        discoveredDevice.UrlScheme,
+		Type:             discoveredDevice.Type,
 	}
 
 	return result, nil

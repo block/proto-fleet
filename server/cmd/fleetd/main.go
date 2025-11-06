@@ -180,15 +180,6 @@ func start(config *Config) error {
 	}
 	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, tokenSvc)
 
-	// Initialize IP scanner service
-	ipScannerService := ipscanner.NewIPScannerService(
-		config.IPScanner,
-		deviceStore,
-		discoveredDeviceStore,
-		discoveryService,
-		slog.Default(),
-	)
-
 	telemetryService := telemetry.NewTelemetryService(
 		config.Telemetry,
 		influxdbService,
@@ -209,20 +200,6 @@ func start(config *Config) error {
 		defer cancel()
 		if err := telemetryService.Stop(shutdownCtx); err != nil {
 			slog.Error("Failed to stop telemetry service", "error", err)
-		}
-	}()
-
-	// Start IP scanner service
-	if err := ipScannerService.Start(context.Background()); err != nil {
-		slog.Error("failed to start IP scanner service", "error", err)
-		return fmt.Errorf("failed to start IP scanner service: %w", err)
-	}
-
-	// Ensure IP scanner service cleanup on shutdown
-	defer func() {
-		slog.Info("Stopping IP scanner service")
-		if err := ipScannerService.Stop(); err != nil {
-			slog.Error("Failed to stop IP scanner service", "error", err)
 		}
 	}()
 
@@ -256,6 +233,31 @@ func start(config *Config) error {
 		telemetryService,
 		pairers...,
 	)
+
+	// Initialize IP scanner service
+	ipScannerService := ipscanner.NewIPScannerService(
+		config.IPScanner,
+		deviceStore,
+		discoveredDeviceStore,
+		discoveryService,
+		pairingSvc,
+		slog.Default(),
+	)
+
+	// Start IP scanner service
+	if err := ipScannerService.Start(context.Background()); err != nil {
+		slog.Error("failed to start IP scanner service", "error", err)
+		return fmt.Errorf("failed to start IP scanner service: %w", err)
+	}
+
+	// Ensure IP scanner service cleanup on shutdown
+	defer func() {
+		slog.Info("Stopping IP scanner service")
+		if err := ipScannerService.Stop(); err != nil {
+			slog.Error("Failed to stop IP scanner service", "error", err)
+		}
+	}()
+
 	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, telemetryService, minerService)
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
 

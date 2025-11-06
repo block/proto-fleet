@@ -7,9 +7,9 @@ import (
 
 	"github.com/golang/mock/gomock"
 
+	"github.com/btc-mining/proto-fleet/server/internal/domain/ipscanner/mocks"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
-	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	storemocks "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
 
 func TestNewIPScannerService(t *testing.T) {
@@ -25,12 +25,13 @@ func TestNewIPScannerService(t *testing.T) {
 		SubnetMaskBits:                24,
 	}
 
-	deviceStore := mocks.NewMockDeviceStore(ctrl)
-	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+	discoveredDeviceStore := storemocks.NewMockDiscoveredDeviceStore(ctrl)
 	discoveryService := &minerdiscovery.Service{}
+	deviceIDCheckService := mocks.NewMockDeviceIdentityCheckService(ctrl)
 	logger := slog.Default()
 
-	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, logger)
+	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, deviceIDCheckService, logger)
 
 	if service == nil {
 		t.Fatal("NewIPScannerService returned nil")
@@ -50,18 +51,19 @@ func TestIPScannerService_StartStop(t *testing.T) {
 		SubnetMaskBits:                24,
 	}
 
-	deviceStore := mocks.NewMockDeviceStore(ctrl)
-	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+	discoveredDeviceStore := storemocks.NewMockDiscoveredDeviceStore(ctrl)
 	discoveryService := &minerdiscovery.Service{}
+	deviceIDCheckService := mocks.NewMockDeviceIdentityCheckService(ctrl)
 	logger := slog.Default()
 
 	// Expect GetOfflineDevices to be called at least once
 	deviceStore.EXPECT().
 		GetOfflineDevices(gomock.Any(), gomock.Any()).
-		Return([]stores.OfflineDeviceInfo{}, nil).
+		Return(nil, nil).
 		AnyTimes()
 
-	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, logger)
+	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, deviceIDCheckService, logger)
 
 	ctx := t.Context()
 	err := service.Start(ctx)
@@ -92,12 +94,13 @@ func TestIPScannerService_DisabledService(t *testing.T) {
 		SubnetMaskBits:                24,
 	}
 
-	deviceStore := mocks.NewMockDeviceStore(ctrl)
-	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+	discoveredDeviceStore := storemocks.NewMockDiscoveredDeviceStore(ctrl)
 	discoveryService := &minerdiscovery.Service{}
+	deviceIDCheckService := mocks.NewMockDeviceIdentityCheckService(ctrl)
 	logger := slog.Default()
 
-	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, logger)
+	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, deviceIDCheckService, logger)
 
 	ctx := t.Context()
 	err := service.Start(ctx)
@@ -122,19 +125,20 @@ func TestIPScannerService_PreventMultipleInstances(t *testing.T) {
 		SubnetMaskBits:                24,
 	}
 
-	deviceStore := mocks.NewMockDeviceStore(ctrl)
-	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+	discoveredDeviceStore := storemocks.NewMockDiscoveredDeviceStore(ctrl)
 	discoveryService := &minerdiscovery.Service{}
+	deviceIDCheckService := mocks.NewMockDeviceIdentityCheckService(ctrl)
 	logger := slog.Default()
 
 	// Expect GetOfflineDevices to be called, but not more than reasonable
 	// If multiple scan loops ran, we'd see many more calls
 	deviceStore.EXPECT().
 		GetOfflineDevices(gomock.Any(), gomock.Any()).
-		Return([]stores.OfflineDeviceInfo{}, nil).
+		Return(nil, nil).
 		AnyTimes()
 
-	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, logger)
+	service := NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, deviceIDCheckService, logger)
 
 	ctx := t.Context()
 

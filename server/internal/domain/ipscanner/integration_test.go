@@ -8,10 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/ipscanner"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/ipscanner/mocks"
 	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
@@ -42,6 +44,9 @@ func TestIPScannerService_RediscoverOfflineDeviceAtNewIP(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
 	// Get test database connection (migrations already applied)
 	conn := testutil.GetTestDB(t)
 
@@ -61,6 +66,7 @@ func TestIPScannerService_RediscoverOfflineDeviceAtNewIP(t *testing.T) {
 					Port:       "50051",
 					UrlScheme:  "grpc",
 					MacAddress: "AA:BB:CC:DD:EE:01", // First device moved here
+					Type:       "proto",
 				},
 			},
 			"192.168.1.151:50051": {
@@ -69,10 +75,32 @@ func TestIPScannerService_RediscoverOfflineDeviceAtNewIP(t *testing.T) {
 					Port:       "50051",
 					UrlScheme:  "grpc",
 					MacAddress: "AA:BB:CC:DD:EE:02", // Second device moved here
+					Type:       "antminer",
 				},
 			},
 		},
 	}
+
+	// Set up gomock for DeviceIDCheckService
+	deviceIDCheckService := mocks.NewMockDeviceIdentityCheckService(ctrl)
+
+	// Expect IsSameDevice to be called with device at 192.168.1.150 (MAC AA:BB:CC:DD:EE:01)
+	// and return true when IP matches 192.168.1.150
+	deviceIDCheckService.EXPECT().
+		IsSameDevice(gomock.Any(), gomock.Any(), gomock.Eq("test-miner-001"), gomock.Any()).
+		DoAndReturn(func(_ context.Context, newDiscoveredDevice *discoverymodels.DiscoveredDevice, _ string, _ int64) bool {
+			return newDiscoveredDevice.MacAddress == "AA:BB:CC:DD:EE:01" && newDiscoveredDevice.IpAddress == "192.168.1.150"
+		}).
+		AnyTimes()
+
+	// Expect IsSameDevice to be called with device at 192.168.1.151 (MAC AA:BB:CC:DD:EE:02)
+	// and return true when IP matches 192.168.1.151
+	deviceIDCheckService.EXPECT().
+		IsSameDevice(gomock.Any(), gomock.Any(), gomock.Eq("test-miner-002"), gomock.Any()).
+		DoAndReturn(func(_ context.Context, newDiscoveredDevice *discoverymodels.DiscoveredDevice, _ string, _ int64) bool {
+			return newDiscoveredDevice.MacAddress == "AA:BB:CC:DD:EE:02" && newDiscoveredDevice.IpAddress == "192.168.1.151"
+		}).
+		AnyTimes()
 
 	// Create discovery service with mock discoverer
 	discoveryService, err := minerdiscovery.NewService(mockDisc)
@@ -91,7 +119,7 @@ func TestIPScannerService_RediscoverOfflineDeviceAtNewIP(t *testing.T) {
 	logger := slog.Default()
 
 	// Create and start the service
-	service := ipscanner.NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, logger)
+	service := ipscanner.NewIPScannerService(config, deviceStore, discoveredDeviceStore, discoveryService, deviceIDCheckService, logger)
 
 	testCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -128,7 +156,7 @@ func setupTestData(t *testing.T, conn *sql.DB) {
 		INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme)
 		VALUES
 			(1, 1, 'test-miner-001', 'proto', 'test-manufacturer', 'proto', '192.168.1.100', '50051', 'grpc'),
-			(2, 1, 'test-miner-002', 'proto', 'test-manufacturer', 'proto', '192.168.1.101', '50051', 'grpc')
+			(2, 1, 'test-miner-002', 'antminer', 'test-manufacturer', 'antminer', '192.168.1.101', '50051', 'grpc')
 	`)
 	require.NoError(t, err)
 

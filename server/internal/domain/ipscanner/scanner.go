@@ -6,20 +6,29 @@ import (
 	"sync"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 )
+
+//go:generate mockgen -source=scanner.go -destination=mocks/mock_scanner.go -package=mocks DeviceIdentityCheckService
+
+// DeviceIdentityCheckService defines the interface for device identity verification
+type DeviceIdentityCheckService interface {
+	IsSameDevice(ctx context.Context, newDiscoveredDevice *discoverymodels.DiscoveredDevice, pairedDeviceIdentifier string, orgID int64) bool
+}
 
 // NetworkScanner handles the actual network scanning operations
 type NetworkScanner struct {
 	discoveryService     *minerdiscovery.Service
+	deviceIDCheckService DeviceIdentityCheckService
 	maxConcurrentIPScans int
 	logger               *slog.Logger
 }
 
 // NewNetworkScanner creates a new network scanner
-func NewNetworkScanner(discoveryService *minerdiscovery.Service, maxConcurrentIPScans int, logger *slog.Logger) *NetworkScanner {
+func NewNetworkScanner(discoveryService *minerdiscovery.Service, deviceIDCheckService DeviceIdentityCheckService, maxConcurrentIPScans int, logger *slog.Logger) *NetworkScanner {
 	return &NetworkScanner{
 		discoveryService:     discoveryService,
+		deviceIDCheckService: deviceIDCheckService,
 		maxConcurrentIPScans: maxConcurrentIPScans,
 		logger:               logger.With("component", "network_scanner"),
 	}
@@ -35,13 +44,6 @@ func (n *NetworkScanner) ScanSubnetForDevices(
 		"subnet", subnet,
 		"device_count", len(targetDevices),
 	)
-
-	// Build a map of MAC addresses to target devices for quick lookup
-	targetsByMAC := make(map[string]TargetDevice)
-	for _, target := range targetDevices {
-		normalizedMAC := networking.NormalizeMAC(target.DeviceMAC)
-		targetsByMAC[normalizedMAC] = target
-	}
 
 	// Generate all IPs in the subnet
 	ips, err := generateIPsFromCIDR(subnet)
@@ -59,7 +61,7 @@ func (n *NetworkScanner) ScanSubnetForDevices(
 	)
 
 	// Scan IPs concurrently with limited concurrency
-	matches := n.scanIPsConcurrentlyForMultipleDevices(ctx, ips, targetsByMAC)
+	matches := n.scanIPsConcurrentlyForMultipleDevices(ctx, ips, targetDevices)
 
 	n.logger.Info("Subnet scan completed",
 		"subnet", subnet,
@@ -74,13 +76,13 @@ func (n *NetworkScanner) ScanSubnetForDevices(
 func (n *NetworkScanner) scanIPsConcurrentlyForMultipleDevices(
 	ctx context.Context,
 	ips []string,
-	targetsByMAC map[string]TargetDevice,
+	targetDevices []TargetDevice,
 ) []DeviceMatch {
 	var (
 		wg              sync.WaitGroup
 		mu              sync.Mutex
 		matches         []DeviceMatch
-		foundMACs       = make(map[string]bool)
+		foundDevices    = make(map[string]bool) // Track found devices by identifier
 		sem             = make(chan struct{}, n.maxConcurrentIPScans)
 		scanCtx, cancel = context.WithCancel(ctx)
 	)
@@ -88,14 +90,17 @@ func (n *NetworkScanner) scanIPsConcurrentlyForMultipleDevices(
 
 	// We need to try different ports since different devices may use different ports
 	portsToTry := make(map[string]bool)
-	for _, target := range targetsByMAC {
+	for _, target := range targetDevices {
 		portsToTry[target.Port] = true
 	}
 
+	totalTargets := len(targetDevices)
+
+scanLoop:
 	for _, ip := range ips {
 		// If we've found all target devices, stop scanning
 		mu.Lock()
-		allFound := len(foundMACs) == len(targetsByMAC)
+		allFound := len(foundDevices) == totalTargets
 		mu.Unlock()
 		if allFound {
 			break
@@ -103,7 +108,7 @@ func (n *NetworkScanner) scanIPsConcurrentlyForMultipleDevices(
 
 		select {
 		case <-scanCtx.Done():
-			break
+			break scanLoop
 		default:
 		}
 
@@ -132,37 +137,41 @@ func (n *NetworkScanner) scanIPsConcurrentlyForMultipleDevices(
 
 				// Check if we found a device
 				if device != nil {
-					deviceMAC := networking.NormalizeMAC(device.MacAddress)
+					var matchedTarget *TargetDevice
+					for i := range targetDevices {
+						if device.Type != targetDevices[i].DeviceType {
+							continue
+						}
 
-					// Only accept device if MAC address is available
-					// We cannot safely update IP assignments without MAC verification
-					// TODO add support for miners that require auth the get MAC address
-					if deviceMAC == "" {
-						n.logger.Debug("Device found but MAC address not available - skipping",
-							"ip", ipAddr,
-							"port", port,
-							"reason", "Cannot verify device identity without MAC address",
-						)
-						continue
+						// Type matches, now check if it's the same device via API
+						if n.deviceIDCheckService.IsSameDevice(scanCtx, device, targetDevices[i].DeviceIdentifier, targetDevices[i].OrgID) {
+							matchedTarget = &targetDevices[i]
+							n.logger.Debug("Device matched by identity check",
+								"ip", ipAddr,
+								"port", port,
+								"device_identifier", targetDevices[i].DeviceIdentifier,
+							)
+							break
+						}
 					}
 
-					// Check if this MAC matches any of our target devices
-					if target, found := targetsByMAC[deviceMAC]; found {
+					// If we found a match, record it
+					if matchedTarget != nil {
 						mu.Lock()
-						// Check if we haven't already found this device
-						if !foundMACs[deviceMAC] {
-							foundMACs[deviceMAC] = true
+						if !foundDevices[matchedTarget.DeviceIdentifier] {
+							foundDevices[matchedTarget.DeviceIdentifier] = true
 							matches = append(matches, DeviceMatch{
-								TargetDevice:   target,
+								TargetDevice:   *matchedTarget,
 								DiscoveredIP:   ipAddr,
 								DiscoveredPort: device.Port,
 								URLScheme:      device.UrlScheme,
 							})
-							n.logger.Info("Device found with verified MAC address",
+							n.logger.Info("Device found and verified",
 								"ip", ipAddr,
 								"port", port,
+								"type", device.Type,
 								"mac_address", device.MacAddress,
-								"device_identifier", target.DeviceIdentifier,
+								"device_identifier", matchedTarget.DeviceIdentifier,
 							)
 						}
 						mu.Unlock()

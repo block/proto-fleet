@@ -366,6 +366,41 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 	return nil
 }
 
+func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discoverymodels.DiscoveredDevice, pairedDeviceIdentifier string, orgID int64) bool {
+	pairedDevice, err := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, pairedDeviceIdentifier, orgID)
+	if err != nil {
+		slog.Error("failed to get paired device", "error", err)
+		return false
+	}
+
+	deviceType, err := models.TypeFromString(pairedDevice.Type)
+	if err != nil {
+		slog.Error("failed to get paired device type", "error", err)
+		return false
+	}
+
+	pairer, ok := s.pairers[deviceType]
+	if !ok {
+		slog.Error("failed to get pairer", "device_type", deviceType)
+		return false
+	}
+
+	pairedDeviceCredentials, err := s.deviceStore.GetMinerCredentials(ctx, pairedDevice, orgID)
+	if err != nil {
+		// log and continue without credentials
+		slog.Debug("failed to get paired device credentials", "error", err)
+	}
+
+	newDiscoveredDeviceInfo, err := pairer.GetDeviceInfo(ctx, newDiscoveredDevice, pairedDeviceCredentials)
+	if err != nil {
+		slog.Debug("failed to get new discovered device info", "error", err)
+		return false
+	}
+
+	return networking.NormalizeMAC(newDiscoveredDeviceInfo.MacAddress) == networking.NormalizeMAC(pairedDevice.MacAddress) &&
+		newDiscoveredDeviceInfo.SerialNumber == pairedDevice.SerialNumber
+}
+
 func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairResponse, error) {
 	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {

@@ -140,3 +140,20 @@ func (s *Service) PairDevice(ctx context.Context, device *discoverymodels.Discov
 
 	return nil
 }
+
+func (s *Service) GetDeviceInfo(ctx context.Context, device *discoverymodels.DiscoveredDevice, _ *pb.Credentials) (*pb.Device, error) {
+	protocol, err := networking.ProtocolFromString(device.Device.UrlScheme)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to parse protocol: %v", err)
+	}
+
+	pairingInfo, err := client.GetPairingInfo(ctx, device.IpAddress, device.Port, protocol)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting pairing info: %v", err)
+	}
+
+	device.SerialNumber = pairingInfo.Msg.CbSn
+	device.MacAddress = pairingInfo.Msg.Mac
+
+	return &device.Device, nil
+}

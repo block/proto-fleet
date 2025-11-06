@@ -322,6 +322,139 @@ fKx2N0uH2VQ8Z3xPjZSYGDCxKVHZKvJ8Ug==
 	require.NoError(t, err)
 }
 
+func TestPairer_GetDeviceInfo_PluginNoPairingCapability(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	manager := NewManager(&Config{})
+
+	// Add mock plugin without pairing capability
+	mockPlugin := &LoadedPlugin{
+		Name: "test-plugin",
+		Caps: sdk.Capabilities{
+			sdk.CapabilityDiscovery: true, // Has discovery but not pairing
+		},
+	}
+	manager.pluginsByType[models.TypeAntminer] = mockPlugin
+
+	pairer := createTestPairer(ctrl, manager, models.TypeAntminer)
+
+	device := &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: "test-device",
+			IpAddress:        "192.168.1.100",
+			Port:             "80",
+		},
+		OrgID: 1,
+	}
+	credentials := &pb.Credentials{
+		Username: "admin",
+		Password: stringPtr("password"),
+	}
+
+	ctx := t.Context()
+	result, err := pairer.GetDeviceInfo(ctx, device, credentials)
+
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "does not support pairing")
+}
+
+func TestPairer_GetDeviceInfo_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	manager := NewManager(&Config{})
+
+	deviceInfo := sdk.DeviceInfo{
+		Host:         "192.168.1.100",
+		Port:         80,
+		URLScheme:    "http",
+		SerialNumber: "TEST123",
+		Model:        "S19 Pro",
+		Manufacturer: "Bitmain",
+		Type:         sdk.DeviceTypeASIC,
+		MacAddress:   "00:11:22:33:44:55",
+	}
+
+	// Expected converted SecretBundle for username/password
+	expectedSecretBundle := sdk.SecretBundle{
+		Version: "v1",
+		Kind: sdk.UsernamePassword{
+			Username: "admin",
+			Password: "password123",
+		},
+	}
+
+	// Create mock device
+	mockDevice := sdkMocks.NewMockDevice(ctrl)
+	mockDevice.EXPECT().
+		DescribeDevice(gomock.Any()).
+		Return(deviceInfo, sdk.Capabilities{}, nil)
+
+	// Create mock driver
+	mockDriver := sdkMocks.NewMockDriver(ctrl)
+	mockDriver.EXPECT().
+		NewDevice(gomock.Any(), "test-device", gomock.Any(), gomock.Eq(expectedSecretBundle)).
+		Return(sdk.NewDeviceResult{Device: mockDevice}, nil)
+
+	// Add mock plugin with pairing capability
+	mockPlugin := &LoadedPlugin{
+		Name:   "test-plugin",
+		Driver: mockDriver,
+		Caps: sdk.Capabilities{
+			sdk.CapabilityPairing: true,
+		},
+	}
+	manager.pluginsByType[models.TypeAntminer] = mockPlugin
+
+	// Create pairer with mocked dependencies
+	transactor := mocks.NewMockTransactor(ctrl)
+	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	deviceStore := mocks.NewMockDeviceStore(ctrl)
+	userStore := mocks.NewMockUserStore(ctrl)
+	tokenService := &token.Service{}
+	encryptService, err := encrypt.NewService(&encrypt.Config{
+		ServiceMasterKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+	})
+	require.NoError(t, err)
+
+	pairer := NewPairer(manager, models.TypeAntminer, transactor, discoveredDeviceStore, deviceStore, userStore, tokenService, encryptService)
+
+	device := &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: "test-device",
+			IpAddress:        "192.168.1.100",
+			Port:             "80",
+			UrlScheme:        "http",
+			Model:            "S19",
+			Manufacturer:     "Bitmain",
+			Type:             "asic",
+		},
+		OrgID: 1,
+	}
+	credentials := &pb.Credentials{
+		Username: "admin",
+		Password: stringPtr("password123"),
+	}
+
+	ctx := t.Context()
+
+	result, err := pairer.GetDeviceInfo(ctx, device, credentials)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	assert.Equal(t, "192.168.1.100", result.IpAddress)
+	assert.Equal(t, "80", result.Port)
+	assert.Equal(t, "http", result.UrlScheme)
+	assert.Equal(t, "TEST123", result.SerialNumber)
+	assert.Equal(t, "S19 Pro", result.Model)
+	assert.Equal(t, "Bitmain", result.Manufacturer)
+	assert.Equal(t, "asic", result.Type)
+	assert.Equal(t, "00:11:22:33:44:55", result.MacAddress)
+}
+
 // Helper function to create string pointer
 func stringPtr(s string) *string {
 	return &s
