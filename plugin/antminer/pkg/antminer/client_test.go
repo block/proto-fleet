@@ -323,7 +323,7 @@ func TestClient_GetStatus(t *testing.T) {
 
 	status, err = client.GetStatus(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, sdk.Critical, status.State)
+	assert.Equal(t, sdk.HealthCritical, status.State)
 	assert.Contains(t, status.ErrorMessage, "Hardware errors: 5")
 }
 

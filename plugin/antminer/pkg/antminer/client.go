@@ -229,13 +229,13 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 	if summary.GHS5s > 0 {
 		state = sdk.HealthHealthyActive
 	} else {
-		state = sdk.HealthyInactive
+		state = sdk.HealthHealthyInactive
 	}
 
 	// Check for errors
 	errorMessage := ""
 	if summary.HardwareErrors > 0 {
-		state = sdk.Critical
+		state = sdk.HealthCritical
 		errorMessage = fmt.Sprintf("Hardware errors: %d", summary.HardwareErrors)
 	}
 

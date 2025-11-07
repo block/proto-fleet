@@ -106,6 +106,28 @@ func cleanupDevice(t *testing.T, device *Device, mockClient *mocks.MockAntminerC
 	require.NoError(t, err)
 }
 
+// setupTestWithDevice creates a test device with standard setup and returns cleanup function
+func setupTestWithDevice(t *testing.T) (*Device, *mocks.MockAntminerClient, func()) {
+	ctrl := gomock.NewController(t)
+	mockClient := mocks.NewMockAntminerClient(ctrl)
+	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+
+	cleanup := func() {
+		cleanupDevice(t, device, mockClient)
+		ctrl.Finish()
+	}
+
+	return device, mockClient, cleanup
+}
+
+// assertMetricValue validates that a telemetry value matches a metric value
+func assertMetricValue(t *testing.T, expected *float64, actual *sdk.MetricValue, msgAndArgs ...interface{}) {
+	if expected != nil && *expected > 0 {
+		require.NotNil(t, actual, msgAndArgs...)
+		assert.InEpsilon(t, *expected, actual.Value, 0.01, msgAndArgs...)
+	}
+}
+
 // defaultStatus returns a standard healthy status for testing
 func defaultStatus() *antminer.Status {
 	return &antminer.Status{
@@ -222,11 +244,10 @@ func TestDevice_Status(t *testing.T) {
 	ctx := t.Context()
 
 	testCases := []struct {
-		name            string
-		minerStatus     *antminer.Status
-		telemetry       *antminer.Telemetry
-		expectedHealth  sdk.HealthStatus
-		expectedSummary string
+		name           string
+		minerStatus    *antminer.Status
+		telemetry      *antminer.Telemetry
+		expectedHealth sdk.HealthStatus
 	}{
 		{
 			name: "mining_with_hashrate",
@@ -243,8 +264,7 @@ func TestDevice_Status(t *testing.T) {
 				FanRPM:             ptrFloat64(4000),
 				UptimeSeconds:      ptrInt64(86400),
 			},
-			expectedHealth:  sdk.HealthHealthyActive,
-			expectedSummary: "Mining at 100.00 TH/s",
+			expectedHealth: sdk.HealthHealthyActive,
 		},
 		{
 			name: "mining_no_hashrate",
@@ -256,41 +276,37 @@ func TestDevice_Status(t *testing.T) {
 			telemetry: &antminer.Telemetry{
 				HashrateHS: ptrFloat64(0), // No hashrate
 			},
-			expectedHealth:  sdk.Warning,
-			expectedSummary: "Mining but no hashrate detected",
+			expectedHealth: sdk.HealthWarning,
 		},
 		{
 			name: "idle_state",
 			minerStatus: &antminer.Status{
-				State:           sdk.HealthyInactive,
+				State:           sdk.HealthHealthyInactive,
 				FirmwareVersion: testFirmware,
 				ErrorMessage:    "",
 			},
-			telemetry:       nil,
-			expectedHealth:  sdk.HealthyInactive,
-			expectedSummary: "Idle",
+			telemetry:      nil,
+			expectedHealth: sdk.HealthHealthyInactive,
 		},
 		{
 			name: "warning_state",
 			minerStatus: &antminer.Status{
-				State:           sdk.Warning,
+				State:           sdk.HealthWarning,
 				FirmwareVersion: testFirmware,
 				ErrorMessage:    "High temperature",
 			},
-			telemetry:       nil,
-			expectedHealth:  sdk.Warning,
-			expectedSummary: "Warning: High temperature",
+			telemetry:      nil,
+			expectedHealth: sdk.HealthWarning,
 		},
 		{
 			name: "error_state",
 			minerStatus: &antminer.Status{
-				State:           sdk.Critical,
+				State:           sdk.HealthCritical,
 				FirmwareVersion: testFirmware,
 				ErrorMessage:    "Hardware failure",
 			},
-			telemetry:       nil,
-			expectedHealth:  sdk.Critical,
-			expectedSummary: "Error: Hardware failure",
+			telemetry:      nil,
+			expectedHealth: sdk.HealthCritical,
 		},
 	}
 
@@ -310,26 +326,32 @@ func TestDevice_Status(t *testing.T) {
 			// Verify results
 			assert.Equal(t, testDeviceID, status.DeviceID)
 			assert.Equal(t, tc.expectedHealth, status.Health)
-			assert.Equal(t, tc.expectedSummary, status.Summary)
 
-			assert.Equal(t, testHost, status.Metadata["ip_address"])
-			assert.Equal(t, testModel, status.Metadata["model"])
-			assert.Equal(t, testManufacturer, status.Metadata["manufacturer"])
-			assert.Equal(t, testFirmware, status.Metadata["firmware_version"])
-			assert.Equal(t, testUsername, status.Metadata["username"])
+			// Verify health reason for error cases
+			if tc.minerStatus.ErrorMessage != "" {
+				require.NotNil(t, status.HealthReason)
+				assert.Equal(t, tc.minerStatus.ErrorMessage, *status.HealthReason)
+			}
 
-			// Verify telemetry data if provided
-			if tc.telemetry != nil && tc.telemetry.HashrateHS != nil && *tc.telemetry.HashrateHS > 0 {
-				require.NotNil(t, status.HashrateHS)
-				assert.InEpsilon(t, *tc.telemetry.HashrateHS, *status.HashrateHS, 0.01)
+			// Verify telemetry data if provided - now wrapped in MetricValue
+			if tc.telemetry != nil {
+				assertMetricValue(t, tc.telemetry.HashrateHS, status.HashrateHS)
+				assertMetricValue(t, tc.telemetry.PowerWatts, status.PowerW)
+				assertMetricValue(t, tc.telemetry.TemperatureCelsius, status.TempC)
 			}
-			if tc.telemetry != nil && tc.telemetry.PowerWatts != nil && *tc.telemetry.PowerWatts > 0 {
-				require.NotNil(t, status.PowerWatts)
-				assert.InEpsilon(t, *tc.telemetry.PowerWatts, *status.PowerWatts, 0.01)
-			}
-			if tc.telemetry != nil && tc.telemetry.TemperatureCelsius != nil && *tc.telemetry.TemperatureCelsius > 0 {
-				require.NotNil(t, status.TemperatureCelsius)
-				assert.InEpsilon(t, *tc.telemetry.TemperatureCelsius, *status.TemperatureCelsius, 0.01)
+
+			// Verify SensorMetrics for uptime if provided
+			if tc.telemetry != nil && tc.telemetry.UptimeSeconds != nil {
+				require.NotNil(t, status.SensorMetrics)
+				require.Len(t, status.SensorMetrics, 1)
+				uptimeSensor := status.SensorMetrics[0]
+				assert.Equal(t, "uptime", uptimeSensor.Type)
+				assert.Equal(t, "seconds", uptimeSensor.Unit)
+				assert.Equal(t, "uptime", uptimeSensor.Name)
+				assert.Equal(t, sdk.ComponentStatusHealthy, uptimeSensor.Status)
+				require.NotNil(t, uptimeSensor.Value)
+				assert.InEpsilon(t, float64(*tc.telemetry.UptimeSeconds), uptimeSensor.Value.Value, 0.01)
+				assert.Equal(t, sdk.MetricKindCounter, uptimeSensor.Value.Kind)
 			}
 		})
 	}
@@ -366,7 +388,7 @@ func TestDevice_StatusCaching(t *testing.T) {
 	// First call should use cached result from Connect (no additional RPC calls)
 	status1, err := device.Status(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, "Mining at 100.00 TH/s", status1.Summary)
+	assert.Equal(t, sdk.HealthHealthyActive, status1.Health)
 
 	// Second call should also use cached result (no additional RPC calls)
 	status2, err := device.Status(ctx)
@@ -375,7 +397,7 @@ func TestDevice_StatusCaching(t *testing.T) {
 
 	// Verify that both calls returned the same cached data
 	assert.Equal(t, status1.Timestamp, status2.Timestamp, "Cached status should have same timestamp")
-	assert.Equal(t, status1.Summary, status2.Summary, "Cached status should have same summary")
+	assert.Equal(t, status1.Health, status2.Health, "Cached status should have same health")
 }
 
 func TestDevice_StatusNoCache(t *testing.T) {
@@ -415,11 +437,11 @@ func TestDevice_StatusNoCache(t *testing.T) {
 	// First explicit call should fetch fresh data (no cache due to TTL=0)
 	status1, err := device.Status(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, "Mining at 100.00 TH/s", status1.Summary)
+	assert.Equal(t, sdk.HealthHealthyActive, status1.Health)
 
 	// Set up expectations for third status call (should invoke RPC again)
 	updatedStatus := &antminer.Status{
-		State:           sdk.HealthyInactive,
+		State:           sdk.HealthHealthyInactive,
 		FirmwareVersion: testFirmware,
 		ErrorMessage:    "",
 	}
@@ -429,11 +451,11 @@ func TestDevice_StatusNoCache(t *testing.T) {
 	// Second explicit call should fetch fresh data again
 	status2, err := device.Status(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, "Idle", status2.Summary)
+	assert.Equal(t, sdk.HealthHealthyInactive, status2.Health)
 
 	// Verify that the two statuses are different
 	assert.NotEqual(t, status1.Timestamp, status2.Timestamp, "Statuses should have different timestamps")
-	assert.NotEqual(t, status1.Summary, status2.Summary, "Statuses should have different summaries")
+	assert.NotEqual(t, status1.Health, status2.Health, "Statuses should have different health statuses")
 }
 
 func TestDevice_DescribeDevice(t *testing.T) {
