@@ -2,6 +2,8 @@ import { useCallback, useMemo } from "react";
 import { ConnectError } from "@connectrpc/connect";
 import { minerCommandClient } from "@/protoFleet/api/clients";
 import {
+  BlinkLEDRequest,
+  BlinkLEDResponse,
   StartMiningRequest,
   StartMiningResponse,
   StopMiningRequest,
@@ -10,6 +12,12 @@ import {
   StreamCommandBatchUpdatesResponse,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { useAuthErrors, useAuthHeader } from "@/protoFleet/store";
+
+interface BlinkLEDProps {
+  blinkLEDRequest: BlinkLEDRequest;
+  onSuccess: (value: BlinkLEDResponse) => void;
+  onError?: (error: string) => void;
+}
 
 interface StartMiningProps {
   startMiningRequest: StartMiningRequest;
@@ -33,6 +41,23 @@ interface StreamCommandBatchUpdatesProps {
 const useMinerCommand = () => {
   const authHeader = useAuthHeader();
   const { handleAuthErrors } = useAuthErrors();
+
+  const blinkLED = useCallback(
+    async ({ blinkLEDRequest, onSuccess, onError }: BlinkLEDProps) => {
+      await minerCommandClient
+        .blinkLED(blinkLEDRequest, authHeader)
+        .then((response) => onSuccess(response))
+        .catch((err) => {
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
+        });
+    },
+    [authHeader, handleAuthErrors],
+  );
 
   const startMining = useCallback(
     async ({ startMiningRequest, onSuccess, onError }: StartMiningProps) => {
@@ -109,11 +134,12 @@ const useMinerCommand = () => {
 
   return useMemo(
     () => ({
+      blinkLED,
       startMining,
       stopMining,
       streamCommandBatchUpdates,
     }),
-    [startMining, stopMining, streamCommandBatchUpdates],
+    [blinkLED, startMining, stopMining, streamCommandBatchUpdates],
   );
 };
 

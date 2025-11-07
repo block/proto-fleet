@@ -70,15 +70,6 @@ const FoundMinersModal = ({
     [miners, setDeselectedMiners],
   );
 
-  const blinkAction = {
-    title: "Blink LEDs",
-    actionHandler: (miner: Device) => {
-      // TODO: call API to blink LEDs
-      // eslint-disable-next-line
-      console.log("Blink LEDs for miner:", miner);
-    },
-  };
-
   const modelFilter = useMemo(() => {
     const options = models.map((model) => ({
       id: model,
@@ -146,7 +137,6 @@ const FoundMinersModal = ({
           itemSelectable
           customSelectedItems={selectedMiners}
           customSetSelectedItems={setSelectedMiners}
-          actions={[blinkAction]}
           containerClassName="max-h-[50vh]"
           overflowContainer={true}
           stickyBgColor="bg-surface-elevated-base"

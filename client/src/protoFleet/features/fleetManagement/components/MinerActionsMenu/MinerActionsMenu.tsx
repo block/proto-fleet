@@ -9,6 +9,8 @@ import {
   SupportedAction,
 } from "./constants";
 import {
+  BlinkLEDRequestSchema,
+  BlinkLEDResponse,
   DeviceListSchema,
   DeviceSelectorSchema,
   StartMiningRequestSchema,
@@ -52,7 +54,7 @@ const MinerActionsMenu = ({
   onActionStart,
   onActionComplete,
 }: MinerActionsMenuProps) => {
-  const { startMining, stopMining, streamCommandBatchUpdates } =
+  const { startMining, stopMining, blinkLED, streamCommandBatchUpdates } =
     useMinerCommand();
 
   const [currentAction, setCurrentAction] = useState<SupportedAction | null>(
@@ -61,7 +63,7 @@ const MinerActionsMenu = ({
 
   const numberOfMiners = useMemo(() => selectedMiners.length, [selectedMiners]);
 
-  // TODO remove later
+  // TODO remove later - only used for downloadLogs
   const simulateAPICall = (callback: () => void) => {
     setTimeout(() => callback && callback(), 2000);
   };
@@ -70,17 +72,28 @@ const MinerActionsMenu = ({
     // Device actions handlers
     const handleBlinkLEDs = () => {
       setCurrentAction(deviceActions.blinkLEDs);
-      const message = "Blinking LEDs";
       const id = pushToast({
-        message: message,
+        message: loadingMessages[deviceActions.blinkLEDs],
         status: TOAST_STATUSES.loading,
         longRunning: true,
       });
-      simulateAPICall(() => {
-        updateToast(id, {
-          message: message,
-          status: TOAST_STATUSES.success,
-        });
+
+      const blinkLEDRequest = create(BlinkLEDRequestSchema, {
+        deviceSelector: create(DeviceSelectorSchema, {
+          selectionType: {
+            case: "includeDevices",
+            value: create(DeviceListSchema, {
+              deviceIdentifiers: selectedMiners,
+            }),
+          },
+        }),
+      });
+
+      blinkLED({
+        blinkLEDRequest,
+        onSuccess: (value: BlinkLEDResponse) =>
+          handleSuccess(deviceActions.blinkLEDs, id, value.batchIdentifier),
+        onError: handleError.bind(this, id),
       });
     };
 
@@ -279,6 +292,7 @@ const MinerActionsMenu = ({
   const minersMessage = "miners";
 
   const loadingMessages: Record<string, string> = {
+    [deviceActions.blinkLEDs]: "Blinking LEDs",
     [deviceActions.factoryReset]: "Resetting",
     [deviceActions.reboot]: "Rebooting",
     [deviceActions.shutdown]: "Shutting down",
@@ -287,6 +301,7 @@ const MinerActionsMenu = ({
   };
 
   const successMessages: Record<string, string> = {
+    [deviceActions.blinkLEDs]: "Blinked LEDs",
     [deviceActions.factoryReset]: "Reset",
     [deviceActions.reboot]: "Rebooted",
     [deviceActions.shutdown]: "Shut down",
@@ -295,11 +310,7 @@ const MinerActionsMenu = ({
   };
 
   const handleConfirmation = async () => {
-    if (
-      currentAction === null ||
-      currentAction === deviceActions.blinkLEDs ||
-      currentAction === deviceActions.downloadLogs
-    )
+    if (currentAction === null || currentAction === deviceActions.downloadLogs)
       return;
 
     const id = pushToast({
@@ -364,11 +375,7 @@ const MinerActionsMenu = ({
     originalToastId: number,
     batchIdentifier: string,
   ) => {
-    if (
-      action === deviceActions.blinkLEDs ||
-      action === deviceActions.downloadLogs
-    )
-      return;
+    if (action === deviceActions.downloadLogs) return;
 
     const streamAbortController = new AbortController();
 
