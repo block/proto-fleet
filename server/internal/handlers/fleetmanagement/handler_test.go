@@ -1,11 +1,15 @@
 package fleetmanagement_test
 
 import (
+	"fmt"
 	"testing"
 
-	"github.com/alecthomas/assert/v2"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	pairingpb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -94,4 +98,117 @@ func TestHandler_ListMinerStateSnapshots(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandler_ListUnpairedDevices(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	// Arrange
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	// Create some unpaired discovered devices using the pairing service to discover them
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	for i := 1; i <= 3; i++ {
+		deviceIdentifier := fmt.Sprintf("test-device-%d", i)
+		doi := discoverymodels.DeviceOrgIdentifier{
+			DeviceIdentifier: deviceIdentifier,
+			OrgID:            testUser.OrganizationID,
+		}
+		device := &discoverymodels.DiscoveredDevice{
+			Device: pairingpb.Device{
+				DeviceIdentifier: deviceIdentifier,
+				Model:            "S19 Pro",
+				Manufacturer:     "Bitmain",
+				Type:             "ANTMINER",
+				IpAddress:        fmt.Sprintf("192.168.1.%d", 100+i),
+				Port:             "4028",
+				UrlScheme:        "http",
+			},
+			IsActive: true,
+			OrgID:    testUser.OrganizationID,
+		}
+		_, err := discoveredDeviceStore.Save(t.Context(), doi, device)
+		require.NoError(t, err)
+	}
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	req := &pb.ListUnpairedDevicesRequest{
+		PageSize: 10,
+	}
+
+	// Act
+	resp, err := service.ListUnpairedDevices(ctx, req)
+
+	// Assert
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Len(t, resp.Devices, 3)
+	assert.Equal(t, int32(3), resp.TotalDevices)
+	assert.Empty(t, resp.Cursor) // No more pages
+
+	// Verify device fields are populated
+	for _, device := range resp.Devices {
+		assert.NotEmpty(t, device.IpAddress)
+		assert.NotEmpty(t, device.Port)
+		assert.NotEmpty(t, device.UrlScheme)
+		assert.NotEmpty(t, device.Type)
+	}
+}
+
+func TestHandler_ListUnpairedDevices_ShouldSupportPagination(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	// Arrange
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	// Create 5 unpaired discovered devices
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	for i := 1; i <= 5; i++ {
+		deviceIdentifier := fmt.Sprintf("page-device-%d", i)
+		doi := discoverymodels.DeviceOrgIdentifier{
+			DeviceIdentifier: deviceIdentifier,
+			OrgID:            testUser.OrganizationID,
+		}
+		device := &discoverymodels.DiscoveredDevice{
+			Device: pairingpb.Device{
+				DeviceIdentifier: deviceIdentifier,
+				Model:            "S19 Pro",
+				Manufacturer:     "Bitmain",
+				Type:             "ANTMINER",
+				IpAddress:        fmt.Sprintf("192.168.1.%d", 100+i),
+				Port:             "4028",
+				UrlScheme:        "http",
+			},
+			IsActive: true,
+			OrgID:    testUser.OrganizationID,
+		}
+		_, err := discoveredDeviceStore.Save(t.Context(), doi, device)
+		require.NoError(t, err)
+	}
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	// Request with page size of 2
+	req := &pb.ListUnpairedDevicesRequest{
+		PageSize: 2,
+	}
+
+	// Act - Get first page
+	resp, err := service.ListUnpairedDevices(ctx, req)
+
+	// Assert
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Len(t, resp.Devices, 2, "Should return 2 devices")
+	assert.Equal(t, int32(5), resp.TotalDevices)
+	assert.NotEmpty(t, resp.Cursor, "Should have a cursor for next page")
 }

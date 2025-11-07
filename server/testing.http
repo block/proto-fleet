@@ -8,8 +8,8 @@ POST {{host}}/onboarding.v1.OnboardingService/CreateAdminLogin
 Content-Type: application/json
 
 {
-  "username": "mcharles@block.xyz",
-  "password": "00000000000000000000000000000000000000000000"
+  "username": "admin",
+  "password": "proto"
 }
 
 ### Authenticate
@@ -18,8 +18,8 @@ POST {{host}}/auth.v1.AuthService/Authenticate
 Content-Type: application/json
 
 {
-  "username": "mcharles@block.xyz",
-  "password": "00000000000000000000000000000000000000000000"
+  "username": "admin",
+  "password": "proto"
 }
 
 ### Set auth token
@@ -98,6 +98,16 @@ Content-Type: application/json
 ### list paired miners
 
 POST {{host}}/fleetmanagement.v1.FleetManagementService/ListPairedMiners
+Authorization: Bearer {{auth_token}}
+Content-Type: application/json
+
+{
+  "page_size": 10
+}
+
+### list unpaired devices
+
+POST {{host}}/fleetmanagement.v1.FleetManagementService/ListUnpairedDevices
 Authorization: Bearer {{auth_token}}
 Content-Type: application/json
 

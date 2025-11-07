@@ -19,18 +19,38 @@ import (
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 )
 
+const (
+	// defaultPageSize is the default number of items returned per page when not specified
+	defaultPageSize = 50
+	// maxPageSize is the maximum number of items that can be returned per page
+	maxPageSize = 1000
+)
+
 type Service struct {
-	deviceStore  interfaces.DeviceStore
-	telemetry    TelemetryCollector
-	minerService *miner.MinerService
+	deviceStore           interfaces.DeviceStore
+	discoveredDeviceStore interfaces.DiscoveredDeviceStore
+	telemetry             TelemetryCollector
+	minerService          *miner.MinerService
 }
 
-func NewService(deviceStore interfaces.DeviceStore, t TelemetryCollector, minerService *miner.MinerService) *Service {
+func NewService(deviceStore interfaces.DeviceStore, discoveredDeviceStore interfaces.DiscoveredDeviceStore, t TelemetryCollector, minerService *miner.MinerService) *Service {
 	return &Service{
-		deviceStore:  deviceStore,
-		telemetry:    t,
-		minerService: minerService,
+		deviceStore:           deviceStore,
+		discoveredDeviceStore: discoveredDeviceStore,
+		telemetry:             t,
+		minerService:          minerService,
 	}
+}
+
+// validatePageSize validates and normalizes the requested page size
+func validatePageSize(pageSize int32) int32 {
+	if pageSize <= 0 {
+		return defaultPageSize
+	}
+	if pageSize > maxPageSize {
+		return maxPageSize
+	}
+	return pageSize
 }
 
 func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRequest) (*pb.ListPairedMinersResponse, error) {
@@ -40,13 +60,7 @@ func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRe
 	}
 
 	// Validate and set page size
-	pageSize := req.PageSize
-	if pageSize <= 0 {
-		pageSize = 50 // default page size
-	}
-	if pageSize > 1000 {
-		pageSize = 1000 // maximum page size
-	}
+	pageSize := validatePageSize(req.PageSize)
 
 	// Query the database
 	devices, nextCursor, err := s.deviceStore.ListPairedDevices(c, req.Cursor, pageSize)
@@ -68,6 +82,46 @@ func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRe
 	}
 
 	return resp, nil
+}
+
+// ListUnpairedDevices returns a paginated list of discovered devices that have not been paired
+func (s *Service) ListUnpairedDevices(ctx context.Context, req *pb.ListUnpairedDevicesRequest) (*pb.ListUnpairedDevicesResponse, error) {
+	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	pageSize := validatePageSize(req.PageSize)
+
+	devices, nextCursor, err := s.discoveredDeviceStore.GetActiveUnpairedDevices(ctx, claims.OrgID, req.Cursor, pageSize)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list unpaired devices: %v", err)
+	}
+
+	totalCount, err := s.discoveredDeviceStore.CountActiveUnpairedDevices(ctx, claims.OrgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
+	}
+
+	pbDevices := make([]*pb.DiscoveredDevice, len(devices))
+	for i, device := range devices {
+		pbDevices[i] = &pb.DiscoveredDevice{
+			DeviceIdentifier: device.DeviceIdentifier,
+			IpAddress:        device.IpAddress,
+			Port:             device.Port,
+			UrlScheme:        device.UrlScheme,
+			Model:            device.Model,
+			Manufacturer:     device.Manufacturer,
+			Type:             device.Type,
+			Capabilities:     device.Capabilities,
+		}
+	}
+
+	return &pb.ListUnpairedDevicesResponse{
+		Devices:      pbDevices,
+		Cursor:       nextCursor,
+		TotalDevices: int32(totalCount), //nolint:gosec
+	}, nil
 }
 
 // ListMinerStateSnapshots returns a paginated list of miners with their operational status and metrics

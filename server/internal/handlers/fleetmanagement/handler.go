@@ -34,10 +34,13 @@ func (h *Handler) ListPairedMiners(ctx context.Context, r *connect.Request[pb.Li
 	return connect.NewResponse(result), nil
 }
 
-// ListUnpairedDevices implements fleetmanagementv1connect.FleetManagementServiceHandler.
-// TODO: Full implementation in subsequent PR (#544)
-func (h *Handler) ListUnpairedDevices(ctx context.Context, _ *connect.Request[pb.ListUnpairedDevicesRequest]) (*connect.Response[pb.ListUnpairedDevicesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("ListUnpairedDevices not yet implemented"))
+func (h *Handler) ListUnpairedDevices(ctx context.Context, r *connect.Request[pb.ListUnpairedDevicesRequest]) (*connect.Response[pb.ListUnpairedDevicesResponse], error) {
+	result, err := h.fleetMgmtSvc.ListUnpairedDevices(ctx, r.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(result), nil
 }
 
 func (h *Handler) ListMinerStateSnapshots(ctx context.Context, r *connect.Request[pb.ListMinerStateSnapshotsRequest]) (*connect.Response[pb.ListMinerStateSnapshotsResponse], error) {

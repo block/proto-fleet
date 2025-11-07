@@ -258,7 +258,7 @@ func start(config *Config) error {
 		}
 	}()
 
-	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, telemetryService, minerService)
+	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService)
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
 
 	executionServiceCtx, executionServiceCancel := context.WithCancel(context.Background())

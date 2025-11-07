@@ -6,6 +6,7 @@ import "google/protobuf/timestamp.proto";
 import "common/v1/measurement.proto";
 import "telemetry/v1/telemetry.proto";
 import "capabilities/v1/capabilities.proto";
+import "buf/validate/validate.proto";
 
 // Service for managing fleet-wide settings and configurations
 service FleetManagementService {
@@ -39,8 +40,12 @@ enum FleetManagementServiceErrorCode {
 message ListPairedMinersRequest {
   // Maximum number of miners to return in a single response
   // Server may return fewer miners than specified
-  // If not specified, a server-defined default will be used
-  int32 page_size = 1;
+  // If not specified, a default of 50 will be used
+  // Maximum allowed value is 1000
+  int32 page_size = 1 [(buf.validate.field).int32 = {
+    gte: 0,  // Allow 0 to use default
+    lte: 1000  // Maximum page size
+  }];
 
   // A pagination cursor returned by a previous call to this endpoint
   // Provide this cursor to retrieve the next set of results for the original query
@@ -83,8 +88,12 @@ message PairedDevice {
 message ListUnpairedDevicesRequest {
   // Maximum number of devices to return in a single response
   // Server may return fewer devices than specified
-  // If not specified, a server-defined default will be used
-  int32 page_size = 1;
+  // If not specified, a default of 50 will be used
+  // Maximum allowed value is 1000
+  int32 page_size = 1 [(buf.validate.field).int32 = {
+    gte: 0,  // Allow 0 to use default
+    lte: 1000  // Maximum page size
+  }];
 
   // A pagination cursor returned by a previous call to this endpoint
   // Provide this cursor to retrieve the next set of results
@@ -277,8 +286,12 @@ message MeasurementConfig {
 message ListMinerStateSnapshotsRequest {
   // Maximum number of miners to return in a single response
   // Server may return fewer miners than specified
-  // If not specified, a server-defined default will be used
-  int32 page_size = 1;
+  // If not specified, a default of 50 will be used
+  // Maximum allowed value is 1000
+  int32 page_size = 1 [(buf.validate.field).int32 = {
+    gte: 0,  // Allow 0 to use default
+    lte: 1000  // Maximum page size
+  }];
 
   // A pagination cursor returned by a previous call to this endpoint
   // Provide this cursor to retrieve the next set of results for the original query
