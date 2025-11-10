@@ -321,6 +321,19 @@ func (m *Manager) HasPluginForMinerType(minerType models.Type) bool {
 	return exists
 }
 
+// GetDriverForMinerType returns the SDK driver for a given miner type
+func (m *Manager) GetDriverForMinerType(minerType models.Type) (sdk.Driver, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	plugin, exists := m.pluginsByType[minerType]
+	if !exists {
+		return nil, fleeterror.NewInternalErrorf("no plugin found for miner type: %s", minerType)
+	}
+
+	return plugin.Driver, nil
+}
+
 // Shutdown gracefully shuts down all loaded plugins
 func (m *Manager) Shutdown(ctx context.Context) error {
 	m.mu.Lock()

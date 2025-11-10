@@ -178,7 +178,7 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
-	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, tokenSvc)
+	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, tokenSvc, pluginManager)
 
 	telemetryService := telemetry.NewTelemetryService(
 		config.Telemetry,

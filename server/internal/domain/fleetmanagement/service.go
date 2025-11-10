@@ -2,11 +2,13 @@ package fleetmanagement
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
+	minerInterfaces "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	telemetryModels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
@@ -192,7 +194,11 @@ func (s *Service) buildSnapshot(
 			status = nil
 		}
 
-		minerInfo, err := s.minerService.BuildMinerInfo(ctx, miner.DeviceIdentifier, orgID, miner.IpAddress, miner.Port, miner.UrlScheme, miner.Type, miner.SerialNumber)
+		minerType, err := mm.TypeFromString(miner.Type)
+		if err != nil {
+			return nil, fmt.Errorf("invalid miner type %s: %w", miner.Type, err)
+		}
+		minerInfo, err := s.minerService.BuildMinerInfo(ctx, miner.DeviceIdentifier, orgID, miner.IpAddress, miner.Port, miner.UrlScheme, minerType, miner.SerialNumber)
 		if err != nil {
 			// Continue without miner info
 			minerInfo = nil
@@ -753,10 +759,14 @@ func (s *Service) buildMinerSnapshot(
 	orgID := claims.OrgID
 
 	// Get miner info
-	minerInfo, err := s.minerService.BuildMinerInfo(ctx, device.DeviceIdentifier, orgID, device.IpAddress, device.Port, device.UrlScheme, device.Type, device.SerialNumber)
-	if err != nil {
-		// Continue without miner info
-		minerInfo = nil
+	var minerInfo minerInterfaces.MinerInfo
+	minerType, err := mm.TypeFromString(device.Type)
+	if err == nil {
+		minerInfo, err = s.minerService.BuildMinerInfo(ctx, device.DeviceIdentifier, orgID, device.IpAddress, device.Port, device.UrlScheme, minerType, device.SerialNumber)
+		if err != nil {
+			// Continue without miner info
+			minerInfo = nil
+		}
 	}
 
 	// Get device status

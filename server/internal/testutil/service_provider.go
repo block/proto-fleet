@@ -80,7 +80,8 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	filesService, err := files.NewService()
 	assert.NoError(t, err)
 
-	minerService := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService)
+	// Pass nil for plugin manager in tests (can be mocked if needed)
+	minerService := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, nil)
 
 	protoPairer := pairingProto.NewService(transactor, discoveredDeviceStore, deviceStore, userStore, minerService, tokenService, encryptService)
 	antminerPairer := pairingAntminer.NewService(transactor, discoveredDeviceStore, deviceStore, encryptService, antminerWeb.NewService())

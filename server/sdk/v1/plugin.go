@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -41,7 +42,7 @@ func sdkErrorToGRPCStatus(err error) error {
 
 // Helper function to safely convert int to int32
 func safeIntToInt32(i int) int32 {
-	if i > 2147483647 || i < -2147483648 {
+	if i > math.MaxInt32 || i < math.MinInt32 {
 		return 0 // Return 0 for out-of-range values
 	}
 	return int32(i)

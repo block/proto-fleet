@@ -22,7 +22,7 @@ func TestNewMinerService_WithValidDB_ShouldCreateService(t *testing.T) {
 	db, encryptService, filesService, tokenService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, nil)
 
 	assert.NotNil(t, service)
 }
@@ -32,7 +32,7 @@ func TestNewMinerService_WithNilDB_ShouldPanic(t *testing.T) {
 	userStore := sqlstores.NewSQLUserStore(db)
 
 	assert.Panics(t, func() {
-		miner.NewMinerService(nil, userStore, encryptService, filesService, tokenService)
+		miner.NewMinerService(nil, userStore, encryptService, filesService, tokenService, nil)
 	})
 }
 
@@ -41,7 +41,7 @@ func TestNewMinerService_WithNilEncryptService_ShouldPanic(t *testing.T) {
 	userStore := sqlstores.NewSQLUserStore(db)
 
 	assert.Panics(t, func() {
-		miner.NewMinerService(db, userStore, nil, filesService, tokenService)
+		miner.NewMinerService(db, userStore, nil, filesService, tokenService, nil)
 	})
 }
 
@@ -56,7 +56,7 @@ func TestMinerService_GetMinerFromDeviceID_WithValidDevice_ShouldReturnMiner(t *
 	deviceID := models.DeviceIdentifier("test-device-123")
 	createTestDeviceWithCredentials(t, db, string(deviceID))
 
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, nil)
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
 
@@ -73,7 +73,7 @@ func TestMinerService_GetMinerFromDeviceID_WithNonexistentDevice_ShouldReturnErr
 	db, encryptService, filesService, tokenService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, nil)
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier("nonexistent"))
 
@@ -86,7 +86,7 @@ func TestMinerService_GetMinerFromDeviceID_WithEmptyDeviceID_ShouldReturnError(t
 	db, encryptService, filesService, tokenService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, nil)
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier(""))
 
@@ -101,7 +101,7 @@ func TestMinerService_GetMinerFromDeviceID_WithDatabaseError_ShouldReturnError(t
 
 	db.Close() // Simulate database error
 
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, nil)
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier("device-123"))
 
@@ -119,7 +119,7 @@ func TestMinerService_GetMinerFromDeviceID_WithMissingCredentials_ShouldReturnEr
 	deviceID := models.DeviceIdentifier("test-device-no-creds")
 	createTestDevice(t, db, string(deviceID))
 
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, nil)
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
 
@@ -144,7 +144,7 @@ func TestMinerService_ConcurrentAccess_ShouldBeThreadSafe(t *testing.T) {
 		createTestDeviceWithCredentials(t, db, string(deviceID))
 	}
 
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, nil)
 
 	const numGoroutines = 20
 	var wg sync.WaitGroup
@@ -262,7 +262,7 @@ func TestMinerService_GetMinerFromDeviceID_WithProtoMinerToken_ShouldReturnProto
 	createTestProtoMinerWithToken(t, testContext.ServiceProvider.DB, string(deviceID))
 	userStore := sqlstores.NewSQLUserStore(testContext.ServiceProvider.DB)
 
-	service := miner.NewMinerService(testContext.ServiceProvider.DB, userStore, testContext.ServiceProvider.EncryptService, testContext.ServiceProvider.FilesService, testContext.ServiceProvider.TokenService)
+	service := miner.NewMinerService(testContext.ServiceProvider.DB, userStore, testContext.ServiceProvider.EncryptService, testContext.ServiceProvider.FilesService, testContext.ServiceProvider.TokenService, nil)
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
 
@@ -313,7 +313,7 @@ func TestMinerService_GetMinerFromDeviceID_WithUnpairedDevice_ShouldReturnError(
 	require.NoError(t, err)
 
 	userStore := sqlstores.NewSQLUserStore(testContext.DatabaseService.DB)
-	service := miner.NewMinerService(testContext.DatabaseService.DB, userStore, testContext.ServiceProvider.EncryptService, testContext.ServiceProvider.FilesService, testContext.ServiceProvider.TokenService)
+	service := miner.NewMinerService(testContext.DatabaseService.DB, userStore, testContext.ServiceProvider.EncryptService, testContext.ServiceProvider.FilesService, testContext.ServiceProvider.TokenService, nil)
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier("test-unpaired-device"))
 
