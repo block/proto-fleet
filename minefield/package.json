@@ -1,0 +1,41 @@
+{
+  "name": "@proto-fleet/minefield",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./component": {
+      "types": "./src/components/MinefieldButton.tsx",
+      "import": "./src/components/MinefieldButton.tsx"
+    },
+    "./server": {
+      "types": "./src/server/index.ts",
+      "import": "./src/server/index.ts"
+    }
+  },
+  "files": [
+    "src",
+    "bin",
+    "web/dist"
+  ],
+  "scripts": {
+    "dev": "cd web && npm run dev",
+    "build": "just build-all",
+    "build:go": "just build",
+    "build:web": "just web-build"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  }
+}

@@ -35,11 +35,43 @@ npm install
 npm run dev
 npm run dev:protoOS
 
+# Start ProtoOS with Minefield error injection proxy
+npm run dev:protoOS -- --minefield
+
 # Start ProtoFleet dev server
 npm run dev:protoFleet
 
 # Access at http://localhost:5173
 ```
+
+### Minefield - Error Injection Tool
+
+Minefield is a local NPM package (`@proto-fleet/minefield`) that provides HTTP proxy capabilities for error injection during development. It helps test error handling and edge cases in the application.
+
+**Features:**
+
+- HTTP proxy that sits between frontend and API server
+- Web-based control panel for injecting various error conditions
+- Floating button in the UI for quick access
+- Transparently forwards requests when not injecting errors
+
+**Usage with ProtoOS:**
+
+```bash
+# Set up environment variables in .env
+PROXY_URL=http://127.0.0.1:8000        # Your actual API server
+MINEFIELD_URL=http://localhost:7070     # Optional, defaults to 7070
+
+# Start with minefield enabled
+npm run dev:protoOS -- --minefield
+```
+
+**Package Structure:**
+
+- Minefield is a local package at `/minefield` referenced via `file:` protocol
+- Exports both React component and server utilities
+- Component: `@proto-fleet/minefield/component` (MinefieldButton)
+- Server: `@proto-fleet/minefield/server` (startMinefield function)
 
 ### Building
 

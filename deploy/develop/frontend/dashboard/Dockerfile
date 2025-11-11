@@ -18,6 +18,9 @@ RUN source bin/activate-hermit && npm clean-install
 
 COPY client ./
 
+# Reinstall esbuild to ensure we have the correct platform binary
+RUN source bin/activate-hermit && npm rebuild esbuild
+
 RUN source bin/activate-hermit && npm run build:protoFleet
 
 FROM httpd:2.4-alpine

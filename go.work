@@ -1,6 +1,7 @@
 go 1.24.2
 
 use (
+	./minefield
 	./plugin/antminer
 	./plugin/proto
 	./server
