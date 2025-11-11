@@ -42,5 +42,6 @@ func main() {
 		Plugins: map[string]plugin.Plugin{
 			"driver": &sdk.DriverPlugin{Impl: protoDriver},
 		},
+		GRPCServer: plugin.DefaultGRPCServer,
 	})
 }

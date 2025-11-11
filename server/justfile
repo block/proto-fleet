@@ -12,12 +12,18 @@ lint:
 build-all:
     go build -v ./...
 
-# install fleet 
+# install fleet
 install:
     go install -v ./cmd/fleetd
 
+# build plugins (called from root justfile)
+_build-plugins:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd .. && just build-plugins
+
 # run local server in docker compose with watch enabled on the fleet service
-dev: start
+dev: _build-plugins start
   docker compose up --watch fleet-api
 
 # start services in docker compose 
@@ -31,6 +37,10 @@ stop:
 # run all tests
 test:
     go test ./... -skip ./generated/...
+
+# run e2e plugin integration test
+test-plugin-integration:
+    go test -v -tags=e2e ./e2e -run TestPluginIntegration
 
 # format project files
 format:
@@ -82,7 +92,7 @@ _run: db-up install
      ../.hermit/go/bin/fleetd
 
 # restarts the docker compose services and wipes out all data
-clean-build:
+clean-build: _build-plugins
     docker compose down --rmi all --volumes && docker compose up --build -d
 
 # restart and rebuild fleet-api only

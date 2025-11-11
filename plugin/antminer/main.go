@@ -25,5 +25,6 @@ func main() {
 		Plugins: map[string]plugin.Plugin{
 			"driver": &sdk.DriverPlugin{Impl: antminerDriver},
 		},
+		GRPCServer: plugin.DefaultGRPCServer,
 	})
 }

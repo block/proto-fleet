@@ -160,5 +160,28 @@ echo "📌 Will install to: ${INSTALL_DIR}"
 
 extract_and_cd "/tmp/${TAR_NAME}" "$INSTALL_DIR"
 
+# Validate plugin binaries exist
+echo "🔌 Validating plugin binaries..."
+PLUGIN_DIR="server"
+REQUIRED_PLUGINS=("proto-plugin-amd64" "proto-plugin-arm64" "antminer-plugin-amd64" "antminer-plugin-arm64")
+MISSING_PLUGINS=()
+
+for plugin in "${REQUIRED_PLUGINS[@]}"; do
+  if [ ! -f "${PLUGIN_DIR}/${plugin}" ]; then
+    MISSING_PLUGINS+=("$plugin")
+  fi
+done
+
+if [ ${#MISSING_PLUGINS[@]} -ne 0 ]; then
+  echo "❌ Error: Missing plugin binaries:"
+  printf '   - %s\n' "${MISSING_PLUGINS[@]}"
+  echo "The installation package may be incomplete. Please contact support."
+  exit 1
+fi
+
+# Set executable permissions on plugin binaries
+chmod +x ${PLUGIN_DIR}/proto-plugin-* ${PLUGIN_DIR}/antminer-plugin-*
+echo "✅ Plugin binaries validated"
+
 echo "🔧 Running deployment script..."
 ./run-fleet.sh

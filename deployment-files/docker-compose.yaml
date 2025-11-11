@@ -15,6 +15,8 @@ services:
       DB_USERNAME: "${DB_USERNAME}"
       DB_PASSWORD: "${DB_PASSWORD}"
       ENCRYPT_SERVICE_MASTER_KEY: "${ENCRYPT_SERVICE_MASTER_KEY}"
+      PLUGINS_DIR: "/app/plugins"
+      PLUGINS_ENABLED: "true"
     depends_on:
       mysql:
         condition: service_healthy

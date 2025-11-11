@@ -3,8 +3,49 @@ default:
 
 init: _server-init _client-init
 
+# Build plugin binaries for local development
+build-plugins:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  echo "Syncing Go workspace..."
+  go work sync
+  echo "Building plugins..."
+  mkdir -p server/plugins
+  (cd plugin/proto && go build -o ../../server/plugins/proto-plugin .)
+  (cd plugin/antminer && go build -o ../../server/plugins/antminer-plugin .)
+  chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
+  echo "Plugins built successfully"
+
+# Build plugin binaries for Docker (Linux ARM64)
+build-plugins-docker:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  echo "Syncing Go workspace..."
+  go work sync
+  echo "Building plugins for Docker (Linux ARM64)..."
+  mkdir -p server/plugins
+  (cd plugin/proto && GOOS=linux GOARCH=arm64 go build -o ../../server/plugins/proto-plugin .)
+  (cd plugin/antminer && GOOS=linux GOARCH=arm64 go build -o ../../server/plugins/antminer-plugin .)
+  chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
+  echo "Docker plugins built successfully"
+
+# Build plugin binaries for multiple architectures (deployment)
+build-plugins-multi-arch:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  echo "Syncing Go workspace..."
+  go work sync
+  echo "Building plugins for multiple architectures..."
+  mkdir -p deployment-files/server
+  (cd plugin/proto && GOOS=linux GOARCH=amd64 go build -o ../../deployment-files/server/proto-plugin-amd64 .)
+  (cd plugin/antminer && GOOS=linux GOARCH=amd64 go build -o ../../deployment-files/server/antminer-plugin-amd64 .)
+  (cd plugin/proto && GOOS=linux GOARCH=arm64 go build -o ../../deployment-files/server/proto-plugin-arm64 .)
+  (cd plugin/antminer && GOOS=linux GOARCH=arm64 go build -o ../../deployment-files/server/antminer-plugin-arm64 .)
+  chmod +x deployment-files/server/*-plugin-*
+  echo "Multi-arch plugins built successfully"
+
 # Run protoFleet client and server
-dev:
+dev: build-plugins
   ./dev.sh
 
 [working-directory: 'server']
@@ -35,7 +76,7 @@ fmt-client:
   npm run format
 
 [working-directory: 'server']
-clean-build:
+clean-build: build-plugins-docker
   #!/usr/bin/env bash
   set -euo pipefail
   # Generate a random JWT secret (44 characters to match original length)

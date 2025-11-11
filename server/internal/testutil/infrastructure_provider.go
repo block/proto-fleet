@@ -16,6 +16,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/ping/v1/pingv1connect"
+	"github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api/miner_command_apiconnect"
 	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api/miner_system_apiconnect"
 	proto_client "github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
@@ -37,6 +38,7 @@ type InfrastructureProvider struct {
 	OnboardingClient onboardingv1connect.OnboardingServiceClient
 	PingClient       pingv1connect.PingServiceClient
 	CommandClient    minercommandv1connect.MinerCommandServiceClient
+	TelemetryClient  telemetryv1connect.TelemetryServiceClient
 	ServerURL        string
 	testServer       *httptest.Server
 }
