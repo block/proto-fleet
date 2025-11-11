@@ -3,6 +3,7 @@ import { Alert } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Divider from "@/shared/components/Divider";
 import Row from "@/shared/components/Row";
+import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 
 interface ComponentErrorRowProps {
   error: ComponentError;
@@ -10,20 +11,6 @@ interface ComponentErrorRowProps {
 }
 
 const ComponentErrorRow = ({ error, divider }: ComponentErrorRowProps) => {
-  const formatTimestamp = (timestamp?: number) => {
-    if (!timestamp) return "";
-    const date = new Date(timestamp * 1000);
-    return `${date.toLocaleDateString(undefined, {
-      month: "numeric",
-      day: "numeric",
-      year: "2-digit",
-    })} at ${date.toLocaleTimeString(undefined, {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    })}`;
-  };
-
   return (
     <>
       <Row
