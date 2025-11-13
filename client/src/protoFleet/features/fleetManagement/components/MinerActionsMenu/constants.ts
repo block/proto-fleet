@@ -37,3 +37,23 @@ export const allActions = {
 } as const;
 
 export type SupportedAction = (typeof allActions)[keyof typeof allActions];
+
+export const minersMessage = "miners";
+
+export const loadingMessages: Record<string, string> = {
+  [deviceActions.blinkLEDs]: "Blinking LEDs",
+  [deviceActions.factoryReset]: "Resetting",
+  [deviceActions.reboot]: "Rebooting",
+  [deviceActions.shutdown]: "Shutting down",
+  [deviceActions.wakeUp]: "Waking up",
+  [performanceActions.curtail]: "Curtailing miners",
+};
+
+export const successMessages: Record<string, string> = {
+  [deviceActions.blinkLEDs]: "Blinked LEDs",
+  [deviceActions.factoryReset]: "Reset",
+  [deviceActions.reboot]: "Rebooted",
+  [deviceActions.shutdown]: "Shut down",
+  [deviceActions.wakeUp]: "Woke up",
+  [performanceActions.curtail]: "Miners curtailed",
+};

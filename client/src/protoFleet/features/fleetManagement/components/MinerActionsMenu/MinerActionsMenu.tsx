@@ -1,11 +1,14 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import BulkActionsWidget, { BulkActionsPopover } from "../BulkActions";
 import { BulkAction } from "../BulkActions/types";
 import {
   deviceActions,
+  loadingMessages,
+  minersMessage,
   performanceActions,
   settingsActions,
+  successMessages,
   SupportedAction,
 } from "./constants";
 import {
@@ -66,6 +69,138 @@ const MinerActionsMenu = ({
   // TODO remove later - only used for downloadLogs
   const simulateAPICall = (callback: () => void) => {
     setTimeout(() => callback && callback(), 2000);
+  };
+
+  const handleConfirmation = async () => {
+    if (currentAction === null || currentAction === deviceActions.downloadLogs)
+      return;
+
+    const id = pushToast({
+      message: `${loadingMessages[currentAction]} ${minersMessage}`,
+      status: TOAST_STATUSES.loading,
+      longRunning: true,
+      onClose: () => onActionComplete?.(),
+    });
+
+    // Handle device action API calls
+    switch (currentAction) {
+      case deviceActions.shutdown: {
+        const stopMiningRequest = create(StopMiningRequestSchema, {
+          deviceSelector: create(DeviceSelectorSchema, {
+            selectionType: {
+              case: "includeDevices",
+              value: create(DeviceListSchema, {
+                deviceIdentifiers: selectedMiners,
+              }),
+            },
+          }),
+        });
+        stopMining({
+          stopMiningRequest: stopMiningRequest,
+          onSuccess: (value: StopMiningResponse) =>
+            handleSuccess(deviceActions.shutdown, id, value.batchIdentifier),
+          onError: handleError.bind(this, id),
+        });
+        break;
+      }
+      case deviceActions.wakeUp: {
+        const startMiningRequest = create(StartMiningRequestSchema, {
+          deviceSelector: create(DeviceSelectorSchema, {
+            selectionType: {
+              case: "includeDevices",
+              value: create(DeviceListSchema, {
+                deviceIdentifiers: selectedMiners,
+              }),
+            },
+          }),
+        });
+        startMining({
+          startMiningRequest: startMiningRequest,
+          onSuccess: (value: StartMiningResponse) =>
+            handleSuccess(deviceActions.wakeUp, id, value.batchIdentifier),
+          onError: handleError.bind(this, id),
+        });
+        break;
+      }
+      default:
+        // TODO remove this once all actions are implemented
+        updateToast(id, {
+          message: "Unimplemented action",
+          status: TOAST_STATUSES.error,
+        });
+    }
+    setCurrentAction(null);
+  };
+
+  const handleSuccess = useCallback(
+    (
+      action: SupportedAction,
+      originalToastId: number,
+      batchIdentifier: string,
+    ) => {
+      if (action === deviceActions.downloadLogs) return;
+
+      const streamAbortController = new AbortController();
+
+      let errorToastId: number | null = null;
+      let successCount: number;
+      let totalCount: number;
+
+      streamCommandBatchUpdates({
+        streamRequest: create(StreamCommandBatchUpdatesRequestSchema, {
+          batchIdentifier,
+        }),
+        onStreamData: (response) => {
+          totalCount = Number(
+            response.status?.commandBatchDeviceCount?.total || 0,
+          );
+          successCount = Number(
+            response.status?.commandBatchDeviceCount?.success || 0,
+          );
+
+          updateToast(originalToastId, {
+            message: `${successMessages[action]} ${successCount} out of ${totalCount} ${minersMessage}`,
+            status: TOAST_STATUSES.success,
+          });
+
+          const failureCount = Number(
+            response.status?.commandBatchDeviceCount?.failure || 0,
+          );
+          if (failureCount > 0) {
+            if (!errorToastId) {
+              errorToastId = pushToast({
+                message: `Update failed on ${failureCount} out of ${totalCount} ${minersMessage}`,
+                status: TOAST_STATUSES.error,
+              });
+            } else {
+              updateToast(errorToastId, {
+                message: `Update failed on ${failureCount} out of ${totalCount} ${minersMessage}`,
+                status: TOAST_STATUSES.error,
+              });
+            }
+          }
+        },
+        streamAbortController: streamAbortController,
+      }).finally(() => {
+        updateToast(originalToastId, {
+          message: `${successMessages[action]} ${successCount} out of ${totalCount} ${minersMessage}`,
+          status: TOAST_STATUSES.success,
+        });
+      });
+    },
+    [streamCommandBatchUpdates],
+  );
+
+  const handleError = (originalToastId: number, error: string) => {
+    updateToast(originalToastId, {
+      message: error,
+      status: TOAST_STATUSES.error,
+    });
+  };
+
+  const handleCancel = () => {
+    setCurrentAction(null);
+    onActionComplete?.();
   };
 
   const popoverActions = useMemo(() => {
@@ -287,156 +422,7 @@ const MinerActionsMenu = ({
         requiresConfirmation: false,
       },
     ] as BulkAction<SupportedAction>[];
-  }, [numberOfMiners, onActionStart]);
-
-  const minersMessage = "miners";
-
-  const loadingMessages: Record<string, string> = {
-    [deviceActions.blinkLEDs]: "Blinking LEDs",
-    [deviceActions.factoryReset]: "Resetting",
-    [deviceActions.reboot]: "Rebooting",
-    [deviceActions.shutdown]: "Shutting down",
-    [deviceActions.wakeUp]: "Waking up",
-    [performanceActions.curtail]: "Curtailing miners",
-  };
-
-  const successMessages: Record<string, string> = {
-    [deviceActions.blinkLEDs]: "Blinked LEDs",
-    [deviceActions.factoryReset]: "Reset",
-    [deviceActions.reboot]: "Rebooted",
-    [deviceActions.shutdown]: "Shut down",
-    [deviceActions.wakeUp]: "Woke up",
-    [performanceActions.curtail]: "Miners curtailed",
-  };
-
-  const handleConfirmation = async () => {
-    if (currentAction === null || currentAction === deviceActions.downloadLogs)
-      return;
-
-    const id = pushToast({
-      message: `${loadingMessages[currentAction]} ${minersMessage}`,
-      status: TOAST_STATUSES.loading,
-      longRunning: true,
-      onClose: () => onActionComplete?.(),
-    });
-
-    // Handle device action API calls
-    switch (currentAction) {
-      case deviceActions.shutdown: {
-        const stopMiningRequest = create(StopMiningRequestSchema, {
-          deviceSelector: create(DeviceSelectorSchema, {
-            selectionType: {
-              case: "includeDevices",
-              value: create(DeviceListSchema, {
-                deviceIdentifiers: selectedMiners,
-              }),
-            },
-          }),
-        });
-        stopMining({
-          stopMiningRequest: stopMiningRequest,
-          onSuccess: (value: StopMiningResponse) =>
-            handleSuccess(deviceActions.shutdown, id, value.batchIdentifier),
-          onError: handleError.bind(this, id),
-        });
-        break;
-      }
-      case deviceActions.wakeUp: {
-        const startMiningRequest = create(StartMiningRequestSchema, {
-          deviceSelector: create(DeviceSelectorSchema, {
-            selectionType: {
-              case: "includeDevices",
-              value: create(DeviceListSchema, {
-                deviceIdentifiers: selectedMiners,
-              }),
-            },
-          }),
-        });
-        startMining({
-          startMiningRequest: startMiningRequest,
-          onSuccess: (value: StartMiningResponse) =>
-            handleSuccess(deviceActions.wakeUp, id, value.batchIdentifier),
-          onError: handleError.bind(this, id),
-        });
-        break;
-      }
-      default:
-        // TODO remove this once all actions are implemented
-        updateToast(id, {
-          message: "Unimplemented action",
-          status: TOAST_STATUSES.error,
-        });
-    }
-    setCurrentAction(null);
-  };
-
-  const handleSuccess = (
-    action: SupportedAction,
-    originalToastId: number,
-    batchIdentifier: string,
-  ) => {
-    if (action === deviceActions.downloadLogs) return;
-
-    const streamAbortController = new AbortController();
-
-    let errorToastId: number | null = null;
-    let successCount: number;
-    let totalCount: number;
-
-    streamCommandBatchUpdates({
-      streamRequest: create(StreamCommandBatchUpdatesRequestSchema, {
-        batchIdentifier,
-      }),
-      onStreamData: (response) => {
-        totalCount = Number(
-          response.status?.commandBatchDeviceCount?.total || 0,
-        );
-        successCount = Number(
-          response.status?.commandBatchDeviceCount?.success || 0,
-        );
-
-        updateToast(originalToastId, {
-          message: `${successMessages[action]} ${successCount} out of ${totalCount} ${minersMessage}`,
-          status: TOAST_STATUSES.success,
-        });
-
-        const failureCount = Number(
-          response.status?.commandBatchDeviceCount?.failure || 0,
-        );
-        if (failureCount > 0) {
-          if (!errorToastId) {
-            errorToastId = pushToast({
-              message: `Update failed on ${failureCount} out of ${totalCount} ${minersMessage}`,
-              status: TOAST_STATUSES.error,
-            });
-          } else {
-            updateToast(errorToastId, {
-              message: `Update failed on ${failureCount} out of ${totalCount} ${minersMessage}`,
-              status: TOAST_STATUSES.error,
-            });
-          }
-        }
-      },
-      streamAbortController: streamAbortController,
-    }).finally(() => {
-      updateToast(originalToastId, {
-        message: `${successMessages[action]} ${successCount} out of ${totalCount} ${minersMessage}`,
-        status: TOAST_STATUSES.success,
-      });
-    });
-  };
-
-  const handleError = (originalToastId: number, error: string) => {
-    updateToast(originalToastId, {
-      message: error,
-      status: TOAST_STATUSES.error,
-    });
-  };
-
-  const handleCancel = () => {
-    setCurrentAction(null);
-    onActionComplete?.();
-  };
+  }, [blinkLED, handleSuccess, numberOfMiners, onActionStart, selectedMiners]);
 
   return (
     <PopoverProvider>
