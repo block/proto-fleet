@@ -14,16 +14,15 @@ const MetadataRow = ({ label, value }: { label: string; value: string }) => (
 const ComponentMetadata = ({ metadata }: ComponentMetadataProps) => {
   return (
     <div className="flex flex-col">
-      {metadata.serialNumber && (
-        <MetadataRow label="Serial number" value={metadata.serialNumber} />
+      {Object.entries(metadata || {}).map(([_key, { label, value }]) =>
+        value !== undefined ? (
+          <MetadataRow
+            label={label}
+            value={String(value)}
+            key={label + String(value)}
+          />
+        ) : null,
       )}
-      {metadata.model && (
-        <MetadataRow label="Model number" value={metadata.model} />
-      )}
-      {metadata.installedOn && (
-        <MetadataRow label="Installed on" value={metadata.installedOn} />
-      )}
-      {metadata.age && <MetadataRow label="Age" value={metadata.age} />}
     </div>
   );
 };

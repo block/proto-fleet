@@ -10,7 +10,7 @@ import DurationSelector from "@/shared/components/DurationSelector";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 
 const KpiLayout = () => {
-  const { poolsInfo, poolsInfoStatus } = usePoolsInfo();
+  const poolsInfo = usePoolsInfo();
   const duration = useDuration();
   const setDuration = useSetDuration();
 
@@ -50,12 +50,11 @@ const KpiLayout = () => {
 
   const noPoolsLive = useMemo(() => {
     return (
-      !poolsInfoStatus.pending &&
-      !poolsInfoStatus.error &&
+      poolsInfo !== undefined &&
       // TODO: remove alive when cgminer is removed
       !poolsInfo?.find((pool) => /alive|active/i.test(pool?.status ?? ""))
     );
-  }, [poolsInfo, poolsInfoStatus]);
+  }, [poolsInfo]);
 
   return (
     <ErrorBoundary>

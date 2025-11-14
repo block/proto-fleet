@@ -28,20 +28,14 @@ function PsuStatusCard({ psuId }: PsuStatusCardProps) {
 
   // Calculate avg and max temps from temperature array
   const { avgTemp, maxTemp } = useMemo(() => {
-    const temperatures =
-      psuData?.temperatures
-        ?.map((t) => t.latest?.value)
-        .filter((t): t is number => t !== null && t !== undefined) ?? [];
+    const averageTemp = psuData?.temperatureAverage?.latest?.value;
+    const hotspotTemp = psuData?.temperatureHotspot?.latest?.value;
 
     return {
-      avgTemp:
-        temperatures.length > 0
-          ? temperatures.reduce((sum, temp) => sum + temp, 0) /
-            temperatures.length
-          : undefined,
-      maxTemp: temperatures.length > 0 ? Math.max(...temperatures) : undefined,
+      avgTemp: averageTemp, // Use the average temperature directly from API
+      maxTemp: hotspotTemp, // Use the hotspot temperature as max
     };
-  }, [psuData?.temperatures]);
+  }, [psuData?.temperatureAverage, psuData?.temperatureHotspot]);
 
   // TODO: Add hasWarning logic based on error state
 

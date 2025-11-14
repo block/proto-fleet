@@ -44,12 +44,10 @@ export interface ComponentMetric {
 }
 
 export interface ComponentMetadata {
-  serialNumber?: string;
-  model?: string;
-  installedOn?: string; // Date string MM/DD/YY format
-  age?: string; // Auto-formatted age string
-  manufacturer?: string; // Optional manufacturer field
-  [key: string]: string | undefined; // Allow additional fields
+  [key: string]: {
+    value?: string | number;
+    label: string;
+  };
 }
 
 // Props for the ComponentStatusModal

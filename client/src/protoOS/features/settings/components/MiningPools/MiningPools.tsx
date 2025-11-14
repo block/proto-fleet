@@ -3,14 +3,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { SimpleErrorProps } from "apiResponseTypes";
 import { STATUS_MESSAGES } from "./constants";
-import { useCreatePools, useEditPool } from "@/protoOS/api";
+import { useCreatePools, useEditPool, usePoolsInfo } from "@/protoOS/api";
 
 import MiningPools, {
   getEmptyPoolsInfo,
   isValidPool,
   PoolInfo,
 } from "@/protoOS/components/MiningPools";
-import { usePoolsInfo } from "@/protoOS/store";
 import { Alert } from "@/shared/assets/icons";
 import {
   DismissibleCalloutWrapper,
@@ -32,7 +31,11 @@ const SettingsMiningPools = () => {
   const [isStalePools, setIsStalePools] = useState(false);
   const toastId = useRef<number | null>(null);
 
-  const { poolsInfo, poolsInfoStatus } = usePoolsInfo();
+  const {
+    data: poolsInfo,
+    pending: poolsInfoPending,
+    error: poolsInfoError,
+  } = usePoolsInfo();
   const { createPools } = useCreatePools();
   const { editPool } = useEditPool();
   const [createPoolsError, setCreatePoolsError] = useState<SimpleErrorProps>();
@@ -153,11 +156,11 @@ const SettingsMiningPools = () => {
     if (
       toastStatus === TOAST_STATUSES.loading &&
       isStalePools &&
-      !poolsInfoStatus.pending
+      !poolsInfoPending
     ) {
       if (
-        poolsInfoStatus.error &&
-        !/failed to connect to cgminer/i.test(poolsInfoStatus.error)
+        poolsInfoError &&
+        !/failed to connect to cgminer/i.test(poolsInfoError)
       ) {
         setToastStatus(TOAST_STATUSES.error);
         removeToast(toastId.current);
@@ -177,7 +180,7 @@ const SettingsMiningPools = () => {
         setIsStalePools(false);
       }
     }
-  }, [isStalePools, poolsInfo, poolsInfoStatus, toastStatus]);
+  }, [isStalePools, poolsInfo, poolsInfoPending, poolsInfoError, toastStatus]);
 
   const onChangePools = useCallback(
     (newPools: PoolInfo[]) => {
@@ -192,7 +195,7 @@ const SettingsMiningPools = () => {
       title="Mining Pools"
       onChange={onChangePools}
       pools={pools}
-      loading={poolsInfoStatus.pending && !isStalePools}
+      loading={poolsInfoPending && !isStalePools}
     >
       <DismissibleCalloutWrapper
         className={clsx({

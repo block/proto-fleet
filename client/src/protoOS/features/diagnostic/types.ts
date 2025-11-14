@@ -1,12 +1,9 @@
 import type { HashboardInfo } from "@/protoOS/api/generatedApi";
 import { HashboardHardwareData } from "@/protoOS/store";
-import type { ComponentType } from "@/shared/components/ComponentStatusModal/types";
+import type { ComponentType } from "@/shared/components/StatusModal";
 
 // Re-export component types from shared
-export type {
-  ComponentType,
-  ComponentError,
-} from "@/shared/components/ComponentStatusModal/types";
+export type { ComponentType, ErrorData } from "@/shared/components/StatusModal";
 
 // Component metadata types
 export interface FanMetadata {

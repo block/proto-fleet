@@ -32,7 +32,6 @@ import LoginModal from "@/protoOS/features/auth/components/LoginModal";
 import { useOnboarded, usePasswordSet } from "@/protoOS/store";
 import {
   useAccessToken,
-  useComprehensiveStatus,
   useDeviceTheme,
   useHashboardSerials,
   useIsMining,
@@ -278,7 +277,6 @@ const App = ({
   // ============================================================================
   const isSleeping = useIsSleeping();
   const errors = useMinerErrors();
-  const comprehensiveStatus = useComprehensiveStatus();
   const wakeDialog = useWakeDialog();
 
   // Initialize access token
@@ -362,7 +360,7 @@ const App = ({
           !isSleeping &&
           errors.errors?.length &&
           !hideErrors ? (
-            <ErrorCallout status={comprehensiveStatus} />
+            <ErrorCallout />
           ) : null}
           {children}
         </AppLayout>

@@ -200,7 +200,9 @@ export interface PsuTelemetryData {
   outputVoltage?: MetricTelemetry;
   outputCurrent?: MetricTelemetry;
   outputPower?: MetricTelemetry;
-  temperatures?: MetricTelemetry[];
+  temperatureAmbient?: MetricTelemetry;
+  temperatureAverage?: MetricTelemetry;
+  temperatureHotspot?: MetricTelemetry;
 }
 
 export type PsuMap = Map<number, PsuHardwareData>;
@@ -223,6 +225,33 @@ export interface FanTelemetryData {
 
 export type FanMap = Map<number, FanHardwareData>;
 export type FanData = FanHardwareData & FanTelemetryData;
+
+// Error Types
+export type ErrorSource =
+  | "PSU"
+  | "FAN"
+  | "HASHBOARD"
+  | "ASIC"
+  | "SYSTEM"
+  | "POOL";
+export type ErrorLevel = "ERROR" | "WARNING";
+
+export interface MinerError {
+  errorCode: string; // e.g. "04:0001"
+  errorLevel: ErrorLevel;
+  insertedAt: number; // Unix timestamp
+  expiredAt?: number; // Unix timestamp, optional
+  source: ErrorSource;
+
+  // 0-based index of the component within its type
+  // For ASIC errors (transformed to HASHBOARD), this is the hashboard index
+  componentIndex?: number;
+
+  // Descriptive message about the error
+  // Matches Error & Log Text column from fw failure mode spreadsheet
+  // e.g. "Power supply {slot} overvoltage detected: {mV}"
+  message: string;
+}
 
 // Auth Types
 export const AUTH_ACTIONS = {

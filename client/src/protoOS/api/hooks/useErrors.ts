@@ -4,6 +4,8 @@ import { usePoll } from "./usePoll";
 import { ErrorListResponse } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useSetErrors } from "@/protoOS/store";
+import type { MinerError } from "@/protoOS/store/types";
+import { transformErrors } from "@/protoOS/store/utils/errorTransformer";
 
 type UseErrorsProps = {
   poll?: boolean;
@@ -41,10 +43,11 @@ const useErrors = ({ poll = false, pollIntervalMs }: UseErrorsProps = {}) => {
     pollIntervalMs,
   });
 
-  // Update store whenever errors change
+  // Transform and update store whenever errors change
   useEffect(() => {
-    setErrors(data, pending);
-  }, [data, pending, setErrors]);
+    const transformedErrors: MinerError[] = transformErrors(data);
+    setErrors(transformedErrors);
+  }, [data, setErrors]);
 
   const response = useMemo(
     () => ({ fetchData, pending, error, data }),

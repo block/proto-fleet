@@ -1,4 +1,4 @@
-import React, { lazy, Suspense } from "react";
+import { ComponentType, lazy, Suspense } from "react";
 import { RouterProvider } from "react-router-dom";
 
 import { createRouter } from "./router";
@@ -10,16 +10,15 @@ const router = createRouter();
 
 // Conditionally import MinefieldButton only in development
 // @ts-ignore - minefield is optional and only available in development
-const MinefieldButton:
-  | React.ComponentType<{ minefieldUrl: string }>
-  | (() => null) = import.meta.env.DEV
-  ? lazy(() =>
-      // @ts-ignore
-      import("@proto-fleet/minefield/component").then((m) => ({
-        default: m.MinefieldButton,
-      })),
-    )
-  : () => null;
+const MinefieldButton: ComponentType<{ minefieldUrl: string }> | (() => null) =
+  import.meta.env.DEV
+    ? lazy(() =>
+        // @ts-ignore
+        import("@proto-fleet/minefield/component").then((m) => ({
+          default: m.MinefieldButton,
+        })),
+      )
+    : () => null;
 
 const Main = () => {
   const isDev = import.meta.env.DEV;

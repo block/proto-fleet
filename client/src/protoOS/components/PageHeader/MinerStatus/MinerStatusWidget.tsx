@@ -1,31 +1,33 @@
 import WidgetWrapper from "../WidgetWrapper";
-import { type ButtonVariant } from "@/shared/components/Button";
-import { MinerStatus as MinerStatusType } from "@/shared/components/MinerStatusModal";
+import { variants as buttonVariants } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-import StatusCircle, { variants } from "@/shared/components/StatusCircle/";
+import StatusCircle, {
+  statuses,
+  variants,
+} from "@/shared/components/StatusCircle/";
 
 interface MinerStatusWidgetProps {
   onClick: () => void;
-  status?: MinerStatusType;
-  variant?: ButtonVariant;
+  summary?: string;
+  circle?: keyof typeof statuses;
 }
 
 const MinerStatusWidget = ({
   onClick,
-  status,
-  variant,
+  summary,
+  circle,
 }: MinerStatusWidgetProps) => {
   return (
     <WidgetWrapper
-      onClick={status ? onClick : undefined}
-      variant={variant}
+      onClick={summary ? onClick : undefined}
+      variant={buttonVariants.secondary}
       // workaround for a one off button style
       // TODO: we should either expand our DS or use a button from our DS here
       textColor="text-text-primary"
       borderColor="border-transparent"
     >
       <>
-        {!status ? (
+        {!summary ? (
           <div className="flex items-center">
             <ProgressCircular
               indeterminate
@@ -35,10 +37,10 @@ const MinerStatusWidget = ({
           </div>
         ) : (
           <>
-            {status?.circle && (
+            {circle && (
               <div className="flex items-center">
                 <StatusCircle
-                  status={status?.circle}
+                  status={circle}
                   variant={variants.simple}
                   width={"w-2"}
                   removeMargin={true}
@@ -47,7 +49,7 @@ const MinerStatusWidget = ({
             )}
           </>
         )}
-        {status?.summary || "Status"}
+        {summary || "Status"}
       </>
     </WidgetWrapper>
   );

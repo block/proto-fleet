@@ -155,13 +155,13 @@ const useHardware = () => {
     }
   }, [hashboardsInfo]);
 
-  // Update hardware and telemetry stores with PSU data
+  // Update hardware store with PSU data
   useEffect(() => {
     if (!psusInfo) return;
 
     psusInfo.forEach((psu) => {
       if (psu?.slot !== undefined) {
-        // Update hardware store
+        // Update hardware store only - telemetry now comes from useTelemetry
         useMinerStore.getState().hardware.addPsu({
           id: psu.slot,
           serial: psu.psu_sn,
@@ -175,73 +175,6 @@ const useHardware = () => {
                 bootloaderVersion: psu.firmware.bootloader_version,
               }
             : undefined,
-        });
-
-        // Update telemetry store with PSU power and temperature data
-        useMinerStore.getState().telemetry.updatePsuTelemetry(psu.slot, {
-          id: psu.slot,
-          inputVoltage:
-            psu.power?.input_voltage_mv !== undefined
-              ? {
-                  latest: {
-                    value: psu.power.input_voltage_mv / 1000, // Convert mV to V
-                    units: "V",
-                  },
-                }
-              : undefined,
-          inputCurrent:
-            psu.power?.input_current_ma !== undefined
-              ? {
-                  latest: {
-                    value: psu.power.input_current_ma / 1000, // Convert mA to A
-                    units: "A",
-                  },
-                }
-              : undefined,
-          inputPower:
-            psu.power?.input_power_mw !== undefined
-              ? {
-                  latest: {
-                    value: psu.power.input_power_mw / 1000, // Convert mW to W
-                    units: "W",
-                  },
-                }
-              : undefined,
-          outputVoltage:
-            psu.power?.output_voltage_mv !== undefined
-              ? {
-                  latest: {
-                    value: psu.power.output_voltage_mv / 1000, // Convert mV to V
-                    units: "V",
-                  },
-                }
-              : undefined,
-          outputCurrent:
-            psu.power?.output_current_ma !== undefined
-              ? {
-                  latest: {
-                    value: psu.power.output_current_ma / 1000, // Convert mA to A
-                    units: "A",
-                  },
-                }
-              : undefined,
-          outputPower:
-            psu.power?.output_power_mw !== undefined
-              ? {
-                  latest: {
-                    value: psu.power.output_power_mw / 1000, // Convert mW to W
-                    units: "W",
-                  },
-                }
-              : undefined,
-          temperatures: psu.temperatures
-            ?.filter((temp) => temp.temperature_c !== undefined)
-            .map((temp) => ({
-              latest: {
-                value: temp.temperature_c!,
-                units: "C" as const,
-              },
-            })),
         });
       }
     });

@@ -6,7 +6,6 @@ import PowerWidget from "./Power";
 import PowerTarget from "./PowerTarget";
 import FirmwareUpdateStatus from "@/protoOS/features/firmwareUpdate/components/FirmwareUpdateStatus";
 import { Pause } from "@/shared/assets/icons";
-import { variants as buttonVariants } from "@/shared/components/Button";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 interface PageHeaderProps {
@@ -30,7 +29,7 @@ const MobileHeader = ({ openMenu, title, customButtons }: PageHeaderProps) => {
         <div className="inline-flex items-center gap-2">
           {customButtons ?? (
             <>
-              <MinerStatus variant={buttonVariants.textOnly} />
+              <MinerStatus />
               <PowerWidget />
             </>
           )}

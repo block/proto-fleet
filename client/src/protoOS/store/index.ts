@@ -126,15 +126,26 @@ export {
   useIsMining,
   useIsAwake,
   useMinerErrors,
-  usePoolsInfo,
+  useOnboarded,
+  usePasswordSet,
+  useSystemStatus,
   useWakeDialog,
-  useComprehensiveStatus,
   useSetMiningStatus,
   useSetErrors,
-  useSetPoolsInfo,
+  useSetOnboarded,
+  useSetPasswordSet,
+  useSetSystemStatus,
   useShowWakeDialog,
   useHideWakeDialog,
+  // Error selector hooks
+  useGroupedErrors,
+  useErrorsByComponent,
+  useErrors,
+  useHasIssues,
 } from "./hooks/useMinerStatus";
+
+// Pools hooks
+export { usePoolsInfo, useSetPoolsInfo } from "./hooks/usePools";
 
 export {
   useSystemInfo,
@@ -154,12 +165,8 @@ export {
   useSetSystemInfoPending,
 } from "./hooks/useSystemInfo";
 
-export {
-  useSystemStatus,
-  useOnboarded,
-  usePasswordSet,
-  useSetSystemStatus,
-} from "./hooks/useSystemStatus";
+// System status hooks removed - now in minerStatus
+// useOnboarded and usePasswordSet are exported from useMinerStatus above
 
 export {
   useNetworkInfo,
@@ -177,6 +184,7 @@ export {
 } from "./hooks/useNetworkInfo";
 
 export type { MiningStatus } from "./slices/minerStatusSlice";
+export type { MinerError, ErrorSource, ErrorLevel } from "./types";
 
 export {
   useAuthTokens,

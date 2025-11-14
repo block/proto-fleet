@@ -595,6 +595,141 @@ export const createTelemetrySlice: StateCreator<
           }
         });
       }
+
+      // Update PSU latest metrics
+      if (telemetryData.psus) {
+        telemetryData.psus.forEach((psuData) => {
+          try {
+            // PSU index is 0-based in API, but we use 1-based IDs (slot numbers)
+            const psuId = psuData.index + 1;
+
+            // Validate required fields exist
+            if (
+              !psuData.voltage ||
+              !psuData.current ||
+              !psuData.power ||
+              !psuData.temperature
+            ) {
+              console.warn(`PSU ${psuId} missing required telemetry fields`);
+              return; // Skip this PSU
+            }
+
+            // Create or get PSU
+            if (!state.telemetry.psus.has(psuId)) {
+              state.telemetry.psus.set(psuId, { id: psuId });
+            }
+
+            const psu = state.telemetry.psus.get(psuId)!;
+
+            // Update voltage metrics (voltage is required per API schema)
+            if (
+              psuData.voltage.input !== undefined &&
+              psuData.voltage.input !== null
+            ) {
+              if (!psu.inputVoltage) psu.inputVoltage = {};
+              psu.inputVoltage.latest = createMeasurement(
+                psuData.voltage.input,
+                psuData.voltage.unit as MetricUnit,
+              );
+            }
+            if (
+              psuData.voltage.output !== undefined &&
+              psuData.voltage.output !== null
+            ) {
+              if (!psu.outputVoltage) psu.outputVoltage = {};
+              psu.outputVoltage.latest = createMeasurement(
+                psuData.voltage.output,
+                psuData.voltage.unit as MetricUnit,
+              );
+            }
+
+            // Update current metrics (current is required per API schema)
+            if (
+              psuData.current.input !== undefined &&
+              psuData.current.input !== null
+            ) {
+              if (!psu.inputCurrent) psu.inputCurrent = {};
+              psu.inputCurrent.latest = createMeasurement(
+                psuData.current.input,
+                psuData.current.unit as MetricUnit,
+              );
+            }
+            if (
+              psuData.current.output !== undefined &&
+              psuData.current.output !== null
+            ) {
+              if (!psu.outputCurrent) psu.outputCurrent = {};
+              psu.outputCurrent.latest = createMeasurement(
+                psuData.current.output,
+                psuData.current.unit as MetricUnit,
+              );
+            }
+
+            // Update power metrics (power is required per API schema)
+            if (
+              psuData.power.input !== undefined &&
+              psuData.power.input !== null
+            ) {
+              if (!psu.inputPower) psu.inputPower = {};
+              psu.inputPower.latest = createMeasurement(
+                psuData.power.input,
+                psuData.power.unit as MetricUnit,
+              );
+            }
+            if (
+              psuData.power.output !== undefined &&
+              psuData.power.output !== null
+            ) {
+              if (!psu.outputPower) psu.outputPower = {};
+              psu.outputPower.latest = createMeasurement(
+                psuData.power.output,
+                psuData.power.unit as MetricUnit,
+              );
+            }
+
+            // Update temperature metrics as individual properties (temperature is required per API schema)
+            const tempUnit = psuData.temperature.unit as MetricUnit;
+
+            if (
+              psuData.temperature.ambient !== undefined &&
+              psuData.temperature.ambient !== null
+            ) {
+              if (!psu.temperatureAmbient) psu.temperatureAmbient = {};
+              psu.temperatureAmbient.latest = createMeasurement(
+                psuData.temperature.ambient,
+                tempUnit,
+              );
+            }
+
+            if (
+              psuData.temperature.average !== undefined &&
+              psuData.temperature.average !== null
+            ) {
+              if (!psu.temperatureAverage) psu.temperatureAverage = {};
+              psu.temperatureAverage.latest = createMeasurement(
+                psuData.temperature.average,
+                tempUnit,
+              );
+            }
+
+            if (
+              psuData.temperature.hotspot !== undefined &&
+              psuData.temperature.hotspot !== null
+            ) {
+              if (!psu.temperatureHotspot) psu.temperatureHotspot = {};
+              psu.temperatureHotspot.latest = createMeasurement(
+                psuData.temperature.hotspot,
+                tempUnit,
+              );
+            }
+          } catch (error) {
+            console.error(
+              `Failed to update PSU ${psuData.index + 1} telemetry:`,
+              error,
+            );
+          }
+        });
+      }
     }),
 
   // Utility Actions

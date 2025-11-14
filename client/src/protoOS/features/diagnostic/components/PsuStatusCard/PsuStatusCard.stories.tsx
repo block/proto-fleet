@@ -126,15 +126,33 @@ const StoreDecorator = (Story: any, context: any) => {
           endTime: Date.now(),
         },
       },
-      temperatures: config.temps.map((temp) => ({
-        latest: { value: temp, units: "C" },
+      temperatureAmbient: {
+        latest: { value: config.temps[0], units: "C" },
         timeSeries: {
           units: "C",
           values: [],
           startTime: Date.now(),
           endTime: Date.now(),
         },
-      })),
+      },
+      temperatureAverage: {
+        latest: { value: config.temps[1], units: "C" },
+        timeSeries: {
+          units: "C",
+          values: [],
+          startTime: Date.now(),
+          endTime: Date.now(),
+        },
+      },
+      temperatureHotspot: {
+        latest: { value: config.temps[2], units: "C" },
+        timeSeries: {
+          units: "C",
+          values: [],
+          startTime: Date.now(),
+          endTime: Date.now(),
+        },
+      },
     });
   }, [psuId]);
 

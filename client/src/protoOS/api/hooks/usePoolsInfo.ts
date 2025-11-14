@@ -80,8 +80,8 @@ const usePoolsInfo = ({
 
   // Update store whenever pools info changes
   useEffect(() => {
-    setPoolsInfo(data, error, pending);
-  }, [data, error, pending, setPoolsInfo]);
+    setPoolsInfo(data);
+  }, [data, setPoolsInfo]);
 
   return useMemo(
     () => ({ fetchData, pending, error, data }),

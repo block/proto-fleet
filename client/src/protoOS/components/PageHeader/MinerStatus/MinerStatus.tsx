@@ -1,44 +1,35 @@
 import { useState } from "react";
-
 import MinerStatusWidget from "./MinerStatusWidget";
-import { WakingDialog } from "@/protoOS/components/Power";
-import { useWakeMiner } from "@/protoOS/hooks/useWakeMiner";
-import { useIsProtoRig } from "@/protoOS/store";
-import { type ButtonVariant } from "@/shared/components/Button";
-import MinerStatusModal, {
-  MinerStatus as MinerStatusType,
-} from "@/shared/components/MinerStatusModal";
+import { ProtoOSStatusModal } from "@/protoOS/components/StatusModal";
+import {
+  useMinerStatusCircle,
+  useMinerStatusSummary,
+} from "@/protoOS/hooks/status";
 
-interface MinerStatusProps {
-  status?: MinerStatusType;
-  variant?: ButtonVariant;
-}
+const MinerStatus = () => {
+  // Get widget display data
+  const summary = useMinerStatusSummary();
+  const circle = useMinerStatusCircle();
 
-const MinerStatus = ({ status, variant }: MinerStatusProps) => {
-  const [showModal, setShowModal] = useState(false);
-  const isProtoRig = useIsProtoRig();
-
-  const { wakeMiner, shouldWake } = useWakeMiner();
+  // Local state for modal visibility
+  const [isModalOpen, setModalOpen] = useState(false);
 
   return (
     <div className="relative">
       <MinerStatusWidget
-        onClick={() => setShowModal(true)}
-        status={status}
-        variant={variant}
+        onClick={() => setModalOpen(true)}
+        summary={summary}
+        circle={circle}
       />
-      {showModal && status && (
-        <MinerStatusModal
-          status={status}
-          onDismiss={() => setShowModal(false)}
-          isProtoRig={isProtoRig}
-          onWake={() => {
-            setShowModal(false);
-            wakeMiner();
-          }}
+
+      {/* ProtoOS StatusModal handles both WakingDialog and StatusModal internally */}
+
+      {isModalOpen && (
+        <ProtoOSStatusModal
+          show={isModalOpen}
+          onClose={() => setModalOpen(false)}
         />
       )}
-      <WakingDialog show={shouldWake} />
     </div>
   );
 };

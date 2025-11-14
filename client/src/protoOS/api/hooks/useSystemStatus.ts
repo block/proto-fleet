@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import {
-  useSetSystemStatus,
-  // Rename to avoid conflict with this hook's name
-  useSystemStatus as useSystemStatusFromStore,
+  useOnboarded,
+  usePasswordSet,
+  useSetOnboarded,
+  useSetPasswordSet,
 } from "@/protoOS/store";
 
 /**
@@ -13,13 +14,20 @@ import {
  * Manages fetching system status from the API and updates the centralized Zustand store.
  *
  * For accessing system status data, use the store hooks directly:
- *   import { useSystemStatus, useOnboarded, usePasswordSet, etc. } from "@/protoOS/store";
+ *   import { useOnboarded, usePasswordSet } from "@/protoOS/store";
  */
 const useSystemStatus = () => {
   const { api } = useMinerHosting();
-  const setSystemStatus = useSetSystemStatus();
-  const data = useSystemStatusFromStore();
+  const setOnboarded = useSetOnboarded();
+  const setPasswordSet = useSetPasswordSet();
+  const onboarded = useOnboarded();
+  const passwordSet = usePasswordSet();
   const hasFetchedRef = useRef<boolean>(false);
+
+  const data = useMemo(
+    () => ({ onboarded, passwordSet }),
+    [onboarded, passwordSet],
+  );
 
   useEffect(() => {
     if (!api || hasFetchedRef.current) return;
@@ -27,17 +35,15 @@ const useSystemStatus = () => {
     api
       .getSystemStatus()
       .then((res) => {
-        setSystemStatus({
-          onboarded: res?.data.onboarded,
-          passwordSet: res?.data.password_set,
-        });
+        setOnboarded(res?.data.onboarded);
+        setPasswordSet(res?.data.password_set);
         hasFetchedRef.current = true;
       })
       .catch((err) => {
         console.error("[useSystemStatus API hook] Error:", err);
         hasFetchedRef.current = true;
       });
-  }, [api, setSystemStatus]);
+  }, [api, setOnboarded, setPasswordSet]);
 
   const reload = useCallback(() => {
     hasFetchedRef.current = false;
@@ -46,17 +52,15 @@ const useSystemStatus = () => {
     api
       .getSystemStatus()
       .then((res) => {
-        setSystemStatus({
-          onboarded: res?.data.onboarded,
-          passwordSet: res?.data.password_set,
-        });
+        setOnboarded(res?.data.onboarded);
+        setPasswordSet(res?.data.password_set);
         hasFetchedRef.current = true;
       })
       .catch((err) => {
         console.error("[useSystemStatus API hook] Reload error:", err);
         hasFetchedRef.current = true;
       });
-  }, [api, setSystemStatus]);
+  }, [api, setOnboarded, setPasswordSet]);
 
   return useMemo(() => ({ data, reload }), [data, reload]);
 };

@@ -1,193 +1,7 @@
 import { useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
+import type { ErrorSource, MinerError } from "../types";
 import useMinerStore from "../useMinerStore";
-import {
-  getErrorMessage,
-  getErrorTitle,
-  getStatusErrorTitle,
-  getStatusSummary,
-  isAsicError,
-  isAsicWarning,
-  isControlBoardError,
-  isControlBoardWarning,
-  isFanError,
-  isFanWarning,
-  isHashboardError,
-  isHashboardWarning,
-  isPSUError,
-  isPSUWarning,
-} from "../utils/errorUtils";
-import { NotificationError } from "@/protoOS/api/generatedApi";
-import { type StatusCircleProps } from "@/shared/components/StatusCircle";
-import { statuses } from "@/shared/components/StatusCircle/constants";
-import { createOrPredicate } from "@/shared/utils/predicate";
-
-// =============================================================================
-// Comprehensive Status Calculation
-// this combines errors and mining status to create a comprehensive status object
-// that is the type expected by our shared components (ie MinerStatusModal.status)
-// =============================================================================
-
-const useComprehensiveStatusCalc = (
-  errors: NotificationError[],
-  isSleeping: boolean,
-  isMining: boolean,
-) => {
-  const hashboardIssues = useMemo(
-    () =>
-      errors?.filter(
-        createOrPredicate<NotificationError>(
-          isHashboardError,
-          isAsicError,
-          isHashboardWarning,
-          isAsicWarning,
-        ),
-      ) || [],
-    [errors],
-  );
-
-  const psuIssues = useMemo(
-    () =>
-      errors?.filter(
-        createOrPredicate<NotificationError>(isPSUError, isPSUWarning),
-      ) || [],
-    [errors],
-  );
-
-  const fanIssues = useMemo(
-    () =>
-      errors?.filter(
-        createOrPredicate<NotificationError>(isFanError, isFanWarning),
-      ) || [],
-    [errors],
-  );
-
-  const controlBoardIssues = useMemo(
-    () =>
-      errors?.filter(
-        createOrPredicate<NotificationError>(
-          isControlBoardError,
-          isControlBoardWarning,
-        ),
-      ) || [],
-    [errors],
-  );
-
-  // determine messaging based on issue type and count
-  const issueStatusText = useMemo(() => {
-    return getStatusSummary(
-      hashboardIssues,
-      psuIssues,
-      fanIssues,
-      controlBoardIssues,
-    );
-  }, [hashboardIssues, psuIssues, fanIssues, controlBoardIssues]);
-
-  /**
-   * Determines the status summary based on priority of various miningStatuses and error states
-   * This is similar to the title but with less detail
-   *
-   * priority:
-   * 1. MiningStatus.status === "Stopped" -> sleeping
-   * 2. Issues -> issue status
-   * 3. MiningStatus.status === "Mining" | "DegradedMining" -> hashing
-   *
-   */
-  const summary = useMemo(() => {
-    if (isSleeping) {
-      return "Sleeping";
-    } else if (issueStatusText) {
-      return issueStatusText;
-    } else if (isMining) {
-      return "Hashing";
-    }
-  }, [issueStatusText, isSleeping, isMining]);
-
-  const { title, subtitle } = useMemo(() => {
-    const errTitle = getStatusErrorTitle(errors);
-    if (isSleeping) {
-      return {
-        title: "Miner is asleep",
-        subtitle: undefined,
-      };
-    } else {
-      return errTitle;
-    }
-  }, [errors, isSleeping]);
-
-  const normalizeIssueDetails = (issue: NotificationError) => {
-    const title = getErrorTitle(issue);
-    const message = getErrorMessage(issue);
-    const details = issue.details;
-    return {
-      title,
-      message,
-      details,
-    };
-  };
-
-  const issues = useMemo(() => {
-    return {
-      fans: fanIssues.map(normalizeIssueDetails),
-      psus: psuIssues.map(normalizeIssueDetails),
-      hashboards: hashboardIssues.map(normalizeIssueDetails),
-      controlBoard: controlBoardIssues.map(normalizeIssueDetails),
-    };
-  }, [fanIssues, psuIssues, hashboardIssues, controlBoardIssues]);
-
-  const hasIssues = useMemo(() => {
-    return Object.values(issues).some((issueList) => issueList.length > 0);
-  }, [issues]);
-
-  const circle = useMemo<StatusCircleProps["status"]>(() => {
-    if (isSleeping) {
-      return statuses.sleeping;
-    }
-
-    if (
-      errors.some(
-        createOrPredicate<NotificationError>(
-          isFanError,
-          isControlBoardError,
-          isHashboardError,
-          isAsicError,
-          isPSUError,
-          isFanWarning,
-          isControlBoardWarning,
-          isHashboardWarning,
-          isAsicWarning,
-          isPSUWarning,
-        ),
-      )
-    ) {
-      return statuses.error;
-    }
-
-    return statuses.normal;
-  }, [errors, isSleeping]);
-
-  return useMemo(() => {
-    return {
-      isSleeping,
-      isMining,
-      summary,
-      circle,
-      title,
-      subtitle,
-      hasIssues,
-      issues,
-    };
-  }, [
-    summary,
-    circle,
-    title,
-    subtitle,
-    issues,
-    hasIssues,
-    isSleeping,
-    isMining,
-  ]);
-};
 
 // =============================================================================
 // Granular Hooks for Specific Data
@@ -252,32 +66,28 @@ export const useMinerErrors = () => {
   return useMinerStore(useShallow((state) => state.minerStatus.errors));
 };
 
-export const usePoolsInfo = () => {
-  return useMinerStore(
-    useShallow((state) => ({
-      poolsInfo: state.minerStatus.poolsInfo,
-      poolsInfoStatus: state.minerStatus.poolsInfoStatus,
-    })),
-  );
+export const useOnboarded = () => {
+  return useMinerStore((state) => state.minerStatus.onboarded);
 };
 
-export const useWakeDialog = () => {
-  return useMinerStore(useShallow((state) => state.ui.wakeDialog));
+export const usePasswordSet = () => {
+  return useMinerStore((state) => state.minerStatus.passwordSet);
 };
 
 /**
- * Hook to get the comprehensive status computed from errors and mining status
- * This hook basically combines useMinerErrors and useMiningStatus to creates a status object
- * with the type that our shared components expect (ie MinerStatusModal.status)
+ * Hook to get system status data from minerStatus slice
+ * Returns onboarded and passwordSet status
  */
-export const useComprehensiveStatus = () => {
-  const errors = useMinerStore(
-    useShallow((state) => state.minerStatus.errors.errors),
+export const useSystemStatus = () =>
+  useMinerStore(
+    useShallow((state) => ({
+      onboarded: state.minerStatus.onboarded,
+      passwordSet: state.minerStatus.passwordSet,
+    })),
   );
-  const isSleeping = useIsSleeping();
-  const isMining = useIsMining();
 
-  return useComprehensiveStatusCalc(errors ?? [], isSleeping, isMining);
+export const useWakeDialog = () => {
+  return useMinerStore(useShallow((state) => state.ui.wakeDialog));
 };
 
 // =============================================================================
@@ -292,9 +102,24 @@ export const useSetErrors = () => {
   return useMinerStore((state) => state.minerStatus.setErrors);
 };
 
-export const useSetPoolsInfo = () => {
-  return useMinerStore((state) => state.minerStatus.setPoolsInfo);
+export const useSetOnboarded = () => {
+  return useMinerStore((state) => state.minerStatus.setOnboarded);
 };
+
+export const useSetPasswordSet = () => {
+  return useMinerStore((state) => state.minerStatus.setPasswordSet);
+};
+
+/**
+ * Hook to get system status setter actions
+ */
+export const useSetSystemStatus = () =>
+  useMinerStore(
+    useShallow((state) => ({
+      setOnboarded: state.minerStatus.setOnboarded,
+      setPasswordSet: state.minerStatus.setPasswordSet,
+    })),
+  );
 
 export const useShowWakeDialog = () => {
   return useMinerStore((state) => state.ui.showWakeDialog);
@@ -302,4 +127,68 @@ export const useShowWakeDialog = () => {
 
 export const useHideWakeDialog = () => {
   return useMinerStore((state) => state.ui.hideWakeDialog);
+};
+
+// =============================================================================
+// Error Selector Hooks
+// =============================================================================
+
+/**
+ * Returns errors grouped by component type
+ * Groups errors by their source for UI display
+ * Note: ASIC errors have already been transformed to HASHBOARD in the transformer
+ * @returns Object with component types as keys and arrays of errors as values
+ */
+export const useGroupedErrors = () => {
+  const allErrors = useMinerStore(
+    useShallow((state) => state.minerStatus.errors.errors),
+  );
+
+  return useMemo(() => {
+    // Simple direct grouping by source
+    // ASIC errors have already been transformed to HASHBOARD in the transformer
+    return {
+      hashboard: allErrors.filter((error) => error.source === "HASHBOARD"),
+      psu: allErrors.filter((error) => error.source === "PSU"),
+      fan: allErrors.filter((error) => error.source === "FAN"),
+      pool: allErrors.filter((error) => error.source === "POOL"),
+      system: allErrors.filter((error) => error.source === "SYSTEM"),
+    };
+  }, [allErrors]);
+};
+
+/**
+ * Returns errors for a specific component
+ * @param source - The error source (e.g., "FAN", "PSU")
+ * @param componentIndex - The 0-based index of the component
+ * @returns Array of errors for that specific component
+ */
+export const useErrorsByComponent = (
+  source: ErrorSource,
+  componentIndex: number,
+): MinerError[] => {
+  return useMinerStore(
+    useShallow((state) => {
+      const allErrors = state.minerStatus.errors.errors;
+      return allErrors.filter(
+        (error) =>
+          error.source === source && error.componentIndex === componentIndex,
+      );
+    }),
+  );
+};
+
+/**
+ * Returns all errors from the store
+ */
+export const useErrors = (): MinerError[] => {
+  return useMinerStore((state) => state.minerStatus.errors.errors);
+};
+
+/**
+ * Returns whether the miner has any issues
+ */
+export const useHasIssues = (): boolean => {
+  const errors = useMinerStore((state) => state.minerStatus.errors.errors);
+  return errors.length > 0;
 };

@@ -1,3 +1,3 @@
-import MinerStatusWrapper from "./MinerStatusWrapper";
+import MinerStatus from "./MinerStatus";
 
-export default MinerStatusWrapper;
+export default MinerStatus;

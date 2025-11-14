@@ -37,7 +37,10 @@ const useTelemetry = ({
     setError(undefined);
 
     try {
-      const response = await api.getCurrentTelemetry({ level });
+      // TODO: Need to have type in MDK_API updated because level expects comma separated string
+      // not ("miner" | "hashboard" | "psu" | "asic")[], casting as any to bypass for now
+      const levelParam = level.join(",") as any;
+      const response = await api.getCurrentTelemetry({ level: levelParam });
       setData(response.data);
 
       // Process successful response

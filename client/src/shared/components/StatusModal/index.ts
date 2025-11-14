@@ -1,6 +1,5 @@
 // Main exports
 export { StatusModal } from "./StatusModal";
-export { getComponentTitle } from "./utils";
 
 // Types
 export type {

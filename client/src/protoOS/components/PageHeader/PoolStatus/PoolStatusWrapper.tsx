@@ -7,7 +7,7 @@ import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const PoolStatusWrapper = () => {
   const navigate = useNavigate();
-  const { poolsInfo, poolsInfoStatus } = usePoolsInfo();
+  const poolsInfo = usePoolsInfo();
 
   const handleClickViewPools = useCallback(() => {
     navigate("/settings/mining-pools");
@@ -17,7 +17,7 @@ const PoolStatusWrapper = () => {
     <PopoverProvider>
       <PoolStatus
         poolsInfo={poolsInfo}
-        loading={poolsInfoStatus.pending}
+        loading={poolsInfo === undefined}
         onClickViewPools={handleClickViewPools}
       />
     </PopoverProvider>

@@ -38,6 +38,7 @@ export interface HardwareSlice {
   setHashboards: (hashboards: HashboardHardwareData[]) => void;
   addHashboard: (hashboard: HashboardHardwareData) => void;
   getHashboard: (serial: string) => HashboardHardwareData | undefined;
+  getHashboardBySlot: (slot: number) => HashboardHardwareData | undefined;
   getHashboardsByBay: (bay: number) => HashboardHardwareData[];
   getBayCount: () => number;
   getSlotByHbSn: (serial: string) => number | undefined;
@@ -141,6 +142,12 @@ export const createHardwareSlice: StateCreator<
 
   getHashboard: (serial) => {
     return get().hardware.hashboards.get(serial);
+  },
+
+  getHashboardBySlot: (slot) => {
+    return Array.from(get().hardware.hashboards.values()).find(
+      (hb) => hb.slot === slot,
+    );
   },
 
   getHashboardsByBay: (bay) => {

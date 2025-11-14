@@ -1,11 +1,7 @@
 import type { StateCreator } from "zustand";
-import type { Measurement } from "../types";
+import type { Measurement, MinerError } from "../types";
 import type { MinerStore } from "../useMinerStore";
-import type {
-  ErrorListResponse,
-  MiningStatusMiningstatus,
-  Pool,
-} from "@/protoOS/api/generatedApi";
+import type { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
 
 // =============================================================================
 // Types
@@ -22,13 +18,7 @@ export type MiningStatus =
   | "Error";
 
 export interface ErrorsState {
-  errors: ErrorListResponse | undefined;
-  pending: boolean;
-}
-
-export interface PoolsInfoStatus {
-  error: string;
-  pending: boolean;
+  errors: MinerError[];
 }
 
 // =============================================================================
@@ -45,17 +35,16 @@ export interface MinerStatusSlice {
 
   // Other state
   errors: ErrorsState;
-  poolsInfo: Pool[] | undefined;
-  poolsInfoStatus: PoolsInfoStatus;
+
+  // System status
+  onboarded: boolean | undefined;
+  passwordSet: boolean | undefined;
 
   // Actions
-  setErrors: (errors: ErrorListResponse | undefined, pending: boolean) => void;
+  setErrors: (errors: MinerError[]) => void;
   setMiningStatus: (miningStatus: MiningStatusMiningstatus | undefined) => void;
-  setPoolsInfo: (
-    poolsInfo: Pool[] | undefined,
-    error?: string,
-    pending?: boolean,
-  ) => void;
+  setOnboarded: (onboarded: boolean | undefined) => void;
+  setPasswordSet: (passwordSet: boolean | undefined) => void;
 }
 
 // =============================================================================
@@ -76,21 +65,16 @@ export const createMinerStatusSlice: StateCreator<
   message: undefined,
   errors: {
     errors: [],
-    pending: false,
   },
-  poolsInfo: undefined,
-  poolsInfoStatus: {
-    error: "",
-    pending: false,
-  },
+  onboarded: undefined,
+  passwordSet: undefined,
 
   // Actions
-  setErrors: (errors, pending) =>
+  setErrors: (errors) =>
     set(
       (state) => {
         state.minerStatus.errors = {
-          errors: errors ?? [],
-          pending: !!(pending && !errors),
+          errors: errors,
         };
       },
       false,
@@ -126,16 +110,21 @@ export const createMinerStatusSlice: StateCreator<
       "minerStatus/setMiningStatus",
     ),
 
-  setPoolsInfo: (poolsInfo, error = "", pending = false) =>
+  setOnboarded: (onboarded) =>
     set(
       (state) => {
-        state.minerStatus.poolsInfo = poolsInfo;
-        state.minerStatus.poolsInfoStatus = {
-          error,
-          pending: pending && !poolsInfo,
-        };
+        state.minerStatus.onboarded = onboarded;
       },
       false,
-      "minerStatus/setPoolsInfo",
+      "minerStatus/setOnboarded",
+    ),
+
+  setPasswordSet: (passwordSet) =>
+    set(
+      (state) => {
+        state.minerStatus.passwordSet = passwordSet;
+      },
+      false,
+      "minerStatus/setPasswordSet",
     ),
 });

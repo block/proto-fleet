@@ -1,9 +1,10 @@
+import clsx from "clsx";
 import { iconSizes } from "./constants";
 import { IconProps } from "./types";
 
-const ControlBoard = ({ width = iconSizes.medium }: IconProps) => {
+const ControlBoard = ({ width = iconSizes.medium, className }: IconProps) => {
   return (
-    <div className={width}>
+    <div className={clsx(width, className)}>
       <svg
         width="100%"
         height="100%"
