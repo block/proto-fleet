@@ -273,48 +273,50 @@ const Authentication = ({
           "max-h-96 duration-500": submitError,
         })}
       >
-        <div className="rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 leading-5 text-intent-critical-text">
+        <div className="max-w-xs rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 leading-5 text-intent-critical-text">
           {submitError}
         </div>
       </div>
-      <Input
-        onChange={handleChange}
-        id="username"
-        label={inputPrefix ? `${inputPrefix} username` : "Username"}
-        disabled={initUsername !== undefined && initUsername !== ""}
-        initValue={values.username}
-        error={errors.username}
-      />
-      {isUpdateMode && (
+      <div className="flex flex-col gap-6 bg-surface-base">
         <Input
           onChange={handleChange}
-          id="currentPassword"
-          label="Current password"
-          type="password"
-          initValue={values.currentPassword}
-          error={errors.currentPassword}
+          id="username"
+          label={inputPrefix ? `${inputPrefix} username` : "Username"}
+          disabled={initUsername !== undefined && initUsername !== ""}
+          initValue={values.username}
+          error={errors.username}
         />
-      )}
-      <div className="space-y-2">
-        <Input
-          onChange={handleChange}
-          id="password"
-          label={inputPrefix ? `${inputPrefix} password` : "Password"}
-          type="password"
-          initValue={values.password}
-          error={errors.password}
-        />
-        <div className="flex items-center justify-between gap-5">
-          <div>
-            <div className="text-200 text-text-primary-50">
-              Password strength
-            </div>
-          </div>
-          <PasswordStrengthMeter
-            score={score}
-            onSetScore={setScore}
-            password={values.password}
+        {isUpdateMode && (
+          <Input
+            onChange={handleChange}
+            id="currentPassword"
+            label="Current password"
+            type="password"
+            initValue={values.currentPassword}
+            error={errors.currentPassword}
           />
+        )}
+        <div className="space-y-2">
+          <Input
+            onChange={handleChange}
+            id="password"
+            label={inputPrefix ? `${inputPrefix} password` : "Password"}
+            type="password"
+            initValue={values.password}
+            error={errors.password}
+          />
+          <div className="flex items-center justify-between gap-5">
+            <div>
+              <div className="text-200 text-text-primary-50">
+                Password strength
+              </div>
+            </div>
+            <PasswordStrengthMeter
+              score={score}
+              onSetScore={setScore}
+              password={values.password}
+            />
+          </div>
         </div>
       </div>
       {requirePasswordConfirmation && (
