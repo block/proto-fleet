@@ -3,7 +3,21 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import type { ErrorDefinition, TriggerErrorRequest } from '@/types'
 import { Button } from '@/components/ui/button'
-import { AlertCircle, CheckCircle, Trash2, RefreshCw, Send } from 'lucide-react'
+import { AlertCircle, CheckCircle, Trash2, RefreshCw, Send, Save, FolderOpen } from 'lucide-react'
+import { DiceButton } from '@/components/DiceButton'
+import { SaveStateModal } from '@/components/SaveStateModal'
+import { RecallStateModal } from '@/components/RecallStateModal'
+import { AllErrorsButton } from '@/components/AllErrorsButton'
+import {
+  selectRandomErrors,
+  createRandomErrorRequest
+} from '@/lib/randomError'
+import {
+  getSavedStates,
+  saveErrorState,
+  deleteErrorState,
+  type SavedErrorState
+} from '@/lib/localStorage'
 
 function App() {
   const queryClient = useQueryClient()
@@ -11,26 +25,50 @@ function App() {
   const [formData, setFormData] = useState<Record<string, any>>({})
   const [ttl, setTtl] = useState<number>(0)
   const [selectedCategory, setSelectedCategory] = useState<string>('All')
+  const [showSaveModal, setShowSaveModal] = useState(false)
+  const [showRecallModal, setShowRecallModal] = useState(false)
+  const [savedStates, setSavedStates] = useState<SavedErrorState[]>([])
 
-  // Queries
+  // Queries with consistent sorting
   const { data: definitions = [] } = useQuery({
     queryKey: ['definitions'],
-    queryFn: api.getDefinitions,
+    queryFn: async () => {
+      const defs = await api.getDefinitions()
+      // Create new array and sort by category, then by name for consistent ordering
+      return [...defs].sort((a, b) => {
+        const catCompare = a.category.localeCompare(b.category)
+        return catCompare !== 0 ? catCompare : a.name.localeCompare(b.name)
+      })
+    },
   })
 
   const { data: activeErrors = [], isLoading: loadingErrors } = useQuery({
     queryKey: ['activeErrors'],
-    queryFn: api.getActiveErrors,
+    queryFn: async () => {
+      const errors = await api.getActiveErrors()
+      // Create new array and sort by insertion time (newest first), then by ID for stable ordering
+      return [...errors].sort((a, b) => {
+        const timeCompare = b.inserted_at - a.inserted_at
+        // If timestamps are the same, sort by ID for consistent ordering
+        return timeCompare !== 0 ? timeCompare : a.id.localeCompare(b.id)
+      })
+    },
+    refetchInterval: 5000, // Auto-refresh every 5 seconds
   })
 
   const { data: status } = useQuery({
     queryKey: ['status'],
     queryFn: api.getStatus,
+    refetchInterval: 5000, // Auto-refresh every 5 seconds
   })
 
   const { data: categories = [] } = useQuery({
     queryKey: ['categories'],
-    queryFn: api.getCategories,
+    queryFn: async () => {
+      const cats = await api.getCategories()
+      // Create new array and sort alphabetically for consistent ordering
+      return [...cats].sort((a, b) => a.localeCompare(b))
+    },
   })
 
   // Mutations
@@ -64,6 +102,82 @@ function App() {
   const filteredDefinitions = selectedCategory === 'All'
     ? definitions
     : definitions.filter(d => d.category === selectedCategory)
+
+  // Load saved states when component mounts or when recall modal opens
+  const loadSavedStates = () => {
+    setSavedStates(getSavedStates())
+  }
+
+  // Handle dice roll - trigger random errors
+  const handleDiceRoll = async (diceResult: number) => {
+    // Clear all existing errors first
+    await clearAllMutation.mutateAsync()
+
+    // Select random errors
+    const randomErrors = selectRandomErrors(filteredDefinitions, diceResult, selectedCategory)
+
+    // Trigger each random error with delay
+    for (const errorDef of randomErrors) {
+      const request = createRandomErrorRequest(errorDef)
+      await triggerMutation.mutateAsync(request)
+      // Small delay between triggers
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+  }
+
+  // Handle triggering all errors
+  const handleTriggerAllErrors = async (defsToTrigger: ErrorDefinition[], onProgress?: (current: number) => void) => {
+    // Clear all existing errors first
+    await clearAllMutation.mutateAsync()
+
+    // Trigger each error with delay
+    let triggered = 0
+    for (const errorDef of defsToTrigger) {
+      const request = createRandomErrorRequest(errorDef)
+      await triggerMutation.mutateAsync(request)
+      triggered++
+      // Report progress if callback provided
+      if (onProgress) {
+        onProgress(triggered)
+      }
+      // Small delay between triggers
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+  }
+
+  // Handle saving error state
+  const handleSaveState = (name: string, description?: string) => {
+    const success = saveErrorState(name, activeErrors, description)
+    if (success) {
+      loadSavedStates()
+    }
+  }
+
+  // Handle loading a saved state
+  const handleLoadState = async (state: SavedErrorState) => {
+    // Clear all existing errors
+    await clearAllMutation.mutateAsync()
+
+    // Trigger each saved error
+    for (const error of state.errors) {
+      const request: TriggerErrorRequest = {
+        error_code: error.error_code,
+        error_level: error.error_level,
+        message: error.message,
+        details: error.details,
+        ttl_seconds: error.ttl_seconds,
+      }
+      await triggerMutation.mutateAsync(request)
+      // Small delay between triggers
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+  }
+
+  // Handle deleting a saved state
+  const handleDeleteState = (name: string) => {
+    deleteErrorState(name)
+    loadSavedStates()
+  }
 
   const handleTriggerError = () => {
     if (!selectedError) return
@@ -128,9 +242,22 @@ function App() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Error Trigger Panel */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-            <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-gray-100">
-              Trigger Error
-            </h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
+                Trigger Error
+              </h2>
+              <div className="flex gap-2">
+                <DiceButton
+                  onClick={handleDiceRoll}
+                  disabled={filteredDefinitions.length === 0}
+                />
+                <AllErrorsButton
+                  definitions={filteredDefinitions}
+                  onTrigger={handleTriggerAllErrors}
+                  disabled={filteredDefinitions.length === 0}
+                />
+              </div>
+            </div>
 
             {/* Category Filter */}
             <div className="mb-4">
@@ -284,6 +411,26 @@ function App() {
                 >
                   Clear All
                 </Button>
+                <Button
+                  onClick={() => setShowSaveModal(true)}
+                  variant="outline"
+                  size="sm"
+                  disabled={activeErrors.length === 0}
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Save
+                </Button>
+                <Button
+                  onClick={() => {
+                    loadSavedStates()
+                    setShowRecallModal(true)
+                  }}
+                  variant="outline"
+                  size="sm"
+                >
+                  <FolderOpen className="w-4 h-4 mr-2" />
+                  Recall
+                </Button>
               </div>
             </div>
 
@@ -349,6 +496,21 @@ function App() {
             )}
           </div>
         </div>
+
+        {/* Modals */}
+        <SaveStateModal
+          isOpen={showSaveModal}
+          onClose={() => setShowSaveModal(false)}
+          onSave={handleSaveState}
+          currentErrors={activeErrors}
+        />
+        <RecallStateModal
+          isOpen={showRecallModal}
+          onClose={() => setShowRecallModal(false)}
+          savedStates={savedStates}
+          onLoad={handleLoadState}
+          onDelete={handleDeleteState}
+        />
       </div>
     </div>
   )
