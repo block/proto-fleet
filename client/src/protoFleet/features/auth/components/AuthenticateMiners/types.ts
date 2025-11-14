@@ -1,8 +1,9 @@
-import { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-
-// TODO change later once we have model from API
-export type UnauthenticatedMiner = MinerStateSnapshot & {
+// UnauthenticatedMiner represents the data structure used in the authentication flow
+// It contains basic miner info along with credential fields
+export type UnauthenticatedMiner = {
+  deviceIdentifier: string;
   model: string;
+  macAddress: string;
   username: string;
   password: string;
 };

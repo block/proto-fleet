@@ -7,9 +7,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	fleetmanagementModels "github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
@@ -303,20 +305,58 @@ func (s *TelemetryService) worker(ctx context.Context) {
 		case device := <-s.tasks:
 			if err := s.GetTelemetryFromDevice(ctx, device); err != nil {
 				slog.Warn("failed to get telemetry from device", "deviceID", device.ID, "error", err)
+
+				// Check if this is an authentication error and update pairing status
+				if fleeterror.IsAuthenticationError(err) {
+					if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
+						slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
+							"deviceID", device.ID, "error", updateErr)
+					}
+				}
+
 				if err := s.updateScheduler.AddFailedDevices(ctx, device); err != nil {
 					slog.Warn("failed to add failed telemetry device back into scheduler", "deviceID", device.ID, "error", err)
 				}
 			}
 			if err := s.GetStatusForDevice(ctx, device); err != nil {
 				slog.Warn("failed to get status for device", "deviceID", device.ID, "error", err)
+
+				// Check if this is an authentication error and update pairing status
+				if fleeterror.IsAuthenticationError(err) {
+					if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
+						slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
+							"deviceID", device.ID, "error", updateErr)
+					}
+				}
 			}
 
 		case device := <-s.statusTasks:
 			if err := s.GetStatusForDevice(ctx, device); err != nil {
 				slog.Warn("failed to get status for device", "deviceID", device.ID, "error", err)
+
+				// Check if this is an authentication error and update pairing status
+				if fleeterror.IsAuthenticationError(err) {
+					if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
+						slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
+							"deviceID", device.ID, "error", updateErr)
+					}
+				}
 			}
 		}
 	}
+}
+
+// handleAuthenticationFailure updates the pairing status to AUTHENTICATION_NEEDED
+// when authentication with a device fails
+func (s *TelemetryService) handleAuthenticationFailure(ctx context.Context, deviceID models.DeviceIdentifier) error {
+	// Update pairing status to AUTHENTICATION_NEEDED using device identifier directly
+	err := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, string(deviceID), pairing.StatusAuthenticationNeeded)
+	if err != nil {
+		return fmt.Errorf("failed to update pairing status for device %s: %w", deviceID, err)
+	}
+
+	slog.Info("updated device pairing status to AUTHENTICATION_NEEDED", "deviceID", deviceID)
+	return nil
 }
 
 func (s *TelemetryService) GetStatusForDevice(ctx context.Context, device models.Device) error {

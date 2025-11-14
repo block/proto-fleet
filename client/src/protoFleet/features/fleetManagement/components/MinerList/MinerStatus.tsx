@@ -4,9 +4,11 @@ import {
   ComponentStatus,
   type MinerComponentStatus,
   MinerComponentStatusSchema,
+  PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import {
+  useMiner,
   useMinerComponentStatus,
   useMinerDeviceStatus,
 } from "@/protoFleet/store";
@@ -64,6 +66,8 @@ function getComponentStatus(
 }
 
 const MinerStatus = ({ deviceIdentifier }: MinerStatusProps) => {
+  const miner = useMiner(deviceIdentifier);
+  const isUnpaired = miner?.pairingStatus === PairingStatus.UNPAIRED;
   const componentStatusFromStore = useMinerComponentStatus(
     deviceIdentifier || "",
   );
@@ -82,6 +86,19 @@ const MinerStatus = ({ deviceIdentifier }: MinerStatusProps) => {
   const deviceStatusFromStore = useMinerDeviceStatus(deviceIdentifier || "");
 
   const status = useMemo(() => {
+    if (isUnpaired) {
+      return (
+        <>
+          <StatusCircle
+            status={statuses.inactive}
+            variant="simple"
+            width="w-[6px]"
+          />
+          Needs Authentication
+        </>
+      );
+    }
+
     if (deviceStatusFromStore === DeviceStatus.OFFLINE) {
       return (
         <>
@@ -199,7 +216,7 @@ const MinerStatus = ({ deviceIdentifier }: MinerStatusProps) => {
         Hashing
       </>
     );
-  }, [deviceStatusFromStore, componentStatus]);
+  }, [isUnpaired, deviceStatusFromStore, componentStatus]);
 
   return <div className="flex items-center gap-1">{status}</div>;
 };

@@ -3,6 +3,7 @@ import {
   ComponentStatus,
   DeviceStatus,
   type MinerStateSnapshot,
+  PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 export const miners: MinerStateSnapshot[] = [
@@ -14,6 +15,10 @@ export const miners: MinerStateSnapshot[] = [
     ipAddress: "0123456789",
     macAddress: "0a:04:8a:54:fa:9f",
     url: "https://0123456789:8080",
+    pairingStatus: PairingStatus.PAIRED,
+    model: "S19 Pro",
+    manufacturer: "Bitmain",
+    type: "antminer",
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },
@@ -66,6 +71,10 @@ export const miners: MinerStateSnapshot[] = [
     macAddress: "0b:04:8a:54:fa:9f",
     ipAddress: "0123456781",
     url: "https://0123456781:8080",
+    pairingStatus: PairingStatus.PAIRED,
+    model: "S19 Pro",
+    manufacturer: "Bitmain",
+    type: "antminer",
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },
@@ -118,6 +127,10 @@ export const miners: MinerStateSnapshot[] = [
     name: "C1-M03",
     macAddress: "0c:04:8a:54:fa:9f",
     url: "https://172.27.244.166:8080",
+    pairingStatus: PairingStatus.PAIRED,
+    model: "S19 Pro",
+    manufacturer: "Bitmain",
+    type: "antminer",
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },
@@ -170,6 +183,10 @@ export const miners: MinerStateSnapshot[] = [
     name: "C1-M04",
     macAddress: "0e:04:8a:54:fa:9f",
     url: "https://172.27.244.166:8080",
+    pairingStatus: PairingStatus.PAIRED,
+    model: "S19 Pro",
+    manufacturer: "Bitmain",
+    type: "antminer",
     hashrate: [
       {
         timestamp: { seconds: BigInt(1641024000), nanos: 0 },

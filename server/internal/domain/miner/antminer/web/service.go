@@ -203,6 +203,11 @@ func (s *Service) request(ctx context.Context, connInfo *AntminerConnectionInfo,
 	}
 	defer resp.Body.Close()
 
+	// Check for authentication failures
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return fleeterror.NewUnauthenticatedErrorf("authentication failed with status code: %d", resp.StatusCode)
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		return fleeterror.NewInternalErrorf("unexpected status code: %d", resp.StatusCode)
 	}

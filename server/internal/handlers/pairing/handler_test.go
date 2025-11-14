@@ -39,13 +39,14 @@ func TestHandler_DiscoverAndPair(t *testing.T) {
 			testUser := testContext.DatabaseService.CreateSuperAdminUser()
 
 			minerCallCounter := miner_mocks.NewMockMinerCallCounter()
-			mockMinerServer := testutil.SetupMockMinerServer(t, minerCallCounter, tc.useTLS)
+			// Use port 2121 to match Proto discoverer's requirement
+			mockMinerServer := testutil.SetupMockMinerServer(t, minerCallCounter, tc.useTLS, 2121)
 
 			mockServerURL, err := url.Parse(mockMinerServer.URL)
 			require.NoError(t, err)
 
 			ipAddresses := []string{mockServerURL.Hostname()}
-			ports := []string{"2121"}
+			ports := []string{mockServerURL.Port()}
 
 			authRequest := connect.NewRequest(&authv1.AuthenticateRequest{
 				Username: testUser.Username,

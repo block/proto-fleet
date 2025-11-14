@@ -480,6 +480,94 @@ func (q *Queries) GetPairedDevicesIds(ctx context.Context, orgID int64) ([]int64
 	return items, nil
 }
 
+const getTotalMinerStateSnapshots = `-- name: GetTotalMinerStateSnapshots :one
+SELECT COUNT(*) as total
+FROM (
+    SELECT
+        CASE
+            WHEN d.id IS NOT NULL AND dp.pairing_status = 'PAIRED' THEN 'PAIRED'
+            WHEN d.id IS NOT NULL AND dp.pairing_status = 'AUTHENTICATION_NEEDED' THEN 'AUTHENTICATION_NEEDED'
+            WHEN d.id IS NOT NULL AND dp.pairing_status = 'PENDING' THEN 'PENDING'
+            WHEN d.id IS NOT NULL AND dp.pairing_status = 'FAILED' THEN 'FAILED'
+            ELSE 'UNPAIRED'
+        END as pairing_status
+    FROM discovered_device dd
+    LEFT JOIN device d ON dd.id = d.discovered_device_id
+        AND d.deleted_at IS NULL
+        AND d.org_id = ?
+    LEFT JOIN device_pairing dp ON d.id = dp.device_id
+    LEFT JOIN device_status ds ON d.id = ds.device_id
+    WHERE dd.org_id = ?
+        AND dd.is_active = TRUE
+        AND dd.deleted_at IS NULL
+        -- Status filter (only applies to paired devices with status)
+        AND (
+            ? IS NULL
+            OR ds.status IN (/*SLICE:status_values*/?)
+        )
+        -- Type filter
+        AND (
+            ? IS NULL
+            OR dd.type IN (/*SLICE:type_values*/?)
+        )
+) AS devices_with_status
+WHERE
+    -- Pairing status filter - if no filter provided (NULL), return all
+    (
+        ? IS NULL
+        OR pairing_status IN (/*SLICE:pairing_status_values*/?)
+    )
+`
+
+type GetTotalMinerStateSnapshotsParams struct {
+	OrgID               int64
+	StatusFilter        interface{}
+	StatusValues        []DeviceStatusStatus
+	TypeFilter          interface{}
+	TypeValues          []string
+	PairingStatusFilter interface{}
+	PairingStatusValues []DevicePairingPairingStatus
+}
+
+// Uses same subquery pattern as ListMinerStateSnapshots for consistency
+func (q *Queries) GetTotalMinerStateSnapshots(ctx context.Context, arg GetTotalMinerStateSnapshotsParams) (int64, error) {
+	query := getTotalMinerStateSnapshots
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.OrgID)
+	queryParams = append(queryParams, arg.OrgID)
+	queryParams = append(queryParams, arg.StatusFilter)
+	if len(arg.StatusValues) > 0 {
+		for _, v := range arg.StatusValues {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:status_values*/?", strings.Repeat(",?", len(arg.StatusValues))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:status_values*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.TypeFilter)
+	if len(arg.TypeValues) > 0 {
+		for _, v := range arg.TypeValues {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:type_values*/?", strings.Repeat(",?", len(arg.TypeValues))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:type_values*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.PairingStatusFilter)
+	if len(arg.PairingStatusValues) > 0 {
+		for _, v := range arg.PairingStatusValues {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:pairing_status_values*/?", strings.Repeat(",?", len(arg.PairingStatusValues))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:pairing_status_values*/?", "NULL", 1)
+	}
+	row := q.queryRow(ctx, nil, query, queryParams...)
+	var total int64
+	err := row.Scan(&total)
+	return total, err
+}
+
 const getTotalPairedDevices = `-- name: GetTotalPairedDevices :one
 SELECT COUNT(*)
 FROM device d
@@ -544,6 +632,186 @@ func (q *Queries) InsertDevice(ctx context.Context, arg InsertDeviceParams) (sql
 		arg.MacAddress,
 		arg.SerialNumber,
 	)
+}
+
+const listMinerStateSnapshots = `-- name: ListMinerStateSnapshots :many
+SELECT
+    device_identifier,
+    mac_address,
+    serial_number,
+    model,
+    manufacturer,
+    type,
+    device_status,
+    status_timestamp,
+    status_details,
+    ip_address,
+    port,
+    url_scheme,
+    pairing_status,
+    cursor_id,
+    device_id
+FROM (
+    SELECT
+        dd.device_identifier,
+        COALESCE(d.mac_address, '') as mac_address,
+        d.serial_number,
+        dd.model,
+        dd.manufacturer,
+        dd.type,
+        ds.status as device_status,
+        ds.status_timestamp,
+        ds.status_details,
+        dd.ip_address,
+        dd.port,
+        dd.url_scheme,
+        dd.id as cursor_id,
+        COALESCE(d.id, 0) as device_id,
+        CASE
+            WHEN d.id IS NOT NULL AND dp.pairing_status = 'PAIRED' THEN 'PAIRED'
+            WHEN d.id IS NOT NULL AND dp.pairing_status = 'AUTHENTICATION_NEEDED' THEN 'AUTHENTICATION_NEEDED'
+            WHEN d.id IS NOT NULL AND dp.pairing_status = 'PENDING' THEN 'PENDING'
+            WHEN d.id IS NOT NULL AND dp.pairing_status = 'FAILED' THEN 'FAILED'
+            ELSE 'UNPAIRED'
+        END as pairing_status
+    FROM discovered_device dd
+    LEFT JOIN device d ON dd.id = d.discovered_device_id
+        AND d.deleted_at IS NULL
+        AND d.org_id = ?
+    LEFT JOIN device_pairing dp ON d.id = dp.device_id
+    LEFT JOIN device_status ds ON d.id = ds.device_id
+    WHERE dd.org_id = ?
+        AND dd.is_active = TRUE
+        AND dd.deleted_at IS NULL
+        -- Cursor pagination (applied early for performance)
+        AND (
+            COALESCE(?, 0) = 0
+            OR dd.id > ?
+        )
+        -- Status filter (only applies to paired devices with status)
+        AND (
+            ? IS NULL
+            OR ds.status IN (/*SLICE:status_values*/?)
+        )
+        -- Type filter
+        AND (
+            ? IS NULL
+            OR dd.type IN (/*SLICE:type_values*/?)
+        )
+) AS devices_with_status
+WHERE
+    -- Pairing status filter - if no filter provided (NULL), return all
+    (
+        ? IS NULL
+        OR pairing_status IN (/*SLICE:pairing_status_values*/?)
+    )
+ORDER BY cursor_id
+LIMIT ?
+`
+
+type ListMinerStateSnapshotsParams struct {
+	OrgID               int64
+	CursorID            sql.NullInt64
+	StatusFilter        interface{}
+	StatusValues        []DeviceStatusStatus
+	TypeFilter          interface{}
+	TypeValues          []string
+	PairingStatusFilter interface{}
+	PairingStatusValues []DevicePairingPairingStatus
+	Limit               int32
+}
+
+type ListMinerStateSnapshotsRow struct {
+	DeviceIdentifier string
+	MacAddress       string
+	SerialNumber     sql.NullString
+	Model            sql.NullString
+	Manufacturer     sql.NullString
+	Type             string
+	DeviceStatus     NullDeviceStatusStatus
+	StatusTimestamp  sql.NullTime
+	StatusDetails    sql.NullString
+	IpAddress        string
+	Port             string
+	UrlScheme        string
+	PairingStatus    string
+	CursorID         int64
+	DeviceID         int64
+}
+
+// Uses a subquery to calculate pairing_status once, then filters on it
+// This keeps all pairing status logic in one place (the CASE statement)
+func (q *Queries) ListMinerStateSnapshots(ctx context.Context, arg ListMinerStateSnapshotsParams) ([]ListMinerStateSnapshotsRow, error) {
+	query := listMinerStateSnapshots
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.OrgID)
+	queryParams = append(queryParams, arg.OrgID)
+	queryParams = append(queryParams, arg.CursorID)
+	queryParams = append(queryParams, arg.CursorID)
+	queryParams = append(queryParams, arg.StatusFilter)
+	if len(arg.StatusValues) > 0 {
+		for _, v := range arg.StatusValues {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:status_values*/?", strings.Repeat(",?", len(arg.StatusValues))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:status_values*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.TypeFilter)
+	if len(arg.TypeValues) > 0 {
+		for _, v := range arg.TypeValues {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:type_values*/?", strings.Repeat(",?", len(arg.TypeValues))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:type_values*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.PairingStatusFilter)
+	if len(arg.PairingStatusValues) > 0 {
+		for _, v := range arg.PairingStatusValues {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:pairing_status_values*/?", strings.Repeat(",?", len(arg.PairingStatusValues))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:pairing_status_values*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.Limit)
+	rows, err := q.query(ctx, nil, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMinerStateSnapshotsRow
+	for rows.Next() {
+		var i ListMinerStateSnapshotsRow
+		if err := rows.Scan(
+			&i.DeviceIdentifier,
+			&i.MacAddress,
+			&i.SerialNumber,
+			&i.Model,
+			&i.Manufacturer,
+			&i.Type,
+			&i.DeviceStatus,
+			&i.StatusTimestamp,
+			&i.StatusDetails,
+			&i.IpAddress,
+			&i.Port,
+			&i.UrlScheme,
+			&i.PairingStatus,
+			&i.CursorID,
+			&i.DeviceID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listPairedDevices = `-- name: ListPairedDevices :many
@@ -763,6 +1031,24 @@ func (q *Queries) UpdateDeviceIPAssignment(ctx context.Context, arg UpdateDevice
 		arg.UrlScheme,
 		arg.ID,
 	)
+	return err
+}
+
+const updateDevicePairingStatusByIdentifier = `-- name: UpdateDevicePairingStatusByIdentifier :exec
+UPDATE device_pairing dp
+INNER JOIN device d ON dp.device_id = d.id
+SET dp.pairing_status = ?
+WHERE d.device_identifier = ?
+  AND d.deleted_at IS NULL
+`
+
+type UpdateDevicePairingStatusByIdentifierParams struct {
+	PairingStatus    DevicePairingPairingStatus
+	DeviceIdentifier string
+}
+
+func (q *Queries) UpdateDevicePairingStatusByIdentifier(ctx context.Context, arg UpdateDevicePairingStatusByIdentifierParams) error {
+	_, err := q.exec(ctx, q.updateDevicePairingStatusByIdentifierStmt, updateDevicePairingStatusByIdentifier, arg.PairingStatus, arg.DeviceIdentifier)
 	return err
 }
 

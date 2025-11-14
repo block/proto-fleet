@@ -220,6 +220,26 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 				continue
 			}
 
+			// Skip network address (.0) and gateway (.1) to avoid discovery issues
+			// In most networks, the gateway is the first usable IP address, which can
+			// cause all devices to appear to respond at the gateway IP
+			// Exception: Don't skip localhost addresses (127.0.0.0/8)
+			parsedIP := net.ParseIP(ipAddress)
+			if parsedIP != nil {
+				ipv4 := parsedIP.To4()
+				if ipv4 != nil {
+					// Check if this is localhost (127.x.x.x)
+					isLocalhost := ipv4[0] == 127
+					if !isLocalhost {
+						lastOctet := ipv4[3]
+						if lastOctet == 0 || lastOctet == 1 {
+							slog.Debug("Skipping network/gateway address", "ip", ipAddress)
+							continue
+						}
+					}
+				}
+			}
+
 			for _, port := range host.Ports {
 				portStr := fmt.Sprintf("%d", port.ID)
 				err := s.discoverDevice(ctx, ipAddress, portStr, resultChan)
@@ -243,6 +263,22 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 	endIP, err := ipToUint32(r.EndIp)
 	if err != nil {
 		return nil, fleeterror.NewInvalidArgumentErrorf("error parsing end ip: %v", err)
+	}
+
+	// Skip network address (.0) and gateway (.1) to avoid discovery issues
+	// In most networks, the gateway is the first usable IP address, which can
+	// cause all devices to appear to respond at the gateway IP
+	// Exception: Don't skip localhost addresses (127.0.0.0/8)
+	isLocalhost := (startIP & 0xFF000000) == 0x7F000000 // 127.x.x.x
+	if !isLocalhost {
+		lastOctet := startIP & 0xFF
+		if lastOctet == 0 {
+			// Network address, skip to .2
+			startIP += 2
+		} else if lastOctet == 1 {
+			// Gateway address, skip to .2
+			startIP++
+		}
 	}
 
 	go func() {
@@ -393,6 +429,15 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 
 	newDiscoveredDeviceInfo, err := pairer.GetDeviceInfo(ctx, newDiscoveredDevice, pairedDeviceCredentials)
 	if err != nil {
+		// Check if this is an authentication error and update pairing status
+		if fleeterror.IsAuthenticationError(err) {
+			slog.Info("authentication failed for paired device, updating pairing status",
+				"device_identifier", pairedDevice.DeviceIdentifier)
+			if updateErr := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, pairedDevice.DeviceIdentifier, StatusAuthenticationNeeded); updateErr != nil {
+				slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
+					"device_identifier", pairedDevice.DeviceIdentifier, "error", updateErr)
+			}
+		}
 		slog.Debug("failed to get new discovered device info", "error", err)
 		return false
 	}
@@ -464,6 +509,10 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 	}
 
 	if err := pairer.PairDevice(ctx, discoveredDevice, credentials); err != nil {
+		// Preserve authentication errors - don't wrap them
+		if fleeterror.IsAuthenticationError(err) {
+			return err
+		}
 		return fleeterror.NewInternalErrorf("pairing device %s: %v", discoveredDevice.DeviceIdentifier, err)
 	}
 

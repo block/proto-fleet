@@ -162,6 +162,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getRoleByNameStmt, err = db.PrepareContext(ctx, getRoleByName); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRoleByName: %w", err)
 	}
+	if q.getTotalMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, getTotalMinerStateSnapshots); err != nil {
+		return nil, fmt.Errorf("error preparing query GetTotalMinerStateSnapshots: %w", err)
+	}
 	if q.getTotalPairedDevicesStmt, err = db.PrepareContext(ctx, getTotalPairedDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTotalPairedDevices: %w", err)
 	}
@@ -191,6 +194,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.isBatchProcessingStmt, err = db.PrepareContext(ctx, isBatchProcessing); err != nil {
 		return nil, fmt.Errorf("error preparing query IsBatchProcessing: %w", err)
+	}
+	if q.listMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, listMinerStateSnapshots); err != nil {
+		return nil, fmt.Errorf("error preparing query ListMinerStateSnapshots: %w", err)
 	}
 	if q.listOrganizationsStmt, err = db.PrepareContext(ctx, listOrganizations); err != nil {
 		return nil, fmt.Errorf("error preparing query ListOrganizations: %w", err)
@@ -245,6 +251,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.updateDeviceIPAssignmentStmt, err = db.PrepareContext(ctx, updateDeviceIPAssignment); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateDeviceIPAssignment: %w", err)
+	}
+	if q.updateDevicePairingStatusByIdentifierStmt, err = db.PrepareContext(ctx, updateDevicePairingStatusByIdentifier); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateDevicePairingStatusByIdentifier: %w", err)
 	}
 	if q.updateMessageAfterFailureStmt, err = db.PrepareContext(ctx, updateMessageAfterFailure); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateMessageAfterFailure: %w", err)
@@ -526,6 +535,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getRoleByNameStmt: %w", cerr)
 		}
 	}
+	if q.getTotalMinerStateSnapshotsStmt != nil {
+		if cerr := q.getTotalMinerStateSnapshotsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getTotalMinerStateSnapshotsStmt: %w", cerr)
+		}
+	}
 	if q.getTotalPairedDevicesStmt != nil {
 		if cerr := q.getTotalPairedDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getTotalPairedDevicesStmt: %w", cerr)
@@ -574,6 +588,11 @@ func (q *Queries) Close() error {
 	if q.isBatchProcessingStmt != nil {
 		if cerr := q.isBatchProcessingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing isBatchProcessingStmt: %w", cerr)
+		}
+	}
+	if q.listMinerStateSnapshotsStmt != nil {
+		if cerr := q.listMinerStateSnapshotsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listMinerStateSnapshotsStmt: %w", cerr)
 		}
 	}
 	if q.listOrganizationsStmt != nil {
@@ -664,6 +683,11 @@ func (q *Queries) Close() error {
 	if q.updateDeviceIPAssignmentStmt != nil {
 		if cerr := q.updateDeviceIPAssignmentStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateDeviceIPAssignmentStmt: %w", cerr)
+		}
+	}
+	if q.updateDevicePairingStatusByIdentifierStmt != nil {
+		if cerr := q.updateDevicePairingStatusByIdentifierStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateDevicePairingStatusByIdentifierStmt: %w", cerr)
 		}
 	}
 	if q.updateMessageAfterFailureStmt != nil {
@@ -826,6 +850,7 @@ type Queries struct {
 	getPoolConfigurationIDByOrgStmt                     *sql.Stmt
 	getRoleByIDStmt                                     *sql.Stmt
 	getRoleByNameStmt                                   *sql.Stmt
+	getTotalMinerStateSnapshotsStmt                     *sql.Stmt
 	getTotalPairedDevicesStmt                           *sql.Stmt
 	getTotalPoolsStmt                                   *sql.Stmt
 	getUserByIdStmt                                     *sql.Stmt
@@ -836,6 +861,7 @@ type Queries struct {
 	insertDeviceStmt                                    *sql.Stmt
 	isBatchFinishedStmt                                 *sql.Stmt
 	isBatchProcessingStmt                               *sql.Stmt
+	listMinerStateSnapshotsStmt                         *sql.Stmt
 	listOrganizationsStmt                               *sql.Stmt
 	listPairedDevicesStmt                               *sql.Stmt
 	listPairedMinersWithStatusStmt                      *sql.Stmt
@@ -854,6 +880,7 @@ type Queries struct {
 	undeleteRoleStmt                                    *sql.Stmt
 	unsetDefaultPoolStmt                                *sql.Stmt
 	updateDeviceIPAssignmentStmt                        *sql.Stmt
+	updateDevicePairingStatusByIdentifierStmt           *sql.Stmt
 	updateMessageAfterFailureStmt                       *sql.Stmt
 	updateMessageStatusStmt                             *sql.Stmt
 	updateOrganizationStmt                              *sql.Stmt
@@ -921,6 +948,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getPoolConfigurationIDByOrgStmt:                     q.getPoolConfigurationIDByOrgStmt,
 		getRoleByIDStmt:                                     q.getRoleByIDStmt,
 		getRoleByNameStmt:                                   q.getRoleByNameStmt,
+		getTotalMinerStateSnapshotsStmt:                     q.getTotalMinerStateSnapshotsStmt,
 		getTotalPairedDevicesStmt:                           q.getTotalPairedDevicesStmt,
 		getTotalPoolsStmt:                                   q.getTotalPoolsStmt,
 		getUserByIdStmt:                                     q.getUserByIdStmt,
@@ -931,6 +959,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertDeviceStmt:                                    q.insertDeviceStmt,
 		isBatchFinishedStmt:                                 q.isBatchFinishedStmt,
 		isBatchProcessingStmt:                               q.isBatchProcessingStmt,
+		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,
 		listOrganizationsStmt:                               q.listOrganizationsStmt,
 		listPairedDevicesStmt:                               q.listPairedDevicesStmt,
 		listPairedMinersWithStatusStmt:                      q.listPairedMinersWithStatusStmt,
@@ -949,6 +978,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		undeleteRoleStmt:                                    q.undeleteRoleStmt,
 		unsetDefaultPoolStmt:                                q.unsetDefaultPoolStmt,
 		updateDeviceIPAssignmentStmt:                        q.updateDeviceIPAssignmentStmt,
+		updateDevicePairingStatusByIdentifierStmt:           q.updateDevicePairingStatusByIdentifierStmt,
 		updateMessageAfterFailureStmt:                       q.updateMessageAfterFailureStmt,
 		updateMessageStatusStmt:                             q.updateMessageStatusStmt,
 		updateOrganizationStmt:                              q.updateOrganizationStmt,

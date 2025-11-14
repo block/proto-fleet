@@ -1,4 +1,4 @@
-import { minerCols } from "./constants";
+import { minerCols, type MinerColumn } from "./constants";
 import Hashrate from "./Hashrate";
 import MinerEfficiency from "./MinerEfficiency";
 import MinerIpAddress from "./MinerIpAddress";
@@ -7,62 +7,58 @@ import MinerName from "./MinerName";
 import MinerPowerUsage from "./MinerPowerUsage";
 import MinerStatus from "./MinerStatus";
 import MinerTemperature from "./MinerTemperature";
-import { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { type DeviceListItem } from "./types";
 import { type ColConfig } from "@/shared/components/List/types";
 
-// Import all the separate components
-
-type MinerItem = Pick<MinerStateSnapshot, "deviceIdentifier">;
-
-const minerColConfig: ColConfig<MinerItem, string> = {
+const minerColConfig: ColConfig<DeviceListItem, string, MinerColumn> = {
   [minerCols.name]: {
-    component: (item: MinerItem) => (
-      <MinerName deviceIdentifier={item.deviceIdentifier} />
+    component: (device: DeviceListItem) => (
+      <MinerName deviceIdentifier={device.deviceIdentifier} />
     ),
     width: "min-w-20",
   },
   [minerCols.macAddress]: {
-    component: (item: MinerItem) => (
-      <MinerMacAddress deviceIdentifier={item.deviceIdentifier} />
+    component: (device: DeviceListItem) => (
+      <MinerMacAddress deviceIdentifier={device.deviceIdentifier} />
     ),
     width: "min-w-36",
   },
   [minerCols.ipAddress]: {
-    component: (item: MinerItem) => (
-      <MinerIpAddress deviceIdentifier={item.deviceIdentifier} />
+    component: (device: DeviceListItem) => (
+      <MinerIpAddress deviceIdentifier={device.deviceIdentifier} />
     ),
     width: "min-w-24",
   },
   [minerCols.status]: {
-    component: (item: MinerItem, selectedItems: string[]) => (
+    component: (device: DeviceListItem, selectedItems: string[]) => (
       <MinerStatus
-        deviceIdentifier={item.deviceIdentifier}
+        deviceIdentifier={device.deviceIdentifier}
         selectedItems={selectedItems}
       />
     ),
     width: "min-w-74",
   },
   [minerCols.hashrate]: {
-    component: (item: MinerItem) => (
-      <Hashrate deviceIdentifier={item.deviceIdentifier} />
+    component: (device: DeviceListItem) => (
+      <Hashrate deviceIdentifier={device.deviceIdentifier} />
     ),
     width: "min-w-38",
   },
   [minerCols.efficiency]: {
-    component: (item: MinerItem) => (
-      <MinerEfficiency deviceIdentifier={item.deviceIdentifier} />
+    component: (device: DeviceListItem) => (
+      <MinerEfficiency deviceIdentifier={device.deviceIdentifier} />
     ),
     width: "min-w-20",
   },
   [minerCols.powerUsage]: {
-    component: (item: MinerItem) => (
-      <MinerPowerUsage deviceIdentifier={item.deviceIdentifier} />
+    component: (device: DeviceListItem) => (
+      <MinerPowerUsage deviceIdentifier={device.deviceIdentifier} />
     ),
     width: "min-w-20",
   },
   [minerCols.temperature]: {
-    component: (item: MinerItem) => (
-      <MinerTemperature deviceIdentifier={item.deviceIdentifier} />
+    component: (device: DeviceListItem) => (
+      <MinerTemperature deviceIdentifier={device.deviceIdentifier} />
     ),
     width: "min-w-20",
   },

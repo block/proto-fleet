@@ -11,8 +11,11 @@ import (
 
 // pairing statuses
 const (
-	StatusPaired   = "PAIRED"
-	StatusUnpaired = "UNPAIRED"
+	StatusPaired               = "PAIRED"
+	StatusUnpaired             = "UNPAIRED"
+	StatusAuthenticationNeeded = "AUTHENTICATION_NEEDED"
+	StatusPending              = "PENDING"
+	StatusFailed               = "FAILED"
 )
 
 type Pairer interface {

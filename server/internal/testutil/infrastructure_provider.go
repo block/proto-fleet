@@ -3,6 +3,7 @@ package testutil
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -108,7 +109,8 @@ func InitializeDBServiceInfrastructure(t *testing.T) *TestContext {
 }
 
 // SetupMockMinerServer creates a test HTTP server that simulates a miner API
-func SetupMockMinerServer(t *testing.T, callCounter *integrationtesting.MockMinerCallCounter, useTLS bool) *httptest.Server {
+// If port is 0, uses a dynamic port assigned by the OS. Otherwise uses the specified port.
+func SetupMockMinerServer(t *testing.T, callCounter *integrationtesting.MockMinerCallCounter, useTLS bool, port ...int) *httptest.Server {
 
 	// Reset clients and set environment variable to skip TLS verification for the duration of the test
 	proto_client.ResetClients()
@@ -143,9 +145,19 @@ func SetupMockMinerServer(t *testing.T, callCounter *integrationtesting.MockMine
 
 	// close the default listener
 	server.Listener.Close()
-	listener, err := net.Listen("tcp", "localhost:2121")
+
+	// Determine port to use
+	targetPort := 0 // default to dynamic port
+	if len(port) > 0 {
+		targetPort = port[0]
+	}
+
+	// Use port 0 to let OS assign a random available port (prevents port conflicts in parallel tests)
+	// Or use specified port if provided
+	addr := fmt.Sprintf("localhost:%d", targetPort)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		t.Fatalf("Failed to listen on port 2121: %v", err)
+		t.Fatalf("Failed to listen on port %d: %v", targetPort, err)
 	}
 	server.Listener = listener
 

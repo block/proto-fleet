@@ -178,6 +178,17 @@ func (s *SQLDeviceStore) UpsertDevicePairing(ctx context.Context, device *pb.Dev
 	return nil
 }
 
+func (s *SQLDeviceStore) UpdateDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) error {
+	err := s.getQueries(ctx).UpdateDevicePairingStatusByIdentifier(ctx, sqlc.UpdateDevicePairingStatusByIdentifierParams{
+		PairingStatus:    sqlc.DevicePairingPairingStatus(pairingStatus),
+		DeviceIdentifier: deviceIdentifier,
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to update device pairing status for device %s: %v", deviceIdentifier, err)
+	}
+	return nil
+}
+
 func (s *SQLDeviceStore) GetMinerCredentials(ctx context.Context, device *pb.Device, orgID int64) (*pb.Credentials, error) {
 	dbDevice, err := s.GetQueries(ctx).GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
 		DeviceIdentifier: device.DeviceIdentifier,
@@ -541,4 +552,123 @@ func (s *SQLDeviceStore) GetOfflineDevices(ctx context.Context, limit int) ([]st
 	}
 
 	return offlineDevices, nil
+}
+
+// ListMinerStateSnapshots retrieves both paired and unpaired devices using a unified query
+func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *stores.MinerFilter) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error) {
+	// Decode cursor - now just a simple ID
+	cursorID := int64(0)
+	if cursor != "" {
+		decoded, err := base64.StdEncoding.DecodeString(cursor)
+		if err != nil {
+			return nil, "", 0, fleeterror.NewInvalidArgumentErrorf("invalid cursor: %v", err)
+		}
+		_, err = fmt.Sscanf(string(decoded), "%d", &cursorID)
+		if err != nil {
+			return nil, "", 0, fleeterror.NewInvalidArgumentErrorf("invalid cursor format: %v", err)
+		}
+	}
+
+	// Build filter parameters
+	var statusFilter interface{}
+	var statusValues []sqlc.DeviceStatusStatus
+	if filter != nil && len(filter.DeviceStatusFilter) > 0 {
+		statusFilter = true // Non-null indicates filter is active
+		for _, status := range filter.DeviceStatusFilter {
+			statusValues = append(statusValues, toDeviceStatus(status))
+		}
+	}
+
+	var typeFilter interface{}
+	var typeValues []string
+	if filter != nil && len(filter.MinerType) > 0 {
+		typeFilter = true // Non-null indicates filter is active
+		for _, t := range filter.MinerType {
+			typeValues = append(typeValues, t.String())
+		}
+	}
+
+	// Parse pairing status filter - convert proto enums to database enum strings
+	// Pass the list of statuses directly to SQL instead of boolean flags
+	var pairingStatusFilter interface{}
+	var pairingStatusValues []sqlc.DevicePairingPairingStatus
+
+	if filter != nil && len(filter.PairingStatuses) > 0 {
+		// Filter is provided - convert proto enums to sqlc enums
+		pairingStatusFilter = true // Non-null indicates filter is active
+		for _, status := range filter.PairingStatuses {
+			switch status {
+			case fm.PairingStatus_PAIRING_STATUS_UNSPECIFIED:
+				// UNSPECIFIED means "return all" - skip adding to filter
+				// If this is the only status, clear the filter entirely
+				continue
+			case fm.PairingStatus_PAIRING_STATUS_PAIRED:
+				pairingStatusValues = append(pairingStatusValues, sqlc.DevicePairingPairingStatusPAIRED)
+			case fm.PairingStatus_PAIRING_STATUS_UNPAIRED:
+				pairingStatusValues = append(pairingStatusValues, sqlc.DevicePairingPairingStatusUNPAIRED)
+			case fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED:
+				pairingStatusValues = append(pairingStatusValues, sqlc.DevicePairingPairingStatusAUTHENTICATIONNEEDED)
+			case fm.PairingStatus_PAIRING_STATUS_PENDING:
+				pairingStatusValues = append(pairingStatusValues, sqlc.DevicePairingPairingStatusPENDING)
+			case fm.PairingStatus_PAIRING_STATUS_FAILED:
+				pairingStatusValues = append(pairingStatusValues, sqlc.DevicePairingPairingStatusFAILED)
+			default:
+				// Unknown pairing status - skip it rather than fail the query
+				// This provides forward compatibility if new statuses are added
+				continue
+			}
+		}
+
+		// If no valid pairing statuses were added (all were UNSPECIFIED or unknown),
+		// clear the filter to return all devices
+		if len(pairingStatusValues) == 0 {
+			pairingStatusFilter = nil
+		}
+	}
+	// If no pairing statuses provided at all, filter remains nil (return all)
+
+	// Call unified query with new simplified parameters
+	rows, err := s.getQueries(ctx).ListMinerStateSnapshots(ctx, sqlc.ListMinerStateSnapshotsParams{
+		OrgID:               orgID,
+		CursorID:            sql.NullInt64{Int64: cursorID, Valid: cursorID > 0},
+		StatusFilter:        statusFilter,
+		StatusValues:        statusValues,
+		TypeFilter:          typeFilter,
+		TypeValues:          typeValues,
+		PairingStatusFilter: pairingStatusFilter,
+		PairingStatusValues: pairingStatusValues,
+		Limit:               pageSize + 1,
+	})
+	if err != nil {
+		return nil, "", 0, fleeterror.NewInternalErrorf("failed to list miner state snapshots: %v", err)
+	}
+
+	// Process results
+	hasMore := len(rows) > int(pageSize)
+	if hasMore {
+		rows = rows[:pageSize]
+	}
+
+	// Build next cursor - simple encoding of just the ID
+	var nextCursor string
+	if hasMore && len(rows) > 0 {
+		lastRow := rows[len(rows)-1]
+		nextCursor = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%d", lastRow.CursorID)))
+	}
+
+	// Get total count with same filter parameters
+	total, err := s.getQueries(ctx).GetTotalMinerStateSnapshots(ctx, sqlc.GetTotalMinerStateSnapshotsParams{
+		OrgID:               orgID,
+		StatusFilter:        statusFilter,
+		StatusValues:        statusValues,
+		TypeFilter:          typeFilter,
+		TypeValues:          typeValues,
+		PairingStatusFilter: pairingStatusFilter,
+		PairingStatusValues: pairingStatusValues,
+	})
+	if err != nil {
+		return nil, "", 0, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
+	}
+
+	return rows, nextCursor, total, nil
 }

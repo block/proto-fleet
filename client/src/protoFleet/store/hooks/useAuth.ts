@@ -42,13 +42,16 @@ export const useLogout = () => useFleetStore((state) => state.auth.logout);
  * @returns Request params with Authorization header
  */
 export const useAuthHeader = () => {
-  const authTokens = useAuthTokens();
+  // Select only the token value to avoid re-renders when authTokens object reference changes
+  const accessTokenValue = useFleetStore(
+    (state) => state.auth.authTokens.accessToken.value,
+  );
 
   return useMemo(
     () => ({
-      headers: { Authorization: `Bearer ${authTokens.accessToken.value}` },
+      headers: { Authorization: `Bearer ${accessTokenValue}` },
     }),
-    [authTokens.accessToken.value],
+    [accessTokenValue],
   );
 };
 

@@ -117,6 +117,10 @@ func authAndGetSystemInfo(ctx context.Context, device *discoverymodels.Discovere
 		Password:       *secrets.NewText(*credentials.Password),
 	})
 	if err != nil {
+		// Preserve authentication errors - don't wrap them
+		if fleeterror.IsAuthenticationError(err) {
+			return nil, err
+		}
 		return nil, fleeterror.NewInternalErrorf("failed to get system info: %v", err)
 	}
 

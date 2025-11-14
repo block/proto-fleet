@@ -19,10 +19,14 @@ import { PopoverProvider } from "@/shared/components/Popover";
 import { Breakpoint, breakpoints } from "@/shared/constants/breakpoints";
 import { useStickyState } from "@/shared/hooks/useStickyState";
 
-type ListProps<ListItem, ItemKeyValueType> = {
-  activeCols: (keyof ListItem)[];
-  colTitles: ColTitles<keyof ListItem>;
-  colConfig: ColConfig<ListItem, ItemKeyValueType>;
+type ListProps<
+  ListItem,
+  ItemKeyValueType,
+  ColKey extends string = keyof ListItem & string,
+> = {
+  activeCols: ColKey[];
+  colTitles: ColTitles<ColKey>;
+  colConfig: ColConfig<ListItem, ItemKeyValueType, ColKey>;
   filters?: FilterItem[];
   filterItem?: (item: ListItem, filters: ActiveFilters) => boolean;
   onServerFilter?: (filters: ActiveFilters) => Promise<void>;
@@ -50,6 +54,16 @@ type ListProps<ListItem, ItemKeyValueType> = {
     singular: string;
     plural: string;
   };
+  /**
+   * Optional callback to attach refs to list row elements.
+   * Useful for viewport visibility tracking (Intersection Observer).
+   * @param itemKey - The key value of the item
+   * @param element - The tr element for the row (null on unmount)
+   */
+  itemRef?: (
+    itemKey: ItemKeyValueType,
+    element: HTMLTableRowElement | null,
+  ) => void;
 };
 
 const cellClassList = "text-left";
@@ -62,7 +76,11 @@ const tdPaddingClassList = "px-2 py-4";
 const columnShadowClassList =
   "after:content-[''] after:absolute after:top-0 after:right-[-6px] after:bottom-[-1px] after:w-[9px] after:bg-[linear-gradient(90deg,rgba(0,0,0,0.06)0%,rgba(0,0,0,0)100%)]";
 
-const List = <ListItem, ItemKeyValueType>({
+const List = <
+  ListItem,
+  ItemKeyValueType,
+  ColKey extends string = keyof ListItem & string,
+>({
   activeCols,
   colTitles,
   colConfig,
@@ -87,7 +105,8 @@ const List = <ListItem, ItemKeyValueType>({
   stickyBgColor = "bg-surface-base",
   total,
   itemName = { singular: "item", plural: "items" },
-}: ListProps<ListItem, ItemKeyValueType>) => {
+  itemRef,
+}: ListProps<ListItem, ItemKeyValueType, ColKey>) => {
   const { refs, stickyState } = useStickyState();
 
   const [selectedItems, setSelectedItems] =
@@ -337,7 +356,13 @@ const List = <ListItem, ItemKeyValueType>({
                 </thead>
                 <tbody data-testid="list-body">
                   {filteredItems.map((item, i) => (
-                    <tr key={i} className={rowClassList}>
+                    <tr
+                      key={i}
+                      className={rowClassList}
+                      ref={(el) =>
+                        itemRef?.(item[itemKey] as ItemKeyValueType, el)
+                      }
+                    >
                       {itemSelectable && (
                         <td
                           className={clsx(
@@ -400,7 +425,13 @@ const List = <ListItem, ItemKeyValueType>({
                           >
                             {colConfig[row]?.component
                               ? colConfig[row].component(item, selectedItems)
-                              : (item[row] as ReactNode)}
+                              : typeof item === "object" &&
+                                  item !== null &&
+                                  row in item
+                                ? ((item as Record<string, unknown>)[
+                                    row as string
+                                  ] as ReactNode)
+                                : null}
                           </div>
                         </td>
                       ))}

@@ -11,10 +11,40 @@ vi.mock("@/protoFleet/store");
 vi.mock("@/shared/features/toaster");
 
 const mockMiners = [
-  { deviceIdentifier: "miner1", macAddress: "00:00:00:00:00:01" },
-  { deviceIdentifier: "miner2", macAddress: "00:00:00:00:00:02" },
-  { deviceIdentifier: "miner3", macAddress: "00:00:00:00:00:03" },
+  {
+    deviceIdentifier: "miner1",
+    macAddress: "00:00:00:00:00:01",
+    model: "Proto Rig",
+  },
+  {
+    deviceIdentifier: "miner2",
+    macAddress: "00:00:00:00:00:02",
+    model: "Proto Rig",
+  },
+  {
+    deviceIdentifier: "miner3",
+    macAddress: "00:00:00:00:00:03",
+    model: "Proto Rig",
+  },
 ];
+
+const mockMinersByIdentifier = {
+  miner1: {
+    deviceIdentifier: "miner1",
+    macAddress: "00:00:00:00:00:01",
+    model: "Proto Rig",
+  },
+  miner2: {
+    deviceIdentifier: "miner2",
+    macAddress: "00:00:00:00:00:02",
+    model: "Proto Rig",
+  },
+  miner3: {
+    deviceIdentifier: "miner3",
+    macAddress: "00:00:00:00:00:03",
+    model: "Proto Rig",
+  },
+};
 
 const mockOnClose = vi.fn();
 
@@ -44,7 +74,12 @@ describe("AuthenticateMiners", () => {
   const mockPassword = "test1234";
 
   it("renders with all miners selected by default", () => {
-    const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} />);
+    const { getByText } = render(
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        minersByIdentifier={mockMinersByIdentifier}
+      />,
+    );
 
     fireEvent.click(getByText(showMinersLabel));
 
@@ -53,7 +88,10 @@ describe("AuthenticateMiners", () => {
 
   it("toggles between showing and hiding miner list", () => {
     const { getByText, queryByText } = render(
-      <AuthenticateMiners onClose={mockOnClose} />,
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        minersByIdentifier={mockMinersByIdentifier}
+      />,
     );
 
     expect(queryByText("MAC address")).not.toBeInTheDocument();
@@ -67,7 +105,10 @@ describe("AuthenticateMiners", () => {
 
   it("allows entering bulk credentials", async () => {
     const { getByLabelText } = render(
-      <AuthenticateMiners onClose={mockOnClose} />,
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        minersByIdentifier={mockMinersByIdentifier}
+      />,
     );
 
     const usernameInput = getByLabelText(bulkUsernameLabel);
@@ -81,7 +122,12 @@ describe("AuthenticateMiners", () => {
   });
 
   it("shows error when authenticating without credentials", () => {
-    const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} />);
+    const { getByText } = render(
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        minersByIdentifier={mockMinersByIdentifier}
+      />,
+    );
 
     fireEvent.click(getByText("Authenticate"));
 
@@ -92,7 +138,10 @@ describe("AuthenticateMiners", () => {
 
   it("shows individual credential inputs for each miner", async () => {
     const { getByText, getAllByLabelText } = render(
-      <AuthenticateMiners onClose={mockOnClose} />,
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        minersByIdentifier={mockMinersByIdentifier}
+      />,
     );
 
     fireEvent.click(getByText(showMinersLabel));
@@ -106,7 +155,10 @@ describe("AuthenticateMiners", () => {
 
   it("populates individual miner inputs with bulk credentials", async () => {
     const { getByText, getByLabelText, getAllByLabelText } = render(
-      <AuthenticateMiners onClose={mockOnClose} />,
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        minersByIdentifier={mockMinersByIdentifier}
+      />,
     );
 
     fireEvent.change(getByLabelText(bulkUsernameLabel), {
@@ -131,7 +183,10 @@ describe("AuthenticateMiners", () => {
 
   it("toggles password visibility", async () => {
     const { getByText, getByLabelText, getAllByLabelText } = render(
-      <AuthenticateMiners onClose={mockOnClose} />,
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        minersByIdentifier={mockMinersByIdentifier}
+      />,
     );
 
     fireEvent.click(getByText(showMinersLabel));
@@ -149,7 +204,12 @@ describe("AuthenticateMiners", () => {
   });
 
   it("allows selecting and deselecting all miners", () => {
-    const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} />);
+    const { getByText } = render(
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        minersByIdentifier={mockMinersByIdentifier}
+      />,
+    );
 
     fireEvent.click(getByText(showMinersLabel));
 
@@ -162,7 +222,10 @@ describe("AuthenticateMiners", () => {
 
   it("filters miners by model", async () => {
     const { getByText, getAllByText } = render(
-      <AuthenticateMiners onClose={mockOnClose} />,
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        minersByIdentifier={mockMinersByIdentifier}
+      />,
     );
 
     fireEvent.click(getByText(showMinersLabel));
@@ -182,7 +245,10 @@ describe("AuthenticateMiners", () => {
 
   it("disables inputs during authentication", async () => {
     const { getByText, getByLabelText } = render(
-      <AuthenticateMiners onClose={mockOnClose} />,
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        minersByIdentifier={mockMinersByIdentifier}
+      />,
     );
 
     fireEvent.change(getByLabelText(bulkUsernameLabel), {
@@ -203,7 +269,10 @@ describe("AuthenticateMiners", () => {
 
   it("clears individual credentials when toggling miner list", async () => {
     const { getByText, getAllByLabelText } = render(
-      <AuthenticateMiners onClose={mockOnClose} />,
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        minersByIdentifier={mockMinersByIdentifier}
+      />,
     );
 
     fireEvent.click(getByText(showMinersLabel));

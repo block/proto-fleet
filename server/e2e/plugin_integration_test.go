@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	authv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	onboardingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1"
@@ -23,20 +24,19 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	telemetryv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
-	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 const (
-	fleetAPIURL       = "http://localhost:4000"
-	protoSimIP        = "127.0.0.1"  // localhost since test runs on host
-	protoSimPort      = "2121"
-	protoSimHTTPPort  = "8080"
-	testUsername      = "admin"
-	testPassword      = "proto"
-	requestTimeout    = 10 * time.Second
-	containerPrefix   = "server-"
+	fleetAPIURL      = "http://localhost:4000"
+	protoSimIP       = "127.0.0.1" // localhost since test runs on host
+	protoSimPort     = "2121"
+	protoSimHTTPPort = "8080"
+	testUsername     = "admin"
+	testPassword     = "proto"
+	requestTimeout   = 10 * time.Second
+	containerPrefix  = "server-"
 )
 
 // TestPluginIntegration is the main e2e test that validates plugin integration

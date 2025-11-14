@@ -131,6 +131,7 @@ func (s *DatabaseService) CreateDevice(organizationID int64, minerType models.Ty
 			IpAddress:        "127.0.0.1",
 			Port:             "4028",
 			UrlScheme:        "https",
+			IsActive:         true,
 		})
 		if err != nil {
 			return DeviceIdentification{}, fleeterror.NewInternalErrorf("failed to create discovered device: %v", err)

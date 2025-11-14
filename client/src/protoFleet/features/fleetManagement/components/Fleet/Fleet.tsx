@@ -4,14 +4,26 @@ import useStreamMinerListUpdates from "@/protoFleet/api/useStreamMinerListUpdate
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
 import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup";
 import Miners from "@/protoFleet/features/onboarding/components/Miners";
+import { useVisibleMiners } from "@/protoFleet/hooks";
 import { useFleetStore } from "@/protoFleet/store";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 
 const Fleet = () => {
+  // Track which miners are currently visible in viewport
+  const { visibleMinerIds, registerMiner } = useVisibleMiners({
+    rootMargin: "100px", // Preload telemetry for miners 100px before they enter viewport
+    debounceMs: 300, // Debounce visibility updates during scroll
+  });
+
+  // Fetch all devices (both paired and unpaired) with a single API call
+  // Only subscribe to telemetry for visible miners
   const { minerIds, totalMiners, hasMore, isLoading, loadMore, setFilter } =
     useFleet({
+      scope: "global",
       pageSize: 100,
+      visibleMinerIds,
+      mode: "snapshot",
     });
 
   // Get current filter from store to pass to streaming updates
@@ -43,6 +55,7 @@ const Fleet = () => {
           overflowContainer={false}
           onFilterChange={setFilter}
           onAddMiners={() => setShowAddMinersModal(true)}
+          itemRef={registerMiner}
         />
       </ErrorBoundary>
 

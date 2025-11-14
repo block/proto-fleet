@@ -8,7 +8,7 @@ import { useDevicePaired } from "@/protoFleet/store";
 
 const HomeLayout = ({ children }: { children?: ReactNode }) => {
   const devicePaired = useDevicePaired();
-  useFleet(); // Ensure fleet data is loaded
+  useFleet({ scope: "global", mode: "metadata" }); // Ensure fleet data is loaded
   const fleetSize = useTotalMiners();
   const deviceStatusCounts = useDeviceStatusCounts();
 

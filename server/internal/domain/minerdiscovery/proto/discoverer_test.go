@@ -56,7 +56,8 @@ func TestDiscoverer_Discover(t *testing.T) {
 
 			if tc.port == "2121" {
 				minerCallCounter = integrationtesting.NewMockMinerCallCounter()
-				mockMinerServer = testutil.SetupMockMinerServer(t, minerCallCounter, tc.useTLS)
+				// Use port 2121 to match the discoverer's requirement
+				mockMinerServer = testutil.SetupMockMinerServer(t, minerCallCounter, tc.useTLS, 2121)
 				defer mockMinerServer.Close()
 
 				var err error

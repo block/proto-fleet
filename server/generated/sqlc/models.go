@@ -100,10 +100,11 @@ func (ns NullCommandOnDeviceLogStatus) Value() (driver.Value, error) {
 type DevicePairingPairingStatus string
 
 const (
-	DevicePairingPairingStatusPENDING  DevicePairingPairingStatus = "PENDING"
-	DevicePairingPairingStatusPAIRED   DevicePairingPairingStatus = "PAIRED"
-	DevicePairingPairingStatusUNPAIRED DevicePairingPairingStatus = "UNPAIRED"
-	DevicePairingPairingStatusFAILED   DevicePairingPairingStatus = "FAILED"
+	DevicePairingPairingStatusPENDING              DevicePairingPairingStatus = "PENDING"
+	DevicePairingPairingStatusPAIRED               DevicePairingPairingStatus = "PAIRED"
+	DevicePairingPairingStatusUNPAIRED             DevicePairingPairingStatus = "UNPAIRED"
+	DevicePairingPairingStatusFAILED               DevicePairingPairingStatus = "FAILED"
+	DevicePairingPairingStatusAUTHENTICATIONNEEDED DevicePairingPairingStatus = "AUTHENTICATION_NEEDED"
 )
 
 func (e *DevicePairingPairingStatus) Scan(src interface{}) error {
@@ -267,11 +268,11 @@ type Device struct {
 type DevicePairing struct {
 	ID            int64
 	DeviceID      int64
-	PairingStatus DevicePairingPairingStatus
 	PairedAt      sql.NullTime
 	UnpairedAt    sql.NullTime
 	CreatedAt     sql.NullTime
 	UpdatedAt     sql.NullTime
+	PairingStatus DevicePairingPairingStatus
 }
 
 type DeviceStatus struct {

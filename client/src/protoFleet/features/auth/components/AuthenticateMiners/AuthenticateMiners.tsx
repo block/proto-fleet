@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import useFleet from "@/protoFleet/api/useFleet";
 import { ids } from "@/protoFleet/features/auth/components/AuthenticateMiners/constants";
 import {
   Credentials,
   UnauthenticatedMiner,
 } from "@/protoFleet/features/auth/components/AuthenticateMiners/types";
-import { useFleetMiners } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import { sizes, variants } from "@/shared/components/Button/constants";
 import Callout, { intents } from "@/shared/components/Callout";
@@ -41,20 +39,21 @@ const colTitles = {
   [key in (typeof activeCols)[number]]: string;
 };
 
-// TODO remove when API is available
-const mockModels = [
-  "Proto Rig",
-  "Antminer S19",
-  "Whatsminer M30S",
-  "AvalonMiner 1246",
-  "Bitmain Antminer L7",
-];
+type MinerView = {
+  model: string;
+  macAddress: string;
+  deviceIdentifier: string;
+};
 
 type AuthenticateMinersProps = {
   onClose: () => void;
+  minersByIdentifier: Record<string, MinerView>;
 };
 
-const AuthenticateMiners = ({ onClose }: AuthenticateMinersProps) => {
+const AuthenticateMiners = ({
+  onClose,
+  minersByIdentifier,
+}: AuthenticateMinersProps) => {
   const [bulkCredentials, setBulkCredentials] = useState<Credentials>({
     username: "",
     password: "",
@@ -102,12 +101,8 @@ const AuthenticateMiners = ({ onClose }: AuthenticateMinersProps) => {
   const [showMiners, setShowMiners] = useState(false);
   const [showPasswords, setShowPasswords] = useState(false);
 
-  // TODO get unauthenticated miners instead of all miners
-  const { minerIds } = useFleet({ pageSize: 100 });
-  const minerItems = useFleetMiners().map((miner, index) => ({
+  const minerItems = Object.values(minersByIdentifier).map((miner) => ({
     ...miner,
-    // add random mock model
-    model: mockModels[index % mockModels.length],
     username: "",
     password: "",
   }));
@@ -115,9 +110,8 @@ const AuthenticateMiners = ({ onClose }: AuthenticateMinersProps) => {
   const [selectedMiners, setSelectedMiners] = useState<string[]>([]);
   // select all miners by default
   useEffect(() => {
-    setSelectedMiners(minerItems.map((miner) => miner.deviceIdentifier));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [minerIds]);
+    setSelectedMiners(Object.keys(minersByIdentifier));
+  }, [minersByIdentifier]);
 
   const models = useMemo(() => {
     return Array.from(new Set(minerItems.map((miner) => miner.model)));
@@ -247,7 +241,7 @@ const AuthenticateMiners = ({ onClose }: AuthenticateMinersProps) => {
     setTimeout(() => {
       setAuthenticateLoading(false);
       pushToast({
-        message: "You authenticated 1 of 17 miners",
+        message: `You authenticated 1 of ${minerItems.length} miners`,
         status: TOAST_STATUSES.success,
       });
 
@@ -313,7 +307,10 @@ const AuthenticateMiners = ({ onClose }: AuthenticateMinersProps) => {
             })}
           >
             <div className="text-emphasis-300">Bulk authenticate</div>
-            <div className="text-300">17 miners remaining</div>
+            <div className="text-300">
+              {minerItems.length} {minerItems.length === 1 ? "miner" : "miners"}{" "}
+              remaining
+            </div>
           </div>
           <div className="flex-1">
             <Input

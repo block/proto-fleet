@@ -226,3 +226,23 @@ func (e FleetError) Is(target error) bool {
 		e.FleetErrorCodeType == t.FleetErrorCodeType &&
 		e.DebugMessage == t.DebugMessage
 }
+
+// IsAuthenticationError checks if an error is an authentication error
+func IsAuthenticationError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var fleetErr FleetError
+	if errors.As(err, &fleetErr) {
+		return fleetErr.GRPCCode == connect.CodeUnauthenticated
+	}
+
+	// Also check for connect.Error directly
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) {
+		return connectErr.Code() == connect.CodeUnauthenticated
+	}
+
+	return false
+}

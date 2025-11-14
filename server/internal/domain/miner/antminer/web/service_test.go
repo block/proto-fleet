@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/alecthomas/assert/v2"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/web"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
@@ -373,6 +374,56 @@ func TestErrorHandling(t *testing.T) {
 			_, err = service.GetSystemInfo(t.Context(), connInfo)
 
 			assert.Error(t, err)
+		})
+	}
+}
+
+func TestAuthenticationErrorDetection(t *testing.T) {
+	testCases := []struct {
+		name              string
+		statusCode        int
+		shouldBeAuthError bool
+	}{
+		{
+			name:              "401 returns authentication error",
+			statusCode:        http.StatusUnauthorized,
+			shouldBeAuthError: true,
+		},
+		{
+			name:              "403 returns authentication error",
+			statusCode:        http.StatusForbidden,
+			shouldBeAuthError: true,
+		},
+		{
+			name:              "500 returns internal error (not auth)",
+			statusCode:        http.StatusInternalServerError,
+			shouldBeAuthError: false,
+		},
+		{
+			name:              "404 returns internal error (not auth)",
+			statusCode:        http.StatusNotFound,
+			shouldBeAuthError: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.statusCode)
+			}))
+			defer server.Close()
+
+			service := web.NewService()
+			connInfo, err := web.NewAntminerConnectionInfoFromURL(server.URL, "", *secrets.NewText(""))
+			assert.NoError(t, err)
+
+			_, err = service.GetSystemInfo(t.Context(), connInfo)
+
+			assert.Error(t, err)
+			isAuthError := fleeterror.IsAuthenticationError(err)
+			assert.Equal(t, tc.shouldBeAuthError, isAuthError,
+				"Expected authentication error detection to be %v for status code %d, but got %v",
+				tc.shouldBeAuthError, tc.statusCode, isAuthError)
 		})
 	}
 }

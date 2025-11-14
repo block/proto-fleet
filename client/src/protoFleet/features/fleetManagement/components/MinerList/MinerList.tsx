@@ -6,16 +6,17 @@ import {
   deviceStatusFilterStates,
   minerCols,
   minerColTitles,
+  type MinerColumn,
   minerTypes,
 } from "./constants";
 import minerColConfig from "./minerColConfig";
+import { type DeviceListItem } from "./types";
 import {
   ComponentStatus,
   ComponentStatusFilterSchema,
   ComponentType,
   MinerListFilter,
   MinerListFilterSchema,
-  MinerStateSnapshot,
   MinerType,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
@@ -39,11 +40,16 @@ type MinerListProps = {
   onFilterChange: (filter: MinerListFilter) => void;
   onAddMiners: () => void;
   totalMiners?: number;
+  /**
+   * Optional callback to attach refs to list row elements.
+   * Used for viewport visibility tracking.
+   */
+  itemRef?: (itemKey: string, element: HTMLTableRowElement | null) => void;
 };
 
 // TODO: move this to state when we
 // implement row customization
-const activeCols = [
+const activeCols: MinerColumn[] = [
   minerCols.name,
   minerCols.macAddress,
   minerCols.ipAddress,
@@ -52,7 +58,7 @@ const activeCols = [
   minerCols.efficiency,
   minerCols.powerUsage,
   minerCols.temperature,
-] as (keyof MinerStateSnapshot)[];
+];
 
 const MinerList = ({
   title,
@@ -63,19 +69,12 @@ const MinerList = ({
   onFilterChange,
   onAddMiners,
   totalMiners,
+  itemRef,
 }: MinerListProps) => {
-  // Convert string array to objects for List component compatibility
-  // List generally expects object with all items used in the ListItem to be passed to it as props
-  // but because we just pass deviceIdentifier, and use that to look up the rest of the data in the store,
-  // we can just create a simple object and cast it to MinerStateSnapshot type.
-  const minerItems = useMemo(() => {
-    return minerIds.map(
-      (deviceIdentifier) =>
-        ({
-          deviceIdentifier,
-        }) as MinerStateSnapshot,
-    );
-  }, [minerIds]);
+  const deviceItems: DeviceListItem[] = useMemo(
+    () => minerIds.map((id) => ({ deviceIdentifier: id })),
+    [minerIds],
+  );
 
   const filters = useMemo(() => {
     return [
@@ -201,13 +200,13 @@ const MinerList = ({
         />
       </div>
 
-      <List<MinerStateSnapshot, string>
+      <List<DeviceListItem, string, MinerColumn>
         activeCols={activeCols}
         colTitles={minerColTitles}
         colConfig={minerColConfig}
         filters={filters}
         onServerFilter={handleServerFilter}
-        items={minerItems}
+        items={deviceItems}
         itemKey={"deviceIdentifier"}
         itemSelectable
         renderActionBar={(selectedItems, clearSelection) => (
@@ -223,6 +222,7 @@ const MinerList = ({
         overflowContainer={overflowContainer}
         total={totalMiners}
         itemName={{ singular: "miner", plural: "miners" }}
+        itemRef={itemRef}
       />
     </>
   );

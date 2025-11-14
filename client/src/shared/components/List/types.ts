@@ -1,14 +1,18 @@
 import { ReactNode } from "react";
 
-export type ColConfig<ListItem, ItemKey> = {
-  [K in keyof ListItem]?: {
+export type ColConfig<
+  ListItem,
+  ItemKey,
+  ColKey extends string = keyof ListItem & string,
+> = {
+  [K in ColKey]?: {
     component?: (item: ListItem, selectedItems: ItemKey[]) => ReactNode;
     width: string;
   };
 };
 
-export type ColTitles<ColName extends string | number | symbol> = {
-  [K in ColName]: string;
+export type ColTitles<ColKey extends string> = {
+  [K in ColKey]: string;
 };
 
 export type ListAction<ListItem> = {

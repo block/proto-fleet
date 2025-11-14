@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import React, { lazy, Suspense } from "react";
 import { RouterProvider } from "react-router-dom";
 
 import { createRouter } from "./router";

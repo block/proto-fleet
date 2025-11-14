@@ -1,4 +1,3 @@
-import { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { ColTitles } from "@/shared/components/List/types";
 
 export const minerCols = {
@@ -10,18 +9,20 @@ export const minerCols = {
   efficiency: "efficiency",
   powerUsage: "powerUsage",
   temperature: "temperature",
-};
+} as const;
 
-export const minerColTitles = {
-  [minerCols.name]: "Name",
-  [minerCols.macAddress]: "Mac Address",
-  [minerCols.ipAddress]: "IP Address",
-  [minerCols.status]: "Status",
-  [minerCols.hashrate]: "Hashrate",
-  [minerCols.efficiency]: "Efficiency",
-  [minerCols.powerUsage]: "Power",
-  [minerCols.temperature]: "Temp",
-} as ColTitles<keyof MinerStateSnapshot>;
+export type MinerColumn = (typeof minerCols)[keyof typeof minerCols];
+
+export const minerColTitles: ColTitles<MinerColumn> = {
+  name: "Name",
+  macAddress: "Mac Address",
+  ipAddress: "IP Address",
+  status: "Status",
+  hashrate: "Hashrate",
+  efficiency: "Efficiency",
+  powerUsage: "Power",
+  temperature: "Temp",
+};
 
 export const deviceStatusFilterStates = {
   hashing: "hashing",

@@ -2,8 +2,9 @@ package minerdiscovery_test
 
 import (
 	"context"
-	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"testing"
+
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	miner "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"

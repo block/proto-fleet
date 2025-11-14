@@ -2,8 +2,8 @@ package fleetmanagement
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
@@ -18,6 +18,7 @@ import (
 	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingpb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
+	telemetrypb "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 )
 
@@ -86,46 +87,6 @@ func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRe
 	return resp, nil
 }
 
-// ListUnpairedDevices returns a paginated list of discovered devices that have not been paired
-func (s *Service) ListUnpairedDevices(ctx context.Context, req *pb.ListUnpairedDevicesRequest) (*pb.ListUnpairedDevicesResponse, error) {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	pageSize := validatePageSize(req.PageSize)
-
-	devices, nextCursor, err := s.discoveredDeviceStore.GetActiveUnpairedDevices(ctx, claims.OrgID, req.Cursor, pageSize)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to list unpaired devices: %v", err)
-	}
-
-	totalCount, err := s.discoveredDeviceStore.CountActiveUnpairedDevices(ctx, claims.OrgID)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
-	}
-
-	pbDevices := make([]*pb.DiscoveredDevice, len(devices))
-	for i, device := range devices {
-		pbDevices[i] = &pb.DiscoveredDevice{
-			DeviceIdentifier: device.DeviceIdentifier,
-			IpAddress:        device.IpAddress,
-			Port:             device.Port,
-			UrlScheme:        device.UrlScheme,
-			Model:            device.Model,
-			Manufacturer:     device.Manufacturer,
-			Type:             device.Type,
-			Capabilities:     device.Capabilities,
-		}
-	}
-
-	return &pb.ListUnpairedDevicesResponse{
-		Devices:      pbDevices,
-		Cursor:       nextCursor,
-		TotalDevices: int32(totalCount), //nolint:gosec
-	}, nil
-}
-
 // ListMinerStateSnapshots returns a paginated list of miners with their operational status and metrics
 func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMinerStateSnapshotsRequest) (*pb.ListMinerStateSnapshotsResponse, error) {
 	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
@@ -159,97 +120,29 @@ func (s *Service) buildSnapshot(
 		return nil, fleeterror.NewInternalErrorf("failed to parse filter parameters: %v", err)
 	}
 
-	// Get paired miners with their basic info
-	miners, nextCursor, err := s.deviceStore.ListPairedMinersWithStatus(ctx, orgID, cursor, pageSize, filter)
+	// Validate and normalize page size
+	pageSize = validatePageSize(pageSize)
+
+	// Use unified query that handles all pairing statuses
+	snapshots, nextCursor, total, err := s.buildSnapshotsFromUnifiedQuery(ctx, orgID, cursor, pageSize, filter, dataMode, timeSeriesConfig, measurementConfigs)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to list miners: %v", err)
+		return nil, err
 	}
 
-	// Get device statuses for all miners
-	deviceIdentifiers := make([]mm.DeviceIdentifier, len(miners))
-	for i, miner := range miners {
-		deviceIdentifiers[i] = mm.DeviceIdentifier(miner.DeviceIdentifier)
+	// Get state counts (only relevant for paired devices or when filter includes paired)
+	var stateCounts *telemetrypb.MinerStateCounts
+	includePaired := len(filter.PairingStatuses) == 0 // Empty means all, which includes paired
+	for _, status := range filter.PairingStatuses {
+		if status == pb.PairingStatus_PAIRING_STATUS_PAIRED || status == pb.PairingStatus_PAIRING_STATUS_UNSPECIFIED {
+			includePaired = true
+			break
+		}
 	}
-
-	deviceStatuses, err := s.deviceStore.GetDeviceStatusForDeviceIdentifiers(ctx, deviceIdentifiers)
-	if err != nil {
-		// Continue with empty status map - non-critical for listing
-		deviceStatuses = make(map[mm.DeviceIdentifier]mm.MinerStatus)
-	}
-
-	// Convert to state snapshots
-	var snapshots []*pb.MinerStateSnapshot
-	for _, miner := range miners {
-		// Get latest telemetry data for the miner
-		telemetry, err := s.telemetry.GetMinerTelemetry(ctx, miner.DeviceIdentifier, dataMode, timeSeriesConfig, measurementConfigs)
+	if includePaired {
+		stateCounts, err = s.deviceStore.GetMinerStateCounts(ctx, orgID, filter)
 		if err != nil {
-			// Continue without telemetry - miner will show with no metrics
-			telemetry = nil
+			return nil, fleeterror.NewInternalErrorf("failed to get state counts: %v", err)
 		}
-
-		// Get component status
-		status, err := s.telemetry.GetMinerComponentStatus(ctx, miner.DeviceIdentifier)
-		if err != nil {
-			// Continue without component status
-			status = nil
-		}
-
-		minerType, err := mm.TypeFromString(miner.Type)
-		if err != nil {
-			return nil, fmt.Errorf("invalid miner type %s: %w", miner.Type, err)
-		}
-		minerInfo, err := s.minerService.BuildMinerInfo(ctx, miner.DeviceIdentifier, orgID, miner.IpAddress, miner.Port, miner.UrlScheme, minerType, miner.SerialNumber)
-		if err != nil {
-			// Continue without miner info
-			minerInfo = nil
-		}
-
-		// Get device status for this miner
-		deviceID := mm.DeviceIdentifier(miner.DeviceIdentifier)
-		minerStatus, ok := deviceStatuses[deviceID]
-		if !ok {
-			// Default to unknown status if not found
-			minerStatus = mm.MinerStatusUnknown
-		}
-		deviceStatus := convertMinerStatusToDeviceStatus(minerStatus)
-
-		snapshot := &pb.MinerStateSnapshot{
-			Name:         miner.Manufacturer + " " + miner.Model,
-			MacAddress:   miner.MacAddress,
-			SerialNumber: miner.SerialNumber,
-			DeviceStatus: deviceStatus,
-		}
-
-		if minerInfo != nil {
-			snapshot.DeviceIdentifier = minerInfo.GetID().String()
-			snapshot.IpAddress = minerInfo.GetConnectionInfo().IPAddress.String()
-			snapshot.Url = minerInfo.GetWebViewURL().String()
-		}
-
-		if telemetry != nil {
-			snapshot.PowerUsage = telemetry.PowerUsage
-			snapshot.Temperature = telemetry.Temperature
-			snapshot.Hashrate = telemetry.Hashrate
-			snapshot.Efficiency = telemetry.Efficiency
-			snapshot.Timestamp = telemetry.Timestamp
-		}
-
-		if status != nil {
-			snapshot.Status = status
-		}
-		snapshots = append(snapshots, snapshot)
-	}
-
-	// Get total count
-	total, err := s.deviceStore.GetTotalPairedDevices(ctx, orgID, filter)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
-	}
-
-	// Get state counts
-	stateCounts, err := s.deviceStore.GetMinerStateCounts(ctx, orgID, filter)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get state counts: %v", err)
 	}
 
 	// Get available miner types
@@ -278,6 +171,117 @@ func (s *Service) buildSnapshot(
 		TotalStateCounts: stateCounts,
 		MinerTypes:       pbMinerTypes,
 	}, nil
+}
+
+// buildSnapshotsFromUnifiedQuery uses the unified SQL query to fetch both paired and unpaired devices
+func (s *Service) buildSnapshotsFromUnifiedQuery(
+	ctx context.Context,
+	orgID int64,
+	cursor string,
+	pageSize int32,
+	filter *interfaces.MinerFilter,
+	dataMode pb.DataMode,
+	timeSeriesConfig *commonpb.TimeSeriesConfig,
+	measurementConfigs []*pb.MeasurementConfig,
+) ([]*pb.MinerStateSnapshot, string, int64, error) {
+	// Call device store to get unified results
+	rows, nextCursor, total, err := s.deviceStore.ListMinerStateSnapshots(ctx, orgID, cursor, pageSize, filter)
+	if err != nil {
+		return nil, "", 0, err
+	}
+
+	// Convert to snapshots
+	snapshots := make([]*pb.MinerStateSnapshot, 0, len(rows))
+	for _, row := range rows {
+		snapshot := &pb.MinerStateSnapshot{
+			DeviceIdentifier: row.DeviceIdentifier,
+			Type:             row.Type,
+		}
+
+		// Handle nullable fields
+		if row.Model.Valid {
+			snapshot.Model = row.Model.String
+		}
+		if row.Manufacturer.Valid {
+			snapshot.Manufacturer = row.Manufacturer.String
+		}
+
+		// Map pairing status from database to protobuf enum
+		switch row.PairingStatus {
+		case "PAIRED":
+			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_PAIRED
+		case "AUTHENTICATION_NEEDED":
+			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED
+		case "PENDING":
+			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_PENDING
+		case "FAILED":
+			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_FAILED
+		case "UNPAIRED":
+			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_UNPAIRED
+		default:
+			// Default to unpaired for unknown statuses
+			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_UNPAIRED
+		}
+
+		// Determine if device is paired (for telemetry data fetching)
+		isPaired := row.PairingStatus == "PAIRED"
+
+		// For paired devices, fetch telemetry and additional data
+		if isPaired {
+			snapshot.MacAddress = row.MacAddress
+			if row.SerialNumber.Valid {
+				snapshot.SerialNumber = row.SerialNumber.String
+			}
+			snapshot.Name = snapshot.Manufacturer + " " + snapshot.Model
+
+			// Get telemetry data
+			telemetry, err := s.telemetry.GetMinerTelemetry(ctx, row.DeviceIdentifier, dataMode, timeSeriesConfig, measurementConfigs)
+			if err == nil && telemetry != nil {
+				snapshot.PowerUsage = telemetry.PowerUsage
+				snapshot.Temperature = telemetry.Temperature
+				snapshot.Hashrate = telemetry.Hashrate
+				snapshot.Efficiency = telemetry.Efficiency
+				snapshot.Timestamp = telemetry.Timestamp
+			}
+
+			// Get component status
+			status, err := s.telemetry.GetMinerComponentStatus(ctx, row.DeviceIdentifier)
+			if err == nil && status != nil {
+				snapshot.Status = status
+			}
+
+			// Build miner info for URL
+			minerType, err := mm.TypeFromString(row.Type)
+			if err == nil {
+				minerInfo, err := s.minerService.BuildMinerInfo(ctx, row.DeviceIdentifier, orgID, row.IpAddress, row.Port, row.UrlScheme, minerType, snapshot.SerialNumber)
+				if err == nil && minerInfo != nil {
+					snapshot.IpAddress = minerInfo.GetConnectionInfo().IPAddress.String()
+					snapshot.Url = minerInfo.GetWebViewURL().String()
+				}
+			}
+
+			// Set device status
+			if row.DeviceStatus.Valid {
+				snapshot.DeviceStatus = convertDeviceStatusStringToProto(string(row.DeviceStatus.DeviceStatusStatus))
+			}
+		} else {
+			// For unpaired devices
+			snapshot.Name = snapshot.Manufacturer + " " + snapshot.Model
+			snapshot.IpAddress = row.IpAddress
+
+			// Build URL
+			url := row.UrlScheme + "://" + row.IpAddress
+			if row.Port != "" && row.Port != "80" && row.Port != "443" {
+				url += ":" + row.Port
+			}
+			snapshot.Url = url
+			snapshot.DeviceStatus = pb.DeviceStatus_DEVICE_STATUS_INACTIVE
+		}
+
+		snapshots = append(snapshots, snapshot)
+	}
+
+	return snapshots, nextCursor, total, nil
 }
 
 // StreamMinerUpdates streams real-time measurement updates for miners
@@ -357,11 +361,19 @@ func (s *Service) StreamMinerUpdates(ctx context.Context, req *pb.StreamMinerUpd
 }
 
 func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) {
-	if pbFilter == nil {
-		return nil, nil
+	// Initialize filter with defaults
+	filter := &interfaces.MinerFilter{
+		PairingStatuses: []pb.PairingStatus{}, // Empty means all
 	}
 
-	filter := &interfaces.MinerFilter{}
+	if pbFilter == nil {
+		return filter, nil
+	}
+
+	// Handle new pairing_statuses field (preferred)
+	if len(pbFilter.PairingStatuses) > 0 {
+		filter.PairingStatuses = pbFilter.PairingStatuses
+	}
 
 	// Handle component_filters field
 	if len(pbFilter.ComponentFilters) > 0 {
@@ -478,8 +490,26 @@ func convertMinerStatusToDeviceStatus(minerStatus mm.MinerStatus) pb.DeviceStatu
 	}
 }
 
+// convertDeviceStatusStringToProto converts a database device status string to proto enum
+func convertDeviceStatusStringToProto(status string) pb.DeviceStatus {
+	switch strings.ToUpper(status) {
+	case "ACTIVE":
+		return pb.DeviceStatus_DEVICE_STATUS_ONLINE
+	case "OFFLINE":
+		return pb.DeviceStatus_DEVICE_STATUS_OFFLINE
+	case "MAINTENANCE":
+		return pb.DeviceStatus_DEVICE_STATUS_MAINTENANCE
+	case "ERROR":
+		return pb.DeviceStatus_DEVICE_STATUS_ERROR
+	case "INACTIVE":
+		return pb.DeviceStatus_DEVICE_STATUS_INACTIVE
+	default:
+		return pb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED
+	}
+}
+
 // StreamMinerListUpdates streams incremental updates (additions/removals) for filtered miner list
-// Only sends changes when miners enter/exit filter criteria
+// Only sends changes when miners enter/exit filter criteriafleetmanagement.test
 func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMinerListUpdatesRequest) (<-chan *pb.StreamMinerListUpdatesResponse, error) {
 	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {

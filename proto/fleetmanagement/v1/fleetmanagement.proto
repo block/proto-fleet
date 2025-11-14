@@ -14,12 +14,9 @@ service FleetManagementService {
   // Supports pagination for handling large fleets efficiently
   rpc ListPairedMiners(ListPairedMinersRequest) returns (ListPairedMinersResponse);
 
-  // Lists all discovered devices that have not been paired yet
-  // Returns active discovered devices with pagination support
-  rpc ListUnpairedDevices(ListUnpairedDevicesRequest) returns (ListUnpairedDevicesResponse);
-
-  // List all miners in the fleet optionally with their telemetry data
-  // Returns a paginated list of miners with their operational status and metrics
+  // List all devices in the fleet (paired and/or unpaired) optionally with their telemetry data
+  // Returns a paginated list of devices with their operational status and metrics
+  // Use the pairing_status filter to control whether to return paired, unpaired, or both
   rpc ListMinerStateSnapshots(ListMinerStateSnapshotsRequest) returns (ListMinerStateSnapshotsResponse);
 
   // Stream real-time measurement updates for miners
@@ -84,63 +81,6 @@ message PairedDevice {
   string mac_address = 3;
 }
 
-// Request to list unpaired discovered devices with pagination support
-message ListUnpairedDevicesRequest {
-  // Maximum number of devices to return in a single response
-  // Server may return fewer devices than specified
-  // If not specified, a default of 50 will be used
-  // Maximum allowed value is 1000
-  int32 page_size = 1 [(buf.validate.field).int32 = {
-    gte: 0,  // Allow 0 to use default
-    lte: 1000  // Maximum page size
-  }];
-
-  // A pagination cursor returned by a previous call to this endpoint
-  // Provide this cursor to retrieve the next set of results
-  // Leave empty for first request
-  string cursor = 2;
-}
-
-// Response containing a list of unpaired discovered devices with pagination support
-message ListUnpairedDevicesResponse {
-  // List of discovered devices that have not been paired yet
-  repeated DiscoveredDevice devices = 1;
-
-  // The pagination cursor to be used in a subsequent request
-  // If empty, this is the final page of results
-  string cursor = 2;
-
-  // Total number of unpaired devices available across all pages
-  int32 total_devices = 3;
-}
-
-// Represents a device that has been discovered but not yet paired
-message DiscoveredDevice {
-  // unique identifier
-  string device_identifier = 1;
-
-  // IP address of the discovered device
-  string ip_address = 2;
-
-  // Port number the device is listening on
-  string port = 3;
-
-  // URL scheme (http or https)
-  string url_scheme = 4;
-
-  // Device model name
-  string model = 5;
-
-  // Manufacturer name
-  string manufacturer = 6;
-
-  // Device type (e.g., antminer, proto)
-  string type = 7;
-
-  // Device capabilities indicating supported features
-  capabilities.v1.MinerCapabilities capabilities = 8;
-}
-
 // MinerStateSnapshot represents the operational state of a mining device
 // including performance metrics and component health status
 // Can contain either a single point-in-time snapshot or a time series of measurements
@@ -190,6 +130,21 @@ message MinerStateSnapshot {
 
   // Current operational status of the device
   DeviceStatus device_status = 13;
+
+  // Pairing status of the device
+  PairingStatus pairing_status = 14;
+
+  // Device model name (populated for unpaired devices)
+  string model = 15;
+
+  // Manufacturer name (populated for unpaired devices)
+  string manufacturer = 16;
+
+  // Device type (e.g., antminer, proto)
+  string type = 17;
+
+  // Device capabilities indicating supported features (populated for unpaired devices)
+  capabilities.v1.MinerCapabilities capabilities = 18;
 
 }
 
@@ -341,6 +296,27 @@ enum MinerType {
   MINER_TYPE_BITMAIN = 2;
 }
 
+// Pairing status of a device
+enum PairingStatus {
+  // Any pairing status, returns all devices (used in filters only)
+  PAIRING_STATUS_UNSPECIFIED = 0;
+
+  // Only paired devices
+  PAIRING_STATUS_PAIRED = 1;
+
+  // Only unpaired/discovered devices (no device entry exists)
+  PAIRING_STATUS_UNPAIRED = 2;
+
+  // Devices that require authentication credentials to complete pairing
+  PAIRING_STATUS_AUTHENTICATION_NEEDED = 3;
+
+  // Devices that are in the process of being paired
+  PAIRING_STATUS_PENDING = 4;
+
+  // Devices that failed to pair
+  PAIRING_STATUS_FAILED = 5;
+}
+
 // Component type for filtering
 enum ComponentType {
   COMPONENT_TYPE_UNSPECIFIED = 0;
@@ -377,6 +353,17 @@ message MinerListFilter {
   // Filter by miner types (acts as OR condition)
   // Returns miners that match any of the specified types
   repeated MinerType types = 5;
+
+  // Filter by pairing statuses (acts as OR condition)
+  // Returns miners that match any of the specified pairing statuses
+  // If empty or only contains PAIRING_STATUS_UNSPECIFIED, returns all devices
+  // Examples:
+  //   [PAIRED] - Only paired devices
+  //   [UNPAIRED] - Only unpaired devices
+  //   [PAIRED, AUTHENTICATION_NEEDED] - Paired devices + devices needing auth
+  //   [AUTHENTICATION_NEEDED, FAILED] - Devices needing attention
+  //   [] or [UNSPECIFIED] - All devices
+  repeated PairingStatus pairing_statuses = 6;
 }
 
 

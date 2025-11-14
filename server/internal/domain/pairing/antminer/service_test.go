@@ -1,8 +1,9 @@
 package antminer_test
 
 import (
-	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"testing"
+
+	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/web/mocks"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"

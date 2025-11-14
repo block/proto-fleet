@@ -5,6 +5,8 @@ import (
 
 	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 
+	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
+
 	fm "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	tm "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
@@ -21,6 +23,7 @@ type ComponentFilter struct {
 }
 
 type MinerFilter struct {
+	PairingStatuses    []fm.PairingStatus // Changed from single value to slice
 	DeviceStatusFilter []mm.MinerStatus
 	MinerType          []mm.Type
 	ComponentFilters   []ComponentFilter
@@ -44,6 +47,7 @@ type DeviceStore interface {
 	InsertDevice(ctx context.Context, device *pb.Device, orgID int64, discoveredDeviceIdentifier string) error
 	UpsertMinerCredentials(ctx context.Context, device *pb.Device, orgID int64, usernameEnc string, passwordEnc *secrets.Text) error
 	UpsertDevicePairing(ctx context.Context, device *pb.Device, orgID int64, pairingStatus string) error
+	UpdateDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) error
 	GetMinerCredentials(ctx context.Context, device *pb.Device, orgID int64) (*pb.Credentials, error)
 	GetDeviceByDeviceIdentifier(ctx context.Context, identifier string, orgID int64) (*pb.Device, error)
 	GetDeviceWithIPAssignment(ctx context.Context, deviceIdentifier string, orgID int64) (*discoverymodels.DiscoveredDevice, error)
@@ -56,4 +60,5 @@ type DeviceStore interface {
 	UpsertDeviceStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, status mm.MinerStatus, details string) error
 	GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []models.DeviceIdentifier) (map[models.DeviceIdentifier]mm.MinerStatus, error)
 	GetOfflineDevices(ctx context.Context, limit int) ([]OfflineDeviceInfo, error)
+	ListMinerStateSnapshots(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *MinerFilter) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error)
 }
