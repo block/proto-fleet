@@ -1,9 +1,10 @@
 import { useState } from "react";
-import FanInfoModal from "./FanInfoModal";
+import { ProtoOSStatusModal as StatusModal } from "@/protoOS/components/StatusModal";
 import Card from "@/protoOS/features/diagnostic/components/Card";
 import CardHeader from "@/protoOS/features/diagnostic/components/CardHeader";
-import { useMinerFan } from "@/protoOS/store";
-import { FanIndicatorV2 as FanIndicator } from "@/shared/assets/icons";
+import { useErrorsByComponent, useMinerFan } from "@/protoOS/store";
+import { Alert, FanIndicatorV2 as FanIndicator } from "@/shared/assets/icons";
+import { iconSizes } from "@/shared/assets/icons/constants";
 import FanValue from "@/shared/components/FanValue";
 
 interface FanStatusCardProps {
@@ -13,22 +14,33 @@ interface FanStatusCardProps {
 function FanStatusCard({ fanId }: FanStatusCardProps) {
   // Fetch data directly from store
   const fanData = useMinerFan(fanId);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [showComponentStatusModal, setShowComponentStatusModal] =
+    useState(false);
 
   // Compute display values
   const rpm = fanData?.rpm?.latest?.value ?? 0;
   const pwm = fanData?.percentage?.latest?.value ?? 0;
-  const position = fanData?.slot ?? fanData?.id ?? 0;
-  const name = fanData?.name ?? `Fan ${position}`;
-  // TODO: Add hasWarning logic based on error state
+  const position = fanData?.slot ?? fanData?.id ?? fanId;
+  const name = `Fan ${position}`;
+
+  // Check for errors
+  const errors = useErrorsByComponent("FAN", fanId - 1);
+  const hasErrors = errors.length > 0;
 
   return (
     <Card>
       <CardHeader
         title={name}
-        statusIcon={null /* TODO: Add warning icon based on error state */}
+        statusIcon={
+          hasErrors ? (
+            <Alert
+              className="text-intent-critical-fill"
+              width={iconSizes.small}
+            />
+          ) : null
+        }
         componentIcon={<FanIndicator position={position} />}
-        onInfoIconClick={() => setIsModalOpen(true)}
+        onInfoIconClick={() => setShowComponentStatusModal(true)}
       />
 
       <div>
@@ -39,22 +51,15 @@ function FanStatusCard({ fanId }: FanStatusCardProps) {
           <FanValue value={pwm} type="pwm" />
         </div>
       </div>
-      {isModalOpen && fanData && (
-        <FanInfoModal
-          onDismiss={() => setIsModalOpen(false)}
-          fanData={{
-            id: fanId,
-            position,
-            name,
-            rpm,
-            pwm,
-            meta: {
-              serialNumber: undefined,
-              manufacturer: undefined,
-              model: undefined,
-              firmwareVersion: undefined,
-            },
+      {showComponentStatusModal && (
+        <StatusModal
+          show={showComponentStatusModal}
+          onClose={() => setShowComponentStatusModal(false)}
+          componentAddress={{
+            source: "FAN",
+            componentIndex: fanId - 1,
           }}
+          showBackButton={false}
         />
       )}
     </Card>

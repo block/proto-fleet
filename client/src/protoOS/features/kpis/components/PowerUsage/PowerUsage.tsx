@@ -6,6 +6,7 @@ import {
 } from "@/protoOS/store";
 import { MetricTimeSeries } from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import { type StatProps } from "@/shared/components/Stat";
 import Stats from "@/shared/components/Stats";
 
@@ -43,14 +44,20 @@ const PowerUsage = () => {
 
   return (
     <>
-      {aggregates && (
+      {aggregates && chartData.length > 0 ? (
         <ErrorBoundary>
           <Stats stats={getStats(aggregates)} />
+          <KpiLineChart
+            chartData={chartData}
+            chartLines={chartLines}
+            units="W"
+          />
         </ErrorBoundary>
+      ) : (
+        <div className="flex h-full w-full items-center justify-center">
+          <ProgressCircular indeterminate />
+        </div>
       )}
-      <ErrorBoundary>
-        <KpiLineChart chartData={chartData} chartLines={chartLines} units="W" />
-      </ErrorBoundary>
     </>
   );
 };

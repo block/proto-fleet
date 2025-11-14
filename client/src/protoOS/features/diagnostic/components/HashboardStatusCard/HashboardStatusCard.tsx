@@ -1,16 +1,21 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import HashboardInfoModal from "./HashboardInfoModal";
+import { ProtoOSStatusModal as StatusModal } from "@/protoOS/components/StatusModal";
 import Card from "@/protoOS/features/diagnostic/components/Card";
 import CardHeader from "@/protoOS/features/diagnostic/components/CardHeader";
 import LabeledValue from "@/protoOS/features/diagnostic/components/LabeledValue";
 import {
   useAsicDataTransform,
+  useErrorsByComponent,
   useHashboardSlot,
   useMinerHashboard,
   useMinerHashboardAsics,
 } from "@/protoOS/store";
-import { HashboardIndicatorV2 as HashboardIndicator } from "@/shared/assets/icons";
+import {
+  Alert,
+  HashboardIndicatorV2 as HashboardIndicator,
+} from "@/shared/assets/icons";
+import { iconSizes } from "@/shared/assets/icons/constants";
 import AsicTablePreview from "@/shared/components/AsicTablePreview";
 import Button from "@/shared/components/Button";
 import TemperatureValue from "@/shared/components/TemperatureValue";
@@ -25,7 +30,8 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
   const slot = useHashboardSlot(serialNumber);
   const asics = useMinerHashboardAsics(serialNumber);
   const navigate = useNavigate();
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [showComponentStatusModal, setShowComponentStatusModal] =
+    useState(false);
 
   // Transform protoOS asic data to shared component format
   const asicData = useAsicDataTransform(asics);
@@ -39,15 +45,25 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
   const maxAsicTemp = hashboardData?.maxAsicTemp?.latest?.value ?? undefined;
   const position = slot || 0;
   const name = `Hashboard ${slot}`;
-  // TODO: Add hasWarning logic based on error state
+
+  // Check for errors
+  const errors = useErrorsByComponent("HASHBOARD", (slot ?? 1) - 1);
+  const hasErrors = errors.length > 0;
 
   return (
     <Card>
       <CardHeader
         title={name}
-        statusIcon={null /* TODO: Add warning icon based on error state */}
+        statusIcon={
+          hasErrors ? (
+            <Alert
+              className="text-intent-critical-fill"
+              width={iconSizes.small}
+            />
+          ) : null
+        }
         componentIcon={<HashboardIndicator width="w-4" position={position} />}
-        onInfoIconClick={() => setIsModalOpen(true)}
+        onInfoIconClick={() => setShowComponentStatusModal(true)}
         actions={
           <Button variant="secondary" size="compact" onClick={handleViewClick}>
             View
@@ -68,10 +84,15 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
         </div>
         <AsicTablePreview asics={asicData} />
       </div>
-      {isModalOpen && (
-        <HashboardInfoModal
-          serial={serialNumber}
-          onDismiss={() => setIsModalOpen(false)}
+      {showComponentStatusModal && (
+        <StatusModal
+          show={showComponentStatusModal}
+          onClose={() => setShowComponentStatusModal(false)}
+          componentAddress={{
+            source: "HASHBOARD",
+            componentIndex: (slot ?? 1) - 1,
+          }}
+          showBackButton={false}
         />
       )}
     </Card>

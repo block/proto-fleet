@@ -1,22 +1,27 @@
 import { useState } from "react";
-import ControlBoardInfoModal from "./ControlBoardInfoModal";
+import { ProtoOSStatusModal as StatusModal } from "@/protoOS/components/StatusModal";
 import Card from "@/protoOS/features/diagnostic/components/Card";
 import CardHeader from "@/protoOS/features/diagnostic/components/CardHeader";
 import LabeledValue from "@/protoOS/features/diagnostic/components/LabeledValue";
-import { useControlBoard, useSystemInfo } from "@/protoOS/store";
+import { useErrorsByComponent, useSystemInfo } from "@/protoOS/store";
+import { Alert } from "@/shared/assets/icons";
+import { iconSizes } from "@/shared/assets/icons/constants";
 import LatencyValue from "@/shared/components/LatencyValue";
 
 function ControlBoardStatusCard() {
   // Fetch data directly from store
-  const controlBoard = useControlBoard();
   const systemInfo = useSystemInfo();
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [showComponentStatusModal, setShowComponentStatusModal] =
+    useState(false);
 
   // Compute display values
   const name = "Control Board";
   const latency = 0; // TODO: Add latency field to ControlBoardInfo type
   const cpuCapacity = systemInfo?.os?.status?.cpu_load_percent || 0;
-  // TODO: Add hasWarning logic based on error state
+
+  // Check for errors
+  const errors = useErrorsByComponent("SYSTEM", 0);
+  const hasErrors = errors.length > 0;
 
   const formatCpuCapacity = (capacity: number) => {
     return capacity.toFixed(1) + "%";
@@ -26,8 +31,15 @@ function ControlBoardStatusCard() {
     <Card>
       <CardHeader
         title={name}
-        statusIcon={null /* TODO: Add warning icon based on error state */}
-        onInfoIconClick={() => setIsModalOpen(true)}
+        statusIcon={
+          hasErrors ? (
+            <Alert
+              className="text-intent-critical-fill"
+              width={iconSizes.small}
+            />
+          ) : null
+        }
+        onInfoIconClick={() => setShowComponentStatusModal(true)}
       />
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -40,25 +52,14 @@ function ControlBoardStatusCard() {
           label="CPU capacity"
         />
       </div>
-      {isModalOpen && controlBoard && (
-        <ControlBoardInfoModal
-          controlBoardData={{
-            name,
-            latency,
-            cpuCapacity,
-            meta: {
-              serialNumber: controlBoard.serial,
-              boardId: controlBoard.boardId,
-              machineName: controlBoard.machineName,
-              firmwareName: controlBoard.firmware?.name,
-              firmwareVersion: controlBoard.firmware?.version,
-              firmwareVariant: controlBoard.firmware?.variant,
-              gitHash: controlBoard.firmware?.gitHash,
-              hardware: controlBoard.mpu?.hardware,
-              modelName: controlBoard.mpu?.modelName,
-            },
+      {showComponentStatusModal && (
+        <StatusModal
+          show={showComponentStatusModal}
+          onClose={() => setShowComponentStatusModal(false)}
+          componentAddress={{
+            source: "SYSTEM",
           }}
-          onDismiss={() => setIsModalOpen(false)}
+          showBackButton={false}
         />
       )}
     </Card>

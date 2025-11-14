@@ -1,101 +1,108 @@
-import clsx from "clsx";
-import HbBayPreview from "./HbBayPreview";
-import { useCoolingStatus, useTelemetry } from "@/protoOS/api";
+import { useMemo } from "react";
+import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart";
 import {
-  type FanTelemetryData,
-  formatValue,
-  useFansTelemetry,
-  useHashboardSerialsByBay,
+  convertAndFormatMeasurement,
+  useChartDataForMetric,
+  useMiner,
+  useMinerHashboards,
+  useMinerStore,
+  useTemperatureUnit,
 } from "@/protoOS/store";
-import { FanIndicator } from "@/shared/assets/icons";
+import { MetricTimeSeries } from "@/protoOS/store";
+import ErrorBoundary from "@/shared/components/ErrorBoundary";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import { type StatProps } from "@/shared/components/Stat";
 import Stats from "@/shared/components/Stats";
 
-const getFanStats = (
-  fanData: FanTelemetryData | undefined,
-  numFans: number,
-  fanIndex: number,
-  isR1?: boolean,
-) => {
-  if (!fanData?.rpm?.latest || !fanData?.percentage?.latest) return null;
+type StatsArgs = MetricTimeSeries["aggregates"] & { lowestPerformer?: string };
 
-  const fanPosition = fanIndex + 1;
-  let label = `Fan ${fanPosition}`;
-  let fanProps = { numFans, fanPosition };
+const getStats = (
+  stats: StatsArgs,
+  temperatureUnit: "C" | "F",
+): StatProps[] => {
+  const { avg, max, min, lowestPerformer } = stats;
 
-  // For R1 models, we need to adjust the label and indicator to
-  // display Front and Rear fans separately
-  if (isR1) {
-    const position = Math.floor(fanIndex / 2) < 1 ? "Front" : "Rear";
-    const slot = (fanIndex % 2) + 1;
-    label = `${position} Fan ${slot} Speed`;
+  const baseStats: StatProps[] = [
+    {
+      label: "Average",
+      value: convertAndFormatMeasurement(avg, temperatureUnit, false),
+      units: "°" + temperatureUnit,
+      size: "small",
+    },
+    {
+      label: "Highest",
+      value: convertAndFormatMeasurement(max, temperatureUnit, false),
+      units: "°" + temperatureUnit,
+      size: "small",
+    },
+    {
+      label: "Lowest",
+      value: convertAndFormatMeasurement(min, temperatureUnit, false),
+      units: "°" + temperatureUnit,
+      size: "small",
+    },
+  ];
 
-    fanProps = {
-      numFans: 2,
-      fanPosition: fanIndex % 2,
-    };
+  if (lowestPerformer) {
+    baseStats.push({
+      label: "Hottest Hashboard",
+      value: lowestPerformer,
+      size: "small",
+    });
   }
 
-  return {
-    label: label,
-    value: formatValue(fanData.percentage.latest, false),
-    text: formatValue(fanData.rpm.latest, true),
-    units: "%",
-    icon: <FanIndicator {...fanProps} />,
-  } as StatProps;
+  return baseStats;
 };
 
 const Temperature = () => {
-  // Fetch latest telemetry data with polling
-  // this fetches miner, hashboard, and asic level data
-  useTelemetry({
-    level: ["asic"],
-  });
+  const { chartData, chartLines } = useChartDataForMetric("temperature");
+  const miner = useMiner();
+  const hashboards = useMinerHashboards();
+  const temperatureUnit = useTemperatureUnit();
+  const aggregates = miner?.temperature?.timeSeries?.aggregates;
 
-  // Fetch fan telemetry which is not yet included in Telemetry API
-  useCoolingStatus({ poll: true });
+  const lowestPerformer = useMemo(() => {
+    if (!hashboards) return undefined;
 
-  // fetch hashboard serials organized by bay
-  const hashboardSerialsByBay = useHashboardSerialsByBay();
-  const fans = useFansTelemetry(); // fan telemetry data
+    let hottestSlot: number | undefined;
+    let hottestTemp = -Infinity;
+
+    hashboards.forEach((hashboard) => {
+      const hashboardMax =
+        hashboard.temperature?.timeSeries?.aggregates?.max?.value;
+      if (!!hashboardMax && hashboardMax > hottestTemp) {
+        hottestTemp = hashboardMax;
+        hottestSlot = useMinerStore
+          .getState()
+          .hardware.getSlotByHbSn(hashboard.serial);
+      }
+    });
+
+    return hottestSlot ? "Hashboard " + hottestSlot : undefined;
+  }, [hashboards]);
 
   return (
-    <div className="flex flex-col gap-y-8 pt-4">
-      {fans.length > 0 && (
-        <Stats
-          size="medium"
-          grid={clsx(
-            fans.length < 6
-              ? "grid-cols-4 phone:grid-cols-2"
-              : "grid-cols-6 laptop:grid-cols-3 laptop:grid-rows-2 tablet:grid-cols-3 tablet:grid-rows-2 phone:grid-cols-2 phone:grid-rows-3 grid-flow-col phone:grid-flow-row",
-          )}
-          // use padding and negative margin instead of gap-x to create even spacing around divider
-          gap={clsx(
-            "gap-y-6",
-            fans.length < 6
-              ? "*:px-10 -mx-10 phone:*:px-6 phone:-mx-6"
-              : "*:px-10 -mx-10 desktop:*:px-5 desktop:-mx-5 phone:*:px-6 phone:-mx-6",
-          )}
-          padding="pb-0"
-          divide="*:border-r *:border-border-5 *:last:border-0 laptop:*:nth-last-2:border-0 tablet:*:nth-last-2:border-0  phone:*:even:border-0"
-          stats={fans
-            .map((fanData, index) =>
-              getFanStats(fanData, fans.length, index, fans.length === 4),
-            )
-            .filter((stat) => stat !== null)}
-        />
+    <>
+      {aggregates && chartData.length > 0 ? (
+        <ErrorBoundary>
+          <Stats
+            stats={getStats(
+              { ...aggregates, lowestPerformer },
+              temperatureUnit,
+            )}
+          />
+          <KpiLineChart
+            chartData={chartData}
+            chartLines={chartLines}
+            units={"°" + temperatureUnit}
+          />
+        </ErrorBoundary>
+      ) : (
+        <div className="flex h-full w-full items-center justify-center">
+          <ProgressCircular indeterminate />
+        </div>
       )}
-
-      <div className="flex grid-cols-3 flex-col gap-4 sm:grid">
-        {Object.values(hashboardSerialsByBay).map((serials, bayIndex) => {
-          return (
-            <div key={bayIndex}>
-              <HbBayPreview serials={serials} bay={bayIndex} />
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    </>
   );
 };
 

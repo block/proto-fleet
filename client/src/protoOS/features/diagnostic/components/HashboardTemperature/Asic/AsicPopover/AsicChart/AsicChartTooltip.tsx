@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 
 import AsicPopoverRow from "../AsicPopoverRow";
-import { convertAndFormatTemperature } from "@/protoOS/features/kpis/components/HashboardTemperature/Asic/AsicPopover/utility";
+import { convertAndFormatTemperature } from "@/protoOS/features/diagnostic/components/HashboardTemperature/Asic/AsicPopover/utility";
 import { useTemperatureUnit } from "@/protoOS/store";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 

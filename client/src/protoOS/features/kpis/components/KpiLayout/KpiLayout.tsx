@@ -26,6 +26,7 @@ const KpiLayout = () => {
           MinerFieldType.Hashrate,
           MinerFieldType.Power,
           MinerFieldType.Efficiency,
+          MinerFieldType.Temperature,
         ],
       },
       {
@@ -34,14 +35,15 @@ const KpiLayout = () => {
           HashboardFieldType.Hashrate,
           HashboardFieldType.Power,
           HashboardFieldType.Efficiency,
+          HashboardFieldType.Temperature,
         ],
       },
     ],
     [],
   );
 
-  // Fetch all time series data here for hashrate/eff/power in one request
-  // Used by multiple KPI tabs. Temperature uses latest values for asics so not included here
+  // Fetch all time series data here for hashrate/eff/power/temperature in one request
+  // Used by multiple KPI tabs
   useTimeSeries({
     duration,
     levels,

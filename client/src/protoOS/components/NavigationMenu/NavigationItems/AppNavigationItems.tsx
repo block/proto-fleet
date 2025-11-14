@@ -46,6 +46,12 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
         pageName={pageName}
       />
       <NavigationItem
+        id={navigationItems.diagnostics}
+        text="Diagnostics"
+        onClick={handleClick}
+        pageName={pageName}
+      />
+      <NavigationItem
         id={navigationItems.logs}
         text="Logs"
         onClick={handleClick}

@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
-import PsuInfoModal from "./PsuInfoModal";
+import { ProtoOSStatusModal as StatusModal } from "@/protoOS/components/StatusModal";
 import Card from "@/protoOS/features/diagnostic/components/Card";
 import CardHeader from "@/protoOS/features/diagnostic/components/CardHeader";
 import LabeledValue from "@/protoOS/features/diagnostic/components/LabeledValue";
-import { useMinerPsu } from "@/protoOS/store";
-import { PsuIndicatorV2 as PsuIndicator } from "@/shared/assets/icons";
+import { useErrorsByComponent, useMinerPsu } from "@/protoOS/store";
+import { Alert, PsuIndicatorV2 as PsuIndicator } from "@/shared/assets/icons";
+import { iconSizes } from "@/shared/assets/icons/constants";
 import PowerValue from "@/shared/components/PowerValue";
 import TemperatureValue from "@/shared/components/TemperatureValue";
 import VoltageValue from "@/shared/components/VoltageValue";
@@ -16,7 +17,8 @@ interface PsuStatusCardProps {
 function PsuStatusCard({ psuId }: PsuStatusCardProps) {
   // Fetch data directly from store
   const psuData = useMinerPsu(psuId);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [showComponentStatusModal, setShowComponentStatusModal] =
+    useState(false);
 
   // Compute display values
   const inputVoltage = psuData?.inputVoltage?.latest?.value ?? 0;
@@ -37,15 +39,24 @@ function PsuStatusCard({ psuId }: PsuStatusCardProps) {
     };
   }, [psuData?.temperatureAverage, psuData?.temperatureHotspot]);
 
-  // TODO: Add hasWarning logic based on error state
+  // Check for errors
+  const errors = useErrorsByComponent("PSU", psuId - 1);
+  const hasErrors = errors.length > 0;
 
   return (
     <Card>
       <CardHeader
         title={name}
-        statusIcon={null /* TODO: Add warning icon based on error state */}
+        statusIcon={
+          hasErrors ? (
+            <Alert
+              className="text-intent-critical-fill"
+              width={iconSizes.small}
+            />
+          ) : null
+        }
         componentIcon={<PsuIndicator position={position} />}
-        onInfoIconClick={() => setIsModalOpen(true)}
+        onInfoIconClick={() => setShowComponentStatusModal(true)}
       />
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -74,28 +85,15 @@ function PsuStatusCard({ psuId }: PsuStatusCardProps) {
           label="High temp"
         />
       </div>
-      {isModalOpen && psuData && (
-        <PsuInfoModal
-          psuData={{
-            id: psuId,
-            name,
-            position,
-            inputVoltage,
-            outputVoltage,
-            inputPower,
-            outputPower,
-            avgTemp,
-            maxTemp,
-            meta: {
-              serialNumber: psuData.serial,
-              manufacturer: psuData.manufacturer,
-              model: psuData.model,
-              hardwareRevision: psuData.hwRevision,
-              firmwareAppVersion: psuData.firmware?.appVersion,
-              firmwareBootloaderVersion: psuData.firmware?.bootloaderVersion,
-            },
+      {showComponentStatusModal && (
+        <StatusModal
+          show={showComponentStatusModal}
+          onClose={() => setShowComponentStatusModal(false)}
+          componentAddress={{
+            source: "PSU",
+            componentIndex: psuId - 1,
           }}
-          onDismiss={() => setIsModalOpen(false)}
+          showBackButton={false}
         />
       )}
     </Card>

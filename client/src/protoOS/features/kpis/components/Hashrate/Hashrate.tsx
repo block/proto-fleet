@@ -73,13 +73,9 @@ const Hashrate = () => {
 
   return (
     <>
-      {aggregates && (
+      {aggregates && chartData.length > 0 ? (
         <ErrorBoundary>
           <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
-        </ErrorBoundary>
-      )}
-      {chartData.length > 0 ? (
-        <ErrorBoundary>
           <KpiLineChart
             chartData={chartData}
             chartLines={chartLines}

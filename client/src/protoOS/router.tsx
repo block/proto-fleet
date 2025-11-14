@@ -7,6 +7,7 @@ import {
 } from "react-router-dom";
 
 import { DiagnosticView } from "./features/diagnostic/components";
+import HashboardTemperature from "./features/diagnostic/components/HashboardTemperature";
 import App from "@/protoOS/components/App";
 import FullScreenContentLayout from "@/protoOS/components/ContentLayout/FullScreenContentLayout";
 import SettingsContentLayout from "@/protoOS/components/ContentLayout/SettingsContentLayout";
@@ -19,7 +20,6 @@ export type CustomRouteObject = RouteObject & {
 };
 import {
   Efficiency,
-  HashboardTemperature,
   Hashrate,
   KpiLayout,
   PowerUsage,

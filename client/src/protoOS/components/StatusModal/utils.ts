@@ -277,9 +277,11 @@ export function buildComponentStatusProps(
   const componentName = getComponentDisplayName(source, componentIndex);
   const errorCount = transformedErrors.length;
   const summary =
-    errorCount === 1
-      ? `${componentName} has an error`
-      : `${componentName} has ${errorCount} errors`;
+    errorCount === 0
+      ? componentName
+      : errorCount === 1
+        ? `${componentName} has an error`
+        : `${componentName} has ${errorCount} errors`;
 
   return {
     summary,

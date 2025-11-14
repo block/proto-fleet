@@ -1,7 +1,7 @@
 import { Dispatch, SetStateAction, useMemo } from "react";
 
+import { sortAsics } from "../utility";
 import AsicTable from "./AsicTable";
-import { sortAsics } from "@/protoOS/features/kpis/components/Temperature/utility";
 import { useMinerHashboardAsics } from "@/protoOS/store";
 
 interface AsicTableWrapperProps {
