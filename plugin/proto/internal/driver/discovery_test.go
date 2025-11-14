@@ -471,6 +471,10 @@ func TestDiscoverDevice_MultipleSimMiners(t *testing.T) {
 func TestDiscoverDevice_EdgeCases(t *testing.T) {
 	ctx := t.Context()
 
+	// Get an unused non-routable IP to ensure test isolation
+	// This prevents interference from local development containers
+	unusedIP := getUnusedNonRoutableIP(t)
+
 	testCases := []struct {
 		name         string
 		host         string
@@ -479,17 +483,17 @@ func TestDiscoverDevice_EdgeCases(t *testing.T) {
 		errorMessage string
 	}{
 		{
-			name:         "localhost with valid port format",
-			host:         "localhost",
+			name:         "non-routable IPv4 with valid port format",
+			host:         unusedIP,
 			port:         "2121",
-			expectError:  true, // Will fail because no miner is running, but port validation should pass
+			expectError:  true, // Will fail because IP is non-routable
 			errorMessage: "failed to discover proto miner",
 		},
 		{
-			name:         "valid IPv4 with valid port",
-			host:         "127.0.0.1",
-			port:         "2121",
-			expectError:  true, // Will fail because no miner is running, but port validation should pass
+			name:         "non-routable IPv4 with different valid port",
+			host:         unusedIP,
+			port:         "8080",
+			expectError:  true, // Will fail because IP is non-routable
 			errorMessage: "failed to discover proto miner",
 		},
 	}
@@ -545,6 +549,16 @@ func BenchmarkDiscoverDevice(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+}
+
+// getUnusedNonRoutableIP returns an IP address from RFC 5737 test networks.
+// These addresses are reserved for documentation and examples, and are guaranteed
+// to be non-routable by design. They should never be assigned to real network interfaces.
+// See: https://www.rfc-editor.org/rfc/rfc5737
+func getUnusedNonRoutableIP(t *testing.T) string {
+	t.Helper()
+	// TEST-NET-1: Reserved for documentation and testing, guaranteed non-routable
+	return "192.0.2.1"
 }
 
 // Helper function for string pointer

@@ -149,7 +149,12 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 		return sdk.DeviceInfo{}, fmt.Errorf("port number out of range: %d", portInt)
 	}
 
-	portInt32 := int32(portInt) // #nosec G109 -- Range checked above
+	// Validate host is not empty or whitespace-only
+	if strings.TrimSpace(ipAddress) == "" {
+		return sdk.DeviceInfo{}, fmt.Errorf("host address cannot be empty")
+	}
+
+	portInt32 := int32(portInt) // #nosec G109,G115 -- Range checked above
 
 	// Try to connect and identify the device
 	// We prefer HTTPS but fall back to HTTP if needed
