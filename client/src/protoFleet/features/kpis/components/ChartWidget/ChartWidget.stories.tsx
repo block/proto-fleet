@@ -1,5 +1,5 @@
-import ChartWidgetComponent from ".";
 import KpiLineChart from "../KpiLineChart/KpiLineChart";
+import ChartWidgetComponent from ".";
 import { ChartData } from "@/shared/components/LineChart/types";
 
 // Generate sample chart data
