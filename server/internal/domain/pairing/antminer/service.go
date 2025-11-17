@@ -60,7 +60,7 @@ func (s *Service) PairDevice(ctx context.Context, device *discoverymodels.Discov
 
 	// Update device with serial number and MAC address
 	device.SerialNumber = systemInfo.SerialNumber
-	device.MacAddress = systemInfo.MacAddr
+	device.MacAddress = networking.NormalizeMAC(systemInfo.MacAddr)
 
 	encryptedUsername, err := s.encryptor.Encrypt([]byte(credentials.Username))
 	if err != nil {
@@ -73,8 +73,22 @@ func (s *Service) PairDevice(ctx context.Context, device *discoverymodels.Discov
 	}
 
 	return s.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		if err := s.deviceStore.InsertDevice(ctx, &device.Device, device.OrgID, device.DeviceIdentifier); err != nil {
-			return fleeterror.NewInternalErrorf("failed to insert device: %v", err)
+		// Check if device already exists (e.g., from AUTHENTICATION_NEEDED status)
+		existingDevice, err := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, device.DeviceIdentifier, device.OrgID)
+		if err != nil && !fleeterror.IsNotFoundError(err) {
+			return fleeterror.NewInternalErrorf("failed to check if device exists: %v", err)
+		}
+
+		if existingDevice == nil {
+			// Device doesn't exist yet, insert it
+			if err := s.deviceStore.InsertDevice(ctx, &device.Device, device.OrgID, device.DeviceIdentifier); err != nil {
+				return fleeterror.NewInternalErrorf("failed to insert device: %v", err)
+			}
+		} else {
+			// Device already exists, update MAC address and serial number
+			if err := s.deviceStore.UpdateDeviceInfo(ctx, &device.Device, device.OrgID); err != nil {
+				return fleeterror.NewInternalErrorf("failed to update device info: %v", err)
+			}
 		}
 
 		err = s.deviceStore.UpsertMinerCredentials(ctx, &device.Device, device.OrgID, encryptedUsername, secrets.NewText(encryptedPassword))
@@ -100,7 +114,7 @@ func (s *Service) GetDeviceInfo(ctx context.Context, device *discoverymodels.Dis
 	}
 
 	device.SerialNumber = systemInfo.SerialNumber
-	device.MacAddress = systemInfo.MacAddr
+	device.MacAddress = networking.NormalizeMAC(systemInfo.MacAddr)
 
 	return &device.Device, nil
 }

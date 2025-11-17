@@ -1,8 +1,7 @@
 import { ReactNode, useState } from "react";
-import { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
-import { Alert, Dismiss, MiningPools, Racks } from "@/shared/assets/icons";
+import { Alert, Dismiss } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 
@@ -56,10 +55,10 @@ const TaskCard = ({
 
 const AuthenticateMinersCard = ({
   count,
-  minersByIdentifier,
+  onAuthenticationSuccess,
 }: {
   count: number;
-  minersByIdentifier: Record<string, MinerStateSnapshot>;
+  onAuthenticationSuccess: () => void;
 }) => {
   const [showAuthMinersModal, setShowAuthMinersModal] = useState(false);
 
@@ -74,34 +73,11 @@ const AuthenticateMinersCard = ({
       />
       {showAuthMinersModal && (
         <AuthenticateMiners
-          minersByIdentifier={minersByIdentifier}
           onClose={() => setShowAuthMinersModal(false)}
+          onSuccess={onAuthenticationSuccess}
         />
       )}
     </>
-  );
-};
-
-const ConfigureMiningPoolsCard = ({ count }: { count: number }) => {
-  return (
-    <TaskCard
-      icon={<MiningPools />}
-      title="Configure mining pools"
-      description={`${count} miner${count === 1 ? "" : "s"}`}
-      actionText="Configure"
-      skippable={true}
-    />
-  );
-};
-
-const SetUpRacksCard = () => {
-  return (
-    <TaskCard
-      icon={<Racks />}
-      title="Set up racks"
-      actionText="Set up"
-      skippable={true}
-    />
   );
 };
 
@@ -114,12 +90,10 @@ const CompleteSetup = () => {
   };
 
   // Fetch miners needing authentication to show in the "Authenticate miners" card
-  const {
-    totalMiners: authNeededCount,
-    miners: minersNeedingAuthByIdentifier,
-  } = useAuthNeededMiners({
-    pageSize: 100,
-  });
+  const { totalMiners: authNeededCount, refetch: refetchAuthNeededMiners } =
+    useAuthNeededMiners({
+      pageSize: 100,
+    });
 
   // Show complete setup banner only if there are miners needing authentication
   const shouldShow = !completSetupDismissed && authNeededCount > 0;
@@ -139,10 +113,8 @@ const CompleteSetup = () => {
           <div className="grid gap-4 @lg:grid-cols-2 @3xl:grid-cols-3 @7xl:grid-cols-4">
             <AuthenticateMinersCard
               count={authNeededCount}
-              minersByIdentifier={minersNeedingAuthByIdentifier}
+              onAuthenticationSuccess={refetchAuthNeededMiners}
             />
-            <ConfigureMiningPoolsCard count={authNeededCount} />
-            <SetUpRacksCard />
           </div>
         </div>
       )}

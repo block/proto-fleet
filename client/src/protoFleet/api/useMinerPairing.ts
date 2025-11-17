@@ -17,7 +17,7 @@ interface DiscoverMinersProps {
 
 interface PairMinersProps {
   pairRequest: PairRequest;
-  onSuccess: () => void;
+  onSuccess: (failedDeviceIds: string[]) => void;
   onError?: (error: string) => void;
 }
 
@@ -80,8 +80,8 @@ const useMinerPairing = () => {
       setPairingPending(true);
       await pairingClient
         .pair(pairRequest, authHeader)
-        .then(() => {
-          onSuccess();
+        .then((response) => {
+          onSuccess(response.failedDeviceIds || []);
         })
         .catch((err) => {
           handleAuthErrors({

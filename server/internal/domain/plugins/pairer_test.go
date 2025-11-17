@@ -7,6 +7,7 @@ import (
 	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
@@ -140,7 +141,7 @@ func TestPairer_PairDevice_Success(t *testing.T) {
 		Model:        "S19",
 		Manufacturer: "Bitmain",
 		Type:         sdk.DeviceTypeASIC,
-		MacAddress:   "00:11:22:33:44:55",
+		MacAddress:   "00-11-22-33-44-55",
 	}
 
 	// Expected converted SecretBundle for username/password
@@ -152,8 +153,17 @@ func TestPairer_PairDevice_Success(t *testing.T) {
 		},
 	}
 
+	// Create mock device that will be returned by NewDevice
+	mockDevice := sdkMocks.NewMockDevice(ctrl)
+	mockDevice.EXPECT().
+		DescribeDevice(gomock.Any()).
+		Return(expectedDeviceInfo, sdk.Capabilities{}, nil)
+
 	// Create mock driver with specific expectations
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
+	mockDriver.EXPECT().
+		NewDevice(gomock.Any(), "test-device", gomock.Any(), gomock.Eq(expectedSecretBundle)).
+		Return(sdk.NewDeviceResult{Device: mockDevice}, nil)
 	mockDriver.EXPECT().
 		PairDevice(gomock.Any(), gomock.Eq(expectedDeviceInfo), gomock.Eq(expectedSecretBundle)).
 		Return("pairing successful", nil)
@@ -191,7 +201,7 @@ func TestPairer_PairDevice_Success(t *testing.T) {
 			Model:            "S19",
 			Manufacturer:     "Bitmain",
 			Type:             "asic",
-			MacAddress:       "00:11:22:33:44:55",
+			MacAddress:       "00-11-22-33-44-55",
 		},
 		OrgID: 1,
 	}
@@ -210,6 +220,8 @@ func TestPairer_PairDevice_Success(t *testing.T) {
 	)
 
 	// Mock device store operations
+	// GetDeviceByDeviceIdentifier returns nil (device doesn't exist yet)
+	deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), device.DeviceIdentifier, device.OrgID).Return(nil, fleeterror.NewNotFoundError("device not found"))
 	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
 	deviceStore.EXPECT().UpsertMinerCredentials(gomock.Any(), &device.Device, device.OrgID, gomock.Any(), gomock.Any()).Return(nil)
 	deviceStore.EXPECT().UpsertDevicePairing(gomock.Any(), &device.Device, device.OrgID, "PAIRED").Return(nil)
@@ -234,11 +246,25 @@ func TestPairer_PairDevice_Success_APIKey(t *testing.T) {
 		Model:        "ProtoMiner v1",
 		Manufacturer: "Proto",
 		Type:         sdk.DeviceTypeASIC,
-		MacAddress:   "00:11:22:33:44:55",
+		MacAddress:   "00-11-22-33-44-55",
 	}
+
+	// Create mock device that will be returned by NewDevice
+	mockDevice := sdkMocks.NewMockDevice(ctrl)
+	mockDevice.EXPECT().
+		DescribeDevice(gomock.Any()).
+		Return(expectedDeviceInfo, sdk.Capabilities{}, nil)
 
 	// Create mock driver with specific expectations
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
+	mockDriver.EXPECT().
+		NewDevice(gomock.Any(), "proto-device-001", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ sdk.DeviceInfo, bundle sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+			// Verify bundle contains APIKey
+			_, ok := bundle.Kind.(sdk.APIKey)
+			require.True(t, ok, "Expected APIKey in SecretBundle")
+			return sdk.NewDeviceResult{Device: mockDevice}, nil
+		})
 	mockDriver.EXPECT().
 		PairDevice(gomock.Any(), gomock.Eq(expectedDeviceInfo), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ sdk.DeviceInfo, bundle sdk.SecretBundle) (string, error) {
@@ -281,7 +307,7 @@ func TestPairer_PairDevice_Success_APIKey(t *testing.T) {
 			Model:            "ProtoMiner v1",
 			Manufacturer:     "Proto",
 			Type:             "asic",
-			MacAddress:       "00:11:22:33:44:55",
+			MacAddress:       "00-11-22-33-44-55",
 		},
 		OrgID: 1,
 	}
@@ -302,8 +328,8 @@ fKx2N0uH2VQ8Z3xPjZSYGDCxKVHZKvJ8Ug==
 	require.NoError(t, err)
 
 	// Mock user store to return encrypted org private key
-	// Called twice: once for plugin pairing, once for credential storage check
-	userStore.EXPECT().GetOrganizationPrivateKey(gomock.Any(), device.OrgID).Return(encryptedPrivateKey, nil).Times(2)
+	// Called 3 times: PairDevice createSecretBundle, GetDeviceInfo createSecretBundle, saveCredentials createSecretBundle
+	userStore.EXPECT().GetOrganizationPrivateKey(gomock.Any(), device.OrgID).Return(encryptedPrivateKey, nil).Times(3)
 
 	// Mock transactor to execute the function immediately
 	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -313,6 +339,8 @@ fKx2N0uH2VQ8Z3xPjZSYGDCxKVHZKvJ8Ug==
 	)
 
 	// Mock device store operations
+	// GetDeviceByDeviceIdentifier returns nil (device doesn't exist yet)
+	deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), device.DeviceIdentifier, device.OrgID).Return(nil, fleeterror.NewNotFoundError("device not found"))
 	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
 	// No UpsertMinerCredentials call expected - org-level keys aren't stored
 	deviceStore.EXPECT().UpsertDevicePairing(gomock.Any(), &device.Device, device.OrgID, "PAIRED").Return(nil)
@@ -452,7 +480,7 @@ func TestPairer_GetDeviceInfo_Success(t *testing.T) {
 	assert.Equal(t, "S19 Pro", result.Model)
 	assert.Equal(t, "Bitmain", result.Manufacturer)
 	assert.Equal(t, "asic", result.Type)
-	assert.Equal(t, "00:11:22:33:44:55", result.MacAddress)
+	assert.Equal(t, "00-11-22-33-44-55", result.MacAddress)
 }
 
 // Helper function to create string pointer

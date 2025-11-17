@@ -3,6 +3,7 @@ package pairing
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/capabilities"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
@@ -481,6 +483,54 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 	}, nil
 }
 
+// isCredentialsRequiredError checks if an error indicates that credentials are required but not provided
+func isCredentialsRequiredError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var fleetErr fleeterror.FleetError
+	if errors.As(err, &fleetErr) {
+		// Check for invalid_argument error with "credentials are required" message
+		return fleetErr.GRPCCode == connect.CodeInvalidArgument &&
+			strings.Contains(strings.ToLower(fleetErr.DebugMessage), "credentials are required")
+	}
+
+	// Also check the error message string directly for wrapped errors
+	return strings.Contains(strings.ToLower(err.Error()), "credentials are required") &&
+		strings.Contains(strings.ToLower(err.Error()), "invalid_argument")
+}
+
+// handleAuthenticationRequiredPairing inserts a device and creates a pairing record with AUTHENTICATION_NEEDED status
+func (s *Service) handleAuthenticationRequiredPairing(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice) error {
+	return s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		// Check if device already exists (e.g., from a previous discovery attempt)
+		existingDevice, err := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, discoveredDevice.DeviceIdentifier, discoveredDevice.OrgID)
+		if err != nil && !fleeterror.IsNotFoundError(err) {
+			return fleeterror.NewInternalErrorf("failed to check if device exists: %v", err)
+		}
+
+		if existingDevice == nil {
+			// Device doesn't exist yet, insert it
+			if err := s.deviceStore.InsertDevice(ctx, &discoveredDevice.Device, discoveredDevice.OrgID, discoveredDevice.DeviceIdentifier); err != nil {
+				return fleeterror.NewInternalErrorf("failed to insert device: %v", err)
+			}
+		} else {
+			// Device already exists, update MAC address and serial number
+			if err := s.deviceStore.UpdateDeviceInfo(ctx, &discoveredDevice.Device, discoveredDevice.OrgID); err != nil {
+				return fleeterror.NewInternalErrorf("failed to update device info: %v", err)
+			}
+		}
+
+		// Create pairing record with AUTHENTICATION_NEEDED status
+		if err := s.deviceStore.UpsertDevicePairing(ctx, &discoveredDevice.Device, discoveredDevice.OrgID, StatusAuthenticationNeeded); err != nil {
+			return fleeterror.NewInternalErrorf("failed to upsert device pairing: %v", err)
+		}
+
+		return nil
+	})
+}
+
 func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, credentials *pb.Credentials) error {
 	orgDeviceID := discoverymodels.DeviceOrgIdentifier{
 		DeviceIdentifier: deviceID,
@@ -509,6 +559,21 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 	}
 
 	if err := pairer.PairDevice(ctx, discoveredDevice, credentials); err != nil {
+		// Check if this is a "credentials required" error (not wrong credentials, but missing credentials)
+		if isCredentialsRequiredError(err) {
+			// Device needs authentication but no credentials were provided
+			// Insert device and mark as AUTHENTICATION_NEEDED so it shows up in the UI
+			slog.Info("device requires authentication, marking as AUTHENTICATION_NEEDED",
+				"device_identifier", discoveredDevice.DeviceIdentifier,
+				"device_type", discoveredDevice.Type)
+
+			if txErr := s.handleAuthenticationRequiredPairing(ctx, discoveredDevice); txErr != nil {
+				slog.Error("failed to create AUTHENTICATION_NEEDED pairing record",
+					"device_identifier", discoveredDevice.DeviceIdentifier,
+					"error", txErr)
+			}
+		}
+
 		// Preserve authentication errors - don't wrap them
 		if fleeterror.IsAuthenticationError(err) {
 			return err

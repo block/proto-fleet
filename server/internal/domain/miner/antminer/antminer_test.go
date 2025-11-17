@@ -242,9 +242,10 @@ func TestAntminer_GetTelemetry(t *testing.T) {
 	}
 
 	// Set expectations
+	// RPC calls always use port 4028 (Antminer RPC port), not the stored web port (80)
 	expectedConnInfo := &networking.ConnectionInfo{
 		IPAddress: networking.IPAddress(ipAddress),
-		Port:      networking.Port(port),
+		Port:      4028, // Antminer RPC port
 		Protocol:  networking.ProtocolTCP,
 	}
 

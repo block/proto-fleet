@@ -113,6 +113,19 @@ func (p *Pairer) PairDevice(ctx context.Context, discoveredDevice *discoverymode
 		"device", discoveredDevice.DeviceIdentifier,
 		"message", message)
 
+	// Fetch updated device info (including MAC address and serial number) from the device
+	updatedDeviceInfo, err := p.GetDeviceInfo(ctx, discoveredDevice, credentials)
+	if err != nil {
+		// Log warning but don't fail pairing if we can't get device info
+		slog.Warn("Failed to get device info after pairing, MAC address may not be populated",
+			"device", discoveredDevice.DeviceIdentifier,
+			"error", err)
+	} else {
+		// Update the discovered device with the latest info from the device
+		discoveredDevice.MacAddress = updatedDeviceInfo.MacAddress
+		discoveredDevice.SerialNumber = updatedDeviceInfo.SerialNumber
+	}
+
 	// Save device to database
 	if err := p.handlePairViaStore(ctx, discoveredDevice, credentials); err != nil {
 		return fleeterror.NewInternalErrorf("error saving device to database: %v", err)
@@ -124,8 +137,22 @@ func (p *Pairer) PairDevice(ctx context.Context, discoveredDevice *discoverymode
 // handlePairViaStore saves the device to the database
 func (p *Pairer) handlePairViaStore(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
 	return p.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		if err := p.deviceStore.InsertDevice(ctx, &discoveredDevice.Device, discoveredDevice.OrgID, discoveredDevice.DeviceIdentifier); err != nil {
-			return fleeterror.NewInternalErrorf("failed to insert device: %v", err)
+		// Check if device already exists (e.g., from AUTHENTICATION_NEEDED status)
+		existingDevice, err := p.deviceStore.GetDeviceByDeviceIdentifier(ctx, discoveredDevice.DeviceIdentifier, discoveredDevice.OrgID)
+		if err != nil && !fleeterror.IsNotFoundError(err) {
+			return fleeterror.NewInternalErrorf("failed to check if device exists: %v", err)
+		}
+
+		if existingDevice == nil {
+			// Device doesn't exist yet, insert it
+			if err := p.deviceStore.InsertDevice(ctx, &discoveredDevice.Device, discoveredDevice.OrgID, discoveredDevice.DeviceIdentifier); err != nil {
+				return fleeterror.NewInternalErrorf("failed to insert device: %v", err)
+			}
+		} else {
+			// Device already exists, update MAC address and serial number
+			if err := p.deviceStore.UpdateDeviceInfo(ctx, &discoveredDevice.Device, discoveredDevice.OrgID); err != nil {
+				return fleeterror.NewInternalErrorf("failed to update device info: %v", err)
+			}
 		}
 
 		// Save encrypted credentials based on SecretBundle type

@@ -8,6 +8,7 @@ import {
   DiscoverRequestSchema,
   PairRequestSchema,
 } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
+import useFleet from "@/protoFleet/api/useFleet";
 import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
@@ -23,7 +24,17 @@ import {
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 type MinersPageProps = {
+  /**
+   * Discovery mode determines the flow context and post-pairing behavior:
+   * - 'onboarding': Used during initial setup flow, navigates to home after pairing
+   * - 'pairing': Used for adding miners to existing fleet, calls onExit and reloads after pairing
+   * @default 'onboarding'
+   */
   mode?: MinerDiscoveryMode;
+  /**
+   * Callback invoked when user exits the discovery flow (e.g., cancels scan)
+   * Only used when mode is 'pairing'
+   */
   onExit?: () => void;
 };
 
@@ -40,6 +51,10 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
   const [foundMiners, setFoundMiners] = useState<Device[]>([]);
 
   const { refetch } = useOnboardedStatus();
+  const { refetch: refetchFleet } = useFleet({
+    scope: "global",
+    mode: "metadata",
+  });
 
   const minerIds = useMinerIds();
   // Process discovered miners, ensuring no duplicates
@@ -150,16 +165,12 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
   function handleContinue(selectedMinerIdentifiers: string[]) {
     const pairRequest = create(PairRequestSchema, {
       deviceIdentifiers: selectedMinerIdentifiers,
-      // TODO DASH-476/add-credential-entry-screen: get credentials from user
-      credentials: {
-        username: "root",
-        password: "root",
-      },
     });
     pair({
       pairRequest: pairRequest,
       onSuccess: () => {
         refetch();
+        refetchFleet();
         if (mode === "onboarding") {
           navigate("/");
         } else {

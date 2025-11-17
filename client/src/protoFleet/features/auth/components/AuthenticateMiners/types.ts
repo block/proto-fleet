@@ -4,6 +4,7 @@ export type UnauthenticatedMiner = {
   deviceIdentifier: string;
   model: string;
   macAddress: string;
+  ipAddress: string;
   username: string;
   password: string;
 };

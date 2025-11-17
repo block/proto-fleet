@@ -24,6 +24,8 @@ type UseAuthNeededMinersReturn = {
   setFilter: (filter: MinerListFilter) => void;
   /** Load the next page of miners */
   loadMore: () => void;
+  /** Refetch the miner list from the beginning */
+  refetch: () => void;
 };
 
 /**

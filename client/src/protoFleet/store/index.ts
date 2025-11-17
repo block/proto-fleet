@@ -64,7 +64,6 @@ export {
   useSetTotalMiners,
   useSetDeviceStatusCounts,
   useSetCurrentFilter,
-  useSetRefetchCallback,
   useUpdateMinerMeasurement,
   useUpdateMinerTelemetry,
   useUpdateMinerComponentStatus,

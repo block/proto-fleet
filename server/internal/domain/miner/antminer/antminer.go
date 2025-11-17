@@ -22,6 +22,13 @@ var _ interfaces.Miner = &Antminer{}
 var _ interfaces.MinerInfo = &Antminer{}
 var _ interfaces.MinerInfo = &AntminerInfo{}
 
+const (
+	// antminerWebPort is the HTTP port for the Antminer web interface and API
+	antminerWebPort networking.Port = 80
+	// antminerRPCPort is the TCP port for the Antminer CGMiner RPC API used for status checks and telemetry
+	antminerRPCPort networking.Port = 4028
+)
+
 type AntminerInfo struct {
 	deviceIdentifier models.DeviceIdentifier
 	serialNumber     string
@@ -146,7 +153,7 @@ func (a *Antminer) getWebConnectionInfo() *web.AntminerConnectionInfo {
 func (a *Antminer) getRPCConnectionInfo() *networking.ConnectionInfo {
 	return &networking.ConnectionInfo{
 		IPAddress: a.GetConnectionInfo().IPAddress,
-		Port:      a.GetConnectionInfo().Port,
+		Port:      antminerRPCPort, // Use RPC port (4028) instead of stored web port (80)
 		Protocol:  networking.ProtocolTCP,
 	}
 }

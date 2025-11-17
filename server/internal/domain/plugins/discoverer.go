@@ -11,6 +11,7 @@ import (
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 )
 
@@ -141,6 +142,12 @@ func convertSDKDeviceTypeToString(deviceInfo sdk.DeviceInfo, fallbackType string
 // createFleetDevice creates a Fleet pb.Device from SDK DeviceInfo and connection details.
 // This is a common helper to avoid duplication in device conversion logic.
 func createFleetDevice(deviceInfo sdk.DeviceInfo, ipAddress, port, deviceType string) *pb.Device {
+	// Normalize MAC address to canonical format (uppercase with dashes)
+	macAddress := deviceInfo.MacAddress
+	if macAddress != "" {
+		macAddress = networking.NormalizeMAC(macAddress)
+	}
+
 	return &pb.Device{
 		DeviceIdentifier: "",
 		IpAddress:        ipAddress,
@@ -150,7 +157,7 @@ func createFleetDevice(deviceInfo sdk.DeviceInfo, ipAddress, port, deviceType st
 		Model:            deviceInfo.Model,
 		Manufacturer:     deviceInfo.Manufacturer,
 		Type:             deviceType,
-		MacAddress:       deviceInfo.MacAddress,
+		MacAddress:       macAddress,
 		Capabilities:     nil,
 	}
 }

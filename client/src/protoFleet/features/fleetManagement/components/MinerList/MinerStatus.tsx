@@ -67,7 +67,8 @@ function getComponentStatus(
 
 const MinerStatus = ({ deviceIdentifier }: MinerStatusProps) => {
   const miner = useMiner(deviceIdentifier);
-  const isUnpaired = miner?.pairingStatus === PairingStatus.UNPAIRED;
+  const authenticationNeeded =
+    miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
   const componentStatusFromStore = useMinerComponentStatus(
     deviceIdentifier || "",
   );
@@ -86,7 +87,7 @@ const MinerStatus = ({ deviceIdentifier }: MinerStatusProps) => {
   const deviceStatusFromStore = useMinerDeviceStatus(deviceIdentifier || "");
 
   const status = useMemo(() => {
-    if (isUnpaired) {
+    if (authenticationNeeded) {
       return (
         <>
           <StatusCircle
@@ -216,7 +217,7 @@ const MinerStatus = ({ deviceIdentifier }: MinerStatusProps) => {
         Hashing
       </>
     );
-  }, [isUnpaired, deviceStatusFromStore, componentStatus]);
+  }, [authenticationNeeded, deviceStatusFromStore, componentStatus]);
 
   return <div className="flex items-center gap-1">{status}</div>;
 };

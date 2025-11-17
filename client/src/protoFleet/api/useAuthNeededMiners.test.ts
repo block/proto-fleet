@@ -19,6 +19,7 @@ describe("useAuthNeededMiners", () => {
     isLoading: false,
     setFilter: vi.fn(),
     loadMore: vi.fn(),
+    refetch: vi.fn(),
   };
 
   beforeEach(() => {

@@ -241,6 +241,20 @@ func (mr *MockDeviceStoreMockRecorder) ListPairedMinersWithStatus(ctx, orgID, cu
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPairedMinersWithStatus", reflect.TypeOf((*MockDeviceStore)(nil).ListPairedMinersWithStatus), ctx, orgID, cursor, pageSize, filter)
 }
 
+// UpdateDeviceInfo mocks base method.
+func (m *MockDeviceStore) UpdateDeviceInfo(ctx context.Context, device *pairingv1.Device, orgID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateDeviceInfo", ctx, device, orgID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateDeviceInfo indicates an expected call of UpdateDeviceInfo.
+func (mr *MockDeviceStoreMockRecorder) UpdateDeviceInfo(ctx, device, orgID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDeviceInfo", reflect.TypeOf((*MockDeviceStore)(nil).UpdateDeviceInfo), ctx, device, orgID)
+}
+
 // UpdateDevicePairingStatusByIdentifier mocks base method.
 func (m *MockDeviceStore) UpdateDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier, pairingStatus string) error {
 	m.ctrl.T.Helper()

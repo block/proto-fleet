@@ -79,7 +79,7 @@ func (s *SQLDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identi
 	})
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fleeterror.NewInternalErrorf("device not found with identifier=%s org_id=%d: %v", identifier, orgID, err)
+			return nil, fleeterror.NewNotFoundErrorf("device not found with identifier=%s org_id=%d", identifier, orgID)
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to query device with identifier=%s org_id=%d: %v", identifier, orgID, err)
 	}
@@ -109,6 +109,22 @@ func (s *SQLDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identi
 	}
 
 	return result, nil
+}
+
+func (s *SQLDeviceStore) UpdateDeviceInfo(ctx context.Context, device *pb.Device, orgID int64) error {
+	err := s.getQueries(ctx).UpdateDeviceInfo(ctx, sqlc.UpdateDeviceInfoParams{
+		MacAddress: device.MacAddress,
+		SerialNumber: sql.NullString{
+			String: device.SerialNumber,
+			Valid:  device.SerialNumber != "",
+		},
+		DeviceIdentifier: device.DeviceIdentifier,
+		OrgID:            orgID,
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to update device info for identifier=%s org_id=%d: %v", device.DeviceIdentifier, orgID, err)
+	}
+	return nil
 }
 
 func (s *SQLDeviceStore) InsertDevice(ctx context.Context, device *pb.Device, orgID int64, discoveredDeviceIdentifier string) error {

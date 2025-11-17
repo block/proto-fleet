@@ -252,6 +252,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateDeviceIPAssignmentStmt, err = db.PrepareContext(ctx, updateDeviceIPAssignment); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateDeviceIPAssignment: %w", err)
 	}
+	if q.updateDeviceInfoStmt, err = db.PrepareContext(ctx, updateDeviceInfo); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateDeviceInfo: %w", err)
+	}
 	if q.updateDevicePairingStatusByIdentifierStmt, err = db.PrepareContext(ctx, updateDevicePairingStatusByIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateDevicePairingStatusByIdentifier: %w", err)
 	}
@@ -685,6 +688,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateDeviceIPAssignmentStmt: %w", cerr)
 		}
 	}
+	if q.updateDeviceInfoStmt != nil {
+		if cerr := q.updateDeviceInfoStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateDeviceInfoStmt: %w", cerr)
+		}
+	}
 	if q.updateDevicePairingStatusByIdentifierStmt != nil {
 		if cerr := q.updateDevicePairingStatusByIdentifierStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateDevicePairingStatusByIdentifierStmt: %w", cerr)
@@ -880,6 +888,7 @@ type Queries struct {
 	undeleteRoleStmt                                    *sql.Stmt
 	unsetDefaultPoolStmt                                *sql.Stmt
 	updateDeviceIPAssignmentStmt                        *sql.Stmt
+	updateDeviceInfoStmt                                *sql.Stmt
 	updateDevicePairingStatusByIdentifierStmt           *sql.Stmt
 	updateMessageAfterFailureStmt                       *sql.Stmt
 	updateMessageStatusStmt                             *sql.Stmt
@@ -978,6 +987,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		undeleteRoleStmt:                                    q.undeleteRoleStmt,
 		unsetDefaultPoolStmt:                                q.unsetDefaultPoolStmt,
 		updateDeviceIPAssignmentStmt:                        q.updateDeviceIPAssignmentStmt,
+		updateDeviceInfoStmt:                                q.updateDeviceInfoStmt,
 		updateDevicePairingStatusByIdentifierStmt:           q.updateDevicePairingStatusByIdentifierStmt,
 		updateMessageAfterFailureStmt:                       q.updateMessageAfterFailureStmt,
 		updateMessageStatusStmt:                             q.updateMessageStatusStmt,

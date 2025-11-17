@@ -1034,6 +1034,33 @@ func (q *Queries) UpdateDeviceIPAssignment(ctx context.Context, arg UpdateDevice
 	return err
 }
 
+const updateDeviceInfo = `-- name: UpdateDeviceInfo :exec
+UPDATE device
+SET
+    mac_address = ?,
+    serial_number = ?
+WHERE device_identifier = ?
+  AND org_id = ?
+  AND deleted_at IS NULL
+`
+
+type UpdateDeviceInfoParams struct {
+	MacAddress       string
+	SerialNumber     sql.NullString
+	DeviceIdentifier string
+	OrgID            int64
+}
+
+func (q *Queries) UpdateDeviceInfo(ctx context.Context, arg UpdateDeviceInfoParams) error {
+	_, err := q.exec(ctx, q.updateDeviceInfoStmt, updateDeviceInfo,
+		arg.MacAddress,
+		arg.SerialNumber,
+		arg.DeviceIdentifier,
+		arg.OrgID,
+	)
+	return err
+}
+
 const updateDevicePairingStatusByIdentifier = `-- name: UpdateDevicePairingStatusByIdentifier :exec
 UPDATE device_pairing dp
 INNER JOIN device d ON dp.device_id = d.id

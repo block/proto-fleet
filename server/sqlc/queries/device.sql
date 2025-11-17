@@ -114,6 +114,15 @@ WHERE device_identifier = ?
   AND deleted_at IS NULL
     LIMIT 1;
 
+-- name: UpdateDeviceInfo :exec
+UPDATE device
+SET
+    mac_address = ?,
+    serial_number = ?
+WHERE device_identifier = ?
+  AND org_id = ?
+  AND deleted_at IS NULL;
+
 -- name: ListPairedMinersWithStatus :many
 SELECT
     d.device_identifier,

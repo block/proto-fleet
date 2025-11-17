@@ -70,24 +70,24 @@ const DataModeMapping = {
  * @example
  * ```tsx
  * // Global scope - for main fleet view (MinerList)
- * const { minerIds, hasMore, isLoading, setFilter, loadMore } = useFleet({
+ * const { minerIds, totalMiners, hasMore, isLoading, setFilter, loadMore, refetch } = useFleet({
  *   scope: 'global'
  * });
  *
  * // Local scope - for secondary views that shouldn't affect global state
- * const { minerIds, miners, hasMore, isLoading, setFilter, loadMore } = useFleet({
+ * const { minerIds, miners, totalMiners, hasMore, isLoading, setFilter, loadMore, refetch } = useFleet({
  *   scope: 'local',
  *   initialFilter: { status: [ComponentStatus.OK] }
  * });
  *
  * // With custom page size
- * const { minerIds, hasMore, isLoading, setFilter, loadMore } = useFleet({
+ * const { minerIds, totalMiners, hasMore, isLoading, setFilter, loadMore, refetch } = useFleet({
  *   scope: 'global',
  *   pageSize: 50
  * });
  *
  * // With visible miners for optimized telemetry streaming
- * const { minerIds, hasMore, isLoading, setFilter, loadMore } = useFleet({
+ * const { minerIds, totalMiners, hasMore, isLoading, setFilter, loadMore, refetch } = useFleet({
  *   scope: 'global',
  *   visibleMinerIds: myVisibleMinerIds,
  *   pageSize: 25
@@ -100,6 +100,9 @@ const DataModeMapping = {
  * if (hasMore) {
  *   loadMore();
  * }
+ *
+ * // Refetch current filter from scratch
+ * refetch();
  * ```
  */
 const useFleet = (options: UseFleetOptions = {}) => {
@@ -107,7 +110,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
     initialFilter,
     pageSize = 100,
     pairingStatuses = DEFAULT_PAIRING_STATUSES, // Use stable reference to prevent re-renders
-    scope = "global",
+    scope = "local",
     visibleMinerIds,
     mode = "metadata",
   } = options;
@@ -415,24 +418,24 @@ const useFleet = (options: UseFleetOptions = {}) => {
     }
   }, [hasMore, isLoading, currentFilter, cursor, fetchMiners]);
 
+  const refetch = useCallback(() => {
+    if (!isLoading) {
+      fetchMiners(currentFilter, undefined); // Reset cursor to start fresh
+    }
+  }, [isLoading, currentFilter, fetchMiners]);
+
   // Set up refetch callback for the store (only for global scope)
   useEffect(() => {
     if (scope !== "global") {
       return;
     }
 
-    const refetchCallback = () => {
-      if (!isLoading) {
-        fetchMiners(currentFilter, cursor);
-      }
-    };
-
-    useFleetStore.getState().fleet.setRefetchCallback(refetchCallback);
+    useFleetStore.getState().fleet.setRefetchCallback(refetch);
 
     return () => {
       useFleetStore.getState().fleet.setRefetchCallback(undefined);
     };
-  }, [fetchMiners, currentFilter, cursor, isLoading, scope]);
+  }, [refetch, scope]);
 
   // Initial load on mount - only run once
   useEffect(() => {
@@ -519,6 +522,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
     loadMore,
     // Only return miners map for local scope (global scope uses store)
     ...(scope === "local" && { miners: localMiners }),
+    refetch,
   };
 };
 

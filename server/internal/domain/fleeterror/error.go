@@ -211,6 +211,16 @@ func NewInvalidArgumentErrorf(format string, a ...any) FleetError {
 	).WithCallerStackTrace()
 }
 
+func NewNotFoundError(debugMessage string) FleetError {
+	return NewPlainError(debugMessage, connect.CodeNotFound).WithCallerStackTrace()
+}
+
+func NewNotFoundErrorf(format string, a ...any) FleetError {
+	return NewNotFoundError(
+		fmt.Sprintf(format, a...),
+	).WithCallerStackTrace()
+}
+
 func NewCanceledError() FleetError {
 	return NewPlainError("operation was canceled", connect.CodeCanceled).WithCallerStackTrace()
 }
@@ -242,6 +252,26 @@ func IsAuthenticationError(err error) bool {
 	var connectErr *connect.Error
 	if errors.As(err, &connectErr) {
 		return connectErr.Code() == connect.CodeUnauthenticated
+	}
+
+	return false
+}
+
+// IsNotFoundError checks if an error is a not found error
+func IsNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var fleetErr FleetError
+	if errors.As(err, &fleetErr) {
+		return fleetErr.GRPCCode == connect.CodeNotFound
+	}
+
+	// Also check for connect.Error directly
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) {
+		return connectErr.Code() == connect.CodeNotFound
 	}
 
 	return false
