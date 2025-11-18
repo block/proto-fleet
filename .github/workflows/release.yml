@@ -34,7 +34,27 @@ jobs:
           echo "is_prerelease: ${{ github.event.release.prerelease }}" >> version.txt
           echo "build_date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> version.txt
           echo "commit: ${{ github.sha }}" >> version.txt
-          tar -czf proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz fleetd-amd64 fleetd-arm64 version.txt
+
+      - name: Build plugin binaries
+        run: |
+          echo "Syncing Go workspace..."
+          go work sync
+          echo "Building plugins for multiple architectures..."
+          GOOS=linux GOARCH=amd64 go build -o server/proto-plugin-amd64 ./plugin/proto
+          GOOS=linux GOARCH=amd64 go build -o server/antminer-plugin-amd64 ./plugin/antminer
+          GOOS=linux GOARCH=arm64 go build -o server/proto-plugin-arm64 ./plugin/proto
+          GOOS=linux GOARCH=arm64 go build -o server/antminer-plugin-arm64 ./plugin/antminer
+          chmod +x server/proto-plugin-* server/antminer-plugin-*
+          echo "Multi-arch plugins built successfully"
+
+      - name: Package server binaries
+        working-directory: ./server
+        run: |
+          tar -czf proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz \
+            fleetd-amd64 fleetd-arm64 \
+            proto-plugin-amd64 proto-plugin-arm64 \
+            antminer-plugin-amd64 antminer-plugin-arm64 \
+            version.txt
 
       # Upload to GitHub Actions artifacts
       - name: Upload server artifact for job use
