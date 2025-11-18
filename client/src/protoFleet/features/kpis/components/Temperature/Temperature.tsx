@@ -42,7 +42,7 @@ const Temperature = () => {
       <KpiLineChart
         chartData={totalTemperature}
         units="°C"
-        aggregateKey="totalTemperature"
+        aggregateKey="value"
       />
     </>
   );

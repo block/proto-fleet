@@ -42,7 +42,7 @@ const Efficiency = () => {
       <KpiLineChart
         units="J/TH"
         chartData={totalEfficiency}
-        aggregateKey="totalEfficiency"
+        aggregateKey="value"
       />
     </>
   );

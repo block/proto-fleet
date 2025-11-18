@@ -182,6 +182,13 @@ const LineChart = ({
         }),
       );
 
+    // Guard against empty data: if filtering returned no values,
+    // Math.max() returns -Infinity and Math.min() returns Infinity,
+    // which would cause NaN ticks downstream
+    if (!isFinite(max) || !isFinite(min)) {
+      return { minDomain: 0, maxDomain: 0, yAxisTicks: [] };
+    }
+
     const range = max - min;
     const paddedMin = min - range * 0.2;
     const paddedMax = max + range * 0.2;
@@ -301,15 +308,26 @@ const LineChart = ({
               isAnimationActive={false}
             />
 
-            {activeKeys?.map((key, index) => (
-              <Line
-                {...lineProps}
-                dataKey={key}
-                key={index}
-                isAnimationActive={key === aggregateKey && shouldAnimate}
-                stroke={`var(${colorMap?.[key]})`}
-              />
-            ))}
+            {(activeKeys && activeKeys.length > 0
+              ? activeKeys
+              : aggregateKey
+                ? [aggregateKey]
+                : []
+            ).map((key, index) => {
+              const strokeColor = colorMap?.[key]
+                ? `var(${colorMap[key]})`
+                : "var(--color-core-primary-fill)";
+
+              return (
+                <Line
+                  {...lineProps}
+                  dataKey={key}
+                  key={index}
+                  isAnimationActive={key === aggregateKey && shouldAnimate}
+                  stroke={strokeColor}
+                />
+              );
+            })}
 
             <YAxis
               axisLine={{

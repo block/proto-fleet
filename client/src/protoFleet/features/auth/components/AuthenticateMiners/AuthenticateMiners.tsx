@@ -190,7 +190,10 @@ const AuthenticateMiners = ({
             id={item.deviceIdentifier + "_username"}
             className="h-10!"
             label="Username"
-            initValue={credentials[item.deviceIdentifier]?.username ?? ""}
+            initValue={
+              credentials[item.deviceIdentifier]?.username ??
+              bulkCredentials.username
+            }
             hideLabelOnFocus
             disabled={
               authenticateLoading &&
@@ -218,7 +221,10 @@ const AuthenticateMiners = ({
             className="h-10!"
             label="Password"
             type={showPasswords ? "text" : "password"}
-            initValue={credentials[item.deviceIdentifier]?.password ?? ""}
+            initValue={
+              credentials[item.deviceIdentifier]?.password ??
+              bulkCredentials.password
+            }
             hideLabelOnFocus
             disabled={
               authenticateLoading &&

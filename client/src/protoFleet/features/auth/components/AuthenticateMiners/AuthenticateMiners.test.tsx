@@ -11,8 +11,18 @@ vi.mock("@/protoFleet/api/useAuthNeededMiners");
 vi.mock("@/protoFleet/api/useFleet");
 vi.mock("@/protoFleet/api/useMinerPairing");
 vi.mock("@/protoFleet/api/useOnboardedStatus");
-vi.mock("@/protoFleet/store");
 vi.mock("@/shared/features/toaster");
+
+const mockRefetchMiners = vi.fn();
+vi.mock("@/protoFleet/store", () => ({
+  useFleetStore: {
+    getState: () => ({
+      fleet: {
+        refetchMiners: mockRefetchMiners,
+      },
+    }),
+  },
+}));
 
 const mockUnpairedMiners = {
   miner1: {
@@ -172,14 +182,16 @@ describe("AuthenticateMiners", () => {
 
     fireEvent.click(getByText(showMinersLabel));
 
-    const usernameInputs = getAllByLabelText(usernameLabel);
-    const passwordInputs = getAllByLabelText(passwordLabel);
+    await vi.waitFor(() => {
+      const usernameInputs = getAllByLabelText(usernameLabel);
+      const passwordInputs = getAllByLabelText(passwordLabel);
 
-    usernameInputs.forEach((input) => {
-      expect(input).toHaveValue(mockUsername);
-    });
-    passwordInputs.forEach((input) => {
-      expect(input).toHaveValue(mockPassword);
+      usernameInputs.forEach((input) => {
+        expect(input).toHaveValue(mockUsername);
+      });
+      passwordInputs.forEach((input) => {
+        expect(input).toHaveValue(mockPassword);
+      });
     });
   });
 
@@ -360,7 +372,7 @@ describe("AuthenticateMiners", () => {
 
     await vi.waitFor(() => {
       expect(mockRefetchOnboardingStatus).toHaveBeenCalled();
-      expect(mockRefetchFleet).toHaveBeenCalled();
+      expect(mockRefetchMiners).toHaveBeenCalled();
       expect(mockOnSuccess).toHaveBeenCalled();
     });
   });

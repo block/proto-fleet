@@ -49,7 +49,7 @@ const Hashrate = () => {
       {aggregates && <Stats stats={getStats(aggregates)} />}
       <KpiLineChart
         chartData={totalHashrate}
-        aggregateKey="totalHashrate"
+        aggregateKey="value"
         units="TH/s"
       />
     </>

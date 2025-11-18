@@ -42,7 +42,7 @@ const PowerUsage = () => {
       <KpiLineChart
         chartData={totalPowerUsage}
         units="kW"
-        aggregateKey="totalPowerUsage"
+        aggregateKey="value"
       />
     </>
   );

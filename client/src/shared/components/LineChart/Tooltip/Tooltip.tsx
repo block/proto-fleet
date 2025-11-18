@@ -68,8 +68,17 @@ const ChartTooltip = ({
   toolTipItemIcon,
 }: ChartTooltipProps) => {
   const lastUpdateRef = useRef(LAST_UPDATE_DEFAULT);
+
+  // Use aggregateKey as fallback when no activeKeys provided
+  const keysToShow =
+    activeKeys && activeKeys.length > 0
+      ? activeKeys
+      : aggregateKey
+        ? [aggregateKey]
+        : [];
+
   const showAggregate = aggregateKey
-    ? activeKeys.includes(aggregateKey)
+    ? keysToShow.includes(aggregateKey)
     : false;
 
   useEffect(() => {
@@ -98,7 +107,7 @@ const ChartTooltip = ({
   const payload = tooltipData.payload[0]?.payload || {};
   const filteredPayload = Object.entries(payload).reduce(
     (acc, [key, value]) => {
-      if (activeKeys?.includes(key)) {
+      if (keysToShow.includes(key)) {
         acc[key] = value;
       }
       return acc;
