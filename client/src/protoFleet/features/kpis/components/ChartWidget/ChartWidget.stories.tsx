@@ -32,7 +32,7 @@ export const ChartWidget = ({ label, value, units }: ChartWidgetArgs) => {
   const sampleData = generateSampleData();
 
   return (
-    <div className="bg-core-primary-5 p-10">
+    <div className="bg-surface-5 p-10">
       <ChartWidgetComponent label={label} value={value} units={units}>
         <KpiLineChart
           chartData={sampleData}
