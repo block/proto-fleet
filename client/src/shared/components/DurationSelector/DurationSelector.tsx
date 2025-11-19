@@ -1,9 +1,9 @@
-import { useMemo } from "react";
+import { useState } from "react";
 import { Duration } from "./types";
 
 import { durations } from "@/shared/components/DurationSelector/constants";
-import SegmentedControl from "@/shared/components/SegmentedControl";
-import type { Segment } from "@/shared/components/SegmentedControl/types";
+import Button from "@/shared/components/Button";
+import clsx from "clsx";
 
 interface DurationSelectorProps {
   className?: string;
@@ -16,21 +16,31 @@ const DurationSelector = ({
   duration,
   onSelect,
 }: DurationSelectorProps) => {
-  const durationSegments = useMemo(() => {
-    return durations.map((duration: Duration) => ({
-      key: duration,
-      title: duration,
-    })) as Segment[];
-  }, []);
+  // Initialize with the provided duration or default to the first option
+  const [selectedDuration, setSelectedDuration] = useState<Duration>(
+    duration || durations[0],
+  );
+
+  const handleSelect = (d: Duration) => {
+    setSelectedDuration(d);
+    onSelect && onSelect(d);
+  };
 
   return (
-    <SegmentedControl
-      className={className}
-      segmentClassName="uppercase"
-      segments={durationSegments}
-      initialSegmentKey={duration}
-      onSelect={(key) => onSelect && onSelect(key as Duration)}
-    />
+    <div className={clsx("flex gap-1", className)}>
+      {durations.map((d) => {
+        const isSelected = d === selectedDuration;
+        return (
+          <Button
+            key={d}
+            variant={isSelected ? "primary" : "secondary"}
+            size="compact"
+            text={d}
+            onClick={() => handleSelect(d)}
+          />
+        );
+      })}
+    </div>
   );
 };
 

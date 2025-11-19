@@ -69,9 +69,9 @@ const Button = ({
         // padding
         {
           "px-3 py-2": base && (text || children),
-          "p-2": base && !text && !children,
-          "px-3 py-[2px]": compact && (text || children),
-          "p-[6px]": compact && !text && !children,
+          "px-2.5 py-2.5": base && !text && !children,
+          "px-3 py-1": compact && (text || children),
+          "px-2 py-2": compact && !text && !children,
         },
         // color and bg - primary
         {
