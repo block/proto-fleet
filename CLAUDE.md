@@ -409,11 +409,102 @@ EOF
 - Include units in constant names: `timeoutSeconds`, `maxRetries`, `hashToTeraHashConversion`
 - Document what each constant represents in comments
 
+**Use Standard Library Constants**
+- Use `math.MaxInt32`, `math.MaxInt64`, `math.MaxUint16`, etc. instead of hardcoded values
+- Use `math.MaxFloat64`, `math.MinInt32`, etc. for numeric boundaries
+- Example: Replace `65535` with `math.MaxUint16` for port validation
+- Example: Replace `2147483647` with `math.MaxInt32` for int32 boundaries
+- This makes code self-documenting and prevents typos
+
+**Guidelines for Specific Value Types**
+
+*Port Numbers and Network Values:*
+- Always define as named constants: `const defaultProtoPort = 2121`
+- Use `math.MaxUint16` for max port validation (not `65535`)
+- Include port number in error messages via constant, not hardcoded
+
+*Time Intervals:*
+- Always use `time.Duration` constants: `const pollInterval = 5 * time.Second`
+- Group related intervals together with clear names
+- Example: `defaultHeartbeatInterval`, `defaultPollInterval`, `defaultRetryDelay`
+
+*Buffer and Channel Sizes:*
+- Define buffer sizes as constants: `const defaultChannelBuffer = 100`
+- Use consistent buffer sizes across similar operations
+- Document why a specific buffer size was chosen
+
+*Conversion Factors:*
+- Always name unit conversion factors: `const mhsToThsConversion = 1e6`
+- Include units in constant name: `wattsToKilowatts`, `secondsToMilliseconds`
+- Group conversion factors by domain (power, hashrate, time, etc.)
+
+*Percentages and Ratios:*
+- Name percentile/ratio values: `const percentile25 = 0.25`, `const halfCapacity = 0.5`
+- Use descriptive names that explain intent
+
+*String Parsing:*
+- Use named constants for strconv parameters: `const decimalBase = 10`, `const int32Bits = 32`
+- Makes parsing code self-documenting
+
 **Linter Suppressions = Last Resort**
 - `#nosec`, `//nolint`, etc. should be rare and justified
 - Before adding a suppression, ask: "Can I validate this properly instead?"
 - Example: Instead of `#nosec G115` on int conversions, add range validation
 - If suppression is necessary, include a detailed comment explaining why
+
+**Avoid Obvious Comments**
+- Comments should explain **why**, not **what**
+- If the code is self-explanatory, don't add a comment
+- Remove comments that just restate what the code does
+
+*Examples of obvious comments to avoid:*
+```go
+// ❌ Bad - obvious from code
+// Parse port as int64 first to avoid overflow issues
+portInt64, err := strconv.ParseInt(port, 10, 32)
+
+// ❌ Bad - obvious from code
+// Check for valid port range
+if portInt < 0 || portInt > maxValidPortNumber {
+
+// ❌ Bad - obvious from code
+// Clear cached data
+d.lastStatus = nil
+
+// ❌ Bad - obvious from field name
+type Driver struct {
+    // devices tracks all active device instances
+    devices map[string]sdk.Device
+}
+```
+
+*Examples of valuable comments to keep:*
+```go
+// ✅ Good - explains context and reasoning
+// Note: In integration tests, we may use different ports due to Docker port mapping
+if portInt != d.requiredPort && d.requiredPort != 0 {
+
+// ✅ Good - explains why with reference
+// #nosec G115 -- Loop index inherently safe: bounded by slice length (max ~200)
+Index: int32(i),
+
+// ✅ Good - documents important contract
+// Hardware indices (hashboards, ASICs, PSUs) are bounded by physical constraints,
+// so this conversion is safe in practice.
+func safeUint32ToInt32(value uint32) int32 {
+```
+
+*Guidelines for comment quality:*
+- Keep package and exported function documentation comments (godoc)
+- Remove comments that just describe variable assignment or obvious operations
+- Remove inline comments that restate the operation (`// Create client`, `// Convert to int32`)
+- Keep comments that explain non-obvious behavior, edge cases, or reasoning
+- Keep comments that reference RFCs, tickets, or external documentation
+- Keep TODO comments with ticket numbers
+- If you need to explain basic operations, consider refactoring for clarity instead
+
+*To review comments in your changes:*
+Invoke the `@remove-obvious-comments` agent to automatically identify and remove obvious comments from the current branch changes.
 
 ### Code Refactoring
 
@@ -443,6 +534,7 @@ Before marking work as complete or asking the user to review, verify:
 4. ✅ **Rule of 3**: Repeated patterns (3+ occurrences) extracted into helper functions
 5. ✅ **Tests Pass**: `just test` succeeds for all affected modules
 6. ✅ **Data Contracts**: External data mappings are investigated and validated (not assumed safe)
+7. ✅ **Comments**: No obvious comments that just restate what the code does (use `@remove-obvious-comments` agent to check)
 
 This checklist helps catch common issues before user review rather than requiring corrections afterward.
 
