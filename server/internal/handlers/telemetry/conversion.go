@@ -146,15 +146,15 @@ var (
 	}
 
 	measurementStringToTypeMap = map[string]models.MeasurementType{
-		"temperature_c":  models.MeasurementTypeTemperature,
-		"hashrate_mhs":   models.MeasurementTypeHashrate,
-		"power_w":        models.MeasurementTypePower,
-		"efficiency_jth": models.MeasurementTypeEfficiency,
-		"fan_rpm":        models.MeasurementTypeFanSpeed,
-		"voltage_mv":     models.MeasurementTypeVoltage,
-		"current_ma":     models.MeasurementTypeCurrent,
-		"uptime":         models.MeasurementTypeUptime,
-		"error_rate":     models.MeasurementTypeErrorRate,
+		"temperature_c": models.MeasurementTypeTemperature,
+		"hashrate_mhs":  models.MeasurementTypeHashrate,
+		"power_w":       models.MeasurementTypePower,
+		"efficiency_jh": models.MeasurementTypeEfficiency,
+		"fan_rpm":       models.MeasurementTypeFanSpeed,
+		"voltage_mv":    models.MeasurementTypeVoltage,
+		"current_ma":    models.MeasurementTypeCurrent,
+		"uptime":        models.MeasurementTypeUptime,
+		"error_rate":    models.MeasurementTypeErrorRate,
 	}
 
 	measurementTypeToUnitMap = map[telemetryv1.MeasurementType]commonv1.MeasurementUnit{
@@ -420,8 +420,11 @@ func fromTelemetryData(telemetryData []models.Telemetry) ([]*telemetryv1.Telemet
 			return nil, fmt.Errorf("invalid value type for measurement %s on device_id: %s expected float64, got %T", data.Measurement, deviceID, val)
 		}
 
+		// Convert units from storage format to API format
 		if measurementType == telemetryv1.MeasurementType_MEASUREMENT_TYPE_HASHRATE {
-			value /= 1e6 // Convert hashrate from MHS to THS
+			value /= 1e6 // Convert hashrate from MH/s to TH/s
+		} else if measurementType == telemetryv1.MeasurementType_MEASUREMENT_TYPE_EFFICIENCY {
+			value *= 1e12 // Convert efficiency from J/H to J/TH
 		}
 
 		result[i] = &telemetryv1.TelemetryData{
@@ -581,10 +584,16 @@ func fromAggregatedTelemetry(aggregatedData []models.AggregatedTelemetry) ([]*te
 			timeWindow.EndTime = timestamppb.New(data.TimeWindow.EndTime)
 		}
 
+		// Convert units from storage format to API format
+		value := data.Value
+		if measurementType == telemetryv1.MeasurementType_MEASUREMENT_TYPE_EFFICIENCY {
+			value *= 1e12 // Convert efficiency from J/H to J/TH
+		}
+
 		result[i] = &telemetryv1.AggregatedTelemetry{
 			DeviceId:        string(data.DeviceID),
 			MeasurementType: measurementType,
-			Value:           data.Value,
+			Value:           value,
 			AggregationType: aggregationType,
 			DataPoints:      dataPoints,
 			TimeWindow:      timeWindow,
@@ -674,9 +683,15 @@ func fromCombinedMetrics(combinedMetrics models.CombinedMetric) (*telemetryv1.Ge
 				return nil, err
 			}
 
+			// Convert units from storage format to API format
+			value := aggValue.Value
+			if measurementType == telemetryv1.MeasurementType_MEASUREMENT_TYPE_EFFICIENCY {
+				value *= 1e12 // Convert efficiency from J/H to J/TH
+			}
+
 			aggregatedValues[j] = &telemetryv1.AggregatedValue{
 				AggregationType: aggregationType,
-				Value:           aggValue.Value,
+				Value:           value,
 			}
 		}
 

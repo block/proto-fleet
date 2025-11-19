@@ -221,14 +221,14 @@ func TestDiscoverDevice_PortValidation(t *testing.T) {
 			driverPort:   2121,
 			targetPort:   "-1",
 			expectError:  true,
-			errorMessage: "proto miners typically use port 2121",
+			errorMessage: "port number out of range",
 		},
 		{
 			name:         "invalid port - too large",
 			driverPort:   2121,
 			targetPort:   "65536",
 			expectError:  true,
-			errorMessage: "proto miners typically use port 2121",
+			errorMessage: "port number out of range",
 		},
 		{
 			name:         "wrong port for strict driver",
@@ -551,17 +551,20 @@ func BenchmarkDiscoverDevice(b *testing.B) {
 	}
 }
 
-// getUnusedNonRoutableIP returns an IP address from RFC 5737 test networks.
-// These addresses are reserved for documentation and examples, and are guaranteed
-// to be non-routable by design. They should never be assigned to real network interfaces.
+// getUnusedNonRoutableIP returns an IP address from RFC 5737 TEST-NET-1 (192.0.2.0/24).
+// These addresses are reserved for documentation and examples, and are guaranteed to be
+// non-routable by design. They should never be assigned to real network interfaces.
+//
+// This function returns 192.0.2.1 from TEST-NET-1 for consistency across tests.
+// If different test scenarios need different non-routable IPs to avoid conflicts,
+// consider TEST-NET-2 (198.51.100.0/24) or TEST-NET-3 (203.0.113.0/24).
+//
 // See: https://www.rfc-editor.org/rfc/rfc5737
 func getUnusedNonRoutableIP(t *testing.T) string {
 	t.Helper()
-	// TEST-NET-1: Reserved for documentation and testing, guaranteed non-routable
 	return "192.0.2.1"
 }
 
-// Helper function for string pointer
 func stringPtr(s string) *string {
 	return &s
 }

@@ -948,3 +948,293 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	})
 }
+
+func TestTelemetryService_StreamCombinedMetrics(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	t.Run("successfully streams initial update", func(t *testing.T) {
+		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+		mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+		service := NewTelemetryService(Config{
+			StalenessThreshold: 1 * time.Minute,
+			FetchInterval:      10 * time.Second,
+			ConcurrencyLimit:   5,
+		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore)
+
+		deviceIDs := []models.DeviceIdentifier{"device1", "device2"}
+		measurementTypes := []models.MeasurementType{models.MeasurementTypeHashrate}
+		aggregationTypes := []models.AggregationType{models.AggregationTypeAverage}
+		granularity := 1 * time.Minute
+
+		query := models.StreamCombinedMetricsQuery{
+			DeviceIDs:        deviceIDs,
+			MeasurementTypes: measurementTypes,
+			AggregationTypes: aggregationTypes,
+			Granularity:      granularity,
+			UpdateInterval:   granularity,
+		}
+
+		// Mock GetCombinedMetrics to return test data
+		expectedMetrics := models.CombinedMetric{
+			Metrics: []models.Metric{
+				{
+					MeasurementType: models.MeasurementTypeHashrate,
+					AggregatedValues: []models.AggregatedValue{
+						{Type: models.AggregationTypeAverage, Value: 100.0},
+					},
+					OpenTime: time.Now(),
+				},
+			},
+		}
+
+		mockDataStore.EXPECT().
+			GetCombinedMetrics(gomock.Any(), gomock.Any()).
+			Return(expectedMetrics, nil).
+			Times(1)
+
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+
+		updateChan, err := service.StreamCombinedMetrics(ctx, query)
+		require.NoError(t, err)
+		require.NotNil(t, updateChan)
+
+		// Should receive initial update immediately
+		select {
+		case metrics, ok := <-updateChan:
+			require.True(t, ok, "Channel should not be closed")
+			assert.Len(t, metrics.Metrics, 1)
+			assert.Equal(t, models.MeasurementTypeHashrate, metrics.Metrics[0].MeasurementType)
+			assert.Len(t, metrics.Metrics[0].AggregatedValues, 1)
+			// The metric value is returned as-is from the mock (no conversion happens in the service layer)
+			assert.Greater(t, metrics.Metrics[0].AggregatedValues[0].Value, 0.0)
+		case <-time.After(2 * time.Second):
+			t.Fatal("Did not receive initial update within timeout")
+		}
+
+		// Cancel context to stop stream
+		cancel()
+
+		// Channel should eventually close
+		select {
+		case _, ok := <-updateChan:
+			assert.False(t, ok, "Channel should be closed after context cancellation")
+		case <-time.After(2 * time.Second):
+			t.Fatal("Channel did not close after context cancellation")
+		}
+	})
+
+	t.Run("handles GetCombinedMetrics error on initial update", func(t *testing.T) {
+		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+		mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+		service := NewTelemetryService(Config{
+			StalenessThreshold: 1 * time.Minute,
+			FetchInterval:      10 * time.Second,
+			ConcurrencyLimit:   5,
+		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore)
+
+		query := models.StreamCombinedMetricsQuery{
+			DeviceIDs:        []models.DeviceIdentifier{"device1"},
+			MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+			AggregationTypes: []models.AggregationType{models.AggregationTypeAverage},
+			Granularity:      1 * time.Minute,
+			UpdateInterval:   1 * time.Minute,
+		}
+
+		// Mock GetCombinedMetrics to return error
+		mockDataStore.EXPECT().
+			GetCombinedMetrics(gomock.Any(), gomock.Any()).
+			Return(models.CombinedMetric{}, errors.New("database error")).
+			Times(1)
+
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+
+		updateChan, err := service.StreamCombinedMetrics(ctx, query)
+		require.NoError(t, err)
+		require.NotNil(t, updateChan)
+
+		// Channel should close due to error
+		select {
+		case _, ok := <-updateChan:
+			assert.False(t, ok, "Channel should be closed after error")
+		case <-time.After(2 * time.Second):
+			t.Fatal("Channel did not close after error")
+		}
+	})
+
+	t.Run("sends multiple updates over time", func(t *testing.T) {
+		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+		mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+		service := NewTelemetryService(Config{
+			StalenessThreshold: 1 * time.Minute,
+			FetchInterval:      10 * time.Second,
+			ConcurrencyLimit:   5,
+		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore)
+
+		// Use short intervals for testing
+		shortInterval := 200 * time.Millisecond
+
+		query := models.StreamCombinedMetricsQuery{
+			DeviceIDs:        []models.DeviceIdentifier{"device1"},
+			MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+			AggregationTypes: []models.AggregationType{models.AggregationTypeAverage},
+			Granularity:      shortInterval,
+			UpdateInterval:   shortInterval,
+		}
+
+		expectedMetrics := models.CombinedMetric{
+			Metrics: []models.Metric{
+				{
+					MeasurementType: models.MeasurementTypeHashrate,
+					AggregatedValues: []models.AggregatedValue{
+						{Type: models.AggregationTypeAverage, Value: 100.0},
+					},
+					OpenTime: time.Now(),
+				},
+			},
+		}
+
+		// Expect multiple calls to GetCombinedMetrics (initial + aligned + at least 2 periodic)
+		mockDataStore.EXPECT().
+			GetCombinedMetrics(gomock.Any(), gomock.Any()).
+			Return(expectedMetrics, nil).
+			MinTimes(3)
+
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+		defer cancel()
+
+		updateChan, err := service.StreamCombinedMetrics(ctx, query)
+		require.NoError(t, err)
+		require.NotNil(t, updateChan)
+
+		// Receive multiple updates
+		updateCount := 0
+		timeout := time.After(1 * time.Second)
+
+	receiveLoop:
+		for {
+			select {
+			case metrics, ok := <-updateChan:
+				if !ok {
+					break receiveLoop
+				}
+				updateCount++
+				assert.Len(t, metrics.Metrics, 1)
+				if updateCount >= 3 {
+					// We've received enough updates to verify periodic behavior
+					cancel()
+				}
+			case <-timeout:
+				break receiveLoop
+			}
+		}
+
+		assert.GreaterOrEqual(t, updateCount, 3, "Should receive at least 3 updates (initial + aligned + periodic)")
+	})
+
+	t.Run("uses default update interval when not specified", func(t *testing.T) {
+		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+		mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+		service := NewTelemetryService(Config{
+			StalenessThreshold: 1 * time.Minute,
+			FetchInterval:      10 * time.Second,
+			ConcurrencyLimit:   5,
+		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore)
+
+		query := models.StreamCombinedMetricsQuery{
+			DeviceIDs:        []models.DeviceIdentifier{"device1"},
+			MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+			AggregationTypes: []models.AggregationType{models.AggregationTypeAverage},
+			Granularity:      0, // Not specified
+			UpdateInterval:   0, // Not specified
+		}
+
+		expectedMetrics := models.CombinedMetric{
+			Metrics: []models.Metric{},
+		}
+
+		mockDataStore.EXPECT().
+			GetCombinedMetrics(gomock.Any(), gomock.Any()).
+			Return(expectedMetrics, nil).
+			Times(1)
+
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+		defer cancel()
+
+		updateChan, err := service.StreamCombinedMetrics(ctx, query)
+		require.NoError(t, err)
+		require.NotNil(t, updateChan)
+
+		// Should still receive initial update with default interval
+		select {
+		case _, ok := <-updateChan:
+			require.True(t, ok, "Channel should not be closed immediately")
+		case <-time.After(2 * time.Second):
+			t.Fatal("Did not receive initial update within timeout")
+		}
+
+		cancel()
+	})
+
+	t.Run("handles empty device list", func(t *testing.T) {
+		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+		mockMinerGetter := mock.NewMockMinerGetter(ctrl)
+		mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+		service := NewTelemetryService(Config{
+			StalenessThreshold: 1 * time.Minute,
+			FetchInterval:      10 * time.Second,
+			ConcurrencyLimit:   5,
+		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore)
+
+		query := models.StreamCombinedMetricsQuery{
+			DeviceIDs:        []models.DeviceIdentifier{}, // Empty device list
+			MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+			AggregationTypes: []models.AggregationType{models.AggregationTypeAverage},
+			Granularity:      1 * time.Minute,
+			UpdateInterval:   1 * time.Minute,
+		}
+
+		expectedMetrics := models.CombinedMetric{
+			Metrics: []models.Metric{}, // Empty metrics
+		}
+
+		mockDataStore.EXPECT().
+			GetCombinedMetrics(gomock.Any(), gomock.Any()).
+			Return(expectedMetrics, nil).
+			Times(1)
+
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+		defer cancel()
+
+		updateChan, err := service.StreamCombinedMetrics(ctx, query)
+		require.NoError(t, err)
+		require.NotNil(t, updateChan)
+
+		// Should receive initial update even with empty device list
+		select {
+		case metrics, ok := <-updateChan:
+			require.True(t, ok, "Channel should not be closed")
+			assert.Empty(t, metrics.Metrics, "Metrics should be empty for empty device list")
+		case <-time.After(2 * time.Second):
+			t.Fatal("Did not receive initial update within timeout")
+		}
+
+		cancel()
+	})
+}

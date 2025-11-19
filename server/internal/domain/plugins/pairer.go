@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 
 	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 
@@ -48,18 +47,14 @@ func NewPairer(manager *Manager, minerType models.Type, transactor interfaces.Tr
 }
 
 func (p *Pairer) GetDeviceInfo(ctx context.Context, device *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) (*pb.Device, error) {
-	plugin, exists := p.manager.GetPluginForMinerType(p.minerType)
-	if !exists {
-		return nil, fleeterror.NewInternalErrorf("no plugin available for miner type %s", p.minerType)
-	}
-
-	if !plugin.Caps[sdk.CapabilityPairing] {
-		return nil, fleeterror.NewInternalErrorf("plugin %s does not support pairing", plugin.Name)
+	plugin, err := p.manager.GetPluginWithCapability(p.minerType, sdk.CapabilityPairing)
+	if err != nil {
+		return nil, err
 	}
 
 	deviceInfo := convertFleetDeviceToSDKDeviceInfo(&device.Device)
 
-	secretBundle, err := p.createSecretBundle(ctx, device.OrgID, credentials)
+	secretBundle, err := p.getSecretBundleForDeviceInfo(ctx, device, credentials)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to create secret bundle: %v", err)
 	}
@@ -82,19 +77,10 @@ func (p *Pairer) GetDeviceInfo(ctx context.Context, device *discoverymodels.Disc
 // PairDevice handles the entire pairing process using the plugin
 // TODO(DASH-818): Refactor Pairing to use something other than pb.Credentials, this limits us to only username/password with out bespoke miner integrations.
 func (p *Pairer) PairDevice(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
-	plugin, exists := p.manager.GetPluginForMinerType(p.minerType)
-	if !exists {
-		return fleeterror.NewInternalErrorf("no plugin available for miner type %s", p.minerType)
+	plugin, err := p.manager.GetPluginWithCapability(p.minerType, sdk.CapabilityPairing)
+	if err != nil {
+		return err
 	}
-
-	if !plugin.Caps[sdk.CapabilityPairing] {
-		return fleeterror.NewInternalErrorf("plugin %s does not support pairing", plugin.Name)
-	}
-
-	slog.Debug("Using plugin for device pairing",
-		"plugin", plugin.Name,
-		"type", p.minerType,
-		"device", discoveredDevice.DeviceIdentifier)
 
 	deviceInfo := convertFleetDeviceToSDKDeviceInfo(&discoveredDevice.Device)
 
@@ -103,30 +89,16 @@ func (p *Pairer) PairDevice(ctx context.Context, discoveredDevice *discoverymode
 		return fleeterror.NewInternalErrorf("failed to create secret bundle: %v", err)
 	}
 
-	message, err := plugin.Driver.PairDevice(ctx, deviceInfo, secretBundle)
+	updatedDeviceInfo, err := plugin.Driver.PairDevice(ctx, deviceInfo, secretBundle)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("plugin pairing failed: %v", err)
 	}
 
-	slog.Debug("Plugin pairing completed",
-		"plugin", plugin.Name,
-		"device", discoveredDevice.DeviceIdentifier,
-		"message", message)
+	discoveredDevice.SerialNumber = updatedDeviceInfo.SerialNumber
+	discoveredDevice.MacAddress = updatedDeviceInfo.MacAddress
+	discoveredDevice.Model = updatedDeviceInfo.Model
+	discoveredDevice.Manufacturer = updatedDeviceInfo.Manufacturer
 
-	// Fetch updated device info (including MAC address and serial number) from the device
-	updatedDeviceInfo, err := p.GetDeviceInfo(ctx, discoveredDevice, credentials)
-	if err != nil {
-		// Log warning but don't fail pairing if we can't get device info
-		slog.Warn("Failed to get device info after pairing, MAC address may not be populated",
-			"device", discoveredDevice.DeviceIdentifier,
-			"error", err)
-	} else {
-		// Update the discovered device with the latest info from the device
-		discoveredDevice.MacAddress = updatedDeviceInfo.MacAddress
-		discoveredDevice.SerialNumber = updatedDeviceInfo.SerialNumber
-	}
-
-	// Save device to database
 	if err := p.handlePairViaStore(ctx, discoveredDevice, credentials); err != nil {
 		return fleeterror.NewInternalErrorf("error saving device to database: %v", err)
 	}
@@ -144,23 +116,19 @@ func (p *Pairer) handlePairViaStore(ctx context.Context, discoveredDevice *disco
 		}
 
 		if existingDevice == nil {
-			// Device doesn't exist yet, insert it
 			if err := p.deviceStore.InsertDevice(ctx, &discoveredDevice.Device, discoveredDevice.OrgID, discoveredDevice.DeviceIdentifier); err != nil {
 				return fleeterror.NewInternalErrorf("failed to insert device: %v", err)
 			}
 		} else {
-			// Device already exists, update MAC address and serial number
 			if err := p.deviceStore.UpdateDeviceInfo(ctx, &discoveredDevice.Device, discoveredDevice.OrgID); err != nil {
 				return fleeterror.NewInternalErrorf("failed to update device info: %v", err)
 			}
 		}
 
-		// Save encrypted credentials based on SecretBundle type
 		if err := p.saveCredentials(ctx, discoveredDevice, credentials); err != nil {
 			return err
 		}
 
-		// Mark device as paired
 		if err := p.deviceStore.UpsertDevicePairing(ctx, &discoveredDevice.Device, discoveredDevice.OrgID, pairing.StatusPaired); err != nil {
 			return fleeterror.NewInternalErrorf("failed to upsert device pairing: %v", err)
 		}
@@ -175,7 +143,6 @@ func (p *Pairer) handlePairViaStore(ctx context.Context, discoveredDevice *disco
 // Note: pb.Credentials currently only supports username/password. Device-specific API keys
 // will require extending pb.Credentials (see TODO DASH-818).
 func (p *Pairer) saveCredentials(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
-	// Recreate the secret bundle to determine credential type
 	bundle, err := p.createSecretBundle(ctx, discoveredDevice.OrgID, credentials)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to create secret bundle: %v", err)
@@ -183,7 +150,6 @@ func (p *Pairer) saveCredentials(ctx context.Context, discoveredDevice *discover
 
 	switch kind := bundle.Kind.(type) {
 	case sdk.UsernamePassword:
-		// Store username/password authentication (e.g., Antminer)
 		encryptedUsername, err := p.encryptService.Encrypt([]byte(kind.Username))
 		if err != nil {
 			return fleeterror.NewInternalErrorf("failed to encrypt username: %v", err)
@@ -199,13 +165,10 @@ func (p *Pairer) saveCredentials(ctx context.Context, discoveredDevice *discover
 		}
 
 	case sdk.APIKey:
-		// Org-level API keys are derived on-demand from org private key, no storage needed (e.g., Proto miners)
-		// Note: Device-specific API keys will require pb.Credentials extension (see TODO DASH-818)
 		slog.Debug("Using org-level API key, no credential storage needed",
 			"device", discoveredDevice.DeviceIdentifier)
 
 	default:
-		// Unsupported credential type - silent ignore for forward compatibility
 		slog.Debug("No credentials stored for device",
 			"device", discoveredDevice.DeviceIdentifier,
 			"type", fmt.Sprintf("%T", bundle.Kind))
@@ -216,14 +179,9 @@ func (p *Pairer) saveCredentials(ctx context.Context, discoveredDevice *discover
 
 // GetMinerPublicKey retrieves the public key for the organization (same logic as proto pairing service)
 func (p *Pairer) GetMinerPublicKey(ctx context.Context, orgID int64) (string, error) {
-	encryptedKey, err := p.userStore.GetOrganizationPrivateKey(ctx, orgID)
+	privateKey, err := p.getOrgPrivateKey(ctx, orgID)
 	if err != nil {
-		return "", fleeterror.NewInternalErrorf("error querying miner auth key: %v", err)
-	}
-
-	privateKey, err := p.encryptService.Decrypt(encryptedKey)
-	if err != nil {
-		return "", fleeterror.NewInternalErrorf("error decrypting miner auth key: %v", err)
+		return "", err
 	}
 
 	key, err := p.tokenService.ExtractPublicKeyFromPrivateKey(privateKey)
@@ -234,6 +192,21 @@ func (p *Pairer) GetMinerPublicKey(ctx context.Context, orgID int64) (string, er
 	return key, nil
 }
 
+// getOrgPrivateKey fetches and decrypts the organization's miner auth private key
+func (p *Pairer) getOrgPrivateKey(ctx context.Context, orgID int64) ([]byte, error) {
+	encryptedKey, err := p.userStore.GetOrganizationPrivateKey(ctx, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error querying miner auth key: %v", err)
+	}
+
+	privateKey, err := p.encryptService.Decrypt(encryptedKey)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error decrypting miner auth key: %v", err)
+	}
+
+	return privateKey, nil
+}
+
 // GetMinerType returns the miner type this pairer handles
 func (p *Pairer) GetMinerType() models.Type {
 	return p.minerType
@@ -241,16 +214,11 @@ func (p *Pairer) GetMinerType() models.Type {
 
 // convertFleetDeviceToSDKDeviceInfo converts a Fleet pb.Device to SDK DeviceInfo format
 func convertFleetDeviceToSDKDeviceInfo(device *pb.Device) sdk.DeviceInfo {
-	portInt64, err := strconv.ParseInt(device.Port, 10, 32)
+	port, err := sdk.ParsePort(device.Port)
 	if err != nil {
 		slog.Warn("Invalid port number, using 0", "port", device.Port, "error", err)
-		portInt64 = 0
+		port = 0
 	}
-	if portInt64 < 0 || portInt64 > 65535 {
-		slog.Warn("Port number out of valid range, using 0", "port", portInt64)
-		portInt64 = 0
-	}
-	portInt32 := int32(portInt64)
 
 	var deviceType sdk.DeviceType
 	switch device.Type {
@@ -266,7 +234,7 @@ func convertFleetDeviceToSDKDeviceInfo(device *pb.Device) sdk.DeviceInfo {
 
 	return sdk.DeviceInfo{
 		Host:         device.IpAddress,
-		Port:         portInt32,
+		Port:         port,
 		URLScheme:    device.UrlScheme,
 		SerialNumber: device.SerialNumber,
 		Model:        device.Model,
@@ -284,14 +252,8 @@ func (p *Pairer) createSecretBundle(ctx context.Context, orgID int64, credential
 		Version: "v1",
 	}
 
-	if credentials != nil {
-		// Use username/password authentication (e.g., for Antminer)
-		bundle.Kind = sdk.UsernamePassword{
-			Username: credentials.Username,
-			Password: *credentials.Password,
-		}
-	} else {
-		// No username or password - use fleet's public key
+	// TODO(ASH-899): Make adaptive based on device info not hardcoded miner type
+	if p.minerType == models.TypeProto {
 		fleetPublicKey, err := p.GetMinerPublicKey(ctx, orgID)
 		if err != nil {
 			return sdk.SecretBundle{}, fmt.Errorf("failed to get fleet public key: %w", err)
@@ -299,7 +261,48 @@ func (p *Pairer) createSecretBundle(ctx context.Context, orgID int64, credential
 		bundle.Kind = sdk.APIKey{
 			Key: fleetPublicKey,
 		}
+	} else {
+		bundle.Kind = sdk.UsernamePassword{
+			Username: credentials.Username,
+			Password: *credentials.Password,
+		}
 	}
 
 	return bundle, nil
+}
+
+// getSecretBundleForDeviceInfo builds the SecretBundle used when describing a device via plugins.
+// Proto miners expect JWT bearer tokens for runtime authentication, while other miners reuse
+// the standard credential handling implemented in createSecretBundle.
+func (p *Pairer) getSecretBundleForDeviceInfo(ctx context.Context, device *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) (sdk.SecretBundle, error) {
+	if p.minerType != models.TypeProto {
+		return p.createSecretBundle(ctx, device.OrgID, credentials)
+	}
+
+	return p.createProtoBearerSecretBundle(ctx, device)
+}
+
+// createProtoBearerSecretBundle issues a JWT bearer token for proto devices so that runtime
+// plugin calls (e.g., NewDevice/DescribeDevice) authenticate correctly.
+func (p *Pairer) createProtoBearerSecretBundle(ctx context.Context, device *discoverymodels.DiscoveredDevice) (sdk.SecretBundle, error) {
+	if device.SerialNumber == "" {
+		return sdk.SecretBundle{}, fleeterror.NewInternalError("proto devices require serial number for bearer authentication")
+	}
+
+	privateKey, err := p.getOrgPrivateKey(ctx, device.OrgID)
+	if err != nil {
+		return sdk.SecretBundle{}, err
+	}
+
+	jwtToken, _, err := p.tokenService.GenerateMinerAuthJWT(device.SerialNumber, privateKey)
+	if err != nil {
+		return sdk.SecretBundle{}, fleeterror.NewInternalErrorf("failed to generate proto bearer token: %v", err)
+	}
+
+	return sdk.SecretBundle{
+		Version: "v1",
+		Kind: sdk.BearerToken{
+			Token: jwtToken,
+		},
+	}, nil
 }

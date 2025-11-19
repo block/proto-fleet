@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -37,15 +36,13 @@ const (
 	versionTypePrefix = "Antminer"
 )
 
-var _ sdk.Driver = (*Driver)(nil) // Ensure Driver implements sdk.Driver
+var _ sdk.Driver = (*Driver)(nil)
 
 // Driver implements the SDK Driver interface for Antminer devices.
 type Driver struct {
-	// devices tracks all active device instances
 	devices map[string]sdk.Device
 	mutex   sync.RWMutex
 
-	// clientFactory allows injection of mock clients for testing
 	clientFactory types.ClientFactory
 }
 
@@ -83,8 +80,6 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 		APIVersion: apiVersion,
 	}
 
-	// Define supported capabilities for Antminer devices
-	// These should match what Antminer devices actually support
 	capabilities := sdk.Capabilities{
 		// Core capabilities - required for basic operation
 		sdk.CapabilityPollingHost: true, // We support host-side status polling via RPC
@@ -115,32 +110,26 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sdk.DeviceInfo, error) {
 	slog.Debug("Discovering Antminer device", "ip", ipAddress, "port", port)
 
-	// Antminers use a specific port for RPC API
 	if port != fmt.Sprint(requiredRPCPort) {
-		return sdk.DeviceInfo{}, fmt.Errorf("antminers use port 4028 for RPC, got %s", port)
+		return sdk.DeviceInfo{}, fmt.Errorf("antminers use port %d for RPC, got %s", requiredRPCPort, port)
 	}
 
-	// Convert port to int32 for client
-	rpcPortUint, err := strconv.ParseUint(port, 10, 16)
+	rpcPort, err := sdk.ParsePort(port)
 	if err != nil {
-		return sdk.DeviceInfo{}, fmt.Errorf("invalid RPC port number: %s", port)
+		return sdk.DeviceInfo{}, fmt.Errorf("invalid RPC port number: %w", err)
 	}
-	rpcPort := int32(rpcPortUint)
 
-	webPortUint, err := strconv.ParseUint(defaultWebPort, 10, 16)
+	webPort, err := sdk.ParsePort(defaultWebPort)
 	if err != nil {
-		return sdk.DeviceInfo{}, fmt.Errorf("invalid web port number: %s", defaultWebPort)
+		return sdk.DeviceInfo{}, fmt.Errorf("invalid web port number: %w", err)
 	}
-	webPort := int32(webPortUint)
 
-	// Use the injected client factory for RPC communication
 	client, err := d.clientFactory(ipAddress, rpcPort, webPort, "http")
 	if err != nil {
 		return sdk.DeviceInfo{}, fmt.Errorf("failed to create client: %w", err)
 	}
 	defer client.Close()
 
-	// Try to get version information via RPC
 	versionResp, err := client.GetVersion(ctx)
 	if err != nil {
 		return sdk.DeviceInfo{}, fmt.Errorf("failed to get version info: %w", err)
@@ -152,7 +141,6 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 
 	versionInfo := versionResp.Version[0]
 
-	// Validate that this is an Antminer device
 	if !strings.HasPrefix(versionInfo.Type, versionTypePrefix) {
 		return sdk.DeviceInfo{}, fmt.Errorf("not an Antminer device: %s", versionInfo.Type)
 	}
@@ -164,13 +152,13 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 
 	return sdk.DeviceInfo{
 		Host:         ipAddress,
-		Port:         webPort, // Use web port for device operations
+		Port:         webPort,
 		URLScheme:    "http",
-		SerialNumber: "", // Will be filled during pairing if web API is accessible
+		SerialNumber: "",
 		Model:        model,
 		Manufacturer: manufacturer,
 		Type:         sdk.DeviceTypeASIC,
-		MacAddress:   "", // Will be filled during pairing if web API is accessible
+		MacAddress:   "",
 	}, nil
 }
 
@@ -178,49 +166,44 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 //
 // This method establishes a trusted relationship with a discovered device.
 // For Antminers, this involves username/password authentication.
-func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, access sdk.SecretBundle) (string, error) {
+func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, access sdk.SecretBundle) (sdk.DeviceInfo, error) {
 	slog.Debug("Pairing Antminer device", "host", deviceInfo.Host, "model", deviceInfo.Model)
 
-	// Extract credentials from the secret bundle
 	credentials, err := d.extractUsernamePassword(access)
 	if err != nil {
-		return "", fmt.Errorf("failed to extract credentials: %w", err)
+		return sdk.DeviceInfo{}, fmt.Errorf("failed to extract credentials: %w", err)
 	}
 
-	// Use the injected client factory for communication
 	client, err := d.clientFactory(deviceInfo.Host, requiredRPCPort, deviceInfo.Port, deviceInfo.URLScheme)
 	if err != nil {
-		return "", fmt.Errorf("failed to create client: %w", err)
+		return sdk.DeviceInfo{}, fmt.Errorf("failed to create client: %w", err)
 	}
 	defer client.Close()
 
 	err = client.SetCredentials(credentials)
 	if err != nil {
-		return "", fmt.Errorf("failed to set credentials: %w", err)
+		return sdk.DeviceInfo{}, fmt.Errorf("failed to set credentials: %w", err)
 	}
 
-	// Perform the pairing operation
 	if err := client.Pair(ctx, credentials); err != nil {
-		return "", fmt.Errorf("pairing failed: %w", err)
+		return sdk.DeviceInfo{}, fmt.Errorf("pairing failed: %w", err)
 	}
 
-	// Try to get additional device information if possible
 	deviceInfoResp, err := client.GetDeviceInfo(ctx)
 	if err != nil {
-		return "", fmt.Errorf("failed to get device info after pairing: %w", err)
+		return sdk.DeviceInfo{}, fmt.Errorf("failed to get device info after pairing: %w", err)
 	}
-	serialNumber := deviceInfoResp.SerialNumber
-	macAddress := deviceInfoResp.MacAddress
 
-	message := fmt.Sprintf("Successfully paired Antminer %s at %s:%d",
-		deviceInfo.Model, deviceInfo.Host, deviceInfo.Port)
+	deviceInfo.SerialNumber = deviceInfoResp.SerialNumber
+	deviceInfo.MacAddress = deviceInfoResp.MacAddress
 
-	// TODO (DASH-857) Return device info to fleet so this data can be persisted
-	message += fmt.Sprintf(" (S/N: %s)", serialNumber)
-	message += fmt.Sprintf(" (MAC: %s)", macAddress)
+	slog.Debug("Device paired successfully, returning device info",
+		"host", deviceInfo.Host,
+		"model", deviceInfo.Model,
+		"serial", deviceInfo.SerialNumber,
+		"mac", deviceInfo.MacAddress)
 
-	slog.Debug("Device paired successfully", "host", deviceInfo.Host, "model", deviceInfo.Model)
-	return message, nil
+	return deviceInfo, nil
 }
 
 // NewDevice implements the SDK Driver interface.
@@ -233,13 +216,11 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {
 	slog.Debug("Creating new Antminer device instance", "deviceID", deviceID, "host", deviceInfo.Host)
 
-	// Extract credentials for the device - ensure we have UsernamePassword
 	credentials, err := d.extractUsernamePassword(secret)
 	if err != nil {
 		return sdk.NewDeviceResult{}, fmt.Errorf("failed to extract credentials: %w", err)
 	}
 
-	// Create the device instance with the same client factory used by the driver
 	dev, err := device.New(deviceID, deviceInfo, credentials, d.clientFactory)
 	if err != nil {
 		return sdk.NewDeviceResult{}, fmt.Errorf("failed to create device: %w", err)
@@ -250,7 +231,6 @@ func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.
 		return sdk.NewDeviceResult{}, fmt.Errorf("failed to connect device: %w", err)
 	}
 
-	// Track the device instance
 	d.mutex.Lock()
 	d.devices[deviceID] = dev
 	d.mutex.Unlock()
@@ -259,9 +239,6 @@ func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.
 	return sdk.NewDeviceResult{Device: dev}, nil
 }
 
-// extractUsernamePassword extracts UsernamePassword credentials from a secret bundle.
-//
-// This method ensures type safety and prevents credential leakage in logs.
 func (d *Driver) extractUsernamePassword(secret sdk.SecretBundle) (sdk.UsernamePassword, error) {
 	switch kind := secret.Kind.(type) {
 	case sdk.UsernamePassword:

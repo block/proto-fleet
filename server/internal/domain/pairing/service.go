@@ -411,6 +411,10 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 		return false
 	}
 
+	if pairedDevice.Type == "asic" {
+		// Legacy support: treat "asic" type as "proto/antminer"
+		pairedDevice.Type = pairedDevice.Model
+	}
 	deviceType, err := models.TypeFromString(pairedDevice.Type)
 	if err != nil {
 		slog.Error("failed to get paired device type", "error", err)

@@ -10,6 +10,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins/mappers"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
@@ -41,6 +42,7 @@ type PluginMinerConfig struct {
 
 	// Services and dependencies
 	EncryptService   *encrypt.Service
+	TokenService     *token.Service // Required for Proto miners to generate JWT tokens
 	GetOrgPrivateKey func(ctx context.Context, orgID int64) ([]byte, error)
 	DriverGetter     PluginDriverGetter
 }
@@ -96,20 +98,39 @@ func NewPluginMinerWithCredentials(
 	// Build SDK SecretBundle from stored credentials
 	var secretBundle sdk.SecretBundle
 
-	// For Proto devices, use TLS client certificate authentication
-	// Proto miners use SSH-style public key auth, which maps to SDK's TLSClientCert type
+	// For Proto devices, generate JWT token for bearer authentication
+	// Proto miners use Ed25519-signed JWT tokens for authentication after pairing
 	if config.MinerType == models.TypeProto {
+		// Step 1: Validate that TokenService is available (required for JWT generation)
+		if config.TokenService == nil {
+			return nil, fmt.Errorf("TokenService is required for Proto miners but was nil")
+		}
+		// Step 2: Validate that we have the device serial number (used as JWT subject)
+		if config.DeviceSerialNumber == "" {
+			return nil, fmt.Errorf("DeviceSerialNumber is required for Proto JWT generation")
+		}
+
+		// Step 3: Retrieve the organization's private key for signing the JWT
+		// This key was generated during organization setup and pairs with the public key
+		// that was provided to the miner during the pairing process
 		privateKey, err := config.GetOrgPrivateKey(ctx, config.OrgID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get proto miner auth private key: %w", err)
 		}
-		// Note: Proto uses the private key for challenge-response auth during pairing.
-		// For SDK plugins, we pass the key in TLSClientCert.KeyPEM since the SDK doesn't
-		// have a dedicated PublicKeyAuth type. The proto plugin will handle the actual
-		// challenge-response protocol.
-		secretBundle.Kind = sdk.TLSClientCert{
-			KeyPEM: privateKey,
-			// ClientCertPEM and CACertPEM are not used for Proto's auth protocol
+
+		// Step 4: Generate a JWT token signed with the org's private key
+		// The miner will validate this JWT using the public key it received during pairing
+		jwtToken, _, err := config.TokenService.GenerateMinerAuthJWT(config.DeviceSerialNumber, privateKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate JWT for proto miner: %w", err)
+		}
+
+		// Step 5: Pass the JWT as BearerToken to the plugin
+		// Note: This is a change from the previous challenge-response authentication approach.
+		// Previously, we used TLSClientCert as a workaround due to SDK lacking PublicKeyAuth type.
+		// Now, Proto miners use JWT bearer tokens, which the plugin expects in the BearerToken field.
+		secretBundle.Kind = sdk.BearerToken{
+			Token: jwtToken,
 		}
 	} else if config.DeviceUsername != "" && config.DevicePassword != "" {
 		// For other devices with username/password credentials

@@ -68,12 +68,6 @@ func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string
 		return nil, fleeterror.NewInternalErrorf("plugin %s does not support discovery", plugin.Name)
 	}
 
-	slog.Debug("Using plugin for device discovery",
-		"plugin", plugin.Name,
-		"type", d.minerType,
-		"ip", ipAddress,
-		"port", port)
-
 	deviceInfo, err := plugin.Driver.DiscoverDevice(ctx, ipAddress, port)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("plugin discovery failed: %v", err)
@@ -116,9 +110,17 @@ func (d *Discoverer) GetMinerType() models.Type {
 }
 
 // convertSDKDeviceTypeToString converts SDK DeviceType to a string representation.
-// If the device type is unspecified or unknown, it uses the fallback type if provided,
-// otherwise it determines the type from device discovery information.
+// If a fallback type is provided (e.g., "proto", "antminer"), it takes precedence over
+// generic hardware types (ASIC, GPU, FPGA) since the fallback represents the specific
+// miner type that discovered this device.
 func convertSDKDeviceTypeToString(deviceInfo sdk.DeviceInfo, fallbackType string) string {
+	// If we have a fallback type (specific miner type like "proto"), use it
+	// This ensures devices discovered by the proto plugin get type "proto", not "asic"
+	if fallbackType != "" {
+		return fallbackType
+	}
+
+	// Only use hardware type if no fallback is provided
 	switch deviceInfo.Type {
 	case sdk.DeviceTypeASIC:
 		return DeviceTypeASIC
@@ -127,14 +129,8 @@ func convertSDKDeviceTypeToString(deviceInfo sdk.DeviceInfo, fallbackType string
 	case sdk.DeviceTypeFPGA:
 		return DeviceTypeFPGA
 	case sdk.DeviceTypeUnspecified:
-		if fallbackType != "" {
-			return fallbackType
-		}
 		return determineDeviceTypeFromDiscovery(deviceInfo)
 	default:
-		if fallbackType != "" {
-			return fallbackType
-		}
 		return determineDeviceTypeFromDiscovery(deviceInfo)
 	}
 }

@@ -128,22 +128,25 @@ func (p *PluginMiner) GetDeviceStatus(ctx context.Context) (models.MinerStatus, 
 	}
 
 	// Map health status to miner status
+	var status models.MinerStatus
 	switch metrics.Health {
 	case sdk.HealthHealthyActive:
-		return models.MinerStatusActive, nil
+		status = models.MinerStatusActive
 	case sdk.HealthHealthyInactive:
-		return models.MinerStatusInactive, nil
+		status = models.MinerStatusInactive
 	case sdk.HealthWarning:
-		return models.MinerStatusActive, nil // Still operational despite warning
+		status = models.MinerStatusActive // Still operational despite warning
 	case sdk.HealthCritical:
-		return models.MinerStatusError, nil
+		status = models.MinerStatusError
 	case sdk.HealthUnknown:
-		return models.MinerStatusOffline, nil
+		status = models.MinerStatusOffline
 	case sdk.HealthStatusUnspecified:
-		return models.MinerStatusOffline, nil
+		status = models.MinerStatusOffline
 	default:
-		return models.MinerStatusOffline, nil
+		status = models.MinerStatusOffline
 	}
+
+	return status, nil
 }
 
 // Reboot implements interfaces.Miner

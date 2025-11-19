@@ -390,7 +390,7 @@ func determineMeasurementType(measurementName string) models.MeasurementType {
 		return models.MeasurementTypeTemperature
 	case "hashrate_mhs":
 		return models.MeasurementTypeHashrate
-	case "efficiency_jth":
+	case "efficiency_jh":
 		return models.MeasurementTypeEfficiency
 	case "fan_rpm":
 		return models.MeasurementTypeFanSpeed

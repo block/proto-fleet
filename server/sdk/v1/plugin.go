@@ -193,13 +193,13 @@ func (s *DriverGRPCServer) PairDevice(ctx context.Context, req *pb.PairDeviceReq
 	deviceInfo := deviceInfoFromProto(req.Device)
 	access := secretBundleFromProto(req.Access)
 
-	message, err := s.Impl.PairDevice(ctx, deviceInfo, access)
+	updatedDeviceInfo, err := s.Impl.PairDevice(ctx, deviceInfo, access)
 	if err != nil {
 		return nil, err
 	}
 
 	return &pb.PairDeviceResponse{
-		Message: message,
+		Device: deviceInfoToProto(updatedDeviceInfo),
 	}, nil
 }
 
@@ -599,16 +599,16 @@ func (c *DriverGRPCClient) DiscoverDevice(ctx context.Context, ipAddress, port s
 	return deviceInfoFromProto(resp.Device), nil
 }
 
-func (c *DriverGRPCClient) PairDevice(ctx context.Context, device DeviceInfo, access SecretBundle) (string, error) {
+func (c *DriverGRPCClient) PairDevice(ctx context.Context, device DeviceInfo, access SecretBundle) (DeviceInfo, error) {
 	resp, err := c.client.PairDevice(ctx, &pb.PairDeviceRequest{
 		Device: deviceInfoToProto(device),
 		Access: secretBundleToProto(access),
 	})
 	if err != nil {
-		return "", err
+		return DeviceInfo{}, err
 	}
 
-	return resp.Message, nil
+	return deviceInfoFromProto(resp.Device), nil
 }
 
 func (c *DriverGRPCClient) NewDevice(ctx context.Context, deviceID string, deviceInfo DeviceInfo, secret SecretBundle) (NewDeviceResult, error) {

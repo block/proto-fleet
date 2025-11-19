@@ -1,14 +1,11 @@
 package influxdb
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
 	"sort"
-	"strconv"
 	"strings"
-	"text/template"
 	"time"
 
 	influxdb3 "github.com/InfluxCommunity/influxdb3-go/v2/influxdb3"
@@ -64,29 +61,7 @@ func NewTelemetryStore(config Config) (*InfluxTelemetryStore, error) {
 	return store, nil
 }
 
-// executeWithFallback tries the new device_metrics approach first, then falls back to legacy
-// It handles the common pattern of trying new implementation with graceful degradation
-func executeWithFallback[T any](
-	ctx context.Context,
-	logger *slog.Logger,
-	methodName string,
-	newFunc func(context.Context) (T, error),
-	legacyFunc func(context.Context) (T, error),
-	isEmpty func(T) bool,
-) (T, error) {
-	// Try the new device_metrics store first
-	result, err := newFunc(ctx)
-	if err == nil && !isEmpty(result) {
-		return result, nil
-	}
-
-	if err != nil {
-		logger.Error(fmt.Sprintf("failed to get %s from device_metrics, falling back to legacy", methodName),
-			slog.Any("error", err))
-	}
-
-	return legacyFunc(ctx)
-}
+// executeWithFallback has been removed - we now only use device_metrics table
 
 // queryDeviceMetrics executes a device_metrics query and returns DeviceMetrics
 func (s *InfluxTelemetryStore) queryDeviceMetrics(
@@ -243,28 +218,8 @@ AND time >= $max_age
 ORDER BY time DESC
 `
 
-const getLatestTelemetryQuery = `SELECT device_id, time, value, '%s' as measurement
-FROM %s
-WHERE device_id IN (%s)
-AND time >= $max_age
-ORDER BY time DESC
-LIMIT 1000`
-
 func (s *InfluxTelemetryStore) GetLatestTelemetry(ctx context.Context, query models.LatestTelemetryQuery) ([]models.Telemetry, error) {
-	return executeWithFallback(
-		ctx,
-		s.logger,
-		"latest telemetry",
-		func(ctx context.Context) ([]models.Telemetry, error) {
-			return s.getLatestTelemetryFromDeviceMetrics(ctx, query)
-		},
-		func(ctx context.Context) ([]models.Telemetry, error) {
-			return s.getLatestTelemetryLegacy(ctx, query)
-		},
-		func(results []models.Telemetry) bool {
-			return len(results) == 0
-		},
-	)
+	return s.getLatestTelemetryFromDeviceMetrics(ctx, query)
 }
 
 func (s *InfluxTelemetryStore) getLatestTelemetryFromDeviceMetrics(ctx context.Context, query models.LatestTelemetryQuery) ([]models.Telemetry, error) {
@@ -292,76 +247,6 @@ func (s *InfluxTelemetryStore) getLatestTelemetryFromDeviceMetrics(ctx context.C
 	return results, nil
 }
 
-func (s *InfluxTelemetryStore) getLatestTelemetryLegacy(ctx context.Context, query models.LatestTelemetryQuery) ([]models.Telemetry, error) {
-	var allResults []models.Telemetry
-	var allErrors []error
-	totalSuccessCount := 0
-
-	for _, measurementType := range query.MeasurementTypes {
-		measurementName := measurementType.InfluxMeasurementName()
-
-		deviceIDsStr := s.buildDeviceIDsString(query.DeviceIDs)
-
-		influxQuery := fmt.Sprintf(getLatestTelemetryQuery, measurementName, measurementName, deviceIDsStr)
-		params := s.getLatestTelemetryParamsForMeasurement(query)
-
-		iterator, err := s.client.QueryPointValueWithParameters(ctx, influxQuery, params)
-		if err != nil {
-			s.logger.Error("query failed for measurement type",
-				slog.String("measurement", measurementName),
-				slog.Any("error", err))
-			allErrors = append(allErrors, fmt.Errorf("measurement %s: %w", measurementName, err))
-			continue
-		}
-
-		var measurementResults []models.Telemetry
-		var iterationErrors []error
-		successCount := 0
-
-		for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
-			if err != nil {
-				s.logger.Error("error reading point in GetLatestTelemetry",
-					slog.String("measurement", measurementName),
-					slog.Any("error", err))
-				iterationErrors = append(iterationErrors, err)
-				continue
-			}
-			telemetry := influxModels.ToTelemetry(point)
-			measurementResults = append(measurementResults, telemetry)
-			successCount++
-		}
-
-		if len(iterationErrors) > 0 {
-			if successCount > 0 {
-				s.logger.Warn("GetLatestTelemetry completed with partial data for measurement",
-					slog.String("measurement", measurementName),
-					slog.Int("success_count", successCount),
-					slog.Int("error_count", len(iterationErrors)))
-			} else {
-				allErrors = append(allErrors, fmt.Errorf("measurement %s iteration failed: %w", measurementName, iterationErrors[0]))
-				continue
-			}
-		}
-
-		allResults = append(allResults, measurementResults...)
-		totalSuccessCount += successCount
-	}
-
-	if len(allErrors) > 0 {
-		if totalSuccessCount > 0 {
-			s.logger.Warn("GetLatestTelemetry completed with partial data across measurements",
-				slog.Int("total_success_count", totalSuccessCount),
-				slog.Int("measurement_error_count", len(allErrors)))
-		} else {
-			return nil, newTelemetryIterationError(allErrors[0], "GetLatestTelemetry", len(allErrors), totalSuccessCount > 0)
-		}
-	}
-
-	sortTelemetryByTimeDesc(allResults)
-
-	return allResults, nil
-}
-
 const getTimeSeriesDeviceMetricsQuery = `
 SELECT
 *,
@@ -374,29 +259,8 @@ ORDER BY time ASC
 LIMIT 5000
 `
 
-const getTimeSeriesTelemetryQuery = `SELECT device_id, time, value, '%s' as measurement
-FROM %s
-WHERE device_id IN (%s)
-AND time >= $start_time
-AND time <= $end_time
-ORDER BY time ASC
-LIMIT $limit`
-
 func (s *InfluxTelemetryStore) GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models.Telemetry, error) {
-	return executeWithFallback(
-		ctx,
-		s.logger,
-		"time series telemetry",
-		func(ctx context.Context) ([]models.Telemetry, error) {
-			return s.getTimeSeriesTelemetryFromDeviceMetrics(ctx, query)
-		},
-		func(ctx context.Context) ([]models.Telemetry, error) {
-			return s.getTimeSeriesTelemetryLegacy(ctx, query)
-		},
-		func(results []models.Telemetry) bool {
-			return len(results) == 0
-		},
-	)
+	return s.getTimeSeriesTelemetryFromDeviceMetrics(ctx, query)
 }
 
 func (s *InfluxTelemetryStore) getTimeSeriesTelemetryFromDeviceMetrics(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models.Telemetry, error) {
@@ -421,77 +285,6 @@ func (s *InfluxTelemetryStore) getTimeSeriesTelemetryFromDeviceMetrics(ctx conte
 	return results, nil
 }
 
-func (s *InfluxTelemetryStore) getTimeSeriesTelemetryLegacy(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models.Telemetry, error) {
-	var allResults []models.Telemetry
-	var allErrors []error
-	totalSuccessCount := 0
-
-	for _, measurementType := range query.MeasurementTypes {
-		measurementName := measurementType.InfluxMeasurementName()
-
-		deviceIDsStr := s.buildDeviceIDsString(query.DeviceIDs)
-
-		influxQuery := fmt.Sprintf(getTimeSeriesTelemetryQuery, measurementName, measurementName, deviceIDsStr)
-		params := s.getTimeSeriesParamsForMeasurement(query)
-
-		iterator, err := s.client.QueryPointValueWithParameters(ctx, influxQuery, params)
-		if err != nil {
-			s.logger.Error("query failed for measurement type",
-				slog.String("measurement", measurementName),
-				slog.Any("error", err))
-			allErrors = append(allErrors, fmt.Errorf("measurement %s: %w", measurementName, err))
-			continue
-		}
-
-		var measurementResults []models.Telemetry
-		var iterationErrors []error
-		successCount := 0
-
-		for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
-			if err != nil {
-				s.logger.Error("error reading point in GetTimeSeriesTelemetry",
-					slog.String("measurement", measurementName),
-					slog.Any("error", err))
-				iterationErrors = append(iterationErrors, err)
-				continue
-			}
-			telemetry := influxModels.ToTelemetry(point)
-			measurementResults = append(measurementResults, telemetry)
-			successCount++
-		}
-
-		if len(iterationErrors) > 0 {
-			if successCount > 0 {
-				s.logger.Warn("GetTimeSeriesTelemetry completed with partial data for measurement",
-					slog.String("measurement", measurementName),
-					slog.Int("success_count", successCount),
-					slog.Int("error_count", len(iterationErrors)))
-			} else {
-				allErrors = append(allErrors, fmt.Errorf("measurement %s iteration failed: %w", measurementName, iterationErrors[0]))
-				continue
-			}
-		}
-
-		allResults = append(allResults, measurementResults...)
-		totalSuccessCount += successCount
-	}
-
-	// Handle overall errors
-	if len(allErrors) > 0 {
-		if totalSuccessCount > 0 {
-			s.logger.Warn("GetTimeSeriesTelemetry completed with partial data across measurements",
-				slog.Int("total_success_count", totalSuccessCount),
-				slog.Int("measurement_error_count", len(allErrors)))
-		} else {
-			return nil, newTelemetryIterationError(allErrors[0], "GetTimeSeriesTelemetry", len(allErrors), totalSuccessCount > 0)
-		}
-	}
-
-	sortTelemetryByTimeAsc(allResults)
-
-	return allResults, nil
-}
-
 const getDeviceMetricsMetadataQuery = `
 SELECT device_id, time, health,
 'device_metrics' as measurement
@@ -501,27 +294,8 @@ ORDER BY time DESC
 LIMIT 1000
 `
 
-const getTelemetryMetadataQuery = `SELECT device_id, time, device_type, location, '%s' as measurement
-FROM %s
-WHERE device_id IN (%s)
-ORDER BY time DESC
-LIMIT 1000`
-
 func (s *InfluxTelemetryStore) GetTelemetryMetadata(ctx context.Context, query models.MetadataQuery) ([]models.DeviceMetadata, error) {
-	return executeWithFallback(
-		ctx,
-		s.logger,
-		"telemetry metadata",
-		func(ctx context.Context) ([]models.DeviceMetadata, error) {
-			return s.getTelemetryMetadataFromDeviceMetrics(ctx, query)
-		},
-		func(ctx context.Context) ([]models.DeviceMetadata, error) {
-			return s.getTelemetryMetadataLegacy(ctx, query)
-		},
-		func(results []models.DeviceMetadata) bool {
-			return len(results) == 0
-		},
-	)
+	return s.getTelemetryMetadataFromDeviceMetrics(ctx, query)
 }
 
 func (s *InfluxTelemetryStore) getTelemetryMetadataFromDeviceMetrics(ctx context.Context, query models.MetadataQuery) ([]models.DeviceMetadata, error) {
@@ -588,117 +362,6 @@ func (s *InfluxTelemetryStore) getTelemetryMetadataFromDeviceMetrics(ctx context
 	return allResults, nil
 }
 
-func (s *InfluxTelemetryStore) getTelemetryMetadataLegacy(ctx context.Context, query models.MetadataQuery) ([]models.DeviceMetadata, error) {
-	var allResults []models.DeviceMetadata
-	var allErrors []error
-	totalSuccessCount := 0
-
-	measurementTypes := []models.MeasurementType{
-		models.MeasurementTypeTemperature,
-		models.MeasurementTypeHashrate,
-		models.MeasurementTypePower,
-	}
-
-	deviceMetadataMap := make(map[models.DeviceIdentifier]*models.DeviceMetadata)
-
-	for _, measurementType := range measurementTypes {
-		measurementName := measurementType.InfluxMeasurementName()
-
-		deviceIDsStr := s.buildDeviceIDsString(query.DeviceIDs)
-
-		influxQuery := fmt.Sprintf(getTelemetryMetadataQuery, measurementName, measurementName, deviceIDsStr)
-		params := s.getMetadataParamsForMeasurement(query)
-
-		iterator, err := s.client.QueryPointValueWithParameters(ctx, influxQuery, params)
-		if err != nil {
-			s.logger.Error("metadata query failed for measurement type",
-				slog.String("measurement", measurementName),
-				slog.Any("error", err))
-			allErrors = append(allErrors, fmt.Errorf("measurement %s: %w", measurementName, err))
-			continue
-		}
-
-		var iterationErrors []error
-		successCount := 0
-
-		for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
-			if err != nil {
-				s.logger.Error("error reading point in GetTelemetryMetadata",
-					slog.String("measurement", measurementName),
-					slog.Any("error", err))
-				iterationErrors = append(iterationErrors, err)
-				continue
-			}
-
-			deviceID := models.DeviceIdentifier("")
-			if tagValue, exists := point.GetTag("device_id"); exists {
-				deviceID = models.DeviceIdentifier(tagValue)
-			}
-
-			if deviceID == "" {
-				continue
-			}
-
-			metadata, exists := deviceMetadataMap[deviceID]
-			if !exists {
-				metadata = &models.DeviceMetadata{
-					DeviceID: deviceID,
-				}
-				deviceMetadataMap[deviceID] = metadata
-			}
-
-			if point.Timestamp.After(metadata.LastSeen) {
-				metadata.LastSeen = point.Timestamp
-
-				if deviceTypeTag, exists := point.GetTag("device_type"); exists && deviceTypeTag != "" {
-					metadata.DeviceType = deviceTypeTag
-				}
-
-				if locationTag, exists := point.GetTag("location"); exists && locationTag != "" {
-					metadata.Location = locationTag
-				}
-			}
-
-			successCount++
-		}
-
-		if len(iterationErrors) > 0 {
-			if successCount > 0 {
-				s.logger.Warn("GetTelemetryMetadata completed with partial data for measurement",
-					slog.String("measurement", measurementName),
-					slog.Int("success_count", successCount),
-					slog.Int("error_count", len(iterationErrors)))
-			} else {
-				allErrors = append(allErrors, fmt.Errorf("measurement %s iteration failed: %w", measurementName, iterationErrors[0]))
-				continue
-			}
-		}
-
-		totalSuccessCount += successCount
-	}
-
-	for _, metadata := range deviceMetadataMap {
-		allResults = append(allResults, *metadata)
-	}
-
-	// Handle overall errors
-	if len(allErrors) > 0 {
-		if totalSuccessCount > 0 {
-			s.logger.Warn("GetTelemetryMetadata completed with partial data across measurements",
-				slog.Int("total_success_count", totalSuccessCount),
-				slog.Int("measurement_error_count", len(allErrors)))
-		} else {
-			return nil, newTelemetryIterationError(allErrors[0], "GetTelemetryMetadata", len(allErrors), totalSuccessCount > 0)
-		}
-	}
-
-	sort.Slice(allResults, func(i, j int) bool {
-		return allResults[i].LastSeen.After(allResults[j].LastSeen)
-	})
-
-	return allResults, nil
-}
-
 const streamDeviceMetricsQuery = `
 SELECT
 *,
@@ -708,12 +371,6 @@ WHERE device_id IN (%s)
 AND time > $last_timestamp
 ORDER BY time ASC
 `
-
-const streamTelemetryUpdatesQuery = `SELECT device_id, time, value, '%s' as measurement
-FROM %s
-WHERE device_id IN (%s)
-AND time > $last_timestamp
-ORDER BY time ASC`
 
 func (s *InfluxTelemetryStore) StreamTelemetryUpdates(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error) {
 	// Try to use the new device_metrics store, with fallback to legacy
@@ -743,13 +400,21 @@ func (s *InfluxTelemetryStore) streamTelemetryUpdatesWithFallback(ctx context.Co
 			case <-ticker.C:
 				hasNewData := false
 
-				// First, try querying the new device_metrics store
+				// Query device_metrics store
 				deviceIDsStr := s.buildDeviceIDsString(query.DeviceIDs)
 				influxQuery := fmt.Sprintf(streamDeviceMetricsQuery, deviceIDsStr)
 				params := s.getStreamParamsForMeasurement(query, lastTimestamp)
 
 				iterator, err := s.client.QueryPointValueWithParameters(ctx, influxQuery, params)
-				if err == nil {
+				if err != nil {
+					s.logger.Debug("device_metrics stream query error",
+						slog.Any("error", err))
+					updateChan <- models.TelemetryUpdate{
+						Type:      models.UpdateTypeError,
+						Timestamp: time.Now(),
+						Error:     stringPtr(fmt.Sprintf("query error: %v", err)),
+					}
+				} else {
 					// Process device_metrics results
 					for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
 						if err != nil {
@@ -769,62 +434,6 @@ func (s *InfluxTelemetryStore) streamTelemetryUpdatesWithFallback(ctx context.Co
 							updateChan <- models.TelemetryUpdate{
 								Type:      models.UpdateTypeTelemetry,
 								DeviceID:  models.DeviceIdentifier(deviceMetrics.DeviceID),
-								Timestamp: telemetryData.Timestamp,
-								Data:      &telemetryData,
-							}
-
-							if telemetryData.Timestamp.After(lastTimestamp) {
-								lastTimestamp = telemetryData.Timestamp
-							}
-							hasNewData = true
-						}
-					}
-				} else {
-					s.logger.Debug("device_metrics stream query error, trying legacy",
-						slog.Any("error", err))
-				}
-
-				// If no new data from device_metrics, fallback to legacy queries
-				if !hasNewData {
-					for _, measurementType := range query.MeasurementTypes {
-						measurementName := measurementType.InfluxMeasurementName()
-
-						legacyQuery := fmt.Sprintf(streamTelemetryUpdatesQuery, measurementName, measurementName, deviceIDsStr)
-						params := s.getStreamParamsForMeasurement(query, lastTimestamp)
-
-						iterator, err := s.client.QueryPointValueWithParameters(ctx, legacyQuery, params)
-						if err != nil {
-							s.logger.Debug("legacy stream query error",
-								slog.String("measurement", measurementName),
-								slog.Any("error", err))
-							updateChan <- models.TelemetryUpdate{
-								Type:      models.UpdateTypeError,
-								Timestamp: time.Now(),
-								Error:     stringPtr(fmt.Sprintf("query error for %s: %v", measurementName, err)),
-							}
-							continue
-						}
-
-						for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
-							if err != nil {
-								updateChan <- models.TelemetryUpdate{
-									Type:      models.UpdateTypeError,
-									Timestamp: time.Now(),
-									Error:     stringPtr(err.Error()),
-								}
-								continue
-							}
-
-							telemetryData := influxModels.ToTelemetry(point)
-
-							deviceID := ""
-							if tagValue, exists := point.GetTag("device_id"); exists {
-								deviceID = tagValue
-							}
-
-							updateChan <- models.TelemetryUpdate{
-								Type:      models.UpdateTypeTelemetry,
-								DeviceID:  models.DeviceIdentifier(deviceID),
 								Timestamp: telemetryData.Timestamp,
 								Data:      &telemetryData,
 							}
@@ -861,32 +470,8 @@ AND time <= $end_time
 GROUP BY device_id
 ORDER BY device_id ASC`
 
-const getAggregatedTelemetryQueryTemplate = `SELECT device_id,
-%s(value) as aggregated_value,
-COUNT(*) as data_points,
-'%s' as measurement
-FROM %s
-WHERE device_id IN (%s)
-AND time >= $start_time
-AND time <= $end_time
-GROUP BY device_id
-ORDER BY device_id ASC`
-
 func (s *InfluxTelemetryStore) GetAggregatedTelemetry(ctx context.Context, query models.AggregationQuery) ([]models.AggregatedTelemetry, error) {
-	return executeWithFallback(
-		ctx,
-		s.logger,
-		"aggregated telemetry",
-		func(ctx context.Context) ([]models.AggregatedTelemetry, error) {
-			return s.getAggregatedTelemetryFromDeviceMetrics(ctx, query)
-		},
-		func(ctx context.Context) ([]models.AggregatedTelemetry, error) {
-			return s.getAggregatedTelemetryLegacy(ctx, query)
-		},
-		func(results []models.AggregatedTelemetry) bool {
-			return len(results) == 0
-		},
-	)
+	return s.getAggregatedTelemetryFromDeviceMetrics(ctx, query)
 }
 
 func (s *InfluxTelemetryStore) getAggregatedTelemetryFromDeviceMetrics(ctx context.Context, query models.AggregationQuery) ([]models.AggregatedTelemetry, error) {
@@ -989,107 +574,6 @@ func (s *InfluxTelemetryStore) getMeasurementFieldName(mt models.MeasurementType
 	default:
 		return ""
 	}
-}
-
-func (s *InfluxTelemetryStore) getAggregatedTelemetryLegacy(ctx context.Context, query models.AggregationQuery) ([]models.AggregatedTelemetry, error) {
-	var allResults []models.AggregatedTelemetry
-	var allErrors []error
-	totalSuccessCount := 0
-
-	for _, measurementType := range query.MeasurementTypes {
-		measurementName := measurementType.InfluxMeasurementName()
-		aggFunc := getAggregationFunction(query.AggregationType)
-
-		deviceIDsStr := s.buildDeviceIDsString(query.DeviceIDs)
-
-		influxQuery := fmt.Sprintf(getAggregatedTelemetryQueryTemplate, aggFunc, measurementName, measurementName, deviceIDsStr)
-		params := s.getAggregationParamsForMeasurement(query)
-
-		iterator, err := s.client.QueryPointValueWithParameters(ctx, influxQuery, params)
-		if err != nil {
-			s.logger.Error("aggregation query failed for measurement type",
-				slog.String("measurement", measurementName),
-				slog.Any("error", err))
-			allErrors = append(allErrors, fmt.Errorf("measurement %s: %w", measurementName, err))
-			continue
-		}
-
-		var measurementResults []models.AggregatedTelemetry
-		var iterationErrors []error
-		successCount := 0
-
-		for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
-			if err != nil {
-				s.logger.Error("error reading point in GetAggregatedTelemetry",
-					slog.String("measurement", measurementName),
-					slog.Any("error", err))
-				iterationErrors = append(iterationErrors, err)
-				continue
-			}
-
-			deviceID := models.DeviceIdentifier("")
-			if tagValue, exists := point.GetTag("device_id"); exists {
-				deviceID = models.DeviceIdentifier(tagValue)
-			}
-
-			aggregatedValue := float64(0)
-			if valueField := point.GetField("aggregated_value"); valueField != nil {
-				if val, ok := valueField.(float64); ok {
-					aggregatedValue = val
-				}
-			}
-
-			dataPoints := int64(0)
-			if countField := point.GetField("data_points"); countField != nil {
-				if count, ok := countField.(int64); ok {
-					dataPoints = count
-				}
-			}
-
-			result := models.AggregatedTelemetry{
-				DeviceID:        deviceID,
-				MeasurementType: measurementType,
-				Value:           aggregatedValue,
-				DataPoints:      int(dataPoints),
-				AggregationType: query.AggregationType,
-			}
-
-			measurementResults = append(measurementResults, result)
-			successCount++
-		}
-
-		if len(iterationErrors) > 0 {
-			if successCount > 0 {
-				s.logger.Warn("GetAggregatedTelemetry completed with partial data for measurement",
-					slog.String("measurement", measurementName),
-					slog.Int("success_count", successCount),
-					slog.Int("error_count", len(iterationErrors)))
-			} else {
-				allErrors = append(allErrors, fmt.Errorf("measurement %s iteration failed: %w", measurementName, iterationErrors[0]))
-				continue
-			}
-		}
-
-		allResults = append(allResults, measurementResults...)
-		totalSuccessCount += successCount
-	}
-
-	// Handle overall errors
-	if len(allErrors) > 0 {
-		if totalSuccessCount > 0 {
-			s.logger.Warn("GetAggregatedTelemetry completed with partial data across measurements",
-				slog.Int("total_success_count", totalSuccessCount),
-				slog.Int("measurement_error_count", len(allErrors)))
-		} else {
-			return nil, newTelemetryIterationError(allErrors[0], "GetAggregatedTelemetry", len(allErrors), totalSuccessCount > 0)
-		}
-	}
-
-	sort.Slice(allResults, func(i, j int) bool {
-		return string(allResults[i].DeviceID) < string(allResults[j].DeviceID)
-	})
-
-	return allResults, nil
 }
 
 func (s *InfluxTelemetryStore) Close() error {
@@ -1402,21 +886,35 @@ type CombinedMetricsQueryParams struct {
 	SlideIntervalSecs  int      // step in seconds, used for windowing
 }
 
+// isCumulativeMetric determines if a measurement type represents a cumulative metric
+// that should be summed across devices at each timestamp.
+//
+// Cumulative metrics (hashrate, power): Represent rates/flows that should be summed across
+// devices at each point in time before aggregating over the window.
+//
+// Non-cumulative metrics (temperature, efficiency, fan speed): Represent individual measurements
+// that should be aggregated per device first, then combined.
+func isCumulativeMetric(measurementType models.MeasurementType) bool {
+	switch measurementType {
+	case models.MeasurementTypeHashrate,
+		models.MeasurementTypePower,
+		models.MeasurementTypeCurrent: // Current is also additive
+		return true
+	case models.MeasurementTypeUnknown,
+		models.MeasurementTypeTemperature,
+		models.MeasurementTypeEfficiency,
+		models.MeasurementTypeFanSpeed,
+		models.MeasurementTypeVoltage,
+		models.MeasurementTypeUptime,
+		models.MeasurementTypeErrorRate:
+		return false
+	default:
+		return false
+	}
+}
+
 func (s *InfluxTelemetryStore) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
-	return executeWithFallback(
-		ctx,
-		s.logger,
-		"combined metrics",
-		func(ctx context.Context) (models.CombinedMetric, error) {
-			return s.getCombinedMetricsFromDeviceMetrics(ctx, query)
-		},
-		func(ctx context.Context) (models.CombinedMetric, error) {
-			return s.getCombinedMetricsLegacy(ctx, query)
-		},
-		func(result models.CombinedMetric) bool {
-			return len(result.Metrics) == 0
-		},
-	)
+	return s.getCombinedMetricsFromDeviceMetrics(ctx, query)
 }
 
 func (s *InfluxTelemetryStore) getCombinedMetricsFromDeviceMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
@@ -1445,21 +943,80 @@ func (s *InfluxTelemetryStore) getCombinedMetricsFromDeviceMetrics(ctx context.C
 			deviceIDsStr = fmt.Sprintf("AND device_id IN (%s)", s.buildDeviceIDsString(query.DeviceIDs))
 		}
 
-		// Simplified aggregation query
-		influxQuery := fmt.Sprintf(`
+		// Aggregation query strategy differs between cumulative and non-cumulative metrics:
+		//
+		// For CUMULATIVE metrics (hashrate, power, current):
+		//   - These represent rates/flows that should be summed across devices
+		//   - Semantics: For each device, calculate AVG/MIN/MAX over the window
+		//   - Then SUM those per-device aggregations across all devices
+		//   - Example: DeviceA=[100,200], DeviceB=[300,200]
+		//     - DeviceA_AVG=150, DeviceB_AVG=250 → Final_AVG=400 (sum of averages)
+		//     - DeviceA_MIN=100, DeviceB_MIN=200 → Final_MIN=300 (sum of minimums)
+		//     - DeviceA_MAX=200, DeviceB_MAX=300 → Final_MAX=500 (sum of maximums)
+		//     - DeviceA_latest=200, DeviceB_latest=200 → Final_SUM=400 (sum of latest)
+		//
+		// For NON-CUMULATIVE metrics (temperature, efficiency, fan speed):
+		//   - These are independent measurements per device
+		//   - Get latest value per device in each bucket
+		//   - Then aggregate normally (AVG, MIN, MAX, SUM)
+		//
+		// IMPORTANT: Filter by field IS NOT NULL to avoid aggregations including NULL values
+
+		var influxQuery string
+		if isCumulativeMetric(measurementType) {
+			// Cumulative metrics: aggregate per device, then sum across devices
+			influxQuery = fmt.Sprintf(`
+WITH per_device_aggregations AS (
+	SELECT
+		date_bin_wallclock_gapfill(INTERVAL '%d second', time) AS bucket,
+		device_id,
+		AVG(%s) as device_avg,
+		MIN(%s) as device_min,
+		MAX(%s) as device_max,
+		last_value(%s ORDER BY time) as device_latest
+	FROM device_metrics
+	WHERE time BETWEEN $start_time AND $stop_time
+	AND %s IS NOT NULL
+	%s
+	GROUP BY bucket, device_id
+)
 SELECT
-	date_bin_wallclock_gapfill(INTERVAL '%d second', time) AS bucket,
-	AVG(%s) as avg_value,
-	MIN(%s) as min_value,
-	MAX(%s) as max_value,
-	SUM(%s) as sum_value
-FROM device_metrics
-WHERE time BETWEEN $start_time AND $stop_time
-%s
+	to_timestamp(bucket) AS time,
+	SUM(device_avg) as avg_value,
+	SUM(device_min) as min_value,
+	SUM(device_max) as max_value,
+	SUM(device_latest) as sum_value
+FROM per_device_aggregations
 GROUP BY bucket
 ORDER BY bucket ASC
 LIMIT 1000
-`, int(slideInterval.Seconds()), fieldName, fieldName, fieldName, fieldName, deviceIDsStr)
+`, int(slideInterval.Seconds()), fieldName, fieldName, fieldName, fieldName, fieldName, deviceIDsStr)
+		} else {
+			// Non-cumulative metrics: get latest per device, then aggregate normally
+			influxQuery = fmt.Sprintf(`
+WITH latest_per_device AS (
+	SELECT
+		date_bin_wallclock_gapfill(INTERVAL '%d second', time) AS bucket,
+		device_id,
+		last_value(%s ORDER BY time) as latest_value
+	FROM device_metrics
+	WHERE time BETWEEN $start_time AND $stop_time
+	AND %s IS NOT NULL
+	%s
+	GROUP BY bucket, device_id
+)
+SELECT
+	to_timestamp(bucket) AS time,
+	AVG(latest_value) as avg_value,
+	MIN(latest_value) as min_value,
+	MAX(latest_value) as max_value,
+	SUM(latest_value) as sum_value
+FROM latest_per_device
+GROUP BY bucket
+ORDER BY bucket ASC
+LIMIT 1000
+`, int(slideInterval.Seconds()), fieldName, fieldName, deviceIDsStr)
+		}
 
 		params := s.getCombinedMetricsParams(query)
 		iterator, err := s.client.QueryPointValueWithParameters(ctx, influxQuery, params)
@@ -1478,7 +1035,15 @@ LIMIT 1000
 				continue
 			}
 
+			// Extract the bucket timestamp from point.Timestamp
+			// The query selects to_timestamp(bucket) AS time, which populates point.Timestamp
 			bucketTime := point.Timestamp
+			if bucketTime.IsZero() {
+				s.logger.Debug("bucket time is zero (point.Timestamp)",
+					slog.String("field", fieldName))
+				continue
+			}
+
 			var aggregatedValues []models.AggregatedValue
 
 			if avgField := point.GetField("avg_value"); avgField != nil {
@@ -1571,285 +1136,21 @@ LIMIT 1000
 	}, nil
 }
 
-func (s *InfluxTelemetryStore) getCombinedMetricsLegacy(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
-	var allMetrics []models.Metric
-	var allErrors []error
-	totalSuccessCount := 0
-
-	// Default slide interval if not specified
-	slideInterval := defaultSlideInterval
-	if query.SlideInterval != nil {
-		slideInterval = *query.SlideInterval
-	}
-
-	// Default WindowDuration if not specified
-	windowDuration := defaultWindowDuration
-	if query.WindowDuration != nil {
-		windowDuration = *query.WindowDuration
-	}
-
-	// Parse pagination token to get offset
-	offset := 0
-	if query.PaginationToken != "" {
-		if parsedOffset, err := strconv.Atoi(query.PaginationToken); err == nil {
-			offset = parsedOffset
-		}
-	}
-
-	// Default limit for pagination
-	limit := 100
-	if query.PageSize > 0 {
-		limit = query.PageSize
-	}
-
-	// Pre-parse both templates to avoid repeated parsing in the loop
-	cumulativeTemplate, err := template.New("GetCombinedMetricCumulativeTemplate").Parse(GetCombinedMetricsWindowing + GetCombinedMetricCumulativeTemplate)
-	if err != nil {
-		s.logger.Error("failed to parse cumulative combined metrics template", slog.Any("error", err))
-		return models.CombinedMetric{}, newTelemetryQueryError(err, "GetCombinedMetrics")
-	}
-
-	nonCumulativeTemplate, err := template.New("GetCombinedMetricsNonCumulativeTemplate").Parse(GetCombinedMetricsWindowing + GetCombinedMetricsNonCumulativeTemplate)
-	if err != nil {
-		s.logger.Error("failed to parse non-cumulative combined metrics template", slog.Any("error", err))
-		return models.CombinedMetric{}, newTelemetryQueryError(err, "GetCombinedMetrics")
-	}
-
-	// Process each measurement type
-	for _, measurementType := range query.MeasurementTypes {
-		measurementName := measurementType.InfluxMeasurementName()
-
-		// Prepare template parameters
-		templateParams := CombinedMetricsQueryParams{
-			Table:              measurementName,
-			WindowDurationSecs: int(windowDuration.Seconds()),
-			SlideIntervalSecs:  int(slideInterval.Seconds()),
-			Limit:              limit,
-			Offset:             offset,
-		}
-
-		// Set device IDs or organization
-		if len(query.DeviceIDs) > 0 {
-			templateParams.DeviceIDs = deviceIDsToStrings(query.DeviceIDs)
-		}
-
-		// Choose the appropriate template based on measurement type
-		var selectedTemplate *template.Template
-		isCumulative := isCumulativeMeasurement(measurementType)
-		if isCumulative {
-			selectedTemplate = cumulativeTemplate
-		} else {
-			selectedTemplate = nonCumulativeTemplate
-		}
-
-		// Execute the selected template to generate query
-		var queryBuffer bytes.Buffer
-		if err := selectedTemplate.Execute(&queryBuffer, templateParams); err != nil {
-			s.logger.Error("failed to execute combined metrics template",
-				slog.String("measurement", measurementName),
-				slog.Bool("is_cumulative", isCumulative),
-				slog.Any("error", err))
-			allErrors = append(allErrors, fmt.Errorf("measurement %s template execute: %w", measurementName, err))
-			continue
-		}
-
-		influxQuery := queryBuffer.String()
-
-		// Prepare query parameters
-		params := s.getCombinedMetricsParams(query)
-
-		// Execute query
-		iterator, err := s.client.QueryPointValueWithParameters(ctx, influxQuery, params)
-		if err != nil {
-			s.logger.Error("combined metrics query failed for measurement type",
-				slog.String("measurement", measurementName),
-				slog.Bool("is_cumulative", isCumulative),
-				slog.Any("error", err))
-			allErrors = append(allErrors, fmt.Errorf("measurement %s: %w", measurementName, err))
-			continue
-		}
-
-		var measurementResults []models.Metric
-		var iterationErrors []error
-		successCount := 0
-
-		// Process query results
-		for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
-			if err != nil {
-				s.logger.Error("error reading point in GetCombinedMetrics",
-					slog.String("measurement", measurementName),
-					slog.Bool("is_cumulative", isCumulative),
-					slog.Any("error", err))
-				iterationErrors = append(iterationErrors, err)
-				continue
-			}
-
-			// Extract bucket time (open time)
-			bucketTime := point.Timestamp
-
-			// Extract aggregated values from the point based on template type
-			var aggregatedValues []models.AggregatedValue
-
-			if isCumulative {
-				// Handle cumulative template fields
-				if totalField := point.GetField("total"); totalField != nil {
-					if val, ok := totalField.(float64); ok {
-						aggregatedValues = append(aggregatedValues, models.AggregatedValue{
-							Type:  models.AggregationTypeSum,
-							Value: val,
-						})
-					}
-				}
-
-				if minTotalField := point.GetField("min_total"); minTotalField != nil {
-					if val, ok := minTotalField.(float64); ok {
-						aggregatedValues = append(aggregatedValues, models.AggregatedValue{
-							Type:  models.AggregationTypeMin,
-							Value: val,
-						})
-					}
-				}
-
-				if maxTotalField := point.GetField("max_total"); maxTotalField != nil {
-					if val, ok := maxTotalField.(float64); ok {
-						aggregatedValues = append(aggregatedValues, models.AggregatedValue{
-							Type:  models.AggregationTypeMax,
-							Value: val,
-						})
-					}
-				}
-
-				if meanChangeField := point.GetField("mean_change"); meanChangeField != nil {
-					if val, ok := meanChangeField.(float64); ok {
-						aggregatedValues = append(aggregatedValues, models.AggregatedValue{
-							Type:  models.AggregationTypeMeanChange,
-							Value: val,
-						})
-					}
-				}
-			} else {
-				// Handle non-cumulative template fields
-				if sumField := point.GetField("v_sum"); sumField != nil {
-					if val, ok := sumField.(float64); ok {
-						aggregatedValues = append(aggregatedValues, models.AggregatedValue{
-							Type:  models.AggregationTypeSum,
-							Value: val,
-						})
-					}
-				}
-
-				if avgField := point.GetField("v_avg"); avgField != nil {
-					if val, ok := avgField.(float64); ok {
-						aggregatedValues = append(aggregatedValues, models.AggregatedValue{
-							Type:  models.AggregationTypeAverage,
-							Value: val,
-						})
-					}
-				}
-
-				if minField := point.GetField("v_min"); minField != nil {
-					if val, ok := minField.(float64); ok {
-						aggregatedValues = append(aggregatedValues, models.AggregatedValue{
-							Type:  models.AggregationTypeMin,
-							Value: val,
-						})
-					}
-				}
-
-				if maxField := point.GetField("v_max"); maxField != nil {
-					if val, ok := maxField.(float64); ok {
-						aggregatedValues = append(aggregatedValues, models.AggregatedValue{
-							Type:  models.AggregationTypeMax,
-							Value: val,
-						})
-					}
-				}
-			}
-
-			// Filter aggregated values based on requested aggregation types
-			var filteredValues []models.AggregatedValue
-			if len(query.AggregationTypes) > 0 {
-				requestedTypes := make(map[models.AggregationType]bool)
-				for _, aggType := range query.AggregationTypes {
-					requestedTypes[aggType] = true
-				}
-
-				for _, aggValue := range aggregatedValues {
-					if requestedTypes[aggValue.Type] {
-						filteredValues = append(filteredValues, aggValue)
-					}
-				}
-			} else {
-				// If no specific aggregation types requested, return all
-				filteredValues = aggregatedValues
-			}
-
-			if len(filteredValues) > 0 {
-				metric := models.Metric{
-					MeasurementType:  measurementType,
-					AggregatedValues: filteredValues,
-					OpenTime:         bucketTime,
-				}
-				measurementResults = append(measurementResults, metric)
-				successCount++
-			}
-		}
-
-		// Handle iteration errors
-		if len(iterationErrors) > 0 {
-			if successCount > 0 {
-				s.logger.Warn("GetCombinedMetrics completed with partial data for measurement",
-					slog.String("measurement", measurementName),
-					slog.Bool("is_cumulative", isCumulative),
-					slog.Int("success_count", successCount),
-					slog.Int("error_count", len(iterationErrors)))
-			} else {
-				allErrors = append(allErrors, fmt.Errorf("measurement %s iteration failed: %w", measurementName, iterationErrors[0]))
-				continue
-			}
-		}
-
-		allMetrics = append(allMetrics, measurementResults...)
-		totalSuccessCount += successCount
-	}
-
-	// Handle overall errors
-	if len(allErrors) > 0 {
-		if totalSuccessCount > 0 {
-			s.logger.Warn("GetCombinedMetrics completed with partial data across measurements",
-				slog.Int("total_success_count", totalSuccessCount),
-				slog.Int("measurement_error_count", len(allErrors)))
-		} else {
-			return models.CombinedMetric{}, newTelemetryIterationError(allErrors[0], "GetCombinedMetrics", len(allErrors), totalSuccessCount > 0)
-		}
-	}
-
-	// Sort metrics by open time
-	sort.Slice(allMetrics, func(i, j int) bool {
-		return allMetrics[i].OpenTime.Before(allMetrics[j].OpenTime)
-	})
-
-	// Generate next page token
-	nextPageToken := ""
-	if len(allMetrics) == limit {
-		nextPageToken = strconv.Itoa(offset + limit)
-	}
-
-	return models.CombinedMetric{
-		Metrics:       allMetrics,
-		NextPageToken: nextPageToken,
-	}, nil
-}
-
 func (s *InfluxTelemetryStore) StoreDeviceMetrics(ctx context.Context, telemetry ...modelsV2.DeviceMetrics) error {
+	if len(telemetry) == 0 {
+		return nil
+	}
+
 	points := make([]*influxdb3.Point, 0, len(telemetry))
 	for _, tm := range telemetry {
 		devicePoints := influxModels.DeviceMetricsToPoints(tm)
 		points = append(points, devicePoints...)
 	}
+
 	if err := s.client.WritePoints(ctx, points); err != nil {
 		return newTelemetryWriteError(err, len(points))
 	}
+
 	return nil
 }
 
@@ -1916,7 +1217,7 @@ func (s *InfluxTelemetryStore) convertDeviceMetricsToTelemetry(deviceMetrics mod
 		})
 	}
 
-	// Convert EfficiencyJH to efficiency_jth
+	// Convert EfficiencyJH to efficiency_jh (stored in J/H, converted to J/TH at API layer)
 	if deviceMetrics.EfficiencyJH != nil && isRequested(models.MeasurementTypeEfficiency) {
 		results = append(results, models.Telemetry{
 			Measurement: models.MeasurementTypeEfficiency.InfluxMeasurementName(),

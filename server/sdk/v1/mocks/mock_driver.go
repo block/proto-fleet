@@ -712,10 +712,10 @@ func (mr *MockDriverMockRecorder) NewDevice(ctx, deviceID, deviceInfo, secret in
 }
 
 // PairDevice mocks base method.
-func (m *MockDriver) PairDevice(ctx context.Context, device sdk.DeviceInfo, access sdk.SecretBundle) (string, error) {
+func (m *MockDriver) PairDevice(ctx context.Context, device sdk.DeviceInfo, access sdk.SecretBundle) (sdk.DeviceInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "PairDevice", ctx, device, access)
-	ret0, _ := ret[0].(string)
+	ret0, _ := ret[0].(sdk.DeviceInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

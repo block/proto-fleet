@@ -2,6 +2,7 @@ package fleetmanagement
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -28,6 +29,18 @@ const (
 	// maxPageSize is the maximum number of items that can be returned per page
 	maxPageSize = 1000
 )
+
+// constructWebViewURL builds a web view URL
+//
+// Note: The port is intentionally omitted from the URL for display purposes, as web browsers
+// will use the default port for the scheme (80 for http, 443 for https). This matches the
+// behavior of GetWebViewURL().
+func constructWebViewURL(scheme, ipAddress string) string {
+	if ipAddress == "" || scheme == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s://%s", scheme, ipAddress)
+}
 
 type Service struct {
 	deviceStore           interfaces.DeviceStore
@@ -257,6 +270,10 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 				if err == nil && minerInfo != nil {
 					snapshot.IpAddress = minerInfo.GetConnectionInfo().IPAddress.String()
 					snapshot.Url = minerInfo.GetWebViewURL().String()
+				} else {
+					// Fallback: Build URL from database fields when BuildMinerInfo fails
+					snapshot.IpAddress = row.IpAddress
+					snapshot.Url = constructWebViewURL(row.UrlScheme, row.IpAddress)
 				}
 			}
 
@@ -823,6 +840,11 @@ func (s *Service) buildMinerSnapshot(
 		snapshot.DeviceIdentifier = minerInfo.GetID().String()
 		snapshot.IpAddress = minerInfo.GetConnectionInfo().IPAddress.String()
 		snapshot.Url = minerInfo.GetWebViewURL().String()
+	} else {
+		// Fallback: construct URL from database fields when minerInfo is unavailable
+		snapshot.DeviceIdentifier = device.DeviceIdentifier
+		snapshot.IpAddress = device.IpAddress
+		snapshot.Url = constructWebViewURL(device.UrlScheme, device.IpAddress)
 	}
 
 	if telemetry != nil {

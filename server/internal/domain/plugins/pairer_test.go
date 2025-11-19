@@ -2,6 +2,8 @@ package plugins
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"testing"
 
 	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
@@ -123,7 +125,7 @@ func TestPairer_PairDevice_PluginNoPairingCapability(t *testing.T) {
 	err := pairer.PairDevice(ctx, device, credentials)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not support pairing")
+	assert.Contains(t, err.Error(), "does not support capability pairing")
 }
 
 func TestPairer_PairDevice_Success(t *testing.T) {
@@ -153,20 +155,11 @@ func TestPairer_PairDevice_Success(t *testing.T) {
 		},
 	}
 
-	// Create mock device that will be returned by NewDevice
-	mockDevice := sdkMocks.NewMockDevice(ctrl)
-	mockDevice.EXPECT().
-		DescribeDevice(gomock.Any()).
-		Return(expectedDeviceInfo, sdk.Capabilities{}, nil)
-
 	// Create mock driver with specific expectations
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
 	mockDriver.EXPECT().
-		NewDevice(gomock.Any(), "test-device", gomock.Any(), gomock.Eq(expectedSecretBundle)).
-		Return(sdk.NewDeviceResult{Device: mockDevice}, nil)
-	mockDriver.EXPECT().
 		PairDevice(gomock.Any(), gomock.Eq(expectedDeviceInfo), gomock.Eq(expectedSecretBundle)).
-		Return("pairing successful", nil)
+		Return(expectedDeviceInfo, nil)
 
 	// Add mock plugin with pairing capability
 	mockPlugin := &LoadedPlugin{
@@ -249,29 +242,15 @@ func TestPairer_PairDevice_Success_APIKey(t *testing.T) {
 		MacAddress:   "00-11-22-33-44-55",
 	}
 
-	// Create mock device that will be returned by NewDevice
-	mockDevice := sdkMocks.NewMockDevice(ctrl)
-	mockDevice.EXPECT().
-		DescribeDevice(gomock.Any()).
-		Return(expectedDeviceInfo, sdk.Capabilities{}, nil)
-
 	// Create mock driver with specific expectations
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
 	mockDriver.EXPECT().
-		NewDevice(gomock.Any(), "proto-device-001", gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, _ sdk.DeviceInfo, bundle sdk.SecretBundle) (sdk.NewDeviceResult, error) {
-			// Verify bundle contains APIKey
-			_, ok := bundle.Kind.(sdk.APIKey)
-			require.True(t, ok, "Expected APIKey in SecretBundle")
-			return sdk.NewDeviceResult{Device: mockDevice}, nil
-		})
-	mockDriver.EXPECT().
 		PairDevice(gomock.Any(), gomock.Eq(expectedDeviceInfo), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ sdk.DeviceInfo, bundle sdk.SecretBundle) (string, error) {
+		DoAndReturn(func(_ context.Context, device sdk.DeviceInfo, bundle sdk.SecretBundle) (sdk.DeviceInfo, error) {
 			// Verify bundle contains APIKey
 			_, ok := bundle.Kind.(sdk.APIKey)
 			require.True(t, ok, "Expected APIKey in SecretBundle")
-			return "pairing successful with API key", nil
+			return device, nil
 		})
 
 	// Add mock plugin with pairing capability
@@ -316,20 +295,15 @@ func TestPairer_PairDevice_Success_APIKey(t *testing.T) {
 
 	ctx := t.Context()
 
-	// Generate a valid EC private key for testing
-	// This matches the format expected by tokenService.ExtractPublicKeyFromPrivateKey
-	//nolint:gosec // Test fixture - not a real credential
-	validPrivateKeyPEM := `-----BEGIN EC PRIVATE KEY-----
-MHcCAQEEIIGlRW3kp6wMPHlWCU3KvJHF8Q3PZ7TnCgHJp+qxA6fOoAoGCCqGSM49
-AwEHoUQDQgAEsVaHX3VT7yMJ8QJ2TGNNqXVAD7SjKl5z0FjqGhM7R5C7xhJCO9JL
-fKx2N0uH2VQ8Z3xPjZSYGDCxKVHZKvJ8Ug==
------END EC PRIVATE KEY-----`
-	encryptedPrivateKey, err := encryptService.Encrypt([]byte(validPrivateKeyPEM))
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	encryptedPrivateKey, err := encryptService.Encrypt([]byte(privateKey))
 	require.NoError(t, err)
 
 	// Mock user store to return encrypted org private key
-	// Called 3 times: PairDevice createSecretBundle, GetDeviceInfo createSecretBundle, saveCredentials createSecretBundle
-	userStore.EXPECT().GetOrganizationPrivateKey(gomock.Any(), device.OrgID).Return(encryptedPrivateKey, nil).Times(3)
+	// Called 2 times: PairDevice createSecretBundle, saveCredentials createSecretBundle
+	userStore.EXPECT().GetOrganizationPrivateKey(gomock.Any(), device.OrgID).Return(encryptedPrivateKey, nil).Times(2)
 
 	// Mock transactor to execute the function immediately
 	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -385,7 +359,7 @@ func TestPairer_GetDeviceInfo_PluginNoPairingCapability(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "does not support pairing")
+	assert.Contains(t, err.Error(), "does not support capability pairing")
 }
 
 func TestPairer_GetDeviceInfo_Success(t *testing.T) {
@@ -481,6 +455,85 @@ func TestPairer_GetDeviceInfo_Success(t *testing.T) {
 	assert.Equal(t, "Bitmain", result.Manufacturer)
 	assert.Equal(t, "asic", result.Type)
 	assert.Equal(t, "00-11-22-33-44-55", result.MacAddress)
+}
+
+func TestPairer_GetDeviceInfo_ProtoUsesBearerToken(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	manager := NewManager(&Config{})
+
+	deviceInfo := sdk.DeviceInfo{
+		Host:         "192.168.1.100",
+		Port:         4028,
+		URLScheme:    "grpc",
+		SerialNumber: "PROTO123",
+		Model:        "ProtoMiner v1",
+		Manufacturer: "Proto",
+		Type:         sdk.DeviceTypeASIC,
+		MacAddress:   "00:11:22:33:44:55",
+	}
+
+	mockSDKDevice := sdkMocks.NewMockDevice(ctrl)
+	mockSDKDevice.EXPECT().
+		DescribeDevice(gomock.Any()).
+		Return(deviceInfo, sdk.Capabilities{}, nil)
+
+	mockDriver := sdkMocks.NewMockDriver(ctrl)
+	mockDriver.EXPECT().
+		NewDevice(gomock.Any(), "proto-device-001", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ sdk.DeviceInfo, bundle sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+			bearer, ok := bundle.Kind.(sdk.BearerToken)
+			require.True(t, ok, "expected bearer token in secret bundle")
+			require.NotEmpty(t, bearer.Token)
+			return sdk.NewDeviceResult{Device: mockSDKDevice}, nil
+		})
+
+	mockPlugin := &LoadedPlugin{
+		Name:   "proto-plugin",
+		Driver: mockDriver,
+		Caps: sdk.Capabilities{
+			sdk.CapabilityPairing: true,
+		},
+	}
+	manager.pluginsByType[models.TypeProto] = mockPlugin
+
+	transactor := mocks.NewMockTransactor(ctrl)
+	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	deviceStore := mocks.NewMockDeviceStore(ctrl)
+	userStore := mocks.NewMockUserStore(ctrl)
+	tokenService := &token.Service{}
+	encryptService, err := encrypt.NewService(&encrypt.Config{
+		ServiceMasterKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+	})
+	require.NoError(t, err)
+
+	pairer := NewPairer(manager, models.TypeProto, transactor, discoveredDeviceStore, deviceStore, userStore, tokenService, encryptService)
+
+	device := &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: "proto-device-001",
+			IpAddress:        "192.168.1.100",
+			Port:             "4028",
+			UrlScheme:        "grpc",
+			SerialNumber:     "PROTO123",
+			Type:             "asic",
+		},
+		OrgID: 1,
+	}
+
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	encryptedPrivateKey, err := encryptService.Encrypt([]byte(privateKey))
+	require.NoError(t, err)
+	userStore.EXPECT().GetOrganizationPrivateKey(gomock.Any(), device.OrgID).Return(encryptedPrivateKey, nil)
+
+	ctx := t.Context()
+	result, err := pairer.GetDeviceInfo(ctx, device, nil)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "PROTO123", result.SerialNumber)
 }
 
 // Helper function to create string pointer

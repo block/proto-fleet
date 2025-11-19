@@ -12,6 +12,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/capabilities"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/ipscanner"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
+	minerModels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins"
 
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
@@ -45,11 +46,9 @@ import (
 	antminerWeb "github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/web"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	antminerDiscoverer "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/antminer"
-	protoDiscoverer "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/proto"
 	onboardingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
 	pairingAntminer "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/antminer"
-	pairingProto "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/proto"
 	poolsDomain "github.com/btc-mining/proto-fleet/server/internal/domain/pools"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry"
@@ -148,17 +147,25 @@ func start(config *Config) error {
 		slog.Warn("Plugin health check failed, continuing startup", "error", err)
 	}
 
-	// Create discoverers - plugins take priority over internal implementations
+	// TODO(DASH-887): Remove hard dependency on proto plugin once:
+	// 1. Plugin health checks can detect and report plugin loading failures
+	// 2. The system can gracefully handle missing plugins (disable features vs. fatal error)
+	// 3. UI can show which plugin-based features are unavailable
+	// For now, we require the proto plugin to be available for fleet functionality
+	if !pluginManager.HasPluginForMinerType(minerModels.TypeProto) {
+		return fmt.Errorf("proto plugin is required but not loaded - ensure 'proto' plugin binary is in the plugins directory (check PLUGIN_DIR environment variable or default './plugins' directory)")
+	}
+
+	// Create discoverers
 	var discoverers []minerdiscovery.Discoverer
 
-	// Add plugin-based discoverers first (they take priority)
+	// Add plugin-based discoverers
 	pluginDiscoverers := pluginService.CreateDiscoverers()
 	discoverers = append(discoverers, pluginDiscoverers...)
 
-	// Add internal discoverers as fallback
-	protoDiscoverer := protoDiscoverer.NewDiscoverer()
+	// Add internal discoverers for other miner types
 	antminerDiscoverer := antminerDiscoverer.NewDiscoverer(antminerRPC.NewService())
-	discoverers = append(discoverers, protoDiscoverer, antminerDiscoverer)
+	discoverers = append(discoverers, antminerDiscoverer)
 
 	discoveryService, err := minerdiscovery.NewService(discoverers...)
 	if err != nil {
@@ -208,20 +215,19 @@ func start(config *Config) error {
 		return err
 	}
 
-	// Create pairers - plugins take priority over internal implementations
+	// Create pairers
 	var pairers []pairingDomain.Pairer
 
-	// Add plugin-based pairers first (they take priority)
+	// Add plugin-based pairers
 	supportedTypes := pluginService.GetSupportedMinerTypes()
 	for _, minerType := range supportedTypes {
 		pluginPairer := plugins.NewPairer(pluginManager, minerType, transactor, discoveredDeviceStore, deviceStore, userStore, tokenSvc, encryptSvc)
 		pairers = append(pairers, pluginPairer)
 	}
 
-	// Add internal pairers as fallback
-	protoPairer := pairingProto.NewService(transactor, discoveredDeviceStore, deviceStore, userStore, minerService, tokenSvc, encryptSvc)
+	// Add internal pairers for other miner types
 	antminerPairer := pairingAntminer.NewService(transactor, discoveredDeviceStore, deviceStore, encryptSvc, antminerWeb.NewService())
-	pairers = append(pairers, protoPairer, antminerPairer)
+	pairers = append(pairers, antminerPairer)
 
 	pairingSvc := pairingDomain.NewService(
 		discoveredDeviceStore,

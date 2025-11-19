@@ -17,13 +17,11 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/web"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins"
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
 
@@ -134,7 +132,12 @@ func (s *MinerService) getProtoMinerAuthPrivateKey(ctx context.Context, orgID in
 	return privateKey, nil
 }
 
-func (s *MinerService) BuildMinerInfo(ctx context.Context, deviceIdentifier string, orgID int64, deviceIPAddress string, devicePort string, deviceScheme string, minerType models.Type, deviceSerialNumber string) (interfaces.MinerInfo, error) {
+// BuildMinerInfo constructs a MinerInfo object for communicating with a paired mining device.
+// The orgID and urlScheme parameters are currently unused but retained for future plugin infrastructure migration.
+// TODO(DASH-887): Integrate orgID and urlScheme parameters when plugin infrastructure is fully implemented.
+func (s *MinerService) BuildMinerInfo(ctx context.Context, deviceIdentifier string, orgID int64, deviceIPAddress string, devicePort string, urlScheme string, minerType models.Type, deviceSerialNumber string) (interfaces.MinerInfo, error) {
+	_ = orgID     // Unused: reserved for plugin infrastructure
+	_ = urlScheme // Unused: reserved for plugin infrastructure
 	portInt, err := strconv.Atoi(devicePort)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse port %s: %w", devicePort, err)
@@ -146,22 +149,11 @@ func (s *MinerService) BuildMinerInfo(ctx context.Context, deviceIdentifier stri
 
 	port := uint16(portInt)
 
-	scheme, err := networking.ProtocolFromString(deviceScheme)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse scheme: %w", err)
-	}
-
 	minerIdentifier := models.DeviceIdentifier(deviceIdentifier)
 	switch minerType {
 	case models.TypeAntminer:
 		return antminer.NewAntminerInfo(minerIdentifier, deviceIPAddress, port, deviceSerialNumber), nil
-	case models.TypeProto:
-		minerAuthPrivateKey, err := s.getProtoMinerAuthPrivateKey(ctx, orgID)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("error getting auth private key: %v", err)
-		}
-		return proto.NewProtoMinerInfo(minerIdentifier, deviceIPAddress, port, scheme, minerAuthPrivateKey, deviceSerialNumber)
-	case models.TypeWhatsminer, models.TypeAvalon, models.TypeUnknown:
+	case models.TypeProto, models.TypeWhatsminer, models.TypeAvalon, models.TypeUnknown:
 		return nil, fmt.Errorf("unsupported miner type: %s", minerType)
 	default:
 		return nil, fmt.Errorf("unsupported miner type: %s", minerType)
@@ -189,13 +181,7 @@ func (s *MinerService) createMiner(ctx context.Context, deviceIdentifier string,
 	switch minerInfo.GetType() {
 	case models.TypeAntminer:
 		return s.createAntminer(minerInfo, deviceUsername, devicePassword)
-	case models.TypeProto:
-		protoMinerInfo, ok := minerInfo.(*proto.ProtoMinerInfo)
-		if !ok {
-			return nil, fmt.Errorf("expected *proto.ProtoMinerInfo but got %T", minerInfo)
-		}
-		return s.createProtoMiner(protoMinerInfo)
-	case models.TypeWhatsminer, models.TypeAvalon, models.TypeUnknown:
+	case models.TypeProto, models.TypeWhatsminer, models.TypeAvalon, models.TypeUnknown:
 		return nil, fmt.Errorf("unsupported miner type: %s", minerType)
 	default:
 		return nil, fmt.Errorf("unsupported miner type: %s", minerType)
@@ -230,15 +216,6 @@ func (s *MinerService) createAntminer(minerInfo interfaces.MinerInfo, deviceUser
 	), nil
 }
 
-func (s *MinerService) createProtoMiner(minerInfo *proto.ProtoMinerInfo) (interfaces.Miner, error) {
-	return proto.NewProtoMiner(
-		minerInfo,
-		s.filesService,
-		s.tokenService,
-		s.encryptService,
-	)
-}
-
 func (s *MinerService) createPluginMiner(ctx context.Context, deviceIdentifier string, orgID int64, minerType models.Type, devicePort string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string) (interfaces.Miner, error) {
 	// Use the plugin factory to create the miner - this encapsulates all SDK logic
 	return plugins.NewPluginMinerWithCredentials(ctx, plugins.PluginMinerConfig{
@@ -252,6 +229,7 @@ func (s *MinerService) createPluginMiner(ctx context.Context, deviceIdentifier s
 		DevicePassword:     devicePassword,
 		OrgID:              orgID,
 		EncryptService:     s.encryptService,
+		TokenService:       s.tokenService,
 		GetOrgPrivateKey:   s.getProtoMinerAuthPrivateKey,
 		DriverGetter:       s.pluginManager,
 	})

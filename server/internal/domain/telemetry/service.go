@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -375,7 +376,9 @@ func (s *TelemetryService) GetStatusForDevice(ctx context.Context, device models
 	// Get new status from miner
 	newStatus, err := miner.GetDeviceStatus(ctx)
 	if err != nil {
-		slog.Error("failed to get device status for miner", "deviceID", device.ID, "error", err)
+		slog.Error("Telemetry service failed to get device status",
+			"device_id", device.ID,
+			"error", err)
 	}
 
 	// Update database
@@ -434,12 +437,11 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 		// Success - store using the new method
 		err = s.telemetryDataStore.StoreDeviceMetrics(ctx, deviceMetrics)
 		if err != nil {
-			slog.Error("failed to store device metrics", "deviceID", device.ID, "error", err)
+			slog.Error("Failed to store device metrics",
+				"device_id", device.ID,
+				"error", err)
 			// Don't return - we still want to collect the old telemetry format
 		}
-	} else {
-		// Log that GetDeviceMetrics is not yet implemented or failed
-		slog.Debug("GetDeviceMetrics not yet implemented or failed", "deviceID", device.ID, "error", err)
 	}
 
 	// Always call GetTelemetry to collect the old format
@@ -602,13 +604,20 @@ func (s *TelemetryService) GetCombinedMetrics(ctx context.Context, query models.
 func (s *TelemetryService) StreamCombinedMetrics(ctx context.Context, query models.StreamCombinedMetricsQuery) (<-chan models.CombinedMetric, error) {
 	updateChan := make(chan models.CombinedMetric)
 
+	// Ensure granularity is set to avoid divide-by-zero
+	granularity := query.Granularity
+	if granularity == 0 {
+		granularity = defaultUpdateInterval
+	}
+
 	updateInterval := query.UpdateInterval
 	if updateInterval == 0 {
-		updateInterval = query.Granularity
-		if updateInterval == 0 {
-			updateInterval = defaultUpdateInterval
-		}
+		updateInterval = granularity
 	}
+
+	// Update query with defaulted values
+	query.Granularity = granularity
+	query.UpdateInterval = updateInterval
 
 	go func() {
 		defer close(updateChan)
@@ -666,14 +675,30 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 
 	now := time.Now()
 
-	intervalNanos := updateInterval.Nanoseconds()
-	alignedEndTime := time.Unix(0, (now.UnixNano()/intervalNanos)*intervalNanos)
-
-	if alignedEndTime.After(now) {
-		alignedEndTime = alignedEndTime.Add(-updateInterval)
+	// IMPORTANT: The time window must be at least as wide as the granularity (bucket size)
+	// to ensure we capture complete buckets of data. If updateInterval < granularity,
+	// using updateInterval for the window width would result in no complete buckets.
+	//
+	// Example problem:
+	//   - Granularity (bucket size): 5 minutes
+	//   - UpdateInterval: 100ms
+	//   - Window using updateInterval: [now-100ms, now] - captures 0 complete 5-min buckets!
+	//
+	// Solution: Use granularity as the minimum window width
+	windowWidth := query.Granularity
+	if updateInterval > windowWidth {
+		windowWidth = updateInterval
 	}
 
-	startTime := alignedEndTime.Add(-updateInterval)
+	// Align end time to bucket boundaries for consistent results
+	granularityNanos := query.Granularity.Nanoseconds()
+	alignedEndTime := time.Unix(0, (now.UnixNano()/granularityNanos)*granularityNanos)
+
+	if alignedEndTime.After(now) {
+		alignedEndTime = alignedEndTime.Add(-query.Granularity)
+	}
+
+	startTime := alignedEndTime.Add(-windowWidth)
 
 	combinedQuery.TimeRange = models.TimeRange{
 		StartTime: &startTime,
@@ -682,7 +707,21 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 
 	combinedMetrics, err := s.GetCombinedMetrics(ctx, combinedQuery)
 	if err != nil {
-		return fmt.Errorf("failed to get combined metrics: %w", err)
+		// Handle "no metrics found" as an expected condition - send empty result instead of failing
+		// This allows the stream to continue even when there's no data in the current time window
+		if strings.Contains(err.Error(), "no combined metrics found") {
+			combinedMetrics = models.CombinedMetric{
+				Metrics: []models.Metric{},
+			}
+		} else {
+			return fmt.Errorf("failed to get combined metrics: %w", err)
+		}
+	}
+
+	// Count metrics for logging
+	totalAggregateValues := 0
+	for _, metric := range combinedMetrics.Metrics {
+		totalAggregateValues += len(metric.AggregatedValues)
 	}
 
 	select {
@@ -1068,11 +1107,13 @@ func (s *TelemetryService) getLatestMeasurements(ctx context.Context, deviceID s
 	var measurements []*commonpb.Measurement
 	for _, data := range telemetryData {
 		if value, ok := data.Fields["value"].(float64); ok {
-			// Convert hashrate from MH/s to TH/s and power from watts to kW
+			// Convert units from storage format to API format
 			if measurementType == models.MeasurementTypeHashrate {
-				value = convertHashrateToThs(value)
+				value = convertHashrateToThs(value) // MH/s to TH/s
 			} else if measurementType == models.MeasurementTypePower {
-				value = convertPowerToKw(value)
+				value = convertPowerToKw(value) // W to kW
+			} else if measurementType == models.MeasurementTypeEfficiency {
+				value *= 1e12 // J/H to J/TH
 			}
 			measurements = append(measurements, &commonpb.Measurement{
 				Value:     value,
@@ -1128,11 +1169,13 @@ func (s *TelemetryService) getTimeSeriesMeasurements(ctx context.Context, device
 	var measurements []*commonpb.Measurement
 	for _, data := range telemetryData {
 		if value, ok := data.Fields["value"].(float64); ok {
-			// Convert hashrate from MH/s to TH/s and power from watts to kW
+			// Convert units from storage format to API format
 			if measurementType == models.MeasurementTypeHashrate {
-				value = convertHashrateToThs(value)
+				value = convertHashrateToThs(value) // MH/s to TH/s
 			} else if measurementType == models.MeasurementTypePower {
-				value = convertPowerToKw(value)
+				value = convertPowerToKw(value) // W to kW
+			} else if measurementType == models.MeasurementTypeEfficiency {
+				value *= 1e12 // J/H to J/TH
 			}
 			measurements = append(measurements, &commonpb.Measurement{
 				Value:     value,
@@ -1166,7 +1209,7 @@ func (s *TelemetryService) convertTelemetryUpdateToResponse(update models.Teleme
 			internalMeasurementType = models.MeasurementTypeTemperature
 		case "hashrate_mhs":
 			internalMeasurementType = models.MeasurementTypeHashrate
-		case "efficiency_jth":
+		case "efficiency_jh":
 			internalMeasurementType = models.MeasurementTypeEfficiency
 
 		default:

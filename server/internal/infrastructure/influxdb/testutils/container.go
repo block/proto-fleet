@@ -82,10 +82,6 @@ func createInfluxDBToken(ctx context.Context, container testcontainers.Container
 		return "", fmt.Errorf("failed to execute token creation command: %w", err)
 	}
 
-	if exitCode != 0 {
-		return "", fmt.Errorf("token creation command failed with exit code %d", exitCode)
-	}
-
 	output, err := io.ReadAll(reader)
 	if err != nil {
 		return "", fmt.Errorf("failed to read token creation output: %w", err)
@@ -93,9 +89,13 @@ func createInfluxDBToken(ctx context.Context, container testcontainers.Container
 
 	outputStr := string(output)
 
-	if strings.Contains(outputStr, "409") {
-		// For testing, use a simple fallback token when one already exists
-		return "apiv3_test_token_12345", nil
+	if exitCode != 0 {
+		// If token creation failed due to conflict, database might not require auth in test mode
+		// Try creating the database without a token
+		if strings.Contains(outputStr, "409") || strings.Contains(outputStr, "already exists") {
+			return "", nil // Empty token means no auth required
+		}
+		return "", fmt.Errorf("token creation command failed with exit code %d: %s", exitCode, outputStr)
 	}
 
 	// Extract token from output like "Token: apiv3<token_value>"
@@ -132,7 +132,14 @@ func createInfluxDBDatabase(ctx context.Context, container testcontainers.Contai
 }
 
 func createInfluxDBDatabaseWithToken(ctx context.Context, container testcontainers.Container, dbName, token string) error {
-	cmd := []string{"influxdb3", "create", "database", dbName, "--token", token}
+	var cmd []string
+	if token == "" {
+		// No token means no auth required (test mode fallback)
+		cmd = []string{"influxdb3", "create", "database", dbName}
+	} else {
+		cmd = []string{"influxdb3", "create", "database", dbName, "--token", token}
+	}
+
 	exitCode, reader, err := container.Exec(ctx, cmd)
 	if err != nil {
 		return fmt.Errorf("failed to execute database creation command: %w", err)

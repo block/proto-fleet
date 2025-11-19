@@ -334,6 +334,45 @@ func (m *Manager) GetDriverForMinerType(minerType models.Type) (sdk.Driver, erro
 	return plugin.Driver, nil
 }
 
+// GetPluginWithCapability retrieves a plugin for a specific miner type and verifies it has the required capability.
+// Returns the plugin and an error if the plugin doesn't exist or lacks the capability.
+func (m *Manager) GetPluginWithCapability(minerType models.Type, capability string) (*LoadedPlugin, error) {
+	plugin, exists := m.GetPluginForMinerType(minerType)
+	if !exists {
+		return nil, fleeterror.NewInternalErrorf("no plugin available for miner type %s", minerType)
+	}
+
+	if !plugin.Caps[capability] {
+		return nil, fleeterror.NewInternalErrorf("plugin %s does not support capability %s", plugin.Name, capability)
+	}
+
+	return plugin, nil
+}
+
+// RegisterPluginForTest registers a plugin for testing purposes.
+// This method is only intended for use in tests and bypasses normal plugin loading.
+func (m *Manager) RegisterPluginForTest(plugin *LoadedPlugin) error {
+	if plugin == nil {
+		return fmt.Errorf("plugin cannot be nil")
+	}
+	if plugin.Name == "" {
+		return fmt.Errorf("plugin name cannot be empty")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.plugins[plugin.Name] = plugin
+
+	for _, minerType := range plugin.MinerTypes {
+		if _, exists := m.pluginsByType[minerType]; !exists {
+			m.pluginsByType[minerType] = plugin
+		}
+	}
+
+	return nil
+}
+
 // Shutdown gracefully shuts down all loaded plugins
 func (m *Manager) Shutdown(ctx context.Context) error {
 	m.mu.Lock()

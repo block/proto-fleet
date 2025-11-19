@@ -370,7 +370,7 @@ type Driver interface {
 
 	// CoreV1 - Device Pairing (required)
 	DiscoverDevice(ctx context.Context, ipAddress, port string) (DeviceInfo, error)
-	PairDevice(ctx context.Context, device DeviceInfo, access SecretBundle) (string, error) // returns message
+	PairDevice(ctx context.Context, device DeviceInfo, access SecretBundle) (DeviceInfo, error) // returns updated device info after pairing
 
 	// CoreV1 - Device Management (required)
 	NewDevice(ctx context.Context, deviceID string, deviceInfo DeviceInfo, secret SecretBundle) (NewDeviceResult, error)

@@ -18,7 +18,6 @@ import (
 	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 )
 
@@ -144,11 +143,15 @@ func (s *SQLDeviceStore) InsertDevice(ctx context.Context, device *pb.Device, or
 		OrgID:              orgID,
 		DiscoveredDeviceID: discoveredDevice.ID,
 		DeviceIdentifier:   device.DeviceIdentifier,
-		MacAddress:         networking.NormalizeMAC(device.MacAddress),
-		SerialNumber:       sql.NullString{String: device.SerialNumber, Valid: len(device.SerialNumber) > 0},
+		MacAddress:         device.MacAddress,
+		SerialNumber:       sql.NullString{String: device.SerialNumber, Valid: device.SerialNumber != ""},
 	})
 
-	return err
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *SQLDeviceStore) UpsertMinerCredentials(ctx context.Context, device *pb.Device, orgID int64, usernameEnc string, passwordEnc *secrets.Text) error {

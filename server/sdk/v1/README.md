@@ -158,7 +158,7 @@ type Driver interface {
 
     // Device discovery and pairing
     DiscoverDevice(ctx context.Context, ipAddress, port string) (DeviceInfo, error)
-    PairDevice(ctx context.Context, device DeviceInfo, access SecretBundle) (string, error)
+    PairDevice(ctx context.Context, device DeviceInfo, access SecretBundle) (DeviceInfo, error)
 
     // Device lifecycle
     NewDevice(ctx context.Context, deviceID string, deviceInfo DeviceInfo, secret SecretBundle) (NewDeviceResult, error)
@@ -330,20 +330,33 @@ func (d *MyDriver) DiscoverDevice(ctx context.Context, ipAddress, port string) (
     return deviceInfo, nil
 }
 
-func (d *MyDriver) PairDevice(ctx context.Context, device sdk.DeviceInfo, access sdk.SecretBundle) (string, error) {
+func (d *MyDriver) PairDevice(ctx context.Context, device sdk.DeviceInfo, access sdk.SecretBundle) (sdk.DeviceInfo, error) {
     // Implement device pairing logic
     // This should establish authentication with the device
-    
+    // and return updated device information
+
     switch kind := access.Kind.(type) {
     case sdk.UsernamePassword:
         // Handle username/password authentication
-        return d.pairWithCredentials(device, kind.Username, kind.Password)
+        if err := d.authenticateWithCredentials(device, kind.Username, kind.Password); err != nil {
+            return sdk.DeviceInfo{}, err
+        }
     case sdk.APIKey:
         // Handle API key authentication
-        return d.pairWithAPIKey(device, kind.Key)
+        if err := d.authenticateWithAPIKey(device, kind.Key); err != nil {
+            return sdk.DeviceInfo{}, err
+        }
     default:
-        return "", fmt.Errorf("unsupported authentication type: %T", access.Kind)
+        return sdk.DeviceInfo{}, fmt.Errorf("unsupported authentication type: %T", access.Kind)
     }
+
+    // Fetch additional device information during pairing (e.g., serial number, MAC address)
+    updatedInfo, err := d.fetchDeviceDetails(ctx, device)
+    if err != nil {
+        return sdk.DeviceInfo{}, fmt.Errorf("failed to fetch device details: %w", err)
+    }
+
+    return updatedInfo, nil
 }
 
 func (d *MyDriver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {

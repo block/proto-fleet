@@ -14,7 +14,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/proto"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
 	"github.com/golang/mock/gomock"
@@ -28,8 +27,7 @@ import (
 
 	antminerWeb "github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/web"
 	pairingAntminer "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/antminer"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing/mocks"
-	pairingProto "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/proto"
+	pairingMocks "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/mocks"
 )
 
 type ServiceProvider struct {
@@ -68,10 +66,14 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
-	listenerMock := mocks.NewMockListener(ctrl)
+	listenerMock := pairingMocks.NewMockListener(ctrl)
 	listenerMock.EXPECT().AddDevices(gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
 
-	protoDiscoverer := proto.NewDiscoverer()
+	// Use mock proto discoverer for testing instead of legacy implementation.
+	// Note: This mock won't actually discover devices - tests requiring discovery
+	// should set up EXPECT() calls with appropriate return values.
+	// TODO(DASH-887): Replace with plugin-based test infrastructure when available.
+	protoDiscoverer := NewMockProtoDiscoverer(ctrl)
 	minerDiscoveryService, err := minerdiscovery.NewService(protoDiscoverer)
 	assert.NoError(t, err)
 
@@ -83,7 +85,8 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	// Pass nil for plugin manager in tests (can be mocked if needed)
 	minerService := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, nil)
 
-	protoPairer := pairingProto.NewService(transactor, discoveredDeviceStore, deviceStore, userStore, minerService, tokenService, encryptService)
+	// Use mock proto pairer instead of legacy implementation
+	protoPairer := NewMockProtoPairer(ctrl)
 	antminerPairer := pairingAntminer.NewService(transactor, discoveredDeviceStore, deviceStore, encryptService, antminerWeb.NewService())
 
 	capabilitiesService, err := capabilities.NewService(capabilities.Config{

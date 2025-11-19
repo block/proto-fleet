@@ -49,6 +49,8 @@ func TypeFromString(s string) (Type, error) {
 		return TypeProto, nil
 	case "proto_miner": // Legacy format support
 		return TypeProto, nil
+	case "asic":
+		return TypeProto, nil
 	case "whatsminer":
 		return TypeWhatsminer, nil
 	case "avalon":

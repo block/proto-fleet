@@ -346,7 +346,7 @@ message PairDeviceRequest {
 }
 
 message PairDeviceResponse {
-  string message = 1;    // Optional message (e.g., error details)
+  DeviceInfo device = 1; // Updated device info after pairing (includes serial number, MAC address, etc.)
 }
 
 message GetDeviceWebViewURLResponse {

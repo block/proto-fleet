@@ -84,10 +84,10 @@ fmt-server:
 fmt-client:
   npm run format
 
-[working-directory: 'server']
 clean-build: build-plugins-docker
   #!/usr/bin/env bash
   set -euo pipefail
+  cd server
   # Generate a random JWT secret (44 characters to match original length)
   export AUTH_CLIENT_SECRET_KEY=$(openssl rand -hex 22)
   echo "AUTH_CLIENT_SECRET_KEY=${AUTH_CLIENT_SECRET_KEY}" > .env

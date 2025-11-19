@@ -17,7 +17,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
+	"math"
 	"strings"
 	"sync"
 
@@ -29,14 +29,13 @@ import (
 const (
 	driverName         = "proto"
 	apiVersion         = "v1"
-	maxValidPortNumber = 65535 // Maximum valid TCP/UDP port number
+	maxValidPortNumber = math.MaxUint16
 )
 
-var _ sdk.Driver = (*Driver)(nil) // Ensure Driver implements sdk.Driver
+var _ sdk.Driver = (*Driver)(nil)
 
 // Driver implements the SDK Driver interface for Proto miners.
 type Driver struct {
-	// devices tracks all active device instances
 	devices      map[string]sdk.Device
 	mutex        sync.RWMutex
 	requiredPort int
@@ -77,8 +76,6 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 		APIVersion: apiVersion,
 	}
 
-	// Define supported capabilities
-	// These should match what your driver actually implements
 	capabilities := sdk.Capabilities{
 		// Core capabilities - required for basic operation
 		sdk.CapabilityPollingHost: true, // We support host-side status polling
@@ -130,34 +127,27 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 //   - Protocol negotiation (HTTPS vs HTTP)
 //   - Device identification and validation
 func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sdk.DeviceInfo, error) {
-	slog.Debug("Discovering device", "ip", ipAddress, "port", port)
+	slog.Debug("Plugin DiscoverDevice called",
+		"ip", ipAddress,
+		"port", port,
+		"required_port", d.requiredPort)
 
-	// Convert port to int32 for DeviceInfo
-	portInt, err := strconv.Atoi(port)
+	portInt32, err := sdk.ParsePort(port)
 	if err != nil {
-		return sdk.DeviceInfo{}, fmt.Errorf("invalid port number: %s", port)
+		return sdk.DeviceInfo{}, err
 	}
 
-	// Validate that this looks like a Proto miner port
+	portInt := int(portInt32)
+
 	// Note: In integration tests, we may use different ports due to Docker port mapping
 	if portInt != d.requiredPort && d.requiredPort != 0 {
 		return sdk.DeviceInfo{}, fmt.Errorf("proto miners typically use port 2121, got %s", port)
 	}
 
-	// Check for port range overflow
-	if portInt < 0 || portInt > maxValidPortNumber {
-		return sdk.DeviceInfo{}, fmt.Errorf("port number out of range: %d", portInt)
-	}
-
-	// Validate host is not empty or whitespace-only
 	if strings.TrimSpace(ipAddress) == "" {
 		return sdk.DeviceInfo{}, fmt.Errorf("host address cannot be empty")
 	}
 
-	portInt32 := int32(portInt) // #nosec G109,G115 -- Range checked above
-
-	// Try to connect and identify the device
-	// We prefer HTTPS but fall back to HTTP if needed
 	schemes := []string{"https", "http"}
 
 	var lastValidationErr error
@@ -165,23 +155,21 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 	for _, scheme := range schemes {
 		deviceInfo, err := d.discoverWithScheme(ctx, ipAddress, portInt32, scheme)
 		if err == nil {
-			slog.Debug("Successfully discovered device",
+			slog.Debug("Plugin successfully discovered device",
 				"ip", ipAddress,
 				"port", port,
 				"scheme", scheme,
-				"serial", deviceInfo.SerialNumber)
+				"serial", deviceInfo.SerialNumber,
+				"model", deviceInfo.Model,
+				"manufacturer", deviceInfo.Manufacturer)
 			return deviceInfo, nil
 		}
 
-		// Check if this is a validation error (device responded but data was invalid)
 		if strings.Contains(err.Error(), "device did not provide") {
 			lastValidationErr = err
 		}
-
-		slog.Debug("Discovery failed with scheme", "scheme", scheme, "error", err)
 	}
 
-	// If we had a validation error, return that instead of generic connection error
 	if lastValidationErr != nil {
 		return sdk.DeviceInfo{}, lastValidationErr
 	}
@@ -207,7 +195,6 @@ func getAndValidateDeviceInfo(ctx context.Context, client *proto.Client) (*proto
 
 // discoverWithScheme attempts device discovery using a specific URL scheme.
 func (d *Driver) discoverWithScheme(ctx context.Context, ipAddress string, port int32, scheme string) (sdk.DeviceInfo, error) {
-	// Create a client to communicate with the miner
 	client, err := proto.NewClient(ipAddress, port, scheme)
 	if err != nil {
 		return sdk.DeviceInfo{}, fmt.Errorf("failed to create client: %w", err)
@@ -238,43 +225,36 @@ func (d *Driver) discoverWithScheme(ctx context.Context, ipAddress string, port 
 //   - Authentication credential exchange
 //   - Secure communication setup
 //   - Pairing verification
-func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, access sdk.SecretBundle) (string, error) {
-	slog.Debug("Pairing device", "serial", deviceInfo.SerialNumber, "host", deviceInfo.Host)
+func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, access sdk.SecretBundle) (sdk.DeviceInfo, error) {
+	slog.Debug("Plugin PairDevice called",
+		"serial", deviceInfo.SerialNumber,
+		"host", deviceInfo.Host,
+		"port", deviceInfo.Port,
+		"url_scheme", deviceInfo.URLScheme)
 
-	// Create client for the device
 	client, err := proto.NewClient(deviceInfo.Host, deviceInfo.Port, deviceInfo.URLScheme)
 	if err != nil {
-		return "", fmt.Errorf("failed to create client: %w", err)
+		return sdk.DeviceInfo{}, fmt.Errorf("failed to create client: %w", err)
 	}
 	defer client.Close()
 
 	info, err := getAndValidateDeviceInfo(ctx, client)
 	if err != nil {
-		return "", err
+		return sdk.DeviceInfo{}, err
 	}
 	deviceInfo.SerialNumber = info.SerialNumber
 	deviceInfo.MacAddress = info.MacAddress
 
 	publicKey, ok := access.Kind.(sdk.APIKey)
 	if !ok {
-		return "", fmt.Errorf("expected APIKey in secret bundle for pairing, got %T", access.Kind)
+		return sdk.DeviceInfo{}, fmt.Errorf("expected APIKey in secret bundle for pairing, got %T", access.Kind)
 	}
 
-	// For Ed25519 authentication, the credentials should be the base64-encoded public key
-	// The miner expects this format for pairing
 	if err := client.Pair(ctx, publicKey); err != nil {
-		return "", fmt.Errorf("pairing failed: %w", err)
+		return sdk.DeviceInfo{}, fmt.Errorf("pairing failed: %w", err)
 	}
 
-	message := fmt.Sprintf("Successfully paired Proto miner %s at %s:%d",
-		deviceInfo.SerialNumber, deviceInfo.Host, deviceInfo.Port)
-
-	// TODO (DASH-857) Return device info to fleet so this data can be persisted
-	message += fmt.Sprintf(" (S/N: %s)", deviceInfo.SerialNumber)
-	message += fmt.Sprintf(" (MAC: %s)", deviceInfo.MacAddress)
-
-	slog.Debug("Device paired successfully", "serial", deviceInfo.SerialNumber)
-	return message, nil
+	return deviceInfo, nil
 }
 
 // NewDevice implements the SDK Driver interface.
@@ -285,27 +265,29 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 //   - Credential handling and storage
 //   - Concurrent device tracking
 func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {
-	slog.Debug("Creating new device instance", "deviceID", deviceID, "serial", deviceInfo.SerialNumber)
-
-	// For device operations, we need to generate JWT tokens, not use the pairing token
-	// The pairing token (base64 public key) is only used for the pairing process
-	// For actual API calls, we need to generate JWT tokens signed with our private key
+	slog.Debug("Plugin NewDevice called",
+		"device_id", deviceID,
+		"serial", deviceInfo.SerialNumber,
+		"host", deviceInfo.Host,
+		"port", deviceInfo.Port)
 
 	token, ok := secret.Kind.(sdk.BearerToken)
 	if !ok {
 		return sdk.NewDeviceResult{}, fmt.Errorf("expected BearerToken in secret bundle, got %T", secret.Kind)
 	}
-	// Create the device instance
+
 	dev, err := device.New(deviceID, deviceInfo, token)
 	if err != nil {
 		return sdk.NewDeviceResult{}, fmt.Errorf("failed to create device: %w", err)
 	}
 
-	// Track the device instance
 	d.mutex.Lock()
 	d.devices[deviceID] = dev
 	d.mutex.Unlock()
 
-	slog.Info("Device instance created", "deviceID", deviceID, "serial", deviceInfo.SerialNumber)
+	slog.Info("Plugin device instance created successfully",
+		"device_id", deviceID,
+		"serial", deviceInfo.SerialNumber,
+		"total_devices", len(d.devices))
 	return sdk.NewDeviceResult{Device: dev}, nil
 }

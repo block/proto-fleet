@@ -3,8 +3,6 @@ package testutil
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,18 +16,12 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/ping/v1/pingv1connect"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_command_api/miner_command_apiconnect"
-	"github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_system_api/miner_system_apiconnect"
-	proto_client "github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/client"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/proto/integrationtesting"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/auth"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/command"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/onboarding"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/pairing"
 	"github.com/btc-mining/proto-fleet/server/internal/handlers/ping"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 )
 
 type InfrastructureProvider struct {
@@ -108,71 +100,12 @@ func InitializeDBServiceInfrastructure(t *testing.T) *TestContext {
 	return &TestContext{DatabaseService: databaseService, ServiceProvider: serviceProvider, InfrastructureProvider: infrastructureProvider, Config: testConfig}
 }
 
-// SetupMockMinerServer creates a test HTTP server that simulates a miner API
-// If port is 0, uses a dynamic port assigned by the OS. Otherwise uses the specified port.
-func SetupMockMinerServer(t *testing.T, callCounter *integrationtesting.MockMinerCallCounter, useTLS bool, port ...int) *httptest.Server {
-
-	// Reset clients and set environment variable to skip TLS verification for the duration of the test
-	proto_client.ResetClients()
-	t.Setenv("SKIP_TLS_VERIFY", "true")
-
-	if callCounter == nil {
-		callCounter = integrationtesting.NewMockMinerCallCounter()
-	}
-
-	mockHandler := integrationtesting.NewMockMinerHandler(t, callCounter)
-
-	mux := http.NewServeMux()
-	path, handler := miner_command_apiconnect.NewMinerCommandApiHandler(mockHandler)
-	authPath, authHandler := miner_system_apiconnect.NewMinerPairingApiHandler(mockHandler)
-	systemPath, systemHandler := miner_system_apiconnect.NewMinerSystemApiHandler(mockHandler)
-	mux.Handle(path, handler)
-	mux.Handle(authPath, authHandler)
-	mux.Handle(systemPath, systemHandler)
-
-	var server *httptest.Server
-
-	if useTLS {
-		// For HTTPS, use the standard handler without h2c wrapping
-		server = httptest.NewUnstartedServer(mux)
-	} else {
-		// For HTTP, use h2c handler for HTTP/2 over cleartext
-		h2cHandler := h2c.NewHandler(mux, &http2.Server{})
-		server = httptest.NewUnstartedServer(h2cHandler)
-	}
-
-	server.EnableHTTP2 = true
-
-	// close the default listener
-	server.Listener.Close()
-
-	// Determine port to use
-	targetPort := 0 // default to dynamic port
-	if len(port) > 0 {
-		targetPort = port[0]
-	}
-
-	// Use port 0 to let OS assign a random available port (prevents port conflicts in parallel tests)
-	// Or use specified port if provided
-	addr := fmt.Sprintf("localhost:%d", targetPort)
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		t.Fatalf("Failed to listen on port %d: %v", targetPort, err)
-	}
-	server.Listener = listener
-
-	if useTLS {
-		server.StartTLS()
-		trustTestCACert(t, server)
-	} else {
-		server.Start()
-	}
-
-	t.Logf("Mock miner server started at %s (TLS: %v)", server.URL, useTLS)
-	t.Cleanup(func() {
-		server.Close()
-	})
-	return server
+// SetupMockMinerServer is deprecated and should not be used.
+// TODO(DASH-887): SetupMockMinerServer should be reimplemented using plugin-based test infrastructure
+// Deprecated: This function was removed with legacy proto implementation. Use plugin-based testing instead.
+func SetupMockMinerServer(t *testing.T, _ interface{}, _ bool, _ ...int) *httptest.Server {
+	t.Skip("SetupMockMinerServer removed with legacy proto implementation - needs rewrite with plugin infrastructure")
+	return nil
 }
 
 func trustTestCACert(t *testing.T, server *httptest.Server) {

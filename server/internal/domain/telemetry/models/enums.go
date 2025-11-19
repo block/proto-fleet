@@ -56,7 +56,7 @@ func (m MeasurementType) InfluxMeasurementName() string {
 	case MeasurementTypePower:
 		return "power_w"
 	case MeasurementTypeEfficiency:
-		return "efficiency_jth"
+		return "efficiency_jh"
 	case MeasurementTypeFanSpeed:
 		return "fan_rpm"
 	case MeasurementTypeVoltage:

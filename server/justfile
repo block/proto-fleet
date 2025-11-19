@@ -22,6 +22,12 @@ _build-plugins:
   set -euo pipefail
   cd .. && just build-plugins
 
+# build plugins for Docker (Linux ARM64)
+_build-plugins-docker:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd .. && just build-plugins-docker
+
 # run local server in docker compose with watch enabled on the fleet service
 dev: _build-plugins start
   docker compose up --watch fleet-api
@@ -92,7 +98,7 @@ _run: db-up install
      ../.hermit/go/bin/fleetd
 
 # restarts the docker compose services and wipes out all data
-clean-build: _build-plugins
+clean-build: _build-plugins-docker
     docker compose down --rmi all --volumes && docker compose up --build -d
 
 # restart and rebuild fleet-api only

@@ -122,8 +122,10 @@ func TestProtoPluginIntegration(t *testing.T) {
 		// should be authentication-related, not a parsing error
 		result, err := d.PairDevice(ctx, deviceInfo, pairingSecret)
 		require.NoError(t, err, "Pairing failed with real Ed25519 key")
-		assert.NotNil(t, result, "Pairing result should not be nil if no error occurred")
-		assert.Contains(t, result, "Successfully paired Proto miner", "Expected success message on pairing")
+		assert.NotEmpty(t, result.SerialNumber, "Pairing result should include serial number")
+		assert.NotEmpty(t, result.MacAddress, "Pairing result should include MAC address")
+		assert.Equal(t, deviceInfo.Host, result.Host, "Host should match")
+		assert.Equal(t, deviceInfo.Port, result.Port, "Port should match")
 	})
 
 	t.Run("Real Miner Operations With JWT", func(t *testing.T) {

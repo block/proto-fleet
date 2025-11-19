@@ -272,10 +272,11 @@ func TestPairDevice_Success(t *testing.T) {
 
 	result, err := d.PairDevice(ctx, deviceInfo, validSecret)
 	require.NoError(t, err)
-	assert.Contains(t, result, "Successfully paired Antminer")
-	assert.Contains(t, result, "S19j Pro")
-	assert.Contains(t, result, "ABC123456789")
-	assert.Contains(t, result, "00:11:22:33:44:55")
+	assert.Equal(t, "S19j Pro", result.Model)
+	assert.Equal(t, "ABC123456789", result.SerialNumber)
+	assert.Equal(t, "00:11:22:33:44:55", result.MacAddress)
+	assert.Equal(t, deviceInfo.Host, result.Host)
+	assert.Equal(t, deviceInfo.Port, result.Port)
 }
 
 func TestPairDevice_InvalidCredentials(t *testing.T) {
