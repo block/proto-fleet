@@ -1,6 +1,6 @@
-import DurationSelector from "@/shared/components/DurationSelector";
 import SectionHeadingComponent from ".";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import DurationSelector from "@/shared/components/DurationSelector";
 
 interface SectionHeadingArgs {
   heading: string;

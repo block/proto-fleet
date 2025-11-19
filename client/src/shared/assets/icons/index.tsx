@@ -68,6 +68,7 @@ import Terminal from "./Terminal";
 import ThemeDark from "./ThemeDark";
 import ThemeLight from "./ThemeLight";
 import ThemeSystem from "./ThemeSystem";
+import Triangle from "./Triangle";
 import type { IconProps } from "./types";
 
 export {
@@ -142,4 +143,5 @@ export {
   ThemeDark,
   ThemeLight,
   ThemeSystem,
+  Triangle,
 };

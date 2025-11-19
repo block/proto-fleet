@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import useFleet from "@/protoFleet/api/useFleet";
-import MinersStatus from "@/protoFleet/features/kpis/components/MinersStatus";
+import FleetHealth from "@/protoFleet/features/kpis/components/FleetHealth";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
 import { useDeviceStatusCounts, useTotalMiners } from "@/protoFleet/store";
@@ -22,11 +22,11 @@ const HomeLayout = ({ children }: { children?: ReactNode }) => {
               <div className="flex items-center pb-6">
                 <div className="grow text-heading-300">Home</div>
               </div>
-              <MinersStatus
+              <FleetHealth
                 fleetSize={fleetSize ?? 1} // prevent division by zero
-                activeMiners={deviceStatusCounts?.hashingCount ?? 0}
+                healthyMiners={deviceStatusCounts?.hashingCount ?? 0}
                 offlineMiners={deviceStatusCounts?.offlineCount ?? 0}
-                inactiveMiners={
+                unhealthyMiners={
                   (deviceStatusCounts?.sleepingCount ?? 0) +
                   (deviceStatusCounts?.brokenCount ?? 0)
                 }

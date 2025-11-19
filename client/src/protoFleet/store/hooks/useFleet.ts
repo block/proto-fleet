@@ -87,8 +87,8 @@ export const useSetTotalMiners = () =>
 export const useSetDeviceStatusCounts = () =>
   useFleetStore((state) => state.fleet.setDeviceStatusCounts);
 
-export const useSetCurrentFilter = () =>
-  useFleetStore((state) => state.fleet.setCurrentFilter);
+export const useSetRefetchCallback = () =>
+  useFleetStore((state) => state.fleet.setRefetchCallback);
 
 export const useUpdateMinerMeasurement = () =>
   useFleetStore((state) => state.fleet.updateMinerMeasurement);

@@ -22,7 +22,6 @@ export const MinerList = () => {
       <MinerListComponent
         title="Miners"
         minerIds={minerIds}
-        onFilterChange={action("onFilterChange")}
         onAddMiners={action("onAddMiners")}
       />
     </div>

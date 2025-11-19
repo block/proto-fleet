@@ -19,6 +19,7 @@ type FilterProps<ItemType> = {
   onFilter: (activeFilters: ActiveFilters) => void | Promise<void>;
   isServerSide?: boolean;
   headerControls?: ReactNode;
+  initialActiveFilters?: ActiveFilters;
 };
 
 type ActiveDropdownFilterItem = DropdownOption & {
@@ -33,11 +34,14 @@ const Filters = <ItemType,>({
   onFilter,
   isServerSide = false,
   headerControls,
+  initialActiveFilters,
 }: FilterProps<ItemType>) => {
-  const [activeFilters, setActiveFilters] = useState<ActiveFilters>({
-    buttonFilters: [defaultListFilter],
-    dropdownFilters: {},
-  });
+  const [activeFilters, setActiveFilters] = useState<ActiveFilters>(
+    initialActiveFilters || {
+      buttonFilters: [defaultListFilter],
+      dropdownFilters: {},
+    },
+  );
 
   // Initialize all dropdown filters with empty arrays (no selections)
   useEffect(() => {

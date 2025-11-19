@@ -16,21 +16,13 @@ export type StatsProps = {
 const Stats = ({
   stats,
   size = "medium",
-  gap,
-  padding,
-  grid,
+  gap = "gap-x-10 gap-y-4 phone:gap-x-2",
+  padding = "pt-4 pb-8 phone:pb-6",
+  grid = "grid-cols-4 phone:grid-cols-2",
   divide,
 }: StatsProps) => {
   return (
-    <div
-      className={clsx(
-        "grid",
-        grid || "grid-cols-4 phone:grid-cols-2",
-        gap || "gap-x-10 gap-y-4 phone:gap-x-2",
-        padding || "pt-4 pb-8 phone:pb-6",
-        divide,
-      )}
-    >
+    <div className={clsx("grid", grid, gap, padding, divide)}>
       {stats.map((stat) => (
         <div key={stat.label ?? stat.value}>
           <Stat {...stat} size={size} />

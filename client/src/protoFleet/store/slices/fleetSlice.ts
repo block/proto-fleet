@@ -9,7 +9,6 @@ import {
   MeasurementConfig_MeasurementType,
   type MeasurementUpdate,
   MinerComponentStatus,
-  MinerListFilter,
   type MinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
@@ -150,7 +149,6 @@ export interface FleetSlice {
 
   totalMiners: number; // total number of miners in the fleet
   deviceStatusCounts: MinerStateCounts; // counts of miners by device status
-  currentFilter?: MinerListFilter; // current active filter
 
   // Loading states
   isLoading: boolean;
@@ -167,7 +165,6 @@ export interface FleetSlice {
   removeMiners: (deviceIds: string[]) => void; // Remove miners by ID
   setTotalMiners: (count: number) => void;
   setDeviceStatusCounts: (counts: MinerStateCounts) => void;
-  setCurrentFilter: (filter?: MinerListFilter) => void;
   setRefetchCallback: (callback?: () => void) => void;
   updateMinerMeasurement: (
     deviceId: string,
@@ -210,7 +207,6 @@ export const createFleetSlice: StateCreator<
   minerIds: [],
   totalMiners: 0,
   deviceStatusCounts: createSchema(MinerStateCountsSchema, {}),
-  currentFilter: undefined,
   isLoading: false,
   isStreaming: false,
   cursor: "",
@@ -297,11 +293,6 @@ export const createFleetSlice: StateCreator<
   setDeviceStatusCounts: (counts) =>
     set((state) => {
       state.fleet.deviceStatusCounts = counts;
-    }),
-
-  setCurrentFilter: (filter) =>
-    set((state) => {
-      state.fleet.currentFilter = filter;
     }),
 
   setRefetchCallback: (callback) =>

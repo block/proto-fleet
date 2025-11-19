@@ -22,6 +22,7 @@ const Stat = ({
   headingLevel = 3,
   chartPercentage,
   chartStatus = chartStatusConstants.neutral as ChartStatus,
+  valueClassName,
 }: StatProps) => {
   // initially set scale to 0 for animation
   const [chartScale, setChartScale] = useState<number>(0);
@@ -67,7 +68,9 @@ const Stat = ({
             size === "small" && "text-heading-100",
           )}
         >
-          <span className="text-text-primary">{getDisplayValue(value)}</span>{" "}
+          <span className={clsx("text-text-primary", valueClassName)}>
+            {getDisplayValue(value)}
+          </span>{" "}
           {units && units}
         </motion.div>
       )}

@@ -28,7 +28,7 @@ import {
 import { debounce } from "@/shared/utils/utility";
 
 type UseFleetOptions = {
-  initialFilter?: MinerListFilter;
+  filter?: MinerListFilter;
   pageSize?: number;
   pairingStatuses?: PairingStatus[];
   /**
@@ -64,7 +64,7 @@ const DataModeMapping = {
  * Hook for managing fleet data with automatic loading, filtering, and pagination.
  *
  * @param options - Configuration options for the hook
- * @param options.initialFilter - Optional filter to apply on initial load
+ * @param options.filter - Optional filter to apply
  * @param options.pageSize - Number of miners to fetch per page (default: 100)
  *
  * @example
@@ -77,7 +77,7 @@ const DataModeMapping = {
  * // Local scope - for secondary views that shouldn't affect global state
  * const { minerIds, miners, totalMiners, hasMore, isLoading, setFilter, loadMore, refetch } = useFleet({
  *   scope: 'local',
- *   initialFilter: { status: [ComponentStatus.OK] }
+ *   filter: { status: [ComponentStatus.OK] }
  * });
  *
  * // With custom page size
@@ -107,7 +107,7 @@ const DataModeMapping = {
  */
 const useFleet = (options: UseFleetOptions = {}) => {
   const {
-    initialFilter,
+    filter,
     pageSize = 100,
     pairingStatuses = DEFAULT_PAIRING_STATUSES, // Use stable reference to prevent re-renders
     scope = "local",
@@ -133,12 +133,8 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
   const telemetryStreamAbortController = useRef<AbortController | null>(null);
   const previousVisibleIdsRef = useRef<Set<string>>(new Set());
-  const initialLoadDoneRef = useRef(false);
 
   // Internal state for the hook
-  const [currentFilter, setCurrentFilter] = useState<
-    MinerListFilter | undefined
-  >(initialFilter);
   const [hasMore, setHasMore] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [cursor, setCursor] = useState<string | undefined>();
@@ -396,33 +392,18 @@ const useFleet = (options: UseFleetOptions = {}) => {
     return debounce(fetchMinerList, 300);
   }, [fetchMinerList]);
 
-  const setFilter = useCallback(
-    (filter: MinerListFilter) => {
-      setCurrentFilter(filter);
-      // Only update global store if scope is global
-      if (scope === "global") {
-        useFleetStore.getState().fleet.setCurrentFilter(filter);
-      }
-      setCursor(undefined); // Reset cursor when filter changes
-
-      // Fetch immediately with debounce
-      fetchMiners(filter, undefined);
-    },
-    [fetchMiners, scope],
-  );
-
   const loadMore = useCallback(() => {
     if (hasMore && !isLoading) {
       // Fetch next page with debounce
-      fetchMiners(currentFilter, cursor);
+      fetchMiners(filter, cursor);
     }
-  }, [hasMore, isLoading, currentFilter, cursor, fetchMiners]);
+  }, [hasMore, isLoading, filter, cursor, fetchMiners]);
 
   const refetch = useCallback(() => {
     if (!isLoading) {
-      fetchMiners(currentFilter, undefined); // Reset cursor to start fresh
+      fetchMiners(filter, undefined); // Reset cursor to start fresh
     }
-  }, [isLoading, currentFilter, fetchMiners]);
+  }, [isLoading, filter, fetchMiners]);
 
   // Set up refetch callback for the store (only for global scope)
   useEffect(() => {
@@ -437,24 +418,40 @@ const useFleet = (options: UseFleetOptions = {}) => {
     };
   }, [refetch, scope]);
 
-  // Initial load on mount - only run once
+  // Store fetchMinerList in a ref to avoid dependency issues
+  const fetchMinerListRef = useRef(fetchMinerList);
   useEffect(() => {
-    // Skip if already done initial load
-    if (initialLoadDoneRef.current) {
-      return;
+    fetchMinerListRef.current = fetchMinerList;
+  }, [fetchMinerList]);
+
+  // Track if this is the initial load and previous filter
+  const hasLoadedRef = useRef(false);
+  const previousFilterRef = useRef(filter);
+
+  // Fetch data when filter changes
+  useEffect(() => {
+    // Check if filter actually changed (using object reference comparison)
+    const filterChanged = previousFilterRef.current !== filter;
+
+    if (hasLoadedRef.current && !filterChanged) {
+      return; // Skip if not first load and filter hasn't changed
     }
 
-    initialLoadDoneRef.current = true;
+    // Update refs
+    previousFilterRef.current = filter;
+    hasLoadedRef.current = true;
 
-    // Only update global store filter if scope is global
-    if (scope === "global") {
-      useFleetStore.getState().fleet.setCurrentFilter(initialFilter);
+    // Reset cursor for new filter
+    if (filterChanged) {
+      setCursor(undefined);
     }
 
-    // Fetch immediately - we call fetchMinerList directly to avoid debounce on initial load
-    void fetchMinerList(initialFilter, undefined);
+    // Fetch with filter using ref to avoid dependency
+    void fetchMinerListRef.current(filter, undefined);
+  }, [filter]);
 
-    // Cleanup streaming on unmount to prevent memory leaks (only for global scope)
+  // Cleanup streaming on unmount
+  useEffect(() => {
     return () => {
       if (scope === "global" && telemetryStreamAbortController.current) {
         telemetryStreamAbortController.current.abort();
@@ -518,7 +515,6 @@ const useFleet = (options: UseFleetOptions = {}) => {
     totalMiners,
     hasMore,
     isLoading,
-    setFilter,
     loadMore,
     // Only return miners map for local scope (global scope uses store)
     ...(scope === "local" && { miners: localMiners }),

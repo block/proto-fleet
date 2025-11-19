@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { create } from "@bufbuild/protobuf";
 import {
@@ -15,13 +16,16 @@ import {
   ComponentStatus,
   ComponentStatusFilterSchema,
   ComponentType,
-  MinerListFilter,
   MinerListFilterSchema,
   MinerType,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
+import {
+  encodeFilterToURL,
+  parseUrlToActiveFilters,
+} from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
@@ -37,7 +41,6 @@ type MinerListProps = {
   listClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   overflowContainer?: boolean;
-  onFilterChange: (filter: MinerListFilter) => void;
   onAddMiners: () => void;
   totalMiners?: number;
   /**
@@ -66,14 +69,22 @@ const MinerList = ({
   listClassName,
   paddingLeft,
   overflowContainer,
-  onFilterChange,
   onAddMiners,
   totalMiners,
   itemRef,
 }: MinerListProps) => {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
   const deviceItems: DeviceListItem[] = useMemo(
     () => minerIds.map((id) => ({ deviceIdentifier: id })),
     [minerIds],
+  );
+
+  // Parse URL params to get initial active filters
+  const initialActiveFilters = useMemo(
+    () => parseUrlToActiveFilters(searchParams),
+    [searchParams],
   );
 
   const filters = useMemo(() => {
@@ -184,9 +195,11 @@ const MinerList = ({
         minerFilter.componentFilters.push(componentFilter);
       });
 
-      onFilterChange(minerFilter);
+      // Navigate with URL params instead of calling parent callback
+      const params = encodeFilterToURL(minerFilter);
+      navigate(`?${params.toString()}`, { replace: true });
     },
-    [onFilterChange],
+    [navigate],
   );
   return (
     <>
@@ -223,6 +236,7 @@ const MinerList = ({
         total={totalMiners}
         itemName={{ singular: "miner", plural: "miners" }}
         itemRef={itemRef}
+        initialActiveFilters={initialActiveFilters}
       />
     </>
   );

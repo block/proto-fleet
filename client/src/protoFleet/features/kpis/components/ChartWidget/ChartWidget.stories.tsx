@@ -1,5 +1,6 @@
+import type { Meta, StoryObj } from "@storybook/react";
 import KpiLineChart from "../KpiLineChart/KpiLineChart";
-import ChartWidgetComponent from ".";
+import ChartWidget from "./ChartWidget";
 import { ChartData } from "@/shared/components/LineChart/types";
 
 // Generate sample chart data
@@ -22,46 +23,198 @@ const generateSampleData = (): ChartData[] => {
   return data;
 };
 
-interface ChartWidgetArgs {
-  label: string;
-  value: string | number;
-  units?: string;
-}
+const meta: Meta<typeof ChartWidget> = {
+  title: "ProtoFleet/KPIs/ChartWidget",
+  component: ChartWidget,
+  parameters: {
+    layout: "centered",
+    docs: {
+      description: {
+        component:
+          "ChartWidget is a container component that displays a title, optional stats, and chart content. It can display a single stat or multiple stats in a grid layout.",
+      },
+    },
+  },
+  tags: ["autodocs"],
+  argTypes: {
+    statsSize: {
+      control: "select",
+      options: ["small", "medium", "large"],
+      description: "Size of the stats display",
+    },
+    statsGrid: {
+      control: "text",
+      description: "Tailwind grid class for stats layout",
+    },
+    className: {
+      control: "text",
+      description: "Additional CSS classes",
+    },
+  },
+  decorators: [
+    (Story) => (
+      <div className="w-[800px] bg-core-primary-5 p-10">
+        <Story />
+      </div>
+    ),
+  ],
+};
 
-export const ChartWidget = ({ label, value, units }: ChartWidgetArgs) => {
-  const sampleData = generateSampleData();
+export default meta;
+type Story = StoryObj<typeof ChartWidget>;
 
-  return (
-    <div className="bg-surface-5 p-10">
-      <ChartWidgetComponent label={label} value={value} units={units}>
+export const SingleStat: Story = {
+  args: {
+    stats: {
+      label: "Current",
+      value: "230.2",
+      text: "TH/s",
+    },
+  },
+  render: (args) => {
+    const sampleData = generateSampleData();
+    return (
+      <ChartWidget {...args}>
         <KpiLineChart
           chartData={sampleData}
           aggregateKey="totalHashrate"
           activeKeys={["totalHashrate"]}
           colorMap={{ totalHashrate: "--color-core-primary-fill" }}
-          units={units}
+          units="TH/s"
         />
-      </ChartWidgetComponent>
-    </div>
-  );
+      </ChartWidget>
+    );
+  },
 };
 
-export default {
-  title: "Proto Fleet/ChartWidget",
+export const MultipleStats: Story = {
   args: {
-    label: "Hashrate",
-    value: "230.2",
-    units: "TH/s",
+    stats: [
+      {
+        label: "Hashrate",
+        value: "230.2",
+        text: "TH/s",
+      },
+      {
+        label: "Efficiency",
+        value: "22.5",
+        text: "J/TH",
+      },
+      {
+        label: "Temperature",
+        value: "65°C",
+        text: "Average",
+      },
+    ],
+    statsGrid: "grid-cols-3",
+    statsGap: "gap-x-8",
   },
-  argTypes: {
-    label: {
-      control: "text",
-    },
-    value: {
-      control: "text",
-    },
-    units: {
-      control: "text",
-    },
+  render: (args) => {
+    const sampleData = generateSampleData();
+    return (
+      <ChartWidget {...args}>
+        <KpiLineChart
+          chartData={sampleData}
+          aggregateKey="totalHashrate"
+          activeKeys={["totalHashrate"]}
+          colorMap={{ totalHashrate: "--color-core-primary-fill" }}
+          units="TH/s"
+        />
+      </ChartWidget>
+    );
+  },
+};
+
+export const NoStats: Story = {
+  args: {},
+  render: (args) => {
+    const sampleData = generateSampleData();
+    return (
+      <ChartWidget {...args}>
+        <KpiLineChart
+          chartData={sampleData}
+          aggregateKey="totalHashrate"
+          activeKeys={["totalHashrate"]}
+          colorMap={{ totalHashrate: "--color-core-primary-fill" }}
+          units="TH/s"
+        />
+      </ChartWidget>
+    );
+  },
+};
+
+export const PercentageStats: Story = {
+  args: {
+    stats: [
+      {
+        label: "Overall",
+        value: "85%",
+        text: "Utilization",
+      },
+      {
+        label: "Active",
+        value: "178",
+        text: "miners",
+      },
+      {
+        label: "Offline",
+        value: "22",
+        text: "miners",
+      },
+    ],
+    statsGrid: "grid-cols-3",
+    statsSize: "medium",
+  },
+  render: (args) => {
+    const sampleData = generateSampleData();
+    return (
+      <ChartWidget {...args}>
+        <KpiLineChart
+          chartData={sampleData}
+          aggregateKey="totalHashrate"
+          activeKeys={["totalHashrate"]}
+          colorMap={{ totalHashrate: "--color-core-primary-fill" }}
+          units="%"
+        />
+      </ChartWidget>
+    );
+  },
+};
+
+export const SmallStats: Story = {
+  args: {
+    stats: [
+      {
+        label: "Min",
+        value: "220.1",
+        text: "TH/s",
+      },
+      {
+        label: "Avg",
+        value: "230.2",
+        text: "TH/s",
+      },
+      {
+        label: "Max",
+        value: "245.8",
+        text: "TH/s",
+      },
+    ],
+    statsGrid: "grid-cols-3",
+    statsSize: "small",
+  },
+  render: (args) => {
+    const sampleData = generateSampleData();
+    return (
+      <ChartWidget {...args}>
+        <KpiLineChart
+          chartData={sampleData}
+          aggregateKey="totalHashrate"
+          activeKeys={["totalHashrate"]}
+          colorMap={{ totalHashrate: "--color-core-primary-fill" }}
+          units="TH/s"
+        />
+      </ChartWidget>
+    );
   },
 };

@@ -1,32 +1,44 @@
 import { ReactNode } from "react";
+import clsx from "clsx";
+import type { StatProps } from "@/shared/components/Stat";
+import Stats from "@/shared/components/Stats";
+
+type ChartWidgetStat = Omit<StatProps, "size">;
 
 type ChartWidgetProps = {
-  label: string;
-  value: string | number;
-  units?: string;
+  stats?: ChartWidgetStat | ChartWidgetStat[];
   children: ReactNode;
   className?: string;
+  statsGrid?: string;
+  statsGap?: string;
+  statsPadding?: string;
+  statsSize?: StatProps["size"];
 };
 
 const ChartWidget = ({
-  label,
-  value,
-  units,
+  stats,
   children,
-  className = "",
+  className,
+  statsGrid = "grid-cols-1",
+  statsGap = "gap-4",
+  statsPadding = "pb-6",
+  statsSize = "large",
 }: ChartWidgetProps) => {
+  // Normalize stats to always be an array
+  const statsArray = stats ? (Array.isArray(stats) ? stats : [stats]) : [];
+
   return (
-    <div className={`rounded-xl bg-surface-base p-10 ${className}`}>
-      <div className="mb-6">
-        <div className="text-heading-50 text-text-primary-70">{label}</div>
-        <div className="text-heading-300 text-text-primary">
-          {value}
-          {units && (
-            <span className={units === "%" ? "text-heading-200" : "ml-1"}>
-              {units}
-            </span>
-          )}
-        </div>
+    <div className={clsx("rounded-xl bg-surface-base p-10", className)}>
+      <div className={statsPadding}>
+        {statsArray.length > 0 && (
+          <Stats
+            stats={statsArray}
+            size={statsSize}
+            grid={statsGrid}
+            gap={statsGap}
+            padding="" // let our parent handle padding
+          />
+        )}
       </div>
       <div className="flex">{children}</div>
     </div>

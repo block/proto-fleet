@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import useFleet from "@/protoFleet/api/useFleet";
 import useStreamMinerListUpdates from "@/protoFleet/api/useStreamMinerListUpdates";
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
+import { parseFilterFromURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup";
 import Miners from "@/protoFleet/features/onboarding/components/Miners";
 import { useVisibleMiners } from "@/protoFleet/hooks";
-import { useFleetStore } from "@/protoFleet/store";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 
@@ -16,18 +17,22 @@ const Fleet = () => {
     debounceMs: 300, // Debounce visibility updates during scroll
   });
 
+  // Get filter from URL - memoize to avoid recreating on every render
+  const [searchParams] = useSearchParams();
+  const currentFilter = useMemo(
+    () => parseFilterFromURL(searchParams),
+    [searchParams],
+  );
+
   // Fetch all devices (both paired and unpaired) with a single API call
   // Only subscribe to telemetry for visible miners
-  const { minerIds, totalMiners, hasMore, isLoading, loadMore, setFilter } =
-    useFleet({
-      scope: "global",
-      pageSize: 100,
-      visibleMinerIds,
-      mode: "snapshot",
-    });
-
-  // Get current filter from store to pass to streaming updates
-  const currentFilter = useFleetStore((state) => state.fleet.currentFilter);
+  const { minerIds, totalMiners, hasMore, isLoading, loadMore } = useFleet({
+    scope: "global",
+    pageSize: 100,
+    visibleMinerIds,
+    mode: "snapshot",
+    filter: currentFilter,
+  });
 
   // Stream incremental updates for the current filter
   useStreamMinerListUpdates({
@@ -53,7 +58,6 @@ const Fleet = () => {
             desktop: "40px",
           }}
           overflowContainer={false}
-          onFilterChange={setFilter}
           onAddMiners={() => setShowAddMinersModal(true)}
           itemRef={registerMiner}
         />

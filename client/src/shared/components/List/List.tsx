@@ -54,6 +54,7 @@ type ListProps<
     singular: string;
     plural: string;
   };
+  initialActiveFilters?: ActiveFilters;
   /**
    * Optional callback to attach refs to list row elements.
    * Useful for viewport visibility tracking (Intersection Observer).
@@ -98,6 +99,7 @@ const List = <
   disabled = false,
   actions = [],
   noDataElement,
+  initialActiveFilters,
   renderActionBar,
   containerClassName = "",
   paddingLeft,
@@ -259,6 +261,7 @@ const List = <
           }
           isServerSide={isServerSideFiltering}
           headerControls={headerControls}
+          initialActiveFilters={initialActiveFilters}
         />
       </div>
 
