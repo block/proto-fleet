@@ -74,10 +74,11 @@ const Dialog = ({
           shouldPreventScroll={preventScroll}
           show={show}
           animate={animate}
+          position="top"
         >
           <div
             className={clsx(
-              "h-fit w-[360px] overflow-hidden rounded-3xl bg-surface-elevated-base shadow-200",
+              "mt-16 h-fit w-[360px] overflow-hidden rounded-3xl bg-surface-elevated-base shadow-200",
               {
                 "animate-sliding-up": animate && show,
                 "animate-sliding-down": animate && !show,
