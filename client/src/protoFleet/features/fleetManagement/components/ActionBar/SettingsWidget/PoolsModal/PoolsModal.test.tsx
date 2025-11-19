@@ -12,9 +12,8 @@ describe("Pools modal", () => {
   const onDismiss = vi.fn();
 
   const defaultPoolTitle = "Default pool";
-  const backupPoolTitle = "Backup pool";
-  const addDefaultPoolLabel = "Add default pool";
-  const addBackupPoolLabel = "Add a backup pool";
+  const backupPool1Title = "Backup pool #1";
+  const backupPool2Title = "Backup pool #2";
 
   test("renders modal with default and backup pools section", () => {
     const { getByText } = render(
@@ -25,15 +24,13 @@ describe("Pools modal", () => {
       />,
     );
 
-    expect(getByText("Mining pools")).toBeInTheDocument();
+    expect(getByText("Assign pools")).toBeInTheDocument();
     expect(getByText(defaultPoolTitle)).toBeInTheDocument();
-    expect(getByText(addDefaultPoolLabel)).toBeInTheDocument();
-
-    expect(getByText(backupPoolTitle)).toBeInTheDocument();
-    expect(getByText(addBackupPoolLabel)).toBeInTheDocument();
+    expect(getByText(backupPool1Title)).toBeInTheDocument();
+    expect(getByText(backupPool2Title)).toBeInTheDocument();
   });
 
-  test("renders correct number of miners", () => {
+  test("renders correct number of miners in button text", () => {
     const { getByText } = render(
       <PoolsModal
         numberOfMiners={numberOfMiners}
@@ -42,12 +39,10 @@ describe("Pools modal", () => {
       />,
     );
 
-    expect(
-      getByText(`Update the mining pools for ${numberOfMiners} miners.`),
-    ).toBeInTheDocument();
+    expect(getByText(`Assign to ${numberOfMiners} miners`)).toBeInTheDocument();
   });
 
-  test("calls onDismiss when done button is clicked", async () => {
+  test("calls onDismiss with poolsChanged=false when button clicked without changes", async () => {
     const { getByText } = render(
       <PoolsModal
         numberOfMiners={numberOfMiners}
@@ -56,13 +51,13 @@ describe("Pools modal", () => {
       />,
     );
 
-    fireEvent.click(getByText("Done"));
+    fireEvent.click(getByText(`Assign to ${numberOfMiners} miners`));
     await waitFor(() => {
-      expect(onDismiss).toHaveBeenCalled();
+      expect(onDismiss).toHaveBeenCalledWith(false);
     });
   });
 
-  test("calls onDismiss when close button is clicked", async () => {
+  test("calls onDismiss with poolsChanged=false when close button clicked without changes", async () => {
     const { getByTestId } = render(
       <PoolsModal
         numberOfMiners={numberOfMiners}
@@ -74,12 +69,12 @@ describe("Pools modal", () => {
     const closeModalButton = getByTestId("header-icon-button");
     fireEvent.click(closeModalButton);
     await waitFor(() => {
-      expect(onDismiss).toHaveBeenCalled();
+      expect(onDismiss).toHaveBeenCalledWith(false);
     });
   });
 
-  test("changes done button when user selects default pool", () => {
-    const { getByText, queryByText, getAllByRole } = render(
+  test("calls onDismiss with poolsChanged=true when user selects default pool", async () => {
+    const { getByText, getAllByText, getByTestId } = render(
       <PoolsModal
         numberOfMiners={numberOfMiners}
         availablePools={availablePools}
@@ -87,15 +82,23 @@ describe("Pools modal", () => {
       />,
     );
 
-    expect(getByText("Done")).toBeInTheDocument();
+    expect(getByText(`Assign to ${numberOfMiners} miners`)).toBeInTheDocument();
 
-    fireEvent.click(getAllByRole("radio")[0]);
-    expect(getByText("Update pools")).toBeInTheDocument();
-    expect(queryByText("Done")).not.toBeInTheDocument();
+    // Click the "Add pool" button for the default pool (first one)
+    const addPoolButtons = getAllByText("Add pool");
+    fireEvent.click(addPoolButtons[0]);
+
+    // Close modal
+    const closeModalButton = getByTestId("header-icon-button");
+    fireEvent.click(closeModalButton);
+
+    await waitFor(() => {
+      expect(onDismiss).toHaveBeenCalledWith(true);
+    });
   });
 
-  test("changes done button when user selects backup pool", () => {
-    const { getByText, queryByText, getAllByRole } = render(
+  test("calls onDismiss with poolsChanged=true when user selects backup pool", async () => {
+    const { getAllByText, getByTestId } = render(
       <PoolsModal
         numberOfMiners={numberOfMiners}
         availablePools={availablePools}
@@ -103,10 +106,42 @@ describe("Pools modal", () => {
       />,
     );
 
-    expect(getByText("Done")).toBeInTheDocument();
+    // Click the "Add pool" button for the first backup pool (second button)
+    const addPoolButtons = getAllByText("Add pool");
+    fireEvent.click(addPoolButtons[1]);
 
-    fireEvent.click(getAllByRole("checkbox")[0]);
-    expect(getByText("Update pools")).toBeInTheDocument();
-    expect(queryByText("Done")).not.toBeInTheDocument();
+    // Close modal
+    const closeModalButton = getByTestId("header-icon-button");
+    fireEvent.click(closeModalButton);
+
+    await waitFor(() => {
+      expect(onDismiss).toHaveBeenCalledWith(true);
+    });
+  });
+
+  test("prevents selecting the same pool for both backup slots", async () => {
+    const { getAllByText, getByTestId } = render(
+      <PoolsModal
+        numberOfMiners={numberOfMiners}
+        availablePools={availablePools}
+        onDismiss={onDismiss}
+      />,
+    );
+
+    const addPoolButtons = getAllByText("Add pool");
+
+    // Select a pool for backup slot 1 (index 1 = second "Add pool" button)
+    fireEvent.click(addPoolButtons[1]);
+
+    // Try to select the same pool for backup slot 2 (index 2 = third "Add pool" button)
+    fireEvent.click(addPoolButtons[2]);
+
+    // Close modal - should still report poolsChanged=true (first selection was valid)
+    const closeModalButton = getByTestId("header-icon-button");
+    fireEvent.click(closeModalButton);
+
+    await waitFor(() => {
+      expect(onDismiss).toHaveBeenCalledWith(true);
+    });
   });
 });

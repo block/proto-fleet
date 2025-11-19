@@ -1,65 +1,63 @@
-import { Fragment } from "react";
 import { MiningPool } from "../types";
-import Checkbox from "@/shared/components/Checkbox";
-import Header from "@/shared/components/Header";
-import Radio from "@/shared/components/Radio";
-import Row from "@/shared/components/Row";
-import { SelectType, selectTypes } from "@/shared/constants";
+import MiningPools from "@/shared/assets/icons/MiningPools";
+import Button from "@/shared/components/Button";
+import { sizes, variants } from "@/shared/components/Button";
+import SlotNumber from "@/shared/components/SlotNumber/SlotNumber";
 
 interface MiningPoolsListProps {
   title: string;
   subtitle: string;
   availablePools: MiningPool[];
-  selectType: SelectType;
-  selectedPools: string[];
-  onSelect: (poolUrl: string, selected: boolean) => void;
+  onSelect: (poolUrl: string) => void;
   createNewLabel: string;
+  poolNumber?: number;
 }
 
 const PoolsList = ({
   title,
   subtitle,
   availablePools,
-  selectType,
-  selectedPools,
   onSelect,
   createNewLabel,
+  poolNumber,
 }: MiningPoolsListProps) => {
   return (
-    <>
-      <Header className="mt-6" inline title={title} description={subtitle} />
-      <div className="mt-3">
-        <div className="grid grid-cols-2">
-          <Row className="text-emphasis-300 text-text-primary">Pool URL</Row>
-          <Row className="text-emphasis-300 text-text-primary">Username</Row>
-          {availablePools.map((pool) => (
-            <Fragment key={pool.poolUrl}>
-              <Row>{pool.poolUrl}</Row>
-              <Row>
-                <div className="flex justify-between">
-                  <div>{pool.username}</div>
-                  {selectType === selectTypes.radio && (
-                    <Radio
-                      selected={selectedPools.includes(pool.poolUrl)}
-                      onChange={(e) => onSelect(pool.poolUrl, e.target.checked)}
-                    />
-                  )}
-                  {selectType === selectTypes.checkbox && (
-                    <Checkbox
-                      checked={selectedPools.includes(pool.poolUrl)}
-                      onChange={(e) => onSelect(pool.poolUrl, e.target.checked)}
-                    />
-                  )}
-                </div>
-              </Row>
-            </Fragment>
-          ))}
-          <div className="col-span-2">
-            <Row className="text-text-emphasis">{createNewLabel}</Row>
-          </div>
+    <div className="flex flex-col rounded-xl border border-border-10 p-4">
+      {/* Header */}
+      <div className="mb-4 flex flex-col gap-3">
+        {/* Icon */}
+        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-surface-5">
+          {poolNumber !== undefined ? (
+            <SlotNumber number={poolNumber} />
+          ) : (
+            <MiningPools className="h-5 w-5" />
+          )}
+        </div>
+
+        {/* Title */}
+        <div className="flex-1">
+          <h3 className="text-heading-300 text-text-primary">{title}</h3>
+          {subtitle ? (
+            <p className="text-body-300 text-text-secondary mt-1">{subtitle}</p>
+          ) : null}
         </div>
       </div>
-    </>
+
+      {/* Button */}
+      <div className="flex justify-end">
+        <Button
+          text={createNewLabel}
+          variant={variants.secondary}
+          size={sizes.base}
+          onClick={() => {
+            // TODO: Show pool selection/creation dialog
+            if (availablePools.length > 0) {
+              onSelect(availablePools[0].poolUrl);
+            }
+          }}
+        />
+      </div>
+    </div>
   );
 };
 

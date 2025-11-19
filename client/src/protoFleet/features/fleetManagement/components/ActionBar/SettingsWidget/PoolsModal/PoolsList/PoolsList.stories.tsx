@@ -1,18 +1,17 @@
 import PoolsListComponent from ".";
-import { SelectType, selectTypes } from "@/shared/constants";
 
 interface PoolsListArgs {
   title: string;
   subtitle: string;
-  selectType: SelectType;
   createNewLabel: string;
+  poolNumber?: number;
 }
 
 export const PoolsList = ({
   title,
   subtitle,
-  selectType,
   createNewLabel,
+  poolNumber,
 }: PoolsListArgs) => {
   const availablePools = [
     {
@@ -30,10 +29,9 @@ export const PoolsList = ({
       title={title}
       subtitle={subtitle}
       availablePools={availablePools}
-      selectType={selectType}
-      selectedPools={["stratum+tcp://mine.ocean.xyz:3334"]}
       onSelect={() => {}}
       createNewLabel={createNewLabel}
+      poolNumber={poolNumber}
     />
   );
 };
@@ -42,9 +40,9 @@ export default {
   title: "Proto Fleet/Action Bar/Settings widget/Pools modal/Pools list",
   args: {
     title: "Default pool",
-    subtitle: "Select one default pool",
-    selectType: selectTypes.radio,
-    createNewLabel: "Add default pool",
+    subtitle: "",
+    createNewLabel: "Add pool",
+    poolNumber: undefined,
   },
   argTypes: {
     title: {
@@ -53,12 +51,11 @@ export default {
     subtitle: {
       control: "text",
     },
-    selectType: {
-      control: "select",
-      options: Object.values(selectTypes),
-    },
     createNewLabel: {
       control: "text",
+    },
+    poolNumber: {
+      control: "number",
     },
   },
 };

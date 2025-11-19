@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
+import PoolsModalWrapper from "../ActionBar/SettingsWidget/PoolsModal";
 import BulkActionsWidget, { BulkActionsPopover } from "../BulkActions";
 import { BulkAction } from "../BulkActions/types";
 import {
@@ -27,10 +28,10 @@ import {
   ArrowLeftCompact,
   ChevronDown,
   Curtail,
-  Download,
   Fan,
   LEDIndicator,
   Lock,
+  MiningPools,
   Play,
   Power,
   Reboot,
@@ -402,8 +403,8 @@ const MinerActionsMenu = ({
       // Settings actions
       {
         action: settingsActions.miningPool,
-        title: "Mining pool",
-        icon: <Download />,
+        title: "Edit mining pool",
+        icon: <MiningPools />,
         actionHandler: handleMiningPool,
         requiresConfirmation: false,
       },
@@ -442,6 +443,15 @@ const MinerActionsMenu = ({
         )}
         testId="actions-menu"
       />
+      {currentAction === settingsActions.miningPool && (
+        <PoolsModalWrapper
+          numberOfMiners={numberOfMiners}
+          onDismiss={(_poolsChanged) => {
+            setCurrentAction(null);
+            onActionComplete?.();
+          }}
+        />
+      )}
     </PopoverProvider>
   );
 };
