@@ -60,6 +60,9 @@ const (
 	// MinerPairingApiSetAuthKeyProcedure is the fully-qualified name of the MinerPairingApi's
 	// SetAuthKey RPC.
 	MinerPairingApiSetAuthKeyProcedure = "/miner_system_api.MinerPairingApi/SetAuthKey"
+	// MinerPairingApiClearAuthKeyProcedure is the fully-qualified name of the MinerPairingApi's
+	// ClearAuthKey RPC.
+	MinerPairingApiClearAuthKeyProcedure = "/miner_system_api.MinerPairingApi/ClearAuthKey"
 	// MinerPairingApiGetPairingInfoProcedure is the fully-qualified name of the MinerPairingApi's
 	// GetPairingInfo RPC.
 	MinerPairingApiGetPairingInfoProcedure = "/miner_system_api.MinerPairingApi/GetPairingInfo"
@@ -319,6 +322,8 @@ func (UnimplementedMinerSystemApiHandler) ClearUserSettings(context.Context, *co
 type MinerPairingApiClient interface {
 	// Endpoint for setting auth key (ed25519 public key)
 	SetAuthKey(context.Context, *connect.Request[miner_system_api.SetAuthKeyRequest]) (*connect.Response[miner_system_api.SetAuthKeyResponse], error)
+	// Endpoint for clearing auth key
+	ClearAuthKey(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	// Endpoint for getting pairing info during discovery (mac address, control board serial number)
 	GetPairingInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.GetPairingInfoResponse], error)
 }
@@ -338,6 +343,11 @@ func NewMinerPairingApiClient(httpClient connect.HTTPClient, baseURL string, opt
 			baseURL+MinerPairingApiSetAuthKeyProcedure,
 			opts...,
 		),
+		clearAuthKey: connect.NewClient[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse](
+			httpClient,
+			baseURL+MinerPairingApiClearAuthKeyProcedure,
+			opts...,
+		),
 		getPairingInfo: connect.NewClient[miner_common_api.EmptyRequest, miner_system_api.GetPairingInfoResponse](
 			httpClient,
 			baseURL+MinerPairingApiGetPairingInfoProcedure,
@@ -349,12 +359,18 @@ func NewMinerPairingApiClient(httpClient connect.HTTPClient, baseURL string, opt
 // minerPairingApiClient implements MinerPairingApiClient.
 type minerPairingApiClient struct {
 	setAuthKey     *connect.Client[miner_system_api.SetAuthKeyRequest, miner_system_api.SetAuthKeyResponse]
+	clearAuthKey   *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
 	getPairingInfo *connect.Client[miner_common_api.EmptyRequest, miner_system_api.GetPairingInfoResponse]
 }
 
 // SetAuthKey calls miner_system_api.MinerPairingApi.SetAuthKey.
 func (c *minerPairingApiClient) SetAuthKey(ctx context.Context, req *connect.Request[miner_system_api.SetAuthKeyRequest]) (*connect.Response[miner_system_api.SetAuthKeyResponse], error) {
 	return c.setAuthKey.CallUnary(ctx, req)
+}
+
+// ClearAuthKey calls miner_system_api.MinerPairingApi.ClearAuthKey.
+func (c *minerPairingApiClient) ClearAuthKey(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return c.clearAuthKey.CallUnary(ctx, req)
 }
 
 // GetPairingInfo calls miner_system_api.MinerPairingApi.GetPairingInfo.
@@ -366,6 +382,8 @@ func (c *minerPairingApiClient) GetPairingInfo(ctx context.Context, req *connect
 type MinerPairingApiHandler interface {
 	// Endpoint for setting auth key (ed25519 public key)
 	SetAuthKey(context.Context, *connect.Request[miner_system_api.SetAuthKeyRequest]) (*connect.Response[miner_system_api.SetAuthKeyResponse], error)
+	// Endpoint for clearing auth key
+	ClearAuthKey(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	// Endpoint for getting pairing info during discovery (mac address, control board serial number)
 	GetPairingInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.GetPairingInfoResponse], error)
 }
@@ -381,6 +399,11 @@ func NewMinerPairingApiHandler(svc MinerPairingApiHandler, opts ...connect.Handl
 		svc.SetAuthKey,
 		opts...,
 	)
+	minerPairingApiClearAuthKeyHandler := connect.NewUnaryHandler(
+		MinerPairingApiClearAuthKeyProcedure,
+		svc.ClearAuthKey,
+		opts...,
+	)
 	minerPairingApiGetPairingInfoHandler := connect.NewUnaryHandler(
 		MinerPairingApiGetPairingInfoProcedure,
 		svc.GetPairingInfo,
@@ -390,6 +413,8 @@ func NewMinerPairingApiHandler(svc MinerPairingApiHandler, opts ...connect.Handl
 		switch r.URL.Path {
 		case MinerPairingApiSetAuthKeyProcedure:
 			minerPairingApiSetAuthKeyHandler.ServeHTTP(w, r)
+		case MinerPairingApiClearAuthKeyProcedure:
+			minerPairingApiClearAuthKeyHandler.ServeHTTP(w, r)
 		case MinerPairingApiGetPairingInfoProcedure:
 			minerPairingApiGetPairingInfoHandler.ServeHTTP(w, r)
 		default:
@@ -403,6 +428,10 @@ type UnimplementedMinerPairingApiHandler struct{}
 
 func (UnimplementedMinerPairingApiHandler) SetAuthKey(context.Context, *connect.Request[miner_system_api.SetAuthKeyRequest]) (*connect.Response[miner_system_api.SetAuthKeyResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerPairingApi.SetAuthKey is not implemented"))
+}
+
+func (UnimplementedMinerPairingApiHandler) ClearAuthKey(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerPairingApi.ClearAuthKey is not implemented"))
 }
 
 func (UnimplementedMinerPairingApiHandler) GetPairingInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.GetPairingInfoResponse], error) {
