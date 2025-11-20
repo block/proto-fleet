@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useLocation } from "react-router-dom";
@@ -33,6 +34,8 @@ import { useOnboarded, usePasswordSet } from "@/protoOS/store";
 import {
   useAccessToken,
   useDeviceTheme,
+  useFirmwareUpdateInstalling,
+  useFwUpdateStatus,
   useHashboardSerials,
   useIsMining,
   useIsMiningDriverRunning,
@@ -287,6 +290,74 @@ const App = ({
   // ============================================================================
   const isWebServerRunning = useIsWebServerRunning();
   const isMiningDriverRunning = useIsMiningDriverRunning();
+
+  // ============================================================================
+  // FIRMWARE UPDATE AUTO-REFRESH AFTER REBOOT
+  // ============================================================================
+  // Track firmware update progress to force browser refresh when version changes
+  // Using refs to avoid circular dependencies and unnecessary re-renders
+  const preUpdateVersionRef = useRef<string | undefined>(undefined);
+  const hasStartedTrackingRef = useRef<boolean>(false);
+  const minerWasOfflineRef = useRef<boolean>(false);
+
+  const isUpdateInProgress = useFirmwareUpdateInstalling();
+  const fwUpdateStatus = useFwUpdateStatus();
+  const currentVersion = fwUpdateStatus?.current_version;
+
+  // Detect when firmware update enters an in-progress state
+  // (downloading, downloaded, installing, or confirming)
+  useEffect(() => {
+    // Start tracking when update begins and we haven't started tracking yet
+    if (
+      isUpdateInProgress &&
+      !hasStartedTrackingRef.current &&
+      currentVersion
+    ) {
+      hasStartedTrackingRef.current = true;
+      preUpdateVersionRef.current = currentVersion;
+      minerWasOfflineRef.current = false;
+    }
+
+    // Reset tracking when update completes (no longer in progress)
+    if (!isUpdateInProgress && hasStartedTrackingRef.current) {
+      hasStartedTrackingRef.current = false;
+      preUpdateVersionRef.current = undefined;
+      minerWasOfflineRef.current = false;
+    }
+  }, [isUpdateInProgress, currentVersion]);
+
+  // Monitor web server status to detect reboot completion and version change
+  useEffect(() => {
+    if (!hasStartedTrackingRef.current) return;
+
+    // Track when miner goes offline during update
+    if (!isWebServerRunning && !minerWasOfflineRef.current) {
+      minerWasOfflineRef.current = true;
+      return;
+    }
+
+    // Miner came back online after being offline during update
+    if (isWebServerRunning && minerWasOfflineRef.current) {
+      const preUpdateVersion = preUpdateVersionRef.current;
+
+      // Wait for version data to be available before deciding
+      if (!currentVersion) {
+        // Version data not yet available, keep waiting
+        return;
+      }
+
+      // If version changed, force browser refresh to load new UI assets
+      if (preUpdateVersion && currentVersion !== preUpdateVersion) {
+        // Force browser refresh to load new firmware UI assets
+        window.location.reload();
+      } else {
+        // No version change detected, reset tracking
+        hasStartedTrackingRef.current = false;
+        preUpdateVersionRef.current = undefined;
+        minerWasOfflineRef.current = false;
+      }
+    }
+  }, [isWebServerRunning, currentVersion]);
 
   // ============================================================================
   // LOADING STATES
