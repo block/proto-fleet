@@ -27,6 +27,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.addPoolToConfigurationStmt, err = db.PrepareContext(ctx, addPoolToConfiguration); err != nil {
 		return nil, fmt.Errorf("error preparing query AddPoolToConfiguration: %w", err)
 	}
+	if q.adminResetUserPasswordStmt, err = db.PrepareContext(ctx, adminResetUserPassword); err != nil {
+		return nil, fmt.Errorf("error preparing query AdminResetUserPassword: %w", err)
+	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, countActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveUnpairedDiscoveredDevices: %w", err)
 	}
@@ -171,6 +174,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getTotalPoolsStmt, err = db.PrepareContext(ctx, getTotalPools); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTotalPools: %w", err)
 	}
+	if q.getUserByExternalIdStmt, err = db.PrepareContext(ctx, getUserByExternalId); err != nil {
+		return nil, fmt.Errorf("error preparing query GetUserByExternalId: %w", err)
+	}
 	if q.getUserByIdStmt, err = db.PrepareContext(ctx, getUserById); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserById: %w", err)
 	}
@@ -179,6 +185,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getUserRoleInOrganizationStmt, err = db.PrepareContext(ctx, getUserRoleInOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserRoleInOrganization: %w", err)
+	}
+	if q.getUserRoleNameStmt, err = db.PrepareContext(ctx, getUserRoleName); err != nil {
+		return nil, fmt.Errorf("error preparing query GetUserRoleName: %w", err)
 	}
 	if q.getUsersForOrganizationStmt, err = db.PrepareContext(ctx, getUsersForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUsersForOrganization: %w", err)
@@ -216,6 +225,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listRolesStmt, err = db.PrepareContext(ctx, listRoles); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRoles: %w", err)
 	}
+	if q.listUsersForOrganizationStmt, err = db.PrepareContext(ctx, listUsersForOrganization); err != nil {
+		return nil, fmt.Errorf("error preparing query ListUsersForOrganization: %w", err)
+	}
 	if q.markCommandBatchFinishedStmt, err = db.PrepareContext(ctx, markCommandBatchFinished); err != nil {
 		return nil, fmt.Errorf("error preparing query MarkCommandBatchFinished: %w", err)
 	}
@@ -236,6 +248,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.softDeleteRoleStmt, err = db.PrepareContext(ctx, softDeleteRole); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteRole: %w", err)
+	}
+	if q.softDeleteUserStmt, err = db.PrepareContext(ctx, softDeleteUser); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteUser: %w", err)
 	}
 	if q.softDeleteUserFromOrganizationStmt, err = db.PrepareContext(ctx, softDeleteUserFromOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteUserFromOrganization: %w", err)
@@ -258,6 +273,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateDevicePairingStatusByIdentifierStmt, err = db.PrepareContext(ctx, updateDevicePairingStatusByIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateDevicePairingStatusByIdentifier: %w", err)
 	}
+	if q.updateLastLoginStmt, err = db.PrepareContext(ctx, updateLastLogin); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateLastLogin: %w", err)
+	}
 	if q.updateMessageAfterFailureStmt, err = db.PrepareContext(ctx, updateMessageAfterFailure); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateMessageAfterFailure: %w", err)
 	}
@@ -275,6 +293,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.updateUserPasswordStmt, err = db.PrepareContext(ctx, updateUserPassword); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateUserPassword: %w", err)
+	}
+	if q.updateUserPasswordAndFlagStmt, err = db.PrepareContext(ctx, updateUserPasswordAndFlag); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateUserPasswordAndFlag: %w", err)
 	}
 	if q.updateUserRoleStmt, err = db.PrepareContext(ctx, updateUserRole); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateUserRole: %w", err)
@@ -311,6 +332,11 @@ func (q *Queries) Close() error {
 	if q.addPoolToConfigurationStmt != nil {
 		if cerr := q.addPoolToConfigurationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing addPoolToConfigurationStmt: %w", cerr)
+		}
+	}
+	if q.adminResetUserPasswordStmt != nil {
+		if cerr := q.adminResetUserPasswordStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing adminResetUserPasswordStmt: %w", cerr)
 		}
 	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt != nil {
@@ -553,6 +579,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getTotalPoolsStmt: %w", cerr)
 		}
 	}
+	if q.getUserByExternalIdStmt != nil {
+		if cerr := q.getUserByExternalIdStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getUserByExternalIdStmt: %w", cerr)
+		}
+	}
 	if q.getUserByIdStmt != nil {
 		if cerr := q.getUserByIdStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getUserByIdStmt: %w", cerr)
@@ -566,6 +597,11 @@ func (q *Queries) Close() error {
 	if q.getUserRoleInOrganizationStmt != nil {
 		if cerr := q.getUserRoleInOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getUserRoleInOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.getUserRoleNameStmt != nil {
+		if cerr := q.getUserRoleNameStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getUserRoleNameStmt: %w", cerr)
 		}
 	}
 	if q.getUsersForOrganizationStmt != nil {
@@ -628,6 +664,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listRolesStmt: %w", cerr)
 		}
 	}
+	if q.listUsersForOrganizationStmt != nil {
+		if cerr := q.listUsersForOrganizationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listUsersForOrganizationStmt: %w", cerr)
+		}
+	}
 	if q.markCommandBatchFinishedStmt != nil {
 		if cerr := q.markCommandBatchFinishedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing markCommandBatchFinishedStmt: %w", cerr)
@@ -661,6 +702,11 @@ func (q *Queries) Close() error {
 	if q.softDeleteRoleStmt != nil {
 		if cerr := q.softDeleteRoleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing softDeleteRoleStmt: %w", cerr)
+		}
+	}
+	if q.softDeleteUserStmt != nil {
+		if cerr := q.softDeleteUserStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteUserStmt: %w", cerr)
 		}
 	}
 	if q.softDeleteUserFromOrganizationStmt != nil {
@@ -698,6 +744,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateDevicePairingStatusByIdentifierStmt: %w", cerr)
 		}
 	}
+	if q.updateLastLoginStmt != nil {
+		if cerr := q.updateLastLoginStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateLastLoginStmt: %w", cerr)
+		}
+	}
 	if q.updateMessageAfterFailureStmt != nil {
 		if cerr := q.updateMessageAfterFailureStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateMessageAfterFailureStmt: %w", cerr)
@@ -726,6 +777,11 @@ func (q *Queries) Close() error {
 	if q.updateUserPasswordStmt != nil {
 		if cerr := q.updateUserPasswordStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateUserPasswordStmt: %w", cerr)
+		}
+	}
+	if q.updateUserPasswordAndFlagStmt != nil {
+		if cerr := q.updateUserPasswordAndFlagStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateUserPasswordAndFlagStmt: %w", cerr)
 		}
 	}
 	if q.updateUserRoleStmt != nil {
@@ -813,6 +869,7 @@ type Queries struct {
 	db                                                  DBTX
 	tx                                                  *sql.Tx
 	addPoolToConfigurationStmt                          *sql.Stmt
+	adminResetUserPasswordStmt                          *sql.Stmt
 	countActiveUnpairedDiscoveredDevicesStmt            *sql.Stmt
 	countMinersByStateStmt                              *sql.Stmt
 	createCommandBatchLogStmt                           *sql.Stmt
@@ -861,9 +918,11 @@ type Queries struct {
 	getTotalMinerStateSnapshotsStmt                     *sql.Stmt
 	getTotalPairedDevicesStmt                           *sql.Stmt
 	getTotalPoolsStmt                                   *sql.Stmt
+	getUserByExternalIdStmt                             *sql.Stmt
 	getUserByIdStmt                                     *sql.Stmt
 	getUserByUsernameStmt                               *sql.Stmt
 	getUserRoleInOrganizationStmt                       *sql.Stmt
+	getUserRoleNameStmt                                 *sql.Stmt
 	getUsersForOrganizationStmt                         *sql.Stmt
 	hasUserStmt                                         *sql.Stmt
 	insertDeviceStmt                                    *sql.Stmt
@@ -876,6 +935,7 @@ type Queries struct {
 	listPoolConfigurationsStmt                          *sql.Stmt
 	listPoolsStmt                                       *sql.Stmt
 	listRolesStmt                                       *sql.Stmt
+	listUsersForOrganizationStmt                        *sql.Stmt
 	markCommandBatchFinishedStmt                        *sql.Stmt
 	markCommandBatchFinishedWithStartedAtStmt           *sql.Stmt
 	markCommandBatchProcessingStmt                      *sql.Stmt
@@ -883,6 +943,7 @@ type Queries struct {
 	softDeleteOrganizationStmt                          *sql.Stmt
 	softDeletePoolStmt                                  *sql.Stmt
 	softDeleteRoleStmt                                  *sql.Stmt
+	softDeleteUserStmt                                  *sql.Stmt
 	softDeleteUserFromOrganizationStmt                  *sql.Stmt
 	undeleteOrganizationStmt                            *sql.Stmt
 	undeleteRoleStmt                                    *sql.Stmt
@@ -890,12 +951,14 @@ type Queries struct {
 	updateDeviceIPAssignmentStmt                        *sql.Stmt
 	updateDeviceInfoStmt                                *sql.Stmt
 	updateDevicePairingStatusByIdentifierStmt           *sql.Stmt
+	updateLastLoginStmt                                 *sql.Stmt
 	updateMessageAfterFailureStmt                       *sql.Stmt
 	updateMessageStatusStmt                             *sql.Stmt
 	updateOrganizationStmt                              *sql.Stmt
 	updatePoolStmt                                      *sql.Stmt
 	updateRoleStmt                                      *sql.Stmt
 	updateUserPasswordStmt                              *sql.Stmt
+	updateUserPasswordAndFlagStmt                       *sql.Stmt
 	updateUserRoleStmt                                  *sql.Stmt
 	updateUserUsernameStmt                              *sql.Stmt
 	upsertCommandOnDeviceLogStmt                        *sql.Stmt
@@ -912,6 +975,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		db:                                                  tx,
 		tx:                                                  tx,
 		addPoolToConfigurationStmt:                          q.addPoolToConfigurationStmt,
+		adminResetUserPasswordStmt:                          q.adminResetUserPasswordStmt,
 		countActiveUnpairedDiscoveredDevicesStmt:            q.countActiveUnpairedDiscoveredDevicesStmt,
 		countMinersByStateStmt:                              q.countMinersByStateStmt,
 		createCommandBatchLogStmt:                           q.createCommandBatchLogStmt,
@@ -960,9 +1024,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getTotalMinerStateSnapshotsStmt:                     q.getTotalMinerStateSnapshotsStmt,
 		getTotalPairedDevicesStmt:                           q.getTotalPairedDevicesStmt,
 		getTotalPoolsStmt:                                   q.getTotalPoolsStmt,
+		getUserByExternalIdStmt:                             q.getUserByExternalIdStmt,
 		getUserByIdStmt:                                     q.getUserByIdStmt,
 		getUserByUsernameStmt:                               q.getUserByUsernameStmt,
 		getUserRoleInOrganizationStmt:                       q.getUserRoleInOrganizationStmt,
+		getUserRoleNameStmt:                                 q.getUserRoleNameStmt,
 		getUsersForOrganizationStmt:                         q.getUsersForOrganizationStmt,
 		hasUserStmt:                                         q.hasUserStmt,
 		insertDeviceStmt:                                    q.insertDeviceStmt,
@@ -975,6 +1041,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listPoolConfigurationsStmt:                          q.listPoolConfigurationsStmt,
 		listPoolsStmt:                                       q.listPoolsStmt,
 		listRolesStmt:                                       q.listRolesStmt,
+		listUsersForOrganizationStmt:                        q.listUsersForOrganizationStmt,
 		markCommandBatchFinishedStmt:                        q.markCommandBatchFinishedStmt,
 		markCommandBatchFinishedWithStartedAtStmt:           q.markCommandBatchFinishedWithStartedAtStmt,
 		markCommandBatchProcessingStmt:                      q.markCommandBatchProcessingStmt,
@@ -982,6 +1049,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		softDeleteOrganizationStmt:                          q.softDeleteOrganizationStmt,
 		softDeletePoolStmt:                                  q.softDeletePoolStmt,
 		softDeleteRoleStmt:                                  q.softDeleteRoleStmt,
+		softDeleteUserStmt:                                  q.softDeleteUserStmt,
 		softDeleteUserFromOrganizationStmt:                  q.softDeleteUserFromOrganizationStmt,
 		undeleteOrganizationStmt:                            q.undeleteOrganizationStmt,
 		undeleteRoleStmt:                                    q.undeleteRoleStmt,
@@ -989,12 +1057,14 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateDeviceIPAssignmentStmt:                        q.updateDeviceIPAssignmentStmt,
 		updateDeviceInfoStmt:                                q.updateDeviceInfoStmt,
 		updateDevicePairingStatusByIdentifierStmt:           q.updateDevicePairingStatusByIdentifierStmt,
+		updateLastLoginStmt:                                 q.updateLastLoginStmt,
 		updateMessageAfterFailureStmt:                       q.updateMessageAfterFailureStmt,
 		updateMessageStatusStmt:                             q.updateMessageStatusStmt,
 		updateOrganizationStmt:                              q.updateOrganizationStmt,
 		updatePoolStmt:                                      q.updatePoolStmt,
 		updateRoleStmt:                                      q.updateRoleStmt,
 		updateUserPasswordStmt:                              q.updateUserPasswordStmt,
+		updateUserPasswordAndFlagStmt:                       q.updateUserPasswordAndFlagStmt,
 		updateUserRoleStmt:                                  q.updateUserRoleStmt,
 		updateUserUsernameStmt:                              q.updateUserUsernameStmt,
 		upsertCommandOnDeviceLogStmt:                        q.upsertCommandOnDeviceLogStmt,

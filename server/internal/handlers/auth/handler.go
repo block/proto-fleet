@@ -58,3 +58,43 @@ func (s *Handler) GetUserAuditInfo(ctx context.Context, _ *connect.Request[pb.Ge
 
 	return connect.NewResponse(resp), nil
 }
+
+// CreateUser creates a new user with a temporary password (Super Admin only)
+func (s *Handler) CreateUser(ctx context.Context, req *connect.Request[pb.CreateUserRequest]) (*connect.Response[pb.CreateUserResponse], error) {
+	resp, err := s.authSvc.CreateUser(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(resp), nil
+}
+
+// ListUsers returns all users in the organization (Super Admin only)
+func (s *Handler) ListUsers(ctx context.Context, _ *connect.Request[pb.ListUsersRequest]) (*connect.Response[pb.ListUsersResponse], error) {
+	resp, err := s.authSvc.ListUsers(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(resp), nil
+}
+
+// ResetUserPassword generates a new temporary password for a user (Super Admin only)
+func (s *Handler) ResetUserPassword(ctx context.Context, req *connect.Request[pb.ResetUserPasswordRequest]) (*connect.Response[pb.ResetUserPasswordResponse], error) {
+	resp, err := s.authSvc.ResetUserPassword(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(resp), nil
+}
+
+// DeactivateUser soft-deletes a user (Super Admin only)
+func (s *Handler) DeactivateUser(ctx context.Context, req *connect.Request[pb.DeactivateUserRequest]) (*connect.Response[pb.DeactivateUserResponse], error) {
+	resp, err := s.authSvc.DeactivateUser(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(resp), nil
+}

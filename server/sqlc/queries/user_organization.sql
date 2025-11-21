@@ -32,3 +32,11 @@ UPDATE user_organization
 SET deleted_at = CURRENT_TIMESTAMP(6)
 WHERE user_id = ?
   AND organization_id = ?;
+
+-- name: GetUserRoleName :one
+SELECT r.name
+FROM role r
+JOIN user_organization uo ON r.id = uo.role_id
+WHERE uo.user_id = ?
+  AND uo.organization_id = ?
+  AND uo.deleted_at IS NULL;

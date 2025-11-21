@@ -3,6 +3,7 @@ package sqlstores
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
@@ -11,6 +12,7 @@ import (
 )
 
 var _ interfaces.UserStore = &SQLUserStore{}
+var _ interfaces.UserManagementStore = &SQLUserStore{}
 
 type SQLUserStore struct {
 	SQLConnectionManager
@@ -26,6 +28,14 @@ func (s *SQLUserStore) getQueries(ctx context.Context) *sqlc.Queries {
 	return s.GetQueries(ctx)
 }
 
+// toTimePtr converts sql.NullTime to *time.Time
+func toTimePtr(nt sql.NullTime) *time.Time {
+	if !nt.Valid {
+		return nil
+	}
+	return &nt.Time
+}
+
 func (s *SQLUserStore) GetUserByUsername(ctx context.Context, username string) (interfaces.User, error) {
 	user, err := s.getQueries(ctx).GetUserByUsername(ctx, username)
 	if err != nil {
@@ -33,13 +43,15 @@ func (s *SQLUserStore) GetUserByUsername(ctx context.Context, username string) (
 	}
 
 	return interfaces.User{
-		ID:                user.ID,
-		UserID:            user.UserID,
-		Username:          user.Username,
-		PasswordHash:      user.PasswordHash,
-		CreatedAt:         user.CreatedAt,
-		UpdatedAt:         user.UpdatedAt,
-		PasswordUpdatedAt: user.PasswordUpdatedAt,
+		ID:                     user.ID,
+		UserID:                 user.UserID,
+		Username:               user.Username,
+		PasswordHash:           user.PasswordHash,
+		CreatedAt:              user.CreatedAt,
+		UpdatedAt:              user.UpdatedAt,
+		PasswordUpdatedAt:      user.PasswordUpdatedAt,
+		LastLoginAt:            toTimePtr(user.LastLoginAt),
+		RequiresPasswordChange: user.RequiresPasswordChange,
 	}, nil
 }
 
@@ -50,13 +62,15 @@ func (s *SQLUserStore) GetUserByID(ctx context.Context, userID int64) (interface
 	}
 
 	return interfaces.User{
-		ID:                user.ID,
-		UserID:            user.UserID,
-		Username:          user.Username,
-		PasswordHash:      user.PasswordHash,
-		CreatedAt:         user.CreatedAt,
-		UpdatedAt:         user.UpdatedAt,
-		PasswordUpdatedAt: user.PasswordUpdatedAt,
+		ID:                     user.ID,
+		UserID:                 user.UserID,
+		Username:               user.Username,
+		PasswordHash:           user.PasswordHash,
+		CreatedAt:              user.CreatedAt,
+		UpdatedAt:              user.UpdatedAt,
+		PasswordUpdatedAt:      user.PasswordUpdatedAt,
+		LastLoginAt:            toTimePtr(user.LastLoginAt),
+		RequiresPasswordChange: user.RequiresPasswordChange,
 	}, nil
 }
 
@@ -157,4 +171,117 @@ func (s *SQLUserStore) PasswordUpdatedAt(ctx context.Context, userID int64) (tim
 
 func (s *SQLUserStore) GetOrganizationPrivateKey(ctx context.Context, orgID int64) (string, error) {
 	return s.getQueries(ctx).GetOrganizationPrivateKey(ctx, orgID)
+}
+
+func (s *SQLUserStore) GetUserByExternalID(ctx context.Context, userID string) (interfaces.User, error) {
+	user, err := s.getQueries(ctx).GetUserByExternalId(ctx, userID)
+	if err != nil {
+		return interfaces.User{}, err
+	}
+
+	return interfaces.User{
+		ID:                     user.ID,
+		UserID:                 user.UserID,
+		Username:               user.Username,
+		PasswordHash:           user.PasswordHash,
+		CreatedAt:              user.CreatedAt,
+		UpdatedAt:              user.UpdatedAt,
+		PasswordUpdatedAt:      user.PasswordUpdatedAt,
+		LastLoginAt:            toTimePtr(user.LastLoginAt),
+		RequiresPasswordChange: user.RequiresPasswordChange,
+	}, nil
+}
+
+func (s *SQLUserStore) CreateUser(ctx context.Context, externalUserID string, username string, passwordHash string, requiresPasswordChange bool) (int64, error) {
+	result, err := s.getQueries(ctx).CreateUser(ctx, sqlc.CreateUserParams{
+		UserID:                 externalUserID,
+		Username:               username,
+		PasswordHash:           passwordHash,
+		RequiresPasswordChange: requiresPasswordChange,
+		CreatedAt:              time.Now(),
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get last insert ID after creating user: %w", err)
+	}
+	return id, nil
+}
+
+func (s *SQLUserStore) CreateUserOrganizationRole(ctx context.Context, userID int64, organizationID int64, roleID int64) error {
+	return s.getQueries(ctx).CreateUserOrganization(ctx, sqlc.CreateUserOrganizationParams{
+		UserID:         userID,
+		OrganizationID: organizationID,
+		RoleID:         roleID,
+	})
+}
+
+func (s *SQLUserStore) GetRoleByName(ctx context.Context, roleName string) (interfaces.Role, error) {
+	role, err := s.getQueries(ctx).GetRoleByName(ctx, roleName)
+	if err != nil {
+		return interfaces.Role{}, err
+	}
+
+	return interfaces.Role{
+		ID:          role.ID,
+		Name:        role.Name,
+		Description: role.Description.String,
+		CreatedAt:   role.CreatedAt,
+		UpdatedAt:   role.UpdatedAt,
+	}, nil
+}
+
+func (s *SQLUserStore) UpdateUserPasswordAndClearPasswordChangeFlag(ctx context.Context, userID int64, passwordHash string) error {
+	return s.getQueries(ctx).UpdateUserPasswordAndFlag(ctx, sqlc.UpdateUserPasswordAndFlagParams{
+		PasswordHash: passwordHash,
+		ID:           userID,
+	})
+}
+
+func (s *SQLUserStore) AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) error {
+	return s.getQueries(ctx).AdminResetUserPassword(ctx, sqlc.AdminResetUserPasswordParams{
+		PasswordHash: passwordHash,
+		ID:           userID,
+	})
+}
+
+func (s *SQLUserStore) SoftDeleteUser(ctx context.Context, userID int64) error {
+	return s.getQueries(ctx).SoftDeleteUser(ctx, userID)
+}
+
+func (s *SQLUserStore) UpdateLastLogin(ctx context.Context, userID int64) error {
+	return s.getQueries(ctx).UpdateLastLogin(ctx, userID)
+}
+
+func (s *SQLUserStore) ListUsersForOrganization(ctx context.Context, organizationID int64) ([]interfaces.User, error) {
+	users, err := s.getQueries(ctx).ListUsersForOrganization(ctx, organizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]interfaces.User, len(users))
+	for i, user := range users {
+		result[i] = interfaces.User{
+			ID:                     user.ID,
+			UserID:                 user.UserID,
+			Username:               user.Username,
+			PasswordUpdatedAt:      user.PasswordUpdatedAt,
+			LastLoginAt:            toTimePtr(user.LastLoginAt),
+			RoleName:               user.RoleName,
+			RequiresPasswordChange: user.RequiresPasswordChange,
+			CreatedAt:              user.CreatedAt,
+		}
+	}
+
+	return result, nil
+}
+
+func (s *SQLUserStore) GetUserRoleName(ctx context.Context, userID int64, organizationID int64) (string, error) {
+	return s.getQueries(ctx).GetUserRoleName(ctx, sqlc.GetUserRoleNameParams{
+		UserID:         userID,
+		OrganizationID: organizationID,
+	})
 }

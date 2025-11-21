@@ -116,7 +116,8 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
-	authSvc := authDomain.NewService(userStore, transactor, tokenSvc, encryptSvc)
+	// userStore implements both UserStore and UserManagementStore interfaces
+	authSvc := authDomain.NewService(userStore, userStore, transactor, tokenSvc, encryptSvc)
 
 	if err := config.Plugins.Validate(); err != nil {
 		return fmt.Errorf("invalid plugin configuration: %w", err)

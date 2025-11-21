@@ -46,6 +46,16 @@ const (
 	// AuthServiceGetUserAuditInfoProcedure is the fully-qualified name of the AuthService's
 	// GetUserAuditInfo RPC.
 	AuthServiceGetUserAuditInfoProcedure = "/auth.v1.AuthService/GetUserAuditInfo"
+	// AuthServiceCreateUserProcedure is the fully-qualified name of the AuthService's CreateUser RPC.
+	AuthServiceCreateUserProcedure = "/auth.v1.AuthService/CreateUser"
+	// AuthServiceListUsersProcedure is the fully-qualified name of the AuthService's ListUsers RPC.
+	AuthServiceListUsersProcedure = "/auth.v1.AuthService/ListUsers"
+	// AuthServiceResetUserPasswordProcedure is the fully-qualified name of the AuthService's
+	// ResetUserPassword RPC.
+	AuthServiceResetUserPasswordProcedure = "/auth.v1.AuthService/ResetUserPassword"
+	// AuthServiceDeactivateUserProcedure is the fully-qualified name of the AuthService's
+	// DeactivateUser RPC.
+	AuthServiceDeactivateUserProcedure = "/auth.v1.AuthService/DeactivateUser"
 )
 
 // AuthServiceClient is a client for the auth.v1.AuthService service.
@@ -59,6 +69,17 @@ type AuthServiceClient interface {
 	UpdatePassword(context.Context, *connect.Request[v1.UpdatePasswordRequest]) (*connect.Response[v1.UpdatePasswordResponse], error)
 	UpdateUsername(context.Context, *connect.Request[v1.UpdateUsernameRequest]) (*connect.Response[v1.UpdateUsernameResponse], error)
 	GetUserAuditInfo(context.Context, *connect.Request[v1.GetUserAuditInfoRequest]) (*connect.Response[v1.GetUserAuditInfoResponse], error)
+	// CreateUser creates a new user account with a system-generated temporary password (Super Admin only)
+	// The temporary password is only returned once and must be shared with the new user
+	CreateUser(context.Context, *connect.Request[v1.CreateUserRequest]) (*connect.Response[v1.CreateUserResponse], error)
+	// ListUsers returns all active users in the organization (Super Admin only)
+	ListUsers(context.Context, *connect.Request[v1.ListUsersRequest]) (*connect.Response[v1.ListUsersResponse], error)
+	// ResetUserPassword generates a new temporary password for an existing user (Super Admin only)
+	// The temporary password is only returned once and must be shared with the user
+	ResetUserPassword(context.Context, *connect.Request[v1.ResetUserPasswordRequest]) (*connect.Response[v1.ResetUserPasswordResponse], error)
+	// DeactivateUser performs a soft delete on a user account (Super Admin only)
+	// Users cannot deactivate themselves
+	DeactivateUser(context.Context, *connect.Request[v1.DeactivateUserRequest]) (*connect.Response[v1.DeactivateUserResponse], error)
 }
 
 // NewAuthServiceClient constructs a client for the auth.v1.AuthService service. By default, it uses
@@ -91,15 +112,39 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			baseURL+AuthServiceGetUserAuditInfoProcedure,
 			opts...,
 		),
+		createUser: connect.NewClient[v1.CreateUserRequest, v1.CreateUserResponse](
+			httpClient,
+			baseURL+AuthServiceCreateUserProcedure,
+			opts...,
+		),
+		listUsers: connect.NewClient[v1.ListUsersRequest, v1.ListUsersResponse](
+			httpClient,
+			baseURL+AuthServiceListUsersProcedure,
+			opts...,
+		),
+		resetUserPassword: connect.NewClient[v1.ResetUserPasswordRequest, v1.ResetUserPasswordResponse](
+			httpClient,
+			baseURL+AuthServiceResetUserPasswordProcedure,
+			opts...,
+		),
+		deactivateUser: connect.NewClient[v1.DeactivateUserRequest, v1.DeactivateUserResponse](
+			httpClient,
+			baseURL+AuthServiceDeactivateUserProcedure,
+			opts...,
+		),
 	}
 }
 
 // authServiceClient implements AuthServiceClient.
 type authServiceClient struct {
-	authenticate     *connect.Client[v1.AuthenticateRequest, v1.AuthenticateResponse]
-	updatePassword   *connect.Client[v1.UpdatePasswordRequest, v1.UpdatePasswordResponse]
-	updateUsername   *connect.Client[v1.UpdateUsernameRequest, v1.UpdateUsernameResponse]
-	getUserAuditInfo *connect.Client[v1.GetUserAuditInfoRequest, v1.GetUserAuditInfoResponse]
+	authenticate      *connect.Client[v1.AuthenticateRequest, v1.AuthenticateResponse]
+	updatePassword    *connect.Client[v1.UpdatePasswordRequest, v1.UpdatePasswordResponse]
+	updateUsername    *connect.Client[v1.UpdateUsernameRequest, v1.UpdateUsernameResponse]
+	getUserAuditInfo  *connect.Client[v1.GetUserAuditInfoRequest, v1.GetUserAuditInfoResponse]
+	createUser        *connect.Client[v1.CreateUserRequest, v1.CreateUserResponse]
+	listUsers         *connect.Client[v1.ListUsersRequest, v1.ListUsersResponse]
+	resetUserPassword *connect.Client[v1.ResetUserPasswordRequest, v1.ResetUserPasswordResponse]
+	deactivateUser    *connect.Client[v1.DeactivateUserRequest, v1.DeactivateUserResponse]
 }
 
 // Authenticate calls auth.v1.AuthService.Authenticate.
@@ -122,6 +167,26 @@ func (c *authServiceClient) GetUserAuditInfo(ctx context.Context, req *connect.R
 	return c.getUserAuditInfo.CallUnary(ctx, req)
 }
 
+// CreateUser calls auth.v1.AuthService.CreateUser.
+func (c *authServiceClient) CreateUser(ctx context.Context, req *connect.Request[v1.CreateUserRequest]) (*connect.Response[v1.CreateUserResponse], error) {
+	return c.createUser.CallUnary(ctx, req)
+}
+
+// ListUsers calls auth.v1.AuthService.ListUsers.
+func (c *authServiceClient) ListUsers(ctx context.Context, req *connect.Request[v1.ListUsersRequest]) (*connect.Response[v1.ListUsersResponse], error) {
+	return c.listUsers.CallUnary(ctx, req)
+}
+
+// ResetUserPassword calls auth.v1.AuthService.ResetUserPassword.
+func (c *authServiceClient) ResetUserPassword(ctx context.Context, req *connect.Request[v1.ResetUserPasswordRequest]) (*connect.Response[v1.ResetUserPasswordResponse], error) {
+	return c.resetUserPassword.CallUnary(ctx, req)
+}
+
+// DeactivateUser calls auth.v1.AuthService.DeactivateUser.
+func (c *authServiceClient) DeactivateUser(ctx context.Context, req *connect.Request[v1.DeactivateUserRequest]) (*connect.Response[v1.DeactivateUserResponse], error) {
+	return c.deactivateUser.CallUnary(ctx, req)
+}
+
 // AuthServiceHandler is an implementation of the auth.v1.AuthService service.
 type AuthServiceHandler interface {
 	// Authenticate validates user credentials and returns an authentication token
@@ -133,6 +198,17 @@ type AuthServiceHandler interface {
 	UpdatePassword(context.Context, *connect.Request[v1.UpdatePasswordRequest]) (*connect.Response[v1.UpdatePasswordResponse], error)
 	UpdateUsername(context.Context, *connect.Request[v1.UpdateUsernameRequest]) (*connect.Response[v1.UpdateUsernameResponse], error)
 	GetUserAuditInfo(context.Context, *connect.Request[v1.GetUserAuditInfoRequest]) (*connect.Response[v1.GetUserAuditInfoResponse], error)
+	// CreateUser creates a new user account with a system-generated temporary password (Super Admin only)
+	// The temporary password is only returned once and must be shared with the new user
+	CreateUser(context.Context, *connect.Request[v1.CreateUserRequest]) (*connect.Response[v1.CreateUserResponse], error)
+	// ListUsers returns all active users in the organization (Super Admin only)
+	ListUsers(context.Context, *connect.Request[v1.ListUsersRequest]) (*connect.Response[v1.ListUsersResponse], error)
+	// ResetUserPassword generates a new temporary password for an existing user (Super Admin only)
+	// The temporary password is only returned once and must be shared with the user
+	ResetUserPassword(context.Context, *connect.Request[v1.ResetUserPasswordRequest]) (*connect.Response[v1.ResetUserPasswordResponse], error)
+	// DeactivateUser performs a soft delete on a user account (Super Admin only)
+	// Users cannot deactivate themselves
+	DeactivateUser(context.Context, *connect.Request[v1.DeactivateUserRequest]) (*connect.Response[v1.DeactivateUserResponse], error)
 }
 
 // NewAuthServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -161,6 +237,26 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		svc.GetUserAuditInfo,
 		opts...,
 	)
+	authServiceCreateUserHandler := connect.NewUnaryHandler(
+		AuthServiceCreateUserProcedure,
+		svc.CreateUser,
+		opts...,
+	)
+	authServiceListUsersHandler := connect.NewUnaryHandler(
+		AuthServiceListUsersProcedure,
+		svc.ListUsers,
+		opts...,
+	)
+	authServiceResetUserPasswordHandler := connect.NewUnaryHandler(
+		AuthServiceResetUserPasswordProcedure,
+		svc.ResetUserPassword,
+		opts...,
+	)
+	authServiceDeactivateUserHandler := connect.NewUnaryHandler(
+		AuthServiceDeactivateUserProcedure,
+		svc.DeactivateUser,
+		opts...,
+	)
 	return "/auth.v1.AuthService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AuthServiceAuthenticateProcedure:
@@ -171,6 +267,14 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 			authServiceUpdateUsernameHandler.ServeHTTP(w, r)
 		case AuthServiceGetUserAuditInfoProcedure:
 			authServiceGetUserAuditInfoHandler.ServeHTTP(w, r)
+		case AuthServiceCreateUserProcedure:
+			authServiceCreateUserHandler.ServeHTTP(w, r)
+		case AuthServiceListUsersProcedure:
+			authServiceListUsersHandler.ServeHTTP(w, r)
+		case AuthServiceResetUserPasswordProcedure:
+			authServiceResetUserPasswordHandler.ServeHTTP(w, r)
+		case AuthServiceDeactivateUserProcedure:
+			authServiceDeactivateUserHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -194,4 +298,20 @@ func (UnimplementedAuthServiceHandler) UpdateUsername(context.Context, *connect.
 
 func (UnimplementedAuthServiceHandler) GetUserAuditInfo(context.Context, *connect.Request[v1.GetUserAuditInfoRequest]) (*connect.Response[v1.GetUserAuditInfoResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("auth.v1.AuthService.GetUserAuditInfo is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) CreateUser(context.Context, *connect.Request[v1.CreateUserRequest]) (*connect.Response[v1.CreateUserResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("auth.v1.AuthService.CreateUser is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) ListUsers(context.Context, *connect.Request[v1.ListUsersRequest]) (*connect.Response[v1.ListUsersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("auth.v1.AuthService.ListUsers is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) ResetUserPassword(context.Context, *connect.Request[v1.ResetUserPasswordRequest]) (*connect.Response[v1.ResetUserPasswordResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("auth.v1.AuthService.ResetUserPassword is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) DeactivateUser(context.Context, *connect.Request[v1.DeactivateUserRequest]) (*connect.Response[v1.DeactivateUserResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("auth.v1.AuthService.DeactivateUser is not implemented"))
 }

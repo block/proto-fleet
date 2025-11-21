@@ -90,8 +90,29 @@ func (q *Queries) GetUserRoleInOrganization(ctx context.Context, arg GetUserRole
 	return i, err
 }
 
+const getUserRoleName = `-- name: GetUserRoleName :one
+SELECT r.name
+FROM role r
+JOIN user_organization uo ON r.id = uo.role_id
+WHERE uo.user_id = ?
+  AND uo.organization_id = ?
+  AND uo.deleted_at IS NULL
+`
+
+type GetUserRoleNameParams struct {
+	UserID         int64
+	OrganizationID int64
+}
+
+func (q *Queries) GetUserRoleName(ctx context.Context, arg GetUserRoleNameParams) (string, error) {
+	row := q.queryRow(ctx, q.getUserRoleNameStmt, getUserRoleName, arg.UserID, arg.OrganizationID)
+	var name string
+	err := row.Scan(&name)
+	return name, err
+}
+
 const getUsersForOrganization = `-- name: GetUsersForOrganization :many
-SELECT u.id, u.user_id, u.username, u.password_hash, u.created_at, u.updated_at, u.deleted_at, u.password_updated_at
+SELECT u.id, u.user_id, u.username, u.password_hash, u.created_at, u.updated_at, u.deleted_at, u.password_updated_at, u.last_login_at, u.requires_password_change
 FROM user u
          JOIN user_organization uo ON u.id = uo.user_id
 WHERE uo.organization_id = ?
@@ -115,6 +136,8 @@ func (q *Queries) GetUsersForOrganization(ctx context.Context, organizationID in
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.PasswordUpdatedAt,
+			&i.LastLoginAt,
+			&i.RequiresPasswordChange,
 		); err != nil {
 			return nil, err
 		}

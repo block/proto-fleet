@@ -76,7 +76,8 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	poolStore := sqlstores.NewSQLPoolStore(db, encryptService)
 
-	authService := auth.NewService(userStore, transactor, tokenService, encryptService)
+	// userStore implements both UserStore and UserManagementStore interfaces
+	authService := auth.NewService(userStore, userStore, transactor, tokenService, encryptService)
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)

@@ -24,7 +24,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_auth_v1_auth: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChJhdXRoL3YxL2F1dGgucHJvdG8SB2F1dGgudjEiOQoTQXV0aGVudGljYXRlUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRIQCghwYXNzd29yZBgCIAEoCSI7ChRBdXRoZW50aWNhdGVSZXNwb25zZRINCgV0b2tlbhgBIAEoCRIUCgx0b2tlbl9leHBpcnkYAiABKAMiRwoVVXBkYXRlUGFzc3dvcmRSZXF1ZXN0EhgKEGN1cnJlbnRfcGFzc3dvcmQYASABKAkSFAoMbmV3X3Bhc3N3b3JkGAIgASgJIhgKFlVwZGF0ZVBhc3N3b3JkUmVzcG9uc2UiKQoVVXBkYXRlVXNlcm5hbWVSZXF1ZXN0EhAKCHVzZXJuYW1lGAEgASgJIhgKFlVwZGF0ZVVzZXJuYW1lUmVzcG9uc2UiGQoXR2V0VXNlckF1ZGl0SW5mb1JlcXVlc3QiSAoNVXNlckF1ZGl0SW5mbxI3ChNwYXNzd29yZF91cGRhdGVkX2F0GAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJAChhHZXRVc2VyQXVkaXRJbmZvUmVzcG9uc2USJAoEaW5mbxgBIAEoCzIWLmF1dGgudjEuVXNlckF1ZGl0SW5mbyp2ChVBdXRoZW50aWNhdGVFcnJvckNvZGUSJwojQVVUSEVOVElDQVRFX0VSUk9SX0NPREVfVU5TUEVDSUZJRUQQABI0CjBBVVRIRU5USUNBVEVfRVJST1JfQ09ERV9JTlZBTElEX1VTRVJfT1JfUEFTU1dPUkQQASq8AQoXVXBkYXRlUGFzc3dvcmRFcnJvckNvZGUSKgomVVBEQVRFX1BBU1NXT1JEX0VSUk9SX0NPREVfVU5TUEVDSUZJRUQQABIzCi9VUERBVEVfUEFTU1dPUkRfRVJST1JfQ09ERV9JTlZBTElEX09MRF9QQVNTV09SRBABEkAKPFVQREFURV9QQVNTV09SRF9FUlJPUl9DT0RFX05FV19QQVNTV09SRF9TQU1FX0FTX09MRF9QQVNTV09SRBACMtkCCgtBdXRoU2VydmljZRJLCgxBdXRoZW50aWNhdGUSHC5hdXRoLnYxLkF1dGhlbnRpY2F0ZVJlcXVlc3QaHS5hdXRoLnYxLkF1dGhlbnRpY2F0ZVJlc3BvbnNlElEKDlVwZGF0ZVBhc3N3b3JkEh4uYXV0aC52MS5VcGRhdGVQYXNzd29yZFJlcXVlc3QaHy5hdXRoLnYxLlVwZGF0ZVBhc3N3b3JkUmVzcG9uc2USUQoOVXBkYXRlVXNlcm5hbWUSHi5hdXRoLnYxLlVwZGF0ZVVzZXJuYW1lUmVxdWVzdBofLmF1dGgudjEuVXBkYXRlVXNlcm5hbWVSZXNwb25zZRJXChBHZXRVc2VyQXVkaXRJbmZvEiAuYXV0aC52MS5HZXRVc2VyQXVkaXRJbmZvUmVxdWVzdBohLmF1dGgudjEuR2V0VXNlckF1ZGl0SW5mb1Jlc3BvbnNlQp0BCgtjb20uYXV0aC52MUIJQXV0aFByb3RvUAFaRmdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvYXV0aC92MTthdXRodjGiAgNBWFiqAgdBdXRoLlYxygIHQXV0aFxWMeICE0F1dGhcVjFcR1BCTWV0YWRhdGHqAghBdXRoOjpWMWIGcHJvdG8z",
+    "ChJhdXRoL3YxL2F1dGgucHJvdG8SB2F1dGgudjEiOQoTQXV0aGVudGljYXRlUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRIQCghwYXNzd29yZBgCIAEoCSJdChRBdXRoZW50aWNhdGVSZXNwb25zZRINCgV0b2tlbhgBIAEoCRIUCgx0b2tlbl9leHBpcnkYAiABKAMSIAoYcmVxdWlyZXNfcGFzc3dvcmRfY2hhbmdlGAMgASgIIkcKFVVwZGF0ZVBhc3N3b3JkUmVxdWVzdBIYChBjdXJyZW50X3Bhc3N3b3JkGAEgASgJEhQKDG5ld19wYXNzd29yZBgCIAEoCSIYChZVcGRhdGVQYXNzd29yZFJlc3BvbnNlIikKFVVwZGF0ZVVzZXJuYW1lUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCSIYChZVcGRhdGVVc2VybmFtZVJlc3BvbnNlIhkKF0dldFVzZXJBdWRpdEluZm9SZXF1ZXN0IkgKDVVzZXJBdWRpdEluZm8SNwoTcGFzc3dvcmRfdXBkYXRlZF9hdBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiQAoYR2V0VXNlckF1ZGl0SW5mb1Jlc3BvbnNlEiQKBGluZm8YASABKAsyFi5hdXRoLnYxLlVzZXJBdWRpdEluZm8iJQoRQ3JlYXRlVXNlclJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkiUwoSQ3JlYXRlVXNlclJlc3BvbnNlEg8KB3VzZXJfaWQYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSGgoSdGVtcG9yYXJ5X3Bhc3N3b3JkGAMgASgJIhIKEExpc3RVc2Vyc1JlcXVlc3QiyQEKCFVzZXJJbmZvEg8KB3VzZXJfaWQYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSNwoTcGFzc3dvcmRfdXBkYXRlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMQoNbGFzdF9sb2dpbl9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDAoEcm9sZRgFIAEoCRIgChhyZXF1aXJlc19wYXNzd29yZF9jaGFuZ2UYBiABKAgiNQoRTGlzdFVzZXJzUmVzcG9uc2USIAoFdXNlcnMYASADKAsyES5hdXRoLnYxLlVzZXJJbmZvIisKGFJlc2V0VXNlclBhc3N3b3JkUmVxdWVzdBIPCgd1c2VyX2lkGAEgASgJIjcKGVJlc2V0VXNlclBhc3N3b3JkUmVzcG9uc2USGgoSdGVtcG9yYXJ5X3Bhc3N3b3JkGAEgASgJIigKFURlYWN0aXZhdGVVc2VyUmVxdWVzdBIPCgd1c2VyX2lkGAEgASgJIhgKFkRlYWN0aXZhdGVVc2VyUmVzcG9uc2UqdgoVQXV0aGVudGljYXRlRXJyb3JDb2RlEicKI0FVVEhFTlRJQ0FURV9FUlJPUl9DT0RFX1VOU1BFQ0lGSUVEEAASNAowQVVUSEVOVElDQVRFX0VSUk9SX0NPREVfSU5WQUxJRF9VU0VSX09SX1BBU1NXT1JEEAEqvAEKF1VwZGF0ZVBhc3N3b3JkRXJyb3JDb2RlEioKJlVQREFURV9QQVNTV09SRF9FUlJPUl9DT0RFX1VOU1BFQ0lGSUVEEAASMwovVVBEQVRFX1BBU1NXT1JEX0VSUk9SX0NPREVfSU5WQUxJRF9PTERfUEFTU1dPUkQQARJACjxVUERBVEVfUEFTU1dPUkRfRVJST1JfQ09ERV9ORVdfUEFTU1dPUkRfU0FNRV9BU19PTERfUEFTU1dPUkQQAirZAQoXVXNlck1hbmFnZW1lbnRFcnJvckNvZGUSKgomVVNFUl9NQU5BR0VNRU5UX0VSUk9SX0NPREVfVU5TUEVDSUZJRUQQABIrCidVU0VSX01BTkFHRU1FTlRfRVJST1JfQ09ERV9VTkFVVEhPUklaRUQQARIuCipVU0VSX01BTkFHRU1FTlRfRVJST1JfQ09ERV9VU0VSTkFNRV9FWElTVFMQAhI1CjFVU0VSX01BTkFHRU1FTlRfRVJST1JfQ09ERV9DQU5OT1RfREVBQ1RJVkFURV9TRUxGEAMykwUKC0F1dGhTZXJ2aWNlEksKDEF1dGhlbnRpY2F0ZRIcLmF1dGgudjEuQXV0aGVudGljYXRlUmVxdWVzdBodLmF1dGgudjEuQXV0aGVudGljYXRlUmVzcG9uc2USUQoOVXBkYXRlUGFzc3dvcmQSHi5hdXRoLnYxLlVwZGF0ZVBhc3N3b3JkUmVxdWVzdBofLmF1dGgudjEuVXBkYXRlUGFzc3dvcmRSZXNwb25zZRJRCg5VcGRhdGVVc2VybmFtZRIeLmF1dGgudjEuVXBkYXRlVXNlcm5hbWVSZXF1ZXN0Gh8uYXV0aC52MS5VcGRhdGVVc2VybmFtZVJlc3BvbnNlElcKEEdldFVzZXJBdWRpdEluZm8SIC5hdXRoLnYxLkdldFVzZXJBdWRpdEluZm9SZXF1ZXN0GiEuYXV0aC52MS5HZXRVc2VyQXVkaXRJbmZvUmVzcG9uc2USRQoKQ3JlYXRlVXNlchIaLmF1dGgudjEuQ3JlYXRlVXNlclJlcXVlc3QaGy5hdXRoLnYxLkNyZWF0ZVVzZXJSZXNwb25zZRJCCglMaXN0VXNlcnMSGS5hdXRoLnYxLkxpc3RVc2Vyc1JlcXVlc3QaGi5hdXRoLnYxLkxpc3RVc2Vyc1Jlc3BvbnNlEloKEVJlc2V0VXNlclBhc3N3b3JkEiEuYXV0aC52MS5SZXNldFVzZXJQYXNzd29yZFJlcXVlc3QaIi5hdXRoLnYxLlJlc2V0VXNlclBhc3N3b3JkUmVzcG9uc2USUQoORGVhY3RpdmF0ZVVzZXISHi5hdXRoLnYxLkRlYWN0aXZhdGVVc2VyUmVxdWVzdBofLmF1dGgudjEuRGVhY3RpdmF0ZVVzZXJSZXNwb25zZUKdAQoLY29tLmF1dGgudjFCCUF1dGhQcm90b1ABWkZnaXRodWIuY29tL2J0Yy1taW5pbmcvcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2F1dGgvdjE7YXV0aHYxogIDQVhYqgIHQXV0aC5WMcoCB0F1dGhcVjHiAhNBdXRoXFYxXEdQQk1ldGFkYXRh6gIIQXV0aDo6VjFiBnByb3RvMw",
     [file_google_protobuf_timestamp],
   );
 
@@ -75,6 +75,14 @@ export type AuthenticateResponse = Message<"auth.v1.AuthenticateResponse"> & {
    * @generated from field: int64 token_expiry = 2;
    */
   tokenExpiry: bigint;
+
+  /**
+   * Indicates whether the user must change their password
+   * If true, the user should be redirected to update their password
+   *
+   * @generated from field: bool requires_password_change = 3;
+   */
+  requiresPasswordChange: boolean;
 };
 
 /**
@@ -214,6 +222,226 @@ export const GetUserAuditInfoResponseSchema: GenMessage<GetUserAuditInfoResponse
   messageDesc(file_auth_v1_auth, 8);
 
 /**
+ * @generated from message auth.v1.CreateUserRequest
+ */
+export type CreateUserRequest = Message<"auth.v1.CreateUserRequest"> & {
+  /**
+   * Username for the new user account
+   * Must be unique within the system
+   *
+   * @generated from field: string username = 1;
+   */
+  username: string;
+};
+
+/**
+ * Describes the message auth.v1.CreateUserRequest.
+ * Use `create(CreateUserRequestSchema)` to create a new message.
+ */
+export const CreateUserRequestSchema: GenMessage<CreateUserRequest> =
+  /*@__PURE__*/
+  messageDesc(file_auth_v1_auth, 9);
+
+/**
+ * @generated from message auth.v1.CreateUserResponse
+ */
+export type CreateUserResponse = Message<"auth.v1.CreateUserResponse"> & {
+  /**
+   * Unique identifier for the created user
+   *
+   * @generated from field: string user_id = 1;
+   */
+  userId: string;
+
+  /**
+   * Username of the created user
+   *
+   * @generated from field: string username = 2;
+   */
+  username: string;
+
+  /**
+   * Temporary password generated by the system
+   * This is only returned once and will not be accessible again
+   *
+   * @generated from field: string temporary_password = 3;
+   */
+  temporaryPassword: string;
+};
+
+/**
+ * Describes the message auth.v1.CreateUserResponse.
+ * Use `create(CreateUserResponseSchema)` to create a new message.
+ */
+export const CreateUserResponseSchema: GenMessage<CreateUserResponse> =
+  /*@__PURE__*/
+  messageDesc(file_auth_v1_auth, 10);
+
+/**
+ * @generated from message auth.v1.ListUsersRequest
+ */
+export type ListUsersRequest = Message<"auth.v1.ListUsersRequest"> & {};
+
+/**
+ * Describes the message auth.v1.ListUsersRequest.
+ * Use `create(ListUsersRequestSchema)` to create a new message.
+ */
+export const ListUsersRequestSchema: GenMessage<ListUsersRequest> =
+  /*@__PURE__*/
+  messageDesc(file_auth_v1_auth, 11);
+
+/**
+ * @generated from message auth.v1.UserInfo
+ */
+export type UserInfo = Message<"auth.v1.UserInfo"> & {
+  /**
+   * Unique identifier for the user
+   *
+   * @generated from field: string user_id = 1;
+   */
+  userId: string;
+
+  /**
+   * Username of the user
+   *
+   * @generated from field: string username = 2;
+   */
+  username: string;
+
+  /**
+   * Timestamp when the user's password was last updated
+   *
+   * @generated from field: google.protobuf.Timestamp password_updated_at = 3;
+   */
+  passwordUpdatedAt?: Timestamp;
+
+  /**
+   * Timestamp when the user last logged in
+   * May be null if the user has never logged in
+   *
+   * @generated from field: google.protobuf.Timestamp last_login_at = 4;
+   */
+  lastLoginAt?: Timestamp;
+
+  /**
+   * Role name
+   *
+   * @generated from field: string role = 5;
+   */
+  role: string;
+
+  /**
+   * Indicates whether the user must change their password
+   *
+   * @generated from field: bool requires_password_change = 6;
+   */
+  requiresPasswordChange: boolean;
+};
+
+/**
+ * Describes the message auth.v1.UserInfo.
+ * Use `create(UserInfoSchema)` to create a new message.
+ */
+export const UserInfoSchema: GenMessage<UserInfo> =
+  /*@__PURE__*/
+  messageDesc(file_auth_v1_auth, 12);
+
+/**
+ * @generated from message auth.v1.ListUsersResponse
+ */
+export type ListUsersResponse = Message<"auth.v1.ListUsersResponse"> & {
+  /**
+   * @generated from field: repeated auth.v1.UserInfo users = 1;
+   */
+  users: UserInfo[];
+};
+
+/**
+ * Describes the message auth.v1.ListUsersResponse.
+ * Use `create(ListUsersResponseSchema)` to create a new message.
+ */
+export const ListUsersResponseSchema: GenMessage<ListUsersResponse> =
+  /*@__PURE__*/
+  messageDesc(file_auth_v1_auth, 13);
+
+/**
+ * @generated from message auth.v1.ResetUserPasswordRequest
+ */
+export type ResetUserPasswordRequest =
+  Message<"auth.v1.ResetUserPasswordRequest"> & {
+    /**
+     * Unique identifier of the user whose password should be reset
+     *
+     * @generated from field: string user_id = 1;
+     */
+    userId: string;
+  };
+
+/**
+ * Describes the message auth.v1.ResetUserPasswordRequest.
+ * Use `create(ResetUserPasswordRequestSchema)` to create a new message.
+ */
+export const ResetUserPasswordRequestSchema: GenMessage<ResetUserPasswordRequest> =
+  /*@__PURE__*/
+  messageDesc(file_auth_v1_auth, 14);
+
+/**
+ * @generated from message auth.v1.ResetUserPasswordResponse
+ */
+export type ResetUserPasswordResponse =
+  Message<"auth.v1.ResetUserPasswordResponse"> & {
+    /**
+     * New temporary password generated by the system
+     * This is only returned once and will not be accessible again
+     *
+     * @generated from field: string temporary_password = 1;
+     */
+    temporaryPassword: string;
+  };
+
+/**
+ * Describes the message auth.v1.ResetUserPasswordResponse.
+ * Use `create(ResetUserPasswordResponseSchema)` to create a new message.
+ */
+export const ResetUserPasswordResponseSchema: GenMessage<ResetUserPasswordResponse> =
+  /*@__PURE__*/
+  messageDesc(file_auth_v1_auth, 15);
+
+/**
+ * @generated from message auth.v1.DeactivateUserRequest
+ */
+export type DeactivateUserRequest = Message<"auth.v1.DeactivateUserRequest"> & {
+  /**
+   * Unique identifier of the user to deactivate
+   *
+   * @generated from field: string user_id = 1;
+   */
+  userId: string;
+};
+
+/**
+ * Describes the message auth.v1.DeactivateUserRequest.
+ * Use `create(DeactivateUserRequestSchema)` to create a new message.
+ */
+export const DeactivateUserRequestSchema: GenMessage<DeactivateUserRequest> =
+  /*@__PURE__*/
+  messageDesc(file_auth_v1_auth, 16);
+
+/**
+ * @generated from message auth.v1.DeactivateUserResponse
+ */
+export type DeactivateUserResponse =
+  Message<"auth.v1.DeactivateUserResponse"> & {};
+
+/**
+ * Describes the message auth.v1.DeactivateUserResponse.
+ * Use `create(DeactivateUserResponseSchema)` to create a new message.
+ */
+export const DeactivateUserResponseSchema: GenMessage<DeactivateUserResponse> =
+  /*@__PURE__*/
+  messageDesc(file_auth_v1_auth, 17);
+
+/**
  * @generated from enum auth.v1.AuthenticateErrorCode
  */
 export enum AuthenticateErrorCode {
@@ -263,6 +491,38 @@ export const UpdatePasswordErrorCodeSchema: GenEnum<UpdatePasswordErrorCode> =
   enumDesc(file_auth_v1_auth, 1);
 
 /**
+ * @generated from enum auth.v1.UserManagementErrorCode
+ */
+export enum UserManagementErrorCode {
+  /**
+   * @generated from enum value: USER_MANAGEMENT_ERROR_CODE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: USER_MANAGEMENT_ERROR_CODE_UNAUTHORIZED = 1;
+   */
+  UNAUTHORIZED = 1,
+
+  /**
+   * @generated from enum value: USER_MANAGEMENT_ERROR_CODE_USERNAME_EXISTS = 2;
+   */
+  USERNAME_EXISTS = 2,
+
+  /**
+   * @generated from enum value: USER_MANAGEMENT_ERROR_CODE_CANNOT_DEACTIVATE_SELF = 3;
+   */
+  CANNOT_DEACTIVATE_SELF = 3,
+}
+
+/**
+ * Describes the enum auth.v1.UserManagementErrorCode.
+ */
+export const UserManagementErrorCodeSchema: GenEnum<UserManagementErrorCode> =
+  /*@__PURE__*/
+  enumDesc(file_auth_v1_auth, 2);
+
+/**
  * AuthService provides authentication and user credential management functionality
  *
  * @generated from service auth.v1.AuthService
@@ -306,5 +566,48 @@ export const AuthService: GenService<{
     methodKind: "unary";
     input: typeof GetUserAuditInfoRequestSchema;
     output: typeof GetUserAuditInfoResponseSchema;
+  };
+  /**
+   * CreateUser creates a new user account with a system-generated temporary password (Super Admin only)
+   * The temporary password is only returned once and must be shared with the new user
+   *
+   * @generated from rpc auth.v1.AuthService.CreateUser
+   */
+  createUser: {
+    methodKind: "unary";
+    input: typeof CreateUserRequestSchema;
+    output: typeof CreateUserResponseSchema;
+  };
+  /**
+   * ListUsers returns all active users in the organization (Super Admin only)
+   *
+   * @generated from rpc auth.v1.AuthService.ListUsers
+   */
+  listUsers: {
+    methodKind: "unary";
+    input: typeof ListUsersRequestSchema;
+    output: typeof ListUsersResponseSchema;
+  };
+  /**
+   * ResetUserPassword generates a new temporary password for an existing user (Super Admin only)
+   * The temporary password is only returned once and must be shared with the user
+   *
+   * @generated from rpc auth.v1.AuthService.ResetUserPassword
+   */
+  resetUserPassword: {
+    methodKind: "unary";
+    input: typeof ResetUserPasswordRequestSchema;
+    output: typeof ResetUserPasswordResponseSchema;
+  };
+  /**
+   * DeactivateUser performs a soft delete on a user account (Super Admin only)
+   * Users cannot deactivate themselves
+   *
+   * @generated from rpc auth.v1.AuthService.DeactivateUser
+   */
+  deactivateUser: {
+    methodKind: "unary";
+    input: typeof DeactivateUserRequestSchema;
+    output: typeof DeactivateUserResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_auth_v1_auth, 0);

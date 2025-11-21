@@ -376,14 +376,16 @@ type Role struct {
 }
 
 type User struct {
-	ID                int64
-	UserID            string
-	Username          string
-	PasswordHash      string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	DeletedAt         sql.NullTime
-	PasswordUpdatedAt time.Time
+	ID                     int64
+	UserID                 string
+	Username               string
+	PasswordHash           string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	DeletedAt              sql.NullTime
+	PasswordUpdatedAt      time.Time
+	LastLoginAt            sql.NullTime
+	RequiresPasswordChange bool
 }
 
 type UserOrganization struct {
