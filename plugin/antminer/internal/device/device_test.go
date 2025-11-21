@@ -3,7 +3,6 @@ package device
 import (
 	"math"
 	"testing"
-	"time"
 
 	"github.com/btc-mining/proto-fleet/plugin/antminer/internal/types"
 	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer"
@@ -416,8 +415,8 @@ func TestDevice_StatusNoCache(t *testing.T) {
 		testDeviceInfo(),
 		testCredentials(),
 		mockClientFactory(mockClient),
-		WithStatusTTL(0), // Disable caching for this test
 	)
+	device.statusTTL = 0 // Disable caching for this test
 	require.NoError(t, err)
 	require.NotNil(t, device)
 	defer cleanupDevice(t, device, mockClient)
@@ -653,76 +652,4 @@ func TestDevice_BlinkLED(t *testing.T) {
 
 	err := device.BlinkLED(t.Context())
 	require.NoError(t, err)
-}
-
-func TestDevice_WithStatusTTL(t *testing.T) {
-	t.Run("valid_ttl", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
-
-		mockClient := mocks.NewMockAntminerClient(ctrl)
-		setupMockForDeviceCreation(mockClient)
-
-		customTTL := 10 * time.Second
-		device, err := New(
-			testDeviceID,
-			testDeviceInfo(),
-			testCredentials(),
-			mockClientFactory(mockClient),
-			WithStatusTTL(customTTL),
-		)
-		require.NoError(t, err)
-		require.NotNil(t, device)
-		assert.Equal(t, customTTL, device.statusTTL)
-
-		// Clean up
-		mockClient.EXPECT().Close()
-		err = device.Close(t.Context())
-		require.NoError(t, err)
-	})
-
-	t.Run("negative_ttl_error", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
-
-		mockClient := mocks.NewMockAntminerClient(ctrl)
-		// Don't set up mock expectations since device creation should fail early
-
-		// Test negative TTL should return error
-		device, err := New(
-			testDeviceID,
-			testDeviceInfo(),
-			testCredentials(),
-			mockClientFactory(mockClient),
-			WithStatusTTL(-1*time.Second),
-		)
-		require.Error(t, err)
-		require.Nil(t, device)
-		assert.Contains(t, err.Error(), "status TTL must be positive")
-	})
-
-	t.Run("zero_ttl_valid", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
-
-		mockClient := mocks.NewMockAntminerClient(ctrl)
-		setupMockForDeviceCreation(mockClient)
-
-		// Test zero TTL (disables caching) should be valid
-		device, err := New(
-			testDeviceID,
-			testDeviceInfo(),
-			testCredentials(),
-			mockClientFactory(mockClient),
-			WithStatusTTL(0),
-		)
-		require.NoError(t, err)
-		require.NotNil(t, device)
-		assert.Equal(t, time.Duration(0), device.statusTTL)
-
-		// Clean up
-		mockClient.EXPECT().Close()
-		err = device.Close(t.Context())
-		require.NoError(t, err)
-	})
 }

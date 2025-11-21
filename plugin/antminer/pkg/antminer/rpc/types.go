@@ -1,7 +1,5 @@
 package rpc
 
-import "github.com/btc-mining/proto-fleet/server/sdk/v1"
-
 type RPCRequest struct {
 	Command   string `json:"command"`
 	Parameter string `json:"parameter,omitempty"`
@@ -122,7 +120,8 @@ type DevInfo struct {
 	ID                    int     `json:"ID"`
 	Enabled               string  `json:"Enabled"`
 	Status                string  `json:"Status"`
-	Temperature           float64 `json:"Tenperature"` // Note: Typo is preserved for compatibility
+	Temperature           float64 `json:"Temperature"` // Correct spelling
+	Tenperature           float64 `json:"Tenperature"` // TYPO REQUIRED: Antminer firmware actually uses this misspelling
 	MHSAv                 float64 `json:"MHS av"`
 	MHS5s                 float64 `json:"MHS 5s"`
 	Accepted              int64   `json:"Accepted"`
@@ -142,6 +141,15 @@ type DevInfo struct {
 	DeviceElapsed         int64   `json:"Device Elapsed"`
 }
 
+// GetTemperature returns the temperature value of the device.
+// Checks both correct spelling (Temperature) and the typo (Tenperature) used by Antminer firmware.
+func (d *DevInfo) GetTemperature() float64 {
+	if d.Temperature != 0 {
+		return d.Temperature
+	}
+	return d.Tenperature
+}
+
 type ConfigResponse struct {
 	Status []StatusInfo `json:"STATUS"`
 	Config []ConfigInfo `json:"CONFIG"`
@@ -156,11 +164,4 @@ type ConfigInfo struct {
 	LogInterval int    `json:"Log Interval"`
 	DeviceCode  string `json:"Device Code"`
 	OS          string `json:"OS"`
-}
-
-type AntminerConnectionInfo struct {
-	Host        string
-	Port        string
-	Protocol    string
-	Credentials sdk.UsernamePassword
 }

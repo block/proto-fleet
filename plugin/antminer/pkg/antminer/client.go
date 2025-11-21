@@ -22,7 +22,9 @@ import (
 
 const (
 	// GHSToHS converts GH/s to H/s
-	GHSToHS        = 1e9
+	GHSToHS = 1e9
+	// THSToGHS converts TH/s to GH/s
+	THSToGHS       = 1000
 	defaultTimeOut = 30 * time.Second
 )
 
@@ -94,32 +96,8 @@ type Pool struct {
 	WorkerName string
 }
 
-// ClientOption defines a function type for configuring the Client
-type ClientOption func(*Client)
-
-// WithWebClient sets a custom web API client
-func WithWebClient(webClient web.WebAPIClient) ClientOption {
-	return func(c *Client) {
-		c.webClient = webClient
-	}
-}
-
-// WithRPCClient sets a custom RPC client
-func WithRPCClient(rpcClient rpc.RPCClient) ClientOption {
-	return func(c *Client) {
-		c.rpcClient = rpcClient
-	}
-}
-
-// WithHTTPClient sets a custom HTTP client
-func WithHTTPClient(httpClient *http.Client) ClientOption {
-	return func(c *Client) {
-		c.httpClient = httpClient
-	}
-}
-
-// NewClient creates a new Antminer client with optional configuration
-func NewClient(host string, rpcPort, webPort int32, urlScheme string, opts ...ClientOption) (*Client, error) {
+// NewClient creates a new Antminer client
+func NewClient(host string, rpcPort, webPort int32, urlScheme string) (*Client, error) {
 	dialTimeout := DefaultDialTimeout
 	readTimeout := DefaultReadTimeout
 
@@ -151,11 +129,6 @@ func NewClient(host string, rpcPort, webPort int32, urlScheme string, opts ...Cl
 		rpcClient: rpc.NewService(rpc.WithDialTimeout(dialTimeout), rpc.WithReadTimeout(readTimeout)),
 	}
 
-	// Apply options
-	for _, opt := range opts {
-		opt(client)
-	}
-
 	return client, nil
 }
 
@@ -170,6 +143,15 @@ func (c *Client) getWebConnectionInfo() *web.AntminerConnectionInfo {
 		c.connectInfo.ConnectionInfo,
 		creds,
 	)
+}
+
+// getRPCConnectionInfo creates connection info for RPC calls (uses TCP protocol)
+func (c *Client) getRPCConnectionInfo() (*networking.ConnectionInfo, error) {
+	connInfo, err := networking.NewConnectionInfo(c.host, fmt.Sprintf("%d", c.rpcPort), networking.ProtocolTCP)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create RPC connection info: %w", err)
+	}
+	return connInfo, nil
 }
 
 // Close closes the client and cleans up resources
@@ -274,8 +256,9 @@ func (c *Client) GetTelemetry(ctx context.Context) (*Telemetry, error) {
 		tempSum := 0.0
 		tempCount := 0
 		for _, dev := range devsResp.Devs {
-			if dev.Temperature > 0 {
-				tempSum += dev.Temperature
+			temp := dev.GetTemperature()
+			if temp > 0 {
+				tempSum += temp
 				tempCount++
 			}
 		}
@@ -291,8 +274,8 @@ func (c *Client) GetTelemetry(ctx context.Context) (*Telemetry, error) {
 			// Use web API data if available
 			webSum := webSummary.Summary[0]
 			if webSum.Rate5s > 0 {
-				// Web API typically provides TH/s, convert to H/s
-				summary.GHS5s = webSum.Rate5s * 1000 // Convert TH/s to GH/s
+				// Web API typically provides TH/s, convert to GH/s
+				summary.GHS5s = webSum.Rate5s * THSToGHS
 			}
 		}
 	}
@@ -434,20 +417,44 @@ func (c *Client) SetCredentials(creds sdk.UsernamePassword) error {
 
 // GetVersion gets version information via RPC
 func (c *Client) GetVersion(ctx context.Context) (*rpc.VersionResponse, error) {
-	return c.rpcClient.GetVersion(ctx, &c.getWebConnectionInfo().ConnectionInfo)
+	connInfo, err := c.getRPCConnectionInfo()
+	if err != nil {
+		return nil, err
+	}
+	return c.rpcClient.GetVersion(ctx, connInfo)
 }
 
 // GetSummary gets mining summary information via RPC
 func (c *Client) GetSummary(ctx context.Context) (*rpc.SummaryResponse, error) {
-	return c.rpcClient.GetSummary(ctx, &c.getWebConnectionInfo().ConnectionInfo)
+	connInfo, err := c.getRPCConnectionInfo()
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.rpcClient.GetSummary(ctx, connInfo)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 // GetDevs gets device (ASIC) information via RPC
 func (c *Client) GetDevs(ctx context.Context) (*rpc.DevsResponse, error) {
-	return c.rpcClient.GetDevs(ctx, &c.getWebConnectionInfo().ConnectionInfo)
+	connInfo, err := c.getRPCConnectionInfo()
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.rpcClient.GetDevs(ctx, connInfo)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 // GetPools gets pool information via RPC
 func (c *Client) GetPools(ctx context.Context) (*rpc.PoolsResponse, error) {
-	return c.rpcClient.GetPools(ctx, &c.getWebConnectionInfo().ConnectionInfo)
+	connInfo, err := c.getRPCConnectionInfo()
+	if err != nil {
+		return nil, err
+	}
+	return c.rpcClient.GetPools(ctx, connInfo)
 }

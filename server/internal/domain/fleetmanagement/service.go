@@ -9,7 +9,6 @@ import (
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
-	minerInterfaces "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	telemetryModels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
@@ -28,6 +27,19 @@ const (
 	defaultPageSize = 50
 	// maxPageSize is the maximum number of items that can be returned per page
 	maxPageSize = 1000
+	// maxPageSizeForTracking is the maximum page size for internal tracking operations
+	maxPageSizeForTracking = 10000
+
+	// defaultHeartbeatIntervalSeconds is the default heartbeat interval in seconds
+	defaultHeartbeatIntervalSeconds = 30
+
+	// Channel buffer sizes
+	measurementChannelBuffer = 100
+	listUpdatesChannelBuffer = 10
+
+	// Standard HTTP ports
+	defaultHTTPPort  = "80"
+	defaultHTTPSPort = "443"
 )
 
 // constructWebViewURL builds a web view URL
@@ -263,19 +275,9 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 				snapshot.Status = status
 			}
 
-			// Build miner info for URL
-			minerType, err := mm.TypeFromString(row.Type)
-			if err == nil {
-				minerInfo, err := s.minerService.BuildMinerInfo(ctx, row.DeviceIdentifier, orgID, row.IpAddress, row.Port, row.UrlScheme, minerType, snapshot.SerialNumber)
-				if err == nil && minerInfo != nil {
-					snapshot.IpAddress = minerInfo.GetConnectionInfo().IPAddress.String()
-					snapshot.Url = minerInfo.GetWebViewURL().String()
-				} else {
-					// Fallback: Build URL from database fields when BuildMinerInfo fails
-					snapshot.IpAddress = row.IpAddress
-					snapshot.Url = constructWebViewURL(row.UrlScheme, row.IpAddress)
-				}
-			}
+			// Build URL from database fields
+			snapshot.IpAddress = row.IpAddress
+			snapshot.Url = constructWebViewURL(row.UrlScheme, row.IpAddress)
 
 			// Set device status
 			if row.DeviceStatus.Valid {
@@ -288,7 +290,7 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 
 			// Build URL
 			url := row.UrlScheme + "://" + row.IpAddress
-			if row.Port != "" && row.Port != "80" && row.Port != "443" {
+			if row.Port != "" && row.Port != defaultHTTPPort && row.Port != defaultHTTPSPort {
 				url += ":" + row.Port
 			}
 			snapshot.Url = url
@@ -308,7 +310,7 @@ func (s *Service) StreamMinerUpdates(ctx context.Context, req *pb.StreamMinerUpd
 		return nil, err
 	}
 
-	responseChan := make(chan *pb.StreamMinerUpdatesResponse, 100)
+	responseChan := make(chan *pb.StreamMinerUpdatesResponse, measurementChannelBuffer)
 
 	// Start measurement stream
 	measurementChan, err := s.telemetry.StreamMeasurements(ctx, req.DeviceIdentifiers, req.MeasurementTypes)
@@ -533,12 +535,12 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 		return nil, err
 	}
 
-	responseChan := make(chan *pb.StreamMinerListUpdatesResponse, 10)
+	responseChan := make(chan *pb.StreamMinerListUpdatesResponse, listUpdatesChannelBuffer)
 
 	// Set default heartbeat interval if not specified
 	heartbeatInterval := req.HeartbeatIntervalSeconds
 	if heartbeatInterval <= 0 {
-		heartbeatInterval = 30 // default 30 seconds
+		heartbeatInterval = defaultHeartbeatIntervalSeconds
 	}
 
 	go func() {
@@ -554,8 +556,7 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 		buildInitialTrackingState := func() error {
 			// Get ALL miners matching the filter (no pagination)
 			// We use a large page size to get all miners in one query
-			const maxPageSize int32 = 10000
-			snapshot, err := s.buildSnapshot(ctx, claims.OrgID, maxPageSize, "", req.Filter, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
+			snapshot, err := s.buildSnapshot(ctx, claims.OrgID, maxPageSizeForTracking, "", req.Filter, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
 			if err != nil {
 				return err
 			}
@@ -755,11 +756,7 @@ func (s *Service) deviceMatchesFilter(device *pairingpb.Device, filter *interfac
 
 	// Check miner type filter
 	if len(filter.MinerType) > 0 {
-		// Convert device type string to mm.Type
-		deviceType, err := mm.TypeFromString(device.Type)
-		if err != nil {
-			deviceType = mm.TypeUnknown
-		}
+		deviceType := mm.ParseDeviceTypeOrUnknown(device.Type, device.Model)
 
 		typeMatches := false
 		for _, allowedType := range filter.MinerType {
@@ -801,21 +798,6 @@ func (s *Service) buildMinerSnapshot(
 		status = nil
 	}
 
-	// Get org ID from claims
-	claims, _ := tokenDomain.GetClientAuthJWTClaims(ctx)
-	orgID := claims.OrgID
-
-	// Get miner info
-	var minerInfo minerInterfaces.MinerInfo
-	minerType, err := mm.TypeFromString(device.Type)
-	if err == nil {
-		minerInfo, err = s.minerService.BuildMinerInfo(ctx, device.DeviceIdentifier, orgID, device.IpAddress, device.Port, device.UrlScheme, minerType, device.SerialNumber)
-		if err != nil {
-			// Continue without miner info
-			minerInfo = nil
-		}
-	}
-
 	// Get device status
 	deviceStatuses, err := s.deviceStore.GetDeviceStatusForDeviceIdentifiers(ctx, []mm.DeviceIdentifier{mm.DeviceIdentifier(device.DeviceIdentifier)})
 	if err != nil {
@@ -830,21 +812,13 @@ func (s *Service) buildMinerSnapshot(
 	deviceStatus := convertMinerStatusToDeviceStatus(minerStatus)
 
 	snapshot := &pb.MinerStateSnapshot{
-		Name:         device.Manufacturer + " " + device.Model,
-		MacAddress:   device.MacAddress,
-		SerialNumber: device.SerialNumber,
-		DeviceStatus: deviceStatus,
-	}
-
-	if minerInfo != nil {
-		snapshot.DeviceIdentifier = minerInfo.GetID().String()
-		snapshot.IpAddress = minerInfo.GetConnectionInfo().IPAddress.String()
-		snapshot.Url = minerInfo.GetWebViewURL().String()
-	} else {
-		// Fallback: construct URL from database fields when minerInfo is unavailable
-		snapshot.DeviceIdentifier = device.DeviceIdentifier
-		snapshot.IpAddress = device.IpAddress
-		snapshot.Url = constructWebViewURL(device.UrlScheme, device.IpAddress)
+		Name:             device.Manufacturer + " " + device.Model,
+		MacAddress:       device.MacAddress,
+		SerialNumber:     device.SerialNumber,
+		DeviceStatus:     deviceStatus,
+		DeviceIdentifier: device.DeviceIdentifier,
+		IpAddress:        device.IpAddress,
+		Url:              constructWebViewURL(device.UrlScheme, device.IpAddress),
 	}
 
 	if telemetry != nil {

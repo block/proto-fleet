@@ -237,7 +237,7 @@ func (s *MockRPCServer) setupMockResponses() {
 			"ID": 0,
 			"Enabled": "Y",
 			"Status": "Alive",
-			"Tenperature": 65.0,
+			"Temperature": 65.0,
 			"MHS av": 203676.57,
 			"MHS 5s": 202266.83,
 			"Accepted": 11188,

@@ -2,6 +2,7 @@ package networking
 
 import (
 	"bytes"
+	"math"
 	"net"
 	"net/url"
 	"os/exec"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 )
 
 const externalIPForGatewayDetection = "8.8.8.8"
@@ -177,17 +179,19 @@ type ConnectionInfo struct {
 }
 
 func NewConnectionInfo(ipAddress string, port string, protocol Protocol) (*ConnectionInfo, error) {
-	portInt, err := strconv.Atoi(port)
+	portInt32, err := sdk.ParsePort(port)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to convert port to int: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to parse port: %v", err)
 	}
-	if portInt < 0 || portInt > 65535 {
-		return nil, fleeterror.NewInternalErrorf("port out of range: %d", portInt)
+
+	// ParsePort already validates range (0-65535), so this conversion is safe
+	if portInt32 < 0 || portInt32 > math.MaxUint16 {
+		return nil, fleeterror.NewInternalErrorf("port out of uint16 range: %d", portInt32)
 	}
 
 	return &ConnectionInfo{
 		IPAddress: IPAddress(ipAddress),
-		Port:      Port(portInt),
+		Port:      Port(uint16(portInt32)),
 		Protocol:  protocol,
 	}, nil
 }

@@ -52,8 +52,13 @@ type WebAPIClient interface {
 
 var _ WebAPIClient = &Service{}
 
-// DefaultPort is the default port for the Antminer HTTP API
-const DefaultPort = "80"
+const (
+	// DefaultPort is the default port for the Antminer HTTP API
+	DefaultPort = "80"
+
+	// cnonceBufferSize is the size of the buffer for generating client nonce in digest auth
+	cnonceBufferSize = 16
+)
 
 type ServiceOptions func(*Service)
 
@@ -87,11 +92,12 @@ type SystemInfo struct {
 }
 
 type MinerSummary struct {
-	Status struct {
-		Status     string `json:"STATUS"`
-		When       int64  `json:"when"`
-		Msg        string `json:"Msg"`
-		APIVersion string `json:"api_version"`
+	Status []struct {
+		Status      string `json:"STATUS"`
+		When        int64  `json:"When"`
+		Code        int    `json:"Code"`
+		Msg         string `json:"Msg"`
+		Description string `json:"Description"`
 	} `json:"STATUS"`
 	Info struct {
 		MinerVersion string `json:"miner_version"`
@@ -451,7 +457,7 @@ func buildAuthorizationHeader(auth *DigestAuth) string {
 }
 
 func generateCNonce() (string, error) {
-	b := make([]byte, 16)
+	b := make([]byte, cnonceBufferSize)
 	n, err := rand.Read(b)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate random bytes: %v", err)

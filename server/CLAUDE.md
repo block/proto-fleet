@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Fleet is a Go-based service for managing a fleet of Bitcoin mining devices. The service provides gRPC/HTTP API endpoints for device discovery, pairing, telemetry, command execution, and fleet management. It uses MySQL for persistence, InfluxDB for telemetry data, and supports both Proto (custom firmware) and Antminer devices through a plugin-based architecture.
+Fleet is a Go-based service for managing a fleet of Bitcoin mining devices. The service provides gRPC/HTTP API endpoints for device discovery, pairing, telemetry, command execution, and fleet management. It uses MySQL for persistence, InfluxDB for telemetry data, and supports multiple miner types (Proto, Antminer, etc.) through a plugin-based architecture.
 
 ## Development Commands
 
@@ -112,7 +112,7 @@ The codebase follows a domain-driven design with clear separation of concerns:
 - **`migrations/`** - Database schema migrations (sequential numbered files)
 - **`sqlc/queries/`** - SQL query definitions for sqlc code generation
 - **`sdk/v1/`** - SDK for external integrations
-- **`fake-antminer/`** - Development simulator for Antminer devices
+- **`fake-antminer/`** - Development simulator for testing Antminer plugin integration
 
 ### Core Domain Concepts
 
@@ -173,9 +173,9 @@ Configuration is in `cmd/fleetd/config.go` with options for plugin directories, 
 The service includes Docker Compose configurations for development with simulated miners:
 
 - **mms**: Proto firmware simulator (5 replicas by default)
-- **fake-antminer**: Antminer simulator (5 replicas by default)
+- **fake-antminer**: Antminer simulator for testing the Antminer plugin (5 replicas by default)
 - **proto-sim**: Single Proto simulator on fixed ports
-- **antminer-sim**: Single Antminer simulator on fixed ports
+- **antminer-sim**: Single Antminer simulator on fixed ports for plugin testing
 
 Replicas can be scaled with: `docker compose up --scale mms=10`
 

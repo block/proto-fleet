@@ -5,13 +5,36 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
+	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/networking"
 	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/web"
 	"github.com/btc-mining/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// newTestAntminerConnectionInfo creates an AntminerConnectionInfo from a URL for testing
+func newTestAntminerConnectionInfo(t *testing.T, urlStr string, creds sdk.UsernamePassword) *web.AntminerConnectionInfo {
+	t.Helper()
+	parsedURL, err := url.Parse(urlStr)
+	require.NoError(t, err)
+
+	host := parsedURL.Hostname()
+	port := parsedURL.Port()
+	if port == "" {
+		port = "80"
+	}
+
+	protocol, err := networking.ProtocolFromString(parsedURL.Scheme)
+	require.NoError(t, err)
+
+	connInfo, err := networking.NewConnectionInfo(host, port, protocol)
+	require.NoError(t, err)
+
+	return web.NewAntminerConnectionInfo(*connInfo, creds)
+}
 
 func TestGetSystemInfo(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -49,8 +72,7 @@ func TestGetSystemInfo(t *testing.T) {
 	defer server.Close()
 
 	service := web.NewService()
-	connInfo, err := web.NewAntminerConnectionInfoFromURL(server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
-	require.NoError(t, err)
+	connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
 
 	systemInfo, err := service.GetSystemInfo(t.Context(), connInfo)
 
@@ -68,8 +90,8 @@ func TestGetMinerSummary(t *testing.T) {
 
 		w.WriteHeader(http.StatusOK)
 		_, err := w.Write([]byte(`{
-			"STATUS": {"STATUS": "S", "when": 1750192565, "Msg": "summary", "api_version": "1.0.0"}, 
-			"INFO": {"miner_version": "uart_trans.1.3", "CompileTime": "Thu Jul 11 16:38:25 CST 2024", "type": "Antminer S21"}, 
+			"STATUS": [{"STATUS": "S", "When": 1750192565, "Msg": "summary", "Code": 0, "Description": ""}],
+			"INFO": {"miner_version": "uart_trans.1.3", "CompileTime": "Thu Jul 11 16:38:25 CST 2024", "type": "Antminer S21"},
 			"SUMMARY": [{
 				"elapsed": 3817, 
 				"rate_5s": 206238.69, 
@@ -94,15 +116,15 @@ func TestGetMinerSummary(t *testing.T) {
 	defer server.Close()
 
 	service := web.NewService()
-	connInfo, err := web.NewAntminerConnectionInfoFromURL(server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
-	require.NoError(t, err)
+	connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
 
 	summary, err := service.GetMinerSummary(t.Context(), connInfo)
 
 	require.NoError(t, err)
 	assert.NotZero(t, summary)
-	assert.Equal(t, "S", summary.Status.Status)
-	assert.Equal(t, "summary", summary.Status.Msg)
+	require.NotEmpty(t, summary.Status)
+	assert.Equal(t, "S", summary.Status[0].Status)
+	assert.Equal(t, "summary", summary.Status[0].Msg)
 	assert.Equal(t, "Antminer S21", summary.Info.Type)
 	assert.InEpsilon(t, float64(206238.69), summary.Summary[0].Rate5s, 0.01)
 	assert.Equal(t, "GH/s", summary.Summary[0].RateUnit)
@@ -154,8 +176,7 @@ func TestGetMinerConfig(t *testing.T) {
 	defer server.Close()
 
 	service := web.NewService()
-	connInfo, err := web.NewAntminerConnectionInfoFromURL(server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
-	require.NoError(t, err)
+	connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
 
 	config, err := service.GetMinerConfig(t.Context(), connInfo)
 
@@ -193,8 +214,7 @@ func TestGetNetworkInfo(t *testing.T) {
 	defer server.Close()
 
 	service := web.NewService()
-	connInfo, err := web.NewAntminerConnectionInfoFromURL(server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
-	require.NoError(t, err)
+	connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
 
 	networkInfo, err := service.GetNetworkInfo(t.Context(), connInfo)
 
@@ -236,8 +256,7 @@ func TestSetMinerConfig(t *testing.T) {
 	defer server.Close()
 
 	service := web.NewService()
-	connInfo, err := web.NewAntminerConnectionInfoFromURL(server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
-	require.NoError(t, err)
+	connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
 
 	config := &web.MinerConfig{
 		Pools: []web.Pool{
@@ -251,7 +270,7 @@ func TestSetMinerConfig(t *testing.T) {
 		BitmainFreqLevel: "100",
 	}
 
-	err = service.SetMinerConfig(t.Context(), connInfo, config)
+	err := service.SetMinerConfig(t.Context(), connInfo, config)
 
 	require.NoError(t, err)
 }
@@ -263,10 +282,9 @@ func TestReboot(t *testing.T) {
 	defer server.Close()
 
 	service := web.NewService()
-	connInfo, err := web.NewAntminerConnectionInfoFromURL(server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
-	require.NoError(t, err)
+	connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
 
-	err = service.Reboot(t.Context(), connInfo)
+	err := service.Reboot(t.Context(), connInfo)
 
 	require.NoError(t, err)
 }
@@ -327,10 +345,9 @@ func TestBlink(t *testing.T) {
 			defer server.Close()
 
 			service := web.NewService()
-			connInfo, err := web.NewAntminerConnectionInfoFromURL(server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
-			require.NoError(t, err)
+			connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{Username: "root", Password: "root"})
 
-			err = tc.testFunc(service, t.Context(), connInfo)
+			err := tc.testFunc(service, t.Context(), connInfo)
 
 			require.NoError(t, err)
 		})
@@ -368,10 +385,9 @@ func TestErrorHandling(t *testing.T) {
 			defer server.Close()
 
 			service := web.NewService()
-			connInfo, err := web.NewAntminerConnectionInfoFromURL(server.URL, sdk.UsernamePassword{})
-			require.NoError(t, err)
+			connInfo := newTestAntminerConnectionInfo(t, server.URL, sdk.UsernamePassword{})
 
-			_, err = service.GetSystemInfo(t.Context(), connInfo)
+			_, err := service.GetSystemInfo(t.Context(), connInfo)
 
 			require.Error(t, err)
 		})

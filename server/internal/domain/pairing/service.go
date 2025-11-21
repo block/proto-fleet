@@ -30,6 +30,66 @@ import (
 	"github.com/grandcat/zeroconf"
 )
 
+const (
+	// concurrentDiscoveryLimit limits the number of concurrent device discovery operations
+	concurrentDiscoveryLimit = 10
+
+	// IP address constants for network address filtering
+	networkAddressLastOctet = 0   // Network address last octet (.0)
+	gatewayAddressLastOctet = 1   // Gateway address last octet (.1)
+	firstHostAddressOffset  = 2   // First usable host address offset
+	localhostFirstOctet     = 127 // Localhost IP range first octet (127.x.x.x)
+
+	// IP address bit masks
+	ipv4LocalhostMask    = 0xFF000000 // Mask for checking IPv4 address class
+	ipv4LocalhostPrefix  = 0x7F000000 // IPv4 localhost prefix (127.0.0.0/8)
+	ipv4LastOctetMask    = 0xFF       // Mask for extracting last octet
+	ipv4FirstOctetShift  = 24         // Bit shift to extract first octet
+	ipv4SecondOctetShift = 16         // Bit shift to extract second octet
+	ipv4ThirdOctetShift  = 8          // Bit shift to extract third octet
+)
+
+// shouldSkipNetworkOrGatewayAddress returns true if the IPv4 address is a network address (.0)
+// or gateway address (.1), except for localhost addresses (127.x.x.x).
+// Network and gateway addresses should be skipped during discovery to avoid false positives
+// where all devices appear to respond at the gateway IP.
+func shouldSkipNetworkOrGatewayAddress(ipv4 net.IP) bool {
+	if ipv4 == nil || len(ipv4) != 4 {
+		return false
+	}
+
+	// Check if this is localhost (127.x.x.x)
+	isLocalhost := ipv4[0] == localhostFirstOctet
+	if isLocalhost {
+		return false // Don't skip localhost addresses
+	}
+
+	// Check last octet for network (.0) or gateway (.1) addresses
+	lastOctet := ipv4[3]
+	return lastOctet == networkAddressLastOctet || lastOctet == gatewayAddressLastOctet
+}
+
+// adjustIPRangeStartForNetworkAddresses adjusts an IPv4 address (as uint32) to skip
+// network (.0) and gateway (.1) addresses, except for localhost (127.x.x.x).
+// Returns the adjusted IP address as uint32.
+func adjustIPRangeStartForNetworkAddresses(ipAddr uint32) uint32 {
+	// Check if this is localhost (127.x.x.x)
+	isLocalhost := (ipAddr & ipv4LocalhostMask) == ipv4LocalhostPrefix
+	if isLocalhost {
+		return ipAddr // Don't adjust localhost addresses
+	}
+
+	lastOctet := ipAddr & ipv4LastOctetMask
+	if lastOctet == networkAddressLastOctet {
+		// Network address (.0), skip to .2
+		return ipAddr + firstHostAddressOffset
+	} else if lastOctet == gatewayAddressLastOctet {
+		// Gateway address (.1), skip to .2
+		return ipAddr + 1
+	}
+	return ipAddr
+}
+
 //go:generate mockgen -source=service.go -destination=mocks/mock_service.go -package=mocks Listener
 type Listener interface {
 	AddDevices(ctx context.Context, deviceID ...tmodels.DeviceIdentifier) error
@@ -223,22 +283,12 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 			}
 
 			// Skip network address (.0) and gateway (.1) to avoid discovery issues
-			// In most networks, the gateway is the first usable IP address, which can
-			// cause all devices to appear to respond at the gateway IP
-			// Exception: Don't skip localhost addresses (127.0.0.0/8)
 			parsedIP := net.ParseIP(ipAddress)
 			if parsedIP != nil {
 				ipv4 := parsedIP.To4()
-				if ipv4 != nil {
-					// Check if this is localhost (127.x.x.x)
-					isLocalhost := ipv4[0] == 127
-					if !isLocalhost {
-						lastOctet := ipv4[3]
-						if lastOctet == 0 || lastOctet == 1 {
-							slog.Debug("Skipping network/gateway address", "ip", ipAddress)
-							continue
-						}
-					}
+				if shouldSkipNetworkOrGatewayAddress(ipv4) {
+					slog.Debug("Skipping network/gateway address", "ip", ipAddress)
+					continue
 				}
 			}
 
@@ -268,26 +318,13 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 	}
 
 	// Skip network address (.0) and gateway (.1) to avoid discovery issues
-	// In most networks, the gateway is the first usable IP address, which can
-	// cause all devices to appear to respond at the gateway IP
-	// Exception: Don't skip localhost addresses (127.0.0.0/8)
-	isLocalhost := (startIP & 0xFF000000) == 0x7F000000 // 127.x.x.x
-	if !isLocalhost {
-		lastOctet := startIP & 0xFF
-		if lastOctet == 0 {
-			// Network address, skip to .2
-			startIP += 2
-		} else if lastOctet == 1 {
-			// Gateway address, skip to .2
-			startIP++
-		}
-	}
+	startIP = adjustIPRangeStartForNetworkAddresses(startIP)
 
 	go func() {
 		defer close(resultChan)
 
 		var wg sync.WaitGroup
-		semaphore := make(chan struct{}, 10) // Limit concurrent goroutines
+		semaphore := make(chan struct{}, concurrentDiscoveryLimit)
 
 		for ip := startIP; ip <= endIP; ip++ {
 			select {
@@ -325,7 +362,7 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 		defer close(resultChan)
 
 		var wg sync.WaitGroup
-		semaphore := make(chan struct{}, 10) // Limit concurrent goroutines
+		semaphore := make(chan struct{}, concurrentDiscoveryLimit)
 
 		for _, ip := range r.IpAddresses {
 			select {
@@ -411,11 +448,7 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 		return false
 	}
 
-	if pairedDevice.Type == "asic" {
-		// Legacy support: treat "asic" type as "proto/antminer"
-		pairedDevice.Type = pairedDevice.Model
-	}
-	deviceType, err := models.TypeFromString(pairedDevice.Type)
+	deviceType, err := models.TypeFromDeviceInfo(pairedDevice.Type, pairedDevice.Model)
 	if err != nil {
 		slog.Error("failed to get paired device type", "error", err)
 		return false
@@ -461,9 +494,23 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 	deviceIDs := make([]models.DeviceIdentifier, 0, len(r.DeviceIdentifiers))
 	failedIDs := make([]string, 0, len(r.DeviceIdentifiers))
 
+	// Use provided credentials or fall back to default "root/root" for Antminer devices
+	// which commonly ship with these default credentials. Users should change these
+	// credentials on their devices after pairing for security.
+	// TODO(DASH-908): After client flow and miner plugin credential changes, remove this temporary
+	// defaulting behavior.
+	credentials := r.Credentials
+	if credentials == nil {
+		defaultPassword := "root"
+		credentials = &pb.Credentials{
+			Username: "root",
+			Password: &defaultPassword,
+		}
+	}
+
 	// Create pairing records for each device
 	for _, deviceID := range r.DeviceIdentifiers {
-		err = s.pairDevice(ctx, deviceID, claims.OrgID, r.Credentials)
+		err = s.pairDevice(ctx, deviceID, claims.OrgID, credentials)
 		if err == nil {
 			deviceIDs = append(deviceIDs, models.DeviceIdentifier(deviceID))
 		} else {
@@ -546,7 +593,7 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 		return fleeterror.NewInternalErrorf("error getting device from store: %v", err)
 	}
 
-	deviceType, err := models.TypeFromString(discoveredDevice.Type)
+	deviceType, err := models.TypeFromDeviceInfo(discoveredDevice.Type, discoveredDevice.Model)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("invalid device type for pairing: %v", err)
 	}

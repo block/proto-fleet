@@ -2,6 +2,7 @@ package models
 
 import (
 	"fmt"
+	"strings"
 )
 
 // DeviceIdentifier represents a unique identifier for a mining device
@@ -50,7 +51,7 @@ func TypeFromString(s string) (Type, error) {
 	case "proto_miner": // Legacy format support
 		return TypeProto, nil
 	case "asic":
-		return TypeProto, nil
+		return TypeAntminer, nil
 	case "whatsminer":
 		return TypeWhatsminer, nil
 	case "avalon":
@@ -60,6 +61,40 @@ func TypeFromString(s string) (Type, error) {
 	default:
 		return TypeUnknown, fmt.Errorf("unknown miner type: %s", s)
 	}
+}
+
+// TypeFromDeviceInfo converts type string and model to Type enum, using model to disambiguate "asic" type.
+// TODO(DASH-900): Replace Type enum with model-based plugin routing system
+func TypeFromDeviceInfo(typeStr, model string) (Type, error) {
+	// When type is ambiguous "asic", use model to determine the actual miner type
+	if strings.ToLower(typeStr) == "asic" {
+		modelLower := strings.ToLower(model)
+		if strings.HasPrefix(modelLower, "rig") {
+			return TypeProto, nil
+		}
+		if strings.HasPrefix(modelLower, "antminer") {
+			return TypeAntminer, nil
+		}
+		if strings.HasPrefix(modelLower, "whatsminer") {
+			return TypeWhatsminer, nil
+		}
+		if strings.HasPrefix(modelLower, "avalon") {
+			return TypeAvalon, nil
+		}
+		return TypeUnknown, fmt.Errorf("unknown ASIC model: %s", model)
+	}
+	// For non-asic types, use the existing TypeFromString logic
+	return TypeFromString(typeStr)
+}
+
+// ParseDeviceTypeOrUnknown parses device type using TypeFromDeviceInfo and returns TypeUnknown on error.
+// This is useful when type parsing failure should not halt execution.
+func ParseDeviceTypeOrUnknown(typeStr, model string) Type {
+	deviceType, err := TypeFromDeviceInfo(typeStr, model)
+	if err != nil {
+		return TypeUnknown
+	}
+	return deviceType
 }
 
 type PairingInfo struct {

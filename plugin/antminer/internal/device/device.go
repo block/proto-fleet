@@ -16,7 +16,8 @@ import (
 
 const (
 	statusCacheTTL   = 5 * time.Second  // Cache status for 5 seconds
-	port             = 4028             // Default RPC port for Antminers
+	rpcPort          = 4028             // Default RPC port for Antminers
+	webPort          = 80               // Default web API port for Antminers
 	newDeviceTimeout = 10 * time.Second // Timeout for new device creation
 	blinkLEDDuration = 30 * time.Second // Duration to blink LED for identification
 
@@ -25,7 +26,7 @@ const (
 	unitSeconds      = "seconds"
 )
 
-var _ sdk.Device = (*Device)(nil) // Ensure Device implements sdk.Device
+var _ sdk.Device = (*Device)(nil)
 
 // toMetricValue wraps a numeric value in a MetricValue struct with Gauge kind.
 func toMetricValue(value float64) *sdk.MetricValue {
@@ -75,20 +76,8 @@ type Device struct {
 	statusTTL    time.Duration
 }
 
-type DeviceOption func(*Device) error
-
-func WithStatusTTL(ttl time.Duration) DeviceOption {
-	return func(d *Device) error {
-		if ttl < 0 {
-			return fmt.Errorf("status TTL must be positive")
-		}
-		d.statusTTL = ttl
-		return nil
-	}
-}
-
 // New creates a new Antminer device instance.
-func New(deviceID string, deviceInfo sdk.DeviceInfo, credentials sdk.UsernamePassword, clientFactory types.ClientFactory, opts ...DeviceOption) (*Device, error) {
+func New(deviceID string, deviceInfo sdk.DeviceInfo, credentials sdk.UsernamePassword, clientFactory types.ClientFactory) (*Device, error) {
 	device := &Device{
 		id:          deviceID,
 		deviceInfo:  deviceInfo,
@@ -96,13 +85,7 @@ func New(deviceID string, deviceInfo sdk.DeviceInfo, credentials sdk.UsernamePas
 		statusTTL:   statusCacheTTL,
 	}
 
-	for _, opt := range opts {
-		if err := opt(device); err != nil {
-			return nil, fmt.Errorf("failed to apply device option: %w", err)
-		}
-	}
-
-	client, err := clientFactory(deviceInfo.Host, port, deviceInfo.Port, deviceInfo.URLScheme)
+	client, err := clientFactory(deviceInfo.Host, rpcPort, webPort, deviceInfo.URLScheme)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client: %w", err)
 	}
@@ -265,7 +248,6 @@ func (d *Device) Close(ctx context.Context) error {
 		d.client.Close()
 	}
 
-	// Clear cached data
 	d.lastStatus = nil
 
 	return nil

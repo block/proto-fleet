@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strconv"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 
@@ -12,9 +11,6 @@ import (
 
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/rpc"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/web"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins"
@@ -22,11 +18,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
-)
-
-const (
-	maxPort = 65535
 )
 
 var _ telemetry.MinerGetter = &MinerService{}
@@ -132,37 +123,11 @@ func (s *MinerService) getProtoMinerAuthPrivateKey(ctx context.Context, orgID in
 	return privateKey, nil
 }
 
-// BuildMinerInfo constructs a MinerInfo object for communicating with a paired mining device.
-// The orgID and urlScheme parameters are currently unused but retained for future plugin infrastructure migration.
-// TODO(DASH-887): Integrate orgID and urlScheme parameters when plugin infrastructure is fully implemented.
-func (s *MinerService) BuildMinerInfo(ctx context.Context, deviceIdentifier string, orgID int64, deviceIPAddress string, devicePort string, urlScheme string, minerType models.Type, deviceSerialNumber string) (interfaces.MinerInfo, error) {
-	_ = orgID     // Unused: reserved for plugin infrastructure
-	_ = urlScheme // Unused: reserved for plugin infrastructure
-	portInt, err := strconv.Atoi(devicePort)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse port %s: %w", devicePort, err)
-	}
-
-	if portInt < 0 || portInt > maxPort {
-		return nil, fmt.Errorf("port %d is out of valid range (0-%d)", portInt, maxPort)
-	}
-
-	port := uint16(portInt)
-
-	minerIdentifier := models.DeviceIdentifier(deviceIdentifier)
-	switch minerType {
-	case models.TypeAntminer:
-		return antminer.NewAntminerInfo(minerIdentifier, deviceIPAddress, port, deviceSerialNumber), nil
-	case models.TypeProto, models.TypeWhatsminer, models.TypeAvalon, models.TypeUnknown:
-		return nil, fmt.Errorf("unsupported miner type: %s", minerType)
-	default:
-		return nil, fmt.Errorf("unsupported miner type: %s", minerType)
-	}
-}
-
 func (s *MinerService) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, devicePort string, deviceType string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string) (interfaces.Miner, error) {
 	// Parse device type string once at entry point
-	minerType, err := models.TypeFromString(deviceType)
+	// Note: model is not available here, but Type should already be correctly stored in DB.
+	// TypeFromDeviceInfo falls back to TypeFromString for non-"asic" types.
+	minerType, err := models.TypeFromDeviceInfo(deviceType, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse device type: %w", err)
 	}
@@ -172,48 +137,8 @@ func (s *MinerService) createMiner(ctx context.Context, deviceIdentifier string,
 		return s.createPluginMiner(ctx, deviceIdentifier, orgID, minerType, devicePort, deviceUsername, devicePassword, deviceIPAddress, deviceScheme, deviceSerialNumber)
 	}
 
-	// Fall back to built-in miner implementations
-	minerInfo, err := s.BuildMinerInfo(ctx, deviceIdentifier, orgID, deviceIPAddress, devicePort, deviceScheme, minerType, deviceSerialNumber)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get miner info: %w", err)
-	}
-
-	switch minerInfo.GetType() {
-	case models.TypeAntminer:
-		return s.createAntminer(minerInfo, deviceUsername, devicePassword)
-	case models.TypeProto, models.TypeWhatsminer, models.TypeAvalon, models.TypeUnknown:
-		return nil, fmt.Errorf("unsupported miner type: %s", minerType)
-	default:
-		return nil, fmt.Errorf("unsupported miner type: %s", minerType)
-	}
-}
-
-func (s *MinerService) createAntminer(minerInfo interfaces.MinerInfo, deviceUsername string, devicePassword string) (interfaces.Miner, error) {
-	if deviceUsername == "" || devicePassword == "" {
-		return nil, fmt.Errorf("antminer requires both username and password credentials")
-	}
-
-	decryptedUsername, err := s.encryptService.Decrypt(deviceUsername)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt username: %w", err)
-	}
-
-	decryptedPassword, err := s.encryptService.Decrypt(devicePassword)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt password: %w", err)
-	}
-
-	webClient := web.NewService()
-	rpcClient := rpc.NewService()
-	password := *secrets.NewText(string(decryptedPassword))
-
-	return antminer.NewAntminer(
-		minerInfo,
-		string(decryptedUsername),
-		password,
-		webClient,
-		rpcClient,
-	), nil
+	// No built-in implementations available for this miner type
+	return nil, fmt.Errorf("no plugin available for miner type %s - please ensure the appropriate plugin is installed and loaded", minerType)
 }
 
 func (s *MinerService) createPluginMiner(ctx context.Context, deviceIdentifier string, orgID int64, minerType models.Type, devicePort string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string) (interfaces.Miner, error) {

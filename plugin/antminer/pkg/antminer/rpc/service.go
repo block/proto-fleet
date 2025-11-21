@@ -68,9 +68,10 @@ func (s *Service) request(ctx context.Context, connInfo *networking.ConnectionIn
 
 func (s *Service) executeRPCCommand(ctx context.Context, connInfo *networking.ConnectionInfo, request *RPCRequest, out any) error {
 	address := connInfo.GetURL().Host
+	protocol := connInfo.Protocol.String()
 	dialer := &net.Dialer{Timeout: s.dialTimeout}
 
-	conn, err := dialer.DialContext(ctx, connInfo.Protocol.String(), address)
+	conn, err := dialer.DialContext(ctx, protocol, address)
 	if err != nil {
 		return fmt.Errorf("failed to connect to %s: %v", address, err)
 	}

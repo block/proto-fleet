@@ -3,8 +3,6 @@ package plugins
 import (
 	"context"
 	"fmt"
-	"math"
-	"strconv"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
@@ -14,10 +12,6 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
-)
-
-const (
-	maxPort = 65535 // Maximum valid TCP/UDP port number
 )
 
 // PluginDriverGetter defines the interface for getting SDK drivers for miner types
@@ -54,17 +48,10 @@ func NewPluginMinerWithCredentials(
 	ctx context.Context,
 	config PluginMinerConfig,
 ) (interfaces.Miner, error) {
-	// Parse and validate port
-	portInt, err := strconv.Atoi(config.DevicePort)
+	// Parse and validate port using SDK helper
+	portInt32, err := sdk.ParsePort(config.DevicePort)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse port %s: %w", config.DevicePort, err)
-	}
-	if portInt < 0 || portInt > maxPort {
-		return nil, fmt.Errorf("port %d is out of valid range (0-%d)", portInt, maxPort)
-	}
-	// Validate port fits in int32 for SDK
-	if portInt > math.MaxInt32 {
-		return nil, fmt.Errorf("port %d exceeds int32 maximum", portInt)
+		return nil, err
 	}
 
 	// Parse URL scheme
@@ -86,10 +73,9 @@ func NewPluginMinerWithCredentials(
 	}
 
 	// Build SDK DeviceInfo from database info
-	// Port is validated above to fit in int32 range (0-65535 < math.MaxInt32)
 	sdkDeviceInfo := sdk.DeviceInfo{
 		Host:         config.DeviceIPAddress,
-		Port:         int32(portInt), //nolint:gosec // G109: Port validated above to fit in int32
+		Port:         portInt32,
 		URLScheme:    config.DeviceScheme,
 		SerialNumber: config.DeviceSerialNumber,
 		Type:         mappers.FleetTypeToSDKType(config.MinerType),

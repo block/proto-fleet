@@ -42,13 +42,9 @@ import (
 	authDomain "github.com/btc-mining/proto-fleet/server/internal/domain/auth"
 	commandDomain "github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	fleetmanagementDomain "github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
-	antminerRPC "github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/rpc"
-	antminerWeb "github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/web"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
-	antminerDiscoverer "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/antminer"
 	onboardingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
-	pairingAntminer "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/antminer"
 	poolsDomain "github.com/btc-mining/proto-fleet/server/internal/domain/pools"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry"
@@ -66,6 +62,10 @@ import (
 	telemetryHandler "github.com/btc-mining/proto-fleet/server/internal/handlers/telemetry"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/server"
+)
+
+const (
+	shutdownTimeout = 10 * time.Second
 )
 
 func main() {
@@ -118,7 +118,6 @@ func start(config *Config) error {
 	}
 	authSvc := authDomain.NewService(userStore, transactor, tokenSvc, encryptSvc)
 
-	// Initialize plugin system
 	if err := config.Plugins.Validate(); err != nil {
 		return fmt.Errorf("invalid plugin configuration: %w", err)
 	}
@@ -139,7 +138,6 @@ func start(config *Config) error {
 		// Continue startup even if plugins fail to load
 	}
 
-	// Validate plugin health
 	if err := pluginService.ValidatePluginHealth(pluginLoadCtx); err != nil {
 		if config.Plugins.FailOnUnhealthy {
 			return fmt.Errorf("plugin health check failed: %w", err)
@@ -156,16 +154,10 @@ func start(config *Config) error {
 		return fmt.Errorf("proto plugin is required but not loaded - ensure 'proto' plugin binary is in the plugins directory (check PLUGIN_DIR environment variable or default './plugins' directory)")
 	}
 
-	// Create discoverers
 	var discoverers []minerdiscovery.Discoverer
 
-	// Add plugin-based discoverers
 	pluginDiscoverers := pluginService.CreateDiscoverers()
 	discoverers = append(discoverers, pluginDiscoverers...)
-
-	// Add internal discoverers for other miner types
-	antminerDiscoverer := antminerDiscoverer.NewDiscoverer(antminerRPC.NewService())
-	discoverers = append(discoverers, antminerDiscoverer)
 
 	discoveryService, err := minerdiscovery.NewService(discoverers...)
 	if err != nil {
@@ -203,7 +195,7 @@ func start(config *Config) error {
 	// Ensure telemetry service cleanup on shutdown
 	defer func() {
 		slog.Info("Stopping telemetry service")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		if err := telemetryService.Stop(shutdownCtx); err != nil {
 			slog.Error("Failed to stop telemetry service", "error", err)
@@ -215,19 +207,13 @@ func start(config *Config) error {
 		return err
 	}
 
-	// Create pairers
 	var pairers []pairingDomain.Pairer
 
-	// Add plugin-based pairers
 	supportedTypes := pluginService.GetSupportedMinerTypes()
 	for _, minerType := range supportedTypes {
 		pluginPairer := plugins.NewPairer(pluginManager, minerType, transactor, discoveredDeviceStore, deviceStore, userStore, tokenSvc, encryptSvc)
 		pairers = append(pairers, pluginPairer)
 	}
-
-	// Add internal pairers for other miner types
-	antminerPairer := pairingAntminer.NewService(transactor, discoveredDeviceStore, deviceStore, encryptSvc, antminerWeb.NewService())
-	pairers = append(pairers, antminerPairer)
 
 	pairingSvc := pairingDomain.NewService(
 		discoveredDeviceStore,
@@ -250,7 +236,6 @@ func start(config *Config) error {
 		slog.Default(),
 	)
 
-	// Start IP scanner service
 	if err := ipScannerService.Start(context.Background()); err != nil {
 		slog.Error("failed to start IP scanner service", "error", err)
 		return fmt.Errorf("failed to start IP scanner service: %w", err)

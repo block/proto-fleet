@@ -25,9 +25,18 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 
-	antminerWeb "github.com/btc-mining/proto-fleet/server/internal/domain/miner/antminer/web"
-	pairingAntminer "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/antminer"
 	pairingMocks "github.com/btc-mining/proto-fleet/server/internal/domain/pairing/mocks"
+)
+
+const (
+	testClientTokenExpirationPeriod = 5 * time.Minute
+	testMinerTokenExpirationPeriod  = 5 * time.Minute
+	testMaxWorkers                  = 50
+	testWorkerExecutionTimeout      = 30 * time.Second
+	testMasterPollingInterval       = time.Second
+	testBatchStatusUpdateInterval   = time.Second
+	testDequeueLimit                = 500
+	testMaxFailureRetries           = 5
 )
 
 type ServiceProvider struct {
@@ -48,7 +57,13 @@ type ServiceProvider struct {
 }
 
 func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvider {
-	tokenConfig := token.Config{ClientToken: token.AuthTokenConfig{SecretKey: config.AuthTokenSecretKey, ExpirationPeriod: time.Minute * 5}, MinerTokenExpirationPeriod: time.Minute * 5}
+	tokenConfig := token.Config{
+		ClientToken: token.AuthTokenConfig{
+			SecretKey:        config.AuthTokenSecretKey,
+			ExpirationPeriod: testClientTokenExpirationPeriod,
+		},
+		MinerTokenExpirationPeriod: testMinerTokenExpirationPeriod,
+	}
 	tokenService, err := token.NewService(tokenConfig)
 	assert.NoError(t, err)
 
@@ -56,7 +71,6 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	encryptService, err := encrypt.NewService(&encryptConfig)
 	assert.NoError(t, err)
 
-	// Initialize stores
 	transactor := sqlstores.NewSQLTransactor(db)
 	userStore := sqlstores.NewSQLUserStore(db)
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
@@ -87,18 +101,25 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 
 	// Use mock proto pairer instead of legacy implementation
 	protoPairer := NewMockProtoPairer(ctrl)
-	antminerPairer := pairingAntminer.NewService(transactor, discoveredDeviceStore, deviceStore, encryptService, antminerWeb.NewService())
 
 	capabilitiesService, err := capabilities.NewService(capabilities.Config{
 		CapabilitiesPath: filepath.Join("miner-configs", "capabilities.yaml"),
 	})
 	assert.NoError(t, err)
 
-	pairingService := pairing.NewService(discoveredDeviceStore, deviceStore, transactor, tokenService, minerDiscoveryService, capabilitiesService, listenerMock, protoPairer, antminerPairer)
+	pairingService := pairing.NewService(discoveredDeviceStore, deviceStore, transactor, tokenService, minerDiscoveryService, capabilitiesService, listenerMock, protoPairer)
 
-	commandConfig := &command.Config{MaxWorkers: 50, MasterPollingInterval: time.Second, WorkerExecutionTimeout: 30 * time.Second, BatchStatusUpdatePollingInterval: time.Second}
+	commandConfig := &command.Config{
+		MaxWorkers:                       testMaxWorkers,
+		MasterPollingInterval:            testMasterPollingInterval,
+		WorkerExecutionTimeout:           testWorkerExecutionTimeout,
+		BatchStatusUpdatePollingInterval: testBatchStatusUpdateInterval,
+	}
 
-	dbMessageQueueConfig := queue.Config{DequeLimit: 500, MaxFailureRetries: 5}
+	dbMessageQueueConfig := queue.Config{
+		DequeLimit:        testDequeueLimit,
+		MaxFailureRetries: testMaxFailureRetries,
+	}
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&dbMessageQueueConfig, db)
 
 	executionServiceCtx, executionServiceCancel := context.WithCancel(t.Context())

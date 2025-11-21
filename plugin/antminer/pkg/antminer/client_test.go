@@ -28,23 +28,6 @@ func TestNewClient(t *testing.T) {
 	assert.NotNil(t, client.webClient)
 }
 
-func TestNewClient_WithOptions(t *testing.T) {
-	mockWebClient, webCtrl := setupMockWebClient(t)
-	mockRPCClient, rpcCtrl := setupMockRPCClient(t)
-	defer webCtrl.Finish()
-	defer rpcCtrl.Finish()
-
-	client, err := NewClient("192.168.1.100", 4028, 80, "http",
-		WithWebClient(mockWebClient),
-		WithRPCClient(mockRPCClient))
-	require.NoError(t, err)
-	require.NotNil(t, client)
-
-	// Verify the options were applied
-	assert.Equal(t, mockWebClient, client.webClient)
-	assert.Equal(t, mockRPCClient, client.rpcClient)
-}
-
 func TestClient_SetCredentials(t *testing.T) {
 	client, err := NewClient("192.168.1.100", 4028, 80, "http")
 	require.NoError(t, err)
@@ -65,16 +48,17 @@ func createTestClient(t *testing.T) *Client {
 }
 
 func createTestClientWithMocks(t *testing.T, webClient web.WebAPIClient, rpcClient rpc.RPCClient) *Client {
-	var opts []ClientOption
+	client, err := NewClient("192.168.1.100", 4028, 80, "http")
+	require.NoError(t, err)
+
+	// Inject mock clients directly
 	if webClient != nil {
-		opts = append(opts, WithWebClient(webClient))
+		client.webClient = webClient
 	}
 	if rpcClient != nil {
-		opts = append(opts, WithRPCClient(rpcClient))
+		client.rpcClient = rpcClient
 	}
 
-	client, err := NewClient("192.168.1.100", 4028, 80, "http", opts...)
-	require.NoError(t, err)
 	return client
 }
 

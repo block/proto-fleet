@@ -174,7 +174,12 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 		return sdk.DeviceInfo{}, fmt.Errorf("failed to extract credentials: %w", err)
 	}
 
-	client, err := d.clientFactory(deviceInfo.Host, requiredRPCPort, deviceInfo.Port, deviceInfo.URLScheme)
+	webPort, err := sdk.ParsePort(defaultWebPort)
+	if err != nil {
+		return sdk.DeviceInfo{}, fmt.Errorf("invalid web port number: %w", err)
+	}
+
+	client, err := d.clientFactory(deviceInfo.Host, requiredRPCPort, webPort, deviceInfo.URLScheme)
 	if err != nil {
 		return sdk.DeviceInfo{}, fmt.Errorf("failed to create client: %w", err)
 	}
@@ -201,7 +206,8 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 		"host", deviceInfo.Host,
 		"model", deviceInfo.Model,
 		"serial", deviceInfo.SerialNumber,
-		"mac", deviceInfo.MacAddress)
+		"mac", deviceInfo.MacAddress,
+		"username", credentials.Username)
 
 	return deviceInfo, nil
 }

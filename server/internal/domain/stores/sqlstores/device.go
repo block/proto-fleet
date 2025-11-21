@@ -23,6 +23,21 @@ import (
 
 var _ stores.DeviceStore = &SQLDeviceStore{}
 
+// handleQueryError wraps database query errors with appropriate FleetError types.
+// It converts sql.ErrNoRows to NotFoundError with a user-friendly message,
+// and wraps unexpected database errors as InternalError with full error context.
+// notFoundMsg should be a complete user-friendly message (e.g., "device not found with id=123").
+// internalMsg should describe the operation context (e.g., "failed to query device").
+func handleQueryError(err error, notFoundMsg, internalMsg string) error {
+	if err == nil {
+		return nil
+	}
+	if err == sql.ErrNoRows {
+		return fleeterror.NewNotFoundError(notFoundMsg)
+	}
+	return fleeterror.NewInternalErrorf("%s: %v", internalMsg, err)
+}
+
 type SQLDeviceStore struct {
 	SQLConnectionManager
 }
@@ -77,10 +92,9 @@ func (s *SQLDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identi
 		OrgID:            orgID,
 	})
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fleeterror.NewNotFoundErrorf("device not found with identifier=%s org_id=%d", identifier, orgID)
-		}
-		return nil, fleeterror.NewInternalErrorf("failed to query device with identifier=%s org_id=%d: %v", identifier, orgID, err)
+		return nil, handleQueryError(err,
+			fmt.Sprintf("device not found with identifier=%s org_id=%d", identifier, orgID),
+			fmt.Sprintf("failed to query device with identifier=%s org_id=%d", identifier, orgID))
 	}
 
 	discoveredDevice, err := s.getQueries(ctx).GetDiscoveredDeviceByID(ctx, sqlc.GetDiscoveredDeviceByIDParams{
@@ -89,10 +103,9 @@ func (s *SQLDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identi
 	})
 
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fleeterror.NewInternalErrorf("discovered device not found with id=%d org_id=%d: %v", device.DiscoveredDeviceID, orgID, err)
-		}
-		return nil, fleeterror.NewInternalErrorf("failed to query discovered device: %v", err)
+		return nil, handleQueryError(err,
+			fmt.Sprintf("discovered device not found with id=%d org_id=%d", device.DiscoveredDeviceID, orgID),
+			"failed to query discovered device")
 	}
 
 	result := &pb.Device{
@@ -133,10 +146,9 @@ func (s *SQLDeviceStore) InsertDevice(ctx context.Context, device *pb.Device, or
 		OrgID:            orgID,
 	})
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return fleeterror.NewInternalErrorf("discovered device not found with identifier=%s org_id=%d: %v", discoveredDeviceIdentifier, orgID, err)
-		}
-		return fleeterror.NewInternalErrorf("failed to query discovered device with identifier=%s org_id=%d: %v", discoveredDeviceIdentifier, orgID, err)
+		return handleQueryError(err,
+			fmt.Sprintf("discovered device not found with identifier=%s org_id=%d", discoveredDeviceIdentifier, orgID),
+			fmt.Sprintf("failed to query discovered device with identifier=%s org_id=%d", discoveredDeviceIdentifier, orgID))
 	}
 
 	_, err = s.getQueries(ctx).InsertDevice(ctx, sqlc.InsertDeviceParams{
@@ -160,10 +172,9 @@ func (s *SQLDeviceStore) UpsertMinerCredentials(ctx context.Context, device *pb.
 		OrgID:            orgID,
 	})
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return fleeterror.NewInternalErrorf("device not found for credentials update with identifier=%s org_id=%d: %v", device.DeviceIdentifier, orgID, err)
-		}
-		return fleeterror.NewInternalErrorf("failed to query device: %v", err)
+		return handleQueryError(err,
+			fmt.Sprintf("device not found for credentials update with identifier=%s org_id=%d", device.DeviceIdentifier, orgID),
+			"failed to query device")
 	}
 	err = s.getQueries(ctx).UpsertMinerCredentials(ctx, sqlc.UpsertMinerCredentialsParams{
 		DeviceID:    dbDevice.ID,
@@ -182,10 +193,9 @@ func (s *SQLDeviceStore) UpsertDevicePairing(ctx context.Context, device *pb.Dev
 		OrgID:            orgID,
 	})
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return fleeterror.NewInternalErrorf("device not found for pairing update with identifier=%s org_id=%d: %v", device.DeviceIdentifier, orgID, err)
-		}
-		return fleeterror.NewInternalErrorf("failed to query device: %v", err)
+		return handleQueryError(err,
+			fmt.Sprintf("device not found for pairing update with identifier=%s org_id=%d", device.DeviceIdentifier, orgID),
+			"failed to query device")
 	}
 	_, err = s.getQueries(ctx).UpsertDevicePairing(ctx, sqlc.UpsertDevicePairingParams{
 		DeviceID:      dbDevice.ID,
@@ -214,17 +224,15 @@ func (s *SQLDeviceStore) GetMinerCredentials(ctx context.Context, device *pb.Dev
 		OrgID:            orgID,
 	})
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fleeterror.NewInternalErrorf("device not found for credentials retrieval with identifier=%s org_id=%d: %v", device.DeviceIdentifier, orgID, err)
-		}
-		return nil, fleeterror.NewInternalErrorf("failed to query device: %v", err)
+		return nil, handleQueryError(err,
+			fmt.Sprintf("device not found for credentials retrieval with identifier=%s org_id=%d", device.DeviceIdentifier, orgID),
+			"failed to query device")
 	}
 	credentials, err := s.GetQueries(ctx).GetMinerCredentialsByDeviceID(ctx, dbDevice.ID)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fleeterror.NewInternalErrorf("miner credentials not found for device_id=%d identifier=%s: %v", dbDevice.ID, device.DeviceIdentifier, err)
-		}
-		return nil, fleeterror.NewInternalErrorf("failed to get miner credentials: %v", err)
+		return nil, handleQueryError(err,
+			fmt.Sprintf("miner credentials not found for device_id=%d identifier=%s", dbDevice.ID, device.DeviceIdentifier),
+			"failed to get miner credentials")
 	}
 	return &pb.Credentials{
 		Username: credentials.UsernameEnc,
@@ -240,10 +248,9 @@ func (s *SQLDeviceStore) GetDeviceWithIPAssignment(ctx context.Context, deviceId
 		OrgID:            orgID,
 	})
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fleeterror.NewInternalErrorf("device not found for IP assignment with identifier=%s org_id=%d: %v", deviceIdentifier, orgID, err)
-		}
-		return nil, fleeterror.NewInternalErrorf("failed to query device: %v", err)
+		return nil, handleQueryError(err,
+			fmt.Sprintf("device not found for IP assignment with identifier=%s org_id=%d", deviceIdentifier, orgID),
+			"failed to query device")
 	}
 
 	discoveredDevice, err := s.getQueries(ctx).GetDiscoveredDeviceByID(ctx, sqlc.GetDiscoveredDeviceByIDParams{
@@ -251,10 +258,9 @@ func (s *SQLDeviceStore) GetDeviceWithIPAssignment(ctx context.Context, deviceId
 		OrgID: orgID,
 	})
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fleeterror.NewInternalErrorf("discovered device not found for device_identifier=%s org_id=%d: %v", deviceIdentifier, orgID, err)
-		}
-		return nil, fleeterror.NewInternalErrorf("failed to query discovered device for device_identifier=%s org_id=%d: %v", deviceIdentifier, orgID, err)
+		return nil, handleQueryError(err,
+			fmt.Sprintf("discovered device not found for device_identifier=%s org_id=%d", deviceIdentifier, orgID),
+			fmt.Sprintf("failed to query discovered device for device_identifier=%s org_id=%d", deviceIdentifier, orgID))
 	}
 
 	return &discoverymodels.DiscoveredDevice{
@@ -421,6 +427,11 @@ func (s *SQLDeviceStore) GetAvailableMinerTypes(ctx context.Context, orgID int64
 
 	types := make([]minermodels.Type, 0, len(typeStrings))
 	for _, typeStr := range typeStrings {
+		// Skip "asic" type as it's ambiguous - devices with type="asic" will be
+		// resolved to specific types (proto/antminer) via model field elsewhere
+		if typeStr == "asic" {
+			continue
+		}
 		minerType, err := minermodels.TypeFromString(typeStr)
 		if err != nil {
 			// Skip unknown types
@@ -456,10 +467,9 @@ func (s *SQLDeviceStore) UpsertDeviceStatus(ctx context.Context, deviceIdentifie
 	sqlStatus := toDeviceStatus(status)
 	deviceID, err := s.getQueries(ctx).GetDeviceIDByDeviceIdentifier(ctx, deviceIdentifier.String())
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return fleeterror.NewInternalErrorf("device not found for status update with identifier=%s: %v", deviceIdentifier, err)
-		}
-		return fleeterror.NewInternalErrorf("failed to get device ID: %v", err)
+		return handleQueryError(err,
+			fmt.Sprintf("device not found for status update with identifier=%s", deviceIdentifier),
+			"failed to get device ID")
 	}
 
 	err = s.getQueries(ctx).UpsertDeviceStatus(ctx, sqlc.UpsertDeviceStatusParams{
@@ -539,16 +549,17 @@ func (s *SQLDeviceStore) GetDeviceStatusForDeviceIdentifiers(ctx context.Context
 
 // GetOfflineDevices retrieves a list of offline devices that need IP scanning
 func (s *SQLDeviceStore) GetOfflineDevices(ctx context.Context, limit int) ([]stores.OfflineDeviceInfo, error) {
+	const minLimit = 1
 	// Validate limit parameter
-	if limit < 1 {
-		return nil, fmt.Errorf("limit must be at least 1, got %d", limit)
+	if limit < minLimit {
+		return nil, fmt.Errorf("limit must be at least %d, got %d", minLimit, limit)
 	}
 	// Ensure limit is within valid int32 range to prevent overflow
 	if limit > math.MaxInt32 {
 		limit = math.MaxInt32
 	}
 
-	rows, err := s.getQueries(ctx).GetOfflineDevices(ctx, int32(limit)) // #nosec G115 -- overflow check above
+	rows, err := s.getQueries(ctx).GetOfflineDevices(ctx, int32(limit)) // #nosec G115 -- overflow check above using math.MaxInt32
 	if err != nil {
 		return nil, fmt.Errorf("failed to get offline devices: %w", err)
 	}

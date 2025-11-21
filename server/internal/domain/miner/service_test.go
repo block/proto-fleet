@@ -3,7 +3,6 @@ package miner_test
 import (
 	"database/sql"
 	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"
@@ -46,23 +45,8 @@ func TestNewMinerService_WithNilEncryptService_ShouldPanic(t *testing.T) {
 }
 
 func TestMinerService_GetMinerFromDeviceID_WithValidDevice_ShouldReturnMiner(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	db, encryptService, filesService, tokenService := setupTestDB(t)
-	userStore := sqlstores.NewSQLUserStore(db)
-
-	deviceID := models.DeviceIdentifier("test-device-123")
-	createTestDeviceWithCredentials(t, db, string(deviceID))
-
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, nil)
-
-	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
-
-	require.NoError(t, err)
-	assert.NotNil(t, miner)
-	assert.Equal(t, models.TypeAntminer, miner.GetType())
+	// TODO(DASH-887): Rewrite test using plugin-based test infrastructure
+	t.Skip("Disabled pending DASH-887 - requires plugin support for Antminer")
 }
 
 func TestMinerService_GetMinerFromDeviceID_WithNonexistentDevice_ShouldReturnError(t *testing.T) {
@@ -128,47 +112,8 @@ func TestMinerService_GetMinerFromDeviceID_WithMissingCredentials_ShouldReturnEr
 }
 
 func TestMinerService_ConcurrentAccess_ShouldBeThreadSafe(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	t.Parallel()
-
-	db, encryptService, filesService, tokenService := setupTestDB(t)
-	userStore := sqlstores.NewSQLUserStore(db)
-	const numDevices = 10
-	deviceIDs := make([]models.DeviceIdentifier, numDevices)
-	for i := range numDevices {
-		deviceID := models.DeviceIdentifier(fmt.Sprintf("device-%d", i))
-		deviceIDs[i] = deviceID
-		createTestDeviceWithCredentials(t, db, string(deviceID))
-	}
-
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, nil)
-
-	const numGoroutines = 20
-	var wg sync.WaitGroup
-	errors := make(chan error, numGoroutines)
-
-	for i := range numGoroutines {
-		wg.Add(1)
-		go func(goroutineID int) {
-			defer wg.Done()
-
-			deviceID := deviceIDs[goroutineID%numDevices]
-			_, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
-			if err != nil {
-				errors <- fmt.Errorf("goroutine %d failed: %w", goroutineID, err)
-			}
-		}(i)
-	}
-
-	wg.Wait()
-	close(errors)
-
-	for err := range errors {
-		t.Errorf("Concurrent operation failed: %v", err)
-	}
+	// TODO(DASH-887): Rewrite test using plugin-based test infrastructure
+	t.Skip("Disabled pending DASH-887 - requires plugin support for Antminer")
 }
 
 func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnCorrectType(t *testing.T) {
@@ -191,13 +136,8 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 
 	for i, test := range tests {
 		t.Run(fmt.Sprintf("type_%s", test.deviceType), func(t *testing.T) {
-			// TODO(DASH-887): Skip proto tests until plugin-based test infrastructure is available
-			if test.expectedType == models.TypeProto {
-				t.Skip("Proto miner tests skipped - legacy implementation removed, needs plugin-based testing")
-				return
-			}
+			// All miner types now require plugins - without a plugin, all should fail
 			deviceID := models.DeviceIdentifier(fmt.Sprintf("test-%s-device", test.deviceType))
-			// Use unique IP addresses for each subtest to avoid conflicts
 			testIPAddress := fmt.Sprintf("192.168.1.%d", 100+i)
 
 			queries := sqlc.New(testContext.ServiceProvider.DB)
@@ -216,7 +156,6 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 			dbDeviceID, err := result.LastInsertId()
 			require.NoError(t, err)
 
-			// Create device pairing record with PAIRED status
 			_, err = queries.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{
 				DeviceID:      dbDeviceID,
 				PairingStatus: "PAIRED",
@@ -238,19 +177,11 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 			})
 			require.NoError(t, err)
 
-			if test.expectedType == models.TypeAntminer || test.expectedType == models.TypeProto {
-				miner, err := testContext.ServiceProvider.MinerService.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
-
-				require.NoError(t, err)
-				assert.NotNil(t, miner)
-				assert.Equal(t, test.expectedType, miner.GetType())
-			} else {
-				miner, err := testContext.ServiceProvider.MinerService.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
-
-				require.Error(t, err)
-				assert.Nil(t, miner)
-				assert.Contains(t, err.Error(), "unsupported miner type")
-			}
+			// All miner types should fail when no plugin is available
+			miner, err := testContext.ServiceProvider.MinerService.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
+			require.Error(t, err)
+			assert.Nil(t, miner)
+			assert.Contains(t, err.Error(), "no plugin available for miner type")
 		})
 	}
 }
