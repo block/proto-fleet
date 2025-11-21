@@ -29,7 +29,7 @@ _build-plugins-docker:
   cd .. && just build-plugins-docker
 
 # run local server in docker compose with watch enabled on the fleet service
-dev: _build-plugins start
+dev: _build-plugins-docker start
   docker compose up --watch fleet-api
 
 # start services in docker compose 
