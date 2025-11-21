@@ -33,7 +33,7 @@ export interface FleetStore {
 // Type for the partial state that we persist
 type PersistedFleetState = {
   auth: Pick<AuthSlice, "authTokens">;
-  ui: Pick<UISlice, "theme" | "temperatureUnit">;
+  ui: Pick<UISlice, "theme" | "temperatureUnit" | "duration">;
 };
 
 const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
@@ -95,6 +95,7 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
               ui: {
                 theme: state.ui.theme,
                 temperatureUnit: state.ui.temperatureUnit,
+                duration: state.ui.duration,
               },
             },
             version: value.version,
@@ -134,6 +135,7 @@ export const useFleetStore = create<FleetStore>()(
             ui: {
               theme: state.ui.theme,
               temperatureUnit: state.ui.temperatureUnit,
+              duration: state.ui.duration,
             },
           }),
           merge: (persistedState, currentState) => {
@@ -158,6 +160,7 @@ export const useFleetStore = create<FleetStore>()(
                 temperatureUnit:
                   persisted?.ui?.temperatureUnit ??
                   currentState.ui.temperatureUnit,
+                duration: persisted?.ui?.duration ?? currentState.ui.duration,
               },
             };
           },

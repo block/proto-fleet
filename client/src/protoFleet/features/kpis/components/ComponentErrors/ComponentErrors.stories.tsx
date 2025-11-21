@@ -7,7 +7,7 @@ import LightningAlt from "@/shared/assets/icons/LightningAlt";
 import Fan from "@/shared/assets/icons/Fan";
 
 const meta: Meta<typeof ComponentErrors> = {
-  title: "Proto Fleet/ComponentErrors",
+  title: "Proto Fleet/Dashboard/ComponentErrors",
   component: ComponentErrors,
   parameters: {
     layout: "centered",

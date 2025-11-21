@@ -130,7 +130,7 @@ const FleetHealth = ({
 
   // Create the overall status stat for ChartWidget title area
   const titleStat = {
-    label: "Status",
+    label: "Fleet health",
     value: overallStatus,
     text: (
       <Link to="/miners" className="hover:underline">

@@ -1,4 +1,5 @@
 import clsx from "clsx";
+import { useLocation } from "react-router-dom";
 import AlertStatus from "./AlertStatus";
 import LocationSelector from "./LocationSelector";
 import { Pause } from "@/shared/assets/icons";
@@ -24,9 +25,9 @@ const HeaderWidgets = ({ className }: { className?: string }) => {
       <AlertStatus />
       {dismissedSetup && (
         <Button
-          variant={variants.accent}
+          variant={variants.secondary}
           size={sizes.compact}
-          text="Complete Setup"
+          text="Continue setup"
           onClick={handleCompleteSetup}
         />
       )}
@@ -36,10 +37,17 @@ const HeaderWidgets = ({ className }: { className?: string }) => {
 
 const PageHeader = ({ openMenu }: PageHeaderProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
+  const location = useLocation();
+  const [dismissedSetup] = useReactiveLocalStorage<boolean>(
+    "completeSetupDismissed",
+  );
+
+  const showPhoneWidgets = isPhone && dismissedSetup;
+  const isDashboard = location.pathname === "/";
 
   return (
     <>
-      <div className="flex h-12 items-center border-b border-border-5 laptop:h-15 desktop:h-15">
+      <div className="flex h-12 items-center laptop:h-15 desktop:h-15">
         <div className="flex grow items-center px-4">
           <div className="flex grow items-center">
             {(isPhone || isTablet) && (
@@ -53,8 +61,13 @@ const PageHeader = ({ openMenu }: PageHeaderProps) => {
           {!isPhone && headerWidgetEnabled && <HeaderWidgets />}
         </div>
       </div>
-      {isPhone && (
-        <div className="flex h-[57px] items-center border-b border-border-5">
+      {showPhoneWidgets && (
+        <div
+          className={clsx(
+            "flex h-[57px] items-center",
+            isDashboard ? "bg-surface-5" : "bg-surface-base",
+          )}
+        >
           <HeaderWidgets className="ml-5" />
         </div>
       )}

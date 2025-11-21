@@ -1,3 +1,2 @@
-import { type durations } from "./constants";
-
-export type Duration = (typeof durations)[number];
+// Duration type is now exported from constants.ts
+export type { Duration } from "./constants";

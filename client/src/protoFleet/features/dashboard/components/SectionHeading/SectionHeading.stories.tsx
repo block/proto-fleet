@@ -39,7 +39,7 @@ export const SectionHeading = ({
 };
 
 export default {
-  title: "Proto Fleet/SectionHeading",
+  title: "Proto Fleet/Dashboard/SectionHeading",
   args: {
     heading: "Overview",
     controlType: "button",

@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import FleetHealth from "./FleetHealth";
 
 const meta: Meta<typeof FleetHealth> = {
-  title: "Proto Fleet/FleetHealth",
+  title: "Proto Fleet/Dashboard/FleetHealth",
   component: FleetHealth,
   parameters: {
     layout: "centered",

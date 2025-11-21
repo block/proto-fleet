@@ -32,7 +32,7 @@ const Navigation = ({ items, className }: NavigationProps) => {
   return (
     <div
       className={clsx(
-        "flex min-h-screen w-60 flex-col justify-between border-r border-border-5 bg-surface-base pb-3 text-text-primary-70 laptop:w-full laptop:bg-grayscale-gray-5 desktop:w-full desktop:bg-grayscale-gray-5",
+        "flex min-h-screen w-60 flex-col justify-between bg-surface-base text-text-primary-70 laptop:w-full laptop:bg-surface-5 desktop:w-full desktop:bg-surface-5",
         "laptop:items-center desktop:items-center",
         "tablet:absolute tablet:z-30",
         "phone:absolute phone:z-30",
@@ -74,13 +74,13 @@ const Navigation = ({ items, className }: NavigationProps) => {
                 <Link
                   to={item.path}
                   className={clsx(
-                    "group flex h-8 items-center justify-start rounded-lg px-2 py-1 laptop:h-10 laptop:justify-center desktop:h-10 desktop:justify-center",
-                    "hover:cursor-pointer hover:bg-core-primary-10",
+                    "group flex items-center justify-start rounded-lg p-2.5 laptop:justify-center desktop:justify-center",
+                    "hover:cursor-pointer hover:bg-core-primary-5",
                     isCurrentPath(item.path) || isPhone || isTablet
                       ? "text-text-primary"
                       : "text-text-primary-50",
                     {
-                      "bg-core-primary-10": isCurrentPath(item.path),
+                      "bg-core-primary-5": isCurrentPath(item.path),
                     },
                   )}
                 >
@@ -88,6 +88,7 @@ const Navigation = ({ items, className }: NavigationProps) => {
                     ? createElement(item.icon, {
                         className:
                           "transition-transform duration-200 ease-gentle group-hover:scale-105",
+                        width: "w-5",
                       })
                     : item.label}
                   {(isPhone || isTablet) && item.icon && (

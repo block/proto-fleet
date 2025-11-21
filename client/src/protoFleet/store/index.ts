@@ -32,9 +32,11 @@ export {
   useTheme,
   useDeviceTheme,
   useTemperatureUnit,
+  useDuration,
   useSetTheme,
   useSetDeviceTheme,
   useSetTemperatureUnit,
+  useSetDuration,
 } from "./hooks/useUI";
 
 // =============================================================================

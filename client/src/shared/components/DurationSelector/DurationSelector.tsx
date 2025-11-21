@@ -1,9 +1,9 @@
 import { useState } from "react";
+import clsx from "clsx";
 import { Duration } from "./types";
 
-import { durations } from "@/shared/components/DurationSelector/constants";
 import Button from "@/shared/components/Button";
-import clsx from "clsx";
+import { durations } from "@/shared/components/DurationSelector/constants";
 
 interface DurationSelectorProps {
   className?: string;

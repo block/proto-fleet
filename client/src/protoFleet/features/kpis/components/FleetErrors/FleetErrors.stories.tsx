@@ -3,14 +3,14 @@ import type { Meta, StoryObj } from "@storybook/react";
 import FleetErrors from "./FleetErrors";
 
 const meta: Meta<typeof FleetErrors> = {
-  title: "Proto Fleet/FleetErrors",
+  title: "Proto Fleet/Dashboard/FleetErrors",
   component: FleetErrors,
   parameters: {
     layout: "padded",
     docs: {
       description: {
         component:
-          "Displays error status for all hardware component types in the fleet (Control Boards, Fans, Hashboards, Power Supplies). Shows count of miners needing attention for each component type. Each box links to a filtered view of the miners page showing only miners with issues for that specific component.",
+          "Displays error status for all hardware component types in the fleet (Control Boards, Fans, Hashboards, Power Supplies). Shows count of miners needing attention for each component type. Each box links to a filtered view of the miners page showing only miners with issues for that specific component. Responsive layout: 4 columns on desktop, 2 columns on tablet, 1 column on mobile.",
       },
     },
   },

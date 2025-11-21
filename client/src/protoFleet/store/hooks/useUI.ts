@@ -12,6 +12,8 @@ export const useDeviceTheme = () =>
 export const useTemperatureUnit = () =>
   useFleetStore((state) => state.ui.temperatureUnit);
 
+export const useDuration = () => useFleetStore((state) => state.ui.duration);
+
 // =============================================================================
 // UI Action Selectors
 // =============================================================================
@@ -23,3 +25,6 @@ export const useSetDeviceTheme = () =>
 
 export const useSetTemperatureUnit = () =>
   useFleetStore((state) => state.ui.setTemperatureUnit);
+
+export const useSetDuration = () =>
+  useFleetStore((state) => state.ui.setDuration);

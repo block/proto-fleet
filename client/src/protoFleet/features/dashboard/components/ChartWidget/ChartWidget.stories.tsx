@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import KpiLineChart from "../KpiLineChart/KpiLineChart";
 import ChartWidget from "./ChartWidget";
+import LineChart from "@/shared/components/LineChart";
 import { ChartData } from "@/shared/components/LineChart/types";
 
 // Generate sample chart data
@@ -24,7 +24,7 @@ const generateSampleData = (): ChartData[] => {
 };
 
 const meta: Meta<typeof ChartWidget> = {
-  title: "ProtoFleet/KPIs/ChartWidget",
+  title: "Proto Fleet/Dashboard/ChartWidget",
   component: ChartWidget,
   parameters: {
     layout: "centered",
@@ -75,7 +75,7 @@ export const SingleStat: Story = {
     const sampleData = generateSampleData();
     return (
       <ChartWidget {...args}>
-        <KpiLineChart
+        <LineChart
           chartData={sampleData}
           aggregateKey="totalHashrate"
           activeKeys={["totalHashrate"]}
@@ -113,7 +113,7 @@ export const MultipleStats: Story = {
     const sampleData = generateSampleData();
     return (
       <ChartWidget {...args}>
-        <KpiLineChart
+        <LineChart
           chartData={sampleData}
           aggregateKey="totalHashrate"
           activeKeys={["totalHashrate"]}
@@ -131,7 +131,7 @@ export const NoStats: Story = {
     const sampleData = generateSampleData();
     return (
       <ChartWidget {...args}>
-        <KpiLineChart
+        <LineChart
           chartData={sampleData}
           aggregateKey="totalHashrate"
           activeKeys={["totalHashrate"]}
@@ -169,7 +169,7 @@ export const PercentageStats: Story = {
     const sampleData = generateSampleData();
     return (
       <ChartWidget {...args}>
-        <KpiLineChart
+        <LineChart
           chartData={sampleData}
           aggregateKey="totalHashrate"
           activeKeys={["totalHashrate"]}
@@ -207,7 +207,7 @@ export const SmallStats: Story = {
     const sampleData = generateSampleData();
     return (
       <ChartWidget {...args}>
-        <KpiLineChart
+        <LineChart
           chartData={sampleData}
           aggregateKey="totalHashrate"
           activeKeys={["totalHashrate"]}

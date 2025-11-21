@@ -4,15 +4,8 @@ import { createBrowserRouter, Outlet, redirect } from "react-router-dom";
 import App from "./components/App";
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
 import Miners from "./features/fleetManagement/components/Fleet";
-import HomeLayout from "@/protoFleet/components/HomeLayout/HomeLayout";
+import DashboardLayout from "@/protoFleet/components/DashboardLayout/DashboardLayout";
 import Auth from "@/protoFleet/features/auth/pages/Auth";
-import {
-  Efficiency,
-  Hashrate,
-  KpiLayout,
-  PowerUsage,
-  Temperature,
-} from "@/protoFleet/features/kpis";
 import {
   MinersPage,
   SecurityPage,
@@ -66,22 +59,8 @@ export const requiresAuth: Record<string, boolean> = {
  * Router configuration - defines actual route tree with React elements
  */
 const router = createBrowserRouter([
-  // Home with KPI children
-  {
-    ...createRoute(
-      "/",
-      <HomeLayout>
-        <KpiLayout />
-      </HomeLayout>,
-    ),
-    children: [
-      { index: true, loader: () => redirect("hashrate") },
-      { path: "hashrate", element: <Hashrate /> },
-      { path: "efficiency", element: <Efficiency /> },
-      { path: "power-usage", element: <PowerUsage /> },
-      { path: "temperature", element: <Temperature /> },
-    ],
-  },
+  // Dashboard (Home)
+  createRoute("/", <DashboardLayout />),
 
   // Miners
   createRoute("/miners", <Miners />),
