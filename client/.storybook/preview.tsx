@@ -2,6 +2,13 @@ import React, { ComponentType } from "react";
 import type { Preview } from "@storybook/react-vite";
 import "../src/shared/styles/index.css";
 
+import { spyOn } from "storybook/test";
+
+export const beforeEach = () => {
+  spyOn(console, "log").mockName("console.log");
+  spyOn(console, "warn").mockName("console.warn");
+};
+
 export const decorators = [
   (Story: ComponentType) => {
     return <Story />;
