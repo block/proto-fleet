@@ -1,5 +1,5 @@
-import clsx from "clsx";
 import { useLocation } from "react-router-dom";
+import clsx from "clsx";
 import AlertStatus from "./AlertStatus";
 import LocationSelector from "./LocationSelector";
 import { Pause } from "@/shared/assets/icons";

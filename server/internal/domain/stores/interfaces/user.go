@@ -42,7 +42,7 @@ type User struct {
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
 	PasswordUpdatedAt      time.Time
-	LastLoginAt            *time.Time
+	LastLoginAt            time.Time
 	RequiresPasswordChange bool
 	RoleName               string // Only populated by ListUsersForOrganization
 }

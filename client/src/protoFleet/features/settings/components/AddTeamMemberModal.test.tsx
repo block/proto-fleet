@@ -1,0 +1,292 @@
+import { fireEvent, render, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import AddTeamMemberModal from "./AddTeamMemberModal";
+import { useUserManagement } from "@/protoFleet/api/useUserManagement";
+
+vi.mock("@/protoFleet/api/useUserManagement");
+vi.mock("@/shared/features/toaster");
+
+const mockCreateUser = vi.fn();
+const mockOnDismiss = vi.fn();
+const mockOnSuccess = vi.fn();
+
+beforeEach(() => {
+  vi.mocked(useUserManagement).mockReturnValue({
+    createUser: mockCreateUser,
+    listUsers: vi.fn(),
+    resetUserPassword: vi.fn(),
+    deactivateUser: vi.fn(),
+  });
+
+  vi.clearAllMocks();
+});
+
+describe("AddTeamMemberModal", () => {
+  it("renders step 1 with username input", () => {
+    const { getByLabelText, getByText } = render(
+      <AddTeamMemberModal
+        onDismiss={mockOnDismiss}
+        onSuccess={mockOnSuccess}
+      />,
+    );
+
+    expect(getByText("Add team member")).toBeInTheDocument();
+    expect(getByLabelText("Username")).toBeInTheDocument();
+    expect(getByText("Save")).toBeInTheDocument();
+  });
+
+  it("disables save button when username is empty", () => {
+    const { getByText } = render(
+      <AddTeamMemberModal
+        onDismiss={mockOnDismiss}
+        onSuccess={mockOnSuccess}
+      />,
+    );
+
+    const saveButton = getByText("Save").closest("button");
+    expect(saveButton).toBeDisabled();
+  });
+
+  it("enables save button when username is entered", () => {
+    const { getByLabelText, getByText } = render(
+      <AddTeamMemberModal
+        onDismiss={mockOnDismiss}
+        onSuccess={mockOnSuccess}
+      />,
+    );
+
+    const usernameInput = getByLabelText("Username");
+    fireEvent.change(usernameInput, { target: { value: "testuser" } });
+
+    const saveButton = getByText("Save").closest("button");
+    expect(saveButton).not.toBeDisabled();
+  });
+
+  it("shows validation error when saving empty username", () => {
+    const { getByLabelText, getByText } = render(
+      <AddTeamMemberModal
+        onDismiss={mockOnDismiss}
+        onSuccess={mockOnSuccess}
+      />,
+    );
+
+    // Enter username then clear it
+    const usernameInput = getByLabelText("Username");
+    fireEvent.change(usernameInput, { target: { value: "test" } });
+    fireEvent.change(usernameInput, { target: { value: "   " } });
+
+    const saveButton = getByText("Save").closest("button");
+    expect(saveButton).toBeDisabled();
+  });
+
+  it("calls createUser with trimmed username on save", async () => {
+    mockCreateUser.mockImplementation(({ onSuccess }) => {
+      onSuccess("user-123", "testuser", "TempPass123");
+    });
+
+    const { getByLabelText, getByText } = render(
+      <AddTeamMemberModal
+        onDismiss={mockOnDismiss}
+        onSuccess={mockOnSuccess}
+      />,
+    );
+
+    const usernameInput = getByLabelText("Username");
+    fireEvent.change(usernameInput, { target: { value: "  testuser  " } });
+
+    const saveButton = getByText("Save");
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(mockCreateUser).toHaveBeenCalledWith(
+        expect.objectContaining({
+          username: "testuser",
+        }),
+      );
+    });
+  });
+
+  it("shows error message from API", async () => {
+    mockCreateUser.mockImplementation(({ onError }) => {
+      onError("Username already exists");
+    });
+
+    const { getByLabelText, getByText } = render(
+      <AddTeamMemberModal
+        onDismiss={mockOnDismiss}
+        onSuccess={mockOnSuccess}
+      />,
+    );
+
+    const usernameInput = getByLabelText("Username");
+    fireEvent.change(usernameInput, { target: { value: "duplicate" } });
+
+    const saveButton = getByText("Save");
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(getByText("Username already exists")).toBeInTheDocument();
+    });
+  });
+
+  it("clears error message when typing", async () => {
+    mockCreateUser.mockImplementation(({ onError }) => {
+      onError("Username already exists");
+    });
+
+    const { getByLabelText, getByText, queryByText } = render(
+      <AddTeamMemberModal
+        onDismiss={mockOnDismiss}
+        onSuccess={mockOnSuccess}
+      />,
+    );
+
+    const usernameInput = getByLabelText("Username");
+    fireEvent.change(usernameInput, { target: { value: "duplicate" } });
+
+    const saveButton = getByText("Save");
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(getByText("Username already exists")).toBeInTheDocument();
+    });
+
+    fireEvent.change(usernameInput, { target: { value: "newuser" } });
+
+    expect(queryByText("Username already exists")).not.toBeInTheDocument();
+  });
+
+  it("transitions to step 2 on successful creation", async () => {
+    mockCreateUser.mockImplementation(({ onSuccess }) => {
+      onSuccess("user-123", "testuser", "TempPass123!@#");
+    });
+
+    const { getByLabelText, getByText } = render(
+      <AddTeamMemberModal
+        onDismiss={mockOnDismiss}
+        onSuccess={mockOnSuccess}
+      />,
+    );
+
+    const usernameInput = getByLabelText("Username");
+    fireEvent.change(usernameInput, { target: { value: "testuser" } });
+
+    const saveButton = getByText("Save");
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(getByText("Member added")).toBeInTheDocument();
+      expect(getByText("TempPass123!@#")).toBeInTheDocument();
+    });
+  });
+
+  it("shows loading state during creation", async () => {
+    let resolveCreate: any;
+    mockCreateUser.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+
+    const { getByLabelText, getByText } = render(
+      <AddTeamMemberModal
+        onDismiss={mockOnDismiss}
+        onSuccess={mockOnSuccess}
+      />,
+    );
+
+    const usernameInput = getByLabelText("Username");
+    fireEvent.change(usernameInput, { target: { value: "testuser" } });
+
+    const saveButton = getByText("Save").closest("button");
+    fireEvent.click(saveButton!);
+
+    await waitFor(() => {
+      expect(getByText("Save...")).toBeInTheDocument();
+      const loadingButton = getByText("Save...").closest("button");
+      expect(loadingButton).toBeDisabled();
+    });
+
+    resolveCreate();
+  });
+
+  it("allows copying temporary password", async () => {
+    mockCreateUser.mockImplementation(({ onSuccess }) => {
+      onSuccess("user-123", "testuser", "TempPass123!@#");
+    });
+
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+
+    const { getByLabelText, getByText, getByRole } = render(
+      <AddTeamMemberModal
+        onDismiss={mockOnDismiss}
+        onSuccess={mockOnSuccess}
+      />,
+    );
+
+    const usernameInput = getByLabelText("Username");
+    fireEvent.change(usernameInput, { target: { value: "testuser" } });
+
+    const saveButton = getByText("Save");
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(getByText("Member added")).toBeInTheDocument();
+    });
+
+    const copyButton = getByRole("button", { name: /copy password/i });
+    fireEvent.click(copyButton);
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      "TempPass123!@#",
+    );
+  });
+
+  it("calls onSuccess and onDismiss when clicking Done", async () => {
+    mockCreateUser.mockImplementation(({ onSuccess }) => {
+      onSuccess("user-123", "testuser", "TempPass123!@#");
+    });
+
+    const { getByLabelText, getByText } = render(
+      <AddTeamMemberModal
+        onDismiss={mockOnDismiss}
+        onSuccess={mockOnSuccess}
+      />,
+    );
+
+    const usernameInput = getByLabelText("Username");
+    fireEvent.change(usernameInput, { target: { value: "testuser" } });
+
+    const saveButton = getByText("Save");
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(getByText("Member added")).toBeInTheDocument();
+    });
+
+    const doneButton = getByText("Done");
+    fireEvent.click(doneButton);
+
+    expect(mockOnSuccess).toHaveBeenCalled();
+    expect(mockOnDismiss).toHaveBeenCalled();
+  });
+
+  it("calls onDismiss when clicking close button in step 1", () => {
+    const { getByRole } = render(
+      <AddTeamMemberModal
+        onDismiss={mockOnDismiss}
+        onSuccess={mockOnSuccess}
+      />,
+    );
+
+    const closeButton = getByRole("button", { name: /close/i });
+    fireEvent.click(closeButton);
+
+    expect(mockOnDismiss).toHaveBeenCalled();
+  });
+});

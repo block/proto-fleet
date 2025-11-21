@@ -11,6 +11,7 @@ import ChevronUpDown from "./ChevronUpDown";
 import Circle from "./Circle";
 import ConcentricCircles from "./ConcentricCircles";
 import ControlBoard from "./ControlBoard";
+import Copy from "./Copy";
 import Curtail from "./Curtail";
 import Dismiss from "./Dismiss";
 import DismissCircle from "./DismissCircle";
@@ -68,9 +69,10 @@ import Terminal from "./Terminal";
 import ThemeDark from "./ThemeDark";
 import ThemeLight from "./ThemeLight";
 import ThemeSystem from "./ThemeSystem";
+import Trash from "./Trash";
 import Triangle from "./Triangle";
-import Unpair from "./Unpair";
 import type { IconProps } from "./types";
+import Unpair from "./Unpair";
 
 export {
   Alert,
@@ -86,6 +88,7 @@ export {
   Circle,
   ConcentricCircles,
   ControlBoard,
+  Copy,
   Curtail,
   Dismiss,
   DismissCircle,
@@ -144,6 +147,7 @@ export {
   ThemeDark,
   ThemeLight,
   ThemeSystem,
+  Trash,
   Triangle,
   Unpair,
 };

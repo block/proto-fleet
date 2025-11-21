@@ -12,7 +12,7 @@ import { useAuthErrors } from "@/protoFleet/store/hooks/useAuth";
 interface LoginProps {
   onError?: (message: string) => void;
   onFinally?: () => void;
-  onSuccess?: (accessToken: string) => void;
+  onSuccess?: (accessToken: string, requiresPasswordChange: boolean) => void;
   loginRequest: AuthenticateRequest;
 }
 
@@ -29,6 +29,7 @@ const useLogin = () => {
         .then((res) => {
           const accessTokenValue = res.token;
           const tokenExpiry = res.tokenExpiry;
+          const requiresPasswordChange = res.requiresPasswordChange;
           setAuthTokens({
             accessToken: {
               value: accessTokenValue,
@@ -37,7 +38,7 @@ const useLogin = () => {
           });
           setUsername(loginRequest.username);
           setAuthLoading(false);
-          onSuccess?.(accessTokenValue);
+          onSuccess?.(accessTokenValue, requiresPasswordChange);
         })
         .catch((err) => {
           handleAuthErrors({

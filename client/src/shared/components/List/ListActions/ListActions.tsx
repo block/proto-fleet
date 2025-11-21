@@ -1,12 +1,9 @@
 import { useState } from "react";
+import clsx from "clsx";
 import { Ellipsis } from "@/shared/assets/icons";
-import { variants } from "@/shared/components/Button";
-import ButtonGroup, {
-  groupVariants,
-  sizes,
-} from "@/shared/components/ButtonGroup";
 import { ListAction } from "@/shared/components/List/types";
 import Popover, { popoverSizes, usePopover } from "@/shared/components/Popover";
+import Row from "@/shared/components/Row";
 import { positions } from "@/shared/constants";
 
 interface ListActionProps<ListItem> {
@@ -37,22 +34,29 @@ const ListActions = <ListItem,>({
       </button>
       {actionsVisible && (
         <Popover
-          className="p-6"
+          className="!space-y-0 px-4 pt-2 pb-1"
           position={positions["bottom left"]}
           size={popoverSizes.small}
           closePopover={() => setActionsVisible(false)}
         >
-          <div>
-            <ButtonGroup
-              size={sizes.base}
-              variant={groupVariants.stack}
-              buttons={actions.map((action) => ({
-                text: action.title,
-                onClick: () => action.actionHandler(item),
-                variant: variants.secondary,
-              }))}
-            />
-          </div>
+          {actions.map((action, index) => (
+            <Row
+              key={action.title}
+              className={clsx(
+                "text-emphasis-300",
+                action.variant === "destructive" && "text-intent-critical-text",
+              )}
+              prefixIcon={action.icon}
+              onClick={() => {
+                action.actionHandler(item);
+                setActionsVisible(false);
+              }}
+              compact
+              divider={index < actions.length - 1}
+            >
+              {action.title}
+            </Row>
+          ))}
         </Popover>
       )}
     </div>

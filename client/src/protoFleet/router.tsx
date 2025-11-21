@@ -6,6 +6,7 @@ import SingleMinerWrapper from "./components/SingleMinerWrapper";
 import Miners from "./features/fleetManagement/components/Fleet";
 import DashboardLayout from "@/protoFleet/components/DashboardLayout/DashboardLayout";
 import Auth from "@/protoFleet/features/auth/pages/Auth";
+import UpdatePassword from "@/protoFleet/features/auth/pages/UpdatePassword";
 import {
   MinersPage,
   SecurityPage,
@@ -17,6 +18,7 @@ import {
   General,
   MiningPools,
   SettingsLayout,
+  Team,
 } from "@/protoFleet/features/settings";
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 
@@ -52,6 +54,7 @@ const wrappedMinerRoutes = singleMinerRoutes.map((route) => {
 export const requiresAuth: Record<string, boolean> = {
   "/auth": false,
   "/welcome": false,
+  "/update-password": true, // Requires auth but is a special intermediate step
   // All other routes require auth by default
 };
 
@@ -94,9 +97,16 @@ const router = createBrowserRouter([
       <MiningPools />
     </SettingsLayout>,
   ),
+  createRoute(
+    "/settings/team",
+    <SettingsLayout>
+      <Team />
+    </SettingsLayout>,
+  ),
 
   // Auth routes (fullscreen)
   createRoute("/auth", <Auth />, { fullscreen: true }),
+  createRoute("/update-password", <UpdatePassword />, { fullscreen: true }),
   createRoute("/welcome", <WelcomePage />, { fullscreen: true }),
 
   // Onboarding routes

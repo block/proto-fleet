@@ -9,6 +9,7 @@ import {
   initValues,
   type Values,
 } from "@/protoFleet/features/auth/components/LoginModal";
+import { useSetTemporaryPassword } from "@/protoFleet/store";
 
 import { Logo } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
@@ -26,7 +27,7 @@ interface LoginFormProps {
   onClickForgotPassword: () => void;
   onClickCreateAccount?: () => void;
   onDismiss?: () => void;
-  onSuccess: () => void;
+  onSuccess: (requiresPasswordChange: boolean) => void;
 }
 
 const LoginForm = ({
@@ -39,6 +40,7 @@ const LoginForm = ({
   const [apiError, setApiError] = useState<string | null>(null);
   const login = useLogin();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const setTemporaryPassword = useSetTemporaryPassword();
 
   const handleChange = useCallback(
     (value: string, id: string) => {
@@ -57,11 +59,22 @@ const LoginForm = ({
         username: values.username,
         password: values.password,
       }),
-      onSuccess,
+      onSuccess: (_accessToken, requiresPasswordChange) => {
+        if (requiresPasswordChange) {
+          setTemporaryPassword(values.password);
+        }
+        onSuccess(requiresPasswordChange);
+      },
       onError: () => setApiError("Invalid credentials entered."),
       onFinally: () => setIsSubmitting(false),
     });
-  }, [login, values.username, values.password, onSuccess]);
+  }, [
+    login,
+    values.username,
+    values.password,
+    onSuccess,
+    setTemporaryPassword,
+  ]);
 
   const handleEnter = useCallback(() => {
     if (isSubmitting) {

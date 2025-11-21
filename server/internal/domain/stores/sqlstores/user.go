@@ -28,12 +28,12 @@ func (s *SQLUserStore) getQueries(ctx context.Context) *sqlc.Queries {
 	return s.GetQueries(ctx)
 }
 
-// toTimePtr converts sql.NullTime to *time.Time
-func toTimePtr(nt sql.NullTime) *time.Time {
+// sqlTimeToTime converts sql.NullTime to time.Time using zero time for NULL values
+func sqlTimeToTime(nt sql.NullTime) time.Time {
 	if !nt.Valid {
-		return nil
+		return time.Time{}
 	}
-	return &nt.Time
+	return nt.Time
 }
 
 func (s *SQLUserStore) GetUserByUsername(ctx context.Context, username string) (interfaces.User, error) {
@@ -50,7 +50,7 @@ func (s *SQLUserStore) GetUserByUsername(ctx context.Context, username string) (
 		CreatedAt:              user.CreatedAt,
 		UpdatedAt:              user.UpdatedAt,
 		PasswordUpdatedAt:      user.PasswordUpdatedAt,
-		LastLoginAt:            toTimePtr(user.LastLoginAt),
+		LastLoginAt:            sqlTimeToTime(user.LastLoginAt),
 		RequiresPasswordChange: user.RequiresPasswordChange,
 	}, nil
 }
@@ -69,7 +69,7 @@ func (s *SQLUserStore) GetUserByID(ctx context.Context, userID int64) (interface
 		CreatedAt:              user.CreatedAt,
 		UpdatedAt:              user.UpdatedAt,
 		PasswordUpdatedAt:      user.PasswordUpdatedAt,
-		LastLoginAt:            toTimePtr(user.LastLoginAt),
+		LastLoginAt:            sqlTimeToTime(user.LastLoginAt),
 		RequiresPasswordChange: user.RequiresPasswordChange,
 	}, nil
 }
@@ -187,7 +187,7 @@ func (s *SQLUserStore) GetUserByExternalID(ctx context.Context, userID string) (
 		CreatedAt:              user.CreatedAt,
 		UpdatedAt:              user.UpdatedAt,
 		PasswordUpdatedAt:      user.PasswordUpdatedAt,
-		LastLoginAt:            toTimePtr(user.LastLoginAt),
+		LastLoginAt:            sqlTimeToTime(user.LastLoginAt),
 		RequiresPasswordChange: user.RequiresPasswordChange,
 	}, nil
 }
@@ -269,7 +269,7 @@ func (s *SQLUserStore) ListUsersForOrganization(ctx context.Context, organizatio
 			UserID:                 user.UserID,
 			Username:               user.Username,
 			PasswordUpdatedAt:      user.PasswordUpdatedAt,
-			LastLoginAt:            toTimePtr(user.LastLoginAt),
+			LastLoginAt:            sqlTimeToTime(user.LastLoginAt),
 			RoleName:               user.RoleName,
 			RequiresPasswordChange: user.RequiresPasswordChange,
 			CreatedAt:              user.CreatedAt,

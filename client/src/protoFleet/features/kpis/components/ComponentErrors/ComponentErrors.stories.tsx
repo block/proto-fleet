@@ -2,9 +2,9 @@ import { BrowserRouter } from "react-router-dom";
 import type { Meta, StoryObj } from "@storybook/react";
 import ComponentErrors from "./ComponentErrors";
 import ControlBoard from "@/shared/assets/icons/ControlBoard";
+import Fan from "@/shared/assets/icons/Fan";
 import Hashboard from "@/shared/assets/icons/Hashboard";
 import LightningAlt from "@/shared/assets/icons/LightningAlt";
-import Fan from "@/shared/assets/icons/Fan";
 
 const meta: Meta<typeof ComponentErrors> = {
   title: "Proto Fleet/Dashboard/ComponentErrors",

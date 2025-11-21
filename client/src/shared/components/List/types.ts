@@ -18,4 +18,6 @@ export type ColTitles<ColKey extends string> = {
 export type ListAction<ListItem> = {
   title: string;
   actionHandler: (item: ListItem) => void;
+  icon?: ReactNode;
+  variant?: "default" | "destructive";
 };

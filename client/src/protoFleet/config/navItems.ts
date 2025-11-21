@@ -46,6 +46,11 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     parent: "/settings",
   },
   {
+    path: "/settings/team",
+    label: "Team",
+    parent: "/settings",
+  },
+  {
     path: "/settings/mining-pools",
     label: "Mining Pools",
     parent: "/settings",

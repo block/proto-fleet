@@ -512,10 +512,11 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 	return &authv1.DeactivateUserResponse{}, nil
 }
 
-// toTimestampProto converts *time.Time to *timestamppb.Timestamp
-func toTimestampProto(t *time.Time) *timestamppb.Timestamp {
-	if t == nil {
+// toTimestampProto converts time.Time to *timestamppb.Timestamp
+// Returns nil for zero time values (representing NULL in the database)
+func toTimestampProto(t time.Time) *timestamppb.Timestamp {
+	if t.IsZero() {
 		return nil
 	}
-	return timestamppb.New(*t)
+	return timestamppb.New(t)
 }

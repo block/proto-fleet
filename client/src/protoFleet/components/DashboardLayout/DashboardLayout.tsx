@@ -5,11 +5,11 @@ import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
 import {
-  useDeviceStatusCounts,
-  useTotalMiners,
   useDevicePaired,
+  useDeviceStatusCounts,
   useDuration,
   useSetDuration,
+  useTotalMiners,
 } from "@/protoFleet/store";
 import DurationSelector from "@/shared/components/DurationSelector";
 

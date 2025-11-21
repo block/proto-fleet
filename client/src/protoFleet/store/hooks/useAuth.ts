@@ -17,6 +17,9 @@ export const useUsername = () => useFleetStore((state) => state.auth.username);
 export const useAuthLoading = () =>
   useFleetStore((state) => state.auth.authLoading);
 
+export const useTemporaryPassword = () =>
+  useFleetStore((state) => state.auth.temporaryPassword);
+
 // =============================================================================
 // Auth Action Selectors
 // =============================================================================
@@ -29,6 +32,9 @@ export const useSetUsername = () =>
 
 export const useSetAuthLoading = () =>
   useFleetStore((state) => state.auth.setAuthLoading);
+
+export const useSetTemporaryPassword = () =>
+  useFleetStore((state) => state.auth.setTemporaryPassword);
 
 export const useLogout = () => useFleetStore((state) => state.auth.logout);
 
