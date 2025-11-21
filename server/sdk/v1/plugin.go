@@ -410,6 +410,19 @@ func (s *DriverGRPCServer) UpdateFirmware(ctx context.Context, req *pb.DeviceRef
 	return &emptypb.Empty{}, err
 }
 
+func (s *DriverGRPCServer) Unpair(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {
+	s.mu.RLock()
+	device, exists := s.devices[req.DeviceId]
+	s.mu.RUnlock()
+
+	if !exists {
+		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
+	}
+
+	err := device.Unpair(ctx)
+	return &emptypb.Empty{}, err
+}
+
 func (s *DriverGRPCServer) GetTimeSeriesData(ctx context.Context, req *pb.GetTimeSeriesDataRequest) (*pb.GetTimeSeriesDataResponse, error) {
 	s.mu.RLock()
 	device, exists := s.devices[req.Ref.DeviceId]
@@ -753,6 +766,13 @@ func (d *DeviceGRPCClient) Reboot(ctx context.Context) error {
 
 func (d *DeviceGRPCClient) FirmwareUpdate(ctx context.Context) error {
 	_, err := d.client.UpdateFirmware(ctx, &pb.DeviceRef{
+		DeviceId: d.deviceID,
+	})
+	return err
+}
+
+func (d *DeviceGRPCClient) Unpair(ctx context.Context) error {
+	_, err := d.client.Unpair(ctx, &pb.DeviceRef{
 		DeviceId: d.deviceID,
 	})
 	return err

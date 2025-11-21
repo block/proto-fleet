@@ -64,6 +64,9 @@ const (
 	// MinerCommandServiceFirmwareUpdateProcedure is the fully-qualified name of the
 	// MinerCommandService's FirmwareUpdate RPC.
 	MinerCommandServiceFirmwareUpdateProcedure = "/minercommand.v1.MinerCommandService/FirmwareUpdate"
+	// MinerCommandServiceUnpairProcedure is the fully-qualified name of the MinerCommandService's
+	// Unpair RPC.
+	MinerCommandServiceUnpairProcedure = "/minercommand.v1.MinerCommandService/Unpair"
 )
 
 // MinerCommandServiceClient is a client for the minercommand.v1.MinerCommandService service.
@@ -83,6 +86,9 @@ type MinerCommandServiceClient interface {
 	StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamCommandBatchUpdatesResponse], error)
 	GetCommandBatchLogBundle(context.Context, *connect.Request[v1.GetCommandBatchLogBundleRequest]) (*connect.Response[v1.GetCommandBatchLogBundleResponse], error)
 	FirmwareUpdate(context.Context, *connect.Request[v1.FirmwareUpdateRequest]) (*connect.Response[v1.FirmwareUpdateResponse], error)
+	// Unpairs devices from the fleet
+	// Updates pairing status to UNPAIRED and clears credentials on the device
+	Unpair(context.Context, *connect.Request[v1.UnpairRequest]) (*connect.Response[v1.UnpairResponse], error)
 }
 
 // NewMinerCommandServiceClient constructs a client for the minercommand.v1.MinerCommandService
@@ -145,6 +151,11 @@ func NewMinerCommandServiceClient(httpClient connect.HTTPClient, baseURL string,
 			baseURL+MinerCommandServiceFirmwareUpdateProcedure,
 			opts...,
 		),
+		unpair: connect.NewClient[v1.UnpairRequest, v1.UnpairResponse](
+			httpClient,
+			baseURL+MinerCommandServiceUnpairProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -160,6 +171,7 @@ type minerCommandServiceClient struct {
 	streamCommandBatchUpdates *connect.Client[v1.StreamCommandBatchUpdatesRequest, v1.StreamCommandBatchUpdatesResponse]
 	getCommandBatchLogBundle  *connect.Client[v1.GetCommandBatchLogBundleRequest, v1.GetCommandBatchLogBundleResponse]
 	firmwareUpdate            *connect.Client[v1.FirmwareUpdateRequest, v1.FirmwareUpdateResponse]
+	unpair                    *connect.Client[v1.UnpairRequest, v1.UnpairResponse]
 }
 
 // Reboot calls minercommand.v1.MinerCommandService.Reboot.
@@ -212,6 +224,11 @@ func (c *minerCommandServiceClient) FirmwareUpdate(ctx context.Context, req *con
 	return c.firmwareUpdate.CallUnary(ctx, req)
 }
 
+// Unpair calls minercommand.v1.MinerCommandService.Unpair.
+func (c *minerCommandServiceClient) Unpair(ctx context.Context, req *connect.Request[v1.UnpairRequest]) (*connect.Response[v1.UnpairResponse], error) {
+	return c.unpair.CallUnary(ctx, req)
+}
+
 // MinerCommandServiceHandler is an implementation of the minercommand.v1.MinerCommandService
 // service.
 type MinerCommandServiceHandler interface {
@@ -230,6 +247,9 @@ type MinerCommandServiceHandler interface {
 	StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest], *connect.ServerStream[v1.StreamCommandBatchUpdatesResponse]) error
 	GetCommandBatchLogBundle(context.Context, *connect.Request[v1.GetCommandBatchLogBundleRequest]) (*connect.Response[v1.GetCommandBatchLogBundleResponse], error)
 	FirmwareUpdate(context.Context, *connect.Request[v1.FirmwareUpdateRequest]) (*connect.Response[v1.FirmwareUpdateResponse], error)
+	// Unpairs devices from the fleet
+	// Updates pairing status to UNPAIRED and clears credentials on the device
+	Unpair(context.Context, *connect.Request[v1.UnpairRequest]) (*connect.Response[v1.UnpairResponse], error)
 }
 
 // NewMinerCommandServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -288,6 +308,11 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 		svc.FirmwareUpdate,
 		opts...,
 	)
+	minerCommandServiceUnpairHandler := connect.NewUnaryHandler(
+		MinerCommandServiceUnpairProcedure,
+		svc.Unpair,
+		opts...,
+	)
 	return "/minercommand.v1.MinerCommandService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MinerCommandServiceRebootProcedure:
@@ -310,6 +335,8 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 			minerCommandServiceGetCommandBatchLogBundleHandler.ServeHTTP(w, r)
 		case MinerCommandServiceFirmwareUpdateProcedure:
 			minerCommandServiceFirmwareUpdateHandler.ServeHTTP(w, r)
+		case MinerCommandServiceUnpairProcedure:
+			minerCommandServiceUnpairHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -357,4 +384,8 @@ func (UnimplementedMinerCommandServiceHandler) GetCommandBatchLogBundle(context.
 
 func (UnimplementedMinerCommandServiceHandler) FirmwareUpdate(context.Context, *connect.Request[v1.FirmwareUpdateRequest]) (*connect.Response[v1.FirmwareUpdateResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.FirmwareUpdate is not implemented"))
+}
+
+func (UnimplementedMinerCommandServiceHandler) Unpair(context.Context, *connect.Request[v1.UnpairRequest]) (*connect.Response[v1.UnpairResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.Unpair is not implemented"))
 }

@@ -41,6 +41,9 @@ type Miner interface {
 
 	FirmwareUpdate(ctx context.Context) error
 
+	// Unpair clears device credentials and unregisters from fleet
+	Unpair(ctx context.Context) error
+
 	// Telemetry operations
 	GetTelemetry(ctx context.Context, after time.Time) ([]telemetryModels.Telemetry, error)
 	GetDeviceMetrics(ctx context.Context) (modelsV2.DeviceMetrics, error)

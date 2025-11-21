@@ -481,6 +481,21 @@ func (c *Client) Pair(ctx context.Context, key sdk.APIKey) error {
 	return nil
 }
 
+// ClearAuthKey clears the authentication key from the device during unpairing.
+func (c *Client) ClearAuthKey(ctx context.Context) error {
+	ctx = c.withAuth(ctx)
+	resp, err := c.pairingClient.ClearAuthKey(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
+	if err != nil {
+		return fmt.Errorf("failed to clear auth key: %w", err)
+	}
+
+	if resp.Msg.Result != miner_common_api.ApiResult_RESULT_SUCCESS {
+		return fmt.Errorf("clear auth key failed with result: %v", resp.Msg.Result)
+	}
+
+	return nil
+}
+
 // StartMining starts mining operations.
 func (c *Client) StartMining(ctx context.Context) error {
 	ctx = c.withAuth(ctx)

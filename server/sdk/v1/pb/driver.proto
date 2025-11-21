@@ -403,6 +403,7 @@ service Driver {
   rpc UpdateMiningPools(UpdateMiningPoolsRequest) returns (google.protobuf.Empty);
   rpc DownloadLogs(DownloadLogsRequest) returns (DownloadLogsResponse);
   rpc UpdateFirmware(DeviceRef) returns (google.protobuf.Empty);
+  rpc Unpair(DeviceRef) returns (google.protobuf.Empty);
 
   // CoreV1 - Base Telemetry - Required methods
   rpc DeviceStatus(DeviceRef) returns (DeviceMetrics);

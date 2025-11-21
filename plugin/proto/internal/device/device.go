@@ -500,6 +500,29 @@ func (d *Device) FirmwareUpdate(ctx context.Context) error {
 	return nil
 }
 
+// Unpair implements the SDK Device interface.
+//
+// This method clears the authentication key from the device during fleet unpairing.
+func (d *Device) Unpair(ctx context.Context) error {
+	slog.Info("Plugin device starting unpair",
+		"device_id", d.id,
+		"host", d.deviceInfo.Host)
+
+	if err := d.client.ClearAuthKey(ctx); err != nil {
+		return fmt.Errorf("failed to clear auth key: %w", err)
+	}
+
+	// Clear cached status to force fresh data on next query
+	d.mutex.Lock()
+	d.lastStatus = nil
+	d.mutex.Unlock()
+
+	slog.Info("Plugin device unpaired successfully",
+		"device_id", d.id)
+
+	return nil
+}
+
 func (d *Device) TryBatchStatus(ctx context.Context, _ []string) (map[string]sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil
 }

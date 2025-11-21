@@ -20,6 +20,8 @@ const (
 	Reboot
 	BlinkLED
 	FirmwareUpdate
+	// Unpair represents a command to unpair a device from the fleet
+	Unpair
 )
 
 func (t *Type) String() string {
@@ -40,6 +42,8 @@ func (t *Type) String() string {
 		return "BlinkLED"
 	case FirmwareUpdate:
 		return "FirmwareUpdate"
+	case Unpair:
+		return "Unpair"
 
 	default:
 		return "Undefined"
@@ -64,6 +68,8 @@ func FromString(s string) (Type, error) {
 		return BlinkLED, nil
 	case "FirmwareUpdate":
 		return FirmwareUpdate, nil
+	case "Unpair":
+		return Unpair, nil
 
 	default:
 		return Type(-1), fleeterror.NewInternalErrorf("invalid command type: %s", s)

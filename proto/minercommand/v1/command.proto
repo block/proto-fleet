@@ -93,6 +93,14 @@ message FirmwareUpdateResponse {
   string batch_identifier = 1;
 }
 
+message UnpairRequest {
+  DeviceSelector device_selector = 1;
+}
+
+message UnpairResponse {
+  string batch_identifier = 1;
+}
+
 message StreamCommandBatchUpdatesRequest {
   // The identifier of the command batch to stream
   string batch_identifier = 1;
@@ -162,4 +170,8 @@ service MinerCommandService {
   rpc GetCommandBatchLogBundle(GetCommandBatchLogBundleRequest) returns (GetCommandBatchLogBundleResponse);
 
   rpc FirmwareUpdate(FirmwareUpdateRequest) returns (FirmwareUpdateResponse);
+
+  // Unpairs devices from the fleet
+  // Updates pairing status to UNPAIRED and clears credentials on the device
+  rpc Unpair(UnpairRequest) returns (UnpairResponse);
 }

@@ -256,6 +256,14 @@ func (p *PluginMiner) FirmwareUpdate(ctx context.Context) error {
 	return nil
 }
 
+// Unpair implements interfaces.Miner
+func (p *PluginMiner) Unpair(ctx context.Context) error {
+	if err := p.sdkDevice.Unpair(ctx); err != nil {
+		return fleeterror.NewInternalErrorf("failed to unpair device: %v", err)
+	}
+	return nil
+}
+
 // validateAndConvertPoolConfig validates and converts a mining pool config from Fleet format to SDK format.
 // It ensures the priority value fits within int32 range before conversion.
 func validateAndConvertPoolConfig(pool dto.MiningPool, poolName string) (sdk.MiningPoolConfig, error) {

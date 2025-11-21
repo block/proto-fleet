@@ -278,6 +278,20 @@ func (mr *MockDeviceMaintenanceMockRecorder) FirmwareUpdate(ctx interface{}) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FirmwareUpdate", reflect.TypeOf((*MockDeviceMaintenance)(nil).FirmwareUpdate), ctx)
 }
 
+// Unpair mocks base method.
+func (m *MockDeviceMaintenance) Unpair(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Unpair", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Unpair indicates an expected call of Unpair.
+func (mr *MockDeviceMaintenanceMockRecorder) Unpair(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Unpair", reflect.TypeOf((*MockDeviceMaintenance)(nil).Unpair), ctx)
+}
+
 // MockDeviceOptional is a mock of DeviceOptional interface.
 type MockDeviceOptional struct {
 	ctrl     *gomock.Controller
@@ -611,6 +625,20 @@ func (m *MockDevice) TrySubscribe(ctx context.Context, ids []string) (<-chan sdk
 func (mr *MockDeviceMockRecorder) TrySubscribe(ctx, ids interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TrySubscribe", reflect.TypeOf((*MockDevice)(nil).TrySubscribe), ctx, ids)
+}
+
+// Unpair mocks base method.
+func (m *MockDevice) Unpair(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Unpair", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Unpair indicates an expected call of Unpair.
+func (mr *MockDeviceMockRecorder) Unpair(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Unpair", reflect.TypeOf((*MockDevice)(nil).Unpair), ctx)
 }
 
 // UpdateMiningPools mocks base method.

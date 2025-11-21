@@ -11,6 +11,8 @@ import (
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
+	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+	tmodels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
@@ -29,11 +31,13 @@ type MinerGetter interface {
 type ExecutionService struct {
 	config *Config
 
-	conn           *sql.DB
-	messageQueue   queue.MessageQueue
-	encryptService *encrypt.Service
-	tokenService   *tokenDomain.Service
-	minerService   MinerGetter
+	conn              *sql.DB
+	messageQueue      queue.MessageQueue
+	encryptService    *encrypt.Service
+	tokenService      *tokenDomain.Service
+	minerService      MinerGetter
+	deviceStore       stores.DeviceStore
+	telemetryListener TelemetryListener
 
 	workerSemaphore chan struct{}
 
@@ -41,7 +45,7 @@ type ExecutionService struct {
 	queueProcessorRunning bool
 }
 
-func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service, minerService MinerGetter) *ExecutionService {
+func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service, minerService MinerGetter, deviceStore stores.DeviceStore, telemetryListener TelemetryListener) *ExecutionService {
 	return &ExecutionService{
 		config:                config,
 		conn:                  conn,
@@ -49,6 +53,8 @@ func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, mess
 		encryptService:        encryptService,
 		tokenService:          tokenService,
 		minerService:          minerService,
+		deviceStore:           deviceStore,
+		telemetryListener:     telemetryListener,
 		workerSemaphore:       make(chan struct{}, config.MaxWorkers),
 		queueProcessorRunning: false,
 	}
@@ -212,6 +218,14 @@ func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandTyp
 		err = minerInfo.BlinkLED(ctx)
 	case commandtype.FirmwareUpdate:
 		err = minerInfo.FirmwareUpdate(ctx)
+	case commandtype.Unpair:
+		err = minerInfo.Unpair(ctx)
+		if err == nil {
+			if unpairErr := es.handleUnpairPostProcessing(ctx, message.DeviceID); unpairErr != nil {
+				slog.Error("unpair post-processing failed", "device_id", message.DeviceID, "error", unpairErr)
+				err = unpairErr
+			}
+		}
 	default:
 		return fleeterror.NewInternalErrorf("unsupported command type: %v", commandType)
 	}
@@ -224,5 +238,31 @@ func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandTyp
 	if err != nil {
 		return fleeterror.NewInternalErrorf("error setting message as success on queue: %v", err)
 	}
+	return nil
+}
+
+// handleUnpairPostProcessing updates device pairing status and unregisters from telemetry after successful unpair
+func (es *ExecutionService) handleUnpairPostProcessing(ctx context.Context, deviceID int64) error {
+	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (string, error) {
+		return q.GetDeviceIdentifierByID(ctx, deviceID)
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to get device identifier by ID: %v", err)
+	}
+
+	err = es.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, deviceIdentifier, string(sqlc.DevicePairingPairingStatusUNPAIRED))
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to update device pairing status to UNPAIRED: %v", err)
+	}
+
+	slog.Info("device pairing status updated to UNPAIRED", "device_identifier", deviceIdentifier)
+
+	if es.telemetryListener != nil {
+		if err := es.telemetryListener.RemoveDevices(ctx, tmodels.DeviceIdentifier(deviceIdentifier)); err != nil {
+			return fleeterror.NewInternalErrorf("failed to unregister device from telemetry: %v", err)
+		}
+		slog.Info("device unregistered from telemetry", "device_identifier", deviceIdentifier)
+	}
+
 	return nil
 }

@@ -265,14 +265,14 @@ func start(config *Config) error {
 		}
 	}()
 
-	executionService := commandDomain.NewExecutionService(executionServiceCtx, &config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService)
+	executionService := commandDomain.NewExecutionService(executionServiceCtx, &config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService)
 	err = executionService.Start(executionServiceCtx)
 	if err != nil {
 		slog.Error("failed to start command execution service", "error", err)
 	}
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
-	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService)
+	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, telemetryService)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore)
 	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools)
 

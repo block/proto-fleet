@@ -31,7 +31,7 @@ func TestExecutionService_Start(t *testing.T) {
 		svc := NewExecutionService(t.Context(), &Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 10 * time.Millisecond,
-		}, nil, mockQueue, nil, nil, mockMinerGetter)
+		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil)
 
 		// Act
 		err := svc.Start(t.Context())
@@ -62,7 +62,7 @@ func TestExecutionService_Start(t *testing.T) {
 		svc := NewExecutionService(t.Context(), &Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 10 * time.Millisecond,
-		}, nil, mockQueue, nil, nil, mockMinerGetter)
+		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil)
 
 		// Start the service first
 		err := svc.Start(t.Context())
@@ -135,7 +135,7 @@ func TestQueueProcessorRetries(t *testing.T) {
 			MaxWorkers:            5,
 			MasterPollingInterval: time.Millisecond,
 			DequeueRetries:        3,
-		}, nil, mockQueue, nil, nil, mockMinerGetter)
+		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil)
 
 		// Act
 		err := svc.Start(t.Context())
@@ -169,7 +169,7 @@ func TestQueueProcessorRetries(t *testing.T) {
 			MaxWorkers:            5,
 			MasterPollingInterval: time.Millisecond,
 			DequeueRetries:        2, // Only 2 retries allowed
-		}, nil, mockQueue, nil, nil, mockMinerGetter)
+		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil)
 
 		// Act
 		err := svc.Start(t.Context())

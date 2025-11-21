@@ -341,6 +341,8 @@ type DeviceConfiguration interface {
 type DeviceMaintenance interface {
 	DownloadLogs(ctx context.Context, since *time.Time, batchLogUUID string) (logData string, moreData bool, err error)
 	FirmwareUpdate(ctx context.Context) error
+	// Unpair clears device credentials during fleet unpairing
+	Unpair(ctx context.Context) error
 }
 
 // DeviceOptional represents optional device capabilities

@@ -113,6 +113,10 @@ func (m *mockSDKDevice) FirmwareUpdate(ctx context.Context) error {
 	return nil
 }
 
+func (m *mockSDKDevice) Unpair(ctx context.Context) error {
+	return nil
+}
+
 func (m *mockSDKDevice) TryGetWebViewURL(ctx context.Context) (string, bool, error) {
 	if m.tryGetWebViewFunc != nil {
 		return m.tryGetWebViewFunc(ctx)

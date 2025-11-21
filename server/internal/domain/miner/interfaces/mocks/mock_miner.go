@@ -347,6 +347,20 @@ func (mr *MockMinerMockRecorder) StopMining(ctx interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopMining", reflect.TypeOf((*MockMiner)(nil).StopMining), ctx)
 }
 
+// Unpair mocks base method.
+func (m *MockMiner) Unpair(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Unpair", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Unpair indicates an expected call of Unpair.
+func (mr *MockMinerMockRecorder) Unpair(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Unpair", reflect.TypeOf((*MockMiner)(nil).Unpair), ctx)
+}
+
 // UpdateMiningPools mocks base method.
 func (m *MockMiner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
 	m.ctrl.T.Helper()

@@ -16,6 +16,8 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
+	tmodels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
@@ -25,16 +27,23 @@ import (
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
 )
 
+// TelemetryListener provides interface for telemetry registration/unregistration
+type TelemetryListener interface {
+	RemoveDevices(ctx context.Context, deviceIDs ...tmodels.DeviceIdentifier) error
+}
+
 // Service handles miner command operations
 type Service struct {
 	config *Config
 
-	conn             *sql.DB
-	executionService *ExecutionService
-	messageQueue     queue.MessageQueue
-	statusService    *StatusService
-	encryptService   *encrypt.Service
-	filesService     *files.Service
+	conn              *sql.DB
+	executionService  *ExecutionService
+	messageQueue      queue.MessageQueue
+	statusService     *StatusService
+	encryptService    *encrypt.Service
+	filesService      *files.Service
+	deviceStore       stores.DeviceStore
+	telemetryListener TelemetryListener
 }
 
 const defaultPoolPriority uint32 = 0
@@ -46,15 +55,17 @@ type Command struct {
 }
 
 // NewService creates a new command service instance
-func NewService(config *Config, conn *sql.DB, executionService *ExecutionService, messageQueue queue.MessageQueue, statusService *StatusService, encryptService *encrypt.Service, filesService *files.Service) *Service {
+func NewService(config *Config, conn *sql.DB, executionService *ExecutionService, messageQueue queue.MessageQueue, statusService *StatusService, encryptService *encrypt.Service, filesService *files.Service, deviceStore stores.DeviceStore, telemetryListener TelemetryListener) *Service {
 	return &Service{
-		config:           config,
-		conn:             conn,
-		executionService: executionService,
-		messageQueue:     messageQueue,
-		statusService:    statusService,
-		encryptService:   encryptService,
-		filesService:     filesService,
+		config:            config,
+		conn:              conn,
+		executionService:  executionService,
+		messageQueue:      messageQueue,
+		statusService:     statusService,
+		encryptService:    encryptService,
+		filesService:      filesService,
+		deviceStore:       deviceStore,
+		telemetryListener: telemetryListener,
 	}
 }
 
@@ -431,6 +442,17 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 
 	return &pb.FirmwareUpdateResponse{BatchIdentifier: commandBatchLogUUID}, nil
+}
+
+func (s *Service) Unpair(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.UnpairResponse, error) {
+	commandBatchLogUUID, err := s.processCommand(ctx, &Command{commandType: commandtype.Unpair, deviceSelector: deviceSelector, payload: nil})
+	if err != nil {
+		return nil, err
+	}
+
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+
+	return &pb.UnpairResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
 
 func (s *Service) StreamCommandBatchUpdates(ctx context.Context, msg *pb.StreamCommandBatchUpdatesRequest) (<-chan *pb.StreamCommandBatchUpdatesResponse, error) {

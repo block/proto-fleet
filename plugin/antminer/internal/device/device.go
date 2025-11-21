@@ -304,6 +304,12 @@ func (d *Device) FirmwareUpdate(ctx context.Context) error {
 	return fmt.Errorf("firmware update not supported via RPC API - requires web API implementation")
 }
 
+func (d *Device) Unpair(ctx context.Context) error {
+	// No specific unpair action needed for Antminer devices
+	// Unpair is handled optimistically at the database level
+	return nil
+}
+
 // Optional capabilities - these return false to indicate they're not supported
 
 func (d *Device) TryBatchStatus(ctx context.Context, _ []string) (map[string]sdk.DeviceMetrics, bool, error) {
