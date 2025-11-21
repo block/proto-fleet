@@ -22,6 +22,8 @@ import {
   StopMiningRequestSchema,
   StopMiningResponse,
   StreamCommandBatchUpdatesRequestSchema,
+  UnpairRequestSchema,
+  UnpairResponse,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import {
@@ -37,6 +39,7 @@ import {
   Reboot,
   Speedometer,
   Terminal,
+  Unpair,
 } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { variants } from "@/shared/components/Button";
@@ -58,8 +61,13 @@ const MinerActionsMenu = ({
   onActionStart,
   onActionComplete,
 }: MinerActionsMenuProps) => {
-  const { startMining, stopMining, blinkLED, streamCommandBatchUpdates } =
-    useMinerCommand();
+  const {
+    startMining,
+    stopMining,
+    blinkLED,
+    unpair,
+    streamCommandBatchUpdates,
+  } = useMinerCommand();
 
   const [currentAction, setCurrentAction] = useState<SupportedAction | null>(
     null,
@@ -119,6 +127,25 @@ const MinerActionsMenu = ({
           startMiningRequest: startMiningRequest,
           onSuccess: (value: StartMiningResponse) =>
             handleSuccess(deviceActions.wakeUp, id, value.batchIdentifier),
+          onError: handleError.bind(this, id),
+        });
+        break;
+      }
+      case deviceActions.unpair: {
+        const unpairRequest = create(UnpairRequestSchema, {
+          deviceSelector: create(DeviceSelectorSchema, {
+            selectionType: {
+              case: "includeDevices",
+              value: create(DeviceListSchema, {
+                deviceIdentifiers: selectedMiners,
+              }),
+            },
+          }),
+        });
+        unpair({
+          unpairRequest: unpairRequest,
+          onSuccess: (value: UnpairResponse) =>
+            handleSuccess(deviceActions.unpair, id, value.batchIdentifier),
           onError: handleError.bind(this, id),
         });
         break;
@@ -265,6 +292,11 @@ const MinerActionsMenu = ({
 
     const handleWakeUp = () => {
       setCurrentAction(deviceActions.wakeUp);
+      onActionStart?.();
+    };
+
+    const handleUnpair = () => {
+      setCurrentAction(deviceActions.unpair);
       onActionStart?.();
     };
 
@@ -421,6 +453,23 @@ const MinerActionsMenu = ({
         icon: <Lock />,
         actionHandler: handleSecurity,
         requiresConfirmation: false,
+      },
+      // Unpair action
+      {
+        action: deviceActions.unpair,
+        title: "Unpair",
+        icon: <Unpair />,
+        actionHandler: handleUnpair,
+        requiresConfirmation: true,
+        confirmation: {
+          title: `Unpair ${numberOfMiners} ${numberOfMiners === 1 ? "miner" : "miners"}?`,
+          subtitle: `${numberOfMiners === 1 ? "This miner" : "These miners"} will be removed from your fleet and will stop sending telemetry data. You can re-pair ${numberOfMiners === 1 ? "it" : "them"} later.`,
+          confirmAction: {
+            title: "Unpair",
+            variant: variants.secondaryDanger,
+          },
+          testId: "unpair-confirm-button",
+        },
       },
     ] as BulkAction<SupportedAction>[];
   }, [blinkLED, handleSuccess, numberOfMiners, onActionStart, selectedMiners]);

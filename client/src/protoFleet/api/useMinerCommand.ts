@@ -10,6 +10,8 @@ import {
   StopMiningResponse,
   StreamCommandBatchUpdatesRequest,
   StreamCommandBatchUpdatesResponse,
+  UnpairRequest,
+  UnpairResponse,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { useAuthErrors, useAuthHeader } from "@/protoFleet/store";
 
@@ -28,6 +30,12 @@ interface StartMiningProps {
 interface StopMiningProps {
   stopMiningRequest: StopMiningRequest;
   onSuccess: (value: StopMiningResponse) => void;
+  onError?: (error: string) => void;
+}
+
+interface UnpairProps {
+  unpairRequest: UnpairRequest;
+  onSuccess: (value: UnpairResponse) => void;
   onError?: (error: string) => void;
 }
 
@@ -93,6 +101,23 @@ const useMinerCommand = () => {
     [authHeader, handleAuthErrors],
   );
 
+  const unpair = useCallback(
+    async ({ unpairRequest, onSuccess, onError }: UnpairProps) => {
+      await minerCommandClient
+        .unpair(unpairRequest, authHeader)
+        .then((response) => onSuccess(response))
+        .catch((err) => {
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
+        });
+    },
+    [authHeader, handleAuthErrors],
+  );
+
   const streamCommandBatchUpdates = useCallback(
     async ({
       streamRequest,
@@ -137,9 +162,10 @@ const useMinerCommand = () => {
       blinkLED,
       startMining,
       stopMining,
+      unpair,
       streamCommandBatchUpdates,
     }),
-    [blinkLED, startMining, stopMining, streamCommandBatchUpdates],
+    [blinkLED, startMining, stopMining, unpair, streamCommandBatchUpdates],
   );
 };
 

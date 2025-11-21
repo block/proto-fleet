@@ -5,6 +5,7 @@ export const deviceActions = {
   factoryReset: "factory-reset",
   reboot: "reboot",
   shutdown: "shutdown",
+  unpair: "unpair",
   wakeUp: "wake-up",
 } as const;
 
@@ -45,6 +46,7 @@ export const loadingMessages: Record<string, string> = {
   [deviceActions.factoryReset]: "Resetting",
   [deviceActions.reboot]: "Rebooting",
   [deviceActions.shutdown]: "Shutting down",
+  [deviceActions.unpair]: "Unpairing",
   [deviceActions.wakeUp]: "Waking up",
   [performanceActions.curtail]: "Curtailing miners",
 };
@@ -54,6 +56,7 @@ export const successMessages: Record<string, string> = {
   [deviceActions.factoryReset]: "Reset",
   [deviceActions.reboot]: "Rebooted",
   [deviceActions.shutdown]: "Shut down",
+  [deviceActions.unpair]: "Unpaired",
   [deviceActions.wakeUp]: "Woke up",
   [performanceActions.curtail]: "Miners curtailed",
 };

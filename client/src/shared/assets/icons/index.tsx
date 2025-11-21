@@ -69,6 +69,7 @@ import ThemeDark from "./ThemeDark";
 import ThemeLight from "./ThemeLight";
 import ThemeSystem from "./ThemeSystem";
 import Triangle from "./Triangle";
+import Unpair from "./Unpair";
 import type { IconProps } from "./types";
 
 export {
@@ -144,4 +145,5 @@ export {
   ThemeLight,
   ThemeSystem,
   Triangle,
+  Unpair,
 };
