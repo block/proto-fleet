@@ -14,6 +14,8 @@ export const useAccessToken = () =>
 
 export const useUsername = () => useFleetStore((state) => state.auth.username);
 
+export const useRole = () => useFleetStore((state) => state.auth.role);
+
 export const useAuthLoading = () =>
   useFleetStore((state) => state.auth.authLoading);
 
@@ -29,6 +31,8 @@ export const useSetAuthTokens = () =>
 
 export const useSetUsername = () =>
   useFleetStore((state) => state.auth.setUsername);
+
+export const useSetRole = () => useFleetStore((state) => state.auth.setRole);
 
 export const useSetAuthLoading = () =>
   useFleetStore((state) => state.auth.setAuthLoading);

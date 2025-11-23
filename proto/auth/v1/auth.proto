@@ -53,9 +53,9 @@ message AuthenticateResponse {
     // Clients should request a new token before this time to maintain sessions
     int64 token_expiry = 2;
 
-    // Indicates whether the user must change their password
-    // If true, the user should be redirected to update their password
-    bool requires_password_change = 3;
+    // Authenticated user information
+    // Contains user_id, username, role, password change requirements, and audit timestamps
+    UserInfo user_info = 3;
 }
 
 enum AuthenticateErrorCode {

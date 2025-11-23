@@ -16,12 +16,14 @@ export interface AuthTokens {
 export interface AuthSlice {
   authTokens: AuthTokens;
   username: string;
+  role: string;
   authLoading: boolean;
   temporaryPassword: string | null;
 
   // Actions
   setAuthTokens: (tokens: AuthTokens) => void;
   setUsername: (username: string) => void;
+  setRole: (role: string) => void;
   setAuthLoading: (loading: boolean) => void;
   setTemporaryPassword: (password: string | null) => void;
   logout: () => void;
@@ -42,6 +44,7 @@ export const createAuthSlice: StateCreator<
     accessToken: { value: "", expiry: new Date() },
   },
   username: "",
+  role: "",
   authLoading: true,
   temporaryPassword: null,
 
@@ -54,6 +57,11 @@ export const createAuthSlice: StateCreator<
   setUsername: (username) =>
     set((state) => {
       state.auth.username = username;
+    }),
+
+  setRole: (role) =>
+    set((state) => {
+      state.auth.role = role;
     }),
 
   setAuthLoading: (loading) =>
@@ -72,6 +80,7 @@ export const createAuthSlice: StateCreator<
         accessToken: { value: "", expiry: new Date() },
       };
       state.auth.username = "";
+      state.auth.role = "";
       state.auth.authLoading = false;
       state.auth.temporaryPassword = null;
     }),

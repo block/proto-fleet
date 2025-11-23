@@ -4,7 +4,7 @@ import AddTeamMemberModal from "@/protoFleet/features/settings/components/AddTea
 import DeactivateUserModal from "@/protoFleet/features/settings/components/DeactivateUserModal";
 import ResetPasswordModal from "@/protoFleet/features/settings/components/ResetPasswordModal";
 import { formatRole } from "@/protoFleet/features/settings/utils/formatRole";
-import { useFleetStore } from "@/protoFleet/store";
+import { useRole } from "@/protoFleet/store";
 import { Lock, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
@@ -33,10 +33,9 @@ const colTitles: ColTitles<UserColumns> = {
 
 const Team = () => {
   const { listUsers, resetUserPassword, deactivateUser } = useUserManagement();
-  const currentUsername = useFleetStore((state) => state.auth.username);
+  const currentUserRole = useRole();
   const [users, setUsers] = useState<UserData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [resetPasswordUser, setResetPasswordUser] = useState<UserData | null>(
     null,
@@ -55,12 +54,6 @@ const Team = () => {
     listUsers({
       onSuccess: (userList) => {
         setUsers(userList);
-        const currentUser = userList.find(
-          (user) => user.username === currentUsername,
-        );
-        if (currentUser) {
-          setCurrentUserRole(currentUser.role);
-        }
       },
       onError: (error) => {
         pushToast({
@@ -72,7 +65,7 @@ const Team = () => {
         setIsLoading(false);
       },
     });
-  }, [listUsers, currentUsername]);
+  }, [listUsers]);
 
   useEffect(() => {
     fetchUsers();

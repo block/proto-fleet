@@ -89,10 +89,29 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 		return nil, err
 	}
 
+	// Get user's role
+	roleName, err := s.userManagementStore.GetUserRoleName(ctx, user.ID, orgs[0].ID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting user role: %v", err)
+	}
+
+	// Get password updated timestamp
+	passwordUpdatedAt, err := s.userStore.PasswordUpdatedAt(ctx, user.ID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting password updated timestamp: %v", err)
+	}
+
 	return &authv1.AuthenticateResponse{
-		Token:                  authToken,
-		TokenExpiry:            exp,
-		RequiresPasswordChange: user.RequiresPasswordChange,
+		Token:       authToken,
+		TokenExpiry: exp,
+		UserInfo: &authv1.UserInfo{
+			UserId:                 user.UserID,
+			Username:               user.Username,
+			PasswordUpdatedAt:      timestamppb.New(passwordUpdatedAt),
+			LastLoginAt:            toTimestampProto(user.LastLoginAt),
+			Role:                   roleName,
+			RequiresPasswordChange: user.RequiresPasswordChange,
+		},
 	}, nil
 }
 

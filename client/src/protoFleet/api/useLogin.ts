@@ -5,6 +5,7 @@ import type { AuthenticateRequest } from "@/protoFleet/api/generated/auth/v1/aut
 import {
   useSetAuthLoading,
   useSetAuthTokens,
+  useSetRole,
   useSetUsername,
 } from "@/protoFleet/store";
 import { useAuthErrors } from "@/protoFleet/store/hooks/useAuth";
@@ -19,6 +20,7 @@ interface LoginProps {
 const useLogin = () => {
   const setAuthTokens = useSetAuthTokens();
   const setUsername = useSetUsername();
+  const setRole = useSetRole();
   const setAuthLoading = useSetAuthLoading();
   const { handleAuthErrors } = useAuthErrors();
 
@@ -29,16 +31,22 @@ const useLogin = () => {
         .then((res) => {
           const accessTokenValue = res.token;
           const tokenExpiry = res.tokenExpiry;
-          const requiresPasswordChange = res.requiresPasswordChange;
+          const userInfo = res.userInfo;
+
+          if (!userInfo) {
+            throw new Error("User info missing from authentication response");
+          }
+
           setAuthTokens({
             accessToken: {
               value: accessTokenValue,
               expiry: new Date(Number(tokenExpiry) * 1000),
             },
           });
-          setUsername(loginRequest.username);
+          setUsername(userInfo.username);
+          setRole(userInfo.role);
           setAuthLoading(false);
-          onSuccess?.(accessTokenValue, requiresPasswordChange);
+          onSuccess?.(accessTokenValue, userInfo.requiresPasswordChange);
         })
         .catch((err) => {
           handleAuthErrors({
@@ -52,7 +60,7 @@ const useLogin = () => {
           onFinally?.();
         });
     },
-    [setAuthTokens, setUsername, setAuthLoading, handleAuthErrors],
+    [setAuthTokens, setUsername, setRole, setAuthLoading, handleAuthErrors],
   );
 
   return login;

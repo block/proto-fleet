@@ -32,7 +32,7 @@ export interface FleetStore {
 
 // Type for the partial state that we persist
 type PersistedFleetState = {
-  auth: Pick<AuthSlice, "authTokens">;
+  auth: Pick<AuthSlice, "authTokens" | "username" | "role">;
   ui: Pick<UISlice, "theme" | "temperatureUnit" | "duration">;
 };
 
@@ -71,7 +71,7 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
     setItem: (_, value): void => {
       const state = value.state as PersistedFleetState;
 
-      // Save auth tokens separately
+      // Save auth data separately
       if (state.auth) {
         localStorage.setItem(
           AUTH_KEY,
@@ -79,6 +79,8 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
             state: {
               auth: {
                 authTokens: state.auth.authTokens,
+                username: state.auth.username,
+                role: state.auth.role,
               },
             },
             version: value.version,
@@ -131,6 +133,8 @@ export const useFleetStore = create<FleetStore>()(
           partialize: (state) => ({
             auth: {
               authTokens: state.auth.authTokens,
+              username: state.auth.username,
+              role: state.auth.role,
             },
             ui: {
               theme: state.ui.theme,
@@ -149,6 +153,9 @@ export const useFleetStore = create<FleetStore>()(
                 ...currentState.auth,
                 authTokens:
                   persisted?.auth?.authTokens ?? currentState.auth.authTokens,
+                username:
+                  persisted?.auth?.username ?? currentState.auth.username,
+                role: persisted?.auth?.role ?? currentState.auth.role,
                 // If we have persisted tokens, set loading to false
                 authLoading: hasPersistedTokens
                   ? false

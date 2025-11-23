@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { action } from "storybook/actions";
 import AddTeamMemberModal from "./AddTeamMemberModal";
 import { authClient } from "@/protoFleet/api/clients";
