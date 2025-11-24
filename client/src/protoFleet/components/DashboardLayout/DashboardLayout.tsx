@@ -1,10 +1,13 @@
 import { useMemo } from "react";
-import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import useFleet from "@/protoFleet/api/useFleet";
 import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
+import { EfficiencyPanel } from "@/protoFleet/features/dashboard/components/EfficiencyPanel";
 import FleetHealth from "@/protoFleet/features/dashboard/components/FleetHealth";
+import { HashratePanel } from "@/protoFleet/features/dashboard/components/HashratePanel";
+import { PowerPanel } from "@/protoFleet/features/dashboard/components/PowerPanel";
 import SectionHeading from "@/protoFleet/features/dashboard/components/SectionHeading";
 import { TemperaturePanel } from "@/protoFleet/features/dashboard/components/TemperaturePanel";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
@@ -24,7 +27,7 @@ const DashboardLayout = () => {
   const devicePaired = useDevicePaired();
   useFleet({
     scope: "global",
-    mode: "metadata",
+    mode: "snapshot",
     pairingStatuses: [
       PairingStatus.PAIRED,
       PairingStatus.AUTHENTICATION_NEEDED,
@@ -94,21 +97,33 @@ const DashboardLayout = () => {
           </section>
 
           {/* Performance Section */}
-          <section className="p-10 pb-6 phone:p-6 tablet:p-6">
+          <section className="flex flex-col gap-6 p-10 pb-6 phone:p-6 tablet:p-6">
             <SectionHeading heading="Performance">
               <DurationSelector duration={duration} onSelect={setDuration} />
             </SectionHeading>
 
-            {/* Temperature Panel - shows temperature status distribution */}
-            <div className="mt-6">
+            <div className="flex flex-col gap-1">
+              {/* Hashrate Panel - shows fleet hashrate over time */}
+              <HashratePanel duration={duration} />
+
+              {/* Temperature Panel - shows temperature status distribution */}
               <TemperaturePanel
                 temperatureStatusCounts={temperatureStatusCounts}
                 isLoading={isLoading}
               />
+
+              {/* Power and Efficiency Panels - side by side */}
+              <div className="grid grid-cols-2 gap-1 phone:grid-cols-1 tablet:grid-cols-1">
+                {/* Power Panel - shows fleet power consumption over time */}
+                <PowerPanel duration={duration} />
+
+                {/* Efficiency Panel - shows fleet efficiency over time */}
+                <EfficiencyPanel duration={duration} />
+              </div>
             </div>
 
-            {/* TODO: Add other Performance charts (Hashrate, Uptime, Power, Efficiency) */}
-            <p className="mt-6 text-300 text-text-primary">
+            {/* TODO: Add Uptime chart */}
+            <p className="text-300 text-text-primary">
               Data gaps may occur where third-party miner telemetry is
               unavailable. Efficiency and power reports will not reflect
               Antminer devices.

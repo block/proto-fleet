@@ -12,8 +12,8 @@ import {
 import {
   useAuthErrors,
   useAuthHeader,
-  useSetTemperatureStatusCounts,
   useFleetStore,
+  useSetTemperatureStatusCounts,
 } from "@/protoFleet/store";
 
 interface StreamingOptions {

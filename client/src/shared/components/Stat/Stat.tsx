@@ -62,15 +62,13 @@ const Stat = ({
           initial={{ opacity: 0 }}
           transition={{ duration: 0.5, ease: easeGentle }}
           className={clsx(
-            "overflow-hidden overflow-ellipsis whitespace-nowrap text-text-primary-30",
+            "overflow-hidden overflow-ellipsis whitespace-nowrap text-text-primary",
             size === "large" && "text-heading-300",
             size === "medium" && "text-heading-200",
             size === "small" && "text-heading-100",
           )}
         >
-          <span className={clsx("text-text-primary", valueClassName)}>
-            {getDisplayValue(value)}
-          </span>{" "}
+          <span className={valueClassName}>{getDisplayValue(value)}</span>{" "}
           {units && units}
         </motion.div>
       )}
