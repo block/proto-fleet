@@ -123,6 +123,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDiscoveredDeviceByIDStmt, err = db.PrepareContext(ctx, getDiscoveredDeviceByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDiscoveredDeviceByID: %w", err)
 	}
+	if q.getDiscoveredDeviceByIPAndPortStmt, err = db.PrepareContext(ctx, getDiscoveredDeviceByIPAndPort); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDiscoveredDeviceByIPAndPort: %w", err)
+	}
 	if q.getMessagesToProcessStmt, err = db.PrepareContext(ctx, getMessagesToProcess); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMessagesToProcess: %w", err)
 	}
@@ -492,6 +495,11 @@ func (q *Queries) Close() error {
 	if q.getDiscoveredDeviceByIDStmt != nil {
 		if cerr := q.getDiscoveredDeviceByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDiscoveredDeviceByIDStmt: %w", cerr)
+		}
+	}
+	if q.getDiscoveredDeviceByIPAndPortStmt != nil {
+		if cerr := q.getDiscoveredDeviceByIPAndPortStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDiscoveredDeviceByIPAndPortStmt: %w", cerr)
 		}
 	}
 	if q.getMessagesToProcessStmt != nil {
@@ -901,6 +909,7 @@ type Queries struct {
 	getDeviceWithCredentialsAndIPByIDStmt               *sql.Stmt
 	getDiscoveredDeviceByDeviceIdentifierStmt           *sql.Stmt
 	getDiscoveredDeviceByIDStmt                         *sql.Stmt
+	getDiscoveredDeviceByIPAndPortStmt                  *sql.Stmt
 	getMessagesToProcessStmt                            *sql.Stmt
 	getMinerCredentialsByDeviceIDStmt                   *sql.Stmt
 	getOfflineDevicesStmt                               *sql.Stmt
@@ -1007,6 +1016,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceWithCredentialsAndIPByIDStmt:               q.getDeviceWithCredentialsAndIPByIDStmt,
 		getDiscoveredDeviceByDeviceIdentifierStmt:           q.getDiscoveredDeviceByDeviceIdentifierStmt,
 		getDiscoveredDeviceByIDStmt:                         q.getDiscoveredDeviceByIDStmt,
+		getDiscoveredDeviceByIPAndPortStmt:                  q.getDiscoveredDeviceByIPAndPortStmt,
 		getMessagesToProcessStmt:                            q.getMessagesToProcessStmt,
 		getMinerCredentialsByDeviceIDStmt:                   q.getMinerCredentialsByDeviceIDStmt,
 		getOfflineDevicesStmt:                               q.getOfflineDevicesStmt,

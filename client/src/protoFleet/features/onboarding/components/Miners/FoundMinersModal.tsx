@@ -13,14 +13,12 @@ import Modal, { ModalSelectAllFooter } from "@/shared/components/Modal";
 
 const activeCols = [
   "model",
-  "serialNumber",
-  "macAddress",
+  "ipAddress",
 ] as (keyof MinerWithSelectedAndAction)[];
 
 const minerColTitles = {
   model: "Model",
-  serialNumber: "Control board serial",
-  macAddress: "MAC address",
+  ipAddress: "IP address",
 } as {
   [key in (typeof activeCols)[number]]: string;
 };
@@ -29,10 +27,7 @@ const colConfig = {
   model: {
     width: "w-full pr-10",
   },
-  serialNumber: {
-    width: "w-full pr-10",
-  },
-  macAddress: {
+  ipAddress: {
     width: "w-full pr-10",
   },
 };

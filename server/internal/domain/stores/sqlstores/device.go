@@ -401,11 +401,12 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 }
 
 func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *stores.MinerFilter) (*tm.MinerStateCounts, error) {
-	_, typeFilter := buildFilterParams(filter)
+	statusFilter, typeFilter := buildFilterParams(filter)
 
 	counts, err := s.getQueries(ctx).CountMinersByState(ctx, sqlc.CountMinersByStateParams{
-		OrgID:      orgID,
-		TypeFilter: typeFilter,
+		OrgID:        orgID,
+		StatusFilter: statusFilter,
+		TypeFilter:   typeFilter,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to count miners by state: %v", err)

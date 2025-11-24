@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import useFleet from "@/protoFleet/api/useFleet";
 import useStreamMinerListUpdates from "@/protoFleet/api/useStreamMinerListUpdates";
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
@@ -7,6 +8,7 @@ import { parseFilterFromURL } from "@/protoFleet/features/fleetManagement/utils/
 import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup";
 import Miners from "@/protoFleet/features/onboarding/components/Miners";
 import { useVisibleMiners } from "@/protoFleet/hooks";
+import { useNotifyPairingCompleted } from "@/protoFleet/store";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 
@@ -26,20 +28,37 @@ const Fleet = () => {
 
   // Fetch all devices (both paired and unpaired) with a single API call
   // Only subscribe to telemetry for visible miners
-  const { minerIds, totalMiners, hasMore, isLoading, loadMore } = useFleet({
-    scope: "global",
-    pageSize: 100,
-    visibleMinerIds,
-    mode: "snapshot",
-    filter: currentFilter,
-  });
+  const { minerIds, totalMiners, hasMore, isLoading, loadMore, refetch } =
+    useFleet({
+      scope: "global",
+      pageSize: 100,
+      visibleMinerIds,
+      mode: "snapshot",
+      filter: currentFilter,
+      pairingStatuses: [
+        PairingStatus.PAIRED,
+        PairingStatus.AUTHENTICATION_NEEDED,
+      ],
+    });
 
   // Stream incremental updates for the current filter
   useStreamMinerListUpdates({
     filter: currentFilter,
   });
 
+  const notifyPairingCompleted = useNotifyPairingCompleted();
   const [showAddMinersModal, setShowAddMinersModal] = useState(false);
+
+  const handleAddMinersClose = () => {
+    // Refetch fleet data to show newly paired miners
+    // The refetchFleet() call in MinersWrapper should have already triggered this,
+    // but we call it again here to ensure data freshness when modal closes
+    refetch();
+    // Notify store that pairing operations completed
+    // This signals CompleteSetup to refetch auth-needed count
+    notifyPairingCompleted();
+    setShowAddMinersModal(false);
+  };
 
   return (
     <>
@@ -76,7 +95,7 @@ const Fleet = () => {
       ) : null}
 
       {showAddMinersModal && (
-        <Miners mode="pairing" onExit={() => setShowAddMinersModal(false)} />
+        <Miners mode="pairing" onExit={handleAddMinersClose} />
       )}
     </>
   );

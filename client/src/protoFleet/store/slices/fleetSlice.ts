@@ -155,6 +155,9 @@ export interface FleetSlice {
   isStreaming: boolean;
   cursor: string;
 
+  // Pairing coordination
+  lastPairingCompletedAt: number; // timestamp when pairing operations last completed
+
   // Refetch callback
   refetchMiners?: () => void;
 
@@ -186,6 +189,7 @@ export interface FleetSlice {
   setLoading: (loading: boolean) => void;
   setStreaming: (streaming: boolean) => void;
   setCursor: (cursor: string) => void;
+  notifyPairingCompleted: () => void;
 
   // Selectors
   getMinersArray: () => MinerStateSnapshot[];
@@ -210,6 +214,7 @@ export const createFleetSlice: StateCreator<
   isLoading: false,
   isStreaming: false,
   cursor: "",
+  lastPairingCompletedAt: 0,
   refetchMiners: undefined,
 
   // Actions
@@ -353,6 +358,11 @@ export const createFleetSlice: StateCreator<
   setCursor: (cursor) =>
     set((state) => {
       state.fleet.cursor = cursor;
+    }),
+
+  notifyPairingCompleted: () =>
+    set((state) => {
+      state.fleet.lastPairingCompletedAt = Date.now();
     }),
 
   // Selectors

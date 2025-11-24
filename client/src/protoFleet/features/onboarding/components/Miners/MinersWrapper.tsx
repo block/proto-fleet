@@ -8,7 +8,6 @@ import {
   DiscoverRequestSchema,
   PairRequestSchema,
 } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
-import useFleet from "@/protoFleet/api/useFleet";
 import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
@@ -16,7 +15,7 @@ import {
   defaultDiscoveryPorts,
   defaultTimeout,
 } from "@/protoFleet/features/onboarding/constants";
-import { useMinerIds } from "@/protoFleet/store";
+import { useFleetStore, useMinerIds } from "@/protoFleet/store";
 import {
   pushToast,
   STATUSES as TOAST_STATUSES,
@@ -51,10 +50,13 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
   const [foundMiners, setFoundMiners] = useState<Device[]>([]);
 
   const { refetch } = useOnboardedStatus();
-  const { refetch: refetchFleet } = useFleet({
-    scope: "global",
-    mode: "metadata",
-  });
+
+  // Get refetch callback from global store instead of creating a new useFleet instance
+  // This avoids overwriting the Fleet component's refetch callback
+  const refetchFleet = () => {
+    const callback = useFleetStore.getState().fleet.refetchMiners;
+    callback?.();
+  };
 
   const minerIds = useMinerIds();
   // Process discovered miners, ensuring no duplicates
@@ -175,7 +177,6 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
           navigate("/");
         } else {
           onExit?.();
-          navigate(0);
         }
       },
       onError: (error) => {

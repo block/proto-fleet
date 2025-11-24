@@ -22,9 +22,10 @@ FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
-WHERE dp.pairing_status = 'PAIRED'
-  AND d.deleted_at IS NULL
+WHERE d.deleted_at IS NULL
   AND d.org_id = ?
+  AND dd.is_active = TRUE
+  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
   AND (? is null OR FIND_IN_SET(ds.status, ?))
   AND (? is null OR FIND_IN_SET(dd.type, ?))
 `

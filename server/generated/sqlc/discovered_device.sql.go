@@ -193,6 +193,46 @@ func (q *Queries) GetDiscoveredDeviceByID(ctx context.Context, arg GetDiscovered
 	return i, err
 }
 
+const getDiscoveredDeviceByIPAndPort = `-- name: GetDiscoveredDeviceByIPAndPort :one
+SELECT id, org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, created_at, updated_at, deleted_at, is_active
+FROM discovered_device
+WHERE org_id = ?
+    AND ip_address = ?
+    AND port = ?
+    AND deleted_at IS NULL
+LIMIT 1
+`
+
+type GetDiscoveredDeviceByIPAndPortParams struct {
+	OrgID     int64
+	IpAddress string
+	Port      string
+}
+
+func (q *Queries) GetDiscoveredDeviceByIPAndPort(ctx context.Context, arg GetDiscoveredDeviceByIPAndPortParams) (DiscoveredDevice, error) {
+	row := q.queryRow(ctx, q.getDiscoveredDeviceByIPAndPortStmt, getDiscoveredDeviceByIPAndPort, arg.OrgID, arg.IpAddress, arg.Port)
+	var i DiscoveredDevice
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.DeviceIdentifier,
+		&i.Model,
+		&i.Manufacturer,
+		&i.Type,
+		&i.IpAddress,
+		&i.Port,
+		&i.UrlScheme,
+		&i.DiscoveryMetadata,
+		&i.FirstDiscovered,
+		&i.LastSeen,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.IsActive,
+	)
+	return i, err
+}
+
 const upsertDiscoveredDevice = `-- name: UpsertDiscoveredDevice :execresult
 INSERT INTO discovered_device (
     org_id,
@@ -219,7 +259,6 @@ ON DUPLICATE KEY UPDATE
     ip_address = VALUES(ip_address),
     port = VALUES(port),
     url_scheme = VALUES(url_scheme),
-    is_active = VALUES(is_active),
     last_seen = CURRENT_TIMESTAMP(6),
     id = LAST_INSERT_ID(id)
 `

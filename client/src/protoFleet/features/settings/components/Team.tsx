@@ -67,9 +67,12 @@ const Team = () => {
     });
   }, [listUsers]);
 
+  // fetchUsers is a stable callback that internally manages state updates
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     fetchUsers();
   }, [fetchUsers]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const colConfig: ColConfig<UserData, string, UserColumns> = useMemo(
     () => ({

@@ -113,3 +113,9 @@ export const useSetStreaming = () =>
 
 export const useSetCursor = () =>
   useFleetStore((state) => state.fleet.setCursor);
+
+export const useLastPairingCompletedAt = () =>
+  useFleetStore((state) => state.fleet.lastPairingCompletedAt);
+
+export const useNotifyPairingCompleted = () =>
+  useFleetStore((state) => state.fleet.notifyPairingCompleted);

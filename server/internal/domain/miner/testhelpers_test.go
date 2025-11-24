@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,6 +27,10 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 )
+
+// Global counter for generating unique test IPs
+// Using atomic operations ensures uniqueness even in parallel tests
+var testDeviceIPCounter uint32
 
 var (
 	testContainer        *mysql.MySQLContainer
@@ -235,10 +240,22 @@ func createDiscoveredDevice(t *testing.T, db *sql.DB, model string, manufacturer
 	// Generate a unique device_identifier for the discovered device
 	deviceIdentifier := fmt.Sprintf("test-discovered-%s-%d", deviceType, time.Now().UnixNano())
 
+	// Use unique IP to avoid constraint violations on (org_id, ip_address, port)
+	// Port remains stable based on device type (e.g., 2121 for proto, 4028 for antminer)
+	// Use an atomic counter to ensure unique IPs even in parallel tests
+	counter := atomic.AddUint32(&testDeviceIPCounter, 1)
+	uniqueIP := fmt.Sprintf("192.168.%d.%d", (counter>>8)&0xFF, counter&0xFF)
+
+	// Use standard ports for each device type
+	port := "4028" // default
+	if deviceType == "proto" {
+		port = "2121"
+	}
+
 	discoveredDeviceResult, err := db.Exec(`
 		INSERT INTO discovered_device (org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, orgID, deviceIdentifier, model, manufacturer, deviceType, "192.168.1.100", "4028", "https")
+	`, orgID, deviceIdentifier, model, manufacturer, deviceType, uniqueIP, port, "https")
 	require.NoError(t, err)
 
 	discoveredDeviceID, err := discoveredDeviceResult.LastInsertId()

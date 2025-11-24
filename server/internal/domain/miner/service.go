@@ -3,6 +3,7 @@ package miner
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
@@ -20,9 +21,9 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
 )
 
-var _ telemetry.MinerGetter = &MinerService{}
+var _ telemetry.MinerGetter = &Service{}
 
-type MinerService struct {
+type Service struct {
 	// TODO: DASH-579: Refactor this to use a store instead of SQLConnectionManager directly
 	sqlstores.SQLConnectionManager
 	userStore      stores.UserStore
@@ -38,7 +39,7 @@ type PluginManager interface {
 	plugins.PluginDriverGetter
 }
 
-func NewMinerService(db *sql.DB, userStore stores.UserStore, encryptService *encrypt.Service, filesService *files.Service, tokenService *token.Service, pluginManager PluginManager) *MinerService {
+func NewMinerService(db *sql.DB, userStore stores.UserStore, encryptService *encrypt.Service, filesService *files.Service, tokenService *token.Service, pluginManager PluginManager) *Service {
 	if db == nil {
 		panic("database cannot be nil")
 	}
@@ -49,7 +50,7 @@ func NewMinerService(db *sql.DB, userStore stores.UserStore, encryptService *enc
 		panic("files service cannot be nil")
 	}
 
-	return &MinerService{
+	return &Service{
 		SQLConnectionManager: sqlstores.NewSQLConnectionManager(db),
 		userStore:            userStore,
 		encryptService:       encryptService,
@@ -59,10 +60,10 @@ func NewMinerService(db *sql.DB, userStore stores.UserStore, encryptService *enc
 	}
 }
 
-func (s *MinerService) GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error) {
+func (s *Service) GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error) {
 	deviceData, err := s.GetQueries(ctx).GetDeviceWithCredentialsAndIPByID(ctx, deviceID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("device not found: %d", deviceID)
 		}
 		return nil, fmt.Errorf("failed to get device data: %w", err)
@@ -82,14 +83,14 @@ func (s *MinerService) GetMiner(ctx context.Context, deviceID int64) (interfaces
 	)
 }
 
-func (s *MinerService) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID models.DeviceIdentifier) (interfaces.Miner, error) {
+func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID models.DeviceIdentifier) (interfaces.Miner, error) {
 	if deviceID == "" {
 		return nil, fmt.Errorf("device ID cannot be empty")
 	}
 
 	deviceData, err := s.GetQueries(ctx).GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, string(deviceID))
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("device not found: %s", deviceID)
 		}
 		return nil, fmt.Errorf("failed to get device data: %w", err)
@@ -109,7 +110,7 @@ func (s *MinerService) GetMinerFromDeviceIdentifier(ctx context.Context, deviceI
 	)
 }
 
-func (s *MinerService) getProtoMinerAuthPrivateKey(ctx context.Context, orgID int64) ([]byte, error) {
+func (s *Service) getProtoMinerAuthPrivateKey(ctx context.Context, orgID int64) ([]byte, error) {
 	encryptedKey, err := s.userStore.GetOrganizationPrivateKey(ctx, orgID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error getting org private key: %v", err)
@@ -123,7 +124,7 @@ func (s *MinerService) getProtoMinerAuthPrivateKey(ctx context.Context, orgID in
 	return privateKey, nil
 }
 
-func (s *MinerService) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, devicePort string, deviceType string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string) (interfaces.Miner, error) {
+func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, devicePort string, deviceType string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string) (interfaces.Miner, error) {
 	// Parse device type string once at entry point
 	// Note: model is not available here, but Type should already be correctly stored in DB.
 	// TypeFromDeviceInfo falls back to TypeFromString for non-"asic" types.
@@ -141,7 +142,7 @@ func (s *MinerService) createMiner(ctx context.Context, deviceIdentifier string,
 	return nil, fmt.Errorf("no plugin available for miner type %s - please ensure the appropriate plugin is installed and loaded", minerType)
 }
 
-func (s *MinerService) createPluginMiner(ctx context.Context, deviceIdentifier string, orgID int64, minerType models.Type, devicePort string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string) (interfaces.Miner, error) {
+func (s *Service) createPluginMiner(ctx context.Context, deviceIdentifier string, orgID int64, minerType models.Type, devicePort string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string) (interfaces.Miner, error) {
 	// Use the plugin factory to create the miner - this encapsulates all SDK logic
 	return plugins.NewPluginMinerWithCredentials(ctx, plugins.PluginMinerConfig{
 		DeviceIdentifier:   deviceIdentifier,

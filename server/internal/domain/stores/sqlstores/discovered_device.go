@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -101,10 +102,27 @@ func (s *SQLDiscoveredDeviceStore) GetDevice(ctx context.Context, doi discoverym
 		OrgID:            doi.OrgID,
 	})
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, minerdiscovery.MinerNotFoundFleetError
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to query discovered device: %v", err)
+	}
+
+	return toDiscoveredDevice(dbDevice), nil
+}
+
+// GetByIPAndPort retrieves a discovered device by its IP address and port for a given organization
+func (s *SQLDiscoveredDeviceStore) GetByIPAndPort(ctx context.Context, orgID int64, ipAddress string, port string) (*discoverymodels.DiscoveredDevice, error) {
+	dbDevice, err := s.getQueries(ctx).GetDiscoveredDeviceByIPAndPort(ctx, sqlc.GetDiscoveredDeviceByIPAndPortParams{
+		OrgID:     orgID,
+		IpAddress: ipAddress,
+		Port:      port,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, minerdiscovery.MinerNotFoundFleetError
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to query discovered device by IP and port: %v", err)
 	}
 
 	return toDiscoveredDevice(dbDevice), nil
@@ -117,7 +135,7 @@ func (s *SQLDiscoveredDeviceStore) GetDatabaseID(ctx context.Context, doi discov
 		OrgID:            doi.OrgID,
 	})
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return 0, minerdiscovery.MinerNotFoundFleetError
 		}
 		return 0, fleeterror.NewInternalErrorf("failed to query discovered device: %v", err)

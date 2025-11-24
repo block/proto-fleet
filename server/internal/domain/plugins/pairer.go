@@ -82,6 +82,13 @@ func (p *Pairer) PairDevice(ctx context.Context, discoveredDevice *discoverymode
 		return err
 	}
 
+	// Check if credentials are required but not provided for non-Proto devices
+	// Proto devices use asymmetric key authentication, while others require username/password
+	if p.minerType != models.TypeProto && credentials == nil {
+		// Ensure error message is reliably detectable by downstream logic (see isCredentialsRequiredError in service.go)
+		return fleeterror.NewInvalidArgumentErrorf("invalid_argument: credentials are required for %s pairing", p.minerType)
+	}
+
 	deviceInfo := convertFleetDeviceToSDKDeviceInfo(&discoveredDevice.Device)
 
 	secretBundle, err := p.createSecretBundle(ctx, discoveredDevice.OrgID, credentials)

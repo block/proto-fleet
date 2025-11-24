@@ -91,6 +91,7 @@ func (d *Discoverer) Discover(ctx context.Context, ipAddress string, port string
 			Capabilities:     fleetDevice.Capabilities,
 		},
 		OrgID:           0,
+		IsActive:        true,
 		FirstDiscovered: time.Now(),
 		LastSeen:        time.Now(),
 	}
@@ -225,6 +226,7 @@ func (d *MultiTypeDiscoverer) Discover(ctx context.Context, ipAddress string, po
 				Capabilities:     fleetDevice.Capabilities,
 			},
 			OrgID:           0,
+			IsActive:        true,
 			FirstDiscovered: time.Now(),
 			LastSeen:        time.Now(),
 		}

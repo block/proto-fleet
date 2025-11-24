@@ -1,3 +1,4 @@
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import useFleet from "@/protoFleet/api/useFleet";
 import FleetHealth from "@/protoFleet/features/dashboard/components/FleetHealth";
 import SectionHeading from "@/protoFleet/features/dashboard/components/SectionHeading";
@@ -15,7 +16,14 @@ import DurationSelector from "@/shared/components/DurationSelector";
 
 const DashboardLayout = () => {
   const devicePaired = useDevicePaired();
-  useFleet({ scope: "global", mode: "metadata" }); // Ensure fleet data is loaded
+  useFleet({
+    scope: "global",
+    mode: "metadata",
+    pairingStatuses: [
+      PairingStatus.PAIRED,
+      PairingStatus.AUTHENTICATION_NEEDED,
+    ],
+  }); // Ensure fleet data is loaded
   const fleetSize = useTotalMiners();
   const deviceStatusCounts = useDeviceStatusCounts();
   const duration = useDuration();
@@ -25,7 +33,9 @@ const DashboardLayout = () => {
     <div className="h-full bg-surface-5">
       {devicePaired ? (
         <div className="flex flex-col">
-          <CompleteSetup />
+          <section className="p-10 phone:p-6 tablet:p-6">
+            <CompleteSetup />
+          </section>
 
           {/* Overview Section */}
           <section className="p-10 phone:p-6 tablet:p-6">

@@ -78,6 +78,8 @@ export {
   useSetLoading,
   useSetStreaming,
   useSetCursor,
+  useLastPairingCompletedAt,
+  useNotifyPairingCompleted,
 } from "./hooks/useFleet";
 
 // =============================================================================

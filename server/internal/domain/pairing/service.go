@@ -403,19 +403,42 @@ func (s *Service) discoverDevice(ctx context.Context, ipAddress string, port str
 		return err
 	}
 
-	return s.processDiscoveredDevice(ctx, discoveredDevice, resultChan)
+	return s.processDiscoveredDevice(ctx, discoveredDevice, ipAddress, port, resultChan)
 }
 
-func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, resultChan chan<- *pb.DiscoverResponse) error {
+func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, scannedIP string, scannedPort string, resultChan chan<- *pb.DiscoverResponse) error {
 	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
 	if err != nil {
 		return err
 	}
 
-	// Use existing device identifier if available, otherwise generate new id
+	// Use existing device identifier if available
 	deviceIdentifier := discoveredDevice.DeviceIdentifier
 	if deviceIdentifier == "" {
-		deviceIdentifier = id.GenerateID()
+		// Check if we've already discovered a device at this scanned IP:port
+		// This prevents duplicate entries during network rescans
+		// Note: We use scannedIP/scannedPort (what we scanned) not discoveredDevice IP/port
+		// (which may have changed if device moved), to maintain stable identifiers per network endpoint
+		existingDevice, err := s.discoveredDeviceStore.GetByIPAndPort(ctx, claims.OrgID, scannedIP, scannedPort)
+		if err != nil && !fleeterror.IsNotFoundError(err) {
+			// Database error - propagate instead of silently generating new identifier
+			return fleeterror.NewInternalErrorf("failed to check for existing device: %v", err)
+		}
+		if existingDevice != nil {
+			// Reuse the existing device_identifier to update the same row
+			deviceIdentifier = existingDevice.DeviceIdentifier
+			slog.Debug("reusing existing device identifier for rescan",
+				"scanned_ip", scannedIP,
+				"scanned_port", scannedPort,
+				"device_identifier", deviceIdentifier)
+		} else {
+			// First time seeing this device (not found), generate new identifier
+			deviceIdentifier = id.GenerateID()
+			slog.Debug("generated new device identifier for first discovery",
+				"scanned_ip", scannedIP,
+				"scanned_port", scannedPort,
+				"device_identifier", deviceIdentifier)
+		}
 	}
 
 	orgDeviceID := discoverymodels.DeviceOrgIdentifier{
@@ -423,13 +446,19 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 		OrgID:            claims.OrgID,
 	}
 
+	// Override the IP/port with the scanned values to ensure consistency
+	// The discovered device may report a different IP if it has multiple interfaces
+	// or if its configuration has changed, but we want to store it at the IP:port we scanned
+	discoveredDevice.IpAddress = scannedIP
+	discoveredDevice.Port = scannedPort
+
 	result, err := s.discoveredDeviceStore.Save(ctx, orgDeviceID, discoveredDevice)
 	if err != nil {
 		return err
 	}
 
-	capabilities := s.capabilitiesService.GetCapabilitiesForDevice(ctx, &discoveredDevice.Device)
-	result.Device.Capabilities = capabilities
+	minerCapabilities := s.capabilitiesService.GetCapabilitiesForDevice(ctx, &discoveredDevice.Device)
+	result.Device.Capabilities = minerCapabilities
 
 	select {
 	case resultChan <- &pb.DiscoverResponse{
@@ -494,19 +523,7 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 	deviceIDs := make([]models.DeviceIdentifier, 0, len(r.DeviceIdentifiers))
 	failedIDs := make([]string, 0, len(r.DeviceIdentifiers))
 
-	// Use provided credentials or fall back to default "root/root" for Antminer devices
-	// which commonly ship with these default credentials. Users should change these
-	// credentials on their devices after pairing for security.
-	// TODO(DASH-908): After client flow and miner plugin credential changes, remove this temporary
-	// defaulting behavior.
 	credentials := r.Credentials
-	if credentials == nil {
-		defaultPassword := "root"
-		credentials = &pb.Credentials{
-			Username: "root",
-			Password: &defaultPassword,
-		}
-	}
 
 	// Create pairing records for each device
 	for _, deviceID := range r.DeviceIdentifiers {

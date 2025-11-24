@@ -14,6 +14,15 @@ WHERE device_identifier = ?
     AND deleted_at IS NULL
 LIMIT 1;
 
+-- name: GetDiscoveredDeviceByIPAndPort :one
+SELECT *
+FROM discovered_device
+WHERE org_id = ?
+    AND ip_address = ?
+    AND port = ?
+    AND deleted_at IS NULL
+LIMIT 1;
+
 -- name: UpsertDiscoveredDevice :execresult
 INSERT INTO discovered_device (
     org_id,
@@ -40,7 +49,6 @@ ON DUPLICATE KEY UPDATE
     ip_address = VALUES(ip_address),
     port = VALUES(port),
     url_scheme = VALUES(url_scheme),
-    is_active = VALUES(is_active),
     last_seen = CURRENT_TIMESTAMP(6),
     id = LAST_INSERT_ID(id);
 

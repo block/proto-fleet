@@ -1,6 +1,7 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
+import { useLastPairingCompletedAt } from "@/protoFleet/store";
 import { Alert, Dismiss } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
@@ -94,6 +95,14 @@ const CompleteSetup = () => {
     useAuthNeededMiners({
       pageSize: 100,
     });
+
+  // Watch for pairing operations completing and refetch auth-needed miners
+  const lastPairingCompletedAt = useLastPairingCompletedAt();
+  useEffect(() => {
+    if (lastPairingCompletedAt > 0) {
+      refetchAuthNeededMiners();
+    }
+  }, [lastPairingCompletedAt, refetchAuthNeededMiners]);
 
   // Show complete setup banner only if there are miners needing authentication
   const shouldShow = !completSetupDismissed && authNeededCount > 0;

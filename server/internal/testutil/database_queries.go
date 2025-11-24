@@ -3,9 +3,11 @@ package testutil
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net"
 	"net/url"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +20,10 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// Global counter for generating unique test IPs
+// Using atomic operations ensures uniqueness even in parallel tests
+var testDeviceIPCounter uint64
 
 type DatabaseService struct {
 	DB     *sql.DB
@@ -122,14 +128,37 @@ func (s *DatabaseService) CreateDevice(organizationID int64, minerType models.Ty
 	uuidCurrent := id.GenerateID()
 	deviceIdentification, err := db2.WithTransaction(context.Background(), s.DB, func(q *sqlc.Queries) (DeviceIdentification, error) {
 		// First create a discovered_device
+		// Use unique IP per device to prevent constraint violations on (org_id, ip_address, port)
+		// Port is stable based on device type
+		// Use atomic counter to ensure true uniqueness even in parallel tests
+		ipSuffix := atomic.AddUint64(&testDeviceIPCounter, 1)
+		ipAddress := fmt.Sprintf("127.0.%d.%d", (ipSuffix/256)%256, ipSuffix%256)
+
+		// Use standard ports for each device type
+		var port string
+		switch minerType {
+		case models.TypeProto:
+			port = "2121"
+		case models.TypeAntminer:
+			port = "4028"
+		case models.TypeWhatsminer:
+			port = "4028"
+		case models.TypeAvalon:
+			port = "4028"
+		case models.TypeUnknown:
+			port = "4028"
+		default:
+			port = "4028"
+		}
+
 		ddResult, err := q.UpsertDiscoveredDevice(context.Background(), sqlc.UpsertDiscoveredDeviceParams{
 			OrgID:            organizationID,
 			DeviceIdentifier: uuidCurrent,
 			Model:            sql.NullString{String: "TestMiner", Valid: true},
 			Manufacturer:     sql.NullString{String: "TestCorp", Valid: true},
 			Type:             minerType.String(),
-			IpAddress:        "127.0.0.1",
-			Port:             "4028",
+			IpAddress:        ipAddress,
+			Port:             port,
 			UrlScheme:        "https",
 			IsActive:         true,
 		})
@@ -234,7 +263,14 @@ func (s *DatabaseService) CreateTestMiners(orgID int64, count int, mockMinerURL 
 		device := s.CreateDevice(orgID, minerType)
 		deviceIDs[i] = device.ID
 
-		s.createDeviceIPAssignment(device.DatabaseID, host, portStr, protocol)
+		// Make each device have a unique IP to avoid constraint violations
+		// Port remains constant for the device type (e.g., 2121 for Proto, 4028 for Antminer)
+		// Only append index suffix if creating multiple devices
+		uniqueHost := host
+		if count > 1 {
+			uniqueHost = fmt.Sprintf("%s.%d", host, i+1)
+		}
+		s.createDeviceIPAssignment(device.DatabaseID, uniqueHost, portStr, protocol)
 
 		err = db2.WithTransactionNoResult(s.t.Context(), s.DB, func(q *sqlc.Queries) error {
 			_, err := q.UpsertDevicePairing(s.t.Context(), sqlc.UpsertDevicePairingParams{

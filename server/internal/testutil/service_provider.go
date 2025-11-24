@@ -52,7 +52,7 @@ type ServiceProvider struct {
 	DeviceStore            *sqlstores.SQLDeviceStore
 	UserStore              *sqlstores.SQLUserStore
 	FilesService           *files.Service
-	MinerService           *miner.MinerService
+	MinerService           *miner.Service
 	CapabilitiesService    *capabilities.Service
 }
 

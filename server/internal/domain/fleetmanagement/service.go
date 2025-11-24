@@ -58,10 +58,10 @@ type Service struct {
 	deviceStore           interfaces.DeviceStore
 	discoveredDeviceStore interfaces.DiscoveredDeviceStore
 	telemetry             TelemetryCollector
-	minerService          *miner.MinerService
+	minerService          *miner.Service
 }
 
-func NewService(deviceStore interfaces.DeviceStore, discoveredDeviceStore interfaces.DiscoveredDeviceStore, t TelemetryCollector, minerService *miner.MinerService) *Service {
+func NewService(deviceStore interfaces.DeviceStore, discoveredDeviceStore interfaces.DiscoveredDeviceStore, t TelemetryCollector, minerService *miner.Service) *Service {
 	return &Service{
 		deviceStore:           deviceStore,
 		discoveredDeviceStore: discoveredDeviceStore,

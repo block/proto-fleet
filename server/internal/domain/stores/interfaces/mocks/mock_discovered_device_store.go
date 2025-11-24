@@ -66,6 +66,21 @@ func (mr *MockDiscoveredDeviceStoreMockRecorder) GetActiveUnpairedDevices(ctx, o
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveUnpairedDevices", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).GetActiveUnpairedDevices), ctx, orgID, cursor, limit)
 }
 
+// GetByIPAndPort mocks base method.
+func (m *MockDiscoveredDeviceStore) GetByIPAndPort(ctx context.Context, orgID int64, ipAddress, port string) (*models.DiscoveredDevice, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetByIPAndPort", ctx, orgID, ipAddress, port)
+	ret0, _ := ret[0].(*models.DiscoveredDevice)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetByIPAndPort indicates an expected call of GetByIPAndPort.
+func (mr *MockDiscoveredDeviceStoreMockRecorder) GetByIPAndPort(ctx, orgID, ipAddress, port interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByIPAndPort", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).GetByIPAndPort), ctx, orgID, ipAddress, port)
+}
+
 // GetDatabaseID mocks base method.
 func (m *MockDiscoveredDeviceStore) GetDatabaseID(ctx context.Context, doi models.DeviceOrgIdentifier) (int64, error) {
 	m.ctrl.T.Helper()
