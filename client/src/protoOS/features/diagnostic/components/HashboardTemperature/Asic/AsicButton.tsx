@@ -1,12 +1,18 @@
 import { Dispatch, SetStateAction, useMemo } from "react";
 import clsx from "clsx";
 
+import { useAsicMetric } from "../AsicMetricContext";
 import AsicPopover from "./AsicPopover";
 import { getAsicUniqueId } from "./utility";
 import { useAsicColor } from "@/protoOS/features/kpis/hooks";
-import { AsicData, getAsicName } from "@/protoOS/store";
+import {
+  AsicData,
+  convertAndFormatMeasurement,
+  getAsicName,
+  type Measurement,
+  useTemperatureUnit,
+} from "@/protoOS/store";
 import { usePopover } from "@/shared/components/Popover";
-import TemperatureValue from "@/shared/components/TemperatureValue";
 
 interface AsicButtonProps {
   asic: AsicData;
@@ -24,6 +30,8 @@ const AsicButton = ({
   totalAsicCount,
 }: AsicButtonProps) => {
   const { triggerRef: asicRef } = usePopover();
+  const { selectedMetric } = useAsicMetric();
+  const temperatureUnit = useTemperatureUnit();
 
   const currentAsicId = useMemo(
     () =>
@@ -44,6 +52,23 @@ const AsicButton = ({
       ? getAsicName(totalAsicCount, asic.index)
       : "";
   }, [totalAsicCount, asic.index]);
+
+  // Get the metric measurement based on selected metric
+  const metricMeasurement = useMemo((): Measurement | undefined => {
+    switch (selectedMetric) {
+      case "temperature":
+        return asic.temperature?.latest;
+      case "hashrate":
+        return asic.hashrate?.latest;
+      case "frequency":
+      case "voltage":
+        // These metrics are not yet available in AsicData
+        // TODO(dash-860) confirm whether frequency and voltage will be returned from the API
+        return undefined;
+      default:
+        return undefined;
+    }
+  }, [selectedMetric, asic.temperature, asic.hashrate]);
 
   return (
     <div
@@ -77,12 +102,48 @@ const AsicButton = ({
         <div className="bg-transparent hover:bg-surface-overlay">
           <div className="flex flex-col items-center gap-1 px-1 py-3">
             <div className="text-text-primary-50">{asicName}</div>
-            <TemperatureValue value={asic.temperature?.latest?.value} />
+            {renderMetricValue()}
           </div>
         </div>
       </button>
     </div>
   );
+
+  function renderMetricValue() {
+    const formatMetricDisplay = (value: string) => (
+      <div className="text-mono-text-100 font-mono text-text-primary">
+        {value}
+      </div>
+    );
+
+    if (!metricMeasurement) {
+      return formatMetricDisplay("--");
+    }
+
+    // For temperature, convert to user's preferred unit (no units displayed)
+    if (selectedMetric === "temperature") {
+      const formatted = convertAndFormatMeasurement(
+        metricMeasurement,
+        temperatureUnit,
+        false,
+      );
+      return formatMetricDisplay(formatted || "--");
+    }
+
+    // For hashrate, convert to GH/s for display (no units displayed)
+    if (selectedMetric === "hashrate") {
+      const formatted = convertAndFormatMeasurement(
+        metricMeasurement,
+        "GH/s",
+        false,
+      );
+      return formatMetricDisplay(formatted || "--");
+    }
+
+    // TODO(dash-860) confirm whether frequency and voltage will be returned from the API
+    // Frequency and voltage are not yet available
+    return formatMetricDisplay("--");
+  }
 };
 
 export default AsicButton;

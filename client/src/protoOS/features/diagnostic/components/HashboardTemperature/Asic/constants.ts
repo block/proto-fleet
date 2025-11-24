@@ -19,6 +19,10 @@ const createMockAsic = (
 
   // Telemetry data (simplified for stories)
   temperature: {
+    latest: {
+      value: tempC,
+      units: "C" as const,
+    },
     timeSeries: {
       units: "C" as const,
       values: [tempC],
@@ -32,6 +36,10 @@ const createMockAsic = (
     },
   },
   hashrate: {
+    latest: {
+      value: hashrateGhs,
+      units: "GH/s" as const,
+    },
     timeSeries: {
       units: "GH/s" as const,
       values: [hashrateGhs],

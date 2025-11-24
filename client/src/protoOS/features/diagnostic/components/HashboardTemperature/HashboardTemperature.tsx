@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AsicTable from "./Asic/AsicTableWrapper";
+import { AsicMetricProvider, type SelectedMetric } from "./AsicMetricContext";
 import HashboardSelector from "./HashboardSelector";
 import { useTelemetry } from "@/protoOS/api";
 import {
@@ -16,6 +17,7 @@ import {
 import { Dismiss } from "@/shared/assets/icons";
 import Header from "@/shared/components/Header";
 import { PopoverProvider } from "@/shared/components/Popover";
+import SegmentedControl from "@/shared/components/SegmentedControl";
 import Stats, { type StatsProps } from "@/shared/components/Stats";
 
 const getStats = (
@@ -58,6 +60,8 @@ type HashboardTemperatureProps = {
 const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   const temperatureUnit = useTemperatureUnit();
   const [showPopover, setShowPopover] = useState<string | undefined>(undefined);
+  const [selectedMetric, setSelectedMetric] =
+    useState<SelectedMetric>("temperature");
 
   const navigate = useNavigate();
 
@@ -141,6 +145,30 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
           <Stats stats={stats} size="medium" gap="gap-10" padding="pb-4" />
         </div>
       </div>
+      <div className={`my-6 ${containerPadX}`}>
+        <SegmentedControl
+          segments={[
+            {
+              key: "temperature",
+              title: `Temperature (°${temperatureUnit})`,
+            },
+            {
+              key: "hashrate",
+              title: "Hashrate (GH/s)",
+            },
+            // TODO(dash-860) confirm whether frequency and voltage will be returned from the API
+            // {
+            //   key: "frequency",
+            //   title: "Frequency (MHz)",
+            // },
+            // {
+            //   key: "voltage",
+            //   title: "Voltage (V)",
+            // },
+          ]}
+          onSelect={(metric) => setSelectedMetric(metric as SelectedMetric)}
+        />
+      </div>
       <div className={`${containerPadX} pt-4`}>
         {serial && (
           <div className="before:w-ful relative flex items-center justify-between font-mono text-mono-text-50 text-text-primary-50 before:absolute before:top-[50%] before:left-0 before:h-[1px] before:w-full before:bg-border-5">
@@ -177,11 +205,13 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
       {serial && (
         <div className="scrollbar-hide max-w-screen overflow-x-auto">
           <div className={`relative ${containerMarginX} mb-2 min-w-[800px]`}>
-            <AsicTable
-              hashboardSerialNumber={serial}
-              showPopover={showPopover}
-              setShowPopover={setShowPopover}
-            />
+            <AsicMetricProvider selectedMetric={selectedMetric}>
+              <AsicTable
+                hashboardSerialNumber={serial}
+                showPopover={showPopover}
+                setShowPopover={setShowPopover}
+              />
+            </AsicMetricProvider>
           </div>
         </div>
       )}
