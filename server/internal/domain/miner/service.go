@@ -75,6 +75,7 @@ func (s *Service) GetMiner(ctx context.Context, deviceID int64) (interfaces.Mine
 		deviceData.OrgID,
 		deviceData.Port,
 		deviceData.Type,
+		deviceData.Model.String,
 		deviceData.UsernameEnc.String,
 		deviceData.PasswordEnc.String,
 		deviceData.IpAddress,
@@ -102,6 +103,7 @@ func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID mod
 		deviceData.OrgID,
 		deviceData.Port,
 		deviceData.Type,
+		deviceData.Model.String,
 		deviceData.UsernameEnc.String,
 		deviceData.PasswordEnc.String,
 		deviceData.IpAddress,
@@ -124,11 +126,9 @@ func (s *Service) getProtoMinerAuthPrivateKey(ctx context.Context, orgID int64) 
 	return privateKey, nil
 }
 
-func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, devicePort string, deviceType string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string) (interfaces.Miner, error) {
-	// Parse device type string once at entry point
-	// Note: model is not available here, but Type should already be correctly stored in DB.
-	// TypeFromDeviceInfo falls back to TypeFromString for non-"asic" types.
-	minerType, err := models.TypeFromDeviceInfo(deviceType, "")
+func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, devicePort string, deviceType string, deviceModel string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string) (interfaces.Miner, error) {
+	// Parse device type using both type and model for disambiguation
+	minerType, err := models.TypeFromDeviceInfo(deviceType, deviceModel)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse device type: %w", err)
 	}
