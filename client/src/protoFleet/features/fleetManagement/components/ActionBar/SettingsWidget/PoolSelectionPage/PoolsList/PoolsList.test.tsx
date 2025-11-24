@@ -4,8 +4,18 @@ import PoolsList from ".";
 
 describe("Pools list", () => {
   const availablePools = [
-    { poolUrl: "stratum+tcp://mine.ocean.xyz:3323", username: "user1" },
-    { poolUrl: "stratum+tcp://mine.ocean.xyz:3324", username: "user2" },
+    {
+      poolId: "1",
+      name: "Client pool A1",
+      poolUrl: "stratum+tcp://mine.ocean.xyz:3323",
+      username: "user1",
+    },
+    {
+      poolId: "2",
+      name: "Client pool A2",
+      poolUrl: "stratum+tcp://mine.ocean.xyz:3324",
+      username: "user2",
+    },
   ];
 
   const onSelect = vi.fn();
@@ -59,8 +69,8 @@ describe("Pools list", () => {
     expect(getByText("1")).toBeInTheDocument();
   });
 
-  test("calls onSelect when Add pool button is clicked", () => {
-    const { getByRole } = render(
+  test("opens pool selection modal when Add pool button is clicked", () => {
+    const { getByRole, getByText } = render(
       <PoolsList
         title={defaultPoolTitle}
         subtitle={defaultPoolSubtitle}
@@ -71,6 +81,6 @@ describe("Pools list", () => {
     );
 
     fireEvent.click(getByRole("button", { name: addDefaultPoolLabel }));
-    expect(onSelect).toHaveBeenCalledWith(availablePools[0].poolUrl);
+    expect(getByText("Select pool")).toBeInTheDocument();
   });
 });

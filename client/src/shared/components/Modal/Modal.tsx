@@ -99,7 +99,7 @@ const Modal = ({
   useClickOutside({
     ref: ModalRef,
     onClickOutside: dismissModal,
-    ignoreSelectors: [".popover-content"], // Ignore clicks inside popovers
+    ignoreSelectors: [".popover-content"],
   });
 
   return (

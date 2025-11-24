@@ -11,6 +11,7 @@ interface PageOverlayProps {
   zIndex?: string;
   animate?: boolean;
   position?: "top" | "center";
+  className?: string;
 }
 
 const PageOverlay = ({
@@ -20,6 +21,7 @@ const PageOverlay = ({
   animate = true,
   zIndex = "z-50",
   position = "center",
+  className,
 }: PageOverlayProps) => {
   const { preventScroll } = usePreventScroll();
   useEffect(() => {
@@ -40,6 +42,7 @@ const PageOverlay = ({
               "animate-[fade-out_.31s_ease-in-out]": animate && !show,
               "items-center-safe p-0!": position === "center",
             },
+            className,
           )}
         >
           {children}

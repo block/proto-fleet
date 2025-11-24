@@ -1,12 +1,22 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
-import PoolsModal from "./PoolsModal";
+import PoolSelectionPage from "./PoolSelectionPage";
 
-describe("Pools modal", () => {
+describe("Pool selection page", () => {
   const numberOfMiners = 5;
   const availablePools = [
-    { poolUrl: "stratum+tcp://mine.ocean.xyz:3323", username: "user1" },
-    { poolUrl: "stratum+tcp://mine.ocean.xyz:3324", username: "user2" },
+    {
+      poolId: "1",
+      name: "Client pool A1",
+      poolUrl: "stratum+tcp://mine.ocean.xyz:3323",
+      username: "user1",
+    },
+    {
+      poolId: "2",
+      name: "Client pool A2",
+      poolUrl: "stratum+tcp://mine.ocean.xyz:3324",
+      username: "user2",
+    },
   ];
 
   const onDismiss = vi.fn();
@@ -15,9 +25,9 @@ describe("Pools modal", () => {
   const backupPool1Title = "Backup pool #1";
   const backupPool2Title = "Backup pool #2";
 
-  test("renders modal with default and backup pools section", () => {
+  test("renders page with default and backup pools section", () => {
     const { getByText } = render(
-      <PoolsModal
+      <PoolSelectionPage
         numberOfMiners={numberOfMiners}
         availablePools={[]}
         onDismiss={onDismiss}
@@ -32,7 +42,7 @@ describe("Pools modal", () => {
 
   test("renders correct number of miners in button text", () => {
     const { getByText } = render(
-      <PoolsModal
+      <PoolSelectionPage
         numberOfMiners={numberOfMiners}
         availablePools={[]}
         onDismiss={onDismiss}
@@ -44,7 +54,7 @@ describe("Pools modal", () => {
 
   test("calls onDismiss with poolsChanged=false when button clicked without changes", async () => {
     const { getByText } = render(
-      <PoolsModal
+      <PoolSelectionPage
         numberOfMiners={numberOfMiners}
         availablePools={[]}
         onDismiss={onDismiss}
@@ -59,7 +69,7 @@ describe("Pools modal", () => {
 
   test("calls onDismiss with poolsChanged=false when close button clicked without changes", async () => {
     const { getByTestId } = render(
-      <PoolsModal
+      <PoolSelectionPage
         numberOfMiners={numberOfMiners}
         availablePools={[]}
         onDismiss={onDismiss}
@@ -75,7 +85,7 @@ describe("Pools modal", () => {
 
   test("calls onDismiss with poolsChanged=true when user selects default pool", async () => {
     const { getByText, getAllByText, getByTestId } = render(
-      <PoolsModal
+      <PoolSelectionPage
         numberOfMiners={numberOfMiners}
         availablePools={availablePools}
         onDismiss={onDismiss}
@@ -99,7 +109,7 @@ describe("Pools modal", () => {
 
   test("calls onDismiss with poolsChanged=true when user selects backup pool", async () => {
     const { getAllByText, getByTestId } = render(
-      <PoolsModal
+      <PoolSelectionPage
         numberOfMiners={numberOfMiners}
         availablePools={availablePools}
         onDismiss={onDismiss}
@@ -121,7 +131,7 @@ describe("Pools modal", () => {
 
   test("prevents selecting the same pool for both backup slots", async () => {
     const { getAllByText, getByTestId } = render(
-      <PoolsModal
+      <PoolSelectionPage
         numberOfMiners={numberOfMiners}
         availablePools={availablePools}
         onDismiss={onDismiss}

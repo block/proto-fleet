@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
-import PoolsModalWrapper from "../ActionBar/SettingsWidget/PoolsModal";
+import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionPage";
 import BulkActionsWidget, { BulkActionsPopover } from "../BulkActions";
 import { BulkAction } from "../BulkActions/types";
 import {
@@ -493,7 +493,7 @@ const MinerActionsMenu = ({
         testId="actions-menu"
       />
       {currentAction === settingsActions.miningPool && (
-        <PoolsModalWrapper
+        <PoolSelectionPageWrapper
           numberOfMiners={numberOfMiners}
           onDismiss={(_poolsChanged) => {
             setCurrentAction(null);

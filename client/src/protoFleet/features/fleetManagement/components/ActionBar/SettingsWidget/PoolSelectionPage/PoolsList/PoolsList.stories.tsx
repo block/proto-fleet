@@ -15,10 +15,14 @@ export const PoolsList = ({
 }: PoolsListArgs) => {
   const availablePools = [
     {
+      poolId: "1",
+      name: "Client pool A1",
       poolUrl: "stratum+tcp://mine.ocean.xyz:3334",
       username: "mann23",
     },
     {
+      poolId: "2",
+      name: "Client pool A2",
       poolUrl: "stratum+tcp://mine.ocean.xyz:3323",
       username: "mann25",
     },

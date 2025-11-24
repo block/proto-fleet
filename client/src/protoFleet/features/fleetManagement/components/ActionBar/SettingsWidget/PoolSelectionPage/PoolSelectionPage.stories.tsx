@@ -1,31 +1,37 @@
-import PoolsModalComponent from "./PoolsModal";
+import PoolSelectionPageComponent from "./PoolSelectionPage";
 
-interface PoolsModalArgs {
+interface PoolSelectionPageArgs {
   numberOfMiners: number;
   numberOfPools: number;
 }
 
-export const PoolsModal = ({
+export const PoolSelectionPage = ({
   numberOfMiners,
   numberOfPools,
-}: PoolsModalArgs) => {
+}: PoolSelectionPageArgs) => {
   const availablePools = [
     {
+      poolId: "1",
+      name: "Client pool A1",
       poolUrl: "stratum+tcp://mine.ocean.xyz:3334",
       username: "mann23",
     },
     {
+      poolId: "2",
+      name: "Client pool A2",
       poolUrl: "stratum+tcp://mine.ocean.xyz:3323",
       username: "mann25",
     },
     {
+      poolId: "3",
+      name: "Client pool A3",
       poolUrl: "stratum+tcp://mine.ocean.xyz:3344",
       username: "mann27",
     },
   ];
 
   return (
-    <PoolsModalComponent
+    <PoolSelectionPageComponent
       numberOfMiners={numberOfMiners}
       availablePools={availablePools.splice(0, numberOfPools)}
       onDismiss={() => {}}
@@ -34,7 +40,7 @@ export const PoolsModal = ({
 };
 
 export default {
-  title: "Proto Fleet/Action Bar/Settings widget/Pools modal",
+  title: "Proto Fleet/Action Bar/Settings widget/Pool selection page",
   args: {
     numberOfMiners: 1,
     numberOfPools: 1,
