@@ -27,10 +27,10 @@ import {
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import {
-  ArrowLeftCompact,
+  // ArrowLeftCompact, // TODO: Uncomment when Factory Reset is implemented
   ChevronDown,
-  Curtail,
-  Fan,
+  // Curtail, // TODO: Uncomment when Curtail is implemented
+  // Fan, // TODO: Uncomment when Cooling Mode is implemented
   LEDIndicator,
   Lock,
   MiningPools,
@@ -38,7 +38,7 @@ import {
   Power,
   Reboot,
   Speedometer,
-  Terminal,
+  // Terminal, // TODO: Uncomment when Download Logs is implemented
   Unpair,
 } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -75,14 +75,8 @@ const MinerActionsMenu = ({
 
   const numberOfMiners = useMemo(() => selectedMiners.length, [selectedMiners]);
 
-  // TODO remove later - only used for downloadLogs
-  const simulateAPICall = (callback: () => void) => {
-    setTimeout(() => callback && callback(), 2000);
-  };
-
   const handleConfirmation = async () => {
-    if (currentAction === null || currentAction === deviceActions.downloadLogs)
-      return;
+    if (currentAction === null) return;
 
     const id = pushToast({
       message: `${loadingMessages[currentAction]} ${minersMessage}`,
@@ -166,8 +160,6 @@ const MinerActionsMenu = ({
       originalToastId: number,
       batchIdentifier: string,
     ) => {
-      if (action === deviceActions.downloadLogs) return;
-
       const streamAbortController = new AbortController();
 
       let errorToastId: number | null = null;
@@ -260,25 +252,27 @@ const MinerActionsMenu = ({
       });
     };
 
-    const handleDownloadLogs = () => {
-      setCurrentAction(deviceActions.downloadLogs);
-      const id = pushToast({
-        message: "Downloading logs",
-        status: TOAST_STATUSES.loading,
-        longRunning: true,
-      });
-      simulateAPICall(() => {
-        updateToast(id, {
-          message: "Downloaded logs",
-          status: TOAST_STATUSES.success,
-        });
-      });
-    };
+    // TODO: Implement Download Logs action
+    // const handleDownloadLogs = () => {
+    //   setCurrentAction(deviceActions.downloadLogs);
+    //   const id = pushToast({
+    //     message: "Downloading logs",
+    //     status: TOAST_STATUSES.loading,
+    //     longRunning: true,
+    //   });
+    //   simulateAPICall(() => {
+    //     updateToast(id, {
+    //       message: "Downloaded logs",
+    //       status: TOAST_STATUSES.success,
+    //     });
+    //   });
+    // };
 
-    const handleFactoryReset = () => {
-      setCurrentAction(deviceActions.factoryReset);
-      onActionStart?.();
-    };
+    // TODO: Implement Factory Reset action
+    // const handleFactoryReset = () => {
+    //   setCurrentAction(deviceActions.factoryReset);
+    //   onActionStart?.();
+    // };
 
     const handleReboot = () => {
       setCurrentAction(deviceActions.reboot);
@@ -306,10 +300,11 @@ const MinerActionsMenu = ({
       // TODO modal
     };
 
-    const handleCurtail = () => {
-      setCurrentAction(performanceActions.curtail);
-      onActionStart?.();
-    };
+    // TODO: Implement Curtail action
+    // const handleCurtail = () => {
+    //   setCurrentAction(performanceActions.curtail);
+    //   onActionStart?.();
+    // };
 
     // Settings actions handlers
     const handleMiningPool = () => {
@@ -317,10 +312,11 @@ const MinerActionsMenu = ({
       onActionStart?.();
     };
 
-    const handleCoolingMode = () => {
-      setCurrentAction(settingsActions.coolingMode);
-      // TODO show modal
-    };
+    // TODO: Implement Cooling Mode action
+    // const handleCoolingMode = () => {
+    //   setCurrentAction(settingsActions.coolingMode);
+    //   // TODO show modal
+    // };
 
     const handleSecurity = () => {
       setCurrentAction(settingsActions.security);
@@ -336,29 +332,31 @@ const MinerActionsMenu = ({
         actionHandler: handleBlinkLEDs,
         requiresConfirmation: false,
       },
-      {
-        action: deviceActions.downloadLogs,
-        title: "Download logs",
-        icon: <Terminal />,
-        actionHandler: handleDownloadLogs,
-        requiresConfirmation: false,
-      },
-      {
-        action: deviceActions.factoryReset,
-        title: "Factory reset",
-        icon: <ArrowLeftCompact />,
-        actionHandler: handleFactoryReset,
-        requiresConfirmation: true,
-        confirmation: {
-          title: `Reset ${numberOfMiners} ${numberOfMiners === 1 ? "miner" : "miners"} to factory default?`,
-          subtitle: `Resetting ${numberOfMiners === 1 ? "this miner" : "these miners"} will remove all settings and mining pool information. You will not lose any mining rewards.`,
-          confirmAction: {
-            title: "Reset",
-            variant: variants.secondaryDanger,
-          },
-          testId: "factory-reset-confirm-button",
-        },
-      },
+      // TODO: Implement Download Logs action
+      // {
+      //   action: deviceActions.downloadLogs,
+      //   title: "Download logs",
+      //   icon: <Terminal />,
+      //   actionHandler: handleDownloadLogs,
+      //   requiresConfirmation: false,
+      // },
+      // TODO: Implement Factory Reset action
+      // {
+      //   action: deviceActions.factoryReset,
+      //   title: "Factory reset",
+      //   icon: <ArrowLeftCompact />,
+      //   actionHandler: handleFactoryReset,
+      //   requiresConfirmation: true,
+      //   confirmation: {
+      //     title: `Reset ${numberOfMiners} ${numberOfMiners === 1 ? "miner" : "miners"} to factory default?`,
+      //     subtitle: `Resetting ${numberOfMiners === 1 ? "this miner" : "these miners"} will remove all settings and mining pool information. You will not lose any mining rewards.`,
+      //     confirmAction: {
+      //       title: "Reset",
+      //       variant: variants.secondaryDanger,
+      //     },
+      //     testId: "factory-reset-confirm-button",
+      //   },
+      // },
       {
         action: deviceActions.reboot,
         title: "Reboot",
@@ -415,23 +413,24 @@ const MinerActionsMenu = ({
         actionHandler: handlePerformanceMode,
         requiresConfirmation: false,
       },
-      {
-        action: performanceActions.curtail,
-        title: "Curtail",
-        icon: <Curtail />,
-        actionHandler: handleCurtail,
-        requiresConfirmation: true,
-        confirmation: {
-          title: `Curtail ${numberOfMiners} miners?`,
-          subtitle:
-            "These miners will reduce power to 0.1 kW and stop hashing.",
-          confirmAction: {
-            title: "Curtail",
-            variant: variants.primary,
-          },
-          testId: "curtail-confirm-button",
-        },
-      },
+      // TODO: Implement Curtail action
+      // {
+      //   action: performanceActions.curtail,
+      //   title: "Curtail",
+      //   icon: <Curtail />,
+      //   actionHandler: handleCurtail,
+      //   requiresConfirmation: true,
+      //   confirmation: {
+      //     title: `Curtail ${numberOfMiners} miners?`,
+      //     subtitle:
+      //       "These miners will reduce power to 0.1 kW and stop hashing.",
+      //     confirmAction: {
+      //       title: "Curtail",
+      //       variant: variants.primary,
+      //     },
+      //     testId: "curtail-confirm-button",
+      //   },
+      // },
       // Settings actions
       {
         action: settingsActions.miningPool,
@@ -440,13 +439,14 @@ const MinerActionsMenu = ({
         actionHandler: handleMiningPool,
         requiresConfirmation: false,
       },
-      {
-        action: settingsActions.coolingMode,
-        title: "Cooling mode",
-        icon: <Fan />,
-        actionHandler: handleCoolingMode,
-        requiresConfirmation: false,
-      },
+      // TODO: Implement Cooling Mode action
+      // {
+      //   action: settingsActions.coolingMode,
+      //   title: "Cooling mode",
+      //   icon: <Fan />,
+      //   actionHandler: handleCoolingMode,
+      //   requiresConfirmation: false,
+      // },
       {
         action: settingsActions.security,
         title: "Security",
