@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useUserManagement } from "@/protoFleet/api/useUserManagement";
 import AddTeamMemberModal from "@/protoFleet/features/settings/components/AddTeamMemberModal";
-import DeactivateUserModal from "@/protoFleet/features/settings/components/DeactivateUserModal";
+import DeactivateUserDialog from "@/protoFleet/features/settings/components/DeactivateUserDialog";
 import ResetPasswordModal from "@/protoFleet/features/settings/components/ResetPasswordModal";
 import { formatRole } from "@/protoFleet/features/settings/utils/formatRole";
 import { useRole } from "@/protoFleet/store";
@@ -271,7 +271,7 @@ const Team = () => {
       )}
 
       {deactivateUserData && (
-        <DeactivateUserModal
+        <DeactivateUserDialog
           username={deactivateUserData.username}
           onConfirm={handleDeactivateConfirm}
           onDismiss={() => setDeactivateUserData(null)}

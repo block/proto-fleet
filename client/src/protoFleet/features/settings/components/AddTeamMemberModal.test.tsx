@@ -35,7 +35,7 @@ describe("AddTeamMemberModal", () => {
     expect(getByText("Save")).toBeInTheDocument();
   });
 
-  it("disables save button when username is empty", () => {
+  it("save button is always enabled", () => {
     const { getByText } = render(
       <AddTeamMemberModal
         onDismiss={mockOnDismiss}
@@ -44,25 +44,10 @@ describe("AddTeamMemberModal", () => {
     );
 
     const saveButton = getByText("Save").closest("button");
-    expect(saveButton).toBeDisabled();
-  });
-
-  it("enables save button when username is entered", () => {
-    const { getByLabelText, getByText } = render(
-      <AddTeamMemberModal
-        onDismiss={mockOnDismiss}
-        onSuccess={mockOnSuccess}
-      />,
-    );
-
-    const usernameInput = getByLabelText("Username");
-    fireEvent.change(usernameInput, { target: { value: "testuser" } });
-
-    const saveButton = getByText("Save").closest("button");
     expect(saveButton).not.toBeDisabled();
   });
 
-  it("shows validation error when saving empty username", () => {
+  it("shows validation error when saving empty username", async () => {
     const { getByLabelText, getByText } = render(
       <AddTeamMemberModal
         onDismiss={mockOnDismiss}
@@ -70,13 +55,15 @@ describe("AddTeamMemberModal", () => {
       />,
     );
 
-    // Enter username then clear it
     const usernameInput = getByLabelText("Username");
-    fireEvent.change(usernameInput, { target: { value: "test" } });
     fireEvent.change(usernameInput, { target: { value: "   " } });
 
-    const saveButton = getByText("Save").closest("button");
-    expect(saveButton).toBeDisabled();
+    const saveButton = getByText("Save");
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(getByText("Username is required")).toBeInTheDocument();
+    });
   });
 
   it("calls createUser with trimmed username on save", async () => {
@@ -203,9 +190,8 @@ describe("AddTeamMemberModal", () => {
     fireEvent.click(saveButton!);
 
     await waitFor(() => {
-      expect(getByText("Save...")).toBeInTheDocument();
-      const loadingButton = getByText("Save...").closest("button");
-      expect(loadingButton).toBeDisabled();
+      const saveButton = getByText("Save").closest("button");
+      expect(saveButton).toHaveAttribute("aria-busy", "true");
     });
 
     resolveCreate();

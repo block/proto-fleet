@@ -1,6 +1,6 @@
 import { fireEvent, render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import DeactivateUserModal from "./DeactivateUserModal";
+import DeactivateUserDialog from "./DeactivateUserDialog";
 
 const mockOnConfirm = vi.fn();
 const mockOnDismiss = vi.fn();
@@ -9,10 +9,10 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("DeactivateUserModal", () => {
+describe("DeactivateUserDialog", () => {
   it("renders with username", () => {
     const { getByText } = render(
-      <DeactivateUserModal
+      <DeactivateUserDialog
         username="john_doe"
         onConfirm={mockOnConfirm}
         onDismiss={mockOnDismiss}
@@ -28,7 +28,7 @@ describe("DeactivateUserModal", () => {
 
   it("calls onDismiss when Cancel is clicked", () => {
     const { getByText } = render(
-      <DeactivateUserModal
+      <DeactivateUserDialog
         username="john_doe"
         onConfirm={mockOnConfirm}
         onDismiss={mockOnDismiss}
@@ -42,7 +42,7 @@ describe("DeactivateUserModal", () => {
 
   it("calls onConfirm when Confirm deactivation is clicked", () => {
     const { getByText } = render(
-      <DeactivateUserModal
+      <DeactivateUserDialog
         username="john_doe"
         onConfirm={mockOnConfirm}
         onDismiss={mockOnDismiss}
@@ -56,7 +56,7 @@ describe("DeactivateUserModal", () => {
 
   it("shows loading state when isSubmitting is true", () => {
     const { getByText } = render(
-      <DeactivateUserModal
+      <DeactivateUserDialog
         username="john_doe"
         onConfirm={mockOnConfirm}
         onDismiss={mockOnDismiss}
@@ -64,12 +64,13 @@ describe("DeactivateUserModal", () => {
       />,
     );
 
-    expect(getByText("Deactivating...")).toBeInTheDocument();
+    const confirmButton = getByText("Confirm deactivation").closest("button");
+    expect(confirmButton).toHaveAttribute("aria-busy", "true");
   });
 
   it("disables confirm button when isSubmitting is true", () => {
     const { getByText } = render(
-      <DeactivateUserModal
+      <DeactivateUserDialog
         username="john_doe"
         onConfirm={mockOnConfirm}
         onDismiss={mockOnDismiss}
@@ -77,13 +78,13 @@ describe("DeactivateUserModal", () => {
       />,
     );
 
-    const confirmButton = getByText("Deactivating...").closest("button");
+    const confirmButton = getByText("Confirm deactivation").closest("button");
     expect(confirmButton).toBeDisabled();
   });
 
   it("displays warning message with user details", () => {
     const { getByText } = render(
-      <DeactivateUserModal
+      <DeactivateUserDialog
         username="jane_smith"
         onConfirm={mockOnConfirm}
         onDismiss={mockOnDismiss}
@@ -99,7 +100,7 @@ describe("DeactivateUserModal", () => {
 
   it("renders Alert icon container", () => {
     const { container } = render(
-      <DeactivateUserModal
+      <DeactivateUserDialog
         username="john_doe"
         onConfirm={mockOnConfirm}
         onDismiss={mockOnDismiss}
@@ -114,7 +115,7 @@ describe("DeactivateUserModal", () => {
   it("handles long usernames", () => {
     const longUsername = "user_with_a_very_long_username_for_testing";
     const { getByText } = render(
-      <DeactivateUserModal
+      <DeactivateUserDialog
         username={longUsername}
         onConfirm={mockOnConfirm}
         onDismiss={mockOnDismiss}
@@ -127,7 +128,7 @@ describe("DeactivateUserModal", () => {
 
   it("button is disabled when isSubmitting is true", () => {
     const { getByText } = render(
-      <DeactivateUserModal
+      <DeactivateUserDialog
         username="john_doe"
         onConfirm={mockOnConfirm}
         onDismiss={mockOnDismiss}
@@ -135,7 +136,7 @@ describe("DeactivateUserModal", () => {
       />,
     );
 
-    const confirmButton = getByText("Deactivating...").closest("button");
+    const confirmButton = getByText("Confirm deactivation").closest("button");
     expect(confirmButton).toBeDisabled();
   });
 });

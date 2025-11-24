@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { action } from "storybook/actions";
-import DeactivateUserModal from "./DeactivateUserModal";
+import DeactivateUserDialog from "./DeactivateUserDialog";
 
 export default {
-  title: "ProtoFleet/Settings/DeactivateUserModal",
-  component: DeactivateUserModal,
+  title: "ProtoFleet/Settings/DeactivateUserDialog",
+  component: DeactivateUserDialog,
 };
 
 // Default story
@@ -25,7 +25,7 @@ export const Default = () => {
   }
 
   return (
-    <DeactivateUserModal
+    <DeactivateUserDialog
       username="john_doe"
       onConfirm={() => {
         action("onConfirm")();
@@ -58,7 +58,7 @@ export const LoadingState = () => {
   }
 
   return (
-    <DeactivateUserModal
+    <DeactivateUserDialog
       username="john_doe"
       onConfirm={() => {
         action("onConfirm")();
@@ -90,7 +90,7 @@ export const LongUsername = () => {
   }
 
   return (
-    <DeactivateUserModal
+    <DeactivateUserDialog
       username="john_doe_with_a_very_long_username_for_testing"
       onConfirm={() => {
         action("onConfirm")();
@@ -128,7 +128,7 @@ export const Interactive = () => {
       <div className="mb-4 rounded-lg bg-intent-warning-10 p-4 text-300 text-text-primary">
         Click "Confirm deactivation" to simulate a 2-second deactivation process
       </div>
-      <DeactivateUserModal
+      <DeactivateUserDialog
         username="jane_smith"
         onConfirm={() => {
           action("onConfirm")();

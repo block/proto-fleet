@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { Copy, Lock, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Dialog from "@/shared/components/Dialog";
 import Modal from "@/shared/components/Modal";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
@@ -33,41 +34,34 @@ const ResetPasswordModal = ({
   // Step 1: Confirmation
   if (!temporaryPassword) {
     return (
-      <Modal onDismiss={onDismiss} size="small" showHeader={false}>
-        <div className="flex flex-col gap-6 py-6">
-          <div className="flex items-start">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-elevated-base">
-              <Lock />
-            </div>
+      <Dialog
+        show
+        title="Reset member password?"
+        titleSize="text-heading-300"
+        icon={
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-elevated-base">
+            <Lock />
           </div>
-
-          <div>
-            <div className="mb-2 text-heading-300 text-text-primary">
-              Reset member password?
-            </div>
-            <div className="text-300 text-text-primary-70">
-              Fleet generates a temporary password for you to share so they can
-              log in and set a new one.
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between gap-3">
-            <Button
-              variant={variants.secondary}
-              size={sizes.base}
-              onClick={onDismiss}
-              text="Cancel"
-            />
-            <Button
-              variant={variants.primary}
-              size={sizes.base}
-              onClick={onConfirm}
-              text={isResetting ? "Resetting..." : "Reset member password"}
-              disabled={isResetting}
-            />
-          </div>
+        }
+        buttons={[
+          {
+            text: "Cancel",
+            onClick: onDismiss,
+            variant: variants.secondary,
+          },
+          {
+            text: "Reset member password",
+            onClick: onConfirm,
+            variant: variants.primary,
+            loading: isResetting,
+          },
+        ]}
+      >
+        <div className="text-300 text-text-primary-70">
+          Fleet generates a temporary password for you to share so they can log
+          in and set a new one.
         </div>
-      </Modal>
+      </Dialog>
     );
   }
 

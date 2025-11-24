@@ -70,7 +70,8 @@ describe("ResetPasswordModal", () => {
         />,
       );
 
-      expect(getByText("Resetting...")).toBeInTheDocument();
+      const resetButton = getByText("Reset member password").closest("button");
+      expect(resetButton).toHaveAttribute("aria-busy", "true");
     });
 
     it("disables button when isResetting is true", () => {
@@ -84,7 +85,7 @@ describe("ResetPasswordModal", () => {
         />,
       );
 
-      const resetButton = getByText("Resetting...").closest("button");
+      const resetButton = getByText("Reset member password").closest("button");
       expect(resetButton).toBeDisabled();
     });
 

@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { useUserManagement } from "@/protoFleet/api/useUserManagement";
-import { Copy, Dismiss, Success } from "@/shared/assets/icons";
+import { Copy, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
@@ -68,53 +68,42 @@ const AddTeamMemberModal = ({
 
   if (step === "enterUsername") {
     return (
-      <Modal onDismiss={onDismiss} size="small" showHeader={false}>
-        <div className="flex flex-col gap-6 py-6">
-          <div className="flex items-center justify-between">
-            <button
-              onClick={onDismiss}
-              className="flex h-10 w-10 items-center justify-center rounded-lg text-text-primary hover:bg-surface-elevated-base"
-              aria-label="Close"
-            >
-              <Dismiss />
-            </button>
-            <Button
-              variant={variants.primary}
-              size={sizes.base}
-              onClick={handleCreateUser}
-              text={isSubmitting ? "Save..." : "Save"}
-              disabled={isSubmitting || !username.trim()}
-            />
-          </div>
-
-          <div>
-            <div className="mb-2 text-heading-300 text-text-primary">
-              Add team member
-            </div>
-            <div className="text-300 text-text-primary-70">
-              Add a member by entering their username. Fleet generates a
-              temporary password for you to share so they can log in and set a
-              new one.
-            </div>
-          </div>
-
-          {errorMsg ? (
-            <div className="rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
-              {errorMsg}
-            </div>
-          ) : null}
-
-          <Input
-            id="username"
-            label="Username"
-            initValue={username}
-            onChange={(value) => {
-              setUsername(value);
-              setErrorMsg("");
-            }}
-            autoFocus
-          />
+      <Modal
+        onDismiss={onDismiss}
+        size="small"
+        contentHeader="Add team member"
+        buttons={[
+          {
+            text: "Save",
+            onClick: handleCreateUser,
+            variant: variants.primary,
+            loading: isSubmitting,
+            dismissModalOnClick: false,
+          },
+        ]}
+        divider={false}
+      >
+        <div className="mb-6">
+          Add a member by entering their username. Fleet generates a temporary
+          password for you to share so they can log in and set a new one.
         </div>
+
+        {errorMsg ? (
+          <div className="mb-6 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
+            {errorMsg}
+          </div>
+        ) : null}
+
+        <Input
+          id="username"
+          label="Username"
+          initValue={username}
+          onChange={(value) => {
+            setUsername(value);
+            setErrorMsg("");
+          }}
+          autoFocus
+        />
       </Modal>
     );
   }
