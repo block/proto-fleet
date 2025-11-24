@@ -1,7 +1,12 @@
+import { useMemo } from "react";
+import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import useFleet from "@/protoFleet/api/useFleet";
+import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
+import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import FleetHealth from "@/protoFleet/features/dashboard/components/FleetHealth";
 import SectionHeading from "@/protoFleet/features/dashboard/components/SectionHeading";
+import { TemperaturePanel } from "@/protoFleet/features/dashboard/components/TemperaturePanel";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
@@ -10,6 +15,7 @@ import {
   useDeviceStatusCounts,
   useDuration,
   useSetDuration,
+  useTemperatureStatusCounts,
   useTotalMiners,
 } from "@/protoFleet/store";
 import DurationSelector from "@/shared/components/DurationSelector";
@@ -26,8 +32,35 @@ const DashboardLayout = () => {
   }); // Ensure fleet data is loaded
   const fleetSize = useTotalMiners();
   const deviceStatusCounts = useDeviceStatusCounts();
+  const temperatureStatusCounts = useTemperatureStatusCounts();
   const duration = useDuration();
   const setDuration = useSetDuration();
+
+  // Memoize the telemetry options to prevent re-renders
+  const telemetryOptions = useMemo(
+    () => ({
+      measurementTypes: [MeasurementType.TEMPERATURE],
+      duration: duration,
+      enabled: true,
+    }),
+    [duration], // Only recreate when duration changes
+  );
+
+  // Fetch initial telemetry metrics including temperature status
+  const { isLoading } = useTelemetryMetrics(telemetryOptions);
+
+  // Memoize streaming options
+  const streamingOptions = useMemo(
+    () => ({
+      deviceIds: [], // Empty means all devices
+      measurementTypes: [MeasurementType.TEMPERATURE],
+      enabled: true,
+    }),
+    [], // Static options, no dependencies
+  );
+
+  // Enable streaming updates for temperature status
+  useStreamingTelemetryMetrics(streamingOptions);
 
   return (
     <div className="h-full bg-surface-5">
@@ -65,7 +98,16 @@ const DashboardLayout = () => {
             <SectionHeading heading="Performance">
               <DurationSelector duration={duration} onSelect={setDuration} />
             </SectionHeading>
-            {/* TODO: Add Performance charts (Hashrate, Uptime, Temperature, Power, Efficiency) */}
+
+            {/* Temperature Panel - shows temperature status distribution */}
+            <div className="mt-6">
+              <TemperaturePanel
+                temperatureStatusCounts={temperatureStatusCounts}
+                isLoading={isLoading}
+              />
+            </div>
+
+            {/* TODO: Add other Performance charts (Hashrate, Uptime, Power, Efficiency) */}
             <p className="mt-6 text-300 text-text-primary">
               Data gaps may occur where third-party miner telemetry is
               unavailable. Efficiency and power reports will not reflect

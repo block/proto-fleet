@@ -175,6 +175,35 @@ WithAnimation.parameters = {
   },
 };
 
+export const WithCustomXAxisPadding = (props: StoryType) => {
+  return (
+    <StoryContainer>
+      <SegmentedBarChart {...props} />
+    </StoryContainer>
+  );
+};
+
+WithCustomXAxisPadding.args = {
+  chartData: generateMockData(12),
+  segmentKeys: ["active", "inactive", "error"],
+  showTooltip: true,
+  segmentsLabel: "Custom X-Axis Padding",
+  units: " TH/S",
+  xAxisPadding: 12, // Creates spacing by adding padding to the X-axis
+  barWidth: 20,
+  yAxisPadding: 0.15,
+  xAxisTickInterval: 1,
+};
+
+WithCustomXAxisPadding.parameters = {
+  docs: {
+    description: {
+      story:
+        "Example with custom xAxisPadding of 12px. This controls the spacing between bars by adjusting the padding on the X-axis, which works with linear/time scales.",
+    },
+  },
+};
+
 // Export default meta for Storybook
 export default {
   title: "Shared/SegmentedBarChart",
@@ -233,6 +262,16 @@ export default {
     },
     barWidth: {
       description: "Width of each bar in pixels",
+      control: { type: "number" },
+    },
+    barGap: {
+      description:
+        "Gap between bars in pixels (Note: only works with categorical scales)",
+      control: { type: "number" },
+    },
+    xAxisPadding: {
+      description:
+        "Padding for X-axis in pixels (controls spacing between bars)",
       control: { type: "number" },
     },
     yAxisPadding: {

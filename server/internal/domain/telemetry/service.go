@@ -216,7 +216,6 @@ func (s *TelemetryService) gatherDeviceStatusRoutine(ctx context.Context) {
 
 func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
 	if !s.mux.TryLock() {
-		slog.Info("Telemetry gathering routine is already running")
 		return // Another routine is already running
 	}
 	defer s.mux.Unlock()
@@ -284,17 +283,13 @@ func (s *TelemetryService) loadPairedDevices(ctx context.Context) error {
 	}
 
 	if len(deviceIDs) == 0 {
-		slog.Debug("no paired devices found to add to telemetry service")
 		return nil
 	}
 
-	if err := s.AddDevices(ctx, deviceIDs...); err != nil {
-		// failed to add devices is expected to happen from time to time.
-		slog.Debug("failed to add paired devices to telemetry service", "error", err)
-		return nil
-	}
+	// AddDevices errors are expected to happen from time to time and are not critical.
+	// We intentionally ignore them to allow the service to continue.
+	_ = s.AddDevices(ctx, deviceIDs...)
 
-	slog.Debug("loaded paired devices into telemetry service", "count", len(deviceIDs))
 	return nil
 }
 
@@ -356,7 +351,6 @@ func (s *TelemetryService) handleAuthenticationFailure(ctx context.Context, devi
 		return fmt.Errorf("failed to update pairing status for device %s: %w", deviceID, err)
 	}
 
-	slog.Info("updated device pairing status to AUTHENTICATION_NEEDED", "deviceID", deviceID)
 	return nil
 }
 

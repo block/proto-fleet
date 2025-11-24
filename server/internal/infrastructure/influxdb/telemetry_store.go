@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"sort"
 	"strings"
 	"time"
 
 	influxdb3 "github.com/InfluxCommunity/influxdb3-go/v2/influxdb3"
+	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
@@ -71,8 +73,14 @@ func (s *InfluxTelemetryStore) queryDeviceMetrics(
 	params influxdb3.QueryParameters,
 	methodName string,
 ) ([]modelsV2.DeviceMetrics, error) {
-	deviceIDsStr := s.buildDeviceIDsString(deviceIDs)
-	influxQuery := fmt.Sprintf(queryTemplate, deviceIDsStr)
+	// Only format the query if it contains a placeholder
+	var influxQuery string
+	if strings.Contains(queryTemplate, "%s") {
+		deviceIDsStr := s.buildDeviceIDsString(deviceIDs)
+		influxQuery = fmt.Sprintf(queryTemplate, deviceIDsStr)
+	} else {
+		influxQuery = queryTemplate
+	}
 
 	iterator, err := s.client.QueryPointValueWithParameters(ctx, influxQuery, params)
 	if err != nil {
@@ -218,6 +226,15 @@ AND time >= $max_age
 ORDER BY time DESC
 `
 
+const getLatestDeviceMetricsForAllDevicesQuery = `
+SELECT
+*,
+'device_metrics' as measurement
+FROM device_metrics
+WHERE time >= $max_age
+ORDER BY time DESC
+`
+
 func (s *InfluxTelemetryStore) GetLatestTelemetry(ctx context.Context, query models.LatestTelemetryQuery) ([]models.Telemetry, error) {
 	return s.getLatestTelemetryFromDeviceMetrics(ctx, query)
 }
@@ -225,8 +242,17 @@ func (s *InfluxTelemetryStore) GetLatestTelemetry(ctx context.Context, query mod
 func (s *InfluxTelemetryStore) getLatestTelemetryFromDeviceMetrics(ctx context.Context, query models.LatestTelemetryQuery) ([]models.Telemetry, error) {
 	params := s.getLatestTelemetryParamsForMeasurement(query)
 
+	// Choose the appropriate query based on whether device IDs are specified
+	var queryTemplate string
+	if len(query.DeviceIDs) > 0 {
+		queryTemplate = getLatestDeviceMetricsForMultipleDevicesQuery
+	} else {
+		// Use the query that doesn't filter by device_id for "all devices" case
+		queryTemplate = getLatestDeviceMetricsForAllDevicesQuery
+	}
+
 	// Query device_metrics and get all matching points
-	allMetrics, err := s.queryDeviceMetrics(ctx, getLatestDeviceMetricsForMultipleDevicesQuery, query.DeviceIDs, params, "getLatestTelemetryFromDeviceMetrics")
+	allMetrics, err := s.queryDeviceMetrics(ctx, queryTemplate, query.DeviceIDs, params, "getLatestTelemetryFromDeviceMetrics")
 	if err != nil {
 		return nil, err
 	}
@@ -749,9 +775,9 @@ func (s *InfluxTelemetryStore) getCombinedMetricsParams(query models.CombinedMet
 	}
 
 	if query.TimeRange.EndTime != nil {
-		params["stop_time"] = query.TimeRange.EndTime.UTC()
+		params["end_time"] = query.TimeRange.EndTime.UTC()
 	} else {
-		params["stop_time"] = time.Now()
+		params["end_time"] = time.Now()
 	}
 
 	return params
@@ -788,7 +814,7 @@ WITH steps AS (
     FROM
         '{{.Table}}' as h
     WHERE
-		h.time BETWEEN (to_timestamp($start_time) - INTERVAL '{{.WindowDurationSecs}} second') AND $stop_time
+		h.time BETWEEN (to_timestamp($start_time) - INTERVAL '{{.WindowDurationSecs}} second') AND $end_time
 		{{- if .DeviceIDs }}
 			AND h.device_id IN ({{range $i, $id := .DeviceIDs}}{{if $i}}, {{end}}'{{$id}}'{{end}})
 		{{- end }}
@@ -975,7 +1001,7 @@ WITH per_device_aggregations AS (
 		MAX(%s) as device_max,
 		last_value(%s ORDER BY time) as device_latest
 	FROM device_metrics
-	WHERE time BETWEEN $start_time AND $stop_time
+	WHERE time BETWEEN $start_time AND $end_time
 	AND %s IS NOT NULL
 	%s
 	GROUP BY bucket, device_id
@@ -1000,7 +1026,7 @@ WITH latest_per_device AS (
 		device_id,
 		last_value(%s ORDER BY time) as latest_value
 	FROM device_metrics
-	WHERE time BETWEEN $start_time AND $stop_time
+	WHERE time BETWEEN $start_time AND $end_time
 	AND %s IS NOT NULL
 	%s
 	GROUP BY bucket, device_id
@@ -1130,9 +1156,154 @@ LIMIT 1000
 		return allMetrics[i].OpenTime.Before(allMetrics[j].OpenTime)
 	})
 
+	// Query temperature status counts if temperature is in the measurement types
+	var temperatureStatusCounts []models.TemperatureStatusCount
+	hasTemperature := false
+	for _, mt := range query.MeasurementTypes {
+		if mt == models.MeasurementTypeTemperature {
+			hasTemperature = true
+			break
+		}
+	}
+
+	if hasTemperature {
+		// Build device IDs filter
+		deviceIDsStr := ""
+		if len(query.DeviceIDs) > 0 {
+			deviceIDsStr = fmt.Sprintf("AND device_id IN (%s)", s.buildDeviceIDsString(query.DeviceIDs))
+		}
+
+		// Query to get temperature status counts grouped by time buckets
+		// Use DATE_BIN to create regular time buckets (without gap filling)
+		// Categorize temperatures using CASE statement from device_metrics table
+		// Use window function to get the latest reading per device per bucket to avoid duplicate counting
+		// Temperature thresholds use the domain layer constants for consistency
+		temperatureStatusQuery := fmt.Sprintf(`
+		WITH ranked_readings AS (
+			SELECT
+				device_id,
+				DATE_BIN(INTERVAL '%d seconds', time, '2020-01-01T00:00:00Z'::TIMESTAMP) AS bucket_time,
+				temp_c,
+				ROW_NUMBER() OVER (PARTITION BY device_id, DATE_BIN(INTERVAL '%d seconds', time, '2020-01-01T00:00:00Z'::TIMESTAMP) ORDER BY time DESC) as rn
+			FROM device_metrics
+			WHERE time >= $start_time
+			AND time <= $end_time
+			AND temp_c IS NOT NULL
+			%s
+		),
+		latest_per_device AS (
+			SELECT
+				device_id,
+				bucket_time,
+				temp_c
+			FROM ranked_readings
+			WHERE rn = 1
+		)
+		SELECT
+			bucket_time,
+			CASE
+				WHEN temp_c < %f THEN 'cold'
+				WHEN temp_c >= %f AND temp_c <= %f THEN 'ok'
+				WHEN temp_c > %f AND temp_c <= %f THEN 'hot'
+				WHEN temp_c > %f THEN 'critical'
+			END AS temperature_status,
+			COUNT(DISTINCT device_id) as count
+		FROM latest_per_device
+		GROUP BY bucket_time, temperature_status
+		ORDER BY bucket_time ASC
+		`, int(slideInterval.Seconds()), int(slideInterval.Seconds()), deviceIDsStr,
+			telemetry.TempColdMaxC,                     // < 0 = cold
+			telemetry.TempOkMinC, telemetry.TempOkMaxC, // 0-70 = ok
+			telemetry.TempOkMaxC, telemetry.TempHotMaxC, // 70-90 = hot
+			telemetry.TempHotMaxC) // > 90 = critical
+
+		// Use the same parameter logic as metrics queries
+		params := s.getCombinedMetricsParams(query)
+
+		iterator, err := s.client.QueryPointValueWithParameters(ctx, temperatureStatusQuery, params)
+		if err != nil {
+			// This is a legitimate error - query failed
+			return models.CombinedMetric{}, fmt.Errorf("failed to query temperature status counts: %w", err)
+		}
+
+		// Process pre-grouped results from InfluxDB
+		// Results come back as: bucket_time, temperature_status, count
+		statusCountsByTime := make(map[time.Time]map[string]int32)
+		for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
+			if err != nil {
+				// Skip invalid points
+				continue
+			}
+
+			// Get the bucket_time from the query result (returned as arrow.Timestamp)
+			var pointTime time.Time
+			if timeField := point.GetField("bucket_time"); timeField != nil {
+				if arrowTS, ok := timeField.(arrow.Timestamp); ok {
+					// Arrow timestamp is in nanoseconds since Unix epoch
+					pointTime = time.Unix(0, int64(arrowTS))
+				}
+			}
+
+			if pointTime.IsZero() {
+				// Skip points without valid timestamp
+				continue
+			}
+
+			// Get the temperature status (from CASE statement, this is a field)
+			status := ""
+			if statusField := point.GetField("temperature_status"); statusField != nil {
+				if s, ok := statusField.(string); ok {
+					status = s
+				}
+			}
+
+			// Get the count from the aggregation
+			var count int32
+			if countField := point.GetField("count"); countField != nil {
+				switch v := countField.(type) {
+				case float64:
+					count = int32(v)
+				case int64:
+					// Validate int64 is within int32 bounds before conversion
+					if v > math.MaxInt32 || v < math.MinInt32 {
+						// Skip this point if value is out of bounds
+						continue
+					}
+					count = int32(v)
+				case int32:
+					count = v
+				}
+			}
+
+			// Initialize map for this time if needed
+			if statusCountsByTime[pointTime] == nil {
+				statusCountsByTime[pointTime] = make(map[string]int32)
+			}
+			// Store the count for this status at this time
+			statusCountsByTime[pointTime][status] = count
+		}
+
+		// Convert to TemperatureStatusCount array
+		for timestamp, counts := range statusCountsByTime {
+			temperatureStatusCounts = append(temperatureStatusCounts, models.TemperatureStatusCount{
+				Timestamp:     timestamp,
+				ColdCount:     counts["cold"],
+				OkCount:       counts["ok"],
+				HotCount:      counts["hot"],
+				CriticalCount: counts["critical"],
+			})
+		}
+
+		// Sort by timestamp
+		sort.Slice(temperatureStatusCounts, func(i, j int) bool {
+			return temperatureStatusCounts[i].Timestamp.Before(temperatureStatusCounts[j].Timestamp)
+		})
+	}
+
 	return models.CombinedMetric{
-		Metrics:       allMetrics,
-		NextPageToken: "", // Simplified - no pagination for device_metrics version
+		Metrics:                 allMetrics,
+		TemperatureStatusCounts: temperatureStatusCounts,
+		NextPageToken:           "", // Simplified - no pagination for device_metrics version
 	}, nil
 }
 
@@ -1191,10 +1362,14 @@ func (s *InfluxTelemetryStore) convertDeviceMetricsToTelemetry(deviceMetrics mod
 
 	// Convert TempC to temperature_c
 	if deviceMetrics.TempC != nil && isRequested(models.MeasurementTypeTemperature) {
+		// Calculate temperature status using domain logic
+		tempStatus := telemetry.GetTemperatureStatusString(deviceMetrics.TempC.Value)
+
 		results = append(results, models.Telemetry{
 			Measurement: models.MeasurementTypeTemperature.InfluxMeasurementName(),
 			Tags: map[string]string{
-				"device_id": deviceMetrics.DeviceID,
+				"device_id":          deviceMetrics.DeviceID,
+				"temperature_status": tempStatus,
 			},
 			Fields: map[string]interface{}{
 				"value": deviceMetrics.TempC.Value,

@@ -146,6 +146,9 @@ message MinerStateSnapshot {
   // Device capabilities indicating supported features (populated for unpaired devices)
   capabilities.v1.MinerCapabilities capabilities = 18;
 
+  // Temperature status based on current temperature value
+  telemetry.v1.TemperatureStatus temperature_status = 19;
+
 }
 
 // Status information for all major components in a miner

@@ -646,6 +646,21 @@ func componentStatusToProto(domainStatus models.ComponentStatus) (telemetryv1.Co
 	return telemetryv1.ComponentStatus_COMPONENT_STATUS_UNSPECIFIED, fmt.Errorf("unknown component status: %v", domainStatus)
 }
 
+func temperatureStatusFromString(status string) telemetryv1.TemperatureStatus {
+	switch status {
+	case "cold":
+		return telemetryv1.TemperatureStatus_TEMPERATURE_STATUS_COLD
+	case "ok":
+		return telemetryv1.TemperatureStatus_TEMPERATURE_STATUS_OK
+	case "hot":
+		return telemetryv1.TemperatureStatus_TEMPERATURE_STATUS_HOT
+	case "critical":
+		return telemetryv1.TemperatureStatus_TEMPERATURE_STATUS_CRITICAL
+	default:
+		return telemetryv1.TemperatureStatus_TEMPERATURE_STATUS_UNSPECIFIED
+	}
+}
+
 func updateTypeToProto(domainType models.UpdateType) (telemetryv1.UpdateType, error) {
 	if protoType, ok := updateTypeToProtoMap[domainType]; ok {
 		return protoType, nil
@@ -702,8 +717,21 @@ func fromCombinedMetrics(combinedMetrics models.CombinedMetric) (*telemetryv1.Ge
 		}
 	}
 
+	// Convert temperature status counts if present
+	var temperatureStatusCounts []*telemetryv1.TemperatureStatusCount
+	for _, statusCount := range combinedMetrics.TemperatureStatusCounts {
+		temperatureStatusCounts = append(temperatureStatusCounts, &telemetryv1.TemperatureStatusCount{
+			Timestamp:     timestamppb.New(statusCount.Timestamp),
+			ColdCount:     statusCount.ColdCount,
+			OkCount:       statusCount.OkCount,
+			HotCount:      statusCount.HotCount,
+			CriticalCount: statusCount.CriticalCount,
+		})
+	}
+
 	return &telemetryv1.GetCombinedMetricsResponse{
-		Metrics:       metrics,
-		NextPageToken: combinedMetrics.NextPageToken,
+		Metrics:                 metrics,
+		NextPageToken:           combinedMetrics.NextPageToken,
+		TemperatureStatusCounts: temperatureStatusCounts,
 	}, nil
 }

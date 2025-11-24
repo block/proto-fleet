@@ -20,7 +20,12 @@ describe("FleetErrors", () => {
   it("displays correct error counts", () => {
     render(
       <BrowserRouter>
-        <FleetErrors />
+        <FleetErrors
+          controlBoardErrors={0}
+          fanErrors={0}
+          hashboardErrors={42}
+          psuErrors={58}
+        />
       </BrowserRouter>,
     );
 

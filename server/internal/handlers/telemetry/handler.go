@@ -279,10 +279,23 @@ func (h *Handler) convertCombinedMetricsToStreamResponse(combinedMetrics models.
 		}
 	}
 
+	// Convert temperature status counts if present
+	var temperatureStatusCounts []*telemetryv1.TemperatureStatusCount
+	for _, statusCount := range combinedMetrics.TemperatureStatusCounts {
+		temperatureStatusCounts = append(temperatureStatusCounts, &telemetryv1.TemperatureStatusCount{
+			Timestamp:     timestamppb.New(statusCount.Timestamp),
+			ColdCount:     statusCount.ColdCount,
+			OkCount:       statusCount.OkCount,
+			HotCount:      statusCount.HotCount,
+			CriticalCount: statusCount.CriticalCount,
+		})
+	}
+
 	nextUpdateTime := time.Now().Add(updateInterval)
 
 	return &telemetryv1.StreamCombinedMetricUpdatesResponse{
-		Metrics:        metrics,
-		NextUpdateTime: timestamppb.New(nextUpdateTime),
+		Metrics:                 metrics,
+		NextUpdateTime:          timestamppb.New(nextUpdateTime),
+		TemperatureStatusCounts: temperatureStatusCounts,
 	}, nil
 }

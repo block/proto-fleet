@@ -20,7 +20,7 @@ describe("FleetHealth", () => {
     );
 
     // Check status label and value
-    expect(screen.getByText("Status")).toBeInTheDocument();
+    expect(screen.getByText("Fleet health")).toBeInTheDocument();
     expect(screen.getByText("Excellent")).toBeInTheDocument();
 
     // Check percentages
@@ -82,7 +82,7 @@ describe("FleetHealth", () => {
     );
 
     // Check fleet health status
-    expect(screen.getByText("Status")).toBeInTheDocument();
+    expect(screen.getByText("Fleet health")).toBeInTheDocument();
     expect(screen.getByText("Moderate")).toBeInTheDocument();
 
     // Check percentages
@@ -102,7 +102,7 @@ describe("FleetHealth", () => {
     );
 
     // Check fleet health status
-    expect(screen.getByText("Status")).toBeInTheDocument();
+    expect(screen.getByText("Fleet health")).toBeInTheDocument();
     expect(screen.getByText("Critical")).toBeInTheDocument();
 
     // Check percentages
@@ -122,7 +122,7 @@ describe("FleetHealth", () => {
     );
 
     // Should render without errors
-    expect(screen.getByText("Status")).toBeInTheDocument();
+    expect(screen.getByText("Fleet health")).toBeInTheDocument();
     // When fleet is empty (0 fleetSize), it shows skeleton/loading state for status
     expect(screen.getByTestId("skeleton-bar")).toBeInTheDocument();
 
@@ -139,7 +139,7 @@ describe("FleetHealth", () => {
     renderWithRouter(<FleetHealth />);
 
     // Should render skeleton bars instead of values
-    expect(screen.getByText("Status")).toBeInTheDocument();
+    expect(screen.getByText("Fleet health")).toBeInTheDocument();
 
     // Check that all stat labels are present but with skeleton bars
     // Using getAllByText since these appear in both stat headers and legend
@@ -165,7 +165,7 @@ describe("FleetHealth", () => {
     );
 
     // Check status label is present
-    expect(screen.getByText("Status")).toBeInTheDocument();
+    expect(screen.getByText("Fleet health")).toBeInTheDocument();
 
     // Should show defined values for healthy
     expect(screen.getByText("70%")).toBeInTheDocument(); // Healthy percentage

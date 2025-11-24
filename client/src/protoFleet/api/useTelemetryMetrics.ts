@@ -9,7 +9,11 @@ import {
   GetCombinedMetricsResponse,
   MeasurementType,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { useAuthErrors, useAuthHeader } from "@/protoFleet/store";
+import {
+  useAuthErrors,
+  useAuthHeader,
+  useSetTemperatureStatusCounts,
+} from "@/protoFleet/store";
 import { Duration } from "@/shared/components/DurationSelector";
 
 interface TelemetryMetricsOptions {
@@ -40,6 +44,7 @@ const durationToSeconds = (duration: Duration): number | undefined => {
 export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
   const authHeader = useAuthHeader();
   const { handleAuthErrors } = useAuthErrors();
+  const setTemperatureStatusCounts = useSetTemperatureStatusCounts();
   const [data, setData] = useState<GetCombinedMetricsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -98,6 +103,11 @@ export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
       );
 
       setData(response);
+
+      // Store temperature status counts in the fleet store
+      if (response.temperatureStatusCounts) {
+        setTemperatureStatusCounts(response.temperatureStatusCounts);
+      }
     } catch (err) {
       handleAuthErrors({
         error: err,
@@ -118,6 +128,7 @@ export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
     options.enabled,
     authHeader,
     handleAuthErrors,
+    setTemperatureStatusCounts,
   ]);
 
   useEffect(() => {

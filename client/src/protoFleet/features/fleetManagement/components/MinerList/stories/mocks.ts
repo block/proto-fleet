@@ -5,6 +5,7 @@ import {
   type MinerStateSnapshot,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { TemperatureStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 
 export const miners: MinerStateSnapshot[] = [
   {
@@ -62,6 +63,7 @@ export const miners: MinerStateSnapshot[] = [
       controlBoard: ComponentStatus.OK,
     } as MinerStateSnapshot["status"],
     deviceStatus: DeviceStatus.ONLINE,
+    temperatureStatus: TemperatureStatus.OK,
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -118,6 +120,7 @@ export const miners: MinerStateSnapshot[] = [
       controlBoard: ComponentStatus.OK,
     } as MinerStateSnapshot["status"],
     deviceStatus: DeviceStatus.ONLINE,
+    temperatureStatus: TemperatureStatus.OK,
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -174,6 +177,7 @@ export const miners: MinerStateSnapshot[] = [
       controlBoard: ComponentStatus.OK,
     } as MinerStateSnapshot["status"],
     deviceStatus: DeviceStatus.ONLINE,
+    temperatureStatus: TemperatureStatus.OK,
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -230,5 +234,6 @@ export const miners: MinerStateSnapshot[] = [
       controlBoard: ComponentStatus.OK,
     } as MinerStateSnapshot["status"],
     deviceStatus: DeviceStatus.ONLINE,
+    temperatureStatus: TemperatureStatus.OK,
   },
 ];

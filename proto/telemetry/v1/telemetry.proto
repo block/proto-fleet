@@ -78,6 +78,24 @@ enum ComponentStatus {
   COMPONENT_STATUS_OFFLINE = 4;
 }
 
+// Temperature status based on threshold ranges
+enum TemperatureStatus {
+  TEMPERATURE_STATUS_UNSPECIFIED = 0;
+  TEMPERATURE_STATUS_COLD = 1;      // Below 0°C
+  TEMPERATURE_STATUS_OK = 2;        // 0°C to 70°C
+  TEMPERATURE_STATUS_HOT = 3;       // 70°C to 90°C
+  TEMPERATURE_STATUS_CRITICAL = 4;  // Above 90°C
+}
+
+// Temperature status distribution at a point in time
+message TemperatureStatusCount {
+  google.protobuf.Timestamp timestamp = 1;
+  int32 cold_count = 2;     // Count of miners < 0°C
+  int32 ok_count = 3;       // Count of miners 0-70°C
+  int32 hot_count = 4;      // Count of miners 70-90°C
+  int32 critical_count = 5; // Count of miners > 90°C
+}
+
 // Status of a miner
 enum DeviceStatus {
   // Status is unknown or not specified
@@ -280,6 +298,9 @@ message Metric {
 message GetCombinedMetricsResponse {
     repeated Metric metrics = 1;
     string next_page_token = 2; // for pagination
+
+    // Temperature status distribution across the fleet
+    repeated TemperatureStatusCount temperature_status_counts = 3;
 }
 
 message StreamCombinedMetricUpdatesRequest {
@@ -298,5 +319,8 @@ message StreamCombinedMetricUpdatesRequest {
 message StreamCombinedMetricUpdatesResponse {
     repeated Metric metrics = 1; // e.g., TEMPERATURE, HASHRATE
     google.protobuf.Timestamp next_update_time = 2; // when the next update will be sent
+
+    // Real-time temperature status distribution
+    repeated TemperatureStatusCount temperature_status_counts = 3;
 }
 

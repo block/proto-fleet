@@ -28,7 +28,9 @@ const ChartWidget = ({
   const statsArray = stats ? (Array.isArray(stats) ? stats : [stats]) : [];
 
   return (
-    <div className={clsx("rounded-xl bg-surface-base p-10", className)}>
+    <div
+      className={clsx("rounded-xl bg-surface-base p-10 phone:p-6", className)}
+    >
       <div className={statsPadding}>
         {statsArray.length > 0 && (
           <Stats
@@ -40,7 +42,7 @@ const ChartWidget = ({
           />
         )}
       </div>
-      <div className="flex">{children}</div>
+      <div className="flex w-full">{children}</div>
     </div>
   );
 };

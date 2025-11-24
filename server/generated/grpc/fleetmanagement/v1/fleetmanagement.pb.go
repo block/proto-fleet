@@ -793,9 +793,11 @@ type MinerStateSnapshot struct {
 	// Device type (e.g., antminer, proto)
 	Type string `protobuf:"bytes,17,opt,name=type,proto3" json:"type,omitempty"`
 	// Device capabilities indicating supported features (populated for unpaired devices)
-	Capabilities  *v11.MinerCapabilities `protobuf:"bytes,18,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Capabilities *v11.MinerCapabilities `protobuf:"bytes,18,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
+	// Temperature status based on current temperature value
+	TemperatureStatus v12.TemperatureStatus `protobuf:"varint,19,opt,name=temperature_status,json=temperatureStatus,proto3,enum=telemetry.v1.TemperatureStatus" json:"temperature_status,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *MinerStateSnapshot) Reset() {
@@ -952,6 +954,13 @@ func (x *MinerStateSnapshot) GetCapabilities() *v11.MinerCapabilities {
 		return x.Capabilities
 	}
 	return nil
+}
+
+func (x *MinerStateSnapshot) GetTemperatureStatus() v12.TemperatureStatus {
+	if x != nil {
+		return x.TemperatureStatus
+	}
+	return v12.TemperatureStatus(0)
 }
 
 // Status information for all major components in a miner
@@ -2163,7 +2172,7 @@ var file_fleetmanagement_v1_fleetmanagement_proto_rawDesc = string([]byte{
 	0x6c, 0x5f, 0x6e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0c,
 	0x73, 0x65, 0x72, 0x69, 0x61, 0x6c, 0x4e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x12, 0x1f, 0x0a, 0x0b,
 	0x6d, 0x61, 0x63, 0x5f, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x18, 0x03, 0x20, 0x01, 0x28,
-	0x09, 0x52, 0x0a, 0x6d, 0x61, 0x63, 0x41, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x22, 0xce, 0x06,
+	0x09, 0x52, 0x0a, 0x6d, 0x61, 0x63, 0x41, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x22, 0x9e, 0x07,
 	0x0a, 0x12, 0x4d, 0x69, 0x6e, 0x65, 0x72, 0x53, 0x74, 0x61, 0x74, 0x65, 0x53, 0x6e, 0x61, 0x70,
 	0x73, 0x68, 0x6f, 0x74, 0x12, 0x2b, 0x0a, 0x11, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x5f, 0x69,
 	0x64, 0x65, 0x6e, 0x74, 0x69, 0x66, 0x69, 0x65, 0x72, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52,
@@ -2216,7 +2225,12 @@ var file_fleetmanagement_v1_fleetmanagement_proto_rawDesc = string([]byte{
 	0x6c, 0x69, 0x74, 0x69, 0x65, 0x73, 0x18, 0x12, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x22, 0x2e, 0x63,
 	0x61, 0x70, 0x61, 0x62, 0x69, 0x6c, 0x69, 0x74, 0x69, 0x65, 0x73, 0x2e, 0x76, 0x31, 0x2e, 0x4d,
 	0x69, 0x6e, 0x65, 0x72, 0x43, 0x61, 0x70, 0x61, 0x62, 0x69, 0x6c, 0x69, 0x74, 0x69, 0x65, 0x73,
-	0x52, 0x0c, 0x63, 0x61, 0x70, 0x61, 0x62, 0x69, 0x6c, 0x69, 0x74, 0x69, 0x65, 0x73, 0x22, 0x96,
+	0x52, 0x0c, 0x63, 0x61, 0x70, 0x61, 0x62, 0x69, 0x6c, 0x69, 0x74, 0x69, 0x65, 0x73, 0x12, 0x4e,
+	0x0a, 0x12, 0x74, 0x65, 0x6d, 0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x5f, 0x73, 0x74,
+	0x61, 0x74, 0x75, 0x73, 0x18, 0x13, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x1f, 0x2e, 0x74, 0x65, 0x6c,
+	0x65, 0x6d, 0x65, 0x74, 0x72, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x54, 0x65, 0x6d, 0x70, 0x65, 0x72,
+	0x61, 0x74, 0x75, 0x72, 0x65, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x52, 0x11, 0x74, 0x65, 0x6d,
+	0x70, 0x65, 0x72, 0x61, 0x74, 0x75, 0x72, 0x65, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x22, 0x96,
 	0x02, 0x0a, 0x14, 0x4d, 0x69, 0x6e, 0x65, 0x72, 0x43, 0x6f, 0x6d, 0x70, 0x6f, 0x6e, 0x65, 0x6e,
 	0x74, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x12, 0x48, 0x0a, 0x0d, 0x63, 0x6f, 0x6e, 0x74, 0x72,
 	0x6f, 0x6c, 0x5f, 0x62, 0x6f, 0x61, 0x72, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x23,
@@ -2636,8 +2650,9 @@ var file_fleetmanagement_v1_fleetmanagement_proto_goTypes = []any{
 	(*v1.Measurement)(nil),                  // 29: common.v1.Measurement
 	(*timestamppb.Timestamp)(nil),           // 30: google.protobuf.Timestamp
 	(*v11.MinerCapabilities)(nil),           // 31: capabilities.v1.MinerCapabilities
-	(*v1.TimeSeriesConfig)(nil),             // 32: common.v1.TimeSeriesConfig
-	(*v12.MinerStateCounts)(nil),            // 33: telemetry.v1.MinerStateCounts
+	(v12.TemperatureStatus)(0),              // 32: telemetry.v1.TemperatureStatus
+	(*v1.TimeSeriesConfig)(nil),             // 33: common.v1.TimeSeriesConfig
+	(*v12.MinerStateCounts)(nil),            // 34: telemetry.v1.MinerStateCounts
 }
 var file_fleetmanagement_v1_fleetmanagement_proto_depIdxs = []int32{
 	11, // 0: fleetmanagement.v1.ListPairedMinersResponse.miners:type_name -> fleetmanagement.v1.PairedDevice
@@ -2650,59 +2665,60 @@ var file_fleetmanagement_v1_fleetmanagement_proto_depIdxs = []int32{
 	2,  // 7: fleetmanagement.v1.MinerStateSnapshot.device_status:type_name -> fleetmanagement.v1.DeviceStatus
 	5,  // 8: fleetmanagement.v1.MinerStateSnapshot.pairing_status:type_name -> fleetmanagement.v1.PairingStatus
 	31, // 9: fleetmanagement.v1.MinerStateSnapshot.capabilities:type_name -> capabilities.v1.MinerCapabilities
-	1,  // 10: fleetmanagement.v1.MinerComponentStatus.control_board:type_name -> fleetmanagement.v1.ComponentStatus
-	1,  // 11: fleetmanagement.v1.MinerComponentStatus.fans:type_name -> fleetmanagement.v1.ComponentStatus
-	1,  // 12: fleetmanagement.v1.MinerComponentStatus.hash_boards:type_name -> fleetmanagement.v1.ComponentStatus
-	1,  // 13: fleetmanagement.v1.MinerComponentStatus.psu:type_name -> fleetmanagement.v1.ComponentStatus
-	7,  // 14: fleetmanagement.v1.MeasurementConfig.measurement_type:type_name -> fleetmanagement.v1.MeasurementConfig.MeasurementType
-	3,  // 15: fleetmanagement.v1.MeasurementConfig.data_mode:type_name -> fleetmanagement.v1.DataMode
-	32, // 16: fleetmanagement.v1.MeasurementConfig.time_series_config:type_name -> common.v1.TimeSeriesConfig
-	3,  // 17: fleetmanagement.v1.ListMinerStateSnapshotsRequest.data_mode:type_name -> fleetmanagement.v1.DataMode
-	32, // 18: fleetmanagement.v1.ListMinerStateSnapshotsRequest.time_series_config:type_name -> common.v1.TimeSeriesConfig
-	14, // 19: fleetmanagement.v1.ListMinerStateSnapshotsRequest.measurement_configs:type_name -> fleetmanagement.v1.MeasurementConfig
-	17, // 20: fleetmanagement.v1.ListMinerStateSnapshotsRequest.filter:type_name -> fleetmanagement.v1.MinerListFilter
-	6,  // 21: fleetmanagement.v1.ComponentStatusFilter.component:type_name -> fleetmanagement.v1.ComponentType
-	1,  // 22: fleetmanagement.v1.ComponentStatusFilter.statuses:type_name -> fleetmanagement.v1.ComponentStatus
-	2,  // 23: fleetmanagement.v1.MinerListFilter.device_status:type_name -> fleetmanagement.v1.DeviceStatus
-	16, // 24: fleetmanagement.v1.MinerListFilter.component_filters:type_name -> fleetmanagement.v1.ComponentStatusFilter
-	4,  // 25: fleetmanagement.v1.MinerListFilter.types:type_name -> fleetmanagement.v1.MinerType
-	5,  // 26: fleetmanagement.v1.MinerListFilter.pairing_statuses:type_name -> fleetmanagement.v1.PairingStatus
-	12, // 27: fleetmanagement.v1.ListMinerStateSnapshotsResponse.miners:type_name -> fleetmanagement.v1.MinerStateSnapshot
-	33, // 28: fleetmanagement.v1.ListMinerStateSnapshotsResponse.total_state_counts:type_name -> telemetry.v1.MinerStateCounts
-	4,  // 29: fleetmanagement.v1.ListMinerStateSnapshotsResponse.miner_types:type_name -> fleetmanagement.v1.MinerType
-	7,  // 30: fleetmanagement.v1.StreamMinerUpdatesRequest.measurement_types:type_name -> fleetmanagement.v1.MeasurementConfig.MeasurementType
-	30, // 31: fleetmanagement.v1.StreamMinerUpdatesResponse.timestamp:type_name -> google.protobuf.Timestamp
-	21, // 32: fleetmanagement.v1.StreamMinerUpdatesResponse.measurement:type_name -> fleetmanagement.v1.MeasurementUpdate
-	22, // 33: fleetmanagement.v1.StreamMinerUpdatesResponse.status:type_name -> fleetmanagement.v1.ComponentStatusUpdate
-	23, // 34: fleetmanagement.v1.StreamMinerUpdatesResponse.heartbeat:type_name -> fleetmanagement.v1.Heartbeat
-	24, // 35: fleetmanagement.v1.StreamMinerUpdatesResponse.device_status:type_name -> fleetmanagement.v1.DeviceStatusUpdate
-	7,  // 36: fleetmanagement.v1.MeasurementUpdate.measurement_type:type_name -> fleetmanagement.v1.MeasurementConfig.MeasurementType
-	29, // 37: fleetmanagement.v1.MeasurementUpdate.measurement:type_name -> common.v1.Measurement
-	8,  // 38: fleetmanagement.v1.ComponentStatusUpdate.component:type_name -> fleetmanagement.v1.ComponentStatusUpdate.Component
-	1,  // 39: fleetmanagement.v1.ComponentStatusUpdate.status:type_name -> fleetmanagement.v1.ComponentStatus
-	2,  // 40: fleetmanagement.v1.DeviceStatusUpdate.status:type_name -> fleetmanagement.v1.DeviceStatus
-	17, // 41: fleetmanagement.v1.StreamMinerListUpdatesRequest.filter:type_name -> fleetmanagement.v1.MinerListFilter
-	3,  // 42: fleetmanagement.v1.StreamMinerListUpdatesRequest.data_mode:type_name -> fleetmanagement.v1.DataMode
-	32, // 43: fleetmanagement.v1.StreamMinerListUpdatesRequest.time_series_config:type_name -> common.v1.TimeSeriesConfig
-	14, // 44: fleetmanagement.v1.StreamMinerListUpdatesRequest.measurement_configs:type_name -> fleetmanagement.v1.MeasurementConfig
-	30, // 45: fleetmanagement.v1.StreamMinerListUpdatesResponse.timestamp:type_name -> google.protobuf.Timestamp
-	27, // 46: fleetmanagement.v1.StreamMinerListUpdatesResponse.delta:type_name -> fleetmanagement.v1.MinerListDelta
-	23, // 47: fleetmanagement.v1.StreamMinerListUpdatesResponse.heartbeat:type_name -> fleetmanagement.v1.Heartbeat
-	28, // 48: fleetmanagement.v1.MinerListDelta.additions:type_name -> fleetmanagement.v1.MinerAddition
-	12, // 49: fleetmanagement.v1.MinerAddition.miner:type_name -> fleetmanagement.v1.MinerStateSnapshot
-	9,  // 50: fleetmanagement.v1.FleetManagementService.ListPairedMiners:input_type -> fleetmanagement.v1.ListPairedMinersRequest
-	15, // 51: fleetmanagement.v1.FleetManagementService.ListMinerStateSnapshots:input_type -> fleetmanagement.v1.ListMinerStateSnapshotsRequest
-	19, // 52: fleetmanagement.v1.FleetManagementService.StreamMinerUpdates:input_type -> fleetmanagement.v1.StreamMinerUpdatesRequest
-	25, // 53: fleetmanagement.v1.FleetManagementService.StreamMinerListUpdates:input_type -> fleetmanagement.v1.StreamMinerListUpdatesRequest
-	10, // 54: fleetmanagement.v1.FleetManagementService.ListPairedMiners:output_type -> fleetmanagement.v1.ListPairedMinersResponse
-	18, // 55: fleetmanagement.v1.FleetManagementService.ListMinerStateSnapshots:output_type -> fleetmanagement.v1.ListMinerStateSnapshotsResponse
-	20, // 56: fleetmanagement.v1.FleetManagementService.StreamMinerUpdates:output_type -> fleetmanagement.v1.StreamMinerUpdatesResponse
-	26, // 57: fleetmanagement.v1.FleetManagementService.StreamMinerListUpdates:output_type -> fleetmanagement.v1.StreamMinerListUpdatesResponse
-	54, // [54:58] is the sub-list for method output_type
-	50, // [50:54] is the sub-list for method input_type
-	50, // [50:50] is the sub-list for extension type_name
-	50, // [50:50] is the sub-list for extension extendee
-	0,  // [0:50] is the sub-list for field type_name
+	32, // 10: fleetmanagement.v1.MinerStateSnapshot.temperature_status:type_name -> telemetry.v1.TemperatureStatus
+	1,  // 11: fleetmanagement.v1.MinerComponentStatus.control_board:type_name -> fleetmanagement.v1.ComponentStatus
+	1,  // 12: fleetmanagement.v1.MinerComponentStatus.fans:type_name -> fleetmanagement.v1.ComponentStatus
+	1,  // 13: fleetmanagement.v1.MinerComponentStatus.hash_boards:type_name -> fleetmanagement.v1.ComponentStatus
+	1,  // 14: fleetmanagement.v1.MinerComponentStatus.psu:type_name -> fleetmanagement.v1.ComponentStatus
+	7,  // 15: fleetmanagement.v1.MeasurementConfig.measurement_type:type_name -> fleetmanagement.v1.MeasurementConfig.MeasurementType
+	3,  // 16: fleetmanagement.v1.MeasurementConfig.data_mode:type_name -> fleetmanagement.v1.DataMode
+	33, // 17: fleetmanagement.v1.MeasurementConfig.time_series_config:type_name -> common.v1.TimeSeriesConfig
+	3,  // 18: fleetmanagement.v1.ListMinerStateSnapshotsRequest.data_mode:type_name -> fleetmanagement.v1.DataMode
+	33, // 19: fleetmanagement.v1.ListMinerStateSnapshotsRequest.time_series_config:type_name -> common.v1.TimeSeriesConfig
+	14, // 20: fleetmanagement.v1.ListMinerStateSnapshotsRequest.measurement_configs:type_name -> fleetmanagement.v1.MeasurementConfig
+	17, // 21: fleetmanagement.v1.ListMinerStateSnapshotsRequest.filter:type_name -> fleetmanagement.v1.MinerListFilter
+	6,  // 22: fleetmanagement.v1.ComponentStatusFilter.component:type_name -> fleetmanagement.v1.ComponentType
+	1,  // 23: fleetmanagement.v1.ComponentStatusFilter.statuses:type_name -> fleetmanagement.v1.ComponentStatus
+	2,  // 24: fleetmanagement.v1.MinerListFilter.device_status:type_name -> fleetmanagement.v1.DeviceStatus
+	16, // 25: fleetmanagement.v1.MinerListFilter.component_filters:type_name -> fleetmanagement.v1.ComponentStatusFilter
+	4,  // 26: fleetmanagement.v1.MinerListFilter.types:type_name -> fleetmanagement.v1.MinerType
+	5,  // 27: fleetmanagement.v1.MinerListFilter.pairing_statuses:type_name -> fleetmanagement.v1.PairingStatus
+	12, // 28: fleetmanagement.v1.ListMinerStateSnapshotsResponse.miners:type_name -> fleetmanagement.v1.MinerStateSnapshot
+	34, // 29: fleetmanagement.v1.ListMinerStateSnapshotsResponse.total_state_counts:type_name -> telemetry.v1.MinerStateCounts
+	4,  // 30: fleetmanagement.v1.ListMinerStateSnapshotsResponse.miner_types:type_name -> fleetmanagement.v1.MinerType
+	7,  // 31: fleetmanagement.v1.StreamMinerUpdatesRequest.measurement_types:type_name -> fleetmanagement.v1.MeasurementConfig.MeasurementType
+	30, // 32: fleetmanagement.v1.StreamMinerUpdatesResponse.timestamp:type_name -> google.protobuf.Timestamp
+	21, // 33: fleetmanagement.v1.StreamMinerUpdatesResponse.measurement:type_name -> fleetmanagement.v1.MeasurementUpdate
+	22, // 34: fleetmanagement.v1.StreamMinerUpdatesResponse.status:type_name -> fleetmanagement.v1.ComponentStatusUpdate
+	23, // 35: fleetmanagement.v1.StreamMinerUpdatesResponse.heartbeat:type_name -> fleetmanagement.v1.Heartbeat
+	24, // 36: fleetmanagement.v1.StreamMinerUpdatesResponse.device_status:type_name -> fleetmanagement.v1.DeviceStatusUpdate
+	7,  // 37: fleetmanagement.v1.MeasurementUpdate.measurement_type:type_name -> fleetmanagement.v1.MeasurementConfig.MeasurementType
+	29, // 38: fleetmanagement.v1.MeasurementUpdate.measurement:type_name -> common.v1.Measurement
+	8,  // 39: fleetmanagement.v1.ComponentStatusUpdate.component:type_name -> fleetmanagement.v1.ComponentStatusUpdate.Component
+	1,  // 40: fleetmanagement.v1.ComponentStatusUpdate.status:type_name -> fleetmanagement.v1.ComponentStatus
+	2,  // 41: fleetmanagement.v1.DeviceStatusUpdate.status:type_name -> fleetmanagement.v1.DeviceStatus
+	17, // 42: fleetmanagement.v1.StreamMinerListUpdatesRequest.filter:type_name -> fleetmanagement.v1.MinerListFilter
+	3,  // 43: fleetmanagement.v1.StreamMinerListUpdatesRequest.data_mode:type_name -> fleetmanagement.v1.DataMode
+	33, // 44: fleetmanagement.v1.StreamMinerListUpdatesRequest.time_series_config:type_name -> common.v1.TimeSeriesConfig
+	14, // 45: fleetmanagement.v1.StreamMinerListUpdatesRequest.measurement_configs:type_name -> fleetmanagement.v1.MeasurementConfig
+	30, // 46: fleetmanagement.v1.StreamMinerListUpdatesResponse.timestamp:type_name -> google.protobuf.Timestamp
+	27, // 47: fleetmanagement.v1.StreamMinerListUpdatesResponse.delta:type_name -> fleetmanagement.v1.MinerListDelta
+	23, // 48: fleetmanagement.v1.StreamMinerListUpdatesResponse.heartbeat:type_name -> fleetmanagement.v1.Heartbeat
+	28, // 49: fleetmanagement.v1.MinerListDelta.additions:type_name -> fleetmanagement.v1.MinerAddition
+	12, // 50: fleetmanagement.v1.MinerAddition.miner:type_name -> fleetmanagement.v1.MinerStateSnapshot
+	9,  // 51: fleetmanagement.v1.FleetManagementService.ListPairedMiners:input_type -> fleetmanagement.v1.ListPairedMinersRequest
+	15, // 52: fleetmanagement.v1.FleetManagementService.ListMinerStateSnapshots:input_type -> fleetmanagement.v1.ListMinerStateSnapshotsRequest
+	19, // 53: fleetmanagement.v1.FleetManagementService.StreamMinerUpdates:input_type -> fleetmanagement.v1.StreamMinerUpdatesRequest
+	25, // 54: fleetmanagement.v1.FleetManagementService.StreamMinerListUpdates:input_type -> fleetmanagement.v1.StreamMinerListUpdatesRequest
+	10, // 55: fleetmanagement.v1.FleetManagementService.ListPairedMiners:output_type -> fleetmanagement.v1.ListPairedMinersResponse
+	18, // 56: fleetmanagement.v1.FleetManagementService.ListMinerStateSnapshots:output_type -> fleetmanagement.v1.ListMinerStateSnapshotsResponse
+	20, // 57: fleetmanagement.v1.FleetManagementService.StreamMinerUpdates:output_type -> fleetmanagement.v1.StreamMinerUpdatesResponse
+	26, // 58: fleetmanagement.v1.FleetManagementService.StreamMinerListUpdates:output_type -> fleetmanagement.v1.StreamMinerListUpdatesResponse
+	55, // [55:59] is the sub-list for method output_type
+	51, // [51:55] is the sub-list for method input_type
+	51, // [51:51] is the sub-list for extension type_name
+	51, // [51:51] is the sub-list for extension extendee
+	0,  // [0:51] is the sub-list for field type_name
 }
 
 func init() { file_fleetmanagement_v1_fleetmanagement_proto_init() }

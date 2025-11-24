@@ -31,9 +31,12 @@ const SegmentedBarChart = ({
   className,
   height = DEFAULT_CHART_HEIGHT,
   barWidth = DEFAULT_BAR_WIDTH,
+  xAxisPadding: customXAxisPadding,
   yAxisPadding = 0,
   yAxisTickCount = DEFAULT_Y_AXIS_TICK_COUNT,
   xAxisTickInterval = 1,
+  showDateLabel = false,
+  lastTickOverride,
   toolTipKey,
 }: SegmentedBarChartProps) => {
   const [shouldAnimate, setShouldAnimate] = useState(animate);
@@ -103,8 +106,14 @@ const SegmentedBarChart = ({
   }, [chartData, segmentKeys, colorMap, percentageDisplay]);
 
   // Calculate x-axis padding based on chart width and bar dimensions
-  // padding on left and right should be equal to half the space between bars
+  // Use custom padding if provided, otherwise calculate automatically
   const xAxisPadding = useMemo(() => {
+    // Use custom padding if provided
+    if (customXAxisPadding !== undefined) {
+      return customXAxisPadding;
+    }
+
+    // Otherwise calculate automatically
     if (!transformedData || transformedData.length === 0) return 0;
 
     const chartWidth = contentRect.width;
@@ -118,7 +127,7 @@ const SegmentedBarChart = ({
     const padding = Math.max(0, (chartWidth - totalBarWidth) / numBars) / 2;
 
     return padding;
-  }, [contentRect.width, transformedData, barWidth]);
+  }, [customXAxisPadding, contentRect.width, transformedData, barWidth]);
 
   // Calculate Y-axis domain with optional padding
   const yAxisDomain = useMemo(() => {
@@ -126,16 +135,21 @@ const SegmentedBarChart = ({
       return [0, 100]; // Use 100 for percentage scale
     }
 
+    // Calculate max value from data
+    const maxValue =
+      transformedData?.reduce((max, item) => Math.max(max, item.total), 0) || 0;
+
+    // If no data or all zeros, use a default scale to prevent tick overlap
+    if (maxValue === 0) {
+      return [0, 100]; // Default scale when no data
+    }
+
     if (yAxisPadding > 0) {
-      // Calculate max value and add padding
-      const maxValue =
-        transformedData?.reduce((max, item) => Math.max(max, item.total), 0) ||
-        0;
       return [0, maxValue * (1 + yAxisPadding)];
     }
 
     // Default: scale to data max
-    return yAxisProps.domain;
+    return [0, maxValue];
   }, [percentageDisplay, yAxisPadding, transformedData]);
 
   // Calculate tick values for evenly spaced grid lines
@@ -232,7 +246,10 @@ const SegmentedBarChart = ({
       }}
     >
       <ChartWrapper className="h-full w-full [&_*:focus]:outline-none [&_svg]:outline-none">
-        <BarChart data={transformedData}>
+        <BarChart
+          data={transformedData}
+          margin={{ top: 5, right: 0, bottom: 5, left: 0 }}
+        >
           <CartesianGrid {...cartesianGridProps} />
 
           <XAxis
@@ -242,9 +259,31 @@ const SegmentedBarChart = ({
             type="number"
             domain={["dataMin", "dataMax"]}
             padding={{ left: xAxisPadding, right: xAxisPadding }}
-            tickCount={transformedData.length}
-            interval={xAxisTickInterval - 1}
-            tick={(props: any) => <SegmentedXAxisTick {...props} />}
+            tickCount={showDateLabel ? 1 : transformedData.length}
+            ticks={
+              showDateLabel && transformedData && transformedData.length > 0
+                ? [
+                    // Calculate middle timestamp
+                    transformedData[Math.floor(transformedData.length / 2)]
+                      .datetime,
+                  ]
+                : undefined
+            }
+            interval={showDateLabel ? 0 : xAxisTickInterval - 1}
+            tick={(props: any) => {
+              const lastTickValue =
+                transformedData && transformedData.length > 0
+                  ? transformedData[transformedData.length - 1].datetime
+                  : null;
+              return (
+                <SegmentedXAxisTick
+                  {...props}
+                  showDateLabel={showDateLabel}
+                  lastTickOverride={lastTickOverride}
+                  isLastTick={props.payload?.value === lastTickValue}
+                />
+              );
+            }}
           />
 
           <YAxis {...yAxisProps} domain={yAxisDomain} ticks={yAxisTicks} />

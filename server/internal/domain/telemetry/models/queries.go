@@ -85,6 +85,16 @@ type Metric struct {
 	OpenTime         time.Time         `json:"open_time"`
 }
 type CombinedMetric struct {
-	Metrics       []Metric `json:"metrics"`
-	NextPageToken string   `json:"next_page_token,omitempty"` // for pagination
+	Metrics                 []Metric                 `json:"metrics"`
+	NextPageToken           string                   `json:"next_page_token,omitempty"` // for pagination
+	TemperatureStatusCounts []TemperatureStatusCount `json:"temperature_status_counts,omitempty"`
+}
+
+// TemperatureStatusCount represents temperature status distribution at a point in time
+type TemperatureStatusCount struct {
+	Timestamp     time.Time `json:"timestamp"`
+	ColdCount     int32     `json:"cold_count"`     // Count of miners < 0°C
+	OkCount       int32     `json:"ok_count"`       // Count of miners 0-70°C
+	HotCount      int32     `json:"hot_count"`      // Count of miners 70-90°C
+	CriticalCount int32     `json:"critical_count"` // Count of miners > 90°C
 }

@@ -37,7 +37,7 @@ describe("Navigation Menu", () => {
 
     const currentItem = getByText("Foo");
     await waitFor(() => {
-      expect(currentItem).toHaveClass("bg-core-primary-10");
+      expect(currentItem).toHaveClass("bg-core-primary-5");
     });
   });
 });
