@@ -31,7 +31,7 @@ const Fleet = () => {
   const { minerIds, totalMiners, hasMore, isLoading, loadMore, refetch } =
     useFleet({
       scope: "global",
-      pageSize: 100,
+      pageSize: 20,
       visibleMinerIds,
       mode: "snapshot",
       filter: currentFilter,

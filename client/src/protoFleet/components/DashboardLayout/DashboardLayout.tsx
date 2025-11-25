@@ -27,7 +27,8 @@ const DashboardLayout = () => {
   const devicePaired = useDevicePaired();
   useFleet({
     scope: "global",
-    mode: "snapshot",
+    mode: "metadata",
+    pageSize: 1,
     pairingStatuses: [
       PairingStatus.PAIRED,
       PairingStatus.AUTHENTICATION_NEEDED,

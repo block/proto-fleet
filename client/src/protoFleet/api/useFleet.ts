@@ -108,7 +108,7 @@ const DataModeMapping = {
 const useFleet = (options: UseFleetOptions = {}) => {
   const {
     filter,
-    pageSize = 100,
+    pageSize = 20,
     pairingStatuses = DEFAULT_PAIRING_STATUSES, // Use stable reference to prevent re-renders
     scope = "local",
     visibleMinerIds,
