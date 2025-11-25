@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import SingleMinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/SingleMinerActionsMenu";
 import MinerFrame from "@/protoFleet/features/fleetManagement/components/MinerFrame";
 import { useMinerName, useMinerUrl } from "@/protoFleet/store";
 
@@ -25,26 +26,33 @@ const MinerName = ({ deviceIdentifier }: MinerNameProps) => {
     }
   };
 
-  return url ? (
-    <>
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={handleClick}
-      >
-        {name}
-      </a>
-      {isMinerFrameOpen ? (
-        <MinerFrame
-          title={name}
-          src={url}
-          onDismiss={() => setIsMinerFrameOpen(false)}
-        />
-      ) : null}
-    </>
-  ) : (
-    <span>{name}</span>
+  return (
+    <div className="flex w-full items-center justify-between">
+      <div>
+        {url ? (
+          <>
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={handleClick}
+            >
+              {name}
+            </a>
+            {isMinerFrameOpen ? (
+              <MinerFrame
+                title={name}
+                src={url}
+                onDismiss={() => setIsMinerFrameOpen(false)}
+              />
+            ) : null}
+          </>
+        ) : (
+          <span>{name}</span>
+        )}
+      </div>
+      <SingleMinerActionsMenu deviceIdentifier={deviceIdentifier} />
+    </div>
   );
 };
 
