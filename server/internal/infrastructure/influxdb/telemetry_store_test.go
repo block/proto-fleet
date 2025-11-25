@@ -1382,6 +1382,7 @@ func TestInfluxTelemetryStore_GetCombinedMetrics_WithAggregationFilter(t *testin
 
 	assert.Len(t, result.Metrics, len(expected), "Should have correct number of metrics")
 
+	//nolint:gosec // G602: Loop bounds are verified by assert.Len check above
 	for i, metric := range result.Metrics {
 		assert.Equal(t, expected[i].MeasurementType, metric.MeasurementType, "Metric should have correct measurement type")
 

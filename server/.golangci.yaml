@@ -89,7 +89,7 @@ linters:
       - path: apps/hamilton/(.*)/fake_(.*)\.go
         text: parameter '.+' seems to be unused, consider removing or renaming it as _
       - path: (.+)\.go$
-        text: '^(G104|G204|G307|G306|G404|G602):'
+        text: '^(G104|G204|G307|G306|G404):'
       - path: (.+)\.go$
         text: Error return value of .(.*\.Help|.*\.MarkFlagRequired|(os\.)?std(out|err)\..*|.*Close|.*Flush|os\.Remove(All)?|.*Unlock|.*Print(f|ln|)|os\.(Un)?Setenv|.*\.Rollback). is not checked
       - path: (.+)\.go$
