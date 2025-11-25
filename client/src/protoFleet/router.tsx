@@ -4,7 +4,7 @@ import { createBrowserRouter, Outlet, redirect } from "react-router-dom";
 import App from "./components/App";
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
 import Miners from "./features/fleetManagement/components/Fleet";
-import DashboardLayout from "@/protoFleet/components/DashboardLayout/DashboardLayout";
+import Dashboard from "@/protoFleet/features/dashboard/pages/Dashboard";
 import Auth from "@/protoFleet/features/auth/pages/Auth";
 import UpdatePassword from "@/protoFleet/features/auth/pages/UpdatePassword";
 import {
@@ -63,7 +63,7 @@ export const requiresAuth: Record<string, boolean> = {
  */
 const router = createBrowserRouter([
   // Dashboard (Home)
-  createRoute("/", <DashboardLayout />),
+  createRoute("/", <Dashboard />),
 
   // Miners
   createRoute("/miners", <Miners />),

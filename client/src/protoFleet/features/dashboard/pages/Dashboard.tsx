@@ -23,7 +23,7 @@ import {
 } from "@/protoFleet/store";
 import DurationSelector from "@/shared/components/DurationSelector";
 
-const DashboardLayout = () => {
+const Dashboard = () => {
   const devicePaired = useDevicePaired();
   useFleet({
     scope: "global",
@@ -70,9 +70,7 @@ const DashboardLayout = () => {
     <div className="h-full bg-surface-5">
       {devicePaired ? (
         <div className="flex flex-col">
-          <section className="p-10 phone:p-6 tablet:p-6">
-            <CompleteSetup />
-          </section>
+          <CompleteSetup className="p-10 phone:p-6 tablet:p-6" />
 
           {/* Overview Section */}
           <section className="p-10 phone:p-6 tablet:p-6">
@@ -156,4 +154,4 @@ const DashboardLayout = () => {
   );
 };
 
-export default DashboardLayout;
+export default Dashboard;

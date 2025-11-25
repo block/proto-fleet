@@ -82,7 +82,11 @@ const AuthenticateMinersCard = ({
   );
 };
 
-const CompleteSetup = () => {
+type CompleteSetupProps = {
+  className?: string;
+};
+
+const CompleteSetup = ({ className = "" }: CompleteSetupProps) => {
   const [completSetupDismissed, setCompletSetupDismissed] =
     useReactiveLocalStorage<boolean>("completeSetupDismissed");
 
@@ -110,20 +114,22 @@ const CompleteSetup = () => {
   return (
     <>
       {shouldShow && (
-        <div className="@container rounded-3xl bg-landing-page p-6">
-          <div className="mb-6 flex items-center justify-between gap-x-10">
-            <div className="text-heading-300">Complete setup</div>
-            <Button
-              onClick={handleDismiss}
-              variant="secondary"
-              prefixIcon={<Dismiss />}
-            ></Button>
-          </div>
-          <div className="grid gap-4 @lg:grid-cols-2 @3xl:grid-cols-3 @7xl:grid-cols-4">
-            <AuthenticateMinersCard
-              count={authNeededCount}
-              onAuthenticationSuccess={refetchAuthNeededMiners}
-            />
+        <div className={className}>
+          <div className="@container rounded-3xl bg-landing-page p-6">
+            <div className="mb-6 flex items-center justify-between gap-x-10">
+              <div className="text-heading-300">Complete setup</div>
+              <Button
+                onClick={handleDismiss}
+                variant="secondary"
+                prefixIcon={<Dismiss />}
+              ></Button>
+            </div>
+            <div className="grid gap-4 @lg:grid-cols-2 @3xl:grid-cols-3 @7xl:grid-cols-4">
+              <AuthenticateMinersCard
+                count={authNeededCount}
+                onAuthenticationSuccess={refetchAuthNeededMiners}
+              />
+            </div>
           </div>
         </div>
       )}
