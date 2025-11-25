@@ -1,135 +1,132 @@
+version: "2"
 run:
-  go: '1.24'
-  timeout: 15m
-  tests: true
+  go: "1.25"
   modules-download-mode: readonly
+  tests: true
   allow-parallel-runners: true
   allow-serial-runners: true
-
-output:
-  print-issued-lines: false
-
 linters:
-  enable-all: true
+  default: all
   disable:
-    - perfsprint # performance is not our primary concern, and sprint(f) makes strings easier to read
-    - mnd
-    - depguard # re-enable in future, see https://github.com/golangci/golangci-lint/issues/3906
-    - tagalign
-    - gosimple
-    - staticcheck
-    - unused
-    - lll
-    - typecheck # `go build` catches this, and it doesn't currently work with Go 1.11 modules
-    - goimports # horrendously slow with go modules :(
-    - dupl # has never been actually useful
+    - contextcheck
+    - cyclop
+    - depguard
+    - dogsled
+    - dupl
+    - embeddedstructfieldcheck
+    - err113
+    - errname
+    - errorlint
+    - exhaustruct
+    - forbidigo
+    - funcorder
+    - funlen
     - gochecknoglobals
     - gochecknoinits
-    - funlen
-    - whitespace
-    - godox
-    - wsl
-    - dogsled
     - gocognit
-    - testpackage
-    - nestif
-    - nolintlint
-    - err113
+    - gocyclo
     - godot
-    - gci # completely broken and unmaintained: https://github.com/daixiang0/gci/issues
-    - gofumpt # a bit excessive
+    - godox
+    - gomoddirectives
+    - ireturn
+    - lll
+    - maintidx
+    - mnd
+    - modernize
+    - musttag
+    - nestif
+    - nilnil
+    - noinlineerr
     - nlreturn
-    - noctx # Nice idea, but don't have time. It would be good to re-enable and fix at some point.
-    - errorlint # Nice idea, but don't have time. It would be good to re-enable and fix at some point.
-    - forbidigo
-    - paralleltest
-    - prealloc # annoying
-    - tagliatelle # annoying
-    - varnamelen # annoying
-    - nonamedreturns # annoying
-    - nilnil # annoying
-    - maintidx # annoying
-    - ireturn # annoying
-    - exhaustruct # annoying
-    - cyclop # annoying
-    - thelper # annoying
-    - errname # annoying
-    - gocyclo # annoying
-    - gomoddirectives # annoying
-    - contextcheck # requires context passed to every method with a context
+    - noctx
+    - nolintlint
+    - nonamedreturns
     - nosprintfhostport
-    - musttag # Slows down the overall process significantly
-    - protogetter # annoying and slow
-    - tenv # deprecated
-
-linters-settings:
-  dupl:
-    threshold: 100
-  goconst:
-    min-len: 8
-    min-occurrences: 3
-  gocyclo:
-    min-complexity: 20
-  gocritic:
-    disabled-checks:
-      - ifElseChain
-
-  forbidigo:
-    forbid:
-      - 'fmt\.Errorf'
-
-  wrapcheck:
-    # An array of glob patterns which, if any match the package of the function
-    # returning the error, will skip wrapcheck analysis for this error.
-    #
-    # N.B. This matches the "package of the function returning the error" not
-    # the package of the code calling the function returning the error. So adding
-    # a package glob here does not ignore inside that package. It ignores all
-    # callsites where that package is called.
-    #
-    # wrapcheck is useful for defending against unwrapped errors from 3rd-party
-    # libraries. These errors don't necessarily have stack traces attached and
-    # so, unwrapped, they are difficult to debug. All errors from gap packages
-    # should have stack traces attached (see https://github.com/squareup/gap-errors).
-    # It's less necessary to wrap those errors.
-    ignorePackageGlobs:
-      # It's expected that all errors returned by packages which start with
-      # github.com/btc-mining/proto-fleet already have their errors wrapped
-      # and so do not need to be re-wrapped.
-      - github.com/btc-mining/proto-fleet/*
-
+    - paralleltest
+    - perfsprint
+    - prealloc
+    - protogetter
+    - revive
+    - staticcheck
+    - tagalign
+    - tagliatelle
+    - testifylint
+    - testpackage
+    - thelper
+    - unused
+    - varnamelen
+    - whitespace
+    - wsl
+    - wsl_v5
+  settings:
+    dupl:
+      threshold: 100
+    forbidigo:
+      forbid:
+        - pattern: fmt\.Errorf
+    goconst:
+      min-len: 8
+      min-occurrences: 3
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+    gocyclo:
+      min-complexity: 20
+    wrapcheck:
+      ignore-package-globs:
+        - github.com/btc-mining/proto-fleet/*
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - goconst
+          - scopelint
+        path: _test\.go
+      - path: apps/hamilton/(.*)/fake_(.*)\.go
+        text: parameter '.+' seems to be unused, consider removing or renaming it as _
+      - path: (.+)\.go$
+        text: '^(G104|G204|G307|G306|G404):'
+      - path: (.+)\.go$
+        text: Error return value of .(.*\.Help|.*\.MarkFlagRequired|(os\.)?std(out|err)\..*|.*Close|.*Flush|os\.Remove(All)?|.*Unlock|.*Print(f|ln|)|os\.(Un)?Setenv|.*\.Rollback). is not checked
+      - path: (.+)\.go$
+        text: 'internal error: no range for'
+      - path: (.+)\.go$
+        text: exported method `.*\.(MarshalJSON|UnmarshalJSON|URN|Payload|GoString|Close|Provides|Requires|ExcludeFromHash|MarshalText|UnmarshalText|Description|Check|Poll|Severity)` should have comment or be unexported
+      - path: (.+)\.go$
+        text: composite literal uses unkeyed fields
+      - path: (.+)\.go$
+        text: declaration of "err" shadows declaration
+      - path: (.+)\.go$
+        text: by other packages, and that stutters
+      - path: (.+)\.go$
+        text: Potential file inclusion via variable
+      - path: (.+)\.go$
+        text: at least one file in a package should have a package comment
+      - path: (.+)\.go$
+        text: 'package-comments: should have a package comment'
+      - path: (.+)\.go$
+        text: Use errors.As to check for specific errors
+      - path: (.+)\.go$
+        text: should have comment or be unexported
+      - path: (.+)\.go$
+        text: '`ctx` is unused'
+      - path: (.+)\.go$
+        text: parameter 'ctx' seems to be unused
+    paths:
+      - generated
+      - third_party$
+      - builtin$
+      - examples$
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
-
-  exclude-use-default: false
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - scopelint
-        - goconst
-    # hamilton - don't warn about parameters being unused in fakes
-    - path: apps/hamilton/(.*)/fake_(.*)\.go
-      text: "parameter '.+' seems to be unused, consider removing or renaming it as _"
-
-  exclude:
-    # gosec overenthusiasm
-    - '^(G104|G204|G307|G306|G404):'
-    # Very commonly not checked.
-    - 'Error return value of .(.*\.Help|.*\.MarkFlagRequired|(os\.)?std(out|err)\..*|.*Close|.*Flush|os\.Remove(All)?|.*Unlock|.*Print(f|ln|)|os\.(Un)?Setenv|.*\.Rollback). is not checked'
-    # Weird error only seen on Kochiku...
-    - 'internal error: no range for'
-    - 'exported method `.*\.(MarshalJSON|UnmarshalJSON|URN|Payload|GoString|Close|Provides|Requires|ExcludeFromHash|MarshalText|UnmarshalText|Description|Check|Poll|Severity)` should have comment or be unexported'
-    - 'composite literal uses unkeyed fields'
-    - 'declaration of "err" shadows declaration'
-    - 'by other packages, and that stutters'
-    - 'Potential file inclusion via variable'
-    - 'at least one file in a package should have a package comment'
-    - 'package-comments: should have a package comment'
-    # errors.As() is error-prone and difficult to use.
-    - 'Use errors.As to check for specific errors'
-    - 'should have comment or be unexported'
-    - '`ctx` is unused' # method signatures shouldnt change because they need to log something.
-    - 'parameter ''ctx'' seems to be unused'
-  exclude-dirs:
-    - generated
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    generated: lax
+    paths:
+      - generated
+      - third_party$
+      - builtin$
+      - examples$
