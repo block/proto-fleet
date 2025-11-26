@@ -65,7 +65,7 @@ const PageHeader = ({ openMenu }: PageHeaderProps) => {
         <div
           className={clsx(
             "flex h-[57px] items-center",
-            isDashboard ? "bg-surface-5" : "bg-surface-base",
+            isDashboard ? "bg-core-primary-5" : "bg-surface-base",
           )}
         >
           <HeaderWidgets className="ml-5" />

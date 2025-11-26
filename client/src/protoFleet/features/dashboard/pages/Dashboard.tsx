@@ -67,7 +67,7 @@ const Dashboard = () => {
   useStreamingTelemetryMetrics(streamingOptions);
 
   return (
-    <div className="h-full bg-surface-5">
+    <div className="h-full">
       {devicePaired ? (
         <div className="flex flex-col">
           <CompleteSetup className="p-10 phone:p-6 tablet:p-6" />

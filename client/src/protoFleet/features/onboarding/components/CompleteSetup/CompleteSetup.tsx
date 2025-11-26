@@ -28,7 +28,7 @@ const TaskCard = ({
   return (
     <div className="flex flex-col justify-between gap-4 rounded-2xl bg-surface-base p-6">
       <div className="flex flex-col gap-4">
-        <div className="flex size-8 items-center justify-center rounded-lg bg-surface-5">
+        <div className="flex size-8 items-center justify-center rounded-lg bg-core-primary-5">
           {icon}
         </div>
         <div className="flex flex-col">
@@ -115,7 +115,7 @@ const CompleteSetup = ({ className = "" }: CompleteSetupProps) => {
     <>
       {shouldShow && (
         <div className={className}>
-          <div className="@container rounded-3xl bg-landing-page p-6">
+          <div className="@container rounded-3xl bg-core-primary-5 p-6">
             <div className="mb-6 flex items-center justify-between gap-x-10">
               <div className="text-heading-300">Complete setup</div>
               <Button
