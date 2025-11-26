@@ -10,12 +10,6 @@ import CompositionBar, {
   type Segment,
 } from "@/shared/components/CompositionBar";
 
-const HEALTH_THRESHOLDS = {
-  CRITICAL: 50,
-  MODERATE: 80,
-  GOOD: 95,
-};
-
 interface FleetHealthProps {
   fleetSize?: number;
   healthyMiners?: number;
@@ -29,32 +23,6 @@ const FleetHealth = ({
   unhealthyMiners,
   offlineMiners,
 }: FleetHealthProps) => {
-  // Determine overall fleet health status
-  // TODO: Should this come from the backend?
-  const overallStatus = useMemo(() => {
-    // Only compute status if all values are defined
-    if (
-      healthyMiners === undefined ||
-      unhealthyMiners === undefined ||
-      offlineMiners === undefined ||
-      !fleetSize
-    ) {
-      return undefined;
-    }
-
-    const healthyPercentage = (healthyMiners / fleetSize) * 100;
-
-    if (healthyPercentage < HEALTH_THRESHOLDS.CRITICAL) {
-      return "Critical";
-    } else if (healthyPercentage < HEALTH_THRESHOLDS.MODERATE) {
-      return "Moderate";
-    } else if (healthyPercentage < HEALTH_THRESHOLDS.GOOD) {
-      return "Good";
-    }
-
-    return "Excellent";
-  }, [fleetSize, healthyMiners, unhealthyMiners, offlineMiners]);
-
   // Create enhanced segments with filter URLs
   const segmentsWithFilters = useMemo(() => {
     const totalMiners = fleetSize || 1; // prevent division by zero
@@ -128,15 +96,10 @@ const FleetHealth = ({
     [segmentsWithFilters],
   );
 
-  // Create the overall status stat for ChartWidget title area
+  // Create the title stat for ChartWidget title area
   const titleStat = {
-    label: "Fleet health",
-    value: overallStatus,
-    text: (
-      <Link to="/miners" className="hover:underline">
-        {fleetSize} miners
-      </Link>
-    ),
+    label: "Your fleet",
+    value: fleetSize !== undefined ? `${fleetSize} miners` : undefined,
   };
 
   return (

@@ -19,9 +19,8 @@ describe("FleetHealth", () => {
       />,
     );
 
-    // Check status label and value
-    expect(screen.getByText("Fleet health")).toBeInTheDocument();
-    expect(screen.getByText("Excellent")).toBeInTheDocument();
+    // Check title label
+    expect(screen.getByText("Your fleet")).toBeInTheDocument();
 
     // Check percentages
     expect(screen.getByText("100%")).toBeInTheDocument(); // Healthy
@@ -56,8 +55,7 @@ describe("FleetHealth", () => {
       />,
     );
 
-    // Check status and miner count
-    expect(screen.getByText("Good")).toBeInTheDocument();
+    // Check miner count
     expect(screen.getByText("200 miners")).toBeInTheDocument();
 
     // Check percentages
@@ -71,7 +69,7 @@ describe("FleetHealth", () => {
     expect(screen.getByText("2 miners")).toBeInTheDocument();
   });
 
-  it("renders moderate status when health is between 50-80%", () => {
+  it("renders stats for fleet with moderate health distribution", () => {
     renderWithRouter(
       <FleetHealth
         fleetSize={100}
@@ -81,9 +79,8 @@ describe("FleetHealth", () => {
       />,
     );
 
-    // Check fleet health status
-    expect(screen.getByText("Fleet health")).toBeInTheDocument();
-    expect(screen.getByText("Moderate")).toBeInTheDocument();
+    // Check title label
+    expect(screen.getByText("Your fleet")).toBeInTheDocument();
 
     // Check percentages
     expect(screen.getByText("70%")).toBeInTheDocument(); // Healthy
@@ -91,7 +88,7 @@ describe("FleetHealth", () => {
     expect(screen.getByText("10%")).toBeInTheDocument(); // Offline
   });
 
-  it("renders critical status when health is below 50%", () => {
+  it("renders stats for fleet with critical health distribution", () => {
     renderWithRouter(
       <FleetHealth
         fleetSize={100}
@@ -101,9 +98,8 @@ describe("FleetHealth", () => {
       />,
     );
 
-    // Check fleet health status
-    expect(screen.getByText("Fleet health")).toBeInTheDocument();
-    expect(screen.getByText("Critical")).toBeInTheDocument();
+    // Check title label
+    expect(screen.getByText("Your fleet")).toBeInTheDocument();
 
     // Check percentages
     expect(screen.getByText("30%")).toBeInTheDocument(); // Healthy
@@ -122,9 +118,7 @@ describe("FleetHealth", () => {
     );
 
     // Should render without errors
-    expect(screen.getByText("Fleet health")).toBeInTheDocument();
-    // When fleet is empty (0 fleetSize), it shows skeleton/loading state for status
-    expect(screen.getByTestId("skeleton-bar")).toBeInTheDocument();
+    expect(screen.getByText("Your fleet")).toBeInTheDocument();
 
     // All percentages should be 0%
     const zeroPercents = screen.getAllByText("0%");
@@ -139,7 +133,7 @@ describe("FleetHealth", () => {
     renderWithRouter(<FleetHealth />);
 
     // Should render skeleton bars instead of values
-    expect(screen.getByText("Fleet health")).toBeInTheDocument();
+    expect(screen.getByText("Your fleet")).toBeInTheDocument();
 
     // Check that all stat labels are present but with skeleton bars
     // Using getAllByText since these appear in both stat headers and legend
@@ -150,7 +144,7 @@ describe("FleetHealth", () => {
     const offlineTexts = screen.getAllByText("Offline");
     expect(offlineTexts.length).toBeGreaterThan(0);
 
-    // Skeleton bars should be present (4 total - one for each stat including status)
+    // Skeleton bars should be present (4 total - one for fleet health title, one for each segment stat)
     const skeletonBars = screen.getAllByTestId("skeleton-bar");
     expect(skeletonBars.length).toBe(4);
   });
@@ -164,16 +158,16 @@ describe("FleetHealth", () => {
       />,
     );
 
-    // Check status label is present
-    expect(screen.getByText("Fleet health")).toBeInTheDocument();
+    // Check title label is present
+    expect(screen.getByText("Your fleet")).toBeInTheDocument();
 
     // Should show defined values for healthy
     expect(screen.getByText("70%")).toBeInTheDocument(); // Healthy percentage
     expect(screen.getByText("70 miners")).toBeInTheDocument(); // Healthy count
 
-    // Undefined values should show skeleton bars (status, unhealthy, and offline)
+    // Undefined values should show skeleton bars (unhealthy and offline)
     const skeletonBars = screen.getAllByTestId("skeleton-bar");
-    expect(skeletonBars.length).toBe(3); // Three skeleton bars: status (since not all values defined), unhealthy, and offline
+    expect(skeletonBars.length).toBe(2); // Two skeleton bars: unhealthy and offline
   });
 
   it("renders legend with correct color indicators", () => {
