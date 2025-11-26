@@ -29,6 +29,12 @@ services:
     extra_hosts:
       - "influxdb:127.0.0.1"
       - "mysql:127.0.0.1"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+        compress: "true"
 
   fleet-client:
     build:
@@ -37,6 +43,12 @@ services:
       - fleet-api
     restart: always
     network_mode: host
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+        compress: "true"
 
   mysql:
     extends:
@@ -60,6 +72,12 @@ services:
           "-e",
           "SELECT 1",
         ]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+        compress: "true"
 
   influxdb:
     extends:
@@ -69,6 +87,12 @@ services:
     restart: always
     volumes:
       - ./server/influx_config:/var/lib/influxdb3/start
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+        compress: "true"
 
 volumes:
   mysql:
