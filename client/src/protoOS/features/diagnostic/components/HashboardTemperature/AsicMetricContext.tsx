@@ -33,6 +33,7 @@ export const AsicMetricProvider = ({
   );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAsicMetric = (): AsicMetricContextValue => {
   const context = useContext(AsicMetricContext);
   if (context === undefined) {

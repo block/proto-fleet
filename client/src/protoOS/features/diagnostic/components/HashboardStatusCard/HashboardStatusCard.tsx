@@ -44,7 +44,7 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
   const avgAsicTemp = hashboardData?.avgAsicTemp?.latest?.value ?? undefined;
   const maxAsicTemp = hashboardData?.maxAsicTemp?.latest?.value ?? undefined;
   const position = slot || 0;
-  const name = `Hashboard ${slot}`;
+  const name = `Slot ${slot}`;
 
   // Check for errors
   const errors = useErrorsByComponent("HASHBOARD", (slot ?? 1) - 1);

@@ -11,13 +11,14 @@ import { useTelemetry } from "@/protoOS/api";
 // import { useErrors, useTelemetry } from "@/protoOS/api";
 // import { transformNotificationErrors } from "@/protoOS/features/diagnostic/utils/componentErrorUtils";
 import {
+  useBayCount,
   useControlBoard,
   useFanIds,
-  useHashboardSerials,
-  useHashboardsHardware,
+  useHashboardSerialsByBay,
   useMinerFans,
   useMinerPsus,
   usePsuIds,
+  useSlotsPerBay,
 } from "@/protoOS/store";
 // import ComponentStatusModal from "@/shared/components/ComponentStatusModal";
 import { ErrorBoundary } from "@/shared/components/ErrorBoundary";
@@ -56,28 +57,45 @@ const FansSection = () => {
 FansSection.displayName = "FansSection";
 
 const HashboardsSection = () => {
-  const hashboardSerials = useHashboardSerials();
-  const hashboards = useHashboardsHardware();
+  const hashboardsByBay = useHashboardSerialsByBay();
+  const bayCount = useBayCount();
+  const slotsPerBay = useSlotsPerBay();
+
+  // Default to 3 bays if no hashboards detected
+  const totalBays = bayCount || 3;
+
+  // Build array of bay indices (1-based)
+  const bayIndices = Array.from({ length: totalBays }, (_, i) => i + 1);
 
   return (
     <ComponentSection title="Hashboards">
-      <div className="grid gap-1 md:grid-cols-2 lg:grid-cols-3">
-        {hashboardSerials.map((serial) => (
-          <HashboardStatusCard key={serial} serialNumber={serial} />
-        ))}
-        {/* Render empty slots */}
-        {hashboards.length < 3 &&
-          Array.from({ length: 3 - hashboards.length }, (_, i) => {
-            const position = hashboards.length + i + 1;
-            return (
-              <EmptySlotCard
-                key={`hashboard-empty-${position}`}
-                type="hashboard"
-                position={position}
-                title={`Hashboard ${position}`}
-              />
-            );
-          })}
+      {/* Grid with columns for each bay - column-first layout */}
+      <div className="grid gap-1 lg:grid-flow-col lg:grid-cols-3 lg:grid-rows-3">
+        {bayIndices
+          .map((bayIndex) => {
+            // Get serials for this bay, or create empty slots
+            const serialsInBay =
+              hashboardsByBay[bayIndex] || Array(slotsPerBay).fill(null);
+
+            return serialsInBay.map((serial, slotIndex) => {
+              if (serial) {
+                return (
+                  <HashboardStatusCard key={serial} serialNumber={serial} />
+                );
+              }
+
+              const slotNumber = (bayIndex - 1) * slotsPerBay + slotIndex + 1;
+              return (
+                <EmptySlotCard
+                  key={`hashboard-empty-${slotNumber}`}
+                  type="hashboard"
+                  position={slotNumber}
+                  title={`Slot ${slotNumber}`}
+                />
+              );
+            });
+          })
+          .flat()}
       </div>
     </ComponentSection>
   );
