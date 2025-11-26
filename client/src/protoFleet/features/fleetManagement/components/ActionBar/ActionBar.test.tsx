@@ -3,6 +3,16 @@ import { describe, expect, test, vi } from "vitest";
 import ActionBar from ".";
 import MinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu";
 
+vi.mock("@/protoFleet/api/usePools", () => ({
+  default: () => ({
+    pools: [],
+    validatePool: vi.fn(({ onSuccess }) => {
+      onSuccess?.();
+    }),
+    validatePoolPending: false,
+  }),
+}));
+
 describe("Action Bar", () => {
   const actionBarTestId = "action-bar";
 
@@ -85,7 +95,7 @@ describe("Action Bar", () => {
     expect(getByText("All actions")).toBeInTheDocument();
 
     fireEvent.click(getByTestId("actions-menu-button"));
-    fireEvent.click(getByTestId("factory-reset-popover-button"));
+    fireEvent.click(getByTestId("reboot-popover-button"));
     expect(onActionStartMock).toHaveBeenCalled();
   });
 

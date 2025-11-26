@@ -7,17 +7,21 @@ import Header from "@/shared/components/Header";
 import PageOverlay from "@/shared/components/PageOverlay";
 
 interface PoolSelectionPageProps {
-  numberOfMiners: number;
+  deviceIdentifiers: string[];
   availablePools: MiningPool[];
-  onDismiss: (poolsChanged: boolean) => void;
+  onAssignPools: (
+    defaultPoolId: string | undefined,
+    backup1PoolId: string | undefined,
+    backup2PoolId: string | undefined,
+  ) => Promise<void>;
+  onDismiss: () => void;
 }
 
-// TODO save default and backup pools
-// TODO handle add of default and backup pools
 const PoolSelectionPage = ({
-  numberOfMiners,
+  deviceIdentifiers,
   availablePools,
-  onDismiss,
+  onAssignPools,
+  onDismiss: onCancel,
 }: PoolSelectionPageProps) => {
   const [selectedDefaultPool, setSelectedDefaultPool] = useState<
     string | undefined
@@ -25,10 +29,6 @@ const PoolSelectionPage = ({
   const [selectedBackupPools, setSelectedBackupPools] = useState<
     [string | undefined, string | undefined]
   >([undefined, undefined]);
-
-  const poolsChanged =
-    selectedDefaultPool !== undefined ||
-    selectedBackupPools.some((pool) => pool !== undefined);
 
   const handleSelectDefaultPool = (poolId: string) => {
     setSelectedDefaultPool(poolId);
@@ -42,6 +42,19 @@ const PoolSelectionPage = ({
     });
   };
 
+  const handleAssignPoolsClick = async () => {
+    try {
+      await onAssignPools(
+        selectedDefaultPool,
+        selectedBackupPools[0],
+        selectedBackupPools[1],
+      );
+    } catch (error) {
+      console.error("Failed to assign pools:", error);
+    }
+  };
+
+  const numberOfMiners = deviceIdentifiers.length;
   const buttonText = `Assign to ${numberOfMiners} miner${numberOfMiners === 1 ? "" : "s"}`;
 
   return (
@@ -52,14 +65,15 @@ const PoolSelectionPage = ({
           title="Assign pools"
           titleSize="text-heading-200"
           icon={<Dismiss />}
-          iconOnClick={() => onDismiss(poolsChanged)}
+          iconOnClick={onCancel}
           inline
           buttonSize={sizes.base}
           buttons={[
             {
               text: buttonText,
               variant: variants.primary,
-              onClick: () => onDismiss(poolsChanged),
+              onClick: handleAssignPoolsClick,
+              disabled: !selectedDefaultPool,
             },
           ]}
         />

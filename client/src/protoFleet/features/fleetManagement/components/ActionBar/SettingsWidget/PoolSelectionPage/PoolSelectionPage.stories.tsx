@@ -30,10 +30,16 @@ export const PoolSelectionPage = ({
     },
   ];
 
+  const deviceIdentifiers = Array.from(
+    { length: numberOfMiners },
+    (_, i) => `device-${i}`,
+  );
+
   return (
     <PoolSelectionPageComponent
-      numberOfMiners={numberOfMiners}
+      deviceIdentifiers={deviceIdentifiers}
       availablePools={availablePools.splice(0, numberOfPools)}
+      onAssignPools={async () => {}}
       onDismiss={() => {}}
     />
   );

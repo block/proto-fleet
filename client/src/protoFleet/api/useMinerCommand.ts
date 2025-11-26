@@ -1,9 +1,12 @@
 import { useCallback, useMemo } from "react";
+import { create } from "@bufbuild/protobuf";
 import { ConnectError } from "@connectrpc/connect";
 import { minerCommandClient } from "@/protoFleet/api/clients";
 import {
   BlinkLEDRequest,
   BlinkLEDResponse,
+  DeviceListSchema,
+  DeviceSelectorSchema,
   StartMiningRequest,
   StartMiningResponse,
   StopMiningRequest,
@@ -12,6 +15,8 @@ import {
   StreamCommandBatchUpdatesResponse,
   UnpairRequest,
   UnpairResponse,
+  UpdateMiningPoolsRequestSchema,
+  UpdateMiningPoolsResponse,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { useAuthErrors, useAuthHeader } from "@/protoFleet/store";
 
@@ -43,6 +48,19 @@ interface StreamCommandBatchUpdatesProps {
   streamRequest: StreamCommandBatchUpdatesRequest;
   streamAbortController?: AbortController;
   onStreamData: (response: StreamCommandBatchUpdatesResponse) => void;
+  onError?: (error: string) => void;
+}
+
+export interface PoolConfig {
+  defaultPoolId?: string;
+  backup1PoolId?: string;
+  backup2PoolId?: string;
+}
+
+interface UpdateMiningPoolsProps {
+  deviceIdentifiers: string[];
+  poolConfig: PoolConfig;
+  onSuccess: (value: UpdateMiningPoolsResponse) => void;
   onError?: (error: string) => void;
 }
 
@@ -157,6 +175,48 @@ const useMinerCommand = () => {
     [authHeader, handleAuthErrors],
   );
 
+  const updateMiningPools = useCallback(
+    async ({
+      deviceIdentifiers,
+      poolConfig,
+      onSuccess,
+      onError,
+    }: UpdateMiningPoolsProps) => {
+      const updateMiningPoolsRequest = create(UpdateMiningPoolsRequestSchema, {
+        deviceSelector: create(DeviceSelectorSchema, {
+          selectionType: {
+            case: "includeDevices",
+            value: create(DeviceListSchema, {
+              deviceIdentifiers,
+            }),
+          },
+        }),
+        defaultPoolId: poolConfig.defaultPoolId
+          ? BigInt(poolConfig.defaultPoolId)
+          : undefined,
+        backup1PoolId: poolConfig.backup1PoolId
+          ? BigInt(poolConfig.backup1PoolId)
+          : undefined,
+        backup2PoolId: poolConfig.backup2PoolId
+          ? BigInt(poolConfig.backup2PoolId)
+          : undefined,
+      });
+
+      await minerCommandClient
+        .updateMiningPools(updateMiningPoolsRequest, authHeader)
+        .then((response) => onSuccess(response))
+        .catch((err) => {
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
+        });
+    },
+    [authHeader, handleAuthErrors],
+  );
+
   return useMemo(
     () => ({
       blinkLED,
@@ -164,8 +224,16 @@ const useMinerCommand = () => {
       stopMining,
       unpair,
       streamCommandBatchUpdates,
+      updateMiningPools,
     }),
-    [blinkLED, startMining, stopMining, unpair, streamCommandBatchUpdates],
+    [
+      blinkLED,
+      startMining,
+      stopMining,
+      unpair,
+      streamCommandBatchUpdates,
+      updateMiningPools,
+    ],
   );
 };
 

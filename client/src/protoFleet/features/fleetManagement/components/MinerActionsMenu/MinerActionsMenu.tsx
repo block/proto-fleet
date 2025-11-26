@@ -19,11 +19,11 @@ const MinerActionsMenu = ({
 }: MinerActionsMenuProps) => {
   const {
     currentAction,
-    setCurrentAction,
     popoverActions,
     handleConfirmation,
     handleCancel,
-    numberOfMiners,
+    handleMiningPoolSuccess,
+    handleMiningPoolError,
   } = useMinerActions({
     selectedMiners,
     onActionStart,
@@ -50,11 +50,10 @@ const MinerActionsMenu = ({
       />
       {currentAction === settingsActions.miningPool && (
         <PoolSelectionPageWrapper
-          numberOfMiners={numberOfMiners}
-          onDismiss={(_poolsChanged) => {
-            setCurrentAction(null);
-            onActionComplete?.();
-          }}
+          deviceIdentifiers={selectedMiners}
+          onSuccess={handleMiningPoolSuccess}
+          onError={handleMiningPoolError}
+          onDismiss={handleCancel}
         />
       )}
     </PopoverProvider>

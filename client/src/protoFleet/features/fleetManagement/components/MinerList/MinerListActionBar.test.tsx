@@ -2,6 +2,16 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 
+vi.mock("@/protoFleet/api/usePools", () => ({
+  default: () => ({
+    pools: [],
+    validatePool: vi.fn(({ onSuccess }) => {
+      onSuccess?.();
+    }),
+    validatePoolPending: false,
+  }),
+}));
+
 describe("Miner list action bar", () => {
   const actionBarTestId = "action-bar";
 

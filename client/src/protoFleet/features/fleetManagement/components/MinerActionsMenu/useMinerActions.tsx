@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { BulkAction } from "../BulkActions/types";
 import {
@@ -67,6 +67,7 @@ export const useMinerActions = ({
   const [currentAction, setCurrentAction] = useState<SupportedAction | null>(
     null,
   );
+  const miningPoolToastIdRef = useRef<number | null>(null);
 
   const numberOfMiners = useMemo(() => selectedMiners.length, [selectedMiners]);
 
@@ -133,6 +134,28 @@ export const useMinerActions = ({
       status: TOAST_STATUSES.error,
     });
   }, []);
+
+  const handleMiningPoolSuccess = useCallback(
+    (batchIdentifier: string) => {
+      if (miningPoolToastIdRef.current !== null) {
+        handleSuccess(
+          settingsActions.miningPool,
+          miningPoolToastIdRef.current,
+          batchIdentifier,
+        );
+      }
+    },
+    [handleSuccess],
+  );
+
+  const handleMiningPoolError = useCallback(
+    (error: string) => {
+      if (miningPoolToastIdRef.current !== null) {
+        handleError(miningPoolToastIdRef.current, error);
+      }
+    },
+    [handleError],
+  );
 
   const handleConfirmation = useCallback(async () => {
     if (currentAction === null) return;
@@ -314,6 +337,13 @@ export const useMinerActions = ({
     const handleMiningPool = () => {
       setCurrentAction(settingsActions.miningPool);
       onActionStart?.();
+
+      miningPoolToastIdRef.current = pushToast({
+        message: `${loadingMessages[settingsActions.miningPool]} ${minersMessage}`,
+        status: TOAST_STATUSES.loading,
+        longRunning: true,
+        onClose: () => onActionComplete?.(),
+      });
     };
 
     // TODO: Implement Cooling Mode action
@@ -481,6 +511,7 @@ export const useMinerActions = ({
     handleError,
     numberOfMiners,
     onActionStart,
+    onActionComplete,
     selectedMiners,
   ]);
 
@@ -491,5 +522,7 @@ export const useMinerActions = ({
     handleConfirmation,
     handleCancel,
     numberOfMiners,
+    handleMiningPoolSuccess,
+    handleMiningPoolError,
   };
 };

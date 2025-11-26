@@ -49,6 +49,7 @@ export const loadingMessages: Record<string, string> = {
   [deviceActions.unpair]: "Unpairing",
   [deviceActions.wakeUp]: "Waking up",
   [performanceActions.curtail]: "Curtailing miners",
+  [settingsActions.miningPool]: "Assigning pools",
 };
 
 export const successMessages: Record<string, string> = {
@@ -59,4 +60,5 @@ export const successMessages: Record<string, string> = {
   [deviceActions.unpair]: "Unpaired",
   [deviceActions.wakeUp]: "Woke up",
   [performanceActions.curtail]: "Miners curtailed",
+  [settingsActions.miningPool]: "Assigned pools to",
 };

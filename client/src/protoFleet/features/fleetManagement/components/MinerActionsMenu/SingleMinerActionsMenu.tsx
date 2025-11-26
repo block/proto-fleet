@@ -33,6 +33,8 @@ const SingleMinerActionsMenu = ({
     handleConfirmation,
     handleCancel,
     numberOfMiners,
+    handleMiningPoolSuccess,
+    handleMiningPoolError,
   } = useMinerActions({
     selectedMiners,
     onActionStart,
@@ -79,6 +81,10 @@ const SingleMinerActionsMenu = ({
         handleCancelClick={handleCancelClick}
         setCurrentAction={setCurrentAction}
         onActionComplete={onActionComplete}
+        selectedMiners={selectedMiners}
+        handleMiningPoolSuccess={handleMiningPoolSuccess}
+        handleMiningPoolError={handleMiningPoolError}
+        handleCancel={handleCancel}
       />
     </PopoverProvider>
   );
@@ -97,6 +103,10 @@ interface SingleMinerActionsMenuInnerProps {
   handleCancelClick: () => void;
   setCurrentAction: (action: SupportedAction | null) => void;
   onActionComplete?: () => void;
+  selectedMiners: string[];
+  handleMiningPoolSuccess: (batchIdentifier: string) => void;
+  handleMiningPoolError: (error: string) => void;
+  handleCancel: () => void;
 }
 
 const SingleMinerActionsMenuInner = ({
@@ -105,13 +115,17 @@ const SingleMinerActionsMenuInner = ({
   showWarnDialog,
   currentAction,
   popoverActions,
-  numberOfMiners,
+  numberOfMiners: _numberOfMiners,
   onClickOutside,
   handleAction,
   handleConfirmationClick,
   handleCancelClick,
-  setCurrentAction,
-  onActionComplete,
+  setCurrentAction: _setCurrentAction,
+  onActionComplete: _onActionComplete,
+  selectedMiners,
+  handleMiningPoolSuccess,
+  handleMiningPoolError,
+  handleCancel,
 }: SingleMinerActionsMenuInnerProps) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
 
@@ -179,11 +193,10 @@ const SingleMinerActionsMenuInner = ({
         })}
       {currentAction === settingsActions.miningPool && (
         <PoolSelectionPageWrapper
-          numberOfMiners={numberOfMiners}
-          onDismiss={(_poolsChanged) => {
-            setCurrentAction(null);
-            onActionComplete?.();
-          }}
+          deviceIdentifiers={selectedMiners}
+          onSuccess={handleMiningPoolSuccess}
+          onError={handleMiningPoolError}
+          onDismiss={handleCancel}
         />
       )}
     </div>
