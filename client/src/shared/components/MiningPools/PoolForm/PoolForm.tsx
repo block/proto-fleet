@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { PoolNotConnectedCallout } from "../Callouts";
-import { info } from "../constants";
+import { poolInfoAttributes } from "../constants";
 import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "../types";
 import { urlValidationErrors } from "./constants";
+import { Info } from "@/shared/assets/icons";
+import { iconSizes } from "@/shared/assets/icons/constants";
+import {
+  DismissibleCalloutWrapper,
+  intents,
+} from "@/shared/components/Callout";
 import Input from "@/shared/components/Input";
 import {
   pushToast,
@@ -37,7 +42,7 @@ const PoolForm = ({
   const [showCallout, setShowCallout] = useState(false);
   const [error, setError] = useState(false);
   const [validationErrors, setValidationErrors] = useState<
-    Partial<Record<keyof typeof info, string>>
+    Partial<Record<keyof typeof poolInfoAttributes, string>>
   >({});
 
   const showNotConnectedCallout = useMemo(
@@ -89,7 +94,7 @@ const PoolForm = ({
       // the id is in the format of "poolKey poolIndex"
       // e.g. "username 0"
       const infoKey = id.split(" ")[0];
-      if (infoKey === info.url) {
+      if (infoKey === poolInfoAttributes.url) {
         setValidationErrors({
           ...validationErrors,
           url: value.trim() ? undefined : urlValidationErrors.required,
@@ -113,20 +118,29 @@ const PoolForm = ({
 
   return (
     <>
-      <PoolNotConnectedCallout
-        currentPoolIndex={poolIndex}
+      <DismissibleCalloutWrapper
+        icon={<Info width={iconSizes.xLarge} />}
+        intent={intents.warning}
         onDismiss={() => setShowCallout(false)}
         show={showNotConnectedCallout}
+        title={
+          <>
+            We could not connect with your pool.
+            <br />
+            Review your pool details and try again.
+          </>
+        }
+        testId="pool-not-connected-callout"
       />
       <div className="space-y-4">
         <Input
-          id={`${info.url} ${poolIndex}`}
+          id={`${poolInfoAttributes.url} ${poolIndex}`}
           label="Pool URL"
           maxLength={2083}
           onChangeBlur={onPoolChange}
           onKeyDown={onKeyDown}
           initValue={pools[poolIndex].url}
-          testId={`${info.url}-${poolIndex}-input`}
+          testId={`${poolInfoAttributes.url}-${poolIndex}-input`}
           tooltip={{
             header: "Mining Pool URL",
             body: "Enter the mining pool URL you want this miner to connect with. A mining pool URL allows this miner to communicate with the pool's server.",
@@ -136,7 +150,7 @@ const PoolForm = ({
           onBlur={onBlur}
         />
         <Input
-          id={`${info.username} ${poolIndex}`}
+          id={`${poolInfoAttributes.username} ${poolIndex}`}
           label="Username"
           onChangeBlur={onPoolChange}
           onKeyDown={onKeyDown}

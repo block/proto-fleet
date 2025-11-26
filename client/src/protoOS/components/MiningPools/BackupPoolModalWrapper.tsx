@@ -26,7 +26,6 @@ const BackupPoolModalWrapper = ({
       poolIndex={poolIndex}
       pools={pools}
       show={show}
-      isDefault={false}
       isTestingConnection={isTestingConnection}
       testConnection={testConnection}
     />

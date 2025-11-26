@@ -1,4 +1,5 @@
-export const info = {
+export const poolInfoAttributes = {
+  name: "name",
   url: "url",
   username: "username",
   password: "password",
@@ -6,8 +7,9 @@ export const info = {
 } as const;
 
 export const emptyPoolInfo = {
-  [info.url]: "",
-  [info.username]: "",
-  [info.password]: "",
-  [info.priority]: 0,
+  [poolInfoAttributes.name]: "",
+  [poolInfoAttributes.url]: "",
+  [poolInfoAttributes.username]: "",
+  [poolInfoAttributes.password]: "",
+  [poolInfoAttributes.priority]: 0,
 };

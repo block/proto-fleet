@@ -43,6 +43,7 @@ const SettingsMiningPools = () => {
   useEffect(() => {
     if (poolsInfo?.length) {
       const newPools = [...Array(3)].map((_, index) => ({
+        name: "",
         url: poolsInfo?.[index]?.url || "",
         username: poolsInfo?.[index]?.user || "",
         password: "",

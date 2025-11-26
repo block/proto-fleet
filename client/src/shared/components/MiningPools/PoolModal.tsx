@@ -1,13 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { emptyPoolInfo } from "./constants";
-import { WarnDeleteDialog, WarnDiscardDialog } from "./Dialogs";
-import PoolForm from "./PoolForm";
+import { poolInfoAttributes } from "./constants";
+import { urlValidationErrors } from "./PoolForm/constants";
 import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "./types";
 
+import { Alert, Info, Success } from "@/shared/assets/icons";
+import { iconSizes } from "@/shared/assets/icons/constants";
 import { variants } from "@/shared/components/Button";
+import {
+  DismissibleCalloutWrapper,
+  intents,
+} from "@/shared/components/Callout";
+import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
-import { animationDuration } from "@/shared/components/PageOverlay";
 import { deepClone } from "@/shared/utils/utility";
 
 interface PoolModalProps {
@@ -16,9 +21,9 @@ interface PoolModalProps {
   poolIndex: PoolIndex;
   pools: PoolInfo[];
   show: boolean;
-  isDefault?: boolean;
   isTestingConnection: boolean;
   testConnection: (args: PoolConnectionTestProps) => void;
+  onSave?: (pool: PoolInfo, isPasswordSet: boolean) => Promise<void>;
 }
 
 const PoolModal = ({
@@ -27,126 +32,213 @@ const PoolModal = ({
   poolIndex,
   pools,
   show,
-  isDefault = false,
   isTestingConnection,
   testConnection,
+  onSave,
 }: PoolModalProps) => {
   const [draftPoolInfo, setDraftPoolInfo] = useState(deepClone(pools));
-  const [changed, setChanged] = useState(false);
-  const [warnDiscard, setWarnDiscard] = useState(false);
-  const [warnDelete, setWarnDelete] = useState(false);
-  const [shouldTestConnection, setShouldTestConnection] = useState(false);
+  const [urlError, setUrlError] = useState<string | undefined>();
+  const [showCallout, setShowCallout] = useState(false);
+  const [error, setError] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isPasswordSet, setIsPasswordSet] = useState(false);
+  const [saveError, setSaveError] = useState(false);
 
-  useEffect(() => {
-    setWarnDelete(false);
-    setWarnDiscard(false);
-    setChanged(false);
-  }, [show]);
+  const showNotConnectedCallout = useMemo(
+    () => showCallout && !isTestingConnection && error,
+    [showCallout, error, isTestingConnection],
+  );
+
+  const showConnectedCallout = useMemo(
+    () => showCallout && !isTestingConnection && !error,
+    [showCallout, error, isTestingConnection],
+  );
+
+  const showSaveErrorCallout = useMemo(
+    () => saveError && !isSaving,
+    [saveError, isSaving],
+  );
+
+  const isSaveDisabled = useMemo(
+    () => !draftPoolInfo[poolIndex]?.url.trim(),
+    [draftPoolInfo, poolIndex],
+  );
 
   useEffect(() => {
     setDraftPoolInfo(deepClone(pools));
   }, [pools]);
 
-  const closeModal = useCallback(
-    (submitted?: boolean) => {
-      if (!submitted && changed) {
-        setWarnDiscard(true);
-        return;
+  useEffect(() => {
+    if (show) {
+      setUrlError(undefined);
+      setShowCallout(false);
+      setError(false);
+      setIsSaving(false);
+      setIsPasswordSet(false);
+      setSaveError(false);
+    }
+  }, [show]);
+
+  const onPoolChange = useCallback(
+    (value: string, id: string) => {
+      setShowCallout(false);
+      const infoKey = id.split(" ")[0];
+      const poolsInfo = deepClone(draftPoolInfo);
+      poolsInfo[poolIndex][infoKey] = value;
+      setDraftPoolInfo(poolsInfo);
+
+      if (infoKey === poolInfoAttributes.url) {
+        setUrlError(value.trim() ? undefined : urlValidationErrors.required);
       }
-      onDismiss();
+
+      if (infoKey === poolInfoAttributes.password) {
+        setIsPasswordSet(true);
+      }
     },
-    [changed, onDismiss],
+    [draftPoolInfo, poolIndex],
   );
 
-  const setDraftInfo = useCallback((poolsInfo: PoolInfo[]) => {
-    setChanged(true);
-    setDraftPoolInfo(poolsInfo);
-  }, []);
-
-  const onSubmit = useCallback(() => {
+  const onSubmit = useCallback(async () => {
     onChangePools(draftPoolInfo);
-  }, [draftPoolInfo, onChangePools]);
 
-  const onDelete = useCallback(() => {
-    closeModal(true);
-    // since we show url and username in the confirmation modal
-    // trigger the delete after animation of dialog closing is done
-    setTimeout(() => {
-      const currentInfo = draftPoolInfo;
-      currentInfo[poolIndex] = deepClone(emptyPoolInfo);
-      onChangePools(currentInfo);
-    }, animationDuration);
-  }, [closeModal, draftPoolInfo, poolIndex, onChangePools]);
+    if (onSave) {
+      setIsSaving(true);
+      setSaveError(false);
+      try {
+        await onSave(draftPoolInfo[poolIndex], isPasswordSet);
+        onDismiss();
+      } catch (error) {
+        console.error("Failed to save pool:", error);
+        setSaveError(true);
+      } finally {
+        setIsSaving(false);
+      }
+    } else {
+      onDismiss();
+    }
+  }, [
+    draftPoolInfo,
+    onChangePools,
+    onDismiss,
+    onSave,
+    poolIndex,
+    isPasswordSet,
+  ]);
 
-  const onDiscard = useCallback(() => {
-    closeModal(true);
-    setDraftPoolInfo(deepClone(pools));
-  }, [closeModal, pools]);
+  const onTestConnection = useCallback(() => {
+    if (!draftPoolInfo[poolIndex].url.trim()) {
+      setUrlError(urlValidationErrors.required);
+      return;
+    }
+
+    setError(false);
+    testConnection({
+      poolInfo: draftPoolInfo[poolIndex],
+      onError: () => {
+        setError(true);
+      },
+      onSuccess: () => {
+        setError(false);
+      },
+      onFinally: () => setShowCallout(true),
+    });
+  }, [draftPoolInfo, poolIndex, testConnection]);
+
+  if (!show) {
+    return null;
+  }
 
   return (
-    <>
-      {show && !warnDelete && !warnDiscard && (
-        <Modal
-          buttons={[
-            {
-              text: pools[poolIndex].url ? "Save" : "Add",
-              onClick: onSubmit,
-              variant: variants.primary,
-              testId: "pool-save-button",
-            },
-            ...(pools[poolIndex].url && !isDefault
-              ? [
-                  {
-                    text: "Delete",
-                    onClick: () => setWarnDelete(true),
-                    variant: variants.secondary,
-                    testId: "pool-delete-button",
-                  },
-                ]
-              : []),
-            {
-              text: "Test connection",
-              onClick: () => setShouldTestConnection(true),
-              loading: isTestingConnection,
-              variant: variants.secondary,
-              className: "whitespace-nowrap overflow-clip",
-            },
-          ]}
-          contentHeader={
-            isDefault ? "Default mining pool" : `Backup pool #${poolIndex}`
-          }
-          onDismiss={closeModal}
-          divider={false}
-          size="large"
-        >
-          <div className="mb-6">
-            {isDefault
-              ? "Your hashrate will contribute to your default mining pool."
-              : "Backup pools are only used to mine if your default pool is unavailable."}
-          </div>
-          <PoolForm
-            poolIndex={poolIndex}
-            pools={draftPoolInfo}
-            onChangePools={setDraftInfo}
-            shouldTestConnection={shouldTestConnection}
-            isTestingConnection={isTestingConnection}
-            setShouldTestConnection={setShouldTestConnection}
-            testConnection={testConnection}
-          />
-        </Modal>
-      )}
-      <WarnDeleteDialog
-        poolInfo={pools[poolIndex]}
-        keepBackup={() => setWarnDelete(false)}
-        onDelete={onDelete}
-        show={warnDelete}
+    <Modal
+      buttons={[
+        {
+          text: "Test connection",
+          onClick: onTestConnection,
+          loading: isTestingConnection,
+          variant: variants.secondary,
+          className: "whitespace-nowrap overflow-clip",
+        },
+        {
+          text: "Save",
+          onClick: onSubmit,
+          loading: isSaving,
+          variant: variants.primary,
+          testId: "pool-save-button",
+          disabled: isSaveDisabled,
+        },
+      ]}
+      contentHeader="Add pool"
+      onDismiss={onDismiss}
+      divider={false}
+      size="large"
+    >
+      <div className="mb-6 text-text-primary-70">
+        Hashrate contributes to default mining pools.
+      </div>
+      <DismissibleCalloutWrapper
+        icon={<Success className="text-intent-success-fill" />}
+        intent={intents.success}
+        onDismiss={() => setShowCallout(false)}
+        show={showConnectedCallout}
+        title="Pool connected successfully"
+        testId="pool-connected-callout"
       />
-      <WarnDiscardDialog
-        onDiscard={onDiscard}
-        continueEditing={() => setWarnDiscard(false)}
-        show={warnDiscard}
+      <DismissibleCalloutWrapper
+        icon={<Info width={iconSizes.xLarge} />}
+        intent={intents.warning}
+        onDismiss={() => setShowCallout(false)}
+        show={showNotConnectedCallout}
+        title={
+          <>
+            We couldn't connect with your pool.
+            <br />
+            Review your pool details and try again.
+          </>
+        }
+        testId="pool-not-connected-callout"
       />
-    </>
+      <DismissibleCalloutWrapper
+        icon={<Alert width={iconSizes.xLarge} />}
+        intent={intents.danger}
+        onDismiss={() => setSaveError(false)}
+        show={showSaveErrorCallout}
+        title="Failed to save the pool. Please try again."
+        testId="pool-save-error-callout"
+      />
+      <div className="space-y-4">
+        <Input
+          id={`${poolInfoAttributes.name} ${poolIndex}`}
+          label="Pool Name"
+          onChangeBlur={onPoolChange}
+          initValue={draftPoolInfo[poolIndex].name || ""}
+          testId={`${poolInfoAttributes.name}-${poolIndex}-input`}
+        />
+        <Input
+          id={`${poolInfoAttributes.url} ${poolIndex}`}
+          label="Pool URL"
+          maxLength={2083}
+          onChangeBlur={onPoolChange}
+          initValue={draftPoolInfo[poolIndex].url}
+          testId={`${poolInfoAttributes.url}-${poolIndex}-input`}
+          error={urlError}
+        />
+        <Input
+          id={`${poolInfoAttributes.username} ${poolIndex}`}
+          label="Username"
+          onChangeBlur={onPoolChange}
+          initValue={draftPoolInfo[poolIndex].username}
+          testId={`${poolInfoAttributes.username}-${poolIndex}-input`}
+        />
+        <Input
+          id={`${poolInfoAttributes.password} ${poolIndex}`}
+          label="Password (optional)"
+          type="password"
+          onChangeBlur={onPoolChange}
+          initValue={draftPoolInfo[poolIndex].password}
+          testId={`${poolInfoAttributes.password}-${poolIndex}-input`}
+        />
+      </div>
+    </Modal>
   );
 };
 

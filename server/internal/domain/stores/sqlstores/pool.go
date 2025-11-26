@@ -104,10 +104,14 @@ func (s *SQLPoolStore) UpdatePool(ctx context.Context, request *pb.UpdatePoolReq
 	if request.Username != "" {
 		pool.Username = request.Username
 	}
-	password := ""
+
+	password := pool.PasswordEnc
 	if request.Password != nil {
-		// TODO encrypt password
-		password = request.Password.Value
+		encryptedPassword, err := s.encryptor.Encrypt([]byte(request.Password.Value))
+		if err != nil {
+			return fleeterror.NewInternalErrorf("error encrypting password: %v", err)
+		}
+		password = encryptedPassword
 	}
 
 	if request.IsDefault {

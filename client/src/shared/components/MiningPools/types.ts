@@ -1,6 +1,6 @@
-import { type info } from "./constants";
+import { type poolInfoAttributes } from "./constants";
 
-export type PoolInfo = Record<keyof typeof info, any>;
+export type PoolInfo = Record<keyof typeof poolInfoAttributes, any>;
 
 export type DefaultPoolIndex = 0;
 

@@ -72,6 +72,7 @@ const MiningPoolsForm = ({
       )
       .map((pool: Pool) => ({
         ...pool,
+        name: pool.poolName,
         password: "",
         // TODO fix me in the DASH-522
         priority: pool.poolId,
@@ -116,6 +117,7 @@ const MiningPoolsForm = ({
         // create new pool
         const createPoolRequest = create(CreatePoolRequestSchema, {
           poolConfig: {
+            poolName: pool.name || "",
             url: pool.url,
             username: pool.username,
             password: pool.password,
@@ -127,6 +129,7 @@ const MiningPoolsForm = ({
         // update existing pool
         const updatePoolRequest = create(UpdatePoolRequestSchema, {
           poolId: BigInt(pool.poolId),
+          poolName: pool.name || "",
           url: pool.url,
           username: pool.username,
           password: pool.password,
@@ -185,6 +188,37 @@ const MiningPoolsForm = ({
     }
   }, []);
 
+  const savePool = useCallback(
+    async (pool: PoolInfo, isPasswordSet: boolean) => {
+      // Only send password if it was set
+      const passwordToSend = isPasswordSet ? pool.password : "";
+
+      if (pool.poolId === undefined) {
+        // create new pool
+        const createPoolRequest = create(CreatePoolRequestSchema, {
+          poolConfig: {
+            poolName: pool.name || "",
+            url: pool.url,
+            username: pool.username,
+            password: passwordToSend,
+          },
+        });
+        await createPool({ createPoolRequest, onError: handleSaveError });
+      } else {
+        // update existing pool
+        const updatePoolRequest = create(UpdatePoolRequestSchema, {
+          poolId: BigInt(pool.poolId),
+          poolName: pool.name || "",
+          url: pool.url,
+          username: pool.username,
+          password: passwordToSend,
+        });
+        await updatePool({ updatePoolRequest, onError: handleSaveError });
+      }
+    },
+    [createPool, updatePool],
+  );
+
   // TODO support connection test
   return (
     <div>
@@ -224,9 +258,9 @@ const MiningPoolsForm = ({
               poolIndex={poolIndex}
               pools={pools}
               show={currentPoolIndex === poolIndex}
-              isDefault={index === 0}
               isTestingConnection={validatePoolPending}
               testConnection={validatePool}
+              onSave={savePool}
             />
           );
         })}
