@@ -144,7 +144,7 @@ function getComponentMetrics(
             }),
           },
           {
-            label: "Chip Avg Temp",
+            label: "ASIC Avg Temp",
             value: createElement(TemperatureValue, {
               value:
                 (telemetry as HashboardTelemetryData).avgAsicTemp?.latest
@@ -152,7 +152,7 @@ function getComponentMetrics(
             }),
           },
           {
-            label: "Chip High Temp",
+            label: "ASIC High Temp",
             value: createElement(TemperatureValue, {
               value:
                 (telemetry as HashboardTelemetryData).maxAsicTemp?.latest
@@ -195,6 +195,10 @@ function getComponentMetadata(
       metadata.model = {
         label: "Model",
         value: (hardware as PsuHardwareData).model,
+      };
+      metadata.firmwareVersion = {
+        label: "Firmware Version",
+        value: (hardware as PsuHardwareData).firmware?.appVersion,
       };
       break;
 

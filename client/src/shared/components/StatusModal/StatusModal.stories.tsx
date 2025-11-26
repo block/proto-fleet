@@ -134,7 +134,7 @@ const mockHashboardStatus: ComponentStatusData = {
     errors: [
       {
         componentName: "Hashboard 1",
-        message: "Chip temperature is 95°C, exceeding safe threshold of 85°C",
+        message: "ASIC temperature is 95°C, exceeding safe threshold of 85°C",
         timestamp: Date.now() - 3600000,
       },
       {
