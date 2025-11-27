@@ -374,6 +374,7 @@ const List = <
                             "w-9",
                           )}
                           style={paddingCssVariables}
+                          data-testid="checkbox"
                         >
                           <div
                             className={clsx(
@@ -415,6 +416,7 @@ const List = <
                           )}
                           key={j}
                           style={paddingCssVariables}
+                          data-testid={row}
                         >
                           <div
                             className={clsx(
@@ -439,7 +441,7 @@ const List = <
                         </td>
                       ))}
                       {actions.length == 1 ? (
-                        <td className={tdClassList}>
+                        <td className={tdClassList} data-testid="action">
                           <div
                             className={clsx(
                               "flex justify-end",
@@ -455,7 +457,7 @@ const List = <
                           </div>
                         </td>
                       ) : actions.length > 1 ? (
-                        <td className={tdClassList}>
+                        <td className={tdClassList} data-testid="action">
                           <div className={clsx("w-11", tdPaddingClassList)}>
                             <PopoverProvider>
                               <ListActions<ListItem>

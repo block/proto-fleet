@@ -3,7 +3,7 @@ export default {
   useTabs: false,
   trailingComma: "all",
   singleQuote: false,
-  printWidth: 80,
+  printWidth: 120,
   tabWidth: 2,
   bracketSpacing: true,
   bracketSameLine: false,

@@ -111,6 +111,7 @@ const Navigation = ({ items, className }: NavigationProps) => {
             "group flex h-8 w-full items-center justify-start rounded-lg px-2 py-1 laptop:h-10 laptop:justify-center desktop:h-10 desktop:justify-center",
             "hover:cursor-pointer hover:bg-core-primary-10",
           )}
+          data-testid="logout-button"
         >
           <ArrowLeftCompact className="text-text-primary-50 transition-transform duration-200 ease-gentle group-hover:scale-105" />
           {(isPhone || isTablet) && (

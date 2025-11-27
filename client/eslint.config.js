@@ -4,6 +4,7 @@ import typescriptEslint from "@typescript-eslint/eslint-plugin";
 import typescriptEslintParser from "@typescript-eslint/parser";
 import noImport from "eslint-plugin-import";
 import jsxA11y from "eslint-plugin-jsx-a11y";
+import playwright from "eslint-plugin-playwright";
 import prettier from "eslint-plugin-prettier";
 import eslintConfigPrettier from "eslint-config-prettier";
 import react from "eslint-plugin-react";
@@ -152,6 +153,33 @@ export default [
             caseInsensitive: true,
           },
         },
+      ],
+      "prettier/prettier": "error",
+    },
+  },
+  {
+    files: ["e2eTests/**/*.ts"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      parser: typescriptEslintParser,
+      parserOptions: {
+        ecmaVersion: "latest",
+        sourceType: "module",
+      },
+    },
+    plugins: {
+      "@typescript-eslint": typescriptEslint,
+      playwright,
+      prettier,
+    },
+    rules: {
+      ...typescriptEslint.configs.recommended.rules,
+      ...playwright.configs["flat/recommended"].rules,
+      quotes: ["error", "double"],
+      semi: ["error", "always"],
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_" },
       ],
       "prettier/prettier": "error",
     },

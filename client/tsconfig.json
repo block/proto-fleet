@@ -36,6 +36,6 @@
     "types": ["jest-dom"],
     "typeRoots": ["node_modules/@types", "node_modules/@testing-library"]
   },
-  "include": ["src", "tailwind.d.ts"],
+  "include": ["src", "tailwind.d.ts", "e2eTests"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

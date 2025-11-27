@@ -86,7 +86,10 @@ const ResetPasswordModal = ({
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="flex-1 rounded-lg bg-surface-elevated-base px-4 py-3 font-mono text-300">
+          <div
+            className="flex-1 rounded-lg bg-surface-elevated-base px-4 py-3 font-mono text-300"
+            data-testid="temporary-password"
+          >
             {temporaryPassword}
           </div>
           <button
