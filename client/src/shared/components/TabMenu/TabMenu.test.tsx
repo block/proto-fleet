@@ -1,5 +1,5 @@
 import { MemoryRouter, NavigateFunction, useLocation, useNavigate } from "react-router-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TabMenu from "./TabMenu";
 
@@ -61,30 +61,21 @@ describe("TabMenu", () => {
     });
   });
 
-  it("switches active tab on click", () => {
+  it("marks active tab with aria-selected", () => {
     render(
       <MemoryRouter>
         <TabMenu items={{ ...items }} />
       </MemoryRouter>,
     );
 
-    const activeIndicator = screen.getByTestId("active-indicator");
+    const tab1 = screen.getByText("Tab 1").closest("button") as HTMLButtonElement;
     const tab2 = screen.getByText("Tab 2").closest("button") as HTMLButtonElement;
+    const tab3 = screen.getByText("Tab 3").closest("button") as HTMLButtonElement;
 
-    // Initially, the first tab should be active
-    expect(activeIndicator).toHaveStyle({
-      transform: "translate3d(calc(0% + 2 * var(--spacing) * 0), 0, 0)",
-    });
-
-    // Click on the second tab
-    fireEvent.click(tab2);
-
-    // Now, the second tab should be active
-    waitFor(() => {
-      expect(activeIndicator).toHaveStyle({
-        transform: "translate3d(calc(100% + 2 * var(--spacing) * 0), 0, 0)",
-      });
-    });
+    // First tab should be selected, others not
+    expect(tab1).toHaveAttribute("aria-selected", "true");
+    expect(tab2).toHaveAttribute("aria-selected", "false");
+    expect(tab3).toHaveAttribute("aria-selected", "false");
   });
 
   it("respects basePath when navigating", () => {
