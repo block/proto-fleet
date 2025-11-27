@@ -1,6 +1,6 @@
 module github.com/btc-mining/proto-fleet/plugin/proto
 
-go 1.25
+go 1.25.4
 
 require (
 	connectrpc.com/connect v1.19.1

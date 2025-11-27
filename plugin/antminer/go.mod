@@ -1,6 +1,6 @@
 module github.com/btc-mining/proto-fleet/plugin/antminer
 
-go 1.25
+go 1.25.4
 
 require (
 	github.com/btc-mining/proto-fleet/server v0.0.0-20251125151021-516022023b95

@@ -1,8 +1,6 @@
 module influx-data-gen
 
-go 1.22
-
-toolchain go1.24.2
+go 1.25.4
 
 require (
 	github.com/InfluxCommunity/influxdb3-go/v2 v2.7.0
