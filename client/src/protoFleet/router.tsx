@@ -1,5 +1,5 @@
 import { createElement, ReactNode } from "react";
-import { createBrowserRouter, Outlet, redirect } from "react-router-dom";
+import { createBrowserRouter, LoaderFunction, Outlet, redirect } from "react-router-dom";
 
 import App from "./components/App";
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
@@ -16,15 +16,50 @@ import {
   Team,
 } from "@/protoFleet/features/settings";
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
+import { onboardingClient } from "@/protoFleet/api/clients";
+
+// Helper to check if an admin user has been created
+const checkFleetInitStatus = async (): Promise<boolean> => {
+  try {
+    const response = await onboardingClient.getFleetInitStatus({});
+    return response.status?.adminCreated ?? false;
+  } catch (error) {
+    console.error("Failed to fetch Fleet Init Status:", error);
+    // Default to true (assume admin exists) to prevent disrupting existing users
+    // If backend is temporarily unavailable, it's safer to show the login page
+    // rather than incorrectly redirecting existing users to the onboarding flow
+    return true;
+  }
+};
+
+// Loader for /auth route - redirects to /welcome if no admin exists (first time setup)
+const authLoader = async () => {
+  const adminCreated = await checkFleetInitStatus();
+  if (!adminCreated) {
+    return redirect("/welcome");
+  }
+  return null;
+};
+
+// Loader for /welcome route - redirects to /auth if admin already exists
+const welcomeLoader = async () => {
+  const adminCreated = await checkFleetInitStatus();
+  if (adminCreated) {
+    return redirect("/auth");
+  }
+  return null;
+};
 
 // Helper to create route objects with App wrapper
 interface CreateRouteOptions {
   fullscreen?: boolean;
+  loader?: LoaderFunction;
 }
 
 const createRoute = (path: string, children: ReactNode, options: CreateRouteOptions = {}) => ({
   path,
   element: <App fullscreen={options.fullscreen}>{children}</App>,
+  ...(options.loader && { loader: options.loader }),
 });
 
 // Wrap protoOS routes with SingleMinerWrapper for /miners/:id/* paths
@@ -96,9 +131,9 @@ const router = createBrowserRouter([
   ),
 
   // Auth routes (fullscreen)
-  createRoute("/auth", <Auth />, { fullscreen: true }),
+  createRoute("/auth", <Auth />, { fullscreen: true, loader: authLoader }),
   createRoute("/update-password", <UpdatePassword />, { fullscreen: true }),
-  createRoute("/welcome", <WelcomePage />, { fullscreen: true }),
+  createRoute("/welcome", <WelcomePage />, { fullscreen: true, loader: welcomeLoader }),
 
   // Onboarding routes
   createRoute("/onboarding/miners", <MinersPage />),

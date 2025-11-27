@@ -21,11 +21,7 @@ const Auth = () => {
     <div className="flex h-screen w-full flex-col bg-surface-base">
       <div className="flex flex-grow items-center-safe justify-center-safe">
         <div className="w-full max-w-100 p-6 phone:h-full">
-          <LoginForm
-            onSuccess={handleLoginSuccess}
-            onClickForgotPassword={() => null}
-            onClickCreateAccount={() => navigate("/welcome")}
-          />
+          <LoginForm onSuccess={handleLoginSuccess} />
         </div>
       </div>
       <Footer />

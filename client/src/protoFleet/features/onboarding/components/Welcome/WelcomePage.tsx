@@ -9,7 +9,6 @@ import { useLogin } from "@/protoFleet/api/useLogin";
 import { FleetWordmark, Logo, Plus } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import AnimatedDotsBackground from "@/shared/components/Animation";
-import Button, { variants } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { Authentication } from "@/shared/components/Setup";
 
@@ -110,12 +109,6 @@ const WelcomePage = () => {
                     setIsSubmitting={setIsSubmitting}
                     submitError={submitError}
                   />
-                  <div className="mt-4 flex flex-row">
-                    <div className="text-300 text-text-primary-50">Already using Proto Fleet?</div>
-                    <Button variant={variants.textOnly} className="!py-0 !pl-1" onClick={() => navigate("/auth")}>
-                      Sign in
-                    </Button>
-                  </div>
                 </div>
 
                 <div>

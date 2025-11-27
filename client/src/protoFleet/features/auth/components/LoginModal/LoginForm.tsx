@@ -8,7 +8,7 @@ import { ids, initValues, type Values } from "@/protoFleet/features/auth/compone
 import { useSetTemporaryPassword } from "@/protoFleet/store";
 
 import { Logo } from "@/shared/assets/icons";
-import Button, { variants } from "@/shared/components/Button";
+import { variants } from "@/shared/components/Button";
 import ButtonGroup, { ButtonProps, groupVariants, sizes } from "@/shared/components/ButtonGroup";
 import Input from "@/shared/components/Input";
 import { useKeyDown } from "@/shared/hooks/useKeyDown";
@@ -16,13 +16,11 @@ import { useKeyDown } from "@/shared/hooks/useKeyDown";
 import { deepClone } from "@/shared/utils/utility";
 
 interface LoginFormProps {
-  onClickForgotPassword: () => void;
-  onClickCreateAccount?: () => void;
   onDismiss?: () => void;
   onSuccess: (requiresPasswordChange: boolean) => void;
 }
 
-const LoginForm = ({ onClickCreateAccount, onDismiss, onSuccess }: LoginFormProps) => {
+const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
   const [values, setValues] = useState<Values>(deepClone(initValues));
   const [errors, setErrors] = useState<Values>(deepClone(initValues));
   const [apiError, setApiError] = useState<string | null>(null);
@@ -133,13 +131,6 @@ const LoginForm = ({ onClickCreateAccount, onDismiss, onSuccess }: LoginFormProp
             ].filter((button) => !!button.text) as ButtonProps[]
           }
         />
-
-        <div className="flex items-center">
-          <span className="text-300 text-text-primary-50">New to Proto Fleet?</span>
-          <Button variant={variants.textOnly} className="!py-0 !pl-1" onClick={onClickCreateAccount}>
-            Create an account
-          </Button>
-        </div>
       </div>
       <div className="flex flex-col gap-2">
         <div className="text-300 text-text-primary-70">Powerful mining tools. Built for decentralization.</div>
