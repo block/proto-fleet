@@ -12,33 +12,44 @@ import (
 type Service struct {
 	deviceStore interfaces.DeviceStore
 	poolStore   interfaces.PoolStore
+	userStore   interfaces.UserStore
 }
 
-func NewService(deviceStore interfaces.DeviceStore, poolStore interfaces.PoolStore) *Service {
+func NewService(deviceStore interfaces.DeviceStore, poolStore interfaces.PoolStore, userStore interfaces.UserStore) *Service {
 	return &Service{
 		deviceStore: deviceStore,
 		poolStore:   poolStore,
+		userStore:   userStore,
 	}
 }
 
 func (s *Service) GetFleetOnboardingStatus(ctx context.Context) (*pb.FleetOnboardingStatus, error) {
+	// Check if admin is created (doesn't require authentication)
+	hasUser, err := s.userStore.HasUser(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error checking if admin user exists: %v", err)
+	}
+
+	status := &pb.FleetOnboardingStatus{
+		AdminCreated: hasUser,
+	}
+
+	// If authenticated, also check pool and device status
 	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		totalPairedDevices, err := s.deviceStore.GetTotalPairedDevices(ctx, claims.OrgID, nil)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("error getting number of paired devices: %v", err)
+		}
+
+		totalPools, err := s.poolStore.GetTotalPools(ctx, claims.OrgID)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("error getting number of configured pools: %v", err)
+		}
+
+		status.PoolConfigured = totalPools > 0
+		status.DevicePaired = totalPairedDevices > 0
 	}
 
-	totalPairedDevices, err := s.deviceStore.GetTotalPairedDevices(ctx, claims.OrgID, nil)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting number of paired devices: %v", err)
-	}
-
-	totalPools, err := s.poolStore.GetTotalPools(ctx, claims.OrgID)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting number of configured pools: %v", err)
-	}
-
-	return &pb.FleetOnboardingStatus{
-		PoolConfigured: totalPools > 0,
-		DevicePaired:   totalPairedDevices > 0,
-	}, nil
+	return status, nil
 }
