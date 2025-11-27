@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_onboarding_v1_onboarding: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "Ch5vbmJvYXJkaW5nL3YxL29uYm9hcmRpbmcucHJvdG8SDW9uYm9hcmRpbmcudjEiPQoXQ3JlYXRlQWRtaW5Mb2dpblJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkSEAoIcGFzc3dvcmQYAiABKAkiKwoYQ3JlYXRlQWRtaW5Mb2dpblJlc3BvbnNlEg8KB3VzZXJfaWQYASABKAkiIQofR2V0RmxlZXRPbmJvYXJkaW5nU3RhdHVzUmVxdWVzdCJYCiBHZXRGbGVldE9uYm9hcmRpbmdTdGF0dXNSZXNwb25zZRI0CgZzdGF0dXMYASABKAsyJC5vbmJvYXJkaW5nLnYxLkZsZWV0T25ib2FyZGluZ1N0YXR1cyJeChVGbGVldE9uYm9hcmRpbmdTdGF0dXMSFwoPcG9vbF9jb25maWd1cmVkGAEgASgIEhUKDWRldmljZV9wYWlyZWQYAiABKAgSFQoNYWRtaW5fY3JlYXRlZBgDIAEoCDL1AQoRT25ib2FyZGluZ1NlcnZpY2USYwoQQ3JlYXRlQWRtaW5Mb2dpbhImLm9uYm9hcmRpbmcudjEuQ3JlYXRlQWRtaW5Mb2dpblJlcXVlc3QaJy5vbmJvYXJkaW5nLnYxLkNyZWF0ZUFkbWluTG9naW5SZXNwb25zZRJ7ChhHZXRGbGVldE9uYm9hcmRpbmdTdGF0dXMSLi5vbmJvYXJkaW5nLnYxLkdldEZsZWV0T25ib2FyZGluZ1N0YXR1c1JlcXVlc3QaLy5vbmJvYXJkaW5nLnYxLkdldEZsZWV0T25ib2FyZGluZ1N0YXR1c1Jlc3BvbnNlQs0BChFjb20ub25ib2FyZGluZy52MUIPT25ib2FyZGluZ1Byb3RvUAFaUmdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvb25ib2FyZGluZy92MTtvbmJvYXJkaW5ndjGiAgNPWFiqAg1PbmJvYXJkaW5nLlYxygINT25ib2FyZGluZ1xWMeICGU9uYm9hcmRpbmdcVjFcR1BCTWV0YWRhdGHqAg5PbmJvYXJkaW5nOjpWMWIGcHJvdG8z",
+    "Ch5vbmJvYXJkaW5nL3YxL29uYm9hcmRpbmcucHJvdG8SDW9uYm9hcmRpbmcudjEiPQoXQ3JlYXRlQWRtaW5Mb2dpblJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkSEAoIcGFzc3dvcmQYAiABKAkiKwoYQ3JlYXRlQWRtaW5Mb2dpblJlc3BvbnNlEg8KB3VzZXJfaWQYASABKAkiGwoZR2V0RmxlZXRJbml0U3RhdHVzUmVxdWVzdCJMChpHZXRGbGVldEluaXRTdGF0dXNSZXNwb25zZRIuCgZzdGF0dXMYASABKAsyHi5vbmJvYXJkaW5nLnYxLkZsZWV0SW5pdFN0YXR1cyIoCg9GbGVldEluaXRTdGF0dXMSFQoNYWRtaW5fY3JlYXRlZBgBIAEoCCIhCh9HZXRGbGVldE9uYm9hcmRpbmdTdGF0dXNSZXF1ZXN0IlgKIEdldEZsZWV0T25ib2FyZGluZ1N0YXR1c1Jlc3BvbnNlEjQKBnN0YXR1cxgBIAEoCzIkLm9uYm9hcmRpbmcudjEuRmxlZXRPbmJvYXJkaW5nU3RhdHVzIkcKFUZsZWV0T25ib2FyZGluZ1N0YXR1cxIXCg9wb29sX2NvbmZpZ3VyZWQYASABKAgSFQoNZGV2aWNlX3BhaXJlZBgCIAEoCDLgAgoRT25ib2FyZGluZ1NlcnZpY2USYwoQQ3JlYXRlQWRtaW5Mb2dpbhImLm9uYm9hcmRpbmcudjEuQ3JlYXRlQWRtaW5Mb2dpblJlcXVlc3QaJy5vbmJvYXJkaW5nLnYxLkNyZWF0ZUFkbWluTG9naW5SZXNwb25zZRJpChJHZXRGbGVldEluaXRTdGF0dXMSKC5vbmJvYXJkaW5nLnYxLkdldEZsZWV0SW5pdFN0YXR1c1JlcXVlc3QaKS5vbmJvYXJkaW5nLnYxLkdldEZsZWV0SW5pdFN0YXR1c1Jlc3BvbnNlEnsKGEdldEZsZWV0T25ib2FyZGluZ1N0YXR1cxIuLm9uYm9hcmRpbmcudjEuR2V0RmxlZXRPbmJvYXJkaW5nU3RhdHVzUmVxdWVzdBovLm9uYm9hcmRpbmcudjEuR2V0RmxlZXRPbmJvYXJkaW5nU3RhdHVzUmVzcG9uc2VCzQEKEWNvbS5vbmJvYXJkaW5nLnYxQg9PbmJvYXJkaW5nUHJvdG9QAVpSZ2l0aHViLmNvbS9idGMtbWluaW5nL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9vbmJvYXJkaW5nL3YxO29uYm9hcmRpbmd2MaICA09YWKoCDU9uYm9hcmRpbmcuVjHKAg1PbmJvYXJkaW5nXFYx4gIZT25ib2FyZGluZ1xWMVxHUEJNZXRhZGF0YeoCDk9uYm9hcmRpbmc6OlYxYgZwcm90bzM",
   );
 
 /**
@@ -57,6 +57,55 @@ export const CreateAdminLoginResponseSchema: GenMessage<CreateAdminLoginResponse
   messageDesc(file_onboarding_v1_onboarding, 1);
 
 /**
+ * @generated from message onboarding.v1.GetFleetInitStatusRequest
+ */
+export type GetFleetInitStatusRequest = Message<"onboarding.v1.GetFleetInitStatusRequest"> & {};
+
+/**
+ * Describes the message onboarding.v1.GetFleetInitStatusRequest.
+ * Use `create(GetFleetInitStatusRequestSchema)` to create a new message.
+ */
+export const GetFleetInitStatusRequestSchema: GenMessage<GetFleetInitStatusRequest> =
+  /*@__PURE__*/
+  messageDesc(file_onboarding_v1_onboarding, 2);
+
+/**
+ * @generated from message onboarding.v1.GetFleetInitStatusResponse
+ */
+export type GetFleetInitStatusResponse = Message<"onboarding.v1.GetFleetInitStatusResponse"> & {
+  /**
+   * @generated from field: onboarding.v1.FleetInitStatus status = 1;
+   */
+  status?: FleetInitStatus;
+};
+
+/**
+ * Describes the message onboarding.v1.GetFleetInitStatusResponse.
+ * Use `create(GetFleetInitStatusResponseSchema)` to create a new message.
+ */
+export const GetFleetInitStatusResponseSchema: GenMessage<GetFleetInitStatusResponse> =
+  /*@__PURE__*/
+  messageDesc(file_onboarding_v1_onboarding, 3);
+
+/**
+ * @generated from message onboarding.v1.FleetInitStatus
+ */
+export type FleetInitStatus = Message<"onboarding.v1.FleetInitStatus"> & {
+  /**
+   * @generated from field: bool admin_created = 1;
+   */
+  adminCreated: boolean;
+};
+
+/**
+ * Describes the message onboarding.v1.FleetInitStatus.
+ * Use `create(FleetInitStatusSchema)` to create a new message.
+ */
+export const FleetInitStatusSchema: GenMessage<FleetInitStatus> =
+  /*@__PURE__*/
+  messageDesc(file_onboarding_v1_onboarding, 4);
+
+/**
  * @generated from message onboarding.v1.GetFleetOnboardingStatusRequest
  */
 export type GetFleetOnboardingStatusRequest = Message<"onboarding.v1.GetFleetOnboardingStatusRequest"> & {};
@@ -67,7 +116,7 @@ export type GetFleetOnboardingStatusRequest = Message<"onboarding.v1.GetFleetOnb
  */
 export const GetFleetOnboardingStatusRequestSchema: GenMessage<GetFleetOnboardingStatusRequest> =
   /*@__PURE__*/
-  messageDesc(file_onboarding_v1_onboarding, 2);
+  messageDesc(file_onboarding_v1_onboarding, 5);
 
 /**
  * @generated from message onboarding.v1.GetFleetOnboardingStatusResponse
@@ -85,7 +134,7 @@ export type GetFleetOnboardingStatusResponse = Message<"onboarding.v1.GetFleetOn
  */
 export const GetFleetOnboardingStatusResponseSchema: GenMessage<GetFleetOnboardingStatusResponse> =
   /*@__PURE__*/
-  messageDesc(file_onboarding_v1_onboarding, 3);
+  messageDesc(file_onboarding_v1_onboarding, 6);
 
 /**
  * @generated from message onboarding.v1.FleetOnboardingStatus
@@ -100,11 +149,6 @@ export type FleetOnboardingStatus = Message<"onboarding.v1.FleetOnboardingStatus
    * @generated from field: bool device_paired = 2;
    */
   devicePaired: boolean;
-
-  /**
-   * @generated from field: bool admin_created = 3;
-   */
-  adminCreated: boolean;
 };
 
 /**
@@ -113,7 +157,7 @@ export type FleetOnboardingStatus = Message<"onboarding.v1.FleetOnboardingStatus
  */
 export const FleetOnboardingStatusSchema: GenMessage<FleetOnboardingStatus> =
   /*@__PURE__*/
-  messageDesc(file_onboarding_v1_onboarding, 4);
+  messageDesc(file_onboarding_v1_onboarding, 7);
 
 /**
  * @generated from service onboarding.v1.OnboardingService
@@ -126,6 +170,14 @@ export const OnboardingService: GenService<{
     methodKind: "unary";
     input: typeof CreateAdminLoginRequestSchema;
     output: typeof CreateAdminLoginResponseSchema;
+  };
+  /**
+   * @generated from rpc onboarding.v1.OnboardingService.GetFleetInitStatus
+   */
+  getFleetInitStatus: {
+    methodKind: "unary";
+    input: typeof GetFleetInitStatusRequestSchema;
+    output: typeof GetFleetInitStatusResponseSchema;
   };
   /**
    * @generated from rpc onboarding.v1.OnboardingService.GetFleetOnboardingStatus

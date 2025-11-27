@@ -11,6 +11,6 @@ var UnauthenticatedProcedures = []string{
 	"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
 	authv1connect.AuthServiceAuthenticateProcedure,
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
-	onboardingv1connect.OnboardingServiceGetFleetOnboardingStatusProcedure,
+	onboardingv1connect.OnboardingServiceGetFleetInitStatusProcedure,
 	networkinfov1connect.NetworkInfoServiceGetNetworkInfoProcedure,
 }

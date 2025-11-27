@@ -35,6 +35,17 @@ func (s *Handler) CreateAdminLogin(ctx context.Context, r *connect.Request[pb.Cr
 	return connect.NewResponse(resp), nil
 }
 
+func (s *Handler) GetFleetInitStatus(ctx context.Context, _ *connect.Request[pb.GetFleetInitStatusRequest]) (*connect.Response[pb.GetFleetInitStatusResponse], error) {
+	status, err := s.onboardingSvc.GetFleetInitStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&pb.GetFleetInitStatusResponse{
+		Status: status,
+	}), nil
+}
+
 func (s *Handler) GetFleetOnboardingStatus(ctx context.Context, _ *connect.Request[pb.GetFleetOnboardingStatusRequest]) (*connect.Response[pb.GetFleetOnboardingStatusResponse], error) {
 	status, err := s.onboardingSvc.GetFleetOnboardingStatus(ctx)
 	if err != nil {

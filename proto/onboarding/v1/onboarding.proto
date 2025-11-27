@@ -5,6 +5,8 @@ package onboarding.v1;
 service OnboardingService {
     rpc CreateAdminLogin(CreateAdminLoginRequest) returns (CreateAdminLoginResponse);
 
+    rpc GetFleetInitStatus(GetFleetInitStatusRequest) returns (GetFleetInitStatusResponse);
+
     rpc GetFleetOnboardingStatus(GetFleetOnboardingStatusRequest) returns (GetFleetOnboardingStatusResponse);
 }
 
@@ -17,6 +19,17 @@ message CreateAdminLoginResponse {
     string user_id = 1;
 }
 
+message GetFleetInitStatusRequest {
+}
+
+message GetFleetInitStatusResponse {
+    FleetInitStatus status = 1;
+}
+
+message FleetInitStatus {
+    bool admin_created = 1;
+}
+
 message GetFleetOnboardingStatusRequest {
 }
 
@@ -27,5 +40,4 @@ message GetFleetOnboardingStatusResponse {
 message FleetOnboardingStatus {
     bool pool_configured = 1;
     bool device_paired = 2;
-    bool admin_created = 3;
 }

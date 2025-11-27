@@ -23,33 +23,35 @@ func NewService(deviceStore interfaces.DeviceStore, poolStore interfaces.PoolSto
 	}
 }
 
-func (s *Service) GetFleetOnboardingStatus(ctx context.Context) (*pb.FleetOnboardingStatus, error) {
-	// Check if admin is created (doesn't require authentication)
+func (s *Service) GetFleetInitStatus(ctx context.Context) (*pb.FleetInitStatus, error) {
 	hasUser, err := s.userStore.HasUser(ctx)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error checking if admin user exists: %v", err)
 	}
 
-	status := &pb.FleetOnboardingStatus{
+	return &pb.FleetInitStatus{
 		AdminCreated: hasUser,
-	}
+	}, nil
+}
 
-	// If authenticated, also check pool and device status
+func (s *Service) GetFleetOnboardingStatus(ctx context.Context) (*pb.FleetOnboardingStatus, error) {
 	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
-	if err == nil {
-		totalPairedDevices, err := s.deviceStore.GetTotalPairedDevices(ctx, claims.OrgID, nil)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("error getting number of paired devices: %v", err)
-		}
-
-		totalPools, err := s.poolStore.GetTotalPools(ctx, claims.OrgID)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("error getting number of configured pools: %v", err)
-		}
-
-		status.PoolConfigured = totalPools > 0
-		status.DevicePaired = totalPairedDevices > 0
+	if err != nil {
+		return nil, err
 	}
 
-	return status, nil
+	totalPairedDevices, err := s.deviceStore.GetTotalPairedDevices(ctx, claims.OrgID, nil)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting number of paired devices: %v", err)
+	}
+
+	totalPools, err := s.poolStore.GetTotalPools(ctx, claims.OrgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting number of configured pools: %v", err)
+	}
+
+	return &pb.FleetOnboardingStatus{
+		PoolConfigured: totalPools > 0,
+		DevicePaired:   totalPairedDevices > 0,
+	}, nil
 }

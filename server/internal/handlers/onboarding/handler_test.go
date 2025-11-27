@@ -66,13 +66,13 @@ func TestHandler_CreateAdminLogin(t *testing.T) {
 	})
 }
 
-func TestHandler_GetFleetOnboardingStatus(t *testing.T) {
+func TestHandler_GetFleetInitStatus(t *testing.T) {
 	t.Run("should return admin_created false when no admin user exists", func(t *testing.T) {
 		testContext := testutil.InitializeDBServiceInfrastructure(t)
 
-		// Make request
-		req := connect.NewRequest(&onboardingv1.GetFleetOnboardingStatusRequest{})
-		resp, err := testContext.InfrastructureProvider.OnboardingClient.GetFleetOnboardingStatus(t.Context(), req)
+		// Make request (unauthenticated)
+		req := connect.NewRequest(&onboardingv1.GetFleetInitStatusRequest{})
+		resp, err := testContext.InfrastructureProvider.OnboardingClient.GetFleetInitStatus(t.Context(), req)
 
 		// Verify response
 		assert.NoError(t, err)
@@ -91,9 +91,9 @@ func TestHandler_GetFleetOnboardingStatus(t *testing.T) {
 		_, err := testContext.InfrastructureProvider.OnboardingClient.CreateAdminLogin(t.Context(), createReq)
 		assert.NoError(t, err)
 
-		// Now check fleet onboarding status
-		req := connect.NewRequest(&onboardingv1.GetFleetOnboardingStatusRequest{})
-		resp, err := testContext.InfrastructureProvider.OnboardingClient.GetFleetOnboardingStatus(t.Context(), req)
+		// Now check fleet init status (unauthenticated)
+		req := connect.NewRequest(&onboardingv1.GetFleetInitStatusRequest{})
+		resp, err := testContext.InfrastructureProvider.OnboardingClient.GetFleetInitStatus(t.Context(), req)
 
 		// Verify response
 		assert.NoError(t, err)
