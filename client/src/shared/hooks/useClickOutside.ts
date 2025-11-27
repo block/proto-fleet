@@ -9,12 +9,7 @@ interface ClickOutsideProps {
   shouldIgnore?: (event: MouseEvent | TouchEvent) => boolean;
 }
 
-const useClickOutside = ({
-  ref,
-  onClickOutside,
-  ignoreSelectors = [],
-  shouldIgnore,
-}: ClickOutsideProps) => {
+const useClickOutside = ({ ref, onClickOutside, ignoreSelectors = [], shouldIgnore }: ClickOutsideProps) => {
   useEffect(() => {
     function handleClickOutside(event: MouseEvent | TouchEvent) {
       // Skip if we should ignore this event
@@ -23,27 +18,18 @@ const useClickOutside = ({
       }
 
       // Check if the click is inside our element
-      const isInside =
-        event.target instanceof Node &&
-        ref.current &&
-        ref.current.contains(event.target);
+      const isInside = event.target instanceof Node && ref.current && ref.current.contains(event.target);
 
       // Check if the click is inside any of the elements matching ignoreSelectors
       const isInsideIgnored = ignoreSelectors.some((selector) => {
         if (event.target instanceof Node) {
           // Check if the target matches the selector
-          if (
-            event.target instanceof Element &&
-            event.target.matches(selector)
-          ) {
+          if (event.target instanceof Element && event.target.matches(selector)) {
             return true;
           }
 
           // Check if any parent matches the selector
-          const closest =
-            event.target instanceof Element
-              ? event.target.closest(selector)
-              : null;
+          const closest = event.target instanceof Element ? event.target.closest(selector) : null;
           return closest !== null;
         }
         return false;

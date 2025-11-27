@@ -14,13 +14,7 @@ interface AsicTableProps {
   setShowPopover: Dispatch<SetStateAction<string | undefined>>;
 }
 
-const AsicTable = ({
-  asics,
-  hashboardSerialNumber,
-  pending,
-  showPopover,
-  setShowPopover,
-}: AsicTableProps) => {
+const AsicTable = ({ asics, hashboardSerialNumber, pending, showPopover, setShowPopover }: AsicTableProps) => {
   return (
     <div className="relative mt-6 h-full">
       <div className="flex h-full">

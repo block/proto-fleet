@@ -1,18 +1,9 @@
 import { create } from "zustand";
-import {
-  devtools,
-  persist,
-  PersistStorage,
-  StorageValue,
-  subscribeWithSelector,
-} from "zustand/middleware";
+import { devtools, persist, PersistStorage, StorageValue, subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { type AuthSlice, createAuthSlice } from "./slices/authSlice";
 import { createFleetSlice, type FleetSlice } from "./slices/fleetSlice";
-import {
-  createOnboardingSlice,
-  type OnboardingSlice,
-} from "./slices/onboardingSlice";
+import { createOnboardingSlice, type OnboardingSlice } from "./slices/onboardingSlice";
 import { createUISlice, type UISlice } from "./slices/uiSlice";
 
 // =============================================================================
@@ -53,9 +44,7 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
 
       // Reconstruct Date objects from stored ISO strings
       if (auth?.state?.auth?.authTokens?.accessToken?.expiry) {
-        auth.state.auth.authTokens.accessToken.expiry = new Date(
-          auth.state.auth.authTokens.accessToken.expiry,
-        );
+        auth.state.auth.authTokens.accessToken.expiry = new Date(auth.state.auth.authTokens.accessToken.expiry);
       }
 
       // Combine the data
@@ -144,29 +133,22 @@ export const useFleetStore = create<FleetStore>()(
           }),
           merge: (persistedState, currentState) => {
             const persisted = persistedState as any;
-            const hasPersistedTokens =
-              persisted?.auth?.authTokens?.accessToken?.value;
+            const hasPersistedTokens = persisted?.auth?.authTokens?.accessToken?.value;
 
             return {
               ...currentState,
               auth: {
                 ...currentState.auth,
-                authTokens:
-                  persisted?.auth?.authTokens ?? currentState.auth.authTokens,
-                username:
-                  persisted?.auth?.username ?? currentState.auth.username,
+                authTokens: persisted?.auth?.authTokens ?? currentState.auth.authTokens,
+                username: persisted?.auth?.username ?? currentState.auth.username,
                 role: persisted?.auth?.role ?? currentState.auth.role,
                 // If we have persisted tokens, set loading to false
-                authLoading: hasPersistedTokens
-                  ? false
-                  : currentState.auth.authLoading,
+                authLoading: hasPersistedTokens ? false : currentState.auth.authLoading,
               },
               ui: {
                 ...currentState.ui,
                 theme: persisted?.ui?.theme ?? currentState.ui.theme,
-                temperatureUnit:
-                  persisted?.ui?.temperatureUnit ??
-                  currentState.ui.temperatureUnit,
+                temperatureUnit: persisted?.ui?.temperatureUnit ?? currentState.ui.temperatureUnit,
                 duration: persisted?.ui?.duration ?? currentState.ui.duration,
               },
             };

@@ -2,11 +2,7 @@ import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import clsx from "clsx";
 import SkeletonBar from "../SkeletonBar";
-import {
-  ChartStatus,
-  chartStatus as chartStatusConstants,
-  statusColors,
-} from "./constants";
+import { ChartStatus, chartStatus as chartStatusConstants, statusColors } from "./constants";
 import { type StatProps } from "./types";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
@@ -49,12 +45,7 @@ const Stat = ({
       </div>
       {value === undefined ? (
         <SkeletonBar
-          className={clsx(
-            "py-1",
-            size === "large" && "h-10",
-            size === "medium" && "h-7",
-            size === "small" && "h-5",
-          )}
+          className={clsx("py-1", size === "large" && "h-10", size === "medium" && "h-7", size === "small" && "h-5")}
         />
       ) : (
         <motion.div
@@ -68,20 +59,14 @@ const Stat = ({
             size === "small" && "text-heading-100",
           )}
         >
-          <span className={valueClassName}>{getDisplayValue(value)}</span>{" "}
-          {units && units}
+          <span className={valueClassName}>{getDisplayValue(value)}</span> {units && units}
         </motion.div>
       )}
       {icon && <div className="absolute top-0 right-0">{icon}</div>}
       {text && <div className="mt-1 text-300 text-text-primary-70">{text}</div>}
       {chartPercentage !== undefined && (
         <div className="relative mt-2 h-[2px] w-full">
-          <div
-            className={clsx(
-              "absolute h-full w-full opacity-20",
-              statusColors[chartStatus],
-            )}
-          ></div>
+          <div className={clsx("absolute h-full w-full opacity-20", statusColors[chartStatus])}></div>
           <div
             className={clsx(
               "absolute h-full w-full origin-left transition-transform duration-600 ease-gentle",

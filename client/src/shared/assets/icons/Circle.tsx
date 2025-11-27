@@ -17,11 +17,7 @@ const Circle = ({ className, width = iconSizes.small, style }: CircleProps) => {
     <div className={width}>
       <div
         style={style}
-        className={clsx(
-          "aspect-square rounded-[50%]",
-          modifiedClassName,
-          width || iconSizes.xSmall,
-        )}
+        className={clsx("aspect-square rounded-[50%]", modifiedClassName, width || iconSizes.xSmall)}
       />
     </div>
   );

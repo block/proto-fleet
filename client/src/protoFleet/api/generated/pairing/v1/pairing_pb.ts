@@ -2,16 +2,8 @@
 // @generated from file pairing/v1/pairing.proto (package pairing.v1, syntax proto3)
 /* eslint-disable */
 
-import type {
-  GenFile,
-  GenMessage,
-  GenService,
-} from "@bufbuild/protobuf/codegenv2";
-import {
-  fileDesc,
-  messageDesc,
-  serviceDesc,
-} from "@bufbuild/protobuf/codegenv2";
+import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { MinerCapabilities } from "../../capabilities/v1/capabilities_pb";
 import { file_capabilities_v1_capabilities } from "../../capabilities/v1/capabilities_pb";
 import type { Message } from "@bufbuild/protobuf";
@@ -107,9 +99,7 @@ export type Device = Message<"pairing.v1.Device"> & {
  * Describes the message pairing.v1.Device.
  * Use `create(DeviceSchema)` to create a new message.
  */
-export const DeviceSchema: GenMessage<Device> =
-  /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 0);
+export const DeviceSchema: GenMessage<Device> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 0);
 
 /**
  * Represents login credentials used for device pairing
@@ -132,9 +122,7 @@ export type Credentials = Message<"pairing.v1.Credentials"> & {
  * Describes the message pairing.v1.Credentials.
  * Use `create(CredentialsSchema)` to create a new message.
  */
-export const CredentialsSchema: GenMessage<Credentials> =
-  /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 1);
+export const CredentialsSchema: GenMessage<Credentials> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 1);
 
 /**
  * Configuration for mDNS-based device discovery
@@ -169,9 +157,7 @@ export type MDNSModeRequest = Message<"pairing.v1.MDNSModeRequest"> & {
  * Describes the message pairing.v1.MDNSModeRequest.
  * Use `create(MDNSModeRequestSchema)` to create a new message.
  */
-export const MDNSModeRequestSchema: GenMessage<MDNSModeRequest> =
-  /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 2);
+export const MDNSModeRequestSchema: GenMessage<MDNSModeRequest> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 2);
 
 /**
  * Configuration for Nmap-based network scanning discovery
@@ -209,9 +195,7 @@ export type NmapModeRequest = Message<"pairing.v1.NmapModeRequest"> & {
  * Describes the message pairing.v1.NmapModeRequest.
  * Use `create(NmapModeRequestSchema)` to create a new message.
  */
-export const NmapModeRequestSchema: GenMessage<NmapModeRequest> =
-  /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 3);
+export const NmapModeRequestSchema: GenMessage<NmapModeRequest> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 3);
 
 /**
  * Configuration for IP range-based device discovery
@@ -347,9 +331,7 @@ export type DiscoverRequest = Message<"pairing.v1.DiscoverRequest"> & {
  * Describes the message pairing.v1.DiscoverRequest.
  * Use `create(DiscoverRequestSchema)` to create a new message.
  */
-export const DiscoverRequestSchema: GenMessage<DiscoverRequest> =
-  /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 6);
+export const DiscoverRequestSchema: GenMessage<DiscoverRequest> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 6);
 
 /**
  * Response message containing discovered devices or errors
@@ -406,9 +388,7 @@ export type PairRequest = Message<"pairing.v1.PairRequest"> & {
  * Describes the message pairing.v1.PairRequest.
  * Use `create(PairRequestSchema)` to create a new message.
  */
-export const PairRequestSchema: GenMessage<PairRequest> =
-  /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 8);
+export const PairRequestSchema: GenMessage<PairRequest> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 8);
 
 /**
  * Response to pairing request
@@ -427,9 +407,7 @@ export type PairResponse = Message<"pairing.v1.PairResponse"> & {
  * Describes the message pairing.v1.PairResponse.
  * Use `create(PairResponseSchema)` to create a new message.
  */
-export const PairResponseSchema: GenMessage<PairResponse> =
-  /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 9);
+export const PairResponseSchema: GenMessage<PairResponse> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 9);
 
 /**
  * Service for discovering and pairing with network devices

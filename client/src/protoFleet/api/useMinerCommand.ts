@@ -137,20 +137,12 @@ const useMinerCommand = () => {
   );
 
   const streamCommandBatchUpdates = useCallback(
-    async ({
-      streamRequest,
-      streamAbortController,
-      onStreamData,
-      onError,
-    }: StreamCommandBatchUpdatesProps) => {
+    async ({ streamRequest, streamAbortController, onStreamData, onError }: StreamCommandBatchUpdatesProps) => {
       try {
-        for await (const updateResponse of minerCommandClient.streamCommandBatchUpdates(
-          streamRequest,
-          {
-            ...authHeader,
-            signal: streamAbortController?.signal,
-          },
-        )) {
+        for await (const updateResponse of minerCommandClient.streamCommandBatchUpdates(streamRequest, {
+          ...authHeader,
+          signal: streamAbortController?.signal,
+        })) {
           onStreamData(updateResponse);
         }
       } catch (error) {
@@ -176,12 +168,7 @@ const useMinerCommand = () => {
   );
 
   const updateMiningPools = useCallback(
-    async ({
-      deviceIdentifiers,
-      poolConfig,
-      onSuccess,
-      onError,
-    }: UpdateMiningPoolsProps) => {
+    async ({ deviceIdentifiers, poolConfig, onSuccess, onError }: UpdateMiningPoolsProps) => {
       const updateMiningPoolsRequest = create(UpdateMiningPoolsRequestSchema, {
         deviceSelector: create(DeviceSelectorSchema, {
           selectionType: {
@@ -191,15 +178,9 @@ const useMinerCommand = () => {
             }),
           },
         }),
-        defaultPoolId: poolConfig.defaultPoolId
-          ? BigInt(poolConfig.defaultPoolId)
-          : undefined,
-        backup1PoolId: poolConfig.backup1PoolId
-          ? BigInt(poolConfig.backup1PoolId)
-          : undefined,
-        backup2PoolId: poolConfig.backup2PoolId
-          ? BigInt(poolConfig.backup2PoolId)
-          : undefined,
+        defaultPoolId: poolConfig.defaultPoolId ? BigInt(poolConfig.defaultPoolId) : undefined,
+        backup1PoolId: poolConfig.backup1PoolId ? BigInt(poolConfig.backup1PoolId) : undefined,
+        backup2PoolId: poolConfig.backup2PoolId ? BigInt(poolConfig.backup2PoolId) : undefined,
       });
 
       await minerCommandClient
@@ -226,14 +207,7 @@ const useMinerCommand = () => {
       streamCommandBatchUpdates,
       updateMiningPools,
     }),
-    [
-      blinkLED,
-      startMining,
-      stopMining,
-      unpair,
-      streamCommandBatchUpdates,
-      updateMiningPools,
-    ],
+    [blinkLED, startMining, stopMining, unpair, streamCommandBatchUpdates, updateMiningPools],
   );
 };
 

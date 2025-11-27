@@ -1,12 +1,7 @@
 import Toaster from "./components/Toaster";
 import { ACTIONS, STATUSES } from "./constants";
 
-import ToastsObserver, {
-  clearToasts,
-  pushToast,
-  removeToast,
-  updateToast,
-} from "./ToastsObserver";
+import ToastsObserver, { clearToasts, pushToast, removeToast, updateToast } from "./ToastsObserver";
 
 import { ToasterActionType, ToastStatusType, ToastType } from "./types";
 

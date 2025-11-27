@@ -5,10 +5,7 @@
  * @param keys - keys to pick
  * @returns new object with only specified keys
  */
-export const pick = <T extends object, K extends keyof T>(
-  obj: T,
-  keys: K[],
-): Pick<T, K> => {
+export const pick = <T extends object, K extends keyof T>(obj: T, keys: K[]): Pick<T, K> => {
   const result = {} as Pick<T, K>;
   keys.forEach((key) => {
     if (obj[key] !== undefined) {
@@ -25,10 +22,7 @@ export const pick = <T extends object, K extends keyof T>(
  * @param keys - keys to omit
  * @returns new object with specified keys omitted
  */
-export const omit = <T extends object, K extends keyof T>(
-  obj: T,
-  keys: K[],
-): Omit<T, K> => {
+export const omit = <T extends object, K extends keyof T>(obj: T, keys: K[]): Omit<T, K> => {
   const result = { ...obj };
   keys.forEach((key) => {
     delete result[key];

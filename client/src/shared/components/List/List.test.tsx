@@ -3,12 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import List from "@/shared/components/List/index";
 import testColConfig from "@/shared/components/List/mocks/colConfig";
-import {
-  testCols,
-  testColTitles,
-  TestItem,
-  testItems,
-} from "@/shared/components/List/mocks/data";
+import { testCols, testColTitles, TestItem, testItems } from "@/shared/components/List/mocks/data";
 import { ListAction } from "@/shared/components/List/types";
 
 beforeAll(() => {
@@ -16,9 +11,7 @@ beforeAll(() => {
     ResponsiveContainer: ({ children }: { children: ReactNode }) => (
       <div data-testid="recharts-responsive-container">{children}</div>
     ),
-    LineChart: ({ children }: { children: ReactNode }) => (
-      <div data-testid="recharts-line-chart">{children}</div>
-    ),
+    LineChart: ({ children }: { children: ReactNode }) => <div data-testid="recharts-line-chart">{children}</div>,
     ReferenceLine: () => <div data-testid="recharts-reference-line" />,
     Line: () => <div data-testid="recharts-line" />,
     XAxis: () => <div data-testid="recharts-xaxis" />,
@@ -27,12 +20,7 @@ beforeAll(() => {
 });
 
 describe("List", () => {
-  const activeCols = [
-    testCols.name,
-    testCols.status,
-    testCols.value,
-    testCols.timestamp,
-  ] as (keyof TestItem)[];
+  const activeCols = [testCols.name, testCols.status, testCols.value, testCols.timestamp] as (keyof TestItem)[];
   type TestItemKey = TestItem["id"];
 
   it("renders cols correctly", () => {
@@ -95,9 +83,7 @@ describe("List", () => {
         itemSelectable
       />,
     );
-    const selectAllCheckbox = getByTestId("list-header").querySelector(
-      "input[type='checkbox']",
-    ) as HTMLInputElement;
+    const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
 
     const selectItemCheckboxes = getByTestId("list-body").querySelectorAll(
       "input[type='checkbox']",
@@ -106,51 +92,39 @@ describe("List", () => {
 
     // expect select all checkbox to be unchecked
     expect(selectAllCheckbox.checked).toBe(false);
-    expect(
-      Array.from(selectItemCheckboxes).filter((c) => c.checked),
-    ).toHaveLength(0);
+    expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(0);
 
     // click individual item checkboxes and make sure select all checkbox is unchecked and total checked is only 1
     fireEvent.click(selectItemCheckboxes[0]);
     expect(selectAllCheckbox.checked).toBe(false);
-    expect(
-      Array.from(selectItemCheckboxes).filter((c) => c.checked),
-    ).toHaveLength(1);
+    expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(1);
 
     // click select all checkboxes and make sure all checkboxes are checked
     fireEvent.click(selectAllCheckbox);
     expect(selectAllCheckbox.checked).toBe(true);
-    expect(
-      Array.from(selectItemCheckboxes).filter((c) => c.checked),
-    ).toHaveLength(testItems.length);
+    expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(testItems.length);
 
     // click item 1 (deselect) checkbox and make select all checkbox unchecked
     fireEvent.click(selectItemCheckboxes[0]);
     expect(selectAllCheckbox.checked).toBe(false);
-    expect(
-      Array.from(selectItemCheckboxes).filter((c) => c.checked),
-    ).toHaveLength(testItems.length - 1);
+    expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(testItems.length - 1);
 
     // click select all twice to deselect all items
     fireEvent.click(selectAllCheckbox);
     fireEvent.click(selectAllCheckbox);
     expect(selectAllCheckbox.checked).toBe(false);
-    expect(
-      Array.from(selectItemCheckboxes).filter((c) => c.checked),
-    ).toHaveLength(0);
+    expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(0);
   });
 
   it("renders action bar when items are selected and provides clearSelection callback", () => {
-    const renderActionBar = vi.fn(
-      (_selectedItems: TestItemKey[], clearSelection: () => void) => (
-        <div>
-          <div>Action Bar</div>
-          <button onClick={clearSelection} data-testid="clear-selection-btn">
-            Clear
-          </button>
-        </div>
-      ),
-    );
+    const renderActionBar = vi.fn((_selectedItems: TestItemKey[], clearSelection: () => void) => (
+      <div>
+        <div>Action Bar</div>
+        <button onClick={clearSelection} data-testid="clear-selection-btn">
+          Clear
+        </button>
+      </div>
+    ));
 
     const { getByTestId } = render(
       <List<TestItem, TestItemKey>
@@ -174,8 +148,7 @@ describe("List", () => {
 
     // Verify renderActionBar was called with selectedItems and clearSelection callback
     expect(renderActionBar).toHaveBeenCalled();
-    const lastCall =
-      renderActionBar.mock.calls[renderActionBar.mock.calls.length - 1];
+    const lastCall = renderActionBar.mock.calls[renderActionBar.mock.calls.length - 1];
     expect(lastCall[0]).toEqual([testItems[0].id]); // selectedItems
     expect(typeof lastCall[1]).toBe("function"); // clearSelection callback
 
@@ -186,20 +159,16 @@ describe("List", () => {
     fireEvent.click(clearButton);
 
     // Verify all checkboxes are now unchecked
-    expect(
-      Array.from(selectItemCheckboxes).filter((c) => c.checked),
-    ).toHaveLength(0);
+    expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(0);
   });
 
   it("clearSelection callback deselects all items", async () => {
     let clearSelectionCallback: (() => void) | null = null;
 
-    const renderActionBar = vi.fn(
-      (_selectedItems: TestItemKey[], clearSelection: () => void) => {
-        clearSelectionCallback = clearSelection;
-        return <div>Action Bar</div>;
-      },
-    );
+    const renderActionBar = vi.fn((_selectedItems: TestItemKey[], clearSelection: () => void) => {
+      clearSelectionCallback = clearSelection;
+      return <div>Action Bar</div>;
+    });
 
     const { getByTestId } = render(
       <List<TestItem, TestItemKey>
@@ -213,9 +182,7 @@ describe("List", () => {
       />,
     );
 
-    const selectAllCheckbox = getByTestId("list-header").querySelector(
-      "input[type='checkbox']",
-    ) as HTMLInputElement;
+    const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
 
     const selectItemCheckboxes = getByTestId("list-body").querySelectorAll(
       "input[type='checkbox']",
@@ -225,9 +192,7 @@ describe("List", () => {
     // Select all items
     fireEvent.click(selectAllCheckbox);
     expect(selectAllCheckbox.checked).toBe(true);
-    expect(
-      Array.from(selectItemCheckboxes).filter((c) => c.checked),
-    ).toHaveLength(testItems.length);
+    expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(testItems.length);
 
     // Call clearSelection callback
     expect(clearSelectionCallback).not.toBeNull();
@@ -238,9 +203,7 @@ describe("List", () => {
 
     // Verify all checkboxes are now unchecked
     expect(selectAllCheckbox.checked).toBe(false);
-    expect(
-      Array.from(selectItemCheckboxes).filter((c) => c.checked),
-    ).toHaveLength(0);
+    expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(0);
   });
 
   it("renders actions popover and triggers the correct action", async () => {

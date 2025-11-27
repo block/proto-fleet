@@ -5,10 +5,7 @@ interface PoolSelectionPageArgs {
   numberOfPools: number;
 }
 
-export const PoolSelectionPage = ({
-  numberOfMiners,
-  numberOfPools,
-}: PoolSelectionPageArgs) => {
+export const PoolSelectionPage = ({ numberOfMiners, numberOfPools }: PoolSelectionPageArgs) => {
   const availablePools = [
     {
       poolId: "1",
@@ -30,10 +27,7 @@ export const PoolSelectionPage = ({
     },
   ];
 
-  const deviceIdentifiers = Array.from(
-    { length: numberOfMiners },
-    (_, i) => `device-${i}`,
-  );
+  const deviceIdentifiers = Array.from({ length: numberOfMiners }, (_, i) => `device-${i}`);
 
   return (
     <PoolSelectionPageComponent

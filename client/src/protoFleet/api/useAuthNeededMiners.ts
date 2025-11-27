@@ -1,8 +1,5 @@
 import useFleet from "./useFleet";
-import {
-  MinerStateSnapshot,
-  PairingStatus,
-} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { MinerStateSnapshot, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 type UseAuthNeededMinersOptions = {
@@ -61,9 +58,7 @@ type UseAuthNeededMinersReturn = {
  * }
  * ```
  */
-const useAuthNeededMiners = (
-  options: UseAuthNeededMinersOptions = {},
-): UseAuthNeededMinersReturn => {
+const useAuthNeededMiners = (options: UseAuthNeededMinersOptions = {}): UseAuthNeededMinersReturn => {
   const { pageSize = 100 } = options;
 
   return useFleet({

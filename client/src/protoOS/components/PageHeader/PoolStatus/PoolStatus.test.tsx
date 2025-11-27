@@ -45,9 +45,7 @@ describe("Pool Status", () => {
     );
 
     // Loading state shows cursor-progress class
-    expect(
-      getByTestId("pool-status-widget").querySelector("button"),
-    ).toHaveClass("hover:cursor-progress");
+    expect(getByTestId("pool-status-widget").querySelector("button")).toHaveClass("hover:cursor-progress");
   });
 
   test("does not render popover on click if pool status widget is loading", () => {
@@ -65,10 +63,7 @@ describe("Pool Status", () => {
   test("renders connected state of pool status widget", () => {
     const { getByTestId } = render(
       <PopoverProvider>
-        <PoolStatus
-          onClickViewPools={onClickViewPools}
-          poolsInfo={[aliveDefaultPool]}
-        />
+        <PoolStatus onClickViewPools={onClickViewPools} poolsInfo={[aliveDefaultPool]} />
       </PopoverProvider>,
     );
 
@@ -80,10 +75,7 @@ describe("Pool Status", () => {
   test("renders pool status popover", () => {
     const { getByTestId } = render(
       <PopoverProvider>
-        <PoolStatus
-          onClickViewPools={onClickViewPools}
-          poolsInfo={[aliveDefaultPool]}
-        />
+        <PoolStatus onClickViewPools={onClickViewPools} poolsInfo={[aliveDefaultPool]} />
       </PopoverProvider>,
     );
     let { getByText } = within(getByTestId("pool-status-widget"));
@@ -100,10 +92,7 @@ describe("Pool Status", () => {
   test("connected pool status popover shows the alive pool", () => {
     const { getByTestId, queryByText } = render(
       <PopoverProvider>
-        <PoolStatus
-          onClickViewPools={onClickViewPools}
-          poolsInfo={[deadDefaultPool, aliveBackupPool]}
-        />
+        <PoolStatus onClickViewPools={onClickViewPools} poolsInfo={[deadDefaultPool, aliveBackupPool]} />
       </PopoverProvider>,
     );
     let { getByText } = within(getByTestId("pool-status-widget"));
@@ -135,9 +124,7 @@ describe("Pool Status", () => {
         <PoolStatus onClickViewPools={onClickViewPools} />
       </PopoverProvider>,
     );
-    const { getByText: getByTextWithinWidget } = within(
-      getByTestId("pool-status-widget"),
-    );
+    const { getByText: getByTextWithinWidget } = within(getByTestId("pool-status-widget"));
     const buttonElement = getByTextWithinWidget(buttonLabel);
     fireEvent.click(buttonElement);
     expect(getByText("No mining pools")).toBeInTheDocument();
@@ -146,10 +133,7 @@ describe("Pool Status", () => {
   test("renders disconnected state of pool status widget", () => {
     const { getByTestId } = render(
       <PopoverProvider>
-        <PoolStatus
-          onClickViewPools={onClickViewPools}
-          poolsInfo={[deadDefaultPool]}
-        />
+        <PoolStatus onClickViewPools={onClickViewPools} poolsInfo={[deadDefaultPool]} />
       </PopoverProvider>,
     );
 
@@ -161,15 +145,10 @@ describe("Pool Status", () => {
   test("renders disconnected state in the popover", () => {
     const { getByTestId, getByText } = render(
       <PopoverProvider>
-        <PoolStatus
-          onClickViewPools={onClickViewPools}
-          poolsInfo={[deadDefaultPool, deadBackupPool]}
-        />
+        <PoolStatus onClickViewPools={onClickViewPools} poolsInfo={[deadDefaultPool, deadBackupPool]} />
       </PopoverProvider>,
     );
-    const { getByText: getByTextWithinWidget } = within(
-      getByTestId("pool-status-widget"),
-    );
+    const { getByText: getByTextWithinWidget } = within(getByTestId("pool-status-widget"));
     const buttonElement = getByTextWithinWidget(buttonLabel);
     fireEvent.click(buttonElement);
     expect(getByText("Not connected")).toBeInTheDocument();

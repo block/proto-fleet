@@ -1,10 +1,4 @@
-import {
-  createContext,
-  MutableRefObject,
-  ReactNode,
-  useRef,
-  useState,
-} from "react";
+import { createContext, MutableRefObject, ReactNode, useRef, useState } from "react";
 
 type PopoverRenderMode = "inline" | "portal-fixed" | "portal-scrolling";
 
@@ -29,8 +23,7 @@ type PopoverProviderProps = {
 
 export const PopoverProvider = ({ children }: PopoverProviderProps) => {
   const triggerRef = useRef<HTMLDivElement>(null);
-  const [renderMode, setPopoverRenderMode] =
-    useState<PopoverRenderMode>("inline");
+  const [renderMode, setPopoverRenderMode] = useState<PopoverRenderMode>("inline");
 
   return (
     <PopoverContext.Provider

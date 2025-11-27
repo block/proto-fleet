@@ -126,10 +126,7 @@ describe("Power Target Popover", () => {
     const mockedOnUpdateStart = vi.fn();
     const { getByText, getByLabelText, getByTestId } = render(
       <PopoverProvider>
-        <PowerTargetPopover
-          onDismiss={vi.fn()}
-          onUpdateStart={mockedOnUpdateStart}
-        />
+        <PowerTargetPopover onDismiss={vi.fn()} onUpdateStart={mockedOnUpdateStart} />
       </PopoverProvider>,
     );
     // First select Custom mode to make the input appear

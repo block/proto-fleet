@@ -28,15 +28,11 @@ const Tabs = ({ children, disableAnimation }: TabsProps) => {
   };
 
   const selectedTabIndex = childrenArray.indexOf(
-    childrenArray?.find(
-      (child) => child?.props?.label === activeTab,
-    ) as TabProps,
+    childrenArray?.find((child) => child?.props?.label === activeTab) as TabProps,
   );
 
   const slidingTabIndex = childrenArray.indexOf(
-    childrenArray?.find(
-      (child) => child?.props?.label === slidingTab,
-    ) as TabProps,
+    childrenArray?.find((child) => child?.props?.label === slidingTab) as TabProps,
   );
 
   const distance = Math.abs(slidingTabIndex - selectedTabIndex);
@@ -65,12 +61,9 @@ const Tabs = ({ children, disableAnimation }: TabsProps) => {
       >
         <div
           className={clsx("absolute h-full w-full", {
-            "bottom-[-0.1rem] border-b-2 border-text-emphasis":
-              child.props.label === activeTab,
-            [`animate-tab-slide-right${distance}`]:
-              selectedTabIndex < slidingTabIndex && !disableAnimation,
-            [`animate-tab-slide-left${distance}`]:
-              selectedTabIndex > slidingTabIndex && !disableAnimation,
+            "bottom-[-0.1rem] border-b-2 border-text-emphasis": child.props.label === activeTab,
+            [`animate-tab-slide-right${distance}`]: selectedTabIndex < slidingTabIndex && !disableAnimation,
+            [`animate-tab-slide-left${distance}`]: selectedTabIndex > slidingTabIndex && !disableAnimation,
           })}
         />
         <div className="relative">{child.props.label}</div>
@@ -95,9 +88,7 @@ const Tabs = ({ children, disableAnimation }: TabsProps) => {
 
   return (
     <>
-      <div className="flex space-x-6 border-b-2 border-border-5 whitespace-nowrap">
-        {tabs}
-      </div>
+      <div className="flex space-x-6 border-b-2 border-border-5 whitespace-nowrap">{tabs}</div>
       {tabContent}
     </>
   );

@@ -23,13 +23,7 @@ const useEditPool = () => {
   const { handleAuthErrors } = useAuthErrors();
 
   const editPool = useCallback(
-    async ({
-      poolId,
-      poolInfo,
-      onSuccess,
-      onError,
-      retryOnMinerDown,
-    }: EditPoolProps) => {
+    async ({ poolId, poolInfo, onSuccess, onError, retryOnMinerDown }: EditPoolProps) => {
       if (!api) return;
 
       const performEdit = async () => {

@@ -3,17 +3,9 @@ import clsx from "clsx";
 import { iconSizes } from "./constants";
 import { IconProps } from "./types";
 
-const Checkmark = ({
-  className,
-  onClick,
-  width = iconSizes.medium,
-}: IconProps) => {
+const Checkmark = ({ className, onClick, width = iconSizes.medium }: IconProps) => {
   return (
-    <div
-      className={clsx(width, className)}
-      data-testid="checkmark-icon"
-      onClick={onClick}
-    >
+    <div className={clsx(width, className)} data-testid="checkmark-icon" onClick={onClick}>
       <svg
         width="100%"
         height="100%"
@@ -35,14 +27,7 @@ const Checkmark = ({
           />
         </g>
         <defs>
-          <linearGradient
-            id="b"
-            x1="9.999"
-            y1="5.587"
-            x2="9.999"
-            y2="14"
-            gradientUnits="userSpaceOnUse"
-          >
+          <linearGradient id="b" x1="9.999" y1="5.587" x2="9.999" y2="14" gradientUnits="userSpaceOnUse">
             <stop stopOpacity="0" />
             <stop offset="1" />
           </linearGradient>
@@ -56,63 +41,31 @@ const Checkmark = ({
             colorInterpolationFilters="sRGB"
           >
             <feFlood floodOpacity="0" result="BackgroundImageFix" />
-            <feColorMatrix
-              in="SourceAlpha"
-              values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
-              result="hardAlpha"
-            />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
             <feOffset />
             <feGaussianBlur stdDeviation=".5" />
             <feComposite in2="hardAlpha" operator="out" />
             <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.1 0" />
-            <feBlend
-              in2="BackgroundImageFix"
-              result="effect1_dropShadow_531_606"
-            />
-            <feColorMatrix
-              in="SourceAlpha"
-              values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
-              result="hardAlpha"
-            />
+            <feBlend in2="BackgroundImageFix" result="effect1_dropShadow_531_606" />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
             <feOffset dy="2" />
             <feGaussianBlur stdDeviation="2" />
             <feComposite in2="hardAlpha" operator="out" />
             <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.04 0" />
-            <feBlend
-              in2="effect1_dropShadow_531_606"
-              result="effect2_dropShadow_531_606"
-            />
-            <feColorMatrix
-              in="SourceAlpha"
-              values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
-              result="hardAlpha"
-            />
+            <feBlend in2="effect1_dropShadow_531_606" result="effect2_dropShadow_531_606" />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
             <feOffset dy="8" />
             <feGaussianBlur stdDeviation="8" />
             <feComposite in2="hardAlpha" operator="out" />
             <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.02 0" />
-            <feBlend
-              in2="effect2_dropShadow_531_606"
-              result="effect3_dropShadow_531_606"
-            />
-            <feColorMatrix
-              in="SourceAlpha"
-              values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
-              result="hardAlpha"
-            />
+            <feBlend in2="effect2_dropShadow_531_606" result="effect3_dropShadow_531_606" />
+            <feColorMatrix in="SourceAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
             <feOffset dy="12" />
             <feGaussianBlur stdDeviation="16" />
             <feComposite in2="hardAlpha" operator="out" />
             <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.04 0" />
-            <feBlend
-              in2="effect3_dropShadow_531_606"
-              result="effect4_dropShadow_531_606"
-            />
-            <feBlend
-              in="SourceGraphic"
-              in2="effect4_dropShadow_531_606"
-              result="shape"
-            />
+            <feBlend in2="effect3_dropShadow_531_606" result="effect4_dropShadow_531_606" />
+            <feBlend in="SourceGraphic" in2="effect4_dropShadow_531_606" result="shape" />
           </filter>
         </defs>
       </svg>

@@ -7,9 +7,7 @@ describe("Stat", () => {
   it("renders basic stat with label and value", () => {
     render(<Stat label="Hashrate" value={"value"} size="small" />);
 
-    expect(screen.getByRole("heading", { level: 3 })).toHaveTextContent(
-      "Hashrate",
-    );
+    expect(screen.getByRole("heading", { level: 3 })).toHaveTextContent("Hashrate");
     expect(screen.getByText("value")).toBeInTheDocument();
   });
 
@@ -37,46 +35,25 @@ describe("Stat", () => {
 
   it("renders icon when provided", () => {
     const TestIcon = () => <div data-testid="test-icon">Icon</div>;
-    render(
-      <Stat
-        label="Hashrate"
-        value={"value"}
-        icon={<TestIcon />}
-        size="small"
-      />,
-    );
+    render(<Stat label="Hashrate" value={"value"} icon={<TestIcon />} size="small" />);
 
     expect(screen.getByTestId("test-icon")).toBeInTheDocument();
   });
 
   it("applies correct size classes", () => {
-    const { rerender } = render(
-      <Stat label="Hashrate" value={"value"} size="large" />,
-    );
-    expect(screen.getByText("value").parentElement).toHaveClass(
-      "text-heading-300",
-    );
+    const { rerender } = render(<Stat label="Hashrate" value={"value"} size="large" />);
+    expect(screen.getByText("value").parentElement).toHaveClass("text-heading-300");
 
     rerender(<Stat label="Hashrate" value={"value"} size="medium" />);
-    expect(screen.getByText("value").parentElement).toHaveClass(
-      "text-heading-200",
-    );
+    expect(screen.getByText("value").parentElement).toHaveClass("text-heading-200");
 
     rerender(<Stat label="Hashrate" value={"value"} size="small" />);
-    expect(screen.getByText("value").parentElement).toHaveClass(
-      "text-heading-100",
-    );
+    expect(screen.getByText("value").parentElement).toHaveClass("text-heading-100");
   });
 
   it("renders chart with correct status color", async () => {
     const { container } = render(
-      <Stat
-        label="Hashrate"
-        value={"value"}
-        chartPercentage={74.2}
-        chartStatus="warning"
-        size="small"
-      />,
+      <Stat label="Hashrate" value={"value"} chartPercentage={74.2} chartStatus="warning" size="small" />,
     );
 
     // Since getAllByClassName doesn't exist, let's use a more appropriate query
@@ -88,9 +65,7 @@ describe("Stat", () => {
   });
 
   it("uses custom heading level when provided", () => {
-    render(
-      <Stat label="Hashrate" value={"value"} headingLevel={2} size="small" />,
-    );
+    render(<Stat label="Hashrate" value={"value"} headingLevel={2} size="small" />);
 
     expect(screen.getByRole("heading", { level: 2 })).toBeInTheDocument();
   });

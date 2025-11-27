@@ -1,12 +1,5 @@
 import { useMemo } from "react";
-import type {
-  AsicData,
-  FanData,
-  HashboardData,
-  HashboardTelemetryData,
-  MinerData,
-  PsuData,
-} from "../types";
+import type { AsicData, FanData, HashboardData, HashboardTelemetryData, MinerData, PsuData } from "../types";
 import useMinerStore from "../useMinerStore";
 import type { AsicData as AsicTableData } from "@/shared/components/AsicTablePreview";
 import type { ChartData } from "@/shared/components/LineChart";
@@ -35,15 +28,9 @@ export const useMiner = (): MinerData | null => {
 /**
  * Get combined hashboard data combining hardware info + telemetry
  */
-export const useMinerHashboard = (
-  serial: string | null,
-): HashboardData | null => {
-  const hardware = useMinerStore((state) =>
-    serial ? state.hardware.getHashboard(serial) : null,
-  );
-  const telemetry = useMinerStore((state) =>
-    serial ? state.telemetry.hashboards.get(serial) : undefined,
-  );
+export const useMinerHashboard = (serial: string | null): HashboardData | null => {
+  const hardware = useMinerStore((state) => (serial ? state.hardware.getHashboard(serial) : null));
+  const telemetry = useMinerStore((state) => (serial ? state.telemetry.hashboards.get(serial) : undefined));
 
   return useMemo(() => {
     if (!serial || !hardware) return null;
@@ -59,12 +46,8 @@ export const useMinerHashboard = (
  * Get all combined hashboards for the miner
  */
 export const useMinerHashboards = (): HashboardData[] => {
-  const hardwareHashboards = useMinerStore(
-    (state) => state.hardware.hashboards,
-  );
-  const telemetryHashboards = useMinerStore(
-    (state) => state.telemetry.hashboards,
-  );
+  const hardwareHashboards = useMinerStore((state) => state.hardware.hashboards);
+  const telemetryHashboards = useMinerStore((state) => state.telemetry.hashboards);
 
   return useMemo(() => {
     const hashboards = Array.from(hardwareHashboards.values());
@@ -101,9 +84,7 @@ export const useMinerAsic = (asicId: string): AsicData | null => {
  * Get all combined ASICs for a specific hashboard
  */
 export const useMinerHashboardAsics = (hashboardSerial: string): AsicData[] => {
-  const hashboard = useMinerStore((state) =>
-    state.hardware.getHashboard(hashboardSerial),
-  );
+  const hashboard = useMinerStore((state) => state.hardware.getHashboard(hashboardSerial));
   const allAsics = useMinerStore((state) => state.hardware.asics);
   const telemetryData = useMinerStore((state) => state.telemetry.asics);
 
@@ -215,12 +196,8 @@ export const useChartDataForMetric = (
 ): { chartData: ChartData[]; chartLines: string[] } => {
   // Select primitive values and lastUpdated to trigger re-render when data clears
   const miner = useMinerStore((state) => state.telemetry.miner);
-  const hashboardsTelemetry = useMinerStore(
-    (state) => state.telemetry.hashboards,
-  );
-  const hashboardsHardware = useMinerStore(
-    (state) => state.hardware.hashboards,
-  );
+  const hashboardsTelemetry = useMinerStore((state) => state.telemetry.hashboards);
+  const hashboardsHardware = useMinerStore((state) => state.hardware.hashboards);
   const intervalMs = useMinerStore((state) => state.telemetry.intervalMs);
 
   return useMemo(() => {
@@ -242,10 +219,7 @@ export const useChartDataForMetric = (
     });
 
     // Generate chart lines (keys that will be in the data)
-    const chartLines = [
-      "miner",
-      ...sortedMinerHashboards.map((hb) => hb.serial),
-    ];
+    const chartLines = ["miner", ...sortedMinerHashboards.map((hb) => hb.serial)];
 
     // Create chart data points
     const chartData = minerMetric.values.map((minerValue, index) => {
@@ -293,9 +267,7 @@ export const useChartDataForMetric = (
  * return <AsicTablePreview asics={asicData} />;
  * ```
  */
-export const useAsicDataTransform = (
-  asics: AsicData[] | undefined | null,
-): AsicTableData[] => {
+export const useAsicDataTransform = (asics: AsicData[] | undefined | null): AsicTableData[] => {
   return useMemo((): AsicTableData[] => {
     if (!asics || asics.length === 0) return [];
 

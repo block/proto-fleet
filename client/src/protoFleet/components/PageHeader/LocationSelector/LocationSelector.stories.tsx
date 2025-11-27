@@ -5,10 +5,7 @@ interface LocationSelectorArgs {
   location: string;
 }
 
-export const LocationSelector = ({
-  loading,
-  location,
-}: LocationSelectorArgs) => {
+export const LocationSelector = ({ loading, location }: LocationSelectorArgs) => {
   return <LocationSelectorComponent loading={loading} location={location} />;
 };
 

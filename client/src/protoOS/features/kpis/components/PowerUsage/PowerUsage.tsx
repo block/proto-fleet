@@ -1,9 +1,5 @@
 import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart";
-import {
-  convertAndFormatMeasurement,
-  useChartDataForMetric,
-  useMiner,
-} from "@/protoOS/store";
+import { convertAndFormatMeasurement, useChartDataForMetric, useMiner } from "@/protoOS/store";
 import { MetricTimeSeries } from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -47,11 +43,7 @@ const PowerUsage = () => {
       {aggregates && chartData.length > 0 ? (
         <ErrorBoundary>
           <Stats stats={getStats(aggregates)} />
-          <KpiLineChart
-            chartData={chartData}
-            chartLines={chartLines}
-            units="W"
-          />
+          <KpiLineChart chartData={chartData} chartLines={chartLines} units="W" />
         </ErrorBoundary>
       ) : (
         <div className="flex h-full w-full items-center justify-center">

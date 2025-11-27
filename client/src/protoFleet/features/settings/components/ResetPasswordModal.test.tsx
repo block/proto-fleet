@@ -100,9 +100,7 @@ describe("ResetPasswordModal", () => {
         />,
       );
 
-      const iconContainer = container.querySelector(
-        "div.bg-surface-elevated-base",
-      );
+      const iconContainer = container.querySelector("div.bg-surface-elevated-base");
       expect(iconContainer).toBeTruthy();
     });
   });
@@ -135,9 +133,7 @@ describe("ResetPasswordModal", () => {
         />,
       );
 
-      expect(
-        getByText(/jane_smith's password has been reset/),
-      ).toBeInTheDocument();
+      expect(getByText(/jane_smith's password has been reset/)).toBeInTheDocument();
     });
 
     it("calls onDismiss when Done is clicked", () => {
@@ -175,9 +171,7 @@ describe("ResetPasswordModal", () => {
       const copyButton = getByRole("button", { name: /copy password/i });
       fireEvent.click(copyButton);
 
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-        "TempPass123!@#",
-      );
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith("TempPass123!@#");
     });
 
     it("renders Success icon container in success step", () => {
@@ -222,9 +216,7 @@ describe("ResetPasswordModal", () => {
         />,
       );
 
-      expect(
-        getByText(new RegExp(`${longUsername}'s password has been reset`)),
-      ).toBeInTheDocument();
+      expect(getByText(new RegExp(`${longUsername}'s password has been reset`))).toBeInTheDocument();
     });
   });
 

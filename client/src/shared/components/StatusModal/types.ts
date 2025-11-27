@@ -93,9 +93,7 @@ export interface StatusModalProps<TComponentAddress = any> {
   /** Function to get miner status data and config */
   getMinerStatus: () => MinerStatusData;
   /** Function to get component status data and config. Returns undefined if component not found */
-  getComponentStatus: (
-    address: TComponentAddress,
-  ) => ComponentStatusData | undefined;
+  getComponentStatus: (address: TComponentAddress) => ComponentStatusData | undefined;
   /** Whether to show the modal */
   show: boolean;
   /** Whether to show back navigation (only applies when component is defined) */

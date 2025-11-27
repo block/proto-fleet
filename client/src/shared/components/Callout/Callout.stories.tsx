@@ -51,12 +51,7 @@ const CalloutSingleSubtitle = ({
   );
 };
 
-export const Callout = ({
-  hasButton,
-  hasShortSubtitle,
-  hasSubtitle,
-  dismissible,
-}: CalloutArgs) => {
+export const Callout = ({ hasButton, hasShortSubtitle, hasSubtitle, dismissible }: CalloutArgs) => {
   return (
     <div className="flex flex-col space-y-4">
       <CalloutSingleSubtitle

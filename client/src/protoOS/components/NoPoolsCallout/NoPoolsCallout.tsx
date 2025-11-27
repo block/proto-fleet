@@ -15,13 +15,9 @@ const NoPoolsCallout = ({ arePoolsConfigured }: NoPoolsCalloutProps) => {
         intent={intents.danger}
         prefixIcon={<Alert className="text-intent-critical-text" />}
         title={
-          arePoolsConfigured
-            ? "This miner has lost connection to all mining pools."
-            : "No mining pools configured."
+          arePoolsConfigured ? "This miner has lost connection to all mining pools." : "No mining pools configured."
         }
-        buttonText={
-          arePoolsConfigured ? "View pool settings" : "Add mining pools"
-        }
+        buttonText={arePoolsConfigured ? "View pool settings" : "Add mining pools"}
         buttonOnClick={() => navigate("/settings/mining-pools")}
       />
     </div>

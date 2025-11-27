@@ -27,12 +27,7 @@ const selectRows = {
 
 type SelectRow = (typeof selectRows)[keyof typeof selectRows];
 
-const SelectRowListForStory = ({
-  disabled,
-  hasPrefixIcon,
-  hasSubtext,
-  type,
-}: SelectRowProps) => {
+const SelectRowListForStory = ({ disabled, hasPrefixIcon, hasSubtext, type }: SelectRowProps) => {
   const [selected, setSelected] = useState<SelectRow[]>([selectRows.one]);
 
   useEffect(() => {
@@ -51,9 +46,7 @@ const SelectRowListForStory = ({
         if (isSelected && !selected.includes(selectRow)) {
           setSelected([...selected, selectRow]);
         } else if (!isSelected && selected.includes(selectRow)) {
-          setSelected(
-            selected.filter((selectedRow) => selectedRow !== selectRow),
-          );
+          setSelected(selected.filter((selectedRow) => selectedRow !== selectRow));
         }
       }
     },

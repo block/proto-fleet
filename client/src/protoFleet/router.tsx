@@ -7,12 +7,7 @@ import Miners from "./features/fleetManagement/components/Fleet";
 import Auth from "@/protoFleet/features/auth/pages/Auth";
 import UpdatePassword from "@/protoFleet/features/auth/pages/UpdatePassword";
 import Dashboard from "@/protoFleet/features/dashboard/pages/Dashboard";
-import {
-  MinersPage,
-  SecurityPage,
-  SettingsPage,
-  WelcomePage,
-} from "@/protoFleet/features/onboarding";
+import { MinersPage, SecurityPage, SettingsPage, WelcomePage } from "@/protoFleet/features/onboarding";
 import {
   Authentication as AuthSettings,
   General,
@@ -27,11 +22,7 @@ interface CreateRouteOptions {
   fullscreen?: boolean;
 }
 
-const createRoute = (
-  path: string,
-  children: ReactNode,
-  options: CreateRouteOptions = {},
-) => ({
+const createRoute = (path: string, children: ReactNode, options: CreateRouteOptions = {}) => ({
   path,
   element: <App fullscreen={options.fullscreen}>{children}</App>,
 });

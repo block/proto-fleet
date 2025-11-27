@@ -26,13 +26,10 @@ const FloatingNavigation = ({ items, closeMenu }: FloatingNavigationProps) => {
   return (
     <div className="fixed z-20 h-screen bg-surface-elevated-base">
       <button
-        className={clsx(
-          "fixed top-0 left-0 z-20 h-screen w-screen bg-border-20 hover:cursor-default",
-          {
-            "animate-[fade-in_.3s_ease-in-out]": isVisible,
-            "animate-[fade-out_.31s_ease-in-out]": !isVisible,
-          },
-        )}
+        className={clsx("fixed top-0 left-0 z-20 h-screen w-screen bg-border-20 hover:cursor-default", {
+          "animate-[fade-in_.3s_ease-in-out]": isVisible,
+          "animate-[fade-out_.31s_ease-in-out]": !isVisible,
+        })}
         onClick={handleCloseMenu}
       />
       <div

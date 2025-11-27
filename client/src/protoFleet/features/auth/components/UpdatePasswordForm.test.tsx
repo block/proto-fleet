@@ -11,9 +11,7 @@ beforeEach(() => {
 
 describe("UpdatePasswordForm", () => {
   it("renders form with password inputs", () => {
-    const { getByLabelText, getByText } = render(
-      <UpdatePasswordForm onSubmit={mockOnSubmit} />,
-    );
+    const { getByLabelText, getByText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} />);
 
     expect(getByText("Update Your Password")).toBeInTheDocument();
     expect(getByLabelText("New password")).toBeInTheDocument();
@@ -22,9 +20,7 @@ describe("UpdatePasswordForm", () => {
   });
 
   it("allows entering password values", () => {
-    const { getByLabelText } = render(
-      <UpdatePasswordForm onSubmit={mockOnSubmit} />,
-    );
+    const { getByLabelText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} />);
 
     const newPasswordInput = getByLabelText("New password");
     const confirmPasswordInput = getByLabelText("Confirm password");
@@ -39,9 +35,7 @@ describe("UpdatePasswordForm", () => {
   });
 
   it("calls onSubmit with password values when Continue is clicked", () => {
-    const { getByLabelText, getByText } = render(
-      <UpdatePasswordForm onSubmit={mockOnSubmit} />,
-    );
+    const { getByLabelText, getByText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} />);
 
     const newPasswordInput = getByLabelText("New password");
     const confirmPasswordInput = getByLabelText("Confirm password");
@@ -55,12 +49,7 @@ describe("UpdatePasswordForm", () => {
   });
 
   it("displays error message when provided", () => {
-    const { getByText } = render(
-      <UpdatePasswordForm
-        onSubmit={mockOnSubmit}
-        errorMsg="Passwords do not match"
-      />,
-    );
+    const { getByText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} errorMsg="Passwords do not match" />);
 
     expect(getByText("Passwords do not match")).toBeInTheDocument();
   });
@@ -96,54 +85,39 @@ describe("UpdatePasswordForm", () => {
   });
 
   it("shows loading state when isSubmitting is true", () => {
-    const { getByText } = render(
-      <UpdatePasswordForm onSubmit={mockOnSubmit} isSubmitting={true} />,
-    );
+    const { getByText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} isSubmitting={true} />);
 
     expect(getByText("Updating...")).toBeInTheDocument();
   });
 
   it("disables button when isSubmitting is true", () => {
-    const { getByText } = render(
-      <UpdatePasswordForm onSubmit={mockOnSubmit} isSubmitting={true} />,
-    );
+    const { getByText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} isSubmitting={true} />);
 
     const continueButton = getByText("Updating...").closest("button");
     expect(continueButton).toBeDisabled();
   });
 
   it("renders password strength meter", () => {
-    const { getByText } = render(
-      <UpdatePasswordForm onSubmit={mockOnSubmit} />,
-    );
+    const { getByText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} />);
 
     expect(getByText("Password strength")).toBeInTheDocument();
   });
 
   it("renders Logo component", () => {
-    const { container } = render(
-      <UpdatePasswordForm onSubmit={mockOnSubmit} />,
-    );
+    const { container } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} />);
 
     const logo = container.querySelector("svg");
     expect(logo).toBeTruthy();
   });
 
   it("renders Footer component", () => {
-    const { container } = render(
-      <UpdatePasswordForm onSubmit={mockOnSubmit} />,
-    );
+    const { container } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} />);
 
     expect(container.querySelector("footer")).toBeTruthy();
   });
 
   it("displays error message with correct styling", () => {
-    const { getByText } = render(
-      <UpdatePasswordForm
-        onSubmit={mockOnSubmit}
-        errorMsg="Invalid password format"
-      />,
-    );
+    const { getByText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} errorMsg="Invalid password format" />);
 
     const errorElement = getByText("Invalid password format");
     expect(errorElement.className).toContain("bg-intent-critical-10");
@@ -151,9 +125,7 @@ describe("UpdatePasswordForm", () => {
   });
 
   it("allows submission with empty passwords", () => {
-    const { getByText } = render(
-      <UpdatePasswordForm onSubmit={mockOnSubmit} />,
-    );
+    const { getByText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} />);
 
     fireEvent.click(getByText("Continue"));
 
@@ -161,9 +133,7 @@ describe("UpdatePasswordForm", () => {
   });
 
   it("updates password strength meter when password changes", () => {
-    const { getByLabelText } = render(
-      <UpdatePasswordForm onSubmit={mockOnSubmit} />,
-    );
+    const { getByLabelText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} />);
 
     const newPasswordInput = getByLabelText("New password");
 
@@ -180,31 +150,23 @@ describe("UpdatePasswordForm", () => {
     const longError =
       "Password must be at least 12 characters long and include uppercase letters, lowercase letters, numbers, and special characters. Please try again.";
 
-    const { getByText } = render(
-      <UpdatePasswordForm onSubmit={mockOnSubmit} errorMsg={longError} />,
-    );
+    const { getByText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} errorMsg={longError} />);
 
     expect(getByText(longError)).toBeInTheDocument();
   });
 
   it("does not show error message when errorMsg is empty string", () => {
-    const { container } = render(
-      <UpdatePasswordForm onSubmit={mockOnSubmit} errorMsg="" />,
-    );
+    const { container } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} errorMsg="" />);
 
     const errorElement = container.querySelector(".bg-intent-critical-10");
     expect(errorElement).toBeFalsy();
   });
 
   it("renders descriptive text about temporary password", () => {
-    const { getByText } = render(
-      <UpdatePasswordForm onSubmit={mockOnSubmit} />,
-    );
+    const { getByText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} />);
 
     expect(
-      getByText(
-        "You logged in with a temporary password. Enter your new password to continue.",
-      ),
+      getByText("You logged in with a temporary password. Enter your new password to continue."),
     ).toBeInTheDocument();
   });
 });

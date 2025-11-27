@@ -25,20 +25,11 @@ const ThrowError = ({ shouldThrow = false }: { shouldThrow?: boolean }) => {
 };
 
 // Custom fallback component
-const CustomFallback = ({
-  error,
-  onRetry,
-}: {
-  error?: Error;
-  onRetry: () => void;
-}) => (
+const CustomFallback = ({ error, onRetry }: { error?: Error; onRetry: () => void }) => (
   <div className="rounded-lg border border-red-300 bg-red-50 p-4">
     <h3 className="mb-2 font-semibold text-red-800">Custom Error Fallback</h3>
     <p className="mb-4 text-red-600">{error?.message || "An error occurred"}</p>
-    <button
-      onClick={onRetry}
-      className="rounded bg-red-600 px-4 py-2 text-white hover:bg-red-700"
-    >
+    <button onClick={onRetry} className="rounded bg-red-600 px-4 py-2 text-white hover:bg-red-700">
       Try Again
     </button>
   </div>

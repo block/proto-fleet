@@ -21,25 +21,18 @@ const Fleet = () => {
 
   // Get filter from URL - memoize to avoid recreating on every render
   const [searchParams] = useSearchParams();
-  const currentFilter = useMemo(
-    () => parseFilterFromURL(searchParams),
-    [searchParams],
-  );
+  const currentFilter = useMemo(() => parseFilterFromURL(searchParams), [searchParams]);
 
   // Fetch all devices (both paired and unpaired) with a single API call
   // Only subscribe to telemetry for visible miners
-  const { minerIds, totalMiners, hasMore, isLoading, loadMore, refetch } =
-    useFleet({
-      scope: "global",
-      pageSize: 20,
-      visibleMinerIds,
-      mode: "snapshot",
-      filter: currentFilter,
-      pairingStatuses: [
-        PairingStatus.PAIRED,
-        PairingStatus.AUTHENTICATION_NEEDED,
-      ],
-    });
+  const { minerIds, totalMiners, hasMore, isLoading, loadMore, refetch } = useFleet({
+    scope: "global",
+    pageSize: 20,
+    visibleMinerIds,
+    mode: "snapshot",
+    filter: currentFilter,
+    pairingStatuses: [PairingStatus.PAIRED, PairingStatus.AUTHENTICATION_NEEDED],
+  });
 
   // Stream incremental updates for the current filter
   useStreamMinerListUpdates({
@@ -94,9 +87,7 @@ const Fleet = () => {
         </div>
       ) : null}
 
-      {showAddMinersModal && (
-        <Miners mode="pairing" onExit={handleAddMinersClose} />
-      )}
+      {showAddMinersModal && <Miners mode="pairing" onExit={handleAddMinersClose} />}
     </>
   );
 };

@@ -1,10 +1,5 @@
 import { ComponentType, ReactNode } from "react";
-import {
-  createBrowserRouter,
-  Outlet,
-  redirect,
-  RouteObject,
-} from "react-router-dom";
+import { createBrowserRouter, Outlet, redirect, RouteObject } from "react-router-dom";
 
 import { DiagnosticView } from "./features/diagnostic/components";
 import HashboardTemperature from "./features/diagnostic/components/HashboardTemperature";
@@ -18,21 +13,8 @@ export type CustomRouteObject = RouteObject & {
   requiresAuth?: boolean;
   children?: CustomRouteObject[];
 };
-import {
-  Efficiency,
-  Hashrate,
-  KpiLayout,
-  PowerUsage,
-  Temperature,
-} from "@/protoOS/features/kpis";
-import {
-  Authentication,
-  MiningPool,
-  Network,
-  Onboarding,
-  Verify,
-  Welcome,
-} from "@/protoOS/features/onboarding";
+import { Efficiency, Hashrate, KpiLayout, PowerUsage, Temperature } from "@/protoOS/features/kpis";
+import { Authentication, MiningPool, Network, Onboarding, Verify, Welcome } from "@/protoOS/features/onboarding";
 import {
   Authentication as AuthenticationSettings,
   Cooling,
@@ -50,11 +32,7 @@ interface CreateRouteOptions {
   ContentLayout?: ComponentType<ContentLayoutProps>;
 }
 
-const createRoute = (
-  path: string,
-  children: ReactNode,
-  options: CreateRouteOptions,
-) => ({
+const createRoute = (path: string, children: ReactNode, options: CreateRouteOptions) => ({
   path,
   element: (
     <App

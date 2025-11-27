@@ -11,10 +11,7 @@ interface ListActionProps<ListItem> {
   actions: ListAction<ListItem>[];
 }
 
-const ListActions = <ListItem,>({
-  item,
-  actions,
-}: ListActionProps<ListItem>) => {
+const ListActions = <ListItem,>({ item, actions }: ListActionProps<ListItem>) => {
   const { triggerRef } = usePopover();
 
   const [actionsVisible, setActionsVisible] = useState<boolean>(false);
@@ -42,10 +39,7 @@ const ListActions = <ListItem,>({
           {actions.map((action, index) => (
             <Row
               key={action.title}
-              className={clsx(
-                "text-emphasis-300",
-                action.variant === "destructive" && "text-intent-critical-text",
-              )}
+              className={clsx("text-emphasis-300", action.variant === "destructive" && "text-intent-critical-text")}
               prefixIcon={action.icon}
               onClick={() => {
                 action.actionHandler(item);

@@ -22,12 +22,7 @@ const KpiLayout = () => {
     () => [
       {
         type: "miner" as const,
-        fields: [
-          MinerFieldType.Hashrate,
-          MinerFieldType.Power,
-          MinerFieldType.Efficiency,
-          MinerFieldType.Temperature,
-        ],
+        fields: [MinerFieldType.Hashrate, MinerFieldType.Power, MinerFieldType.Efficiency, MinerFieldType.Temperature],
       },
       {
         type: "hashboard" as const,
@@ -61,18 +56,12 @@ const KpiLayout = () => {
   return (
     <ErrorBoundary>
       <div className="px-14 pt-14 phone:px-6 phone:pt-6 tablet:px-10 tablet:pt-10">
-        {noPoolsLive && (
-          <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} />
-        )}
+        {noPoolsLive && <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} />}
 
         <div className="relative flex h-[calc(100vh-theme(spacing.36))] min-h-[800px] flex-col phone:min-h-[1000px]">
           <div className="flex items-center pb-6">
             <div className="grow text-heading-300">Home</div>
-            <DurationSelector
-              className="h-fit"
-              duration={duration}
-              onSelect={setDuration}
-            />
+            <DurationSelector className="h-fit" duration={duration} onSelect={setDuration} />
           </div>
 
           <div className="pb-6 phone:pb-6">

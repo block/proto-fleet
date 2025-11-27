@@ -47,11 +47,7 @@ const Button = ({
   const base = size === sizes.base;
   const compact = size === sizes.compact;
   const gap = compact ? "w-2" : "w-3";
-  const prefix = loading ? (
-    <ProgressCircular size={12} indeterminate />
-  ) : (
-    prefixIcon
-  );
+  const prefix = loading ? <ProgressCircular size={12} indeterminate /> : prefixIcon;
   const disabledState = disabled || loading;
 
   return (
@@ -75,30 +71,24 @@ const Button = ({
         },
         // color and bg - primary
         {
-          "bg-core-primary-fill text-text-contrast hover:opacity-80":
-            primary && !disabledState,
-          "bg-core-primary-fill text-text-contrast opacity-40":
-            primary && disabledState,
+          "bg-core-primary-fill text-text-contrast hover:opacity-80": primary && !disabledState,
+          "bg-core-primary-fill text-text-contrast opacity-40": primary && disabledState,
         },
         // color and bg - accent
         {
-          "bg-core-accent-fill text-text-base-contrast-static hover:opacity-80":
-            accent && !disabledState,
-          "bg-core-accent-fill text-text-base-contrast-static opacity-40":
-            accent && disabledState,
+          "bg-core-accent-fill text-text-base-contrast-static hover:opacity-80": accent && !disabledState,
+          "bg-core-accent-fill text-text-base-contrast-static opacity-40": accent && disabledState,
         },
         // color and bg - secondary
         {
-          "bg-core-primary-10 text-text-primary hover:opacity-80":
-            secondary && !disabledState,
+          "bg-core-primary-10 text-text-primary hover:opacity-80": secondary && !disabledState,
           "bg-core-primary-5 text-text-primary-50": secondary && disabledState,
         },
         // color and bg - danger
         {
           "bg-intent-critical-fill text-text-base-contrast-static hover:bg-intent-critical-text hover:opacity-80":
             danger && !disabledState,
-          "bg-intent-critical-fill text-text-base-contrast-static opacity-40":
-            danger && disabledState,
+          "bg-intent-critical-fill text-text-base-contrast-static opacity-40": danger && disabledState,
         },
         // color and bg - ghost
         {
@@ -111,8 +101,7 @@ const Button = ({
         {
           "bg-intent-critical-10 text-text-critical hover:bg-intent-critical-20 hover:opacity-80":
             secondaryDanger && !disabledState,
-          "bg-intent-critical-10 text-intent-critical-80":
-            secondaryDanger && disabledState,
+          "bg-intent-critical-10 text-intent-critical-80": secondaryDanger && disabledState,
         },
         // color and bg - text only
         {
@@ -133,12 +122,7 @@ const Button = ({
           {children}
         </div>
         {textOnly && !disabledState && (
-          <div
-            className={clsx(
-              "-mt-[2px] w-full opacity-20 group-hover:border-b-2",
-              borderColor,
-            )}
-          />
+          <div className={clsx("-mt-[2px] w-full opacity-20 group-hover:border-b-2", borderColor)} />
         )}
       </div>
       {(text || children) && suffixIcon && <div className={gap} />}

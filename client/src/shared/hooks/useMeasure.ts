@@ -1,30 +1,18 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { debounce } from "@/shared/utils/utility";
 
 export type UseMeasureRect = Pick<
   DOMRectReadOnly,
   "x" | "y" | "top" | "left" | "right" | "bottom" | "height" | "width"
 >;
-export type UseMeasureRef<E extends Element = Element> = (
-  element: E | null,
-) => void;
+export type UseMeasureRef<E extends Element = Element> = (element: E | null) => void;
 
 export interface UseMeasureOptions {
   /** Whether to use MutationObserver for DOM changes like animations (default: true) */
   observeMutations?: boolean;
 }
 
-export type UseMeasureResult<E extends Element = Element> = [
-  UseMeasureRef<E>,
-  UseMeasureRect,
-  UseMeasureRect,
-];
+export type UseMeasureResult<E extends Element = Element> = [UseMeasureRef<E>, UseMeasureRect, UseMeasureRect];
 
 const defaultState: UseMeasureRect = {
   x: 0,
@@ -74,23 +62,19 @@ const isRectEqual = (rect1: UseMeasureRect, rect2: UseMeasureRect): boolean => {
  * return <div ref={measureRef}>Content: {contentRect.width} x {contentRect.height}</div>;
  * ```
  */
-function useMeasure<E extends Element = Element>(
-  options: UseMeasureOptions = {},
-): UseMeasureResult<E> {
+function useMeasure<E extends Element = Element>(options: UseMeasureOptions = {}): UseMeasureResult<E> {
   const { observeMutations = true } = options;
 
   const [element, setElement] = useState<E | null>(null);
   const [contentRect, setContentRect] = useState<UseMeasureRect>(defaultState);
-  const [boundingRect, setBoundingRect] =
-    useState<UseMeasureRect>(defaultState);
+  const [boundingRect, setBoundingRect] = useState<UseMeasureRect>(defaultState);
 
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const mutationObserverRef = useRef<MutationObserver | null>(null);
 
   const getRectFromElement = useCallback((el: Element): UseMeasureRect => {
     try {
-      const { x, y, width, height, top, left, bottom, right } =
-        el.getBoundingClientRect();
+      const { x, y, width, height, top, left, bottom, right } = el.getBoundingClientRect();
       return { x, y, width, height, top, left, bottom, right };
     } catch (error) {
       console.warn("useMeasure: Failed to get bounding client rect", error);
@@ -111,9 +95,7 @@ function useMeasure<E extends Element = Element>(
   }, [element, getRectFromElement]);
 
   const updateBoundingRectRef = useRef(updateBoundingRect);
-  const debouncedUpdateBoundingRectRef = useRef<
-    ReturnType<typeof debounce> | undefined
-  >(undefined);
+  const debouncedUpdateBoundingRectRef = useRef<ReturnType<typeof debounce> | undefined>(undefined);
 
   useEffect(() => {
     updateBoundingRectRef.current = updateBoundingRect;

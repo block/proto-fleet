@@ -46,14 +46,7 @@ const SegmentedXAxisTick = ({
   }
 
   return (
-    <text
-      x={x}
-      y={y}
-      fill="var(--color-text-primary-50)"
-      fontSize={12}
-      textAnchor="middle"
-      dominantBaseline="hanging"
-    >
+    <text x={x} y={y} fill="var(--color-text-primary-50)" fontSize={12} textAnchor="middle" dominantBaseline="hanging">
       {displayText}
     </text>
   );

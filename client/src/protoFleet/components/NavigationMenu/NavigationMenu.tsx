@@ -9,11 +9,7 @@ type NavigationMenuProps = {
   closeMenu?: () => void;
 };
 
-const NavigationMenu = ({
-  items,
-  isVisible,
-  closeMenu,
-}: NavigationMenuProps) => {
+const NavigationMenu = ({ items, isVisible, closeMenu }: NavigationMenuProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
 
   if (isPhone || isTablet) {

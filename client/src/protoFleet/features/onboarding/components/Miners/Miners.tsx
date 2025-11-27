@@ -47,18 +47,14 @@ const Miners = ({
   onRescan,
   mode = "onboarding",
 }: MinersProps) => {
-  const [deselectedMiners, setDeselectedMiners] = useState<
-    Device["deviceIdentifier"][]
-  >([]);
+  const [deselectedMiners, setDeselectedMiners] = useState<Device["deviceIdentifier"][]>([]);
   const [selectedMode] = useState<string>(minerDiscoveryModes.scan);
   const loadingTimeoutId = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showScanLoading, setShowScanLoading] = useState(false);
   const [textareaValue, setTextareaValue] = useState<string>("");
   const [showModal, setShowModal] = useState(false);
   const [showFoundMinersModal, setShowFoundMinersModal] = useState(false);
-  const [activeStep, setActiveStep] = useState<"findMiners" | "pairing">(
-    "findMiners",
-  );
+  const [activeStep, setActiveStep] = useState<"findMiners" | "pairing">("findMiners");
 
   // Handle loading state with minimum display time for network scan only
   useEffect(() => {
@@ -103,12 +99,7 @@ const Miners = ({
 
   return (
     <div className="h-[calc(100vh-theme(spacing.1)*15)] p-20">
-      <Dialog
-        title="Pairing the found miners"
-        subtitle="This may take a few seconds"
-        loading
-        show={pairingPending}
-      />
+      <Dialog title="Pairing the found miners" subtitle="This may take a few seconds" loading show={pairingPending} />
 
       {mode === "onboarding" && (
         <div className="flex h-full w-full items-center rounded-xl bg-landing-page p-10">
@@ -155,9 +146,7 @@ const Miners = ({
                         onClick: onRescan,
                         text: "Rescan network",
                         className: clsx({
-                          hidden:
-                            activeStep !== "pairing" ||
-                            selectedMode !== minerDiscoveryModes.scan,
+                          hidden: activeStep !== "pairing" || selectedMode !== minerDiscoveryModes.scan,
                         }),
                       },
                       {
@@ -168,29 +157,19 @@ const Miners = ({
                         },
                         text: "Choose miners",
                         className: clsx({
-                          hidden:
-                            activeStep !== "pairing" || foundMiners.length <= 1,
+                          hidden: activeStep !== "pairing" || foundMiners.length <= 1,
                         }),
                       },
                       {
                         variant: variants.primary,
                         onClick: () => {
                           const selectedMinerIdentifiers = foundMiners
-                            .filter(
-                              (miner) =>
-                                !deselectedMiners.includes(
-                                  miner.deviceIdentifier,
-                                ),
-                            )
+                            .filter((miner) => !deselectedMiners.includes(miner.deviceIdentifier))
                             .map((miner) => miner.deviceIdentifier);
                           onContinue(selectedMinerIdentifiers);
                         },
-                        disabled:
-                          foundMiners.length === 0 ||
-                          foundMiners.length === deselectedMiners.length,
-                        text: `Continue with ${
-                          foundMiners.length - deselectedMiners.length
-                        } miners`,
+                        disabled: foundMiners.length === 0 || foundMiners.length === deselectedMiners.length,
+                        text: `Continue with ${foundMiners.length - deselectedMiners.length} miners`,
                         className: clsx({
                           hidden: activeStep !== "pairing",
                         }),
@@ -205,13 +184,10 @@ const Miners = ({
                   description={
                     <>
                       <p>
-                        Scan your network or provide miner IP addresses and
-                        hostnames to find miners to add to your fleet.
+                        Scan your network or provide miner IP addresses and hostnames to find miners to add to your
+                        fleet.
                       </p>
-                      <p>
-                        Note that you can add more miners and adjust security
-                        settings after setup.
-                      </p>
+                      <p>Note that you can add more miners and adjust security settings after setup.</p>
                     </>
                   }
                   titleSize="text-heading-300"
@@ -287,10 +263,7 @@ const Miners = ({
                     />
                     <div className="flex flex-col gap-5">
                       {Array.from({ length: 3 }).map((_, index) => (
-                        <div
-                          key={index}
-                          className="flex items-center justify-between"
-                        >
+                        <div key={index} className="flex items-center justify-between">
                           <div className="flex items-center gap-4">
                             <div className="size-5 animate-pulse rounded-full bg-core-primary-20"></div>
                             <div className="flex flex-col gap-3">
@@ -305,23 +278,15 @@ const Miners = ({
                   </>
                 ) : (
                   <>
-                    <FoundMiners
-                      miners={foundMiners}
-                      deselectedMiners={deselectedMiners}
-                      className=""
-                    />
+                    <FoundMiners miners={foundMiners} deselectedMiners={deselectedMiners} className="" />
                     {showFoundMinersModal && (
                       <FoundMinersModal
                         setDeselectedMiners={setDeselectedMiners}
                         miners={foundMiners.map((miner) => ({
                           ...miner,
-                          selected: !deselectedMiners.includes(
-                            miner.deviceIdentifier,
-                          ),
+                          selected: !deselectedMiners.includes(miner.deviceIdentifier),
                         }))}
-                        models={Array.from(
-                          new Set(foundMiners.map((miner) => miner.model)),
-                        )}
+                        models={Array.from(new Set(foundMiners.map((miner) => miner.model)))}
                         onDismiss={() => setShowFoundMinersModal(false)}
                       />
                     )}

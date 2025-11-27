@@ -97,16 +97,10 @@ const generateGranularData = (
 
     data.push({
       timestamp: createTimestamp(time),
-      coldCount: Math.max(
-        0,
-        Math.floor(pattern.cold + pattern.cold * variation),
-      ),
+      coldCount: Math.max(0, Math.floor(pattern.cold + pattern.cold * variation)),
       okCount: Math.max(0, Math.floor(pattern.ok + pattern.ok * variation)),
       hotCount: Math.max(0, Math.floor(pattern.hot + pattern.hot * variation)),
-      criticalCount: Math.max(
-        0,
-        Math.floor(pattern.critical + pattern.critical * variation),
-      ),
+      criticalCount: Math.max(0, Math.floor(pattern.critical + pattern.critical * variation)),
     } as TemperatureStatusCount);
   }
 

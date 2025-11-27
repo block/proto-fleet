@@ -11,17 +11,11 @@ type HashrateProps = {
   hashrate?: Measurement[];
 };
 
-const Hashrate = ({
-  deviceIdentifier,
-  hashrate: hashrateProps,
-}: HashrateProps) => {
+const Hashrate = ({ deviceIdentifier, hashrate: hashrateProps }: HashrateProps) => {
   const hashrateFromStore = useMinerHashrate(deviceIdentifier || "");
   const hashrate = hashrateProps || hashrateFromStore;
 
-  const latestMeasurement = useMemo(
-    () => getLatestMeasurementWithData(hashrate),
-    [hashrate],
-  );
+  const latestMeasurement = useMemo(() => getLatestMeasurementWithData(hashrate), [hashrate]);
 
   const latestValue = latestMeasurement?.value;
 

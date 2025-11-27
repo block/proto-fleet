@@ -3,17 +3,9 @@ import clsx from "clsx";
 
 import { useLogin } from "@/protoOS/api";
 
-import {
-  ids,
-  initValues,
-  type Values,
-} from "@/protoOS/features/auth/components";
+import { ids, initValues, type Values } from "@/protoOS/features/auth/components";
 import { variants } from "@/shared/components/Button";
-import ButtonGroup, {
-  ButtonProps,
-  groupVariants,
-  sizes,
-} from "@/shared/components/ButtonGroup";
+import ButtonGroup, { ButtonProps, groupVariants, sizes } from "@/shared/components/ButtonGroup";
 import Input from "@/shared/components/Input";
 import { useKeyDown } from "@/shared/hooks/useKeyDown";
 
@@ -28,11 +20,7 @@ interface LoginFormProps {
   onSuccess: () => void;
 }
 
-const LoginForm = ({
-  onClickForgotPassword,
-  onDismiss,
-  onSuccess,
-}: LoginFormProps) => {
+const LoginForm = ({ onClickForgotPassword, onDismiss, onSuccess }: LoginFormProps) => {
   const [values, setValues] = useState<Values>(deepClone(initValues));
   const [errors, setErrors] = useState<Values>(deepClone(initValues));
   const [apiError, setApiError] = useState<string | null>(null);
@@ -73,12 +61,8 @@ const LoginForm = ({
     <div data-testid="login-form" className="flex flex-col gap-4">
       <div className="flex flex-col gap-6">
         <div className="flex flex-col gap-2">
-          <div className="text-heading-200 text-text-primary">
-            Login required
-          </div>
-          <div className="text-300 text-text-primary-70">
-            Contact your system administrator if you need access.
-          </div>
+          <div className="text-heading-200 text-text-primary">Login required</div>
+          <div className="text-300 text-text-primary-70">Contact your system administrator if you need access.</div>
         </div>
       </div>
       <div className="flex flex-col gap-4">
@@ -94,13 +78,7 @@ const LoginForm = ({
           </div>
         </div>
 
-        <Input
-          id={ids.username}
-          label="Username"
-          initValue="admin"
-          disabled
-          testId="username"
-        />
+        <Input id={ids.username} label="Username" initValue="admin" disabled testId="username" />
 
         <Input
           id={ids.password}

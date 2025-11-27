@@ -11,19 +11,10 @@ interface LogBadgesProps {
   selected: boolean;
 }
 
-const LogBadges = ({
-  className,
-  count,
-  label,
-  onClick,
-  selected,
-}: LogBadgesProps) => {
+const LogBadges = ({ className, count, label, onClick, selected }: LogBadgesProps) => {
   return (
     <div
-      className={clsx(
-        "cursor-pointer rounded-lg border text-emphasis-300 whitespace-nowrap",
-        className,
-      )}
+      className={clsx("cursor-pointer rounded-lg border text-emphasis-300 whitespace-nowrap", className)}
       onClick={onClick}
     >
       <div className="flex items-center px-2 py-[1px]">

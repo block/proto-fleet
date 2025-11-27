@@ -21,10 +21,7 @@ describe("Navigation", () => {
 
   test("renders mac info", () => {
     const { getByTestId } = render(
-      <Navigation
-        macInfo={{ loading: false, value: macValue }}
-        type={navigationMenuTypes.app}
-      />,
+      <Navigation macInfo={{ loading: false, value: macValue }} type={navigationMenuTypes.app} />,
     );
     const { getByText } = within(getByTestId("mac-address-info-item"));
 
@@ -34,10 +31,7 @@ describe("Navigation", () => {
 
   test("renders version info", () => {
     const { getByTestId } = render(
-      <Navigation
-        versionInfo={{ loading: false, value: versionValue }}
-        type={navigationMenuTypes.app}
-      />,
+      <Navigation versionInfo={{ loading: false, value: versionValue }} type={navigationMenuTypes.app} />,
     );
     const { getByText } = within(getByTestId("version-info-item"));
 

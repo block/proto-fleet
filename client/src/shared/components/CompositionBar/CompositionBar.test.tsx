@@ -17,9 +17,7 @@ describe("CompositionBar", () => {
       render(<CompositionBar {...defaultProps} />);
 
       // Check for group container
-      expect(
-        screen.getByRole("group", { name: /composition bar chart/i }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole("group", { name: /composition bar chart/i })).toBeInTheDocument();
 
       // Check for individual segments (progressbar elements)
       const progressBars = screen.getAllByRole("progressbar");
@@ -37,27 +35,21 @@ describe("CompositionBar", () => {
     });
 
     it("renders with custom height", () => {
-      const { container } = render(
-        <CompositionBar {...defaultProps} height={16} />,
-      );
+      const { container } = render(<CompositionBar {...defaultProps} height={16} />);
 
       const bar = container.querySelector(".flex.w-full");
       expect(bar).toHaveStyle({ height: "16px" });
     });
 
     it("renders with custom gap", () => {
-      const { container } = render(
-        <CompositionBar {...defaultProps} gap={4} />,
-      );
+      const { container } = render(<CompositionBar {...defaultProps} gap={4} />);
 
       const bar = container.querySelector(".flex.w-full");
       expect(bar).toHaveClass("gap-4");
     });
 
     it("renders with no gap when gap is 0", () => {
-      const { container } = render(
-        <CompositionBar {...defaultProps} gap={0} />,
-      );
+      const { container } = render(<CompositionBar {...defaultProps} gap={0} />);
 
       const bar = container.querySelector(".flex.w-full");
       // Should not have any gap class when gap is 0
@@ -104,17 +96,11 @@ describe("CompositionBar", () => {
       expect(progressBars[0]).toHaveAttribute("aria-label", "Healthy: 75.0%");
 
       // Warning: 10/60 = 16.7%
-      expect(progressBars[1]).toHaveAttribute(
-        "aria-valuenow",
-        "16.666666666666664",
-      );
+      expect(progressBars[1]).toHaveAttribute("aria-valuenow", "16.666666666666664");
       expect(progressBars[1]).toHaveAttribute("aria-label", "Warning: 16.7%");
 
       // Critical: 5/60 = 8.3%
-      expect(progressBars[2]).toHaveAttribute(
-        "aria-valuenow",
-        "8.333333333333332",
-      );
+      expect(progressBars[2]).toHaveAttribute("aria-valuenow", "8.333333333333332");
       expect(progressBars[2]).toHaveAttribute("aria-label", "Critical: 8.3%");
     });
 
@@ -135,22 +121,12 @@ describe("CompositionBar", () => {
       expect(progressBars).toHaveLength(2);
 
       // Check the rendered segments
-      expect(progressBars[0]).toHaveAttribute(
-        "aria-label",
-        expect.stringContaining("Active"),
-      );
-      expect(progressBars[1]).toHaveAttribute(
-        "aria-label",
-        expect.stringContaining("Critical"),
-      );
+      expect(progressBars[0]).toHaveAttribute("aria-label", expect.stringContaining("Active"));
+      expect(progressBars[1]).toHaveAttribute("aria-label", expect.stringContaining("Critical"));
     });
 
     it("handles single segment correctly", () => {
-      render(
-        <CompositionBar
-          segments={[{ name: "All Good", status: "OK", count: 100 }]}
-        />,
-      );
+      render(<CompositionBar segments={[{ name: "All Good", status: "OK", count: 100 }]} />);
 
       const progressBar = screen.getByRole("progressbar");
       expect(progressBar).toHaveAttribute("aria-valuenow", "100");
@@ -210,9 +186,7 @@ describe("CompositionBar", () => {
       render(<CompositionBar {...defaultProps} />);
 
       // Check group label
-      expect(
-        screen.getByRole("group", { name: /composition bar chart/i }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole("group", { name: /composition bar chart/i })).toBeInTheDocument();
 
       // Check progressbar attributes
       const progressBars = screen.getAllByRole("progressbar");
@@ -227,15 +201,9 @@ describe("CompositionBar", () => {
     it("provides meaningful labels for screen readers", () => {
       render(<CompositionBar {...defaultProps} />);
 
-      expect(
-        screen.getByRole("progressbar", { name: /Healthy: 75.0%/i }),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByRole("progressbar", { name: /Warning: 16.7%/i }),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByRole("progressbar", { name: /Critical: 8.3%/i }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole("progressbar", { name: /Healthy: 75.0%/i })).toBeInTheDocument();
+      expect(screen.getByRole("progressbar", { name: /Warning: 16.7%/i })).toBeInTheDocument();
+      expect(screen.getByRole("progressbar", { name: /Critical: 8.3%/i })).toBeInTheDocument();
     });
 
     it("handles empty state with appropriate ARIA attributes", () => {
@@ -307,10 +275,7 @@ describe("CompositionBar", () => {
       // Check percentages are calculated correctly
       // Total = 1,750,000
       // Large1: 1,000,000 / 1,750,000 ≈ 57.14%
-      expect(progressBars[0]).toHaveAttribute(
-        "aria-label",
-        expect.stringMatching(/Large1.*57\.\d%/),
-      );
+      expect(progressBars[0]).toHaveAttribute("aria-label", expect.stringMatching(/Large1.*57\.\d%/));
     });
 
     it("handles decimal count values", () => {
@@ -329,10 +294,7 @@ describe("CompositionBar", () => {
 
       // Total = 18.5
       // Decimal1: 10.5 / 18.5 ≈ 56.8%
-      expect(progressBars[0]).toHaveAttribute(
-        "aria-label",
-        expect.stringMatching(/Decimal1.*56\.\d%/),
-      );
+      expect(progressBars[0]).toHaveAttribute("aria-label", expect.stringMatching(/Decimal1.*56\.\d%/));
     });
 
     it("handles negative counts by treating them as zero", () => {

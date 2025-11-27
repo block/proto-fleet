@@ -4,10 +4,7 @@ import type { ErrorSource } from "@/protoOS/store/types";
  * Map of specific error codes to their title and subtitle messages
  * Used for displaying error-specific status titles in the UI
  */
-export const singleErrorStatusTitles: Record<
-  string,
-  { title: string; subtitle: string }
-> = {
+export const singleErrorStatusTitles: Record<string, { title: string; subtitle: string }> = {
   // Fan errors
   "01:0001": {
     title: "Your miner's fan is running slowly",
@@ -141,10 +138,7 @@ export const singleErrorStatusTitles: Record<
  * Generic fallback messages for when specific error code not found
  * Used when displaying errors without specific error code mappings
  */
-export const genericStatusTitles: Record<
-  ErrorSource,
-  { title: string; subtitle: string }
-> = {
+export const genericStatusTitles: Record<ErrorSource, { title: string; subtitle: string }> = {
   FAN: {
     title: "Your miner has a fan issue",
     subtitle: "Repair now to prevent overheating",

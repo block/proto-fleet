@@ -58,13 +58,10 @@ const Efficiency = () => {
     let lowestAvg = -Infinity; // For efficiency, lower is worse, so we want highest value (worst efficiency)
 
     hashboards.forEach((hashboard) => {
-      const hashboardAvg =
-        hashboard.efficiency?.timeSeries?.aggregates?.avg?.value;
+      const hashboardAvg = hashboard.efficiency?.timeSeries?.aggregates?.avg?.value;
       if (!!hashboardAvg && hashboardAvg > lowestAvg) {
         lowestAvg = hashboardAvg;
-        lowestSlot = useMinerStore
-          .getState()
-          .hardware.getSlotByHbSn(hashboard.serial);
+        lowestSlot = useMinerStore.getState().hardware.getSlotByHbSn(hashboard.serial);
       }
     });
 
@@ -76,11 +73,7 @@ const Efficiency = () => {
       {aggregates && chartData.length > 0 ? (
         <ErrorBoundary>
           <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
-          <KpiLineChart
-            chartData={chartData}
-            chartLines={chartLines}
-            units="J/TH"
-          />
+          <KpiLineChart chartData={chartData} chartLines={chartLines} units="J/TH" />
         </ErrorBoundary>
       ) : (
         <div className="flex h-full w-full items-center justify-center">

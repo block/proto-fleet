@@ -29,8 +29,7 @@ const HashboardIndicator = ({
     >
       {new Array(totalHashboards).fill(null).map((_, index) => {
         const slotIndex = index + 1;
-        const renderDivider =
-          index !== totalHashboards - 1 && slotIndex % 3 === 0;
+        const renderDivider = index !== totalHashboards - 1 && slotIndex % 3 === 0;
 
         return (
           <Fragment key={"hb-slot-" + index}>
@@ -40,15 +39,10 @@ const HashboardIndicator = ({
                 "bg-core-primary-20": activeHashboardSlot !== slotIndex,
               })}
               style={{
-                backgroundColor:
-                  color && activeHashboardSlot === slotIndex
-                    ? `var(${color})`
-                    : undefined,
+                backgroundColor: color && activeHashboardSlot === slotIndex ? `var(${color})` : undefined,
               }}
             />
-            {renderDivider && (
-              <div className="h-4.5 w-[1px] bg-core-primary-20" />
-            )}
+            {renderDivider && <div className="h-4.5 w-[1px] bg-core-primary-20" />}
           </Fragment>
         );
       })}

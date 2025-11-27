@@ -29,9 +29,7 @@ describe("SectionHeading", () => {
   });
 
   it("applies custom className", () => {
-    const { container } = render(
-      <SectionHeading heading="Test" className="custom-class" />,
-    );
+    const { container } = render(<SectionHeading heading="Test" className="custom-class" />);
 
     const sectionHeading = container.firstChild as HTMLElement;
     expect(sectionHeading).toHaveClass("custom-class");

@@ -2,11 +2,7 @@ import { useCallback, useState } from "react";
 import { useLogin, usePassword } from "@/protoOS/api";
 import { useAccessToken } from "@/protoOS/store";
 import { Authentication } from "@/shared/components/Setup";
-import {
-  pushToast,
-  STATUSES as TOAST_STATUSES,
-  updateToast,
-} from "@/shared/features/toaster";
+import { pushToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const AuthenticationSettings = () => {

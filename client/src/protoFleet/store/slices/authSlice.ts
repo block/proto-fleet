@@ -33,12 +33,7 @@ export interface AuthSlice {
 // Auth Slice Creator
 // =============================================================================
 
-export const createAuthSlice: StateCreator<
-  FleetStore,
-  [["zustand/immer", never]],
-  [],
-  AuthSlice
-> = (set) => ({
+export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]], [], AuthSlice> = (set) => ({
   // Initial state
   authTokens: {
     accessToken: { value: "", expiry: new Date() },

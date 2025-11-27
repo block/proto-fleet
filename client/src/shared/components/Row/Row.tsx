@@ -34,8 +34,7 @@ const Row = ({
       <Element
         className={clsx("peer", {
           "flex items-center gap-4": suffixIcon || prefixIcon,
-          "-ml-3 w-[calc(100%+24px)] rounded-lg px-3 hover:bg-core-primary-5":
-            onClick,
+          "-ml-3 w-[calc(100%+24px)] rounded-lg px-3 hover:bg-core-primary-5": onClick,
         })}
         onClick={onClick}
         data-testid={testId}

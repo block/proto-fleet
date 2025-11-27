@@ -31,8 +31,7 @@ export const deviceStatusFilterStates = {
   needsAttention: "needsAttention",
 };
 
-export type DeviceStatusFilterState =
-  (typeof deviceStatusFilterStates)[keyof typeof deviceStatusFilterStates];
+export type DeviceStatusFilterState = (typeof deviceStatusFilterStates)[keyof typeof deviceStatusFilterStates];
 
 export const minerTypes = {
   protoRig: "proto",

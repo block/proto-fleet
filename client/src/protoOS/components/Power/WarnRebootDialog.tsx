@@ -7,11 +7,7 @@ interface WarnRebootDialogProps {
   show: boolean;
 }
 
-const WarnRebootDialog = ({
-  onClose,
-  onSubmit,
-  show,
-}: WarnRebootDialogProps) => {
+const WarnRebootDialog = ({ onClose, onSubmit, show }: WarnRebootDialogProps) => {
   return (
     <Dialog
       title="Reboot miner?"

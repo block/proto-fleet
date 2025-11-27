@@ -6,11 +6,7 @@ export interface DataNullStateProps {
   onRetry?: () => void;
 }
 
-export const DataNullState = ({
-  title,
-  description,
-  onRetry,
-}: DataNullStateProps) => {
+export const DataNullState = ({ title, description, onRetry }: DataNullStateProps) => {
   return (
     <div className="flex flex-col items-center justify-center gap-6 pt-40">
       <div className="flex flex-col items-center justify-center gap-1">

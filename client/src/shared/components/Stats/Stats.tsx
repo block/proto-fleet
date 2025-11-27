@@ -1,8 +1,7 @@
 import clsx from "clsx";
 import Stat, { type StatProps } from "@/shared/components/Stat";
 
-type StatsPropsWithOptSize = Omit<StatProps, "size"> &
-  Partial<Pick<StatProps, "size">>;
+type StatsPropsWithOptSize = Omit<StatProps, "size"> & Partial<Pick<StatProps, "size">>;
 
 export type StatsProps = {
   stats: StatsPropsWithOptSize[];

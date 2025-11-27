@@ -15,16 +15,10 @@ interface UseApplyThemeProps {
  *
  * This should be called at the app root level to ensure theme is applied on mount.
  */
-export const useApplyTheme = ({
-  theme,
-  deviceTheme,
-  setDeviceTheme,
-}: UseApplyThemeProps) => {
+export const useApplyTheme = ({ theme, deviceTheme, setDeviceTheme }: UseApplyThemeProps) => {
   // Listen to OS theme changes
   useEffect(() => {
-    const getDeviceTheme = (
-      mq: MediaQueryList | MediaQueryListEvent,
-    ): ThemeColor => {
+    const getDeviceTheme = (mq: MediaQueryList | MediaQueryListEvent): ThemeColor => {
       return mq.matches ? "dark" : "light";
     };
 

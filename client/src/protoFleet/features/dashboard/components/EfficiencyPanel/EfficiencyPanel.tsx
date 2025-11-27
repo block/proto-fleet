@@ -48,13 +48,9 @@ export function EfficiencyPanel({ duration }: EfficiencyPanelProps) {
     // Merge streaming data if available
     if (latestData?.metrics && latestData.metrics.length > 0) {
       // Append new metrics from streaming, avoiding duplicates by timestamp
-      const existingTimestamps = new Set(
-        data.metrics.map((m) => m.openTime?.seconds?.toString()),
-      );
+      const existingTimestamps = new Set(data.metrics.map((m) => m.openTime?.seconds?.toString()));
 
-      const newMetrics = latestData.metrics.filter(
-        (m) => !existingTimestamps.has(m.openTime?.seconds?.toString()),
-      );
+      const newMetrics = latestData.metrics.filter((m) => !existingTimestamps.has(m.openTime?.seconds?.toString()));
 
       metricsToTransform = [...data.metrics, ...newMetrics];
     }
@@ -85,8 +81,7 @@ export function EfficiencyPanel({ duration }: EfficiencyPanelProps) {
     return <div>No efficiency data available</div>;
   }
 
-  const efficiencyDisplayValue =
-    currentEfficiency !== null ? currentEfficiency.toFixed(1) : "N/A";
+  const efficiencyDisplayValue = currentEfficiency !== null ? currentEfficiency.toFixed(1) : "N/A";
 
   const stat = {
     label: "Efficiency",
@@ -96,12 +91,7 @@ export function EfficiencyPanel({ duration }: EfficiencyPanelProps) {
 
   return (
     <ChartWidget stats={stat}>
-      <LineChart
-        chartData={chartData}
-        aggregateKey="efficiency"
-        units="J/TH"
-        activeKeys={["efficiency"]}
-      />
+      <LineChart chartData={chartData} aggregateKey="efficiency" units="J/TH" activeKeys={["efficiency"]} />
     </ChartWidget>
   );
 }

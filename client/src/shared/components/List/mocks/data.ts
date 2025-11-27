@@ -33,8 +33,7 @@ export const testFilterStates = {
   error: "error",
 };
 
-export type TestFilterState =
-  (typeof testFilterStates)[keyof typeof testFilterStates];
+export type TestFilterState = (typeof testFilterStates)[keyof typeof testFilterStates];
 
 const now = new Date();
 
@@ -88,32 +87,28 @@ export const testFilters: FilterItem[] = [
     type: "button",
     title: "Active",
     value: testFilterStates.active,
-    count: testItems.filter((item) => item.status === testFilterStates.active)
-      .length,
+    count: testItems.filter((item) => item.status === testFilterStates.active).length,
     status: statuses.normal,
   },
   {
     type: "button",
     title: "Inactive",
     value: testFilterStates.inactive,
-    count: testItems.filter((item) => item.status === testFilterStates.inactive)
-      .length,
+    count: testItems.filter((item) => item.status === testFilterStates.inactive).length,
     status: statuses.inactive,
   },
   {
     type: "button",
     title: "Warning",
     value: testFilterStates.warning,
-    count: testItems.filter((item) => item.status === testFilterStates.warning)
-      .length,
+    count: testItems.filter((item) => item.status === testFilterStates.warning).length,
     status: statuses.warning,
   },
   {
     type: "button",
     title: "Error",
     value: testFilterStates.error,
-    count: testItems.filter((item) => item.status === testFilterStates.error)
-      .length,
+    count: testItems.filter((item) => item.status === testFilterStates.error).length,
     status: statuses.error,
   },
 

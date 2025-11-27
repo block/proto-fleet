@@ -1,18 +1,8 @@
-import {
-  RefObject,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { useMiningTarget } from "@/protoOS/api";
 import { PerformanceMode } from "@/protoOS/api/generatedApi";
-import {
-  PowerTargetMode,
-  powerTargetModes,
-} from "@/protoOS/components/PageHeader/PowerTarget/constants";
+import { PowerTargetMode, powerTargetModes } from "@/protoOS/components/PageHeader/PowerTarget/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Popover from "@/shared/components/Popover";
@@ -23,10 +13,7 @@ import { convertWtoKW } from "@/shared/utils/utility";
 
 export type PowerTargetPopoverProps = {
   onDismiss: () => void;
-  onUpdateStart?: (miningTarget: {
-    performance_mode?: PerformanceMode;
-    power_target_watts?: number;
-  }) => void;
+  onUpdateStart?: (miningTarget: { performance_mode?: PerformanceMode; power_target_watts?: number }) => void;
 };
 
 const getInitialPowerTargetMode = (
@@ -43,30 +30,21 @@ const getInitialPowerTargetMode = (
   }
 };
 
-const PowerTargetPopover = ({
-  onDismiss,
-  onUpdateStart,
-}: PowerTargetPopoverProps) => {
-  const { miningTarget, defaultTarget, performanceMode, bounds, pending } =
-    useMiningTarget();
-  const [selectedPerformanceMode, setSelectedPerformanceMode] = useState<
-    PerformanceMode | undefined
-  >(performanceMode);
-  const [selectedPowerTargetMode, setSelectedPowerTargetMode] = useState<
-    PowerTargetMode | undefined
-  >(getInitialPowerTargetMode(miningTarget, defaultTarget, bounds?.max));
+const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProps) => {
+  const { miningTarget, defaultTarget, performanceMode, bounds, pending } = useMiningTarget();
+  const [selectedPerformanceMode, setSelectedPerformanceMode] = useState<PerformanceMode | undefined>(performanceMode);
+  const [selectedPowerTargetMode, setSelectedPowerTargetMode] = useState<PowerTargetMode | undefined>(
+    getInitialPowerTargetMode(miningTarget, defaultTarget, bounds?.max),
+  );
 
   // Derive inputValue from miningTarget instead of storing in state
   const inputValue = useMemo(
-    () =>
-      miningTarget === undefined ? undefined : `${convertWtoKW(miningTarget)}`,
+    () => (miningTarget === undefined ? undefined : `${convertWtoKW(miningTarget)}`),
     [miningTarget],
   );
 
   const [error, setError] = useState<string>();
-  const inputRef = useRef<HTMLInputElement>(
-    null,
-  ) as RefObject<HTMLInputElement>;
+  const inputRef = useRef<HTMLInputElement>(null) as RefObject<HTMLInputElement>;
 
   const onChange = (value: string) => {
     const parsedValue = parseFloat(value as string);
@@ -100,10 +78,7 @@ const PowerTargetPopover = ({
       return defaultTarget;
     } else if (selectedPowerTargetMode === powerTargetModes.max) {
       return bounds?.max;
-    } else if (
-      selectedPowerTargetMode === powerTargetModes.custom &&
-      inputRef.current
-    ) {
+    } else if (selectedPowerTargetMode === powerTargetModes.custom && inputRef.current) {
       return +inputRef.current.value * 1000;
     } else {
       return defaultTarget;
@@ -111,11 +86,7 @@ const PowerTargetPopover = ({
   }, [selectedPowerTargetMode, defaultTarget, bounds?.max]);
 
   const handleUpdate = useCallback(() => {
-    if (
-      pending ||
-      (selectedPowerTargetMode === powerTargetModes.custom &&
-        inputRef.current === null)
-    ) {
+    if (pending || (selectedPowerTargetMode === powerTargetModes.custom && inputRef.current === null)) {
       return;
     }
 
@@ -126,24 +97,13 @@ const PowerTargetPopover = ({
     };
 
     onUpdateStart?.(miningTargetUpdate);
-  }, [
-    pending,
-    selectedPerformanceMode,
-    selectedPowerTargetMode,
-    calculatePowerTarget,
-    onUpdateStart,
-  ]);
+  }, [pending, selectedPerformanceMode, selectedPowerTargetMode, calculatePowerTarget, onUpdateStart]);
 
   return (
-    <Popover
-      position={positions["bottom left"]}
-      className="flex w-80 flex-col gap-4 !space-y-1 p-6"
-    >
+    <Popover position={positions["bottom left"]} className="flex w-80 flex-col gap-4 !space-y-1 p-6">
       <div className="flex flex-col gap-1">
         <h2 className="text-heading-100 text-text-primary">Power target</h2>
-        <p className="text-300 text-text-primary-70">
-          Set a power target for the miner.
-        </p>
+        <p className="text-300 text-text-primary-70">Set a power target for the miner.</p>
       </div>
       <SelectRowList
         type={selectTypes.radio}
@@ -184,12 +144,7 @@ const PowerTargetPopover = ({
             units={"kW"}
             disabled={pending}
           />
-          <p
-            className={clsx(
-              "text-200",
-              error ? "text-intent-critical-fill" : "text-text-primary-70",
-            )}
-          >
+          <p className={clsx("text-200", error ? "text-intent-critical-fill" : "text-text-primary-70")}>
             {error ||
               `Set this miner's power target between
               ${convertWtoKW(bounds?.min || 0)} kW and ${convertWtoKW(bounds?.max || 0)} kW.`}
@@ -198,25 +153,14 @@ const PowerTargetPopover = ({
       )}
 
       <div className="flex gap-3">
-        <Button
-          text="Cancel"
-          variant={variants.secondary}
-          className="grow"
-          size={sizes.base}
-          onClick={onDismiss}
-        />
+        <Button text="Cancel" variant={variants.secondary} className="grow" size={sizes.base} onClick={onDismiss} />
         <Button
           text={pending ? "Applying" : "Apply"}
           variant={variants.primary}
           className="grow"
           size={sizes.base}
-          disabled={
-            pending ||
-            (!!error && selectedPowerTargetMode === powerTargetModes.custom)
-          }
-          prefixIcon={
-            pending ? <ProgressCircular indeterminate size={12} /> : undefined
-          }
+          disabled={pending || (!!error && selectedPowerTargetMode === powerTargetModes.custom)}
+          prefixIcon={pending ? <ProgressCircular indeterminate size={12} /> : undefined}
           testId="power-target-apply-button"
           onClick={handleUpdate}
         />

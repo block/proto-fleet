@@ -1,11 +1,6 @@
 import type { StateCreator } from "zustand";
 import type { MinerStore } from "../useMinerStore";
-import type {
-  AuthAction,
-  TemperatureUnit,
-  Theme,
-  ThemeColor,
-} from "@/protoOS/store/types";
+import type { AuthAction, TemperatureUnit, Theme, ThemeColor } from "@/protoOS/store/types";
 import { Duration, durations } from "@/shared/components/DurationSelector";
 
 // =============================================================================
@@ -66,12 +61,7 @@ export interface UISlice {
 // UI Slice Implementation
 // =============================================================================
 
-export const createUISlice: StateCreator<
-  MinerStore,
-  [["zustand/immer", never]],
-  [],
-  UISlice
-> = (set) => ({
+export const createUISlice: StateCreator<MinerStore, [["zustand/immer", never]], [], UISlice> = (set) => ({
   // Chart Initial State
   duration: durations[2], // Default to "24h"
   activeChartLines: [],

@@ -2,19 +2,8 @@ import { IconProps } from "./types";
 
 const Minus = ({ className }: IconProps) => {
   return (
-    <svg
-      width="20"
-      height="20"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-    >
-      <path
-        className="stroke-surface-base"
-        strokeOpacity=".01"
-        strokeWidth=".6"
-        d="M.3.3h19.4v19.4H.3z"
-      />
+    <svg width="20" height="20" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+      <path className="stroke-surface-base" strokeOpacity=".01" strokeWidth=".6" d="M.3.3h19.4v19.4H.3z" />
       <path
         fillRule="evenodd"
         clipRule="evenodd"

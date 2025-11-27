@@ -21,11 +21,7 @@ export const logBuildVersion = () => {
   const { version, buildDate, commit } = buildVersionInfo;
 
   // eslint-disable-next-line no-console
-  console.log(
-    `%cVersion %c${version}`,
-    "font-weight: bold; color: #333;",
-    "font-weight: bold; color: #0078D7;",
-  );
+  console.log(`%cVersion %c${version}`, "font-weight: bold; color: #333;", "font-weight: bold; color: #0078D7;");
 
   // eslint-disable-next-line no-console
   console.log(`Built on: ${buildDate} (${commit})`);

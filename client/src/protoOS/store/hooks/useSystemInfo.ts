@@ -12,35 +12,28 @@ const PROTO_RIG_PRODUCT_NAME = "Proto Rig";
  * Returns the entire systemInfo slice
  * Note: This will re-render on any field change. For better performance, use specific field hooks.
  */
-export const useSystemInfo = () =>
-  useMinerStore(useShallow((state) => state.systemInfo));
+export const useSystemInfo = () => useMinerStore(useShallow((state) => state.systemInfo));
 
 /**
  * Hook to get specific system info fields
  */
-export const useProductName = () =>
-  useMinerStore((state) => state.systemInfo.product_name);
+export const useProductName = () => useMinerStore((state) => state.systemInfo.product_name);
 
-export const useSerialNumber = () =>
-  useMinerStore((state) => state.systemInfo.cb_sn);
+export const useSerialNumber = () => useMinerStore((state) => state.systemInfo.cb_sn);
 
-export const useOSVersion = () =>
-  useMinerStore((state) => state.systemInfo.os?.version);
+export const useOSVersion = () => useMinerStore((state) => state.systemInfo.os?.version);
 
-export const useFwUpdateStatus = () =>
-  useMinerStore((state) => state.systemInfo.sw_update_status);
+export const useFwUpdateStatus = () => useMinerStore((state) => state.systemInfo.sw_update_status);
 
 /**
  * Hook to get the system info pending state
  */
-export const useSystemInfoPending = () =>
-  useMinerStore((state) => state.systemInfo.pending ?? false);
+export const useSystemInfoPending = () => useMinerStore((state) => state.systemInfo.pending ?? false);
 
 /**
  * Hook to get the system info error
  */
-export const useSystemInfoError = () =>
-  useMinerStore((state) => state.systemInfo.error);
+export const useSystemInfoError = () => useMinerStore((state) => state.systemInfo.error);
 
 /**
  * Hook to check if the device is a Proto Rig
@@ -71,9 +64,7 @@ export const useIsMiningDriverRunning = () => {
     const miningDriverSwName = state.systemInfo.mining_driver_sw?.name;
     const isRunning =
       miningDriverSwName !== undefined &&
-      !/tcp connect error: Connection refused|Failed to connect to MinerDataApiClient/.test(
-        miningDriverSwName,
-      );
+      !/tcp connect error: Connection refused|Failed to connect to MinerDataApiClient/.test(miningDriverSwName);
     return isRunning;
   });
 };
@@ -94,12 +85,7 @@ export const useHasFirmwareUpdate = () => {
 export const useFirmwareUpdateInstalling = () => {
   return useMinerStore((state) => {
     const status = state.systemInfo.sw_update_status?.status;
-    return (
-      status === "downloading" ||
-      status === "downloaded" ||
-      status === "installing" ||
-      status === "confirming"
-    );
+    return status === "downloading" || status === "downloaded" || status === "installing" || status === "confirming";
   });
 };
 
@@ -110,17 +96,14 @@ export const useFirmwareUpdateInstalling = () => {
 /**
  * Hook to get the setSystemInfo action
  */
-export const useSetSystemInfo = () =>
-  useMinerStore((state) => state.systemInfo.setSystemInfo);
+export const useSetSystemInfo = () => useMinerStore((state) => state.systemInfo.setSystemInfo);
 
 /**
  * Hook to get the setError action
  */
-export const useSetSystemInfoError = () =>
-  useMinerStore((state) => state.systemInfo.setError);
+export const useSetSystemInfoError = () => useMinerStore((state) => state.systemInfo.setError);
 
 /**
  * Hook to get the setPending action
  */
-export const useSetSystemInfoPending = () =>
-  useMinerStore((state) => state.systemInfo.setPending);
+export const useSetSystemInfoPending = () => useMinerStore((state) => state.systemInfo.setPending);

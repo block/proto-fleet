@@ -103,9 +103,7 @@ describe("AuthenticateMiners", () => {
   const mockPassword = "test1234";
 
   it("renders with all miners selected by default", () => {
-    const { getByText } = render(
-      <AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
 
     fireEvent.click(getByText(showMinersLabel));
 
@@ -113,9 +111,7 @@ describe("AuthenticateMiners", () => {
   });
 
   it("toggles between showing and hiding miner list", () => {
-    const { getByText, queryByText } = render(
-      <AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    const { getByText, queryByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
 
     expect(queryByText("IP Address")).not.toBeInTheDocument();
 
@@ -127,9 +123,7 @@ describe("AuthenticateMiners", () => {
   });
 
   it("allows entering bulk credentials", async () => {
-    const { getByLabelText } = render(
-      <AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    const { getByLabelText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
 
     const usernameInput = getByLabelText(bulkUsernameLabel);
     const passwordInput = getByLabelText(bulkPasswordLabel);
@@ -142,15 +136,11 @@ describe("AuthenticateMiners", () => {
   });
 
   it("shows error when authenticating without credentials", () => {
-    const { getByText } = render(
-      <AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
 
     fireEvent.click(getByText("Authenticate"));
 
-    expect(
-      getByText("Enter a username and password and try again."),
-    ).toBeInTheDocument();
+    expect(getByText("Enter a username and password and try again.")).toBeInTheDocument();
   });
 
   it("shows individual credential inputs for each miner", async () => {
@@ -214,9 +204,7 @@ describe("AuthenticateMiners", () => {
   });
 
   it("allows selecting and deselecting all miners", () => {
-    const { getByText } = render(
-      <AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
 
     fireEvent.click(getByText(showMinersLabel));
 
@@ -228,9 +216,7 @@ describe("AuthenticateMiners", () => {
   });
 
   it("filters miners by model", async () => {
-    const { getByText, getAllByText } = render(
-      <AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    const { getByText, getAllByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
 
     fireEvent.click(getByText(showMinersLabel));
 
@@ -306,11 +292,7 @@ describe("AuthenticateMiners", () => {
     expect(mockPair).toHaveBeenCalledWith(
       expect.objectContaining({
         pairRequest: expect.objectContaining({
-          deviceIdentifiers: expect.arrayContaining([
-            "miner1",
-            "miner2",
-            "miner3",
-          ]),
+          deviceIdentifiers: expect.arrayContaining(["miner1", "miner2", "miner3"]),
           credentials: expect.objectContaining({
             username: mockUsername,
             password: mockPassword,
@@ -377,9 +359,7 @@ describe("AuthenticateMiners", () => {
   });
 
   it("displays correct total devices count", () => {
-    const { getByText } = render(
-      <AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    const { getByText } = render(<AuthenticateMiners onClose={mockOnClose} onSuccess={mockOnSuccess} />);
 
     expect(getByText("3 miners remaining")).toBeInTheDocument();
   });

@@ -36,10 +36,7 @@ const useSystemLogs = () => {
     [api],
   );
 
-  const response = useMemo(
-    () => ({ fetchData, pending, error, data }),
-    [fetchData, pending, error, data],
-  );
+  const response = useMemo(() => ({ fetchData, pending, error, data }), [fetchData, pending, error, data]);
 
   return response;
 };

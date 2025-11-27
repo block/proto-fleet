@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { networkInfoClient } from "@/protoFleet/api/clients";
-import {
-  NetworkInfo,
-  UpdateNetworkNicknameRequest,
-} from "@/protoFleet/api/generated/networkinfo/v1/networkinfo_pb";
+import { NetworkInfo, UpdateNetworkNicknameRequest } from "@/protoFleet/api/generated/networkinfo/v1/networkinfo_pb";
 import { useAuthErrors, useAuthHeader } from "@/protoFleet/store";
 
 interface UpdateNetworkInfoProps {
@@ -47,11 +44,7 @@ const useNetworkInfo = () => {
   }, [fetchData]);
 
   const updateNetworkInfo = useCallback(
-    async ({
-      networkUpdateRequest,
-      onSuccess,
-      onError,
-    }: UpdateNetworkInfoProps) => {
+    async ({ networkUpdateRequest, onSuccess, onError }: UpdateNetworkInfoProps) => {
       setPending(true);
       await networkInfoClient
         .updateNetworkNickname(networkUpdateRequest, authHeader)

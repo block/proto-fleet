@@ -21,12 +21,9 @@ export interface NetworkInfoSlice extends NetworkInfoNetworkinfo {
 // Slice Creator
 // =============================================================================
 
-export const createNetworkInfoSlice: StateCreator<
-  MinerStore,
-  [["zustand/immer", never]],
-  [],
-  NetworkInfoSlice
-> = (set) => ({
+export const createNetworkInfoSlice: StateCreator<MinerStore, [["zustand/immer", never]], [], NetworkInfoSlice> = (
+  set,
+) => ({
   // Actions
   setNetworkInfo: (networkInfo) =>
     set((state) => {

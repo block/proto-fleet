@@ -10,11 +10,7 @@ const TooltipWrapper = ({ position }: TooltipWrapperProps) => {
     <div>
       <div className="mb-2 text-heading-100">Position: {position}</div>
       <div className="flex w-80">
-        <TooltipComponent
-          header="Tooltip Header"
-          body="Tooltip Body"
-          position={position}
-        />
+        <TooltipComponent header="Tooltip Header" body="Tooltip Body" position={position} />
       </div>
     </div>
   );

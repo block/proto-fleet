@@ -9,21 +9,16 @@ import { CustomRouteObject, routerConfig } from "@/protoOS/router";
 // Auth State Selectors
 // =============================================================================
 
-export const useAuthTokens = () =>
-  useMinerStore((state) => state.auth.authTokens);
-export const useRefreshToken = () =>
-  useMinerStore((state) => state.auth.authTokens.refreshToken);
-export const useAuthLoading = () =>
-  useMinerStore((state) => state.auth.loading);
+export const useAuthTokens = () => useMinerStore((state) => state.auth.authTokens);
+export const useRefreshToken = () => useMinerStore((state) => state.auth.authTokens.refreshToken);
+export const useAuthLoading = () => useMinerStore((state) => state.auth.loading);
 
 // =============================================================================
 // Auth Action Selectors
 // =============================================================================
 
-export const useSetAuthTokens = () =>
-  useMinerStore((state) => state.auth.setAuthTokens);
-export const useSetAuthLoading = () =>
-  useMinerStore((state) => state.auth.setLoading);
+export const useSetAuthTokens = () => useMinerStore((state) => state.auth.setAuthTokens);
+export const useSetAuthLoading = () => useMinerStore((state) => state.auth.setLoading);
 export const useLogout = () => useMinerStore((state) => state.auth.logout);
 
 // =============================================================================
@@ -61,9 +56,7 @@ interface HandleAuthErrorsProps {
 export const useAuthErrors = () => {
   const authTokens = useAuthTokens();
   const logout = useLogout();
-  const setShowLoginModal = useMinerStore(
-    (state) => state.ui.setShowLoginModal,
-  );
+  const setShowLoginModal = useMinerStore((state) => state.ui.setShowLoginModal);
   const refresh = useRefresh();
 
   const handleAuthErrors = useCallback(
@@ -116,9 +109,7 @@ const getRouteAuthRequirement = (path: string, defaultValue = true) => {
 export const useAccessToken = (shouldCheckAccess: boolean = true) => {
   const refresh = useRefresh();
   const authTokens = useAuthTokens();
-  const setShowLoginModal = useMinerStore(
-    (state) => state.ui.setShowLoginModal,
-  );
+  const setShowLoginModal = useMinerStore((state) => state.ui.setShowLoginModal);
   const logout = useLogout();
   const pausedAuthAction = useMinerStore((state) => state.ui.pausedAuthAction);
 

@@ -13,15 +13,8 @@ import Button from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import PoolModal from "@/shared/components/MiningPools/PoolModal";
 import PoolRow from "@/shared/components/MiningPools/PoolRow";
-import {
-  BackupPoolIndex,
-  PoolIndex,
-  PoolInfo as SharedPoolInfo,
-} from "@/shared/components/MiningPools/types";
-import {
-  getEmptyPoolsInfo,
-  isValidPool,
-} from "@/shared/components/MiningPools/utility";
+import { BackupPoolIndex, PoolIndex, PoolInfo as SharedPoolInfo } from "@/shared/components/MiningPools/types";
+import { getEmptyPoolsInfo, isValidPool } from "@/shared/components/MiningPools/utility";
 import { WarnDefaultPoolCallout } from "@/shared/components/MiningPools/WarnDefaultPoolCallout";
 
 type PoolInfo = SharedPoolInfo & {
@@ -35,20 +28,8 @@ interface MiningPoolsProps {
   onSaveFailed?: () => void;
 }
 
-const MiningPoolsForm = ({
-  buttonLabel,
-  onSaveRequested,
-  onSaveDone,
-  onSaveFailed,
-}: MiningPoolsProps) => {
-  const {
-    pools: existingPools,
-    createPool,
-    updatePool,
-    deletePool,
-    validatePool,
-    validatePoolPending,
-  } = usePools();
+const MiningPoolsForm = ({ buttonLabel, onSaveRequested, onSaveDone, onSaveFailed }: MiningPoolsProps) => {
+  const { pools: existingPools, createPool, updatePool, deletePool, validatePool, validatePoolPending } = usePools();
 
   const { refetch: refetchOnboardingStatus } = useOnboardedStatus();
 
@@ -64,11 +45,7 @@ const MiningPoolsForm = ({
       .sort((a, b) =>
         // always move default pool to the front, then sort by pool priority (lower number = higher priority)
         // TODO fix me in the DASH-522
-        a.isDefault
-          ? -1
-          : b.isDefault
-            ? 1
-            : Number(a.poolId) - Number(b.poolId),
+        a.isDefault ? -1 : b.isDefault ? 1 : Number(a.poolId) - Number(b.poolId),
       )
       .map((pool: Pool) => ({
         ...pool,
@@ -81,17 +58,13 @@ const MiningPoolsForm = ({
       // TODO fix me in the DASH-522
       ...existingPools.map((pool: Pool) => Number(pool.poolId)),
     );
-    const emptyPools = getEmptyPoolsInfo(maxExistingPriority).slice(
-      existingPools.length,
-    );
+    const emptyPools = getEmptyPoolsInfo(maxExistingPriority).slice(existingPools.length);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPools([...currentPools, ...emptyPools]);
   }, [existingPools]);
 
   // 0 is the default pool, 1 and 2 are backup pools
-  const [currentPoolIndex, setCurrentPoolIndex] = useState<PoolIndex | null>(
-    null,
-  );
+  const [currentPoolIndex, setCurrentPoolIndex] = useState<PoolIndex | null>(null);
 
   const [warnDefaultPool, setWarnDefaultPool] = useState(false);
 
@@ -123,8 +96,7 @@ const MiningPoolsForm = ({
             password: pool.password,
           },
         });
-        return () =>
-          createPool({ createPoolRequest, onError: handleSaveError });
+        return () => createPool({ createPoolRequest, onError: handleSaveError });
       } else {
         // update existing pool
         const updatePoolRequest = create(UpdatePoolRequestSchema, {
@@ -134,8 +106,7 @@ const MiningPoolsForm = ({
           username: pool.username,
           password: pool.password,
         });
-        return () =>
-          updatePool({ updatePoolRequest, onError: handleSaveError });
+        return () => updatePool({ updatePoolRequest, onError: handleSaveError });
       }
     });
 
@@ -228,10 +199,7 @@ const MiningPoolsForm = ({
         description="Your hashrate will contribute to your default mining pool. Add backup pools in case your default pool fails."
         inline
       />
-      <WarnDefaultPoolCallout
-        onDismiss={() => setWarnDefaultPool(false)}
-        show={warnDefaultPool}
-      />
+      <WarnDefaultPoolCallout onDismiss={() => setWarnDefaultPool(false)} show={warnDefaultPool} />
 
       <div>
         {[...Array(3)].map((_, index) => {
@@ -266,12 +234,7 @@ const MiningPoolsForm = ({
         })}
       </div>
 
-      <Button
-        variant="primary"
-        className="mt-6 ml-auto"
-        loading={loading}
-        onClick={handleContinue}
-      >
+      <Button variant="primary" className="mt-6 ml-auto" loading={loading} onClick={handleContinue}>
         {buttonLabel}
       </Button>
     </div>

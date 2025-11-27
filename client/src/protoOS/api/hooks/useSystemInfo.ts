@@ -72,10 +72,7 @@ const useSystemInfo = ({ poll, pollIntervalMs }: UseSystemInfoProps) => {
     pollIntervalMs,
   });
 
-  return useMemo(
-    () => ({ pending, error, data, reload }),
-    [pending, error, data, reload],
-  );
+  return useMemo(() => ({ pending, error, data, reload }), [pending, error, data, reload]);
 };
 
 export { useSystemInfo };

@@ -7,12 +7,7 @@ interface PoolsListArgs {
   poolNumber?: number;
 }
 
-export const PoolsList = ({
-  title,
-  subtitle,
-  createNewLabel,
-  poolNumber,
-}: PoolsListArgs) => {
+export const PoolsList = ({ title, subtitle, createNewLabel, poolNumber }: PoolsListArgs) => {
   const availablePools = [
     {
       poolId: "1",

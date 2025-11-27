@@ -28,9 +28,7 @@ export const useComponentStatusTitle = (
       title: errors[0].message,
       subtitle:
         errors.length > 1
-          ? `Plus ${errors.length - 1} other ${
-              errors.length - 1 === 1 ? "issue" : "issues"
-            }`
+          ? `Plus ${errors.length - 1} other ${errors.length - 1 === 1 ? "issue" : "issues"}`
           : undefined,
     };
   }, [errors, source, componentIndex]);

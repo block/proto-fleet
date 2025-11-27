@@ -64,46 +64,32 @@ const SelectRow = ({
         )}
         <div className="relative ml-4 flex">
           <input
-            className={clsx(
-              "peer relative h-[20px] w-[20px] cursor-pointer appearance-none border border-border-20",
-              {
-                "rounded-full": isRadio,
-                rounded: isCheckbox,
-              },
-            )}
+            className={clsx("peer relative h-[20px] w-[20px] cursor-pointer appearance-none border border-border-20", {
+              "rounded-full": isRadio,
+              rounded: isCheckbox,
+            })}
             type={type}
             checked={isSelected}
             onChange={handleChange}
           />
           <div
-            className={clsx(
-              "absolute hidden h-full w-full rounded-full bg-core-accent-80 text-text-contrast",
-              {
-                "peer-checked:block": isRadio,
-              },
-            )}
+            className={clsx("absolute hidden h-full w-full rounded-full bg-core-accent-80 text-text-contrast", {
+              "peer-checked:block": isRadio,
+            })}
           >
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 10 10"
-              className="absolute top-[5px] left-[5px]"
-            >
+            <svg width="10" height="10" viewBox="0 0 10 10" className="absolute top-[5px] left-[5px]">
               <circle cx="5" cy="5" r="5" fill="currentColor" />
             </svg>
           </div>
           {partiallySelected ? (
             <PartialCheckmark
-              className={clsx(
-                "absolute block cursor-pointer rounded-sm bg-core-primary-fill/40 text-surface-base",
-              )}
+              className={clsx("absolute block cursor-pointer rounded-sm bg-core-primary-fill/40 text-surface-base")}
             />
           ) : (
             <Checkmark
-              className={clsx(
-                "absolute hidden cursor-pointer rounded-sm bg-core-accent-80 text-surface-base",
-                { "peer-checked:block": isCheckbox },
-              )}
+              className={clsx("absolute hidden cursor-pointer rounded-sm bg-core-accent-80 text-surface-base", {
+                "peer-checked:block": isCheckbox,
+              })}
             />
           )}
         </div>

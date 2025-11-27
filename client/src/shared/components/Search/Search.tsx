@@ -1,11 +1,4 @@
-import {
-  RefObject,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Input from "@/shared/components/Input";
 import { useKeyDown } from "@/shared/hooks/useKeyDown";
@@ -20,17 +13,9 @@ interface SearchProps {
 
 const id = "search";
 
-const Search = ({
-  className,
-  compact,
-  onChange,
-  initValue,
-  shouldFocus,
-}: SearchProps) => {
+const Search = ({ className, compact, onChange, initValue, shouldFocus }: SearchProps) => {
   const [value, setValue] = useState(initValue);
-  const inputRef = useRef<HTMLInputElement>(
-    null,
-  ) as RefObject<HTMLInputElement>;
+  const inputRef = useRef<HTMLInputElement>(null) as RefObject<HTMLInputElement>;
 
   useEffect(() => {
     setValue(initValue);
@@ -65,10 +50,7 @@ const Search = ({
     [onChange],
   );
 
-  const cmdOrCtrl = useMemo(
-    () => (window.navigator.platform.match(/^Mac/) ? "⌘" : "Ctrl"),
-    [],
-  );
+  const cmdOrCtrl = useMemo(() => (window.navigator.platform.match(/^Mac/) ? "⌘" : "Ctrl"), []);
 
   useEffect(() => {
     if (shouldFocus) {

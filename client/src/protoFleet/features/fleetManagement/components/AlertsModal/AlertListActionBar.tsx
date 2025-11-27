@@ -2,10 +2,7 @@ import { useState } from "react";
 import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
 import BulkActionConfirmDialog from "@/protoFleet/features/fleetManagement/components/BulkActions/BulkActionConfirmDialog";
 import { variants } from "@/shared/components/Button";
-import ButtonGroup, {
-  groupVariants,
-  sizes,
-} from "@/shared/components/ButtonGroup";
+import ButtonGroup, { groupVariants, sizes } from "@/shared/components/ButtonGroup";
 
 interface AlertListActionBarProps {
   selectedAlerts: string[];

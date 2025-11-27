@@ -6,13 +6,7 @@ import ThemeSwitcherComponent from "./ThemeSwitcher";
 export const ThemeSwitcher = () => {
   const [theme, setTheme] = useState<"dark" | "light" | "system">("system");
 
-  return (
-    <ThemeSwitcherComponent
-      onClickDone={action("Done clicked")}
-      theme={theme}
-      setTheme={setTheme}
-    />
-  );
+  return <ThemeSwitcherComponent onClickDone={action("Done clicked")} theme={theme} setTheme={setTheme} />;
 };
 
 export default {

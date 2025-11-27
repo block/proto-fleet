@@ -4,13 +4,12 @@ import FanStatusCard from "./FanStatusCard";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
 // Configuration for different stories
-const storyConfigs: Record<number, { slot: number; rpm: number; pwm: number }> =
-  {
-    1: { slot: 1, rpm: 5800, pwm: 65.0 }, // Default - normal operation
-    2: { slot: 2, rpm: 3200, pwm: 45.0 }, // WithWarning - low RPM
-    3: { slot: 3, rpm: 7200, pwm: 95.0 }, // HighPerformance - high speed
-    4: { slot: 4, rpm: 0, pwm: 0 }, // InactiveWithWarning - stopped
-  };
+const storyConfigs: Record<number, { slot: number; rpm: number; pwm: number }> = {
+  1: { slot: 1, rpm: 5800, pwm: 65.0 }, // Default - normal operation
+  2: { slot: 2, rpm: 3200, pwm: 45.0 }, // WithWarning - low RPM
+  3: { slot: 3, rpm: 7200, pwm: 95.0 }, // HighPerformance - high speed
+  4: { slot: 4, rpm: 0, pwm: 0 }, // InactiveWithWarning - stopped
+};
 
 // Store decorator that provides mock data
 const StoreDecorator = (Story: any, context: any) => {

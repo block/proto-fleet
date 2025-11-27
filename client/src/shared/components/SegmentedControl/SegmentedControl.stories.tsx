@@ -22,9 +22,7 @@ export const SegmentedControl = () => {
     action("Segment selected")(selectedKey);
   };
 
-  return (
-    <SegmentedControlComponent segments={segments} onSelect={handleSelect} />
-  );
+  return <SegmentedControlComponent segments={segments} onSelect={handleSelect} />;
 };
 
 export default {

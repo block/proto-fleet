@@ -1,9 +1,5 @@
 import { create } from "@bufbuild/protobuf";
-import {
-  componentIssues,
-  deviceStatusFilterStates,
-  minerTypes,
-} from "../components/MinerList/constants";
+import { componentIssues, deviceStatusFilterStates, minerTypes } from "../components/MinerList/constants";
 import {
   ComponentStatus,
   ComponentStatusFilterSchema,
@@ -122,9 +118,7 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
 /**
  * Parses URL search parameters into a MinerListFilter
  */
-export function parseFilterFromURL(
-  params: URLSearchParams,
-): MinerListFilter | undefined {
+export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | undefined {
   const statusParam = params.get(URL_PARAMS.STATUS);
   const issuesParam = params.get(URL_PARAMS.ISSUES);
   const typeParam = params.get(URL_PARAMS.TYPE);
@@ -209,9 +203,7 @@ export function parseFilterFromURL(
 /**
  * Converts URL search parameters to ActiveFilters format used by the UI
  */
-export function parseUrlToActiveFilters(
-  params: URLSearchParams,
-): ActiveFilters {
+export function parseUrlToActiveFilters(params: URLSearchParams): ActiveFilters {
   const activeFilters: ActiveFilters = {
     buttonFilters: [],
     dropdownFilters: {},
@@ -221,9 +213,7 @@ export function parseUrlToActiveFilters(
   const statusParam = params.get(URL_PARAMS.STATUS);
   if (statusParam) {
     const statusValues = statusParam.split(",");
-    const mappedStatuses = statusValues
-      .map((v) => URL_TO_STATUS[v])
-      .filter(Boolean);
+    const mappedStatuses = statusValues.map((v) => URL_TO_STATUS[v]).filter(Boolean);
     if (mappedStatuses.length > 0) {
       activeFilters.dropdownFilters.status = mappedStatuses;
     }
@@ -249,17 +239,13 @@ export function parseUrlToActiveFilters(
 /**
  * Converts ActiveFilters to URL search parameters
  */
-export function encodeActiveFiltersToURL(
-  filters: ActiveFilters,
-): URLSearchParams {
+export function encodeActiveFiltersToURL(filters: ActiveFilters): URLSearchParams {
   const params = new URLSearchParams();
 
   // Encode status dropdown
   const statusFilters = filters.dropdownFilters.status;
   if (statusFilters && statusFilters.length > 0) {
-    const urlValues = statusFilters
-      .map((s) => STATUS_TO_URL[s])
-      .filter(Boolean);
+    const urlValues = statusFilters.map((s) => STATUS_TO_URL[s]).filter(Boolean);
     if (urlValues.length > 0) {
       params.set(URL_PARAMS.STATUS, urlValues.join(","));
     }

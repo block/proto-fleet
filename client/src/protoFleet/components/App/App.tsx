@@ -4,11 +4,7 @@ import { useMatches } from "react-router-dom";
 import AppLayout from "@/protoFleet/components/AppLayout";
 import { requiresAuth } from "@/protoFleet/router";
 import { useIsAuthenticated } from "@/protoFleet/store";
-import {
-  useDeviceTheme,
-  useSetDeviceTheme,
-  useTheme,
-} from "@/protoFleet/store";
+import { useDeviceTheme, useSetDeviceTheme, useTheme } from "@/protoFleet/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useApplyTheme } from "@/shared/features/preferences";

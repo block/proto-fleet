@@ -11,15 +11,9 @@ interface DurationSelectorProps {
   onSelect?: (duration: Duration) => void;
 }
 
-const DurationSelector = ({
-  className,
-  duration,
-  onSelect,
-}: DurationSelectorProps) => {
+const DurationSelector = ({ className, duration, onSelect }: DurationSelectorProps) => {
   // Initialize with the provided duration or default to the first option
-  const [selectedDuration, setSelectedDuration] = useState<Duration>(
-    duration || durations[0],
-  );
+  const [selectedDuration, setSelectedDuration] = useState<Duration>(duration || durations[0]);
 
   const handleSelect = (d: Duration) => {
     setSelectedDuration(d);

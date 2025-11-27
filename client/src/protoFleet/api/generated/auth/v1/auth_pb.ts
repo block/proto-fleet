@@ -2,18 +2,8 @@
 // @generated from file auth/v1/auth.proto (package auth.v1, syntax proto3)
 /* eslint-disable */
 
-import type {
-  GenEnum,
-  GenFile,
-  GenMessage,
-  GenService,
-} from "@bufbuild/protobuf/codegenv2";
-import {
-  enumDesc,
-  fileDesc,
-  messageDesc,
-  serviceDesc,
-} from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
@@ -127,8 +117,7 @@ export const UpdatePasswordRequestSchema: GenMessage<UpdatePasswordRequest> =
  *
  * @generated from message auth.v1.UpdatePasswordResponse
  */
-export type UpdatePasswordResponse =
-  Message<"auth.v1.UpdatePasswordResponse"> & {};
+export type UpdatePasswordResponse = Message<"auth.v1.UpdatePasswordResponse"> & {};
 
 /**
  * Describes the message auth.v1.UpdatePasswordResponse.
@@ -159,8 +148,7 @@ export const UpdateUsernameRequestSchema: GenMessage<UpdateUsernameRequest> =
 /**
  * @generated from message auth.v1.UpdateUsernameResponse
  */
-export type UpdateUsernameResponse =
-  Message<"auth.v1.UpdateUsernameResponse"> & {};
+export type UpdateUsernameResponse = Message<"auth.v1.UpdateUsernameResponse"> & {};
 
 /**
  * Describes the message auth.v1.UpdateUsernameResponse.
@@ -173,8 +161,7 @@ export const UpdateUsernameResponseSchema: GenMessage<UpdateUsernameResponse> =
 /**
  * @generated from message auth.v1.GetUserAuditInfoRequest
  */
-export type GetUserAuditInfoRequest =
-  Message<"auth.v1.GetUserAuditInfoRequest"> & {};
+export type GetUserAuditInfoRequest = Message<"auth.v1.GetUserAuditInfoRequest"> & {};
 
 /**
  * Describes the message auth.v1.GetUserAuditInfoRequest.
@@ -198,20 +185,17 @@ export type UserAuditInfo = Message<"auth.v1.UserAuditInfo"> & {
  * Describes the message auth.v1.UserAuditInfo.
  * Use `create(UserAuditInfoSchema)` to create a new message.
  */
-export const UserAuditInfoSchema: GenMessage<UserAuditInfo> =
-  /*@__PURE__*/
-  messageDesc(file_auth_v1_auth, 7);
+export const UserAuditInfoSchema: GenMessage<UserAuditInfo> = /*@__PURE__*/ messageDesc(file_auth_v1_auth, 7);
 
 /**
  * @generated from message auth.v1.GetUserAuditInfoResponse
  */
-export type GetUserAuditInfoResponse =
-  Message<"auth.v1.GetUserAuditInfoResponse"> & {
-    /**
-     * @generated from field: auth.v1.UserAuditInfo info = 1;
-     */
-    info?: UserAuditInfo;
-  };
+export type GetUserAuditInfoResponse = Message<"auth.v1.GetUserAuditInfoResponse"> & {
+  /**
+   * @generated from field: auth.v1.UserAuditInfo info = 1;
+   */
+  info?: UserAuditInfo;
+};
 
 /**
  * Describes the message auth.v1.GetUserAuditInfoResponse.
@@ -238,9 +222,7 @@ export type CreateUserRequest = Message<"auth.v1.CreateUserRequest"> & {
  * Describes the message auth.v1.CreateUserRequest.
  * Use `create(CreateUserRequestSchema)` to create a new message.
  */
-export const CreateUserRequestSchema: GenMessage<CreateUserRequest> =
-  /*@__PURE__*/
-  messageDesc(file_auth_v1_auth, 9);
+export const CreateUserRequestSchema: GenMessage<CreateUserRequest> = /*@__PURE__*/ messageDesc(file_auth_v1_auth, 9);
 
 /**
  * @generated from message auth.v1.CreateUserResponse
@@ -286,9 +268,7 @@ export type ListUsersRequest = Message<"auth.v1.ListUsersRequest"> & {};
  * Describes the message auth.v1.ListUsersRequest.
  * Use `create(ListUsersRequestSchema)` to create a new message.
  */
-export const ListUsersRequestSchema: GenMessage<ListUsersRequest> =
-  /*@__PURE__*/
-  messageDesc(file_auth_v1_auth, 11);
+export const ListUsersRequestSchema: GenMessage<ListUsersRequest> = /*@__PURE__*/ messageDesc(file_auth_v1_auth, 11);
 
 /**
  * @generated from message auth.v1.UserInfo
@@ -342,9 +322,7 @@ export type UserInfo = Message<"auth.v1.UserInfo"> & {
  * Describes the message auth.v1.UserInfo.
  * Use `create(UserInfoSchema)` to create a new message.
  */
-export const UserInfoSchema: GenMessage<UserInfo> =
-  /*@__PURE__*/
-  messageDesc(file_auth_v1_auth, 12);
+export const UserInfoSchema: GenMessage<UserInfo> = /*@__PURE__*/ messageDesc(file_auth_v1_auth, 12);
 
 /**
  * @generated from message auth.v1.ListUsersResponse
@@ -360,22 +338,19 @@ export type ListUsersResponse = Message<"auth.v1.ListUsersResponse"> & {
  * Describes the message auth.v1.ListUsersResponse.
  * Use `create(ListUsersResponseSchema)` to create a new message.
  */
-export const ListUsersResponseSchema: GenMessage<ListUsersResponse> =
-  /*@__PURE__*/
-  messageDesc(file_auth_v1_auth, 13);
+export const ListUsersResponseSchema: GenMessage<ListUsersResponse> = /*@__PURE__*/ messageDesc(file_auth_v1_auth, 13);
 
 /**
  * @generated from message auth.v1.ResetUserPasswordRequest
  */
-export type ResetUserPasswordRequest =
-  Message<"auth.v1.ResetUserPasswordRequest"> & {
-    /**
-     * Unique identifier of the user whose password should be reset
-     *
-     * @generated from field: string user_id = 1;
-     */
-    userId: string;
-  };
+export type ResetUserPasswordRequest = Message<"auth.v1.ResetUserPasswordRequest"> & {
+  /**
+   * Unique identifier of the user whose password should be reset
+   *
+   * @generated from field: string user_id = 1;
+   */
+  userId: string;
+};
 
 /**
  * Describes the message auth.v1.ResetUserPasswordRequest.
@@ -388,16 +363,15 @@ export const ResetUserPasswordRequestSchema: GenMessage<ResetUserPasswordRequest
 /**
  * @generated from message auth.v1.ResetUserPasswordResponse
  */
-export type ResetUserPasswordResponse =
-  Message<"auth.v1.ResetUserPasswordResponse"> & {
-    /**
-     * New temporary password generated by the system
-     * This is only returned once and will not be accessible again
-     *
-     * @generated from field: string temporary_password = 1;
-     */
-    temporaryPassword: string;
-  };
+export type ResetUserPasswordResponse = Message<"auth.v1.ResetUserPasswordResponse"> & {
+  /**
+   * New temporary password generated by the system
+   * This is only returned once and will not be accessible again
+   *
+   * @generated from field: string temporary_password = 1;
+   */
+  temporaryPassword: string;
+};
 
 /**
  * Describes the message auth.v1.ResetUserPasswordResponse.
@@ -430,8 +404,7 @@ export const DeactivateUserRequestSchema: GenMessage<DeactivateUserRequest> =
 /**
  * @generated from message auth.v1.DeactivateUserResponse
  */
-export type DeactivateUserResponse =
-  Message<"auth.v1.DeactivateUserResponse"> & {};
+export type DeactivateUserResponse = Message<"auth.v1.DeactivateUserResponse"> & {};
 
 /**
  * Describes the message auth.v1.DeactivateUserResponse.
@@ -459,9 +432,7 @@ export enum AuthenticateErrorCode {
 /**
  * Describes the enum auth.v1.AuthenticateErrorCode.
  */
-export const AuthenticateErrorCodeSchema: GenEnum<AuthenticateErrorCode> =
-  /*@__PURE__*/
-  enumDesc(file_auth_v1_auth, 0);
+export const AuthenticateErrorCodeSchema: GenEnum<AuthenticateErrorCode> = /*@__PURE__*/ enumDesc(file_auth_v1_auth, 0);
 
 /**
  * @generated from enum auth.v1.UpdatePasswordErrorCode

@@ -48,13 +48,9 @@ export function PowerPanel({ duration }: PowerPanelProps) {
     // Merge streaming data if available
     if (latestData?.metrics && latestData.metrics.length > 0) {
       // Append new metrics from streaming, avoiding duplicates by timestamp
-      const existingTimestamps = new Set(
-        data.metrics.map((m) => m.openTime?.seconds?.toString()),
-      );
+      const existingTimestamps = new Set(data.metrics.map((m) => m.openTime?.seconds?.toString()));
 
-      const newMetrics = latestData.metrics.filter(
-        (m) => !existingTimestamps.has(m.openTime?.seconds?.toString()),
-      );
+      const newMetrics = latestData.metrics.filter((m) => !existingTimestamps.has(m.openTime?.seconds?.toString()));
 
       metricsToTransform = [...data.metrics, ...newMetrics];
     }
@@ -85,8 +81,7 @@ export function PowerPanel({ duration }: PowerPanelProps) {
     return <div>No power data available</div>;
   }
 
-  const powerDisplayValue =
-    currentPower !== null ? currentPower.toFixed(1) : "N/A";
+  const powerDisplayValue = currentPower !== null ? currentPower.toFixed(1) : "N/A";
 
   const stat = {
     label: "Power",
@@ -96,12 +91,7 @@ export function PowerPanel({ duration }: PowerPanelProps) {
 
   return (
     <ChartWidget stats={stat}>
-      <LineChart
-        chartData={chartData}
-        aggregateKey="power"
-        units="kW"
-        activeKeys={["power"]}
-      />
+      <LineChart chartData={chartData} aggregateKey="power" units="kW" activeKeys={["power"]} />
     </ChartWidget>
   );
 }

@@ -13,8 +13,7 @@ const meta: Meta<typeof ComponentErrors> = {
     layout: "centered",
     docs: {
       description: {
-        component:
-          "Displays component-level error status for fleet hardware with icon and status message",
+        component: "Displays component-level error status for fleet hardware with icon and status message",
       },
     },
   },
@@ -30,8 +29,7 @@ const meta: Meta<typeof ComponentErrors> = {
     },
     errorCount: {
       control: "number",
-      description:
-        "Number of miners with errors (0 displays 'No issues', undefined shows loading state)",
+      description: "Number of miners with errors (0 displays 'No issues', undefined shows loading state)",
     },
     href: {
       control: "text",

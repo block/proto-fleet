@@ -19,12 +19,7 @@ interface CoolingOptionProps {
   isSelected?: boolean;
 }
 
-const CoolingOption = ({
-  title,
-  description,
-  icon,
-  isSelected = false,
-}: CoolingOptionProps) => (
+const CoolingOption = ({ title, description, icon, isSelected = false }: CoolingOptionProps) => (
   <div className="flex items-center justify-start gap-4">
     {icon ? (
       <div
@@ -72,16 +67,11 @@ const isSelected = (
 };
 
 const Cooling = () => {
-  const {
-    data: coolingStatus,
-    pending,
-    setCooling,
-  } = useCoolingStatus({ poll: true });
+  const { data: coolingStatus, pending, setCooling } = useCoolingStatus({ poll: true });
   const [coolingMode, setCoolingMode] = useState<CoolingMode>();
   const isSleeping = useIsSleeping();
 
-  const [userSelectedCoolingMode, setUserSelectedCoolingMode] =
-    useState<CoolingMode>();
+  const [userSelectedCoolingMode, setUserSelectedCoolingMode] = useState<CoolingMode>();
   const [loading, setLoading] = useState<boolean>(true);
   const [showImmersionModal, setShowImmersionModal] = useState<boolean>(false);
   const [showLearnMoreModal, setShowLearnMoreModal] = useState<boolean>(false);
@@ -93,9 +83,7 @@ const Cooling = () => {
       if (coolingStatus.fan_mode === FAN_MODES[COOLING_MODES.air]) {
         setCoolingMode(COOLING_MODES.air);
         setLoading(false);
-      } else if (
-        coolingStatus.fan_mode === FAN_MODES[COOLING_MODES.immersion]
-      ) {
+      } else if (coolingStatus.fan_mode === FAN_MODES[COOLING_MODES.immersion]) {
         setCoolingMode(COOLING_MODES.immersion);
         setLoading(false);
       }
@@ -177,12 +165,7 @@ const Cooling = () => {
       <div className="mb-10 flex flex-col gap-4">
         <SelectRow
           id={COOLING_MODES.air}
-          isSelected={isSelected(
-            coolingMode,
-            userSelectedCoolingMode,
-            pending,
-            COOLING_MODES.air,
-          )}
+          isSelected={isSelected(coolingMode, userSelectedCoolingMode, pending, COOLING_MODES.air)}
           onChange={(id) => handleChange(id)}
           divider={false}
           className={clsx("border-1 border-border-5", {
@@ -202,12 +185,7 @@ const Cooling = () => {
         <div className="flex flex-col gap-3">
           <SelectRow
             id={COOLING_MODES.immersion}
-            isSelected={isSelected(
-              coolingMode,
-              userSelectedCoolingMode,
-              pending,
-              COOLING_MODES.immersion,
-            )}
+            isSelected={isSelected(coolingMode, userSelectedCoolingMode, pending, COOLING_MODES.immersion)}
             onChange={(id) => handleChange(id)}
             divider={false}
             className={clsx("border-1 border-border-5", {
@@ -253,9 +231,7 @@ const Cooling = () => {
         />
       )}
 
-      {showLearnMoreModal && (
-        <InfoModal onDismiss={() => setShowLearnMoreModal(false)} />
-      )}
+      {showLearnMoreModal && <InfoModal onDismiss={() => setShowLearnMoreModal(false)} />}
 
       <Dialog
         title="Entering sleep mode"

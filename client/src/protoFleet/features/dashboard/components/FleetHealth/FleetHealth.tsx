@@ -6,9 +6,7 @@ import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagemen
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { encodeFilterToURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { Triangle } from "@/shared/assets/icons";
-import CompositionBar, {
-  type Segment,
-} from "@/shared/components/CompositionBar";
+import CompositionBar, { type Segment } from "@/shared/components/CompositionBar";
 
 interface FleetHealthProps {
   fleetSize?: number;
@@ -17,12 +15,7 @@ interface FleetHealthProps {
   offlineMiners?: number;
 }
 
-const FleetHealth = ({
-  fleetSize,
-  healthyMiners,
-  unhealthyMiners,
-  offlineMiners,
-}: FleetHealthProps) => {
+const FleetHealth = ({ fleetSize, healthyMiners, unhealthyMiners, offlineMiners }: FleetHealthProps) => {
   // Create enhanced segments with filter URLs
   const segmentsWithFilters = useMemo(() => {
     const totalMiners = fleetSize || 1; // prevent division by zero
@@ -59,10 +52,7 @@ const FleetHealth = ({
     return segmentConfigs.map((segment) => ({
       ...segment,
       filterUrl: `/miners?${encodeFilterToURL(segment.filter).toString()}`,
-      percentage:
-        segment.count !== undefined
-          ? Math.round((segment.count / totalMiners) * 100)
-          : undefined,
+      percentage: segment.count !== undefined ? Math.round((segment.count / totalMiners) * 100) : undefined,
     }));
   }, [fleetSize, healthyMiners, unhealthyMiners, offlineMiners]);
 
@@ -82,10 +72,7 @@ const FleetHealth = ({
     () =>
       segmentsWithFilters.map((segment) => ({
         label: segment.name,
-        value:
-          segment.percentage !== undefined
-            ? `${segment.percentage}%`
-            : undefined,
+        value: segment.percentage !== undefined ? `${segment.percentage}%` : undefined,
         text:
           segment.count !== undefined ? (
             <Link to={segment.filterUrl} className="hover:underline">

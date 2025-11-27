@@ -2,29 +2,13 @@
 // @generated from file fleetmanagement/v1/fleetmanagement.proto (package fleetmanagement.v1, syntax proto3)
 /* eslint-disable */
 
-import type {
-  GenEnum,
-  GenFile,
-  GenMessage,
-  GenService,
-} from "@bufbuild/protobuf/codegenv2";
-import {
-  enumDesc,
-  fileDesc,
-  messageDesc,
-  serviceDesc,
-} from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
-import type {
-  Measurement,
-  TimeSeriesConfig,
-} from "../../common/v1/measurement_pb";
+import type { Measurement, TimeSeriesConfig } from "../../common/v1/measurement_pb";
 import { file_common_v1_measurement } from "../../common/v1/measurement_pb";
-import type {
-  MinerStateCounts,
-  TemperatureStatus,
-} from "../../telemetry/v1/telemetry_pb";
+import type { MinerStateCounts, TemperatureStatus } from "../../telemetry/v1/telemetry_pb";
 import { file_telemetry_v1_telemetry } from "../../telemetry/v1/telemetry_pb";
 import type { MinerCapabilities } from "../../capabilities/v1/capabilities_pb";
 import { file_capabilities_v1_capabilities } from "../../capabilities/v1/capabilities_pb";
@@ -52,27 +36,26 @@ export const file_fleetmanagement_v1_fleetmanagement: GenFile =
  *
  * @generated from message fleetmanagement.v1.ListPairedMinersRequest
  */
-export type ListPairedMinersRequest =
-  Message<"fleetmanagement.v1.ListPairedMinersRequest"> & {
-    /**
-     * Maximum number of miners to return in a single response
-     * Server may return fewer miners than specified
-     * If not specified, a default of 50 will be used
-     * Maximum allowed value is 1000
-     *
-     * @generated from field: int32 page_size = 1;
-     */
-    pageSize: number;
+export type ListPairedMinersRequest = Message<"fleetmanagement.v1.ListPairedMinersRequest"> & {
+  /**
+   * Maximum number of miners to return in a single response
+   * Server may return fewer miners than specified
+   * If not specified, a default of 50 will be used
+   * Maximum allowed value is 1000
+   *
+   * @generated from field: int32 page_size = 1;
+   */
+  pageSize: number;
 
-    /**
-     * A pagination cursor returned by a previous call to this endpoint
-     * Provide this cursor to retrieve the next set of results for the original query
-     * Leave empty for first request
-     *
-     * @generated from field: string cursor = 2;
-     */
-    cursor: string;
-  };
+  /**
+   * A pagination cursor returned by a previous call to this endpoint
+   * Provide this cursor to retrieve the next set of results for the original query
+   * Leave empty for first request
+   *
+   * @generated from field: string cursor = 2;
+   */
+  cursor: string;
+};
 
 /**
  * Describes the message fleetmanagement.v1.ListPairedMinersRequest.
@@ -87,32 +70,31 @@ export const ListPairedMinersRequestSchema: GenMessage<ListPairedMinersRequest> 
  *
  * @generated from message fleetmanagement.v1.ListPairedMinersResponse
  */
-export type ListPairedMinersResponse =
-  Message<"fleetmanagement.v1.ListPairedMinersResponse"> & {
-    /**
-     * List of paired miners for the current page
-     * Ordered by device_identifier by default
-     *
-     * @generated from field: repeated fleetmanagement.v1.PairedDevice miners = 1;
-     */
-    miners: PairedDevice[];
+export type ListPairedMinersResponse = Message<"fleetmanagement.v1.ListPairedMinersResponse"> & {
+  /**
+   * List of paired miners for the current page
+   * Ordered by device_identifier by default
+   *
+   * @generated from field: repeated fleetmanagement.v1.PairedDevice miners = 1;
+   */
+  miners: PairedDevice[];
 
-    /**
-     * The pagination cursor to be used in a subsequent request
-     * If empty, this is the final page of results
-     *
-     * @generated from field: string cursor = 2;
-     */
-    cursor: string;
+  /**
+   * The pagination cursor to be used in a subsequent request
+   * If empty, this is the final page of results
+   *
+   * @generated from field: string cursor = 2;
+   */
+  cursor: string;
 
-    /**
-     * Total number of miners available across all pages
-     * Useful for UI pagination controls
-     *
-     * @generated from field: int32 total_miners = 3;
-     */
-    totalMiners: number;
-  };
+  /**
+   * Total number of miners available across all pages
+   * Useful for UI pagination controls
+   *
+   * @generated from field: int32 total_miners = 3;
+   */
+  totalMiners: number;
+};
 
 /**
  * Describes the message fleetmanagement.v1.ListPairedMinersResponse.
@@ -169,147 +151,146 @@ export const PairedDeviceSchema: GenMessage<PairedDevice> =
  *
  * @generated from message fleetmanagement.v1.MinerStateSnapshot
  */
-export type MinerStateSnapshot =
-  Message<"fleetmanagement.v1.MinerStateSnapshot"> & {
-    /**
-     * Unique identifier for the device within the fleet
-     * Used as the primary reference for the device in API calls
-     *
-     * @generated from field: string device_identifier = 1;
-     */
-    deviceIdentifier: string;
+export type MinerStateSnapshot = Message<"fleetmanagement.v1.MinerStateSnapshot"> & {
+  /**
+   * Unique identifier for the device within the fleet
+   * Used as the primary reference for the device in API calls
+   *
+   * @generated from field: string device_identifier = 1;
+   */
+  deviceIdentifier: string;
 
-    /**
-     * Human-readable name/identifier of the miner
-     *
-     * @generated from field: string name = 2;
-     */
-    name: string;
+  /**
+   * Human-readable name/identifier of the miner
+   *
+   * @generated from field: string name = 2;
+   */
+  name: string;
 
-    /**
-     * Physical MAC address of the device in XX:XX:XX:XX:XX:XX format
-     *
-     * @generated from field: string mac_address = 3;
-     */
-    macAddress: string;
+  /**
+   * Physical MAC address of the device in XX:XX:XX:XX:XX:XX format
+   *
+   * @generated from field: string mac_address = 3;
+   */
+  macAddress: string;
 
-    /**
-     * Manufacturer-assigned serial number
-     *
-     * @generated from field: string serial_number = 4;
-     */
-    serialNumber: string;
+  /**
+   * Manufacturer-assigned serial number
+   *
+   * @generated from field: string serial_number = 4;
+   */
+  serialNumber: string;
 
-    /**
-     * Power consumption measurements in kilowatts (kW)
-     * Contains either a single current value or a time series based on request parameters
-     *
-     * @generated from field: repeated common.v1.Measurement power_usage = 5;
-     */
-    powerUsage: Measurement[];
+  /**
+   * Power consumption measurements in kilowatts (kW)
+   * Contains either a single current value or a time series based on request parameters
+   *
+   * @generated from field: repeated common.v1.Measurement power_usage = 5;
+   */
+  powerUsage: Measurement[];
 
-    /**
-     * Temperature measurements in degrees Celsius
-     * Contains either a single current value or a time series based on request parameters
-     *
-     * @generated from field: repeated common.v1.Measurement temperature = 6;
-     */
-    temperature: Measurement[];
+  /**
+   * Temperature measurements in degrees Celsius
+   * Contains either a single current value or a time series based on request parameters
+   *
+   * @generated from field: repeated common.v1.Measurement temperature = 6;
+   */
+  temperature: Measurement[];
 
-    /**
-     * Hashrate measurements in TH/s (terahash per second)
-     * Contains either a single current value or a time series based on request parameters
-     *
-     * @generated from field: repeated common.v1.Measurement hashrate = 7;
-     */
-    hashrate: Measurement[];
+  /**
+   * Hashrate measurements in TH/s (terahash per second)
+   * Contains either a single current value or a time series based on request parameters
+   *
+   * @generated from field: repeated common.v1.Measurement hashrate = 7;
+   */
+  hashrate: Measurement[];
 
-    /**
-     * Energy efficiency measurements in joules per terahash (j/TH)
-     * Lower values indicate better efficiency
-     * Contains either a single current value or a time series based on request parameters
-     *
-     * @generated from field: repeated common.v1.Measurement efficiency = 8;
-     */
-    efficiency: Measurement[];
+  /**
+   * Energy efficiency measurements in joules per terahash (j/TH)
+   * Lower values indicate better efficiency
+   * Contains either a single current value or a time series based on request parameters
+   *
+   * @generated from field: repeated common.v1.Measurement efficiency = 8;
+   */
+  efficiency: Measurement[];
 
-    /**
-     * Health status of various miner components
-     * Represents the current status regardless of whether time series data is requested
-     *
-     * @generated from field: fleetmanagement.v1.MinerComponentStatus status = 9;
-     */
-    status?: MinerComponentStatus;
+  /**
+   * Health status of various miner components
+   * Represents the current status regardless of whether time series data is requested
+   *
+   * @generated from field: fleetmanagement.v1.MinerComponentStatus status = 9;
+   */
+  status?: MinerComponentStatus;
 
-    /**
-     * Timestamp when this snapshot was captured
-     * For time series data, this represents when the most recent data was collected
-     *
-     * @generated from field: google.protobuf.Timestamp timestamp = 10;
-     */
-    timestamp?: Timestamp;
+  /**
+   * Timestamp when this snapshot was captured
+   * For time series data, this represents when the most recent data was collected
+   *
+   * @generated from field: google.protobuf.Timestamp timestamp = 10;
+   */
+  timestamp?: Timestamp;
 
-    /**
-     * @generated from field: string ip_address = 11;
-     */
-    ipAddress: string;
+  /**
+   * @generated from field: string ip_address = 11;
+   */
+  ipAddress: string;
 
-    /**
-     * The full url of the miner including protocol and port (if running on a port other than 80/443)
-     *
-     * @generated from field: string url = 12;
-     */
-    url: string;
+  /**
+   * The full url of the miner including protocol and port (if running on a port other than 80/443)
+   *
+   * @generated from field: string url = 12;
+   */
+  url: string;
 
-    /**
-     * Current operational status of the device
-     *
-     * @generated from field: fleetmanagement.v1.DeviceStatus device_status = 13;
-     */
-    deviceStatus: DeviceStatus;
+  /**
+   * Current operational status of the device
+   *
+   * @generated from field: fleetmanagement.v1.DeviceStatus device_status = 13;
+   */
+  deviceStatus: DeviceStatus;
 
-    /**
-     * Pairing status of the device
-     *
-     * @generated from field: fleetmanagement.v1.PairingStatus pairing_status = 14;
-     */
-    pairingStatus: PairingStatus;
+  /**
+   * Pairing status of the device
+   *
+   * @generated from field: fleetmanagement.v1.PairingStatus pairing_status = 14;
+   */
+  pairingStatus: PairingStatus;
 
-    /**
-     * Device model name (populated for unpaired devices)
-     *
-     * @generated from field: string model = 15;
-     */
-    model: string;
+  /**
+   * Device model name (populated for unpaired devices)
+   *
+   * @generated from field: string model = 15;
+   */
+  model: string;
 
-    /**
-     * Manufacturer name (populated for unpaired devices)
-     *
-     * @generated from field: string manufacturer = 16;
-     */
-    manufacturer: string;
+  /**
+   * Manufacturer name (populated for unpaired devices)
+   *
+   * @generated from field: string manufacturer = 16;
+   */
+  manufacturer: string;
 
-    /**
-     * Device type (e.g., antminer, proto)
-     *
-     * @generated from field: string type = 17;
-     */
-    type: string;
+  /**
+   * Device type (e.g., antminer, proto)
+   *
+   * @generated from field: string type = 17;
+   */
+  type: string;
 
-    /**
-     * Device capabilities indicating supported features (populated for unpaired devices)
-     *
-     * @generated from field: capabilities.v1.MinerCapabilities capabilities = 18;
-     */
-    capabilities?: MinerCapabilities;
+  /**
+   * Device capabilities indicating supported features (populated for unpaired devices)
+   *
+   * @generated from field: capabilities.v1.MinerCapabilities capabilities = 18;
+   */
+  capabilities?: MinerCapabilities;
 
-    /**
-     * Temperature status based on current temperature value
-     *
-     * @generated from field: telemetry.v1.TemperatureStatus temperature_status = 19;
-     */
-    temperatureStatus: TemperatureStatus;
-  };
+  /**
+   * Temperature status based on current temperature value
+   *
+   * @generated from field: telemetry.v1.TemperatureStatus temperature_status = 19;
+   */
+  temperatureStatus: TemperatureStatus;
+};
 
 /**
  * Describes the message fleetmanagement.v1.MinerStateSnapshot.
@@ -324,36 +305,35 @@ export const MinerStateSnapshotSchema: GenMessage<MinerStateSnapshot> =
  *
  * @generated from message fleetmanagement.v1.MinerComponentStatus
  */
-export type MinerComponentStatus =
-  Message<"fleetmanagement.v1.MinerComponentStatus"> & {
-    /**
-     * Status of the control board/controller
-     *
-     * @generated from field: fleetmanagement.v1.ComponentStatus control_board = 1;
-     */
-    controlBoard: ComponentStatus;
+export type MinerComponentStatus = Message<"fleetmanagement.v1.MinerComponentStatus"> & {
+  /**
+   * Status of the control board/controller
+   *
+   * @generated from field: fleetmanagement.v1.ComponentStatus control_board = 1;
+   */
+  controlBoard: ComponentStatus;
 
-    /**
-     * Status of the cooling fans (aggregate status)
-     *
-     * @generated from field: fleetmanagement.v1.ComponentStatus fans = 2;
-     */
-    fans: ComponentStatus;
+  /**
+   * Status of the cooling fans (aggregate status)
+   *
+   * @generated from field: fleetmanagement.v1.ComponentStatus fans = 2;
+   */
+  fans: ComponentStatus;
 
-    /**
-     * Status of the hash boards (aggregate status)
-     *
-     * @generated from field: fleetmanagement.v1.ComponentStatus hash_boards = 3;
-     */
-    hashBoards: ComponentStatus;
+  /**
+   * Status of the hash boards (aggregate status)
+   *
+   * @generated from field: fleetmanagement.v1.ComponentStatus hash_boards = 3;
+   */
+  hashBoards: ComponentStatus;
 
-    /**
-     * Status of the power supply unit
-     *
-     * @generated from field: fleetmanagement.v1.ComponentStatus psu = 4;
-     */
-    psu: ComponentStatus;
-  };
+  /**
+   * Status of the power supply unit
+   *
+   * @generated from field: fleetmanagement.v1.ComponentStatus psu = 4;
+   */
+  psu: ComponentStatus;
+};
 
 /**
  * Describes the message fleetmanagement.v1.MinerComponentStatus.
@@ -368,30 +348,29 @@ export const MinerComponentStatusSchema: GenMessage<MinerComponentStatus> =
  *
  * @generated from message fleetmanagement.v1.MeasurementConfig
  */
-export type MeasurementConfig =
-  Message<"fleetmanagement.v1.MeasurementConfig"> & {
-    /**
-     * The measurement type this configuration applies to
-     *
-     * @generated from field: fleetmanagement.v1.MeasurementConfig.MeasurementType measurement_type = 1;
-     */
-    measurementType: MeasurementConfig_MeasurementType;
+export type MeasurementConfig = Message<"fleetmanagement.v1.MeasurementConfig"> & {
+  /**
+   * The measurement type this configuration applies to
+   *
+   * @generated from field: fleetmanagement.v1.MeasurementConfig.MeasurementType measurement_type = 1;
+   */
+  measurementType: MeasurementConfig_MeasurementType;
 
-    /**
-     * Data mode for this specific measurement type
-     *
-     * @generated from field: fleetmanagement.v1.DataMode data_mode = 2;
-     */
-    dataMode: DataMode;
+  /**
+   * Data mode for this specific measurement type
+   *
+   * @generated from field: fleetmanagement.v1.DataMode data_mode = 2;
+   */
+  dataMode: DataMode;
 
-    /**
-     * Time series configuration for this specific measurement type
-     * Required when data_mode is TIME_SERIES
-     *
-     * @generated from field: common.v1.TimeSeriesConfig time_series_config = 3;
-     */
-    timeSeriesConfig?: TimeSeriesConfig;
-  };
+  /**
+   * Time series configuration for this specific measurement type
+   * Required when data_mode is TIME_SERIES
+   *
+   * @generated from field: common.v1.TimeSeriesConfig time_series_config = 3;
+   */
+  timeSeriesConfig?: TimeSeriesConfig;
+};
 
 /**
  * Describes the message fleetmanagement.v1.MeasurementConfig.
@@ -455,58 +434,57 @@ export const MeasurementConfig_MeasurementTypeSchema: GenEnum<MeasurementConfig_
  *
  * @generated from message fleetmanagement.v1.ListMinerStateSnapshotsRequest
  */
-export type ListMinerStateSnapshotsRequest =
-  Message<"fleetmanagement.v1.ListMinerStateSnapshotsRequest"> & {
-    /**
-     * Maximum number of miners to return in a single response
-     * Server may return fewer miners than specified
-     * If not specified, a default of 50 will be used
-     * Maximum allowed value is 1000
-     *
-     * @generated from field: int32 page_size = 1;
-     */
-    pageSize: number;
+export type ListMinerStateSnapshotsRequest = Message<"fleetmanagement.v1.ListMinerStateSnapshotsRequest"> & {
+  /**
+   * Maximum number of miners to return in a single response
+   * Server may return fewer miners than specified
+   * If not specified, a default of 50 will be used
+   * Maximum allowed value is 1000
+   *
+   * @generated from field: int32 page_size = 1;
+   */
+  pageSize: number;
 
-    /**
-     * A pagination cursor returned by a previous call to this endpoint
-     * Provide this cursor to retrieve the next set of results for the original query
-     * Leave empty for first request
-     *
-     * @generated from field: string cursor = 2;
-     */
-    cursor: string;
+  /**
+   * A pagination cursor returned by a previous call to this endpoint
+   * Provide this cursor to retrieve the next set of results for the original query
+   * Leave empty for first request
+   *
+   * @generated from field: string cursor = 2;
+   */
+  cursor: string;
 
-    /**
-     * Global data mode that applies to all measurements unless overridden
-     * by a specific measurement configuration
-     *
-     * @generated from field: fleetmanagement.v1.DataMode data_mode = 3;
-     */
-    dataMode: DataMode;
+  /**
+   * Global data mode that applies to all measurements unless overridden
+   * by a specific measurement configuration
+   *
+   * @generated from field: fleetmanagement.v1.DataMode data_mode = 3;
+   */
+  dataMode: DataMode;
 
-    /**
-     * Global time series config that applies to all measurements unless overridden
-     * Required when global data_mode is TIME_SERIES and no per-measurement configs are provided
-     *
-     * @generated from field: common.v1.TimeSeriesConfig time_series_config = 4;
-     */
-    timeSeriesConfig?: TimeSeriesConfig;
+  /**
+   * Global time series config that applies to all measurements unless overridden
+   * Required when global data_mode is TIME_SERIES and no per-measurement configs are provided
+   *
+   * @generated from field: common.v1.TimeSeriesConfig time_series_config = 4;
+   */
+  timeSeriesConfig?: TimeSeriesConfig;
 
-    /**
-     * Per-measurement configurations that override the global settings
-     * If provided for a measurement type, these settings take precedence over global settings
-     *
-     * @generated from field: repeated fleetmanagement.v1.MeasurementConfig measurement_configs = 5;
-     */
-    measurementConfigs: MeasurementConfig[];
+  /**
+   * Per-measurement configurations that override the global settings
+   * If provided for a measurement type, these settings take precedence over global settings
+   *
+   * @generated from field: repeated fleetmanagement.v1.MeasurementConfig measurement_configs = 5;
+   */
+  measurementConfigs: MeasurementConfig[];
 
-    /**
-     * Filter criteria for the miners to return
-     *
-     * @generated from field: fleetmanagement.v1.MinerListFilter filter = 6;
-     */
-    filter?: MinerListFilter;
-  };
+  /**
+   * Filter criteria for the miners to return
+   *
+   * @generated from field: fleetmanagement.v1.MinerListFilter filter = 6;
+   */
+  filter?: MinerListFilter;
+};
 
 /**
  * Describes the message fleetmanagement.v1.ListMinerStateSnapshotsRequest.
@@ -521,23 +499,22 @@ export const ListMinerStateSnapshotsRequestSchema: GenMessage<ListMinerStateSnap
  *
  * @generated from message fleetmanagement.v1.ComponentStatusFilter
  */
-export type ComponentStatusFilter =
-  Message<"fleetmanagement.v1.ComponentStatusFilter"> & {
-    /**
-     * The component to filter by
-     *
-     * @generated from field: fleetmanagement.v1.ComponentType component = 1;
-     */
-    component: ComponentType;
+export type ComponentStatusFilter = Message<"fleetmanagement.v1.ComponentStatusFilter"> & {
+  /**
+   * The component to filter by
+   *
+   * @generated from field: fleetmanagement.v1.ComponentType component = 1;
+   */
+  component: ComponentType;
 
-    /**
-     * One or more statuses to filter by (acts as OR condition)
-     * Returns miners where the specified component has any of these statuses
-     *
-     * @generated from field: repeated fleetmanagement.v1.ComponentStatus statuses = 2;
-     */
-    statuses: ComponentStatus[];
-  };
+  /**
+   * One or more statuses to filter by (acts as OR condition)
+   * Returns miners where the specified component has any of these statuses
+   *
+   * @generated from field: repeated fleetmanagement.v1.ComponentStatus statuses = 2;
+   */
+  statuses: ComponentStatus[];
+};
 
 /**
  * Describes the message fleetmanagement.v1.ComponentStatusFilter.
@@ -611,50 +588,49 @@ export const MinerListFilterSchema: GenMessage<MinerListFilter> =
  *
  * @generated from message fleetmanagement.v1.ListMinerStateSnapshotsResponse
  */
-export type ListMinerStateSnapshotsResponse =
-  Message<"fleetmanagement.v1.ListMinerStateSnapshotsResponse"> & {
-    /**
-     * List of miners with their telemetry data
-     * Contains either snapshot or time series data based on the request
-     *
-     * @generated from field: repeated fleetmanagement.v1.MinerStateSnapshot miners = 1;
-     */
-    miners: MinerStateSnapshot[];
+export type ListMinerStateSnapshotsResponse = Message<"fleetmanagement.v1.ListMinerStateSnapshotsResponse"> & {
+  /**
+   * List of miners with their telemetry data
+   * Contains either snapshot or time series data based on the request
+   *
+   * @generated from field: repeated fleetmanagement.v1.MinerStateSnapshot miners = 1;
+   */
+  miners: MinerStateSnapshot[];
 
-    /**
-     * The pagination cursor to be used in a subsequent request
-     * If empty, this is the final page of results
-     *
-     * @generated from field: string cursor = 2;
-     */
-    cursor: string;
+  /**
+   * The pagination cursor to be used in a subsequent request
+   * If empty, this is the final page of results
+   *
+   * @generated from field: string cursor = 2;
+   */
+  cursor: string;
 
-    /**
-     * Total number of miners available across all pages
-     * Useful for UI pagination controls
-     *
-     * @generated from field: int32 total_miners = 3;
-     */
-    totalMiners: number;
+  /**
+   * Total number of miners available across all pages
+   * Useful for UI pagination controls
+   *
+   * @generated from field: int32 total_miners = 3;
+   */
+  totalMiners: number;
 
-    /**
-     * Counts of miners in different states
-     * This includes counts for all miners, not just the ones in the current page
-     * Status filters do not affect these counts, because they act as OR condition.
-     *
-     * @generated from field: telemetry.v1.MinerStateCounts total_state_counts = 4;
-     */
-    totalStateCounts?: MinerStateCounts;
+  /**
+   * Counts of miners in different states
+   * This includes counts for all miners, not just the ones in the current page
+   * Status filters do not affect these counts, because they act as OR condition.
+   *
+   * @generated from field: telemetry.v1.MinerStateCounts total_state_counts = 4;
+   */
+  totalStateCounts?: MinerStateCounts;
 
-    /**
-     * List of all miner types that exist in the user's fleet
-     * Useful for dynamically building type filter options in the UI
-     * This includes all types across all pages, not just the current page
-     *
-     * @generated from field: repeated fleetmanagement.v1.MinerType miner_types = 5;
-     */
-    minerTypes: MinerType[];
-  };
+  /**
+   * List of all miner types that exist in the user's fleet
+   * Useful for dynamically building type filter options in the UI
+   * This includes all types across all pages, not just the current page
+   *
+   * @generated from field: repeated fleetmanagement.v1.MinerType miner_types = 5;
+   */
+  minerTypes: MinerType[];
+};
 
 /**
  * Describes the message fleetmanagement.v1.ListMinerStateSnapshotsResponse.
@@ -667,36 +643,35 @@ export const ListMinerStateSnapshotsResponseSchema: GenMessage<ListMinerStateSna
 /**
  * @generated from message fleetmanagement.v1.StreamMinerUpdatesRequest
  */
-export type StreamMinerUpdatesRequest =
-  Message<"fleetmanagement.v1.StreamMinerUpdatesRequest"> & {
-    /**
-     * Filter for specific miners (empty means all miners)
-     *
-     * @generated from field: repeated string device_identifiers = 1;
-     */
-    deviceIdentifiers: string[];
+export type StreamMinerUpdatesRequest = Message<"fleetmanagement.v1.StreamMinerUpdatesRequest"> & {
+  /**
+   * Filter for specific miners (empty means all miners)
+   *
+   * @generated from field: repeated string device_identifiers = 1;
+   */
+  deviceIdentifiers: string[];
 
-    /**
-     * Types of measurements to stream
-     *
-     * @generated from field: repeated fleetmanagement.v1.MeasurementConfig.MeasurementType measurement_types = 2;
-     */
-    measurementTypes: MeasurementConfig_MeasurementType[];
+  /**
+   * Types of measurements to stream
+   *
+   * @generated from field: repeated fleetmanagement.v1.MeasurementConfig.MeasurementType measurement_types = 2;
+   */
+  measurementTypes: MeasurementConfig_MeasurementType[];
 
-    /**
-     * Whether to include component status updates
-     *
-     * @generated from field: bool include_status_updates = 3;
-     */
-    includeStatusUpdates: boolean;
+  /**
+   * Whether to include component status updates
+   *
+   * @generated from field: bool include_status_updates = 3;
+   */
+  includeStatusUpdates: boolean;
 
-    /**
-     * Optional heartbeat interval in seconds (0 means no heartbeats)
-     *
-     * @generated from field: int32 heartbeat_interval_seconds = 4;
-     */
-    heartbeatIntervalSeconds: number;
-  };
+  /**
+   * Optional heartbeat interval in seconds (0 means no heartbeats)
+   *
+   * @generated from field: int32 heartbeat_interval_seconds = 4;
+   */
+  heartbeatIntervalSeconds: number;
+};
 
 /**
  * Describes the message fleetmanagement.v1.StreamMinerUpdatesRequest.
@@ -709,66 +684,65 @@ export const StreamMinerUpdatesRequestSchema: GenMessage<StreamMinerUpdatesReque
 /**
  * @generated from message fleetmanagement.v1.StreamMinerUpdatesResponse
  */
-export type StreamMinerUpdatesResponse =
-  Message<"fleetmanagement.v1.StreamMinerUpdatesResponse"> & {
-    /**
-     * Timestamp when this update was generated
-     *
-     * @generated from field: google.protobuf.Timestamp timestamp = 1;
-     */
-    timestamp?: Timestamp;
+export type StreamMinerUpdatesResponse = Message<"fleetmanagement.v1.StreamMinerUpdatesResponse"> & {
+  /**
+   * Timestamp when this update was generated
+   *
+   * @generated from field: google.protobuf.Timestamp timestamp = 1;
+   */
+  timestamp?: Timestamp;
 
-    /**
-     * Identifier of the miner this update is for
-     *
-     * @generated from field: string device_identifier = 2;
-     */
-    deviceIdentifier: string;
+  /**
+   * Identifier of the miner this update is for
+   *
+   * @generated from field: string device_identifier = 2;
+   */
+  deviceIdentifier: string;
 
-    /**
-     * Type of update
-     *
-     * @generated from oneof fleetmanagement.v1.StreamMinerUpdatesResponse.update
-     */
-    update:
-      | {
-          /**
-           * New measurement value
-           *
-           * @generated from field: fleetmanagement.v1.MeasurementUpdate measurement = 3;
-           */
-          value: MeasurementUpdate;
-          case: "measurement";
-        }
-      | {
-          /**
-           * Component status change
-           *
-           * @generated from field: fleetmanagement.v1.ComponentStatusUpdate status = 4;
-           */
-          value: ComponentStatusUpdate;
-          case: "status";
-        }
-      | {
-          /**
-           * Heartbeat to keep connection alive (no data)
-           *
-           * @generated from field: fleetmanagement.v1.Heartbeat heartbeat = 5;
-           */
-          value: Heartbeat;
-          case: "heartbeat";
-        }
-      | {
-          /**
-           * Device status update
-           *
-           * @generated from field: fleetmanagement.v1.DeviceStatusUpdate device_status = 6;
-           */
-          value: DeviceStatusUpdate;
-          case: "deviceStatus";
-        }
-      | { case: undefined; value?: undefined };
-  };
+  /**
+   * Type of update
+   *
+   * @generated from oneof fleetmanagement.v1.StreamMinerUpdatesResponse.update
+   */
+  update:
+    | {
+        /**
+         * New measurement value
+         *
+         * @generated from field: fleetmanagement.v1.MeasurementUpdate measurement = 3;
+         */
+        value: MeasurementUpdate;
+        case: "measurement";
+      }
+    | {
+        /**
+         * Component status change
+         *
+         * @generated from field: fleetmanagement.v1.ComponentStatusUpdate status = 4;
+         */
+        value: ComponentStatusUpdate;
+        case: "status";
+      }
+    | {
+        /**
+         * Heartbeat to keep connection alive (no data)
+         *
+         * @generated from field: fleetmanagement.v1.Heartbeat heartbeat = 5;
+         */
+        value: Heartbeat;
+        case: "heartbeat";
+      }
+    | {
+        /**
+         * Device status update
+         *
+         * @generated from field: fleetmanagement.v1.DeviceStatusUpdate device_status = 6;
+         */
+        value: DeviceStatusUpdate;
+        case: "deviceStatus";
+      }
+    | { case: undefined; value?: undefined };
+};
 
 /**
  * Describes the message fleetmanagement.v1.StreamMinerUpdatesResponse.
@@ -781,22 +755,21 @@ export const StreamMinerUpdatesResponseSchema: GenMessage<StreamMinerUpdatesResp
 /**
  * @generated from message fleetmanagement.v1.MeasurementUpdate
  */
-export type MeasurementUpdate =
-  Message<"fleetmanagement.v1.MeasurementUpdate"> & {
-    /**
-     * Type of measurement being updated
-     *
-     * @generated from field: fleetmanagement.v1.MeasurementConfig.MeasurementType measurement_type = 1;
-     */
-    measurementType: MeasurementConfig_MeasurementType;
+export type MeasurementUpdate = Message<"fleetmanagement.v1.MeasurementUpdate"> & {
+  /**
+   * Type of measurement being updated
+   *
+   * @generated from field: fleetmanagement.v1.MeasurementConfig.MeasurementType measurement_type = 1;
+   */
+  measurementType: MeasurementConfig_MeasurementType;
 
-    /**
-     * The new measurement value
-     *
-     * @generated from field: common.v1.Measurement measurement = 2;
-     */
-    measurement?: Measurement;
-  };
+  /**
+   * The new measurement value
+   *
+   * @generated from field: common.v1.Measurement measurement = 2;
+   */
+  measurement?: Measurement;
+};
 
 /**
  * Describes the message fleetmanagement.v1.MeasurementUpdate.
@@ -809,22 +782,21 @@ export const MeasurementUpdateSchema: GenMessage<MeasurementUpdate> =
 /**
  * @generated from message fleetmanagement.v1.ComponentStatusUpdate
  */
-export type ComponentStatusUpdate =
-  Message<"fleetmanagement.v1.ComponentStatusUpdate"> & {
-    /**
-     * Which component changed
-     *
-     * @generated from field: fleetmanagement.v1.ComponentStatusUpdate.Component component = 1;
-     */
-    component: ComponentStatusUpdate_Component;
+export type ComponentStatusUpdate = Message<"fleetmanagement.v1.ComponentStatusUpdate"> & {
+  /**
+   * Which component changed
+   *
+   * @generated from field: fleetmanagement.v1.ComponentStatusUpdate.Component component = 1;
+   */
+  component: ComponentStatusUpdate_Component;
 
-    /**
-     * New status of the component
-     *
-     * @generated from field: fleetmanagement.v1.ComponentStatus status = 2;
-     */
-    status: ComponentStatus;
-  };
+  /**
+   * New status of the component
+   *
+   * @generated from field: fleetmanagement.v1.ComponentStatus status = 2;
+   */
+  status: ComponentStatus;
+};
 
 /**
  * Describes the message fleetmanagement.v1.ComponentStatusUpdate.
@@ -891,15 +863,14 @@ export const HeartbeatSchema: GenMessage<Heartbeat> =
 /**
  * @generated from message fleetmanagement.v1.DeviceStatusUpdate
  */
-export type DeviceStatusUpdate =
-  Message<"fleetmanagement.v1.DeviceStatusUpdate"> & {
-    /**
-     * The new status of the device
-     *
-     * @generated from field: fleetmanagement.v1.DeviceStatus status = 1;
-     */
-    status: DeviceStatus;
-  };
+export type DeviceStatusUpdate = Message<"fleetmanagement.v1.DeviceStatusUpdate"> & {
+  /**
+   * The new status of the device
+   *
+   * @generated from field: fleetmanagement.v1.DeviceStatus status = 1;
+   */
+  status: DeviceStatus;
+};
 
 /**
  * Describes the message fleetmanagement.v1.DeviceStatusUpdate.
@@ -916,43 +887,42 @@ export const DeviceStatusUpdateSchema: GenMessage<DeviceStatusUpdate> =
  *
  * @generated from message fleetmanagement.v1.StreamMinerListUpdatesRequest
  */
-export type StreamMinerListUpdatesRequest =
-  Message<"fleetmanagement.v1.StreamMinerListUpdatesRequest"> & {
-    /**
-     * Filter criteria for miners to track
-     *
-     * @generated from field: fleetmanagement.v1.MinerListFilter filter = 1;
-     */
-    filter?: MinerListFilter;
+export type StreamMinerListUpdatesRequest = Message<"fleetmanagement.v1.StreamMinerListUpdatesRequest"> & {
+  /**
+   * Filter criteria for miners to track
+   *
+   * @generated from field: fleetmanagement.v1.MinerListFilter filter = 1;
+   */
+  filter?: MinerListFilter;
 
-    /**
-     * Global data mode for measurements (for initial snapshot and additions)
-     *
-     * @generated from field: fleetmanagement.v1.DataMode data_mode = 2;
-     */
-    dataMode: DataMode;
+  /**
+   * Global data mode for measurements (for initial snapshot and additions)
+   *
+   * @generated from field: fleetmanagement.v1.DataMode data_mode = 2;
+   */
+  dataMode: DataMode;
 
-    /**
-     * Global time series config (if using TIME_SERIES mode)
-     *
-     * @generated from field: common.v1.TimeSeriesConfig time_series_config = 3;
-     */
-    timeSeriesConfig?: TimeSeriesConfig;
+  /**
+   * Global time series config (if using TIME_SERIES mode)
+   *
+   * @generated from field: common.v1.TimeSeriesConfig time_series_config = 3;
+   */
+  timeSeriesConfig?: TimeSeriesConfig;
 
-    /**
-     * Per-measurement configurations
-     *
-     * @generated from field: repeated fleetmanagement.v1.MeasurementConfig measurement_configs = 4;
-     */
-    measurementConfigs: MeasurementConfig[];
+  /**
+   * Per-measurement configurations
+   *
+   * @generated from field: repeated fleetmanagement.v1.MeasurementConfig measurement_configs = 4;
+   */
+  measurementConfigs: MeasurementConfig[];
 
-    /**
-     * Heartbeat interval in seconds (0 means no heartbeats)
-     *
-     * @generated from field: int32 heartbeat_interval_seconds = 5;
-     */
-    heartbeatIntervalSeconds: number;
-  };
+  /**
+   * Heartbeat interval in seconds (0 means no heartbeats)
+   *
+   * @generated from field: int32 heartbeat_interval_seconds = 5;
+   */
+  heartbeatIntervalSeconds: number;
+};
 
 /**
  * Describes the message fleetmanagement.v1.StreamMinerListUpdatesRequest.
@@ -967,41 +937,40 @@ export const StreamMinerListUpdatesRequestSchema: GenMessage<StreamMinerListUpda
  *
  * @generated from message fleetmanagement.v1.StreamMinerListUpdatesResponse
  */
-export type StreamMinerListUpdatesResponse =
-  Message<"fleetmanagement.v1.StreamMinerListUpdatesResponse"> & {
-    /**
-     * Timestamp when this update was generated
-     *
-     * @generated from field: google.protobuf.Timestamp timestamp = 1;
-     */
-    timestamp?: Timestamp;
+export type StreamMinerListUpdatesResponse = Message<"fleetmanagement.v1.StreamMinerListUpdatesResponse"> & {
+  /**
+   * Timestamp when this update was generated
+   *
+   * @generated from field: google.protobuf.Timestamp timestamp = 1;
+   */
+  timestamp?: Timestamp;
 
-    /**
-     * Type of update
-     *
-     * @generated from oneof fleetmanagement.v1.StreamMinerListUpdatesResponse.update
-     */
-    update:
-      | {
-          /**
-           * Delta updates - sent when list composition changes
-           *
-           * @generated from field: fleetmanagement.v1.MinerListDelta delta = 2;
-           */
-          value: MinerListDelta;
-          case: "delta";
-        }
-      | {
-          /**
-           * Heartbeat to keep connection alive
-           *
-           * @generated from field: fleetmanagement.v1.Heartbeat heartbeat = 3;
-           */
-          value: Heartbeat;
-          case: "heartbeat";
-        }
-      | { case: undefined; value?: undefined };
-  };
+  /**
+   * Type of update
+   *
+   * @generated from oneof fleetmanagement.v1.StreamMinerListUpdatesResponse.update
+   */
+  update:
+    | {
+        /**
+         * Delta updates - sent when list composition changes
+         *
+         * @generated from field: fleetmanagement.v1.MinerListDelta delta = 2;
+         */
+        value: MinerListDelta;
+        case: "delta";
+      }
+    | {
+        /**
+         * Heartbeat to keep connection alive
+         *
+         * @generated from field: fleetmanagement.v1.Heartbeat heartbeat = 3;
+         */
+        value: Heartbeat;
+        case: "heartbeat";
+      }
+    | { case: undefined; value?: undefined };
+};
 
 /**
  * Describes the message fleetmanagement.v1.StreamMinerListUpdatesResponse.
@@ -1248,9 +1217,7 @@ export enum DataMode {
 /**
  * Describes the enum fleetmanagement.v1.DataMode.
  */
-export const DataModeSchema: GenEnum<DataMode> =
-  /*@__PURE__*/
-  enumDesc(file_fleetmanagement_v1_fleetmanagement, 3);
+export const DataModeSchema: GenEnum<DataMode> = /*@__PURE__*/ enumDesc(file_fleetmanagement_v1_fleetmanagement, 3);
 
 /**
  * Type of miner
@@ -1283,9 +1250,7 @@ export enum MinerType {
 /**
  * Describes the enum fleetmanagement.v1.MinerType.
  */
-export const MinerTypeSchema: GenEnum<MinerType> =
-  /*@__PURE__*/
-  enumDesc(file_fleetmanagement_v1_fleetmanagement, 4);
+export const MinerTypeSchema: GenEnum<MinerType> = /*@__PURE__*/ enumDesc(file_fleetmanagement_v1_fleetmanagement, 4);
 
 /**
  * Pairing status of a device

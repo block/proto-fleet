@@ -10,13 +10,7 @@ interface SegmentProps {
   onSelect: () => void;
 }
 
-const Segment = ({
-  segmentRef,
-  className,
-  segment,
-  selected = false,
-  onSelect,
-}: SegmentProps) => {
+const Segment = ({ segmentRef, className, segment, selected = false, onSelect }: SegmentProps) => {
   const onKeyDown = (key: string) => {
     if (key === "Enter") {
       onSelect();
@@ -33,9 +27,7 @@ const Segment = ({
       onMouseDown={onSelect}
       onKeyDown={(e: KeyboardEvent<HTMLButtonElement>) => onKeyDown(e.key)}
     >
-      <div className={clsx("relative z-10 px-3 py-1", className)}>
-        {segment.title}
-      </div>
+      <div className={clsx("relative z-10 px-3 py-1", className)}>{segment.title}</div>
     </button>
   );
 };

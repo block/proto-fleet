@@ -12,13 +12,7 @@ interface PoolRowProps {
   testId?: string;
 }
 
-const PoolRow = ({
-  poolIndex,
-  title,
-  onClick,
-  pools,
-  testId,
-}: PoolRowProps) => {
+const PoolRow = ({ poolIndex, title, onClick, pools, testId }: PoolRowProps) => {
   const url = useMemo(() => pools[poolIndex]?.url, [pools, poolIndex]);
 
   return (
@@ -26,10 +20,7 @@ const PoolRow = ({
       <div className="flex flex-col">
         <div>{title}</div>
         {url ? (
-          <div
-            className="text-200 text-text-primary-70"
-            data-testid={`pool-${poolIndex}-saved-url`}
-          >
+          <div className="text-200 text-text-primary-70" data-testid={`pool-${poolIndex}-saved-url`}>
             {url}
           </div>
         ) : (

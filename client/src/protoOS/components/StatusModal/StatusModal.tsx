@@ -1,11 +1,7 @@
 import { useCallback, useState } from "react";
 import { useComponentHardware, useComponentTelemetry } from "./hooks";
 import type { ComponentAddress, ProtoOSStatusModalProps } from "./types";
-import {
-  buildComponentStatusProps,
-  getComponentTitle,
-  transformErrorsForModal,
-} from "./utils";
+import { buildComponentStatusProps, getComponentTitle, transformErrorsForModal } from "./utils";
 import { useCoolingStatus } from "@/protoOS/api/hooks/useCoolingStatus";
 import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
 import { WakingDialog } from "@/protoOS/components/Power";
@@ -15,10 +11,7 @@ import { useErrors, useGroupedErrors, useIsSleeping } from "@/protoOS/store";
 import type { ErrorSource } from "@/protoOS/store/types";
 import { variants } from "@/shared/components/Button";
 import { StatusModal as SharedStatusModal } from "@/shared/components/StatusModal";
-import type {
-  ComponentStatusData,
-  MinerStatusData,
-} from "@/shared/components/StatusModal/types";
+import type { ComponentStatusData, MinerStatusData } from "@/shared/components/StatusModal/types";
 
 /**
  * ProtoOS-specific StatusModal wrapper that integrates with the store
@@ -40,16 +33,9 @@ import type {
  * />
  * ```
  */
-const ProtoOSStatusModal = ({
-  show,
-  onClose,
-  componentAddress,
-  showBackButton = true,
-}: ProtoOSStatusModalProps) => {
+const ProtoOSStatusModal = ({ show, onClose, componentAddress, showBackButton = true }: ProtoOSStatusModalProps) => {
   // Component navigation state
-  const [component, setComponent] = useState<ComponentAddress | undefined>(
-    componentAddress,
-  );
+  const [component, setComponent] = useState<ComponentAddress | undefined>(componentAddress);
 
   // ProtoOS store hooks
   const errors = useErrors();
@@ -78,14 +64,8 @@ const ProtoOSStatusModal = ({
   const componentIndex = component?.componentIndex;
 
   // Fetch telemetry and hardware data for the selected component
-  const componentTelemetry = useComponentTelemetry(
-    componentSource,
-    componentIndex,
-  );
-  const componentHardware = useComponentHardware(
-    componentSource,
-    componentIndex,
-  );
+  const componentTelemetry = useComponentTelemetry(componentSource, componentIndex);
+  const componentHardware = useComponentHardware(componentSource, componentIndex);
 
   // getMinerStatus function - returns complete data including config
   const getMinerStatus = useCallback((): MinerStatusData => {
@@ -96,16 +76,10 @@ const ProtoOSStatusModal = ({
 
     // Transform grouped errors with click handlers (using hook's grouping)
     const errorsBySource = {
-      hashboard: transformErrorsForModal(
-        groupedErrors.hashboard || [],
-        onClickHandler,
-      ),
+      hashboard: transformErrorsForModal(groupedErrors.hashboard || [], onClickHandler),
       psu: transformErrorsForModal(groupedErrors.psu || [], onClickHandler),
       fan: transformErrorsForModal(groupedErrors.fan || [], onClickHandler),
-      controlBoard: transformErrorsForModal(
-        groupedErrors.system || [],
-        onClickHandler,
-      ),
+      controlBoard: transformErrorsForModal(groupedErrors.system || [], onClickHandler),
     };
 
     // Build buttons
@@ -146,13 +120,7 @@ const ProtoOSStatusModal = ({
 
       // Use the telemetry and hardware data from hooks
       // Note: These hooks will be updated when the component changes
-      const props = buildComponentStatusProps(
-        source,
-        componentIndex,
-        errors,
-        componentTelemetry,
-        componentHardware,
-      );
+      const props = buildComponentStatusProps(source, componentIndex, errors, componentTelemetry, componentHardware);
 
       if (!props) {
         // Return undefined if component not found

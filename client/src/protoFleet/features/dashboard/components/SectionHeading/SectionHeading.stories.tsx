@@ -7,22 +7,13 @@ interface SectionHeadingArgs {
   controlType: "none" | "durationSelector" | "button";
 }
 
-export const SectionHeading = ({
-  heading,
-  controlType,
-}: SectionHeadingArgs) => {
+export const SectionHeading = ({ heading, controlType }: SectionHeadingArgs) => {
   const renderControls = () => {
     switch (controlType) {
       case "durationSelector":
         return <DurationSelector />;
       case "button":
-        return (
-          <Button
-            variant={variants.secondary}
-            size={sizes.compact}
-            text="Manage fleet"
-          />
-        );
+        return <Button variant={variants.secondary} size={sizes.compact} text="Manage fleet" />;
       case "none":
       default:
         return null;
@@ -31,9 +22,7 @@ export const SectionHeading = ({
 
   return (
     <div className="bg-surface-5 p-10">
-      <SectionHeadingComponent heading={heading}>
-        {renderControls()}
-      </SectionHeadingComponent>
+      <SectionHeadingComponent heading={heading}>{renderControls()}</SectionHeadingComponent>
     </div>
   );
 };

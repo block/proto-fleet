@@ -43,9 +43,7 @@ describe("Login Modal", () => {
     const { getByTestId, queryByTestId } = component;
     fireEvent.click(getByTestId(forgotPassword));
     fireEvent.click(getByTestId(forgotPasswordBack));
-    await waitFor(() =>
-      expect(queryByTestId(forgotPasswordInstructions)).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(queryByTestId(forgotPasswordInstructions)).not.toBeInTheDocument());
   });
 
   test("username field is non-editable", () => {

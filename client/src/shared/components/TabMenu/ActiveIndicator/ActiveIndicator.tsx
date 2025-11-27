@@ -9,12 +9,7 @@ type ActiveIndicatorProps = {
 };
 
 const ActiveIndicator = memo(
-  ({
-    activeIndex,
-    activeIndicatorTransX,
-    activeIndicatorTransY,
-    shouldAnimate,
-  }: ActiveIndicatorProps) => {
+  ({ activeIndex, activeIndicatorTransX, activeIndicatorTransY, shouldAnimate }: ActiveIndicatorProps) => {
     return (
       <div
         data-testid="active-indicator"

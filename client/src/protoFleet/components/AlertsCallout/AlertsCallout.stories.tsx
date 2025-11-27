@@ -8,15 +8,9 @@ interface AlertsCalloutArgs {
   numberOfMinersInFleet: number;
 }
 
-export const AlertsCallout = ({
-  numberOfAlerts,
-  numberOfMinersInFleet,
-}: AlertsCalloutArgs) => {
+export const AlertsCallout = ({ numberOfAlerts, numberOfMinersInFleet }: AlertsCalloutArgs) => {
   return (
-    <AlertsCalloutComponent
-      alerts={alerts.slice(0, numberOfAlerts)}
-      numberOfMinersInFleet={numberOfMinersInFleet}
-    />
+    <AlertsCalloutComponent alerts={alerts.slice(0, numberOfAlerts)} numberOfMinersInFleet={numberOfMinersInFleet} />
   );
 };
 

@@ -26,22 +26,14 @@ export interface StatusModalLayoutProps {
  * Shared layout component for status modals
  * Provides consistent structure for both MinerStatusModal and ComponentStatusModal
  */
-const StatusModalLayout = ({
-  icon,
-  title,
-  subtitle,
-  errors,
-  children,
-}: StatusModalLayoutProps) => {
+const StatusModalLayout = ({ icon, title, subtitle, errors, children }: StatusModalLayoutProps) => {
   return (
     <div className="space-y-6">
       {/* Header section - always rendered consistently */}
       <div className="mt-6 flex flex-col gap-2">
         {icon}
         <div className="text-heading-300 text-text-primary">{title}</div>
-        {subtitle && (
-          <div className="text-300 text-text-primary-50">{subtitle}</div>
-        )}
+        {subtitle && <div className="text-300 text-text-primary-50">{subtitle}</div>}
       </div>
 
       {/* Error list section */}

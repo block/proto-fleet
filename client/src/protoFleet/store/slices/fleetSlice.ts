@@ -25,10 +25,7 @@ import { getLatestMeasurementWithData } from "@/shared/utils/measurementUtils";
 // Helper Functions
 // =============================================================================
 
-function updateMeasurement(
-  measurementUpdate: MeasurementUpdate,
-  miner: MinerStateSnapshot,
-): void {
+function updateMeasurement(measurementUpdate: MeasurementUpdate, miner: MinerStateSnapshot): void {
   const type = measurementUpdate.measurementType;
   const measurement = measurementUpdate.measurement;
 
@@ -41,8 +38,7 @@ function updateMeasurement(
     [MeasurementConfig_MeasurementType.EFFICIENCY]: "efficiency",
   } as const;
 
-  const propertyName =
-    measurementTypeToProperty[type as keyof typeof measurementTypeToProperty];
+  const propertyName = measurementTypeToProperty[type as keyof typeof measurementTypeToProperty];
 
   if (propertyName) {
     const currentValues = miner[propertyName];
@@ -55,10 +51,7 @@ function updateMeasurement(
   }
 }
 
-function updateTelemetryMeasurement(
-  telemetryUpdate: TelemetryUpdate,
-  miner: MinerStateSnapshot,
-): void {
+function updateTelemetryMeasurement(telemetryUpdate: TelemetryUpdate, miner: MinerStateSnapshot): void {
   if (!telemetryUpdate.data) return;
 
   const type = telemetryUpdate.data.measurementType;
@@ -78,8 +71,7 @@ function updateTelemetryMeasurement(
     [MeasurementType.EFFICIENCY]: "efficiency",
   } as const;
 
-  const propertyName =
-    measurementTypeToProperty[type as keyof typeof measurementTypeToProperty];
+  const propertyName = measurementTypeToProperty[type as keyof typeof measurementTypeToProperty];
 
   if (propertyName) {
     const currentValues = miner[propertyName];
@@ -92,10 +84,7 @@ function updateTelemetryMeasurement(
   }
 }
 
-function updateComponentStatus(
-  { status, component }: ComponentStatusUpdate,
-  miner: MinerStateSnapshot,
-): void {
+function updateComponentStatus({ status, component }: ComponentStatusUpdate, miner: MinerStateSnapshot): void {
   if (!miner.status) {
     miner.status = {
       controlBoard: 0,
@@ -112,17 +101,13 @@ function updateComponentStatus(
     [ComponentStatusUpdate_Component.PSU]: "psu",
   } as const;
 
-  const propertyName =
-    componentToProperty[component as keyof typeof componentToProperty];
+  const propertyName = componentToProperty[component as keyof typeof componentToProperty];
   if (propertyName) {
     miner.status[propertyName] = status;
   }
 }
 
-function updateDeviceStatus(
-  deviceStatus: DeviceStatusUpdate,
-  miner: MinerStateSnapshot,
-): void {
+function updateDeviceStatus(deviceStatus: DeviceStatusUpdate, miner: MinerStateSnapshot): void {
   if (!miner.deviceStatus) {
     miner.deviceStatus = DeviceStatus.UNSPECIFIED;
   }
@@ -172,22 +157,10 @@ export interface FleetSlice {
   setDeviceStatusCounts: (counts: MinerStateCounts) => void;
   setTemperatureStatusCounts: (counts: TemperatureStatusCount[]) => void;
   setRefetchCallback: (callback?: () => void) => void;
-  updateMinerMeasurement: (
-    deviceId: string,
-    measurement: MeasurementUpdate,
-  ) => void;
-  updateMinerTelemetry: (
-    deviceId: string,
-    telemetryUpdate: TelemetryUpdate,
-  ) => void;
-  updateMinerComponentStatus: (
-    deviceId: string,
-    status: ComponentStatusUpdate,
-  ) => void;
-  updateMinerDeviceStatus: (
-    deviceId: string,
-    deviceStatusUpdate: DeviceStatusUpdate,
-  ) => void;
+  updateMinerMeasurement: (deviceId: string, measurement: MeasurementUpdate) => void;
+  updateMinerTelemetry: (deviceId: string, telemetryUpdate: TelemetryUpdate) => void;
+  updateMinerComponentStatus: (deviceId: string, status: ComponentStatusUpdate) => void;
+  updateMinerDeviceStatus: (deviceId: string, deviceStatusUpdate: DeviceStatusUpdate) => void;
   updateMinerTimestamp: (deviceId: string, timestamp: any) => void;
   setLoading: (loading: boolean) => void;
   setStreaming: (streaming: boolean) => void;
@@ -203,12 +176,7 @@ export interface FleetSlice {
 // Fleet Slice Creator
 // =============================================================================
 
-export const createFleetSlice: StateCreator<
-  FleetStore,
-  [["zustand/immer", never]],
-  [],
-  FleetSlice
-> = (set, get) => ({
+export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never]], [], FleetSlice> = (set, get) => ({
   // Initial state
   miners: {},
   minerIds: [],
@@ -249,9 +217,7 @@ export const createFleetSlice: StateCreator<
   addMiners: (additions) =>
     set((state) => {
       // Sort additions by position to process in order
-      const sortedAdditions = [...additions].sort(
-        (a, b) => a.position - b.position,
-      );
+      const sortedAdditions = [...additions].sort((a, b) => a.position - b.position);
 
       sortedAdditions.forEach((addition) => {
         const miner = addition.miner;
@@ -267,9 +233,7 @@ export const createFleetSlice: StateCreator<
         state.fleet.miners[miner.deviceIdentifier] = miner;
 
         // Remove from current position if it exists
-        const currentIndex = state.fleet.minerIds.indexOf(
-          miner.deviceIdentifier,
-        );
+        const currentIndex = state.fleet.minerIds.indexOf(miner.deviceIdentifier);
         if (currentIndex !== -1) {
           state.fleet.minerIds.splice(currentIndex, 1);
         }
@@ -377,9 +341,7 @@ export const createFleetSlice: StateCreator<
   // Selectors
   getMinersArray: () => {
     const state = get();
-    return state.fleet.minerIds
-      .map((id) => state.fleet.miners[id])
-      .filter(Boolean);
+    return state.fleet.minerIds.map((id) => state.fleet.miners[id]).filter(Boolean);
   },
 
   isHashing: (deviceId: string) => {

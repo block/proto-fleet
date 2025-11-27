@@ -19,11 +19,7 @@ interface SingleMinerActionsMenuProps {
   onActionComplete?: () => void;
 }
 
-const SingleMinerActionsMenu = ({
-  deviceIdentifier,
-  onActionStart,
-  onActionComplete,
-}: SingleMinerActionsMenuProps) => {
+const SingleMinerActionsMenu = ({ deviceIdentifier, onActionStart, onActionComplete }: SingleMinerActionsMenuProps) => {
   const selectedMiners = useMemo(() => [deviceIdentifier], [deviceIdentifier]);
 
   const {
@@ -144,9 +140,7 @@ const SingleMinerActionsMenuInner = ({
       <Button
         size={sizes.compact}
         variant={variants.textOnly}
-        prefixIcon={
-          <Ellipsis width={iconSizes.small} className="text-text-primary-70" />
-        }
+        prefixIcon={<Ellipsis width={iconSizes.small} className="text-text-primary-70" />}
         testId="single-miner-actions-menu-button"
         onClick={(e) => {
           e.stopPropagation();

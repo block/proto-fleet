@@ -7,11 +7,7 @@ interface WarnDiscardDialogProps {
   show: boolean;
 }
 
-const WarnDiscardDialog = ({
-  continueEditing,
-  onDiscard,
-  show,
-}: WarnDiscardDialogProps) => {
+const WarnDiscardDialog = ({ continueEditing, onDiscard, show }: WarnDiscardDialogProps) => {
   return (
     <Dialog
       title="Discard changes?"

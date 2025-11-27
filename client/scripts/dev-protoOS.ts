@@ -33,9 +33,7 @@ if (!useMinefield) {
   const PROXY_URL = process.env.PROXY_URL;
 
   if (!PROXY_URL) {
-    console.error(
-      "ERROR: --minefield flag is set but PROXY_URL is not defined in .env",
-    );
+    console.error("ERROR: --minefield flag is set but PROXY_URL is not defined in .env");
     console.error("Please set PROXY_URL to your target miner URL");
     process.exit(1);
   }
@@ -50,9 +48,7 @@ if (!useMinefield) {
     autoBuild: true,
   })
     .then((minefield) => {
-      console.log(
-        `\nMinefield control UI available at http://localhost:${minefield.controlPort}\n`,
-      );
+      console.log(`\nMinefield control UI available at http://localhost:${minefield.controlPort}\n`);
       console.log("Starting ProtoOS dev server...");
       console.log(`ProtoOS will connect to minefield at ${MINEFIELD_URL}\n`);
 

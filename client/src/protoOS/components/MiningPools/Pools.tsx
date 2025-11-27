@@ -5,11 +5,7 @@ import BackupPoolModalWrapper from "@/protoOS/components/MiningPools/BackupPoolM
 import Button, { sizes, variants } from "@/shared/components/Button";
 import PoolForm from "@/shared/components/MiningPools/PoolForm";
 import PoolRow from "@/shared/components/MiningPools/PoolRow";
-import {
-  BackupPoolIndex,
-  PoolIndex,
-  PoolInfo,
-} from "@/shared/components/MiningPools/types";
+import { BackupPoolIndex, PoolIndex, PoolInfo } from "@/shared/components/MiningPools/types";
 import { debounce, deepClone } from "@/shared/utils/utility";
 
 interface PoolsProps {
@@ -58,9 +54,7 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
   return (
     <div>
       <div className="mb-4 flex items-center">
-        <div className="grow text-heading-100 text-text-primary">
-          Default pool
-        </div>
+        <div className="grow text-heading-100 text-text-primary">Default pool</div>
         <Button
           text="Test connection"
           onClick={() => setShouldTestConnection(true)}
@@ -84,9 +78,7 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
       />
 
       <div className="mt-10">
-        <div className="mb-1 text-heading-100 text-text-primary">
-          Backup pools
-        </div>
+        <div className="mb-1 text-heading-100 text-text-primary">Backup pools</div>
         <div className="mb-3 text-300 text-text-primary-70">
           Backup pools will only be used if your default pool fails.
         </div>

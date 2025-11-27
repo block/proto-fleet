@@ -15,9 +15,7 @@ describe("Bank Balance", () => {
   });
 
   test("renders balance with currency", () => {
-    const { queryByText, getByTestId, queryByTestId } = render(
-      <BankBalance loading={false} balance={0} />,
-    );
+    const { queryByText, getByTestId, queryByTestId } = render(<BankBalance loading={false} balance={0} />);
 
     expect(getByTestId(bankIconTestId)).toBeDefined();
     expect(queryByTestId(skeletonTestId)).toBeNull();

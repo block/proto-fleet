@@ -2,13 +2,7 @@ import { IconProps } from "./types";
 
 const ThemeSystem = ({ className }: IconProps) => {
   return (
-    <svg
-      width="20"
-      height="20"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-    >
+    <svg width="20" height="20" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
       <circle
         cx="10"
         cy="10"

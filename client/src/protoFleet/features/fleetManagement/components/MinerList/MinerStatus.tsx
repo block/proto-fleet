@@ -7,18 +7,8 @@ import {
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import {
-  useMiner,
-  useMinerComponentStatus,
-  useMinerDeviceStatus,
-} from "@/protoFleet/store";
-import {
-  Alert,
-  ControlBoard,
-  Fan,
-  Hashboard,
-  LightningAlt,
-} from "@/shared/assets/icons";
+import { useMiner, useMinerComponentStatus, useMinerDeviceStatus } from "@/protoFleet/store";
+import { Alert, ControlBoard, Fan, Hashboard, LightningAlt } from "@/shared/assets/icons";
 import StatusCircle, { statuses } from "@/shared/components/StatusCircle";
 
 type MinerStatusProps = {
@@ -26,15 +16,9 @@ type MinerStatusProps = {
   selectedItems?: string[];
 };
 
-type ComponentStatusKeys = keyof Omit<
-  MinerComponentStatus,
-  "$typeName" | "$unknown"
->;
+type ComponentStatusKeys = keyof Omit<MinerComponentStatus, "$typeName" | "$unknown">;
 
-function getComponentStatus(
-  component: ComponentStatusKeys,
-  statusType: "error" | "warning",
-): ReactNode {
+function getComponentStatus(component: ComponentStatusKeys, statusType: "error" | "warning"): ReactNode {
   const componentStatusMap = {
     controlBoard: (
       <>
@@ -67,11 +51,8 @@ function getComponentStatus(
 
 const MinerStatus = ({ deviceIdentifier }: MinerStatusProps) => {
   const miner = useMiner(deviceIdentifier);
-  const authenticationNeeded =
-    miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
-  const componentStatusFromStore = useMinerComponentStatus(
-    deviceIdentifier || "",
-  );
+  const authenticationNeeded = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+  const componentStatusFromStore = useMinerComponentStatus(deviceIdentifier || "");
   const componentStatus = useMemo(
     () =>
       componentStatusFromStore ||
@@ -90,11 +71,7 @@ const MinerStatus = ({ deviceIdentifier }: MinerStatusProps) => {
     if (authenticationNeeded) {
       return (
         <>
-          <StatusCircle
-            status={statuses.inactive}
-            variant="simple"
-            width="w-[6px]"
-          />
+          <StatusCircle status={statuses.inactive} variant="simple" width="w-[6px]" />
           Needs Authentication
         </>
       );
@@ -103,11 +80,7 @@ const MinerStatus = ({ deviceIdentifier }: MinerStatusProps) => {
     if (deviceStatusFromStore === DeviceStatus.OFFLINE) {
       return (
         <>
-          <StatusCircle
-            status={statuses.inactive}
-            variant="simple"
-            width="w-[6px]"
-          />
+          <StatusCircle status={statuses.inactive} variant="simple" width="w-[6px]" />
           Offline
         </>
       );
@@ -116,11 +89,7 @@ const MinerStatus = ({ deviceIdentifier }: MinerStatusProps) => {
     if (deviceStatusFromStore === DeviceStatus.INACTIVE) {
       return (
         <>
-          <StatusCircle
-            status={statuses.inactive}
-            variant="simple"
-            width="w-[6px]"
-          />
+          <StatusCircle status={statuses.inactive} variant="simple" width="w-[6px]" />
           Sleeping
         </>
       );
@@ -128,25 +97,18 @@ const MinerStatus = ({ deviceIdentifier }: MinerStatusProps) => {
 
     // prioritize showing errors over warnings
     // TODO: determine status with comingled errors and warnings
-    const componentErrors = Object.entries(componentStatus).reduce(
-      (acc, [key, value]) => {
-        if (value === ComponentStatus.ERROR) {
-          acc.push(key as ComponentStatusKeys);
-        }
-        return acc;
-      },
-      [] as ComponentStatusKeys[],
-    );
+    const componentErrors = Object.entries(componentStatus).reduce((acc, [key, value]) => {
+      if (value === ComponentStatus.ERROR) {
+        acc.push(key as ComponentStatusKeys);
+      }
+      return acc;
+    }, [] as ComponentStatusKeys[]);
 
     // if theres exactly one error, display component name and icon
     if (componentErrors.length === 1) {
       return (
         <>
-          <StatusCircle
-            status={statuses.error}
-            variant="simple"
-            width="w-[6px]"
-          />
+          <StatusCircle status={statuses.error} variant="simple" width="w-[6px]" />
           {getComponentStatus(componentErrors[0], "error")}
         </>
       );
@@ -156,11 +118,7 @@ const MinerStatus = ({ deviceIdentifier }: MinerStatusProps) => {
     if (componentErrors.length > 1) {
       return (
         <>
-          <StatusCircle
-            status={statuses.error}
-            variant="simple"
-            width="w-[6px]"
-          />
+          <StatusCircle status={statuses.error} variant="simple" width="w-[6px]" />
           <Alert width="w-4" />
           Multiple Failures
         </>
@@ -168,25 +126,18 @@ const MinerStatus = ({ deviceIdentifier }: MinerStatusProps) => {
     }
 
     // if there are no errors, check for warnings
-    const componentWarnings = Object.entries(componentStatus).reduce(
-      (acc, [key, value]) => {
-        if (value === ComponentStatus.WARNING) {
-          acc.push(key as ComponentStatusKeys);
-        }
-        return acc;
-      },
-      [] as ComponentStatusKeys[],
-    );
+    const componentWarnings = Object.entries(componentStatus).reduce((acc, [key, value]) => {
+      if (value === ComponentStatus.WARNING) {
+        acc.push(key as ComponentStatusKeys);
+      }
+      return acc;
+    }, [] as ComponentStatusKeys[]);
 
     // if theres exactly one warning, display component name and icon
     if (componentWarnings.length === 1) {
       return (
         <>
-          <StatusCircle
-            status={statuses.warning}
-            variant="simple"
-            width="w-[6px]"
-          />
+          <StatusCircle status={statuses.warning} variant="simple" width="w-[6px]" />
           {getComponentStatus(componentWarnings[0], "warning")}
         </>
       );
@@ -196,11 +147,7 @@ const MinerStatus = ({ deviceIdentifier }: MinerStatusProps) => {
     if (componentWarnings.length > 1) {
       return (
         <>
-          <StatusCircle
-            status={statuses.warning}
-            variant="simple"
-            width="w-[6px]"
-          />
+          <StatusCircle status={statuses.warning} variant="simple" width="w-[6px]" />
           <Alert width="w-4" />
           Multiple Warnings
         </>
@@ -209,11 +156,7 @@ const MinerStatus = ({ deviceIdentifier }: MinerStatusProps) => {
 
     return (
       <>
-        <StatusCircle
-          status={statuses.normal}
-          variant="simple"
-          width="w-[6px]"
-        />
+        <StatusCircle status={statuses.normal} variant="simple" width="w-[6px]" />
         Hashing
       </>
     );

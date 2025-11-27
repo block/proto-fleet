@@ -29,12 +29,10 @@ function getErrorSource(errorCode: string): ErrorSource {
     // Try to determine source from the string name
     if (errorCode.includes("Psu")) return "PSU";
     if (errorCode.includes("Fan")) return "FAN";
-    if (errorCode.includes("Hashboard") || errorCode.includes("Hb"))
-      return "HASHBOARD";
+    if (errorCode.includes("Hashboard") || errorCode.includes("Hb")) return "HASHBOARD";
     if (errorCode.includes("Asic")) return "HASHBOARD"; // ASICs show as hashboard
     if (errorCode.includes("Pool")) return "POOL";
-    if (errorCode.includes("Control") || errorCode.includes("Cb"))
-      return "SYSTEM";
+    if (errorCode.includes("Control") || errorCode.includes("Cb")) return "SYSTEM";
 
     // If we can't determine, log warning and default to SYSTEM
     console.warn(`Unmapped error code: ${errorCode} - defaulting to SYSTEM`);
@@ -120,11 +118,7 @@ function parseErrorDetails(details?: string): {
 /**
  * Generate a descriptive message based on error code and details
  */
-function generateErrorMessage(
-  errorCode: string,
-  details: any,
-  originalMessage?: string,
-): string {
+function generateErrorMessage(errorCode: string, details: any, originalMessage?: string): string {
   const generator = errorMessageGenerators[errorCode];
   if (generator) {
     return generator(details);
@@ -137,9 +131,7 @@ function generateErrorMessage(
 /**
  * Transform a NotificationError from the API into our MinerError type
  */
-export function transformNotificationError(
-  apiError: NotificationError,
-): MinerError {
+export function transformNotificationError(apiError: NotificationError): MinerError {
   let errorCode = apiError.error_code || "00:0000";
 
   // Convert legacy string error codes to numeric codes
@@ -150,11 +142,7 @@ export function transformNotificationError(
   const { parsedDetails, componentIndex } = parseErrorDetails(apiError.details);
 
   const source = getErrorSource(errorCode);
-  const message = generateErrorMessage(
-    errorCode,
-    parsedDetails,
-    apiError.message,
-  );
+  const message = generateErrorMessage(errorCode, parsedDetails, apiError.message);
 
   return {
     errorCode,
@@ -170,9 +158,7 @@ export function transformNotificationError(
 /**
  * Transform an array of NotificationErrors into MinerErrors
  */
-export function transformErrors(
-  apiErrors: NotificationError[] | undefined,
-): MinerError[] {
+export function transformErrors(apiErrors: NotificationError[] | undefined): MinerError[] {
   if (!apiErrors || !Array.isArray(apiErrors)) {
     return [];
   }

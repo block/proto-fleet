@@ -6,17 +6,13 @@ import type { SegmentedBarChartData } from "./types";
 
 // Mock recharts components to avoid rendering issues in tests
 vi.mock("recharts", () => ({
-  ResponsiveContainer: ({ children }: any) => (
-    <div data-testid="responsive-container">{children}</div>
-  ),
+  ResponsiveContainer: ({ children }: any) => <div data-testid="responsive-container">{children}</div>,
   BarChart: ({ children, data }: any) => (
     <div data-testid="bar-chart" data-length={data?.length}>
       {children}
     </div>
   ),
-  Bar: ({ dataKey }: any) => (
-    <div data-testid={`bar-${dataKey}`}>{dataKey}</div>
-  ),
+  Bar: ({ dataKey }: any) => <div data-testid={`bar-${dataKey}`}>{dataKey}</div>,
   CartesianGrid: () => <div data-testid="cartesian-grid" />,
   XAxis: () => <div data-testid="x-axis" />,
   YAxis: () => <div data-testid="y-axis" />,
@@ -127,17 +123,13 @@ describe("SegmentedBarChart", () => {
   });
 
   it("applies custom className", () => {
-    const { container } = render(
-      <SegmentedBarChart {...defaultProps} className="custom-class" />,
-    );
+    const { container } = render(<SegmentedBarChart {...defaultProps} className="custom-class" />);
     const outerDiv = container.firstChild as HTMLElement;
     expect(outerDiv).toHaveClass("custom-class");
   });
 
   it("applies custom height", () => {
-    const { container } = render(
-      <SegmentedBarChart {...defaultProps} height={500} />,
-    );
+    const { container } = render(<SegmentedBarChart {...defaultProps} height={500} />);
     const outerDiv = container.firstChild as HTMLElement;
     expect(outerDiv).toHaveStyle({ height: "500px" });
   });

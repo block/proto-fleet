@@ -37,16 +37,10 @@ const Team = () => {
   const [users, setUsers] = useState<UserData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
-  const [resetPasswordUser, setResetPasswordUser] = useState<UserData | null>(
-    null,
-  );
-  const [resetPasswordTemp, setResetPasswordTemp] = useState<string | null>(
-    null,
-  );
+  const [resetPasswordUser, setResetPasswordUser] = useState<UserData | null>(null);
+  const [resetPasswordTemp, setResetPasswordTemp] = useState<string | null>(null);
   const [isResettingPassword, setIsResettingPassword] = useState(false);
-  const [deactivateUserData, setDeactivateUserData] = useState<UserData | null>(
-    null,
-  );
+  const [deactivateUserData, setDeactivateUserData] = useState<UserData | null>(null);
   const [isDeactivating, setIsDeactivating] = useState(false);
 
   const fetchUsers = useCallback(() => {
@@ -90,22 +84,14 @@ const Team = () => {
       passwordUpdatedAt: {
         component: (user) => (
           <span>
-            {user.passwordUpdatedAt
-              ? formatTimestamp(
-                  Math.floor(user.passwordUpdatedAt.getTime() / 1000),
-                )
-              : "Never"}
+            {user.passwordUpdatedAt ? formatTimestamp(Math.floor(user.passwordUpdatedAt.getTime() / 1000)) : "Never"}
           </span>
         ),
         width: "w-48",
       },
       lastLoginAt: {
         component: (user) => (
-          <span>
-            {user.lastLoginAt
-              ? formatTimestamp(Math.floor(user.lastLoginAt.getTime() / 1000))
-              : "Never"}
-          </span>
+          <span>{user.lastLoginAt ? formatTimestamp(Math.floor(user.lastLoginAt.getTime() / 1000)) : "Never"}</span>
         ),
         width: "w-48",
       },
@@ -117,12 +103,7 @@ const Team = () => {
     [],
   );
 
-  const activeCols: UserColumns[] = [
-    "username",
-    "passwordUpdatedAt",
-    "lastLoginAt",
-    "role",
-  ];
+  const activeCols: UserColumns[] = ["username", "passwordUpdatedAt", "lastLoginAt", "role"];
 
   const handleAddMemberSuccess = useCallback(() => {
     fetchUsers();
@@ -187,10 +168,7 @@ const Team = () => {
     });
   }, [deactivateUserData, deactivateUser, fetchUsers]);
 
-  const canAddTeamMembers = useMemo(
-    () => currentUserRole === "SUPER_ADMIN",
-    [currentUserRole],
-  );
+  const canAddTeamMembers = useMemo(() => currentUserRole === "SUPER_ADMIN", [currentUserRole]);
 
   const availableActions = useMemo(() => {
     if (!canAddTeamMembers) {
@@ -227,9 +205,7 @@ const Team = () => {
       </div>
 
       {isLoading ? (
-        <div className="text-center text-text-primary-50">
-          Loading team members...
-        </div>
+        <div className="text-center text-text-primary-50">Loading team members...</div>
       ) : (
         <List<UserData, string, UserColumns>
           items={users}
@@ -250,10 +226,7 @@ const Team = () => {
       )}
 
       {showAddMemberModal && (
-        <AddTeamMemberModal
-          onDismiss={() => setShowAddMemberModal(false)}
-          onSuccess={handleAddMemberSuccess}
-        />
+        <AddTeamMemberModal onDismiss={() => setShowAddMemberModal(false)} onSuccess={handleAddMemberSuccess} />
       )}
 
       {resetPasswordUser && (

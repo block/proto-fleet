@@ -112,16 +112,7 @@ const useMiningTarget = () => {
       updateMiningTarget,
       setPending,
     }),
-    [
-      miningTarget,
-      defaultTarget,
-      performanceMode,
-      bounds,
-      pending,
-      error,
-      updateMiningTarget,
-      setPending,
-    ],
+    [miningTarget, defaultTarget, performanceMode, bounds, pending, error, updateMiningTarget, setPending],
   );
 };
 

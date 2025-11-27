@@ -10,12 +10,7 @@ interface AsicPopoverWrapperProps {
   closeIgnoreSelectors?: string[];
 }
 
-const AsicPopoverWrapper = ({
-  asic,
-  hashboardSerial,
-  closePopover,
-  closeIgnoreSelectors,
-}: AsicPopoverWrapperProps) => {
+const AsicPopoverWrapper = ({ asic, hashboardSerial, closePopover, closeIgnoreSelectors }: AsicPopoverWrapperProps) => {
   // Get integrated ASIC data using consistent ID format
   const asicId = getAsicId(hashboardSerial, asic?.id ?? 0);
   const asicData = useMinerAsic(asicId);
@@ -25,13 +20,7 @@ const AsicPopoverWrapper = ({
     return null;
   }
 
-  return (
-    <AsicPopover
-      asic={asicData}
-      closePopover={closePopover}
-      closeIgnoreSelectors={closeIgnoreSelectors}
-    />
-  );
+  return <AsicPopover asic={asicData} closePopover={closePopover} closeIgnoreSelectors={closeIgnoreSelectors} />;
 };
 
 export default AsicPopoverWrapper;

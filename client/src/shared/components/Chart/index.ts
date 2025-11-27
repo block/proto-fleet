@@ -5,12 +5,4 @@ import LineCursor from "./LineCursor";
 import LineDot from "./LineDot";
 import TimeXAxisTick from "./TimeXAxisTick";
 
-export {
-  AxisTick,
-  ChartWrapper,
-  LineCursor,
-  LineDot,
-  TimeXAxisTick,
-  xAxisProps,
-  yAxisProps,
-};
+export { AxisTick, ChartWrapper, LineCursor, LineDot, TimeXAxisTick, xAxisProps, yAxisProps };

@@ -20,11 +20,7 @@ interface UseWakeMinerProps {
   onError?: (error: ErrorProps) => void;
 }
 
-export const useWakeMiner = ({
-  afterWake,
-  onSuccess,
-  onError,
-}: UseWakeMinerProps = {}) => {
+export const useWakeMiner = ({ afterWake, onSuccess, onError }: UseWakeMinerProps = {}) => {
   const { startMining } = useMiningStart();
   const { fetchData: fetchMiningStatus } = useMiningStatus({ poll: false });
   const setMiningStatus = useSetMiningStatus();
@@ -38,16 +34,12 @@ export const useWakeMiner = ({
   const setDismissedLoginModal = useSetDismissedLoginModal();
   const pausedAuthAction = usePausedAuthAction();
   const setPausedAuthAction = useSetPausedAuthAction();
-  const { checkAccess, hasAccess } = useAccessToken(
-    !!pausedAuthAction && !dismissedLoginModal,
-  );
+  const { checkAccess, hasAccess } = useAccessToken(!!pausedAuthAction && !dismissedLoginModal);
   const afterWakeRef = useRef(afterWake);
   const onSuccessRef = useRef(onSuccess);
   const onErrorRef = useRef(onError);
   const isWakingRef = useRef(false);
-  const intervalIdRef = useRef<ReturnType<typeof setInterval> | undefined>(
-    undefined,
-  );
+  const intervalIdRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   useEffect(() => {
     afterWakeRef.current = afterWake;
@@ -148,14 +140,7 @@ export const useWakeMiner = ({
       }
       setPausedAuthAction(null);
     }
-  }, [
-    hasAccess,
-    pausedAuthAction,
-    setPausedAuthAction,
-    showWakeDialog,
-    hideWakeDialog,
-    handleWakeConfirm,
-  ]);
+  }, [hasAccess, pausedAuthAction, setPausedAuthAction, showWakeDialog, hideWakeDialog, handleWakeConfirm]);
 
   const wakeMiner = useCallback(() => {
     setPausedAuthAction(AUTH_ACTIONS.wake);

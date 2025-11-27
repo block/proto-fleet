@@ -13,14 +13,9 @@ interface UseHashboardStatusProps {
 // TODO: [STORE_REFACTOR] We only use this hook to fill in gaps that our useHardware doesnt currently provide
 // - hashboard.asicIds
 // - asic rows and columns
-const useHashboardStatus = ({
-  hashboardSerialNumbers,
-  poll,
-}: UseHashboardStatusProps) => {
+const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatusProps) => {
   const { api } = useMinerHosting();
-  const [data, setData] = useState<
-    Record<string, HashboardStatsHashboardstats>
-  >({});
+  const [data, setData] = useState<Record<string, HashboardStatsHashboardstats>>({});
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
   const fetchData = useCallback(async () => {
@@ -46,8 +41,7 @@ const useHashboardStatus = ({
 
       setData(newData);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Unknown error occurred";
+      const errorMessage = err instanceof Error ? err.message : "Unknown error occurred";
       setError(errorMessage);
     } finally {
       setPending(false);
@@ -74,9 +68,7 @@ const useHashboardStatus = ({
       }
 
       // Initialize hardware store with hashboard and ASIC structure
-      const existingHashboard = useMinerStore
-        .getState()
-        .hardware.getHashboard(hashboardSerialNumber);
+      const existingHashboard = useMinerStore.getState().hardware.getHashboard(hashboardSerialNumber);
 
       const asicIds = asics
         .filter((asic) => asic?.id !== undefined)
@@ -97,17 +89,10 @@ const useHashboardStatus = ({
 
       // Collect ASIC info with positional data for batch processing
       for (const asic of asics) {
-        if (
-          asic !== undefined &&
-          asic.id !== undefined &&
-          asic.row !== undefined &&
-          asic.column !== undefined
-        ) {
+        if (asic !== undefined && asic.id !== undefined && asic.row !== undefined && asic.column !== undefined) {
           // Create globally unique ASIC ID using consistent utility
           const asicId = getAsicId(hashboardSerialNumber, asic.id);
-          const existingAsic = useMinerStore
-            .getState()
-            .hardware.getAsic(asicId);
+          const existingAsic = useMinerStore.getState().hardware.getAsic(asicId);
 
           if (!existingAsic) {
             const asicInfo = {
@@ -118,9 +103,7 @@ const useHashboardStatus = ({
             };
 
             asicsToAdd.push(asicInfo);
-            useMinerStore
-              .getState()
-              .hardware.linkAsicToHashboard(asicId, hashboardSerialNumber);
+            useMinerStore.getState().hardware.linkAsicToHashboard(asicId, hashboardSerialNumber);
           }
         }
       }

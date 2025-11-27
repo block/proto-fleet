@@ -279,9 +279,7 @@ const hardware = useMinerStore((state) => state.hardware);
 const telemetry = useMinerStore((state) => state.telemetry);
 
 // Get specific data with useShallow for better performance
-const fans = useMinerStore(
-  useShallow((state) => Array.from(state.telemetry.fans.values())),
-);
+const fans = useMinerStore(useShallow((state) => Array.from(state.telemetry.fans.values())));
 
 // Call slice actions
 useMinerStore.getState().hardware.addHashboard(hashboard);
@@ -320,11 +318,7 @@ const chartData = useChartDataForMetric("hashrate");
 ### Telemetry Utility Functions
 
 ```typescript
-import {
-  convertValueUnits,
-  formatValue,
-  convertAndFormatMeasurement,
-} from "@/protoOS/store";
+import { convertValueUnits, formatValue, convertAndFormatMeasurement } from "@/protoOS/store";
 
 // Convert units while preserving type
 const converted = convertValueUnits(measurement, "F");

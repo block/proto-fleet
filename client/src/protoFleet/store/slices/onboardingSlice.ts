@@ -20,12 +20,9 @@ export interface OnboardingSlice {
 // Onboarding Slice Creator
 // =============================================================================
 
-export const createOnboardingSlice: StateCreator<
-  FleetStore,
-  [["zustand/immer", never]],
-  [],
-  OnboardingSlice
-> = (set) => ({
+export const createOnboardingSlice: StateCreator<FleetStore, [["zustand/immer", never]], [], OnboardingSlice> = (
+  set,
+) => ({
   // Initial state
   poolConfigured: false,
   devicePaired: false,

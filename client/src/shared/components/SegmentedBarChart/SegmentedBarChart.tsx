@@ -78,8 +78,7 @@ const SegmentedBarChart = ({
           segments: segmentKeys.map((key, index) => {
             const val = item[key];
             // Convert to percentage of total
-            const percentageValue =
-              actualTotal > 0 ? (val / actualTotal) * 100 : 0;
+            const percentageValue = actualTotal > 0 ? (val / actualTotal) * 100 : 0;
             return {
               key,
               value: percentageValue,
@@ -136,8 +135,7 @@ const SegmentedBarChart = ({
     }
 
     // Calculate max value from data
-    const maxValue =
-      transformedData?.reduce((max, item) => Math.max(max, item.total), 0) || 0;
+    const maxValue = transformedData?.reduce((max, item) => Math.max(max, item.total), 0) || 0;
 
     // If no data or all zeros, use a default scale to prevent tick overlap
     if (maxValue === 0) {
@@ -167,10 +165,7 @@ const SegmentedBarChart = ({
     const maxValue =
       typeof yAxisDomain[1] === "number"
         ? yAxisDomain[1]
-        : transformedData?.reduce(
-            (max, item) => Math.max(max, item.total),
-            0,
-          ) || 0;
+        : transformedData?.reduce((max, item) => Math.max(max, item.total), 0) || 0;
 
     const ticks = [];
     for (let i = 0; i <= yAxisTickCount; i++) {
@@ -194,12 +189,7 @@ const SegmentedBarChart = ({
 
   if (!transformedData || transformedData.length === 0) {
     return (
-      <div
-        className={clsx(
-          "flex h-full w-full items-center justify-center text-text-primary-50",
-          className,
-        )}
-      >
+      <div className={clsx("flex h-full w-full items-center justify-center text-text-primary-50", className)}>
         <span>No data available</span>
       </div>
     );
@@ -224,10 +214,7 @@ const SegmentedBarChart = ({
 
         // Walk up the DOM to check if we're in a bar group
         while (currentElement && currentElement !== e.currentTarget) {
-          if (
-            currentElement.tagName === "g" &&
-            (currentElement as HTMLElement).style.cursor === "default"
-          ) {
+          if (currentElement.tagName === "g" && (currentElement as HTMLElement).style.cursor === "default") {
             isOverBar = true;
             break;
           }
@@ -246,10 +233,7 @@ const SegmentedBarChart = ({
       }}
     >
       <ChartWrapper className="h-full w-full [&_*:focus]:outline-none [&_svg]:outline-none">
-        <BarChart
-          data={transformedData}
-          margin={{ top: 5, right: 0, bottom: 5, left: 0 }}
-        >
+        <BarChart data={transformedData} margin={{ top: 5, right: 0, bottom: 5, left: 0 }}>
           <CartesianGrid {...cartesianGridProps} />
 
           <XAxis
@@ -264,8 +248,7 @@ const SegmentedBarChart = ({
               showDateLabel && transformedData && transformedData.length > 0
                 ? [
                     // Calculate middle timestamp
-                    transformedData[Math.floor(transformedData.length / 2)]
-                      .datetime,
+                    transformedData[Math.floor(transformedData.length / 2)].datetime,
                   ]
                 : undefined
             }
@@ -288,27 +271,23 @@ const SegmentedBarChart = ({
 
           <YAxis {...yAxisProps} domain={yAxisDomain} ticks={yAxisTicks} />
 
-          {showTooltip &&
-            toolTipKey !== null &&
-            hoveredIndex !== null &&
-            hoveredBar &&
-            transformedData && (
-              <Tooltip
-                cursor={false}
-                position={{ x: hoveredBar.x, y: hoveredBar.y - 8 }}
-                isAnimationActive={false}
-                content={
-                  <SegmentedBarTooltip
-                    active={true}
-                    units={units}
-                    percentageDisplay={percentageDisplay}
-                    barPosition={hoveredBar}
-                    toolTipKey={toolTipKey}
-                    customPayload={transformedData[hoveredBar.index]}
-                  />
-                }
-              />
-            )}
+          {showTooltip && toolTipKey !== null && hoveredIndex !== null && hoveredBar && transformedData && (
+            <Tooltip
+              cursor={false}
+              position={{ x: hoveredBar.x, y: hoveredBar.y - 8 }}
+              isAnimationActive={false}
+              content={
+                <SegmentedBarTooltip
+                  active={true}
+                  units={units}
+                  percentageDisplay={percentageDisplay}
+                  barPosition={hoveredBar}
+                  toolTipKey={toolTipKey}
+                  customPayload={transformedData[hoveredBar.index]}
+                />
+              }
+            />
+          )}
 
           <Bar
             dataKey="total"

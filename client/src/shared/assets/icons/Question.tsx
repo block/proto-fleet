@@ -2,13 +2,7 @@ import { IconProps } from "./types";
 
 const Question = ({ className }: IconProps) => {
   return (
-    <svg
-      width="16"
-      height="16"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-    >
+    <svg width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
       <path className="fill-surface-base" fillOpacity=".01" d="M0 0h16v16H0z" />
       <path
         fillRule="evenodd"

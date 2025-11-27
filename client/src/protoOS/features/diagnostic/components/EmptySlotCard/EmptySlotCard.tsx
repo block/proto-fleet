@@ -28,9 +28,7 @@ function EmptySlotCard({ type, position, title }: EmptySlotCardProps) {
     <Card>
       <CardHeader title={title} componentIcon={getComponentIcon()} />
       <div className="flex items-center justify-center py-8">
-        <p className="text-300 text-text-primary-70">
-          No {type} detected in this slot
-        </p>
+        <p className="text-300 text-text-primary-70">No {type} detected in this slot</p>
       </div>
     </Card>
   );

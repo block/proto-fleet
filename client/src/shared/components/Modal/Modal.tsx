@@ -8,9 +8,7 @@ import { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import { ButtonProps } from "@/shared/components/ButtonGroup";
 import Divider from "@/shared/components/Divider";
 import Header from "@/shared/components/Header";
-import PageOverlay, {
-  animationDuration,
-} from "@/shared/components/PageOverlay";
+import PageOverlay, { animationDuration } from "@/shared/components/PageOverlay";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 import { useKeyDown } from "@/shared/hooks/useKeyDown";
 
@@ -79,10 +77,7 @@ const Modal = ({
   // if button is supposed to dismiss modal, animate closing it
   const onButtonClick = useCallback(
     (button?: ModalButtonProps) => () => {
-      if (
-        button?.variant === variants.primary &&
-        button?.dismissModalOnClick !== false
-      ) {
+      if (button?.variant === variants.primary && button?.dismissModalOnClick !== false) {
         closeModal(true);
       }
       button?.onClick?.();
@@ -108,21 +103,16 @@ const Modal = ({
         className={clsx(
           "relative h-fit rounded-3xl bg-surface-elevated-base p-6 pt-0 shadow-300",
           {
-            "min-w-[min(calc(100vw-theme(spacing.4)),360px)]":
-              size === sizes.small,
-            "min-w-[min(calc(100vw-theme(spacing.4)),640px)]":
-              size === sizes.large,
-            "min-w-[min(calc(100vw-theme(spacing.4)),1024px)]":
-              size === sizes.extraLarge,
+            "min-w-[min(calc(100vw-theme(spacing.4)),360px)]": size === sizes.small,
+            "min-w-[min(calc(100vw-theme(spacing.4)),640px)]": size === sizes.large,
+            "min-w-[min(calc(100vw-theme(spacing.4)),1024px)]": size === sizes.extraLarge,
             "animate-sliding-up": showModal,
             "animate-sliding-down": !showModal,
             "max-w-[640px]": size === sizes.small,
             "max-w-[1024px]": size === sizes.large,
             "max-w-[1280px]": size === sizes.extraLarge,
-            "h-full w-full max-w-full overflow-y-auto rounded-none":
-              size === sizes.fullscreen,
-            "mt-16 max-h-[calc(100vh-theme(spacing.32))] overflow-auto":
-              size !== sizes.fullscreen,
+            "h-full w-full max-w-full overflow-y-auto rounded-none": size === sizes.fullscreen,
+            "mt-16 max-h-[calc(100vh-theme(spacing.32))] overflow-auto": size !== sizes.fullscreen,
             "pt-0": showHeader,
           },
           className,
@@ -137,9 +127,7 @@ const Modal = ({
               description={description}
               titleSize="text-heading-200"
               icon={icon == null ? undefined : icon}
-              iconOnClick={
-                icon === null ? undefined : onIconClick || dismissModal
-              }
+              iconOnClick={icon === null ? undefined : onIconClick || dismissModal}
               buttonSize={buttonSize}
               buttons={buttons?.map((button) => ({
                 ...button,
@@ -151,14 +139,8 @@ const Modal = ({
             {divider ? <Divider className="mt-6" /> : <div className="mt-6" />}
           </div>
         )}
-        {contentHeader && (
-          <div className="mb-1 text-heading-200 text-text-primary">
-            {contentHeader}
-          </div>
-        )}
-        <div className={clsx("text-300 text-text-primary-70", bodyClassName)}>
-          {children}
-        </div>
+        {contentHeader && <div className="mb-1 text-heading-200 text-text-primary">{contentHeader}</div>}
+        <div className={clsx("text-300 text-text-primary-70", bodyClassName)}>{children}</div>
       </div>
     </PageOverlay>
   );

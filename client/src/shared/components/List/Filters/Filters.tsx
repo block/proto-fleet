@@ -6,10 +6,7 @@ import DropdownFilter, { type DropdownOption } from "./DropdownFilter";
 import { DismissTiny } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { defaultListFilter } from "@/shared/components/List/constants";
-import {
-  ActiveFilters,
-  type FilterItem,
-} from "@/shared/components/List/Filters/types";
+import { ActiveFilters, type FilterItem } from "@/shared/components/List/Filters/types";
 
 type FilterProps<ItemType> = {
   className?: string;
@@ -98,9 +95,7 @@ const Filters = <ItemType,>({
 
       // Remove "all" filter if it exists and we're adding a different filter
       if (newButtonFilters.includes(defaultListFilter)) {
-        newButtonFilters = newButtonFilters.filter(
-          (f) => f !== defaultListFilter,
-        );
+        newButtonFilters = newButtonFilters.filter((f) => f !== defaultListFilter);
       }
 
       // Toggle the filter
@@ -220,9 +215,7 @@ const Filters = <ItemType,>({
               variant={variants.secondary}
               key={`${item.filterValue}-${item.id}`}
               prefixIcon={<DismissTiny />}
-              onClick={() =>
-                handleRemoveDropdownFilter(item.id, item.filterValue)
-              }
+              onClick={() => handleRemoveDropdownFilter(item.id, item.filterValue)}
             >
               {item.label}
             </Button>

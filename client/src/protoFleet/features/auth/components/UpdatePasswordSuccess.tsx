@@ -7,9 +7,7 @@ interface UpdatePasswordSuccessProps {
   onLogin: () => void;
 }
 
-export const UpdatePasswordSuccess = ({
-  onLogin,
-}: UpdatePasswordSuccessProps) => {
+export const UpdatePasswordSuccess = ({ onLogin }: UpdatePasswordSuccessProps) => {
   return (
     <div className="flex h-screen w-full flex-col bg-surface-base">
       <div className="flex flex-grow items-center-safe justify-center-safe">

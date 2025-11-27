@@ -86,18 +86,14 @@ const SelectRow = ({
             onChange={handleChange}
           />
           <div
-            className={clsx(
-              "absolute top-[5px] left-[5px] hidden h-[10px] w-[10px] rounded-full bg-white shadow-sm",
-              {
-                "peer-checked:block": isRadio,
-              },
-            )}
+            className={clsx("absolute top-[5px] left-[5px] hidden h-[10px] w-[10px] rounded-full bg-white shadow-sm", {
+              "peer-checked:block": isRadio,
+            })}
           />
           <Checkmark
-            className={clsx(
-              "absolute hidden cursor-pointer rounded-sm bg-core-accent-80 text-surface-base",
-              { "peer-checked:block": isCheckbox },
-            )}
+            className={clsx("absolute hidden cursor-pointer rounded-sm bg-core-accent-80 text-surface-base", {
+              "peer-checked:block": isCheckbox,
+            })}
           />
         </div>
       </div>

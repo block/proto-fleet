@@ -18,23 +18,19 @@ const meta: Meta<typeof FleetErrors> = {
   argTypes: {
     controlBoardErrors: {
       control: "number",
-      description:
-        "Number of control board errors (0 displays 'No issues', undefined shows loading state)",
+      description: "Number of control board errors (0 displays 'No issues', undefined shows loading state)",
     },
     fanErrors: {
       control: "number",
-      description:
-        "Number of fan errors (0 displays 'No issues', undefined shows loading state)",
+      description: "Number of fan errors (0 displays 'No issues', undefined shows loading state)",
     },
     hashboardErrors: {
       control: "number",
-      description:
-        "Number of hashboard errors (0 displays 'No issues', undefined shows loading state)",
+      description: "Number of hashboard errors (0 displays 'No issues', undefined shows loading state)",
     },
     psuErrors: {
       control: "number",
-      description:
-        "Number of PSU errors (0 displays 'No issues', undefined shows loading state)",
+      description: "Number of PSU errors (0 displays 'No issues', undefined shows loading state)",
     },
     className: {
       control: "text",

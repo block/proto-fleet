@@ -119,11 +119,7 @@ export const MinerStatus = ({ testStatus }: { testStatus: TestStatus }) => {
 
   return (
     <div className="mx-auto flex w-96 justify-end gap-2">
-      <MinerStatusWidget
-        circle={status.circle}
-        summary={status.summary}
-        onClick={() => {}}
-      />
+      <MinerStatusWidget circle={status.circle} summary={status.summary} onClick={() => {}} />
     </div>
   );
 };

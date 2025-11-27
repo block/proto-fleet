@@ -15,8 +15,6 @@ const sortPrimaryButton = (buttons: ButtonProps[], last: boolean) => {
   });
 };
 
-export const sortPrimaryButtonFirst = (buttons: ButtonProps[]) =>
-  sortPrimaryButton(buttons, false);
+export const sortPrimaryButtonFirst = (buttons: ButtonProps[]) => sortPrimaryButton(buttons, false);
 
-export const sortPrimaryButtonLast = (buttons: ButtonProps[]) =>
-  sortPrimaryButton(buttons, true);
+export const sortPrimaryButtonLast = (buttons: ButtonProps[]) => sortPrimaryButton(buttons, true);

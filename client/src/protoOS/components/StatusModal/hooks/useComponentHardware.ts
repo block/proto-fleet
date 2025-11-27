@@ -23,10 +23,7 @@ export type ComponentHardware =
  * @param componentIndex - The 0-based component index
  * @returns Hardware data for the component
  */
-export function useComponentHardware(
-  source: ErrorSource,
-  componentIndex: number | undefined,
-): ComponentHardware {
+export function useComponentHardware(source: ErrorSource, componentIndex: number | undefined): ComponentHardware {
   const componentType = mapErrorSourceToComponentType(source);
 
   // Fetch hardware data based on component type

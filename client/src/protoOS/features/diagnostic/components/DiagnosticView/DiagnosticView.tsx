@@ -42,12 +42,7 @@ const FansSection = () => {
           Array.from({ length: 4 - fans.length }, (_, i) => {
             const position = fans.length + i + 1;
             return (
-              <EmptySlotCard
-                key={`fan-empty-${position}`}
-                type="fan"
-                position={position}
-                title={`Fan ${position}`}
-              />
+              <EmptySlotCard key={`fan-empty-${position}`} type="fan" position={position} title={`Fan ${position}`} />
             );
           })}
       </div>
@@ -74,14 +69,11 @@ const HashboardsSection = () => {
         {bayIndices
           .map((bayIndex) => {
             // Get serials for this bay, or create empty slots
-            const serialsInBay =
-              hashboardsByBay[bayIndex] || Array(slotsPerBay).fill(null);
+            const serialsInBay = hashboardsByBay[bayIndex] || Array(slotsPerBay).fill(null);
 
             return serialsInBay.map((serial, slotIndex) => {
               if (serial) {
-                return (
-                  <HashboardStatusCard key={serial} serialNumber={serial} />
-                );
+                return <HashboardStatusCard key={serial} serialNumber={serial} />;
               }
 
               const slotNumber = (bayIndex - 1) * slotsPerBay + slotIndex + 1;
@@ -117,12 +109,7 @@ const PsusSection = () => {
           Array.from({ length: 3 - psus.length }, (_, i) => {
             const position = psus.length + i + 1;
             return (
-              <EmptySlotCard
-                key={`psu-empty-${position}`}
-                type="psu"
-                position={position}
-                title={`PSU ${position}`}
-              />
+              <EmptySlotCard key={`psu-empty-${position}`} type="psu" position={position} title={`PSU ${position}`} />
             );
           })}
       </div>
@@ -153,8 +140,7 @@ function DiagnosticView({ className }: DiagnosticViewProps) {
   // const { data: errors } = useErrors();
 
   // Component filter state
-  const [selectedComponent, setSelectedComponent] =
-    useState<ComponentFilterType>("all");
+  const [selectedComponent, setSelectedComponent] = useState<ComponentFilterType>("all");
 
   // Error modal state
   // const [showErrorModal, setShowErrorModal] = useState(false);
@@ -174,10 +160,7 @@ function DiagnosticView({ className }: DiagnosticViewProps) {
       {/* Component Selector */}
       <div className="flex flex-col items-start gap-3 pb-6 sm:flex-row sm:items-center">
         <div className="grow text-heading-300">Diagnostics</div>
-        <ComponentSelector
-          selectedComponent={selectedComponent}
-          onSelect={setSelectedComponent}
-        />
+        <ComponentSelector selectedComponent={selectedComponent} onSelect={setSelectedComponent} />
       </div>
 
       <div className="space-y-12">

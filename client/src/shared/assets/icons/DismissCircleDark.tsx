@@ -1,32 +1,16 @@
 import clsx from "clsx";
 import { IconProps } from "./types";
 
-const DismissCircle = ({
-  className,
-  onClick,
-  width = "w-[28px]",
-}: IconProps) => {
+const DismissCircle = ({ className, onClick, width = "w-[28px]" }: IconProps) => {
   return (
     <div className={clsx(width, className)} onClick={onClick}>
-      <svg
-        width="100%"
-        height="100%"
-        viewBox="0 0 28 28"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
+      <svg width="100%" height="100%" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path
           d="M0 14C0 6.26801 6.26801 0 14 0C21.732 0 28 6.26801 28 14C28 21.732 21.732 28 14 28C6.26801 28 0 21.732 0 14Z"
           fill="currentColor"
           fillOpacity="0.05"
         />
-        <rect
-          width="16"
-          height="16"
-          transform="translate(6 6)"
-          fill="white"
-          fillOpacity="0.02"
-        />
+        <rect width="16" height="16" transform="translate(6 6)" fill="white" fillOpacity="0.02" />
         <path
           fillRule="evenodd"
           clipRule="evenodd"

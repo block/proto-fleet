@@ -41,18 +41,12 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
       timeoutId.current = setTimeout(
         () => {
           toasts.forEach((toast) => {
-            if (
-              toast.status !== STATUSES.success &&
-              toast.status !== STATUSES.error
-            )
-              return;
+            if (toast.status !== STATUSES.success && toast.status !== STATUSES.error) return;
 
             handleToastClose(toast.id, toast.onClose);
           });
         },
-        toasts[0].ttl !== false && toasts[0].ttl !== undefined
-          ? toasts[0].ttl
-          : defaultTtl,
+        toasts[0].ttl !== false && toasts[0].ttl !== undefined ? toasts[0].ttl : defaultTtl,
       );
     }
 
@@ -100,19 +94,14 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
             <motion.div layout transition={{ duration: 0.3 }}>
               <div className="flex flex-col">
                 <div className="text-emphasis-300 text-text-primary">
-                  {toasts.length === 1
-                    ? "Update in progress"
-                    : `${toasts.length} updates in progress`}
+                  {toasts.length === 1 ? "Update in progress" : `${toasts.length} updates in progress`}
                 </div>
               </div>
             </motion.div>
           </div>
         </div>
       </div>
-      <ResizeablePanel
-        className="w-full"
-        resizeOn={isExpanded ? toasts.length : false}
-      >
+      <ResizeablePanel className="w-full" resizeOn={isExpanded ? toasts.length : false}>
         {isExpanded && (
           <>
             <div className="w-full divide-y divide-border-5">

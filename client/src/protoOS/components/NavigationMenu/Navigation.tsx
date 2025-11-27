@@ -11,10 +11,7 @@ import MinerNameInfo from "./InfoItem/MinerNameInfo";
 import type { MinerNameInfoProps } from "./InfoItem/MinerNameInfo";
 import VersionInfo from "./InfoItem/VersionInfo";
 import type { VersionInfoProps } from "./InfoItem/VersionInfo";
-import {
-  AppNavigationItems,
-  OnboardingNavigationItems,
-} from "./NavigationItems";
+import { AppNavigationItems, OnboardingNavigationItems } from "./NavigationItems";
 import { NavigationItemValue, NavigationMenuType } from "./types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { Logo } from "@/shared/assets/icons";
@@ -29,22 +26,12 @@ interface NavigationProps {
   type: NavigationMenuType;
 }
 
-const Navigation = ({
-  ipAddressInfo,
-  macInfo,
-  minerNameInfo,
-  onItemClick,
-  versionInfo,
-  type,
-}: NavigationProps) => {
+const Navigation = ({ ipAddressInfo, macInfo, minerNameInfo, onItemClick, versionInfo, type }: NavigationProps) => {
   const isApp = useMemo(() => type === navigationMenuTypes.app, [type]);
 
   const { minerRoot, closeButton } = useMinerHosting();
 
-  const isOnboarding = useMemo(
-    () => type === navigationMenuTypes.onboarding,
-    [type],
-  );
+  const isOnboarding = useMemo(() => type === navigationMenuTypes.onboarding, [type]);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -80,45 +67,23 @@ const Navigation = ({
           {closeButton ? (
             closeButton
           ) : (
-            <Link
-              to={
-                isApp
-                  ? `${minerRoot}/${navigationItems.home}`
-                  : `${minerRoot}/${navigationItems.onboarding}`
-              }
-            >
+            <Link to={isApp ? `${minerRoot}/${navigationItems.home}` : `${minerRoot}/${navigationItems.onboarding}`}>
               <Logo className="text-text-primary hover:cursor-pointer" />
             </Link>
           )}
         </div>
         <div className="px-3">
-          {isApp && (
-            <AppNavigationItems pageName={pageName} onClick={handleClick} />
-          )}
-          {isOnboarding && (
-            <OnboardingNavigationItems
-              pageName={pageName}
-              onClick={handleClick}
-            />
-          )}
+          {isApp && <AppNavigationItems pageName={pageName} onClick={handleClick} />}
+          {isOnboarding && <OnboardingNavigationItems pageName={pageName} onClick={handleClick} />}
         </div>
       </div>
 
       <div className="px-3 pb-3">
-        <MinerNameInfo
-          loading={minerNameInfo?.loading}
-          value={minerNameInfo?.value}
-        />
+        <MinerNameInfo loading={minerNameInfo?.loading} value={minerNameInfo?.value} />
 
-        <IpAddressInfo
-          loading={ipAddressInfo?.loading}
-          value={ipAddressInfo?.value}
-        />
+        <IpAddressInfo loading={ipAddressInfo?.loading} value={ipAddressInfo?.value} />
 
-        <VersionInfo
-          loading={versionInfo?.loading}
-          value={versionInfo?.value}
-        />
+        <VersionInfo loading={versionInfo?.loading} value={versionInfo?.value} />
 
         <MacAddressInfo loading={macInfo?.loading} value={macInfo?.value} />
       </div>

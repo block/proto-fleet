@@ -1,24 +1,12 @@
 import { ComponentType, useEffect, useMemo, useState } from "react";
-import {
-  CartesianGrid,
-  Line,
-  LineChart as RechartsLineChart,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { CartesianGrid, Line, LineChart as RechartsLineChart, Tooltip, XAxis, YAxis } from "recharts";
 
 import { lineProps } from "./constants";
 
 import ChartTooltip, { type TooltipData } from "./Tooltip";
 
 import { type ChartData } from "./types";
-import {
-  ChartWrapper,
-  LineCursor,
-  TimeXAxisTick,
-  xAxisProps,
-} from "@/shared/components/Chart";
+import { ChartWrapper, LineCursor, TimeXAxisTick, xAxisProps } from "@/shared/components/Chart";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 import useMeasure from "@/shared/hooks/useMeasure";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
@@ -42,12 +30,7 @@ interface CustomYAxisTickProps {
 }
 
 // Custom Y-axis tick that hides the first (lowest) tick
-const CustomYAxisTick = ({
-  payload,
-  x,
-  y,
-  yAxisTicks,
-}: CustomYAxisTickProps) => {
+const CustomYAxisTick = ({ payload, x, y, yAxisTicks }: CustomYAxisTickProps) => {
   // Don't render if this is the first (lowest) tick value
   const isFirstTick = yAxisTicks.length > 0 && payload.value === yAxisTicks[0];
 
@@ -74,14 +57,7 @@ const CustomYAxisTick = ({
         rx={2}
       />
       {/* Text */}
-      <text
-        x={8}
-        y={20}
-        textAnchor="start"
-        fontSize={12}
-        fill="var(--color-text-primary)"
-        fillOpacity={0.5}
-      >
+      <text x={8} y={20} textAnchor="start" fontSize={12} fill="var(--color-text-primary)" fillOpacity={0.5}>
         {payload.value}
       </text>
     </g>
@@ -194,20 +170,14 @@ const LineChart = ({
     const paddedMax = max + range * 0.2;
 
     const tickInterval = Math.max(
-      Math.round(
-        ((paddedMax - paddedMin) / (tickCount - 1)) * (1 / minTickInterval),
-      ) /
-        (1 / minTickInterval),
+      Math.round(((paddedMax - paddedMin) / (tickCount - 1)) * (1 / minTickInterval)) / (1 / minTickInterval),
       minTickInterval,
     );
-    const middleTick =
-      Math.round(((paddedMin + paddedMax) / 2) * (1 / minTickInterval)) /
-      (1 / minTickInterval);
+    const middleTick = Math.round(((paddedMin + paddedMax) / 2) * (1 / minTickInterval)) / (1 / minTickInterval);
 
-    let ticks = Array.from(
-      { length: tickCount },
-      (_, i) => middleTick - (tickCount / 2 - 1 - i) * tickInterval,
-    ).sort((a, b) => a - b);
+    let ticks = Array.from({ length: tickCount }, (_, i) => middleTick - (tickCount / 2 - 1 - i) * tickInterval).sort(
+      (a, b) => a - b,
+    );
 
     // If any ticks are negative, shift the whole array so first tick is 0
     if (ticks[0] < 0) {
@@ -220,22 +190,14 @@ const LineChart = ({
       maxDomain: ticks[ticks.length - 1],
       yAxisTicks: ticks,
     };
-  }, [
-    chartData,
-    tickCount,
-    minTickInterval,
-    highestValue,
-    aggregateKey,
-    activeKeys,
-  ]);
+  }, [chartData, tickCount, minTickInterval, highestValue, aggregateKey, activeKeys]);
 
   const toolTipWidth = useMemo(() => {
     return isPhone ? TOOLTIP_WIDTH_PHONE : TOOLTIP_WIDTH;
   }, [isPhone]);
 
   const toolTipPositionX = useMemo(() => {
-    const cursorIsLeftSide =
-      tooltipData.x < Y_AXIS_TICK_WIDTH + chartBoundingRect.width / 2;
+    const cursorIsLeftSide = tooltipData.x < Y_AXIS_TICK_WIDTH + chartBoundingRect.width / 2;
 
     if (cursorIsLeftSide) {
       // position tooltip on the right side
@@ -275,9 +237,7 @@ const LineChart = ({
                 <TimeXAxisTick
                   tooltipDatetime={tooltipData.payload[0]?.payload.datetime}
                   dataPointCount={chartData?.length || 0}
-                  maxTicksToShow={
-                    isDesktop ? 13 : isLaptop ? 10 : isTablet ? 8 : 6
-                  }
+                  maxTicksToShow={isDesktop ? 13 : isLaptop ? 10 : isTablet ? 8 : 6}
                   minXPosition={85}
                   maxXPosition={isPhone ? 303 : 871}
                 />
@@ -308,35 +268,28 @@ const LineChart = ({
               isAnimationActive={false}
             />
 
-            {(activeKeys && activeKeys.length > 0
-              ? activeKeys
-              : aggregateKey
-                ? [aggregateKey]
-                : []
-            ).map((key, index) => {
-              const strokeColor = colorMap?.[key]
-                ? `var(${colorMap[key]})`
-                : "var(--color-core-primary-fill)";
+            {(activeKeys && activeKeys.length > 0 ? activeKeys : aggregateKey ? [aggregateKey] : []).map(
+              (key, index) => {
+                const strokeColor = colorMap?.[key] ? `var(${colorMap[key]})` : "var(--color-core-primary-fill)";
 
-              return (
-                <Line
-                  {...lineProps}
-                  dataKey={key}
-                  key={index}
-                  isAnimationActive={key === aggregateKey && shouldAnimate}
-                  stroke={strokeColor}
-                />
-              );
-            })}
+                return (
+                  <Line
+                    {...lineProps}
+                    dataKey={key}
+                    key={index}
+                    isAnimationActive={key === aggregateKey && shouldAnimate}
+                    stroke={strokeColor}
+                  />
+                );
+              },
+            )}
 
             <YAxis
               axisLine={{
                 stroke: corePrimary10,
               }}
               tickLine={false}
-              tick={(props) => (
-                <CustomYAxisTick {...props} yAxisTicks={yAxisTicks} />
-              )}
+              tick={(props) => <CustomYAxisTick {...props} yAxisTicks={yAxisTicks} />}
               tickSize={0}
               width={Y_AXIS_TICK_WIDTH}
               interval={0}

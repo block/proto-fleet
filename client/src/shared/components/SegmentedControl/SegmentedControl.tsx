@@ -21,9 +21,7 @@ const SegmentedControl = ({
   const segmentRefs = useRef(new Map<string, HTMLButtonElement>());
   const [sliderStyle, setSliderStyle] = useState<CSSProperties>({});
 
-  const [selectedSegment, setSelectedSegment] = useState<string | null>(
-    initialSegmentKey ?? segments[0]?.key,
-  );
+  const [selectedSegment, setSelectedSegment] = useState<string | null>(initialSegmentKey ?? segments[0]?.key);
 
   useLayoutEffect(() => {
     const calculateSliderStyle = () => {
@@ -56,12 +54,7 @@ const SegmentedControl = ({
   if (segments.length === 0) return null;
 
   return (
-    <div
-      className={clsx(
-        "relative flex h-full w-fit flex-row gap-2 rounded-3xl bg-core-primary-5 p-[2px]",
-        className,
-      )}
-    >
+    <div className={clsx("relative flex h-full w-fit flex-row gap-2 rounded-3xl bg-core-primary-5 p-[2px]", className)}>
       <div
         className={clsx(
           "absolute h-[calc(100%-theme(spacing.1))] rounded-3xl bg-surface-elevated-base shadow-100 transition-all duration-200",

@@ -14,10 +14,7 @@ type UseMiningStatusProps = {
   pollIntervalMs?: number;
 };
 
-const useMiningStatus = ({
-  poll = false,
-  pollIntervalMs,
-}: UseMiningStatusProps = {}) => {
+const useMiningStatus = ({ poll = false, pollIntervalMs }: UseMiningStatusProps = {}) => {
   const { api } = useMinerHosting();
   const [data, setData] = useState<MiningStatusMiningstatus>();
   const [error, setError] = useState<string>();
@@ -58,10 +55,7 @@ const useMiningStatus = ({
     }
   }, [data, setMiningStatus]);
 
-  return useMemo(
-    () => ({ fetchData, data, pending, error }),
-    [fetchData, data, pending, error],
-  );
+  return useMemo(() => ({ fetchData, data, pending, error }), [fetchData, data, pending, error]);
 };
 
 export { useMiningStatus };

@@ -40,9 +40,7 @@ const TabMenu = memo(({ items, basePath = "" }: TabMenuProps) => {
 
   // Derive active item and index from location
   const activeItem = useMemo(() => {
-    return Object.keys(items).find(
-      (key) => basePath + items[key].path === location.pathname,
-    );
+    return Object.keys(items).find((key) => basePath + items[key].path === location.pathname);
   }, [location.pathname, items, basePath]);
 
   const activeIndex = useMemo(() => {
@@ -84,22 +82,20 @@ const TabMenu = memo(({ items, basePath = "" }: TabMenuProps) => {
   }, [activeIndex, isPhone]);
 
   // Create memoized tab elements to prevent them from re-rendering
-  const tabElements = Object.entries(items).map(
-    ([key, { name, value, units, path }]) => (
-      <Tab
-        key={key}
-        id={key}
-        label={name}
-        value={value}
-        units={units}
-        path={path}
-        isActive={activeItem === key}
-        onClick={() => {
-          navigate(basePath + items[key].path);
-        }}
-      />
-    ),
-  );
+  const tabElements = Object.entries(items).map(([key, { name, value, units, path }]) => (
+    <Tab
+      key={key}
+      id={key}
+      label={name}
+      value={value}
+      units={units}
+      path={path}
+      isActive={activeItem === key}
+      onClick={() => {
+        navigate(basePath + items[key].path);
+      }}
+    />
+  ));
 
   return (
     <div

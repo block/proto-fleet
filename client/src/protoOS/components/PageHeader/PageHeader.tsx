@@ -20,10 +20,7 @@ const MobileHeader = ({ openMenu, title, customButtons }: PageHeaderProps) => {
       {/* Top bar */}
       <div className="flex h-12 w-full items-center justify-between gap-2 self-start px-4 py-2">
         <div className="inline-flex items-center gap-2">
-          <Pause
-            className="text-text-primary hover:cursor-pointer"
-            onClick={openMenu}
-          />
+          <Pause className="text-text-primary hover:cursor-pointer" onClick={openMenu} />
           <div className="text-300 text-text-primary-70">{title}</div>
         </div>
         <div className="inline-flex items-center gap-2">
@@ -48,11 +45,7 @@ const MobileHeader = ({ openMenu, title, customButtons }: PageHeaderProps) => {
   );
 };
 
-const DesktopHeader = ({
-  customButtons,
-}: {
-  customButtons: PageHeaderProps["customButtons"];
-}) => {
+const DesktopHeader = ({ customButtons }: { customButtons: PageHeaderProps["customButtons"] }) => {
   return (
     <div className="flex w-full items-center justify-end gap-4 pl-60">
       <div className="flex grow justify-between space-x-3 self-center px-4 [scrollbar-width:none]">
@@ -85,11 +78,7 @@ const PageHeader = ({ customButtons, openMenu, title }: PageHeaderProps) => {
   return (
     <div className="fixed top-0 right-0 left-0 z-20 flex h-[60px] bg-surface-base phone:h-fit tablet:h-fit">
       {isPhone || isTablet ? (
-        <MobileHeader
-          openMenu={openMenu}
-          title={title}
-          customButtons={customButtons}
-        />
+        <MobileHeader openMenu={openMenu} title={title} customButtons={customButtons} />
       ) : (
         <DesktopHeader customButtons={customButtons} />
       )}

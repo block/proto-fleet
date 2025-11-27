@@ -11,10 +11,7 @@ type StatusOverlayProps = {
   icon?: ReactNode;
 };
 
-const StatusOverlay = ({
-  text = "Your miner is booting up",
-  icon = <LogoAlt width="w-16" />,
-}: StatusOverlayProps) => {
+const StatusOverlay = ({ text = "Your miner is booting up", icon = <LogoAlt width="w-16" /> }: StatusOverlayProps) => {
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
   // Memoize the AnimatedDotsBackground to prevent resetting on re-renders

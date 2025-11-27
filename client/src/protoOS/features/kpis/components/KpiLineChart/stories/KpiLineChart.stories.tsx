@@ -1,17 +1,8 @@
 import { useMemo } from "react";
 
 import LineChartComponent from "../KpiLineChart";
-import {
-  mockHashrateData,
-  mockHashrateData1,
-  mockHashrateData2,
-  mockHashrateData3,
-} from "./mocks";
-import {
-  conversionFns,
-  convertValues,
-  downsample,
-} from "@/protoOS/features/kpis/hooks/utility";
+import { mockHashrateData, mockHashrateData1, mockHashrateData2, mockHashrateData3 } from "./mocks";
+import { conversionFns, convertValues, downsample } from "@/protoOS/features/kpis/hooks/utility";
 
 import { Duration } from "@/shared/components/DurationSelector";
 
@@ -29,11 +20,7 @@ const processData = (data: any, duration: Duration) => {
 export const LineChart = ({ duration, hashboards, units }: LineChartProps) => {
   const chartData = useMemo(() => {
     const aggregateData = processData(mockHashrateData.data, duration);
-    const hashboardData = [
-      mockHashrateData1,
-      mockHashrateData2,
-      mockHashrateData3,
-    ]
+    const hashboardData = [mockHashrateData1, mockHashrateData2, mockHashrateData3]
       .slice(0, hashboards)
       .map((data, index) => ({
         serial: `hb${index}`,
@@ -69,11 +56,7 @@ export const LineChart = ({ duration, hashboards, units }: LineChartProps) => {
   return (
     <div className="my-8 flex justify-center">
       <div className="flex h-[486px] w-[928px]">
-        <LineChartComponent
-          chartData={chartData}
-          chartLines={chartLines}
-          units={units}
-        />
+        <LineChartComponent chartData={chartData} chartLines={chartLines} units={units} />
       </div>
     </div>
   );

@@ -2,10 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 // TODO: Now that we've started using Zustand, this is no longer necessary.
 // Move usages of this hook to Zustand store instead.
-function useReactiveLocalStorage<T>(
-  key: string,
-  initialValue?: T,
-): [T, (value: T | ((val: T) => T)) => void] {
+function useReactiveLocalStorage<T>(key: string, initialValue?: T): [T, (value: T | ((val: T) => T)) => void] {
   const [storedValue, setStoredValue] = useState<T>(() => {
     try {
       const item = localStorage.getItem(key);
@@ -19,8 +16,7 @@ function useReactiveLocalStorage<T>(
   const setValue = useCallback(
     (value: T | ((val: T) => T)) => {
       try {
-        const valueToStore =
-          value instanceof Function ? value(storedValue) : value;
+        const valueToStore = value instanceof Function ? value(storedValue) : value;
         setStoredValue(valueToStore);
         localStorage.setItem(key, JSON.stringify(valueToStore));
         window.dispatchEvent(
@@ -37,8 +33,7 @@ function useReactiveLocalStorage<T>(
 
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent | CustomEvent) => {
-      const changeKey =
-        e instanceof StorageEvent ? e.key : (e as CustomEvent).detail?.key;
+      const changeKey = e instanceof StorageEvent ? e.key : (e as CustomEvent).detail?.key;
 
       if (changeKey === key) {
         try {
@@ -56,17 +51,11 @@ function useReactiveLocalStorage<T>(
     };
 
     window.addEventListener("storage", handleStorageChange);
-    window.addEventListener(
-      "localStorageChange",
-      handleStorageChange as (event: Event) => void,
-    );
+    window.addEventListener("localStorageChange", handleStorageChange as (event: Event) => void);
 
     return () => {
       window.removeEventListener("storage", handleStorageChange);
-      window.removeEventListener(
-        "localStorageChange",
-        handleStorageChange as (event: Event) => void,
-      );
+      window.removeEventListener("localStorageChange", handleStorageChange as (event: Event) => void);
     };
   }, [key, initialValue]);
 

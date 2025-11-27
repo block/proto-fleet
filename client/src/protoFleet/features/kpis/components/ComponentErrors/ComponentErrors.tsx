@@ -11,13 +11,7 @@ type ComponentErrorsProps = {
   className?: string;
 };
 
-const ComponentErrors = ({
-  icon,
-  heading,
-  errorCount,
-  href,
-  className,
-}: ComponentErrorsProps) => {
+const ComponentErrors = ({ icon, heading, errorCount, href, className }: ComponentErrorsProps) => {
   const isLoading = errorCount === undefined;
 
   let statusText = "";

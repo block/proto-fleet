@@ -16,12 +16,7 @@ const InfoModalStory = ({ hasButtons }: InfoModalProps) => {
       <div className="mt-16 flex w-full justify-center">
         <div className="flex flex-col">
           <div className="mb-2 text-400">Content behind the overlay</div>
-          <Button
-            onClick={() => setShowModal(true)}
-            text="Show Modal"
-            variant={variants.primary}
-            size={sizes.base}
-          />
+          <Button onClick={() => setShowModal(true)} text="Show Modal" variant={variants.primary} size={sizes.base} />
         </div>
       </div>
       {showModal && (

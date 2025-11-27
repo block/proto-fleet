@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
-import {
-  fleetManagementClient,
-  telemetryClient,
-} from "@/protoFleet/api/clients";
+import { fleetManagementClient, telemetryClient } from "@/protoFleet/api/clients";
 import {
   DataMode,
   DeviceStatusUpdateSchema,
@@ -18,13 +15,7 @@ import {
   StreamUpdatesResponse,
   UpdateType,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import {
-  useAuthErrors,
-  useAuthHeader,
-  useFleetStore,
-  useMinerIds,
-  useTotalMiners,
-} from "@/protoFleet/store";
+import { useAuthErrors, useAuthHeader, useFleetStore, useMinerIds, useTotalMiners } from "@/protoFleet/store";
 import { debounce } from "@/shared/utils/utility";
 
 type UseFleetOptions = {
@@ -119,9 +110,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
   // Local state for 'local' scope
   const [localMinerIds, setLocalMinerIds] = useState<string[]>([]);
-  const [localMiners, setLocalMiners] = useState<
-    Record<string, MinerStateSnapshot>
-  >({});
+  const [localMiners, setLocalMiners] = useState<Record<string, MinerStateSnapshot>>({});
   const [localTotalMiners, setLocalTotalMiners] = useState(0);
 
   // Choose state source based on scope
@@ -152,10 +141,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
     }
 
     // Handle device status counts updates (fleet-wide, no deviceId required)
-    if (
-      update.type === UpdateType.MINER_STATE_COUNTS &&
-      update.minerStateCounts
-    ) {
+    if (update.type === UpdateType.MINER_STATE_COUNTS && update.minerStateCounts) {
       const store = useFleetStore.getState();
       store.fleet.setDeviceStatusCounts(update.minerStateCounts);
       return;
@@ -168,15 +154,10 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
     // Handle telemetry data updates
     if (update.type === UpdateType.TELEMETRY && update.data) {
-      useFleetStore
-        .getState()
-        .fleet.updateMinerTelemetry(update.deviceId, update);
+      useFleetStore.getState().fleet.updateMinerTelemetry(update.deviceId, update);
 
       // Handle device status updates
-    } else if (
-      update.type === UpdateType.DEVICE_STATUS &&
-      update.deviceStatus
-    ) {
+    } else if (update.type === UpdateType.DEVICE_STATUS && update.deviceStatus) {
       useFleetStore.getState().fleet.updateMinerDeviceStatus(
         update.deviceId,
         create(DeviceStatusUpdateSchema, {
@@ -186,9 +167,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
     }
 
     if (update.timestamp) {
-      useFleetStore
-        .getState()
-        .fleet.updateMinerTimestamp(update.deviceId, update.timestamp);
+      useFleetStore.getState().fleet.updateMinerTimestamp(update.deviceId, update.timestamp);
     }
   }, []);
 
@@ -237,8 +216,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
           if (
             errorMessage.includes("[canceled]") ||
             errorMessage.includes("AbortError") ||
-            (telemetryStreamAbortController.current &&
-              telemetryStreamAbortController.current.signal.aborted)
+            (telemetryStreamAbortController.current && telemetryStreamAbortController.current.signal.aborted)
           ) {
             return;
           }
@@ -263,9 +241,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
       setIsLoading(true);
       try {
         // Merge pairing statuses into the filter
-        const filterWithPairingStatuses = filter
-          ? { ...filter, pairingStatuses }
-          : { pairingStatuses };
+        const filterWithPairingStatuses = filter ? { ...filter, pairingStatuses } : { pairingStatuses };
 
         const dataMode = DataModeMapping[mode];
 
@@ -280,8 +256,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
                 ? undefined
                 : [
                     {
-                      measurementType:
-                        MeasurementConfig_MeasurementType.HASHRATE,
+                      measurementType: MeasurementConfig_MeasurementType.HASHRATE,
                       dataMode: DataMode.TIME_SERIES,
                       timeSeriesConfig: {
                         timeSelection: {
@@ -296,18 +271,15 @@ const useFleet = (options: UseFleetOptions = {}) => {
                     },
                     // Get snapshot values for other measurements
                     {
-                      measurementType:
-                        MeasurementConfig_MeasurementType.POWER_USAGE,
+                      measurementType: MeasurementConfig_MeasurementType.POWER_USAGE,
                       dataMode: DataMode.SNAPSHOT,
                     },
                     {
-                      measurementType:
-                        MeasurementConfig_MeasurementType.TEMPERATURE,
+                      measurementType: MeasurementConfig_MeasurementType.TEMPERATURE,
                       dataMode: DataMode.SNAPSHOT,
                     },
                     {
-                      measurementType:
-                        MeasurementConfig_MeasurementType.EFFICIENCY,
+                      measurementType: MeasurementConfig_MeasurementType.EFFICIENCY,
                       dataMode: DataMode.SNAPSHOT,
                     },
                   ],
@@ -315,12 +287,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
           authHeader,
         );
 
-        const {
-          miners,
-          cursor: newCursor,
-          totalMiners: responseTotalMiners,
-          totalStateCounts,
-        } = response;
+        const { miners, cursor: newCursor, totalMiners: responseTotalMiners, totalStateCounts } = response;
 
         // Update state based on scope
         if (scope === "global") {
@@ -469,9 +436,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
     // Get all paired miner IDs from store
     const allMinerIds = useFleetStore.getState().fleet.minerIds;
-    const allMiners = allMinerIds
-      .map((id) => useFleetStore.getState().fleet.miners[id])
-      .filter(Boolean);
+    const allMiners = allMinerIds.map((id) => useFleetStore.getState().fleet.miners[id]).filter(Boolean);
 
     const pairedDeviceIds = allMiners
       .filter((miner) => miner.pairingStatus === PairingStatus.PAIRED)

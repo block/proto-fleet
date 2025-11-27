@@ -24,9 +24,7 @@ const SettingsPage = () => {
         description={
           <>
             {"These will be your "}
-            <span className="text-emphasis-300">
-              default settings for new miners added to this network.
-            </span>
+            <span className="text-emphasis-300">default settings for new miners added to this network.</span>
             <br className="phone:hidden" />
             You can always edit these or create custom settings for new miners.
           </>

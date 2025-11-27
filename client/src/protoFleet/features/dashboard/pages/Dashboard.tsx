@@ -29,10 +29,7 @@ const Dashboard = () => {
     scope: "global",
     mode: "metadata",
     pageSize: 1,
-    pairingStatuses: [
-      PairingStatus.PAIRED,
-      PairingStatus.AUTHENTICATION_NEEDED,
-    ],
+    pairingStatuses: [PairingStatus.PAIRED, PairingStatus.AUTHENTICATION_NEEDED],
   }); // Ensure fleet data is loaded
   const fleetSize = useTotalMiners();
   const deviceStatusCounts = useDeviceStatusCounts();
@@ -77,20 +74,12 @@ const Dashboard = () => {
             <SectionHeading heading="Overview" />
             <div className="mt-6 flex flex-col gap-1">
               {/* TODO: Get error counts from API */}
-              <FleetErrors
-                controlBoardErrors={0}
-                fanErrors={0}
-                hashboardErrors={0}
-                psuErrors={0}
-              />
+              <FleetErrors controlBoardErrors={0} fanErrors={0} hashboardErrors={0} psuErrors={0} />
               <FleetHealth
                 fleetSize={fleetSize ?? 1} // prevent division by zero
                 healthyMiners={deviceStatusCounts?.hashingCount ?? 0}
                 offlineMiners={deviceStatusCounts?.offlineCount ?? 0}
-                unhealthyMiners={
-                  (deviceStatusCounts?.sleepingCount ?? 0) +
-                  (deviceStatusCounts?.brokenCount ?? 0)
-                }
+                unhealthyMiners={(deviceStatusCounts?.sleepingCount ?? 0) + (deviceStatusCounts?.brokenCount ?? 0)}
               />
             </div>
           </section>
@@ -106,10 +95,7 @@ const Dashboard = () => {
               <HashratePanel duration={duration} />
 
               {/* Temperature Panel - shows temperature status distribution */}
-              <TemperaturePanel
-                temperatureStatusCounts={temperatureStatusCounts}
-                isLoading={isLoading}
-              />
+              <TemperaturePanel temperatureStatusCounts={temperatureStatusCounts} isLoading={isLoading} />
 
               {/* Power and Efficiency Panels - side by side */}
               <div className="grid grid-cols-2 gap-1 phone:grid-cols-1 tablet:grid-cols-1">
@@ -123,9 +109,8 @@ const Dashboard = () => {
 
             {/* TODO: Add Uptime chart */}
             <p className="text-300 text-text-primary">
-              Data gaps may occur where third-party miner telemetry is
-              unavailable. Efficiency and power reports will not reflect
-              Antminer devices.
+              Data gaps may occur where third-party miner telemetry is unavailable. Efficiency and power reports will
+              not reflect Antminer devices.
             </p>
           </section>
 

@@ -22,35 +22,23 @@ interface AsicButtonProps {
   totalAsicCount: number; // Pass this in to avoid calling useMinerHashboard
 }
 
-const AsicButton = ({
-  asic,
-  hashboardSerial,
-  showPopover,
-  setShowPopover,
-  totalAsicCount,
-}: AsicButtonProps) => {
+const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalAsicCount }: AsicButtonProps) => {
   const { triggerRef: asicRef } = usePopover();
   const { selectedMetric } = useAsicMetric();
   const temperatureUnit = useTemperatureUnit();
 
   const currentAsicId = useMemo(
-    () =>
-      asic.id !== undefined
-        ? getAsicUniqueId(asic.id, hashboardSerial)
-        : undefined,
+    () => (asic.id !== undefined ? getAsicUniqueId(asic.id, hashboardSerial) : undefined),
     [asic.id, hashboardSerial],
   );
 
-  const shouldShowPopover =
-    currentAsicId !== undefined && showPopover === currentAsicId;
+  const shouldShowPopover = currentAsicId !== undefined && showPopover === currentAsicId;
 
   const backgroundColor = useAsicColor(asic);
 
   // Generate ASIC name using utility function - now using passed-in totalAsicCount
   const asicName = useMemo(() => {
-    return asic.index !== undefined
-      ? getAsicName(totalAsicCount, asic.index)
-      : "";
+    return asic.index !== undefined ? getAsicName(totalAsicCount, asic.index) : "";
   }, [totalAsicCount, asic.index]);
 
   // Get the metric measurement based on selected metric
@@ -72,13 +60,10 @@ const AsicButton = ({
 
   return (
     <div
-      className={clsx(
-        "relative mb-1.5 grow basis-0 rounded-xl p-[2px] shadow-[0_0_0_3px] phone:truncate",
-        {
-          "shadow-transparent": !shouldShowPopover,
-          "shadow-intent-info-fill": shouldShowPopover,
-        },
-      )}
+      className={clsx("relative mb-1.5 grow basis-0 rounded-xl p-[2px] shadow-[0_0_0_3px] phone:truncate", {
+        "shadow-transparent": !shouldShowPopover,
+        "shadow-intent-info-fill": shouldShowPopover,
+      })}
       ref={asicRef}
     >
       {shouldShowPopover ? (
@@ -111,9 +96,7 @@ const AsicButton = ({
 
   function renderMetricValue() {
     const formatMetricDisplay = (value: string) => (
-      <div className="text-mono-text-100 font-mono text-text-primary">
-        {value}
-      </div>
+      <div className="text-mono-text-100 font-mono text-text-primary">{value}</div>
     );
 
     if (!metricMeasurement) {
@@ -122,21 +105,13 @@ const AsicButton = ({
 
     // For temperature, convert to user's preferred unit (no units displayed)
     if (selectedMetric === "temperature") {
-      const formatted = convertAndFormatMeasurement(
-        metricMeasurement,
-        temperatureUnit,
-        false,
-      );
+      const formatted = convertAndFormatMeasurement(metricMeasurement, temperatureUnit, false);
       return formatMetricDisplay(formatted || "--");
     }
 
     // For hashrate, convert to GH/s for display (no units displayed)
     if (selectedMetric === "hashrate") {
-      const formatted = convertAndFormatMeasurement(
-        metricMeasurement,
-        "GH/s",
-        false,
-      );
+      const formatted = convertAndFormatMeasurement(metricMeasurement, "GH/s", false);
       return formatMetricDisplay(formatted || "--");
     }
 

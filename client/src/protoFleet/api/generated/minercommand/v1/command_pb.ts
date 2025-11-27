@@ -2,18 +2,8 @@
 // @generated from file minercommand/v1/command.proto (package minercommand.v1, syntax proto3)
 /* eslint-disable */
 
-import type {
-  GenEnum,
-  GenFile,
-  GenMessage,
-  GenService,
-} from "@bufbuild/protobuf/codegenv2";
-import {
-  enumDesc,
-  fileDesc,
-  messageDesc,
-  serviceDesc,
-} from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
@@ -75,9 +65,7 @@ export type DeviceList = Message<"minercommand.v1.DeviceList"> & {
  * Describes the message minercommand.v1.DeviceList.
  * Use `create(DeviceListSchema)` to create a new message.
  */
-export const DeviceListSchema: GenMessage<DeviceList> =
-  /*@__PURE__*/
-  messageDesc(file_minercommand_v1_command, 1);
+export const DeviceListSchema: GenMessage<DeviceList> = /*@__PURE__*/ messageDesc(file_minercommand_v1_command, 1);
 
 /**
  * @generated from message minercommand.v1.RebootRequest
@@ -140,13 +128,12 @@ export const StopMiningRequestSchema: GenMessage<StopMiningRequest> =
  *
  * @generated from message minercommand.v1.StopMiningResponse
  */
-export type StopMiningResponse =
-  Message<"minercommand.v1.StopMiningResponse"> & {
-    /**
-     * @generated from field: string batch_identifier = 1;
-     */
-    batchIdentifier: string;
-  };
+export type StopMiningResponse = Message<"minercommand.v1.StopMiningResponse"> & {
+  /**
+   * @generated from field: string batch_identifier = 1;
+   */
+  batchIdentifier: string;
+};
 
 /**
  * Describes the message minercommand.v1.StopMiningResponse.
@@ -161,13 +148,12 @@ export const StopMiningResponseSchema: GenMessage<StopMiningResponse> =
  *
  * @generated from message minercommand.v1.StartMiningRequest
  */
-export type StartMiningRequest =
-  Message<"minercommand.v1.StartMiningRequest"> & {
-    /**
-     * @generated from field: minercommand.v1.DeviceSelector device_selector = 1;
-     */
-    deviceSelector?: DeviceSelector;
-  };
+export type StartMiningRequest = Message<"minercommand.v1.StartMiningRequest"> & {
+  /**
+   * @generated from field: minercommand.v1.DeviceSelector device_selector = 1;
+   */
+  deviceSelector?: DeviceSelector;
+};
 
 /**
  * Describes the message minercommand.v1.StartMiningRequest.
@@ -182,13 +168,12 @@ export const StartMiningRequestSchema: GenMessage<StartMiningRequest> =
  *
  * @generated from message minercommand.v1.StartMiningResponse
  */
-export type StartMiningResponse =
-  Message<"minercommand.v1.StartMiningResponse"> & {
-    /**
-     * @generated from field: string batch_identifier = 1;
-     */
-    batchIdentifier: string;
-  };
+export type StartMiningResponse = Message<"minercommand.v1.StartMiningResponse"> & {
+  /**
+   * @generated from field: string batch_identifier = 1;
+   */
+  batchIdentifier: string;
+};
 
 /**
  * Describes the message minercommand.v1.StartMiningResponse.
@@ -201,18 +186,17 @@ export const StartMiningResponseSchema: GenMessage<StartMiningResponse> =
 /**
  * @generated from message minercommand.v1.SetCoolingModeRequest
  */
-export type SetCoolingModeRequest =
-  Message<"minercommand.v1.SetCoolingModeRequest"> & {
-    /**
-     * @generated from field: minercommand.v1.DeviceSelector device_selector = 1;
-     */
-    deviceSelector?: DeviceSelector;
+export type SetCoolingModeRequest = Message<"minercommand.v1.SetCoolingModeRequest"> & {
+  /**
+   * @generated from field: minercommand.v1.DeviceSelector device_selector = 1;
+   */
+  deviceSelector?: DeviceSelector;
 
-    /**
-     * @generated from field: minercommand.v1.CoolingMode mode = 2;
-     */
-    mode: CoolingMode;
-  };
+  /**
+   * @generated from field: minercommand.v1.CoolingMode mode = 2;
+   */
+  mode: CoolingMode;
+};
 
 /**
  * Describes the message minercommand.v1.SetCoolingModeRequest.
@@ -225,13 +209,12 @@ export const SetCoolingModeRequestSchema: GenMessage<SetCoolingModeRequest> =
 /**
  * @generated from message minercommand.v1.SetCoolingModeResponse
  */
-export type SetCoolingModeResponse =
-  Message<"minercommand.v1.SetCoolingModeResponse"> & {
-    /**
-     * @generated from field: string batch_identifier = 1;
-     */
-    batchIdentifier: string;
-  };
+export type SetCoolingModeResponse = Message<"minercommand.v1.SetCoolingModeResponse"> & {
+  /**
+   * @generated from field: string batch_identifier = 1;
+   */
+  batchIdentifier: string;
+};
 
 /**
  * Describes the message minercommand.v1.SetCoolingModeResponse.
@@ -244,28 +227,27 @@ export const SetCoolingModeResponseSchema: GenMessage<SetCoolingModeResponse> =
 /**
  * @generated from message minercommand.v1.UpdateMiningPoolsRequest
  */
-export type UpdateMiningPoolsRequest =
-  Message<"minercommand.v1.UpdateMiningPoolsRequest"> & {
-    /**
-     * @generated from field: minercommand.v1.DeviceSelector device_selector = 1;
-     */
-    deviceSelector?: DeviceSelector;
+export type UpdateMiningPoolsRequest = Message<"minercommand.v1.UpdateMiningPoolsRequest"> & {
+  /**
+   * @generated from field: minercommand.v1.DeviceSelector device_selector = 1;
+   */
+  deviceSelector?: DeviceSelector;
 
-    /**
-     * @generated from field: int64 default_pool_id = 2;
-     */
-    defaultPoolId: bigint;
+  /**
+   * @generated from field: int64 default_pool_id = 2;
+   */
+  defaultPoolId: bigint;
 
-    /**
-     * @generated from field: optional int64 backup_1_pool_id = 3;
-     */
-    backup1PoolId?: bigint;
+  /**
+   * @generated from field: optional int64 backup_1_pool_id = 3;
+   */
+  backup1PoolId?: bigint;
 
-    /**
-     * @generated from field: optional int64 backup_2_pool_id = 4;
-     */
-    backup2PoolId?: bigint;
-  };
+  /**
+   * @generated from field: optional int64 backup_2_pool_id = 4;
+   */
+  backup2PoolId?: bigint;
+};
 
 /**
  * Describes the message minercommand.v1.UpdateMiningPoolsRequest.
@@ -278,13 +260,12 @@ export const UpdateMiningPoolsRequestSchema: GenMessage<UpdateMiningPoolsRequest
 /**
  * @generated from message minercommand.v1.UpdateMiningPoolsResponse
  */
-export type UpdateMiningPoolsResponse =
-  Message<"minercommand.v1.UpdateMiningPoolsResponse"> & {
-    /**
-     * @generated from field: string batch_identifier = 1;
-     */
-    batchIdentifier: string;
-  };
+export type UpdateMiningPoolsResponse = Message<"minercommand.v1.UpdateMiningPoolsResponse"> & {
+  /**
+   * @generated from field: string batch_identifier = 1;
+   */
+  batchIdentifier: string;
+};
 
 /**
  * Describes the message minercommand.v1.UpdateMiningPoolsResponse.
@@ -297,13 +278,12 @@ export const UpdateMiningPoolsResponseSchema: GenMessage<UpdateMiningPoolsRespon
 /**
  * @generated from message minercommand.v1.DownloadLogsRequest
  */
-export type DownloadLogsRequest =
-  Message<"minercommand.v1.DownloadLogsRequest"> & {
-    /**
-     * @generated from field: minercommand.v1.DeviceSelector device_selector = 1;
-     */
-    deviceSelector?: DeviceSelector;
-  };
+export type DownloadLogsRequest = Message<"minercommand.v1.DownloadLogsRequest"> & {
+  /**
+   * @generated from field: minercommand.v1.DeviceSelector device_selector = 1;
+   */
+  deviceSelector?: DeviceSelector;
+};
 
 /**
  * Describes the message minercommand.v1.DownloadLogsRequest.
@@ -316,13 +296,12 @@ export const DownloadLogsRequestSchema: GenMessage<DownloadLogsRequest> =
 /**
  * @generated from message minercommand.v1.DownloadLogsResponse
  */
-export type DownloadLogsResponse =
-  Message<"minercommand.v1.DownloadLogsResponse"> & {
-    /**
-     * @generated from field: string batch_identifier = 1;
-     */
-    batchIdentifier: string;
-  };
+export type DownloadLogsResponse = Message<"minercommand.v1.DownloadLogsResponse"> & {
+  /**
+   * @generated from field: string batch_identifier = 1;
+   */
+  batchIdentifier: string;
+};
 
 /**
  * Describes the message minercommand.v1.DownloadLogsResponse.
@@ -371,13 +350,12 @@ export const BlinkLEDResponseSchema: GenMessage<BlinkLEDResponse> =
 /**
  * @generated from message minercommand.v1.FirmwareUpdateRequest
  */
-export type FirmwareUpdateRequest =
-  Message<"minercommand.v1.FirmwareUpdateRequest"> & {
-    /**
-     * @generated from field: minercommand.v1.DeviceSelector device_selector = 1;
-     */
-    deviceSelector?: DeviceSelector;
-  };
+export type FirmwareUpdateRequest = Message<"minercommand.v1.FirmwareUpdateRequest"> & {
+  /**
+   * @generated from field: minercommand.v1.DeviceSelector device_selector = 1;
+   */
+  deviceSelector?: DeviceSelector;
+};
 
 /**
  * Describes the message minercommand.v1.FirmwareUpdateRequest.
@@ -390,13 +368,12 @@ export const FirmwareUpdateRequestSchema: GenMessage<FirmwareUpdateRequest> =
 /**
  * @generated from message minercommand.v1.FirmwareUpdateResponse
  */
-export type FirmwareUpdateResponse =
-  Message<"minercommand.v1.FirmwareUpdateResponse"> & {
-    /**
-     * @generated from field: string batch_identifier = 1;
-     */
-    batchIdentifier: string;
-  };
+export type FirmwareUpdateResponse = Message<"minercommand.v1.FirmwareUpdateResponse"> & {
+  /**
+   * @generated from field: string batch_identifier = 1;
+   */
+  batchIdentifier: string;
+};
 
 /**
  * Describes the message minercommand.v1.FirmwareUpdateResponse.
@@ -445,15 +422,14 @@ export const UnpairResponseSchema: GenMessage<UnpairResponse> =
 /**
  * @generated from message minercommand.v1.StreamCommandBatchUpdatesRequest
  */
-export type StreamCommandBatchUpdatesRequest =
-  Message<"minercommand.v1.StreamCommandBatchUpdatesRequest"> & {
-    /**
-     * The identifier of the command batch to stream
-     *
-     * @generated from field: string batch_identifier = 1;
-     */
-    batchIdentifier: string;
-  };
+export type StreamCommandBatchUpdatesRequest = Message<"minercommand.v1.StreamCommandBatchUpdatesRequest"> & {
+  /**
+   * The identifier of the command batch to stream
+   *
+   * @generated from field: string batch_identifier = 1;
+   */
+  batchIdentifier: string;
+};
 
 /**
  * Describes the message minercommand.v1.StreamCommandBatchUpdatesRequest.
@@ -466,27 +442,26 @@ export const StreamCommandBatchUpdatesRequestSchema: GenMessage<StreamCommandBat
 /**
  * @generated from message minercommand.v1.StreamCommandBatchUpdatesResponse
  */
-export type StreamCommandBatchUpdatesResponse =
-  Message<"minercommand.v1.StreamCommandBatchUpdatesResponse"> & {
-    /**
-     * Timestamp when this update was generated
-     *
-     * @generated from field: google.protobuf.Timestamp timestamp = 1;
-     */
-    timestamp?: Timestamp;
+export type StreamCommandBatchUpdatesResponse = Message<"minercommand.v1.StreamCommandBatchUpdatesResponse"> & {
+  /**
+   * Timestamp when this update was generated
+   *
+   * @generated from field: google.protobuf.Timestamp timestamp = 1;
+   */
+  timestamp?: Timestamp;
 
-    /**
-     * Identifier of the command batch this update is for
-     *
-     * @generated from field: string command_batch_identifier = 2;
-     */
-    commandBatchIdentifier: string;
+  /**
+   * Identifier of the command batch this update is for
+   *
+   * @generated from field: string command_batch_identifier = 2;
+   */
+  commandBatchIdentifier: string;
 
-    /**
-     * @generated from field: minercommand.v1.CommandBatchUpdateStatus status = 3;
-     */
-    status?: CommandBatchUpdateStatus;
-  };
+  /**
+   * @generated from field: minercommand.v1.CommandBatchUpdateStatus status = 3;
+   */
+  status?: CommandBatchUpdateStatus;
+};
 
 /**
  * Describes the message minercommand.v1.StreamCommandBatchUpdatesResponse.
@@ -499,23 +474,22 @@ export const StreamCommandBatchUpdatesResponseSchema: GenMessage<StreamCommandBa
 /**
  * @generated from message minercommand.v1.CommandBatchUpdateDeviceCount
  */
-export type CommandBatchUpdateDeviceCount =
-  Message<"minercommand.v1.CommandBatchUpdateDeviceCount"> & {
-    /**
-     * @generated from field: int64 total = 1;
-     */
-    total: bigint;
+export type CommandBatchUpdateDeviceCount = Message<"minercommand.v1.CommandBatchUpdateDeviceCount"> & {
+  /**
+   * @generated from field: int64 total = 1;
+   */
+  total: bigint;
 
-    /**
-     * @generated from field: int64 success = 2;
-     */
-    success: bigint;
+  /**
+   * @generated from field: int64 success = 2;
+   */
+  success: bigint;
 
-    /**
-     * @generated from field: int64 failure = 3;
-     */
-    failure: bigint;
-  };
+  /**
+   * @generated from field: int64 failure = 3;
+   */
+  failure: bigint;
+};
 
 /**
  * Describes the message minercommand.v1.CommandBatchUpdateDeviceCount.
@@ -528,18 +502,17 @@ export const CommandBatchUpdateDeviceCountSchema: GenMessage<CommandBatchUpdateD
 /**
  * @generated from message minercommand.v1.CommandBatchUpdateStatus
  */
-export type CommandBatchUpdateStatus =
-  Message<"minercommand.v1.CommandBatchUpdateStatus"> & {
-    /**
-     * @generated from field: minercommand.v1.CommandBatchUpdateStatus.CommandBatchUpdateStatusType command_batch_update_status = 1;
-     */
-    commandBatchUpdateStatus: CommandBatchUpdateStatus_CommandBatchUpdateStatusType;
+export type CommandBatchUpdateStatus = Message<"minercommand.v1.CommandBatchUpdateStatus"> & {
+  /**
+   * @generated from field: minercommand.v1.CommandBatchUpdateStatus.CommandBatchUpdateStatusType command_batch_update_status = 1;
+   */
+  commandBatchUpdateStatus: CommandBatchUpdateStatus_CommandBatchUpdateStatusType;
 
-    /**
-     * @generated from field: minercommand.v1.CommandBatchUpdateDeviceCount command_batch_device_count = 2;
-     */
-    commandBatchDeviceCount?: CommandBatchUpdateDeviceCount;
-  };
+  /**
+   * @generated from field: minercommand.v1.CommandBatchUpdateDeviceCount command_batch_device_count = 2;
+   */
+  commandBatchDeviceCount?: CommandBatchUpdateDeviceCount;
+};
 
 /**
  * Describes the message minercommand.v1.CommandBatchUpdateStatus.
@@ -584,13 +557,12 @@ export const CommandBatchUpdateStatus_CommandBatchUpdateStatusTypeSchema: GenEnu
 /**
  * @generated from message minercommand.v1.GetCommandBatchLogBundleRequest
  */
-export type GetCommandBatchLogBundleRequest =
-  Message<"minercommand.v1.GetCommandBatchLogBundleRequest"> & {
-    /**
-     * @generated from field: string batch_identifier = 1;
-     */
-    batchIdentifier: string;
-  };
+export type GetCommandBatchLogBundleRequest = Message<"minercommand.v1.GetCommandBatchLogBundleRequest"> & {
+  /**
+   * @generated from field: string batch_identifier = 1;
+   */
+  batchIdentifier: string;
+};
 
 /**
  * Describes the message minercommand.v1.GetCommandBatchLogBundleRequest.
@@ -603,18 +575,17 @@ export const GetCommandBatchLogBundleRequestSchema: GenMessage<GetCommandBatchLo
 /**
  * @generated from message minercommand.v1.GetCommandBatchLogBundleResponse
  */
-export type GetCommandBatchLogBundleResponse =
-  Message<"minercommand.v1.GetCommandBatchLogBundleResponse"> & {
-    /**
-     * @generated from field: bytes chunk_data = 1;
-     */
-    chunkData: Uint8Array;
+export type GetCommandBatchLogBundleResponse = Message<"minercommand.v1.GetCommandBatchLogBundleResponse"> & {
+  /**
+   * @generated from field: bytes chunk_data = 1;
+   */
+  chunkData: Uint8Array;
 
-    /**
-     * @generated from field: string filename = 2;
-     */
-    filename: string;
-  };
+  /**
+   * @generated from field: string filename = 2;
+   */
+  filename: string;
+};
 
 /**
  * Describes the message minercommand.v1.GetCommandBatchLogBundleResponse.
@@ -647,9 +618,7 @@ export enum CoolingMode {
 /**
  * Describes the enum minercommand.v1.CoolingMode.
  */
-export const CoolingModeSchema: GenEnum<CoolingMode> =
-  /*@__PURE__*/
-  enumDesc(file_minercommand_v1_command, 0);
+export const CoolingModeSchema: GenEnum<CoolingMode> = /*@__PURE__*/ enumDesc(file_minercommand_v1_command, 0);
 
 /**
  * Service for executing Miner commands

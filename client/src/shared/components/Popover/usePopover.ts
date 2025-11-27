@@ -4,8 +4,7 @@ import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 export const usePopover = () => {
   const popoverContext = useContext(PopoverContext);
-  if (popoverContext === null)
-    throw new Error("usePopover must be used within a PopoverProvider");
+  if (popoverContext === null) throw new Error("usePopover must be used within a PopoverProvider");
 
   return useMemo(() => ({ ...popoverContext }), [popoverContext]);
 };

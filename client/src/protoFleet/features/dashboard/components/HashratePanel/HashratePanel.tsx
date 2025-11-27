@@ -49,13 +49,9 @@ export function HashratePanel({ duration }: HashratePanelProps) {
     // Merge streaming data if available
     if (latestData?.metrics && latestData.metrics.length > 0) {
       // Append new metrics from streaming, avoiding duplicates by timestamp
-      const existingTimestamps = new Set(
-        data.metrics.map((m) => m.openTime?.seconds?.toString()),
-      );
+      const existingTimestamps = new Set(data.metrics.map((m) => m.openTime?.seconds?.toString()));
 
-      const newMetrics = latestData.metrics.filter(
-        (m) => !existingTimestamps.has(m.openTime?.seconds?.toString()),
-      );
+      const newMetrics = latestData.metrics.filter((m) => !existingTimestamps.has(m.openTime?.seconds?.toString()));
 
       metricsToTransform = [...data.metrics, ...newMetrics];
     }
@@ -87,13 +83,9 @@ export function HashratePanel({ duration }: HashratePanelProps) {
   }
 
   // Format the current hashrate with appropriate units
-  const formattedHashrate = currentHashrate
-    ? formatHashrateWithUnit(currentHashrate)
-    : null;
+  const formattedHashrate = currentHashrate ? formatHashrateWithUnit(currentHashrate) : null;
 
-  const hashrateDisplayValue = formattedHashrate
-    ? formattedHashrate.value.toFixed(1)
-    : "N/A";
+  const hashrateDisplayValue = formattedHashrate ? formattedHashrate.value.toFixed(1) : "N/A";
   const hashrateUnits = formattedHashrate ? formattedHashrate.unit : "";
 
   const stat = {
@@ -104,12 +96,7 @@ export function HashratePanel({ duration }: HashratePanelProps) {
 
   return (
     <ChartWidget stats={stat}>
-      <LineChart
-        chartData={chartData}
-        aggregateKey="hashrate"
-        units={hashrateUnits}
-        activeKeys={["hashrate"]}
-      />
+      <LineChart chartData={chartData} aggregateKey="hashrate" units={hashrateUnits} activeKeys={["hashrate"]} />
     </ChartWidget>
   );
 }

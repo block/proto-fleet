@@ -11,8 +11,7 @@ export const AsicPopover = ({ asicIndex }: AsicPopoverStoryProps) => {
   const { triggerRef } = usePopover();
 
   // Get the ASIC at the specified index from mock data
-  const asic =
-    mockHashboardStats.asics[asicIndex] || mockHashboardStats.asics[0];
+  const asic = mockHashboardStats.asics[asicIndex] || mockHashboardStats.asics[0];
 
   return (
     <div ref={triggerRef} className="relative mt-96 ml-40">

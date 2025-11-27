@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import {
-  TOTAL_FAN_SLOTS,
-  TOTAL_HASHBOARD_SLOTS,
-  TOTAL_PSU_SLOTS,
-} from "../constants";
+import { TOTAL_FAN_SLOTS, TOTAL_HASHBOARD_SLOTS, TOTAL_PSU_SLOTS } from "../constants";
 import {
   ControlBoardInfo,
   FanInfo,
@@ -20,12 +16,8 @@ const useHardware = () => {
   const [data, setData] = useState<HardwareInfoHardwareinfo>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
-  const [controlBoardInfo, setControlBoardInfo] = useState<
-    ControlBoardInfo | undefined
-  >();
-  const [hashboardsInfo, setHashboardsInfo] = useState<
-    (HashboardInfo | null)[] | undefined
-  >();
+  const [controlBoardInfo, setControlBoardInfo] = useState<ControlBoardInfo | undefined>();
+  const [hashboardsInfo, setHashboardsInfo] = useState<(HashboardInfo | null)[] | undefined>();
   const [psusInfo, setPsusInfo] = useState<(PsuInfo | null)[] | undefined>();
   const [fansInfo, setFansInfo] = useState<(FanInfo | null)[] | undefined>();
 
@@ -48,13 +40,10 @@ const useHardware = () => {
             hashboardsBySlot.set(hb.slot, hb);
           }
         });
-        const allHashboards = Array.from(
-          { length: TOTAL_HASHBOARD_SLOTS },
-          (_, i) => {
-            const slot = i + 1;
-            return hashboardsBySlot.get(slot) || null;
-          },
-        );
+        const allHashboards = Array.from({ length: TOTAL_HASHBOARD_SLOTS }, (_, i) => {
+          const slot = i + 1;
+          return hashboardsBySlot.get(slot) || null;
+        });
         setHashboardsInfo(allHashboards);
 
         // Fill out PSUs array with all slots
@@ -106,9 +95,7 @@ const useHardware = () => {
     const hashboardSerials: string[] = [];
     hashboardsInfo?.forEach((hb) => {
       if (hb?.hb_sn && hb?.slot) {
-        const existingHashboard = useMinerStore
-          .getState()
-          .hardware.getHashboard(hb.hb_sn);
+        const existingHashboard = useMinerStore.getState().hardware.getHashboard(hb.hb_sn);
 
         const hashboardData = {
           ...existingHashboard, // Preserve all existing data
@@ -262,15 +249,7 @@ const useHardware = () => {
       psusInfo,
       fansInfo,
     }),
-    [
-      pending,
-      error,
-      data,
-      controlBoardInfo,
-      hashboardsInfo,
-      psusInfo,
-      fansInfo,
-    ],
+    [pending, error, data, controlBoardInfo, hashboardsInfo, psusInfo, fansInfo],
   );
 };
 

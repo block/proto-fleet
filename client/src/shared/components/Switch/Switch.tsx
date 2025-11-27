@@ -7,12 +7,7 @@ type SwitchProps = {
   disabled?: boolean;
 };
 
-const Switch = ({
-  label,
-  checked,
-  setChecked,
-  disabled = false,
-}: SwitchProps) => {
+const Switch = ({ label, checked, setChecked, disabled = false }: SwitchProps) => {
   return (
     <label className="inline-flex cursor-pointer items-center gap-4 select-none">
       {label && <span className="text-300">{label}</span>}

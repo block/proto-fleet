@@ -7,11 +7,7 @@ interface ModalSelectAllFooterProps {
   onSelectNone?: () => void;
 }
 
-const ModalSelectAllFooter = ({
-  label,
-  onSelectAll,
-  onSelectNone,
-}: ModalSelectAllFooterProps) => {
+const ModalSelectAllFooter = ({ label, onSelectAll, onSelectNone }: ModalSelectAllFooterProps) => {
   return (
     <>
       <Divider className="-mx-6 mt-2 !w-[calc(100%+3rem)]" />
@@ -19,20 +15,12 @@ const ModalSelectAllFooter = ({
         <div className="text-emphasis-300">{label}</div>
         <div className="flex items-center gap-3">
           {onSelectAll && (
-            <Button
-              variant={variants.textOnly}
-              className="pr-0"
-              onClick={onSelectAll}
-            >
+            <Button variant={variants.textOnly} className="pr-0" onClick={onSelectAll}>
               Select all
             </Button>
           )}
           {onSelectNone && (
-            <Button
-              variant={variants.textOnly}
-              className="pl-0"
-              onClick={onSelectNone}
-            >
+            <Button variant={variants.textOnly} className="pl-0" onClick={onSelectNone}>
               Select none
             </Button>
           )}

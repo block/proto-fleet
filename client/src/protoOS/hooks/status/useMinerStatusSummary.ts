@@ -35,9 +35,7 @@ export const useMinerStatusSummary = (): string => {
     }
 
     // Count how many different components have errors
-    const componentsWithErrors = Object.entries(groupedErrors).filter(
-      ([_, errs]) => errs.length > 0,
-    );
+    const componentsWithErrors = Object.entries(groupedErrors).filter(([_, errs]) => errs.length > 0);
 
     if (componentsWithErrors.length > 0) {
       // Multiple components have issues
@@ -51,35 +49,22 @@ export const useMinerStatusSummary = (): string => {
 
         if (componentErrors.length > 1) {
           const componentName =
-            COMPONENT_DISPLAY_NAMES.singular[
-              componentType as keyof typeof COMPONENT_DISPLAY_NAMES.singular
-            ];
+            COMPONENT_DISPLAY_NAMES.singular[componentType as keyof typeof COMPONENT_DISPLAY_NAMES.singular];
           return `Multiple ${componentName} issues`;
         }
 
         // Single issue - return specific summary
         const componentName =
-          COMPONENT_DISPLAY_NAMES.capitalized[
-            componentType as keyof typeof COMPONENT_DISPLAY_NAMES.capitalized
-          ];
+          COMPONENT_DISPLAY_NAMES.capitalized[componentType as keyof typeof COMPONENT_DISPLAY_NAMES.capitalized];
 
         // For specific components, try to add more detail
-        if (
-          componentType === "hashboard" &&
-          componentErrors[0].componentIndex !== undefined
-        ) {
+        if (componentType === "hashboard" && componentErrors[0].componentIndex !== undefined) {
           return `Hashboard ${componentErrors[0].componentIndex + 1} issue`;
         }
-        if (
-          componentType === "fan" &&
-          componentErrors[0].componentIndex !== undefined
-        ) {
+        if (componentType === "fan" && componentErrors[0].componentIndex !== undefined) {
           return `Fan ${componentErrors[0].componentIndex + 1} issue`;
         }
-        if (
-          componentType === "psu" &&
-          componentErrors[0].componentIndex !== undefined
-        ) {
+        if (componentType === "psu" && componentErrors[0].componentIndex !== undefined) {
           return `PSU ${componentErrors[0].componentIndex + 1} issue`;
         }
 

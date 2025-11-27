@@ -13,12 +13,7 @@ type StatStoryType = StatProps & {
   hasText: boolean;
 };
 
-export const Stat = ({
-  size,
-  chartStatus,
-  iconType,
-  hasText,
-}: StatStoryType) => {
+export const Stat = ({ size, chartStatus, iconType, hasText }: StatStoryType) => {
   const icon = iconType === "none" ? undefined : icons[iconType];
   const text = hasText ? "2.1% below expected" : undefined;
 

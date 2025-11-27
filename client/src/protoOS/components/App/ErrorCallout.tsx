@@ -49,12 +49,7 @@ const ErrorCallout = () => {
         </div>
       )}
 
-      {isModalOpen && (
-        <ProtoOSStatusModal
-          show={isModalOpen}
-          onClose={() => setModalOpen(false)}
-        />
-      )}
+      {isModalOpen && <ProtoOSStatusModal show={isModalOpen} onClose={() => setModalOpen(false)} />}
     </>
   );
 };

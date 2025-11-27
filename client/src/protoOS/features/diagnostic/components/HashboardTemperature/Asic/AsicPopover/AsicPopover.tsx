@@ -1,10 +1,7 @@
 import { useMemo } from "react";
 import AsicChart from "./AsicChart";
 import AsicPopoverRow from "./AsicPopoverRow";
-import {
-  convertTelemetryHashrateToChartData,
-  convertTelemetryTemperatureToChartData,
-} from "./utility";
+import { convertTelemetryHashrateToChartData, convertTelemetryTemperatureToChartData } from "./utility";
 import { AsicData, convertAndFormatMeasurement } from "@/protoOS/store";
 import { useIntervalMs, useTemperatureUnit } from "@/protoOS/store";
 import Popover from "@/shared/components/Popover";
@@ -23,42 +20,28 @@ interface AsicPopoverProps {
   closeIgnoreSelectors?: string[];
 }
 
-const AsicPopover = ({
-  asic,
-  closePopover,
-  closeIgnoreSelectors,
-}: AsicPopoverProps) => {
+const AsicPopover = ({ asic, closePopover, closeIgnoreSelectors }: AsicPopoverProps) => {
   const temperatureUnit = useTemperatureUnit();
   const intervalMs = useIntervalMs();
 
   // Convert telemetry data to chart format
   const { temperatureData, hashrateData } = useMemo(() => {
     const temperatureData = asic.temperature?.timeSeries
-      ? convertTelemetryTemperatureToChartData(
-          asic.temperature.timeSeries,
-          intervalMs,
-        )
+      ? convertTelemetryTemperatureToChartData(asic.temperature.timeSeries, intervalMs)
       : [];
 
     const hashrateData = asic.hashrate?.timeSeries
-      ? convertTelemetryHashrateToChartData(
-          asic.hashrate.timeSeries,
-          intervalMs,
-        )
+      ? convertTelemetryHashrateToChartData(asic.hashrate.timeSeries, intervalMs)
       : [];
 
     return { temperatureData, hashrateData };
   }, [asic.temperature, asic.hashrate, intervalMs]);
 
-  const hashRateValue = hashrateData.length
-    ? hashrateData[hashrateData.length - 1].value
-    : 0;
+  const hashRateValue = hashrateData.length ? hashrateData[hashrateData.length - 1].value : 0;
 
   // TODO: [STORE_REFACTOR] we can probably use getCurrentValue from the store instead of formatHashrateWithUnit
   // Deprioritize for now, since this feature is turned off
-  const { value: hashRate, unit: hashUnit } = formatHashrateWithUnit(
-    hashRateValue ? hashRateValue : undefined,
-  );
+  const { value: hashRate, unit: hashUnit } = formatHashrateWithUnit(hashRateValue ? hashRateValue : undefined);
 
   // Check if we're still loading data (no telemetry data available)
   const isLoading = !asic.temperature?.timeSeries && !asic.hashrate?.timeSeries;
@@ -92,15 +75,10 @@ const AsicPopover = ({
           </div>
         ) : null}
         {hashrateData.length || temperatureData.length ? (
-          <AsicChart
-            hashrateData={hashrateData}
-            temperatureData={temperatureData}
-          />
+          <AsicChart hashrateData={hashrateData} temperatureData={temperatureData} />
         ) : (
           !isLoading && (
-            <div className="flex h-full items-center justify-center text-text-primary-50">
-              No chart data available
-            </div>
+            <div className="flex h-full items-center justify-center text-text-primary-50">No chart data available</div>
           )
         )}
       </div>
@@ -109,22 +87,14 @@ const AsicPopover = ({
           label="Current temperature"
           value={
             asic.temperature?.latest
-              ? convertAndFormatMeasurement(
-                  asic.temperature.latest,
-                  temperatureUnit,
-                  false,
-                )
+              ? convertAndFormatMeasurement(asic.temperature.latest, temperatureUnit, false)
               : undefined
           }
           className="text-core-accent-fill"
         />
         <AsicPopoverRow
           label="Current hashrate"
-          value={
-            hashrateData.length
-              ? `${getDisplayValue(hashRate)} ${hashUnit}`
-              : undefined
-          }
+          value={hashrateData.length ? `${getDisplayValue(hashRate)} ${hashUnit}` : undefined}
           className="text-text-primary"
         />
       </div>

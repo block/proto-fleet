@@ -10,11 +10,7 @@ interface ModalProps {
   numberOfSecondaryButtons: number;
 }
 
-export const Modal = ({
-  hasButtons,
-  hasTitle,
-  numberOfSecondaryButtons,
-}: ModalProps) => {
+export const Modal = ({ hasButtons, hasTitle, numberOfSecondaryButtons }: ModalProps) => {
   const secondaryButton = {
     text: "Secondary",
     onClick: action("Secondary button clicked"),
@@ -28,12 +24,7 @@ export const Modal = ({
       <div className="mt-16 flex w-full justify-center">
         <div className="flex flex-col">
           <div className="mb-2 text-400">Content behind the overlay</div>
-          <Button
-            onClick={() => setShowModal(true)}
-            text="Show Modal"
-            variant={variants.primary}
-            size={sizes.base}
-          />
+          <Button onClick={() => setShowModal(true)} text="Show Modal" variant={variants.primary} size={sizes.base} />
         </div>
       </div>
       {showModal && (
@@ -109,10 +100,7 @@ export const Fullscreen = () => {
         >
           <div className="p-4">
             <p>This is a fullscreen modal that takes up the entire viewport.</p>
-            <p className="mt-2">
-              It's useful for immersive experiences or when you need maximum
-              space for content.
-            </p>
+            <p className="mt-2">It's useful for immersive experiences or when you need maximum space for content.</p>
           </div>
         </ModalComponent>
       )}
@@ -156,17 +144,11 @@ export const NoHeader = () => {
         >
           <div className="py-4">
             <h2 className="mb-2 text-heading-200">Custom Content Area</h2>
-            <p>
-              This modal has no header section (no title, description, or close
-              icon).
-            </p>
+            <p>This modal has no header section (no title, description, or close icon).</p>
             <p className="mt-2">
-              This is useful for custom layouts where you want full control over
-              the modal content.
+              This is useful for custom layouts where you want full control over the modal content.
             </p>
-            <p className="mt-2">
-              The modal can still be closed with Escape key or clicking outside.
-            </p>
+            <p className="mt-2">The modal can still be closed with Escape key or clicking outside.</p>
           </div>
         </ModalComponent>
       )}

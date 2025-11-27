@@ -47,24 +47,16 @@ function supportsAutoAuth(supportedMethods: AuthenticationMethod[]): boolean {
   return supportedMethods.includes(AuthenticationMethod.ASYMMETRIC_KEY);
 }
 
-const FoundMiners = ({
-  miners,
-  deselectedMiners,
-  className,
-}: FoundMinersProps) => {
+const FoundMiners = ({ miners, deselectedMiners, className }: FoundMinersProps) => {
   // Derive minersByModel directly from miners prop
   const minersByModel = useMemo(() => {
     const _minersByModel: MinersByModel = {};
 
     miners.forEach((miner) => {
-      const minerKey = new MinerKey(
-        miner.manufacturer || "unknown",
-        miner.model || "unknown",
-      );
+      const minerKey = new MinerKey(miner.manufacturer || "unknown", miner.model || "unknown");
 
       if (!_minersByModel[minerKey.toString()]) {
-        const supportedMethods =
-          miner.capabilities?.authentication?.supportedMethods || [];
+        const supportedMethods = miner.capabilities?.authentication?.supportedMethods || [];
 
         _minersByModel[minerKey.toString()] = {
           model: miner.model,
@@ -75,9 +67,7 @@ const FoundMiners = ({
       } else if (
         // if miner is already in our state dont add it again
         // so that we dont have duplicates
-        !_minersByModel[minerKey.toString()].miners.find(
-          (m) => m.ipAddress === miner.ipAddress,
-        )
+        !_minersByModel[minerKey.toString()].miners.find((m) => m.ipAddress === miner.ipAddress)
       ) {
         _minersByModel[minerKey.toString()].miners.push(miner);
       }
@@ -112,40 +102,23 @@ const FoundMiners = ({
         <div>
           {Object.values(minersByModel).map((model, index) => (
             <Fragment key={index}>
-              <Row
-                divider={false}
-                className="flex items-center justify-between"
-              >
+              <Row divider={false} className="flex items-center justify-between">
                 <div className="flex gap-4">
-                  {isProtoRig(model.manufacturer) ? (
-                    <LogoAlt width="w-[20px]" />
-                  ) : (
-                    <Fleet width="w-[20px]" />
-                  )}
+                  {isProtoRig(model.manufacturer) ? <LogoAlt width="w-[20px]" /> : <Fleet width="w-[20px]" />}
                   <div>
                     <div className="h-6 text-emphasis-300">
                       {model.manufacturer} {model.model}
                     </div>
                     {supportsAutoAuth(model.supportedAuthenticationMethods) ? (
-                      <div className="text-200 text-text-primary-70">
-                        Authenticated with default username/password
-                      </div>
+                      <div className="text-200 text-text-primary-70">Authenticated with default username/password</div>
                     ) : (
-                      <div className="text-200 text-text-primary-70">
-                        You will need to log in after setup
-                      </div>
+                      <div className="text-200 text-text-primary-70">You will need to log in after setup</div>
                     )}
                   </div>
                 </div>
 
                 <div className="h-6 text-emphasis-300">
-                  {
-                    model.miners.filter(
-                      (miner) =>
-                        !deselectedMiners.includes(miner.deviceIdentifier),
-                    ).length
-                  }{" "}
-                  miners
+                  {model.miners.filter((miner) => !deselectedMiners.includes(miner.deviceIdentifier)).length} miners
                 </div>
               </Row>
               {Object.values(minersByModel).length > index + 1 && <Divider />}

@@ -26,9 +26,7 @@ const BackgroundImage = ({
   }
 
   const { src, src2x } = image;
-  const srcSet = src2x
-    ? `image-set(url(${src}) 1x, url(${src2x}) 2x)`
-    : `url(${src})`;
+  const srcSet = src2x ? `image-set(url(${src}) 1x, url(${src2x}) 2x)` : `url(${src})`;
 
   return (
     <div

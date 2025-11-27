@@ -31,20 +31,11 @@ const MinerName = ({ deviceIdentifier }: MinerNameProps) => {
       <div>
         {url ? (
           <>
-            <a
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={handleClick}
-            >
+            <a href={url} target="_blank" rel="noopener noreferrer" onClick={handleClick}>
               {name}
             </a>
             {isMinerFrameOpen ? (
-              <MinerFrame
-                title={name}
-                src={url}
-                onDismiss={() => setIsMinerFrameOpen(false)}
-              />
+              <MinerFrame title={name} src={url} onDismiss={() => setIsMinerFrameOpen(false)} />
             ) : null}
           </>
         ) : (

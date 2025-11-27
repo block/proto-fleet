@@ -17,17 +17,13 @@ describe("Alert Status", () => {
   });
 
   test("renders alert when there are some alerts", () => {
-    const { getByTestId } = render(
-      <AlertStatus loading={false} alerts={alerts} />,
-    );
+    const { getByTestId } = render(<AlertStatus loading={false} alerts={alerts} />);
 
     expect(getByTestId(alertIconTestId)).toHaveClass(warningClass);
   });
 
   test("does not render icon when loading", () => {
-    const { queryByTestId } = render(
-      <AlertStatus loading={true} alerts={alerts} />,
-    );
+    const { queryByTestId } = render(<AlertStatus loading={true} alerts={alerts} />);
 
     expect(queryByTestId(alertIconTestId)).toBeNull();
   });

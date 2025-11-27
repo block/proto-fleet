@@ -1,11 +1,7 @@
 import type { StateCreator } from "zustand";
 import type { FleetStore } from "../useFleetStore";
 import type { Duration } from "@/shared/components/DurationSelector";
-import type {
-  TemperatureUnit,
-  Theme,
-  ThemeColor,
-} from "@/shared/features/preferences";
+import type { TemperatureUnit, Theme, ThemeColor } from "@/shared/features/preferences";
 
 // =============================================================================
 // UI Slice Interface
@@ -28,12 +24,7 @@ export interface UISlice {
 // UI Slice Creator
 // =============================================================================
 
-export const createUISlice: StateCreator<
-  FleetStore,
-  [["zustand/immer", never]],
-  [],
-  UISlice
-> = (set) => ({
+export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]], [], UISlice> = (set) => ({
   // Initial state
   theme: "system",
   deviceTheme: undefined,

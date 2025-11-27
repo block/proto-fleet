@@ -18,9 +18,7 @@ const WELCOME_SCREEN_TIMEOUT = 3000; // how long the welcome screen should be vi
 type WelcomePanelProps = { children: ReactNode };
 
 const WelcomePanel = ({ children }: WelcomePanelProps) => {
-  const PlusIcon = (
-    <Plus className="font-bold text-text-emphasis" width={iconSizes.small} />
-  );
+  const PlusIcon = <Plus className="font-bold text-text-emphasis" width={iconSizes.small} />;
 
   return (
     <>
@@ -68,9 +66,7 @@ const WelcomePage = () => {
       onError: (error: unknown) => {
         if (error instanceof ConnectError) {
           if (error.code === Code.AlreadyExists) {
-            setSubmitError(
-              "Proto Fleet instance already onboarded. Please sign in.",
-            );
+            setSubmitError("Proto Fleet instance already onboarded. Please sign in.");
             return;
           }
         }
@@ -115,14 +111,8 @@ const WelcomePage = () => {
                     submitError={submitError}
                   />
                   <div className="mt-4 flex flex-row">
-                    <div className="text-300 text-text-primary-50">
-                      Already using Proto Fleet?
-                    </div>
-                    <Button
-                      variant={variants.textOnly}
-                      className="!py-0 !pl-1"
-                      onClick={() => navigate("/auth")}
-                    >
+                    <div className="text-300 text-text-primary-50">Already using Proto Fleet?</div>
+                    <Button variant={variants.textOnly} className="!py-0 !pl-1" onClick={() => navigate("/auth")}>
                       Sign in
                     </Button>
                   </div>
@@ -131,9 +121,7 @@ const WelcomePage = () => {
                 <div>
                   <div className="text-300 text-text-primary">
                     Powerful mining tools. Built for decentralization.
-                    <div className="text-text-primary-50">
-                      © {new Date().getFullYear()} Block, Inc. Privacy Notice
-                    </div>
+                    <div className="text-text-primary-50">© {new Date().getFullYear()} Block, Inc. Privacy Notice</div>
                   </div>
                 </div>
               </div>
@@ -146,9 +134,7 @@ const WelcomePage = () => {
                 <WelcomePanel>
                   <div className="text-text-primary-90 mx-10 my-13 flex flex-col gap-4">
                     <FleetWordmark width="w-[162px]" />
-                    <div className="text-heading-300">
-                      Mining software. Evolved.
-                    </div>
+                    <div className="text-heading-300">Mining software. Evolved.</div>
                   </div>
                 </WelcomePanel>
               </div>

@@ -3,9 +3,7 @@ import clsx from "clsx";
 
 import { Dismiss } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import PageOverlay, {
-  animationDuration,
-} from "@/shared/components/PageOverlay";
+import PageOverlay, { animationDuration } from "@/shared/components/PageOverlay";
 
 interface MinerFrameHeaderProps {
   title?: string;
@@ -22,11 +20,7 @@ const MinerFrameHeader = ({ title, onDismiss }: MinerFrameHeaderProps) => {
           onClick={onDismiss}
           testId="header-icon-button"
         />
-        {title ? (
-          <div className="hidden text-heading-200 text-text-primary md:block">
-            {title}
-          </div>
-        ) : null}
+        {title ? <div className="hidden text-heading-200 text-text-primary md:block">{title}</div> : null}
       </div>
     </div>
   );
@@ -40,13 +34,7 @@ interface MinerFrameProps {
   onDismiss?: () => void;
 }
 
-const MinerFrame = ({
-  src,
-  title = "",
-  className = "",
-  show = true,
-  onDismiss,
-}: MinerFrameProps) => {
+const MinerFrame = ({ src, title = "", className = "", show = true, onDismiss }: MinerFrameProps) => {
   const [showFrame, setShowFrame] = useState(show);
 
   const closeFrame = useCallback(() => {

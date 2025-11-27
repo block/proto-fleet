@@ -60,8 +60,7 @@ type HashboardTemperatureProps = {
 const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   const temperatureUnit = useTemperatureUnit();
   const [showPopover, setShowPopover] = useState<string | undefined>(undefined);
-  const [selectedMetric, setSelectedMetric] =
-    useState<SelectedMetric>("temperature");
+  const [selectedMetric, setSelectedMetric] = useState<SelectedMetric>("temperature");
 
   const navigate = useNavigate();
 
@@ -103,13 +102,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
         convertValueUnits(hashboard?.power?.latest, "kW"),
         convertValueUnits(hashboard?.hashrate?.latest, "TH/S"),
       ),
-    [
-      temperatureUnit,
-      hashboard?.avgAsicTemp,
-      hashboard?.maxAsicTemp,
-      hashboard?.power,
-      hashboard?.hashrate,
-    ],
+    [temperatureUnit, hashboard?.avgAsicTemp, hashboard?.maxAsicTemp, hashboard?.power, hashboard?.hashrate],
   );
 
   return (
@@ -134,10 +127,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
       />
       <div className={`pt-24 pb-8 ${containerPadX}`}>
         <PopoverProvider>
-          <HashboardSelector
-            hashboardList={hashboardList}
-            currentHashboard={serial}
-          />
+          <HashboardSelector hashboardList={hashboardList} currentHashboard={serial} />
         </PopoverProvider>
       </div>
       <div className="max-w-screen overflow-visible overflow-x-auto">
@@ -175,28 +165,14 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
             <div className="relative bg-surface-base pr-4">
               Front
               {hashboard?.inletTemp?.latest && (
-                <>
-                  {" "}
-                  {convertAndFormatMeasurement(
-                    hashboard.inletTemp.latest,
-                    temperatureUnit,
-                    false,
-                  )}
-                </>
+                <> {convertAndFormatMeasurement(hashboard.inletTemp.latest, temperatureUnit, false)}</>
               )}
             </div>
             <div className="relative bg-surface-base px-4">{serial}</div>
             <div className="relative bg-surface-base pl-4">
               Rear
               {hashboard?.outletTemp?.latest && (
-                <>
-                  {" "}
-                  {convertAndFormatMeasurement(
-                    hashboard.outletTemp.latest,
-                    temperatureUnit,
-                    false,
-                  )}
-                </>
+                <> {convertAndFormatMeasurement(hashboard.outletTemp.latest, temperatureUnit, false)}</>
               )}
             </div>
           </div>
@@ -206,11 +182,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
         <div className="scrollbar-hide max-w-screen overflow-x-auto">
           <div className={`relative ${containerMarginX} mb-2 min-w-[800px]`}>
             <AsicMetricProvider selectedMetric={selectedMetric}>
-              <AsicTable
-                hashboardSerialNumber={serial}
-                showPopover={showPopover}
-                setShowPopover={setShowPopover}
-              />
+              <AsicTable hashboardSerialNumber={serial} showPopover={showPopover} setShowPopover={setShowPopover} />
             </AsicMetricProvider>
           </div>
         </div>
@@ -218,9 +190,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
       <div className={`${containerPadX} mb-5`}>
         {hashboard?.board && (
           <div className="before:w-ful relative flex items-center justify-around font-mono text-mono-text-50 text-text-primary-50 before:absolute before:top-[50%] before:left-0 before:h-[1px] before:w-full before:bg-border-5">
-            <div className="relative bg-surface-base px-4">
-              {hashboard.board}
-            </div>
+            <div className="relative bg-surface-base px-4">{hashboard.board}</div>
           </div>
         )}
       </div>

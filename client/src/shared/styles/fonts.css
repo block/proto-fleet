@@ -8,8 +8,7 @@
   font-family: "JetBrainsMono";
   font-display: swap;
   font-style: italic;
-  src: url("/fonts/JetBrainsMono/JetBrainsMono-Italic[wght].ttf")
-    format("truetype");
+  src: url("/fonts/JetBrainsMono/JetBrainsMono-Italic[wght].ttf") format("truetype");
 }
 
 @font-face {

@@ -1,19 +1,14 @@
 import { padLeft } from "@/shared/utils/stringUtils";
 
 export const deepClone = (obj: any) => {
-  const stringify = JSON.stringify(obj, (_, value) =>
-    typeof value === "bigint" ? Number(value) : value,
-  );
+  const stringify = JSON.stringify(obj, (_, value) => (typeof value === "bigint" ? Number(value) : value));
   if (!stringify) {
     return obj;
   }
   return JSON.parse(stringify);
 };
 
-export const debounce = (
-  callback: (...args: any) => void,
-  delay: number = 500,
-) => {
+export const debounce = (callback: (...args: any) => void, delay: number = 500) => {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
   const cancel = () => {
@@ -41,24 +36,15 @@ export const getRandomInt = (min: number, max: number) => {
 };
 
 // precision is used for the number of decimal places, e.g. 100 for 2 decimal places
-export const getRandomFloat = (
-  min: number,
-  max: number,
-  precision: number = 100,
-) => {
+export const getRandomFloat = (min: number, max: number, precision: number = 100) => {
   return (
-    (Math.floor(
-      Math.random() * (max * precision - min * precision) + 1 * precision,
-    ) +
-      min * precision) /
+    (Math.floor(Math.random() * (max * precision - min * precision) + 1 * precision) + min * precision) /
     (1 * precision)
   );
 };
 
-export const convertMegahashSecToTerahashSec = (value: number = 0) =>
-  value / 1000000;
-export const convertGigahashSecToTerahashSec = (value: number = 0) =>
-  value / 1000;
+export const convertMegahashSecToTerahashSec = (value: number = 0) => value / 1000000;
+export const convertGigahashSecToTerahashSec = (value: number = 0) => value / 1000;
 export const convertWtoKW = (value: number = 0) => value / 1000;
 
 export const formatHashrateWithUnit = (value: number = 0) => {
@@ -77,10 +63,7 @@ export const formatHashrateWithUnit = (value: number = 0) => {
 export const convertCtoF = (value: number = 0) => (value * 9) / 5 + 32;
 export const convertFtoC = (value: number = 0) => ((value - 32) * 5) / 9;
 
-export const getAsicTempValue = (
-  avgAsicTemp: number | undefined,
-  isFahrenheit: boolean,
-) => {
+export const getAsicTempValue = (avgAsicTemp: number | undefined, isFahrenheit: boolean) => {
   if (!avgAsicTemp) return "N/A"; // TODO: why not return undefined, so we can show skeleton, also 0 cound be falsey
   return isFahrenheit ? convertCtoF(avgAsicTemp) : avgAsicTemp;
 };

@@ -19,12 +19,7 @@ const Radio = ({ onChange, selected, className = "" }: RadioProps) => {
         className="peer relative h-[20px] w-[20px] cursor-pointer appearance-none rounded-full border border-border-20"
       />
       <div className="absolute hidden h-[20px] w-[20px] rounded-full bg-core-accent-80 text-text-contrast peer-checked:block">
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 10 10"
-          className="absolute top-[5px] left-[5px]"
-        >
+        <svg width="10" height="10" viewBox="0 0 10 10" className="absolute top-[5px] left-[5px]">
           <circle cx="5" cy="5" r="5" fill="currentColor" />
         </svg>
       </div>

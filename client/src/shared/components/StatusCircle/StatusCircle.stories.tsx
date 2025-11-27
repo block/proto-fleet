@@ -1,13 +1,7 @@
-import StatusCircleComponent, {
-  type StatusCircleProps,
-  statuses,
-  variants,
-} from ".";
+import StatusCircleComponent, { type StatusCircleProps, statuses, variants } from ".";
 
 export const StatusCircle = ({ status, variant, width }: StatusCircleProps) => {
-  return (
-    <StatusCircleComponent status={status} width={width} variant={variant} />
-  );
+  return <StatusCircleComponent status={status} width={width} variant={variant} />;
 };
 
 StatusCircle.args = {

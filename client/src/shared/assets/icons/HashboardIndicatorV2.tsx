@@ -9,20 +9,13 @@ type HashboardIndicatorV2Props = IconProps & {
   totalSlots?: number;
 };
 
-const HashboardIndicatorV2 = ({
-  className,
-  color,
-  position = 1,
-  totalSlots = 9,
-}: HashboardIndicatorV2Props) => {
+const HashboardIndicatorV2 = ({ className, color, position = 1, totalSlots = 9 }: HashboardIndicatorV2Props) => {
   // Determine which chunk (group of 3) contains the active position
   const activeChunk = Math.ceil(position / 3);
   const numChunks = Math.ceil(totalSlots / 3);
 
   return (
-    <div
-      className={clsx("flex items-center justify-center px-[1px]", className)}
-    >
+    <div className={clsx("flex items-center justify-center px-[1px]", className)}>
       {Array.from({ length: numChunks }).map((_, chunkIndex) => {
         const chunkNumber = chunkIndex + 1;
         const isActiveChunk = chunkNumber === activeChunk;
@@ -49,8 +42,7 @@ const HashboardIndicatorV2 = ({
                     "bg-core-primary-20": !isActive,
                   })}
                   style={{
-                    backgroundColor:
-                      color && isActive ? `var(${color})` : undefined,
+                    backgroundColor: color && isActive ? `var(${color})` : undefined,
                   }}
                 />
               );

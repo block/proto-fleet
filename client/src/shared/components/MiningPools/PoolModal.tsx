@@ -7,10 +7,7 @@ import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "./types";
 import { Alert, Info, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { variants } from "@/shared/components/Button";
-import {
-  DismissibleCalloutWrapper,
-  intents,
-} from "@/shared/components/Callout";
+import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import { deepClone } from "@/shared/utils/utility";
@@ -54,15 +51,9 @@ const PoolModal = ({
     [showCallout, error, isTestingConnection],
   );
 
-  const showSaveErrorCallout = useMemo(
-    () => saveError && !isSaving,
-    [saveError, isSaving],
-  );
+  const showSaveErrorCallout = useMemo(() => saveError && !isSaving, [saveError, isSaving]);
 
-  const isSaveDisabled = useMemo(
-    () => !draftPoolInfo[poolIndex]?.url.trim(),
-    [draftPoolInfo, poolIndex],
-  );
+  const isSaveDisabled = useMemo(() => !draftPoolInfo[poolIndex]?.url.trim(), [draftPoolInfo, poolIndex]);
 
   useEffect(() => {
     setDraftPoolInfo(deepClone(pools));
@@ -116,14 +107,7 @@ const PoolModal = ({
     } else {
       onDismiss();
     }
-  }, [
-    draftPoolInfo,
-    onChangePools,
-    onDismiss,
-    onSave,
-    poolIndex,
-    isPasswordSet,
-  ]);
+  }, [draftPoolInfo, onChangePools, onDismiss, onSave, poolIndex, isPasswordSet]);
 
   const onTestConnection = useCallback(() => {
     if (!draftPoolInfo[poolIndex].url.trim()) {
@@ -172,9 +156,7 @@ const PoolModal = ({
       divider={false}
       size="large"
     >
-      <div className="mb-6 text-text-primary-70">
-        Hashrate contributes to default mining pools.
-      </div>
+      <div className="mb-6 text-text-primary-70">Hashrate contributes to default mining pools.</div>
       <DismissibleCalloutWrapper
         icon={<Success className="text-intent-success-fill" />}
         intent={intents.success}

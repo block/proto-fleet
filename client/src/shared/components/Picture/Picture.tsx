@@ -22,13 +22,7 @@ const Picture = ({ image, alt, className }: PictureProps) => {
   return (
     <picture>
       <source media="max-device-pixel-ratio: 1.5" srcSet={srcSet} />
-      <img
-        src={src}
-        alt={alt || ""}
-        width={width}
-        height={height}
-        className={className}
-      />
+      <img src={src} alt={alt || ""} width={width} height={height} className={className} />
     </picture>
   );
 };

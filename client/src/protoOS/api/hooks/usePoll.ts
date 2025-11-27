@@ -7,12 +7,7 @@ interface UsePollProps {
   pollIntervalMs?: number;
 }
 
-const usePoll = ({
-  fetchData,
-  params,
-  poll,
-  pollIntervalMs = 10 * 1000,
-}: UsePollProps) => {
+const usePoll = ({ fetchData, params, poll, pollIntervalMs = 10 * 1000 }: UsePollProps) => {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMountedRef = useRef(true);
   const fetchDataRef = useRef(fetchData);

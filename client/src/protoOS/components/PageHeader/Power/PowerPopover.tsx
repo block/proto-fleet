@@ -16,11 +16,7 @@ const PowerPopover = ({ onReboot, onSleep, onWake }: PowerPopoverProps) => {
   return (
     <Popover
       title="Power"
-      subtitle={
-        isAwake
-          ? "Reboot or put your miner into sleep mode."
-          : "Reboot or wake up your miner."
-      }
+      subtitle={isAwake ? "Reboot or put your miner into sleep mode." : "Reboot or wake up your miner."}
       size={popoverSizes.small}
       buttons={[
         {

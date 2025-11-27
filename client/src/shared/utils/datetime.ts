@@ -37,10 +37,7 @@ export const getRelativeTimeFromEpoch = (epoch?: number) => {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) {
     const remainingMinutes = minutes % 60;
-    if (hours === 1)
-      return remainingMinutes !== 0
-        ? `${hours}h${remainingMinutes}m ago`
-        : `${hours}h ago`;
+    if (hours === 1) return remainingMinutes !== 0 ? `${hours}h${remainingMinutes}m ago` : `${hours}h ago`;
     return `${hours}hrs ago`;
   }
 

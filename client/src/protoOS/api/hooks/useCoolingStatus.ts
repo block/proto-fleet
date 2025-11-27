@@ -3,20 +3,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { TOTAL_FAN_SLOTS } from "../constants";
 import { usePoll } from "./usePoll";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
-import {
-  CoolingConfig,
-  CoolingStatusCoolingstatus,
-  FanStatus,
-  HttpResponse,
-} from "@/protoOS/api/generatedApi";
+import { CoolingConfig, CoolingStatusCoolingstatus, FanStatus, HttpResponse } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useAuthErrors, useAuthHeader, useMinerStore } from "@/protoOS/store";
 
 // Extended type to account for null fan statuses when slots are missing
-export type CoolingStatusWithNullableFans = Omit<
-  CoolingStatusCoolingstatus,
-  "fans"
-> & {
+export type CoolingStatusWithNullableFans = Omit<CoolingStatusCoolingstatus, "fans"> & {
   fans?: (FanStatus | null)[];
 };
 
@@ -157,10 +149,7 @@ const useCoolingStatus = ({ poll }: UseCoolingStatusProps = {}) => {
     [api, authHeader, handleAuthErrors],
   );
 
-  return useMemo(
-    () => ({ pending, error, data, setCooling }),
-    [pending, error, data, setCooling],
-  );
+  return useMemo(() => ({ pending, error, data, setCooling }), [pending, error, data, setCooling]);
 };
 
 export { useCoolingStatus };

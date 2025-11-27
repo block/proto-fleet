@@ -30,10 +30,7 @@ export type ComponentTelemetry =
  * @param componentIndex - The 0-based component index
  * @returns Telemetry data for the component
  */
-export function useComponentTelemetry(
-  source: ErrorSource,
-  componentIndex: number | undefined,
-): ComponentTelemetry {
+export function useComponentTelemetry(source: ErrorSource, componentIndex: number | undefined): ComponentTelemetry {
   const componentType = mapErrorSourceToComponentType(source);
 
   // Get hashboard serial if needed (for hashboard type)
@@ -50,15 +47,11 @@ export function useComponentTelemetry(
 
   // Fetch telemetry from store based on component type
   const fanTelemetry = useFanTelemetry(
-    componentType === "fan" && componentIndex !== undefined
-      ? componentIndex + 1
-      : -1, // Pass invalid ID if not a fan
+    componentType === "fan" && componentIndex !== undefined ? componentIndex + 1 : -1, // Pass invalid ID if not a fan
   );
 
   const psuTelemetry = usePsuTelemetry(
-    componentType === "psu" && componentIndex !== undefined
-      ? componentIndex + 1
-      : -1, // Pass invalid ID if not a PSU
+    componentType === "psu" && componentIndex !== undefined ? componentIndex + 1 : -1, // Pass invalid ID if not a PSU
   );
 
   const hashboardTelemetry = useHashboardTelemetry(
@@ -81,11 +74,5 @@ export function useComponentTelemetry(
       default:
         return undefined;
     }
-  }, [
-    componentType,
-    fanTelemetry,
-    psuTelemetry,
-    hashboardTelemetry,
-    controlBoardTelemetry,
-  ]);
+  }, [componentType, fanTelemetry, psuTelemetry, hashboardTelemetry, controlBoardTelemetry]);
 }

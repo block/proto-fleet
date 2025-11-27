@@ -12,18 +12,10 @@ interface TooltipItemProps {
   icon?: ComponentType<{ itemKey: string }>;
 }
 
-const TooltipItem = ({
-  itemKey,
-  value,
-  units,
-  icon: Icon,
-  colorMap,
-}: TooltipItemProps) => {
+const TooltipItem = ({ itemKey, value, units, icon: Icon, colorMap }: TooltipItemProps) => {
   const { isPhone } = useWindowDimensions();
 
-  const color = useCssVariable(
-    colorMap?.[itemKey] || "--color-bg-core-primary-5",
-  );
+  const color = useCssVariable(colorMap?.[itemKey] || "--color-bg-core-primary-5");
 
   if (!value) return null;
 

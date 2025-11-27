@@ -7,12 +7,7 @@ interface SearchProps {
 }
 
 export const Search = ({ compact }: SearchProps) => {
-  return (
-    <SearchComponent
-      onChange={(value) => action("onChange search")(value)}
-      compact={compact}
-    />
-  );
+  return <SearchComponent onChange={(value) => action("onChange search")(value)} compact={compact} />;
 };
 
 export default {

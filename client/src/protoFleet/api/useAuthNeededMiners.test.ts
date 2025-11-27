@@ -68,9 +68,7 @@ describe("useAuthNeededMiners", () => {
 
     const callArgs = vi.mocked(useFleet).mock.calls[0]?.[0];
     expect(callArgs).toBeDefined();
-    expect(callArgs?.pairingStatuses).toEqual([
-      PairingStatus.AUTHENTICATION_NEEDED,
-    ]);
+    expect(callArgs?.pairingStatuses).toEqual([PairingStatus.AUTHENTICATION_NEEDED]);
   });
 
   it("uses metadata mode for minimal data transfer", () => {

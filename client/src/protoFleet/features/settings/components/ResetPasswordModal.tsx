@@ -58,8 +58,7 @@ const ResetPasswordModal = ({
         ]}
       >
         <div className="text-300 text-text-primary-70">
-          Fleet generates a temporary password for you to share so they can log
-          in and set a new one.
+          Fleet generates a temporary password for you to share so they can log in and set a new one.
         </div>
       </Dialog>
     );
@@ -76,12 +75,10 @@ const ResetPasswordModal = ({
         </div>
 
         <div>
-          <div className="mb-2 text-heading-300 text-text-primary">
-            Password reset
-          </div>
+          <div className="mb-2 text-heading-300 text-text-primary">Password reset</div>
           <div className="text-300 text-text-primary-70">
-            {username}'s password has been reset. Save this password and share
-            it with the user securely. It won't be shown again.
+            {username}'s password has been reset. Save this password and share it with the user securely. It won't be
+            shown again.
           </div>
         </div>
 
@@ -102,12 +99,7 @@ const ResetPasswordModal = ({
         </div>
 
         <div className="flex justify-end">
-          <Button
-            variant={variants.primary}
-            size={sizes.base}
-            onClick={onDismiss}
-            text="Done"
-          />
+          <Button variant={variants.primary} size={sizes.base} onClick={onDismiss} text="Done" />
         </div>
       </div>
     </Modal>

@@ -1,11 +1,4 @@
-import {
-  Fleet,
-  Graph,
-  Home,
-  Logs,
-  Repair,
-  Settings,
-} from "@/shared/assets/icons";
+import { Fleet, Graph, Home, Logs, Repair, Settings } from "@/shared/assets/icons";
 
 export const navigationItems = {
   home: {

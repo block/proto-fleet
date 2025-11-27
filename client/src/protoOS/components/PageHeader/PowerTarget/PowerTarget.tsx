@@ -17,27 +17,16 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
 const PowerTarget = () => {
-  const {
-    miningTarget,
-    defaultTarget,
-    bounds,
-    pending,
-    updateMiningTarget,
-    setPending,
-  } = useMiningTarget();
+  const { miningTarget, defaultTarget, bounds, pending, updateMiningTarget, setPending } = useMiningTarget();
   const [showPopover, setShowPopover] = useState<boolean>(false);
   const { triggerRef: widgetRef } = useResponsivePopover();
   const dismissedLoginModal = useDismissedLoginModal();
   const setDismissedLoginModal = useSetDismissedLoginModal();
   const pausedAuthAction = usePausedAuthAction();
   const setPausedAuthAction = useSetPausedAuthAction();
-  const [lastMiningTarget, setLastMiningTarget] = useState<MiningTarget | null>(
-    null,
-  );
+  const [lastMiningTarget, setLastMiningTarget] = useState<MiningTarget | null>(null);
 
-  const { hasAccess, checkAccess } = useAccessToken(
-    !!pausedAuthAction && !dismissedLoginModal,
-  );
+  const { hasAccess, checkAccess } = useAccessToken(!!pausedAuthAction && !dismissedLoginModal);
 
   const isMax = useMemo(() => {
     return bounds?.max && miningTarget === bounds?.max;
@@ -77,24 +66,14 @@ const PowerTarget = () => {
   );
 
   useEffect(() => {
-    if (
-      hasAccess &&
-      pausedAuthAction === AUTH_ACTIONS.miningTarget &&
-      lastMiningTarget
-    ) {
+    if (hasAccess && pausedAuthAction === AUTH_ACTIONS.miningTarget && lastMiningTarget) {
       updateMiningTarget(lastMiningTarget);
       /* eslint-disable react-hooks/set-state-in-effect */
       setPausedAuthAction(null);
       setLastMiningTarget(null);
       /* eslint-enable react-hooks/set-state-in-effect */
     }
-  }, [
-    hasAccess,
-    pausedAuthAction,
-    setPausedAuthAction,
-    updateMiningTarget,
-    lastMiningTarget,
-  ]);
+  }, [hasAccess, pausedAuthAction, setPausedAuthAction, updateMiningTarget, lastMiningTarget]);
 
   useEffect(() => {
     if (dismissedLoginModal) {
@@ -105,12 +84,7 @@ const PowerTarget = () => {
       setLastMiningTarget(null);
       /* eslint-enable react-hooks/set-state-in-effect */
     }
-  }, [
-    dismissedLoginModal,
-    setDismissedLoginModal,
-    setPausedAuthAction,
-    setPending,
-  ]);
+  }, [dismissedLoginModal, setDismissedLoginModal, setPausedAuthAction, setPending]);
 
   useEffect(() => {
     return () => {
@@ -136,23 +110,11 @@ const PowerTarget = () => {
         }}
       >
         <div className="flex items-center">
-          {pending && (
-            <ProgressCircular
-              className="mr-1"
-              indeterminate
-              dataTestId="mining-pool-spinner"
-              size={12}
-            />
-          )}
+          {pending && <ProgressCircular className="mr-1" indeterminate dataTestId="mining-pool-spinner" size={12} />}
           {chipText}
         </div>
       </WidgetWrapper>
-      {showPopover && (
-        <PowerTargetPopover
-          onDismiss={() => setShowPopover(false)}
-          onUpdateStart={handleUpdateStart}
-        />
-      )}
+      {showPopover && <PowerTargetPopover onDismiss={() => setShowPopover(false)} onUpdateStart={handleUpdateStart} />}
     </div>
   );
 };

@@ -67,10 +67,7 @@ const useNetworkInfo = ({ poll, pollIntervalMs }: UseNetworkInfoProps) => {
     pollIntervalMs,
   });
 
-  return useMemo(
-    () => ({ pending, error, data, reload }),
-    [pending, error, data, reload],
-  );
+  return useMemo(() => ({ pending, error, data, reload }), [pending, error, data, reload]);
 };
 
 export { useNetworkInfo };

@@ -1,15 +1,8 @@
 import { useCallback, useMemo } from "react";
 
-import {
-  ChangePasswordRequest,
-  PasswordRequest,
-} from "@/protoOS/api/generatedApi";
+import { ChangePasswordRequest, PasswordRequest } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import {
-  useAuthErrors,
-  useAuthHeader,
-  useSetPasswordSet,
-} from "@/protoOS/store";
+import { useAuthErrors, useAuthHeader, useSetPasswordSet } from "@/protoOS/store";
 
 interface SetPasswordProps {
   onError?: (message: string) => void;
@@ -47,9 +40,7 @@ const usePassword = () => {
             handleAuthErrors({
               error: err,
               onError: () => {
-                onError?.(
-                  err?.error?.message ?? err?.message ?? "An error occurred",
-                );
+                onError?.(err?.error?.message ?? err?.message ?? "An error occurred");
               },
               onSuccess: () => {
                 performSetPassword();
@@ -67,12 +58,7 @@ const usePassword = () => {
   );
 
   const changePassword = useCallback(
-    async ({
-      changePasswordRequest,
-      onSuccess,
-      onError,
-      onFinally,
-    }: ChangePasswordProps) => {
+    async ({ changePasswordRequest, onSuccess, onError, onFinally }: ChangePasswordProps) => {
       if (!api) return;
 
       const performChangePassword = async () => {
@@ -85,9 +71,7 @@ const usePassword = () => {
             handleAuthErrors({
               error: err,
               onError: () => {
-                onError?.(
-                  err?.error?.message ?? err?.message ?? "An error occurred",
-                );
+                onError?.(err?.error?.message ?? err?.message ?? "An error occurred");
               },
               onSuccess: () => {
                 performChangePassword();
@@ -104,10 +88,7 @@ const usePassword = () => {
     [authHeader, api, handleAuthErrors],
   );
 
-  return useMemo(
-    () => ({ setPassword, changePassword }),
-    [setPassword, changePassword],
-  );
+  return useMemo(() => ({ setPassword, changePassword }), [setPassword, changePassword]);
 };
 
 export { usePassword };

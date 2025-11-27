@@ -9,13 +9,7 @@ type GroupedToastProps = Omit<ToastType, "id"> & {
   ttl?: number | false;
 };
 
-const GroupedToast = ({
-  message,
-  onClose,
-  status,
-  progress,
-  ttl = defaultTtl,
-}: GroupedToastProps) => {
+const GroupedToast = ({ message, onClose, status, progress, ttl = defaultTtl }: GroupedToastProps) => {
   useEffect(() => {
     if (status !== STATUSES.success && status !== STATUSES.error) return;
 
@@ -28,22 +22,12 @@ const GroupedToast = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ttl, status]);
 
-  let icon = (
-    <ProgressCircular indeterminate dataTestId="loading-progress-circular" />
-  );
-  if (status === STATUSES.success)
-    icon = <Success className="text-intent-success-fill" />;
-  else if (status === STATUSES.error)
-    icon = <Alert className="text-intent-warning-fill" />;
+  let icon = <ProgressCircular indeterminate dataTestId="loading-progress-circular" />;
+  if (status === STATUSES.success) icon = <Success className="text-intent-success-fill" />;
+  else if (status === STATUSES.error) icon = <Alert className="text-intent-warning-fill" />;
   else if (progress !== undefined)
-    icon = (
-      <ProgressCircular
-        value={progress}
-        dataTestId="progressing-progress-circular"
-      />
-    );
-  else if (status === STATUSES.queued)
-    icon = <ProgressCircular dataTestId="queued-progress-circular" />;
+    icon = <ProgressCircular value={progress} dataTestId="progressing-progress-circular" />;
+  else if (status === STATUSES.queued) icon = <ProgressCircular dataTestId="queued-progress-circular" />;
 
   return (
     <div className="space-x-4 bg-surface-elevated-base py-2">
@@ -51,14 +35,8 @@ const GroupedToast = ({
         {icon}
         <div className="flex flex-col">
           <div className="text-emphasis-300 text-text-primary">{message}</div>
-          {progress !== undefined && (
-            <div className="text-200 text-text-primary-70">
-              {progress}% complete
-            </div>
-          )}
-          {status === STATUSES.queued && (
-            <div className="text-200 text-text-primary-70">Queued</div>
-          )}
+          {progress !== undefined && <div className="text-200 text-text-primary-70">{progress}% complete</div>}
+          {status === STATUSES.queued && <div className="text-200 text-text-primary-70">Queued</div>}
         </div>
       </div>
     </div>

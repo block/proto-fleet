@@ -9,12 +9,7 @@ interface AlertStatusArgs {
 }
 
 export const AlertStatus = ({ loading, numberOfAlerts }: AlertStatusArgs) => {
-  return (
-    <AlertStatusComponent
-      loading={loading}
-      alerts={alerts.slice(0, numberOfAlerts)}
-    />
-  );
+  return <AlertStatusComponent loading={loading} alerts={alerts.slice(0, numberOfAlerts)} />;
 };
 
 export default {

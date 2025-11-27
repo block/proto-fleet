@@ -14,8 +14,7 @@ interface FanStatusCardProps {
 function FanStatusCard({ fanId }: FanStatusCardProps) {
   // Fetch data directly from store
   const fanData = useMinerFan(fanId);
-  const [showComponentStatusModal, setShowComponentStatusModal] =
-    useState(false);
+  const [showComponentStatusModal, setShowComponentStatusModal] = useState(false);
 
   // Compute display values
   const rpm = fanData?.rpm?.latest?.value ?? 0;
@@ -31,14 +30,7 @@ function FanStatusCard({ fanId }: FanStatusCardProps) {
     <Card>
       <CardHeader
         title={name}
-        statusIcon={
-          hasErrors ? (
-            <Alert
-              className="text-intent-critical-fill"
-              width={iconSizes.small}
-            />
-          ) : null
-        }
+        statusIcon={hasErrors ? <Alert className="text-intent-critical-fill" width={iconSizes.small} /> : null}
         componentIcon={<FanIndicator position={position} />}
         onInfoIconClick={() => setShowComponentStatusModal(true)}
       />

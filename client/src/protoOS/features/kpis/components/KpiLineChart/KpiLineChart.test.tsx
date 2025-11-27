@@ -24,23 +24,17 @@ vi.mock("recharts", () => {
   const OriginalModule = vi.importActual("recharts");
   return {
     ...OriginalModule,
-    ResponsiveContainer: ({ children }: any) => (
-      <div data-testid="responsive-container">{children}</div>
-    ),
+    ResponsiveContainer: ({ children }: any) => <div data-testid="responsive-container">{children}</div>,
     Tooltip: ({ content, isAnimationActive }: any) => (
       <div data-testid="tooltip">
         {content}
         <span data-testid="tooltip-animation">{String(isAnimationActive)}</span>
       </div>
     ),
-    LineChart: ({ children }: any) => (
-      <div data-testid="line-chart">{children}</div>
-    ),
+    LineChart: ({ children }: any) => <div data-testid="line-chart">{children}</div>,
     Line: ({ dataKey, activeDot, isAnimationActive }: any) => (
       <div data-testid={`line-${dataKey}`}>
-        <span data-testid={`animation-${dataKey}`}>
-          {String(isAnimationActive)}
-        </span>
+        <span data-testid={`animation-${dataKey}`}>{String(isAnimationActive)}</span>
         {activeDot && <div data-testid={`dot-${dataKey}`}>{activeDot}</div>}
       </div>
     ),
@@ -86,15 +80,10 @@ vi.mock("@/shared/components/LineChart/Tooltip", () => ({
       >
         Simulate Hover
       </button>
-      <button
-        data-testid="tooltip-unhover-button"
-        onClick={() => onHover({ payload: [], x: 0, y: 0 })}
-      >
+      <button data-testid="tooltip-unhover-button" onClick={() => onHover({ payload: [], x: 0, y: 0 })}>
         Simulate Unhover
       </button>
-      <div data-testid="tooltip-payload-count">
-        {tooltipData.payload.length}
-      </div>
+      <div data-testid="tooltip-payload-count">{tooltipData.payload.length}</div>
       <div data-testid="tooltip-units">{units}</div>
     </div>
   ),
@@ -102,9 +91,7 @@ vi.mock("@/shared/components/LineChart/Tooltip", () => ({
 
 describe("KpiLineChartWrapper", () => {
   it("renders the component without errors", () => {
-    const { container } = render(
-      <KpiLineChartWrapper chartData={[]} chartLines={[]} />,
-    );
+    const { container } = render(<KpiLineChartWrapper chartData={[]} chartLines={[]} />);
 
     expect(container).toBeInTheDocument();
   });

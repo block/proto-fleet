@@ -1,16 +1,9 @@
 import { useCallback, useMemo, useState } from "react";
 
 import { usePoll } from "./usePoll";
-import {
-  type GetCurrentTelemetryParams,
-  type TelemetryData,
-} from "@/protoOS/api/generatedApi";
+import { type GetCurrentTelemetryParams, type TelemetryData } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import {
-  type AsicHardwareData,
-  getAsicId,
-  useMinerStore,
-} from "@/protoOS/store";
+import { type AsicHardwareData, getAsicId, useMinerStore } from "@/protoOS/store";
 
 interface UseTelemetryProps {
   level?: GetCurrentTelemetryParams["level"];
@@ -49,8 +42,7 @@ const useTelemetry = ({
       // Update the telemetry store with latest values
       useMinerStore.getState().telemetry.updateLatestTelemetry(response.data);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Unknown error occurred";
+      const errorMessage = err instanceof Error ? err.message : "Unknown error occurred";
       setError(errorMessage);
     } finally {
       setPending(false);
@@ -67,28 +59,16 @@ const useTelemetry = ({
       const asicsToUpdate: Array<AsicHardwareData> = [];
 
       data.hashboards.forEach((hashboardData) => {
-        if (
-          hashboardData.asics &&
-          hashboardData.serial_number &&
-          hashboardData.index !== undefined
-        ) {
+        if (hashboardData.asics && hashboardData.serial_number && hashboardData.index !== undefined) {
           const asicTelemetry = hashboardData.asics;
 
           // ASICs are returned as arrays of values, we need to iterate by index
-          const numAsics =
-            asicTelemetry.hashrate?.values?.length ||
-            asicTelemetry.temperature?.values?.length ||
-            0;
+          const numAsics = asicTelemetry.hashrate?.values?.length || asicTelemetry.temperature?.values?.length || 0;
 
           for (let asicIndex = 0; asicIndex < numAsics; asicIndex++) {
-            const asicId = getAsicId(
-              hashboardData.serial_number,
-              asicIndex.toString(),
-            );
+            const asicId = getAsicId(hashboardData.serial_number, asicIndex.toString());
 
-            const existingAsic = useMinerStore
-              .getState()
-              .hardware.getAsic(asicId);
+            const existingAsic = useMinerStore.getState().hardware.getAsic(asicId);
 
             // Prepare ASIC data for batch update
             if (!existingAsic) {

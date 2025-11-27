@@ -31,10 +31,7 @@ const useTestConnection = () => {
     [api],
   );
 
-  return useMemo(
-    () => ({ pending, testConnection }),
-    [pending, testConnection],
-  );
+  return useMemo(() => ({ pending, testConnection }), [pending, testConnection]);
 };
 
 export { useTestConnection };

@@ -1,8 +1,6 @@
 import { ControlBoardInfo } from "@/protoOS/api/generatedApi";
 
-export const getControlBoardGeneration = (
-  controlBoardInfo: ControlBoardInfo,
-) => {
+export const getControlBoardGeneration = (controlBoardInfo: ControlBoardInfo) => {
   switch (controlBoardInfo.board_id) {
     case "0": // C1 (proto0)
     case "1": // C1 (evt)

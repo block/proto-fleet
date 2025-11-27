@@ -99,14 +99,8 @@ const copyPublicDirectory = (mode, command) => {
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode, command }) => {
-  if (
-    !modes[mode] &&
-    command === "build" &&
-    process.env.BUILD_STORYBOOK != "1"
-  ) {
-    throw new Error(
-      "Build must be run with supported mode (eg. vite build --mode protoFleet)",
-    );
+  if (!modes[mode] && command === "build" && process.env.BUILD_STORYBOOK != "1") {
+    throw new Error("Build must be run with supported mode (eg. vite build --mode protoFleet)");
   }
 
   let proxies = {};
@@ -139,14 +133,10 @@ export default defineConfig(({ mode, command }) => {
 
     if (process.env.VITE_MINEFIELD_URL) {
       // eslint-disable-next-line no-console
-      console.log(
-        `[ProtoOS] Using Minefield proxy at ${process.env.VITE_MINEFIELD_URL}`,
-      );
+      console.log(`[ProtoOS] Using Minefield proxy at ${process.env.VITE_MINEFIELD_URL}`);
     } else if (env.PROXY_URL) {
       // eslint-disable-next-line no-console
-      console.log(
-        `[ProtoOS] Using direct miner connection at ${env.PROXY_URL}`,
-      );
+      console.log(`[ProtoOS] Using direct miner connection at ${env.PROXY_URL}`);
     }
   }
 
@@ -157,12 +147,7 @@ export default defineConfig(({ mode, command }) => {
     ...(modes[mode] || defaultConfig),
     base: "/",
     envDir: process.cwd(),
-    plugins: [
-      react(),
-      responsiveImagePlugin(),
-      moveHtmlFiles(mode),
-      copyPublicDirectory(mode, command),
-    ],
+    plugins: [react(), responsiveImagePlugin(), moveHtmlFiles(mode), copyPublicDirectory(mode, command)],
     resolve: {
       alias: {
         "@": src,

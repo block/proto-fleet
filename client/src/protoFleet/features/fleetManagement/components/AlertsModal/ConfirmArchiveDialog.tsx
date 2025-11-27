@@ -7,11 +7,7 @@ interface ConfirmArchiveDialogProps {
   onCancel: () => void;
 }
 
-const ConfirmArchiveDialog = ({
-  show,
-  onConfirm,
-  onCancel,
-}: ConfirmArchiveDialogProps) => {
+const ConfirmArchiveDialog = ({ show, onConfirm, onCancel }: ConfirmArchiveDialogProps) => {
   return (
     <Dialog
       title="Archive all alerts?"

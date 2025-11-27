@@ -12,17 +12,12 @@ const Toaster = () => {
 
   const basicToasts = useMemo(() => {
     return toasts.filter(
-      (toast) =>
-        !toast.longRunning &&
-        (toast.status === STATUSES.success || toast.status === STATUSES.error),
+      (toast) => !toast.longRunning && (toast.status === STATUSES.success || toast.status === STATUSES.error),
     );
   }, [toasts]);
 
   const actionToasts = useMemo(() => {
-    return toasts.filter(
-      (toast) =>
-        toast.longRunning === true || toast.status === STATUSES.loading,
-    );
+    return toasts.filter((toast) => toast.longRunning === true || toast.status === STATUSES.loading);
   }, [toasts]);
 
   useEffect(() => {
@@ -59,19 +54,17 @@ const Toaster = () => {
     <>
       <motion.div whileHover="hover" className="group absolute -top-5 right-0">
         <AnimatePresence>
-          {basicToasts.map(
-            ({ message, status, id, ttl, onClose }: ToastType, idx) => (
-              <Toast
-                key={id}
-                message={message}
-                onClose={() => handleToastClose(id, onClose)}
-                status={status}
-                index={idx}
-                numToasts={basicToasts.length}
-                ttl={ttl}
-              />
-            ),
-          )}
+          {basicToasts.map(({ message, status, id, ttl, onClose }: ToastType, idx) => (
+            <Toast
+              key={id}
+              message={message}
+              onClose={() => handleToastClose(id, onClose)}
+              status={status}
+              index={idx}
+              numToasts={basicToasts.length}
+              ttl={ttl}
+            />
+          ))}
         </AnimatePresence>
       </motion.div>
       <GroupedToaster toasts={actionToasts} />

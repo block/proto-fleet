@@ -15,10 +15,7 @@ import { Notification } from "@/shared/assets/icons";
 import { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import { defaultListFilter } from "@/shared/components/List/constants";
-import {
-  ActiveFilters,
-  FilterItem,
-} from "@/shared/components/List/Filters/types";
+import { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
 import Modal from "@/shared/components/Modal";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import { useNavigate } from "@/shared/hooks/useNavigate";
@@ -30,19 +27,12 @@ interface AlertsModalProps {
 }
 
 // TODO: move this to state when we implement row customization
-const activeCols = [
-  alertCols.name,
-  alertCols.status,
-  alertCols.error,
-  alertCols.timestamp,
-] as (keyof Alert)[];
+const activeCols = [alertCols.name, alertCols.status, alertCols.error, alertCols.timestamp] as (keyof Alert)[];
 
 const AlertsModal = ({ show, alerts, onDismiss }: AlertsModalProps) => {
   const navigate = useNavigate();
 
-  const [selectedView, setSelectedView] = useState<AlertView>(
-    alertViews.active,
-  );
+  const [selectedView, setSelectedView] = useState<AlertView>(alertViews.active);
   const [showArchiveAllDialog, setShowArchiveAllDialog] = useState(false);
 
   const handleSelect = (selectedKey: string) => {
@@ -64,9 +54,7 @@ const AlertsModal = ({ show, alerts, onDismiss }: AlertsModalProps) => {
       variant: variants.primary,
     };
 
-    return selectedView === alertViews.active
-      ? [archiveButton, doneButton]
-      : [doneButton];
+    return selectedView === alertViews.active ? [archiveButton, doneButton] : [doneButton];
   }, [selectedView]);
 
   const handleConfirmArchiveAll = () => {
@@ -197,9 +185,7 @@ const AlertsModal = ({ show, alerts, onDismiss }: AlertsModalProps) => {
       />
       <List<Alert, Alert["minerMacAddress"]>
         activeCols={
-          selectedView === alertViews.active
-            ? activeCols
-            : activeCols.filter((row) => row !== alertCols.status)
+          selectedView === alertViews.active ? activeCols : activeCols.filter((row) => row !== alertCols.status)
         }
         colTitles={alertColTitles}
         colConfig={alertColConfig}
@@ -211,18 +197,14 @@ const AlertsModal = ({ show, alerts, onDismiss }: AlertsModalProps) => {
         actions={listActions}
         itemSelectable={selectedView === alertViews.active}
         disabled={selectedView === alertViews.archive}
-        renderActionBar={(selectedItems) => (
-          <AlertListActionBar selectedAlerts={selectedItems} />
-        )}
+        renderActionBar={(selectedItems) => <AlertListActionBar selectedAlerts={selectedItems} />}
         containerClassName="max-h-[50vh]"
         noDataElement={
           <div className="flex h-108 items-center justify-center rounded-2xl bg-core-primary-5">
             <div className="flex flex-col items-center gap-4 text-text-primary-50">
               <Notification />
               <div className="text-heading-200">
-                {selectedView === alertViews.active
-                  ? "No active alerts"
-                  : "No archived alerts"}
+                {selectedView === alertViews.active ? "No active alerts" : "No archived alerts"}
               </div>
             </div>
           </div>

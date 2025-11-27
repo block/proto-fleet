@@ -589,16 +589,7 @@ export interface HashboardInfo {
   /** @example "1.0" */
   api_version?: string;
   /** @example "PROTO0_B" */
-  board?:
-    | "NOT_SET"
-    | "PROTO0_A"
-    | "PROTO0_B"
-    | "EVT"
-    | "DVT"
-    | "PVT"
-    | "EVB"
-    | "EPIC"
-    | "EE_TEST";
+  board?: "NOT_SET" | "PROTO0_A" | "PROTO0_B" | "EVT" | "DVT" | "PVT" | "EVB" | "EPIC" | "EE_TEST";
   /** Firmware version and build information */
   bootloader?: FWInfo;
   /** @example "ABC123" */
@@ -1437,12 +1428,7 @@ export interface SystemInfo {
 /** System information and device details */
 export interface SystemInfoSysteminfo {
   /** @example "c1-evt" */
-  board?:
-    | "stm32mp157d-dk1"
-    | "stm32mp157f-dk2"
-    | "c1-p0"
-    | "c1-evt"
-    | "unknown";
+  board?: "stm32mp157d-dk1" | "stm32mp157f-dk2" | "c1-p0" | "c1-evt" | "unknown";
   /** @example "YWWLMMMMRRFSSSSS" */
   cb_sn?: string;
   /** Software component name and version information */
@@ -1456,12 +1442,7 @@ export interface SystemInfoSysteminfo {
   /** @example "Proto Rig" */
   product_name?: string;
   /** @example "STM32MP157F" */
-  soc?:
-    | "STM32MP157F"
-    | "STM32MP157D"
-    | "STM32MP151F"
-    | "STM32MP131F"
-    | "unknown";
+  soc?: "STM32MP157F" | "STM32MP157D" | "STM32MP151F" | "STM32MP131F" | "unknown";
   /** Current status and information about system software updates */
   sw_update_status?: UpdateStatus;
   /**
@@ -1879,22 +1860,16 @@ export interface FullRequestParams extends Omit<RequestInit, "body"> {
   cancelToken?: CancelToken;
 }
 
-export type RequestParams = Omit<
-  FullRequestParams,
-  "body" | "method" | "query" | "path"
->;
+export type RequestParams = Omit<FullRequestParams, "body" | "method" | "query" | "path">;
 
 export interface ApiConfig<SecurityDataType = unknown> {
   baseUrl?: string;
   baseApiParams?: Omit<RequestParams, "baseUrl" | "cancelToken" | "signal">;
-  securityWorker?: (
-    securityData: SecurityDataType | null,
-  ) => Promise<RequestParams | void> | RequestParams | void;
+  securityWorker?: (securityData: SecurityDataType | null) => Promise<RequestParams | void> | RequestParams | void;
   customFetch?: typeof fetch;
 }
 
-export interface HttpResponse<D extends unknown, E extends unknown = unknown>
-  extends Response {
+export interface HttpResponse<D extends unknown, E extends unknown = unknown> extends Response {
   data: D;
   error: E;
 }
@@ -1910,13 +1885,11 @@ export enum ContentType {
 }
 
 export class HttpClient<SecurityDataType = unknown> {
-  public baseUrl: string =
-    "https://virtserver.swaggerhub.com/kkurucz/mining_development_kit_api/1.0.0";
+  public baseUrl: string = "https://virtserver.swaggerhub.com/kkurucz/mining_development_kit_api/1.0.0";
   private securityData: SecurityDataType | null = null;
   private securityWorker?: ApiConfig<SecurityDataType>["securityWorker"];
   private abortControllers = new Map<CancelToken, AbortController>();
-  private customFetch = (...fetchParams: Parameters<typeof fetch>) =>
-    fetch(...fetchParams);
+  private customFetch = (...fetchParams: Parameters<typeof fetch>) => fetch(...fetchParams);
 
   private baseApiParams: RequestParams = {
     credentials: "same-origin",
@@ -1949,15 +1922,9 @@ export class HttpClient<SecurityDataType = unknown> {
 
   protected toQueryString(rawQuery?: QueryParamsType): string {
     const query = rawQuery || {};
-    const keys = Object.keys(query).filter(
-      (key) => "undefined" !== typeof query[key],
-    );
+    const keys = Object.keys(query).filter((key) => "undefined" !== typeof query[key]);
     return keys
-      .map((key) =>
-        Array.isArray(query[key])
-          ? this.addArrayQueryParam(query, key)
-          : this.addQueryParam(query, key),
-      )
+      .map((key) => (Array.isArray(query[key]) ? this.addArrayQueryParam(query, key) : this.addQueryParam(query, key)))
       .join("&");
   }
 
@@ -1968,17 +1935,10 @@ export class HttpClient<SecurityDataType = unknown> {
 
   private contentFormatters: Record<ContentType, (input: any) => any> = {
     [ContentType.Json]: (input: any) =>
-      input !== null && (typeof input === "object" || typeof input === "string")
-        ? JSON.stringify(input)
-        : input,
+      input !== null && (typeof input === "object" || typeof input === "string") ? JSON.stringify(input) : input,
     [ContentType.JsonApi]: (input: any) =>
-      input !== null && (typeof input === "object" || typeof input === "string")
-        ? JSON.stringify(input)
-        : input,
-    [ContentType.Text]: (input: any) =>
-      input !== null && typeof input !== "string"
-        ? JSON.stringify(input)
-        : input,
+      input !== null && (typeof input === "object" || typeof input === "string") ? JSON.stringify(input) : input,
+    [ContentType.Text]: (input: any) => (input !== null && typeof input !== "string" ? JSON.stringify(input) : input),
     [ContentType.FormData]: (input: any) => {
       if (input instanceof FormData) {
         return input;
@@ -2000,10 +1960,7 @@ export class HttpClient<SecurityDataType = unknown> {
     [ContentType.UrlEncoded]: (input: any) => this.toQueryString(input),
   };
 
-  protected mergeRequestParams(
-    params1: RequestParams,
-    params2?: RequestParams,
-  ): RequestParams {
+  protected mergeRequestParams(params1: RequestParams, params2?: RequestParams): RequestParams {
     return {
       ...this.baseApiParams,
       ...params1,
@@ -2016,9 +1973,7 @@ export class HttpClient<SecurityDataType = unknown> {
     };
   }
 
-  protected createAbortSignal = (
-    cancelToken: CancelToken,
-  ): AbortSignal | undefined => {
+  protected createAbortSignal = (cancelToken: CancelToken): AbortSignal | undefined => {
     if (this.abortControllers.has(cancelToken)) {
       const abortController = this.abortControllers.get(cancelToken);
       if (abortController) {
@@ -2062,26 +2017,15 @@ export class HttpClient<SecurityDataType = unknown> {
     const payloadFormatter = this.contentFormatters[type || ContentType.Json];
     const responseFormat = format || requestParams.format;
 
-    return this.customFetch(
-      `${baseUrl || this.baseUrl || ""}${path}${queryString ? `?${queryString}` : ""}`,
-      {
-        ...requestParams,
-        headers: {
-          ...(requestParams.headers || {}),
-          ...(type && type !== ContentType.FormData
-            ? { "Content-Type": type }
-            : {}),
-        },
-        signal:
-          (cancelToken
-            ? this.createAbortSignal(cancelToken)
-            : requestParams.signal) || null,
-        body:
-          typeof body === "undefined" || body === null
-            ? null
-            : payloadFormatter(body),
+    return this.customFetch(`${baseUrl || this.baseUrl || ""}${path}${queryString ? `?${queryString}` : ""}`, {
+      ...requestParams,
+      headers: {
+        ...(requestParams.headers || {}),
+        ...(type && type !== ContentType.FormData ? { "Content-Type": type } : {}),
       },
-    ).then(async (response) => {
+      signal: (cancelToken ? this.createAbortSignal(cancelToken) : requestParams.signal) || null,
+      body: typeof body === "undefined" || body === null ? null : payloadFormatter(body),
+    }).then(async (response) => {
       const r = response as HttpResponse<T, E>;
       r.data = null as unknown as T;
       r.error = null as unknown as E;
@@ -2122,9 +2066,7 @@ export class HttpClient<SecurityDataType = unknown> {
  *
  * The Mining Development Kit API serves as a means to access information from the mining device and make necessary adjustments to its settings.
  */
-export class Api<
-  SecurityDataType extends unknown,
-> extends HttpClient<SecurityDataType> {
+export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
     /**
      * @description The get pools endpoint returns the full list of currently configured pools.
@@ -2183,11 +2125,7 @@ export class Api<
      * @request PUT:/api/v1/pools/{id}
      * @secure
      */
-    editPool: (
-      { id, ...query }: EditPoolParams,
-      data: PoolConfigInner,
-      params: RequestParams = {},
-    ) =>
+    editPool: ({ id, ...query }: EditPoolParams, data: PoolConfigInner, params: RequestParams = {}) =>
       this.request<PoolConfigResponse, MessageResponse>({
         path: `/api/v1/pools/${id}`,
         method: "PUT",
@@ -2206,10 +2144,7 @@ export class Api<
      * @request DELETE:/api/v1/pools/{id}
      * @secure
      */
-    deletePool: (
-      { id, ...query }: DeletePoolParams,
-      params: RequestParams = {},
-    ) =>
+    deletePool: ({ id, ...query }: DeletePoolParams, params: RequestParams = {}) =>
       this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/pools/${id}`,
         method: "DELETE",
@@ -2641,10 +2576,7 @@ export class Api<
      * @name GetHashboardStatus
      * @request GET:/api/v1/hashboards/{hb_sn}
      */
-    getHashboardStatus: (
-      { hbSn, ...query }: GetHashboardStatusParams,
-      params: RequestParams = {},
-    ) =>
+    getHashboardStatus: ({ hbSn, ...query }: GetHashboardStatusParams, params: RequestParams = {}) =>
       this.request<HashboardStats, MessageResponse>({
         path: `/api/v1/hashboards/${hbSn}`,
         method: "GET",
@@ -2659,10 +2591,7 @@ export class Api<
      * @name GetAsicStatus
      * @request GET:/api/v1/hashboards/{hb_sn}/{asic_id}
      */
-    getAsicStatus: (
-      { hbSn, asicId, ...query }: GetAsicStatusParams,
-      params: RequestParams = {},
-    ) =>
+    getAsicStatus: ({ hbSn, asicId, ...query }: GetAsicStatusParams, params: RequestParams = {}) =>
       this.request<AsicStatsResponse, MessageResponse>({
         path: `/api/v1/hashboards/${hbSn}/${asicId}`,
         method: "GET",
@@ -2677,10 +2606,7 @@ export class Api<
      * @name GetMinerHashrate
      * @request GET:/api/v1/hashrate
      */
-    getMinerHashrate: (
-      query: GetMinerHashrateParams,
-      params: RequestParams = {},
-    ) =>
+    getMinerHashrate: (query: GetMinerHashrateParams, params: RequestParams = {}) =>
       this.request<HashrateResponse, MessageResponse>({
         path: `/api/v1/hashrate`,
         method: "GET",
@@ -2696,10 +2622,7 @@ export class Api<
      * @name GetHashboardHashrate
      * @request GET:/api/v1/hashrate/{hb_sn}
      */
-    getHashboardHashrate: (
-      { hbSn, ...query }: GetHashboardHashrateParams,
-      params: RequestParams = {},
-    ) =>
+    getHashboardHashrate: ({ hbSn, ...query }: GetHashboardHashrateParams, params: RequestParams = {}) =>
       this.request<HashrateResponse, MessageResponse>({
         path: `/api/v1/hashrate/${hbSn}`,
         method: "GET",
@@ -2715,10 +2638,7 @@ export class Api<
      * @name GetAsicHashrate
      * @request GET:/api/v1/hashrate/{hb_sn}/{asic_id}
      */
-    getAsicHashrate: (
-      { hbSn, asicId, ...query }: GetAsicHashrateParams,
-      params: RequestParams = {},
-    ) =>
+    getAsicHashrate: ({ hbSn, asicId, ...query }: GetAsicHashrateParams, params: RequestParams = {}) =>
       this.request<HashrateResponse, MessageResponse>({
         path: `/api/v1/hashrate/${hbSn}/${asicId}`,
         method: "GET",
@@ -2734,10 +2654,7 @@ export class Api<
      * @name GetMinerTemperature
      * @request GET:/api/v1/temperature
      */
-    getMinerTemperature: (
-      query: GetMinerTemperatureParams,
-      params: RequestParams = {},
-    ) =>
+    getMinerTemperature: (query: GetMinerTemperatureParams, params: RequestParams = {}) =>
       this.request<TemperatureResponse, MessageResponse>({
         path: `/api/v1/temperature`,
         method: "GET",
@@ -2753,10 +2670,7 @@ export class Api<
      * @name GetHashboardTemperature
      * @request GET:/api/v1/temperature/{hb_sn}
      */
-    getHashboardTemperature: (
-      { hbSn, ...query }: GetHashboardTemperatureParams,
-      params: RequestParams = {},
-    ) =>
+    getHashboardTemperature: ({ hbSn, ...query }: GetHashboardTemperatureParams, params: RequestParams = {}) =>
       this.request<TemperatureResponse, MessageResponse>({
         path: `/api/v1/temperature/${hbSn}`,
         method: "GET",
@@ -2772,10 +2686,7 @@ export class Api<
      * @name GetAsicTemperature
      * @request GET:/api/v1/temperature/{hb_sn}/{asic_id}
      */
-    getAsicTemperature: (
-      { hbSn, asicId, ...query }: GetAsicTemperatureParams,
-      params: RequestParams = {},
-    ) =>
+    getAsicTemperature: ({ hbSn, asicId, ...query }: GetAsicTemperatureParams, params: RequestParams = {}) =>
       this.request<TemperatureResponse, MessageResponse>({
         path: `/api/v1/temperature/${hbSn}/${asicId}`,
         method: "GET",
@@ -2837,10 +2748,7 @@ export class Api<
      * @name GetHashboardPower
      * @request GET:/api/v1/power/{hb_sn}
      */
-    getHashboardPower: (
-      { hbSn, ...query }: GetHashboardPowerParams,
-      params: RequestParams = {},
-    ) =>
+    getHashboardPower: ({ hbSn, ...query }: GetHashboardPowerParams, params: RequestParams = {}) =>
       this.request<PowerResponse, MessageResponse>({
         path: `/api/v1/power/${hbSn}`,
         method: "GET",
@@ -2856,10 +2764,7 @@ export class Api<
      * @name GetMinerEfficiency
      * @request GET:/api/v1/efficiency
      */
-    getMinerEfficiency: (
-      query: GetMinerEfficiencyParams,
-      params: RequestParams = {},
-    ) =>
+    getMinerEfficiency: (query: GetMinerEfficiencyParams, params: RequestParams = {}) =>
       this.request<EfficiencyResponse, MessageResponse>({
         path: `/api/v1/efficiency`,
         method: "GET",
@@ -2875,10 +2780,7 @@ export class Api<
      * @name GetHashboardEfficiency
      * @request GET:/api/v1/efficiency/{hb_sn}
      */
-    getHashboardEfficiency: (
-      { hbSn, ...query }: GetHashboardEfficiencyParams,
-      params: RequestParams = {},
-    ) =>
+    getHashboardEfficiency: ({ hbSn, ...query }: GetHashboardEfficiencyParams, params: RequestParams = {}) =>
       this.request<EfficiencyResponse, MessageResponse>({
         path: `/api/v1/efficiency/${hbSn}`,
         method: "GET",
@@ -2978,14 +2880,12 @@ export class Api<
      * @request GET:/api/v1/system/tag
      */
     getSystemTag: (params: RequestParams = {}) =>
-      this.request<string | number | boolean | object | any[], MessageResponse>(
-        {
-          path: `/api/v1/system/tag`,
-          method: "GET",
-          format: "json",
-          ...params,
-        },
-      ),
+      this.request<string | number | boolean | object | any[], MessageResponse>({
+        path: `/api/v1/system/tag`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
 
     /**
      * @description Set or update the system tag value. Accepts any non-null JSON value (string, number, boolean, object, or array). Maximum size is 10 KiB when serialized.
@@ -2995,10 +2895,7 @@ export class Api<
      * @request PUT:/api/v1/system/tag
      * @secure
      */
-    putSystemTag: (
-      data: string | number | boolean | object | any[],
-      params: RequestParams = {},
-    ) =>
+    putSystemTag: (data: string | number | boolean | object | any[], params: RequestParams = {}) =>
       this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/system/tag`,
         method: "PUT",
@@ -3047,10 +2944,7 @@ export class Api<
      * @name SetSystemTelemetryEnabled
      * @request PUT:/api/v1/system/telemetry
      */
-    setSystemTelemetryEnabled: (
-      data: TelemetryConfig,
-      params: RequestParams = {},
-    ) =>
+    setSystemTelemetryEnabled: (data: TelemetryConfig, params: RequestParams = {}) =>
       this.request<TelemetryResponse, MessageResponse>({
         path: `/api/v1/system/telemetry`,
         method: "PUT",
@@ -3085,10 +2979,7 @@ export class Api<
      * @summary Get current telemetry data
      * @request GET:/api/v1/telemetry
      */
-    getCurrentTelemetry: (
-      query: GetCurrentTelemetryParams,
-      params: RequestParams = {},
-    ) =>
+    getCurrentTelemetry: (query: GetCurrentTelemetryParams, params: RequestParams = {}) =>
       this.request<TelemetryData, MessageResponse>({
         path: `/api/v1/telemetry`,
         method: "GET",

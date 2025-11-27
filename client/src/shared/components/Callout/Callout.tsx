@@ -4,10 +4,7 @@ import clsx from "clsx";
 import { type intents } from "./constants";
 import { DismissTiny } from "@/shared/assets/icons";
 import { sizes, variants } from "@/shared/components/Button";
-import ButtonGroup, {
-  ButtonProps,
-  groupVariants,
-} from "@/shared/components/ButtonGroup";
+import ButtonGroup, { ButtonProps, groupVariants } from "@/shared/components/ButtonGroup";
 
 interface CalloutProps {
   className?: string;
@@ -58,8 +55,7 @@ const Callout = ({
         textColor: "text-current",
         borderColor: "border-current",
         onClick: buttonOnClick,
-        variant:
-          dismissible && onDismiss ? variants.primary : variants.secondary,
+        variant: dismissible && onDismiss ? variants.primary : variants.secondary,
       });
     }
 
@@ -78,14 +74,7 @@ const Callout = ({
   return (
     <div className={clsx("rounded-xl shadow-100", className)}>
       {header && /(information|success|warning|danger)/.test(intent) && (
-        <div
-          className={clsx(
-            "rounded-t-xl px-4 py-1 text-emphasis-300 text-text-contrast",
-            bgColor,
-          )}
-        >
-          {header}
-        </div>
+        <div className={clsx("rounded-t-xl px-4 py-1 text-emphasis-300 text-text-contrast", bgColor)}>{header}</div>
       )}
       <div className="flex rounded-xl bg-surface-elevated-base p-4 text-text-primary">
         <div
@@ -99,9 +88,7 @@ const Callout = ({
         <div className="flex w-full items-center justify-between">
           <div>
             <div className="text-emphasis-300">{title}</div>
-            {subtitle && (
-              <div className="text-300 text-text-primary-70">{subtitle}</div>
-            )}
+            {subtitle && <div className="text-300 text-text-primary-70">{subtitle}</div>}
           </div>
           {buttons.length !== 0 && (
             <div className="ml-4">

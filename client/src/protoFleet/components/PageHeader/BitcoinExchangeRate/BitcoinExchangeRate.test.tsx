@@ -9,9 +9,7 @@ describe("Bank Balance", () => {
   const usdCurrency = "$";
 
   test("renders loading state", () => {
-    const { getByTestId } = render(
-      <BitcoinExchangeRate loading={true} exchangeRate={0} />,
-    );
+    const { getByTestId } = render(<BitcoinExchangeRate loading={true} exchangeRate={0} />);
 
     expect(getByTestId(bitcoinIconTestId)).toBeDefined();
     expect(getByTestId(skeletonTestId)).toBeDefined();

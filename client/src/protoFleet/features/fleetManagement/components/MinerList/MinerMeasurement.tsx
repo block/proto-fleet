@@ -10,15 +10,8 @@ type MinerMeasurementProps = {
   className?: string;
 };
 
-const MinerMeasurement = ({
-  measurement,
-  unit,
-  className,
-}: MinerMeasurementProps) => {
-  const latestMeasurement = useMemo(
-    () => getLatestMeasurementWithData(measurement),
-    [measurement],
-  );
+const MinerMeasurement = ({ measurement, unit, className }: MinerMeasurementProps) => {
+  const latestMeasurement = useMemo(() => getLatestMeasurementWithData(measurement), [measurement]);
 
   const latestValue = latestMeasurement?.value;
 

@@ -10,11 +10,7 @@ export default {
 };
 
 // Helper to mock authClient.createUser for stories
-const mockCreateUser = (
-  delay: number,
-  shouldSucceed: boolean,
-  errorMessage?: string,
-) => {
+const mockCreateUser = (delay: number, shouldSucceed: boolean, errorMessage?: string) => {
   const originalCreateUser = authClient.createUser;
 
   (authClient as any).createUser = async (request: any) => {
@@ -59,10 +55,7 @@ const StoryWrapper = ({
   if (!show) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <button
-          onClick={() => setShow(true)}
-          className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base"
-        >
+        <button onClick={() => setShow(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
           Show Modal
         </button>
       </div>
@@ -72,9 +65,7 @@ const StoryWrapper = ({
   return (
     <div>
       {infoMessage && (
-        <div className="mb-4 rounded-lg bg-intent-info-10 p-4 text-300 text-text-primary">
-          {infoMessage}
-        </div>
+        <div className="mb-4 rounded-lg bg-intent-info-10 p-4 text-300 text-text-primary">{infoMessage}</div>
       )}
       <div className="fixed right-4 bottom-4 z-30 phone:right-2 phone:bottom-2">
         <ToasterComponent />
@@ -156,10 +147,7 @@ export const EmptyUsernameValidation = () => {
   if (!show) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <button
-          onClick={() => setShow(true)}
-          className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base"
-        >
+        <button onClick={() => setShow(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
           Show Modal
         </button>
       </div>
@@ -196,10 +184,7 @@ export const LongUsername = () => {
   if (!show) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <button
-          onClick={() => setShow(true)}
-          className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base"
-        >
+        <button onClick={() => setShow(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
           Show Modal
         </button>
       </div>
@@ -209,8 +194,7 @@ export const LongUsername = () => {
   return (
     <div>
       <div className="mb-4 rounded-lg bg-intent-info-10 p-4 text-300 text-text-primary">
-        Test with a very long username:
-        "john_doe_with_a_very_long_username_for_testing_layout"
+        Test with a very long username: "john_doe_with_a_very_long_username_for_testing_layout"
       </div>
       <AddTeamMemberModal
         onSuccess={() => {
@@ -238,10 +222,7 @@ export const PasswordDisplayStep = () => {
   if (!show) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <button
-          onClick={() => setShow(true)}
-          className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base"
-        >
+        <button onClick={() => setShow(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
           Show Modal
         </button>
       </div>
@@ -251,8 +232,7 @@ export const PasswordDisplayStep = () => {
   return (
     <div>
       <div className="mb-4 rounded-lg bg-intent-success-10 p-4 text-300 text-text-primary">
-        Enter any username and click Save to quickly see the password display
-        step (100ms delay).
+        Enter any username and click Save to quickly see the password display step (100ms delay).
       </div>
       <div className="fixed right-4 bottom-4 z-30 phone:right-2 phone:bottom-2">
         <ToasterComponent />

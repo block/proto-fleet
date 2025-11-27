@@ -25,8 +25,7 @@ const AlertStatus = ({ alerts, loading = false }: AlertStatusProps) => {
 
   // TODO some alerts probably have higher severity, then icon should be red
   const icon = () => {
-    const color =
-      (numberOfAlerts ?? 0) > 0 ? "text-text-warning" : "text-text-success";
+    const color = (numberOfAlerts ?? 0) > 0 ? "text-text-warning" : "text-text-success";
 
     return <Alert className={color} width={iconSizes.small} />;
   };
@@ -35,20 +34,10 @@ const AlertStatus = ({ alerts, loading = false }: AlertStatusProps) => {
 
   return (
     <>
-      <Chip
-        loading={loading}
-        prefixIcon={icon()}
-        onClick={() => setShowModal(true)}
-      >
+      <Chip loading={loading} prefixIcon={icon()} onClick={() => setShowModal(true)}>
         {text()}
       </Chip>
-      {showModal && (
-        <AlertsModal
-          show={showModal}
-          alerts={alerts}
-          onDismiss={() => setShowModal(false)}
-        />
-      )}
+      {showModal && <AlertsModal show={showModal} alerts={alerts} onDismiss={() => setShowModal(false)} />}
     </>
   );
 };

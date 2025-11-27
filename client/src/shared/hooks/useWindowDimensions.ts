@@ -23,9 +23,7 @@ const useWindowDimensions = () => {
   const tabletMaxWidth = useCssVariable("--tablet-max-width");
   const laptopMaxWidth = useCssVariable("--laptop-max-width");
 
-  const [windowDimensions, setWindowDimensions] = useState(
-    getWindowDimensions(),
-  );
+  const [windowDimensions, setWindowDimensions] = useState(getWindowDimensions());
 
   useEffect(() => {
     const handleResize = () => {
@@ -41,21 +39,11 @@ const useWindowDimensions = () => {
       height: windowDimensions.height,
       width: windowDimensions.width,
       isDesktop: windowDimensions.width > laptopMaxWidth,
-      isLaptop:
-        windowDimensions.width > tabletMaxWidth &&
-        windowDimensions.width <= laptopMaxWidth,
-      isTablet:
-        windowDimensions.width > phoneMaxWidth &&
-        windowDimensions.width <= tabletMaxWidth,
+      isLaptop: windowDimensions.width > tabletMaxWidth && windowDimensions.width <= laptopMaxWidth,
+      isTablet: windowDimensions.width > phoneMaxWidth && windowDimensions.width <= tabletMaxWidth,
       isPhone: windowDimensions.width <= phoneMaxWidth,
     }),
-    [
-      windowDimensions.height,
-      windowDimensions.width,
-      laptopMaxWidth,
-      phoneMaxWidth,
-      tabletMaxWidth,
-    ],
+    [windowDimensions.height, windowDimensions.width, laptopMaxWidth, phoneMaxWidth, tabletMaxWidth],
   );
 };
 

@@ -20,19 +20,12 @@ async function main() {
   console.log("Loading services...");
 
   // Dynamic imports to avoid issues with ESM/CJS compatibility
-  const authModule = await import(
-    "../src/protoFleet/api/generated/auth/v1/auth_pb"
-  );
-  const pairingModule = await import(
-    "../src/protoFleet/api/generated/pairing/v1/pairing_pb"
-  );
-  const onboardingModule = await import(
-    "../src/protoFleet/api/generated/onboarding/v1/onboarding_pb"
-  );
+  const authModule = await import("../src/protoFleet/api/generated/auth/v1/auth_pb");
+  const pairingModule = await import("../src/protoFleet/api/generated/pairing/v1/pairing_pb");
+  const onboardingModule = await import("../src/protoFleet/api/generated/onboarding/v1/onboarding_pb");
 
   const OnboardingService = onboardingModule.OnboardingService;
-  const CreateAdminLoginRequestSchema =
-    onboardingModule.CreateAdminLoginRequestSchema;
+  const CreateAdminLoginRequestSchema = onboardingModule.CreateAdminLoginRequestSchema;
   const AuthService = authModule.AuthService;
   const PairingService = pairingModule.PairingService;
   const AuthenticateRequestSchema = authModule.AuthenticateRequestSchema;
@@ -65,18 +58,14 @@ async function main() {
       password: "test1234",
     });
 
-    const createAdminResponse =
-      await onboardingClient.createAdminLogin(createAdminRequest);
+    const createAdminResponse = await onboardingClient.createAdminLogin(createAdminRequest);
     console.log("Admin user created successfully:", createAdminResponse.userId);
   } catch (error: any) {
     // Check if the error message indicates the user already exists
     if (error.message && error.message.includes("already exists")) {
       console.log("Admin user already exists, proceeding with authentication.");
     } else {
-      console.log(
-        "Error checking/creating admin user:",
-        error.message || error,
-      );
+      console.log("Error checking/creating admin user:", error.message || error);
       // Continue anyway - we'll try to authenticate with the credentials
     }
   }
@@ -98,9 +87,7 @@ async function main() {
     const token = authResponse.token;
     console.log(`Token: ${token}`, typeof token);
     const tokenExpiry = authResponse.tokenExpiry;
-    console.log(
-      `Token expires at: ${new Date(Number(tokenExpiry) * 1000).toISOString()}`,
-    );
+    console.log(`Token expires at: ${new Date(Number(tokenExpiry) * 1000).toISOString()}`);
 
     // Set headers for subsequent requests
     const headers = {
@@ -189,10 +176,7 @@ async function main() {
           discoveredAt: String(device.discoveredAt),
         }));
 
-        console.log(
-          "Discovered devices:",
-          JSON.stringify(devicesForDisplay, null, 2),
-        );
+        console.log("Discovered devices:", JSON.stringify(devicesForDisplay, null, 2));
 
         // Step 3: Pair with discovered devices
         console.log("\n=== Step 3: Device Pairing ===");
@@ -259,10 +243,7 @@ async function main() {
           discoveredAt: String(device.discoveredAt),
         }));
 
-        console.log(
-          "Discovered devices:",
-          JSON.stringify(devicesForDisplay, null, 2),
-        );
+        console.log("Discovered devices:", JSON.stringify(devicesForDisplay, null, 2));
 
         // Pair with discovered devices
         console.log("\n=== Additional Pairing via Nmap ===");
@@ -293,12 +274,9 @@ async function main() {
 
     try {
       // First, we need to import the FleetManagement service
-      const fleetModule = await import(
-        "../src/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb"
-      );
+      const fleetModule = await import("../src/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb");
       const FleetManagementService = fleetModule.FleetManagementService;
-      const ListPairedMinersRequestSchema =
-        fleetModule.ListPairedMinersRequestSchema;
+      const ListPairedMinersRequestSchema = fleetModule.ListPairedMinersRequestSchema;
 
       // Create a client for the FleetManagement service
       const fleetClient = createClient(FleetManagementService, transport);

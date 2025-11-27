@@ -9,10 +9,7 @@ interface BitcoinExchangeRateProps {
   loading?: boolean;
 }
 
-const BitcoinExchangeRate = ({
-  exchangeRate,
-  loading,
-}: BitcoinExchangeRateProps) => {
+const BitcoinExchangeRate = ({ exchangeRate, loading }: BitcoinExchangeRateProps) => {
   const formattedRate = useMemo(() => {
     if (exchangeRate === undefined || exchangeRate === null) return;
 

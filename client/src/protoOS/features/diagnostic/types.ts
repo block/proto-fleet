@@ -86,5 +86,4 @@ export type FanSlot = FanData | EmptySlot;
 export type PsuSlot = PsuData | EmptySlot;
 
 // Type guards
-export const isEmptySlot = (slot: any): slot is EmptySlot =>
-  slot.isEmpty === true;
+export const isEmptySlot = (slot: any): slot is EmptySlot => slot.isEmpty === true;

@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  getRelativeTimeFromEpoch,
-  getTimeFromEpoch,
-} from "@/shared/utils/datetime";
+import { getRelativeTimeFromEpoch, getTimeFromEpoch } from "@/shared/utils/datetime";
 
 // since epoch gets converted to local timestamp, check general format rather than exact time
 const expectedTimestamp = new RegExp(/^[0-9]{2}:[0-9]{2}:[0-9]{2}$/);

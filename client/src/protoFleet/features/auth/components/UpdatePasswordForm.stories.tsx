@@ -91,9 +91,8 @@ export const Interactive = () => {
   return (
     <div>
       <div className="mb-4 rounded-lg bg-intent-warning-10 p-4 text-300 text-text-primary">
-        Try entering mismatched passwords or a weak password to see validation
-        errors. Enter matching strong passwords to simulate success (2 second
-        delay).
+        Try entering mismatched passwords or a weak password to see validation errors. Enter matching strong passwords
+        to simulate success (2 second delay).
       </div>
       <UpdatePasswordForm
         onSubmit={handleSubmit}

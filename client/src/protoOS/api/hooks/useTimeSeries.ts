@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { usePoll } from "./usePoll";
-import {
-  type TimeSeriesRequest,
-  type TimeSeriesResponse,
-} from "@/protoOS/api/generatedApi";
+import { type TimeSeriesRequest, type TimeSeriesResponse } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { getAsicId, useMinerStore } from "@/protoOS/store";
 import type { Duration } from "@/shared/components/DurationSelector";
@@ -56,12 +53,7 @@ interface UseTimeSeriesProps {
   pollIntervalMs?: number;
 }
 
-const useTimeSeries = ({
-  duration,
-  levels,
-  poll = true,
-  pollIntervalMs = 30 * 1000,
-}: UseTimeSeriesProps) => {
+const useTimeSeries = ({ duration, levels, poll = true, pollIntervalMs = 30 * 1000 }: UseTimeSeriesProps) => {
   const { api } = useMinerHosting();
   const [data, setData] = useState<TimeSeriesResponse>();
   const [error, setError] = useState<string>();
@@ -69,18 +61,14 @@ const useTimeSeries = ({
 
   // Get hashboard count from the hardware slice to trigger telemetry fetch
   // Using count instead of keys array to prevent infinite re-renders from array recreation
-  const hashboardCount = useMinerStore(
-    (state) => state.hardware.hashboards.size,
-  );
+  const hashboardCount = useMinerStore((state) => state.hardware.hashboards.size);
 
   const fetchData = useCallback(async () => {
     if (!api) {
       return;
     }
 
-    const currentHashboards = Array.from(
-      useMinerStore.getState().hardware.hashboards.keys(),
-    );
+    const currentHashboards = Array.from(useMinerStore.getState().hardware.hashboards.keys());
 
     if (currentHashboards.length === 0) {
       return;
@@ -121,24 +109,16 @@ const useTimeSeries = ({
       // ideally the useHardware hook would fetch and populate this data
       if (response.data?.data?.asics) {
         response.data.data.asics.forEach((asicData) => {
-          if (
-            asicData.index !== undefined &&
-            asicData.hashboard_index !== undefined
-          ) {
+          if (asicData.index !== undefined && asicData.hashboard_index !== undefined) {
             const hashboardSerialNumber = response.data?.data?.hashboards?.find(
               (hb) => hb.index === asicData.hashboard_index,
             )?.serial_number;
 
             if (hashboardSerialNumber) {
-              const asicId = getAsicId(
-                hashboardSerialNumber,
-                asicData.index.toString(),
-              );
+              const asicId = getAsicId(hashboardSerialNumber, asicData.index.toString());
 
               // Update existing ASIC with index/hashboardIndex data
-              const existingAsic = useMinerStore
-                .getState()
-                .hardware.getAsic(asicId);
+              const existingAsic = useMinerStore.getState().hardware.getAsic(asicId);
 
               if (existingAsic) {
                 useMinerStore.getState().hardware.addAsic({
@@ -153,12 +133,9 @@ const useTimeSeries = ({
       }
 
       // Update the telemetry store with the new data
-      useMinerStore
-        .getState()
-        .telemetry.updateTimeSeriesTelemetry(response.data);
+      useMinerStore.getState().telemetry.updateTimeSeriesTelemetry(response.data);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Unknown error occurred";
+      const errorMessage = err instanceof Error ? err.message : "Unknown error occurred";
       setError(errorMessage);
     } finally {
       setPending(false);

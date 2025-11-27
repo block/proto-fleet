@@ -1,9 +1,6 @@
 import type { UpdateStatus } from "@/protoOS/api/generatedApi";
 
-export const statusLabelFromUpdateStatus = (
-  updateStatus?: UpdateStatus,
-  verbose: boolean = false,
-) => {
+export const statusLabelFromUpdateStatus = (updateStatus?: UpdateStatus, verbose: boolean = false) => {
   if (!updateStatus) return undefined;
   switch (updateStatus?.status) {
     case "available":
@@ -11,15 +8,11 @@ export const statusLabelFromUpdateStatus = (
         ? `Update available: ${updateStatus.new_version}`
         : "Update available";
     case "downloading":
-      return verbose && updateStatus?.new_version
-        ? `Downloading: ${updateStatus.new_version}`
-        : "Downloading";
+      return verbose && updateStatus?.new_version ? `Downloading: ${updateStatus.new_version}` : "Downloading";
     case "downloaded":
       return "Ready to install";
     case "installing":
-      return verbose && updateStatus?.new_version
-        ? `Installing: ${updateStatus.new_version}`
-        : "Installing";
+      return verbose && updateStatus?.new_version ? `Installing: ${updateStatus.new_version}` : "Installing";
     case "installed":
       return "Reboot required";
     case "success":

@@ -1,25 +1,16 @@
 import { useState } from "react";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
-import {
-  useSetTemperatureUnit,
-  useSetTheme,
-  useTemperatureUnit,
-  useTheme,
-} from "@/protoFleet/store";
+import { useSetTemperatureUnit, useSetTheme, useTemperatureUnit, useTheme } from "@/protoFleet/store";
 import Row from "@/shared/components/Row";
 import SkeletonBar from "@/shared/components/SkeletonBar";
-import {
-  TemperatureUnitsSwitcher,
-  ThemeSwitcher,
-} from "@/shared/features/preferences";
+import { TemperatureUnitsSwitcher, ThemeSwitcher } from "@/shared/features/preferences";
 import { convertToSentenceCase } from "@/shared/utils/stringUtils";
 
 const SkeletonLoader = <SkeletonBar className="h-[22px] w-24" />;
 
 const General = () => {
   const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
-  const [showTemperatureUnitsSwitcher, setShowTemperatureUnitsSwitcher] =
-    useState(false);
+  const [showTemperatureUnitsSwitcher, setShowTemperatureUnitsSwitcher] = useState(false);
   const theme = useTheme();
   const setTheme = useSetTheme();
   const temperatureUnit = useTemperatureUnit();
@@ -55,11 +46,7 @@ const General = () => {
               {convertToSentenceCase(theme)}
             </a>
             {showThemeSwitcher && (
-              <ThemeSwitcher
-                onClickDone={() => setShowThemeSwitcher(false)}
-                theme={theme}
-                setTheme={setTheme}
-              />
+              <ThemeSwitcher onClickDone={() => setShowThemeSwitcher(false)} theme={theme} setTheme={setTheme} />
             )}
           </Row>
           <Row className="flex justify-between">

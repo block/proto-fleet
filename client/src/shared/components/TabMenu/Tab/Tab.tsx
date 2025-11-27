@@ -17,17 +17,8 @@ type TabProps = {
 // Use memo to prevent re-rendering when parent components change but this component's props don't
 const Tab = memo(({ id, label, value, units, isActive, onClick }: TabProps) => {
   return (
-    <button
-      onClick={() => onClick && onClick(id)}
-      className={clsx("relative m-0 flex-1 py-4 text-left", "phone:px-4")}
-    >
-      <Stat
-        label={label}
-        value={value}
-        units={units}
-        headingLevel={2}
-        size="large"
-      />
+    <button onClick={() => onClick && onClick(id)} className={clsx("relative m-0 flex-1 py-4 text-left", "phone:px-4")}>
+      <Stat label={label} value={value} units={units} headingLevel={2} size="large" />
 
       <AnimatePresence>
         {isActive && (

@@ -58,23 +58,12 @@ export const UpdatePasswordForm = ({
 
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-2">
-                  <Input
-                    id="newPassword"
-                    label="New password"
-                    type="password"
-                    onChange={handlePasswordChange}
-                  />
+                  <Input id="newPassword" label="New password" type="password" onChange={handlePasswordChange} />
                   <div className="flex items-center justify-between gap-5">
                     <div>
-                      <div className="text-200 text-text-primary-50">
-                        Password strength
-                      </div>
+                      <div className="text-200 text-text-primary-50">Password strength</div>
                     </div>
-                    <PasswordStrengthMeter
-                      score={score}
-                      onSetScore={setScore}
-                      password={newPassword}
-                    />
+                    <PasswordStrengthMeter score={score} onSetScore={setScore} password={newPassword} />
                   </div>
                 </div>
 
@@ -86,11 +75,7 @@ export const UpdatePasswordForm = ({
                 />
               </div>
 
-              <Button
-                onClick={handleSubmit}
-                variant="primary"
-                disabled={isSubmitting}
-              >
+              <Button onClick={handleSubmit} variant="primary" disabled={isSubmitting}>
                 {isSubmitting ? "Updating..." : "Continue"}
               </Button>
             </div>

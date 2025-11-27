@@ -5,37 +5,20 @@ import { SimpleErrorProps } from "apiResponseTypes";
 import { STATUS_MESSAGES } from "./constants";
 import { useCreatePools, useEditPool, usePoolsInfo } from "@/protoOS/api";
 
-import MiningPools, {
-  getEmptyPoolsInfo,
-  isValidPool,
-  PoolInfo,
-} from "@/protoOS/components/MiningPools";
+import MiningPools, { getEmptyPoolsInfo, isValidPool, PoolInfo } from "@/protoOS/components/MiningPools";
 import { Alert } from "@/shared/assets/icons";
-import {
-  DismissibleCalloutWrapper,
-  intents,
-} from "@/shared/components/Callout";
-import {
-  pushToast,
-  removeToast,
-  STATUSES as TOAST_STATUSES,
-  ToastStatusType,
-} from "@/shared/features/toaster";
+import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
+import { pushToast, removeToast, STATUSES as TOAST_STATUSES, ToastStatusType } from "@/shared/features/toaster";
 import { debounce } from "@/shared/utils/utility";
 
 const SettingsMiningPools = () => {
   const [pools, setPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
-  const [previousPools, setPreviousPools] =
-    useState<PoolInfo[]>(getEmptyPoolsInfo());
+  const [previousPools, setPreviousPools] = useState<PoolInfo[]>(getEmptyPoolsInfo());
   const [toastStatus, setToastStatus] = useState<ToastStatusType | null>(null);
   const [isStalePools, setIsStalePools] = useState(false);
   const toastId = useRef<number | null>(null);
 
-  const {
-    data: poolsInfo,
-    pending: poolsInfoPending,
-    error: poolsInfoError,
-  } = usePoolsInfo();
+  const { data: poolsInfo, pending: poolsInfoPending, error: poolsInfoError } = usePoolsInfo();
   const { createPools } = useCreatePools();
   const { editPool } = useEditPool();
   const [createPoolsError, setCreatePoolsError] = useState<SimpleErrorProps>();
@@ -54,30 +37,27 @@ const SettingsMiningPools = () => {
     }
   }, [poolsInfo]);
 
-  const findChangedPool = useCallback(
-    (currentPools: PoolInfo[], previousPools: PoolInfo[]) => {
-      let changedIndex = -1;
-      let changesCount = 0;
+  const findChangedPool = useCallback((currentPools: PoolInfo[], previousPools: PoolInfo[]) => {
+    let changedIndex = -1;
+    let changesCount = 0;
 
-      for (let i = 0; i < currentPools.length; i++) {
-        const current = currentPools[i];
-        const previous = previousPools[i];
+    for (let i = 0; i < currentPools.length; i++) {
+      const current = currentPools[i];
+      const previous = previousPools[i];
 
-        if (
-          current.url !== previous.url ||
-          current.username !== previous.username ||
-          current.password !== previous.password
-        ) {
-          changedIndex = i;
-          changesCount++;
-        }
+      if (
+        current.url !== previous.url ||
+        current.username !== previous.username ||
+        current.password !== previous.password
+      ) {
+        changedIndex = i;
+        changesCount++;
       }
+    }
 
-      // Return the index only if exactly one pool changed
-      return changesCount === 1 ? changedIndex : -1;
-    },
-    [],
-  );
+    // Return the index only if exactly one pool changed
+    return changesCount === 1 ? changedIndex : -1;
+  }, []);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedSubmitPools = useCallback(
@@ -154,15 +134,8 @@ const SettingsMiningPools = () => {
   );
 
   useEffect(() => {
-    if (
-      toastStatus === TOAST_STATUSES.loading &&
-      isStalePools &&
-      !poolsInfoPending
-    ) {
-      if (
-        poolsInfoError &&
-        !/failed to connect to cgminer/i.test(poolsInfoError)
-      ) {
+    if (toastStatus === TOAST_STATUSES.loading && isStalePools && !poolsInfoPending) {
+      if (poolsInfoError && !/failed to connect to cgminer/i.test(poolsInfoError)) {
         setToastStatus(TOAST_STATUSES.error);
         removeToast(toastId.current);
         toastId.current = pushToast({

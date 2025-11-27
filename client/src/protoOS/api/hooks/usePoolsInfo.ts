@@ -16,10 +16,7 @@ type UsePoolsInfoProps = {
   pollIntervalMs?: number;
 };
 
-const usePoolsInfo = ({
-  poll = false,
-  pollIntervalMs,
-}: UsePoolsInfoProps = {}) => {
+const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) => {
   const { api } = useMinerHosting();
   const [data, setData] = useState<Pool[]>();
   const [error, setError] = useState<string>();
@@ -38,16 +35,12 @@ const usePoolsInfo = ({
           .then((res) => {
             // find the highest priority pool
             // highest priority is the lowest number
-            const sortedPools = res?.data["pools"]?.sort(
-              (a, b) => (a.priority || 0) - (b.priority || 0),
-            );
+            const sortedPools = res?.data["pools"]?.sort((a, b) => (a.priority || 0) - (b.priority || 0));
             setData(sortedPools);
             onSuccess?.(sortedPools);
             if (retryOnMinerDown) {
               // TODO: remove alive when cgminer is removed
-              const noLivePools = !sortedPools?.find((pool) =>
-                /alive|active/i.test(pool?.status ?? ""),
-              );
+              const noLivePools = !sortedPools?.find((pool) => /alive|active/i.test(pool?.status ?? ""));
               // if all pools are dead, refetch pools
               if (noLivePools) {
                 setTimeout(() => performFetch(), 5000);
@@ -83,10 +76,7 @@ const usePoolsInfo = ({
     setPoolsInfo(data);
   }, [data, setPoolsInfo]);
 
-  return useMemo(
-    () => ({ fetchData, pending, error, data }),
-    [fetchData, pending, error, data],
-  );
+  return useMemo(() => ({ fetchData, pending, error, data }), [fetchData, pending, error, data]);
 };
 
 export { usePoolsInfo };

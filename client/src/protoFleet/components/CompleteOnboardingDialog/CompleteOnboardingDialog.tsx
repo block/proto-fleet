@@ -25,9 +25,7 @@ type CompleteOnboardingDialogProps = {
   onboardingStatus: FleetOnboardingStatus | null;
 };
 
-const CompleteOnboardingDialog = ({
-  onboardingStatus,
-}: CompleteOnboardingDialogProps) => {
+const CompleteOnboardingDialog = ({ onboardingStatus }: CompleteOnboardingDialogProps) => {
   const setAuthTokens = useSetAuthTokens();
   const navigate = useNavigate();
 
@@ -39,8 +37,7 @@ const CompleteOnboardingDialog = ({
   } | null = useMemo(() => {
     if (
       onboardingStatus === null ||
-      (onboardingStatus.devicePaired === true &&
-        onboardingStatus.poolConfigured === true)
+      (onboardingStatus.devicePaired === true && onboardingStatus.poolConfigured === true)
     ) {
       return null;
     }

@@ -14,10 +14,7 @@ vi.mock("@/protoFleet/api/usePools", () => ({
 
 describe("Pool selection page", () => {
   const numberOfMiners = 5;
-  const deviceIdentifiers = Array.from(
-    { length: numberOfMiners },
-    (_, i) => `device-${i}`,
-  );
+  const deviceIdentifiers = Array.from({ length: numberOfMiners }, (_, i) => `device-${i}`);
   const availablePools = [
     {
       poolId: "1",
@@ -79,9 +76,7 @@ describe("Pool selection page", () => {
       />,
     );
 
-    const assignButton = getByText(
-      `Assign to ${numberOfMiners} miners`,
-    ).closest("button");
+    const assignButton = getByText(`Assign to ${numberOfMiners} miners`).closest("button");
     expect(assignButton).toBeDisabled();
   });
 
@@ -129,9 +124,7 @@ describe("Pool selection page", () => {
 
     // Click Save button in the modal
     const saveButtons = getAllByText("Save");
-    const modalSaveButton = saveButtons.find((btn) =>
-      btn.closest("button"),
-    ) as HTMLElement;
+    const modalSaveButton = saveButtons.find((btn) => btn.closest("button")) as HTMLElement;
     fireEvent.click(modalSaveButton);
 
     // Wait for validation to complete and modal to close (800ms minimum delay)
@@ -184,9 +177,7 @@ describe("Pool selection page", () => {
 
     // Click Save button in the modal
     const saveButtons = getAllByText("Save");
-    const modalSaveButton = saveButtons.find((btn) =>
-      btn.closest("button"),
-    ) as HTMLElement;
+    const modalSaveButton = saveButtons.find((btn) => btn.closest("button")) as HTMLElement;
     fireEvent.click(modalSaveButton);
 
     // Wait for validation to complete and modal to close (800ms minimum delay)
@@ -240,9 +231,7 @@ describe("Pool selection page", () => {
 
     // Click Save button in the modal
     let saveButtons = getAllByText("Save");
-    let modalSaveButton = saveButtons.find((btn) =>
-      btn.closest("button"),
-    ) as HTMLElement;
+    let modalSaveButton = saveButtons.find((btn) => btn.closest("button")) as HTMLElement;
     fireEvent.click(modalSaveButton);
 
     // Wait for validation to complete and modal to close (800ms minimum delay)
@@ -278,9 +267,7 @@ describe("Pool selection page", () => {
 
     // Click Save
     saveButtons = getAllByText("Save");
-    modalSaveButton = saveButtons.find((btn) =>
-      btn.closest("button"),
-    ) as HTMLElement;
+    modalSaveButton = saveButtons.find((btn) => btn.closest("button")) as HTMLElement;
     fireEvent.click(modalSaveButton);
 
     // Wait for modal to close (800ms minimum delay)

@@ -3,12 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import WidgetWrapper from "../WidgetWrapper";
 import PowerPopover from "./PowerPopover";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
-import {
-  EnteringSleepDialog,
-  RebootingDialog,
-  WarnRebootDialog,
-  WarnSleepDialog,
-} from "@/protoOS/components/Power";
+import { EnteringSleepDialog, RebootingDialog, WarnRebootDialog, WarnSleepDialog } from "@/protoOS/components/Power";
 import { useAccessToken } from "@/protoOS/store";
 import {
   AUTH_ACTIONS,
@@ -62,9 +57,7 @@ const PowerWidget = ({
   const pausedAuthAction = usePausedAuthAction();
   const setPausedAuthAction = useSetPausedAuthAction();
 
-  const { checkAccess, hasAccess, setHasAccess } = useAccessToken(
-    !!pausedAuthAction && !dismissedLoginModal,
-  );
+  const { checkAccess, hasAccess, setHasAccess } = useAccessToken(!!pausedAuthAction && !dismissedLoginModal);
 
   const onClickOutside = useCallback(() => {
     setIsOpen(false);
@@ -141,14 +134,7 @@ const PowerWidget = ({
       }
       /* eslint-enable react-hooks/set-state-in-effect */
     }
-  }, [
-    shouldReboot,
-    isAwake,
-    afterReboot,
-    rebootError,
-    setHasAccess,
-    setPausedAuthAction,
-  ]);
+  }, [shouldReboot, isAwake, afterReboot, rebootError, setHasAccess, setPausedAuthAction]);
 
   useEffect(() => {
     if (shouldSleep) {
@@ -166,14 +152,7 @@ const PowerWidget = ({
       }
       /* eslint-enable react-hooks/set-state-in-effect */
     }
-  }, [
-    afterSleep,
-    isSleeping,
-    setHasAccess,
-    shouldSleep,
-    sleepError,
-    setPausedAuthAction,
-  ]);
+  }, [afterSleep, isSleeping, setHasAccess, shouldSleep, sleepError, setPausedAuthAction]);
 
   return (
     <div className="relative" ref={WidgetRef} data-testid="power-widget">
@@ -185,24 +164,10 @@ const PowerWidget = ({
       >
         <Power width={iconSizes.small} className="m-1 -translate-y-0.25" />
       </WidgetWrapper>
-      {isOpen && (
-        <PowerPopover
-          onReboot={handleRebootButton}
-          onSleep={handleSleepButton}
-          onWake={handleWakeButton}
-        />
-      )}
-      <WarnRebootDialog
-        onClose={() => setWarnReboot(false)}
-        onSubmit={handleRebootConfirm}
-        show={warnReboot}
-      />
+      {isOpen && <PowerPopover onReboot={handleRebootButton} onSleep={handleSleepButton} onWake={handleWakeButton} />}
+      <WarnRebootDialog onClose={() => setWarnReboot(false)} onSubmit={handleRebootConfirm} show={warnReboot} />
       <RebootingDialog show={shouldReboot} />
-      <WarnSleepDialog
-        onClose={() => setWarnSleep(false)}
-        onSubmit={handleSleepConfirm}
-        show={warnSleep}
-      />
+      <WarnSleepDialog onClose={() => setWarnSleep(false)} onSubmit={handleSleepConfirm} show={warnSleep} />
       <EnteringSleepDialog show={shouldSleep} />
     </div>
   );

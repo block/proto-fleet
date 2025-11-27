@@ -10,14 +10,7 @@ describe("FleetHealth", () => {
   };
 
   it("renders correct stats when all miners are healthy", () => {
-    renderWithRouter(
-      <FleetHealth
-        fleetSize={100}
-        healthyMiners={100}
-        unhealthyMiners={0}
-        offlineMiners={0}
-      />,
-    );
+    renderWithRouter(<FleetHealth fleetSize={100} healthyMiners={100} unhealthyMiners={0} offlineMiners={0} />);
 
     // Check title label
     expect(screen.getByText("Your fleet")).toBeInTheDocument();
@@ -46,14 +39,7 @@ describe("FleetHealth", () => {
   });
 
   it("renders correct stats with mixed fleet health", () => {
-    renderWithRouter(
-      <FleetHealth
-        fleetSize={200}
-        healthyMiners={178}
-        unhealthyMiners={20}
-        offlineMiners={2}
-      />,
-    );
+    renderWithRouter(<FleetHealth fleetSize={200} healthyMiners={178} unhealthyMiners={20} offlineMiners={2} />);
 
     // Check miner count
     expect(screen.getByText("200 miners")).toBeInTheDocument();
@@ -70,14 +56,7 @@ describe("FleetHealth", () => {
   });
 
   it("renders stats for fleet with moderate health distribution", () => {
-    renderWithRouter(
-      <FleetHealth
-        fleetSize={100}
-        healthyMiners={70}
-        unhealthyMiners={20}
-        offlineMiners={10}
-      />,
-    );
+    renderWithRouter(<FleetHealth fleetSize={100} healthyMiners={70} unhealthyMiners={20} offlineMiners={10} />);
 
     // Check title label
     expect(screen.getByText("Your fleet")).toBeInTheDocument();
@@ -89,14 +68,7 @@ describe("FleetHealth", () => {
   });
 
   it("renders stats for fleet with critical health distribution", () => {
-    renderWithRouter(
-      <FleetHealth
-        fleetSize={100}
-        healthyMiners={30}
-        unhealthyMiners={50}
-        offlineMiners={20}
-      />,
-    );
+    renderWithRouter(<FleetHealth fleetSize={100} healthyMiners={30} unhealthyMiners={50} offlineMiners={20} />);
 
     // Check title label
     expect(screen.getByText("Your fleet")).toBeInTheDocument();
@@ -108,14 +80,7 @@ describe("FleetHealth", () => {
   });
 
   it("handles division by zero when fleet size is 0", () => {
-    renderWithRouter(
-      <FleetHealth
-        fleetSize={0}
-        healthyMiners={0}
-        unhealthyMiners={0}
-        offlineMiners={0}
-      />,
-    );
+    renderWithRouter(<FleetHealth fleetSize={0} healthyMiners={0} unhealthyMiners={0} offlineMiners={0} />);
 
     // Should render without errors
     expect(screen.getByText("Your fleet")).toBeInTheDocument();
@@ -172,12 +137,7 @@ describe("FleetHealth", () => {
 
   it("renders legend with correct color indicators", () => {
     const { container } = renderWithRouter(
-      <FleetHealth
-        fleetSize={100}
-        healthyMiners={85}
-        unhealthyMiners={10}
-        offlineMiners={5}
-      />,
+      <FleetHealth fleetSize={100} healthyMiners={85} unhealthyMiners={10} offlineMiners={5} />,
     );
 
     // Check legend items - using getAllByText since these appear in both column headers and legend
@@ -193,15 +153,9 @@ describe("FleetHealth", () => {
     expect(svgTriangle).toBeInTheDocument();
 
     // Check color indicators - there will be multiple instances (in bar and legend)
-    const greenIndicators = container.querySelectorAll(
-      ".bg-intent-success-fill, .bg-core-primary-fill",
-    );
-    const redIndicators = container.querySelectorAll(
-      ".bg-intent-critical-fill, .fill-intent-critical-fill",
-    );
-    const grayIndicators = container.querySelectorAll(
-      ".bg-grayscale-gray-50, .bg-core-primary-20",
-    );
+    const greenIndicators = container.querySelectorAll(".bg-intent-success-fill, .bg-core-primary-fill");
+    const redIndicators = container.querySelectorAll(".bg-intent-critical-fill, .fill-intent-critical-fill");
+    const grayIndicators = container.querySelectorAll(".bg-grayscale-gray-50, .bg-core-primary-20");
 
     expect(greenIndicators.length).toBeGreaterThan(0);
     expect(redIndicators.length).toBeGreaterThan(0);

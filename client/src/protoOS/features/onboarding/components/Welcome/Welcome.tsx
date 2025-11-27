@@ -1,8 +1,4 @@
-import {
-  useMinerHardware,
-  useOnboarded,
-  useProductName,
-} from "@/protoOS/store";
+import { useMinerHardware, useOnboarded, useProductName } from "@/protoOS/store";
 import { WelcomeScreen } from "@/shared/components/Setup";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
@@ -16,10 +12,7 @@ const Welcome = () => {
   // - System status (isOnboarded !== undefined)
   // - System info (productName exists)
   // - Hardware data (miner hardware exists)
-  const isBootstrapComplete =
-    isOnboarded !== undefined &&
-    productName !== undefined &&
-    minerHardware !== undefined;
+  const isBootstrapComplete = isOnboarded !== undefined && productName !== undefined && minerHardware !== undefined;
 
   function handleSearch() {
     navigate("/onboarding/verify");

@@ -8,10 +8,7 @@ import { ErrorSource } from "@/protoOS/store/types";
  * @param componentIndex - The component index (0-based)
  * @returns The formatted display name
  */
-export function getComponentDisplayName(
-  source: ErrorSource,
-  componentIndex?: number,
-): string {
+export function getComponentDisplayName(source: ErrorSource, componentIndex?: number): string {
   // Simple direct mapping of source to display names
   const displayNames: Record<ErrorSource, string> = {
     PSU: "Power supply",
@@ -37,9 +34,6 @@ export function getComponentDisplayName(
  * Hook to get component display name.
  * This is a convenience wrapper around getComponentDisplayName for use in React components.
  */
-export function useComponentDisplayName(
-  source: ErrorSource,
-  componentIndex?: number,
-): string {
+export function useComponentDisplayName(source: ErrorSource, componentIndex?: number): string {
   return getComponentDisplayName(source, componentIndex);
 }

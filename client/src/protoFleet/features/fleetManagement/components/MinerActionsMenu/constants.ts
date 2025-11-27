@@ -17,8 +17,7 @@ export const performanceActions = {
   curtail: "curtail",
 } as const;
 
-export type PerformanceAction =
-  (typeof performanceActions)[keyof typeof performanceActions];
+export type PerformanceAction = (typeof performanceActions)[keyof typeof performanceActions];
 
 // Settings Actions
 export const settingsActions = {
@@ -27,8 +26,7 @@ export const settingsActions = {
   security: "security",
 } as const;
 
-export type SettingsAction =
-  (typeof settingsActions)[keyof typeof settingsActions];
+export type SettingsAction = (typeof settingsActions)[keyof typeof settingsActions];
 
 // All Actions Combined
 export const allActions = {

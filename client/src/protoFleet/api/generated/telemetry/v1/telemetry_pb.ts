@@ -2,23 +2,10 @@
 // @generated from file telemetry/v1/telemetry.proto (package telemetry.v1, syntax proto3)
 /* eslint-disable */
 
-import type {
-  GenEnum,
-  GenFile,
-  GenMessage,
-  GenService,
-} from "@bufbuild/protobuf/codegenv2";
-import {
-  enumDesc,
-  fileDesc,
-  messageDesc,
-  serviceDesc,
-} from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Duration, Timestamp } from "@bufbuild/protobuf/wkt";
-import {
-  file_google_protobuf_duration,
-  file_google_protobuf_timestamp,
-} from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_duration, file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import { file_buf_validate_validate } from "../../buf/validate/validate_pb";
 import type { MeasurementUnit } from "../../common/v1/measurement_pb";
 import { file_common_v1_measurement } from "../../common/v1/measurement_pb";
@@ -92,50 +79,47 @@ export type DeviceList = Message<"telemetry.v1.DeviceList"> & {
  * Describes the message telemetry.v1.DeviceList.
  * Use `create(DeviceListSchema)` to create a new message.
  */
-export const DeviceListSchema: GenMessage<DeviceList> =
-  /*@__PURE__*/
-  messageDesc(file_telemetry_v1_telemetry, 1);
+export const DeviceListSchema: GenMessage<DeviceList> = /*@__PURE__*/ messageDesc(file_telemetry_v1_telemetry, 1);
 
 /**
  * Temperature status distribution at a point in time
  *
  * @generated from message telemetry.v1.TemperatureStatusCount
  */
-export type TemperatureStatusCount =
-  Message<"telemetry.v1.TemperatureStatusCount"> & {
-    /**
-     * @generated from field: google.protobuf.Timestamp timestamp = 1;
-     */
-    timestamp?: Timestamp;
+export type TemperatureStatusCount = Message<"telemetry.v1.TemperatureStatusCount"> & {
+  /**
+   * @generated from field: google.protobuf.Timestamp timestamp = 1;
+   */
+  timestamp?: Timestamp;
 
-    /**
-     * Count of miners < 0°C
-     *
-     * @generated from field: int32 cold_count = 2;
-     */
-    coldCount: number;
+  /**
+   * Count of miners < 0°C
+   *
+   * @generated from field: int32 cold_count = 2;
+   */
+  coldCount: number;
 
-    /**
-     * Count of miners 0-70°C
-     *
-     * @generated from field: int32 ok_count = 3;
-     */
-    okCount: number;
+  /**
+   * Count of miners 0-70°C
+   *
+   * @generated from field: int32 ok_count = 3;
+   */
+  okCount: number;
 
-    /**
-     * Count of miners 70-90°C
-     *
-     * @generated from field: int32 hot_count = 4;
-     */
-    hotCount: number;
+  /**
+   * Count of miners 70-90°C
+   *
+   * @generated from field: int32 hot_count = 4;
+   */
+  hotCount: number;
 
-    /**
-     * Count of miners > 90°C
-     *
-     * @generated from field: int32 critical_count = 5;
-     */
-    criticalCount: number;
-  };
+  /**
+   * Count of miners > 90°C
+   *
+   * @generated from field: int32 critical_count = 5;
+   */
+  criticalCount: number;
+};
 
 /**
  * Describes the message telemetry.v1.TemperatureStatusCount.
@@ -166,9 +150,7 @@ export type TimeRange = Message<"telemetry.v1.TimeRange"> & {
  * Describes the message telemetry.v1.TimeRange.
  * Use `create(TimeRangeSchema)` to create a new message.
  */
-export const TimeRangeSchema: GenMessage<TimeRange> =
-  /*@__PURE__*/
-  messageDesc(file_telemetry_v1_telemetry, 3);
+export const TimeRangeSchema: GenMessage<TimeRange> = /*@__PURE__*/ messageDesc(file_telemetry_v1_telemetry, 3);
 
 /**
  * Telemetry data structure
@@ -211,9 +193,7 @@ export type TelemetryData = Message<"telemetry.v1.TelemetryData"> & {
  * Describes the message telemetry.v1.TelemetryData.
  * Use `create(TelemetryDataSchema)` to create a new message.
  */
-export const TelemetryDataSchema: GenMessage<TelemetryData> =
-  /*@__PURE__*/
-  messageDesc(file_telemetry_v1_telemetry, 4);
+export const TelemetryDataSchema: GenMessage<TelemetryData> = /*@__PURE__*/ messageDesc(file_telemetry_v1_telemetry, 4);
 
 /**
  * Device metadata
@@ -270,43 +250,42 @@ export const DeviceMetadataSchema: GenMessage<DeviceMetadata> =
  *
  * @generated from message telemetry.v1.AggregatedTelemetry
  */
-export type AggregatedTelemetry =
-  Message<"telemetry.v1.AggregatedTelemetry"> & {
-    /**
-     * @generated from field: string device_id = 1;
-     */
-    deviceId: string;
+export type AggregatedTelemetry = Message<"telemetry.v1.AggregatedTelemetry"> & {
+  /**
+   * @generated from field: string device_id = 1;
+   */
+  deviceId: string;
 
-    /**
-     * @generated from field: telemetry.v1.MeasurementType measurement_type = 2;
-     */
-    measurementType: MeasurementType;
+  /**
+   * @generated from field: telemetry.v1.MeasurementType measurement_type = 2;
+   */
+  measurementType: MeasurementType;
 
-    /**
-     * @generated from field: double value = 3;
-     */
-    value: number;
+  /**
+   * @generated from field: double value = 3;
+   */
+  value: number;
 
-    /**
-     * @generated from field: telemetry.v1.AggregationType aggregation_type = 4;
-     */
-    aggregationType: AggregationType;
+  /**
+   * @generated from field: telemetry.v1.AggregationType aggregation_type = 4;
+   */
+  aggregationType: AggregationType;
 
-    /**
-     * @generated from field: int32 data_points = 5;
-     */
-    dataPoints: number;
+  /**
+   * @generated from field: int32 data_points = 5;
+   */
+  dataPoints: number;
 
-    /**
-     * @generated from field: telemetry.v1.TimeRange time_window = 6;
-     */
-    timeWindow?: TimeRange;
+  /**
+   * @generated from field: telemetry.v1.TimeRange time_window = 6;
+   */
+  timeWindow?: TimeRange;
 
-    /**
-     * @generated from field: map<string, string> tags = 7;
-     */
-    tags: { [key: string]: string };
-  };
+  /**
+   * @generated from field: map<string, string> tags = 7;
+   */
+  tags: { [key: string]: string };
+};
 
 /**
  * Describes the message telemetry.v1.AggregatedTelemetry.
@@ -464,13 +443,12 @@ export const GetSnapshotRequestSchema: GenMessage<GetSnapshotRequest> =
 /**
  * @generated from message telemetry.v1.GetSnapshotResponse
  */
-export type GetSnapshotResponse =
-  Message<"telemetry.v1.GetSnapshotResponse"> & {
-    /**
-     * @generated from field: repeated telemetry.v1.TelemetryData telemetry = 1;
-     */
-    telemetry: TelemetryData[];
-  };
+export type GetSnapshotResponse = Message<"telemetry.v1.GetSnapshotResponse"> & {
+  /**
+   * @generated from field: repeated telemetry.v1.TelemetryData telemetry = 1;
+   */
+  telemetry: TelemetryData[];
+};
 
 /**
  * Describes the message telemetry.v1.GetSnapshotResponse.
@@ -483,33 +461,32 @@ export const GetSnapshotResponseSchema: GenMessage<GetSnapshotResponse> =
 /**
  * @generated from message telemetry.v1.GetTimeSeriesRequest
  */
-export type GetTimeSeriesRequest =
-  Message<"telemetry.v1.GetTimeSeriesRequest"> & {
-    /**
-     * @generated from field: repeated string device_ids = 1;
-     */
-    deviceIds: string[];
+export type GetTimeSeriesRequest = Message<"telemetry.v1.GetTimeSeriesRequest"> & {
+  /**
+   * @generated from field: repeated string device_ids = 1;
+   */
+  deviceIds: string[];
 
-    /**
-     * @generated from field: repeated telemetry.v1.MeasurementType measurement_types = 2;
-     */
-    measurementTypes: MeasurementType[];
+  /**
+   * @generated from field: repeated telemetry.v1.MeasurementType measurement_types = 2;
+   */
+  measurementTypes: MeasurementType[];
 
-    /**
-     * @generated from field: telemetry.v1.TimeRange time_range = 3;
-     */
-    timeRange?: TimeRange;
+  /**
+   * @generated from field: telemetry.v1.TimeRange time_range = 3;
+   */
+  timeRange?: TimeRange;
 
-    /**
-     * @generated from field: optional int32 limit = 4;
-     */
-    limit?: number;
+  /**
+   * @generated from field: optional int32 limit = 4;
+   */
+  limit?: number;
 
-    /**
-     * @generated from field: map<string, string> tags = 5;
-     */
-    tags: { [key: string]: string };
-  };
+  /**
+   * @generated from field: map<string, string> tags = 5;
+   */
+  tags: { [key: string]: string };
+};
 
 /**
  * Describes the message telemetry.v1.GetTimeSeriesRequest.
@@ -522,13 +499,12 @@ export const GetTimeSeriesRequestSchema: GenMessage<GetTimeSeriesRequest> =
 /**
  * @generated from message telemetry.v1.GetTimeSeriesResponse
  */
-export type GetTimeSeriesResponse =
-  Message<"telemetry.v1.GetTimeSeriesResponse"> & {
-    /**
-     * @generated from field: repeated telemetry.v1.TelemetryData telemetry = 1;
-     */
-    telemetry: TelemetryData[];
-  };
+export type GetTimeSeriesResponse = Message<"telemetry.v1.GetTimeSeriesResponse"> & {
+  /**
+   * @generated from field: repeated telemetry.v1.TelemetryData telemetry = 1;
+   */
+  telemetry: TelemetryData[];
+};
 
 /**
  * Describes the message telemetry.v1.GetTimeSeriesResponse.
@@ -569,13 +545,12 @@ export const GetMetadataRequestSchema: GenMessage<GetMetadataRequest> =
 /**
  * @generated from message telemetry.v1.GetMetadataResponse
  */
-export type GetMetadataResponse =
-  Message<"telemetry.v1.GetMetadataResponse"> & {
-    /**
-     * @generated from field: repeated telemetry.v1.DeviceMetadata devices = 1;
-     */
-    devices: DeviceMetadata[];
-  };
+export type GetMetadataResponse = Message<"telemetry.v1.GetMetadataResponse"> & {
+  /**
+   * @generated from field: repeated telemetry.v1.DeviceMetadata devices = 1;
+   */
+  devices: DeviceMetadata[];
+};
 
 /**
  * Describes the message telemetry.v1.GetMetadataResponse.
@@ -588,33 +563,32 @@ export const GetMetadataResponseSchema: GenMessage<GetMetadataResponse> =
 /**
  * @generated from message telemetry.v1.StreamUpdatesRequest
  */
-export type StreamUpdatesRequest =
-  Message<"telemetry.v1.StreamUpdatesRequest"> & {
-    /**
-     * @generated from field: repeated string device_ids = 1;
-     */
-    deviceIds: string[];
+export type StreamUpdatesRequest = Message<"telemetry.v1.StreamUpdatesRequest"> & {
+  /**
+   * @generated from field: repeated string device_ids = 1;
+   */
+  deviceIds: string[];
 
-    /**
-     * @generated from field: repeated telemetry.v1.MeasurementType measurement_types = 2;
-     */
-    measurementTypes: MeasurementType[];
+  /**
+   * @generated from field: repeated telemetry.v1.MeasurementType measurement_types = 2;
+   */
+  measurementTypes: MeasurementType[];
 
-    /**
-     * @generated from field: bool include_heartbeat = 3;
-     */
-    includeHeartbeat: boolean;
+  /**
+   * @generated from field: bool include_heartbeat = 3;
+   */
+  includeHeartbeat: boolean;
 
-    /**
-     * @generated from field: optional google.protobuf.Duration heartbeat_interval = 4;
-     */
-    heartbeatInterval?: Duration;
+  /**
+   * @generated from field: optional google.protobuf.Duration heartbeat_interval = 4;
+   */
+  heartbeatInterval?: Duration;
 
-    /**
-     * @generated from field: map<string, string> tags = 5;
-     */
-    tags: { [key: string]: string };
-  };
+  /**
+   * @generated from field: map<string, string> tags = 5;
+   */
+  tags: { [key: string]: string };
+};
 
 /**
  * Describes the message telemetry.v1.StreamUpdatesRequest.
@@ -627,13 +601,12 @@ export const StreamUpdatesRequestSchema: GenMessage<StreamUpdatesRequest> =
 /**
  * @generated from message telemetry.v1.StreamUpdatesResponse
  */
-export type StreamUpdatesResponse =
-  Message<"telemetry.v1.StreamUpdatesResponse"> & {
-    /**
-     * @generated from field: telemetry.v1.TelemetryUpdate update = 1;
-     */
-    update?: TelemetryUpdate;
-  };
+export type StreamUpdatesResponse = Message<"telemetry.v1.StreamUpdatesResponse"> & {
+  /**
+   * @generated from field: telemetry.v1.TelemetryUpdate update = 1;
+   */
+  update?: TelemetryUpdate;
+};
 
 /**
  * Describes the message telemetry.v1.StreamUpdatesResponse.
@@ -646,38 +619,37 @@ export const StreamUpdatesResponseSchema: GenMessage<StreamUpdatesResponse> =
 /**
  * @generated from message telemetry.v1.GetAggregatedSnapshotRequest
  */
-export type GetAggregatedSnapshotRequest =
-  Message<"telemetry.v1.GetAggregatedSnapshotRequest"> & {
-    /**
-     * @generated from field: repeated string device_ids = 1;
-     */
-    deviceIds: string[];
+export type GetAggregatedSnapshotRequest = Message<"telemetry.v1.GetAggregatedSnapshotRequest"> & {
+  /**
+   * @generated from field: repeated string device_ids = 1;
+   */
+  deviceIds: string[];
 
-    /**
-     * @generated from field: repeated telemetry.v1.MeasurementType measurement_types = 2;
-     */
-    measurementTypes: MeasurementType[];
+  /**
+   * @generated from field: repeated telemetry.v1.MeasurementType measurement_types = 2;
+   */
+  measurementTypes: MeasurementType[];
 
-    /**
-     * @generated from field: telemetry.v1.TimeRange time_range = 3;
-     */
-    timeRange?: TimeRange;
+  /**
+   * @generated from field: telemetry.v1.TimeRange time_range = 3;
+   */
+  timeRange?: TimeRange;
 
-    /**
-     * @generated from field: telemetry.v1.AggregationType aggregation_type = 4;
-     */
-    aggregationType: AggregationType;
+  /**
+   * @generated from field: telemetry.v1.AggregationType aggregation_type = 4;
+   */
+  aggregationType: AggregationType;
 
-    /**
-     * @generated from field: optional google.protobuf.Duration group_by_interval = 5;
-     */
-    groupByInterval?: Duration;
+  /**
+   * @generated from field: optional google.protobuf.Duration group_by_interval = 5;
+   */
+  groupByInterval?: Duration;
 
-    /**
-     * @generated from field: map<string, string> tags = 6;
-     */
-    tags: { [key: string]: string };
-  };
+  /**
+   * @generated from field: map<string, string> tags = 6;
+   */
+  tags: { [key: string]: string };
+};
 
 /**
  * Describes the message telemetry.v1.GetAggregatedSnapshotRequest.
@@ -690,13 +662,12 @@ export const GetAggregatedSnapshotRequestSchema: GenMessage<GetAggregatedSnapsho
 /**
  * @generated from message telemetry.v1.GetAggregatedSnapshotResponse
  */
-export type GetAggregatedSnapshotResponse =
-  Message<"telemetry.v1.GetAggregatedSnapshotResponse"> & {
-    /**
-     * @generated from field: repeated telemetry.v1.AggregatedTelemetry aggregated_data = 1;
-     */
-    aggregatedData: AggregatedTelemetry[];
-  };
+export type GetAggregatedSnapshotResponse = Message<"telemetry.v1.GetAggregatedSnapshotResponse"> & {
+  /**
+   * @generated from field: repeated telemetry.v1.AggregatedTelemetry aggregated_data = 1;
+   */
+  aggregatedData: AggregatedTelemetry[];
+};
 
 /**
  * Describes the message telemetry.v1.GetAggregatedSnapshotResponse.
@@ -709,62 +680,61 @@ export const GetAggregatedSnapshotResponseSchema: GenMessage<GetAggregatedSnapsh
 /**
  * @generated from message telemetry.v1.GetCombinedMetricsRequest
  */
-export type GetCombinedMetricsRequest =
-  Message<"telemetry.v1.GetCombinedMetricsRequest"> & {
-    /**
-     * Select devices by ID or all devices in org
-     *
-     * @generated from field: telemetry.v1.DeviceSelector device_selector = 1;
-     */
-    deviceSelector?: DeviceSelector;
+export type GetCombinedMetricsRequest = Message<"telemetry.v1.GetCombinedMetricsRequest"> & {
+  /**
+   * Select devices by ID or all devices in org
+   *
+   * @generated from field: telemetry.v1.DeviceSelector device_selector = 1;
+   */
+  deviceSelector?: DeviceSelector;
 
-    /**
-     * e.g., TEMPERATURE, HASHRATE Defaults to all types
-     *
-     * @generated from field: repeated telemetry.v1.MeasurementType measurement_types = 3;
-     */
-    measurementTypes: MeasurementType[];
+  /**
+   * e.g., TEMPERATURE, HASHRATE Defaults to all types
+   *
+   * @generated from field: repeated telemetry.v1.MeasurementType measurement_types = 3;
+   */
+  measurementTypes: MeasurementType[];
 
-    /**
-     * e.g., AVERAGE, MIN, MAX Defaults to all aggregations
-     *
-     * @generated from field: repeated telemetry.v1.AggregationType aggregations = 4;
-     */
-    aggregations: AggregationType[];
+  /**
+   * e.g., AVERAGE, MIN, MAX Defaults to all aggregations
+   *
+   * @generated from field: repeated telemetry.v1.AggregationType aggregations = 4;
+   */
+  aggregations: AggregationType[];
 
-    /**
-     * e.g., 1m, 5m, 1h defaults to 10s
-     *
-     * @generated from field: google.protobuf.Duration granularity = 5;
-     */
-    granularity?: Duration;
+  /**
+   * e.g., 1m, 5m, 1h defaults to 10s
+   *
+   * @generated from field: google.protobuf.Duration granularity = 5;
+   */
+  granularity?: Duration;
 
-    /**
-     * inclusive
-     *
-     * @generated from field: google.protobuf.Timestamp start_time = 6;
-     */
-    startTime?: Timestamp;
+  /**
+   * inclusive
+   *
+   * @generated from field: google.protobuf.Timestamp start_time = 6;
+   */
+  startTime?: Timestamp;
 
-    /**
-     * @generated from field: google.protobuf.Timestamp end_time = 7;
-     */
-    endTime?: Timestamp;
+  /**
+   * @generated from field: google.protobuf.Timestamp end_time = 7;
+   */
+  endTime?: Timestamp;
 
-    /**
-     * for pagination
-     *
-     * @generated from field: string page_token = 8;
-     */
-    pageToken: string;
+  /**
+   * for pagination
+   *
+   * @generated from field: string page_token = 8;
+   */
+  pageToken: string;
 
-    /**
-     * max 1000, default 100
-     *
-     * @generated from field: int32 page_size = 9;
-     */
-    pageSize: number;
-  };
+  /**
+   * max 1000, default 100
+   *
+   * @generated from field: int32 page_size = 9;
+   */
+  pageSize: number;
+};
 
 /**
  * Describes the message telemetry.v1.GetCombinedMetricsRequest.
@@ -825,34 +795,31 @@ export type Metric = Message<"telemetry.v1.Metric"> & {
  * Describes the message telemetry.v1.Metric.
  * Use `create(MetricSchema)` to create a new message.
  */
-export const MetricSchema: GenMessage<Metric> =
-  /*@__PURE__*/
-  messageDesc(file_telemetry_v1_telemetry, 21);
+export const MetricSchema: GenMessage<Metric> = /*@__PURE__*/ messageDesc(file_telemetry_v1_telemetry, 21);
 
 /**
  * @generated from message telemetry.v1.GetCombinedMetricsResponse
  */
-export type GetCombinedMetricsResponse =
-  Message<"telemetry.v1.GetCombinedMetricsResponse"> & {
-    /**
-     * @generated from field: repeated telemetry.v1.Metric metrics = 1;
-     */
-    metrics: Metric[];
+export type GetCombinedMetricsResponse = Message<"telemetry.v1.GetCombinedMetricsResponse"> & {
+  /**
+   * @generated from field: repeated telemetry.v1.Metric metrics = 1;
+   */
+  metrics: Metric[];
 
-    /**
-     * for pagination
-     *
-     * @generated from field: string next_page_token = 2;
-     */
-    nextPageToken: string;
+  /**
+   * for pagination
+   *
+   * @generated from field: string next_page_token = 2;
+   */
+  nextPageToken: string;
 
-    /**
-     * Temperature status distribution across the fleet
-     *
-     * @generated from field: repeated telemetry.v1.TemperatureStatusCount temperature_status_counts = 3;
-     */
-    temperatureStatusCounts: TemperatureStatusCount[];
-  };
+  /**
+   * Temperature status distribution across the fleet
+   *
+   * @generated from field: repeated telemetry.v1.TemperatureStatusCount temperature_status_counts = 3;
+   */
+  temperatureStatusCounts: TemperatureStatusCount[];
+};
 
 /**
  * Describes the message telemetry.v1.GetCombinedMetricsResponse.
@@ -865,41 +832,40 @@ export const GetCombinedMetricsResponseSchema: GenMessage<GetCombinedMetricsResp
 /**
  * @generated from message telemetry.v1.StreamCombinedMetricUpdatesRequest
  */
-export type StreamCombinedMetricUpdatesRequest =
-  Message<"telemetry.v1.StreamCombinedMetricUpdatesRequest"> & {
-    /**
-     * Select devices by ID or all devices in org
-     *
-     * @generated from field: telemetry.v1.DeviceSelector device_selector = 1;
-     */
-    deviceSelector?: DeviceSelector;
+export type StreamCombinedMetricUpdatesRequest = Message<"telemetry.v1.StreamCombinedMetricUpdatesRequest"> & {
+  /**
+   * Select devices by ID or all devices in org
+   *
+   * @generated from field: telemetry.v1.DeviceSelector device_selector = 1;
+   */
+  deviceSelector?: DeviceSelector;
 
-    /**
-     * @generated from field: repeated telemetry.v1.MeasurementType metrics = 2;
-     */
-    metrics: MeasurementType[];
+  /**
+   * @generated from field: repeated telemetry.v1.MeasurementType metrics = 2;
+   */
+  metrics: MeasurementType[];
 
-    /**
-     * e.g., AVERAGE, MIN, MAX
-     *
-     * @generated from field: repeated telemetry.v1.AggregationType aggregations = 3;
-     */
-    aggregations: AggregationType[];
+  /**
+   * e.g., AVERAGE, MIN, MAX
+   *
+   * @generated from field: repeated telemetry.v1.AggregationType aggregations = 3;
+   */
+  aggregations: AggregationType[];
 
-    /**
-     * default granularity is 1 minute
-     *
-     * @generated from field: google.protobuf.Duration granularity = 4;
-     */
-    granularity?: Duration;
+  /**
+   * default granularity is 1 minute
+   *
+   * @generated from field: google.protobuf.Duration granularity = 4;
+   */
+  granularity?: Duration;
 
-    /**
-     * default update interval is granularity
-     *
-     * @generated from field: google.protobuf.Duration update_interval = 5;
-     */
-    updateInterval?: Duration;
-  };
+  /**
+   * default update interval is granularity
+   *
+   * @generated from field: google.protobuf.Duration update_interval = 5;
+   */
+  updateInterval?: Duration;
+};
 
 /**
  * Describes the message telemetry.v1.StreamCombinedMetricUpdatesRequest.
@@ -912,29 +878,28 @@ export const StreamCombinedMetricUpdatesRequestSchema: GenMessage<StreamCombined
 /**
  * @generated from message telemetry.v1.StreamCombinedMetricUpdatesResponse
  */
-export type StreamCombinedMetricUpdatesResponse =
-  Message<"telemetry.v1.StreamCombinedMetricUpdatesResponse"> & {
-    /**
-     * e.g., TEMPERATURE, HASHRATE
-     *
-     * @generated from field: repeated telemetry.v1.Metric metrics = 1;
-     */
-    metrics: Metric[];
+export type StreamCombinedMetricUpdatesResponse = Message<"telemetry.v1.StreamCombinedMetricUpdatesResponse"> & {
+  /**
+   * e.g., TEMPERATURE, HASHRATE
+   *
+   * @generated from field: repeated telemetry.v1.Metric metrics = 1;
+   */
+  metrics: Metric[];
 
-    /**
-     * when the next update will be sent
-     *
-     * @generated from field: google.protobuf.Timestamp next_update_time = 2;
-     */
-    nextUpdateTime?: Timestamp;
+  /**
+   * when the next update will be sent
+   *
+   * @generated from field: google.protobuf.Timestamp next_update_time = 2;
+   */
+  nextUpdateTime?: Timestamp;
 
-    /**
-     * Real-time temperature status distribution
-     *
-     * @generated from field: repeated telemetry.v1.TemperatureStatusCount temperature_status_counts = 3;
-     */
-    temperatureStatusCounts: TemperatureStatusCount[];
-  };
+  /**
+   * Real-time temperature status distribution
+   *
+   * @generated from field: repeated telemetry.v1.TemperatureStatusCount temperature_status_counts = 3;
+   */
+  temperatureStatusCounts: TemperatureStatusCount[];
+};
 
 /**
  * Describes the message telemetry.v1.StreamCombinedMetricUpdatesResponse.
@@ -1004,9 +969,7 @@ export enum MeasurementType {
 /**
  * Describes the enum telemetry.v1.MeasurementType.
  */
-export const MeasurementTypeSchema: GenEnum<MeasurementType> =
-  /*@__PURE__*/
-  enumDesc(file_telemetry_v1_telemetry, 0);
+export const MeasurementTypeSchema: GenEnum<MeasurementType> = /*@__PURE__*/ enumDesc(file_telemetry_v1_telemetry, 0);
 
 /**
  * @generated from enum telemetry.v1.AggregationType
@@ -1066,9 +1029,7 @@ export enum AggregationType {
 /**
  * Describes the enum telemetry.v1.AggregationType.
  */
-export const AggregationTypeSchema: GenEnum<AggregationType> =
-  /*@__PURE__*/
-  enumDesc(file_telemetry_v1_telemetry, 1);
+export const AggregationTypeSchema: GenEnum<AggregationType> = /*@__PURE__*/ enumDesc(file_telemetry_v1_telemetry, 1);
 
 /**
  * @generated from enum telemetry.v1.ComponentStatus
@@ -1103,9 +1064,7 @@ export enum ComponentStatus {
 /**
  * Describes the enum telemetry.v1.ComponentStatus.
  */
-export const ComponentStatusSchema: GenEnum<ComponentStatus> =
-  /*@__PURE__*/
-  enumDesc(file_telemetry_v1_telemetry, 2);
+export const ComponentStatusSchema: GenEnum<ComponentStatus> = /*@__PURE__*/ enumDesc(file_telemetry_v1_telemetry, 2);
 
 /**
  * Temperature status based on threshold ranges
@@ -1206,9 +1165,7 @@ export enum DeviceStatus {
 /**
  * Describes the enum telemetry.v1.DeviceStatus.
  */
-export const DeviceStatusSchema: GenEnum<DeviceStatus> =
-  /*@__PURE__*/
-  enumDesc(file_telemetry_v1_telemetry, 4);
+export const DeviceStatusSchema: GenEnum<DeviceStatus> = /*@__PURE__*/ enumDesc(file_telemetry_v1_telemetry, 4);
 
 /**
  * @generated from enum telemetry.v1.UpdateType
@@ -1250,9 +1207,7 @@ export enum UpdateType {
 /**
  * Describes the enum telemetry.v1.UpdateType.
  */
-export const UpdateTypeSchema: GenEnum<UpdateType> =
-  /*@__PURE__*/
-  enumDesc(file_telemetry_v1_telemetry, 5);
+export const UpdateTypeSchema: GenEnum<UpdateType> = /*@__PURE__*/ enumDesc(file_telemetry_v1_telemetry, 5);
 
 /**
  * Service for retrieving telemetry data from mining devices

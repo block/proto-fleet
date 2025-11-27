@@ -11,15 +11,9 @@ import {
 import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
-import {
-  defaultDiscoveryPorts,
-  defaultTimeout,
-} from "@/protoFleet/features/onboarding/constants";
+import { defaultDiscoveryPorts, defaultTimeout } from "@/protoFleet/features/onboarding/constants";
 import { useFleetStore, useMinerIds } from "@/protoFleet/store";
-import {
-  pushToast,
-  STATUSES as TOAST_STATUSES,
-} from "@/shared/features/toaster";
+import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 type MinersPageProps = {
@@ -65,10 +59,7 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
       setFoundMiners((prevMiners) => {
         const newMiners = devices.filter(
           (device) =>
-            !prevMiners.some(
-              (prevMiner) =>
-                prevMiner.deviceIdentifier === device.deviceIdentifier,
-            ) &&
+            !prevMiners.some((prevMiner) => prevMiner.deviceIdentifier === device.deviceIdentifier) &&
             !minerIds.some((minerId) => minerId === device.deviceIdentifier),
         );
         return [...prevMiners, ...newMiners];
@@ -109,9 +100,7 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
       },
     });
     setScanDiscoveryPending(true);
-    handleDiscover(discoverRequest, scanAbortController.current).finally(() =>
-      setScanDiscoveryPending(false),
-    );
+    handleDiscover(discoverRequest, scanAbortController.current).finally(() => setScanDiscoveryPending(false));
   }, [handleDiscover, networkInfo]);
 
   const cancelNetworkScan = useCallback(() => {
@@ -150,9 +139,7 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
         },
       });
       setIpListDiscoveryPending(true);
-      handleDiscover(discoverRequest).finally(() =>
-        setIpListDiscoveryPending(false),
-      );
+      handleDiscover(discoverRequest).finally(() => setIpListDiscoveryPending(false));
     },
     [handleDiscover],
   );

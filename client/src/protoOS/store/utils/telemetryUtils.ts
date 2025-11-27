@@ -1,11 +1,6 @@
 import type { Measurement, MetricUnit } from "../types";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
-import {
-  convertCtoF,
-  convertFtoC,
-  convertGigahashSecToTerahashSec,
-  convertWtoKW,
-} from "@/shared/utils/utility";
+import { convertCtoF, convertFtoC, convertGigahashSecToTerahashSec, convertWtoKW } from "@/shared/utils/utility";
 
 /**
  * Convert units intelligently based on unit type detection
@@ -86,15 +81,7 @@ function normalizeUnits(units: MetricUnit): string {
 /**
  * Detect the type of unit (temperature, power, hashrate, efficiency, etc.)
  */
-function getUnitType(
-  units: string,
-):
-  | "temperature"
-  | "power"
-  | "hashrate"
-  | "efficiency"
-  | "percentage"
-  | "unknown" {
+function getUnitType(units: string): "temperature" | "power" | "hashrate" | "efficiency" | "percentage" | "unknown" {
   switch (units) {
     case "c":
     case "f":
@@ -124,12 +111,7 @@ function getUnitType(
 /**
  * Perform the actual unit conversion based on unit type
  */
-function performUnitConversion(
-  value: number,
-  fromUnits: string,
-  toUnits: string,
-  unitType: string,
-): number | null {
+function performUnitConversion(value: number, fromUnits: string, toUnits: string, unitType: string): number | null {
   if (unitType === "temperature") {
     if (fromUnits === "c" && toUnits === "f") {
       return convertCtoF(value);
@@ -200,10 +182,7 @@ function performUnitConversion(
 /**
  * combines value and units in consistent manner
  */
-export function formatValue(
-  currentValue?: Measurement,
-  displayUnits?: boolean,
-) {
+export function formatValue(currentValue?: Measurement, displayUnits?: boolean) {
   // if value doesnt exist return undefined so that we can show skeleton bar
   if (currentValue?.value === undefined) {
     return;
@@ -216,8 +195,7 @@ export function formatValue(
     return "N/A";
   }
 
-  const unitType =
-    currentValue.units && getUnitType(normalizeUnits(currentValue.units));
+  const unitType = currentValue.units && getUnitType(normalizeUnits(currentValue.units));
   const isTemperature = unitType === "temperature";
 
   return (

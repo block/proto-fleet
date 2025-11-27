@@ -14,9 +14,7 @@ const Tooltip = ({ header, body, position }: TooltipProps) => {
   const isLeft = /left$/.test(position);
   const yPosition = isBottom ? "top-[16px]" : "bottom-[16px]";
   const xPosition = isLeft ? "right-[16px]" : "left-[16px]";
-  const peerHover = isBottom
-    ? "peer-hover:translate-y-[11px]"
-    : "peer-hover:translate-y-[-11px]";
+  const peerHover = isBottom ? "peer-hover:translate-y-[11px]" : "peer-hover:translate-y-[-11px]";
 
   return (
     <div className="relative">

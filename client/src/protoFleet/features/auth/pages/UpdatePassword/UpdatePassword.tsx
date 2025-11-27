@@ -1,17 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/protoFleet/api/useAuth";
-import {
-  UpdatePasswordForm,
-  UpdatePasswordSuccess,
-} from "@/protoFleet/features/auth/components";
-import {
-  useSetTemporaryPassword,
-  useTemporaryPassword,
-} from "@/protoFleet/store";
-import {
-  pushToast,
-  STATUSES as TOAST_STATUSES,
-} from "@/shared/features/toaster";
+import { UpdatePasswordForm, UpdatePasswordSuccess } from "@/protoFleet/features/auth/components";
+import { useSetTemporaryPassword, useTemporaryPassword } from "@/protoFleet/store";
+import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const UpdatePassword = () => {

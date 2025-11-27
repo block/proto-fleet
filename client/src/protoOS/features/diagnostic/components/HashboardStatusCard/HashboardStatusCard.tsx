@@ -11,10 +11,7 @@ import {
   useMinerHashboard,
   useMinerHashboardAsics,
 } from "@/protoOS/store";
-import {
-  Alert,
-  HashboardIndicatorV2 as HashboardIndicator,
-} from "@/shared/assets/icons";
+import { Alert, HashboardIndicatorV2 as HashboardIndicator } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import AsicTablePreview from "@/shared/components/AsicTablePreview";
 import Button from "@/shared/components/Button";
@@ -30,8 +27,7 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
   const slot = useHashboardSlot(serialNumber);
   const asics = useMinerHashboardAsics(serialNumber);
   const navigate = useNavigate();
-  const [showComponentStatusModal, setShowComponentStatusModal] =
-    useState(false);
+  const [showComponentStatusModal, setShowComponentStatusModal] = useState(false);
 
   // Transform protoOS asic data to shared component format
   const asicData = useAsicDataTransform(asics);
@@ -54,14 +50,7 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
     <Card>
       <CardHeader
         title={name}
-        statusIcon={
-          hasErrors ? (
-            <Alert
-              className="text-intent-critical-fill"
-              width={iconSizes.small}
-            />
-          ) : null
-        }
+        statusIcon={hasErrors ? <Alert className="text-intent-critical-fill" width={iconSizes.small} /> : null}
         componentIcon={<HashboardIndicator width="w-4" position={position} />}
         onInfoIconClick={() => setShowComponentStatusModal(true)}
         actions={
@@ -73,14 +62,8 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
 
       <div className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-          <LabeledValue
-            value={<TemperatureValue value={avgAsicTemp} />}
-            label="ASIC avg"
-          />
-          <LabeledValue
-            value={<TemperatureValue value={maxAsicTemp} />}
-            label="Asic high"
-          />
+          <LabeledValue value={<TemperatureValue value={avgAsicTemp} />} label="ASIC avg" />
+          <LabeledValue value={<TemperatureValue value={maxAsicTemp} />} label="Asic high" />
         </div>
         <AsicTablePreview asics={asicData} />
       </div>

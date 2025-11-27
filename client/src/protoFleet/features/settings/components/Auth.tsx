@@ -11,18 +11,9 @@ import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import Row from "@/shared/components/Row";
 import { PasswordStrengthMeter } from "@/shared/components/Setup";
-import {
-  pushToast,
-  STATUSES as TOAST_STATUSES,
-} from "@/shared/features/toaster";
+import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 
-const AuthenticateForm = ({
-  onChange,
-  apiError,
-}: {
-  onChange: (value: string) => void;
-  apiError: string | null;
-}) => {
+const AuthenticateForm = ({ onChange, apiError }: { onChange: (value: string) => void; apiError: string | null }) => {
   return (
     <div className="flex flex-col gap-6">
       <Header
@@ -43,26 +34,13 @@ const AuthenticateForm = ({
           </div>
         </div>
 
-        <Input
-          id="currentPassword"
-          label="Password"
-          type="password"
-          onChange={onChange}
-        />
+        <Input id="currentPassword" label="Password" type="password" onChange={onChange} />
       </div>
     </div>
   );
 };
 
-const FormattedDate = ({
-  date,
-  className,
-  label,
-}: {
-  date: Date | null;
-  className?: string;
-  label?: string;
-}) => {
+const FormattedDate = ({ date, className, label }: { date: Date | null; className?: string; label?: string }) => {
   return (
     <span className={className}>
       {label ? <>{label} </> : null}
@@ -83,9 +61,7 @@ const AuthenticationSettings = () => {
 
   const [showModal, setShowModal] = useState(false);
   const [updatingState, setUpdatingState] = useState<"password" | "username">();
-  const [step, setStep] = useState<
-    "authenticate" | "updatePassword" | "updateUsername"
-  >("authenticate");
+  const [step, setStep] = useState<"authenticate" | "updatePassword" | "updateUsername">("authenticate");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [password, setPassword] = useState("");
@@ -98,12 +74,8 @@ const AuthenticationSettings = () => {
 
   // API error states
   const [authApiError, setAuthApiError] = useState<string | null>(null);
-  const [passwordUpdateApiError, setPasswordUpdateApiError] = useState<
-    string | null
-  >(null);
-  const [usernameUpdateApiError, setUsernameUpdateApiError] = useState<
-    string | null
-  >(null);
+  const [passwordUpdateApiError, setPasswordUpdateApiError] = useState<string | null>(null);
+  const [usernameUpdateApiError, setUsernameUpdateApiError] = useState<string | null>(null);
 
   // Clear errors when user starts typing
   const handlePasswordChange = (value: string) => {
@@ -142,9 +114,7 @@ const AuthenticationSettings = () => {
         }
       },
       onError: () => {
-        setAuthApiError(
-          "Authentication failed. Please check your password and try again.",
-        );
+        setAuthApiError("Authentication failed. Please check your password and try again.");
       },
       onFinally: () => {
         setIsSubmitting(false);
@@ -186,9 +156,7 @@ const AuthenticationSettings = () => {
             setShowModal(false);
           },
           onError: () => {
-            setPasswordUpdateApiError(
-              "Password updated but re-login failed. Please log in again.",
-            );
+            setPasswordUpdateApiError("Password updated but re-login failed. Please log in again.");
           },
           onFinally: () => {
             setIsSubmitting(false);
@@ -196,9 +164,7 @@ const AuthenticationSettings = () => {
         });
       },
       onError: () => {
-        setPasswordUpdateApiError(
-          "Failed to update password. Please try again.",
-        );
+        setPasswordUpdateApiError("Failed to update password. Please try again.");
         setIsSubmitting(false);
       },
     });
@@ -265,18 +231,11 @@ const AuthenticationSettings = () => {
                   </Button>
                 </div>
               </Row>
-              <Row
-                divider={false}
-                className="flex items-center justify-between gap-5"
-              >
+              <Row divider={false} className="flex items-center justify-between gap-5">
                 <div className="text-emphasis-300">Password</div>
                 <div className="flex items-center gap-3">
                   {passwordLastUpdatedAt ? (
-                    <FormattedDate
-                      className="text-300"
-                      label="Last updated"
-                      date={passwordLastUpdatedAt}
-                    />
+                    <FormattedDate className="text-300" label="Last updated" date={passwordLastUpdatedAt} />
                   ) : null}
                   <Button
                     onClick={() => {
@@ -329,12 +288,7 @@ const AuthenticationSettings = () => {
               size="large"
               onDismiss={() => setShowModal(false)}
             >
-              {step === "authenticate" && (
-                <AuthenticateForm
-                  onChange={handlePasswordChange}
-                  apiError={authApiError}
-                />
-              )}
+              {step === "authenticate" && <AuthenticateForm onChange={handlePasswordChange} apiError={authApiError} />}
               {step === "updatePassword" && (
                 <div className="flex flex-col gap-6">
                   <Header
@@ -345,14 +299,10 @@ const AuthenticationSettings = () => {
 
                   <div>
                     <div
-                      className={clsx(
-                        "transition-[max-height,margin] ease-in-out",
-                        {
-                          "max-h-0 overflow-hidden duration-300":
-                            !passwordUpdateApiError,
-                          "max-h-96 duration-500": passwordUpdateApiError,
-                        },
-                      )}
+                      className={clsx("transition-[max-height,margin] ease-in-out", {
+                        "max-h-0 overflow-hidden duration-300": !passwordUpdateApiError,
+                        "max-h-96 duration-500": passwordUpdateApiError,
+                      })}
                       data-testid="password-error"
                     >
                       <div className="mb-4 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
@@ -371,15 +321,9 @@ const AuthenticationSettings = () => {
                         />
                         <div className="flex items-center justify-between gap-5">
                           <div>
-                            <div className="text-200 text-text-primary-50">
-                              Password strength
-                            </div>
+                            <div className="text-200 text-text-primary-50">Password strength</div>
                           </div>
-                          <PasswordStrengthMeter
-                            score={score}
-                            onSetScore={setScore}
-                            password={newPassword}
-                          />
+                          <PasswordStrengthMeter score={score} onSetScore={setScore} password={newPassword} />
                         </div>
                       </div>
                       <Input
@@ -402,14 +346,10 @@ const AuthenticationSettings = () => {
 
                   <div>
                     <div
-                      className={clsx(
-                        "transition-[max-height,margin] ease-in-out",
-                        {
-                          "max-h-0 overflow-hidden duration-300":
-                            !usernameUpdateApiError,
-                          "max-h-96 duration-500": usernameUpdateApiError,
-                        },
-                      )}
+                      className={clsx("transition-[max-height,margin] ease-in-out", {
+                        "max-h-0 overflow-hidden duration-300": !usernameUpdateApiError,
+                        "max-h-96 duration-500": usernameUpdateApiError,
+                      })}
                       data-testid="username-error"
                     >
                       <div className="mb-4 rounded-lg bg-intent-critical-10 px-3 py-2 text-emphasis-300 text-intent-critical-text">
@@ -417,13 +357,7 @@ const AuthenticationSettings = () => {
                       </div>
                     </div>
                     <div className="flex flex-col gap-4">
-                      <Input
-                        id="username"
-                        label="Username"
-                        type="text"
-                        disabled
-                        initValue={username}
-                      />
+                      <Input id="username" label="Username" type="text" disabled initValue={username} />
                       <Input
                         id="newUsername"
                         label="New username"

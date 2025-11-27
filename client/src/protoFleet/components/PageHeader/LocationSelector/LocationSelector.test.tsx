@@ -9,9 +9,7 @@ describe("Bank Balance", () => {
   const locationName = "Test lab";
 
   test("renders loading state", () => {
-    const { getByTestId } = render(
-      <LocationSelector loading={true} location={undefined} />,
-    );
+    const { getByTestId } = render(<LocationSelector loading={true} location={undefined} />);
 
     expect(getByTestId(globeIconTestId)).toBeDefined();
     expect(getByTestId(skeletonTestId)).toBeDefined();

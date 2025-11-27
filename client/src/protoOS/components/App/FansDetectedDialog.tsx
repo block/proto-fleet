@@ -10,12 +10,7 @@ interface FansDetectedDialogProps {
   isLoading?: boolean;
 }
 
-const FansDetectedDialog = ({
-  onRetry,
-  onCancel,
-  show,
-  isLoading = false,
-}: FansDetectedDialogProps) => {
+const FansDetectedDialog = ({ onRetry, onCancel, show, isLoading = false }: FansDetectedDialogProps) => {
   return (
     <Dialog
       show={show}

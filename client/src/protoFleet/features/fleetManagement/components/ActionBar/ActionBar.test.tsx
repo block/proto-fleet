@@ -24,9 +24,7 @@ describe("Action Bar", () => {
   const minersText = "miners selected";
 
   test("renders action bar correctly", () => {
-    const { getByTestId, queryByText } = render(
-      <ActionBar {...actionBarProps} />,
-    );
+    const { getByTestId, queryByText } = render(<ActionBar {...actionBarProps} />);
 
     const closeButton = getByTestId("close-button");
     expect(closeButton).toBeDefined();
@@ -39,9 +37,7 @@ describe("Action Bar", () => {
 
   test("renders action bar with correct number of miners", () => {
     const selectedMiners = ["MAC1", "MAC2", "MAC3"];
-    const { getByText } = render(
-      <ActionBar {...actionBarProps} selectedItems={selectedMiners} />,
-    );
+    const { getByText } = render(<ActionBar {...actionBarProps} selectedItems={selectedMiners} />);
 
     const element = getByText(selectedMiners.length + " miners selected");
     expect(element).toBeInTheDocument();
@@ -62,9 +58,7 @@ describe("Action Bar", () => {
   });
 
   test("closes action bar on click of close button", () => {
-    const { getByTestId, queryByTestId } = render(
-      <ActionBar {...actionBarProps} />,
-    );
+    const { getByTestId, queryByTestId } = render(<ActionBar {...actionBarProps} />);
 
     expect(getByTestId(actionBarTestId)).toBeInTheDocument();
     const closeButton = getByTestId("close-button");
@@ -101,9 +95,7 @@ describe("Action Bar", () => {
 
   test("calls onClose callback when close button is clicked", () => {
     const onCloseMock = vi.fn();
-    const { getByTestId } = render(
-      <ActionBar {...actionBarProps} onClose={onCloseMock} />,
-    );
+    const { getByTestId } = render(<ActionBar {...actionBarProps} onClose={onCloseMock} />);
 
     const closeButton = getByTestId("close-button");
     fireEvent.click(closeButton);

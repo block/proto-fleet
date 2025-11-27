@@ -13,8 +13,7 @@ const getValue = ({ datetime, data }: ValueProps) => {
   const matchedTime = data.find(
     (d) =>
       getDayFromEpoch(d.datetime) === getDayFromEpoch(datetime) &&
-      getTimeFromEpoch(d.datetime).slice(0, -3) ===
-        getTimeFromEpoch(datetime).slice(0, -3),
+      getTimeFromEpoch(d.datetime).slice(0, -3) === getTimeFromEpoch(datetime).slice(0, -3),
   );
   return matchedTime?.value ?? undefined;
 };
@@ -24,10 +23,7 @@ interface ChartDataProps {
   temperatureData: ChartData[];
 }
 
-export const getChartData = ({
-  hashrateData,
-  temperatureData,
-}: ChartDataProps) => {
+export const getChartData = ({ hashrateData, temperatureData }: ChartDataProps) => {
   // Handle case where we have no data
   if (!hashrateData.length && !temperatureData.length) {
     return [];
@@ -57,12 +53,8 @@ export const getChartData = ({
     const datetime = data.datetime;
     return {
       datetime: datetime,
-      hashrate_ghs: plotHashrates
-        ? data.value
-        : getValue({ datetime, data: hashrateData }),
-      temp_c: plotHashrates
-        ? getValue({ datetime, data: temperatureData })
-        : data.value,
+      hashrate_ghs: plotHashrates ? data.value : getValue({ datetime, data: hashrateData }),
+      temp_c: plotHashrates ? getValue({ datetime, data: temperatureData }) : data.value,
     };
   });
 

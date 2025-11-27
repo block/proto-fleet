@@ -9,15 +9,9 @@ const SecurityPage = () => {
   return (
     <OnboardingLayout steps={STEPS} currentStep={STEP_KEYS.security}>
       <h1 className="text-heading-300">Security TBD</h1>
-      <p>
-        Waiting on final product requirements and designs for authenticating
-        miners with protoFleet
-      </p>
+      <p>Waiting on final product requirements and designs for authenticating miners with protoFleet</p>
       <div className="mt-6 flex justify-end">
-        <Button
-          onClick={() => navigate("/onboarding/settings")}
-          variant={variants.primary}
-        >
+        <Button onClick={() => navigate("/onboarding/settings")} variant={variants.primary}>
           Continue
         </Button>
       </div>

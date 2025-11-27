@@ -16,9 +16,7 @@ export const sortAsics = (asics: AsicData[]) => {
 export const getAsicsRows = (asics: AsicData[]) => {
   return [
     ...new Set(
-      asics
-        .filter((asic) => asic.row !== undefined && asic.column !== undefined)
-        .map((asic) => asic.row as number),
+      asics.filter((asic) => asic.row !== undefined && asic.column !== undefined).map((asic) => asic.row as number),
     ),
   ];
 };

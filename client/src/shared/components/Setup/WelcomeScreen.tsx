@@ -122,12 +122,8 @@ const WelcomeFlow = ({
                     animate={{ scale: 1, opacity: 1 }}
                     transition={{ duration: 1, ease: easeGentle }}
                   >
-                    <p className="text-text-primary-70">
-                      Connecting to your miner
-                    </p>
-                    <p className="font-mono text-text-primary-70">
-                      {ipAddress}
-                    </p>
+                    <p className="text-text-primary-70">Connecting to your miner</p>
+                    <p className="font-mono text-text-primary-70">{ipAddress}</p>
                   </motion.div>
                 ) : (
                   <motion.div
@@ -136,9 +132,7 @@ const WelcomeFlow = ({
                     transition={{ duration: 1, ease: easeGentle }}
                     className="text-center"
                   >
-                    <p className="text-text-primary-70">
-                      Searching your network for miners
-                    </p>
+                    <p className="text-text-primary-70">Searching your network for miners</p>
                   </motion.div>
                 ))}
             </AnimatePresence>
@@ -155,18 +149,10 @@ const WelcomeFlow = ({
         >
           <div className="py-4">
             {/*TODO we dont have network name*/}
-            <NetworkInfo
-              ipAddress={ipAddress ?? ""}
-              networkName={networkName ?? ""}
-            />
+            <NetworkInfo ipAddress={ipAddress ?? ""} networkName={networkName ?? ""} />
           </div>
           <div className="flex flex-col gap-3">
-            <Button
-              onClick={handleRetry}
-              variant="primary"
-              size="base"
-              className="w-full"
-            >
+            <Button onClick={handleRetry} variant="primary" size="base" className="w-full">
               Retry search
             </Button>
             <Button

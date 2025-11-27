@@ -1,14 +1,6 @@
-import {
-  useFirmwareUpdate,
-  useSystemInfo,
-  useSystemReboot,
-} from "@/protoOS/api";
+import { useFirmwareUpdate, useSystemInfo, useSystemReboot } from "@/protoOS/api";
 import { statusLabelFromUpdateStatus } from "@/protoOS/features/firmwareUpdate/utility";
-import {
-  useFirmwareUpdateInstalling,
-  useFwUpdateStatus,
-  useSystemInfoPending,
-} from "@/protoOS/store";
+import { useFirmwareUpdateInstalling, useFwUpdateStatus, useSystemInfoPending } from "@/protoOS/store";
 import { SettingsSolid } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
@@ -17,8 +9,7 @@ import { convertToSentenceCase } from "@/shared/utils/stringUtils";
 const CheckForUpdate = () => {
   const updateStatus = useFwUpdateStatus();
   const installing = useFirmwareUpdateInstalling();
-  const { checkFirmwareUpdate, updateFirmware, pendingUpdate } =
-    useFirmwareUpdate();
+  const { checkFirmwareUpdate, updateFirmware, pendingUpdate } = useFirmwareUpdate();
   const systemInfoPending = useSystemInfoPending();
   const { reload: reloadSystemInfo } = useSystemInfo({ poll: false });
   const { rebootSystem, pending: rebootPending } = useSystemReboot();
@@ -35,9 +26,7 @@ const CheckForUpdate = () => {
 
   return (
     <>
-      {installing ||
-      updateStatus?.status === "available" ||
-      updateStatus?.status === "installed" ? (
+      {installing || updateStatus?.status === "available" || updateStatus?.status === "installed" ? (
         <Header
           title={statusLabelFromUpdateStatus(updateStatus, true)}
           description={updateStatus?.message}
@@ -48,9 +37,7 @@ const CheckForUpdate = () => {
           buttons={[
             {
               text:
-                updateStatus?.status === "available"
-                  ? "Install"
-                  : convertToSentenceCase(updateStatus?.status || ""),
+                updateStatus?.status === "available" ? "Install" : convertToSentenceCase(updateStatus?.status || ""),
               variant: "secondary",
               className: updateStatus?.status === "installed" ? "hidden" : "",
               disabled: installing || pendingUpdate,
@@ -71,12 +58,7 @@ const CheckForUpdate = () => {
           ]}
         />
       ) : (
-        <Button
-          variant="secondary"
-          size="compact"
-          loading={systemInfoPending}
-          onClick={() => checkForUpdates()}
-        >
+        <Button variant="secondary" size="compact" loading={systemInfoPending} onClick={() => checkForUpdates()}>
           Check for updates
         </Button>
       )}

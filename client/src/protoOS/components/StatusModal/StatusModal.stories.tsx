@@ -107,10 +107,7 @@ export const Interactive: Story = {
 
     return (
       <>
-        <button
-          onClick={() => setIsOpen(true)}
-          className="bg-core-primary-30 rounded px-4 py-2 text-surface-base"
-        >
+        <button onClick={() => setIsOpen(true)} className="bg-core-primary-30 rounded px-4 py-2 text-surface-base">
           Open Status Modal
         </button>
 
@@ -198,16 +195,15 @@ function MyComponent() {
 }`}</code>
       </pre>
       <p className="mt-4 text-200 text-text-primary-70">
-        The ProtoOSStatusModal automatically handles all store integration, wake
-        miner functionality, and component navigation internally.
+        The ProtoOSStatusModal automatically handles all store integration, wake miner functionality, and component
+        navigation internally.
       </p>
     </div>
   ),
   parameters: {
     docs: {
       description: {
-        story:
-          "Code example showing how to integrate the ProtoOSStatusModal in your component.",
+        story: "Code example showing how to integrate the ProtoOSStatusModal in your component.",
       },
     },
   },

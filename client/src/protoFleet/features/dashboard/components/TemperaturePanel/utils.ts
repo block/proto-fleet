@@ -5,9 +5,7 @@ import type { SegmentedBarChartData } from "@/protoFleet/features/dashboard/comp
  * @param processedData - Array of arrays of processed chart data (multi-day format)
  * @returns Formatted headline string
  */
-export const generateTemperatureHeadline = (
-  processedData: SegmentedBarChartData[][],
-): string => {
+export const generateTemperatureHeadline = (processedData: SegmentedBarChartData[][]): string => {
   // Flatten all data points across all charts
   const allDataPoints = processedData.flat();
 
@@ -19,10 +17,7 @@ export const generateTemperatureHeadline = (
   const latestPoint = allDataPoints[allDataPoints.length - 1];
 
   // Calculate miners outside safe range (everything except 'ok')
-  const outsideSafeRange =
-    (latestPoint.cold || 0) +
-    (latestPoint.hot || 0) +
-    (latestPoint.critical || 0);
+  const outsideSafeRange = (latestPoint.cold || 0) + (latestPoint.hot || 0) + (latestPoint.critical || 0);
 
   if (outsideSafeRange > 0) {
     // Case 1: There are miners outside safe range
@@ -36,8 +31,7 @@ export const generateTemperatureHeadline = (
 
   for (let i = allDataPoints.length - 1; i >= 0; i--) {
     const point = allDataPoints[i];
-    const unhealthy =
-      (point.cold || 0) + (point.hot || 0) + (point.critical || 0);
+    const unhealthy = (point.cold || 0) + (point.hot || 0) + (point.critical || 0);
 
     if (unhealthy > 0) {
       break; // Found a point with unhealthy miners
@@ -53,11 +47,7 @@ export const generateTemperatureHeadline = (
 
     for (let i = 0; i < allDataPoints.length; i++) {
       const point = allDataPoints[i];
-      const total =
-        (point.cold || 0) +
-        (point.ok || 0) +
-        (point.hot || 0) +
-        (point.critical || 0);
+      const total = (point.cold || 0) + (point.ok || 0) + (point.hot || 0) + (point.critical || 0);
       if (total > 0) {
         if (firstDataIndex === -1) firstDataIndex = i;
         lastDataIndex = i;
@@ -78,13 +68,9 @@ export const generateTemperatureHeadline = (
       // Find the interval between points
       let interval = 0;
       if (firstDataIndex > 0) {
-        interval =
-          allDataPoints[firstDataIndex].datetime -
-          allDataPoints[firstDataIndex - 1].datetime;
+        interval = allDataPoints[firstDataIndex].datetime - allDataPoints[firstDataIndex - 1].datetime;
       } else if (firstDataIndex < allDataPoints.length - 1) {
-        interval =
-          allDataPoints[firstDataIndex + 1].datetime -
-          allDataPoints[firstDataIndex].datetime;
+        interval = allDataPoints[firstDataIndex + 1].datetime - allDataPoints[firstDataIndex].datetime;
       }
 
       if (interval > 0) {
@@ -122,10 +108,7 @@ export const generateTemperatureHeadline = (
   const lastStableIndex = allDataPoints.length - 1;
   const firstUnstableIndex = allDataPoints.length - stableDataPoints - 1;
 
-  if (
-    firstUnstableIndex >= 0 &&
-    firstUnstableIndex < allDataPoints.length - 1
-  ) {
+  if (firstUnstableIndex >= 0 && firstUnstableIndex < allDataPoints.length - 1) {
     // Calculate duration from the first stable point after the last unstable point
     const firstStableTime = allDataPoints[firstUnstableIndex + 1].datetime;
     const lastStableTime = allDataPoints[lastStableIndex].datetime;

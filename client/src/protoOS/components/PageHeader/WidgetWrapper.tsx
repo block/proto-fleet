@@ -1,10 +1,6 @@
 import { ReactNode } from "react";
 import clsx from "clsx";
-import Button, {
-  type ButtonVariant,
-  sizes,
-  variants,
-} from "@/shared/components/Button";
+import Button, { type ButtonVariant, sizes, variants } from "@/shared/components/Button";
 
 interface WidgetWrapperProps {
   children: ReactNode;
@@ -26,8 +22,7 @@ const WidgetWrapper = ({
   textColor,
   borderColor,
 }: WidgetWrapperProps) => {
-  const baseClasses =
-    "flex h-7 items-center rounded-2xl px-2 py-1 whitespace-nowrap";
+  const baseClasses = "flex h-7 items-center rounded-2xl px-2 py-1 whitespace-nowrap";
 
   return (
     <Button

@@ -59,10 +59,7 @@ export default [
           caughtErrorsIgnorePattern: "^_",
         },
       ],
-      "react-refresh/only-export-components": [
-        "warn",
-        { allowConstantExport: true },
-      ],
+      "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       quotes: ["error", "double"],
       "no-console": ["error", { allow: ["warn", "error"] }],
       "import/no-unresolved": "off",
@@ -76,14 +73,7 @@ export default [
       "import/order": [
         "error",
         {
-          groups: [
-            "external",
-            "builtin",
-            "internal",
-            "parent",
-            "sibling",
-            "index",
-          ],
+          groups: ["external", "builtin", "internal", "parent", "sibling", "index"],
           pathGroups: [
             {
               pattern: "assets",
@@ -177,10 +167,7 @@ export default [
       ...playwright.configs["flat/recommended"].rules,
       quotes: ["error", "double"],
       semi: ["error", "always"],
-      "@typescript-eslint/no-unused-vars": [
-        "warn",
-        { argsIgnorePattern: "^_" },
-      ],
+      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
       "prettier/prettier": "error",
     },
   },

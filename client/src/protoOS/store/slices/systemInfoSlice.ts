@@ -21,12 +21,9 @@ export interface SystemInfoSlice extends SystemInfoSysteminfo {
 // Slice Creator
 // =============================================================================
 
-export const createSystemInfoSlice: StateCreator<
-  MinerStore,
-  [["zustand/immer", never]],
-  [],
-  SystemInfoSlice
-> = (set) => ({
+export const createSystemInfoSlice: StateCreator<MinerStore, [["zustand/immer", never]], [], SystemInfoSlice> = (
+  set,
+) => ({
   // Actions
   setSystemInfo: (systemInfo) =>
     set((state) => {

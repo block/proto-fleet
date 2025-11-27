@@ -9,10 +9,7 @@ interface ComponentSelectorProps {
   onSelect?: (component: ComponentFilterType) => void;
 }
 
-const ComponentSelector = ({
-  selectedComponent,
-  onSelect,
-}: ComponentSelectorProps) => {
+const ComponentSelector = ({ selectedComponent, onSelect }: ComponentSelectorProps) => {
   const componentSegments = useMemo(() => {
     return components.map((component: ComponentFilterType) => ({
       key: component,

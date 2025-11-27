@@ -188,9 +188,7 @@ describe("Onboarding", () => {
     // Wait for updated URL to appear
     await waitFor(() => {
       backupPoolSavedUrlWrapper = within(getByTestId(backupPoolSavedUrl));
-      expect(
-        backupPoolSavedUrlWrapper.getByText(newPoolUrl),
-      ).toBeInTheDocument();
+      expect(backupPoolSavedUrlWrapper.getByText(newPoolUrl)).toBeInTheDocument();
     });
   });
 
@@ -255,9 +253,7 @@ describe("Onboarding", () => {
 
     // Wait for input to be updated
     await waitFor(() => {
-      expect((getByTestId(backupUrlInput) as HTMLInputElement).value).toBe(
-        poolUrl,
-      );
+      expect((getByTestId(backupUrlInput) as HTMLInputElement).value).toBe(poolUrl);
     });
 
     await user.click(getByTestId(backupPoolSaveButton));
@@ -275,9 +271,7 @@ describe("Onboarding", () => {
 
     // Wait for new input to be updated
     await waitFor(() => {
-      expect((getByTestId(backupUrlInput) as HTMLInputElement).value).toBe(
-        newPoolUrl,
-      );
+      expect((getByTestId(backupUrlInput) as HTMLInputElement).value).toBe(newPoolUrl);
     });
 
     await user.click(getByTestId(backupPoolDismissButton));
@@ -303,9 +297,7 @@ describe("Onboarding", () => {
 
     // Wait for input to be updated
     await waitFor(() => {
-      expect((getByTestId(backupUrlInput) as HTMLInputElement).value).toBe(
-        poolUrl,
-      );
+      expect((getByTestId(backupUrlInput) as HTMLInputElement).value).toBe(poolUrl);
     });
 
     await user.click(getByTestId(backupPoolSaveButton));
@@ -333,9 +325,7 @@ describe("Onboarding", () => {
 
     // Wait for input to be updated
     await waitFor(() => {
-      expect((getByTestId(backupUrlInput) as HTMLInputElement).value).toBe(
-        poolUrl,
-      );
+      expect((getByTestId(backupUrlInput) as HTMLInputElement).value).toBe(poolUrl);
     });
 
     await user.click(getByTestId(backupPoolSaveButton));
@@ -371,9 +361,7 @@ describe("Onboarding", () => {
 
     // Wait for input to be updated
     await waitFor(() => {
-      expect((getByTestId(backupUrlInput) as HTMLInputElement).value).toBe(
-        poolUrl,
-      );
+      expect((getByTestId(backupUrlInput) as HTMLInputElement).value).toBe(poolUrl);
     });
 
     await user.click(getByTestId(backupPoolSaveButton));

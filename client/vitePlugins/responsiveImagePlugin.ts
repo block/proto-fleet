@@ -13,10 +13,7 @@ export function responsiveImagePlugin() {
         try {
           const dimensions = await imageSizeFromFile(id);
           const parsedPath = path.parse(id);
-          const retinaPath = path.join(
-            parsedPath.dir,
-            `${parsedPath.name}_2x${parsedPath.ext}`,
-          );
+          const retinaPath = path.join(parsedPath.dir, `${parsedPath.name}_2x${parsedPath.ext}`);
 
           // Check if 2x version exists
           let retinaExists = false;

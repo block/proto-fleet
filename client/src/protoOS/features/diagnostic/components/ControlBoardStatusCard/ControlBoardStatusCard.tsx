@@ -10,8 +10,7 @@ import { iconSizes } from "@/shared/assets/icons/constants";
 function ControlBoardStatusCard() {
   // Fetch data directly from store
   const systemInfo = useSystemInfo();
-  const [showComponentStatusModal, setShowComponentStatusModal] =
-    useState(false);
+  const [showComponentStatusModal, setShowComponentStatusModal] = useState(false);
 
   // Compute display values
   const name = "Control Board";
@@ -29,22 +28,12 @@ function ControlBoardStatusCard() {
     <Card>
       <CardHeader
         title={name}
-        statusIcon={
-          hasErrors ? (
-            <Alert
-              className="text-intent-critical-fill"
-              width={iconSizes.small}
-            />
-          ) : null
-        }
+        statusIcon={hasErrors ? <Alert className="text-intent-critical-fill" width={iconSizes.small} /> : null}
         onInfoIconClick={() => setShowComponentStatusModal(true)}
       />
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-        <LabeledValue
-          value={formatCpuCapacity(cpuCapacity)}
-          label="CPU capacity"
-        />
+        <LabeledValue value={formatCpuCapacity(cpuCapacity)} label="CPU capacity" />
       </div>
       {showComponentStatusModal && (
         <StatusModal

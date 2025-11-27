@@ -9,11 +9,7 @@ interface ExportingLogsDialogProps {
   show: boolean;
 }
 
-const ExportingLogsDialog = ({
-  exportLink,
-  linkRef,
-  show,
-}: ExportingLogsDialogProps) => {
+const ExportingLogsDialog = ({ exportLink, linkRef, show }: ExportingLogsDialogProps) => {
   return (
     <>
       <Dialog
@@ -25,11 +21,7 @@ const ExportingLogsDialog = ({
         show={show}
         testId="exporting-logs-dialog"
       />
-      <a
-        href={exportLink || ""}
-        download={`${getFileName("miner-logs")}`}
-        ref={linkRef}
-      />
+      <a href={exportLink || ""} download={`${getFileName("miner-logs")}`} ref={linkRef} />
     </>
   );
 };

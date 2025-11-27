@@ -36,9 +36,7 @@ type UseVisibleMinersOptions = {
 const useVisibleMiners = (options: UseVisibleMinersOptions = {}) => {
   const { rootMargin = "200px", debounceMs = 300 } = options;
 
-  const [visibleMinerIds, setVisibleMinerIds] = useState<Set<string>>(
-    new Set(),
-  );
+  const [visibleMinerIds, setVisibleMinerIds] = useState<Set<string>>(new Set());
 
   // Track element references and their visibility state
   const elementRefsMap = useRef<Map<string, Element>>(new Map());

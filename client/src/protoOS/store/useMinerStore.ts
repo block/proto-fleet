@@ -5,31 +5,13 @@ import { devtools } from "zustand/middleware";
 import { persist, PersistStorage, StorageValue } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { type AuthSlice, createAuthSlice } from "./slices/authSlice";
-import {
-  createHardwareSlice,
-  type HardwareSlice,
-} from "./slices/hardwareSlice";
-import {
-  createMinerStatusSlice,
-  type MinerStatusSlice,
-} from "./slices/minerStatusSlice";
-import {
-  createMiningTargetSlice,
-  type MiningTargetSlice,
-} from "./slices/miningTargetSlice";
-import {
-  createNetworkInfoSlice,
-  type NetworkInfoSlice,
-} from "./slices/networkInfoSlice";
+import { createHardwareSlice, type HardwareSlice } from "./slices/hardwareSlice";
+import { createMinerStatusSlice, type MinerStatusSlice } from "./slices/minerStatusSlice";
+import { createMiningTargetSlice, type MiningTargetSlice } from "./slices/miningTargetSlice";
+import { createNetworkInfoSlice, type NetworkInfoSlice } from "./slices/networkInfoSlice";
 import { createPoolsSlice, type PoolsSlice } from "./slices/poolsSlice";
-import {
-  createSystemInfoSlice,
-  type SystemInfoSlice,
-} from "./slices/systemInfoSlice";
-import {
-  createTelemetrySlice,
-  type TelemetrySlice,
-} from "./slices/telemetrySlice";
+import { createSystemInfoSlice, type SystemInfoSlice } from "./slices/systemInfoSlice";
+import { createTelemetrySlice, type TelemetrySlice } from "./slices/telemetrySlice";
 import { createUISlice, type UISlice } from "./slices/uiSlice";
 
 // Enable Map/Set support for Immer
@@ -58,10 +40,7 @@ export interface MinerStore {
 // Type for the partial state that we persist
 type PersistedState = {
   auth: Pick<AuthSlice, "authTokens">;
-  ui: Pick<
-    UISlice,
-    "duration" | "activeChartLines" | "theme" | "temperatureUnit"
-  >;
+  ui: Pick<UISlice, "duration" | "activeChartLines" | "theme" | "temperatureUnit">;
 };
 
 const createMultiKeyStorage = (): PersistStorage<PersistedState> => {
@@ -189,19 +168,14 @@ const useMinerStore = create<MinerStore>()(
               ...currentState,
               auth: {
                 ...currentState.auth,
-                authTokens:
-                  persisted?.auth?.authTokens ?? currentState.auth.authTokens,
+                authTokens: persisted?.auth?.authTokens ?? currentState.auth.authTokens,
               },
               ui: {
                 ...currentState.ui,
                 duration: persisted?.ui?.duration ?? currentState.ui.duration,
-                activeChartLines:
-                  persisted?.ui?.activeChartLines ??
-                  currentState.ui.activeChartLines,
+                activeChartLines: persisted?.ui?.activeChartLines ?? currentState.ui.activeChartLines,
                 theme: persisted?.ui?.theme ?? currentState.ui.theme,
-                temperatureUnit:
-                  persisted?.ui?.temperatureUnit ??
-                  currentState.ui.temperatureUnit,
+                temperatureUnit: persisted?.ui?.temperatureUnit ?? currentState.ui.temperatureUnit,
               },
             };
           },

@@ -16,11 +16,7 @@ declare global {
  * @param scope - Element at which the CSS variable value is being queried
  * @returns value of the CSS variable
  */
-const useCssVariable = (
-  variable: string,
-  transform?: (v: string) => any,
-  scope: Element = document.body,
-) => {
+const useCssVariable = (variable: string, transform?: (v: string) => any, scope: Element = document.body) => {
   const [value, setValue] = useState(() => {
     const v = window.getComputedStyle(scope).getPropertyValue(variable);
     return transform ? transform(v) : v;
@@ -47,10 +43,7 @@ const useCssVariable = (
     if (!window.__themeObserver) {
       const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
-          if (
-            mutation.type === "attributes" &&
-            mutation.attributeName === "data-theme"
-          ) {
+          if (mutation.type === "attributes" && mutation.attributeName === "data-theme") {
             // When theme changes, call all registered callbacks
             window.__themeObserverCallbacks?.forEach((callback) => callback());
           }

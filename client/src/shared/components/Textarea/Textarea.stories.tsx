@@ -8,11 +8,7 @@ interface TextareaArgs {
   hideLabelOnFocus?: boolean;
 }
 
-export const Textarea = ({
-  dismiss,
-  compact,
-  hideLabelOnFocus,
-}: TextareaArgs) => {
+export const Textarea = ({ dismiss, compact, hideLabelOnFocus }: TextareaArgs) => {
   return (
     <div className="space-y-4">
       <TextareaComponent

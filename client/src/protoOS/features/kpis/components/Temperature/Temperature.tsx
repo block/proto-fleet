@@ -16,10 +16,7 @@ import Stats from "@/shared/components/Stats";
 
 type StatsArgs = MetricTimeSeries["aggregates"] & { lowestPerformer?: string };
 
-const getStats = (
-  stats: StatsArgs,
-  temperatureUnit: "C" | "F",
-): StatProps[] => {
+const getStats = (stats: StatsArgs, temperatureUnit: "C" | "F"): StatProps[] => {
   const { avg, max, min, lowestPerformer } = stats;
 
   const baseStats: StatProps[] = [
@@ -68,13 +65,10 @@ const Temperature = () => {
     let hottestTemp = -Infinity;
 
     hashboards.forEach((hashboard) => {
-      const hashboardMax =
-        hashboard.temperature?.timeSeries?.aggregates?.max?.value;
+      const hashboardMax = hashboard.temperature?.timeSeries?.aggregates?.max?.value;
       if (!!hashboardMax && hashboardMax > hottestTemp) {
         hottestTemp = hashboardMax;
-        hottestSlot = useMinerStore
-          .getState()
-          .hardware.getSlotByHbSn(hashboard.serial);
+        hottestSlot = useMinerStore.getState().hardware.getSlotByHbSn(hashboard.serial);
       }
     });
 
@@ -85,17 +79,8 @@ const Temperature = () => {
     <>
       {aggregates && chartData.length > 0 ? (
         <ErrorBoundary>
-          <Stats
-            stats={getStats(
-              { ...aggregates, lowestPerformer },
-              temperatureUnit,
-            )}
-          />
-          <KpiLineChart
-            chartData={chartData}
-            chartLines={chartLines}
-            units={"°" + temperatureUnit}
-          />
+          <Stats stats={getStats({ ...aggregates, lowestPerformer }, temperatureUnit)} />
+          <KpiLineChart chartData={chartData} chartLines={chartLines} units={"°" + temperatureUnit} />
         </ErrorBoundary>
       ) : (
         <div className="flex h-full w-full items-center justify-center">

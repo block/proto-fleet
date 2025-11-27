@@ -153,8 +153,7 @@ const usePools = () => {
       const request: Omit<ValidatePoolRequest, "$typeName"> = {
         url: poolInfo.url,
         username: poolInfo.username,
-        ...(poolInfo.password &&
-          poolInfo.password.trim() && { password: poolInfo.password }),
+        ...(poolInfo.password && poolInfo.password.trim() && { password: poolInfo.password }),
         ...(poolInfo.timeout && {
           timeout: poolInfo.timeout as Duration,
         }),
@@ -191,15 +190,7 @@ const usePools = () => {
       validatePool,
       validatePoolPending,
     }),
-    [
-      pools,
-      setDefaultPool,
-      createPool,
-      updatePool,
-      deletePool,
-      validatePool,
-      validatePoolPending,
-    ],
+    [pools, setDefaultPool, createPool, updatePool, deletePool, validatePool, validatePoolPending],
   );
 };
 

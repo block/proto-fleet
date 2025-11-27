@@ -1,11 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { ConnectError } from "@connectrpc/connect";
 import { pairingClient } from "@/protoFleet/api/clients";
-import {
-  Device,
-  DiscoverRequest,
-  PairRequest,
-} from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
+import { Device, DiscoverRequest, PairRequest } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { useAuthErrors, useAuthHeader } from "@/protoFleet/store";
 
 interface DiscoverMinersProps {
@@ -29,21 +25,13 @@ const useMinerPairing = () => {
   const [pairingPending, setPairingPending] = useState(false);
 
   const discover = useCallback(
-    async ({
-      discoverRequest,
-      discoverAbortController,
-      onStreamData,
-      onError,
-    }: DiscoverMinersProps) => {
+    async ({ discoverRequest, discoverAbortController, onStreamData, onError }: DiscoverMinersProps) => {
       setDiscoverPending(true);
       try {
-        for await (const discoveryResponse of pairingClient.discover(
-          discoverRequest,
-          {
-            ...authHeader,
-            signal: discoverAbortController?.signal,
-          },
-        )) {
+        for await (const discoveryResponse of pairingClient.discover(discoverRequest, {
+          ...authHeader,
+          signal: discoverAbortController?.signal,
+        })) {
           if (discoveryResponse.error) {
             onError?.(discoveryResponse.error);
             break;

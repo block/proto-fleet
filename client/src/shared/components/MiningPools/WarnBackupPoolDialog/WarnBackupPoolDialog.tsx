@@ -8,11 +8,7 @@ interface WarnBackupPoolDialogProps {
   show: boolean;
 }
 
-const WarnBackupPoolDialog = ({
-  onAddBackupPool,
-  onContinueWithoutBackup,
-  show,
-}: WarnBackupPoolDialogProps) => {
+const WarnBackupPoolDialog = ({ onAddBackupPool, onContinueWithoutBackup, show }: WarnBackupPoolDialogProps) => {
   return (
     <Dialog
       show={show}

@@ -20,9 +20,7 @@ const ProgressCircular = ({
   const strokeWidth = size / 10;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const offset =
-    circumference -
-    ((indeterminate ? INDETERMINATE_VALUE : value) / 100) * circumference;
+  const offset = circumference - ((indeterminate ? INDETERMINATE_VALUE : value) / 100) * circumference;
 
   return (
     <svg

@@ -1,11 +1,5 @@
 import { useMemo } from "react";
-import {
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  YAxis,
-} from "recharts";
+import { Line, LineChart, ReferenceLine, ResponsiveContainer, YAxis } from "recharts";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 
 type SparklineProps = {

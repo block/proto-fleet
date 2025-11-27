@@ -19,10 +19,7 @@ function CardHeader({
 }: CardHeaderProps) {
   return (
     <div className="flex flex-row items-center gap-6">
-      <div
-        className="flex basis-full items-center gap-2 truncate"
-        title={title}
-      >
+      <div className="flex basis-full items-center gap-2 truncate" title={title}>
         <div className="shrink-0">{statusIcon}</div>
         <span className="text-emphasis-300 text-text-primary">{title}</span>
       </div>
@@ -34,10 +31,7 @@ function CardHeader({
             onClick={onInfoIconClick}
             aria-label="More info"
           >
-            <InfoInverted
-              className="text-text-primary-70"
-              width={iconSizes.small}
-            />
+            <InfoInverted className="text-text-primary-70" width={iconSizes.small} />
           </button>
         )}
         {actions}

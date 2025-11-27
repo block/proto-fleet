@@ -1,12 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import {
-  useOnboarded,
-  usePasswordSet,
-  useSetOnboarded,
-  useSetPasswordSet,
-} from "@/protoOS/store";
+import { useOnboarded, usePasswordSet, useSetOnboarded, useSetPasswordSet } from "@/protoOS/store";
 
 /**
  * API hook for fetching system status.
@@ -24,10 +19,7 @@ const useSystemStatus = () => {
   const passwordSet = usePasswordSet();
   const hasFetchedRef = useRef<boolean>(false);
 
-  const data = useMemo(
-    () => ({ onboarded, passwordSet }),
-    [onboarded, passwordSet],
-  );
+  const data = useMemo(() => ({ onboarded, passwordSet }), [onboarded, passwordSet]);
 
   useEffect(() => {
     if (!api || hasFetchedRef.current) return;

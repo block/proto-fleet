@@ -12,10 +12,7 @@ type HashboardSelectorProps = {
   currentHashboard?: string;
 };
 
-const HashboardSelector = ({
-  hashboardList,
-  currentHashboard,
-}: HashboardSelectorProps) => {
+const HashboardSelector = ({ hashboardList, currentHashboard }: HashboardSelectorProps) => {
   const [showPopover, setShowPopover] = useState<boolean>(false);
   const popoverRef = useRef(null);
   const { triggerRef } = usePopover();
@@ -26,9 +23,7 @@ const HashboardSelector = ({
   });
 
   const currentHashboardName = useMemo(() => {
-    const current = hashboardList.find(
-      (hashboard) => hashboard.serial === currentHashboard,
-    );
+    const current = hashboardList.find((hashboard) => hashboard.serial === currentHashboard);
     return current?.name;
   }, [currentHashboard, hashboardList]);
 
@@ -41,9 +36,7 @@ const HashboardSelector = ({
         suffixIcon={currentHashboardName ? <ChevronUpDown /> : undefined}
         onClick={() => setShowPopover((prev) => !prev)}
       >
-        {currentHashboardName || (
-          <SkeletonBar className="w-25 text-heading-300" />
-        )}
+        {currentHashboardName || <SkeletonBar className="w-25 text-heading-300" />}
       </Button>
 
       {showPopover && (

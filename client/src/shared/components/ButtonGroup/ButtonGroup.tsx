@@ -15,13 +15,7 @@ interface ButtonGroupProps {
   variant: keyof typeof groupVariants;
 }
 
-const ButtonGroup = ({
-  buttons,
-  className,
-  size,
-  sortButtons = true,
-  variant,
-}: ButtonGroupProps) => {
+const ButtonGroup = ({ buttons, className, size, sortButtons = true, variant }: ButtonGroupProps) => {
   const horizontalGap = "space-x-3";
   const verticalGap = "space-y-3";
   const parentClasses = ["flex"];

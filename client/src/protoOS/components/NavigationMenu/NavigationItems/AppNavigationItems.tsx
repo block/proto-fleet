@@ -14,9 +14,7 @@ interface AppNavigationItemsProps {
 }
 
 const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
-  const [showAccordionItems, setShowAccordionItems] = useState(
-    pageName.startsWith("settings"),
-  );
+  const [showAccordionItems, setShowAccordionItems] = useState(pageName.startsWith("settings"));
   const [showAccordionExpand, setShowAccordionExpand] = useState(false);
 
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
@@ -39,30 +37,13 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
 
   return (
     <>
-      <NavigationItem
-        id={navigationItems.home}
-        text="Home"
-        onClick={handleClick}
-        pageName={pageName}
-      />
-      <NavigationItem
-        id={navigationItems.diagnostics}
-        text="Diagnostics"
-        onClick={handleClick}
-        pageName={pageName}
-      />
-      <NavigationItem
-        id={navigationItems.logs}
-        text="Logs"
-        onClick={handleClick}
-        pageName={pageName}
-      />
+      <NavigationItem id={navigationItems.home} text="Home" onClick={handleClick} pageName={pageName} />
+      <NavigationItem id={navigationItems.diagnostics} text="Diagnostics" onClick={handleClick} pageName={pageName} />
+      <NavigationItem id={navigationItems.logs} text="Logs" onClick={handleClick} pageName={pageName} />
       <NavigationItem
         suffixIcon={
           showAccordionExpand || showAccordionItems ? (
-            <MorphingPlusMinus
-              condition={showAccordionExpand && !showAccordionItems}
-            />
+            <MorphingPlusMinus condition={showAccordionExpand && !showAccordionItems} />
           ) : undefined
         }
         text="Settings"

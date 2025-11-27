@@ -211,11 +211,7 @@ const FirmwareUpdateStatusModal = ({
   return (
     <Dialog
       show={show}
-      icon={
-        statusConfig.icon ?? (
-          <ProgressCircular indeterminate className="text-core-accent-fill" />
-        )
-      }
+      icon={statusConfig.icon ?? <ProgressCircular indeterminate className="text-core-accent-fill" />}
       title={statusConfig.title}
       titleSize="text-heading-300"
       buttons={statusConfig.getButtons({
@@ -232,20 +228,17 @@ const FirmwareUpdateStatusModal = ({
           <div>{statusConfig.message ?? updateStatus.message}</div>
           {updateStatus.current_version && (
             <div>
-              <span className="font-medium">Current Version:</span>{" "}
-              {updateStatus.current_version}
+              <span className="font-medium">Current Version:</span> {updateStatus.current_version}
             </div>
           )}
           {updateStatus.new_version && (
             <div>
-              <span className="font-medium">New Version:</span>{" "}
-              {updateStatus.new_version}
+              <span className="font-medium">New Version:</span> {updateStatus.new_version}
             </div>
           )}
           {updateStatus.progress !== undefined && (
             <div>
-              <span className="font-medium">Progress:</span>{" "}
-              {updateStatus.progress}%
+              <span className="font-medium">Progress:</span> {updateStatus.progress}%
             </div>
           )}
         </div>

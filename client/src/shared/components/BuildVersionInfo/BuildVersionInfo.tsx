@@ -23,10 +23,7 @@ const BuildVersionInfo = ({ compact = false }: BuildVersionInfoProps) => {
 
   if (compact) {
     return (
-      <div
-        className="mx-auto text-xs text-text-primary-30"
-        aria-label={`Version ${version}`}
-      >
+      <div className="mx-auto text-xs text-text-primary-30" aria-label={`Version ${version}`}>
         {version}
       </div>
     );

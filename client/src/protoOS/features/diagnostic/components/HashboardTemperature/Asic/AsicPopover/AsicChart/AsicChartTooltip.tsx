@@ -38,22 +38,14 @@ const AsicChartTooltip = ({
   const temperatureUnit = useTemperatureUnit();
 
   useEffect(() => {
-    if (
-      active &&
-      payloads &&
-      payloads.length > 0 &&
-      coordinate.x !== tooltipData.x
-    ) {
+    if (active && payloads && payloads.length > 0 && coordinate.x !== tooltipData.x) {
       onHover?.({ payload: payloads, x: coordinate.x, y: coordinate.y });
     } else if (!active && tooltipData.payload.length > 0) {
       onHover?.({ payload: [], x: 0, y: 0 });
     }
   }, [active, coordinate, onHover, payloads, tooltipData]);
 
-  const payload = useMemo(
-    () => tooltipData.payload[0]?.payload || {},
-    [tooltipData],
-  );
+  const payload = useMemo(() => tooltipData.payload[0]?.payload || {}, [tooltipData]);
 
   return (
     <>

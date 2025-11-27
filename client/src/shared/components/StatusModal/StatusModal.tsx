@@ -29,10 +29,7 @@ export function StatusModal<TComponentAddress = any>({
   showBackButton = true,
 }: StatusModalProps<TComponentAddress>) {
   // Try to get component data if componentAddress is provided
-  const componentData =
-    componentAddress !== undefined
-      ? getComponentStatus(componentAddress)
-      : undefined;
+  const componentData = componentAddress !== undefined ? getComponentStatus(componentAddress) : undefined;
 
   // Show component view if we have valid component data, otherwise show miner view
   if (componentData) {
@@ -55,12 +52,7 @@ export function StatusModal<TComponentAddress = any>({
   // Fall back to miner status view
   const minerData = getMinerStatus();
   return (
-    <Modal
-      show={show}
-      title={minerData.title}
-      buttons={minerData.buttons}
-      onDismiss={minerData.onDismiss}
-    >
+    <Modal show={show} title={minerData.title} buttons={minerData.buttons} onDismiss={minerData.onDismiss}>
       <MinerStatusModalContent {...minerData.props} />
     </Modal>
   );

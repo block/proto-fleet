@@ -18,10 +18,7 @@ mockHashboards.forEach((hb) => {
 });
 
 export const HashboardSelector = () => {
-  const [activeChartLines, setActiveChartLines] = useState<string[]>([
-    "miner",
-    "hb-001",
-  ]);
+  const [activeChartLines, setActiveChartLines] = useState<string[]>(["miner", "hb-001"]);
 
   const chartLines = mockHashboards.map((hb) => hb.serial);
 
@@ -55,12 +52,7 @@ export const WithNoSelection = () => {
 };
 
 export const WithAllSelected = () => {
-  const [activeChartLines, setActiveChartLines] = useState<string[]>([
-    "miner",
-    "hb-001",
-    "hb-002",
-    "hb-003",
-  ]);
+  const [activeChartLines, setActiveChartLines] = useState<string[]>(["miner", "hb-001", "hb-002", "hb-003"]);
 
   const chartLines = mockHashboards.map((hb) => hb.serial);
 

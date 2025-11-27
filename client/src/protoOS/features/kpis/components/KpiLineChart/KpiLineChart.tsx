@@ -1,9 +1,6 @@
 import { useEffect, useMemo } from "react";
 import HashboardSelector from "@/protoOS/features/kpis/components/HashboardSelector";
-import {
-  aggregateColor,
-  aggregateKey,
-} from "@/protoOS/features/kpis/constants";
+import { aggregateColor, aggregateKey } from "@/protoOS/features/kpis/constants";
 import { getHashboardColor } from "@/protoOS/features/kpis/utility";
 import {
   useActiveChartLines,
@@ -32,10 +29,7 @@ const ToolTipItemIcon = ({ itemKey }: { itemKey: string }) => {
         {slot ?? ""}
       </div>
 
-      <HashboardIndicator
-        activeHashboardSlot={slot}
-        totalHashboards={totalSlots}
-      />
+      <HashboardIndicator activeHashboardSlot={slot} totalHashboards={totalSlots} />
     </div>
   );
 };

@@ -53,11 +53,7 @@ const useUserManagement = () => {
       await authClient
         .createUser({ username }, authHeader)
         .then((response) => {
-          onSuccess?.(
-            response.userId,
-            response.username,
-            response.temporaryPassword,
-          );
+          onSuccess?.(response.userId, response.username, response.temporaryPassword);
         })
         .catch((err) => {
           handleAuthErrors({
@@ -82,12 +78,8 @@ const useUserManagement = () => {
           const users = response.users.map((user) => ({
             userId: user.userId,
             username: user.username,
-            passwordUpdatedAt: user.passwordUpdatedAt
-              ? new Date(Number(user.passwordUpdatedAt.seconds) * 1000)
-              : null,
-            lastLoginAt: user.lastLoginAt
-              ? new Date(Number(user.lastLoginAt.seconds) * 1000)
-              : null,
+            passwordUpdatedAt: user.passwordUpdatedAt ? new Date(Number(user.passwordUpdatedAt.seconds) * 1000) : null,
+            lastLoginAt: user.lastLoginAt ? new Date(Number(user.lastLoginAt.seconds) * 1000) : null,
             role: user.role,
             requiresPasswordChange: user.requiresPasswordChange,
           }));
@@ -109,12 +101,7 @@ const useUserManagement = () => {
   );
 
   const resetUserPassword = useCallback(
-    async ({
-      userId,
-      onSuccess,
-      onError,
-      onFinally,
-    }: ResetUserPasswordProps) => {
+    async ({ userId, onSuccess, onError, onFinally }: ResetUserPasswordProps) => {
       await authClient
         .resetUserPassword({ userId }, authHeader)
         .then((response) => {

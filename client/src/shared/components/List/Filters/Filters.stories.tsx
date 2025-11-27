@@ -3,10 +3,7 @@ import { action } from "storybook/actions";
 
 import FiltersComponent from "./index";
 import { defaultListFilter } from "@/shared/components/List/constants";
-import {
-  ActiveFilters,
-  FilterItem,
-} from "@/shared/components/List/Filters/types";
+import { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
 import { statuses } from "@/shared/components/StatusCircle";
 
 const onFilterChange = action("Filter changed");
@@ -85,8 +82,8 @@ export const ClientSideFiltering = () => {
       />
       <div className="text-300">
         <p>
-          <strong>Client-side filtering:</strong> Dropdown filters use immediate
-          mode. Changes fire callbacks instantly without Apply/Reset buttons.
+          <strong>Client-side filtering:</strong> Dropdown filters use immediate mode. Changes fire callbacks instantly
+          without Apply/Reset buttons.
         </p>
       </div>
     </div>
@@ -125,9 +122,8 @@ export const ServerSideFiltering = () => {
       />
       <div className="text-300">
         <p>
-          <strong>Server-side filtering:</strong> Dropdown filters use batch
-          mode. Changes are staged internally and only applied when Apply button
-          is clicked.
+          <strong>Server-side filtering:</strong> Dropdown filters use batch mode. Changes are staged internally and
+          only applied when Apply button is clicked.
         </p>
       </div>
     </div>
@@ -209,11 +205,7 @@ export const WithHeaderControls = () => {
         onFilter={(activeFilters) => {
           onFilterChange(activeFilters);
         }}
-        headerControls={
-          <button className="bg-core-primary-100 text-text-inverse rounded-xl px-4 py-2">
-            Export
-          </button>
-        }
+        headerControls={<button className="bg-core-primary-100 text-text-inverse rounded-xl px-4 py-2">Export</button>}
       />
       <div className="text-300">
         <p>Filters with additional header controls on the right.</p>
@@ -266,20 +258,15 @@ export const StatefulExample = () => {
       <div className="bg-surface-secondary rounded-xl p-4 text-300">
         <div className="mb-2 text-heading-200">Current Filter State:</div>
         <div>
-          <strong>Button Filters:</strong>{" "}
-          {activeFilters.buttonFilters.join(", ")}
+          <strong>Button Filters:</strong> {activeFilters.buttonFilters.join(", ")}
         </div>
         <div>
           <strong>Status:</strong>{" "}
-          {activeFilters.dropdownFilters.status?.length > 0
-            ? activeFilters.dropdownFilters.status.join(", ")
-            : "None"}
+          {activeFilters.dropdownFilters.status?.length > 0 ? activeFilters.dropdownFilters.status.join(", ") : "None"}
         </div>
         <div>
           <strong>Type:</strong>{" "}
-          {activeFilters.dropdownFilters.type?.length > 0
-            ? activeFilters.dropdownFilters.type.join(", ")
-            : "None"}
+          {activeFilters.dropdownFilters.type?.length > 0 ? activeFilters.dropdownFilters.type.join(", ") : "None"}
         </div>
       </div>
     </div>

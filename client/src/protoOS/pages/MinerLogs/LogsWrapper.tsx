@@ -10,9 +10,7 @@ const POLL_INTERVAL_MS = 10000;
 const LogsWrapper = () => {
   const { data: logsData, fetchData: fetchLogs } = useSystemLogs();
 
-  const fetchMaxLogs = useCallback(async (): Promise<
-    LogsResponseLogs | undefined
-  > => {
+  const fetchMaxLogs = useCallback(async (): Promise<LogsResponseLogs | undefined> => {
     return await fetchLogs({ lines: MAX_LOG_LINES });
   }, [fetchLogs]);
 

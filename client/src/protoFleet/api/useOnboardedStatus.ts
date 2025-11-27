@@ -18,32 +18,26 @@ const useOnboardedStatus = () => {
   const setStatus = useSetOnboardingStatus();
   const { handleAuthErrors } = useAuthErrors();
 
-  const fetchStatus =
-    useCallback(async (): Promise<FleetOnboardingStatus | null> => {
-      try {
-        const response = await onboardingClient.getFleetOnboardingStatus(
-          {},
-          authHeader,
-        );
+  const fetchStatus = useCallback(async (): Promise<FleetOnboardingStatus | null> => {
+    try {
+      const response = await onboardingClient.getFleetOnboardingStatus({}, authHeader);
 
-        if (response.status) {
-          setStatus(response.status);
-          return response.status;
-        }
-        return null;
-      } catch (err: any) {
-        handleAuthErrors({
-          error: err,
-          onError: () => {
-            const errorMessage = err?.message ?? String(err);
-            throw new Error(
-              `Failed to fetch Onboarded Status: ${errorMessage}`,
-            );
-          },
-        });
-        return null;
+      if (response.status) {
+        setStatus(response.status);
+        return response.status;
       }
-    }, [authHeader, setStatus, handleAuthErrors]);
+      return null;
+    } catch (err: any) {
+      handleAuthErrors({
+        error: err,
+        onError: () => {
+          const errorMessage = err?.message ?? String(err);
+          throw new Error(`Failed to fetch Onboarded Status: ${errorMessage}`);
+        },
+      });
+      return null;
+    }
+  }, [authHeader, setStatus, handleAuthErrors]);
 
   useEffect(() => {
     if (!authTokens.accessToken.value) {

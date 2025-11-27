@@ -43,9 +43,7 @@ describe("Pools list", () => {
       expect(getByText(defaultPoolSubtitle)).toBeInTheDocument();
     }
     expect(getByText(addDefaultPoolLabel)).toBeInTheDocument();
-    expect(
-      getByRole("button", { name: addDefaultPoolLabel }),
-    ).toBeInTheDocument();
+    expect(getByRole("button", { name: addDefaultPoolLabel })).toBeInTheDocument();
   });
 
   test("renders pool card with backup pool and number badge", () => {
@@ -63,9 +61,7 @@ describe("Pools list", () => {
     expect(getByText(backupPoolTitle)).toBeInTheDocument();
     expect(getByText(backupPoolSubtitle)).toBeInTheDocument();
     expect(getByText(addBackupPoolLabel)).toBeInTheDocument();
-    expect(
-      getByRole("button", { name: addBackupPoolLabel }),
-    ).toBeInTheDocument();
+    expect(getByRole("button", { name: addBackupPoolLabel })).toBeInTheDocument();
     expect(getByText("1")).toBeInTheDocument();
   });
 

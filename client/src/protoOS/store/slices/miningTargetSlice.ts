@@ -1,10 +1,6 @@
 import type { StateCreator } from "zustand";
 import type { MinerStore } from "../useMinerStore";
-import {
-  HttpResponse,
-  MiningTargetResponse,
-  PerformanceMode,
-} from "@/protoOS/api/generatedApi";
+import { HttpResponse, MiningTargetResponse, PerformanceMode } from "@/protoOS/api/generatedApi";
 
 // =============================================================================
 // Mining Target Slice Interface
@@ -37,12 +33,9 @@ export interface MiningTargetSlice {
 // Mining Target Slice Implementation
 // =============================================================================
 
-export const createMiningTargetSlice: StateCreator<
-  MinerStore,
-  [["zustand/immer", never]],
-  [],
-  MiningTargetSlice
-> = (set) => ({
+export const createMiningTargetSlice: StateCreator<MinerStore, [["zustand/immer", never]], [], MiningTargetSlice> = (
+  set,
+) => ({
   // Initial State
   value: undefined,
   default: undefined,

@@ -12,13 +12,7 @@ type FleetErrorsProps = {
   className?: string;
 };
 
-const FleetErrors = ({
-  controlBoardErrors,
-  fanErrors,
-  hashboardErrors,
-  psuErrors,
-  className,
-}: FleetErrorsProps) => {
+const FleetErrors = ({ controlBoardErrors, fanErrors, hashboardErrors, psuErrors, className }: FleetErrorsProps) => {
   return (
     <div className={className}>
       <div className="grid grid-cols-4 gap-1 phone:grid-cols-1 tablet:grid-cols-2">
@@ -28,12 +22,7 @@ const FleetErrors = ({
           errorCount={controlBoardErrors}
           href="/miners?issues=control-board"
         />
-        <ComponentErrors
-          icon={<Fan />}
-          heading="Fans"
-          errorCount={fanErrors}
-          href="/miners?issues=fans"
-        />
+        <ComponentErrors icon={<Fan />} heading="Fans" errorCount={fanErrors} href="/miners?issues=fans" />
         <ComponentErrors
           icon={<Hashboard />}
           heading="Hashboards"

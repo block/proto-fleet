@@ -17,11 +17,7 @@ const ResizeablePanel = ({ children, resizeOn, className }: Props) => {
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
   return (
-    <motion.div
-      animate={{ height }}
-      transition={{ duration: 0.3 }}
-      className="relative"
-    >
+    <motion.div animate={{ height }} transition={{ duration: 0.3 }} className="relative">
       <AnimatePresence>
         <motion.div
           key={resizeOn}

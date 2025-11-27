@@ -131,15 +131,11 @@ describe("AsicTablePreview", () => {
       { row: 0, col: 2, value: 64 }, // Just below warning
     ];
 
-    const { container } = render(
-      <AsicTablePreview asics={asics} {...defaultProps} />,
-    );
+    const { container } = render(<AsicTablePreview asics={asics} {...defaultProps} />);
 
     const lowChip = container.querySelector('[data-value="30"]') as HTMLElement;
     const midChip = container.querySelector('[data-value="50"]') as HTMLElement;
-    const highChip = container.querySelector(
-      '[data-value="64"]',
-    ) as HTMLElement;
+    const highChip = container.querySelector('[data-value="64"]') as HTMLElement;
 
     // Opacity should vary based on map(value, 30, 65, 0.4, 0.05)
     // Lower values should have higher opacity in this inverted mapping
@@ -174,13 +170,7 @@ describe("AsicTablePreview", () => {
   it("applies custom className", () => {
     const asics: AsicData[] = [{ row: 0, col: 0, value: 50 }];
 
-    const { container } = render(
-      <AsicTablePreview
-        asics={asics}
-        {...defaultProps}
-        className="custom-class"
-      />,
-    );
+    const { container } = render(<AsicTablePreview asics={asics} {...defaultProps} className="custom-class" />);
 
     const wrapper = container.firstChild;
     expect(wrapper).toHaveClass("custom-class");

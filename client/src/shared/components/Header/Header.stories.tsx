@@ -32,9 +32,7 @@ export const Header = ({
   inline,
   titleSize,
 }: HeaderProps) => {
-  const iconProps = hasIcon
-    ? { icon: <BaseIcon />, iconOnClick: action("Icon clicked") }
-    : {};
+  const iconProps = hasIcon ? { icon: <BaseIcon />, iconOnClick: action("Icon clicked") } : {};
   const hasButton = button === buttons.primary || button === buttons.both;
   const buttonProps = {
     buttons: hasButton

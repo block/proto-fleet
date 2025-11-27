@@ -3,8 +3,7 @@ export const performanceModes = {
   Efficiency: "Efficiency",
 } as const;
 
-export type PerformanceMode =
-  (typeof performanceModes)[keyof typeof performanceModes];
+export type PerformanceMode = (typeof performanceModes)[keyof typeof performanceModes];
 
 export const powerTargetModes = {
   default: "default",
@@ -12,5 +11,4 @@ export const powerTargetModes = {
   custom: "custom",
 };
 
-export type PowerTargetMode =
-  (typeof powerTargetModes)[keyof typeof powerTargetModes];
+export type PowerTargetMode = (typeof powerTargetModes)[keyof typeof powerTargetModes];

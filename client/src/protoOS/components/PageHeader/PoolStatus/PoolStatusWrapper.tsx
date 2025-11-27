@@ -15,11 +15,7 @@ const PoolStatusWrapper = () => {
 
   return (
     <PopoverProvider>
-      <PoolStatus
-        poolsInfo={poolsInfo}
-        loading={poolsInfo === undefined}
-        onClickViewPools={handleClickViewPools}
-      />
+      <PoolStatus poolsInfo={poolsInfo} loading={poolsInfo === undefined} onClickViewPools={handleClickViewPools} />
     </PopoverProvider>
   );
 };

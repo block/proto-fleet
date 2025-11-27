@@ -82,24 +82,11 @@ const Auth = () => {
     [apiError, values],
   );
 
-  const hasErrors = useMemo(
-    () => Object.values(errors).some((err) => err.length > 0),
-    [errors],
-  );
+  const hasErrors = useMemo(() => Object.values(errors).some((err) => err.length > 0), [errors]);
 
   const disableContinue = useMemo(() => {
-    return (
-      !values.password.length ||
-      !values.confirmPassword.length ||
-      hasErrors ||
-      isSubmitting
-    );
-  }, [
-    hasErrors,
-    values.confirmPassword.length,
-    values.password.length,
-    isSubmitting,
-  ]);
+    return !values.password.length || !values.confirmPassword.length || hasErrors || isSubmitting;
+  }, [hasErrors, values.confirmPassword.length, values.password.length, isSubmitting]);
 
   const handleEnter = useCallback(() => {
     if (disableContinue) {
@@ -126,13 +113,10 @@ const Auth = () => {
         <Divider />
 
         <div className="space-y-1">
-          <div className="text-heading-200 text-text-primary">
-            Create a login for this miner
-          </div>
+          <div className="text-heading-200 text-text-primary">Create a login for this miner</div>
           <div className="text-300 text-text-primary-70">
-            Make sure to store your password somewhere safe. If you lose it
-            you'll need to reset the miner, which will wipe all settings and
-            logs.
+            Make sure to store your password somewhere safe. If you lose it you'll need to reset the miner, which will
+            wipe all settings and logs.
           </div>
         </div>
 
@@ -149,12 +133,7 @@ const Auth = () => {
           </div>
 
           <div className="relative z-10 rounded-lg bg-surface-elevated-base">
-            <Input
-              id={ids.username}
-              label="Username"
-              initValue="admin"
-              disabled
-            />
+            <Input id={ids.username} label="Username" initValue="admin" disabled />
           </div>
         </div>
         <Input

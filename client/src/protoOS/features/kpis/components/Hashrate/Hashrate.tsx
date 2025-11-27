@@ -58,13 +58,10 @@ const Hashrate = () => {
     let lowestAvg = Infinity;
 
     hashboards.forEach((hashboard) => {
-      const hashboardAvg =
-        hashboard.hashrate?.timeSeries?.aggregates?.avg?.value;
+      const hashboardAvg = hashboard.hashrate?.timeSeries?.aggregates?.avg?.value;
       if (!!hashboardAvg && hashboardAvg < lowestAvg) {
         lowestAvg = hashboardAvg;
-        lowestSlot = useMinerStore
-          .getState()
-          .hardware.getSlotByHbSn(hashboard.serial);
+        lowestSlot = useMinerStore.getState().hardware.getSlotByHbSn(hashboard.serial);
       }
     });
 
@@ -76,11 +73,7 @@ const Hashrate = () => {
       {aggregates && chartData.length > 0 ? (
         <ErrorBoundary>
           <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
-          <KpiLineChart
-            chartData={chartData}
-            chartLines={chartLines}
-            units="TH/s"
-          />
+          <KpiLineChart chartData={chartData} chartLines={chartLines} units="TH/s" />
         </ErrorBoundary>
       ) : (
         <div className="flex h-full w-full items-center justify-center">

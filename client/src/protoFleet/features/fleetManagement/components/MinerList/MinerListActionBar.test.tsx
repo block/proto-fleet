@@ -33,9 +33,7 @@ describe("Miner list action bar", () => {
 
     expect(actionBarElement.classList.contains("invisible")).toBe(true);
 
-    const confirmRebootButton = await waitFor(() =>
-      getByTestId("reboot-confirm-button"),
-    );
+    const confirmRebootButton = await waitFor(() => getByTestId("reboot-confirm-button"));
     fireEvent.click(confirmRebootButton);
 
     await waitFor(() => {
@@ -58,12 +56,7 @@ describe("Miner list action bar", () => {
 
   test("calls onClearSelection when action bar close button is clicked", () => {
     const onClearSelectionMock = vi.fn();
-    const { getByTestId } = render(
-      <MinerListActionBar
-        {...actionBarProps}
-        onClearSelection={onClearSelectionMock}
-      />,
-    );
+    const { getByTestId } = render(<MinerListActionBar {...actionBarProps} onClearSelection={onClearSelectionMock} />);
 
     const closeButton = getByTestId("close-button");
     fireEvent.click(closeButton);

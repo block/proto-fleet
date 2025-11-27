@@ -2,10 +2,7 @@ import { ComponentType, useEffect, useRef } from "react";
 import clsx from "clsx";
 
 import TooltipItem from "./TooltipItem";
-import StatusCircle, {
-  statuses,
-  variants,
-} from "@/shared/components/StatusCircle";
+import StatusCircle, { statuses, variants } from "@/shared/components/StatusCircle";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 
 type PayloadType = {
@@ -29,10 +26,7 @@ interface ChartTooltipProps {
   active?: boolean;
   activeKeys?: string[];
   coordinate?: { x: number; y: number };
-  sortingFn?: (
-    a: [string, string | number],
-    b: [string, string | number],
-  ) => number;
+  sortingFn?: (a: [string, string | number], b: [string, string | number]) => number;
   marginValue?: number;
   onHover: ({ payload, x, y }: TooltipData) => void;
   payload?: PayloadType[];
@@ -70,16 +64,9 @@ const ChartTooltip = ({
   const lastUpdateRef = useRef(LAST_UPDATE_DEFAULT);
 
   // Use aggregateKey as fallback when no activeKeys provided
-  const keysToShow =
-    activeKeys && activeKeys.length > 0
-      ? activeKeys
-      : aggregateKey
-        ? [aggregateKey]
-        : [];
+  const keysToShow = activeKeys && activeKeys.length > 0 ? activeKeys : aggregateKey ? [aggregateKey] : [];
 
-  const showAggregate = aggregateKey
-    ? keysToShow.includes(aggregateKey)
-    : false;
+  const showAggregate = aggregateKey ? keysToShow.includes(aggregateKey) : false;
 
   useEffect(() => {
     if (active && payloads && payloads.length > 0) {
@@ -133,17 +120,10 @@ const ChartTooltip = ({
                 })}
               >
                 <div>
-                  <div className="mb-1 text-200 text-text-primary-70">
-                    {aggregateLabel || aggregateKey}
-                  </div>
+                  <div className="mb-1 text-200 text-text-primary-70">{aggregateLabel || aggregateKey}</div>
                   <div className="inline-flex items-center gap-2 text-heading-100 text-text-primary">
-                    <StatusCircle
-                      width="w-2"
-                      status={statuses.warning}
-                      variant={variants.simple}
-                    />
-                    {getDisplayValue(payload[aggregateKey])}{" "}
-                    {units && <span>{units}</span>}
+                    <StatusCircle width="w-2" status={statuses.warning} variant={variants.simple} />
+                    {getDisplayValue(payload[aggregateKey])} {units && <span>{units}</span>}
                   </div>
                 </div>
               </div>
@@ -151,9 +131,7 @@ const ChartTooltip = ({
 
             {sortedKeys.filter((key) => key !== aggregateKey).length > 0 && (
               <div>
-                <div className="mb-1 text-200 text-text-primary-70">
-                  {segmentsLabel}
-                </div>
+                <div className="mb-1 text-200 text-text-primary-70">{segmentsLabel}</div>
                 {sortedKeys
                   .filter((key) => key !== aggregateKey)
                   .map((key, idx) => {

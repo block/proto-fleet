@@ -17,8 +17,7 @@ interface PsuStatusCardProps {
 function PsuStatusCard({ psuId }: PsuStatusCardProps) {
   // Fetch data directly from store
   const psuData = useMinerPsu(psuId);
-  const [showComponentStatusModal, setShowComponentStatusModal] =
-    useState(false);
+  const [showComponentStatusModal, setShowComponentStatusModal] = useState(false);
 
   // Compute display values
   const inputVoltage = psuData?.inputVoltage?.latest?.value ?? 0;
@@ -47,43 +46,18 @@ function PsuStatusCard({ psuId }: PsuStatusCardProps) {
     <Card>
       <CardHeader
         title={name}
-        statusIcon={
-          hasErrors ? (
-            <Alert
-              className="text-intent-critical-fill"
-              width={iconSizes.small}
-            />
-          ) : null
-        }
+        statusIcon={hasErrors ? <Alert className="text-intent-critical-fill" width={iconSizes.small} /> : null}
         componentIcon={<PsuIndicator position={position} />}
         onInfoIconClick={() => setShowComponentStatusModal(true)}
       />
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-        <LabeledValue
-          value={<VoltageValue value={inputVoltage} />}
-          label="Input voltage"
-        />
-        <LabeledValue
-          value={<VoltageValue value={outputVoltage} />}
-          label="Output voltage"
-        />
-        <LabeledValue
-          value={<PowerValue value={inputPower} />}
-          label="Input power"
-        />
-        <LabeledValue
-          value={<PowerValue value={outputPower} />}
-          label="Output power"
-        />
-        <LabeledValue
-          value={<TemperatureValue value={avgTemp} />}
-          label="Avg temp"
-        />
-        <LabeledValue
-          value={<TemperatureValue value={maxTemp} />}
-          label="High temp"
-        />
+        <LabeledValue value={<VoltageValue value={inputVoltage} />} label="Input voltage" />
+        <LabeledValue value={<VoltageValue value={outputVoltage} />} label="Output voltage" />
+        <LabeledValue value={<PowerValue value={inputPower} />} label="Input power" />
+        <LabeledValue value={<PowerValue value={outputPower} />} label="Output power" />
+        <LabeledValue value={<TemperatureValue value={avgTemp} />} label="Avg temp" />
+        <LabeledValue value={<TemperatureValue value={maxTemp} />} label="High temp" />
       </div>
       {showComponentStatusModal && (
         <StatusModal

@@ -12,23 +12,15 @@ interface ConfiguringMiningPoolProps {
   status: keyof typeof statuses;
 }
 
-const ConfiguringMiningPool = ({
-  onClickReconfigure,
-  onClickRetry,
-  status,
-}: ConfiguringMiningPoolProps) => {
-  const isLoading = useMemo(
-    () => status === statuses.fetch || status === statuses.pending,
-    [status],
-  );
+const ConfiguringMiningPool = ({ onClickReconfigure, onClickRetry, status }: ConfiguringMiningPoolProps) => {
+  const isLoading = useMemo(() => status === statuses.fetch || status === statuses.pending, [status]);
 
   const isError = useMemo(() => status === statuses.error, [status]);
 
   const isSuccess = useMemo(() => status === statuses.success, [status]);
 
   const prefixIcon = useMemo(() => {
-    if (isLoading)
-      return <ProgressCircular className="opacity-30" indeterminate />;
+    if (isLoading) return <ProgressCircular className="opacity-30" indeterminate />;
     if (isSuccess) return <Success className="text-text-success" />;
     if (isError) return <Alert className="text-text-warning" />;
   }, [isError, isLoading, isSuccess]);
@@ -37,9 +29,7 @@ const ConfiguringMiningPool = ({
     <Row className="flex" divider={false} prefixIcon={prefixIcon}>
       <div className="grow">
         <div className="text-emphasis-300">
-          {isError
-            ? "Configuring your mining pool"
-            : "Testing your mining pool connections"}
+          {isError ? "Configuring your mining pool" : "Testing your mining pool connections"}
         </div>
         {isError && (
           <div className="text-200 text-text-primary-70">

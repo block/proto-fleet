@@ -11,11 +11,7 @@ interface PoolSelectionModalProps {
   onSave: (selectedPoolId: string) => void;
 }
 
-const PoolSelectionModal = ({
-  availablePools,
-  onDismiss,
-  onSave,
-}: PoolSelectionModalProps) => {
+const PoolSelectionModal = ({ availablePools, onDismiss, onSave }: PoolSelectionModalProps) => {
   const [selectedPoolId, setSelectedPoolId] = useState<string | undefined>();
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -69,22 +65,14 @@ const PoolSelectionModal = ({
         <div className="flex flex-col">
           <div className="flex items-center gap-4 border-b border-border-10 py-2">
             <div className="w-11"></div>
-            <div className="flex-1 text-emphasis-300 text-text-primary-50">
-              Name
-            </div>
-            <div className="flex-[2] text-emphasis-300 text-text-primary-50">
-              URL
-            </div>
-            <div className="flex-1 text-emphasis-300 text-text-primary-50">
-              Username
-            </div>
+            <div className="flex-1 text-emphasis-300 text-text-primary-50">Name</div>
+            <div className="flex-[2] text-emphasis-300 text-text-primary-50">URL</div>
+            <div className="flex-1 text-emphasis-300 text-text-primary-50">Username</div>
           </div>
 
           <div className="flex max-h-[500px] flex-col overflow-y-auto">
             {filteredPools.length === 0 ? (
-              <div className="text-text-secondary py-8 text-center text-300">
-                No pools found
-              </div>
+              <div className="text-text-secondary py-8 text-center text-300">No pools found</div>
             ) : (
               filteredPools.map((pool) => {
                 const isSelected = selectedPoolId === pool.poolId;
@@ -97,15 +85,9 @@ const PoolSelectionModal = ({
                     <div className="flex w-11 items-center justify-center">
                       <Radio selected={isSelected} />
                     </div>
-                    <div className="flex flex-1 items-center truncate text-300 text-text-primary">
-                      {pool.name}
-                    </div>
-                    <div className="flex flex-[2] items-center truncate text-300 text-text-primary">
-                      {pool.poolUrl}
-                    </div>
-                    <div className="flex flex-1 items-center truncate text-300 text-text-primary">
-                      {pool.username}
-                    </div>
+                    <div className="flex flex-1 items-center truncate text-300 text-text-primary">{pool.name}</div>
+                    <div className="flex flex-[2] items-center truncate text-300 text-text-primary">{pool.poolUrl}</div>
+                    <div className="flex flex-1 items-center truncate text-300 text-text-primary">{pool.username}</div>
                   </div>
                 );
               })

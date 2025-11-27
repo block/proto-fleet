@@ -65,10 +65,7 @@ const DropdownFilterPopover = ({
           onClick={handleSelectAll}
         >
           <div className="grow text-emphasis-300">Select all</div>
-          <Checkbox
-            checked={allSelected}
-            partiallyChecked={partiallySelected}
-          />
+          <Checkbox checked={allSelected} partiallyChecked={partiallySelected} />
         </div>
         <Divider className="px-0" />
 

@@ -8,13 +8,7 @@ export interface DefaultErrorFallbackProps {
   onRetry: () => void;
 }
 
-const StackTrace = ({
-  error,
-  className,
-}: {
-  error: unknown;
-  className?: string;
-}) => {
+const StackTrace = ({ error, className }: { error: unknown; className?: string }) => {
   if (!(error instanceof Error)) {
     return null;
   }
@@ -56,9 +50,7 @@ export const DefaultErrorFallback = ({
       ) : null}
       {showStackTrace && error && (
         <div className="flex flex-col gap-6 overflow-auto bg-zinc-900 p-6 text-yellow-400">
-          <p className="text-mono-text-100">
-            {error.message ?? "An unexpected error occurred"}
-          </p>
+          <p className="text-mono-text-100">{error.message ?? "An unexpected error occurred"}</p>
           <StackTrace error={error} className="text-mono-text-100" />
         </div>
       )}

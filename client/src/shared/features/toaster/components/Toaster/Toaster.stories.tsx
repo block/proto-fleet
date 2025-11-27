@@ -25,9 +25,7 @@ export const Toaster = () => {
 
   const addLongRunningToast = (queued: boolean) => {
     const id = pushToast({
-      message: queued
-        ? `This is a queued action #${getCount()}`
-        : `This is a long running action #${getCount()}`,
+      message: queued ? `This is a queued action #${getCount()}` : `This is a long running action #${getCount()}`,
       status: queued ? STATUSES.queued : STATUSES.loading,
       longRunning: true,
     });
@@ -84,48 +82,22 @@ export const Toaster = () => {
       </div>
       <div className="absolute">
         <div className="flex h-full w-full flex-wrap items-center justify-center gap-3">
-          <Button
-            onClick={addToast}
-            size={sizes.base}
-            variant={variants.primary}
-          >
+          <Button onClick={addToast} size={sizes.base} variant={variants.primary}>
             Add Toast
           </Button>
-          <Button
-            onClick={() => addLongRunningToast(false)}
-            size={sizes.base}
-            variant={variants.primary}
-          >
+          <Button onClick={() => addLongRunningToast(false)} size={sizes.base} variant={variants.primary}>
             Add action Toast
           </Button>
-          <Button
-            onClick={addProgressingToast}
-            size={sizes.base}
-            variant={variants.primary}
-          >
+          <Button onClick={addProgressingToast} size={sizes.base} variant={variants.primary}>
             Add progressing Toast
           </Button>
-          <Button
-            onClick={() => addLongRunningToast(true)}
-            size={sizes.base}
-            variant={variants.primary}
-          >
+          <Button onClick={() => addLongRunningToast(true)} size={sizes.base} variant={variants.primary}>
             Add queued Toast
           </Button>
-          <Button
-            disabled={lastToastId == null}
-            onClick={updateLastToast}
-            size={sizes.base}
-            variant={variants.primary}
-          >
+          <Button disabled={lastToastId == null} onClick={updateLastToast} size={sizes.base} variant={variants.primary}>
             Update Last Toast
           </Button>
-          <Button
-            disabled={lastToastId == null}
-            onClick={clearAllToasts}
-            size={sizes.base}
-            variant={variants.primary}
-          >
+          <Button disabled={lastToastId == null} onClick={clearAllToasts} size={sizes.base} variant={variants.primary}>
             Clear All Toasts
           </Button>
         </div>

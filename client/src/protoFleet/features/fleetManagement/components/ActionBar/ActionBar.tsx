@@ -11,12 +11,7 @@ interface ActionBarProps {
   onClose?: () => void;
 }
 
-const ActionBar = ({
-  className,
-  selectedItems,
-  renderActions,
-  onClose,
-}: ActionBarProps) => {
+const ActionBar = ({ className, selectedItems, renderActions, onClose }: ActionBarProps) => {
   const [show, setShow] = useState(false);
   const [hidden, setHidden] = useState(false);
 
@@ -54,13 +49,9 @@ const ActionBar = ({
             testId="close-button"
             onClick={handleClose}
           />
-          <div className="w-full text-emphasis-300 text-grayscale-white-90">
-            {selectedItems.length} miners selected
-          </div>
+          <div className="w-full text-emphasis-300 text-grayscale-white-90">{selectedItems.length} miners selected</div>
         </div>
-        <div className="flex flex-wrap justify-start gap-3">
-          {renderActions(setHidden)}
-        </div>
+        <div className="flex flex-wrap justify-start gap-3">{renderActions(setHidden)}</div>
       </div>
     </div>
   );

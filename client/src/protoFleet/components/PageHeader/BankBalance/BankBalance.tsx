@@ -21,11 +21,7 @@ const BankBalance = ({ balance, loading }: BankBalanceProps) => {
 
   return (
     <Chip prefixIcon={<BankAccount width={iconSizes.small} />}>
-      {loading ? (
-        <SkeletonBar className="w-16" />
-      ) : (
-        <>{bitcoinCurrency + formattedBalance()}</>
-      )}
+      {loading ? <SkeletonBar className="w-16" /> : <>{bitcoinCurrency + formattedBalance()}</>}
     </Chip>
   );
 };

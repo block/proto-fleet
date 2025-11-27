@@ -5,10 +5,7 @@ type FanIndicatorProps = {
   position?: number;
 };
 
-const FanIndicatorV2 = ({
-  totalSlots: numFans = 6,
-  position = 1,
-}: FanIndicatorProps) => {
+const FanIndicatorV2 = ({ totalSlots: numFans = 6, position = 1 }: FanIndicatorProps) => {
   const numCols = Math.ceil(numFans / 2);
 
   return (
@@ -25,12 +22,9 @@ const FanIndicatorV2 = ({
           return (
             <div
               key={colIdx}
-              className={clsx(
-                "flex flex-col items-center justify-center gap-0.5 p-0.5",
-                {
-                  "rounded border-2 border-border-10": hasActiveFan,
-                },
-              )}
+              className={clsx("flex flex-col items-center justify-center gap-0.5 p-0.5", {
+                "rounded border-2 border-border-10": hasActiveFan,
+              })}
             >
               <div
                 className={clsx("h-1.5 w-1.5 rounded-full bg-core-primary-20", {
@@ -39,12 +33,9 @@ const FanIndicatorV2 = ({
               />
               {secondFanIndex < numFans && (
                 <div
-                  className={clsx(
-                    "h-1.5 w-1.5 rounded-full bg-core-primary-20",
-                    {
-                      "bg-text-primary": isSecondActive,
-                    },
-                  )}
+                  className={clsx("h-1.5 w-1.5 rounded-full bg-core-primary-20", {
+                    "bg-text-primary": isSecondActive,
+                  })}
                 />
               )}
             </div>

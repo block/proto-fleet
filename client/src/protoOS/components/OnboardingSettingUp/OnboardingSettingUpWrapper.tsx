@@ -23,11 +23,8 @@ const OnboardingSettingUpWrapper = ({
   const { createPools } = useCreatePools();
   const { fetchData: fetchPools } = usePoolsInfo();
   const { reload: reloadSystemStatus } = useSystemStatus();
-  const [intervalId, setIntervalId] =
-    useState<ReturnType<typeof setInterval>>();
-  const [poolStatus, setPoolStatus] = useState<keyof typeof statuses>(
-    statuses.fetch,
-  );
+  const [intervalId, setIntervalId] = useState<ReturnType<typeof setInterval>>();
+  const [poolStatus, setPoolStatus] = useState<keyof typeof statuses>(statuses.fetch);
 
   const getPoolStatus = useCallback(() => {
     fetchPools({
@@ -69,19 +66,13 @@ const OnboardingSettingUpWrapper = ({
     }
   }, [createPools, getPoolStatus, poolStatus, pools, setCreatePoolsError]);
 
-  const isConfigured = useCallback(
-    (status: keyof typeof statuses) => status === statuses.success,
-    [],
-  );
+  const isConfigured = useCallback((status: keyof typeof statuses) => status === statuses.success, []);
 
   const handleClickRetry = useCallback(() => {
     setPoolStatus(statuses.fetch);
   }, []);
 
-  const isSetupDone = useMemo(
-    () => isConfigured(poolStatus),
-    [isConfigured, poolStatus],
-  );
+  const isSetupDone = useMemo(() => isConfigured(poolStatus), [isConfigured, poolStatus]);
 
   const handleClickContinue = useCallback(() => {
     // Refresh system status to get updated onboarded flag from API
@@ -91,10 +82,7 @@ const OnboardingSettingUpWrapper = ({
     navigate("/");
   }, [navigate, reloadSystemStatus]);
 
-  const handleClickReconfigure = useCallback(
-    () => onChangeSettingUpMiner(false),
-    [onChangeSettingUpMiner],
-  );
+  const handleClickReconfigure = useCallback(() => onChangeSettingUpMiner(false), [onChangeSettingUpMiner]);
 
   return (
     <OnboardingSettingUp

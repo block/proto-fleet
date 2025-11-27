@@ -5,9 +5,7 @@ import ButtonGroup from "@/shared/components/ButtonGroup";
 import { groupVariants } from "@/shared/components/ButtonGroup/constants";
 import { ButtonProps } from "@/shared/components/ButtonGroup/types";
 import Header from "@/shared/components/Header";
-import PageOverlay, {
-  animationDuration,
-} from "@/shared/components/PageOverlay";
+import PageOverlay, { animationDuration } from "@/shared/components/PageOverlay";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
 interface DialogProps {
@@ -69,13 +67,7 @@ const Dialog = ({
   return (
     <>
       {showDialog && (
-        <PageOverlay
-          zIndex="z-40"
-          shouldPreventScroll={preventScroll}
-          show={show}
-          animate={animate}
-          position="top"
-        >
+        <PageOverlay zIndex="z-40" shouldPreventScroll={preventScroll} show={show} animate={animate} position="top">
           <div
             className={clsx(
               "mt-16 h-fit w-[360px] overflow-hidden rounded-3xl bg-surface-elevated-base shadow-200",
@@ -89,14 +81,7 @@ const Dialog = ({
           >
             <div className="p-6">
               <div className="flex flex-col gap-3">
-                {loading ? (
-                  <ProgressCircular
-                    indeterminate
-                    className="text-core-accent-fill"
-                  />
-                ) : icon ? (
-                  icon
-                ) : null}
+                {loading ? <ProgressCircular indeterminate className="text-core-accent-fill" /> : icon ? icon : null}
                 <Header
                   className={headerClassName}
                   subtitleClassName={subtitleClassName}
@@ -109,11 +94,7 @@ const Dialog = ({
               {children && <div className="mt-4">{children}</div>}
             </div>
             {buttons && buttons.length > 0 && (
-              <ButtonGroup
-                buttons={buttons}
-                variant={buttonGroupVariant}
-                className="rounded-b-3xl bg-surface-5 p-6"
-              />
+              <ButtonGroup buttons={buttons} variant={buttonGroupVariant} className="rounded-b-3xl bg-surface-5 p-6" />
             )}
           </div>
         </PageOverlay>

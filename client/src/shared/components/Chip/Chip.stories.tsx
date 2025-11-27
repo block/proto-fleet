@@ -12,17 +12,10 @@ export const Chips = ({ loading, clickable }: ChipArgs) => {
 
   return (
     <div className="flex flex-col space-y-4">
-      <Chip
-        prefixIcon={<CompactIcon />}
-        loading={loading}
-        onClick={clickable ? action("clicked") : undefined}
-      >
+      <Chip prefixIcon={<CompactIcon />} loading={loading} onClick={clickable ? action("clicked") : undefined}>
         {text}
       </Chip>
-      <Chip
-        loading={loading}
-        onClick={clickable ? action("clicked") : undefined}
-      >
+      <Chip loading={loading} onClick={clickable ? action("clicked") : undefined}>
         {text}
       </Chip>
     </div>

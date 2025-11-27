@@ -15,11 +15,7 @@ type NetworkProps = {
   gateway: string;
 };
 
-const Network = ({
-  submit,
-  subnet = "192.168.1.0/24",
-  gateway = "192.168.1.1",
-}: NetworkProps) => {
+const Network = ({ submit, subnet = "192.168.1.0/24", gateway = "192.168.1.1" }: NetworkProps) => {
   const [values, setValues] = useState<Values>(deepClone(initValues));
   const [errors, setErrors] = useState<Values>(deepClone(initValues));
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -56,10 +52,7 @@ const Network = ({
     [values],
   );
 
-  const hasErrors = useMemo(
-    () => Object.values(errors).some((err) => err.length > 0),
-    [errors],
-  );
+  const hasErrors = useMemo(() => Object.values(errors).some((err) => err.length > 0), [errors]);
 
   const disableContinue = useMemo(() => {
     return !values.networkName.length || hasErrors || isSubmitting;
@@ -91,12 +84,7 @@ const Network = ({
           error={errors.networkName}
         />
         <NetworkDetails gateway={gateway} subnet={subnet} />
-        <Button
-          onClick={handleContinue}
-          className="ml-auto"
-          variant="primary"
-          loading={isSubmitting}
-        >
+        <Button onClick={handleContinue} className="ml-auto" variant="primary" loading={isSubmitting}>
           Continue
         </Button>
       </div>

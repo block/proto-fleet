@@ -5,10 +5,7 @@ import { UpdateStatus } from "@/protoOS/api/generatedApi";
 import WidgetWrapper from "@/protoOS/components/PageHeader/WidgetWrapper";
 import { variants as buttonVariants } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-import StatusCircle, {
-  type StatusCircleProps,
-  variants,
-} from "@/shared/components/StatusCircle";
+import StatusCircle, { type StatusCircleProps, variants } from "@/shared/components/StatusCircle";
 import { statuses } from "@/shared/components/StatusCircle/constants";
 
 interface FirmwareUpdateStatusWidgetProps {
@@ -43,31 +40,18 @@ const FirmwareUpdateStatusWidget = ({
       className={clsx({
         "hover:cursor-progress": loading,
       })}
-      variant={
-        updateStatus?.status === "installed"
-          ? buttonVariants.primary
-          : undefined
-      }
+      variant={updateStatus?.status === "installed" ? buttonVariants.primary : undefined}
     >
       {installing ? (
         <div className="flex items-center gap-2 text-xs">
           <div className="flex items-center">
-            <ProgressCircular
-              indeterminate
-              dataTestId="miner-status-spinner"
-              size={12}
-            />
+            <ProgressCircular indeterminate dataTestId="miner-status-spinner" size={12} />
           </div>
           {updateStatus?.progress && <>{updateStatus.progress}%</>}
         </div>
       ) : updateStatus?.status !== "installed" ? (
         <div className="flex items-center">
-          <StatusCircle
-            removeMargin={true}
-            status={status}
-            variant={variants.simple}
-            width={"w-2"}
-          />
+          <StatusCircle removeMargin={true} status={status} variant={variants.simple} width={"w-2"} />
         </div>
       ) : null}
       {statusMessage}

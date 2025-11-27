@@ -6,12 +6,7 @@ const lineProps = {
   label: false,
   dot: false,
   strokeLinecap: "round" as "round" | "inherit" | "butt" | "square" | undefined,
-  strokeLinejoin: "round" as
-    | "round"
-    | "inherit"
-    | "miter"
-    | "bevel"
-    | undefined,
+  strokeLinejoin: "round" as "round" | "inherit" | "miter" | "bevel" | undefined,
   isAnimationActive: false,
 };
 

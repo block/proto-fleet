@@ -1,9 +1,5 @@
 import { useCallback, useMemo } from "react";
-import {
-  To,
-  useLocation,
-  useNavigate as useReactNavigate,
-} from "react-router-dom";
+import { To, useLocation, useNavigate as useReactNavigate } from "react-router-dom";
 
 const useNavigate = () => {
   const reactNavigate = useReactNavigate();

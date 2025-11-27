@@ -15,13 +15,7 @@ const ComponentMetadata = ({ metadata }: ComponentMetadataProps) => {
   return (
     <div className="flex flex-col">
       {Object.entries(metadata || {}).map(([_key, { label, value }]) =>
-        value !== undefined ? (
-          <MetadataRow
-            label={label}
-            value={String(value)}
-            key={label + String(value)}
-          />
-        ) : null,
+        value !== undefined ? <MetadataRow label={label} value={String(value)} key={label + String(value)} /> : null,
       )}
     </div>
   );

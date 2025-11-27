@@ -14,13 +14,7 @@ const Bitcoin = ({ className, width = iconSizes.small }: IconProps) => {
         xmlns="http://www.w3.org/2000/svg"
         preserveAspectRatio="xMidYMid meet"
       >
-        <rect
-          width="16"
-          height="16"
-          fill="currentColor"
-          fillOpacity=".1"
-          rx="8"
-        />
+        <rect width="16" height="16" fill="currentColor" fillOpacity=".1" rx="8" />
         <path
           fill="currentColor"
           fillOpacity=".5"

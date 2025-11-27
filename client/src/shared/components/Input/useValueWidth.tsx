@@ -1,20 +1,7 @@
-import {
-  MutableRefObject,
-  RefObject,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { MutableRefObject, RefObject, useCallback, useEffect, useRef, useState } from "react";
 
-const useUnitOffset = (
-  value: string | number,
-  inputRef: RefObject<HTMLInputElement | null>,
-  units?: string,
-) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(
-    null,
-  ) as MutableRefObject<HTMLCanvasElement | null>;
+const useUnitOffset = (value: string | number, inputRef: RefObject<HTMLInputElement | null>, units?: string) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null) as MutableRefObject<HTMLCanvasElement | null>;
   const contextRef = useRef<CanvasRenderingContext2D | null>(null);
   const [valueWidth, setValueWidth] = useState<number>();
 

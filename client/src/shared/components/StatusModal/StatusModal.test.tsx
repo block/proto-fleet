@@ -15,34 +15,28 @@ type ComponentAddress = {
 
 // Mock the Modal component
 vi.mock("@/shared/components/Modal", () => ({
-  default: vi.fn(
-    ({ children, title, show, buttons, icon, onIconClick, onDismiss }) => {
-      if (!show) return null;
-      return (
-        <div data-testid="modal">
-          <div data-testid="modal-title">{title}</div>
-          {icon && (
-            <button data-testid="modal-icon" onClick={onIconClick}>
-              {icon}
-            </button>
-          )}
-          <button data-testid="modal-dismiss" onClick={onDismiss}>
-            Dismiss
+  default: vi.fn(({ children, title, show, buttons, icon, onIconClick, onDismiss }) => {
+    if (!show) return null;
+    return (
+      <div data-testid="modal">
+        <div data-testid="modal-title">{title}</div>
+        {icon && (
+          <button data-testid="modal-icon" onClick={onIconClick}>
+            {icon}
           </button>
-          {buttons?.map((btn: any, idx: number) => (
-            <button
-              key={idx}
-              data-testid={`modal-button-${idx}`}
-              onClick={btn.onClick}
-            >
-              {btn.text}
-            </button>
-          ))}
-          <div data-testid="modal-content">{children}</div>
-        </div>
-      );
-    },
-  ),
+        )}
+        <button data-testid="modal-dismiss" onClick={onDismiss}>
+          Dismiss
+        </button>
+        {buttons?.map((btn: any, idx: number) => (
+          <button key={idx} data-testid={`modal-button-${idx}`} onClick={btn.onClick}>
+            {btn.text}
+          </button>
+        ))}
+        <div data-testid="modal-content">{children}</div>
+      </div>
+    );
+  }),
 }));
 
 describe("StatusModal", () => {
@@ -113,9 +107,7 @@ describe("StatusModal", () => {
       );
 
       expect(screen.getByTestId("modal")).toBeInTheDocument();
-      expect(screen.getByTestId("modal-title")).toHaveTextContent(
-        "Miner status",
-      );
+      expect(screen.getByTestId("modal-title")).toHaveTextContent("Miner status");
       expect(getMinerStatus).toHaveBeenCalledTimes(1);
       expect(getComponentStatus).not.toHaveBeenCalled();
     });
@@ -182,9 +174,7 @@ describe("StatusModal", () => {
       );
 
       expect(screen.getByTestId("modal")).toBeInTheDocument();
-      expect(screen.getByTestId("modal-title")).toHaveTextContent(
-        "Hashboard status",
-      );
+      expect(screen.getByTestId("modal-title")).toHaveTextContent("Hashboard status");
       expect(getComponentStatus).toHaveBeenCalledWith(componentAddress);
       expect(getMinerStatus).not.toHaveBeenCalled();
     });
@@ -269,9 +259,7 @@ describe("StatusModal", () => {
         />,
       );
 
-      expect(screen.getByTestId("modal-title")).toHaveTextContent(
-        "Miner status",
-      );
+      expect(screen.getByTestId("modal-title")).toHaveTextContent("Miner status");
       expect(getComponentStatusNotFound).toHaveBeenCalledWith(componentAddress);
       expect(getMinerStatus).toHaveBeenCalledTimes(1);
     });
@@ -334,9 +322,7 @@ describe("StatusModal", () => {
         />,
       );
 
-      expect(screen.getByTestId("modal-button-0")).toHaveTextContent(
-        "Wake miner",
-      );
+      expect(screen.getByTestId("modal-button-0")).toHaveTextContent("Wake miner");
       expect(screen.getByTestId("modal-button-1")).toHaveTextContent("Done");
     });
 

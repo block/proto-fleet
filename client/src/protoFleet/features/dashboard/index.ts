@@ -7,9 +7,4 @@ export { default as FleetHealth } from "./components/FleetHealth";
 export { default as SectionHeading } from "./components/SectionHeading";
 
 // Types
-export type {
-  AggregateStats,
-  StatsArgs,
-  TimeSeriesDataPoint,
-  Value,
-} from "./types";
+export type { AggregateStats, StatsArgs, TimeSeriesDataPoint, Value } from "./types";

@@ -77,9 +77,7 @@ describe("ChartWidget", () => {
 
   it("handles percentage values with special formatting", () => {
     render(
-      <ChartWidget
-        stats={{ label: "Efficiency", value: "85%", text: "Current" }}
-      >
+      <ChartWidget stats={{ label: "Efficiency", value: "85%", text: "Current" }}>
         <div>Chart Content</div>
       </ChartWidget>,
     );

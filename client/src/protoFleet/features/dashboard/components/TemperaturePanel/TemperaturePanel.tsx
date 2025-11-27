@@ -41,10 +41,7 @@ interface TemperaturePanelProps {
   isLoading?: boolean;
 }
 
-export function TemperaturePanel({
-  temperatureStatusCounts,
-  isLoading = false,
-}: TemperaturePanelProps) {
+export function TemperaturePanel({ temperatureStatusCounts, isLoading = false }: TemperaturePanelProps) {
   const duration = useDuration();
 
   if (isLoading) {

@@ -5,16 +5,10 @@ import { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 
 import List from "@/shared/components/List";
-import {
-  ActiveFilters,
-  DropdownFilterItem,
-} from "@/shared/components/List/Filters/types";
+import { ActiveFilters, DropdownFilterItem } from "@/shared/components/List/Filters/types";
 import Modal, { ModalSelectAllFooter } from "@/shared/components/Modal";
 
-const activeCols = [
-  "model",
-  "ipAddress",
-] as (keyof MinerWithSelectedAndAction)[];
+const activeCols = ["model", "ipAddress"] as (keyof MinerWithSelectedAndAction)[];
 
 const minerColTitles = {
   model: "Model",
@@ -39,16 +33,9 @@ type FoundMinersModalProps = {
   onDismiss: () => void;
 };
 
-const FoundMinersModal = ({
-  miners,
-  models,
-  setDeselectedMiners,
-  onDismiss,
-}: FoundMinersModalProps) => {
+const FoundMinersModal = ({ miners, models, setDeselectedMiners, onDismiss }: FoundMinersModalProps) => {
   const selectedMiners = useMemo(() => {
-    return miners
-      .filter((miner) => miner.selected)
-      .map((miner) => miner.deviceIdentifier);
+    return miners.filter((miner) => miner.selected).map((miner) => miner.deviceIdentifier);
   }, [miners]);
 
   // Since were keeping deslected miners as state in parent component
@@ -80,24 +67,21 @@ const FoundMinersModal = ({
     } as DropdownFilterItem;
   }, [models]);
 
-  const filterItem = useCallback(
-    (item: MinerWithSelectedAndAction, filters: ActiveFilters) => {
-      const modelFilters = filters.dropdownFilters?.["model"];
+  const filterItem = useCallback((item: MinerWithSelectedAndAction, filters: ActiveFilters) => {
+    const modelFilters = filters.dropdownFilters?.["model"];
 
-      // If no model filter is applied (empty array or undefined), show all items
-      if (!modelFilters || modelFilters.length === 0) {
-        return true;
-      }
-
-      // If model filters are applied, only show items that match
-      if (!modelFilters.includes(item.model)) {
-        return false;
-      }
-
+    // If no model filter is applied (empty array or undefined), show all items
+    if (!modelFilters || modelFilters.length === 0) {
       return true;
-    },
-    [],
-  );
+    }
+
+    // If model filters are applied, only show items that match
+    if (!modelFilters.includes(item.model)) {
+      return false;
+    }
+
+    return true;
+  }, []);
 
   return (
     <Modal
@@ -117,10 +101,7 @@ const FoundMinersModal = ({
           title={`${miners.length} miners found on your network`}
           subtitle="Selected miners will be added to your fleet."
         />
-        <List<
-          MinerWithSelectedAndAction,
-          MinerWithSelectedAndAction["deviceIdentifier"]
-        >
+        <List<MinerWithSelectedAndAction, MinerWithSelectedAndAction["deviceIdentifier"]>
           filters={[modelFilter]}
           filterItem={filterItem}
           filterSize={sizes.compact}
@@ -139,9 +120,7 @@ const FoundMinersModal = ({
       </div>
       <ModalSelectAllFooter
         label={selectedMiners.length + " miners selected"}
-        onSelectAll={() =>
-          setSelectedMiners(miners.map((miner) => miner.deviceIdentifier))
-        }
+        onSelectAll={() => setSelectedMiners(miners.map((miner) => miner.deviceIdentifier))}
         onSelectNone={() => setSelectedMiners([])}
       />
     </Modal>

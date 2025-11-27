@@ -6,12 +6,4 @@ import OnboardingLayout from "./OnboardingLayout";
 import SetupHeader from "./SetupHeader";
 import WelcomeScreen from "./WelcomeScreen";
 
-export {
-  Authentication,
-  BootingUp,
-  Network,
-  OnboardingLayout,
-  SetupHeader,
-  WelcomeScreen,
-  PasswordStrengthMeter,
-};
+export { Authentication, BootingUp, Network, OnboardingLayout, SetupHeader, WelcomeScreen, PasswordStrengthMeter };

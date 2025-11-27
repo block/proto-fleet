@@ -81,9 +81,7 @@ const Input = ({
 
   const [inputType, setInputType] = useState(type);
   const [focused, setFocused] = useState(false);
-  const fallbackRef = useRef<HTMLInputElement>(
-    null,
-  ) as RefObject<HTMLInputElement>;
+  const fallbackRef = useRef<HTMLInputElement>(null) as RefObject<HTMLInputElement>;
   const valueWidth = useValueWidth(value, inputRef || fallbackRef, units);
 
   useEffect(() => {
@@ -146,12 +144,10 @@ const Input = ({
               "border border-border-5": !error && !compact,
             },
             {
-              "border border-border-20 focus:ring-4 focus:ring-surface-10":
-                !error && !compact && !disabled,
+              "border border-border-20 focus:ring-4 focus:ring-surface-10": !error && !compact && !disabled,
             },
             {
-              "border border-intent-critical-50 focus:ring-4 focus:ring-intent-critical-20":
-                error,
+              "border border-intent-critical-50 focus:ring-4 focus:ring-intent-critical-20": error,
             },
             { "pt-[18px]": !hideLabelOnFocus },
             { "h-14 pl-4": !compact },
@@ -204,14 +200,12 @@ const Input = ({
             { "left-0": compact },
             { "left-[17px]": !compact },
             {
-              "top-1/2 -translate-y-1/2":
-                !(length(value) || focused) && !compact,
+              "top-1/2 -translate-y-1/2": !(length(value) || focused) && !compact,
             },
             { "top-0": !(length(value) || focused) && compact },
             { "top-[7px] text-200": length(value) || focused },
             {
-              "duration-150ms transition-[top] ease-in-out peer-focus:top-[7px] peer-focus:text-200":
-                !hideLabelOnFocus,
+              "duration-150ms transition-[top] ease-in-out peer-focus:top-[7px] peer-focus:text-200": !hideLabelOnFocus,
             },
             { "peer-focus:invisible": hideLabelOnFocus },
             { invisible: hideLabelOnFocus && (length(value) || focused) },
@@ -221,11 +215,7 @@ const Input = ({
         </label>
         {tooltip && (
           <div className="absolute top-7 right-4 -translate-y-1/2 transform">
-            <Tooltip
-              header={tooltip.header}
-              body={tooltip.body}
-              position={positions["top left"]}
-            />
+            <Tooltip header={tooltip.header} body={tooltip.body} position={positions["top left"]} />
           </div>
         )}
         {dismiss && length(value) && !compact ? (
@@ -235,11 +225,7 @@ const Input = ({
               "top-7 -translate-y-1/2 transform": !compact,
             })}
           >
-            <DismissCircle
-              onClick={handleChange}
-              className="hover:cursor-pointer"
-              opacity="0.7"
-            />
+            <DismissCircle onClick={handleChange} className="hover:cursor-pointer" opacity="0.7" />
           </div>
         ) : undefined}
         {keyboardShortcuts && !length(value) ? (
@@ -261,11 +247,7 @@ const Input = ({
             {statusIcon ? (
               statusIcon
             ) : (
-              <Eye
-                onClick={togglePasswordVisibility}
-                className="hover:cursor-pointer"
-                testId="eye-icon"
-              />
+              <Eye onClick={togglePasswordVisibility} className="hover:cursor-pointer" testId="eye-icon" />
             )}
           </div>
         )}
@@ -280,9 +262,7 @@ const Input = ({
       >
         <div className="flex items-center space-x-1">
           <div className="h-1 w-[10px] rounded-full bg-intent-critical-20" />
-          <div data-testid={`${testId}-validation-error`}>
-            {validationError}
-          </div>
+          <div data-testid={`${testId}-validation-error`}>{validationError}</div>
         </div>
       </div>
     </div>

@@ -9,22 +9,17 @@ const Dot = (props: { connecting?: boolean; delay: string }) => {
     <div className="relative flex">
       {props.connecting ? (
         <span
-          className={clsx(
-            "animate-dot-connecting absolute inline-flex size-1 rounded-full",
-          )}
+          className={clsx("animate-dot-connecting absolute inline-flex size-1 rounded-full")}
           style={{
             animationDelay: props.delay,
           }}
         ></span>
       ) : (
         <span
-          className={clsx(
-            "relative inline-flex size-1 rounded-full bg-text-primary-30",
-            {
-              "animate-dot-stale": !props.connecting,
-              "!bg-core-accent-fill": props.connecting,
-            },
-          )}
+          className={clsx("relative inline-flex size-1 rounded-full bg-text-primary-30", {
+            "animate-dot-stale": !props.connecting,
+            "!bg-core-accent-fill": props.connecting,
+          })}
           style={{
             animationDelay: props.delay,
           }}
@@ -53,12 +48,8 @@ const AnimatedDotsBackground = ({
 
   const { width: wnWidth, height: wnHeight } = useWindowDimensions();
 
-  const [columnsCount, setColumnsCount] = useState(
-    Math.ceil((wnWidth - padding) / spacing),
-  );
-  const [rowsCount, setRowsCount] = useState(
-    Math.ceil(wnHeight / (spacing + dotSize)),
-  );
+  const [columnsCount, setColumnsCount] = useState(Math.ceil((wnWidth - padding) / spacing));
+  const [rowsCount, setRowsCount] = useState(Math.ceil(wnHeight / (spacing + dotSize)));
 
   // Generate random properties based on grid size
   /* eslint-disable react-hooks/purity */
@@ -95,27 +86,17 @@ const AnimatedDotsBackground = ({
   }, [dotSize, padding, spacing]);
 
   return (
-    <div
-      ref={containerRef}
-      className="relative h-full w-full overflow-visible p-0.5"
-    >
+    <div ref={containerRef} className="relative h-full w-full overflow-visible p-0.5">
       {children}
       <div
-        className={clsx(
-          "mx-auto grid place-items-center gap-10",
-          `grid-cols-24 grid-rows-${rowsCount}`,
-        )}
+        className={clsx("mx-auto grid place-items-center gap-10", `grid-cols-24 grid-rows-${rowsCount}`)}
         style={{
           gridTemplateColumns: `repeat(${columnsCount}, minmax(0, 1fr))`,
           gridTemplateRows: `repeat(${rowsCount}, minmax(0, 1fr))`,
         }}
       >
         {dotProps.map((props, i) => (
-          <Dot
-            key={i}
-            connecting={connecting && props.connecting}
-            delay={props.delay}
-          />
+          <Dot key={i} connecting={connecting && props.connecting} delay={props.delay} />
         ))}
       </div>
     </div>

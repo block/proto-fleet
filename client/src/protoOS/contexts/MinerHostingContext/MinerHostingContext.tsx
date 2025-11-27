@@ -41,9 +41,7 @@ export const MinerHostingProvider = ({
   const api = useMemo(() => CreateApi(baseUrl), [baseUrl]);
 
   return (
-    <MinerHostingContext.Provider value={{ api, minerRoot, closeButton }}>
-      {children}
-    </MinerHostingContext.Provider>
+    <MinerHostingContext.Provider value={{ api, minerRoot, closeButton }}>{children}</MinerHostingContext.Provider>
   );
 };
 

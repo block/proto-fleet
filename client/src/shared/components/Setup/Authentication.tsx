@@ -5,10 +5,7 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
-import {
-  initErrors,
-  initValues,
-} from "@/shared/components/Setup/authentication.constants";
+import { initErrors, initValues } from "@/shared/components/Setup/authentication.constants";
 import { Values } from "@/shared/components/Setup/authentication.types";
 import { useKeyDown } from "@/shared/hooks/useKeyDown";
 import { deepClone } from "@/shared/utils/utility";
@@ -18,10 +15,7 @@ type WeakPasswordWarningProps = {
   onContinue: () => void;
 };
 
-const WeakPasswordWarning = ({
-  onReturn,
-  onContinue,
-}: WeakPasswordWarningProps) => {
+const WeakPasswordWarning = ({ onReturn, onContinue }: WeakPasswordWarningProps) => {
   return (
     <Modal
       title="Your password isn't secure"
@@ -32,20 +26,10 @@ const WeakPasswordWarning = ({
       icon={null}
     >
       <div className="mt-4 flex grow-0 flex-col gap-3">
-        <Button
-          onClick={onReturn}
-          size="base"
-          variant="primary"
-          className="w-full"
-        >
+        <Button onClick={onReturn} size="base" variant="primary" className="w-full">
           Create a stronger password
         </Button>
-        <Button
-          onClick={onContinue}
-          size="base"
-          variant="secondary"
-          className="w-full"
-        >
+        <Button onClick={onContinue} size="base" variant="secondary" className="w-full">
           Continue anyway
         </Button>
       </div>
@@ -122,9 +106,7 @@ type AuthenticationProps = {
   description?: string;
   initUsername?: string;
   inputPrefix?: string;
-  submit:
-    | ((password: string, username: string) => void)
-    | ((currentPassword: string, newPassword: string) => void);
+  submit: ((password: string, username: string) => void) | ((currentPassword: string, newPassword: string) => void);
   isUpdateMode?: boolean;
   requirePasswordConfirmation?: boolean;
   buttonClassName?: string;
@@ -154,8 +136,7 @@ const Authentication = ({
 
   // Derive passwordsMatch from values instead of storing in state
   const passwordsMatch = useMemo(
-    () =>
-      values.password === values.confirmPassword && values.password.length > 0,
+    () => values.password === values.confirmPassword && values.password.length > 0,
     [values.password, values.confirmPassword],
   );
   const [errors, setErrors] = useState<Values>(deepClone(initErrors));
@@ -168,19 +149,13 @@ const Authentication = ({
     if (values.username.length === 0) {
       newErrors.username = "A username is required";
     }
-    if (
-      isUpdateMode &&
-      (!values.currentPassword || values.currentPassword.length === 0)
-    ) {
+    if (isUpdateMode && (!values.currentPassword || values.currentPassword.length === 0)) {
       newErrors.currentPassword = "Current password is required";
     }
     if (values.password.length === 0) {
       newErrors.password = "A password is required";
     }
-    if (
-      requirePasswordConfirmation &&
-      values.confirmPassword !== values.password
-    ) {
+    if (requirePasswordConfirmation && values.confirmPassword !== values.password) {
       newErrors.confirmPassword = "Passwords do not match";
     }
 
@@ -209,28 +184,13 @@ const Authentication = ({
         if (isUpdateMode) {
           if (!values.currentPassword) return;
 
-          (submit as (currentPassword: string, newPassword: string) => void)(
-            values.currentPassword,
-            values.password,
-          );
+          (submit as (currentPassword: string, newPassword: string) => void)(values.currentPassword, values.password);
         } else {
-          (submit as (password: string, username: string) => void)(
-            values.password,
-            values.username,
-          );
+          (submit as (password: string, username: string) => void)(values.password, values.username);
         }
       }
     },
-    [
-      validate,
-      score,
-      setIsSubmitting,
-      isUpdateMode,
-      values.currentPassword,
-      values.password,
-      values.username,
-      submit,
-    ],
+    [validate, score, setIsSubmitting, isUpdateMode, values.currentPassword, values.password, values.username, submit],
   );
 
   const handleChange = useCallback(
@@ -241,10 +201,7 @@ const Authentication = ({
     [values],
   );
 
-  const hasErrors = useMemo(
-    () => Object.values(errors).some((err) => err.length > 0),
-    [errors],
-  );
+  const hasErrors = useMemo(() => Object.values(errors).some((err) => err.length > 0), [errors]);
 
   const disableContinue = useMemo(() => {
     return hasErrors || isSubmitting;
@@ -262,11 +219,7 @@ const Authentication = ({
 
   return (
     <div className="flex flex-col gap-6">
-      <Header
-        title={headline}
-        titleSize="text-heading-300"
-        description={description}
-      />
+      <Header title={headline} titleSize="text-heading-300" description={description} />
       <div
         className={clsx("transition-[max-height,margin] ease-in-out", {
           "max-h-0 overflow-hidden duration-300": !submitError,
@@ -307,15 +260,9 @@ const Authentication = ({
           />
           <div className="flex items-center justify-between gap-5">
             <div>
-              <div className="text-200 text-text-primary-50">
-                Password strength
-              </div>
+              <div className="text-200 text-text-primary-50">Password strength</div>
             </div>
-            <PasswordStrengthMeter
-              score={score}
-              onSetScore={setScore}
-              password={values.password}
-            />
+            <PasswordStrengthMeter score={score} onSetScore={setScore} password={values.password} />
           </div>
         </div>
       </div>
@@ -327,11 +274,7 @@ const Authentication = ({
           type="password"
           initValue={values.confirmPassword}
           error={errors.confirmPassword}
-          statusIcon={
-            passwordsMatch ? (
-              <Success className="text-intent-success-fill" />
-            ) : undefined
-          }
+          statusIcon={passwordsMatch ? <Success className="text-intent-success-fill" /> : undefined}
         />
       )}
       {showWeakPasswordWarning && !isSubmitting && (

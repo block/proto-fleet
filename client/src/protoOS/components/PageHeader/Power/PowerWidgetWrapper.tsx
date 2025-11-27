@@ -20,8 +20,7 @@ const PowerWidgetWrapper = ({ shouldShowPopover }: PowerWidgetWrapperProps) => {
   const setMiningStatus = useSetMiningStatus();
   const { fetchData: fetchMiningStatus } = useMiningStatus({ poll: false });
 
-  const [intervalId, setIntervalId] =
-    useState<ReturnType<typeof setInterval>>();
+  const [intervalId, setIntervalId] = useState<ReturnType<typeof setInterval>>();
 
   const handleClear = useCallback(() => {
     clearInterval(intervalId);

@@ -8,11 +8,7 @@
 // Currently we do this separately on each client before passing built-in types to shared components.
 // This could also help with rendering single miner views in ProtoFleet.
 
-import type {
-  TemperatureUnit,
-  Theme,
-  ThemeColor,
-} from "@/shared/features/preferences/types";
+import type { TemperatureUnit, Theme, ThemeColor } from "@/shared/features/preferences/types";
 
 // reexporting types defined in shared.  Eventually all of these types should be defined in shared
 // and we wont need to do any reexporting
@@ -227,13 +223,7 @@ export type FanMap = Map<number, FanHardwareData>;
 export type FanData = FanHardwareData & FanTelemetryData;
 
 // Error Types
-export type ErrorSource =
-  | "PSU"
-  | "FAN"
-  | "HASHBOARD"
-  | "ASIC"
-  | "SYSTEM"
-  | "POOL";
+export type ErrorSource = "PSU" | "FAN" | "HASHBOARD" | "ASIC" | "SYSTEM" | "POOL";
 export type ErrorLevel = "ERROR" | "WARNING";
 
 export interface MinerError {

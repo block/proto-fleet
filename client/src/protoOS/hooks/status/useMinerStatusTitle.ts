@@ -40,9 +40,7 @@ export const useMinerStatusTitle = (): { title: string; subtitle?: string } => {
     }
 
     // Count how many different components have errors
-    const componentsWithErrors = Object.values(groupedErrors).filter(
-      (arr) => arr.length > 0,
-    ).length;
+    const componentsWithErrors = Object.values(groupedErrors).filter((arr) => arr.length > 0).length;
 
     // Multiple components have issues
     if (componentsWithErrors > 1) {
@@ -64,9 +62,7 @@ export const useMinerStatusTitle = (): { title: string; subtitle?: string } => {
       // Multiple issues on same component type
       if (componentErrors.length > 1) {
         const componentName =
-          COMPONENT_DISPLAY_NAMES.singular[
-            componentType as keyof typeof COMPONENT_DISPLAY_NAMES.singular
-          ];
+          COMPONENT_DISPLAY_NAMES.singular[componentType as keyof typeof COMPONENT_DISPLAY_NAMES.singular];
 
         return {
           title: `Multiple ${componentName} issues detected`,

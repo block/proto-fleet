@@ -2,11 +2,7 @@
 // @generated from file common/v1/common.proto (package common.v1, syntax proto3)
 /* eslint-disable */
 
-import type {
-  GenEnum,
-  GenFile,
-  GenMessage,
-} from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -72,6 +68,4 @@ export enum FleetErrorCode {
 /**
  * Describes the enum common.v1.FleetErrorCode.
  */
-export const FleetErrorCodeSchema: GenEnum<FleetErrorCode> =
-  /*@__PURE__*/
-  enumDesc(file_common_v1_common, 0);
+export const FleetErrorCodeSchema: GenEnum<FleetErrorCode> = /*@__PURE__*/ enumDesc(file_common_v1_common, 0);

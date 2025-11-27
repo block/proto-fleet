@@ -18,11 +18,7 @@ interface SelectRowProps {
   type: SelectType;
 }
 
-export const SelectRow = ({
-  hasPrefixIcon,
-  hasSideText,
-  type,
-}: SelectRowProps) => {
+export const SelectRow = ({ hasPrefixIcon, hasSideText, type }: SelectRowProps) => {
   const [selected, setSelected] = useState<number[]>([]);
 
   useEffect(() => {
@@ -36,9 +32,7 @@ export const SelectRow = ({
       if (isSelected && !selected.includes(index)) {
         setSelected([...selected, index]);
       } else if (!isSelected && selected.includes(index)) {
-        setSelected(
-          selected.filter((selectedIndex) => selectedIndex !== index),
-        );
+        setSelected(selected.filter((selectedIndex) => selectedIndex !== index));
       }
     } else {
       setSelected([index]);

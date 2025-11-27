@@ -5,14 +5,13 @@ import HashboardStatusCard from "./HashboardStatusCard";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
 // Configuration for different stories
-const storyConfigs: Record<string, { slot: number; avg: number; max: number }> =
-  {
-    HB123454: { slot: 1, avg: 65.2, max: 72.1 }, // Default
-    HB123455: { slot: 2, avg: 78.5, max: 85.3 }, // WithWarning - high temps
-    HB123456: { slot: 3, avg: 72.1, max: 78.9 }, // HighPerformance
-    HB123457: { slot: 4, avg: 58.3, max: 62.7 }, // LowPerformance - low temps
-    HB123458: { slot: 5, avg: 25.0, max: 25.0 }, // Offline - room temp
-  };
+const storyConfigs: Record<string, { slot: number; avg: number; max: number }> = {
+  HB123454: { slot: 1, avg: 65.2, max: 72.1 }, // Default
+  HB123455: { slot: 2, avg: 78.5, max: 85.3 }, // WithWarning - high temps
+  HB123456: { slot: 3, avg: 72.1, max: 78.9 }, // HighPerformance
+  HB123457: { slot: 4, avg: 58.3, max: 62.7 }, // LowPerformance - low temps
+  HB123458: { slot: 5, avg: 25.0, max: 25.0 }, // Offline - room temp
+};
 
 // Store decorator that provides mock data
 const StoreDecorator = (Story: any, context: any) => {

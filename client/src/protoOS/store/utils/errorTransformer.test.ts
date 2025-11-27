@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  transformErrors,
-  transformNotificationError,
-} from "./errorTransformer";
+import { transformErrors, transformNotificationError } from "./errorTransformer";
 import type { NotificationError } from "@/protoOS/api/generatedApi";
 
 describe("errorTransformer", () => {
@@ -170,8 +167,7 @@ describe("errorTransformer", () => {
         expiredAt: undefined,
         source: "SYSTEM",
         componentIndex: undefined,
-        message:
-          "Incompatible hashboard types detected in the same bay: TypeA, TypeB",
+        message: "Incompatible hashboard types detected in the same bay: TypeA, TypeB",
       });
     });
 

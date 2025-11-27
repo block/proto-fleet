@@ -10,12 +10,7 @@ interface PoolInfoRowProps {
   url?: string;
 }
 
-const PoolInfoRow = ({
-  hasDivider,
-  index,
-  suffixIcon,
-  url,
-}: PoolInfoRowProps) => {
+const PoolInfoRow = ({ hasDivider, index, suffixIcon, url }: PoolInfoRowProps) => {
   return (
     <Row suffixIcon={suffixIcon} divider={hasDivider}>
       <Header

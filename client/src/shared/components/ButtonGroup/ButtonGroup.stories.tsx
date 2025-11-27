@@ -24,23 +24,10 @@ export const Groups = ({ size, variant }: Props) => {
   return (
     <div className="flex w-[600px] flex-col space-y-4">
       <ButtonGroup buttons={[primaryButton]} variant={variant} size={size} />
+      <ButtonGroup buttons={[primaryButton, secondaryButton]} variant={variant} size={size} />
+      <ButtonGroup buttons={[primaryButton, secondaryButton, secondaryButton]} variant={variant} size={size} />
       <ButtonGroup
-        buttons={[primaryButton, secondaryButton]}
-        variant={variant}
-        size={size}
-      />
-      <ButtonGroup
-        buttons={[primaryButton, secondaryButton, secondaryButton]}
-        variant={variant}
-        size={size}
-      />
-      <ButtonGroup
-        buttons={[
-          primaryButton,
-          secondaryButton,
-          secondaryButton,
-          secondaryButton,
-        ]}
+        buttons={[primaryButton, secondaryButton, secondaryButton, secondaryButton]}
         variant={variant}
         size={size}
       />

@@ -7,11 +7,7 @@ import {
   MinerListFilter,
   StreamMinerListUpdatesRequestSchema,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import {
-  useAuthErrors,
-  useAuthHeader,
-  useFleetStore,
-} from "@/protoFleet/store";
+import { useAuthErrors, useAuthHeader, useFleetStore } from "@/protoFleet/store";
 
 type UseStreamMinerListUpdatesOptions = {
   filter?: MinerListFilter;
@@ -38,9 +34,7 @@ type UseStreamMinerListUpdatesOptions = {
  * const miners = useMinerIds(); // Will reflect incremental updates
  * ```
  */
-const useStreamMinerListUpdates = (
-  options: UseStreamMinerListUpdatesOptions = {},
-) => {
+const useStreamMinerListUpdates = (options: UseStreamMinerListUpdatesOptions = {}) => {
   const { filter } = options;
   const authHeader = useAuthHeader();
   const { handleAuthErrors } = useAuthErrors();
@@ -85,13 +79,10 @@ const useStreamMinerListUpdates = (
         ],
       });
 
-      for await (const response of fleetManagementClient.streamMinerListUpdates(
-        request,
-        {
-          ...authHeader,
-          signal: controller.signal,
-        },
-      )) {
+      for await (const response of fleetManagementClient.streamMinerListUpdates(request, {
+        ...authHeader,
+        signal: controller.signal,
+      })) {
         // Check if stream is still active
         if (abortControllerRef.current !== controller) {
           return;
@@ -125,11 +116,7 @@ const useStreamMinerListUpdates = (
       const errorMessage = String(err);
 
       // Check if the error is due to an aborted request
-      if (
-        errorMessage.includes("[canceled]") ||
-        errorMessage.includes("AbortError") ||
-        controller.signal.aborted
-      ) {
+      if (errorMessage.includes("[canceled]") || errorMessage.includes("AbortError") || controller.signal.aborted) {
         return;
       }
 

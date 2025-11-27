@@ -1,10 +1,7 @@
 import WidgetWrapper from "../WidgetWrapper";
 import { variants as buttonVariants } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-import StatusCircle, {
-  statuses,
-  variants,
-} from "@/shared/components/StatusCircle/";
+import StatusCircle, { statuses, variants } from "@/shared/components/StatusCircle/";
 
 interface MinerStatusWidgetProps {
   onClick: () => void;
@@ -12,11 +9,7 @@ interface MinerStatusWidgetProps {
   circle?: keyof typeof statuses;
 }
 
-const MinerStatusWidget = ({
-  onClick,
-  summary,
-  circle,
-}: MinerStatusWidgetProps) => {
+const MinerStatusWidget = ({ onClick, summary, circle }: MinerStatusWidgetProps) => {
   return (
     <WidgetWrapper
       onClick={summary ? onClick : undefined}
@@ -29,22 +22,13 @@ const MinerStatusWidget = ({
       <>
         {!summary ? (
           <div className="flex items-center">
-            <ProgressCircular
-              indeterminate
-              dataTestId="miner-status-spinner"
-              size={12}
-            />
+            <ProgressCircular indeterminate dataTestId="miner-status-spinner" size={12} />
           </div>
         ) : (
           <>
             {circle && (
               <div className="flex items-center">
-                <StatusCircle
-                  status={circle}
-                  variant={variants.simple}
-                  width={"w-2"}
-                  removeMargin={true}
-                />
+                <StatusCircle status={circle} variant={variants.simple} width={"w-2"} removeMargin={true} />
               </div>
             )}
           </>

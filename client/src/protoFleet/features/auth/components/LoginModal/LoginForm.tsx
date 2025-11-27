@@ -4,20 +4,12 @@ import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
 import { AuthenticateRequestSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { useLogin } from "@/protoFleet/api/useLogin";
-import {
-  ids,
-  initValues,
-  type Values,
-} from "@/protoFleet/features/auth/components/LoginModal";
+import { ids, initValues, type Values } from "@/protoFleet/features/auth/components/LoginModal";
 import { useSetTemporaryPassword } from "@/protoFleet/store";
 
 import { Logo } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
-import ButtonGroup, {
-  ButtonProps,
-  groupVariants,
-  sizes,
-} from "@/shared/components/ButtonGroup";
+import ButtonGroup, { ButtonProps, groupVariants, sizes } from "@/shared/components/ButtonGroup";
 import Input from "@/shared/components/Input";
 import { useKeyDown } from "@/shared/hooks/useKeyDown";
 
@@ -30,11 +22,7 @@ interface LoginFormProps {
   onSuccess: (requiresPasswordChange: boolean) => void;
 }
 
-const LoginForm = ({
-  onClickCreateAccount,
-  onDismiss,
-  onSuccess,
-}: LoginFormProps) => {
+const LoginForm = ({ onClickCreateAccount, onDismiss, onSuccess }: LoginFormProps) => {
   const [values, setValues] = useState<Values>(deepClone(initValues));
   const [errors, setErrors] = useState<Values>(deepClone(initValues));
   const [apiError, setApiError] = useState<string | null>(null);
@@ -68,13 +56,7 @@ const LoginForm = ({
       onError: () => setApiError("Invalid credentials entered."),
       onFinally: () => setIsSubmitting(false),
     });
-  }, [
-    login,
-    values.username,
-    values.password,
-    onSuccess,
-    setTemporaryPassword,
-  ]);
+  }, [login, values.username, values.password, onSuccess, setTemporaryPassword]);
 
   const handleEnter = useCallback(() => {
     if (isSubmitting) {
@@ -87,10 +69,7 @@ const LoginForm = ({
   useKeyDown({ key: "Enter", onKeyDown: handleEnter });
 
   return (
-    <div
-      data-testid="login-form"
-      className="flex flex-col gap-10 phone:h-full phone:justify-between"
-    >
+    <div data-testid="login-form" className="flex flex-col gap-10 phone:h-full phone:justify-between">
       <Logo width="w-[86px]" />
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-6">
@@ -156,25 +135,15 @@ const LoginForm = ({
         />
 
         <div className="flex items-center">
-          <span className="text-300 text-text-primary-50">
-            New to Proto Fleet?
-          </span>
-          <Button
-            variant={variants.textOnly}
-            className="!py-0 !pl-1"
-            onClick={onClickCreateAccount}
-          >
+          <span className="text-300 text-text-primary-50">New to Proto Fleet?</span>
+          <Button variant={variants.textOnly} className="!py-0 !pl-1" onClick={onClickCreateAccount}>
             Create an account
           </Button>
         </div>
       </div>
       <div className="flex flex-col gap-2">
-        <div className="text-300 text-text-primary-70">
-          Powerful mining tools. Built for decentralization.
-        </div>
-        <div className="text-300 text-text-primary-50">
-          &copy; {new Date().getFullYear()} Block, Inc.
-        </div>
+        <div className="text-300 text-text-primary-70">Powerful mining tools. Built for decentralization.</div>
+        <div className="text-300 text-text-primary-50">&copy; {new Date().getFullYear()} Block, Inc.</div>
       </div>
     </div>
   );

@@ -7,11 +7,7 @@ interface ComponentSectionProps {
   className?: string;
 }
 
-function ComponentSection({
-  title,
-  children,
-  className,
-}: ComponentSectionProps) {
+function ComponentSection({ title, children, className }: ComponentSectionProps) {
   return (
     <section className={clsx("flex flex-col gap-3", className)}>
       <h2 className="text-heading-200">{title}</h2>

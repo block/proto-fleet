@@ -1,10 +1,7 @@
 import { ReactNode } from "react";
 import SetupHeader from "../SetupHeader";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
-import StatusCircle, {
-  statuses,
-  variants,
-} from "@/shared/components/StatusCircle";
+import StatusCircle, { statuses, variants } from "@/shared/components/StatusCircle";
 
 type Step = {
   label: string;
@@ -19,11 +16,7 @@ type OnboardingLayoutProps = {
   currentStep?: string;
 };
 
-const OnboardingLayout = ({
-  children,
-  steps,
-  currentStep,
-}: OnboardingLayoutProps) => {
+const OnboardingLayout = ({ children, steps, currentStep }: OnboardingLayoutProps) => {
   const onboardingStatus = useOnboardedStatus();
 
   return (
@@ -34,17 +27,12 @@ const OnboardingLayout = ({
           <div className="absolute w-30 phone:relative phone:mb-4 tablet:relative">
             <ol className="flex flex-col gap-2 phone:flex-row">
               {Object.entries(steps).map(([key, step]) => (
-                <div
-                  key={key}
-                  className="flex h-8 items-center gap-2 text-emphasis-300 text-text-primary-50"
-                >
+                <div key={key} className="flex h-8 items-center gap-2 text-emphasis-300 text-text-primary-50">
                   <StatusCircle
                     status={
                       currentStep == key
                         ? statuses.warning
-                        : onboardingStatus?.[
-                              step.statusIndicator as keyof typeof onboardingStatus
-                            ]
+                        : onboardingStatus?.[step.statusIndicator as keyof typeof onboardingStatus]
                           ? statuses.normal
                           : statuses.inactive
                     }
@@ -58,9 +46,7 @@ const OnboardingLayout = ({
             </ol>
           </div>
         )}
-        <div className="mx-auto w-full max-w-xl tablet:max-w-160">
-          {children}
-        </div>
+        <div className="mx-auto w-full max-w-xl tablet:max-w-160">{children}</div>
       </div>
     </div>
   );

@@ -14,12 +14,7 @@ interface PoolStatusProps {
   shouldShowPopover?: boolean;
 }
 
-const PoolStatus = ({
-  loading = false,
-  onClickViewPools,
-  poolsInfo,
-  shouldShowPopover = false,
-}: PoolStatusProps) => {
+const PoolStatus = ({ loading = false, onClickViewPools, poolsInfo, shouldShowPopover = false }: PoolStatusProps) => {
   const { triggerRef: WidgetRef } = useResponsivePopover();
 
   const [showPopover, setShowPopover] = useState(shouldShowPopover);
@@ -60,10 +55,7 @@ const PoolStatus = ({
     onClickViewPools();
   }, [onClickViewPools]);
 
-  const isPopoverOpen = useMemo(
-    () => !loading && showPopover,
-    [loading, showPopover],
-  );
+  const isPopoverOpen = useMemo(() => !loading && showPopover, [loading, showPopover]);
 
   return (
     <div className="relative" ref={WidgetRef} data-testid="pool-status-widget">

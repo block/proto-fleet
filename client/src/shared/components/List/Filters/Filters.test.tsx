@@ -1,43 +1,25 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import Filters from "./Filters";
-import {
-  testFilters,
-  TestItem,
-  testItems,
-} from "@/shared/components/List/mocks/data";
+import { testFilters, TestItem, testItems } from "@/shared/components/List/mocks/data";
 
 describe("Filters", () => {
   it("renders filter buttons for all button filters", () => {
     const handleFiltering = vi.fn();
-    render(
-      <Filters<TestItem>
-        filterItems={testFilters}
-        items={testItems}
-        onFilter={handleFiltering}
-      />,
-    );
+    render(<Filters<TestItem> filterItems={testFilters} items={testItems} onFilter={handleFiltering} />);
 
     for (const filterItem of testFilters) {
       if (filterItem.type === "button") {
         const filterButton = screen.getByText(filterItem.title);
         expect(filterButton).toBeInTheDocument();
-        expect(filterButton.closest("button")).toHaveTextContent(
-          `${filterItem.title} ${filterItem.count}`,
-        );
+        expect(filterButton.closest("button")).toHaveTextContent(`${filterItem.title} ${filterItem.count}`);
       }
     }
   });
 
   it("calls onFilter with the correct filter when a button filter is clicked", () => {
     const handleFiltering = vi.fn();
-    render(
-      <Filters<TestItem>
-        filterItems={testFilters}
-        items={testItems}
-        onFilter={handleFiltering}
-      />,
-    );
+    render(<Filters<TestItem> filterItems={testFilters} items={testItems} onFilter={handleFiltering} />);
 
     for (const filterItem of testFilters) {
       if (filterItem.type === "button") {
@@ -49,26 +31,14 @@ describe("Filters", () => {
 
   it("renders without crashing when no filters are provided", () => {
     const handleFiltering = vi.fn();
-    render(
-      <Filters<TestItem>
-        filterItems={[]}
-        items={testItems}
-        onFilter={handleFiltering}
-      />,
-    );
+    render(<Filters<TestItem> filterItems={[]} items={testItems} onFilter={handleFiltering} />);
 
     expect(screen.queryByText("All Items")).not.toBeInTheDocument();
   });
 
   it("renders without crashing when no items are provided", () => {
     const handleFiltering = vi.fn();
-    render(
-      <Filters<TestItem>
-        filterItems={testFilters}
-        items={[]}
-        onFilter={handleFiltering}
-      />,
-    );
+    render(<Filters<TestItem> filterItems={testFilters} items={[]} onFilter={handleFiltering} />);
 
     expect(screen.getByText("All Items")).toBeInTheDocument();
   });
@@ -77,51 +47,29 @@ describe("Filters", () => {
     const handleFiltering = vi.fn();
 
     // Get button filters only for this test
-    const buttonFilters = testFilters.filter(
-      (filter) => filter.type === "button",
-    );
+    const buttonFilters = testFilters.filter((filter) => filter.type === "button");
 
-    render(
-      <Filters<TestItem>
-        filterItems={buttonFilters}
-        items={testItems}
-        onFilter={handleFiltering}
-      />,
-    );
+    render(<Filters<TestItem> filterItems={buttonFilters} items={testItems} onFilter={handleFiltering} />);
 
     // Initially "All Items" should be active
     const allItemsBtn = screen.getByText("All Items").closest("button");
-    expect(allItemsBtn).toHaveAttribute(
-      "class",
-      expect.stringContaining("primary"),
-    );
+    expect(allItemsBtn).toHaveAttribute("class", expect.stringContaining("primary"));
 
     // Find the "Active" filter if it exists
-    const activeFilterIdx = buttonFilters.findIndex(
-      (f) => f.title === "Active",
-    );
+    const activeFilterIdx = buttonFilters.findIndex((f) => f.title === "Active");
     if (activeFilterIdx >= 0) {
       // Click "Active" filter
       fireEvent.click(screen.getByText("Active"));
 
       // "Active" should now be active
       const activeBtn = screen.getByText("Active").closest("button");
-      expect(activeBtn).toHaveAttribute(
-        "class",
-        expect.stringContaining("primary"),
-      );
+      expect(activeBtn).toHaveAttribute("class", expect.stringContaining("primary"));
     }
   });
 
   it("displays correct count for each button filter status", () => {
     const handleFiltering = vi.fn();
-    render(
-      <Filters<TestItem>
-        filterItems={testFilters}
-        items={testItems}
-        onFilter={handleFiltering}
-      />,
-    );
+    render(<Filters<TestItem> filterItems={testFilters} items={testItems} onFilter={handleFiltering} />);
 
     for (const filterItem of testFilters) {
       if (filterItem.type === "button") {
@@ -137,18 +85,10 @@ describe("Filters", () => {
 
   it("renders dropdown filters correctly", () => {
     const handleFiltering = vi.fn();
-    render(
-      <Filters<TestItem>
-        filterItems={testFilters}
-        items={testItems}
-        onFilter={handleFiltering}
-      />,
-    );
+    render(<Filters<TestItem> filterItems={testFilters} items={testItems} onFilter={handleFiltering} />);
 
     // Find dropdown filters
-    const dropdownFilters = testFilters.filter(
-      (filter) => filter.type === "dropdown",
-    );
+    const dropdownFilters = testFilters.filter((filter) => filter.type === "dropdown");
 
     for (const dropdownFilter of dropdownFilters) {
       // The dropdown button should show the title, not a selected option
@@ -175,13 +115,7 @@ describe("Filters", () => {
       defaultOptionIds: [],
     };
 
-    render(
-      <Filters<TestItem>
-        filterItems={[testDropdownFilter]}
-        items={testItems}
-        onFilter={handleFiltering}
-      />,
-    );
+    render(<Filters<TestItem> filterItems={[testDropdownFilter]} items={testItems} onFilter={handleFiltering} />);
 
     // Click the dropdown button to open it (shows title, not selected option)
     const dropdownButton = screen.getByText("Test Dropdown");
@@ -199,18 +133,10 @@ describe("Filters", () => {
 
   it("updates filter state when a dropdown option is selected", async () => {
     const handleFiltering = vi.fn();
-    render(
-      <Filters<TestItem>
-        filterItems={testFilters}
-        items={testItems}
-        onFilter={handleFiltering}
-      />,
-    );
+    render(<Filters<TestItem> filterItems={testFilters} items={testItems} onFilter={handleFiltering} />);
 
     // Find the first dropdown filter
-    const dropdownFilters = testFilters.filter(
-      (filter) => filter.type === "dropdown",
-    );
+    const dropdownFilters = testFilters.filter((filter) => filter.type === "dropdown");
 
     if (dropdownFilters.length > 0 && dropdownFilters[0].options?.length > 0) {
       const firstDropdown = dropdownFilters[0];

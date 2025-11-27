@@ -5,25 +5,15 @@ import { SimpleErrorProps } from "@/protoOS/api/apiResponseTypes";
 
 import AppLayout from "@/protoOS/components/AppLayout";
 import SettingsContentLayout from "@/protoOS/components/ContentLayout/SettingsContentLayout";
-import MiningPools, {
-  getEmptyPoolsInfo,
-  isValidPool,
-  PoolInfo,
-} from "@/protoOS/components/MiningPools";
+import MiningPools, { getEmptyPoolsInfo, isValidPool, PoolInfo } from "@/protoOS/components/MiningPools";
 import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
 import OnboardingHeader from "@/protoOS/components/OnboardingHeader";
 import SettingUp from "@/protoOS/components/OnboardingSettingUp";
 import { useAccessToken } from "@/protoOS/store";
-import {
-  useDismissedLoginModal,
-  useSetDismissedLoginModal,
-} from "@/protoOS/store";
+import { useDismissedLoginModal, useSetDismissedLoginModal } from "@/protoOS/store";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import {
-  DismissibleCalloutWrapper,
-  intents,
-} from "@/shared/components/Callout";
+import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
 import { WarnBackupPoolDialog } from "@/shared/components/MiningPools/WarnBackupPoolDialog";
 import { WarnDefaultPoolCallout } from "@/shared/components/MiningPools/WarnDefaultPoolCallout";
 
@@ -84,8 +74,7 @@ const Onboarding = () => {
       // ignore backup pools if indicated by the user
       if (!ignoreBackupPools) {
         // check if at least one backup pool has been entered
-        const noValidBackupPool =
-          !isValidPool(pools[1]) && !isValidPool(pools[2]);
+        const noValidBackupPool = !isValidPool(pools[1]) && !isValidPool(pools[2]);
         if (noValidBackupPool) {
           setWarnBackupPool(true);
           return;
@@ -147,15 +136,8 @@ const Onboarding = () => {
         onContinueWithoutBackup={onContinueWithoutBackup}
         show={warnBackupPool}
       />
-      <MiningPools
-        title="Add your mining pool"
-        onChange={onChangePools}
-        pools={pools}
-      >
-        <WarnDefaultPoolCallout
-          onDismiss={() => setWarnDefaultPool(false)}
-          show={warnDefaultPool}
-        />
+      <MiningPools title="Add your mining pool" onChange={onChangePools} pools={pools}>
+        <WarnDefaultPoolCallout onDismiss={() => setWarnDefaultPool(false)} show={warnDefaultPool} />
         <DismissibleCalloutWrapper
           className={clsx({
             "mb-10!": createPoolsError?.error !== undefined,

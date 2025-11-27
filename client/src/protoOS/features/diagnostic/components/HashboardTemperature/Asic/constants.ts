@@ -2,13 +2,7 @@ import { AsicData } from "@/protoOS/store";
 import { getAsicId } from "@/protoOS/store";
 
 // Helper function to create mock ASIC data
-const createMockAsic = (
-  id: number,
-  row: number,
-  column: number,
-  tempC: number,
-  hashrateGhs: number,
-): AsicData => ({
+const createMockAsic = (id: number, row: number, column: number, tempC: number, hashrateGhs: number): AsicData => ({
   // Hardware data
   id: getAsicId("421FS23103000005", id.toString()),
   hashboardSerial: "421FS23103000005",
@@ -72,13 +66,7 @@ export const mockHashboardStats = {
       const column = index % 10;
       const tempVariation = Math.random() * 10 + 55; // 55-65°C range
       const hashrateVariation = Math.random() * 40 + 260; // 260-300 GH/s range
-      return createMockAsic(
-        index,
-        row,
-        column,
-        Math.round(tempVariation),
-        Math.round(hashrateVariation * 100) / 100,
-      );
+      return createMockAsic(index, row, column, Math.round(tempVariation), Math.round(hashrateVariation * 100) / 100);
     }),
   ],
 };

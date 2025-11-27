@@ -92,9 +92,7 @@ describe("DeactivateUserDialog", () => {
       />,
     );
 
-    expect(
-      getByText(/They will be hidden and removed from your account/),
-    ).toBeInTheDocument();
+    expect(getByText(/They will be hidden and removed from your account/)).toBeInTheDocument();
     expect(getByText(/This action cannot be undone/)).toBeInTheDocument();
   });
 

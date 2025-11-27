@@ -50,9 +50,7 @@ export interface HardwareSlice {
   batchAddAsics: (asics: AsicHardwareData[]) => void;
   getAsic: (id: string) => AsicHardwareData | undefined;
   getAsicsByHashboard: (hashboardSerial: string) => AsicHardwareData[];
-  getAsicPosition: (
-    id: string,
-  ) => { row?: number; column?: number } | undefined;
+  getAsicPosition: (id: string) => { row?: number; column?: number } | undefined;
   getAsicRowsByHashboard: (hashboardSerial: string) => number[];
 
   // Relationship Actions
@@ -85,12 +83,10 @@ export interface HardwareSlice {
 // Hardware Slice Implementation
 // =============================================================================
 
-export const createHardwareSlice: StateCreator<
-  MinerStore,
-  [["zustand/immer", never]],
-  [],
-  HardwareSlice
-> = (set, get) => ({
+export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", never]], [], HardwareSlice> = (
+  set,
+  get,
+) => ({
   // Initial state
   miner: null,
   controlBoard: null,
@@ -145,15 +141,11 @@ export const createHardwareSlice: StateCreator<
   },
 
   getHashboardBySlot: (slot) => {
-    return Array.from(get().hardware.hashboards.values()).find(
-      (hb) => hb.slot === slot,
-    );
+    return Array.from(get().hardware.hashboards.values()).find((hb) => hb.slot === slot);
   },
 
   getHashboardsByBay: (bay) => {
-    return Array.from(get().hardware.hashboards.values()).filter(
-      (hb) => hb.bay === bay,
-    );
+    return Array.from(get().hardware.hashboards.values()).filter((hb) => hb.bay === bay);
   },
 
   getBayCount: () => {
@@ -196,9 +188,7 @@ export const createHardwareSlice: StateCreator<
   },
 
   getAsicsByHashboard: (hashboardSerial) => {
-    return Array.from(get().hardware.asics.values()).filter(
-      (asic) => asic.hashboardSerial === hashboardSerial,
-    );
+    return Array.from(get().hardware.asics.values()).filter((asic) => asic.hashboardSerial === hashboardSerial);
   },
 
   getAsicPosition: (id) => {
@@ -274,14 +264,7 @@ export const createHardwareSlice: StateCreator<
   },
 
   // Bulk Operations
-  initializeMinerStructure: (
-    miner,
-    hashboards,
-    asics,
-    psus,
-    fans,
-    controlBoard,
-  ) =>
+  initializeMinerStructure: (miner, hashboards, asics, psus, fans, controlBoard) =>
     set((state) => {
       state.hardware.miner = miner;
 

@@ -2,24 +2,11 @@
 // @generated from file fleetperformance/v1/fleetperformance.proto (package fleetperformance.v1, syntax proto3)
 /* eslint-disable */
 
-import type {
-  GenEnum,
-  GenFile,
-  GenMessage,
-  GenService,
-} from "@bufbuild/protobuf/codegenv2";
-import {
-  enumDesc,
-  fileDesc,
-  messageDesc,
-  serviceDesc,
-} from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
-import type {
-  Measurement,
-  TimeSeriesConfig,
-} from "../../common/v1/measurement_pb";
+import type { Measurement, TimeSeriesConfig } from "../../common/v1/measurement_pb";
 import { file_common_v1_measurement } from "../../common/v1/measurement_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -38,16 +25,15 @@ export const file_fleetperformance_v1_fleetperformance: GenFile =
  *
  * @generated from message fleetperformance.v1.GetFleetPerformanceRequest
  */
-export type GetFleetPerformanceRequest =
-  Message<"fleetperformance.v1.GetFleetPerformanceRequest"> & {
-    /**
-     * Time series configuration for performance data
-     * Required field that specifies the time range and resolution for the metrics
-     *
-     * @generated from field: common.v1.TimeSeriesConfig time_series_config = 1;
-     */
-    timeSeriesConfig?: TimeSeriesConfig;
-  };
+export type GetFleetPerformanceRequest = Message<"fleetperformance.v1.GetFleetPerformanceRequest"> & {
+  /**
+   * Time series configuration for performance data
+   * Required field that specifies the time range and resolution for the metrics
+   *
+   * @generated from field: common.v1.TimeSeriesConfig time_series_config = 1;
+   */
+  timeSeriesConfig?: TimeSeriesConfig;
+};
 
 /**
  * Describes the message fleetperformance.v1.GetFleetPerformanceRequest.
@@ -62,15 +48,14 @@ export const GetFleetPerformanceRequestSchema: GenMessage<GetFleetPerformanceReq
  *
  * @generated from message fleetperformance.v1.GetFleetPerformanceResponse
  */
-export type GetFleetPerformanceResponse =
-  Message<"fleetperformance.v1.GetFleetPerformanceResponse"> & {
-    /**
-     * Fleet performance data containing all metrics
-     *
-     * @generated from field: fleetperformance.v1.FleetPerformance fleet_performance = 1;
-     */
-    fleetPerformance?: FleetPerformance;
-  };
+export type GetFleetPerformanceResponse = Message<"fleetperformance.v1.GetFleetPerformanceResponse"> & {
+  /**
+   * Fleet performance data containing all metrics
+   *
+   * @generated from field: fleetperformance.v1.FleetPerformance fleet_performance = 1;
+   */
+  fleetPerformance?: FleetPerformance;
+};
 
 /**
  * Describes the message fleetperformance.v1.GetFleetPerformanceResponse.
@@ -85,43 +70,42 @@ export const GetFleetPerformanceResponseSchema: GenMessage<GetFleetPerformanceRe
  *
  * @generated from message fleetperformance.v1.FleetPerformance
  */
-export type FleetPerformance =
-  Message<"fleetperformance.v1.FleetPerformance"> & {
-    /**
-     * Overview statistics showing fleet status distribution
-     *
-     * @generated from field: fleetperformance.v1.FleetOverview overview = 1;
-     */
-    overview?: FleetOverview;
+export type FleetPerformance = Message<"fleetperformance.v1.FleetPerformance"> & {
+  /**
+   * Overview statistics showing fleet status distribution
+   *
+   * @generated from field: fleetperformance.v1.FleetOverview overview = 1;
+   */
+  overview?: FleetOverview;
 
-    /**
-     * Hashrate performance metrics and trends
-     *
-     * @generated from field: fleetperformance.v1.PerformanceMetrics hashrate = 2;
-     */
-    hashrate?: PerformanceMetrics;
+  /**
+   * Hashrate performance metrics and trends
+   *
+   * @generated from field: fleetperformance.v1.PerformanceMetrics hashrate = 2;
+   */
+  hashrate?: PerformanceMetrics;
 
-    /**
-     * Energy efficiency metrics and trends
-     *
-     * @generated from field: fleetperformance.v1.PerformanceMetrics efficiency = 3;
-     */
-    efficiency?: PerformanceMetrics;
+  /**
+   * Energy efficiency metrics and trends
+   *
+   * @generated from field: fleetperformance.v1.PerformanceMetrics efficiency = 3;
+   */
+  efficiency?: PerformanceMetrics;
 
-    /**
-     * Power usage metrics and trends
-     *
-     * @generated from field: fleetperformance.v1.PerformanceMetrics power_usage = 4;
-     */
-    powerUsage?: PerformanceMetrics;
+  /**
+   * Power usage metrics and trends
+   *
+   * @generated from field: fleetperformance.v1.PerformanceMetrics power_usage = 4;
+   */
+  powerUsage?: PerformanceMetrics;
 
-    /**
-     * Uptime metrics and trends
-     *
-     * @generated from field: fleetperformance.v1.PerformanceMetrics uptime = 5;
-     */
-    uptime?: PerformanceMetrics;
-  };
+  /**
+   * Uptime metrics and trends
+   *
+   * @generated from field: fleetperformance.v1.PerformanceMetrics uptime = 5;
+   */
+  uptime?: PerformanceMetrics;
+};
 
 /**
  * Describes the message fleetperformance.v1.FleetPerformance.
@@ -179,22 +163,21 @@ export const FleetOverviewSchema: GenMessage<FleetOverview> =
  *
  * @generated from message fleetperformance.v1.PerformanceMetrics
  */
-export type PerformanceMetrics =
-  Message<"fleetperformance.v1.PerformanceMetrics"> & {
-    /**
-     * Statistical summary of the performance metric
-     *
-     * @generated from field: repeated fleetperformance.v1.Stat stats = 1;
-     */
-    stats: Stat[];
+export type PerformanceMetrics = Message<"fleetperformance.v1.PerformanceMetrics"> & {
+  /**
+   * Statistical summary of the performance metric
+   *
+   * @generated from field: repeated fleetperformance.v1.Stat stats = 1;
+   */
+  stats: Stat[];
 
-    /**
-     * Time series data points for the performance metric
-     *
-     * @generated from field: repeated common.v1.Measurement data = 2;
-     */
-    data: Measurement[];
-  };
+  /**
+   * Time series data points for the performance metric
+   *
+   * @generated from field: repeated common.v1.Measurement data = 2;
+   */
+  data: Measurement[];
+};
 
 /**
  * Describes the message fleetperformance.v1.PerformanceMetrics.
@@ -255,25 +238,22 @@ export type Stat = Message<"fleetperformance.v1.Stat"> & {
  * Describes the message fleetperformance.v1.Stat.
  * Use `create(StatSchema)` to create a new message.
  */
-export const StatSchema: GenMessage<Stat> =
-  /*@__PURE__*/
-  messageDesc(file_fleetperformance_v1_fleetperformance, 5);
+export const StatSchema: GenMessage<Stat> = /*@__PURE__*/ messageDesc(file_fleetperformance_v1_fleetperformance, 5);
 
 /**
  * Request to stream fleet overview updates
  *
  * @generated from message fleetperformance.v1.StreamFleetOverviewRequest
  */
-export type StreamFleetOverviewRequest =
-  Message<"fleetperformance.v1.StreamFleetOverviewRequest"> & {
-    /**
-     * Optional heartbeat interval in seconds (0 means no heartbeats)
-     * Heartbeats help detect connection issues and keep streams alive
-     *
-     * @generated from field: int32 heartbeat_interval_seconds = 1;
-     */
-    heartbeatIntervalSeconds: number;
-  };
+export type StreamFleetOverviewRequest = Message<"fleetperformance.v1.StreamFleetOverviewRequest"> & {
+  /**
+   * Optional heartbeat interval in seconds (0 means no heartbeats)
+   * Heartbeats help detect connection issues and keep streams alive
+   *
+   * @generated from field: int32 heartbeat_interval_seconds = 1;
+   */
+  heartbeatIntervalSeconds: number;
+};
 
 /**
  * Describes the message fleetperformance.v1.StreamFleetOverviewRequest.
@@ -288,41 +268,40 @@ export const StreamFleetOverviewRequestSchema: GenMessage<StreamFleetOverviewReq
  *
  * @generated from message fleetperformance.v1.StreamFleetOverviewResponse
  */
-export type StreamFleetOverviewResponse =
-  Message<"fleetperformance.v1.StreamFleetOverviewResponse"> & {
-    /**
-     * Timestamp when this update was generated
-     *
-     * @generated from field: google.protobuf.Timestamp timestamp = 1;
-     */
-    timestamp?: Timestamp;
+export type StreamFleetOverviewResponse = Message<"fleetperformance.v1.StreamFleetOverviewResponse"> & {
+  /**
+   * Timestamp when this update was generated
+   *
+   * @generated from field: google.protobuf.Timestamp timestamp = 1;
+   */
+  timestamp?: Timestamp;
 
-    /**
-     * Type of update
-     *
-     * @generated from oneof fleetperformance.v1.StreamFleetOverviewResponse.update
-     */
-    update:
-      | {
-          /**
-           * Fleet overview status update
-           *
-           * @generated from field: fleetperformance.v1.FleetOverviewUpdate overview = 2;
-           */
-          value: FleetOverviewUpdate;
-          case: "overview";
-        }
-      | {
-          /**
-           * Heartbeat to keep connection alive (no data)
-           *
-           * @generated from field: fleetperformance.v1.Heartbeat heartbeat = 3;
-           */
-          value: Heartbeat;
-          case: "heartbeat";
-        }
-      | { case: undefined; value?: undefined };
-  };
+  /**
+   * Type of update
+   *
+   * @generated from oneof fleetperformance.v1.StreamFleetOverviewResponse.update
+   */
+  update:
+    | {
+        /**
+         * Fleet overview status update
+         *
+         * @generated from field: fleetperformance.v1.FleetOverviewUpdate overview = 2;
+         */
+        value: FleetOverviewUpdate;
+        case: "overview";
+      }
+    | {
+        /**
+         * Heartbeat to keep connection alive (no data)
+         *
+         * @generated from field: fleetperformance.v1.Heartbeat heartbeat = 3;
+         */
+        value: Heartbeat;
+        case: "heartbeat";
+      }
+    | { case: undefined; value?: undefined };
+};
 
 /**
  * Describes the message fleetperformance.v1.StreamFleetOverviewResponse.
@@ -337,15 +316,14 @@ export const StreamFleetOverviewResponseSchema: GenMessage<StreamFleetOverviewRe
  *
  * @generated from message fleetperformance.v1.FleetOverviewUpdate
  */
-export type FleetOverviewUpdate =
-  Message<"fleetperformance.v1.FleetOverviewUpdate"> & {
-    /**
-     * Updated fleet overview with current device status counts
-     *
-     * @generated from field: fleetperformance.v1.FleetOverview overview = 1;
-     */
-    overview?: FleetOverview;
-  };
+export type FleetOverviewUpdate = Message<"fleetperformance.v1.FleetOverviewUpdate"> & {
+  /**
+   * Updated fleet overview with current device status counts
+   *
+   * @generated from field: fleetperformance.v1.FleetOverview overview = 1;
+   */
+  overview?: FleetOverview;
+};
 
 /**
  * Describes the message fleetperformance.v1.FleetOverviewUpdate.
@@ -360,40 +338,39 @@ export const FleetOverviewUpdateSchema: GenMessage<FleetOverviewUpdate> =
  *
  * @generated from message fleetperformance.v1.StreamPerformanceMetricsRequest
  */
-export type StreamPerformanceMetricsRequest =
-  Message<"fleetperformance.v1.StreamPerformanceMetricsRequest"> & {
-    /**
-     * Types of performance metrics to stream
-     * If empty, streams all performance metric types
-     *
-     * @generated from field: repeated fleetperformance.v1.PerformanceMetricType metric_types = 1;
-     */
-    metricTypes: PerformanceMetricType[];
+export type StreamPerformanceMetricsRequest = Message<"fleetperformance.v1.StreamPerformanceMetricsRequest"> & {
+  /**
+   * Types of performance metrics to stream
+   * If empty, streams all performance metric types
+   *
+   * @generated from field: repeated fleetperformance.v1.PerformanceMetricType metric_types = 1;
+   */
+  metricTypes: PerformanceMetricType[];
 
-    /**
-     * Whether to include statistical summaries in updates
-     * If true, includes updated Stat arrays when statistics change
-     *
-     * @generated from field: bool include_stats = 2;
-     */
-    includeStats: boolean;
+  /**
+   * Whether to include statistical summaries in updates
+   * If true, includes updated Stat arrays when statistics change
+   *
+   * @generated from field: bool include_stats = 2;
+   */
+  includeStats: boolean;
 
-    /**
-     * Whether to include individual measurement data points
-     * If true, includes new Measurement data as it becomes available
-     *
-     * @generated from field: bool include_measurements = 3;
-     */
-    includeMeasurements: boolean;
+  /**
+   * Whether to include individual measurement data points
+   * If true, includes new Measurement data as it becomes available
+   *
+   * @generated from field: bool include_measurements = 3;
+   */
+  includeMeasurements: boolean;
 
-    /**
-     * Optional heartbeat interval in seconds (0 means no heartbeats)
-     * Heartbeats help detect connection issues and keep streams alive
-     *
-     * @generated from field: int32 heartbeat_interval_seconds = 4;
-     */
-    heartbeatIntervalSeconds: number;
-  };
+  /**
+   * Optional heartbeat interval in seconds (0 means no heartbeats)
+   * Heartbeats help detect connection issues and keep streams alive
+   *
+   * @generated from field: int32 heartbeat_interval_seconds = 4;
+   */
+  heartbeatIntervalSeconds: number;
+};
 
 /**
  * Describes the message fleetperformance.v1.StreamPerformanceMetricsRequest.
@@ -408,41 +385,40 @@ export const StreamPerformanceMetricsRequestSchema: GenMessage<StreamPerformance
  *
  * @generated from message fleetperformance.v1.StreamPerformanceMetricsResponse
  */
-export type StreamPerformanceMetricsResponse =
-  Message<"fleetperformance.v1.StreamPerformanceMetricsResponse"> & {
-    /**
-     * Timestamp when this update was generated
-     *
-     * @generated from field: google.protobuf.Timestamp timestamp = 1;
-     */
-    timestamp?: Timestamp;
+export type StreamPerformanceMetricsResponse = Message<"fleetperformance.v1.StreamPerformanceMetricsResponse"> & {
+  /**
+   * Timestamp when this update was generated
+   *
+   * @generated from field: google.protobuf.Timestamp timestamp = 1;
+   */
+  timestamp?: Timestamp;
 
-    /**
-     * Type of update
-     *
-     * @generated from oneof fleetperformance.v1.StreamPerformanceMetricsResponse.update
-     */
-    update:
-      | {
-          /**
-           * Performance metric update
-           *
-           * @generated from field: fleetperformance.v1.PerformanceMetricUpdate metric = 2;
-           */
-          value: PerformanceMetricUpdate;
-          case: "metric";
-        }
-      | {
-          /**
-           * Heartbeat to keep connection alive (no data)
-           *
-           * @generated from field: fleetperformance.v1.Heartbeat heartbeat = 3;
-           */
-          value: Heartbeat;
-          case: "heartbeat";
-        }
-      | { case: undefined; value?: undefined };
-  };
+  /**
+   * Type of update
+   *
+   * @generated from oneof fleetperformance.v1.StreamPerformanceMetricsResponse.update
+   */
+  update:
+    | {
+        /**
+         * Performance metric update
+         *
+         * @generated from field: fleetperformance.v1.PerformanceMetricUpdate metric = 2;
+         */
+        value: PerformanceMetricUpdate;
+        case: "metric";
+      }
+    | {
+        /**
+         * Heartbeat to keep connection alive (no data)
+         *
+         * @generated from field: fleetperformance.v1.Heartbeat heartbeat = 3;
+         */
+        value: Heartbeat;
+        case: "heartbeat";
+      }
+    | { case: undefined; value?: undefined };
+};
 
 /**
  * Describes the message fleetperformance.v1.StreamPerformanceMetricsResponse.
@@ -457,41 +433,40 @@ export const StreamPerformanceMetricsResponseSchema: GenMessage<StreamPerformanc
  *
  * @generated from message fleetperformance.v1.PerformanceMetricUpdate
  */
-export type PerformanceMetricUpdate =
-  Message<"fleetperformance.v1.PerformanceMetricUpdate"> & {
-    /**
-     * The type of performance metric being updated
-     *
-     * @generated from field: fleetperformance.v1.PerformanceMetricType metric_type = 1;
-     */
-    metricType: PerformanceMetricType;
+export type PerformanceMetricUpdate = Message<"fleetperformance.v1.PerformanceMetricUpdate"> & {
+  /**
+   * The type of performance metric being updated
+   *
+   * @generated from field: fleetperformance.v1.PerformanceMetricType metric_type = 1;
+   */
+  metricType: PerformanceMetricType;
 
-    /**
-     * Type of metric update
-     *
-     * @generated from oneof fleetperformance.v1.PerformanceMetricUpdate.update_type
-     */
-    updateType:
-      | {
-          /**
-           * Updated statistical summary
-           *
-           * @generated from field: fleetperformance.v1.StatsUpdate stats = 2;
-           */
-          value: StatsUpdate;
-          case: "stats";
-        }
-      | {
-          /**
-           * New measurement data point
-           *
-           * @generated from field: fleetperformance.v1.MeasurementUpdate measurement = 3;
-           */
-          value: MeasurementUpdate;
-          case: "measurement";
-        }
-      | { case: undefined; value?: undefined };
-  };
+  /**
+   * Type of metric update
+   *
+   * @generated from oneof fleetperformance.v1.PerformanceMetricUpdate.update_type
+   */
+  updateType:
+    | {
+        /**
+         * Updated statistical summary
+         *
+         * @generated from field: fleetperformance.v1.StatsUpdate stats = 2;
+         */
+        value: StatsUpdate;
+        case: "stats";
+      }
+    | {
+        /**
+         * New measurement data point
+         *
+         * @generated from field: fleetperformance.v1.MeasurementUpdate measurement = 3;
+         */
+        value: MeasurementUpdate;
+        case: "measurement";
+      }
+    | { case: undefined; value?: undefined };
+};
 
 /**
  * Describes the message fleetperformance.v1.PerformanceMetricUpdate.
@@ -528,15 +503,14 @@ export const StatsUpdateSchema: GenMessage<StatsUpdate> =
  *
  * @generated from message fleetperformance.v1.MeasurementUpdate
  */
-export type MeasurementUpdate =
-  Message<"fleetperformance.v1.MeasurementUpdate"> & {
-    /**
-     * New measurement data point
-     *
-     * @generated from field: common.v1.Measurement measurement = 1;
-     */
-    measurement?: Measurement;
-  };
+export type MeasurementUpdate = Message<"fleetperformance.v1.MeasurementUpdate"> & {
+  /**
+   * New measurement data point
+   *
+   * @generated from field: common.v1.Measurement measurement = 1;
+   */
+  measurement?: Measurement;
+};
 
 /**
  * Describes the message fleetperformance.v1.MeasurementUpdate.

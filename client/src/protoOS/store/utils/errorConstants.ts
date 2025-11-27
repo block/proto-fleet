@@ -70,27 +70,20 @@ export const errorMessageGenerators: Record<string, (d: any) => string> = {
   "00:0001": () => "Power supply failure to start",
   "00:0002": () => "Power supply overcurrent detected",
   "00:0003": () => "Power supply overpower detected",
-  "00:0004": (d) =>
-    `Power supply overvoltage detected: ${d?.voltage || "unknown"}V`,
-  "00:0005": (d) =>
-    `Power supply undervoltage detected: ${d?.voltage || "unknown"}V`,
-  "00:0006": (d) =>
-    `Communication lost with power supply ${d?.psu_index !== undefined ? `#${d.psu_index}` : ""}`,
+  "00:0004": (d) => `Power supply overvoltage detected: ${d?.voltage || "unknown"}V`,
+  "00:0005": (d) => `Power supply undervoltage detected: ${d?.voltage || "unknown"}V`,
+  "00:0006": (d) => `Communication lost with power supply ${d?.psu_index !== undefined ? `#${d.psu_index}` : ""}`,
   "00:0007": () => "PSU input power error",
-  "00:0008": (d) =>
-    `Power supply overtemperature: ${d?.temperature || "unknown"}°C`,
-  "00:0012": (d) =>
-    `Power supply undertemperature: ${d?.temperature || "unknown"}°C`,
+  "00:0008": (d) => `Power supply overtemperature: ${d?.temperature || "unknown"}°C`,
+  "00:0012": (d) => `Power supply undertemperature: ${d?.temperature || "unknown"}°C`,
   "00:0009": () => "Power supply has inconsistent readings",
-  "00:0010": (d) =>
-    `Power supply ${d?.psu_index !== undefined ? `#${d.psu_index}` : ""} not detected`,
+  "00:0010": (d) => `Power supply ${d?.psu_index !== undefined ? `#${d.psu_index}` : ""} not detected`,
   "00:0011": (d) => {
     const fault = d?.hardware_fault || "Unknown hardware fault";
     const recovery = d?.recovery_action || "Replace PSU";
     return `PSU fatal error: ${fault}. ${recovery}`;
   },
-  "00:0013": (d) =>
-    `Power supply ${d?.psu_index !== undefined ? `#${d.psu_index}` : ""} recovering from fault`,
+  "00:0013": (d) => `Power supply ${d?.psu_index !== undefined ? `#${d.psu_index}` : ""} recovering from fault`,
 
   // Fan Errors
   "01:0001": (d) =>
@@ -111,15 +104,12 @@ export const errorMessageGenerators: Record<string, (d: any) => string> = {
   // Control Board/System Errors
   "03:0001": () => "DHCP failure",
   "03:0002": () => "USB enumeration failure",
-  "03:0003": (d) =>
-    `USB dropouts detected: ${d?.dropout_count || "multiple"} dropouts`,
+  "03:0003": (d) => `USB dropouts detected: ${d?.dropout_count || "multiple"} dropouts`,
   "03:0004": () => "Telemetry failure",
   "03:0005": () => "Incorrect MCDD configuration",
-  "03:0007": (d) =>
-    `Kernel panic: ${d?.panic_message || "System crash detected"}`,
+  "03:0007": (d) => `Kernel panic: ${d?.panic_message || "System crash detected"}`,
   "03:0008": (d) => `High CPU usage: ${d?.cpu_usage || "unknown"}%`,
-  "03:0009": (d) =>
-    `Control board overheating: ${d?.temperature || "unknown"}°C`,
+  "03:0009": (d) => `Control board overheating: ${d?.temperature || "unknown"}°C`,
   "03:0010": () => "Ethernet link down",
   "03:0013": () => "Unable to connect to Memfault",
   "03:0014": (d) => `Firmware update: ${d?.version || "in progress"}`,
@@ -130,23 +120,16 @@ export const errorMessageGenerators: Record<string, (d: any) => string> = {
   "03:0006": (d) => `Pool connection lost: ${d?.pool_url || "unknown URL"}`,
 
   // Hashboard Errors
-  "04:0006": (d) =>
-    `Hashboard slot ${d?.hb_slot || "?"} overheating: ${d?.temperature || "unknown"}°C`,
-  "04:0007": (d) =>
-    `Hashboard slot ${d?.hb_slot || "?"} overvoltage: ${d?.voltage || "unknown"}V`,
-  "04:0008": (d) =>
-    `Hashboard slot ${d?.hb_slot || "?"} undervoltage: ${d?.voltage || "unknown"}V`,
-  "04:0009": (d) =>
-    `Hashboard slot ${d?.hb_slot || "?"} overcurrent: ${d?.current || "unknown"}A`,
+  "04:0006": (d) => `Hashboard slot ${d?.hb_slot || "?"} overheating: ${d?.temperature || "unknown"}°C`,
+  "04:0007": (d) => `Hashboard slot ${d?.hb_slot || "?"} overvoltage: ${d?.voltage || "unknown"}V`,
+  "04:0008": (d) => `Hashboard slot ${d?.hb_slot || "?"} undervoltage: ${d?.voltage || "unknown"}V`,
+  "04:0009": (d) => `Hashboard slot ${d?.hb_slot || "?"} overcurrent: ${d?.current || "unknown"}A`,
   "04:0011": (d) => `Hashboard slot ${d?.hb_slot || "?"} power lost`,
   "04:0015": (d) => `Hashboard slot ${d?.hb_slot || "?"} USB connection lost`,
-  "04:0010": (d) =>
-    `Hashboard slot ${d?.hb_slot || "?"} firmware update: ${d?.version || "in progress"}`,
-  "04:0012": (d) =>
-    `Hashboard slot ${d?.hb_slot || "?"} software error: ${d?.error || "unknown"}`,
+  "04:0010": (d) => `Hashboard slot ${d?.hb_slot || "?"} firmware update: ${d?.version || "in progress"}`,
+  "04:0012": (d) => `Hashboard slot ${d?.hb_slot || "?"} software error: ${d?.error || "unknown"}`,
   "04:0013": (d) => `Hashboard slot ${d?.hb_slot || "?"} unknown error`,
-  "04:0017": (d) =>
-    `Hashboard slot ${d?.hb_slot || "?"} recovering from overtemperature`,
+  "04:0017": (d) => `Hashboard slot ${d?.hb_slot || "?"} recovering from overtemperature`,
 
   // ASIC Errors
   "04:0001": (d) =>
@@ -166,8 +149,7 @@ export const errorMessageGenerators: Record<string, (d: any) => string> = {
 
   // System/Control Board Errors
   "03:0015": (d) => {
-    const types =
-      d?.hashboards?.map((hb: any) => hb.hb_type).join(", ") || "unknown";
+    const types = d?.hashboards?.map((hb: any) => hb.hb_type).join(", ") || "unknown";
     return `Incompatible hashboard types detected in the same bay: ${types}`;
   },
 };

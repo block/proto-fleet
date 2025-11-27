@@ -33,10 +33,7 @@ const FirmwareUpdateStatus = ({
   return (
     <div
       className={clsx("relative", {
-        hidden:
-          !updateStatus ||
-          updateStatus.status === "current" ||
-          firmwareStatusMessage === undefined,
+        hidden: !updateStatus || updateStatus.status === "current" || firmwareStatusMessage === undefined,
       })}
     >
       <FirmwareUpdateStatusWidget

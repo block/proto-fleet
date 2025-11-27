@@ -15,12 +15,7 @@ interface PoolInfoPopoverProps {
   poolsInfo?: Pool[];
 }
 
-const PoolInfoPopover = ({
-  isConnected,
-  onClickViewPools,
-  poolInfo,
-  poolsInfo,
-}: PoolInfoPopoverProps) => {
+const PoolInfoPopover = ({ isConnected, onClickViewPools, poolInfo, poolsInfo }: PoolInfoPopoverProps) => {
   const { title, subtitle, button, cardTitle } = getTexts({
     isConnected,
     index: poolInfo?.index,
@@ -42,10 +37,7 @@ const PoolInfoPopover = ({
       testId="pool-info-popover"
     >
       {poolInfo?.url && cardTitle && (
-        <Card
-          title={cardTitle}
-          type={isConnected ? cardType.success : cardType.warning}
-        >
+        <Card title={cardTitle} type={isConnected ? cardType.success : cardType.warning}>
           {isConnected ? (
             <PoolInfoRow
               index={poolInfo.index}

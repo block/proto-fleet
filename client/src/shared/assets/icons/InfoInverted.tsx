@@ -6,19 +6,8 @@ import { IconProps } from "./types";
 const InfoInverted = ({ className, width = iconSizes.medium }: IconProps) => {
   return (
     <div className={clsx(width, className)}>
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="100%"
-        height="100%"
-        viewBox="0 0 20 20"
-        fill="none"
-      >
-        <rect
-          width="62.5%"
-          height="62.5%"
-          className="fill-surface-base"
-          fillOpacity="0.01"
-        />
+      <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 20 20" fill="none">
+        <rect width="62.5%" height="62.5%" className="fill-surface-base" fillOpacity="0.01" />
         <path
           fillRule="evenodd"
           clipRule="evenodd"

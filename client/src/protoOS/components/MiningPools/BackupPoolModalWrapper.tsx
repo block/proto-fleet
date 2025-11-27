@@ -10,13 +10,7 @@ interface BackupPoolPropsWrapper {
   show: boolean;
 }
 
-const BackupPoolModalWrapper = ({
-  onChangePools,
-  onDismiss,
-  poolIndex,
-  pools,
-  show,
-}: BackupPoolPropsWrapper) => {
+const BackupPoolModalWrapper = ({ onChangePools, onDismiss, poolIndex, pools, show }: BackupPoolPropsWrapper) => {
   const { testConnection, pending: isTestingConnection } = useTestConnection();
 
   return (

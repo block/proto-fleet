@@ -43,13 +43,8 @@ export const getComponentTitle = (type: ComponentType): string => {
  * Maps error source to ComponentType
  * Note: ASIC errors are transformed to HASHBOARD in errorTransformer before reaching here
  */
-export function mapErrorSourceToComponentType(
-  source: ErrorSource,
-): ComponentType | null {
-  const mapping: Record<
-    Exclude<ErrorSource, "ASIC" | "POOL">,
-    ComponentType
-  > = {
+export function mapErrorSourceToComponentType(source: ErrorSource): ComponentType | null {
+  const mapping: Record<Exclude<ErrorSource, "ASIC" | "POOL">, ComponentType> = {
     HASHBOARD: "hashboard",
     PSU: "psu",
     FAN: "fan",
@@ -74,18 +69,14 @@ function transformMinerErrorToError(error: MinerError): ErrorData {
 /**
  * Get component metrics from telemetry data
  */
-function getComponentMetrics(
-  type: ComponentType,
-  telemetry: ComponentTelemetry,
-): ComponentMetric[] {
+function getComponentMetrics(type: ComponentType, telemetry: ComponentTelemetry): ComponentMetric[] {
   const metrics: ComponentMetric[] = [];
 
   switch (type) {
     case "fan":
       if (telemetry) {
         const rpm = (telemetry as FanTelemetryData).rpm?.latest?.value || 0;
-        const pwm =
-          (telemetry as FanTelemetryData).percentage?.latest?.value || 0;
+        const pwm = (telemetry as FanTelemetryData).percentage?.latest?.value || 0;
 
         metrics.push({
           label: `${pwm}% PWM`,
@@ -132,9 +123,7 @@ function getComponentMetrics(
           {
             label: "Hashrate",
             value: createElement(HashRateValue, {
-              value:
-                (telemetry as HashboardTelemetryData).hashrate?.latest?.value ||
-                0,
+              value: (telemetry as HashboardTelemetryData).hashrate?.latest?.value || 0,
             }),
           },
           {
@@ -146,25 +135,19 @@ function getComponentMetrics(
           {
             label: "ASIC Avg Temp",
             value: createElement(TemperatureValue, {
-              value:
-                (telemetry as HashboardTelemetryData).avgAsicTemp?.latest
-                  ?.value || 0,
+              value: (telemetry as HashboardTelemetryData).avgAsicTemp?.latest?.value || 0,
             }),
           },
           {
             label: "ASIC High Temp",
             value: createElement(TemperatureValue, {
-              value:
-                (telemetry as HashboardTelemetryData).maxAsicTemp?.latest
-                  ?.value || 0,
+              value: (telemetry as HashboardTelemetryData).maxAsicTemp?.latest?.value || 0,
             }),
           },
           {
             label: "Efficiency",
             value: createElement(EfficiencyValue, {
-              value:
-                (telemetry as HashboardTelemetryData).efficiency?.latest
-                  ?.value || 0,
+              value: (telemetry as HashboardTelemetryData).efficiency?.latest?.value || 0,
             }),
           },
         );
@@ -178,10 +161,7 @@ function getComponentMetrics(
 /**
  * Get component metadata from hardware data
  */
-function getComponentMetadata(
-  type: ComponentType,
-  hardware: ComponentHardware,
-): ComponentMetadata {
+function getComponentMetadata(type: ComponentType, hardware: ComponentHardware): ComponentMetadata {
   const metadata: ComponentMetadata = {};
 
   if (!hardware) return metadata;
@@ -250,9 +230,7 @@ export function transformErrorsForModal(
     componentName: getComponentDisplayName(error.source, error.componentIndex),
     message: error.message,
     timestamp: error.insertedAt,
-    onClick: onErrorClick
-      ? () => onErrorClick(error.source, error.componentIndex)
-      : undefined,
+    onClick: onErrorClick ? () => onErrorClick(error.source, error.componentIndex) : undefined,
   }));
 }
 

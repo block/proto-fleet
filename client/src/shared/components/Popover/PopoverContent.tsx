@@ -1,9 +1,6 @@
 import { MouseEvent, useRef } from "react";
 import clsx from "clsx";
-import ButtonGroup, {
-  groupVariants,
-  sizes,
-} from "@/shared/components/ButtonGroup";
+import ButtonGroup, { groupVariants, sizes } from "@/shared/components/ButtonGroup";
 import Header from "@/shared/components/Header";
 import { popoverSizes } from "@/shared/components/Popover/constants.ts";
 import { PopoverContentProps } from "@/shared/components/Popover/types";
@@ -52,21 +49,10 @@ const PopoverContent = ({
       onClick={handleClick}
     >
       {(title || subtitle) && (
-        <Header
-          title={title}
-          titleSize={titleSize}
-          subtitle={subtitle}
-          subtitleSize="text-300"
-        />
+        <Header title={title} titleSize={titleSize} subtitle={subtitle} subtitleSize="text-300" />
       )}
       {children}
-      {buttons && (
-        <ButtonGroup
-          buttons={buttons}
-          variant={buttonGroupVariant}
-          size={sizes.base}
-        />
-      )}
+      {buttons && <ButtonGroup buttons={buttons} variant={buttonGroupVariant} size={sizes.base} />}
     </div>
   );
 };

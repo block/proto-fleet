@@ -1,9 +1,4 @@
-import {
-  MemoryRouter,
-  NavigateFunction,
-  useLocation,
-  useNavigate,
-} from "react-router-dom";
+import { MemoryRouter, NavigateFunction, useLocation, useNavigate } from "react-router-dom";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TabMenu from "./TabMenu";
@@ -40,9 +35,7 @@ beforeEach(() => {
   };
 
   vi.mocked(useLocation).mockImplementation(mockUseLocation);
-  vi.mocked(useNavigate).mockImplementation(
-    () => mockNavigate as NavigateFunction,
-  );
+  vi.mocked(useNavigate).mockImplementation(() => mockNavigate as NavigateFunction);
 });
 
 describe("TabMenu", () => {
@@ -76,9 +69,7 @@ describe("TabMenu", () => {
     );
 
     const activeIndicator = screen.getByTestId("active-indicator");
-    const tab2 = screen
-      .getByText("Tab 2")
-      .closest("button") as HTMLButtonElement;
+    const tab2 = screen.getByText("Tab 2").closest("button") as HTMLButtonElement;
 
     // Initially, the first tab should be active
     expect(activeIndicator).toHaveStyle({
@@ -104,9 +95,7 @@ describe("TabMenu", () => {
       </MemoryRouter>,
     );
 
-    const tab2 = screen
-      .getByText("Tab 2")
-      .closest("button") as HTMLButtonElement;
+    const tab2 = screen.getByText("Tab 2").closest("button") as HTMLButtonElement;
 
     // Click on the second tab
     fireEvent.click(tab2);

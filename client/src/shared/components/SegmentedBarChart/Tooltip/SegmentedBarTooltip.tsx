@@ -17,9 +17,7 @@ const SegmentedBarTooltip = ({
 
   if (toolTipKey) {
     // Find the specific segment value
-    const segment = customPayload.segments?.find(
-      (seg: any) => seg.key === toolTipKey,
-    );
+    const segment = customPayload.segments?.find((seg: any) => seg.key === toolTipKey);
 
     if (!segment) {
       return null; // If the segment is not found, don't render the tooltip
@@ -31,8 +29,7 @@ const SegmentedBarTooltip = ({
         displayValue = `${Math.round(value)}%`;
       } else {
         const formatted = getDisplayValue(value);
-        displayValue =
-          formatted !== undefined ? `${formatted}${units}` : `${value}${units}`;
+        displayValue = formatted !== undefined ? `${formatted}${units}` : `${value}${units}`;
       }
     }
   } else {
@@ -42,8 +39,7 @@ const SegmentedBarTooltip = ({
       displayValue = "100%";
     } else {
       const formatted = getDisplayValue(total);
-      displayValue =
-        formatted !== undefined ? `${formatted}${units}` : `${total}${units}`;
+      displayValue = formatted !== undefined ? `${formatted}${units}` : `${total}${units}`;
     }
   }
 

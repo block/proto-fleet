@@ -16,11 +16,7 @@ interface ThemeSwitcherProps {
   setTheme: (theme: Theme) => void;
 }
 
-const ThemeSwitcher = ({
-  onClickDone,
-  theme,
-  setTheme,
-}: ThemeSwitcherProps) => {
+const ThemeSwitcher = ({ onClickDone, theme, setTheme }: ThemeSwitcherProps) => {
   const handleChange = useCallback(
     (id: string, isSelected: boolean) => {
       const newTheme = id as Theme;
@@ -54,10 +50,7 @@ const ThemeSwitcher = ({
             isSelected={theme === "system"}
             onChange={handleChange}
             prefixIcon={
-              <div
-                className="rounded-lg bg-surface-5 p-[6px]"
-                data-theme={theme}
-              >
+              <div className="rounded-lg bg-surface-5 p-[6px]" data-theme={theme}>
                 <ThemeSystem className="text-text-primary-70" />
               </div>
             }
@@ -69,10 +62,7 @@ const ThemeSwitcher = ({
             isSelected={theme === "light"}
             onChange={handleChange}
             prefixIcon={
-              <div
-                className="rounded-lg bg-surface-5 p-[6px]"
-                data-theme={"light"}
-              >
+              <div className="rounded-lg bg-surface-5 p-[6px]" data-theme={"light"}>
                 <ThemeLight className="text-text-primary-70" />
               </div>
             }
@@ -84,10 +74,7 @@ const ThemeSwitcher = ({
             isSelected={theme === "dark"}
             onChange={handleChange}
             prefixIcon={
-              <div
-                className="rounded-lg bg-surface-5 p-[6px]"
-                data-theme={"dark"}
-              >
+              <div className="rounded-lg bg-surface-5 p-[6px]" data-theme={"dark"}>
                 <ThemeDark className="text-text-primary-70" />
               </div>
             }

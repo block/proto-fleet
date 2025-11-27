@@ -6,13 +6,7 @@ import NavigationMenuComponent from ".";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
 
 export const NavigationMenu = () => {
-  return (
-    <NavigationMenuComponent
-      items={primaryNavItems}
-      isVisible={true}
-      closeMenu={action("close menu")}
-    />
-  );
+  return <NavigationMenuComponent items={primaryNavItems} isVisible={true} closeMenu={action("close menu")} />;
 };
 
 export default {

@@ -38,9 +38,7 @@ const useHashboards = () => {
     const hashboardSerials: string[] = [];
     data?.forEach((hb) => {
       if (hb.hb_sn && hb.slot) {
-        const existingHashboard = useMinerStore
-          .getState()
-          .hardware.getHashboard(hb.hb_sn);
+        const existingHashboard = useMinerStore.getState().hardware.getHashboard(hb.hb_sn);
         if (!existingHashboard) {
           useMinerStore.getState().hardware.addHashboard({
             serial: hb.hb_sn,

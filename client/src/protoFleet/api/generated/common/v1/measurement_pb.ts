@@ -2,17 +2,10 @@
 // @generated from file common/v1/measurement.proto (package common.v1, syntax proto3)
 /* eslint-disable */
 
-import type {
-  GenEnum,
-  GenFile,
-  GenMessage,
-} from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Duration, Timestamp } from "@bufbuild/protobuf/wkt";
-import {
-  file_google_protobuf_duration,
-  file_google_protobuf_timestamp,
-} from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_duration, file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
@@ -57,9 +50,7 @@ export type Measurement = Message<"common.v1.Measurement"> & {
  * Describes the message common.v1.Measurement.
  * Use `create(MeasurementSchema)` to create a new message.
  */
-export const MeasurementSchema: GenMessage<Measurement> =
-  /*@__PURE__*/
-  messageDesc(file_common_v1_measurement, 0);
+export const MeasurementSchema: GenMessage<Measurement> = /*@__PURE__*/ messageDesc(file_common_v1_measurement, 0);
 
 /**
  * Configuration for time series data retrieval
@@ -134,9 +125,7 @@ export type TimeInterval = Message<"common.v1.TimeInterval"> & {
  * Describes the message common.v1.TimeInterval.
  * Use `create(TimeIntervalSchema)` to create a new message.
  */
-export const TimeIntervalSchema: GenMessage<TimeInterval> =
-  /*@__PURE__*/
-  messageDesc(file_common_v1_measurement, 2);
+export const TimeIntervalSchema: GenMessage<TimeInterval> = /*@__PURE__*/ messageDesc(file_common_v1_measurement, 2);
 
 /**
  * Standard units used throughout the API
@@ -204,6 +193,4 @@ export enum MeasurementUnit {
 /**
  * Describes the enum common.v1.MeasurementUnit.
  */
-export const MeasurementUnitSchema: GenEnum<MeasurementUnit> =
-  /*@__PURE__*/
-  enumDesc(file_common_v1_measurement, 0);
+export const MeasurementUnitSchema: GenEnum<MeasurementUnit> = /*@__PURE__*/ enumDesc(file_common_v1_measurement, 0);

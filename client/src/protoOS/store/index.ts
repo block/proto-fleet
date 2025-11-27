@@ -30,11 +30,7 @@ export type {
 } from "./types";
 
 // Utilities
-export {
-  convertValueUnits,
-  formatValue,
-  convertAndFormatMeasurement,
-} from "./utils/telemetryUtils";
+export { convertValueUnits, formatValue, convertAndFormatMeasurement } from "./utils/telemetryUtils";
 
 export { getAsicId } from "./utils/getAsicId";
 export { getAsicName } from "./utils/getAsicName";

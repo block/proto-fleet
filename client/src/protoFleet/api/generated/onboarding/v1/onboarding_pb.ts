@@ -2,16 +2,8 @@
 // @generated from file onboarding/v1/onboarding.proto (package onboarding.v1, syntax proto3)
 /* eslint-disable */
 
-import type {
-  GenFile,
-  GenMessage,
-  GenService,
-} from "@bufbuild/protobuf/codegenv2";
-import {
-  fileDesc,
-  messageDesc,
-  serviceDesc,
-} from "@bufbuild/protobuf/codegenv2";
+import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
@@ -26,18 +18,17 @@ export const file_onboarding_v1_onboarding: GenFile =
 /**
  * @generated from message onboarding.v1.CreateAdminLoginRequest
  */
-export type CreateAdminLoginRequest =
-  Message<"onboarding.v1.CreateAdminLoginRequest"> & {
-    /**
-     * @generated from field: string username = 1;
-     */
-    username: string;
+export type CreateAdminLoginRequest = Message<"onboarding.v1.CreateAdminLoginRequest"> & {
+  /**
+   * @generated from field: string username = 1;
+   */
+  username: string;
 
-    /**
-     * @generated from field: string password = 2;
-     */
-    password: string;
-  };
+  /**
+   * @generated from field: string password = 2;
+   */
+  password: string;
+};
 
 /**
  * Describes the message onboarding.v1.CreateAdminLoginRequest.
@@ -50,13 +41,12 @@ export const CreateAdminLoginRequestSchema: GenMessage<CreateAdminLoginRequest> 
 /**
  * @generated from message onboarding.v1.CreateAdminLoginResponse
  */
-export type CreateAdminLoginResponse =
-  Message<"onboarding.v1.CreateAdminLoginResponse"> & {
-    /**
-     * @generated from field: string user_id = 1;
-     */
-    userId: string;
-  };
+export type CreateAdminLoginResponse = Message<"onboarding.v1.CreateAdminLoginResponse"> & {
+  /**
+   * @generated from field: string user_id = 1;
+   */
+  userId: string;
+};
 
 /**
  * Describes the message onboarding.v1.CreateAdminLoginResponse.
@@ -69,8 +59,7 @@ export const CreateAdminLoginResponseSchema: GenMessage<CreateAdminLoginResponse
 /**
  * @generated from message onboarding.v1.GetFleetOnboardingStatusRequest
  */
-export type GetFleetOnboardingStatusRequest =
-  Message<"onboarding.v1.GetFleetOnboardingStatusRequest"> & {};
+export type GetFleetOnboardingStatusRequest = Message<"onboarding.v1.GetFleetOnboardingStatusRequest"> & {};
 
 /**
  * Describes the message onboarding.v1.GetFleetOnboardingStatusRequest.
@@ -83,13 +72,12 @@ export const GetFleetOnboardingStatusRequestSchema: GenMessage<GetFleetOnboardin
 /**
  * @generated from message onboarding.v1.GetFleetOnboardingStatusResponse
  */
-export type GetFleetOnboardingStatusResponse =
-  Message<"onboarding.v1.GetFleetOnboardingStatusResponse"> & {
-    /**
-     * @generated from field: onboarding.v1.FleetOnboardingStatus status = 1;
-     */
-    status?: FleetOnboardingStatus;
-  };
+export type GetFleetOnboardingStatusResponse = Message<"onboarding.v1.GetFleetOnboardingStatusResponse"> & {
+  /**
+   * @generated from field: onboarding.v1.FleetOnboardingStatus status = 1;
+   */
+  status?: FleetOnboardingStatus;
+};
 
 /**
  * Describes the message onboarding.v1.GetFleetOnboardingStatusResponse.
@@ -102,23 +90,22 @@ export const GetFleetOnboardingStatusResponseSchema: GenMessage<GetFleetOnboardi
 /**
  * @generated from message onboarding.v1.FleetOnboardingStatus
  */
-export type FleetOnboardingStatus =
-  Message<"onboarding.v1.FleetOnboardingStatus"> & {
-    /**
-     * @generated from field: bool pool_configured = 1;
-     */
-    poolConfigured: boolean;
+export type FleetOnboardingStatus = Message<"onboarding.v1.FleetOnboardingStatus"> & {
+  /**
+   * @generated from field: bool pool_configured = 1;
+   */
+  poolConfigured: boolean;
 
-    /**
-     * @generated from field: bool device_paired = 2;
-     */
-    devicePaired: boolean;
+  /**
+   * @generated from field: bool device_paired = 2;
+   */
+  devicePaired: boolean;
 
-    /**
-     * @generated from field: bool admin_created = 3;
-     */
-    adminCreated: boolean;
-  };
+  /**
+   * @generated from field: bool admin_created = 3;
+   */
+  adminCreated: boolean;
+};
 
 /**
  * Describes the message onboarding.v1.FleetOnboardingStatus.

@@ -21,9 +21,7 @@ export const Popover = ({ hasSubtitle, numberOfButtons }: PopoverProps) => {
 
   return (
     <div ref={triggerRef}>
-      <button onClick={() => setShowPopover((prev) => !prev)}>
-        Show Popover
-      </button>
+      <button onClick={() => setShowPopover((prev) => !prev)}>Show Popover</button>
       {showPopover && (
         <PopoverComponent
           title="Title"

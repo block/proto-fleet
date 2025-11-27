@@ -21,11 +21,7 @@ type HashboardSelectorItemProps = {
   onClick: () => void;
 };
 
-const HashboardSelectorItem = ({
-  slot,
-  onClick,
-  selected,
-}: HashboardSelectorItemProps) => {
+const HashboardSelectorItem = ({ slot, onClick, selected }: HashboardSelectorItemProps) => {
   const colorVariable = slot ? getHashboardColor(slot) : "";
   const color = useCssVariable(colorVariable);
   const variant = selected ? variants.secondary : variants.ghost;
@@ -38,13 +34,7 @@ const HashboardSelectorItem = ({
           size={sizes.compact}
           variant={variant}
           className={getButtonClassName(selected)}
-          prefixIcon={
-            <Circle
-              className={clsx("mr-1")}
-              width={"w-2"}
-              style={{ background: color }}
-            />
-          }
+          prefixIcon={<Circle className={clsx("mr-1")} width={"w-2"} style={{ background: color }} />}
           text={slot ? slot.toString() : ""}
           onClick={onClick}
         />
@@ -78,18 +68,12 @@ const HashboardSelector = ({
 
   const handleAllHashboardsClick = () => {
     const hashboardLines = chartLines.filter((key) => key !== aggregateKey);
-    const activeHashboardLines = activeChartLines.filter(
-      (key) => key !== aggregateKey,
-    );
+    const activeHashboardLines = activeChartLines.filter((key) => key !== aggregateKey);
 
     if (activeHashboardLines.length === hashboardLines.length) {
-      setActiveChartLines(
-        activeChartLines.filter((key) => hashboardLines.indexOf(key) === -1),
-      );
+      setActiveChartLines(activeChartLines.filter((key) => hashboardLines.indexOf(key) === -1));
     } else {
-      setActiveChartLines([
-        ...new Set([...activeChartLines, ...hashboardLines]),
-      ]);
+      setActiveChartLines([...new Set([...activeChartLines, ...hashboardLines])]);
     }
   };
 
@@ -106,8 +90,7 @@ const HashboardSelector = ({
 
   // Check if every hashboard in hashboardLines is in activeChartLines
   const allHashboardsSelected =
-    hashboardLines.length > 0 &&
-    hashboardLines.every((line) => activeChartLines.includes(line));
+    hashboardLines.length > 0 && hashboardLines.every((line) => activeChartLines.includes(line));
 
   const summarySelected = activeChartLines.includes(aggregateKey);
 

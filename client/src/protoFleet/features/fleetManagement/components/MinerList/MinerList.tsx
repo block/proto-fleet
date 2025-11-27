@@ -29,10 +29,7 @@ import {
 
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
-import {
-  ActiveFilters,
-  FilterItem,
-} from "@/shared/components/List/Filters/types";
+import { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
 import { Breakpoint } from "@/shared/constants/breakpoints";
 
 type MinerListProps = {
@@ -76,16 +73,10 @@ const MinerList = ({
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  const deviceItems: DeviceListItem[] = useMemo(
-    () => minerIds.map((id) => ({ deviceIdentifier: id })),
-    [minerIds],
-  );
+  const deviceItems: DeviceListItem[] = useMemo(() => minerIds.map((id) => ({ deviceIdentifier: id })), [minerIds]);
 
   // Parse URL params to get initial active filters
-  const initialActiveFilters = useMemo(
-    () => parseUrlToActiveFilters(searchParams),
-    [searchParams],
-  );
+  const initialActiveFilters = useMemo(() => parseUrlToActiveFilters(searchParams), [searchParams]);
 
   const filters = useMemo(() => {
     return [
@@ -205,12 +196,7 @@ const MinerList = ({
     <>
       <div className="sticky left-0 flex items-center justify-between text-heading-300 phone:px-6 tablet:px-6 laptop:px-10 desktop:px-10">
         <h2 className="text-heading-300">{title}</h2>
-        <Button
-          text="Add miners"
-          variant={variants.secondary}
-          size={sizes.compact}
-          onClick={onAddMiners}
-        />
+        <Button text="Add miners" variant={variants.secondary} size={sizes.compact} onClick={onAddMiners} />
       </div>
 
       <List<DeviceListItem, string, MinerColumn>
@@ -224,10 +210,7 @@ const MinerList = ({
         itemSelectable
         renderActionBar={(selectedItems, clearSelection) => (
           <div className="flex w-full justify-center">
-            <MinerListActionBar
-              selectedMiners={selectedItems}
-              onClearSelection={clearSelection}
-            />
+            <MinerListActionBar selectedMiners={selectedItems} onClearSelection={clearSelection} />
           </div>
         )}
         containerClassName={listClassName}

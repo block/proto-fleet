@@ -21,12 +21,7 @@ export const PowerWidget = () => {
   return (
     <div className="flex w-96 justify-end">
       <PopoverProvider>
-        <PowerWidgetComponent
-          shouldShowPopover
-          onReboot={handleReboot}
-          onSleep={handleSleep}
-          onWake={handleWake}
-        />
+        <PowerWidgetComponent shouldShowPopover onReboot={handleReboot} onSleep={handleSleep} onWake={handleWake} />
       </PopoverProvider>
     </div>
   );

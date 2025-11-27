@@ -3,9 +3,7 @@ import { ComponentType, ReactNode, useState } from "react";
 import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 
-import NavigationMenu, {
-  NavigationMenuType,
-} from "@/protoOS/components/NavigationMenu";
+import NavigationMenu, { NavigationMenuType } from "@/protoOS/components/NavigationMenu";
 
 import PageHeader from "@/protoOS/components/PageHeader";
 import {
@@ -71,11 +69,7 @@ const AppLayout = ({
         />
       </div>
       <div className="w-full">
-        <PageHeader
-          title={title}
-          openMenu={() => setIsMenuOpen(true)}
-          customButtons={customHeaderButtons}
-        />
+        <PageHeader title={title} openMenu={() => setIsMenuOpen(true)} customButtons={customHeaderButtons} />
         <div className="relative w-full pt-[60px] pl-60 phone:pt-[100px] phone:pl-0 tablet:pt-[100px] tablet:pl-0">
           <ErrorBoundary>
             <ContentLayout>{children}</ContentLayout>

@@ -10,20 +10,13 @@ interface ChipProps {
 }
 
 const Chip = ({ loading, prefixIcon, children, onClick }: ChipProps) => {
-  const prefix = loading ? (
-    <ProgressCircular indeterminate size={16} />
-  ) : (
-    prefixIcon
-  );
+  const prefix = loading ? <ProgressCircular indeterminate size={16} /> : prefixIcon;
 
   return (
     <div
-      className={clsx(
-        "flex w-fit items-center rounded border border-border-5 px-2 py-1",
-        {
-          "cursor-pointer": onClick,
-        },
-      )}
+      className={clsx("flex w-fit items-center rounded border border-border-5 px-2 py-1", {
+        "cursor-pointer": onClick,
+      })}
       onClick={() => onClick && onClick()}
     >
       {prefix}

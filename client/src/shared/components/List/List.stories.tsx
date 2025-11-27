@@ -3,13 +3,7 @@ import ListComponent from ".";
 import { defaultListFilter } from "@/shared/components/List/constants";
 import { ActiveFilters } from "@/shared/components/List/Filters/types";
 import testColConfig from "@/shared/components/List/mocks/colConfig";
-import {
-  testCols,
-  testColTitles,
-  testFilters,
-  TestItem,
-  testItems,
-} from "@/shared/components/List/mocks/data";
+import { testCols, testColTitles, testFilters, TestItem, testItems } from "@/shared/components/List/mocks/data";
 import Switch from "@/shared/components/Switch";
 
 interface ListArgs {
@@ -20,12 +14,7 @@ interface ListArgs {
   disabled: boolean;
 }
 
-const activeCols = [
-  testCols.name,
-  testCols.status,
-  testCols.value,
-  testCols.timestamp,
-] as (keyof TestItem)[];
+const activeCols = [testCols.name, testCols.status, testCols.value, testCols.timestamp] as (keyof TestItem)[];
 
 const actions = [
   {
@@ -42,21 +31,13 @@ const actions = [
   },
 ];
 
-export const List = ({
-  numberOfItems,
-  numberOfColumns,
-  numberOfItemActions,
-  itemSelectable,
-  disabled,
-}: ListArgs) => {
+export const List = ({ numberOfItems, numberOfColumns, numberOfItemActions, itemSelectable, disabled }: ListArgs) => {
   // Filter function that supports both button and dropdown filters
   const filterItem = (item: TestItem, filters: ActiveFilters) => {
     // Check button filters first
     if (!filters.buttonFilters.includes(defaultListFilter)) {
       // If "all" isn't selected, item must match at least one active filter
-      const matchesStatus = filters.buttonFilters.some(
-        (filter) => item.status === filter,
-      );
+      const matchesStatus = filters.buttonFilters.some((filter) => item.status === filter);
 
       if (!matchesStatus) {
         return false;
@@ -69,10 +50,7 @@ export const List = ({
 
       if (valueRange.includes("low") && item.value > 200) {
         return false;
-      } else if (
-        valueRange.includes("medium") &&
-        (item.value <= 200 || item.value > 400)
-      ) {
+      } else if (valueRange.includes("medium") && (item.value <= 200 || item.value > 400)) {
         return false;
       } else if (valueRange.includes("high") && item.value <= 400) {
         return false;
@@ -90,18 +68,13 @@ export const List = ({
       filters={testFilters}
       filterItem={filterItem}
       headerControls={<Switch label="Show passwords" />}
-      items={[...testItems, ...testItems, ...testItems, ...testItems].slice(
-        0,
-        numberOfItems,
-      )}
+      items={[...testItems, ...testItems, ...testItems, ...testItems].slice(0, numberOfItems)}
       itemKey="id"
       actions={actions.slice(0, numberOfItemActions)}
       itemSelectable={itemSelectable}
       disabled={disabled}
       noDataElement={
-        <div className="flex h-64 w-full items-center justify-center rounded-2xl bg-core-primary-5">
-          No data found
-        </div>
+        <div className="flex h-64 w-full items-center justify-center rounded-2xl bg-core-primary-5">No data found</div>
       }
     />
   );

@@ -9,8 +9,7 @@ const meta: Meta<typeof FleetHealth> = {
     layout: "centered",
     docs: {
       description: {
-        component:
-          "Displays fleet health statistics with a composition bar visualization",
+        component: "Displays fleet health statistics with a composition bar visualization",
       },
     },
   },

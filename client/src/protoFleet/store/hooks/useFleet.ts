@@ -5,35 +5,27 @@ import { useFleetStore } from "../useFleetStore";
 // Fleet State Selectors
 // =============================================================================
 
-export const useMiner = (deviceId: string) =>
-  useFleetStore((state) => state.fleet.miners[deviceId]);
+export const useMiner = (deviceId: string) => useFleetStore((state) => state.fleet.miners[deviceId]);
 
 export const useMinerIds = () => useFleetStore((state) => state.fleet.minerIds);
 
-export const useTotalMiners = () =>
-  useFleetStore((state) => state.fleet.totalMiners);
+export const useTotalMiners = () => useFleetStore((state) => state.fleet.totalMiners);
 
-export const useDeviceStatusCounts = () =>
-  useFleetStore((state) => state.fleet.deviceStatusCounts);
+export const useDeviceStatusCounts = () => useFleetStore((state) => state.fleet.deviceStatusCounts);
 
-export const useTemperatureStatusCounts = () =>
-  useFleetStore((state) => state.fleet.temperatureStatusCounts);
+export const useTemperatureStatusCounts = () => useFleetStore((state) => state.fleet.temperatureStatusCounts);
 
-export const useFleetMiners = () =>
-  useFleetStore(useShallow((state) => state.fleet.getMinersArray()));
+export const useFleetMiners = () => useFleetStore(useShallow((state) => state.fleet.getMinersArray()));
 
-export const useIsLoading = () =>
-  useFleetStore((state) => state.fleet.isLoading);
+export const useIsLoading = () => useFleetStore((state) => state.fleet.isLoading);
 
-export const useIsStreaming = () =>
-  useFleetStore((state) => state.fleet.isStreaming);
+export const useIsStreaming = () => useFleetStore((state) => state.fleet.isStreaming);
 
 // =============================================================================
 // Property-specific selectors for surgical updates
 // =============================================================================
 
-export const useMinerName = (deviceId: string) =>
-  useFleetStore((state) => state.fleet.miners[deviceId]?.name);
+export const useMinerName = (deviceId: string) => useFleetStore((state) => state.fleet.miners[deviceId]?.name);
 
 export const useMinerMacAddress = (deviceId: string) =>
   useFleetStore((state) => state.fleet.miners[deviceId]?.macAddress);
@@ -71,57 +63,40 @@ export const useMinerTemperature = (deviceId: string) =>
     return state.fleet.isHashing(deviceId) ? miner?.temperature : undefined;
   });
 
-export const useMinerUrl = (deviceId: string) =>
-  useFleetStore((state) => state.fleet.miners[deviceId]?.url);
+export const useMinerUrl = (deviceId: string) => useFleetStore((state) => state.fleet.miners[deviceId]?.url);
 
 // =============================================================================
 // Fleet Action Selectors
 // =============================================================================
 
-export const useSetMiners = () =>
-  useFleetStore((state) => state.fleet.setMiners);
+export const useSetMiners = () => useFleetStore((state) => state.fleet.setMiners);
 
-export const useAppendMiners = () =>
-  useFleetStore((state) => state.fleet.appendMiners);
+export const useAppendMiners = () => useFleetStore((state) => state.fleet.appendMiners);
 
-export const useSetTotalMiners = () =>
-  useFleetStore((state) => state.fleet.setTotalMiners);
+export const useSetTotalMiners = () => useFleetStore((state) => state.fleet.setTotalMiners);
 
-export const useSetDeviceStatusCounts = () =>
-  useFleetStore((state) => state.fleet.setDeviceStatusCounts);
+export const useSetDeviceStatusCounts = () => useFleetStore((state) => state.fleet.setDeviceStatusCounts);
 
-export const useSetTemperatureStatusCounts = () =>
-  useFleetStore((state) => state.fleet.setTemperatureStatusCounts);
+export const useSetTemperatureStatusCounts = () => useFleetStore((state) => state.fleet.setTemperatureStatusCounts);
 
-export const useSetRefetchCallback = () =>
-  useFleetStore((state) => state.fleet.setRefetchCallback);
+export const useSetRefetchCallback = () => useFleetStore((state) => state.fleet.setRefetchCallback);
 
-export const useUpdateMinerMeasurement = () =>
-  useFleetStore((state) => state.fleet.updateMinerMeasurement);
+export const useUpdateMinerMeasurement = () => useFleetStore((state) => state.fleet.updateMinerMeasurement);
 
-export const useUpdateMinerTelemetry = () =>
-  useFleetStore((state) => state.fleet.updateMinerTelemetry);
+export const useUpdateMinerTelemetry = () => useFleetStore((state) => state.fleet.updateMinerTelemetry);
 
-export const useUpdateMinerComponentStatus = () =>
-  useFleetStore((state) => state.fleet.updateMinerComponentStatus);
+export const useUpdateMinerComponentStatus = () => useFleetStore((state) => state.fleet.updateMinerComponentStatus);
 
-export const useUpdateMinerDeviceStatus = () =>
-  useFleetStore((state) => state.fleet.updateMinerDeviceStatus);
+export const useUpdateMinerDeviceStatus = () => useFleetStore((state) => state.fleet.updateMinerDeviceStatus);
 
-export const useUpdateMinerTimestamp = () =>
-  useFleetStore((state) => state.fleet.updateMinerTimestamp);
+export const useUpdateMinerTimestamp = () => useFleetStore((state) => state.fleet.updateMinerTimestamp);
 
-export const useSetLoading = () =>
-  useFleetStore((state) => state.fleet.setLoading);
+export const useSetLoading = () => useFleetStore((state) => state.fleet.setLoading);
 
-export const useSetStreaming = () =>
-  useFleetStore((state) => state.fleet.setStreaming);
+export const useSetStreaming = () => useFleetStore((state) => state.fleet.setStreaming);
 
-export const useSetCursor = () =>
-  useFleetStore((state) => state.fleet.setCursor);
+export const useSetCursor = () => useFleetStore((state) => state.fleet.setCursor);
 
-export const useLastPairingCompletedAt = () =>
-  useFleetStore((state) => state.fleet.lastPairingCompletedAt);
+export const useLastPairingCompletedAt = () => useFleetStore((state) => state.fleet.lastPairingCompletedAt);
 
-export const useNotifyPairingCompleted = () =>
-  useFleetStore((state) => state.fleet.notifyPairingCompleted);
+export const useNotifyPairingCompleted = () => useFleetStore((state) => state.fleet.notifyPairingCompleted);

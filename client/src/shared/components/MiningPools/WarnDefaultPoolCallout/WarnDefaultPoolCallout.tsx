@@ -1,20 +1,14 @@
 import clsx from "clsx";
 
 import { Info } from "@/shared/assets/icons";
-import {
-  DismissibleCalloutWrapper,
-  intents,
-} from "@/shared/components/Callout";
+import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
 
 interface WarnDefaultPoolCalloutProps {
   onDismiss: () => void;
   show: boolean;
 }
 
-const WarnDefaultPoolCallout = ({
-  onDismiss,
-  show,
-}: WarnDefaultPoolCalloutProps) => {
+const WarnDefaultPoolCallout = ({ onDismiss, show }: WarnDefaultPoolCalloutProps) => {
   return (
     <DismissibleCalloutWrapper
       className={clsx({ "mb-10!": show })}

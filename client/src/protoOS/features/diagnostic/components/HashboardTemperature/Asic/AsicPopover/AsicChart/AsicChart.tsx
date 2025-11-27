@@ -2,19 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Line, LineChart, Tooltip, XAxis } from "recharts";
 
 import AsicChartTooltip, { TooltipData } from "./AsicChartTooltip";
-import {
-  hashrateLineProps,
-  nullLineProps,
-  temperatureLineProps,
-} from "./constants";
+import { hashrateLineProps, nullLineProps, temperatureLineProps } from "./constants";
 import { getChartData } from "./utility";
-import {
-  ChartWrapper,
-  LineCursor,
-  LineDot,
-  TimeXAxisTick,
-  xAxisProps,
-} from "@/shared/components/Chart";
+import { ChartWrapper, LineCursor, LineDot, TimeXAxisTick, xAxisProps } from "@/shared/components/Chart";
 import { ChartData } from "@/shared/components/LineChart/types";
 
 const ANIMATION_DURATION = 500;
@@ -72,21 +62,11 @@ const AsicChart = ({ hashrateData, temperatureData }: AsicChartProps) => {
         />
         <Tooltip
           position={{ y: tooltipData.y - 150, x: tooltipData.x - 90 }}
-          content={
-            <AsicChartTooltip
-              onHover={setTooltipData}
-              tooltipData={tooltipData}
-            />
-          }
+          content={<AsicChartTooltip onHover={setTooltipData} tooltipData={tooltipData} />}
           cursor={<LineCursor />}
           isAnimationActive={false}
         />
-        <Line
-          {...hashrateLineProps}
-          {...nullLineProps}
-          activeDot={<></>}
-          strokeOpacity={0.5}
-        />
+        <Line {...hashrateLineProps} {...nullLineProps} activeDot={<></>} strokeOpacity={0.5} />
         <Line
           {...hashrateLineProps}
           activeDot={
@@ -99,12 +79,7 @@ const AsicChart = ({ hashrateData, temperatureData }: AsicChartProps) => {
           isAnimationActive={shouldAnimate}
           animationDuration={ANIMATION_DURATION}
         />
-        <Line
-          {...temperatureLineProps}
-          {...nullLineProps}
-          activeDot={<></>}
-          strokeOpacity={0.5}
-        />
+        <Line {...temperatureLineProps} {...nullLineProps} activeDot={<></>} strokeOpacity={0.5} />
         <Line
           {...temperatureLineProps}
           activeDot={

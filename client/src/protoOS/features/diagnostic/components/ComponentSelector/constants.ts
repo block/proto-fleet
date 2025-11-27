@@ -1,10 +1,4 @@
-export const components = [
-  "all",
-  "fans",
-  "hashboards",
-  "psus",
-  "controlBoard",
-] as const;
+export const components = ["all", "fans", "hashboards", "psus", "controlBoard"] as const;
 
 export const componentLabels: Record<(typeof components)[number], string> = {
   all: "All",

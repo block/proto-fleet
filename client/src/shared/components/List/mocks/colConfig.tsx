@@ -49,9 +49,7 @@ const testColConfig: ColConfig<TestItem, TestItem["id"]> = {
   },
   [testCols.timestamp]: {
     component: (item: TestItem) => (
-      <div className="text-text-primary-50">
-        {getRelativeTimeFromEpoch(item.timestamp)}
-      </div>
+      <div className="text-text-primary-50">{getRelativeTimeFromEpoch(item.timestamp)}</div>
     ),
     width: "w-24",
   },

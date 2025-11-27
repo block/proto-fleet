@@ -1,18 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
-import {
-  CredentialsSchema,
-  PairRequestSchema,
-} from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
+import { CredentialsSchema, PairRequestSchema } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
 import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import { ids } from "@/protoFleet/features/auth/components/AuthenticateMiners/constants";
-import {
-  Credentials,
-  UnauthenticatedMiner,
-} from "@/protoFleet/features/auth/components/AuthenticateMiners/types";
+import { Credentials, UnauthenticatedMiner } from "@/protoFleet/features/auth/components/AuthenticateMiners/types";
 import { useFleetStore } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import { sizes, variants } from "@/shared/components/Button/constants";
@@ -20,24 +14,13 @@ import Callout, { intents } from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
-import {
-  ActiveFilters,
-  DropdownFilterItem,
-} from "@/shared/components/List/Filters/types";
+import { ActiveFilters, DropdownFilterItem } from "@/shared/components/List/Filters/types";
 import Modal, { ModalSelectAllFooter } from "@/shared/components/Modal";
 import { sizes as modalSizes } from "@/shared/components/Modal/constants";
 import Switch from "@/shared/components/Switch";
-import {
-  pushToast,
-  STATUSES as TOAST_STATUSES,
-} from "@/shared/features/toaster";
+import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 
-const activeCols = [
-  "model",
-  "ipAddress",
-  "username",
-  "password",
-] as (keyof UnauthenticatedMiner)[];
+const activeCols = ["model", "ipAddress", "username", "password"] as (keyof UnauthenticatedMiner)[];
 
 const colTitles = {
   model: "Model",
@@ -55,13 +38,9 @@ type AuthenticateMinersProps = {
   onSuccess?: () => void;
 };
 
-const AuthenticateMiners = ({
-  onClose,
-  onSuccess,
-}: AuthenticateMinersProps) => {
+const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => {
   // Component fetches its own data
-  const { miners: minersByIdentifier, refetch: refetchAuthNeededMiners } =
-    useAuthNeededMiners();
+  const { miners: minersByIdentifier, refetch: refetchAuthNeededMiners } = useAuthNeededMiners();
   const { pair } = useMinerPairing();
   const { refetch: refetchOnboardingStatus } = useOnboardedStatus();
 
@@ -79,14 +58,10 @@ const AuthenticateMiners = ({
     password: "",
   });
   // stores credentials for each miner, keyed by deviceIdentifier
-  const [credentials, setCredentials] = useState<
-    Record<UnauthenticatedMiner["deviceIdentifier"], Credentials>
-  >({});
+  const [credentials, setCredentials] = useState<Record<UnauthenticatedMiner["deviceIdentifier"], Credentials>>({});
   const [hasMissingCredentials, setHasMissingCredentials] = useState(false);
   // stores ids of miners that have errors
-  const [minerErrors, setMinerErrors] = useState<
-    UnauthenticatedMiner["deviceIdentifier"][]
-  >([]);
+  const [minerErrors, setMinerErrors] = useState<UnauthenticatedMiner["deviceIdentifier"][]>([]);
   const [authenticateLoading, setAuthenticateLoading] = useState(false);
 
   const errorMessage = useMemo(() => {
@@ -157,24 +132,21 @@ const AuthenticateMiners = ({
     } as DropdownFilterItem;
   }, [models]);
 
-  const filterItem = useCallback(
-    (item: UnauthenticatedMiner, filters: ActiveFilters) => {
-      const modelFilters = filters.dropdownFilters?.["model"];
+  const filterItem = useCallback((item: UnauthenticatedMiner, filters: ActiveFilters) => {
+    const modelFilters = filters.dropdownFilters?.["model"];
 
-      // If no model filter is applied (empty array or undefined), show all items
-      if (!modelFilters || modelFilters.length === 0) {
-        return true;
-      }
-
-      // If model filters are applied, only show items that match
-      if (!modelFilters.includes(item.model)) {
-        return false;
-      }
-
+    // If no model filter is applied (empty array or undefined), show all items
+    if (!modelFilters || modelFilters.length === 0) {
       return true;
-    },
-    [],
-  );
+    }
+
+    // If model filters are applied, only show items that match
+    if (!modelFilters.includes(item.model)) {
+      return false;
+    }
+
+    return true;
+  }, []);
 
   const colConfig = useMemo(() => {
     return {
@@ -190,10 +162,7 @@ const AuthenticateMiners = ({
             id={item.deviceIdentifier + "_username"}
             className="h-10!"
             label="Username"
-            initValue={
-              credentials[item.deviceIdentifier]?.username ??
-              bulkCredentials.username
-            }
+            initValue={credentials[item.deviceIdentifier]?.username ?? bulkCredentials.username}
             hideLabelOnFocus
             disabled={
               authenticateLoading &&
@@ -201,15 +170,8 @@ const AuthenticateMiners = ({
                 (credentials[item.deviceIdentifier] !== undefined &&
                   credentials[item.deviceIdentifier].username !== ""))
             }
-            error={
-              minerErrors.find((id) => id === item.deviceIdentifier) !==
-              undefined
-            }
-            onChange={handleMinerChange.bind(
-              this,
-              item.deviceIdentifier,
-              ids.username,
-            )}
+            error={minerErrors.find((id) => id === item.deviceIdentifier) !== undefined}
+            onChange={handleMinerChange.bind(this, item.deviceIdentifier, ids.username)}
           />
         ),
         width: "w-70 !py-3",
@@ -221,10 +183,7 @@ const AuthenticateMiners = ({
             className="h-10!"
             label="Password"
             type={showPasswords ? "text" : "password"}
-            initValue={
-              credentials[item.deviceIdentifier]?.password ??
-              bulkCredentials.password
-            }
+            initValue={credentials[item.deviceIdentifier]?.password ?? bulkCredentials.password}
             hideLabelOnFocus
             disabled={
               authenticateLoading &&
@@ -232,28 +191,14 @@ const AuthenticateMiners = ({
                 (credentials[item.deviceIdentifier] !== undefined &&
                   credentials[item.deviceIdentifier].password !== ""))
             }
-            error={
-              minerErrors.find((id) => id === item.deviceIdentifier) !==
-              undefined
-            }
-            onChange={handleMinerChange.bind(
-              this,
-              item.deviceIdentifier,
-              ids.password,
-            )}
+            error={minerErrors.find((id) => id === item.deviceIdentifier) !== undefined}
+            onChange={handleMinerChange.bind(this, item.deviceIdentifier, ids.password)}
           />
         ),
         width: "w-70 !py-3",
       },
     };
-  }, [
-    handleMinerChange,
-    bulkCredentials,
-    showPasswords,
-    authenticateLoading,
-    minerErrors,
-    credentials,
-  ]);
+  }, [handleMinerChange, bulkCredentials, showPasswords, authenticateLoading, minerErrors, credentials]);
 
   const authenticateMiners = useCallback(() => {
     if (
@@ -269,10 +214,7 @@ const AuthenticateMiners = ({
 
     // Group selected miners by their credentials
     // If a miner has individual credentials, use those; otherwise use bulk credentials
-    const credentialGroups = new Map<
-      string,
-      { creds: Credentials; deviceIds: string[] }
-    >();
+    const credentialGroups = new Map<string, { creds: Credentials; deviceIds: string[] }>();
 
     selectedMiners.forEach((deviceId) => {
       const minerCreds = credentials[deviceId] || bulkCredentials;
@@ -307,14 +249,11 @@ const AuthenticateMiners = ({
       setAuthenticateLoading(false);
       setMinerErrors(completionTracker.failedMiners);
 
-      const successCount =
-        selectedMiners.length - completionTracker.failedMiners.length;
+      const successCount = selectedMiners.length - completionTracker.failedMiners.length;
       const allSucceeded = completionTracker.failedMiners.length === 0;
-      const allFailed =
-        completionTracker.failedMiners.length === selectedMiners.length;
+      const allFailed = completionTracker.failedMiners.length === selectedMiners.length;
       const totalMiners = Object.keys(minersByIdentifier).length;
-      const allMinersAuthenticated =
-        allSucceeded && successCount === totalMiners;
+      const allMinersAuthenticated = allSucceeded && successCount === totalMiners;
 
       if (allMinersAuthenticated) {
         pushToast({
@@ -330,8 +269,7 @@ const AuthenticateMiners = ({
         });
       } else if (allFailed) {
         pushToast({
-          message:
-            "Authentication failed. Please check your credentials and try again.",
+          message: "Authentication failed. Please check your credentials and try again.",
           status: TOAST_STATUSES.error,
         });
       } else {
@@ -446,8 +384,7 @@ const AuthenticateMiners = ({
           >
             <div className="text-emphasis-300">Bulk authenticate</div>
             <div className="text-300">
-              {minerItems.length} {minerItems.length === 1 ? "miner" : "miners"}{" "}
-              remaining
+              {minerItems.length} {minerItems.length === 1 ? "miner" : "miners"} remaining
             </div>
           </div>
           <div className="flex-1">
@@ -456,11 +393,7 @@ const AuthenticateMiners = ({
               label="Miner username"
               initValue={bulkCredentials.username}
               disabled={authenticateLoading && bulkCredentials.username !== ""}
-              error={
-                hasMissingCredentials && !bulkCredentials.username
-                  ? "Missing username"
-                  : undefined
-              }
+              error={hasMissingCredentials && !bulkCredentials.username ? "Missing username" : undefined}
               onChange={handleBulkChange}
             />
           </div>
@@ -471,11 +404,7 @@ const AuthenticateMiners = ({
               type="password"
               initValue={bulkCredentials.password}
               disabled={authenticateLoading && bulkCredentials.password !== ""}
-              error={
-                hasMissingCredentials && !bulkCredentials.password
-                  ? "Missing password"
-                  : undefined
-              }
+              error={hasMissingCredentials && !bulkCredentials.password ? "Missing password" : undefined}
               onChange={handleBulkChange}
             />
           </div>
@@ -484,20 +413,11 @@ const AuthenticateMiners = ({
       {showMiners && (
         <>
           <div className="mt-2">
-            <List<
-              UnauthenticatedMiner,
-              UnauthenticatedMiner["deviceIdentifier"]
-            >
+            <List<UnauthenticatedMiner, UnauthenticatedMiner["deviceIdentifier"]>
               filters={[modelFilter]}
               filterItem={filterItem}
               filterSize={sizes.compact}
-              headerControls={
-                <Switch
-                  label="Show passwords"
-                  checked={showPasswords}
-                  setChecked={setShowPasswords}
-                />
-              }
+              headerControls={<Switch label="Show passwords" checked={showPasswords} setChecked={setShowPasswords} />}
               activeCols={activeCols}
               colTitles={colTitles}
               colConfig={colConfig}
@@ -511,11 +431,7 @@ const AuthenticateMiners = ({
           </div>
           <ModalSelectAllFooter
             label={selectedMiners.length + " miners selected"}
-            onSelectAll={() =>
-              setSelectedMiners(
-                minerItems.map((miner) => miner.deviceIdentifier),
-              )
-            }
+            onSelectAll={() => setSelectedMiners(minerItems.map((miner) => miner.deviceIdentifier))}
             onSelectNone={() => setSelectedMiners([])}
           />
         </>

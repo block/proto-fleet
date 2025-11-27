@@ -13,9 +13,7 @@ interface PageHeaderProps {
 const headerWidgetEnabled = true;
 
 const HeaderWidgets = ({ className }: { className?: string }) => {
-  const [dismissedSetup, setDismissedSetup] = useReactiveLocalStorage<boolean>(
-    "completeSetupDismissed",
-  );
+  const [dismissedSetup, setDismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const handleCompleteSetup = () => {
     setDismissedSetup(false);
   };
@@ -24,12 +22,7 @@ const HeaderWidgets = ({ className }: { className?: string }) => {
     <div className={clsx("flex space-x-3", className)}>
       <AlertStatus />
       {dismissedSetup && (
-        <Button
-          variant={variants.secondary}
-          size={sizes.compact}
-          text="Continue setup"
-          onClick={handleCompleteSetup}
-        />
+        <Button variant={variants.secondary} size={sizes.compact} text="Continue setup" onClick={handleCompleteSetup} />
       )}
     </div>
   );
@@ -38,9 +31,7 @@ const HeaderWidgets = ({ className }: { className?: string }) => {
 const PageHeader = ({ openMenu }: PageHeaderProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
   const location = useLocation();
-  const [dismissedSetup] = useReactiveLocalStorage<boolean>(
-    "completeSetupDismissed",
-  );
+  const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
 
   const showPhoneWidgets = isPhone && dismissedSetup;
   const isDashboard = location.pathname === "/";
@@ -51,10 +42,7 @@ const PageHeader = ({ openMenu }: PageHeaderProps) => {
         <div className="flex grow items-center px-4">
           <div className="flex grow items-center">
             {(isPhone || isTablet) && (
-              <Pause
-                className="mr-2 text-text-primary hover:cursor-pointer"
-                onClick={openMenu}
-              />
+              <Pause className="mr-2 text-text-primary hover:cursor-pointer" onClick={openMenu} />
             )}
             <LocationSelector />
           </div>
@@ -62,12 +50,7 @@ const PageHeader = ({ openMenu }: PageHeaderProps) => {
         </div>
       </div>
       {showPhoneWidgets && (
-        <div
-          className={clsx(
-            "flex h-[57px] items-center",
-            isDashboard ? "bg-core-primary-5" : "bg-surface-base",
-          )}
-        >
+        <div className={clsx("flex h-[57px] items-center", isDashboard ? "bg-core-primary-5" : "bg-surface-base")}>
           <HeaderWidgets className="ml-5" />
         </div>
       )}

@@ -34,12 +34,7 @@ const nullAuthTokens: AuthTokens = {
   refreshToken: { value: "", expiry: new Date() },
 };
 
-export const createAuthSlice: StateCreator<
-  MinerStore,
-  [["zustand/immer", never]],
-  [],
-  AuthSlice
-> = (set) => ({
+export const createAuthSlice: StateCreator<MinerStore, [["zustand/immer", never]], [], AuthSlice> = (set) => ({
   // Initial State
   authTokens: nullAuthTokens,
   loading: true,

@@ -23,12 +23,11 @@ const PoolSelectionPage = ({
   onAssignPools,
   onDismiss: onCancel,
 }: PoolSelectionPageProps) => {
-  const [selectedDefaultPool, setSelectedDefaultPool] = useState<
-    string | undefined
-  >();
-  const [selectedBackupPools, setSelectedBackupPools] = useState<
-    [string | undefined, string | undefined]
-  >([undefined, undefined]);
+  const [selectedDefaultPool, setSelectedDefaultPool] = useState<string | undefined>();
+  const [selectedBackupPools, setSelectedBackupPools] = useState<[string | undefined, string | undefined]>([
+    undefined,
+    undefined,
+  ]);
 
   const handleSelectDefaultPool = (poolId: string) => {
     setSelectedDefaultPool(poolId);
@@ -44,11 +43,7 @@ const PoolSelectionPage = ({
 
   const handleAssignPoolsClick = async () => {
     try {
-      await onAssignPools(
-        selectedDefaultPool,
-        selectedBackupPools[0],
-        selectedBackupPools[1],
-      );
+      await onAssignPools(selectedDefaultPool, selectedBackupPools[0], selectedBackupPools[1]);
     } catch (error) {
       console.error("Failed to assign pools:", error);
     }
@@ -82,13 +77,10 @@ const PoolSelectionPage = ({
           <div className="flex flex-col gap-6">
             {/* Page header */}
             <div className="flex flex-col gap-1">
-              <h1 className="text-heading-300 text-text-primary">
-                Assign pools to miners
-              </h1>
+              <h1 className="text-heading-300 text-text-primary">Assign pools to miners</h1>
               <p className="text-body-300 text-text-secondary">
-                Your hashrate will contribute to your default mining pool. Add
-                backup pools in case your default pool fails. Worker names are
-                automatically assigned based on the miner name defined in Fleet.
+                Your hashrate will contribute to your default mining pool. Add backup pools in case your default pool
+                fails. Worker names are automatically assigned based on the miner name defined in Fleet.
               </p>
             </div>
 
@@ -108,10 +100,7 @@ const PoolSelectionPage = ({
               <div className="flex gap-4">
                 {[0, 1].map((index) => {
                   const otherBackupIndex = index === 0 ? 1 : 0;
-                  const excludedPools = [
-                    selectedDefaultPool,
-                    selectedBackupPools[otherBackupIndex],
-                  ];
+                  const excludedPools = [selectedDefaultPool, selectedBackupPools[otherBackupIndex]];
 
                   return (
                     <div key={index} className="flex-1">
@@ -119,9 +108,7 @@ const PoolSelectionPage = ({
                         title={`Backup pool #${index + 1}`}
                         subtitle="Optional"
                         availablePools={availablePools}
-                        onSelect={(poolId) =>
-                          handleSelectBackupPool(poolId, index)
-                        }
+                        onSelect={(poolId) => handleSelectBackupPool(poolId, index)}
                         createNewLabel="Add pool"
                         poolNumber={index + 1}
                         excludedPoolIds={excludedPools}

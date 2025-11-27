@@ -10,12 +10,7 @@ const alertColConfig: ColConfig<Alert, Alert["minerMacAddress"]> = {
   },
   [alertCols.status]: {
     component: (item: Alert, selectedItems: Alert["minerMacAddress"][]) => {
-      return (
-        <MinerStatus
-          deviceIdentifier={item.minerMacAddress}
-          selectedItems={selectedItems}
-        />
-      );
+      return <MinerStatus deviceIdentifier={item.minerMacAddress} selectedItems={selectedItems} />;
     },
     width: "w-17",
   },
@@ -23,11 +18,7 @@ const alertColConfig: ColConfig<Alert, Alert["minerMacAddress"]> = {
     width: "w-86 phone:w-42",
   },
   [alertCols.timestamp]: {
-    component: (item: Alert) => (
-      <div className="text-text-primary-50">
-        {getRelativeTimeFromEpoch(item.timestamp)}
-      </div>
-    ),
+    component: (item: Alert) => <div className="text-text-primary-50">{getRelativeTimeFromEpoch(item.timestamp)}</div>,
     width: "w-24",
   },
 };

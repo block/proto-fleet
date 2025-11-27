@@ -9,11 +9,7 @@ import {
   GetCombinedMetricsResponse,
   MeasurementType,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import {
-  useAuthErrors,
-  useAuthHeader,
-  useSetTemperatureStatusCounts,
-} from "@/protoFleet/store";
+import { useAuthErrors, useAuthHeader, useSetTemperatureStatusCounts } from "@/protoFleet/store";
 import { Duration } from "@/shared/components/DurationSelector";
 
 interface TelemetryMetricsOptions {
@@ -76,14 +72,8 @@ export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
           : create(DeviceSelectorSchema, {
               selectorValue: { case: "allDevices", value: true },
             }),
-        measurementTypes: options.measurementTypes || [
-          MeasurementType.HASHRATE,
-        ],
-        aggregations: options.aggregations || [
-          AggregationType.AVERAGE,
-          AggregationType.MIN,
-          AggregationType.MAX,
-        ],
+        measurementTypes: options.measurementTypes || [MeasurementType.HASHRATE],
+        aggregations: options.aggregations || [AggregationType.AVERAGE, AggregationType.MIN, AggregationType.MAX],
         granularity: { seconds: BigInt(90), nanos: 0 },
         startTime: {
           seconds: BigInt(Math.floor(startTime.getTime() / 1000)),
@@ -97,10 +87,7 @@ export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
         pageToken: "",
       });
 
-      const response = await telemetryClient.getCombinedMetrics(
-        request,
-        authHeader,
-      );
+      const response = await telemetryClient.getCombinedMetrics(request, authHeader);
 
       setData(response);
 

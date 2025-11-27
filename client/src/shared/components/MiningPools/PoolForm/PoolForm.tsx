@@ -5,15 +5,9 @@ import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "../types";
 import { urlValidationErrors } from "./constants";
 import { Info } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
-import {
-  DismissibleCalloutWrapper,
-  intents,
-} from "@/shared/components/Callout";
+import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
 import Input from "@/shared/components/Input";
-import {
-  pushToast,
-  STATUSES as TOAST_STATUSES,
-} from "@/shared/features/toaster";
+import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 import { deepClone } from "@/shared/utils/utility";
 
 interface PoolFormProps {
@@ -41,9 +35,9 @@ const PoolForm = ({
 }: PoolFormProps) => {
   const [showCallout, setShowCallout] = useState(false);
   const [error, setError] = useState(false);
-  const [validationErrors, setValidationErrors] = useState<
-    Partial<Record<keyof typeof poolInfoAttributes, string>>
-  >({});
+  const [validationErrors, setValidationErrors] = useState<Partial<Record<keyof typeof poolInfoAttributes, string>>>(
+    {},
+  );
 
   const showNotConnectedCallout = useMemo(
     () => showCallout && !isTestingConnection && error,

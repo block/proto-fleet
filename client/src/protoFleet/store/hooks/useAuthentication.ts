@@ -2,10 +2,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import type { AuthTokens } from "../slices/authSlice";
 import { useAuthLoading, useAuthTokens } from "./useAuth";
-import {
-  pushToast,
-  STATUSES as TOAST_STATUSES,
-} from "@/shared/features/toaster";
+import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 
 // =============================================================================
 // Auth Utility Functions

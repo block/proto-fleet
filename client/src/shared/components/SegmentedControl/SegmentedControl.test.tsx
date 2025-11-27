@@ -18,26 +18,20 @@ describe("Segmented control", () => {
   const onSelect = vi.fn();
 
   test("renders with provided segments", () => {
-    const { getByText } = render(
-      <SegmentedControl segments={segments} onSelect={onSelect} />,
-    );
+    const { getByText } = render(<SegmentedControl segments={segments} onSelect={onSelect} />);
     segments.forEach((segment) => {
       expect(getByText(segment.title)).toBeInTheDocument();
     });
   });
 
   test("calls onSelect callback when a segment is clicked", () => {
-    const { getByText } = render(
-      <SegmentedControl segments={segments} onSelect={onSelect} />,
-    );
+    const { getByText } = render(<SegmentedControl segments={segments} onSelect={onSelect} />);
     fireEvent.mouseDown(getByText(segments[1].title));
     expect(onSelect).toHaveBeenCalledWith(segments[1].key);
   });
 
   test("applies active class to the selected segment", () => {
-    const { getByText } = render(
-      <SegmentedControl segments={segments} onSelect={onSelect} />,
-    );
+    const { getByText } = render(<SegmentedControl segments={segments} onSelect={onSelect} />);
     const selectedSegment = getByText(segments[0].title);
     const selectedSegmentButton = selectedSegment.closest("button");
     expect(selectedSegmentButton).not.toBeNull();
@@ -50,9 +44,7 @@ describe("Segmented control", () => {
   });
 
   test("does not break when no segments are provided", () => {
-    const { container } = render(
-      <SegmentedControl segments={[]} onSelect={onSelect} />,
-    );
+    const { container } = render(<SegmentedControl segments={[]} onSelect={onSelect} />);
     expect(container).toBeEmptyDOMElement();
   });
 });

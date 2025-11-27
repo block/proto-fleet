@@ -22,9 +22,7 @@ describe("Grouped toaster", () => {
       { id: 3, message: "Toast 3", status: STATUSES.queued },
     ];
 
-    const { getByTestId, getByText } = render(
-      <GroupedToaster toasts={toasts} />,
-    );
+    const { getByTestId, getByText } = render(<GroupedToaster toasts={toasts} />);
 
     expect(getByText("3 updates in progress")).toBeInTheDocument();
     expect(getByTestId(headerProgress)).toBeInTheDocument();
@@ -38,13 +36,9 @@ describe("Grouped toaster", () => {
   });
 
   it("renders loading toast correctly", () => {
-    const toasts = [
-      { id: 1, message: "Loading action", status: STATUSES.loading },
-    ];
+    const toasts = [{ id: 1, message: "Loading action", status: STATUSES.loading }];
 
-    const { getByText, getByTestId } = render(
-      <GroupedToaster toasts={toasts} />,
-    );
+    const { getByText, getByTestId } = render(<GroupedToaster toasts={toasts} />);
     const headerElement = getByTestId(header);
     let progress = getByTestId(headerProgress);
     expect(progress).toBeInTheDocument();
@@ -67,9 +61,7 @@ describe("Grouped toaster", () => {
       },
     ];
 
-    const { getByText, getByTestId } = render(
-      <GroupedToaster toasts={toasts} />,
-    );
+    const { getByText, getByTestId } = render(<GroupedToaster toasts={toasts} />);
     const headerElement = getByTestId(header);
     expect(getByTestId(headerProgress)).toBeInTheDocument();
     fireEvent.click(headerElement);
@@ -88,9 +80,7 @@ describe("Grouped toaster", () => {
       },
     ];
 
-    const { getByText, getByTestId } = render(
-      <GroupedToaster toasts={toasts} />,
-    );
+    const { getByText, getByTestId } = render(<GroupedToaster toasts={toasts} />);
     const headerElement = getByTestId(header);
     expect(getByTestId(headerProgress)).toBeInTheDocument();
     fireEvent.click(headerElement);

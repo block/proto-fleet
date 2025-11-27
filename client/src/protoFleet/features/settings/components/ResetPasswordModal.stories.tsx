@@ -14,10 +14,7 @@ export const ConfirmationStep = () => {
   if (!show) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <button
-          onClick={() => setShow(true)}
-          className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base"
-        >
+        <button onClick={() => setShow(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
           Show Modal
         </button>
       </div>
@@ -47,10 +44,7 @@ export const ConfirmationLoading = () => {
   if (!show) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <button
-          onClick={() => setShow(true)}
-          className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base"
-        >
+        <button onClick={() => setShow(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
           Show Modal
         </button>
       </div>
@@ -80,10 +74,7 @@ export const SuccessStep = () => {
   if (!show) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <button
-          onClick={() => setShow(true)}
-          className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base"
-        >
+        <button onClick={() => setShow(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
           Show Modal
         </button>
       </div>
@@ -109,9 +100,7 @@ export const SuccessStep = () => {
 // Interactive full flow
 export const InteractiveFullFlow = () => {
   const [show, setShow] = useState(true);
-  const [temporaryPassword, setTemporaryPassword] = useState<string | null>(
-    null,
-  );
+  const [temporaryPassword, setTemporaryPassword] = useState<string | null>(null);
   const [isResetting, setIsResetting] = useState(false);
 
   if (!show) {
@@ -134,8 +123,7 @@ export const InteractiveFullFlow = () => {
   return (
     <div>
       <div className="mb-4 rounded-lg bg-intent-warning-10 p-4 text-300 text-text-primary">
-        Click "Reset member password" to simulate the reset flow (2 second
-        delay)
+        Click "Reset member password" to simulate the reset flow (2 second delay)
       </div>
       <ResetPasswordModal
         username="jane_smith"
@@ -167,10 +155,7 @@ export const LongUsername = () => {
   if (!show) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <button
-          onClick={() => setShow(true)}
-          className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base"
-        >
+        <button onClick={() => setShow(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
           Show Modal
         </button>
       </div>

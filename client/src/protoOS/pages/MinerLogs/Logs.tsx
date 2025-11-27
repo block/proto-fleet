@@ -1,23 +1,10 @@
-import {
-  MouseEvent,
-  SyntheticEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { MouseEvent, SyntheticEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { logTypes } from "./constants";
 import LogBadges from "./LogBadges";
 import { LogInfo, logType } from "./types";
-import {
-  downloadLogs,
-  formatLogs,
-  formatLogType,
-  getErrorWarningCount,
-} from "./utility";
+import { downloadLogs, formatLogs, formatLogType, getErrorWarningCount } from "./utility";
 import { LogsResponseLogs } from "@/protoOS/api/generatedApi";
 import { DismissTiny } from "@/shared/assets/icons";
 
@@ -78,11 +65,8 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
     if (searchValue || filterByLogType.length) {
       const newFilteredLogs = logs.filter(
         (log) =>
-          `${log.timestamp} ${log.message}`
-            .toLowerCase()
-            .includes(searchValue.toLowerCase()) &&
-          (!filterByLogType.length ||
-            filterByLogType.includes(log.logType as logType)),
+          `${log.timestamp} ${log.message}`.toLowerCase().includes(searchValue.toLowerCase()) &&
+          (!filterByLogType.length || filterByLogType.includes(log.logType as logType)),
       );
       newLogs = newFilteredLogs;
     }
@@ -120,9 +104,7 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
     if (logsData?.content?.length) {
       // after initial logs are fetched, remove duplicated logs and add them
       const uniqueLogs = storedLogs.length
-        ? logsData.content.filter(
-            (log) => !storedLogs.find((storedLog) => storedLog === log),
-          )
+        ? logsData.content.filter((log) => !storedLogs.find((storedLog) => storedLog === log))
         : logsData.content;
 
       const combinedLogs = [...storedLogs, ...uniqueLogs];
@@ -164,8 +146,7 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
           const csvData = [
             CSV_HEADERS,
             ...formattedExportLogs.map(
-              (log) =>
-                `${log.timestamp},${formatLogType(log.logType)},${log.message.replace(/,/g, " | ")}`,
+              (log) => `${log.timestamp},${formatLogType(log.logType)},${log.message.replace(/,/g, " | ")}`,
             ),
           ];
           downloadLogs(csvData, getFileName("miner-logs", "csv"));
@@ -185,22 +166,14 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
 
   const noResultsMessage = useMemo(() => {
     if (searchValue) {
-      if (filterByLogType.length === 0)
-        return `No results match “${searchValue}”`;
-      if (
-        filterByLogType.includes(logTypes.error) &&
-        filterByLogType.includes(logTypes.warn)
-      ) {
+      if (filterByLogType.length === 0) return `No results match “${searchValue}”`;
+      if (filterByLogType.includes(logTypes.error) && filterByLogType.includes(logTypes.warn)) {
         return `No errors or warnings match “${searchValue}”`;
       }
-      if (filterByLogType.includes(logTypes.error))
-        return `No errors match “${searchValue}”`;
+      if (filterByLogType.includes(logTypes.error)) return `No errors match “${searchValue}”`;
       return `No warnings match “${searchValue}”`;
     }
-    if (
-      filterByLogType.includes(logTypes.error) &&
-      filterByLogType.includes(logTypes.warn)
-    ) {
+    if (filterByLogType.includes(logTypes.error) && filterByLogType.includes(logTypes.warn)) {
       return "No errors or warnings found";
     }
     if (filterByLogType.includes(logTypes.error)) return "No errors found";
@@ -259,13 +232,10 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
                   className={clsx(
                     "text-text-critical",
                     {
-                      "border-transparent bg-intent-critical-10":
-                        filterByLogType?.includes(logTypes.error),
+                      "border-transparent bg-intent-critical-10": filterByLogType?.includes(logTypes.error),
                     },
                     {
-                      "border-intent-critical-10": !filterByLogType?.includes(
-                        logTypes.error,
-                      ),
+                      "border-intent-critical-10": !filterByLogType?.includes(logTypes.error),
                     },
                   )}
                   selected={filterByLogType?.includes(logTypes.error) || false}
@@ -277,13 +247,10 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
                   className={clsx(
                     "text-text-warning",
                     {
-                      "border-transparent bg-intent-warning-10":
-                        filterByLogType?.includes(logTypes.warn),
+                      "border-transparent bg-intent-warning-10": filterByLogType?.includes(logTypes.warn),
                     },
                     {
-                      "border-intent-warning-10": !filterByLogType?.includes(
-                        logTypes.warn,
-                      ),
+                      "border-intent-warning-10": !filterByLogType?.includes(logTypes.warn),
                     },
                   )}
                   selected={filterByLogType?.includes(logTypes.warn) || false}
@@ -294,9 +261,7 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
                   variant={variants.secondary}
                   text="Export"
                   disabled={isExporting}
-                  prefixIcon={
-                    isExporting ? <ProgressCircular indeterminate /> : undefined
-                  }
+                  prefixIcon={isExporting ? <ProgressCircular indeterminate /> : undefined}
                   onClick={handleExportLogs}
                 />
                 {searchValue && (
@@ -323,26 +288,15 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
                     <div
                       key={line}
                       className={clsx("mb-1 flex leading-6", {
-                        "ml-[2px] text-text-primary-70":
-                          !isError && !isWarning && !isDebug,
-                        "-ml-[16px] border-l-[2px] pl-4":
-                          isError || isWarning || isDebug,
-                        "border-border-text-warning text-text-warning":
-                          isWarning,
-                        "border-border-text-critical text-text-critical":
-                          isError,
-                        "border-border-intent-info-fill text-intent-info-fill":
-                          isDebug,
+                        "ml-[2px] text-text-primary-70": !isError && !isWarning && !isDebug,
+                        "-ml-[16px] border-l-[2px] pl-4": isError || isWarning || isDebug,
+                        "border-border-text-warning text-text-warning": isWarning,
+                        "border-border-text-critical text-text-critical": isError,
+                        "border-border-intent-info-fill text-intent-info-fill": isDebug,
                       })}
                     >
                       <div className="mr-10">{line}</div>
-                      <div
-                        ref={
-                          index === filteredLogs.length - 1
-                            ? messagesEndRef
-                            : undefined
-                        }
-                      >
+                      <div ref={index === filteredLogs.length - 1 ? messagesEndRef : undefined}>
                         {log.timestamp && <>[{log.timestamp}] </>}
                         {log.message}
                       </div>
@@ -351,9 +305,7 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
                 })
               ) : (
                 <div className="flex h-[189px] w-full items-center justify-center rounded-2xl bg-core-primary-5">
-                  <div className="font-body text-heading-100 text-text-primary-50">
-                    {noResultsMessage}
-                  </div>
+                  <div className="font-body text-heading-100 text-text-primary-50">{noResultsMessage}</div>
                 </div>
               )}
             </div>

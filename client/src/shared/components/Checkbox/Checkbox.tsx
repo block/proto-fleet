@@ -9,12 +9,7 @@ type CheckboxProps = {
   className?: string;
 };
 
-const Checkbox = ({
-  onChange,
-  checked,
-  partiallyChecked = false,
-  className = "",
-}: CheckboxProps) => {
+const Checkbox = ({ onChange, checked, partiallyChecked = false, className = "" }: CheckboxProps) => {
   return (
     <div className={clsx(className, "relative h-[20px] w-[20px]")}>
       <input

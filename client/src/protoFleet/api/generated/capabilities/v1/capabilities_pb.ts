@@ -2,11 +2,7 @@
 // @generated from file capabilities/v1/capabilities.proto (package capabilities.v1, syntax proto3)
 /* eslint-disable */
 
-import type {
-  GenEnum,
-  GenFile,
-  GenMessage,
-} from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import { file_buf_validate_validate } from "../../buf/validate/validate_pb";
 import type { Message } from "@bufbuild/protobuf";
@@ -76,15 +72,14 @@ export const MinerCapabilitiesSchema: GenMessage<MinerCapabilities> =
  *
  * @generated from message capabilities.v1.AuthenticationCapabilities
  */
-export type AuthenticationCapabilities =
-  Message<"capabilities.v1.AuthenticationCapabilities"> & {
-    /**
-     * Authentication methods supported by the miner
-     *
-     * @generated from field: repeated capabilities.v1.AuthenticationMethod supported_methods = 1;
-     */
-    supportedMethods: AuthenticationMethod[];
-  };
+export type AuthenticationCapabilities = Message<"capabilities.v1.AuthenticationCapabilities"> & {
+  /**
+   * Authentication methods supported by the miner
+   *
+   * @generated from field: repeated capabilities.v1.AuthenticationMethod supported_methods = 1;
+   */
+  supportedMethods: AuthenticationMethod[];
+};
 
 /**
  * Describes the message capabilities.v1.AuthenticationCapabilities.
@@ -99,75 +94,74 @@ export const AuthenticationCapabilitiesSchema: GenMessage<AuthenticationCapabili
  *
  * @generated from message capabilities.v1.CommandCapabilities
  */
-export type CommandCapabilities =
-  Message<"capabilities.v1.CommandCapabilities"> & {
-    /**
-     * Basic operations
-     *
-     * @generated from field: bool reboot_supported = 1;
-     */
-    rebootSupported: boolean;
+export type CommandCapabilities = Message<"capabilities.v1.CommandCapabilities"> & {
+  /**
+   * Basic operations
+   *
+   * @generated from field: bool reboot_supported = 1;
+   */
+  rebootSupported: boolean;
 
-    /**
-     * @generated from field: bool mining_start_supported = 2;
-     */
-    miningStartSupported: boolean;
+  /**
+   * @generated from field: bool mining_start_supported = 2;
+   */
+  miningStartSupported: boolean;
 
-    /**
-     * @generated from field: bool mining_stop_supported = 3;
-     */
-    miningStopSupported: boolean;
+  /**
+   * @generated from field: bool mining_stop_supported = 3;
+   */
+  miningStopSupported: boolean;
 
-    /**
-     * LED operations
-     *
-     * @generated from field: bool led_blink_supported = 4;
-     */
-    ledBlinkSupported: boolean;
+  /**
+   * LED operations
+   *
+   * @generated from field: bool led_blink_supported = 4;
+   */
+  ledBlinkSupported: boolean;
 
-    /**
-     * Advanced operations
-     *
-     * @generated from field: bool factory_reset_supported = 5;
-     */
-    factoryResetSupported: boolean;
+  /**
+   * Advanced operations
+   *
+   * @generated from field: bool factory_reset_supported = 5;
+   */
+  factoryResetSupported: boolean;
 
-    /**
-     * Cooling control
-     *
-     * @generated from field: bool cooling_mode_supported = 6;
-     */
-    coolingModeSupported: boolean;
+  /**
+   * Cooling control
+   *
+   * @generated from field: bool cooling_mode_supported = 6;
+   */
+  coolingModeSupported: boolean;
 
-    /**
-     * @generated from field: repeated string cooling_modes_available = 7;
-     */
-    coolingModesAvailable: string[];
+  /**
+   * @generated from field: repeated string cooling_modes_available = 7;
+   */
+  coolingModesAvailable: string[];
 
-    /**
-     * Pool management
-     *
-     * @generated from field: bool pool_switching_supported = 8;
-     */
-    poolSwitchingSupported: boolean;
+  /**
+   * Pool management
+   *
+   * @generated from field: bool pool_switching_supported = 8;
+   */
+  poolSwitchingSupported: boolean;
 
-    /**
-     * @generated from field: int32 pool_max_count = 9;
-     */
-    poolMaxCount: number;
+  /**
+   * @generated from field: int32 pool_max_count = 9;
+   */
+  poolMaxCount: number;
 
-    /**
-     * @generated from field: bool pool_priority_supported = 10;
-     */
-    poolPrioritySupported: boolean;
+  /**
+   * @generated from field: bool pool_priority_supported = 10;
+   */
+  poolPrioritySupported: boolean;
 
-    /**
-     * Log management
-     *
-     * @generated from field: bool logs_download_supported = 11;
-     */
-    logsDownloadSupported: boolean;
-  };
+  /**
+   * Log management
+   *
+   * @generated from field: bool logs_download_supported = 11;
+   */
+  logsDownloadSupported: boolean;
+};
 
 /**
  * Describes the message capabilities.v1.CommandCapabilities.
@@ -182,93 +176,92 @@ export const CommandCapabilitiesSchema: GenMessage<CommandCapabilities> =
  *
  * @generated from message capabilities.v1.TelemetryCapabilities
  */
-export type TelemetryCapabilities =
-  Message<"capabilities.v1.TelemetryCapabilities"> & {
-    /**
-     * Real-time telemetry
-     *
-     * @generated from field: bool realtime_telemetry_supported = 1;
-     */
-    realtimeTelemetrySupported: boolean;
+export type TelemetryCapabilities = Message<"capabilities.v1.TelemetryCapabilities"> & {
+  /**
+   * Real-time telemetry
+   *
+   * @generated from field: bool realtime_telemetry_supported = 1;
+   */
+  realtimeTelemetrySupported: boolean;
 
-    /**
-     * Historical data
-     *
-     * @generated from field: bool historical_data_supported = 2;
-     */
-    historicalDataSupported: boolean;
+  /**
+   * Historical data
+   *
+   * @generated from field: bool historical_data_supported = 2;
+   */
+  historicalDataSupported: boolean;
 
-    /**
-     * Supported metrics
-     *
-     * @generated from field: bool hashrate_reported = 3;
-     */
-    hashrateReported: boolean;
+  /**
+   * Supported metrics
+   *
+   * @generated from field: bool hashrate_reported = 3;
+   */
+  hashrateReported: boolean;
 
-    /**
-     * @generated from field: bool power_usage_reported = 4;
-     */
-    powerUsageReported: boolean;
+  /**
+   * @generated from field: bool power_usage_reported = 4;
+   */
+  powerUsageReported: boolean;
 
-    /**
-     * @generated from field: bool temperature_reported = 5;
-     */
-    temperatureReported: boolean;
+  /**
+   * @generated from field: bool temperature_reported = 5;
+   */
+  temperatureReported: boolean;
 
-    /**
-     * @generated from field: bool fan_speed_reported = 6;
-     */
-    fanSpeedReported: boolean;
+  /**
+   * @generated from field: bool fan_speed_reported = 6;
+   */
+  fanSpeedReported: boolean;
 
-    /**
-     * @generated from field: bool efficiency_reported = 7;
-     */
-    efficiencyReported: boolean;
+  /**
+   * @generated from field: bool efficiency_reported = 7;
+   */
+  efficiencyReported: boolean;
 
-    /**
-     * @generated from field: bool uptime_reported = 8;
-     */
-    uptimeReported: boolean;
+  /**
+   * @generated from field: bool uptime_reported = 8;
+   */
+  uptimeReported: boolean;
 
-    /**
-     * @generated from field: bool error_count_reported = 9;
-     */
-    errorCountReported: boolean;
+  /**
+   * @generated from field: bool error_count_reported = 9;
+   */
+  errorCountReported: boolean;
 
-    /**
-     * @generated from field: bool miner_status_reported = 10;
-     */
-    minerStatusReported: boolean;
+  /**
+   * @generated from field: bool miner_status_reported = 10;
+   */
+  minerStatusReported: boolean;
 
-    /**
-     * @generated from field: bool pool_stats_reported = 11;
-     */
-    poolStatsReported: boolean;
+  /**
+   * @generated from field: bool pool_stats_reported = 11;
+   */
+  poolStatsReported: boolean;
 
-    /**
-     * Component-level telemetry
-     *
-     * @generated from field: bool per_chip_stats_reported = 12;
-     */
-    perChipStatsReported: boolean;
+  /**
+   * Component-level telemetry
+   *
+   * @generated from field: bool per_chip_stats_reported = 12;
+   */
+  perChipStatsReported: boolean;
 
-    /**
-     * @generated from field: bool per_board_stats_reported = 13;
-     */
-    perBoardStatsReported: boolean;
+  /**
+   * @generated from field: bool per_board_stats_reported = 13;
+   */
+  perBoardStatsReported: boolean;
 
-    /**
-     * @generated from field: bool psu_stats_reported = 14;
-     */
-    psuStatsReported: boolean;
+  /**
+   * @generated from field: bool psu_stats_reported = 14;
+   */
+  psuStatsReported: boolean;
 
-    /**
-     * Telemetry intervals
-     *
-     * @generated from field: int32 polling_interval_seconds_recommended = 15;
-     */
-    pollingIntervalSecondsRecommended: number;
-  };
+  /**
+   * Telemetry intervals
+   *
+   * @generated from field: int32 polling_interval_seconds_recommended = 15;
+   */
+  pollingIntervalSecondsRecommended: number;
+};
 
 /**
  * Describes the message capabilities.v1.TelemetryCapabilities.
@@ -283,20 +276,19 @@ export const TelemetryCapabilitiesSchema: GenMessage<TelemetryCapabilities> =
  *
  * @generated from message capabilities.v1.FirmwareCapabilities
  */
-export type FirmwareCapabilities =
-  Message<"capabilities.v1.FirmwareCapabilities"> & {
-    /**
-     * Update methods
-     *
-     * @generated from field: bool ota_update_supported = 1;
-     */
-    otaUpdateSupported: boolean;
+export type FirmwareCapabilities = Message<"capabilities.v1.FirmwareCapabilities"> & {
+  /**
+   * Update methods
+   *
+   * @generated from field: bool ota_update_supported = 1;
+   */
+  otaUpdateSupported: boolean;
 
-    /**
-     * @generated from field: bool manual_upload_supported = 2;
-     */
-    manualUploadSupported: boolean;
-  };
+  /**
+   * @generated from field: bool manual_upload_supported = 2;
+   */
+  manualUploadSupported: boolean;
+};
 
 /**
  * Describes the message capabilities.v1.FirmwareCapabilities.

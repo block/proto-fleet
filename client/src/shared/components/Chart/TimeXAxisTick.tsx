@@ -1,11 +1,6 @@
 import { getAxisTickOffset } from "./utility";
 import { AxisTick } from "@/shared/components/Chart";
-import {
-  getDayFromEpoch,
-  getMonthFromEpoch,
-  getShortYearFromEpoch,
-  getTimeFromEpoch,
-} from "@/shared/utils/datetime";
+import { getDayFromEpoch, getMonthFromEpoch, getShortYearFromEpoch, getTimeFromEpoch } from "@/shared/utils/datetime";
 
 interface TimeXAxisTickProps {
   chartType?: "line" | "bar";
@@ -39,10 +34,7 @@ const TimeXAxisTick = ({
   const showEveryNthTick = Math.ceil(dataPointCount / maxTicksToShow);
   // show time for every nth tick and maintain more than nth tick gap before last tick
   const midTick =
-    !firstTick &&
-    !lastTick &&
-    index % showEveryNthTick === 0 &&
-    index < visibleTicksCount - showEveryNthTick;
+    !firstTick && !lastTick && index % showEveryNthTick === 0 && index < visibleTicksCount - showEveryNthTick;
 
   if (tooltipDatetime) {
     if (tooltipDatetime === payload.value) {

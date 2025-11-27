@@ -1,10 +1,4 @@
-import {
-  CSSProperties,
-  MutableRefObject,
-  useEffect,
-  useLayoutEffect,
-  useState,
-} from "react";
+import { CSSProperties, MutableRefObject, useEffect, useLayoutEffect, useState } from "react";
 import { minimalMargin } from "@/shared/components/Popover/constants";
 import { Position, positions } from "@/shared/constants";
 import useMeasure, { UseMeasureRect } from "@/shared/hooks/useMeasure";
@@ -66,8 +60,7 @@ const usePopoverPosition = (
   renderMode: PopoverRenderMode,
   position?: Position,
 ) => {
-  const { width: viewportWidth, height: viewportHeight } =
-    useWindowDimensions();
+  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
 
   const [popoverAnimation, setPopoverAnimation] = useState("");
   const [popoverStyle, setPopoverStyle] = useState({
@@ -80,8 +73,7 @@ const usePopoverPosition = (
 
   useEffect(() => {
     if (triggerRef.current) {
-      const { x, y, width, height, top, left, bottom, right } =
-        triggerRef.current.getBoundingClientRect();
+      const { x, y, width, height, top, left, bottom, right } = triggerRef.current.getBoundingClientRect();
       setTriggerRect({ x, y, width, height, top, left, bottom, right });
       setInitialPageOffset(window.scrollY);
     }
@@ -95,8 +87,7 @@ const usePopoverPosition = (
     const TOP = "top";
     const BOTTOM = "bottom";
 
-    if (position.startsWith(TOP))
-      return position.replace(TOP, BOTTOM) as Position;
+    if (position.startsWith(TOP)) return position.replace(TOP, BOTTOM) as Position;
     else return position.replace(BOTTOM, TOP) as Position;
   };
 
@@ -112,40 +103,22 @@ const usePopoverPosition = (
 
       let finalPosition = position;
 
-      let { top, left } = computeBasePosition(
-        triggerRect,
-        popoverRect,
-        offset,
-        finalPosition,
-      );
+      let { top, left } = computeBasePosition(triggerRect, popoverRect, offset, finalPosition);
 
       // handle overflow on top
       // top position on page is less than some margin
       if (top + triggerRect.top < minimalMargin) {
         // flip position from top to bottom
         finalPosition = flipPosition(finalPosition);
-        ({ top, left } = computeBasePosition(
-          triggerRect,
-          popoverRect,
-          offset,
-          finalPosition,
-        ));
+        ({ top, left } = computeBasePosition(triggerRect, popoverRect, offset, finalPosition));
       }
 
       // handle overflow on bottom
       // top position on page + height of popover is greater than viewport height minus some margin
-      if (
-        top + triggerRect.bottom + popoverRect.height >
-        viewportHeight - minimalMargin
-      ) {
+      if (top + triggerRect.bottom + popoverRect.height > viewportHeight - minimalMargin) {
         // flip position from bottom to top
         finalPosition = flipPosition(finalPosition);
-        ({ top, left } = computeBasePosition(
-          triggerRect,
-          popoverRect,
-          offset,
-          finalPosition,
-        ));
+        ({ top, left } = computeBasePosition(triggerRect, popoverRect, offset, finalPosition));
       }
 
       // handle overflow on the left side
@@ -159,24 +132,17 @@ const usePopoverPosition = (
 
       // handle overflow on the right side
       // left position on page + width of popover is greater than viewport width minus some margin
-      if (
-        left + triggerRect.left + popoverRect.width >
-        viewportWidth - minimalMargin
-      ) {
+      if (left + triggerRect.left + popoverRect.width > viewportWidth - minimalMargin) {
         // width of popover exceeding trigger on the right
-        const rightTriggerOverflow =
-          popoverRect.width - triggerRect.width + left;
+        const rightTriggerOverflow = popoverRect.width - triggerRect.width + left;
         // how much of popover is visible on the right side of the trigger
-        const notOverflowing =
-          viewportWidth - triggerRect.width - triggerRect.left;
+        const notOverflowing = viewportWidth - triggerRect.width - triggerRect.left;
         // subtract notOverflowing - how much is not overflowing on the right
         left -= rightTriggerOverflow - notOverflowing + minimalMargin;
       }
 
       setPopoverAnimation(
-        finalPosition?.includes("bottom")
-          ? "animate-slide-down-popover"
-          : "animate-slide-up-popover",
+        finalPosition?.includes("bottom") ? "animate-slide-down-popover" : "animate-slide-up-popover",
       );
 
       // Adjust positioning based on render mode

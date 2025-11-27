@@ -25,9 +25,7 @@ const WakeCallout = ({ afterWake, onWake }: WakeCalloutProps) => {
 
   const handleWake = () => {
     // Check if fans are running and cooling mode is immersion
-    const hasFansRunning = coolingStatus?.fans?.some(
-      (fan) => fan && (fan.rpm ?? 0) > 0,
-    );
+    const hasFansRunning = coolingStatus?.fans?.some((fan) => fan && (fan.rpm ?? 0) > 0);
     const isImmersionMode = coolingStatus?.fan_mode === "Off";
 
     if (hasFansRunning && isImmersionMode) {

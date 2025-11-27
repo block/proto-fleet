@@ -9,12 +9,7 @@ import {
   StreamCombinedMetricUpdatesRequestSchema,
   StreamCombinedMetricUpdatesResponse,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import {
-  useAuthErrors,
-  useAuthHeader,
-  useFleetStore,
-  useSetTemperatureStatusCounts,
-} from "@/protoFleet/store";
+import { useAuthErrors, useAuthHeader, useFleetStore, useSetTemperatureStatusCounts } from "@/protoFleet/store";
 
 interface StreamingOptions {
   deviceIds: string[];
@@ -27,8 +22,7 @@ export const useStreamingTelemetryMetrics = (options: StreamingOptions) => {
   const authHeader = useAuthHeader();
   const { handleAuthErrors } = useAuthErrors();
   const setTemperatureStatusCounts = useSetTemperatureStatusCounts();
-  const [latestData, setLatestData] =
-    useState<StreamCombinedMetricUpdatesResponse | null>(null);
+  const [latestData, setLatestData] = useState<StreamCombinedMetricUpdatesResponse | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const abortController = useRef<AbortController | null>(null);
 
@@ -44,12 +38,7 @@ export const useStreamingTelemetryMetrics = (options: StreamingOptions) => {
       measurementTypes,
       aggregations,
     };
-  }, [
-    options.enabled,
-    options.deviceIds,
-    options.measurementTypes,
-    options.aggregations,
-  ]);
+  }, [options.enabled, options.deviceIds, options.measurementTypes, options.aggregations]);
 
   const stopStreaming = useCallback(() => {
     if (abortController.current) {
@@ -85,23 +74,16 @@ export const useStreamingTelemetryMetrics = (options: StreamingOptions) => {
           granularity: { seconds: BigInt(20), nanos: 0 }, // 20 seconds
         });
 
-        for await (const response of telemetryClient.streamCombinedMetricUpdates(
-          request,
-          {
-            ...authHeader,
-            signal: abortController.current?.signal,
-          },
-        )) {
+        for await (const response of telemetryClient.streamCombinedMetricUpdates(request, {
+          ...authHeader,
+          signal: abortController.current?.signal,
+        })) {
           setLatestData(response);
 
           // Update temperature status counts if present in the response
-          if (
-            response.temperatureStatusCounts &&
-            response.temperatureStatusCounts.length > 0
-          ) {
+          if (response.temperatureStatusCounts && response.temperatureStatusCounts.length > 0) {
             // Get current temperature status counts from store
-            const existingTemperatureStatusCounts =
-              useFleetStore.getState().fleet.temperatureStatusCounts;
+            const existingTemperatureStatusCounts = useFleetStore.getState().fleet.temperatureStatusCounts;
 
             // Merge new temperature status counts with existing ones
             const updatedCounts = [...existingTemperatureStatusCounts];
@@ -110,8 +92,7 @@ export const useStreamingTelemetryMetrics = (options: StreamingOptions) => {
             for (const newCount of response.temperatureStatusCounts) {
               // Find if we already have a count for this timestamp
               const existingIndex = updatedCounts.findIndex(
-                (count) =>
-                  count.timestamp?.seconds === newCount.timestamp?.seconds,
+                (count) => count.timestamp?.seconds === newCount.timestamp?.seconds,
               );
 
               if (existingIndex >= 0) {

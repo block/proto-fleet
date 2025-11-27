@@ -39,11 +39,7 @@ import {
   Unpair,
 } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
-import {
-  pushToast,
-  STATUSES as TOAST_STATUSES,
-  updateToast,
-} from "@/shared/features/toaster";
+import { pushToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
 
 interface UseMinerActionsParams {
   selectedMiners: string[];
@@ -51,32 +47,16 @@ interface UseMinerActionsParams {
   onActionComplete?: () => void;
 }
 
-export const useMinerActions = ({
-  selectedMiners,
-  onActionStart,
-  onActionComplete,
-}: UseMinerActionsParams) => {
-  const {
-    startMining,
-    stopMining,
-    blinkLED,
-    unpair,
-    streamCommandBatchUpdates,
-  } = useMinerCommand();
+export const useMinerActions = ({ selectedMiners, onActionStart, onActionComplete }: UseMinerActionsParams) => {
+  const { startMining, stopMining, blinkLED, unpair, streamCommandBatchUpdates } = useMinerCommand();
 
-  const [currentAction, setCurrentAction] = useState<SupportedAction | null>(
-    null,
-  );
+  const [currentAction, setCurrentAction] = useState<SupportedAction | null>(null);
   const miningPoolToastIdRef = useRef<number | null>(null);
 
   const numberOfMiners = useMemo(() => selectedMiners.length, [selectedMiners]);
 
   const handleSuccess = useCallback(
-    (
-      action: SupportedAction,
-      originalToastId: number,
-      batchIdentifier: string,
-    ) => {
+    (action: SupportedAction, originalToastId: number, batchIdentifier: string) => {
       const streamAbortController = new AbortController();
 
       let errorToastId: number | null = null;
@@ -88,21 +68,15 @@ export const useMinerActions = ({
           batchIdentifier,
         }),
         onStreamData: (response) => {
-          totalCount = Number(
-            response.status?.commandBatchDeviceCount?.total || 0,
-          );
-          successCount = Number(
-            response.status?.commandBatchDeviceCount?.success || 0,
-          );
+          totalCount = Number(response.status?.commandBatchDeviceCount?.total || 0);
+          successCount = Number(response.status?.commandBatchDeviceCount?.success || 0);
 
           updateToast(originalToastId, {
             message: `${successMessages[action]} ${successCount} out of ${totalCount} ${minersMessage}`,
             status: TOAST_STATUSES.success,
           });
 
-          const failureCount = Number(
-            response.status?.commandBatchDeviceCount?.failure || 0,
-          );
+          const failureCount = Number(response.status?.commandBatchDeviceCount?.failure || 0);
           if (failureCount > 0) {
             if (!errorToastId) {
               errorToastId = pushToast({
@@ -138,11 +112,7 @@ export const useMinerActions = ({
   const handleMiningPoolSuccess = useCallback(
     (batchIdentifier: string) => {
       if (miningPoolToastIdRef.current !== null) {
-        handleSuccess(
-          settingsActions.miningPool,
-          miningPoolToastIdRef.current,
-          batchIdentifier,
-        );
+        handleSuccess(settingsActions.miningPool, miningPoolToastIdRef.current, batchIdentifier);
       }
     },
     [handleSuccess],
@@ -182,8 +152,7 @@ export const useMinerActions = ({
         });
         stopMining({
           stopMiningRequest: stopMiningRequest,
-          onSuccess: (value: StopMiningResponse) =>
-            handleSuccess(deviceActions.shutdown, id, value.batchIdentifier),
+          onSuccess: (value: StopMiningResponse) => handleSuccess(deviceActions.shutdown, id, value.batchIdentifier),
           onError: handleError.bind(null, id),
         });
         break;
@@ -201,8 +170,7 @@ export const useMinerActions = ({
         });
         startMining({
           startMiningRequest: startMiningRequest,
-          onSuccess: (value: StartMiningResponse) =>
-            handleSuccess(deviceActions.wakeUp, id, value.batchIdentifier),
+          onSuccess: (value: StartMiningResponse) => handleSuccess(deviceActions.wakeUp, id, value.batchIdentifier),
           onError: handleError.bind(null, id),
         });
         break;
@@ -220,8 +188,7 @@ export const useMinerActions = ({
         });
         unpair({
           unpairRequest: unpairRequest,
-          onSuccess: (value: UnpairResponse) =>
-            handleSuccess(deviceActions.unpair, id, value.batchIdentifier),
+          onSuccess: (value: UnpairResponse) => handleSuccess(deviceActions.unpair, id, value.batchIdentifier),
           onError: handleError.bind(null, id),
         });
         break;
@@ -234,16 +201,7 @@ export const useMinerActions = ({
         });
     }
     setCurrentAction(null);
-  }, [
-    currentAction,
-    onActionComplete,
-    selectedMiners,
-    startMining,
-    stopMining,
-    unpair,
-    handleSuccess,
-    handleError,
-  ]);
+  }, [currentAction, onActionComplete, selectedMiners, startMining, stopMining, unpair, handleSuccess, handleError]);
 
   const handleCancel = useCallback(() => {
     setCurrentAction(null);
@@ -273,8 +231,7 @@ export const useMinerActions = ({
 
       blinkLED({
         blinkLEDRequest,
-        onSuccess: (value: BlinkLEDResponse) =>
-          handleSuccess(deviceActions.blinkLEDs, id, value.batchIdentifier),
+        onSuccess: (value: BlinkLEDResponse) => handleSuccess(deviceActions.blinkLEDs, id, value.batchIdentifier),
         onError: handleError.bind(null, id),
       });
     };
@@ -505,15 +462,7 @@ export const useMinerActions = ({
         },
       },
     ] as BulkAction<SupportedAction>[];
-  }, [
-    blinkLED,
-    handleSuccess,
-    handleError,
-    numberOfMiners,
-    onActionStart,
-    onActionComplete,
-    selectedMiners,
-  ]);
+  }, [blinkLED, handleSuccess, handleError, numberOfMiners, onActionStart, onActionComplete, selectedMiners]);
 
   return {
     currentAction,

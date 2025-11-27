@@ -34,10 +34,7 @@ export const useIsWarmingUp = () => {
     const miningUptimeS = state.minerStatus.miningUptime?.value || 0;
     const rebootUptimeS = state.minerStatus.rebootUptime?.value || 0;
 
-    return (
-      /Uninitialized|PoweringOn|NoPools/i.test(status) &&
-      (miningUptimeS < 60 || rebootUptimeS < 60)
-    );
+    return /Uninitialized|PoweringOn|NoPools/i.test(status) && (miningUptimeS < 60 || rebootUptimeS < 60);
   });
 };
 
@@ -140,9 +137,7 @@ export const useHideWakeDialog = () => {
  * @returns Object with component types as keys and arrays of errors as values
  */
 export const useGroupedErrors = () => {
-  const allErrors = useMinerStore(
-    useShallow((state) => state.minerStatus.errors.errors),
-  );
+  const allErrors = useMinerStore(useShallow((state) => state.minerStatus.errors.errors));
 
   return useMemo(() => {
     // Simple direct grouping by source
@@ -163,17 +158,11 @@ export const useGroupedErrors = () => {
  * @param componentIndex - The 0-based index of the component
  * @returns Array of errors for that specific component
  */
-export const useErrorsByComponent = (
-  source: ErrorSource,
-  componentIndex: number,
-): MinerError[] => {
+export const useErrorsByComponent = (source: ErrorSource, componentIndex: number): MinerError[] => {
   return useMinerStore(
     useShallow((state) => {
       const allErrors = state.minerStatus.errors.errors;
-      return allErrors.filter(
-        (error) =>
-          error.source === source && error.componentIndex === componentIndex,
-      );
+      return allErrors.filter((error) => error.source === source && error.componentIndex === componentIndex);
     }),
   );
 };

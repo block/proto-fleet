@@ -18,62 +18,19 @@ export const Buttons = ({ size, variant }: ButtonProps) => {
     <div className="flex flex-col space-y-4">
       <div className="flex space-x-2">
         <Button text={text} onClick={onClick} size={size} variant={variant} />
-        <Button
-          text={text}
-          disabled
-          onClick={onClick}
-          size={size}
-          variant={variant}
-        />
+        <Button text={text} disabled onClick={onClick} size={size} variant={variant} />
       </div>
       <div className="flex space-x-2">
-        <Button
-          prefixIcon={<Icon />}
-          onClick={onClick}
-          size={size}
-          variant={variant}
-        />
-        <Button
-          prefixIcon={<Icon />}
-          disabled
-          onClick={onClick}
-          size={size}
-          variant={variant}
-        />
+        <Button prefixIcon={<Icon />} onClick={onClick} size={size} variant={variant} />
+        <Button prefixIcon={<Icon />} disabled onClick={onClick} size={size} variant={variant} />
       </div>
       <div className="flex space-x-2">
-        <Button
-          text={text}
-          prefixIcon={<Icon />}
-          onClick={onClick}
-          size={size}
-          variant={variant}
-        />
-        <Button
-          text={text}
-          prefixIcon={<Icon />}
-          disabled
-          onClick={onClick}
-          size={size}
-          variant={variant}
-        />
+        <Button text={text} prefixIcon={<Icon />} onClick={onClick} size={size} variant={variant} />
+        <Button text={text} prefixIcon={<Icon />} disabled onClick={onClick} size={size} variant={variant} />
       </div>
       <div className="flex space-x-2">
-        <Button
-          text={text}
-          suffixIcon={<Icon />}
-          onClick={onClick}
-          size={size}
-          variant={variant}
-        />
-        <Button
-          text={text}
-          suffixIcon={<Icon />}
-          disabled
-          onClick={onClick}
-          size={size}
-          variant={variant}
-        />
+        <Button text={text} suffixIcon={<Icon />} onClick={onClick} size={size} variant={variant} />
+        <Button text={text} suffixIcon={<Icon />} disabled onClick={onClick} size={size} variant={variant} />
       </div>
     </div>
   );
@@ -98,19 +55,8 @@ Buttons.argTypes = {
 export const TextOnly = () => {
   return (
     <div className="flex space-x-2">
-      <Button
-        text="Text only button"
-        onClick={onClick}
-        size={sizes.textOnly}
-        variant={variants.textOnly}
-      />
-      <Button
-        text="Text only button"
-        disabled
-        onClick={onClick}
-        size={sizes.textOnly}
-        variant={variants.textOnly}
-      />
+      <Button text="Text only button" onClick={onClick} size={sizes.textOnly} variant={variants.textOnly} />
+      <Button text="Text only button" disabled onClick={onClick} size={sizes.textOnly} variant={variants.textOnly} />
     </div>
   );
 };

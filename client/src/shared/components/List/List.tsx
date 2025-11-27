@@ -5,25 +5,14 @@ import { Ellipsis } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Filters from "@/shared/components/List/Filters";
-import {
-  ActiveFilters,
-  FilterItem,
-} from "@/shared/components/List/Filters/types";
+import { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
 import ListActions from "@/shared/components/List/ListActions";
-import {
-  ColConfig,
-  ColTitles,
-  ListAction,
-} from "@/shared/components/List/types";
+import { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
 import { PopoverProvider } from "@/shared/components/Popover";
 import { Breakpoint, breakpoints } from "@/shared/constants/breakpoints";
 import { useStickyState } from "@/shared/hooks/useStickyState";
 
-type ListProps<
-  ListItem,
-  ItemKeyValueType,
-  ColKey extends string = keyof ListItem & string,
-> = {
+type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string> = {
   activeCols: ColKey[];
   colTitles: ColTitles<ColKey>;
   colConfig: ColConfig<ListItem, ItemKeyValueType, ColKey>;
@@ -41,10 +30,7 @@ type ListProps<
   disabled?: boolean;
   actions?: ListAction<ListItem>[];
   noDataElement?: ReactNode;
-  renderActionBar?: (
-    selectedItems: ItemKeyValueType[],
-    clearSelection: () => void,
-  ) => ReactNode;
+  renderActionBar?: (selectedItems: ItemKeyValueType[], clearSelection: () => void) => ReactNode;
   containerClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   overflowContainer?: boolean;
@@ -61,10 +47,7 @@ type ListProps<
    * @param itemKey - The key value of the item
    * @param element - The tr element for the row (null on unmount)
    */
-  itemRef?: (
-    itemKey: ItemKeyValueType,
-    element: HTMLTableRowElement | null,
-  ) => void;
+  itemRef?: (itemKey: ItemKeyValueType, element: HTMLTableRowElement | null) => void;
 };
 
 const cellClassList = "text-left";
@@ -77,11 +60,7 @@ const tdPaddingClassList = "px-2 py-4";
 const columnShadowClassList =
   "after:content-[''] after:absolute after:top-0 after:right-[-6px] after:bottom-[-1px] after:w-[9px] after:bg-[linear-gradient(90deg,rgba(0,0,0,0.06)0%,rgba(0,0,0,0)100%)]";
 
-const List = <
-  ListItem,
-  ItemKeyValueType,
-  ColKey extends string = keyof ListItem & string,
->({
+const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string>({
   activeCols,
   colTitles,
   colConfig,
@@ -111,24 +90,16 @@ const List = <
 }: ListProps<ListItem, ItemKeyValueType, ColKey>) => {
   const { refs, stickyState } = useStickyState();
 
-  const [selectedItems, setSelectedItems] =
-    useState<ItemKeyValueType[]>(initialSelectedItems);
+  const [selectedItems, setSelectedItems] = useState<ItemKeyValueType[]>(initialSelectedItems);
   const [filteredItems, setFilteredItems] = useState<ListItem[]>(items);
-  const isServerSideFiltering = useMemo(
-    () => onServerFilter !== undefined,
-    [onServerFilter],
-  );
+  const isServerSideFiltering = useMemo(() => onServerFilter !== undefined, [onServerFilter]);
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
       const selection = items.map((item) => item[itemKey] as ItemKeyValueType);
-      customSetSelectedItems
-        ? customSetSelectedItems(selection)
-        : setSelectedItems(selection);
+      customSetSelectedItems ? customSetSelectedItems(selection) : setSelectedItems(selection);
     } else {
-      customSetSelectedItems
-        ? customSetSelectedItems([])
-        : setSelectedItems([]);
+      customSetSelectedItems ? customSetSelectedItems([]) : setSelectedItems([]);
     }
   };
 
@@ -151,11 +122,7 @@ const List = <
   };
 
   const allSelected = useMemo(() => {
-    return (
-      items.length > 0 &&
-      (customSelectedItems?.length === items.length ||
-        selectedItems.length === items.length)
-    );
+    return items.length > 0 && (customSelectedItems?.length === items.length || selectedItems.length === items.length);
   }, [selectedItems, items, customSelectedItems]);
 
   const handleServerFiltering = useCallback(
@@ -169,11 +136,7 @@ const List = <
 
   const handleClientFiltering = useCallback(
     (activeFilters: ActiveFilters) => {
-      setFilteredItems(
-        items.filter(
-          (item) => filterItem === undefined || filterItem(item, activeFilters),
-        ),
-      );
+      setFilteredItems(items.filter((item) => filterItem === undefined || filterItem(item, activeFilters)));
     },
     [filterItem, items],
   );
@@ -187,25 +150,17 @@ const List = <
 
   // Clear selected items that are no longer in the current items list
   useEffect(() => {
-    const currentItemKeys = new Set(
-      items.map((item) => item[itemKey] as ItemKeyValueType),
-    );
+    const currentItemKeys = new Set(items.map((item) => item[itemKey] as ItemKeyValueType));
 
     if (customSetSelectedItems && customSelectedItems) {
-      const newSelectedItems = customSelectedItems.filter((selectedKey) =>
-        currentItemKeys.has(selectedKey),
-      );
+      const newSelectedItems = customSelectedItems.filter((selectedKey) => currentItemKeys.has(selectedKey));
       if (newSelectedItems.length !== customSelectedItems.length) {
         customSetSelectedItems(newSelectedItems);
       }
     } else {
       setSelectedItems((prevSelected) => {
-        const newSelectedItems = prevSelected.filter((selectedKey) =>
-          currentItemKeys.has(selectedKey),
-        );
-        return newSelectedItems.length !== prevSelected.length
-          ? newSelectedItems
-          : prevSelected;
+        const newSelectedItems = prevSelected.filter((selectedKey) => currentItemKeys.has(selectedKey));
+        return newSelectedItems.length !== prevSelected.length ? newSelectedItems : prevSelected;
       });
     }
   }, [items, itemKey, customSetSelectedItems, customSelectedItems]);
@@ -213,8 +168,7 @@ const List = <
   const paddingCssVariables = useMemo(() => {
     const style: Record<string, string> = {};
     Object.entries(breakpoints).forEach(([, breakpoint]) => {
-      style[`--list-padding-${breakpoint}`] =
-        paddingLeft?.[breakpoint] || "0px"; // Fallback to 0 if not defined
+      style[`--list-padding-${breakpoint}`] = paddingLeft?.[breakpoint] || "0px"; // Fallback to 0 if not defined
     });
     return style;
   }, [paddingLeft]);
@@ -230,12 +184,7 @@ const List = <
       : "",
   );
 
-  const firstStickyClasses = clsx(
-    baseStickyClassList,
-    "left-0",
-    stickyBgColor,
-    paddingClasses,
-  );
+  const firstStickyClasses = clsx(baseStickyClassList, "left-0", stickyBgColor, paddingClasses);
 
   const secondStickyClasses = clsx(
     baseStickyClassList,
@@ -254,11 +203,7 @@ const List = <
           filterItems={filters ?? []}
           filterSize={filterSize}
           items={items}
-          onFilter={
-            isServerSideFiltering
-              ? handleServerFiltering
-              : handleClientFiltering
-          }
+          onFilter={isServerSideFiltering ? handleServerFiltering : handleClientFiltering}
           isServerSide={isServerSideFiltering}
           headerControls={headerControls}
           initialActiveFilters={initialActiveFilters}
@@ -267,12 +212,7 @@ const List = <
 
       {total !== undefined && (
         <div className="flex">
-          <div
-            className={clsx(
-              "sticky left-0 pb-4 text-emphasis-300 text-text-primary-70",
-              paddingClasses,
-            )}
-          >
+          <div className={clsx("sticky left-0 pb-4 text-emphasis-300 text-text-primary-70", paddingClasses)}>
             {total} {total === 1 ? itemName.singular : itemName.plural}
           </div>
         </div>
@@ -292,25 +232,19 @@ const List = <
                 <thead data-testid="list-header">
                   <tr
                     className={clsx("sticky top-0 z-2", stickyBgColor, {
-                      "shadow-[0_0_6px_6px_rgba(0,0,0,0.06)]":
-                        stickyState.vertical.isStuck,
+                      "shadow-[0_0_6px_6px_rgba(0,0,0,0.06)]": stickyState.vertical.isStuck,
                     })}
                   >
                     {itemSelectable && (
-                      <th
-                        className={clsx(thClassList, firstStickyClasses, "w-9")}
-                        style={paddingCssVariables}
-                      >
+                      <th className={clsx(thClassList, firstStickyClasses, "w-9")} style={paddingCssVariables}>
                         <div className="w-9 truncate overflow-hidden">
                           <Checkbox
                             checked={allSelected}
                             partiallyChecked={
-                              (selectedItems.length > 0 &&
-                                selectedItems.length < filteredItems.length) ||
+                              (selectedItems.length > 0 && selectedItems.length < filteredItems.length) ||
                               (customSelectedItems &&
                                 customSelectedItems.length > 0 &&
-                                customSelectedItems.length <
-                                  filteredItems.length)
+                                customSelectedItems.length < filteredItems.length)
                             }
                             onChange={(e) => handleSelectAll(e.target.checked)}
                           />
@@ -323,25 +257,13 @@ const List = <
                         className={clsx(
                           "pl-2",
                           thClassList,
-                          idx === 0 &&
-                            (itemSelectable
-                              ? secondStickyClasses
-                              : firstStickyClasses),
-                          idx === 0 &&
-                            stickyState.horizontal.isStuck &&
-                            columnShadowClassList,
+                          idx === 0 && (itemSelectable ? secondStickyClasses : firstStickyClasses),
+                          idx === 0 && stickyState.horizontal.isStuck && columnShadowClassList,
                         )}
                         key={idx}
                         style={paddingCssVariables}
                       >
-                        <div
-                          className={clsx(
-                            "truncate overflow-hidden",
-                            colConfig[row]?.width,
-                          )}
-                        >
-                          {colTitles[row]}
-                        </div>
+                        <div className={clsx("truncate overflow-hidden", colConfig[row]?.width)}>{colTitles[row]}</div>
                       </th>
                     ))}
                     {actions.length > 0 && (
@@ -359,44 +281,20 @@ const List = <
                 </thead>
                 <tbody data-testid="list-body">
                   {filteredItems.map((item, i) => (
-                    <tr
-                      key={i}
-                      className={rowClassList}
-                      ref={(el) =>
-                        itemRef?.(item[itemKey] as ItemKeyValueType, el)
-                      }
-                    >
+                    <tr key={i} className={rowClassList} ref={(el) => itemRef?.(item[itemKey] as ItemKeyValueType, el)}>
                       {itemSelectable && (
                         <td
-                          className={clsx(
-                            tdClassList,
-                            firstStickyClasses,
-                            "w-9",
-                          )}
+                          className={clsx(tdClassList, firstStickyClasses, "w-9")}
                           style={paddingCssVariables}
                           data-testid="checkbox"
                         >
-                          <div
-                            className={clsx(
-                              "w-9 truncate overflow-hidden",
-                              "py-4",
-                            )}
-                          >
+                          <div className={clsx("w-9 truncate overflow-hidden", "py-4")}>
                             <Checkbox
                               checked={
-                                customSelectedItems?.includes(
-                                  item[itemKey] as ItemKeyValueType,
-                                ) ||
-                                selectedItems.includes(
-                                  item[itemKey] as ItemKeyValueType,
-                                )
+                                customSelectedItems?.includes(item[itemKey] as ItemKeyValueType) ||
+                                selectedItems.includes(item[itemKey] as ItemKeyValueType)
                               }
-                              onChange={(e) =>
-                                handleSelectItem(
-                                  item[itemKey] as ItemKeyValueType,
-                                  e.target.checked,
-                                )
-                              }
+                              onChange={(e) => handleSelectItem(item[itemKey] as ItemKeyValueType, e.target.checked)}
                             />
                           </div>
                         </td>
@@ -406,48 +304,29 @@ const List = <
                         <td
                           className={clsx(
                             tdClassList,
-                            j === 0 &&
-                              (itemSelectable
-                                ? secondStickyClasses
-                                : firstStickyClasses),
-                            j === 0 &&
-                              stickyState.horizontal.isStuck &&
-                              columnShadowClassList,
+                            j === 0 && (itemSelectable ? secondStickyClasses : firstStickyClasses),
+                            j === 0 && stickyState.horizontal.isStuck && columnShadowClassList,
                           )}
                           key={j}
                           style={paddingCssVariables}
                           data-testid={row}
                         >
                           <div
-                            className={clsx(
-                              "truncate overflow-hidden",
-                              tdPaddingClassList,
-                              colConfig[row]?.width,
-                              {
-                                "text-core-primary-50": disabled,
-                              },
-                            )}
+                            className={clsx("truncate overflow-hidden", tdPaddingClassList, colConfig[row]?.width, {
+                              "text-core-primary-50": disabled,
+                            })}
                           >
                             {colConfig[row]?.component
                               ? colConfig[row].component(item, selectedItems)
-                              : typeof item === "object" &&
-                                  item !== null &&
-                                  row in item
-                                ? ((item as Record<string, unknown>)[
-                                    row as string
-                                  ] as ReactNode)
+                              : typeof item === "object" && item !== null && row in item
+                                ? ((item as Record<string, unknown>)[row as string] as ReactNode)
                                 : null}
                           </div>
                         </td>
                       ))}
                       {actions.length == 1 ? (
                         <td className={tdClassList} data-testid="action">
-                          <div
-                            className={clsx(
-                              "flex justify-end",
-                              tdPaddingClassList,
-                            )}
-                          >
+                          <div className={clsx("flex justify-end", tdPaddingClassList)}>
                             <Button
                               variant={variants.secondary}
                               size={sizes.compact}
@@ -460,10 +339,7 @@ const List = <
                         <td className={tdClassList} data-testid="action">
                           <div className={clsx("w-11", tdPaddingClassList)}>
                             <PopoverProvider>
-                              <ListActions<ListItem>
-                                item={item}
-                                actions={actions}
-                              />
+                              <ListActions<ListItem> item={item} actions={actions} />
                             </PopoverProvider>
                           </div>
                         </td>
@@ -480,9 +356,7 @@ const List = <
           )}
         </div>
         {renderActionBar && (
-          <div className="w-full">
-            {renderActionBar(selectedItems, () => handleSelectAll(false))}
-          </div>
+          <div className="w-full">{renderActionBar(selectedItems, () => handleSelectAll(false))}</div>
         )}
       </div>
     </div>

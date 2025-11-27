@@ -18,10 +18,7 @@ const Navigation = ({ items, className }: NavigationProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
   const logout = useLogout();
 
-  const homeItem = useMemo(
-    () => items.find((item) => item.label === "Home"),
-    [items],
-  );
+  const homeItem = useMemo(() => items.find((item) => item.label === "Home"), [items]);
 
   const isCurrentPath = (path: string) => {
     const _pathname = stripLeadingSlash(pathname);
@@ -64,10 +61,7 @@ const Navigation = ({ items, className }: NavigationProps) => {
           </div>
         )}
 
-        <ul
-          data-testid="navigation-menu"
-          className="flex w-full flex-col items-center justify-center gap-3 px-3"
-        >
+        <ul data-testid="navigation-menu" className="flex w-full flex-col items-center justify-center gap-3 px-3">
           {items.map((item, idx) => {
             return item.path ? (
               <li key={idx} className="w-full">
@@ -76,9 +70,7 @@ const Navigation = ({ items, className }: NavigationProps) => {
                   className={clsx(
                     "group flex items-center justify-start rounded-lg p-2.5 laptop:justify-center desktop:justify-center",
                     "hover:cursor-pointer hover:bg-core-primary-5",
-                    isCurrentPath(item.path) || isPhone || isTablet
-                      ? "text-text-primary"
-                      : "text-text-primary-50",
+                    isCurrentPath(item.path) || isPhone || isTablet ? "text-text-primary" : "text-text-primary-50",
                     {
                       "bg-core-primary-5": isCurrentPath(item.path),
                     },
@@ -86,15 +78,12 @@ const Navigation = ({ items, className }: NavigationProps) => {
                 >
                   {item.icon
                     ? createElement(item.icon, {
-                        className:
-                          "transition-transform duration-200 ease-gentle group-hover:scale-105",
+                        className: "transition-transform duration-200 ease-gentle group-hover:scale-105",
                         width: "w-5",
                       })
                     : item.label}
                   {(isPhone || isTablet) && item.icon && (
-                    <span className="ml-2 text-emphasis-300 text-text-primary-70">
-                      {item.label}
-                    </span>
+                    <span className="ml-2 text-emphasis-300 text-text-primary-70">{item.label}</span>
                   )}
                 </Link>
               </li>
@@ -114,11 +103,7 @@ const Navigation = ({ items, className }: NavigationProps) => {
           data-testid="logout-button"
         >
           <ArrowLeftCompact className="text-text-primary-50 transition-transform duration-200 ease-gentle group-hover:scale-105" />
-          {(isPhone || isTablet) && (
-            <span className="ml-2 text-emphasis-300 text-text-primary-70">
-              Logout
-            </span>
-          )}
+          {(isPhone || isTablet) && <span className="ml-2 text-emphasis-300 text-text-primary-70">Logout</span>}
         </button>
       </div>
     </div>

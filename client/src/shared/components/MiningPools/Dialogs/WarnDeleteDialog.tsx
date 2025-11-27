@@ -17,12 +17,7 @@ const InfoRow = ({ label, value }: { label: string; value: string }) => (
   </>
 );
 
-const WarnDeleteDialog = ({
-  keepBackup,
-  onDelete,
-  poolInfo,
-  show,
-}: WarnDeleteDialogProps) => {
+const WarnDeleteDialog = ({ keepBackup, onDelete, poolInfo, show }: WarnDeleteDialogProps) => {
   const showPoolUrl = poolInfo.url?.length > 0;
   const showUsername = poolInfo.username?.length > 0;
   return (

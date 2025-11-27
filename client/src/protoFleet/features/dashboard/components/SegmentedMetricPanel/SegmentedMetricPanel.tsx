@@ -1,11 +1,7 @@
 import { useMemo } from "react";
 import { DEFAULT_CHART_HEIGHT } from "./constants";
 import type { SegmentedMetricPanelProps } from "./types";
-import {
-  durationToHours,
-  getCurrentBreakdown,
-  processMultiDayChartData,
-} from "./utils";
+import { durationToHours, getCurrentBreakdown, processMultiDayChartData } from "./utils";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import Button, { variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
@@ -27,16 +23,10 @@ export const SegmentedMetricPanel = ({
   );
 
   // Calculate current breakdown from latest data
-  const currentBreakdown = useMemo(
-    () => getCurrentBreakdown(chartData, segmentConfig),
-    [chartData, segmentConfig],
-  );
+  const currentBreakdown = useMemo(() => getCurrentBreakdown(chartData, segmentConfig), [chartData, segmentConfig]);
 
   // Extract segment keys from config
-  const segmentKeys = useMemo(
-    () => Object.keys(segmentConfig),
-    [segmentConfig],
-  );
+  const segmentKeys = useMemo(() => Object.keys(segmentConfig), [segmentConfig]);
 
   // Build color map from config
   const colorMap = useMemo(
@@ -87,10 +77,7 @@ export const SegmentedMetricPanel = ({
     });
 
     // Calculate total width needed
-    const totalPixelWidth = chartPixelWidths.reduce(
-      (sum, width) => sum + width,
-      0,
-    );
+    const totalPixelWidth = chartPixelWidths.reduce((sum, width) => sum + width, 0);
 
     // Convert to percentages
     return chartPixelWidths.map((pixelWidth) => {
@@ -155,9 +142,7 @@ export const SegmentedMetricPanel = ({
                   barWidth={barWidth}
                   xAxisPadding={xAxisPadding}
                   showDateLabel={isMultiDay}
-                  lastTickOverride={
-                    !isMultiDay && hours < 24 ? "live" : undefined
-                  }
+                  lastTickOverride={!isMultiDay && hours < 24 ? "live" : undefined}
                 />
               </div>
             );
@@ -168,33 +153,20 @@ export const SegmentedMetricPanel = ({
       {/* Right Panel: Current Values Breakdown */}
       <div className="flex w-1/2 flex-col justify-between space-y-3 rounded-xl bg-surface-base p-10 phone:w-full phone:gap-4 phone:p-6 phone:pt-0">
         {currentBreakdown.map((segment, idx) => (
-          <div
-            key={segment.key}
-            className="relative flex grow flex-row items-center"
-          >
+          <div key={segment.key} className="relative flex grow flex-row items-center">
             {/* Icon or color indicator */}
             {segment.icon ? (
-              <span
-                className="mr-3 flex"
-                style={{ color: `var(${segment.color})` }}
-              >
+              <span className="mr-3 flex" style={{ color: `var(${segment.color})` }}>
                 {segment.icon}
               </span>
             ) : (
-              <div
-                className="mr-3 h-3 w-3 rounded-full"
-                style={{ backgroundColor: `var(${segment.color})` }}
-              />
+              <div className="mr-3 h-3 w-3 rounded-full" style={{ backgroundColor: `var(${segment.color})` }} />
             )}
 
             {/* Label and percentage */}
             <div className="flex flex-1 flex-col">
-              <span className="text-400 text-text-primary">
-                {segment.label}
-              </span>
-              <span className="text-text-secondary text-300">
-                {segment.percentageLabel}
-              </span>
+              <span className="text-400 text-text-primary">{segment.label}</span>
+              <span className="text-text-secondary text-300">{segment.percentageLabel}</span>
             </div>
 
             {/* Button with count */}
@@ -208,9 +180,7 @@ export const SegmentedMetricPanel = ({
             </Button>
 
             {/* Divider between segments (not on last item) */}
-            {idx < currentBreakdown.length - 1 && (
-              <Divider className="absolute -bottom-4 left-0 w-full" />
-            )}
+            {idx < currentBreakdown.length - 1 && <Divider className="absolute -bottom-4 left-0 w-full" />}
           </div>
         ))}
       </div>

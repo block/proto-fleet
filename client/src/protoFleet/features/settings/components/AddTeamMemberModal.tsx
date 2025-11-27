@@ -13,10 +13,7 @@ interface AddTeamMemberModalProps {
 
 type ModalStep = "enterUsername" | "displayPassword";
 
-const AddTeamMemberModal = ({
-  onDismiss,
-  onSuccess,
-}: AddTeamMemberModalProps) => {
+const AddTeamMemberModal = ({ onDismiss, onSuccess }: AddTeamMemberModalProps) => {
   const { createUser } = useUserManagement();
   const [step, setStep] = useState<ModalStep>("enterUsername");
   const [username, setUsername] = useState("");
@@ -84,8 +81,8 @@ const AddTeamMemberModal = ({
         divider={false}
       >
         <div className="mb-6">
-          Add a member by entering their username. Fleet generates a temporary
-          password for you to share so they can log in and set a new one.
+          Add a member by entering their username. Fleet generates a temporary password for you to share so they can log
+          in and set a new one.
         </div>
 
         {errorMsg ? (
@@ -118,12 +115,9 @@ const AddTeamMemberModal = ({
         </div>
 
         <div>
-          <div className="mb-2 text-heading-300 text-text-primary">
-            Member added
-          </div>
+          <div className="mb-2 text-heading-300 text-text-primary">Member added</div>
           <div className="text-300 text-text-primary-70">
-            Save this password and share it with the user securely. It won't be
-            shown again.
+            Save this password and share it with the user securely. It won't be shown again.
           </div>
         </div>
 
@@ -144,12 +138,7 @@ const AddTeamMemberModal = ({
         </div>
 
         <div className="flex justify-end">
-          <Button
-            variant={variants.primary}
-            size={sizes.base}
-            onClick={handleDone}
-            text="Done"
-          />
+          <Button variant={variants.primary} size={sizes.base} onClick={handleDone} text="Done" />
         </div>
       </div>
     </Modal>

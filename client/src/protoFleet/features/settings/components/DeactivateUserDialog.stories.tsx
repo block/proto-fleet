@@ -14,10 +14,7 @@ export const Default = () => {
   if (!show) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <button
-          onClick={() => setShow(true)}
-          className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base"
-        >
+        <button onClick={() => setShow(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
           Show Modal
         </button>
       </div>
@@ -47,10 +44,7 @@ export const LoadingState = () => {
   if (!show) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <button
-          onClick={() => setShow(true)}
-          className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base"
-        >
+        <button onClick={() => setShow(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
           Show Modal
         </button>
       </div>
@@ -79,10 +73,7 @@ export const LongUsername = () => {
   if (!show) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <button
-          onClick={() => setShow(true)}
-          className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base"
-        >
+        <button onClick={() => setShow(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
           Show Modal
         </button>
       </div>
@@ -113,10 +104,7 @@ export const Interactive = () => {
   if (!show) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <button
-          onClick={() => setShow(true)}
-          className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base"
-        >
+        <button onClick={() => setShow(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
           Show Modal
         </button>
       </div>

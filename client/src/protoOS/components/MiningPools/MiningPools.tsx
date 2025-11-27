@@ -13,26 +13,12 @@ interface MiningPoolsProps {
   pools: PoolInfo[];
 }
 
-const MiningPools = ({
-  title,
-  children,
-  loading,
-  onChange,
-  pools,
-}: MiningPoolsProps) => {
+const MiningPools = ({ title, children, loading, onChange, pools }: MiningPoolsProps) => {
   return (
     <>
-      <ContentHeader
-        title={title}
-        subtitle="Enter your mining pool details below."
-        testId="mining-pool-title"
-      />
+      <ContentHeader title={title} subtitle="Enter your mining pool details below." testId="mining-pool-title" />
       {children}
-      {loading ? (
-        <ProgressCircular indeterminate />
-      ) : (
-        <Pools pools={pools} onChangePools={onChange} />
-      )}
+      {loading ? <ProgressCircular indeterminate /> : <Pools pools={pools} onChangePools={onChange} />}
     </>
   );
 };

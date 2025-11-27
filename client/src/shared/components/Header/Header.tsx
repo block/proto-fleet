@@ -1,15 +1,8 @@
 import { ReactNode } from "react";
 import clsx from "clsx";
 
-import Button, {
-  type ButtonVariant,
-  sizes,
-  variants,
-} from "@/shared/components/Button";
-import ButtonGroup, {
-  ButtonProps,
-  groupVariants,
-} from "@/shared/components/ButtonGroup";
+import Button, { type ButtonVariant, sizes, variants } from "@/shared/components/Button";
+import ButtonGroup, { ButtonProps, groupVariants } from "@/shared/components/ButtonGroup";
 
 interface HeaderProps {
   buttons?: ButtonProps[];
@@ -57,13 +50,7 @@ const Header = ({
   description,
 }: HeaderProps) => {
   return (
-    <div
-      className={clsx(
-        "flex w-full justify-between",
-        { "items-center": centerButton },
-        className,
-      )}
-    >
+    <div className={clsx("flex w-full justify-between", { "items-center": centerButton }, className)}>
       <div className={clsx("w-full", { "flex items-center": inline })}>
         {icon && iconOnClick && (
           <Button
@@ -83,9 +70,7 @@ const Header = ({
             "mb-1": subtitle && !compact,
           })}
         >
-          {eybrow && (
-            <div className="text-200 text-text-primary-70">{eybrow}</div>
-          )}
+          {eybrow && <div className="text-200 text-text-primary-70">{eybrow}</div>}
           {title && (
             <div className={titleSize} data-testid={testId}>
               {title}
@@ -104,21 +89,13 @@ const Header = ({
               {subtitle}
             </div>
           )}
-          {description && (
-            <div className="mt-1 text-300 text-text-primary-70">
-              {description}
-            </div>
-          )}
+          {description && <div className="mt-1 text-300 text-text-primary-70">{description}</div>}
         </div>
       </div>
       {children}
       {buttons && (
         <div className="ml-3">
-          <ButtonGroup
-            buttons={buttons}
-            variant={groupVariants.rightAligned}
-            size={buttonSize}
-          />
+          <ButtonGroup buttons={buttons} variant={groupVariants.rightAligned} size={buttonSize} />
         </div>
       )}
     </div>

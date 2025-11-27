@@ -5,16 +5,8 @@ interface BitcoinExchangeRateArgs {
   exchangeRate: number;
 }
 
-export const BitcoinExchangeRate = ({
-  loading,
-  exchangeRate,
-}: BitcoinExchangeRateArgs) => {
-  return (
-    <BitcoinExchangeRateComponent
-      loading={loading}
-      exchangeRate={exchangeRate}
-    />
-  );
+export const BitcoinExchangeRate = ({ loading, exchangeRate }: BitcoinExchangeRateArgs) => {
+  return <BitcoinExchangeRateComponent loading={loading} exchangeRate={exchangeRate} />;
 };
 
 export default {

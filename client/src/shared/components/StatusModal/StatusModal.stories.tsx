@@ -1,12 +1,7 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
 import { StatusModal } from "./StatusModal";
-import type {
-  ComponentAddress,
-  ComponentStatusData,
-  ErrorData,
-  MinerStatusData,
-} from "./types";
+import type { ComponentAddress, ComponentStatusData, ErrorData, MinerStatusData } from "./types";
 import { variants } from "@/shared/components/Button";
 import TemperatureValue from "@/shared/components/TemperatureValue";
 
@@ -224,9 +219,7 @@ const InteractiveStatusModal = ({
   showBackButton?: boolean;
 }) => {
   const [show, setShow] = useState(true);
-  const [component, setComponent] = useState<ComponentAddress | undefined>(
-    initialComponent,
-  );
+  const [component, setComponent] = useState<ComponentAddress | undefined>(initialComponent);
 
   // Enhance getMinerStatus to add navigation
   const enhancedGetMinerStatus = (): MinerStatusData => {
@@ -279,9 +272,7 @@ const InteractiveStatusModal = ({
   };
 
   // Enhance getComponentStatus to add dismiss and navigate handlers
-  const enhancedGetComponentStatus = (
-    address: ComponentAddress,
-  ): ComponentStatusData | undefined => {
+  const enhancedGetComponentStatus = (address: ComponentAddress): ComponentStatusData | undefined => {
     const data = getComponentStatus(address);
     if (!data) return undefined;
     return {
@@ -319,10 +310,7 @@ export const MinerStatusNormal: Story = {
     showBackButton: true,
   },
   render: () => (
-    <InteractiveStatusModal
-      getMinerStatus={() => mockMinerStatusData}
-      getComponentStatus={() => mockHashboardStatus}
-    />
+    <InteractiveStatusModal getMinerStatus={() => mockMinerStatusData} getComponentStatus={() => mockHashboardStatus} />
   ),
 };
 
@@ -434,16 +422,14 @@ const PlaygroundComponent = (args: any) => {
 
     // Add onClick handlers to errors to navigate to components
     const enhancedErrors = {
-      hashboard: data.props.errors.hashboard.map(
-        (error: ErrorData, idx: number) => ({
-          ...error,
-          onClick: () =>
-            setComponent({
-              source: "HASHBOARD" as const,
-              componentIndex: idx,
-            }),
-        }),
-      ),
+      hashboard: data.props.errors.hashboard.map((error: ErrorData, idx: number) => ({
+        ...error,
+        onClick: () =>
+          setComponent({
+            source: "HASHBOARD" as const,
+            componentIndex: idx,
+          }),
+      })),
       psu: data.props.errors.psu.map((error: ErrorData, idx: number) => ({
         ...error,
         onClick: () =>
@@ -478,9 +464,7 @@ const PlaygroundComponent = (args: any) => {
   };
 
   // Enhance getComponentStatus to add navigate handler
-  const enhancedGetComponentStatus = (
-    address: ComponentAddress,
-  ): ComponentStatusData | undefined => {
+  const enhancedGetComponentStatus = (address: ComponentAddress): ComponentStatusData | undefined => {
     const data = args.getComponentStatus(address);
     if (!data) return undefined;
     return {
@@ -494,16 +478,11 @@ const PlaygroundComponent = (args: any) => {
     <div>
       <div style={{ marginBottom: "2rem" }}>
         <button onClick={() => setShow(true)}>Open Modal</button>
-        <button
-          onClick={() => setComponent(undefined)}
-          style={{ marginLeft: "1rem" }}
-        >
+        <button onClick={() => setComponent(undefined)} style={{ marginLeft: "1rem" }}>
           Reset to Miner Status
         </button>
         <button
-          onClick={() =>
-            setComponent({ source: "HASHBOARD" as const, componentIndex: 0 })
-          }
+          onClick={() => setComponent({ source: "HASHBOARD" as const, componentIndex: 0 })}
           style={{ marginLeft: "1rem" }}
         >
           Go to Hashboard

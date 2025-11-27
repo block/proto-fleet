@@ -28,15 +28,9 @@ vi.mock("@/protoFleet/components/AppLayout", () => ({
 
 vi.mock("@/protoFleet/routes", () => ({
   getRouteMetadata: vi.fn((pathname) => ({
-    title:
-      pathname === "/auth"
-        ? "Auth"
-        : pathname.includes("onboarding")
-          ? "Onboarding"
-          : "Home",
+    title: pathname === "/auth" ? "Auth" : pathname.includes("onboarding") ? "Onboarding" : "Home",
     requireAuth: pathname !== "/auth" && !pathname.includes("/welcome"),
-    useAppLayout:
-      !pathname.includes("/auth") && !pathname.includes("/onboarding"),
+    useAppLayout: !pathname.includes("/auth") && !pathname.includes("/onboarding"),
   })),
 }));
 
@@ -69,17 +63,11 @@ describe.skip("App", () => {
         },
         {
           path: "onboarding/miners",
-          element: (
-            <div data-testid="onboarding-miners-page">
-              Miners Onboarding Page
-            </div>
-          ),
+          element: <div data-testid="onboarding-miners-page">Miners Onboarding Page</div>,
         },
         {
           path: "onboarding/mining-pool",
-          element: (
-            <div data-testid="mining-pool-page">Mining Pool Page Content</div>
-          ),
+          element: <div data-testid="mining-pool-page">Mining Pool Page Content</div>,
         },
       ],
     },

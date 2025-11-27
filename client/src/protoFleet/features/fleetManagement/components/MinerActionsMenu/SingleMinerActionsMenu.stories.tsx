@@ -22,34 +22,17 @@ export const InTable = () => {
       <table className="w-full max-w-4xl border-collapse">
         <thead>
           <tr className="border-b border-border-10">
-            <th className="px-4 py-3 text-left text-emphasis-300 text-text-primary">
-              Name
-            </th>
-            <th className="px-4 py-3 text-left text-emphasis-300 text-text-primary">
-              Status
-            </th>
-            <th className="px-4 py-3 text-left text-emphasis-300 text-text-primary">
-              Hashrate
-            </th>
+            <th className="px-4 py-3 text-left text-emphasis-300 text-text-primary">Name</th>
+            <th className="px-4 py-3 text-left text-emphasis-300 text-text-primary">Status</th>
+            <th className="px-4 py-3 text-left text-emphasis-300 text-text-primary">Hashrate</th>
           </tr>
         </thead>
         <tbody>
-          {[
-            "Miner-001",
-            "Miner-002",
-            "Miner-003",
-            "Miner-004",
-            "Miner-005",
-          ].map((name, index) => (
-            <tr
-              key={name}
-              className="border-b border-border-10 hover:bg-surface-elevated-base/50"
-            >
+          {["Miner-001", "Miner-002", "Miner-003", "Miner-004", "Miner-005"].map((name, index) => (
+            <tr key={name} className="border-b border-border-10 hover:bg-surface-elevated-base/50">
               <td className="px-4 py-3">
                 <div className="flex w-full items-center justify-between">
-                  <span className="text-emphasis-300 text-text-primary">
-                    {name}
-                  </span>
+                  <span className="text-emphasis-300 text-text-primary">{name}</span>
                   <SingleMinerActionsMenu
                     deviceIdentifier={name.toLowerCase()}
                     onActionStart={action(`${name} - Action started`)}
@@ -57,12 +40,8 @@ export const InTable = () => {
                   />
                 </div>
               </td>
-              <td className="px-4 py-3 text-300 text-text-primary-70">
-                {index % 2 === 0 ? "Online" : "Offline"}
-              </td>
-              <td className="px-4 py-3 text-300 text-text-primary-70">
-                {100 + index * 10} TH/s
-              </td>
+              <td className="px-4 py-3 text-300 text-text-primary-70">{index % 2 === 0 ? "Online" : "Offline"}</td>
+              <td className="px-4 py-3 text-300 text-text-primary-70">{100 + index * 10} TH/s</td>
             </tr>
           ))}
         </tbody>

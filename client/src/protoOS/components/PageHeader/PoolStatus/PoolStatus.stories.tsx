@@ -12,11 +12,7 @@ interface PoolStatusProps {
   poolStatus: Pool["status"];
 }
 
-export const PoolStatus = ({
-  loading,
-  numberOfPools,
-  poolStatus,
-}: PoolStatusProps) => {
+export const PoolStatus = ({ loading, numberOfPools, poolStatus }: PoolStatusProps) => {
   return (
     <div className="flex w-96 justify-end">
       <PopoverProvider>

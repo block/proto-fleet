@@ -1,10 +1,6 @@
 import { ReactNode } from "react";
 
-export type ColConfig<
-  ListItem,
-  ItemKey,
-  ColKey extends string = keyof ListItem & string,
-> = {
+export type ColConfig<ListItem, ItemKey, ColKey extends string = keyof ListItem & string> = {
   [K in ColKey]?: {
     component?: (item: ListItem, selectedItems: ItemKey[]) => ReactNode;
     width: string;

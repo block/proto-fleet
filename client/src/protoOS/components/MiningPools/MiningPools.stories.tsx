@@ -33,14 +33,7 @@ export const MiningPools = ({
       ...pool,
       ...(poolConfigs[index] || {}),
     }));
-  }, [
-    defaultPoolUrl,
-    defaultPoolUsername,
-    backupPool1Url,
-    backupPool1Username,
-    backupPool2Url,
-    backupPool2Username,
-  ]);
+  }, [defaultPoolUrl, defaultPoolUsername, backupPool1Url, backupPool1Username, backupPool2Url, backupPool2Username]);
 
   const [pools, setPools] = useState<PoolInfo[]>(initialPools);
 
@@ -48,13 +41,7 @@ export const MiningPools = ({
     setPools(newPools);
   };
 
-  return (
-    <MiningPoolsComponent
-      title="Mining pools"
-      onChange={onChangePools}
-      pools={pools}
-    />
-  );
+  return <MiningPoolsComponent title="Mining pools" onChange={onChangePools} pools={pools} />;
 };
 
 export default {

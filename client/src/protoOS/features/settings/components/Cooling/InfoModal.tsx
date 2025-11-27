@@ -14,33 +14,19 @@ interface InfoModalProps {
 
 const InfoModal = ({ onDismiss, buttons }: InfoModalProps) => {
   return (
-    <Modal
-      title="Immersion cooling"
-      onDismiss={onDismiss}
-      buttons={buttons}
-      buttonSize="base"
-      size="small"
-    >
+    <Modal title="Immersion cooling" onDismiss={onDismiss} buttons={buttons} buttonSize="base" size="small">
       <div className="mt-6 flex flex-col gap-6">
         <Header
           title="Prepare your miner for immersion"
           titleSize="text-heading-300"
           subtitle={`To prepare for immersion, your miner will be put into sleep mode—hashing will be paused and fans will be disabled to avoid hardware damage. Once the miner is asleep, follow these steps:`}
           subtitleSize="text-300"
-          icon={
-            <Info width={iconSizes.xLarge} className="text-core-primary-fill" />
-          }
+          icon={<Info width={iconSizes.xLarge} className="text-core-primary-fill" />}
         />
         <div>
           {immersionModeInstructionSteps.map((step, index) => (
-            <Row
-              key={index}
-              divider={false}
-              prefixIcon={<SlotNumber number={index + 1} />}
-            >
-              <div className="text-emphasis-300 text-text-primary">
-                {step.title}
-              </div>
+            <Row key={index} divider={false} prefixIcon={<SlotNumber number={index + 1} />}>
+              <div className="text-emphasis-300 text-text-primary">{step.title}</div>
               <div className="text-300 text-text-primary">{step.subtitle}</div>
             </Row>
           ))}

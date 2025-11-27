@@ -2,16 +2,8 @@
 // @generated from file networkinfo/v1/networkinfo.proto (package networkinfo.v1, syntax proto3)
 /* eslint-disable */
 
-import type {
-  GenFile,
-  GenMessage,
-  GenService,
-} from "@bufbuild/protobuf/codegenv2";
-import {
-  fileDesc,
-  messageDesc,
-  serviceDesc,
-} from "@bufbuild/protobuf/codegenv2";
+import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
@@ -62,9 +54,7 @@ export type NetworkInfo = Message<"networkinfo.v1.NetworkInfo"> & {
  * Describes the message networkinfo.v1.NetworkInfo.
  * Use `create(NetworkInfoSchema)` to create a new message.
  */
-export const NetworkInfoSchema: GenMessage<NetworkInfo> =
-  /*@__PURE__*/
-  messageDesc(file_networkinfo_v1_networkinfo, 0);
+export const NetworkInfoSchema: GenMessage<NetworkInfo> = /*@__PURE__*/ messageDesc(file_networkinfo_v1_networkinfo, 0);
 
 /**
  * Request to retrieve current network information
@@ -72,8 +62,7 @@ export const NetworkInfoSchema: GenMessage<NetworkInfo> =
  *
  * @generated from message networkinfo.v1.GetNetworkInfoRequest
  */
-export type GetNetworkInfoRequest =
-  Message<"networkinfo.v1.GetNetworkInfoRequest"> & {};
+export type GetNetworkInfoRequest = Message<"networkinfo.v1.GetNetworkInfoRequest"> & {};
 
 /**
  * Describes the message networkinfo.v1.GetNetworkInfoRequest.
@@ -88,15 +77,14 @@ export const GetNetworkInfoRequestSchema: GenMessage<GetNetworkInfoRequest> =
  *
  * @generated from message networkinfo.v1.GetNetworkInfoResponse
  */
-export type GetNetworkInfoResponse =
-  Message<"networkinfo.v1.GetNetworkInfoResponse"> & {
-    /**
-     * Complete network information details
-     *
-     * @generated from field: networkinfo.v1.NetworkInfo network_info = 1;
-     */
-    networkInfo?: NetworkInfo;
-  };
+export type GetNetworkInfoResponse = Message<"networkinfo.v1.GetNetworkInfoResponse"> & {
+  /**
+   * Complete network information details
+   *
+   * @generated from field: networkinfo.v1.NetworkInfo network_info = 1;
+   */
+  networkInfo?: NetworkInfo;
+};
 
 /**
  * Describes the message networkinfo.v1.GetNetworkInfoResponse.
@@ -111,15 +99,14 @@ export const GetNetworkInfoResponseSchema: GenMessage<GetNetworkInfoResponse> =
  *
  * @generated from message networkinfo.v1.UpdateNetworkNicknameRequest
  */
-export type UpdateNetworkNicknameRequest =
-  Message<"networkinfo.v1.UpdateNetworkNicknameRequest"> & {
-    /**
-     * New nickname to assign to the network
-     *
-     * @generated from field: string network_nickname = 1;
-     */
-    networkNickname: string;
-  };
+export type UpdateNetworkNicknameRequest = Message<"networkinfo.v1.UpdateNetworkNicknameRequest"> & {
+  /**
+   * New nickname to assign to the network
+   *
+   * @generated from field: string network_nickname = 1;
+   */
+  networkNickname: string;
+};
 
 /**
  * Describes the message networkinfo.v1.UpdateNetworkNicknameRequest.
@@ -135,8 +122,7 @@ export const UpdateNetworkNicknameRequestSchema: GenMessage<UpdateNetworkNicknam
  *
  * @generated from message networkinfo.v1.UpdateNetworkNicknameResponse
  */
-export type UpdateNetworkNicknameResponse =
-  Message<"networkinfo.v1.UpdateNetworkNicknameResponse"> & {};
+export type UpdateNetworkNicknameResponse = Message<"networkinfo.v1.UpdateNetworkNicknameResponse"> & {};
 
 /**
  * Describes the message networkinfo.v1.UpdateNetworkNicknameResponse.

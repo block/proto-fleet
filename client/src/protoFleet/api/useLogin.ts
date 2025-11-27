@@ -2,12 +2,7 @@ import { useCallback } from "react";
 
 import { authClient } from "@/protoFleet/api/clients";
 import type { AuthenticateRequest } from "@/protoFleet/api/generated/auth/v1/auth_pb";
-import {
-  useSetAuthLoading,
-  useSetAuthTokens,
-  useSetRole,
-  useSetUsername,
-} from "@/protoFleet/store";
+import { useSetAuthLoading, useSetAuthTokens, useSetRole, useSetUsername } from "@/protoFleet/store";
 import { useAuthErrors } from "@/protoFleet/store/hooks/useAuth";
 
 interface LoginProps {

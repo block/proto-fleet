@@ -9,10 +9,7 @@ export const Verify = () => {
 
   return (
     <div className="mx-auto max-w-[800px]">
-      <VerifyComponent
-        miner={miner}
-        handleContinueSetup={action("continue setup")}
-      />
+      <VerifyComponent miner={miner} handleContinueSetup={action("continue setup")} />
     </div>
   );
 };

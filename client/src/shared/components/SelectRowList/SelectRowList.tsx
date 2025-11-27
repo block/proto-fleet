@@ -14,12 +14,7 @@ interface SelectRowListProps {
   type: SelectType;
 }
 
-const SelectRowList = ({
-  className,
-  onChange,
-  selectRows,
-  type,
-}: SelectRowListProps) => {
+const SelectRowList = ({ className, onChange, selectRows, type }: SelectRowListProps) => {
   return (
     <div className={clsx(className)}>
       {selectRows.map((selectRow, index) => {
@@ -40,9 +35,7 @@ const SelectRowList = ({
               type={type}
             />
             {/* Add divider line after each row except the last */}
-            {index < selectRows.length - 1 && (
-              <div className="h-[0.5px] bg-border-10" />
-            )}
+            {index < selectRows.length - 1 && <div className="h-[0.5px] bg-border-10" />}
           </div>
         );
       })}

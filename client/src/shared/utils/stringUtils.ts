@@ -41,11 +41,7 @@ export const convertToSentenceCase = (str: string) => {
     .split(/[.?!]\s*/) // Split on periods, question marks, or exclamation points followed by optional spaces
     .map((sentence, index, array) => {
       const separator = str.match(/[.?!]\s*/g)?.[index] || ". ";
-      return (
-        sentence.charAt(0).toUpperCase() +
-        sentence.slice(1) +
-        (index < array.length - 1 ? separator.trim() : "")
-      );
+      return sentence.charAt(0).toUpperCase() + sentence.slice(1) + (index < array.length - 1 ? separator.trim() : "");
     })
     .join(" ")
     .trim(); // Rejoin sentences with their original separators

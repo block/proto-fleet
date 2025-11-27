@@ -37,9 +37,7 @@ const FilterContent = ({
   const popoverRef = useRef<HTMLDivElement>(null) as RefObject<HTMLDivElement>;
 
   // Only use internal state when buttons are shown
-  const [internalSelectedItems, setInternalSelectedItems] = useState<string[]>(
-    externalSelectedItems,
-  );
+  const [internalSelectedItems, setInternalSelectedItems] = useState<string[]>(externalSelectedItems);
 
   // When buttons are shown, update internal state when external changes
   useEffect(() => {
@@ -90,13 +88,7 @@ const FilterContent = ({
       const newSelection = shouldSelectAll ? options.map((o) => o.id) : [];
       onSelect(newSelection);
     }
-  }, [
-    withButtons,
-    externalSelectedItems,
-    options,
-    internalSelectedItems,
-    onSelect,
-  ]);
+  }, [withButtons, externalSelectedItems, options, internalSelectedItems, onSelect]);
 
   const handleApply = useCallback(() => {
     onSelect(internalSelectedItems);
@@ -109,14 +101,10 @@ const FilterContent = ({
   }, [onSelect]);
 
   // Use appropriate selected items based on whether buttons are shown
-  const displaySelectedItems = withButtons
-    ? internalSelectedItems
-    : externalSelectedItems;
+  const displaySelectedItems = withButtons ? internalSelectedItems : externalSelectedItems;
 
   const allSelected = displaySelectedItems.length === options.length;
-  const partiallySelected =
-    displaySelectedItems.length > 0 &&
-    displaySelectedItems.length < options.length;
+  const partiallySelected = displaySelectedItems.length > 0 && displaySelectedItems.length < options.length;
 
   return (
     <div className={clsx("flex flex-col gap-2", className)}>

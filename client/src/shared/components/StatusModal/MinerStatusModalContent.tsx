@@ -1,42 +1,19 @@
 import { useMemo } from "react";
-import StatusModalLayout, {
-  type StatusModalLayoutError,
-} from "./StatusModalLayout";
+import StatusModalLayout, { type StatusModalLayoutError } from "./StatusModalLayout";
 import { type MinerStatusModalProps } from "./types";
-import {
-  Alert,
-  Checkmark,
-  ControlBoard,
-  Fan,
-  Hashboard,
-  Info,
-  LightningAlt,
-} from "@/shared/assets/icons";
+import { Alert, Checkmark, ControlBoard, Fan, Hashboard, Info, LightningAlt } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 
 const componentIcons = {
   fan: <Fan width={iconSizes.medium} className="text-text-primary-70" />,
-  hashboard: (
-    <Hashboard width={iconSizes.medium} className="text-text-primary-70" />
-  ),
-  controlBoard: (
-    <ControlBoard width={iconSizes.medium} className="text-text-primary-70" />
-  ),
-  psu: (
-    <LightningAlt width={iconSizes.medium} className="text-text-primary-70" />
-  ),
+  hashboard: <Hashboard width={iconSizes.medium} className="text-text-primary-70" />,
+  controlBoard: <ControlBoard width={iconSizes.medium} className="text-text-primary-70" />,
+  psu: <LightningAlt width={iconSizes.medium} className="text-text-primary-70" />,
 };
 
-const MinerStatusModalContent = ({
-  title,
-  subtitle,
-  errors,
-  isSleeping,
-}: MinerStatusModalProps) => {
-  const haserrors = Object.values(errors || {}).some(
-    (errorList) => errorList.length > 0,
-  );
+const MinerStatusModalContent = ({ title, subtitle, errors, isSleeping }: MinerStatusModalProps) => {
+  const haserrors = Object.values(errors || {}).some((errorList) => errorList.length > 0);
 
   const icon = useMemo(() => {
     if (isSleeping) {
@@ -44,12 +21,7 @@ const MinerStatusModalContent = ({
     } else if (haserrors) {
       return <Alert className="text-text-critical" width={iconSizes.xLarge} />;
     } else
-      return (
-        <Checkmark
-          className="rounded-full bg-intent-success-fill text-surface-base"
-          width={iconSizes.xLarge}
-        />
-      );
+      return <Checkmark className="rounded-full bg-intent-success-fill text-surface-base" width={iconSizes.xLarge} />;
   }, [haserrors, isSleeping]);
 
   // Transform grouped errors into flat array for layout
@@ -90,14 +62,7 @@ const MinerStatusModalContent = ({
     return flatErrors;
   }, [errors]);
 
-  return (
-    <StatusModalLayout
-      icon={icon}
-      title={title}
-      subtitle={subtitle}
-      errors={layoutErrors}
-    />
-  );
+  return <StatusModalLayout icon={icon} title={title} subtitle={subtitle} errors={layoutErrors} />;
 };
 
 export default MinerStatusModalContent;

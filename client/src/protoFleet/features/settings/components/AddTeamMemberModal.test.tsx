@@ -24,10 +24,7 @@ beforeEach(() => {
 describe("AddTeamMemberModal", () => {
   it("renders step 1 with username input", () => {
     const { getByLabelText, getByText } = render(
-      <AddTeamMemberModal
-        onDismiss={mockOnDismiss}
-        onSuccess={mockOnSuccess}
-      />,
+      <AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
     );
 
     expect(getByText("Add team member")).toBeInTheDocument();
@@ -36,12 +33,7 @@ describe("AddTeamMemberModal", () => {
   });
 
   it("save button is always enabled", () => {
-    const { getByText } = render(
-      <AddTeamMemberModal
-        onDismiss={mockOnDismiss}
-        onSuccess={mockOnSuccess}
-      />,
-    );
+    const { getByText } = render(<AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />);
 
     const saveButton = getByText("Save").closest("button");
     expect(saveButton).not.toBeDisabled();
@@ -49,10 +41,7 @@ describe("AddTeamMemberModal", () => {
 
   it("shows validation error when saving empty username", async () => {
     const { getByLabelText, getByText } = render(
-      <AddTeamMemberModal
-        onDismiss={mockOnDismiss}
-        onSuccess={mockOnSuccess}
-      />,
+      <AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
     );
 
     const usernameInput = getByLabelText("Username");
@@ -72,10 +61,7 @@ describe("AddTeamMemberModal", () => {
     });
 
     const { getByLabelText, getByText } = render(
-      <AddTeamMemberModal
-        onDismiss={mockOnDismiss}
-        onSuccess={mockOnSuccess}
-      />,
+      <AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
     );
 
     const usernameInput = getByLabelText("Username");
@@ -99,10 +85,7 @@ describe("AddTeamMemberModal", () => {
     });
 
     const { getByLabelText, getByText } = render(
-      <AddTeamMemberModal
-        onDismiss={mockOnDismiss}
-        onSuccess={mockOnSuccess}
-      />,
+      <AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
     );
 
     const usernameInput = getByLabelText("Username");
@@ -122,10 +105,7 @@ describe("AddTeamMemberModal", () => {
     });
 
     const { getByLabelText, getByText, queryByText } = render(
-      <AddTeamMemberModal
-        onDismiss={mockOnDismiss}
-        onSuccess={mockOnSuccess}
-      />,
+      <AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
     );
 
     const usernameInput = getByLabelText("Username");
@@ -149,10 +129,7 @@ describe("AddTeamMemberModal", () => {
     });
 
     const { getByLabelText, getByText } = render(
-      <AddTeamMemberModal
-        onDismiss={mockOnDismiss}
-        onSuccess={mockOnSuccess}
-      />,
+      <AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
     );
 
     const usernameInput = getByLabelText("Username");
@@ -177,10 +154,7 @@ describe("AddTeamMemberModal", () => {
     );
 
     const { getByLabelText, getByText } = render(
-      <AddTeamMemberModal
-        onDismiss={mockOnDismiss}
-        onSuccess={mockOnSuccess}
-      />,
+      <AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
     );
 
     const usernameInput = getByLabelText("Username");
@@ -209,10 +183,7 @@ describe("AddTeamMemberModal", () => {
     });
 
     const { getByLabelText, getByText, getByRole } = render(
-      <AddTeamMemberModal
-        onDismiss={mockOnDismiss}
-        onSuccess={mockOnSuccess}
-      />,
+      <AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
     );
 
     const usernameInput = getByLabelText("Username");
@@ -228,9 +199,7 @@ describe("AddTeamMemberModal", () => {
     const copyButton = getByRole("button", { name: /copy password/i });
     fireEvent.click(copyButton);
 
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-      "TempPass123!@#",
-    );
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("TempPass123!@#");
   });
 
   it("calls onSuccess and onDismiss when clicking Done", async () => {
@@ -239,10 +208,7 @@ describe("AddTeamMemberModal", () => {
     });
 
     const { getByLabelText, getByText } = render(
-      <AddTeamMemberModal
-        onDismiss={mockOnDismiss}
-        onSuccess={mockOnSuccess}
-      />,
+      <AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />,
     );
 
     const usernameInput = getByLabelText("Username");
@@ -263,12 +229,7 @@ describe("AddTeamMemberModal", () => {
   });
 
   it("calls onDismiss when clicking close button in step 1", () => {
-    const { getByRole } = render(
-      <AddTeamMemberModal
-        onDismiss={mockOnDismiss}
-        onSuccess={mockOnSuccess}
-      />,
-    );
+    const { getByRole } = render(<AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />);
 
     const closeButton = getByRole("button", { name: /close/i });
     fireEvent.click(closeButton);

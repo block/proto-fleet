@@ -45,13 +45,11 @@ const PoolsList = ({
 
   const isTestingConnection = poolState.status === "validating";
 
-  const hasPoolConflict =
-    selectedPool && excludedPoolIds.some((id) => id === selectedPool.poolId);
+  const hasPoolConflict = selectedPool && excludedPoolIds.some((id) => id === selectedPool.poolId);
 
   const poolError = poolState.status === "error" ? poolState.error : null;
 
-  const displayError =
-    poolError || (hasPoolConflict ? "Duplicate pool selected" : null);
+  const displayError = poolError || (hasPoolConflict ? "Duplicate pool selected" : null);
 
   const handlePoolSelect = (poolId: string) => {
     const pool = availablePools.find((p) => p.poolId === poolId);
@@ -95,9 +93,7 @@ const PoolsList = ({
     setShowSelectionModal(true);
   };
 
-  const displaySubtitle = selectedPool
-    ? selectedPool.name || selectedPool.poolUrl
-    : subtitle;
+  const displaySubtitle = selectedPool ? selectedPool.name || selectedPool.poolUrl : subtitle;
 
   return (
     <>
@@ -106,27 +102,15 @@ const PoolsList = ({
         <div className="mb-4 flex flex-col gap-3">
           {/* Icon */}
           <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-surface-5">
-            {poolNumber !== undefined ? (
-              <SlotNumber number={poolNumber} />
-            ) : (
-              <MiningPools className="h-5 w-5" />
-            )}
+            {poolNumber !== undefined ? <SlotNumber number={poolNumber} /> : <MiningPools className="h-5 w-5" />}
           </div>
 
           {/* Title */}
           <div className="flex-1">
             <h3 className="text-heading-300 text-text-primary">{title}</h3>
             <div className="mt-1 h-10">
-              {displaySubtitle ? (
-                <p className="text-body-300 text-text-secondary">
-                  {displaySubtitle}
-                </p>
-              ) : null}
-              {displayError ? (
-                <p className="text-300 text-intent-critical-fill">
-                  {displayError}
-                </p>
-              ) : null}
+              {displaySubtitle ? <p className="text-body-300 text-text-secondary">{displaySubtitle}</p> : null}
+              {displayError ? <p className="text-300 text-intent-critical-fill">{displayError}</p> : null}
             </div>
           </div>
         </div>
@@ -136,17 +120,10 @@ const PoolsList = ({
           {isTestingConnection ? (
             <div className="flex items-center gap-2">
               <ProgressCircular size={16} indeterminate />
-              <span className="text-text-secondary text-300">
-                Testing connection
-              </span>
+              <span className="text-text-secondary text-300">Testing connection</span>
             </div>
           ) : selectedPool ? (
-            <Button
-              text="Update"
-              variant={variants.secondary}
-              size={sizes.base}
-              onClick={handleUpdate}
-            />
+            <Button text="Update" variant={variants.secondary} size={sizes.base} onClick={handleUpdate} />
           ) : (
             <Button
               text={createNewLabel}

@@ -6,24 +6,12 @@ type PsuIndicatorProps = IconProps & {
   slotPlacement?: number;
 };
 
-const PsuIndicator = ({
-  className,
-  totalSlots = 3,
-  slotPlacement = 1,
-}: PsuIndicatorProps) => {
-  const activeSlot =
-    slotPlacement < 1
-      ? 1
-      : slotPlacement > totalSlots
-        ? totalSlots
-        : slotPlacement;
+const PsuIndicator = ({ className, totalSlots = 3, slotPlacement = 1 }: PsuIndicatorProps) => {
+  const activeSlot = slotPlacement < 1 ? 1 : slotPlacement > totalSlots ? totalSlots : slotPlacement;
 
   return (
     <div
-      className={clsx(
-        "inline-flex h-4 items-center justify-center gap-[3px]",
-        className,
-      )}
+      className={clsx("inline-flex h-4 items-center justify-center gap-[3px]", className)}
       data-testid="psu-indicator"
     >
       {Array.from({ length: totalSlots }).map((_, idx) => {
@@ -35,10 +23,7 @@ const PsuIndicator = ({
             data-testid={isActive ? "psu-slot-active" : "psu-slot"}
           >
             <div
-              className={clsx(
-                "flex-1 self-stretch rounded-sm",
-                isActive ? "bg-text-primary" : "bg-core-primary-10",
-              )}
+              className={clsx("flex-1 self-stretch rounded-sm", isActive ? "bg-text-primary" : "bg-core-primary-10")}
             />
           </div>
         );

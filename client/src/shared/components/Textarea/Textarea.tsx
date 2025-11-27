@@ -1,13 +1,4 @@
-import {
-  ChangeEvent,
-  Fragment,
-  KeyboardEvent,
-  RefObject,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { ChangeEvent, Fragment, KeyboardEvent, RefObject, useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { DismissCircle } from "@/shared/assets/icons";
@@ -134,12 +125,10 @@ const Textarea = ({
               "border border-border-5": !error && !compact,
             },
             {
-              "border border-border-20 focus:ring-4 focus:ring-surface-10":
-                !error && !compact && !disabled,
+              "border border-border-20 focus:ring-4 focus:ring-surface-10": !error && !compact && !disabled,
             },
             {
-              "border border-intent-critical-50 focus:ring-4 focus:ring-intent-critical-20":
-                error,
+              "border border-intent-critical-50 focus:ring-4 focus:ring-intent-critical-20": error,
             },
             { "pt-[28px]": !hideLabelOnFocus },
             { "pl-4": !compact },
@@ -177,8 +166,7 @@ const Textarea = ({
             { "top-0": !(length(value) || focused) && compact },
             { "top-[7px] text-200": length(value) || focused },
             {
-              "transition-[top] ease-in-out peer-focus:top-[7px] peer-focus:text-200":
-                !hideLabelOnFocus,
+              "transition-[top] ease-in-out peer-focus:top-[7px] peer-focus:text-200": !hideLabelOnFocus,
             },
             { "peer-focus:invisible": hideLabelOnFocus },
             { invisible: hideLabelOnFocus && (length(value) || focused) },
@@ -188,11 +176,7 @@ const Textarea = ({
         </label>
         {tooltip ? (
           <div className="absolute top-7 right-4 -translate-y-1/2 transform">
-            <Tooltip
-              header={tooltip.header}
-              body={tooltip.body}
-              position={positions["top left"]}
-            />
+            <Tooltip header={tooltip.header} body={tooltip.body} position={positions["top left"]} />
           </div>
         ) : null}
         {dismiss && length(value) && !compact ? (
@@ -202,11 +186,7 @@ const Textarea = ({
               "top-7 -translate-y-1/2 transform": !compact,
             })}
           >
-            <DismissCircle
-              onClick={handleClear}
-              className="hover:cursor-pointer"
-              opacity="0.7"
-            />
+            <DismissCircle onClick={handleClear} className="hover:cursor-pointer" opacity="0.7" />
           </div>
         ) : null}
         {keyboardShortcuts && !length(value) ? (
@@ -227,9 +207,7 @@ const Textarea = ({
       >
         <div className="flex items-center space-x-1">
           <div className="h-1 w-[10px] rounded-full bg-intent-critical-20" />
-          <div data-testid={`${testId}-validation-error`}>
-            {validationError}
-          </div>
+          <div data-testid={`${testId}-validation-error`}>{validationError}</div>
         </div>
       </div>
     </div>

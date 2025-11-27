@@ -82,9 +82,7 @@ const CustomSegmentedBar = ({
         y: roundedY,
         width: Math.round(width),
         height: adjustedHeight,
-        fill: segment.color.startsWith("--")
-          ? `var(${segment.color})`
-          : segment.color,
+        fill: segment.color.startsWith("--") ? `var(${segment.color})` : segment.color,
         key: segment.key,
       });
 
@@ -110,15 +108,7 @@ const CustomSegmentedBar = ({
     >
       <defs>
         <clipPath id={clipId}>
-          <rect
-            x={x}
-            y={y}
-            width={width}
-            height={height}
-            rx={4}
-            ry={4}
-            shapeRendering="crispEdges"
-          />
+          <rect x={x} y={y} width={width} height={height} rx={4} ry={4} shapeRendering="crispEdges" />
         </clipPath>
       </defs>
       {/* Bar segments */}

@@ -102,8 +102,4 @@ export {
 // =============================================================================
 
 export type { AuthTokens } from "./slices/authSlice";
-export type {
-  Theme,
-  ThemeColor,
-  TemperatureUnit,
-} from "@/shared/features/preferences";
+export type { Theme, ThemeColor, TemperatureUnit } from "@/shared/features/preferences";

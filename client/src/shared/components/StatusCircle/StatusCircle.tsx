@@ -19,22 +19,14 @@ const StatusCircle = ({
   removeMargin = false,
   isSelected = false,
 }: StatusCircleProps) => {
-  const colorClass = isSelected
-    ? "text-intent-info-fill"
-    : statusColors[status];
+  const colorClass = isSelected ? "text-intent-info-fill" : statusColors[status];
 
   return (
     <>
       {variant == "simple" ? (
-        <Circle
-          className={clsx(colorClass, { "mr-1": !removeMargin })}
-          width={width}
-        />
+        <Circle className={clsx(colorClass, { "mr-1": !removeMargin })} width={width} />
       ) : (
-        <ConcentricCircles
-          className={clsx(colorClass, { "mr-1": !removeMargin })}
-          width={width}
-        />
+        <ConcentricCircles className={clsx(colorClass, { "mr-1": !removeMargin })} width={width} />
       )}
     </>
   );

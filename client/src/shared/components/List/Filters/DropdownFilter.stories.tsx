@@ -18,11 +18,7 @@ const typeOptions: DropdownOption[] = [
 ];
 
 export const WithButtons = () => {
-  const [selectedItems, setSelectedItems] = useState<string[]>([
-    "hashing",
-    "offline",
-    "sleeping",
-  ]);
+  const [selectedItems, setSelectedItems] = useState<string[]>(["hashing", "offline", "sleeping"]);
 
   const handleSelect = (items: string[]) => {
     setSelectedItems(items);
@@ -41,14 +37,10 @@ export const WithButtons = () => {
       />
       <div className="text-300">
         <p>
-          <strong>With buttons:</strong> Changes are staged internally. Only
-          applied when Apply button is clicked. Useful for reducing API calls in
-          server-side filtering.
+          <strong>With buttons:</strong> Changes are staged internally. Only applied when Apply button is clicked.
+          Useful for reducing API calls in server-side filtering.
         </p>
-        <p className="mt-2">
-          Selected items:{" "}
-          {selectedItems.length > 0 ? selectedItems.join(", ") : "None"}
-        </p>
+        <p className="mt-2">Selected items: {selectedItems.length > 0 ? selectedItems.join(", ") : "None"}</p>
       </div>
     </div>
   );
@@ -74,14 +66,10 @@ export const WithoutButtons = () => {
       />
       <div className="text-300">
         <p>
-          <strong>Without buttons (default):</strong> Changes fire callbacks
-          immediately. Useful for client-side filtering where performance is not
-          a concern.
+          <strong>Without buttons (default):</strong> Changes fire callbacks immediately. Useful for client-side
+          filtering where performance is not a concern.
         </p>
-        <p className="mt-2">
-          Selected items:{" "}
-          {selectedItems.length > 0 ? selectedItems.join(", ") : "None"}
-        </p>
+        <p className="mt-2">Selected items: {selectedItems.length > 0 ? selectedItems.join(", ") : "None"}</p>
       </div>
     </div>
   );
@@ -102,9 +90,7 @@ export const ButtonLabelStates = () => {
       </div>
 
       <div>
-        <h3 className="mb-2 text-heading-200">
-          Multiple Selected (shows count)
-        </h3>
+        <h3 className="mb-2 text-heading-200">Multiple Selected (shows count)</h3>
         <DropdownFilter
           title="Status"
           pluralTitle="Statuses"
@@ -171,17 +157,11 @@ export const MultipleFilters = () => {
       </div>
       <div className="text-300">
         <p>
-          <strong>Multiple filters with buttons:</strong> Each filter can be
-          configured independently.
+          <strong>Multiple filters with buttons:</strong> Each filter can be configured independently.
         </p>
         <div className="mt-2">
-          <div>
-            Status:{" "}
-            {statusSelected.length > 0 ? statusSelected.join(", ") : "None"}
-          </div>
-          <div>
-            Type: {typeSelected.length > 0 ? typeSelected.join(", ") : "None"}
-          </div>
+          <div>Status: {statusSelected.length > 0 ? statusSelected.join(", ") : "None"}</div>
+          <div>Type: {typeSelected.length > 0 ? typeSelected.join(", ") : "None"}</div>
         </div>
       </div>
     </div>

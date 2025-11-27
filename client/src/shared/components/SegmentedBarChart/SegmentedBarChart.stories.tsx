@@ -1,8 +1,5 @@
 import React from "react";
-import SegmentedBarChart, {
-  type SegmentedBarChartData,
-  type SegmentedBarChartProps,
-} from ".";
+import SegmentedBarChart, { type SegmentedBarChartData, type SegmentedBarChartProps } from ".";
 
 // Generate mock data for stories
 const generateMockData = (
@@ -27,9 +24,7 @@ const generateMockData = (
 };
 
 // Generate mock data with varying totals to demonstrate percentage display
-const generatePercentageData = (
-  points: number = 12,
-): SegmentedBarChartData[] => {
+const generatePercentageData = (points: number = 12): SegmentedBarChartData[] => {
   const startTime = Date.now() - 12 * 60 * 60 * 1000;
 
   return Array.from({ length: points }, (_, index) => {
@@ -56,9 +51,7 @@ const generatePercentageData = (
 };
 
 // Generate mock data for online/offline status (as device counts)
-const generateOnlineOfflineData = (
-  points: number = 12,
-): SegmentedBarChartData[] => {
+const generateOnlineOfflineData = (points: number = 12): SegmentedBarChartData[] => {
   const startTime = Date.now() - 12 * 60 * 60 * 1000;
 
   return Array.from({ length: points }, (_, index) => {
@@ -169,8 +162,7 @@ WithAnimation.args = {
 WithAnimation.parameters = {
   docs: {
     description: {
-      story:
-        "Example with animation enabled. Bars will animate from bottom to top on initial render.",
+      story: "Example with animation enabled. Bars will animate from bottom to top on initial render.",
     },
   },
 };
@@ -231,8 +223,7 @@ export default {
       control: { type: "object" },
     },
     units: {
-      description:
-        "Units to display in tooltips (e.g., ' TH/s', '%', ' devices')",
+      description: "Units to display in tooltips (e.g., ' TH/s', '%', ' devices')",
       control: { type: "text" },
     },
     percentageDisplay: {
@@ -265,18 +256,15 @@ export default {
       control: { type: "number" },
     },
     barGap: {
-      description:
-        "Gap between bars in pixels (Note: only works with categorical scales)",
+      description: "Gap between bars in pixels (Note: only works with categorical scales)",
       control: { type: "number" },
     },
     xAxisPadding: {
-      description:
-        "Padding for X-axis in pixels (controls spacing between bars)",
+      description: "Padding for X-axis in pixels (controls spacing between bars)",
       control: { type: "number" },
     },
     yAxisPadding: {
-      description:
-        "Percentage to extend Y-axis above max value (e.g., 0.1 = 10%)",
+      description: "Percentage to extend Y-axis above max value (e.g., 0.1 = 10%)",
       control: { type: "number" },
     },
     yAxisTickCount: {
@@ -288,8 +276,7 @@ export default {
       control: { type: "number" },
     },
     toolTipKey: {
-      description:
-        "Key to display in tooltip, null to hide tooltip, undefined for total",
+      description: "Key to display in tooltip, null to hide tooltip, undefined for total",
       control: { type: "text" },
     },
   },

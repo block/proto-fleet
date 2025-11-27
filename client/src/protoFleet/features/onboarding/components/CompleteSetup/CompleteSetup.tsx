@@ -28,9 +28,7 @@ const TaskCard = ({
   return (
     <div className="flex flex-col justify-between gap-4 rounded-2xl bg-surface-base p-6">
       <div className="flex flex-col gap-4">
-        <div className="flex size-8 items-center justify-center rounded-lg bg-core-primary-5">
-          {icon}
-        </div>
+        <div className="flex size-8 items-center justify-center rounded-lg bg-core-primary-5">{icon}</div>
         <div className="flex flex-col">
           <div className="text-emphasis-300">{title}</div>
           {description && <div className="text-300">{description}</div>}
@@ -73,10 +71,7 @@ const AuthenticateMinersCard = ({
         onActionClick={() => setShowAuthMinersModal(true)}
       />
       {showAuthMinersModal && (
-        <AuthenticateMiners
-          onClose={() => setShowAuthMinersModal(false)}
-          onSuccess={onAuthenticationSuccess}
-        />
+        <AuthenticateMiners onClose={() => setShowAuthMinersModal(false)} onSuccess={onAuthenticationSuccess} />
       )}
     </>
   );
@@ -87,18 +82,16 @@ type CompleteSetupProps = {
 };
 
 const CompleteSetup = ({ className = "" }: CompleteSetupProps) => {
-  const [completSetupDismissed, setCompletSetupDismissed] =
-    useReactiveLocalStorage<boolean>("completeSetupDismissed");
+  const [completSetupDismissed, setCompletSetupDismissed] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
 
   const handleDismiss = () => {
     setCompletSetupDismissed(true);
   };
 
   // Fetch miners needing authentication to show in the "Authenticate miners" card
-  const { totalMiners: authNeededCount, refetch: refetchAuthNeededMiners } =
-    useAuthNeededMiners({
-      pageSize: 100,
-    });
+  const { totalMiners: authNeededCount, refetch: refetchAuthNeededMiners } = useAuthNeededMiners({
+    pageSize: 100,
+  });
 
   // Watch for pairing operations completing and refetch auth-needed miners
   const lastPairingCompletedAt = useLastPairingCompletedAt();
@@ -118,17 +111,10 @@ const CompleteSetup = ({ className = "" }: CompleteSetupProps) => {
           <div className="@container rounded-3xl bg-core-primary-5 p-6">
             <div className="mb-6 flex items-center justify-between gap-x-10">
               <div className="text-heading-300">Complete setup</div>
-              <Button
-                onClick={handleDismiss}
-                variant="secondary"
-                prefixIcon={<Dismiss />}
-              ></Button>
+              <Button onClick={handleDismiss} variant="secondary" prefixIcon={<Dismiss />}></Button>
             </div>
             <div className="grid gap-4 @lg:grid-cols-2 @3xl:grid-cols-3 @7xl:grid-cols-4">
-              <AuthenticateMinersCard
-                count={authNeededCount}
-                onAuthenticationSuccess={refetchAuthNeededMiners}
-              />
+              <AuthenticateMinersCard count={authNeededCount} onAuthenticationSuccess={refetchAuthNeededMiners} />
             </div>
           </div>
         </div>

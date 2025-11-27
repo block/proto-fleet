@@ -22,11 +22,7 @@ interface SegmentBarProps {
 }
 
 const SegmentBar = ({ segment, colorMap }: SegmentBarProps) => {
-  const segmentClasses = clsx(
-    colorMap[segment.status],
-    "transition-all duration-300 ease-in-out",
-    "rounded-full",
-  );
+  const segmentClasses = clsx(colorMap[segment.status], "transition-all duration-300 ease-in-out", "rounded-full");
 
   return (
     <div
@@ -64,22 +60,14 @@ const CompositionBar = ({
 }: CompositionBarProps) => {
   // Check if this is a loading state (all counts are undefined)
   const isLoading = useMemo(() => {
-    return (
-      segments.length > 0 &&
-      segments.every((segment) => segment.count === undefined)
-    );
+    return segments.length > 0 && segments.every((segment) => segment.count === undefined);
   }, [segments]);
 
   // Calculate percentages for each segment
   const segmentData = useMemo(() => {
     // Filter out segments with zero, negative, or undefined counts
-    const validSegments = segments.filter(
-      (segment) => segment.count !== undefined && segment.count > 0,
-    );
-    const totalCount = validSegments.reduce(
-      (sum, segment) => sum + (segment.count || 0),
-      0,
-    );
+    const validSegments = segments.filter((segment) => segment.count !== undefined && segment.count > 0);
+    const totalCount = validSegments.reduce((sum, segment) => sum + (segment.count || 0), 0);
 
     if (totalCount === 0) {
       return [];
@@ -88,10 +76,7 @@ const CompositionBar = ({
     return validSegments.map((segment) => {
       const percentage = ((segment.count || 0) / totalCount) * 100;
       // Ensure minimum width for visibility
-      const displayPercentage = Math.max(
-        percentage,
-        MIN_SEGMENT_WIDTH_PERCENTAGE,
-      );
+      const displayPercentage = Math.max(percentage, MIN_SEGMENT_WIDTH_PERCENTAGE);
 
       return {
         ...segment,
@@ -115,10 +100,7 @@ const CompositionBar = ({
   // Handle loading state
   if (isLoading) {
     return (
-      <div
-        className={clsx("w-full", className)}
-        data-testid="composition-bar-skeleton"
-      >
+      <div className={clsx("w-full", className)} data-testid="composition-bar-skeleton">
         <div
           className="relative isolate overflow-hidden rounded-full before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_2s_infinite] before:bg-linear-to-r before:from-transparent before:via-core-primary-5 before:to-transparent"
           style={{ height: `${height}px` }}
@@ -145,15 +127,8 @@ const CompositionBar = ({
   }
 
   return (
-    <div
-      className={clsx("w-full", className)}
-      role="group"
-      aria-label="Composition bar chart"
-    >
-      <div
-        className={clsx("flex w-full", GAP_CLASS_MAP[gap])}
-        style={{ height: `${height}px` }}
-      >
+    <div className={clsx("w-full", className)} role="group" aria-label="Composition bar chart">
+      <div className={clsx("flex w-full", GAP_CLASS_MAP[gap])} style={{ height: `${height}px` }}>
         {segmentData.map((segment, index) => (
           <SegmentBar
             key={`${segment.name}-${segment.status}-${index}`}

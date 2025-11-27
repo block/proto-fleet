@@ -15,9 +15,7 @@ interface BulkActionsWidgetProps<ActionType> {
   onConfirmation?: () => void;
   onCancel: () => void;
   currentAction: SupportedAction | null;
-  renderPopover: (
-    onAction: (requiresConfirmation: boolean) => void,
-  ) => ReactNode;
+  renderPopover: (onAction: (requiresConfirmation: boolean) => void) => ReactNode;
   testId: string;
 }
 

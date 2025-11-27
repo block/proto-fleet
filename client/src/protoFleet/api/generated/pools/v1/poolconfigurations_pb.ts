@@ -2,16 +2,8 @@
 // @generated from file pools/v1/poolconfigurations.proto (package pools.v1, syntax proto3)
 /* eslint-disable */
 
-import type {
-  GenFile,
-  GenMessage,
-  GenService,
-} from "@bufbuild/protobuf/codegenv2";
-import {
-  fileDesc,
-  messageDesc,
-  serviceDesc,
-} from "@bufbuild/protobuf/codegenv2";
+import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Pool } from "./pools_pb";
 import { file_pools_v1_pools } from "./pools_pb";
 import type { Message } from "@bufbuild/protobuf";
@@ -29,18 +21,17 @@ export const file_pools_v1_poolconfigurations: GenFile =
 /**
  * @generated from message pools.v1.PoolConfigurationBase
  */
-export type PoolConfigurationBase =
-  Message<"pools.v1.PoolConfigurationBase"> & {
-    /**
-     * @generated from field: string name = 1;
-     */
-    name: string;
+export type PoolConfigurationBase = Message<"pools.v1.PoolConfigurationBase"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
 
-    /**
-     * @generated from field: string description = 2;
-     */
-    description: string;
-  };
+  /**
+   * @generated from field: string description = 2;
+   */
+  description: string;
+};
 
 /**
  * Describes the message pools.v1.PoolConfigurationBase.
@@ -53,20 +44,19 @@ export const PoolConfigurationBaseSchema: GenMessage<PoolConfigurationBase> =
 /**
  * @generated from message pools.v1.PoolConfigurationEntry
  */
-export type PoolConfigurationEntry =
-  Message<"pools.v1.PoolConfigurationEntry"> & {
-    /**
-     * @generated from field: int64 id = 1;
-     */
-    id: bigint;
+export type PoolConfigurationEntry = Message<"pools.v1.PoolConfigurationEntry"> & {
+  /**
+   * @generated from field: int64 id = 1;
+   */
+  id: bigint;
 
-    /**
-     * 0=default, 1=backup1, 2=backup2
-     *
-     * @generated from field: int32 priority = 2;
-     */
-    priority: number;
-  };
+  /**
+   * 0=default, 1=backup1, 2=backup2
+   *
+   * @generated from field: int32 priority = 2;
+   */
+  priority: number;
+};
 
 /**
  * Describes the message pools.v1.PoolConfigurationEntry.
@@ -130,18 +120,17 @@ export const PoolWithPrioritySchema: GenMessage<PoolWithPriority> =
 /**
  * @generated from message pools.v1.PoolConfigurationWithPools
  */
-export type PoolConfigurationWithPools =
-  Message<"pools.v1.PoolConfigurationWithPools"> & {
-    /**
-     * @generated from field: pools.v1.PoolConfiguration configuration = 1;
-     */
-    configuration?: PoolConfiguration;
+export type PoolConfigurationWithPools = Message<"pools.v1.PoolConfigurationWithPools"> & {
+  /**
+   * @generated from field: pools.v1.PoolConfiguration configuration = 1;
+   */
+  configuration?: PoolConfiguration;
 
-    /**
-     * @generated from field: repeated pools.v1.PoolWithPriority pools = 2;
-     */
-    pools: PoolWithPriority[];
-  };
+  /**
+   * @generated from field: repeated pools.v1.PoolWithPriority pools = 2;
+   */
+  pools: PoolWithPriority[];
+};
 
 /**
  * Describes the message pools.v1.PoolConfigurationWithPools.
@@ -154,8 +143,7 @@ export const PoolConfigurationWithPoolsSchema: GenMessage<PoolConfigurationWithP
 /**
  * @generated from message pools.v1.ListPoolConfigurationsRequest
  */
-export type ListPoolConfigurationsRequest =
-  Message<"pools.v1.ListPoolConfigurationsRequest"> & {};
+export type ListPoolConfigurationsRequest = Message<"pools.v1.ListPoolConfigurationsRequest"> & {};
 
 /**
  * Describes the message pools.v1.ListPoolConfigurationsRequest.
@@ -168,13 +156,12 @@ export const ListPoolConfigurationsRequestSchema: GenMessage<ListPoolConfigurati
 /**
  * @generated from message pools.v1.ListPoolConfigurationsResponse
  */
-export type ListPoolConfigurationsResponse =
-  Message<"pools.v1.ListPoolConfigurationsResponse"> & {
-    /**
-     * @generated from field: repeated pools.v1.PoolConfigurationWithPools configurations = 1;
-     */
-    configurations: PoolConfigurationWithPools[];
-  };
+export type ListPoolConfigurationsResponse = Message<"pools.v1.ListPoolConfigurationsResponse"> & {
+  /**
+   * @generated from field: repeated pools.v1.PoolConfigurationWithPools configurations = 1;
+   */
+  configurations: PoolConfigurationWithPools[];
+};
 
 /**
  * Describes the message pools.v1.ListPoolConfigurationsResponse.
@@ -187,13 +174,12 @@ export const ListPoolConfigurationsResponseSchema: GenMessage<ListPoolConfigurat
 /**
  * @generated from message pools.v1.GetPoolConfigurationRequest
  */
-export type GetPoolConfigurationRequest =
-  Message<"pools.v1.GetPoolConfigurationRequest"> & {
-    /**
-     * @generated from field: int64 id = 1;
-     */
-    id: bigint;
-  };
+export type GetPoolConfigurationRequest = Message<"pools.v1.GetPoolConfigurationRequest"> & {
+  /**
+   * @generated from field: int64 id = 1;
+   */
+  id: bigint;
+};
 
 /**
  * Describes the message pools.v1.GetPoolConfigurationRequest.
@@ -206,13 +192,12 @@ export const GetPoolConfigurationRequestSchema: GenMessage<GetPoolConfigurationR
 /**
  * @generated from message pools.v1.GetPoolConfigurationResponse
  */
-export type GetPoolConfigurationResponse =
-  Message<"pools.v1.GetPoolConfigurationResponse"> & {
-    /**
-     * @generated from field: pools.v1.PoolConfigurationWithPools configuration = 1;
-     */
-    configuration?: PoolConfigurationWithPools;
-  };
+export type GetPoolConfigurationResponse = Message<"pools.v1.GetPoolConfigurationResponse"> & {
+  /**
+   * @generated from field: pools.v1.PoolConfigurationWithPools configuration = 1;
+   */
+  configuration?: PoolConfigurationWithPools;
+};
 
 /**
  * Describes the message pools.v1.GetPoolConfigurationResponse.
@@ -225,18 +210,17 @@ export const GetPoolConfigurationResponseSchema: GenMessage<GetPoolConfiguration
 /**
  * @generated from message pools.v1.UpsertPoolConfigurationRequest
  */
-export type UpsertPoolConfigurationRequest =
-  Message<"pools.v1.UpsertPoolConfigurationRequest"> & {
-    /**
-     * @generated from field: pools.v1.PoolConfigurationBase configuration = 1;
-     */
-    configuration?: PoolConfigurationBase;
+export type UpsertPoolConfigurationRequest = Message<"pools.v1.UpsertPoolConfigurationRequest"> & {
+  /**
+   * @generated from field: pools.v1.PoolConfigurationBase configuration = 1;
+   */
+  configuration?: PoolConfigurationBase;
 
-    /**
-     * @generated from field: repeated pools.v1.PoolConfigurationEntry pools = 2;
-     */
-    pools: PoolConfigurationEntry[];
-  };
+  /**
+   * @generated from field: repeated pools.v1.PoolConfigurationEntry pools = 2;
+   */
+  pools: PoolConfigurationEntry[];
+};
 
 /**
  * Describes the message pools.v1.UpsertPoolConfigurationRequest.
@@ -249,13 +233,12 @@ export const UpsertPoolConfigurationRequestSchema: GenMessage<UpsertPoolConfigur
 /**
  * @generated from message pools.v1.UpsertPoolConfigurationResponse
  */
-export type UpsertPoolConfigurationResponse =
-  Message<"pools.v1.UpsertPoolConfigurationResponse"> & {
-    /**
-     * @generated from field: pools.v1.PoolConfigurationWithPools configuration = 1;
-     */
-    configuration?: PoolConfigurationWithPools;
-  };
+export type UpsertPoolConfigurationResponse = Message<"pools.v1.UpsertPoolConfigurationResponse"> & {
+  /**
+   * @generated from field: pools.v1.PoolConfigurationWithPools configuration = 1;
+   */
+  configuration?: PoolConfigurationWithPools;
+};
 
 /**
  * Describes the message pools.v1.UpsertPoolConfigurationResponse.
@@ -268,13 +251,12 @@ export const UpsertPoolConfigurationResponseSchema: GenMessage<UpsertPoolConfigu
 /**
  * @generated from message pools.v1.DeletePoolConfigurationRequest
  */
-export type DeletePoolConfigurationRequest =
-  Message<"pools.v1.DeletePoolConfigurationRequest"> & {
-    /**
-     * @generated from field: int64 configuration_id = 1;
-     */
-    configurationId: bigint;
-  };
+export type DeletePoolConfigurationRequest = Message<"pools.v1.DeletePoolConfigurationRequest"> & {
+  /**
+   * @generated from field: int64 configuration_id = 1;
+   */
+  configurationId: bigint;
+};
 
 /**
  * Describes the message pools.v1.DeletePoolConfigurationRequest.
@@ -287,8 +269,7 @@ export const DeletePoolConfigurationRequestSchema: GenMessage<DeletePoolConfigur
 /**
  * @generated from message pools.v1.DeletePoolConfigurationResponse
  */
-export type DeletePoolConfigurationResponse =
-  Message<"pools.v1.DeletePoolConfigurationResponse"> & {};
+export type DeletePoolConfigurationResponse = Message<"pools.v1.DeletePoolConfigurationResponse"> & {};
 
 /**
  * Describes the message pools.v1.DeletePoolConfigurationResponse.

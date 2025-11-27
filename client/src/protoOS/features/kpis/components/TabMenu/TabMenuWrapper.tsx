@@ -1,9 +1,5 @@
 import { memo, useMemo } from "react";
-import {
-  convertAndFormatMeasurement,
-  useMiner,
-  useTemperatureUnit,
-} from "@/protoOS/store";
+import { convertAndFormatMeasurement, useMiner, useTemperatureUnit } from "@/protoOS/store";
 import TabMenu from "@/shared/components/TabMenu";
 
 type TabMenuWrapperProps = {
@@ -18,21 +14,13 @@ const TabMenuWrapper = memo(({ basePath }: TabMenuWrapperProps) => {
     () => ({
       hashrate: {
         name: "Hashrate",
-        value: convertAndFormatMeasurement(
-          miner?.hashrate?.latest,
-          "TH/S",
-          false,
-        ),
+        value: convertAndFormatMeasurement(miner?.hashrate?.latest, "TH/S", false),
         units: "TH/S",
         path: "/hashrate",
       },
       efficiency: {
         name: "Efficiency",
-        value: convertAndFormatMeasurement(
-          miner?.efficiency?.latest,
-          "J/TH",
-          false,
-        ),
+        value: convertAndFormatMeasurement(miner?.efficiency?.latest, "J/TH", false),
         units: "J/TH",
         path: "/efficiency",
       },
@@ -44,11 +32,7 @@ const TabMenuWrapper = memo(({ basePath }: TabMenuWrapperProps) => {
       },
       temperature: {
         name: "Temperature",
-        value: convertAndFormatMeasurement(
-          miner?.temperature?.latest,
-          temperatureUnit,
-          false,
-        ),
+        value: convertAndFormatMeasurement(miner?.temperature?.latest, temperatureUnit, false),
         units: miner?.temperature ? temperatureUnit : undefined,
         path: "/temperature",
       },

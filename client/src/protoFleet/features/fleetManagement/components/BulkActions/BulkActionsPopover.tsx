@@ -14,10 +14,7 @@ interface ActionItemProps<ActionType> {
   onAction: (action: BulkAction<ActionType>) => void;
 }
 
-const ActionItem = <ActionType,>({
-  action,
-  onAction,
-}: ActionItemProps<ActionType>) => {
+const ActionItem = <ActionType,>({ action, onAction }: ActionItemProps<ActionType>) => {
   return (
     <Row
       key={action.title}
@@ -33,11 +30,7 @@ const ActionItem = <ActionType,>({
   );
 };
 
-const BulkActionsPopover = <ActionType,>({
-  actions,
-  beforeEach,
-  testId,
-}: BulkActionsPopoverProps<ActionType>) => {
+const BulkActionsPopover = <ActionType,>({ actions, beforeEach, testId }: BulkActionsPopoverProps<ActionType>) => {
   const onAction = (action: BulkAction<ActionType>) => {
     beforeEach(action.requiresConfirmation);
     action.actionHandler();

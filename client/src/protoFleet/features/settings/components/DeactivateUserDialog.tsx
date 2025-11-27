@@ -9,12 +9,7 @@ interface DeactivateUserDialogProps {
   isSubmitting: boolean;
 }
 
-const DeactivateUserDialog = ({
-  username,
-  onConfirm,
-  onDismiss,
-  isSubmitting,
-}: DeactivateUserDialogProps) => {
+const DeactivateUserDialog = ({ username, onConfirm, onDismiss, isSubmitting }: DeactivateUserDialogProps) => {
   return (
     <Dialog
       show
@@ -40,8 +35,8 @@ const DeactivateUserDialog = ({
       ]}
     >
       <div className="text-300 text-text-primary-70">
-        Are you sure you want to deactivate this member ({username})? They will
-        be hidden and removed from your account. This action cannot be undone.
+        Are you sure you want to deactivate this member ({username})? They will be hidden and removed from your account.
+        This action cannot be undone.
       </div>
     </Dialog>
   );

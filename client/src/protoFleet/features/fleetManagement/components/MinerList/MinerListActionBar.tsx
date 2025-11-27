@@ -6,10 +6,7 @@ interface MinerListActionBarProps {
   onClearSelection?: () => void;
 }
 
-const MinerListActionBar = ({
-  selectedMiners,
-  onClearSelection,
-}: MinerListActionBarProps) => {
+const MinerListActionBar = ({ selectedMiners, onClearSelection }: MinerListActionBarProps) => {
   return (
     <ActionBar
       className="fixed bottom-4 z-20"

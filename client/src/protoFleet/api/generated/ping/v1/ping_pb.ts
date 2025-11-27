@@ -2,16 +2,8 @@
 // @generated from file ping/v1/ping.proto (package ping.v1, syntax proto3)
 /* eslint-disable */
 
-import type {
-  GenFile,
-  GenMessage,
-  GenService,
-} from "@bufbuild/protobuf/codegenv2";
-import {
-  fileDesc,
-  messageDesc,
-  serviceDesc,
-} from "@bufbuild/protobuf/codegenv2";
+import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
@@ -37,9 +29,7 @@ export type PingRequest = Message<"ping.v1.PingRequest"> & {
  * Describes the message ping.v1.PingRequest.
  * Use `create(PingRequestSchema)` to create a new message.
  */
-export const PingRequestSchema: GenMessage<PingRequest> =
-  /*@__PURE__*/
-  messageDesc(file_ping_v1_ping, 0);
+export const PingRequestSchema: GenMessage<PingRequest> = /*@__PURE__*/ messageDesc(file_ping_v1_ping, 0);
 
 /**
  * @generated from message ping.v1.PingResponse
@@ -55,9 +45,7 @@ export type PingResponse = Message<"ping.v1.PingResponse"> & {
  * Describes the message ping.v1.PingResponse.
  * Use `create(PingResponseSchema)` to create a new message.
  */
-export const PingResponseSchema: GenMessage<PingResponse> =
-  /*@__PURE__*/
-  messageDesc(file_ping_v1_ping, 1);
+export const PingResponseSchema: GenMessage<PingResponse> = /*@__PURE__*/ messageDesc(file_ping_v1_ping, 1);
 
 /**
  * @generated from message ping.v1.EchoRequest
@@ -73,9 +61,7 @@ export type EchoRequest = Message<"ping.v1.EchoRequest"> & {
  * Describes the message ping.v1.EchoRequest.
  * Use `create(EchoRequestSchema)` to create a new message.
  */
-export const EchoRequestSchema: GenMessage<EchoRequest> =
-  /*@__PURE__*/
-  messageDesc(file_ping_v1_ping, 2);
+export const EchoRequestSchema: GenMessage<EchoRequest> = /*@__PURE__*/ messageDesc(file_ping_v1_ping, 2);
 
 /**
  * @generated from message ping.v1.EchoResponse
@@ -91,9 +77,7 @@ export type EchoResponse = Message<"ping.v1.EchoResponse"> & {
  * Describes the message ping.v1.EchoResponse.
  * Use `create(EchoResponseSchema)` to create a new message.
  */
-export const EchoResponseSchema: GenMessage<EchoResponse> =
-  /*@__PURE__*/
-  messageDesc(file_ping_v1_ping, 3);
+export const EchoResponseSchema: GenMessage<EchoResponse> = /*@__PURE__*/ messageDesc(file_ping_v1_ping, 3);
 
 /**
  * @generated from message ping.v1.PingStreamRequest
@@ -109,9 +93,7 @@ export type PingStreamRequest = Message<"ping.v1.PingStreamRequest"> & {
  * Describes the message ping.v1.PingStreamRequest.
  * Use `create(PingStreamRequestSchema)` to create a new message.
  */
-export const PingStreamRequestSchema: GenMessage<PingStreamRequest> =
-  /*@__PURE__*/
-  messageDesc(file_ping_v1_ping, 4);
+export const PingStreamRequestSchema: GenMessage<PingStreamRequest> = /*@__PURE__*/ messageDesc(file_ping_v1_ping, 4);
 
 /**
  * @generated from message ping.v1.PingStreamResponse
@@ -127,9 +109,7 @@ export type PingStreamResponse = Message<"ping.v1.PingStreamResponse"> & {
  * Describes the message ping.v1.PingStreamResponse.
  * Use `create(PingStreamResponseSchema)` to create a new message.
  */
-export const PingStreamResponseSchema: GenMessage<PingStreamResponse> =
-  /*@__PURE__*/
-  messageDesc(file_ping_v1_ping, 5);
+export const PingStreamResponseSchema: GenMessage<PingStreamResponse> = /*@__PURE__*/ messageDesc(file_ping_v1_ping, 5);
 
 /**
  * @generated from service ping.v1.PingService

@@ -18,9 +18,7 @@ describe("TabMenu", () => {
   it("calls onClick handler on click", () => {
     const onClick = vi.fn();
     render(<Tab {...data} onClick={onClick} />);
-    const tab = screen
-      .getByText(data.name)
-      .closest("button") as HTMLButtonElement;
+    const tab = screen.getByText(data.name).closest("button") as HTMLButtonElement;
 
     fireEvent.click(tab);
     expect(onClick).toHaveBeenCalled();

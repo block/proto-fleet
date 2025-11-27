@@ -17,23 +17,14 @@ import { cubicBezierValues } from "@/shared/utils/cssUtils";
 const extraPaddingForHover = 15;
 const initialTranslateY = 20;
 
-const Toast = ({
-  message,
-  onClose,
-  status,
-  index,
-  numToasts,
-  ttl = defaultTtl,
-}: ToastProps) => {
+const Toast = ({ message, onClose, status, index, numToasts, ttl = defaultTtl }: ToastProps) => {
   const [yOffset, setYOffset] = useState<number>(0);
   const [hoverYOffset, setHoverYOffset] = useState<number>(0);
   const [scale, setScale] = useState<number>(1);
 
   // If Toast is used outside of toaster and we
   // dont have index or numToast we just assume its on top
-  const [onTop, setOnTop] = useState<boolean>(
-    index == undefined || numToasts == undefined || index + 1 == numToasts,
-  );
+  const [onTop, setOnTop] = useState<boolean>(index == undefined || numToasts == undefined || index + 1 == numToasts);
 
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
@@ -79,12 +70,8 @@ const Toast = ({
         >
           <div className="flex grow items-center space-x-3 transition-opacity duration-300">
             {status === STATUSES.loading && <ProgressCircular indeterminate />}
-            {status === STATUSES.success && (
-              <Success className="text-intent-success-fill" />
-            )}
-            {status === STATUSES.error && (
-              <Alert className="text-intent-warning-fill" />
-            )}
+            {status === STATUSES.success && <Success className="text-intent-success-fill" />}
+            {status === STATUSES.error && <Alert className="text-intent-warning-fill" />}
             <div className="text-heading-100 text-text-primary">{message}</div>
           </div>
           <button onClick={onClose}>

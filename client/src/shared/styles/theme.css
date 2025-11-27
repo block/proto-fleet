@@ -155,20 +155,14 @@ WOuld be best to switch over to mobile first stying  */
   --color-intent-critical-10: rgb(var(--base_red_100) / 10%);
   --color-elevation-50: 0px 0px 1px 0px rgba(var(--base_black_100) / 0.37);
   --color-elevation-100:
-    0px 4px 24px 0px rgba(var(--base_black_100) / 0.02),
-    0px 4px 8px 0px rgba(var(--base_black_100) / 0.02),
-    0px 2px 4px 0px rgba(var(--base_black_100) / 0.02),
-    0px 0px 1px 0px rgba(var(--base_black_100) / 0.2);
+    0px 4px 24px 0px rgba(var(--base_black_100) / 0.02), 0px 4px 8px 0px rgba(var(--base_black_100) / 0.02),
+    0px 2px 4px 0px rgba(var(--base_black_100) / 0.02), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.2);
   --color-elevation-200:
-    0px 12px 32px 0px rgba(var(--base_black_100) / 0.04),
-    0px 8px 16px 0px rgba(var(--base_black_100) / 0.02),
-    0px 2px 4px 0px rgba(var(--base_black_100) / 0.04),
-    0px 0px 1px 0px rgba(var(--base_black_100) / 0.2);
+    0px 12px 32px 0px rgba(var(--base_black_100) / 0.04), 0px 8px 16px 0px rgba(var(--base_black_100) / 0.02),
+    0px 2px 4px 0px rgba(var(--base_black_100) / 0.04), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.2);
   --color-elevation-300:
-    0px 16px 40px 0px rgba(var(--base_black_100) / 0.04),
-    0px 24px 32px 0px rgba(var(--base_black_100) / 0.02),
-    0px 4px 8px 0px rgba(var(--base_black_100) / 0.04),
-    0px 0px 1px 0px rgba(var(--base_black_100) / 0.3);
+    0px 16px 40px 0px rgba(var(--base_black_100) / 0.04), 0px 24px 32px 0px rgba(var(--base_black_100) / 0.02),
+    0px 4px 8px 0px rgba(var(--base_black_100) / 0.04), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.3);
   --color-extended-sky-fill: rgb(var(--base_sky_100));
   --color-extended-taupe-fill: rgb(var(--base_taupe_100));
   --color-extended-dark-red-fill: rgb(var(--base_dark_red_100));
@@ -372,20 +366,14 @@ WOuld be best to switch over to mobile first stying  */
     --color-intent-info-text: rgb(var(--base_blue_100));
     --color-elevation-50: 0px 0px 1px 0px rgba(var(--base_white_100) / 0.5);
     --color-elevation-100:
-      0px 4px 24px 0px rgba(var(--base_black_100) / 0.16),
-      0px 4px 8px 0px rgba(var(--base_black_100) / 0.16),
-      0px 2px 4px 0px rgba(var(--base_black_100) / 0.16),
-      0px 0px 1px 0px rgba(var(--base_black_100) / 0.16);
+      0px 4px 24px 0px rgba(var(--base_black_100) / 0.16), 0px 4px 8px 0px rgba(var(--base_black_100) / 0.16),
+      0px 2px 4px 0px rgba(var(--base_black_100) / 0.16), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.16);
     --color-elevation-200:
-      0px 12px 32px 0px rgba(var(--base_black_100) / 0.24),
-      0px 8px 16px 0px rgba(var(--base_black_100) / 0.16),
-      0px 2px 4px 0px rgba(var(--base_black_100) / 0.08),
-      0px 0px 1px 0px rgba(var(--base_black_100) / 0.24);
+      0px 12px 32px 0px rgba(var(--base_black_100) / 0.24), 0px 8px 16px 0px rgba(var(--base_black_100) / 0.16),
+      0px 2px 4px 0px rgba(var(--base_black_100) / 0.08), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.24);
     --color-elevation-300:
-      0px 16px 40px 0px rgba(var(--base_black_100) / 0.32),
-      0px 24px 32px 0px rgba(var(--base_black_100) / 0.16),
-      0px 4px 8px 0px rgba(var(--base_black_100) / 0.04),
-      0px 0px 1px 0px rgba(var(--base_black_100) / 0.3);
+      0px 16px 40px 0px rgba(var(--base_black_100) / 0.32), 0px 24px 32px 0px rgba(var(--base_black_100) / 0.16),
+      0px 4px 8px 0px rgba(var(--base_black_100) / 0.04), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.3);
     --color-core-primary-fill: rgb(var(--base_white_100) / 90%);
     --color-core-primary-80: rgb(var(--base_white_100) / 80%);
     --color-core-primary-50: rgb(var(--base_white_100) / 50%);

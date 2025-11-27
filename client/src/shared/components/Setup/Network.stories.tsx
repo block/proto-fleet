@@ -7,11 +7,7 @@ interface NetworkArgs {
 export const Network = ({ subnet }: NetworkArgs) => {
   return (
     <div>
-      <NetworkComponent
-        submit={() => {}}
-        subnet={subnet}
-        gateway="192.168.1.1"
-      />
+      <NetworkComponent submit={() => {}} subnet={subnet} gateway="192.168.1.1" />
     </div>
   );
 };

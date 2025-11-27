@@ -28,12 +28,7 @@ const useAsicColor = (asic: AsicData) => {
     // round opacity to nearest 0.05
     opacity = Math.round(opacity * 20) / 20;
 
-    const color =
-      currentTemp >= dangerTemp
-        ? dangerColor
-        : currentTemp >= warningTemp
-          ? warningColor
-          : coolColor;
+    const color = currentTemp >= dangerTemp ? dangerColor : currentTemp >= warningTemp ? warningColor : coolColor;
 
     return color.replace(")", `/ ${opacity})`);
   }, [asic?.temperature, dangerColor, warningColor, defaultColor, coolColor]);

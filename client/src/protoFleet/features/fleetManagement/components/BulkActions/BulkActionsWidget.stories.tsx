@@ -1,20 +1,10 @@
 import { useMemo, useState } from "react";
 import { action } from "storybook/actions";
-import {
-  DeviceAction,
-  deviceActions,
-  PerformanceAction,
-  performanceActions,
-} from "../MinerActionsMenu/constants";
+import { DeviceAction, deviceActions, PerformanceAction, performanceActions } from "../MinerActionsMenu/constants";
 import { BulkAction } from "./types";
 import { BulkActionsPopover } from ".";
 import BulkActionsWidgetComponent from ".";
-import {
-  ArrowLeftCompact,
-  Curtail,
-  LEDIndicator,
-  Rectangle,
-} from "@/shared/assets/icons";
+import { ArrowLeftCompact, Curtail, LEDIndicator, Rectangle } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { variants } from "@/shared/components/Button";
 import { PopoverProvider } from "@/shared/components/Popover";
@@ -24,13 +14,8 @@ interface BulkActionsWidgetArgs {
   numberOfMiners: number;
 }
 
-export const BulkActionsWidget = ({
-  numberOfActions,
-  numberOfMiners,
-}: BulkActionsWidgetArgs) => {
-  const [currentAction, setCurrentAction] = useState<
-    DeviceAction | PerformanceAction | null
-  >(null);
+export const BulkActionsWidget = ({ numberOfActions, numberOfMiners }: BulkActionsWidgetArgs) => {
+  const [currentAction, setCurrentAction] = useState<DeviceAction | PerformanceAction | null>(null);
 
   const handleBlinkLEDs = () => {
     setCurrentAction(deviceActions.blinkLEDs);
@@ -88,8 +73,7 @@ export const BulkActionsWidget = ({
         requiresConfirmation: true,
         confirmation: {
           title: `Curtail ${numberOfMiners} miners?`,
-          subtitle:
-            "These miners will reduce power to 0.1 kW and stop hashing.",
+          subtitle: "These miners will reduce power to 0.1 kW and stop hashing.",
           confirmAction: {
             title: "Curtail",
             variant: variants.primary,

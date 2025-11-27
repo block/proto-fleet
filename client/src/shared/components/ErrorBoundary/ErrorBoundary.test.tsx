@@ -12,13 +12,7 @@ const ThrowError = ({ shouldThrow = false }: { shouldThrow?: boolean }) => {
 };
 
 // Custom fallback component for testing
-const CustomFallback = ({
-  error,
-  onRetry,
-}: {
-  error?: Error;
-  onRetry: () => void;
-}) => (
+const CustomFallback = ({ error, onRetry }: { error?: Error; onRetry: () => void }) => (
   <div>
     <h2>Custom Error: {error?.message}</h2>
     <button onClick={onRetry}>Reset</button>
@@ -64,9 +58,7 @@ describe("ErrorBoundary", () => {
       </ErrorBoundary>,
     );
 
-    expect(
-      screen.getByText("Custom Error: Test error message"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Custom Error: Test error message")).toBeInTheDocument();
     expect(screen.getByText("Reset")).toBeInTheDocument();
   });
 

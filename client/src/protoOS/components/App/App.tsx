@@ -1,12 +1,4 @@
-import {
-  ComponentType,
-  ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import ErrorCallout from "./ErrorCallout";
@@ -54,11 +46,7 @@ import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { BootingUp } from "@/shared/components/Setup";
 import { useApplyTheme } from "@/shared/features/preferences";
-import {
-  pushToast,
-  STATUSES as TOAST_STATUSES,
-  Toaster,
-} from "@/shared/features/toaster";
+import { pushToast, STATUSES as TOAST_STATUSES, Toaster } from "@/shared/features/toaster";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 interface AppProps {
@@ -69,13 +57,7 @@ interface AppProps {
   ContentLayout?: ComponentType<ContentLayoutProps>;
 }
 
-const App = ({
-  children,
-  fullscreen,
-  hideErrors,
-  title,
-  ContentLayout = DefaultContentLayout,
-}: AppProps) => {
+const App = ({ children, fullscreen, hideErrors, title, ContentLayout = DefaultContentLayout }: AppProps) => {
   // ============================================================================
   // THEME & BOOTSTRAPPING
   // ============================================================================
@@ -188,10 +170,8 @@ const App = ({
   const isMining = useIsMining();
   const isWarmingUp = useIsWarmingUp();
   const [initPage, setInitPage] = useState(false);
-  const [intervalId, setIntervalId] =
-    useState<ReturnType<typeof setInterval>>();
-  const [wakeIntervalId, setWakeIntervalId] =
-    useState<ReturnType<typeof setInterval>>();
+  const [intervalId, setIntervalId] = useState<ReturnType<typeof setInterval>>();
+  const [wakeIntervalId, setWakeIntervalId] = useState<ReturnType<typeof setInterval>>();
 
   const { startMining } = useMiningStart();
 
@@ -214,15 +194,7 @@ const App = ({
       }, 5000);
       setIntervalId(newIntervalId);
     }
-  }, [
-    fetchMiningStatus,
-    intervalId,
-    initPage,
-    miningStatus,
-    isOnboarded,
-    isMining,
-    isWarmingUp,
-  ]);
+  }, [fetchMiningStatus, intervalId, initPage, miningStatus, isOnboarded, isMining, isWarmingUp]);
 
   const handleWake = () => {
     startMining({
@@ -256,10 +228,7 @@ const App = ({
   const setDismissedLoginModal = useSetDismissedLoginModal();
 
   const handleDismissLogin = useCallback(() => {
-    if (
-      pathname === "/settings/mining-pools" ||
-      pathname === "/settings/cooling"
-    ) {
+    if (pathname === "/settings/mining-pools" || pathname === "/settings/cooling") {
       // if user landed on an auth protected setting page from within the app,
       //  navigate back else navigate to home
       navigate(location.state?.from || "/");
@@ -308,11 +277,7 @@ const App = ({
   // (downloading, downloaded, installing, or confirming)
   useEffect(() => {
     // Start tracking when update begins and we haven't started tracking yet
-    if (
-      isUpdateInProgress &&
-      !hasStartedTrackingRef.current &&
-      currentVersion
-    ) {
+    if (isUpdateInProgress && !hasStartedTrackingRef.current && currentVersion) {
       hasStartedTrackingRef.current = true;
       preUpdateVersionRef.current = currentVersion;
       minerWasOfflineRef.current = false;
@@ -398,41 +363,19 @@ const App = ({
       </div>
 
       {/* Login Modal - Layout agnostic */}
-      {showLoginModal && (
-        <LoginModal
-          onDismiss={handleDismissLogin}
-          onSuccess={handleSuccessLogin}
-        />
-      )}
+      {showLoginModal && <LoginModal onDismiss={handleDismissLogin} onSuccess={handleSuccessLogin} />}
 
       {/* Wake Dialog - Layout agnostic */}
-      <WarnWakeDialog
-        onClose={wakeDialog.onClose}
-        onSubmit={wakeDialog.onConfirm}
-        show={wakeDialog.show}
-      />
+      <WarnWakeDialog onClose={wakeDialog.onClose} onSubmit={wakeDialog.onConfirm} show={wakeDialog.show} />
 
       {fullscreen ? (
         // Fullscreen mode: Just render children without AppLayout chrome
         children
       ) : (
         // Normal mode: Render with AppLayout + callouts
-        <AppLayout
-          title={title}
-          ContentLayout={ContentLayout}
-          type={navigationMenuTypes.app}
-        >
-          {isWarmingUp ? (
-            <WarmingUpCallout />
-          ) : (
-            <WakeCallout afterWake={afterWake} onWake={handleWake} />
-          )}
-          {!isWarmingUp &&
-          !isSleeping &&
-          errors.errors?.length &&
-          !hideErrors ? (
-            <ErrorCallout />
-          ) : null}
+        <AppLayout title={title} ContentLayout={ContentLayout} type={navigationMenuTypes.app}>
+          {isWarmingUp ? <WarmingUpCallout /> : <WakeCallout afterWake={afterWake} onWake={handleWake} />}
+          {!isWarmingUp && !isSleeping && errors.errors?.length && !hideErrors ? <ErrorCallout /> : null}
           {children}
         </AppLayout>
       )}

@@ -28,9 +28,7 @@ describe("MiningPoolsForm", () => {
   const buttonLabel = "Continue";
 
   test("renders default and backup pool rows", () => {
-    const { getByText, getAllByText } = render(
-      <MiningPoolsForm buttonLabel="Save" onSaveDone={vi.fn()} />,
-    );
+    const { getByText, getAllByText } = render(<MiningPoolsForm buttonLabel="Save" onSaveDone={vi.fn()} />);
 
     expect(getByText("Default pool")).toBeInTheDocument();
     expect(getByText("Backup pool #1")).toBeInTheDocument();
@@ -39,9 +37,7 @@ describe("MiningPoolsForm", () => {
   });
 
   test("displays warning when default pool is invalid", () => {
-    const { getByTestId, getByRole } = render(
-      <MiningPoolsForm buttonLabel={buttonLabel} onSaveDone={vi.fn()} />,
-    );
+    const { getByTestId, getByRole } = render(<MiningPoolsForm buttonLabel={buttonLabel} onSaveDone={vi.fn()} />);
 
     const saveButton = getByRole("button", { name: buttonLabel });
     fireEvent.click(saveButton);
@@ -52,14 +48,11 @@ describe("MiningPoolsForm", () => {
     // ensure we have a valid default pool
     mocks.pools = [{ url: "https://example.com", username: "user" }];
 
-    const { getByRole } = render(
-      <MiningPoolsForm buttonLabel={buttonLabel} onSaveDone={vi.fn()} />,
-    );
+    const { getByRole } = render(<MiningPoolsForm buttonLabel={buttonLabel} onSaveDone={vi.fn()} />);
 
     await waitFor(() => {
       // When pools are initialized, at least one "Not configured" should change
-      const notConfiguredCount =
-        document.body.textContent?.match(/Not configured/g)?.length || 0;
+      const notConfiguredCount = document.body.textContent?.match(/Not configured/g)?.length || 0;
       expect(notConfiguredCount).toBeLessThan(3);
     });
 
@@ -79,16 +72,11 @@ describe("MiningPoolsForm", () => {
     mocks.pools = [{ url: "https://example.com", username: "user" }];
 
     const { getByRole } = render(
-      <MiningPoolsForm
-        buttonLabel={buttonLabel}
-        onSaveRequested={mockOnSaveRequested}
-        onSaveDone={mockOnSaveDone}
-      />,
+      <MiningPoolsForm buttonLabel={buttonLabel} onSaveRequested={mockOnSaveRequested} onSaveDone={mockOnSaveDone} />,
     );
 
     await waitFor(() => {
-      const notConfiguredCount =
-        document.body.textContent?.match(/Not configured/g)?.length || 0;
+      const notConfiguredCount = document.body.textContent?.match(/Not configured/g)?.length || 0;
       expect(notConfiguredCount).toBeLessThan(3);
     });
 

@@ -22,12 +22,7 @@ const useCreatePools = () => {
   const { handleAuthErrors } = useAuthErrors();
 
   const createPools = useCallback(
-    async ({
-      poolInfo,
-      onSuccess,
-      onError,
-      retryOnMinerDown,
-    }: CreatePoolsProps) => {
+    async ({ poolInfo, onSuccess, onError, retryOnMinerDown }: CreatePoolsProps) => {
       if (!api) return;
 
       const performCreate = async () => {

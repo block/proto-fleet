@@ -41,9 +41,7 @@ const SecondaryNavigation = ({ items }: SecondaryNavigationProps) => {
               className={clsx(
                 "block rounded-lg px-2 py-1 text-emphasis-300",
                 "hover:text-text-primary",
-                isCurrentPath(item.path)
-                  ? "bg-core-primary-5 text-text-primary"
-                  : "text-text-primary-70",
+                isCurrentPath(item.path) ? "bg-core-primary-5 text-text-primary" : "text-text-primary-70",
               )}
             >
               {item.label}

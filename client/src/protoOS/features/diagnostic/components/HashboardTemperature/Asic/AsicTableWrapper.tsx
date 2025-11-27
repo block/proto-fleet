@@ -10,11 +10,7 @@ interface AsicTableWrapperProps {
   setShowPopover: Dispatch<SetStateAction<string | undefined>>;
 }
 
-const AsicTableWrapper = ({
-  hashboardSerialNumber,
-  showPopover,
-  setShowPopover,
-}: AsicTableWrapperProps) => {
+const AsicTableWrapper = ({ hashboardSerialNumber, showPopover, setShowPopover }: AsicTableWrapperProps) => {
   const asics = useMinerHashboardAsics(hashboardSerialNumber);
 
   const sortedAsics = useMemo(() => {

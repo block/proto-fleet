@@ -1,10 +1,7 @@
 import { Aggregates, TimeSeriesData } from "@/protoOS/api/generatedApi";
 import { Duration } from "@/shared/components/DurationSelector";
 import { getDateFromEpoch } from "@/shared/utils/datetime";
-import {
-  convertMegahashSecToTerahashSec,
-  convertWtoKW,
-} from "@/shared/utils/utility";
+import { convertMegahashSecToTerahashSec, convertWtoKW } from "@/shared/utils/utility";
 
 export const conversionFns = {
   hashrate: convertMegahashSecToTerahashSec,
@@ -23,10 +20,7 @@ export const convertHashrateValues = (data: TimeSeriesData[]) => {
   );
 };
 
-export const convertValues = (
-  data: TimeSeriesData[],
-  convertFn: (value?: number) => number,
-) => {
+export const convertValues = (data: TimeSeriesData[], convertFn: (value?: number) => number) => {
   return (
     data?.map((dataItem) => ({
       datetime: dataItem.datetime,
@@ -49,10 +43,7 @@ export const convertValues = (
  * 3. Calculating the average value for each bucket by summing values and dividing by count
  * 4. Returns a new array with the same datetime as the first point in each bucket and the average value
  */
-export const aggregateValues = (
-  dataToAggregate: TimeSeriesData[] = [],
-  compareTimeMinutes: number,
-) => {
+export const aggregateValues = (dataToAggregate: TimeSeriesData[] = [], compareTimeMinutes: number) => {
   // if data is empty, we have not received any data from the server
   // so no need to aggregate data
   if (dataToAggregate.length === 0) {
@@ -93,10 +84,8 @@ export const aggregateValues = (
       // Same bucket - add to existing
       aggregatedData[aggregatedData.length - 1] = {
         datetime: aggregatedData[aggregatedData.length - 1].datetime,
-        value:
-          +aggregatedData[aggregatedData.length - 1].value + +(data.value || 0),
-        numberOfValues:
-          aggregatedData[aggregatedData.length - 1].numberOfValues + 1,
+        value: +aggregatedData[aggregatedData.length - 1].value + +(data.value || 0),
+        numberOfValues: aggregatedData[aggregatedData.length - 1].numberOfValues + 1,
       };
     } else {
       // New bucket - create new entry

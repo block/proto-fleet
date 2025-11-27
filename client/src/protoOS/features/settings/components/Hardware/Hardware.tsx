@@ -1,15 +1,7 @@
 import { getControlBoardGeneration } from "./utility";
 import { useHardware } from "@/protoOS/api";
-import {
-  TOTAL_FAN_SLOTS,
-  TOTAL_HASHBOARD_SLOTS,
-  TOTAL_PSU_SLOTS,
-} from "@/protoOS/api/constants";
-import {
-  FanIndicator,
-  HashboardIndicator,
-  PsuIndicator,
-} from "@/shared/assets/icons";
+import { TOTAL_FAN_SLOTS, TOTAL_HASHBOARD_SLOTS, TOTAL_PSU_SLOTS } from "@/protoOS/api/constants";
+import { FanIndicator, HashboardIndicator, PsuIndicator } from "@/shared/assets/icons";
 import { DataNullState } from "@/shared/components/DataNullState";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
@@ -19,14 +11,7 @@ import SlotNumber from "@/shared/components/SlotNumber";
 const Hardware = () => {
   // TODO: [STORE_REFACTOR] Remove this useHardware call once we update this page to read directly from the store
   // Hardware data is now populated by useHardware in AppWrapper.tsx
-  const {
-    hashboardsInfo,
-    controlBoardInfo,
-    fansInfo,
-    psusInfo,
-    pending,
-    error,
-  } = useHardware();
+  const { hashboardsInfo, controlBoardInfo, fansInfo, psusInfo, pending, error } = useHardware();
 
   const skeletonBar = <SkeletonBar className="h-[22px] w-20" />;
 
@@ -45,10 +30,7 @@ const Hardware = () => {
     return (
       <>
         <h2 className="mb-10 text-heading-300">Hardware</h2>
-        <DataNullState
-          title="Could not load hardware details"
-          description="Test your connection and try again."
-        />
+        <DataNullState title="Could not load hardware details" description="Test your connection and try again." />
       </>
     );
   }
@@ -68,9 +50,7 @@ const Hardware = () => {
               ? `Control Board ${getControlBoardGeneration(controlBoardInfo) ?? "Unknown"}`
               : skeletonBar}
           </div>
-          <div className="w-46 text-300">
-            {controlBoardInfo?.serial_number ?? skeletonBar}
-          </div>
+          <div className="w-46 text-300">{controlBoardInfo?.serial_number ?? skeletonBar}</div>
         </Row>
       </div>
       <div className="mb-10" role="table">
@@ -83,17 +63,10 @@ const Hardware = () => {
         {hashboardsInfo?.map((hashboard, idx) => {
           const slotNumber = idx + 1;
           return (
-            <Row
-              key={idx}
-              className="flex items-center"
-              attributes={{ role: "row" }}
-            >
+            <Row key={idx} className="flex items-center" attributes={{ role: "row" }}>
               <div className="flex w-46 items-center gap-2 text-300">
                 <SlotNumber number={slotNumber} />
-                <HashboardIndicator
-                  activeHashboardSlot={slotNumber}
-                  totalHashboards={TOTAL_HASHBOARD_SLOTS}
-                />
+                <HashboardIndicator activeHashboardSlot={slotNumber} totalHashboards={TOTAL_HASHBOARD_SLOTS} />
               </div>
               {hashboard ? (
                 <>
@@ -102,9 +75,7 @@ const Hardware = () => {
                 </>
               ) : (
                 <>
-                  <div className="w-46 text-300 text-text-primary-70">
-                    No component found
-                  </div>
+                  <div className="w-46 text-300 text-text-primary-70">No component found</div>
                   <div className="w-46 text-300 text-text-primary-70">—</div>
                 </>
               )}
@@ -121,24 +92,15 @@ const Hardware = () => {
         {fansInfo?.map((fan, idx) => {
           const fanPosition = idx + 1;
           return (
-            <Row
-              className="flex items-center"
-              key={idx}
-              attributes={{ role: "row" }}
-            >
+            <Row className="flex items-center" key={idx} attributes={{ role: "row" }}>
               <div className="flex w-46 items-center gap-2 text-300">
                 <SlotNumber number={fanPosition} />
-                <FanIndicator
-                  fanPosition={fanPosition}
-                  numFans={TOTAL_FAN_SLOTS}
-                />
+                <FanIndicator fanPosition={fanPosition} numFans={TOTAL_FAN_SLOTS} />
               </div>
               {fan ? (
                 <div className="w-46 text-300">Fan {fan.id}</div>
               ) : (
-                <div className="w-46 text-300 text-text-primary-70">
-                  No component found
-                </div>
+                <div className="w-46 text-300 text-text-primary-70">No component found</div>
               )}
             </Row>
           );
@@ -154,17 +116,10 @@ const Hardware = () => {
         {psusInfo?.map((psu, idx) => {
           const slotNumber = idx + 1;
           return (
-            <Row
-              className="flex items-center"
-              key={idx}
-              attributes={{ role: "row" }}
-            >
+            <Row className="flex items-center" key={idx} attributes={{ role: "row" }}>
               <div className="flex w-46 items-center gap-2 text-300">
                 <SlotNumber number={slotNumber} />
-                <PsuIndicator
-                  totalSlots={TOTAL_PSU_SLOTS}
-                  slotPlacement={slotNumber}
-                />
+                <PsuIndicator totalSlots={TOTAL_PSU_SLOTS} slotPlacement={slotNumber} />
               </div>
               {psu ? (
                 <>
@@ -173,9 +128,7 @@ const Hardware = () => {
                 </>
               ) : (
                 <>
-                  <div className="w-46 text-300 text-text-primary-70">
-                    No component found
-                  </div>
+                  <div className="w-46 text-300 text-text-primary-70">No component found</div>
                   <div className="w-46 text-300 text-text-primary-70">—</div>
                 </>
               )}

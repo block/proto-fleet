@@ -9,10 +9,7 @@ interface AlertsCalloutProps {
   numberOfMinersInFleet: number;
 }
 
-const AlertsCallout = ({
-  alerts,
-  numberOfMinersInFleet,
-}: AlertsCalloutProps) => {
+const AlertsCallout = ({ alerts, numberOfMinersInFleet }: AlertsCalloutProps) => {
   const [showCallout, setShowCallout] = useState(true);
   const [showModal, setShowModal] = useState(false);
 
@@ -39,13 +36,7 @@ const AlertsCallout = ({
           onDismiss={() => setShowCallout(false)}
         />
       </div>
-      {showModal && (
-        <AlertsModal
-          show={showModal}
-          alerts={alerts}
-          onDismiss={() => setShowModal(false)}
-        />
-      )}
+      {showModal && <AlertsModal show={showModal} alerts={alerts} onDismiss={() => setShowModal(false)} />}
     </>
   );
 };

@@ -12,11 +12,7 @@ interface MinerActionsMenuProps {
   onActionComplete?: () => void;
 }
 
-const MinerActionsMenu = ({
-  selectedMiners,
-  onActionStart,
-  onActionComplete,
-}: MinerActionsMenuProps) => {
+const MinerActionsMenu = ({ selectedMiners, onActionStart, onActionComplete }: MinerActionsMenuProps) => {
   const {
     currentAction,
     popoverActions,

@@ -37,9 +37,7 @@ const useFirmwareUpdate = () => {
           const response = await api?.postUpdateSystem(authHeader);
 
           // Check if the response has a JSON parsing error embedded in it
-          if (
-            response?.error?.message?.includes("Unexpected end of JSON input")
-          ) {
+          if (response?.error?.message?.includes("Unexpected end of JSON input")) {
             return {
               data: { message: "System update initiated successfully" },
               status: 200,

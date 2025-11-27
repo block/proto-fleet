@@ -61,8 +61,7 @@ export const getHourlyIntervals = (duration: string): number[] => {
 
   // Round down to nearest interval
   const currentMinutes = endTime.getMinutes();
-  const roundedMinutes =
-    Math.floor(currentMinutes / minutesPerInterval) * minutesPerInterval;
+  const roundedMinutes = Math.floor(currentMinutes / minutesPerInterval) * minutesPerInterval;
   endTime.setMinutes(roundedMinutes);
 
   // Generate intervals working backwards from end time
@@ -99,9 +98,7 @@ export const findDataPointBefore = (
   let bestPoint: TemperatureStatusCount | null = null;
 
   for (const point of data) {
-    const pointTime = point.timestamp
-      ? Number(point.timestamp.seconds) * 1000 + point.timestamp.nanos / 1000000
-      : 0;
+    const pointTime = point.timestamp ? Number(point.timestamp.seconds) * 1000 + point.timestamp.nanos / 1000000 : 0;
 
     if (pointTime <= timestamp) {
       bestPoint = point;
@@ -197,19 +194,13 @@ export const getMultiDayIntervals = (duration: string): number[][] => {
 
     // Generate intervals for this day
     for (let i = 0; i < barsPerDay; i++) {
-      const intervalTime = new Date(
-        dayStart.getTime() + i * minutesPerBar * 60 * 1000,
-      );
+      const intervalTime = new Date(dayStart.getTime() + i * minutesPerBar * 60 * 1000);
 
       // Only include intervals that are:
       // 1. After or at the start time
       // 2. Before or at the end time
       // 3. Not in the future
-      if (
-        intervalTime >= startTime &&
-        intervalTime <= endTime &&
-        intervalTime.getTime() <= currentTime
-      ) {
+      if (intervalTime >= startTime && intervalTime <= endTime && intervalTime.getTime() <= currentTime) {
         intervals.push(intervalTime.getTime());
       }
     }
@@ -279,19 +270,12 @@ export const processMultiDayChartData = (
 /**
  * Calculate current breakdown from the last data entry
  */
-export const getCurrentBreakdown = (
-  data: TemperatureStatusCount[],
-  segmentConfig: SegmentConfig,
-) => {
+export const getCurrentBreakdown = (data: TemperatureStatusCount[], segmentConfig: SegmentConfig) => {
   if (!data || data.length === 0) return [];
 
   // Get the most recent data point
   const latestCount = data[data.length - 1];
-  const total =
-    latestCount.coldCount +
-    latestCount.okCount +
-    latestCount.hotCount +
-    latestCount.criticalCount;
+  const total = latestCount.coldCount + latestCount.okCount + latestCount.hotCount + latestCount.criticalCount;
 
   if (total === 0) return [];
 
@@ -311,8 +295,7 @@ export const getCurrentBreakdown = (
     // Only include segments that should be displayed in breakdown
     if (config.displayInBreakdown !== false && count > 0) {
       const percentageValue = Math.round((count / total) * 100);
-      const percentageLabel =
-        config.percentageLabel || `${percentageValue}% of miners`;
+      const percentageLabel = config.percentageLabel || `${percentageValue}% of miners`;
 
       breakdown.push({
         key,

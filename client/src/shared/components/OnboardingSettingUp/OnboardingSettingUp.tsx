@@ -21,10 +21,7 @@ const OnboardingSettingUp = ({
   onClickReconfigure,
   onClickRetry,
 }: OnboardingSettingUpProps) => {
-  const isLoading = useMemo(
-    () => poolStatus === statuses.fetch || poolStatus === statuses.pending,
-    [poolStatus],
-  );
+  const isLoading = useMemo(() => poolStatus === statuses.fetch || poolStatus === statuses.pending, [poolStatus]);
 
   const isError = useMemo(() => poolStatus === statuses.error, [poolStatus]);
 
@@ -46,18 +43,8 @@ const OnboardingSettingUp = ({
 
   return (
     <>
-      <Header
-        title={title}
-        titleSize="text-heading-300"
-        subtitle={subtitle}
-        subtitleSize="text-300"
-        className="mb-3"
-      />
-      <ConfiguringMiningPool
-        status={poolStatus}
-        onClickRetry={onClickRetry}
-        onClickReconfigure={onClickReconfigure}
-      />
+      <Header title={title} titleSize="text-heading-300" subtitle={subtitle} subtitleSize="text-300" className="mb-3" />
+      <ConfiguringMiningPool status={poolStatus} onClickRetry={onClickRetry} onClickReconfigure={onClickReconfigure} />
       <div className="flex justify-end">
         <Button
           variant={variants.accent}

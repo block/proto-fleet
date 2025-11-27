@@ -10,10 +10,7 @@ import {
   useSetPausedAuthAction,
   useSystemInfoPending,
 } from "@/protoOS/store";
-import {
-  pushToast,
-  STATUSES as TOAST_STATUSES,
-} from "@/shared/features/toaster";
+import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 
 const FirmwareUpdateStatusWrapper = () => {
   const { rebootSystem, pending: rebootPending } = useSystemReboot();
