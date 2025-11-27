@@ -3,9 +3,9 @@
 
 # Sub-project maintainers
 /bin                        @Gussy @mcharles-square @briano-block @ankitgoswami
-/client                     @mcharles-square @negarn @flesher @mightyguava @briano-block @ankitgoswami
-/proto                      @mcharles-square @negarn @flesher @mightyguava @briano-block @ankitgoswami
-/server                     @mcharles-square @negarn @flesher @mightyguava @briano-block @ankitgoswami
+/client                     @mcharles-square @negarn @flesher @mightyguava @briano-block @ankitgoswami @rongxin-liu
+/proto                      @mcharles-square @negarn @flesher @mightyguava @briano-block @ankitgoswami @rongxin-liu
+/server                     @mcharles-square @negarn @flesher @mightyguava @briano-block @ankitgoswami @rongxin-liu 
 
 # All individual files in the root directory
 /.*                         @Gussy @mcharles-square @briano-block @ankitgoswami
