@@ -5,8 +5,9 @@ import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemet
 import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
+import LineChart from "@/protoFleet/components/LineChart";
+import SkeletonBar from "@/shared/components/SkeletonBar";
 import { Duration } from "@/shared/components/DurationSelector";
-import LineChart from "@/shared/components/LineChart";
 
 interface PowerPanelProps {
   duration: Duration;
@@ -74,11 +75,28 @@ export function PowerPanel({ duration }: PowerPanelProps) {
   }, [data]);
 
   if (isLoading) {
-    return <div>Loading power data...</div>;
+    const stat = {
+      label: "Power",
+      value: undefined,
+      units: "",
+    };
+
+    return (
+      <ChartWidget stats={stat}>
+        <SkeletonBar className="h-60 w-full" />
+      </ChartWidget>
+    );
   }
 
+  // Handle no data case - still show the widget with header but no chart
   if (!chartData || chartData.length === 0) {
-    return <div>No power data available</div>;
+    const stat = {
+      label: "Power",
+      value: "No data",
+      units: "",
+    };
+
+    return <ChartWidget stats={stat}>{null}</ChartWidget>;
   }
 
   const powerDisplayValue = currentPower !== null ? currentPower.toFixed(1) : "N/A";
@@ -91,7 +109,14 @@ export function PowerPanel({ duration }: PowerPanelProps) {
 
   return (
     <ChartWidget stats={stat}>
-      <LineChart chartData={chartData} aggregateKey="power" units="kW" activeKeys={["power"]} />
+      <LineChart
+        chartData={chartData}
+        aggregateKey="power"
+        units="kW"
+        activeKeys={["power"]}
+        heightClass="h-60"
+        tickCount={5}
+      />
     </ChartWidget>
   );
 }

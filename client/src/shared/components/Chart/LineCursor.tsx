@@ -19,7 +19,7 @@ const LineCursor = (props: LineCursorProps) => {
           <stop offset="1" stopOpacity="0" stopColor={color} />
         </linearGradient>
       </defs>
-      <Rectangle fill="url(#gradient)" x={points?.[0].x} width={1} height={height} />
+      <Rectangle fill="url(#gradient)" x={points?.[0]?.x} width={1} height={height} />
     </g>
   );
 };

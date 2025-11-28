@@ -5,8 +5,9 @@ import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemet
 import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
+import LineChart from "@/protoFleet/components/LineChart";
 import { Duration } from "@/shared/components/DurationSelector";
-import LineChart from "@/shared/components/LineChart";
+import SkeletonBar from "@/shared/components/SkeletonBar";
 import { formatHashrateWithUnit } from "@/shared/utils/utility";
 
 interface HashratePanelProps {
@@ -75,11 +76,28 @@ export function HashratePanel({ duration }: HashratePanelProps) {
   }, [data]);
 
   if (isLoading) {
-    return <div>Loading hashrate data...</div>;
+    const stat = {
+      label: "Hashrate",
+      value: undefined,
+      units: "",
+    };
+
+    return (
+      <ChartWidget stats={stat}>
+        <SkeletonBar className="h-60 w-full" />
+      </ChartWidget>
+    );
   }
 
+  // Handle no data case - still show the widget with header but no chart
   if (!chartData || chartData.length === 0) {
-    return <div>No hashrate data available</div>;
+    const stat = {
+      label: "Hashrate",
+      value: "No data",
+      units: "",
+    };
+
+    return <ChartWidget stats={stat}>{null}</ChartWidget>;
   }
 
   // Format the current hashrate with appropriate units
@@ -96,7 +114,14 @@ export function HashratePanel({ duration }: HashratePanelProps) {
 
   return (
     <ChartWidget stats={stat}>
-      <LineChart chartData={chartData} aggregateKey="hashrate" units={hashrateUnits} activeKeys={["hashrate"]} />
+      <LineChart
+        chartData={chartData}
+        aggregateKey="hashrate"
+        units={hashrateUnits}
+        activeKeys={["hashrate"]}
+        heightClass="h-60"
+        tickCount={5}
+      />
     </ChartWidget>
   );
 }

@@ -45,7 +45,12 @@ const Stat = ({
       </div>
       {value === undefined ? (
         <SkeletonBar
-          className={clsx("py-1", size === "large" && "h-10", size === "medium" && "h-7", size === "small" && "h-5")}
+          className={clsx(
+            "w-32 py-1",
+            size === "large" && "h-10",
+            size === "medium" && "h-7",
+            size === "small" && "h-5",
+          )}
         />
       ) : (
         <motion.div

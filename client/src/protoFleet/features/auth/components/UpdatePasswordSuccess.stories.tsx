@@ -2,7 +2,7 @@ import { action } from "storybook/actions";
 import { UpdatePasswordSuccess } from "./UpdatePasswordSuccess";
 
 export default {
-  title: "ProtoFleet/Auth/UpdatePasswordSuccess",
+  title: "Proto Fleet/Auth/UpdatePasswordSuccess",
   component: UpdatePasswordSuccess,
 };
 

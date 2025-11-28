@@ -1,9 +1,5 @@
-import { useMemo } from "react";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import useFleet from "@/protoFleet/api/useFleet";
-import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
-import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import { EfficiencyPanel } from "@/protoFleet/features/dashboard/components/EfficiencyPanel";
 import FleetHealth from "@/protoFleet/features/dashboard/components/FleetHealth";
 import { HashratePanel } from "@/protoFleet/features/dashboard/components/HashratePanel";
@@ -18,7 +14,6 @@ import {
   useDeviceStatusCounts,
   useDuration,
   useSetDuration,
-  useTemperatureStatusCounts,
   useTotalMiners,
 } from "@/protoFleet/store";
 import DurationSelector from "@/shared/components/DurationSelector";
@@ -33,35 +28,8 @@ const Dashboard = () => {
   }); // Ensure fleet data is loaded
   const fleetSize = useTotalMiners();
   const deviceStatusCounts = useDeviceStatusCounts();
-  const temperatureStatusCounts = useTemperatureStatusCounts();
   const duration = useDuration();
   const setDuration = useSetDuration();
-
-  // Memoize the telemetry options to prevent re-renders
-  const telemetryOptions = useMemo(
-    () => ({
-      measurementTypes: [MeasurementType.TEMPERATURE],
-      duration: duration,
-      enabled: true,
-    }),
-    [duration], // Only recreate when duration changes
-  );
-
-  // Fetch initial telemetry metrics including temperature status
-  const { isLoading } = useTelemetryMetrics(telemetryOptions);
-
-  // Memoize streaming options
-  const streamingOptions = useMemo(
-    () => ({
-      deviceIds: [], // Empty means all devices
-      measurementTypes: [MeasurementType.TEMPERATURE],
-      enabled: true,
-    }),
-    [], // Static options, no dependencies
-  );
-
-  // Enable streaming updates for temperature status
-  useStreamingTelemetryMetrics(streamingOptions);
 
   return (
     <div className="h-full">
@@ -95,7 +63,7 @@ const Dashboard = () => {
               <HashratePanel duration={duration} />
 
               {/* Temperature Panel - shows temperature status distribution */}
-              <TemperaturePanel temperatureStatusCounts={temperatureStatusCounts} isLoading={isLoading} />
+              <TemperaturePanel duration={duration} />
 
               {/* Power and Efficiency Panels - side by side */}
               <div className="grid grid-cols-2 gap-1 phone:grid-cols-1 tablet:grid-cols-1">

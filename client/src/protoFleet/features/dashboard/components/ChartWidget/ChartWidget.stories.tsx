@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import ChartWidget from "./ChartWidget";
-import LineChart from "@/shared/components/LineChart";
+import LineChart from "@/protoFleet/components/LineChart";
 import { ChartData } from "@/shared/components/LineChart/types";
 
 // Generate sample chart data
@@ -68,7 +68,7 @@ export const SingleStat: Story = {
     stats: {
       label: "Current",
       value: "230.2",
-      text: "TH/s",
+      units: "TH/s",
     },
   },
   render: (args) => {
@@ -93,17 +93,17 @@ export const MultipleStats: Story = {
       {
         label: "Hashrate",
         value: "230.2",
-        text: "TH/s",
+        units: "TH/s",
       },
       {
         label: "Efficiency",
         value: "22.5",
-        text: "J/TH",
+        units: "J/TH",
       },
       {
         label: "Temperature",
         value: "65°C",
-        text: "Average",
+        units: "Average",
       },
     ],
     statsGrid: "grid-cols-3",
@@ -149,17 +149,17 @@ export const PercentageStats: Story = {
       {
         label: "Overall",
         value: "85%",
-        text: "Utilization",
+        units: "Utilization",
       },
       {
         label: "Active",
         value: "178",
-        text: "miners",
+        units: "miners",
       },
       {
         label: "Offline",
         value: "22",
-        text: "miners",
+        units: "miners",
       },
     ],
     statsGrid: "grid-cols-3",
@@ -187,17 +187,17 @@ export const SmallStats: Story = {
       {
         label: "Min",
         value: "220.1",
-        text: "TH/s",
+        units: "TH/s",
       },
       {
         label: "Avg",
         value: "230.2",
-        text: "TH/s",
+        units: "TH/s",
       },
       {
         label: "Max",
         value: "245.8",
-        text: "TH/s",
+        units: "TH/s",
       },
     ],
     statsGrid: "grid-cols-3",

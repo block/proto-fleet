@@ -6,7 +6,7 @@ import type { TemperatureStatusCount } from "@/protoFleet/api/generated/telemetr
 import { Triangle } from "@/shared/assets/icons";
 
 const meta = {
-  title: "ProtoFleet/KPIs/SegmentedMetricPanel",
+  title: "Proto Fleet/Dashboard/SegmentedMetricPanel",
   component: SegmentedMetricPanel,
   tags: ["autodocs"],
   parameters: {

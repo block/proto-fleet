@@ -5,7 +5,7 @@ import { authClient } from "@/protoFleet/api/clients";
 import { Toaster as ToasterComponent } from "@/shared/features/toaster";
 
 export default {
-  title: "ProtoFleet/Settings/AddTeamMemberModal",
+  title: "Proto Fleet/Settings/AddTeamMemberModal",
   component: AddTeamMemberModal,
 };
 

@@ -13,8 +13,6 @@ export const useTotalMiners = () => useFleetStore((state) => state.fleet.totalMi
 
 export const useDeviceStatusCounts = () => useFleetStore((state) => state.fleet.deviceStatusCounts);
 
-export const useTemperatureStatusCounts = () => useFleetStore((state) => state.fleet.temperatureStatusCounts);
-
 export const useFleetMiners = () => useFleetStore(useShallow((state) => state.fleet.getMinersArray()));
 
 export const useIsLoading = () => useFleetStore((state) => state.fleet.isLoading);
@@ -76,8 +74,6 @@ export const useAppendMiners = () => useFleetStore((state) => state.fleet.append
 export const useSetTotalMiners = () => useFleetStore((state) => state.fleet.setTotalMiners);
 
 export const useSetDeviceStatusCounts = () => useFleetStore((state) => state.fleet.setDeviceStatusCounts);
-
-export const useSetTemperatureStatusCounts = () => useFleetStore((state) => state.fleet.setTemperatureStatusCounts);
 
 export const useSetRefetchCallback = () => useFleetStore((state) => state.fleet.setRefetchCallback);
 

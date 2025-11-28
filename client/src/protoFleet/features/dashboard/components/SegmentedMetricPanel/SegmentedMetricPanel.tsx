@@ -106,10 +106,18 @@ export const SegmentedMetricPanel = ({
     return headline || "";
   }, [headlineGenerator, processedChartData, headline]);
 
+  // Check if we have no data
+  const hasNoData = !chartData || chartData.length === 0;
+
   const stat = {
     label: title,
-    value: computedHeadline,
+    value: hasNoData ? "No data" : computedHeadline,
   };
+
+  // If no data, render just the ChartWidget without charts or breakdown
+  if (hasNoData) {
+    return <ChartWidget stats={stat}>{null}</ChartWidget>;
+  }
 
   return (
     <div

@@ -3,7 +3,7 @@ import { action } from "storybook/actions";
 import { UpdatePasswordForm } from "./UpdatePasswordForm";
 
 export default {
-  title: "ProtoFleet/Auth/UpdatePasswordForm",
+  title: "Proto Fleet/Auth/UpdatePasswordForm",
   component: UpdatePasswordForm,
 };
 

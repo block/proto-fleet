@@ -94,6 +94,7 @@ const KpiLineChart = ({
         toolTipItemIcon={ToolTipItemIcon}
         units={units}
         segmentsLabel={segmentsLabel}
+        tooltipXOffset={60}
       />
     </>
   );

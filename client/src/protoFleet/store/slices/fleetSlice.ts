@@ -17,7 +17,6 @@ import {
   MinerStateCounts,
   MinerStateCountsSchema,
   type TelemetryUpdate,
-  type TemperatureStatusCount,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { getLatestMeasurementWithData } from "@/shared/utils/measurementUtils";
 
@@ -135,7 +134,6 @@ export interface FleetSlice {
 
   totalMiners: number; // total number of miners in the fleet
   deviceStatusCounts: MinerStateCounts; // counts of miners by device status
-  temperatureStatusCounts: TemperatureStatusCount[]; // temperature status distribution over time
 
   // Loading states
   isLoading: boolean;
@@ -155,7 +153,6 @@ export interface FleetSlice {
   removeMiners: (deviceIds: string[]) => void; // Remove miners by ID
   setTotalMiners: (count: number) => void;
   setDeviceStatusCounts: (counts: MinerStateCounts) => void;
-  setTemperatureStatusCounts: (counts: TemperatureStatusCount[]) => void;
   setRefetchCallback: (callback?: () => void) => void;
   updateMinerMeasurement: (deviceId: string, measurement: MeasurementUpdate) => void;
   updateMinerTelemetry: (deviceId: string, telemetryUpdate: TelemetryUpdate) => void;
@@ -182,7 +179,6 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
   minerIds: [],
   totalMiners: 0,
   deviceStatusCounts: createSchema(MinerStateCountsSchema, {}),
-  temperatureStatusCounts: [],
   isLoading: false,
   isStreaming: false,
   cursor: "",
@@ -266,11 +262,6 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
   setDeviceStatusCounts: (counts) =>
     set((state) => {
       state.fleet.deviceStatusCounts = counts;
-    }),
-
-  setTemperatureStatusCounts: (counts) =>
-    set((state) => {
-      state.fleet.temperatureStatusCounts = counts;
     }),
 
   setRefetchCallback: (callback) =>

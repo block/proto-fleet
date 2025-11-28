@@ -9,7 +9,7 @@ import {
   StreamCombinedMetricUpdatesRequestSchema,
   StreamCombinedMetricUpdatesResponse,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { useAuthErrors, useAuthHeader, useFleetStore, useSetTemperatureStatusCounts } from "@/protoFleet/store";
+import { useAuthErrors, useAuthHeader } from "@/protoFleet/store";
 
 interface StreamingOptions {
   deviceIds: string[];
@@ -21,7 +21,6 @@ interface StreamingOptions {
 export const useStreamingTelemetryMetrics = (options: StreamingOptions) => {
   const authHeader = useAuthHeader();
   const { handleAuthErrors } = useAuthErrors();
-  const setTemperatureStatusCounts = useSetTemperatureStatusCounts();
   const [latestData, setLatestData] = useState<StreamCombinedMetricUpdatesResponse | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const abortController = useRef<AbortController | null>(null);
@@ -79,45 +78,6 @@ export const useStreamingTelemetryMetrics = (options: StreamingOptions) => {
           signal: abortController.current?.signal,
         })) {
           setLatestData(response);
-
-          // Update temperature status counts if present in the response
-          if (response.temperatureStatusCounts && response.temperatureStatusCounts.length > 0) {
-            // Get current temperature status counts from store
-            const existingTemperatureStatusCounts = useFleetStore.getState().fleet.temperatureStatusCounts;
-
-            // Merge new temperature status counts with existing ones
-            const updatedCounts = [...existingTemperatureStatusCounts];
-
-            // Add new temperature status counts from the streaming response
-            for (const newCount of response.temperatureStatusCounts) {
-              // Find if we already have a count for this timestamp
-              const existingIndex = updatedCounts.findIndex(
-                (count) => count.timestamp?.seconds === newCount.timestamp?.seconds,
-              );
-
-              if (existingIndex >= 0) {
-                // Update existing count
-                updatedCounts[existingIndex] = newCount;
-              } else {
-                // Add new count
-                updatedCounts.push(newCount);
-              }
-            }
-
-            // Sort by timestamp and keep a reasonable number of entries
-            updatedCounts.sort((a, b) => {
-              const timeA = a.timestamp?.seconds || 0n;
-              const timeB = b.timestamp?.seconds || 0n;
-              return timeA < timeB ? -1 : timeA > timeB ? 1 : 0;
-            });
-
-            // Keep only the last 1000 entries to prevent memory issues
-            if (updatedCounts.length > 1000) {
-              updatedCounts.splice(0, updatedCounts.length - 1000);
-            }
-
-            setTemperatureStatusCounts(updatedCounts);
-          }
         }
       } catch (error) {
         if (!abortController.current?.signal.aborted) {
@@ -132,7 +92,7 @@ export const useStreamingTelemetryMetrics = (options: StreamingOptions) => {
         setIsStreaming(false);
       }
     })();
-  }, [stableOptions, authHeader, handleAuthErrors, setTemperatureStatusCounts]);
+  }, [stableOptions, authHeader, handleAuthErrors]);
 
   // Start/stop streaming when options change
   useEffect(() => {

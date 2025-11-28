@@ -3,7 +3,7 @@ import { action } from "storybook/actions";
 import DeactivateUserDialog from "./DeactivateUserDialog";
 
 export default {
-  title: "ProtoFleet/Settings/DeactivateUserDialog",
+  title: "Proto Fleet/Settings/DeactivateUserDialog",
   component: DeactivateUserDialog,
 };
 

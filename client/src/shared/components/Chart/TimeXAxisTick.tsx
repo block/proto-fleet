@@ -13,6 +13,8 @@ interface TimeXAxisTickProps {
   visibleTicksCount?: number;
   x?: number;
   y?: number;
+  labelCount?: number;
+  timeBasedIndices?: number[];
 }
 
 const TimeXAxisTick = ({
@@ -26,15 +28,57 @@ const TimeXAxisTick = ({
   visibleTicksCount = 0,
   x = 0,
   y = 0,
+  labelCount,
+  timeBasedIndices,
 }: TimeXAxisTickProps) => {
   const { index } = payload;
-  const firstTick = index === 0;
-  const lastTick = index === visibleTicksCount - 1;
-  // show a max number of ticks on the x-axis to avoid overlapping time labels
-  const showEveryNthTick = Math.ceil(dataPointCount / maxTicksToShow);
-  // show time for every nth tick and maintain more than nth tick gap before last tick
-  const midTick =
-    !firstTick && !lastTick && index % showEveryNthTick === 0 && index < visibleTicksCount - showEveryNthTick;
+  let firstTick = index === 0;
+  let lastTick = index === visibleTicksCount - 1;
+  let midTick = false;
+
+  // Calculate which ticks to show based on mode
+  if (timeBasedIndices && timeBasedIndices.length > 0) {
+    // Use time-based indices for evenly spaced labels in time
+    if (timeBasedIndices.includes(index)) {
+      // Determine if this is first, middle, or last label
+      firstTick = index === timeBasedIndices[0];
+      lastTick = index === timeBasedIndices[timeBasedIndices.length - 1];
+      midTick = !firstTick && !lastTick;
+    } else {
+      // Not a target index, don't show this tick
+      firstTick = false;
+      lastTick = false;
+      midTick = false;
+    }
+  } else if (labelCount) {
+    // Fallback to index-based spacing if time-based indices not available
+    // Handle edge case: if only 1 label, show first tick only
+    if (labelCount <= 1) {
+      firstTick = index === 0;
+      lastTick = false;
+      midTick = false;
+    } else {
+      const segmentSize = Math.floor((visibleTicksCount - 1) / (labelCount - 1));
+      const targetIndices = Array.from({ length: labelCount }, (_, i) => i * segmentSize);
+
+      if (targetIndices.includes(index)) {
+        // Determine if this is first, middle, or last label
+        firstTick = index === targetIndices[0];
+        lastTick = index === targetIndices[targetIndices.length - 1];
+        midTick = !firstTick && !lastTick;
+      } else {
+        // Not a target index, don't show this tick
+        firstTick = false;
+        lastTick = false;
+        midTick = false;
+      }
+    }
+  } else {
+    // show a max number of ticks on the x-axis to avoid overlapping time labels
+    const showEveryNthTick = Math.ceil(dataPointCount / maxTicksToShow);
+    // show time for every nth tick and maintain more than nth tick gap before last tick
+    midTick = !firstTick && !lastTick && index % showEveryNthTick === 0 && index < visibleTicksCount - showEveryNthTick;
+  }
 
   if (tooltipDatetime) {
     if (tooltipDatetime === payload.value) {
@@ -64,8 +108,9 @@ const TimeXAxisTick = ({
         />
       );
     }
-  } else if (firstTick || midTick || lastTick) {
+  } else if (firstTick || midTick || (lastTick && !timeBasedIndices)) {
     // hide seconds from showing on xAxis
+    // Note: When using timeBasedIndices, hide the last tick to leave space for current time
     const time = getTimeFromEpoch(payload.value).slice(0, -3);
     return (
       <AxisTick

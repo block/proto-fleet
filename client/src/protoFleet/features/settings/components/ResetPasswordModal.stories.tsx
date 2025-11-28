@@ -3,7 +3,7 @@ import { action } from "storybook/actions";
 import ResetPasswordModal from "./ResetPasswordModal";
 
 export default {
-  title: "ProtoFleet/Settings/ResetPasswordModal",
+  title: "Proto Fleet/Settings/ResetPasswordModal",
   component: ResetPasswordModal,
 };
 

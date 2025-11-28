@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { TemperaturePanel } from "./TemperaturePanel";
 
 const meta = {
-  title: "ProtoFleet/KPIs/TemperaturePanel",
+  title: "Proto Fleet/Dashboard/TemperaturePanel",
   component: TemperaturePanel,
   tags: ["autodocs"],
   parameters: {
@@ -30,7 +30,11 @@ type Story = StoryObj<typeof meta>;
 
 // Since TemperaturePanel uses mock data internally for now,
 // these stories will all show the same data until the backend is ready
-export const Default: Story = {};
+export const Default: Story = {
+  args: {
+    duration: "24h",
+  },
+};
 
 // Future stories for when backend is ready:
 // - Loading state

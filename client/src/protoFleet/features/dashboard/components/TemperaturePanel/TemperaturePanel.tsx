@@ -1,9 +1,14 @@
+import { useMemo } from "react";
 import { generateTemperatureHeadline } from "./utils";
-import type { TemperatureStatusCount } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
+import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
+import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { SegmentedMetricPanel } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel";
 import type { SegmentConfig } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/types";
-import { useDuration } from "@/protoFleet/store";
 import { Triangle } from "@/shared/assets/icons";
+import { Duration } from "@/shared/components/DurationSelector";
+import SkeletonBar from "@/shared/components/SkeletonBar";
 
 // Temperature segment configuration
 const temperatureSegmentConfig: SegmentConfig = {
@@ -37,19 +42,76 @@ const temperatureSegmentConfig: SegmentConfig = {
 };
 
 interface TemperaturePanelProps {
-  temperatureStatusCounts?: TemperatureStatusCount[];
-  isLoading?: boolean;
+  duration: Duration;
 }
 
-export function TemperaturePanel({ temperatureStatusCounts, isLoading = false }: TemperaturePanelProps) {
-  const duration = useDuration();
+export function TemperaturePanel({ duration }: TemperaturePanelProps) {
+  // Memoize the telemetry options to prevent re-renders
+  const telemetryOptions = useMemo(
+    () => ({
+      measurementTypes: [MeasurementType.TEMPERATURE],
+      duration: duration,
+      enabled: true,
+    }),
+    [duration],
+  );
+
+  // Fetch initial telemetry metrics
+  const { data, isLoading } = useTelemetryMetrics(telemetryOptions);
+
+  // Memoize streaming options
+  const streamingOptions = useMemo(
+    () => ({
+      deviceIds: [], // Empty means all devices
+      measurementTypes: [MeasurementType.TEMPERATURE],
+      enabled: true,
+    }),
+    [],
+  );
+
+  // Enable streaming updates
+  const { latestData } = useStreamingTelemetryMetrics(streamingOptions);
+
+  // Merge initial data with streaming updates
+  const temperatureStatusCounts = useMemo(() => {
+    if (!data?.temperatureStatusCounts) return [];
+
+    let counts = data.temperatureStatusCounts;
+
+    // Merge streaming data if available
+    if (latestData?.temperatureStatusCounts && latestData.temperatureStatusCounts.length > 0) {
+      // Append new counts from streaming, avoiding duplicates by timestamp
+      const existingTimestamps = new Set(data.temperatureStatusCounts.map((c) => c.timestamp?.seconds?.toString()));
+
+      const newCounts = latestData.temperatureStatusCounts.filter(
+        (c) => !existingTimestamps.has(c.timestamp?.seconds?.toString()),
+      );
+
+      counts = [...data.temperatureStatusCounts, ...newCounts];
+    }
+
+    return counts;
+  }, [data, latestData]);
 
   if (isLoading) {
-    return <div>Loading temperature data...</div>;
-  }
+    const stat = {
+      label: "Temperature",
+      value: undefined,
+      units: "",
+    };
 
-  if (!temperatureStatusCounts || temperatureStatusCounts.length === 0) {
-    return <div>No temperature data available</div>;
+    return (
+      <div className="flex w-full flex-row overflow-hidden rounded-xl bg-surface-base phone:flex-col phone:gap-6">
+        <ChartWidget stats={stat} className="w-1/2 rounded-none! phone:w-full">
+          <SkeletonBar className="h-60 w-full" />
+        </ChartWidget>
+        <div className="flex w-1/2 flex-col justify-between space-y-3 rounded-xl bg-surface-base p-10 phone:w-full phone:gap-4 phone:p-6 phone:pt-0">
+          <SkeletonBar className="h-20 w-full" />
+          <SkeletonBar className="h-20 w-full" />
+          <SkeletonBar className="h-20 w-full" />
+        </div>
+      </div>
+    );
   }
 
   return (

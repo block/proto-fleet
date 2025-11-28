@@ -10,7 +10,7 @@ interface AxisTickOffsetProps {
 
 const offsets = {
   line: {
-    first: 25,
+    first: 18,
     firstDate: 16,
     mid: 16,
     midDate: 25,
