@@ -1,21 +1,31 @@
 import { useState } from "react";
+import { create } from "@bufbuild/protobuf";
 import { MiningPool } from "../types";
+import { CreatePoolRequestSchema } from "@/protoFleet/api/generated/pools/v1/pools_pb";
+import usePools from "@/protoFleet/api/usePools";
 import { sizes, variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
+import { emptyPoolInfo } from "@/shared/components/MiningPools/constants";
+import PoolModal from "@/shared/components/MiningPools/PoolModal";
+import { PoolInfo } from "@/shared/components/MiningPools/types";
 import Modal from "@/shared/components/Modal";
 import Radio from "@/shared/components/Radio";
 
 interface PoolSelectionModalProps {
-  availablePools: MiningPool[];
   onDismiss: () => void;
-  onSave: (selectedPoolId: string) => void;
+  onSave: (selectedPoolId: string, poolData?: MiningPool) => void;
 }
 
-const PoolSelectionModal = ({ availablePools, onDismiss, onSave }: PoolSelectionModalProps) => {
+const PoolSelectionModal = ({ onDismiss, onSave }: PoolSelectionModalProps) => {
   const [selectedPoolId, setSelectedPoolId] = useState<string | undefined>();
   const [searchQuery, setSearchQuery] = useState("");
+  const [showAddPoolModal, setShowAddPoolModal] = useState(false);
+  const [newPoolInfo, setNewPoolInfo] = useState<PoolInfo[]>([emptyPoolInfo]);
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
 
-  const filteredPools = availablePools.filter((pool) => {
+  const { validatePool, createPool, miningPools } = usePools();
+
+  const filteredPools = miningPools.filter((pool) => {
     const query = searchQuery.toLowerCase();
     return (
       pool.name.toLowerCase().includes(query) ||
@@ -31,6 +41,89 @@ const PoolSelectionModal = ({ availablePools, onDismiss, onSave }: PoolSelection
     }
   };
 
+  const handleAddNewPool = () => {
+    setShowAddPoolModal(true);
+  };
+
+  const handleNewPoolSave = async (pool: PoolInfo, isPasswordSet: boolean) => {
+    const createPoolRequest = create(CreatePoolRequestSchema, {
+      poolConfig: {
+        poolName: pool.name || "",
+        url: pool.url || "",
+        username: pool.username || "",
+        password: isPasswordSet && pool.password ? pool.password : "",
+      },
+    });
+
+    return new Promise<void>((resolve, reject) => {
+      createPool({
+        createPoolRequest,
+        onSuccess: (poolId) => {
+          setShowAddPoolModal(false);
+
+          const newPoolData: MiningPool = {
+            poolId: poolId,
+            name: pool.name || "",
+            poolUrl: pool.url || "",
+            username: pool.username || "",
+          };
+
+          onSave(poolId, newPoolData);
+          resolve();
+        },
+        onError: (error) => {
+          reject(new Error(error));
+        },
+      });
+    });
+  };
+
+  const handlePoolModalDismiss = () => {
+    setShowAddPoolModal(false);
+    setNewPoolInfo([emptyPoolInfo]);
+  };
+
+  const handleTestConnection = (args: {
+    poolInfo: PoolInfo;
+    onError?: (error?: string) => void;
+    onSuccess?: () => void;
+    onFinally?: () => void;
+  }) => {
+    setIsTestingConnection(true);
+    validatePool({
+      poolInfo: {
+        url: args.poolInfo.url,
+        username: args.poolInfo.username,
+        password: args.poolInfo.password,
+      },
+      onSuccess: () => {
+        args.onSuccess?.();
+      },
+      onError: (error) => {
+        args.onError?.(error);
+      },
+      onFinally: () => {
+        setIsTestingConnection(false);
+        args.onFinally?.();
+      },
+    });
+  };
+
+  if (showAddPoolModal) {
+    return (
+      <PoolModal
+        onChangePools={setNewPoolInfo}
+        onDismiss={handlePoolModalDismiss}
+        poolIndex={0}
+        pools={newPoolInfo}
+        show={true}
+        isTestingConnection={isTestingConnection}
+        testConnection={handleTestConnection}
+        onSave={handleNewPoolSave}
+      />
+    );
+  }
+
   return (
     <Modal
       title="Select pool"
@@ -38,6 +131,12 @@ const PoolSelectionModal = ({ availablePools, onDismiss, onSave }: PoolSelection
       divider
       buttonSize={sizes.base}
       buttons={[
+        {
+          text: "Add new pool",
+          variant: variants.secondary,
+          onClick: handleAddNewPool,
+          dismissModalOnClick: false,
+        },
         {
           text: "Save",
           variant: variants.primary,

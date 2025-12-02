@@ -1,6 +1,5 @@
 import { useState } from "react";
 import PoolsList from "./PoolsList/PoolsList";
-import { MiningPool } from "./types";
 import { Dismiss } from "@/shared/assets/icons";
 import { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
@@ -8,7 +7,6 @@ import PageOverlay from "@/shared/components/PageOverlay";
 
 interface PoolSelectionPageProps {
   deviceIdentifiers: string[];
-  availablePools: MiningPool[];
   onAssignPools: (
     defaultPoolId: string | undefined,
     backup1PoolId: string | undefined,
@@ -17,12 +15,7 @@ interface PoolSelectionPageProps {
   onDismiss: () => void;
 }
 
-const PoolSelectionPage = ({
-  deviceIdentifiers,
-  availablePools,
-  onAssignPools,
-  onDismiss: onCancel,
-}: PoolSelectionPageProps) => {
+const PoolSelectionPage = ({ deviceIdentifiers, onAssignPools, onDismiss: onCancel }: PoolSelectionPageProps) => {
   const [selectedDefaultPool, setSelectedDefaultPool] = useState<string | undefined>();
   const [selectedBackupPools, setSelectedBackupPools] = useState<[string | undefined, string | undefined]>([
     undefined,
@@ -90,7 +83,6 @@ const PoolSelectionPage = ({
               <PoolsList
                 title="Default pool"
                 subtitle=""
-                availablePools={availablePools}
                 onSelect={handleSelectDefaultPool}
                 createNewLabel="Add pool"
                 excludedPoolIds={selectedBackupPools}
@@ -107,7 +99,6 @@ const PoolSelectionPage = ({
                       <PoolsList
                         title={`Backup pool #${index + 1}`}
                         subtitle="Optional"
-                        availablePools={availablePools}
                         onSelect={(poolId) => handleSelectBackupPool(poolId, index)}
                         createNewLabel="Add pool"
                         poolNumber={index + 1}

@@ -1,4 +1,7 @@
+import { create } from "@bufbuild/protobuf";
+import { vi } from "vitest";
 import PoolsListComponent from ".";
+import { PoolSchema } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 
 interface PoolsListArgs {
   title: string;
@@ -7,27 +10,46 @@ interface PoolsListArgs {
   poolNumber?: number;
 }
 
-export const PoolsList = ({ title, subtitle, createNewLabel, poolNumber }: PoolsListArgs) => {
-  const availablePools = [
-    {
-      poolId: "1",
-      name: "Client pool A1",
-      poolUrl: "stratum+tcp://mine.ocean.xyz:3334",
-      username: "mann23",
-    },
-    {
-      poolId: "2",
-      name: "Client pool A2",
-      poolUrl: "stratum+tcp://mine.ocean.xyz:3323",
-      username: "mann25",
-    },
-  ];
+const mockPools = [
+  create(PoolSchema, {
+    poolId: BigInt(1),
+    poolName: "Client pool A1",
+    url: "stratum+tcp://mine.ocean.xyz:3334",
+    username: "mann23",
+    isDefault: false,
+  }),
+  create(PoolSchema, {
+    poolId: BigInt(2),
+    poolName: "Client pool A2",
+    url: "stratum+tcp://mine.ocean.xyz:3323",
+    username: "mann25",
+    isDefault: false,
+  }),
+];
 
+vi.mock("@/protoFleet/api/usePools", () => ({
+  default: () => ({
+    pools: mockPools,
+    miningPools: mockPools.map((pool) => ({
+      poolId: pool.poolId.toString(),
+      name: pool.poolName,
+      poolUrl: pool.url,
+      username: pool.username,
+    })),
+    validatePool: vi.fn(),
+    createPool: vi.fn(),
+    updatePool: vi.fn(),
+    deletePool: vi.fn(),
+    setDefaultPool: vi.fn(),
+    validatePoolPending: false,
+  }),
+}));
+
+export const PoolsList = ({ title, subtitle, createNewLabel, poolNumber }: PoolsListArgs) => {
   return (
     <PoolsListComponent
       title={title}
       subtitle={subtitle}
-      availablePools={availablePools}
       onSelect={() => {}}
       createNewLabel={createNewLabel}
       poolNumber={poolNumber}

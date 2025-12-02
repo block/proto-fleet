@@ -1,7 +1,5 @@
 import PoolSelectionPage from "./PoolSelectionPage";
-import type { MiningPool } from "./types";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
-import usePools from "@/protoFleet/api/usePools";
 
 interface PoolSelectionPageWrapperProps {
   deviceIdentifiers: string[];
@@ -16,15 +14,7 @@ const PoolSelectionPageWrapper = ({
   onError,
   onDismiss: onDismiss,
 }: PoolSelectionPageWrapperProps) => {
-  const { pools } = usePools();
   const { updateMiningPools } = useMinerCommand();
-
-  const availablePools: MiningPool[] = pools.map((pool) => ({
-    poolId: pool.poolId.toString(),
-    name: pool.poolName,
-    poolUrl: pool.url,
-    username: pool.username,
-  }));
 
   const handleAssignPools = async (
     defaultPoolId: string | undefined,
@@ -51,12 +41,7 @@ const PoolSelectionPageWrapper = ({
   };
 
   return (
-    <PoolSelectionPage
-      deviceIdentifiers={deviceIdentifiers}
-      availablePools={availablePools}
-      onAssignPools={handleAssignPools}
-      onDismiss={onDismiss}
-    />
+    <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={handleAssignPools} onDismiss={onDismiss} />
   );
 };
 

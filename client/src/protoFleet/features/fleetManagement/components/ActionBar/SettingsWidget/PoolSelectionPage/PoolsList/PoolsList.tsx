@@ -18,7 +18,6 @@ type PoolSelectionState =
 interface MiningPoolsListProps {
   title: string;
   subtitle: string;
-  availablePools: MiningPool[];
   onSelect: (poolId: string) => void;
   createNewLabel: string;
   poolNumber?: number;
@@ -28,7 +27,6 @@ interface MiningPoolsListProps {
 const PoolsList = ({
   title,
   subtitle,
-  availablePools,
   onSelect,
   createNewLabel,
   poolNumber,
@@ -39,7 +37,11 @@ const PoolsList = ({
     status: "idle",
   });
 
-  const { validatePool } = usePools();
+  const { validatePool, miningPools } = usePools();
+
+  const findPoolById = (poolId: string): MiningPool | undefined => {
+    return miningPools.find((p) => p.poolId === poolId);
+  };
 
   const selectedPool = poolState.status !== "idle" ? poolState.pool : null;
 
@@ -51,8 +53,10 @@ const PoolsList = ({
 
   const displayError = poolError || (hasPoolConflict ? "Duplicate pool selected" : null);
 
-  const handlePoolSelect = (poolId: string) => {
-    const pool = availablePools.find((p) => p.poolId === poolId);
+  const handlePoolSelect = (poolId: string, newPool?: MiningPool) => {
+    // Use newPool if provided (e.g., from pool creation flow) to avoid race condition.
+    // When a pool is created, setState is async so the pool may not be in miningPools yet.
+    const pool = newPool ?? findPoolById(poolId);
     if (!pool) return;
 
     setPoolState({ status: "validating", pool });
@@ -136,11 +140,7 @@ const PoolsList = ({
       </div>
 
       {showSelectionModal ? (
-        <PoolSelectionModal
-          availablePools={availablePools}
-          onDismiss={() => setShowSelectionModal(false)}
-          onSave={handlePoolSelect}
-        />
+        <PoolSelectionModal onDismiss={() => setShowSelectionModal(false)} onSave={handlePoolSelect} />
       ) : null}
     </>
   );

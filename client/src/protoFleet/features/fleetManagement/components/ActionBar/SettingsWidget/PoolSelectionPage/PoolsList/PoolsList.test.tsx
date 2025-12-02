@@ -1,24 +1,49 @@
+import { create } from "@bufbuild/protobuf";
 import { fireEvent, render } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import PoolsList from ".";
+import usePools from "@/protoFleet/api/usePools";
+import { PoolSchema } from "@/protoFleet/api/generated/pools/v1/pools_pb";
+
+vi.mock("@/protoFleet/api/usePools");
 
 describe("Pools list", () => {
-  const availablePools = [
-    {
-      poolId: "1",
-      name: "Client pool A1",
-      poolUrl: "stratum+tcp://mine.ocean.xyz:3323",
+  const mockPools = [
+    create(PoolSchema, {
+      poolId: BigInt(1),
+      poolName: "Client pool A1",
+      url: "stratum+tcp://mine.ocean.xyz:3323",
       username: "user1",
-    },
-    {
-      poolId: "2",
-      name: "Client pool A2",
-      poolUrl: "stratum+tcp://mine.ocean.xyz:3324",
+      isDefault: false,
+    }),
+    create(PoolSchema, {
+      poolId: BigInt(2),
+      poolName: "Client pool A2",
+      url: "stratum+tcp://mine.ocean.xyz:3324",
       username: "user2",
-    },
+      isDefault: false,
+    }),
   ];
 
   const onSelect = vi.fn();
+
+  beforeEach(() => {
+    vi.mocked(usePools).mockReturnValue({
+      pools: mockPools,
+      miningPools: mockPools.map((pool) => ({
+        poolId: pool.poolId.toString(),
+        name: pool.poolName,
+        poolUrl: pool.url,
+        username: pool.username,
+      })),
+      validatePool: vi.fn(),
+      createPool: vi.fn(),
+      updatePool: vi.fn(),
+      deletePool: vi.fn(),
+      setDefaultPool: vi.fn(),
+      validatePoolPending: false,
+    });
+  });
 
   const defaultPoolTitle = "Default pool";
   const defaultPoolSubtitle = "Select one default pool";
@@ -32,7 +57,6 @@ describe("Pools list", () => {
       <PoolsList
         title={defaultPoolTitle}
         subtitle={defaultPoolSubtitle}
-        availablePools={availablePools}
         onSelect={onSelect}
         createNewLabel={addDefaultPoolLabel}
       />,
@@ -51,7 +75,6 @@ describe("Pools list", () => {
       <PoolsList
         title={backupPoolTitle}
         subtitle={backupPoolSubtitle}
-        availablePools={availablePools}
         onSelect={onSelect}
         createNewLabel={addBackupPoolLabel}
         poolNumber={1}
@@ -70,7 +93,6 @@ describe("Pools list", () => {
       <PoolsList
         title={defaultPoolTitle}
         subtitle={defaultPoolSubtitle}
-        availablePools={availablePools}
         onSelect={onSelect}
         createNewLabel={addDefaultPoolLabel}
       />,

@@ -1,13 +1,42 @@
+import { create } from "@bufbuild/protobuf";
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import PoolSelectionPage from "./PoolSelectionPage";
+import { PoolSchema } from "@/protoFleet/api/generated/pools/v1/pools_pb";
+
+const mockPools = [
+  create(PoolSchema, {
+    poolId: BigInt(1),
+    poolName: "Client pool A1",
+    url: "stratum+tcp://mine.ocean.xyz:3323",
+    username: "user1",
+    isDefault: false,
+  }),
+  create(PoolSchema, {
+    poolId: BigInt(2),
+    poolName: "Client pool A2",
+    url: "stratum+tcp://mine.ocean.xyz:3324",
+    username: "user2",
+    isDefault: false,
+  }),
+];
 
 vi.mock("@/protoFleet/api/usePools", () => ({
   default: () => ({
-    pools: [],
+    pools: mockPools,
+    miningPools: mockPools.map((pool) => ({
+      poolId: pool.poolId.toString(),
+      name: pool.poolName,
+      poolUrl: pool.url,
+      username: pool.username,
+    })),
     validatePool: vi.fn(({ onSuccess }) => {
       onSuccess?.();
     }),
+    createPool: vi.fn(),
+    updatePool: vi.fn(),
+    deletePool: vi.fn(),
+    setDefaultPool: vi.fn(),
     validatePoolPending: false,
   }),
 }));
@@ -15,20 +44,6 @@ vi.mock("@/protoFleet/api/usePools", () => ({
 describe("Pool selection page", () => {
   const numberOfMiners = 5;
   const deviceIdentifiers = Array.from({ length: numberOfMiners }, (_, i) => `device-${i}`);
-  const availablePools = [
-    {
-      poolId: "1",
-      name: "Client pool A1",
-      poolUrl: "stratum+tcp://mine.ocean.xyz:3323",
-      username: "user1",
-    },
-    {
-      poolId: "2",
-      name: "Client pool A2",
-      poolUrl: "stratum+tcp://mine.ocean.xyz:3324",
-      username: "user2",
-    },
-  ];
 
   const onCancel = vi.fn();
   const onAssignPools = vi.fn().mockResolvedValue(undefined);
@@ -39,12 +54,7 @@ describe("Pool selection page", () => {
 
   test("renders page with default and backup pools section", () => {
     const { getByText } = render(
-      <PoolSelectionPage
-        deviceIdentifiers={deviceIdentifiers}
-        availablePools={[]}
-        onAssignPools={onAssignPools}
-        onDismiss={onCancel}
-      />,
+      <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={onAssignPools} onDismiss={onCancel} />,
     );
 
     expect(getByText("Assign pools")).toBeInTheDocument();
@@ -55,12 +65,7 @@ describe("Pool selection page", () => {
 
   test("renders correct number of miners in button text", () => {
     const { getByText } = render(
-      <PoolSelectionPage
-        deviceIdentifiers={deviceIdentifiers}
-        availablePools={[]}
-        onAssignPools={onAssignPools}
-        onDismiss={onCancel}
-      />,
+      <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={onAssignPools} onDismiss={onCancel} />,
     );
 
     expect(getByText(`Assign to ${numberOfMiners} miners`)).toBeInTheDocument();
@@ -68,12 +73,7 @@ describe("Pool selection page", () => {
 
   test("disables assign button when no default pool is selected", async () => {
     const { getByText } = render(
-      <PoolSelectionPage
-        deviceIdentifiers={deviceIdentifiers}
-        availablePools={[]}
-        onAssignPools={onAssignPools}
-        onDismiss={onCancel}
-      />,
+      <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={onAssignPools} onDismiss={onCancel} />,
     );
 
     const assignButton = getByText(`Assign to ${numberOfMiners} miners`).closest("button");
@@ -82,12 +82,7 @@ describe("Pool selection page", () => {
 
   test("calls onCancel when close button clicked without changes", async () => {
     const { getAllByTestId } = render(
-      <PoolSelectionPage
-        deviceIdentifiers={deviceIdentifiers}
-        availablePools={[]}
-        onAssignPools={onAssignPools}
-        onDismiss={onCancel}
-      />,
+      <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={onAssignPools} onDismiss={onCancel} />,
     );
 
     const closeModalButton = getAllByTestId("header-icon-button")[0];
@@ -99,12 +94,7 @@ describe("Pool selection page", () => {
 
   test("calls onCancel when close button clicked after selecting default pool", async () => {
     const { getByText, getAllByText, getAllByTestId } = render(
-      <PoolSelectionPage
-        deviceIdentifiers={deviceIdentifiers}
-        availablePools={availablePools}
-        onAssignPools={onAssignPools}
-        onDismiss={onCancel}
-      />,
+      <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={onAssignPools} onDismiss={onCancel} />,
     );
 
     expect(getByText(`Assign to ${numberOfMiners} miners`)).toBeInTheDocument();
@@ -154,12 +144,7 @@ describe("Pool selection page", () => {
 
   test("calls onCancel when close button clicked after selecting backup pool", async () => {
     const { getByText, getAllByText, getAllByTestId } = render(
-      <PoolSelectionPage
-        deviceIdentifiers={deviceIdentifiers}
-        availablePools={availablePools}
-        onAssignPools={onAssignPools}
-        onDismiss={onCancel}
-      />,
+      <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={onAssignPools} onDismiss={onCancel} />,
     );
 
     // Click the "Add pool" button for the first backup pool (second button)
@@ -207,12 +192,7 @@ describe("Pool selection page", () => {
 
   test("prevents selecting the same pool for both backup slots", async () => {
     const { getAllByText, getAllByTestId, queryAllByText } = render(
-      <PoolSelectionPage
-        deviceIdentifiers={deviceIdentifiers}
-        availablePools={availablePools}
-        onAssignPools={onAssignPools}
-        onDismiss={onCancel}
-      />,
+      <PoolSelectionPage deviceIdentifiers={deviceIdentifiers} onAssignPools={onAssignPools} onDismiss={onCancel} />,
     );
 
     const addPoolButtons = getAllByText("Add pool");

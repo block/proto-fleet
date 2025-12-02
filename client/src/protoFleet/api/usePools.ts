@@ -19,7 +19,7 @@ interface SetDefaultPoolProps {
 
 interface CreatePoolProps {
   createPoolRequest: CreatePoolRequest;
-  onSuccess?: () => void;
+  onSuccess?: (poolId: string) => void;
   onError?: (error: string) => void;
 }
 
@@ -90,8 +90,18 @@ const usePools = () => {
     async ({ createPoolRequest, onSuccess, onError }: CreatePoolProps) => {
       await poolsClient
         .createPool(createPoolRequest)
-        .then(() => {
-          onSuccess?.();
+        .then((response) => {
+          if (!response.pool || !response.pool.poolId) {
+            onError?.("Pool created but no pool ID returned");
+            return;
+          }
+
+          const pool = response.pool;
+          const poolId = pool.poolId;
+
+          setPools((prevPools) => [...prevPools, pool]);
+
+          onSuccess?.(poolId.toString());
         })
         .catch((err) => {
           handleAuthErrors({
@@ -179,9 +189,21 @@ const usePools = () => {
     [handleAuthErrors],
   );
 
+  const miningPools = useMemo(
+    () =>
+      pools.map((pool) => ({
+        poolId: pool.poolId.toString(),
+        name: pool.poolName,
+        poolUrl: pool.url,
+        username: pool.username,
+      })),
+    [pools],
+  );
+
   return useMemo(
     () => ({
       pools,
+      miningPools,
       setDefaultPool,
       createPool,
       updatePool,
@@ -189,7 +211,7 @@ const usePools = () => {
       validatePool,
       validatePoolPending,
     }),
-    [pools, setDefaultPool, createPool, updatePool, deletePool, validatePool, validatePoolPending],
+    [pools, miningPools, setDefaultPool, createPool, updatePool, deletePool, validatePool, validatePoolPending],
   );
 };
 
