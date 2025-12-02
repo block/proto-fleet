@@ -145,7 +145,7 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 		return sdk.DeviceInfo{}, fmt.Errorf("not an Antminer device: %s", versionInfo.Type)
 	}
 
-	model := versionInfo.Miner
+	model := versionInfo.Type
 	if model == "" {
 		model = "Unknown Antminer"
 	}

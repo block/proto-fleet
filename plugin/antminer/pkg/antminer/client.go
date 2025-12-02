@@ -187,7 +187,7 @@ func (c *Client) GetDeviceInfo(ctx context.Context) (*DeviceInfo, error) {
 
 	return &DeviceInfo{
 		SerialNumber: serialNumber,
-		Model:        version.Miner,
+		Model:        version.Type,
 		Manufacturer: "Bitmain",
 		MacAddress:   macAddress,
 	}, nil

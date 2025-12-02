@@ -131,7 +131,7 @@ func TestDiscoverDevice_Success(t *testing.T) {
 	assert.Equal(t, testIPAddress, result.Host)
 	assert.Equal(t, int32(80), result.Port)
 	assert.Equal(t, "http", result.URLScheme)
-	assert.Equal(t, "S19j Pro", result.Model)
+	assert.Equal(t, "Antminer S19j Pro", result.Model)
 	assert.Equal(t, "Bitmain", result.Manufacturer)
 	assert.Equal(t, sdk.DeviceTypeASIC, result.Type)
 }

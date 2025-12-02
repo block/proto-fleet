@@ -208,7 +208,8 @@ func TestClient_GetDeviceInfo(t *testing.T) {
 	mockVersionResponse := &rpc.VersionResponse{
 		Version: []rpc.VersionInfo{
 			{
-				Miner:   "Antminer S19",
+				Miner:   "uart_trans.1.3",
+				Type:    "Antminer S19",
 				BMMiner: "1.0.0",
 			},
 		},
