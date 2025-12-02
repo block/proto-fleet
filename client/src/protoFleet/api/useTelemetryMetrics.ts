@@ -9,7 +9,7 @@ import {
   GetCombinedMetricsResponse,
   MeasurementType,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { useAuthErrors, useAuthHeader } from "@/protoFleet/store";
+import { useAuthErrors } from "@/protoFleet/store";
 import { Duration } from "@/shared/components/DurationSelector";
 
 interface TelemetryMetricsOptions {
@@ -38,7 +38,6 @@ const durationToSeconds = (duration: Duration): number | undefined => {
 };
 
 export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
-  const authHeader = useAuthHeader();
   const { handleAuthErrors } = useAuthErrors();
   const [data, setData] = useState<GetCombinedMetricsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -86,7 +85,7 @@ export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
         pageToken: "",
       });
 
-      const response = await telemetryClient.getCombinedMetrics(request, authHeader);
+      const response = await telemetryClient.getCombinedMetrics(request);
 
       setData(response);
     } catch (err) {
@@ -108,7 +107,6 @@ export const useTelemetryMetrics = (options: TelemetryMetricsOptions) => {
     options.aggregations,
     options.duration,
     options.enabled,
-    authHeader,
     handleAuthErrors,
   ]);
 

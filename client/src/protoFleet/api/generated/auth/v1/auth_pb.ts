@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_auth_v1_auth: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChJhdXRoL3YxL2F1dGgucHJvdG8SB2F1dGgudjEiOQoTQXV0aGVudGljYXRlUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRIQCghwYXNzd29yZBgCIAEoCSJhChRBdXRoZW50aWNhdGVSZXNwb25zZRINCgV0b2tlbhgBIAEoCRIUCgx0b2tlbl9leHBpcnkYAiABKAMSJAoJdXNlcl9pbmZvGAMgASgLMhEuYXV0aC52MS5Vc2VySW5mbyJHChVVcGRhdGVQYXNzd29yZFJlcXVlc3QSGAoQY3VycmVudF9wYXNzd29yZBgBIAEoCRIUCgxuZXdfcGFzc3dvcmQYAiABKAkiGAoWVXBkYXRlUGFzc3dvcmRSZXNwb25zZSIpChVVcGRhdGVVc2VybmFtZVJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkiGAoWVXBkYXRlVXNlcm5hbWVSZXNwb25zZSIZChdHZXRVc2VyQXVkaXRJbmZvUmVxdWVzdCJICg1Vc2VyQXVkaXRJbmZvEjcKE3Bhc3N3b3JkX3VwZGF0ZWRfYXQYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIkAKGEdldFVzZXJBdWRpdEluZm9SZXNwb25zZRIkCgRpbmZvGAEgASgLMhYuYXV0aC52MS5Vc2VyQXVkaXRJbmZvIiUKEUNyZWF0ZVVzZXJSZXF1ZXN0EhAKCHVzZXJuYW1lGAEgASgJIlMKEkNyZWF0ZVVzZXJSZXNwb25zZRIPCgd1c2VyX2lkGAEgASgJEhAKCHVzZXJuYW1lGAIgASgJEhoKEnRlbXBvcmFyeV9wYXNzd29yZBgDIAEoCSISChBMaXN0VXNlcnNSZXF1ZXN0IskBCghVc2VySW5mbxIPCgd1c2VyX2lkGAEgASgJEhAKCHVzZXJuYW1lGAIgASgJEjcKE3Bhc3N3b3JkX3VwZGF0ZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjEKDWxhc3RfbG9naW5fYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEgwKBHJvbGUYBSABKAkSIAoYcmVxdWlyZXNfcGFzc3dvcmRfY2hhbmdlGAYgASgIIjUKEUxpc3RVc2Vyc1Jlc3BvbnNlEiAKBXVzZXJzGAEgAygLMhEuYXV0aC52MS5Vc2VySW5mbyIrChhSZXNldFVzZXJQYXNzd29yZFJlcXVlc3QSDwoHdXNlcl9pZBgBIAEoCSI3ChlSZXNldFVzZXJQYXNzd29yZFJlc3BvbnNlEhoKEnRlbXBvcmFyeV9wYXNzd29yZBgBIAEoCSIoChVEZWFjdGl2YXRlVXNlclJlcXVlc3QSDwoHdXNlcl9pZBgBIAEoCSIYChZEZWFjdGl2YXRlVXNlclJlc3BvbnNlKnYKFUF1dGhlbnRpY2F0ZUVycm9yQ29kZRInCiNBVVRIRU5USUNBVEVfRVJST1JfQ09ERV9VTlNQRUNJRklFRBAAEjQKMEFVVEhFTlRJQ0FURV9FUlJPUl9DT0RFX0lOVkFMSURfVVNFUl9PUl9QQVNTV09SRBABKrwBChdVcGRhdGVQYXNzd29yZEVycm9yQ29kZRIqCiZVUERBVEVfUEFTU1dPUkRfRVJST1JfQ09ERV9VTlNQRUNJRklFRBAAEjMKL1VQREFURV9QQVNTV09SRF9FUlJPUl9DT0RFX0lOVkFMSURfT0xEX1BBU1NXT1JEEAESQAo8VVBEQVRFX1BBU1NXT1JEX0VSUk9SX0NPREVfTkVXX1BBU1NXT1JEX1NBTUVfQVNfT0xEX1BBU1NXT1JEEAIq2QEKF1VzZXJNYW5hZ2VtZW50RXJyb3JDb2RlEioKJlVTRVJfTUFOQUdFTUVOVF9FUlJPUl9DT0RFX1VOU1BFQ0lGSUVEEAASKwonVVNFUl9NQU5BR0VNRU5UX0VSUk9SX0NPREVfVU5BVVRIT1JJWkVEEAESLgoqVVNFUl9NQU5BR0VNRU5UX0VSUk9SX0NPREVfVVNFUk5BTUVfRVhJU1RTEAISNQoxVVNFUl9NQU5BR0VNRU5UX0VSUk9SX0NPREVfQ0FOTk9UX0RFQUNUSVZBVEVfU0VMRhADMpMFCgtBdXRoU2VydmljZRJLCgxBdXRoZW50aWNhdGUSHC5hdXRoLnYxLkF1dGhlbnRpY2F0ZVJlcXVlc3QaHS5hdXRoLnYxLkF1dGhlbnRpY2F0ZVJlc3BvbnNlElEKDlVwZGF0ZVBhc3N3b3JkEh4uYXV0aC52MS5VcGRhdGVQYXNzd29yZFJlcXVlc3QaHy5hdXRoLnYxLlVwZGF0ZVBhc3N3b3JkUmVzcG9uc2USUQoOVXBkYXRlVXNlcm5hbWUSHi5hdXRoLnYxLlVwZGF0ZVVzZXJuYW1lUmVxdWVzdBofLmF1dGgudjEuVXBkYXRlVXNlcm5hbWVSZXNwb25zZRJXChBHZXRVc2VyQXVkaXRJbmZvEiAuYXV0aC52MS5HZXRVc2VyQXVkaXRJbmZvUmVxdWVzdBohLmF1dGgudjEuR2V0VXNlckF1ZGl0SW5mb1Jlc3BvbnNlEkUKCkNyZWF0ZVVzZXISGi5hdXRoLnYxLkNyZWF0ZVVzZXJSZXF1ZXN0GhsuYXV0aC52MS5DcmVhdGVVc2VyUmVzcG9uc2USQgoJTGlzdFVzZXJzEhkuYXV0aC52MS5MaXN0VXNlcnNSZXF1ZXN0GhouYXV0aC52MS5MaXN0VXNlcnNSZXNwb25zZRJaChFSZXNldFVzZXJQYXNzd29yZBIhLmF1dGgudjEuUmVzZXRVc2VyUGFzc3dvcmRSZXF1ZXN0GiIuYXV0aC52MS5SZXNldFVzZXJQYXNzd29yZFJlc3BvbnNlElEKDkRlYWN0aXZhdGVVc2VyEh4uYXV0aC52MS5EZWFjdGl2YXRlVXNlclJlcXVlc3QaHy5hdXRoLnYxLkRlYWN0aXZhdGVVc2VyUmVzcG9uc2VCnQEKC2NvbS5hdXRoLnYxQglBdXRoUHJvdG9QAVpGZ2l0aHViLmNvbS9idGMtbWluaW5nL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9hdXRoL3YxO2F1dGh2MaICA0FYWKoCB0F1dGguVjHKAgdBdXRoXFYx4gITQXV0aFxWMVxHUEJNZXRhZGF0YeoCCEF1dGg6OlYxYgZwcm90bzM",
+    "ChJhdXRoL3YxL2F1dGgucHJvdG8SB2F1dGgudjEiOQoTQXV0aGVudGljYXRlUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRIQCghwYXNzd29yZBgCIAEoCSJ1ChRBdXRoZW50aWNhdGVSZXNwb25zZRIkCgl1c2VyX2luZm8YAyABKAsyES5hdXRoLnYxLlVzZXJJbmZvEhYKDnNlc3Npb25fZXhwaXJ5GAQgASgDSgQIARACSgQIAhADUgV0b2tlblIMdG9rZW5fZXhwaXJ5Ig8KDUxvZ291dFJlcXVlc3QiEAoOTG9nb3V0UmVzcG9uc2UiRwoVVXBkYXRlUGFzc3dvcmRSZXF1ZXN0EhgKEGN1cnJlbnRfcGFzc3dvcmQYASABKAkSFAoMbmV3X3Bhc3N3b3JkGAIgASgJIhgKFlVwZGF0ZVBhc3N3b3JkUmVzcG9uc2UiKQoVVXBkYXRlVXNlcm5hbWVSZXF1ZXN0EhAKCHVzZXJuYW1lGAEgASgJIhgKFlVwZGF0ZVVzZXJuYW1lUmVzcG9uc2UiGQoXR2V0VXNlckF1ZGl0SW5mb1JlcXVlc3QiSAoNVXNlckF1ZGl0SW5mbxI3ChNwYXNzd29yZF91cGRhdGVkX2F0GAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJAChhHZXRVc2VyQXVkaXRJbmZvUmVzcG9uc2USJAoEaW5mbxgBIAEoCzIWLmF1dGgudjEuVXNlckF1ZGl0SW5mbyIlChFDcmVhdGVVc2VyUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCSJTChJDcmVhdGVVc2VyUmVzcG9uc2USDwoHdXNlcl9pZBgBIAEoCRIQCgh1c2VybmFtZRgCIAEoCRIaChJ0ZW1wb3JhcnlfcGFzc3dvcmQYAyABKAkiEgoQTGlzdFVzZXJzUmVxdWVzdCLJAQoIVXNlckluZm8SDwoHdXNlcl9pZBgBIAEoCRIQCgh1c2VybmFtZRgCIAEoCRI3ChNwYXNzd29yZF91cGRhdGVkX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIxCg1sYXN0X2xvZ2luX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIMCgRyb2xlGAUgASgJEiAKGHJlcXVpcmVzX3Bhc3N3b3JkX2NoYW5nZRgGIAEoCCI1ChFMaXN0VXNlcnNSZXNwb25zZRIgCgV1c2VycxgBIAMoCzIRLmF1dGgudjEuVXNlckluZm8iKwoYUmVzZXRVc2VyUGFzc3dvcmRSZXF1ZXN0Eg8KB3VzZXJfaWQYASABKAkiNwoZUmVzZXRVc2VyUGFzc3dvcmRSZXNwb25zZRIaChJ0ZW1wb3JhcnlfcGFzc3dvcmQYASABKAkiKAoVRGVhY3RpdmF0ZVVzZXJSZXF1ZXN0Eg8KB3VzZXJfaWQYASABKAkiGAoWRGVhY3RpdmF0ZVVzZXJSZXNwb25zZSp2ChVBdXRoZW50aWNhdGVFcnJvckNvZGUSJwojQVVUSEVOVElDQVRFX0VSUk9SX0NPREVfVU5TUEVDSUZJRUQQABI0CjBBVVRIRU5USUNBVEVfRVJST1JfQ09ERV9JTlZBTElEX1VTRVJfT1JfUEFTU1dPUkQQASq8AQoXVXBkYXRlUGFzc3dvcmRFcnJvckNvZGUSKgomVVBEQVRFX1BBU1NXT1JEX0VSUk9SX0NPREVfVU5TUEVDSUZJRUQQABIzCi9VUERBVEVfUEFTU1dPUkRfRVJST1JfQ09ERV9JTlZBTElEX09MRF9QQVNTV09SRBABEkAKPFVQREFURV9QQVNTV09SRF9FUlJPUl9DT0RFX05FV19QQVNTV09SRF9TQU1FX0FTX09MRF9QQVNTV09SRBACKtkBChdVc2VyTWFuYWdlbWVudEVycm9yQ29kZRIqCiZVU0VSX01BTkFHRU1FTlRfRVJST1JfQ09ERV9VTlNQRUNJRklFRBAAEisKJ1VTRVJfTUFOQUdFTUVOVF9FUlJPUl9DT0RFX1VOQVVUSE9SSVpFRBABEi4KKlVTRVJfTUFOQUdFTUVOVF9FUlJPUl9DT0RFX1VTRVJOQU1FX0VYSVNUUxACEjUKMVVTRVJfTUFOQUdFTUVOVF9FUlJPUl9DT0RFX0NBTk5PVF9ERUFDVElWQVRFX1NFTEYQAzLOBQoLQXV0aFNlcnZpY2USSwoMQXV0aGVudGljYXRlEhwuYXV0aC52MS5BdXRoZW50aWNhdGVSZXF1ZXN0Gh0uYXV0aC52MS5BdXRoZW50aWNhdGVSZXNwb25zZRI5CgZMb2dvdXQSFi5hdXRoLnYxLkxvZ291dFJlcXVlc3QaFy5hdXRoLnYxLkxvZ291dFJlc3BvbnNlElEKDlVwZGF0ZVBhc3N3b3JkEh4uYXV0aC52MS5VcGRhdGVQYXNzd29yZFJlcXVlc3QaHy5hdXRoLnYxLlVwZGF0ZVBhc3N3b3JkUmVzcG9uc2USUQoOVXBkYXRlVXNlcm5hbWUSHi5hdXRoLnYxLlVwZGF0ZVVzZXJuYW1lUmVxdWVzdBofLmF1dGgudjEuVXBkYXRlVXNlcm5hbWVSZXNwb25zZRJXChBHZXRVc2VyQXVkaXRJbmZvEiAuYXV0aC52MS5HZXRVc2VyQXVkaXRJbmZvUmVxdWVzdBohLmF1dGgudjEuR2V0VXNlckF1ZGl0SW5mb1Jlc3BvbnNlEkUKCkNyZWF0ZVVzZXISGi5hdXRoLnYxLkNyZWF0ZVVzZXJSZXF1ZXN0GhsuYXV0aC52MS5DcmVhdGVVc2VyUmVzcG9uc2USQgoJTGlzdFVzZXJzEhkuYXV0aC52MS5MaXN0VXNlcnNSZXF1ZXN0GhouYXV0aC52MS5MaXN0VXNlcnNSZXNwb25zZRJaChFSZXNldFVzZXJQYXNzd29yZBIhLmF1dGgudjEuUmVzZXRVc2VyUGFzc3dvcmRSZXF1ZXN0GiIuYXV0aC52MS5SZXNldFVzZXJQYXNzd29yZFJlc3BvbnNlElEKDkRlYWN0aXZhdGVVc2VyEh4uYXV0aC52MS5EZWFjdGl2YXRlVXNlclJlcXVlc3QaHy5hdXRoLnYxLkRlYWN0aXZhdGVVc2VyUmVzcG9uc2VCnQEKC2NvbS5hdXRoLnYxQglBdXRoUHJvdG9QAVpGZ2l0aHViLmNvbS9idGMtbWluaW5nL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9hdXRoL3YxO2F1dGh2MaICA0FYWKoCB0F1dGguVjHKAgdBdXRoXFYx4gITQXV0aFxWMVxHUEJNZXRhZGF0YeoCCEF1dGg6OlYxYgZwcm90bzM",
     [file_google_protobuf_timestamp],
   );
 
@@ -50,29 +50,20 @@ export const AuthenticateRequestSchema: GenMessage<AuthenticateRequest> =
  */
 export type AuthenticateResponse = Message<"auth.v1.AuthenticateResponse"> & {
   /**
-   * Authentication token for subsequent requests
-   * Bearer token that should be included in the Authorization header
-   * Format: "Bearer {token}"
-   *
-   * @generated from field: string token = 1;
-   */
-  token: string;
-
-  /**
-   * Unix timestamp (in seconds) indicating when the token will expire
-   * Clients should request a new token before this time to maintain sessions
-   *
-   * @generated from field: int64 token_expiry = 2;
-   */
-  tokenExpiry: bigint;
-
-  /**
    * Authenticated user information
    * Contains user_id, username, role, password change requirements, and audit timestamps
    *
    * @generated from field: auth.v1.UserInfo user_info = 3;
    */
   userInfo?: UserInfo;
+
+  /**
+   * Unix timestamp (in seconds) indicating when the session will expire
+   * Session expiry is extended on each request (sliding window)
+   *
+   * @generated from field: int64 session_expiry = 4;
+   */
+  sessionExpiry: bigint;
 };
 
 /**
@@ -82,6 +73,28 @@ export type AuthenticateResponse = Message<"auth.v1.AuthenticateResponse"> & {
 export const AuthenticateResponseSchema: GenMessage<AuthenticateResponse> =
   /*@__PURE__*/
   messageDesc(file_auth_v1_auth, 1);
+
+/**
+ * @generated from message auth.v1.LogoutRequest
+ */
+export type LogoutRequest = Message<"auth.v1.LogoutRequest"> & {};
+
+/**
+ * Describes the message auth.v1.LogoutRequest.
+ * Use `create(LogoutRequestSchema)` to create a new message.
+ */
+export const LogoutRequestSchema: GenMessage<LogoutRequest> = /*@__PURE__*/ messageDesc(file_auth_v1_auth, 2);
+
+/**
+ * @generated from message auth.v1.LogoutResponse
+ */
+export type LogoutResponse = Message<"auth.v1.LogoutResponse"> & {};
+
+/**
+ * Describes the message auth.v1.LogoutResponse.
+ * Use `create(LogoutResponseSchema)` to create a new message.
+ */
+export const LogoutResponseSchema: GenMessage<LogoutResponse> = /*@__PURE__*/ messageDesc(file_auth_v1_auth, 3);
 
 /**
  * @generated from message auth.v1.UpdatePasswordRequest
@@ -109,7 +122,7 @@ export type UpdatePasswordRequest = Message<"auth.v1.UpdatePasswordRequest"> & {
  */
 export const UpdatePasswordRequestSchema: GenMessage<UpdatePasswordRequest> =
   /*@__PURE__*/
-  messageDesc(file_auth_v1_auth, 2);
+  messageDesc(file_auth_v1_auth, 4);
 
 /**
  * Empty response as success/failure is indicated by gRPC status
@@ -125,7 +138,7 @@ export type UpdatePasswordResponse = Message<"auth.v1.UpdatePasswordResponse"> &
  */
 export const UpdatePasswordResponseSchema: GenMessage<UpdatePasswordResponse> =
   /*@__PURE__*/
-  messageDesc(file_auth_v1_auth, 3);
+  messageDesc(file_auth_v1_auth, 5);
 
 /**
  * @generated from message auth.v1.UpdateUsernameRequest
@@ -143,7 +156,7 @@ export type UpdateUsernameRequest = Message<"auth.v1.UpdateUsernameRequest"> & {
  */
 export const UpdateUsernameRequestSchema: GenMessage<UpdateUsernameRequest> =
   /*@__PURE__*/
-  messageDesc(file_auth_v1_auth, 4);
+  messageDesc(file_auth_v1_auth, 6);
 
 /**
  * @generated from message auth.v1.UpdateUsernameResponse
@@ -156,7 +169,7 @@ export type UpdateUsernameResponse = Message<"auth.v1.UpdateUsernameResponse"> &
  */
 export const UpdateUsernameResponseSchema: GenMessage<UpdateUsernameResponse> =
   /*@__PURE__*/
-  messageDesc(file_auth_v1_auth, 5);
+  messageDesc(file_auth_v1_auth, 7);
 
 /**
  * @generated from message auth.v1.GetUserAuditInfoRequest
@@ -169,7 +182,7 @@ export type GetUserAuditInfoRequest = Message<"auth.v1.GetUserAuditInfoRequest">
  */
 export const GetUserAuditInfoRequestSchema: GenMessage<GetUserAuditInfoRequest> =
   /*@__PURE__*/
-  messageDesc(file_auth_v1_auth, 6);
+  messageDesc(file_auth_v1_auth, 8);
 
 /**
  * @generated from message auth.v1.UserAuditInfo
@@ -185,7 +198,7 @@ export type UserAuditInfo = Message<"auth.v1.UserAuditInfo"> & {
  * Describes the message auth.v1.UserAuditInfo.
  * Use `create(UserAuditInfoSchema)` to create a new message.
  */
-export const UserAuditInfoSchema: GenMessage<UserAuditInfo> = /*@__PURE__*/ messageDesc(file_auth_v1_auth, 7);
+export const UserAuditInfoSchema: GenMessage<UserAuditInfo> = /*@__PURE__*/ messageDesc(file_auth_v1_auth, 9);
 
 /**
  * @generated from message auth.v1.GetUserAuditInfoResponse
@@ -203,7 +216,7 @@ export type GetUserAuditInfoResponse = Message<"auth.v1.GetUserAuditInfoResponse
  */
 export const GetUserAuditInfoResponseSchema: GenMessage<GetUserAuditInfoResponse> =
   /*@__PURE__*/
-  messageDesc(file_auth_v1_auth, 8);
+  messageDesc(file_auth_v1_auth, 10);
 
 /**
  * @generated from message auth.v1.CreateUserRequest
@@ -222,7 +235,7 @@ export type CreateUserRequest = Message<"auth.v1.CreateUserRequest"> & {
  * Describes the message auth.v1.CreateUserRequest.
  * Use `create(CreateUserRequestSchema)` to create a new message.
  */
-export const CreateUserRequestSchema: GenMessage<CreateUserRequest> = /*@__PURE__*/ messageDesc(file_auth_v1_auth, 9);
+export const CreateUserRequestSchema: GenMessage<CreateUserRequest> = /*@__PURE__*/ messageDesc(file_auth_v1_auth, 11);
 
 /**
  * @generated from message auth.v1.CreateUserResponse
@@ -257,7 +270,7 @@ export type CreateUserResponse = Message<"auth.v1.CreateUserResponse"> & {
  */
 export const CreateUserResponseSchema: GenMessage<CreateUserResponse> =
   /*@__PURE__*/
-  messageDesc(file_auth_v1_auth, 10);
+  messageDesc(file_auth_v1_auth, 12);
 
 /**
  * @generated from message auth.v1.ListUsersRequest
@@ -268,7 +281,7 @@ export type ListUsersRequest = Message<"auth.v1.ListUsersRequest"> & {};
  * Describes the message auth.v1.ListUsersRequest.
  * Use `create(ListUsersRequestSchema)` to create a new message.
  */
-export const ListUsersRequestSchema: GenMessage<ListUsersRequest> = /*@__PURE__*/ messageDesc(file_auth_v1_auth, 11);
+export const ListUsersRequestSchema: GenMessage<ListUsersRequest> = /*@__PURE__*/ messageDesc(file_auth_v1_auth, 13);
 
 /**
  * @generated from message auth.v1.UserInfo
@@ -322,7 +335,7 @@ export type UserInfo = Message<"auth.v1.UserInfo"> & {
  * Describes the message auth.v1.UserInfo.
  * Use `create(UserInfoSchema)` to create a new message.
  */
-export const UserInfoSchema: GenMessage<UserInfo> = /*@__PURE__*/ messageDesc(file_auth_v1_auth, 12);
+export const UserInfoSchema: GenMessage<UserInfo> = /*@__PURE__*/ messageDesc(file_auth_v1_auth, 14);
 
 /**
  * @generated from message auth.v1.ListUsersResponse
@@ -338,7 +351,7 @@ export type ListUsersResponse = Message<"auth.v1.ListUsersResponse"> & {
  * Describes the message auth.v1.ListUsersResponse.
  * Use `create(ListUsersResponseSchema)` to create a new message.
  */
-export const ListUsersResponseSchema: GenMessage<ListUsersResponse> = /*@__PURE__*/ messageDesc(file_auth_v1_auth, 13);
+export const ListUsersResponseSchema: GenMessage<ListUsersResponse> = /*@__PURE__*/ messageDesc(file_auth_v1_auth, 15);
 
 /**
  * @generated from message auth.v1.ResetUserPasswordRequest
@@ -358,7 +371,7 @@ export type ResetUserPasswordRequest = Message<"auth.v1.ResetUserPasswordRequest
  */
 export const ResetUserPasswordRequestSchema: GenMessage<ResetUserPasswordRequest> =
   /*@__PURE__*/
-  messageDesc(file_auth_v1_auth, 14);
+  messageDesc(file_auth_v1_auth, 16);
 
 /**
  * @generated from message auth.v1.ResetUserPasswordResponse
@@ -379,7 +392,7 @@ export type ResetUserPasswordResponse = Message<"auth.v1.ResetUserPasswordRespon
  */
 export const ResetUserPasswordResponseSchema: GenMessage<ResetUserPasswordResponse> =
   /*@__PURE__*/
-  messageDesc(file_auth_v1_auth, 15);
+  messageDesc(file_auth_v1_auth, 17);
 
 /**
  * @generated from message auth.v1.DeactivateUserRequest
@@ -399,7 +412,7 @@ export type DeactivateUserRequest = Message<"auth.v1.DeactivateUserRequest"> & {
  */
 export const DeactivateUserRequestSchema: GenMessage<DeactivateUserRequest> =
   /*@__PURE__*/
-  messageDesc(file_auth_v1_auth, 16);
+  messageDesc(file_auth_v1_auth, 18);
 
 /**
  * @generated from message auth.v1.DeactivateUserResponse
@@ -412,7 +425,7 @@ export type DeactivateUserResponse = Message<"auth.v1.DeactivateUserResponse"> &
  */
 export const DeactivateUserResponseSchema: GenMessage<DeactivateUserResponse> =
   /*@__PURE__*/
-  messageDesc(file_auth_v1_auth, 17);
+  messageDesc(file_auth_v1_auth, 19);
 
 /**
  * @generated from enum auth.v1.AuthenticateErrorCode
@@ -500,8 +513,8 @@ export const UserManagementErrorCodeSchema: GenEnum<UserManagementErrorCode> =
  */
 export const AuthService: GenService<{
   /**
-   * Authenticate validates user credentials and returns an authentication token
-   * Returns a token and its expiration timestamp if authentication is successful
+   * Authenticate validates user credentials and creates a session
+   * Returns session information and sets a session cookie for subsequent requests
    *
    * @generated from rpc auth.v1.AuthService.Authenticate
    */
@@ -509,6 +522,16 @@ export const AuthService: GenService<{
     methodKind: "unary";
     input: typeof AuthenticateRequestSchema;
     output: typeof AuthenticateResponseSchema;
+  };
+  /**
+   * Logout invalidates the current session
+   *
+   * @generated from rpc auth.v1.AuthService.Logout
+   */
+  logout: {
+    methodKind: "unary";
+    input: typeof LogoutRequestSchema;
+    output: typeof LogoutResponseSchema;
   };
   /**
    * UpdatePassword changes a user's password after verifying their current password

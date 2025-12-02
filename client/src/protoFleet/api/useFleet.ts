@@ -15,7 +15,7 @@ import {
   StreamUpdatesResponse,
   UpdateType,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { useAuthErrors, useAuthHeader, useFleetStore, useMinerIds, useTotalMiners } from "@/protoFleet/store";
+import { useAuthErrors, useFleetStore, useMinerIds, useTotalMiners } from "@/protoFleet/store";
 import { debounce } from "@/shared/utils/utility";
 
 type UseFleetOptions = {
@@ -105,7 +105,6 @@ const useFleet = (options: UseFleetOptions = {}) => {
     visibleMinerIds,
     mode = "metadata",
   } = options;
-  const authHeader = useAuthHeader();
   const { handleAuthErrors } = useAuthErrors();
 
   // Local state for 'local' scope
@@ -203,7 +202,6 @@ const useFleet = (options: UseFleetOptions = {}) => {
           });
 
           for await (const response of telemetryClient.streamUpdates(request, {
-            ...authHeader,
             signal: telemetryStreamAbortController.current?.signal,
           })) {
             updateMinerState(response);
@@ -232,7 +230,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
         }
       })();
     },
-    [authHeader, updateMinerState, handleAuthErrors],
+    [updateMinerState, handleAuthErrors],
   );
 
   // Fetch initial list using one-time query
@@ -245,47 +243,44 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
         const dataMode = DataModeMapping[mode];
 
-        const response = await fleetManagementClient.listMinerStateSnapshots(
-          {
-            pageSize,
-            cursor: pageCursor,
-            filter: filterWithPairingStatuses,
-            dataMode,
-            measurementConfigs:
-              dataMode === DataMode.METADATA
-                ? undefined
-                : [
-                    {
-                      measurementType: MeasurementConfig_MeasurementType.HASHRATE,
-                      dataMode: DataMode.TIME_SERIES,
-                      timeSeriesConfig: {
-                        timeSelection: {
-                          case: "lookbackPeriod",
-                          value: {
-                            seconds: BigInt(600),
-                            nanos: 0,
-                          },
+        const response = await fleetManagementClient.listMinerStateSnapshots({
+          pageSize,
+          cursor: pageCursor,
+          filter: filterWithPairingStatuses,
+          dataMode,
+          measurementConfigs:
+            dataMode === DataMode.METADATA
+              ? undefined
+              : [
+                  {
+                    measurementType: MeasurementConfig_MeasurementType.HASHRATE,
+                    dataMode: DataMode.TIME_SERIES,
+                    timeSeriesConfig: {
+                      timeSelection: {
+                        case: "lookbackPeriod",
+                        value: {
+                          seconds: BigInt(600),
+                          nanos: 0,
                         },
-                        resolution: 100,
                       },
+                      resolution: 100,
                     },
-                    // Get snapshot values for other measurements
-                    {
-                      measurementType: MeasurementConfig_MeasurementType.POWER_USAGE,
-                      dataMode: DataMode.SNAPSHOT,
-                    },
-                    {
-                      measurementType: MeasurementConfig_MeasurementType.TEMPERATURE,
-                      dataMode: DataMode.SNAPSHOT,
-                    },
-                    {
-                      measurementType: MeasurementConfig_MeasurementType.EFFICIENCY,
-                      dataMode: DataMode.SNAPSHOT,
-                    },
-                  ],
-          },
-          authHeader,
-        );
+                  },
+                  // Get snapshot values for other measurements
+                  {
+                    measurementType: MeasurementConfig_MeasurementType.POWER_USAGE,
+                    dataMode: DataMode.SNAPSHOT,
+                  },
+                  {
+                    measurementType: MeasurementConfig_MeasurementType.TEMPERATURE,
+                    dataMode: DataMode.SNAPSHOT,
+                  },
+                  {
+                    measurementType: MeasurementConfig_MeasurementType.EFFICIENCY,
+                    dataMode: DataMode.SNAPSHOT,
+                  },
+                ],
+        });
 
         const { miners, cursor: newCursor, totalMiners: responseTotalMiners, totalStateCounts } = response;
 
@@ -351,7 +346,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
         setIsLoading(false);
       }
     },
-    [pairingStatuses, mode, pageSize, authHeader, scope, handleAuthErrors],
+    [pairingStatuses, mode, pageSize, scope, handleAuthErrors],
   );
 
   // Debounced version of fetchMinerList for internal use

@@ -48,11 +48,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createQueueMessageStmt, err = db.PrepareContext(ctx, createQueueMessage); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateQueueMessage: %w", err)
 	}
+	if q.createSessionStmt, err = db.PrepareContext(ctx, createSession); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateSession: %w", err)
+	}
 	if q.createUserStmt, err = db.PrepareContext(ctx, createUser); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateUser: %w", err)
 	}
 	if q.createUserOrganizationStmt, err = db.PrepareContext(ctx, createUserOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateUserOrganization: %w", err)
+	}
+	if q.deleteExpiredSessionsStmt, err = db.PrepareContext(ctx, deleteExpiredSessions); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteExpiredSessions: %w", err)
 	}
 	if q.deleteOrganizationStmt, err = db.PrepareContext(ctx, deleteOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteOrganization: %w", err)
@@ -168,6 +174,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getRoleByNameStmt, err = db.PrepareContext(ctx, getRoleByName); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRoleByName: %w", err)
 	}
+	if q.getSessionByIDStmt, err = db.PrepareContext(ctx, getSessionByID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetSessionByID: %w", err)
+	}
 	if q.getTotalMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, getTotalMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTotalMinerStateSnapshots: %w", err)
 	}
@@ -243,6 +252,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.passwordUpdatedAtStmt, err = db.PrepareContext(ctx, passwordUpdatedAt); err != nil {
 		return nil, fmt.Errorf("error preparing query PasswordUpdatedAt: %w", err)
 	}
+	if q.revokeSessionStmt, err = db.PrepareContext(ctx, revokeSession); err != nil {
+		return nil, fmt.Errorf("error preparing query RevokeSession: %w", err)
+	}
 	if q.softDeleteOrganizationStmt, err = db.PrepareContext(ctx, softDeleteOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteOrganization: %w", err)
 	}
@@ -293,6 +305,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.updateRoleStmt, err = db.PrepareContext(ctx, updateRole); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateRole: %w", err)
+	}
+	if q.updateSessionActivityStmt, err = db.PrepareContext(ctx, updateSessionActivity); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateSessionActivity: %w", err)
 	}
 	if q.updateUserPasswordStmt, err = db.PrepareContext(ctx, updateUserPassword); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateUserPassword: %w", err)
@@ -372,6 +387,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing createQueueMessageStmt: %w", cerr)
 		}
 	}
+	if q.createSessionStmt != nil {
+		if cerr := q.createSessionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createSessionStmt: %w", cerr)
+		}
+	}
 	if q.createUserStmt != nil {
 		if cerr := q.createUserStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createUserStmt: %w", cerr)
@@ -380,6 +400,11 @@ func (q *Queries) Close() error {
 	if q.createUserOrganizationStmt != nil {
 		if cerr := q.createUserOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createUserOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.deleteExpiredSessionsStmt != nil {
+		if cerr := q.deleteExpiredSessionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteExpiredSessionsStmt: %w", cerr)
 		}
 	}
 	if q.deleteOrganizationStmt != nil {
@@ -572,6 +597,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getRoleByNameStmt: %w", cerr)
 		}
 	}
+	if q.getSessionByIDStmt != nil {
+		if cerr := q.getSessionByIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getSessionByIDStmt: %w", cerr)
+		}
+	}
 	if q.getTotalMinerStateSnapshotsStmt != nil {
 		if cerr := q.getTotalMinerStateSnapshotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getTotalMinerStateSnapshotsStmt: %w", cerr)
@@ -697,6 +727,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing passwordUpdatedAtStmt: %w", cerr)
 		}
 	}
+	if q.revokeSessionStmt != nil {
+		if cerr := q.revokeSessionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing revokeSessionStmt: %w", cerr)
+		}
+	}
 	if q.softDeleteOrganizationStmt != nil {
 		if cerr := q.softDeleteOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing softDeleteOrganizationStmt: %w", cerr)
@@ -780,6 +815,11 @@ func (q *Queries) Close() error {
 	if q.updateRoleStmt != nil {
 		if cerr := q.updateRoleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateRoleStmt: %w", cerr)
+		}
+	}
+	if q.updateSessionActivityStmt != nil {
+		if cerr := q.updateSessionActivityStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateSessionActivityStmt: %w", cerr)
 		}
 	}
 	if q.updateUserPasswordStmt != nil {
@@ -884,8 +924,10 @@ type Queries struct {
 	createOrganizationStmt                              *sql.Stmt
 	createPoolStmt                                      *sql.Stmt
 	createQueueMessageStmt                              *sql.Stmt
+	createSessionStmt                                   *sql.Stmt
 	createUserStmt                                      *sql.Stmt
 	createUserOrganizationStmt                          *sql.Stmt
+	deleteExpiredSessionsStmt                           *sql.Stmt
 	deleteOrganizationStmt                              *sql.Stmt
 	deletePoolStmt                                      *sql.Stmt
 	deletePoolConfigurationStmt                         *sql.Stmt
@@ -924,6 +966,7 @@ type Queries struct {
 	getPoolConfigurationIDByOrgStmt                     *sql.Stmt
 	getRoleByIDStmt                                     *sql.Stmt
 	getRoleByNameStmt                                   *sql.Stmt
+	getSessionByIDStmt                                  *sql.Stmt
 	getTotalMinerStateSnapshotsStmt                     *sql.Stmt
 	getTotalPairedDevicesStmt                           *sql.Stmt
 	getTotalPoolsStmt                                   *sql.Stmt
@@ -949,6 +992,7 @@ type Queries struct {
 	markCommandBatchFinishedWithStartedAtStmt           *sql.Stmt
 	markCommandBatchProcessingStmt                      *sql.Stmt
 	passwordUpdatedAtStmt                               *sql.Stmt
+	revokeSessionStmt                                   *sql.Stmt
 	softDeleteOrganizationStmt                          *sql.Stmt
 	softDeletePoolStmt                                  *sql.Stmt
 	softDeleteRoleStmt                                  *sql.Stmt
@@ -966,6 +1010,7 @@ type Queries struct {
 	updateOrganizationStmt                              *sql.Stmt
 	updatePoolStmt                                      *sql.Stmt
 	updateRoleStmt                                      *sql.Stmt
+	updateSessionActivityStmt                           *sql.Stmt
 	updateUserPasswordStmt                              *sql.Stmt
 	updateUserPasswordAndFlagStmt                       *sql.Stmt
 	updateUserRoleStmt                                  *sql.Stmt
@@ -991,8 +1036,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createOrganizationStmt:                              q.createOrganizationStmt,
 		createPoolStmt:                                      q.createPoolStmt,
 		createQueueMessageStmt:                              q.createQueueMessageStmt,
+		createSessionStmt:                                   q.createSessionStmt,
 		createUserStmt:                                      q.createUserStmt,
 		createUserOrganizationStmt:                          q.createUserOrganizationStmt,
+		deleteExpiredSessionsStmt:                           q.deleteExpiredSessionsStmt,
 		deleteOrganizationStmt:                              q.deleteOrganizationStmt,
 		deletePoolStmt:                                      q.deletePoolStmt,
 		deletePoolConfigurationStmt:                         q.deletePoolConfigurationStmt,
@@ -1031,6 +1078,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getPoolConfigurationIDByOrgStmt:                     q.getPoolConfigurationIDByOrgStmt,
 		getRoleByIDStmt:                                     q.getRoleByIDStmt,
 		getRoleByNameStmt:                                   q.getRoleByNameStmt,
+		getSessionByIDStmt:                                  q.getSessionByIDStmt,
 		getTotalMinerStateSnapshotsStmt:                     q.getTotalMinerStateSnapshotsStmt,
 		getTotalPairedDevicesStmt:                           q.getTotalPairedDevicesStmt,
 		getTotalPoolsStmt:                                   q.getTotalPoolsStmt,
@@ -1056,6 +1104,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		markCommandBatchFinishedWithStartedAtStmt:           q.markCommandBatchFinishedWithStartedAtStmt,
 		markCommandBatchProcessingStmt:                      q.markCommandBatchProcessingStmt,
 		passwordUpdatedAtStmt:                               q.passwordUpdatedAtStmt,
+		revokeSessionStmt:                                   q.revokeSessionStmt,
 		softDeleteOrganizationStmt:                          q.softDeleteOrganizationStmt,
 		softDeletePoolStmt:                                  q.softDeletePoolStmt,
 		softDeleteRoleStmt:                                  q.softDeleteRoleStmt,
@@ -1073,6 +1122,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateOrganizationStmt:                              q.updateOrganizationStmt,
 		updatePoolStmt:                                      q.updatePoolStmt,
 		updateRoleStmt:                                      q.updateRoleStmt,
+		updateSessionActivityStmt:                           q.updateSessionActivityStmt,
 		updateUserPasswordStmt:                              q.updateUserPasswordStmt,
 		updateUserPasswordAndFlagStmt:                       q.updateUserPasswordAndFlagStmt,
 		updateUserRoleStmt:                                  q.updateUserRoleStmt,

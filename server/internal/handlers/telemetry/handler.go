@@ -9,9 +9,9 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	telemetryv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
-	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 )
 
 type Handler struct {
@@ -101,9 +101,9 @@ func (h *Handler) StreamUpdates(
 	req *connect.Request[telemetryv1.StreamUpdatesRequest],
 	stream *connect.ServerStream[telemetryv1.StreamUpdatesResponse],
 ) error {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
-		return connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("failed to get JWT claims: %w", err))
+		return connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("failed to get session info: %w", err))
 	}
 	query, err := toStreamQuery(req.Msg)
 	if err != nil {
@@ -119,7 +119,7 @@ func (h *Handler) StreamUpdates(
 		return connect.NewError(connect.CodeInternal, err)
 	}
 
-	updateCountsChan, err := h.telemetryService.StreamMinerStateCounts(ctx, claims.OrgID, *query.HeartbeatInterval)
+	updateCountsChan, err := h.telemetryService.StreamMinerStateCounts(ctx, info.OrganizationID, *query.HeartbeatInterval)
 	if err != nil {
 		return connect.NewError(connect.CodeInternal, fmt.Errorf("failed to start miner state counts stream: %w", err))
 	}

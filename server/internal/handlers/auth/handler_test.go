@@ -1,6 +1,7 @@
 package auth_test
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/btc-mining/proto-fleet/server/internal/testutil"
@@ -34,11 +35,14 @@ func TestAuthServer_Authenticate(t *testing.T) {
 		authResp, err := testContext.InfrastructureProvider.AuthClient.Authenticate(t.Context(), authReq)
 		assert.NoError(t, err)
 
-		// Verify response
-		assert.NotEqual(t, "", authResp.Msg.Token, "expected userId in response, got nil")
-		claims, err := testContext.ServiceProvider.TokenService.VerifyClientAuthJWT(authResp.Msg.Token)
-		assert.NoError(t, err)
-		assert.Equal(t, claims.ExpiresAt.Unix(), authResp.Msg.TokenExpiry, "expected token expiry to equal expires at")
+		// Verify response - check user info and session expiry
+		assert.True(t, authResp.Msg.UserInfo != nil, "expected user_info in response")
+		assert.NotEqual(t, "", authResp.Msg.UserInfo.UserId, "expected user_id in response")
+		assert.True(t, authResp.Msg.SessionExpiry > 0, "expected session_expiry to be set")
+
+		// Verify Set-Cookie header is present
+		setCookie := authResp.Header().Get("Set-Cookie")
+		assert.NotEqual(t, "", setCookie, "expected Set-Cookie header in response")
 	})
 
 	t.Run("should fail on invalid credentials", func(t *testing.T) {
@@ -81,11 +85,16 @@ func TestAuthServer_UpdatePassword(t *testing.T) {
 		authResp, err := testContext.InfrastructureProvider.AuthClient.Authenticate(t.Context(), authReq)
 		assert.NoError(t, err)
 
+		// Extract session cookie from response
+		sessionCookie := extractSessionCookie(authResp.Header())
+		assert.True(t, sessionCookie != nil, "expected session cookie in response")
+
 		updatePWReq := connect.NewRequest(&authv1.UpdatePasswordRequest{
 			CurrentPassword: "fizzbuzz",
 			NewPassword:     "buzzbuzz",
 		})
-		updatePWReq.Header().Set("Authorization", "Bearer "+authResp.Msg.Token)
+		// Use session cookie instead of Bearer token
+		updatePWReq.Header().Set("Cookie", sessionCookie.String())
 		_, err = testContext.InfrastructureProvider.AuthClient.UpdatePassword(t.Context(), updatePWReq)
 		assert.NoError(t, err)
 
@@ -99,11 +108,10 @@ func TestAuthServer_UpdatePassword(t *testing.T) {
 		authResp, err = testContext.InfrastructureProvider.AuthClient.Authenticate(t.Context(), authReq)
 		assert.NoError(t, err)
 
-		// Verify response
-		assert.NotEqual(t, "", authResp.Msg.Token, "expected userId in response, got nil")
-		claims, err := testContext.ServiceProvider.TokenService.VerifyClientAuthJWT(authResp.Msg.Token)
-		assert.NoError(t, err)
-		assert.Equal(t, claims.ExpiresAt.Unix(), authResp.Msg.TokenExpiry, "expected token expiry to equal expires at")
+		// Verify response - check user info and session expiry
+		assert.True(t, authResp.Msg.UserInfo != nil, "expected user_info in response")
+		assert.NotEqual(t, "", authResp.Msg.UserInfo.UserId, "expected user_id in response")
+		assert.True(t, authResp.Msg.SessionExpiry > 0, "expected session_expiry to be set")
 	})
 
 	t.Run("should fail to update password when new password is same as current", func(t *testing.T) {
@@ -120,11 +128,15 @@ func TestAuthServer_UpdatePassword(t *testing.T) {
 		authResp, err := testContext.InfrastructureProvider.AuthClient.Authenticate(t.Context(), authReq)
 		assert.NoError(t, err)
 
+		// Extract session cookie from response
+		sessionCookie := extractSessionCookie(authResp.Header())
+		assert.True(t, sessionCookie != nil, "expected session cookie in response")
+
 		updatePWReq := connect.NewRequest(&authv1.UpdatePasswordRequest{
 			CurrentPassword: adminPassword,
 			NewPassword:     adminPassword,
 		})
-		updatePWReq.Header().Set("Authorization", "Bearer "+authResp.Msg.Token)
+		updatePWReq.Header().Set("Cookie", sessionCookie.String())
 		_, err = testContext.InfrastructureProvider.AuthClient.UpdatePassword(t.Context(), updatePWReq)
 		assert.Error(t, err)
 	})
@@ -143,11 +155,15 @@ func TestAuthServer_UpdatePassword(t *testing.T) {
 		authResp, err := testContext.InfrastructureProvider.AuthClient.Authenticate(t.Context(), authReq)
 		assert.NoError(t, err)
 
+		// Extract session cookie from response
+		sessionCookie := extractSessionCookie(authResp.Header())
+		assert.True(t, sessionCookie != nil, "expected session cookie in response")
+
 		updatePWReq := connect.NewRequest(&authv1.UpdatePasswordRequest{
 			CurrentPassword: "catchmeifyoucan",
 			NewPassword:     "buzzbuzz",
 		})
-		updatePWReq.Header().Set("Authorization", "Bearer "+authResp.Msg.Token)
+		updatePWReq.Header().Set("Cookie", sessionCookie.String())
 		_, err = testContext.InfrastructureProvider.AuthClient.UpdatePassword(t.Context(), updatePWReq)
 		assert.Error(t, err)
 	})
@@ -168,4 +184,23 @@ func setupAuthClientFor(
 
 	_, err := infrastructureProvider.OnboardingClient.CreateAdminLogin(t.Context(), req)
 	assert.NoError(t, err)
+}
+
+// extractSessionCookie parses the Set-Cookie header and returns the session cookie
+func extractSessionCookie(header http.Header) *http.Cookie {
+	setCookie := header.Get("Set-Cookie")
+	if setCookie == "" {
+		return nil
+	}
+
+	cookie, err := http.ParseSetCookie(setCookie)
+	if err != nil {
+		return nil
+	}
+
+	if cookie.Name != "fleet_session" {
+		return nil
+	}
+
+	return cookie
 }

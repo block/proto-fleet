@@ -6,9 +6,12 @@ import "google/protobuf/timestamp.proto";
 
 // AuthService provides authentication and user credential management functionality
 service AuthService {
-    // Authenticate validates user credentials and returns an authentication token
-    // Returns a token and its expiration timestamp if authentication is successful
+    // Authenticate validates user credentials and creates a session
+    // Returns session information and sets a session cookie for subsequent requests
     rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse);
+
+    // Logout invalidates the current session
+    rpc Logout(LogoutRequest) returns (LogoutResponse);
 
     // UpdatePassword changes a user's password after verifying their current password
     // Returns an error if the current password is incorrect
@@ -44,18 +47,23 @@ message AuthenticateRequest {
 }
 
 message AuthenticateResponse {
-    // Authentication token for subsequent requests
-    // Bearer token that should be included in the Authorization header
-    // Format: "Bearer {token}"
-    string token = 1;
-
-    // Unix timestamp (in seconds) indicating when the token will expire
-    // Clients should request a new token before this time to maintain sessions
-    int64 token_expiry = 2;
+    // Reserved fields from JWT-based auth (removed in session migration)
+    reserved 1, 2;
+    reserved "token", "token_expiry";
 
     // Authenticated user information
     // Contains user_id, username, role, password change requirements, and audit timestamps
     UserInfo user_info = 3;
+
+    // Unix timestamp (in seconds) indicating when the session will expire
+    // Session expiry is extended on each request (sliding window)
+    int64 session_expiry = 4;
+}
+
+message LogoutRequest {
+}
+
+message LogoutResponse {
 }
 
 enum AuthenticateErrorCode {

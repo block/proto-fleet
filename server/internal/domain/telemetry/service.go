@@ -13,10 +13,10 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/pairing"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
-	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 
 	commonpb "github.com/btc-mining/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
@@ -814,9 +814,9 @@ func (s *TelemetryService) GetMinerComponentStatus(ctx context.Context, _ string
 // StreamMeasurements streams measurement updates for the specified miners and measurement types
 func (s *TelemetryService) StreamMeasurements(ctx context.Context, deviceIDs []string, measurementTypes []pb.MeasurementConfig_MeasurementType) (<-chan *pb.StreamMinerUpdatesResponse, error) {
 	// Get org ID from context
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get auth claims: %w", err)
+		return nil, fmt.Errorf("failed to get session info: %w", err)
 	}
 
 	responseChan := make(chan *pb.StreamMinerUpdatesResponse, 100)
@@ -836,7 +836,7 @@ func (s *TelemetryService) StreamMeasurements(ctx context.Context, deviceIDs []s
 	}
 
 	// Get or create broadcaster for this organization
-	broadcaster, err := s.GetOrCreateBroadcaster(ctx, claims.OrgID)
+	broadcaster, err := s.GetOrCreateBroadcaster(ctx, info.OrganizationID)
 	if err != nil {
 		close(responseChan)
 		return nil, fmt.Errorf("failed to get broadcaster: %w", err)

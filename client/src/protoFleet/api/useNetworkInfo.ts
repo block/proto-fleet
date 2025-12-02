@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { networkInfoClient } from "@/protoFleet/api/clients";
 import { NetworkInfo, UpdateNetworkNicknameRequest } from "@/protoFleet/api/generated/networkinfo/v1/networkinfo_pb";
-import { useAuthErrors, useAuthHeader } from "@/protoFleet/store";
+import { useAuthErrors } from "@/protoFleet/store";
 
 interface UpdateNetworkInfoProps {
   networkUpdateRequest: UpdateNetworkNicknameRequest;
@@ -10,7 +10,6 @@ interface UpdateNetworkInfoProps {
 }
 
 const useNetworkInfo = () => {
-  const authHeader = useAuthHeader();
   const { handleAuthErrors } = useAuthErrors();
 
   const [data, setData] = useState<NetworkInfo>();
@@ -21,7 +20,7 @@ const useNetworkInfo = () => {
     setPending(true);
 
     networkInfoClient
-      .getNetworkInfo({}, authHeader)
+      .getNetworkInfo({})
       .then((res) => {
         setData(res?.networkInfo);
       })
@@ -36,7 +35,7 @@ const useNetworkInfo = () => {
       .finally(() => {
         setPending(false);
       });
-  }, [authHeader, handleAuthErrors]);
+  }, [handleAuthErrors]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -47,7 +46,7 @@ const useNetworkInfo = () => {
     async ({ networkUpdateRequest, onSuccess, onError }: UpdateNetworkInfoProps) => {
       setPending(true);
       await networkInfoClient
-        .updateNetworkNickname(networkUpdateRequest, authHeader)
+        .updateNetworkNickname(networkUpdateRequest)
         .then(() => {
           onSuccess();
         })
@@ -63,7 +62,7 @@ const useNetworkInfo = () => {
           setPending(false);
         });
     },
-    [authHeader, handleAuthErrors],
+    [handleAuthErrors],
   );
 
   return useMemo(

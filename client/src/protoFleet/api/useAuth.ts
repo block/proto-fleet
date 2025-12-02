@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { authClient, onboardingClient } from "@/protoFleet/api/clients";
 import { UpdatePasswordRequest, UpdateUsernameRequest } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { CreateAdminLoginRequest } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
-import { useAuthErrors, useAuthHeader, useSetUsername } from "@/protoFleet/store";
+import { useAuthErrors, useSetUsername } from "@/protoFleet/store";
 
 interface SetPasswordProps {
   onError?: (message: string) => void;
@@ -27,7 +27,6 @@ interface UpdateUsernameProps {
 }
 
 const useAuth = () => {
-  const authHeader = useAuthHeader();
   const setUsername = useSetUsername();
   const { handleAuthErrors } = useAuthErrors();
   const [passwordLastUpdatedAt, setPasswordLastUpdatedAt] = useState<Date | null>(null);
@@ -57,7 +56,7 @@ const useAuth = () => {
 
   const fetchLastUpdatedPasswordDate = useCallback(async () => {
     try {
-      const response = await authClient.getUserAuditInfo({}, authHeader);
+      const response = await authClient.getUserAuditInfo({});
 
       if (response.info?.passwordUpdatedAt) {
         const seconds = Number(response.info?.passwordUpdatedAt?.seconds);
@@ -72,12 +71,12 @@ const useAuth = () => {
         },
       });
     }
-  }, [authHeader, handleAuthErrors]);
+  }, [handleAuthErrors]);
 
   const updatePassword = useCallback(
     async ({ currentPassword, newPassword, onSuccess, onError, onFinally }: UpdatePasswordProps) => {
       await authClient
-        .updatePassword({ currentPassword, newPassword }, authHeader)
+        .updatePassword({ currentPassword, newPassword })
         .then(() => {
           onSuccess?.();
           fetchLastUpdatedPasswordDate();
@@ -94,13 +93,13 @@ const useAuth = () => {
           onFinally?.();
         });
     },
-    [authHeader, fetchLastUpdatedPasswordDate, handleAuthErrors],
+    [fetchLastUpdatedPasswordDate, handleAuthErrors],
   );
 
   const updateUsername = useCallback(
     async ({ username, onSuccess, onError, onFinally }: UpdateUsernameProps) => {
       await authClient
-        .updateUsername({ username }, authHeader)
+        .updateUsername({ username })
         .then(() => {
           setUsername(username);
           onSuccess?.();
@@ -117,7 +116,7 @@ const useAuth = () => {
           onFinally?.();
         });
     },
-    [authHeader, setUsername, handleAuthErrors],
+    [setUsername, handleAuthErrors],
   );
 
   useEffect(() => {

@@ -10,23 +10,23 @@ export type { FleetStore } from "./useFleetStore";
 // =============================================================================
 
 export {
-  useAuthTokens,
-  useAccessToken,
+  useSessionExpiry,
+  useIsAuthenticated,
   useUsername,
   useRole,
   useAuthLoading,
   useTemporaryPassword,
-  useSetAuthTokens,
+  useSetSessionExpiry,
+  useSetIsAuthenticated,
   useSetUsername,
   useSetRole,
   useSetAuthLoading,
   useSetTemporaryPassword,
   useLogout,
-  useAuthHeader,
   useAuthErrors,
 } from "./hooks/useAuth";
 
-export { getAuthHeader, useIsAuthenticated } from "./hooks/useAuthentication";
+export { useCheckAuthentication } from "./hooks/useAuthentication";
 
 // =============================================================================
 // UI Hooks
@@ -99,5 +99,4 @@ export {
 // Types
 // =============================================================================
 
-export type { AuthTokens } from "./slices/authSlice";
 export type { Theme, ThemeColor, TemperatureUnit } from "@/shared/features/preferences";

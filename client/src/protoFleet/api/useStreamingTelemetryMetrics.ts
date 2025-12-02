@@ -9,7 +9,7 @@ import {
   StreamCombinedMetricUpdatesRequestSchema,
   StreamCombinedMetricUpdatesResponse,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { useAuthErrors, useAuthHeader } from "@/protoFleet/store";
+import { useAuthErrors } from "@/protoFleet/store";
 
 interface StreamingOptions {
   deviceIds: string[];
@@ -19,7 +19,6 @@ interface StreamingOptions {
 }
 
 export const useStreamingTelemetryMetrics = (options: StreamingOptions) => {
-  const authHeader = useAuthHeader();
   const { handleAuthErrors } = useAuthErrors();
   const [latestData, setLatestData] = useState<StreamCombinedMetricUpdatesResponse | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -74,7 +73,6 @@ export const useStreamingTelemetryMetrics = (options: StreamingOptions) => {
         });
 
         for await (const response of telemetryClient.streamCombinedMetricUpdates(request, {
-          ...authHeader,
           signal: abortController.current?.signal,
         })) {
           setLatestData(response);
@@ -92,7 +90,7 @@ export const useStreamingTelemetryMetrics = (options: StreamingOptions) => {
         setIsStreaming(false);
       }
     })();
-  }, [stableOptions, authHeader, handleAuthErrors]);
+  }, [stableOptions, handleAuthErrors]);
 
   // Start/stop streaming when options change
   useEffect(() => {

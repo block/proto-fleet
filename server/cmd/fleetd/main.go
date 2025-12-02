@@ -14,6 +14,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
 	minerModels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins"
+	sessionDomain "github.com/btc-mining/proto-fleet/server/internal/domain/session"
 
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
 
@@ -116,8 +117,35 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
+
+	// Initialize session store and service
+	sessionStore := sqlstores.NewSQLSessionStore(conn)
+	sessionSvc := sessionDomain.NewService(config.Session, sessionStore)
+
 	// userStore implements both UserStore and UserManagementStore interfaces
-	authSvc := authDomain.NewService(userStore, userStore, transactor, tokenSvc, encryptSvc)
+	authSvc := authDomain.NewService(userStore, userStore, transactor, tokenSvc, sessionSvc, encryptSvc)
+
+	// Start session cleanup goroutine
+	sessionCleanupCtx, sessionCleanupCancel := context.WithCancel(context.Background())
+	go func() {
+		ticker := time.NewTicker(sessionSvc.CleanupInterval())
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				deleted, err := sessionSvc.CleanupExpired(context.Background())
+				if err != nil {
+					slog.Error("failed to cleanup expired sessions", "error", err)
+				} else if deleted > 0 {
+					slog.Debug("cleaned up expired sessions", "count", deleted)
+				}
+			case <-sessionCleanupCtx.Done():
+				return
+			}
+		}
+	}()
+	defer sessionCleanupCancel()
 
 	if err := config.Plugins.Validate(); err != nil {
 		return fmt.Errorf("invalid plugin configuration: %w", err)
@@ -287,7 +315,7 @@ func start(config *Config) error {
 		interceptors.NewErrorMappingInterceptor(),
 		interceptors.NewErrorStackTraceLoggingInterceptor(config.Log.Level),
 		interceptors.NewRequestLoggingInterceptor(config.Log.Level),
-		interceptors.NewAuthInterceptor(tokenSvc, userStore, interceptors.UnauthenticatedProcedures),
+		interceptors.NewAuthInterceptor(sessionSvc, userStore, interceptors.UnauthenticatedProcedures),
 		validateInterceptor,
 	)
 

@@ -16,10 +16,10 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/sqlc"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/commandtype"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	stores "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	tmodels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 
-	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
 	id "github.com/btc-mining/proto-fleet/server/internal/infrastructure/id"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
@@ -70,15 +70,15 @@ func NewService(config *Config, conn *sql.DB, executionService *ExecutionService
 }
 
 func (s *Service) getDevicesCount(ctx context.Context, selector *pb.DeviceSelector) (int32, error) {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("error getting claims from ctx: %v", err)
+		return 0, fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
 	}
 
 	switch x := selector.SelectionType.(type) {
 	case *pb.DeviceSelector_AllDevices:
 		return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (int32, error) {
-			count, err := q.GetTotalPairedDevices(ctx, sqlc.GetTotalPairedDevicesParams{OrgID: claims.OrgID})
+			count, err := q.GetTotalPairedDevices(ctx, sqlc.GetTotalPairedDevicesParams{OrgID: info.OrganizationID})
 			if err != nil {
 				return 0, err
 			}
@@ -206,15 +206,15 @@ func (s *Service) initializeStatusUpdateRoutine(commandBatchLogUUID string, onFi
 }
 
 func (s *Service) getDeviceIDs(ctx context.Context, selector *pb.DeviceSelector) ([]int64, error) {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting claims from context: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error getting session info from context: %v", err)
 	}
 
 	switch x := selector.SelectionType.(type) {
 	case *pb.DeviceSelector_AllDevices:
 		return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]int64, error) {
-			return q.GetPairedDevicesIds(ctx, claims.OrgID)
+			return q.GetPairedDevicesIds(ctx, info.OrganizationID)
 		})
 	case *pb.DeviceSelector_IncludeDevices:
 		if len(x.IncludeDevices.DeviceIdentifiers) == 0 {
@@ -238,9 +238,9 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (string,
 		}
 	}
 
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
-		return "", fleeterror.NewInternalErrorf("error getting claims from ctx: %v", err)
+		return "", fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
 	}
 
 	payloadBytes, err := json.Marshal(command.payload)
@@ -248,7 +248,7 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (string,
 		return "", fleeterror.NewInternalErrorf("error marshalling payload: %v", err)
 	}
 
-	batchLogIdentifier, err := s.saveCommandBatchLogToDB(ctx, claims.UserID, command, payloadBytes)
+	batchLogIdentifier, err := s.saveCommandBatchLogToDB(ctx, info.UserID, command, payloadBytes)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
 	}
@@ -330,13 +330,13 @@ func (s *Service) SetCoolingMode(ctx context.Context, deviceSelector *pb.DeviceS
 }
 
 func (s *Service) createMiningPoolDTO(ctx context.Context, poolID int64, priorityIncrement uint32) (*dto.MiningPool, error) {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting auth JWT claims: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error getting session info: %v", err)
 	}
 
 	pool, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (sqlc.Pool, error) {
-		return q.GetPool(ctx, sqlc.GetPoolParams{ID: poolID, OrgID: claims.OrgID})
+		return q.GetPool(ctx, sqlc.GetPoolParams{ID: poolID, OrgID: info.OrganizationID})
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error getting default pool: %v", err)
@@ -456,7 +456,7 @@ func (s *Service) Unpair(ctx context.Context, deviceSelector *pb.DeviceSelector)
 }
 
 func (s *Service) StreamCommandBatchUpdates(ctx context.Context, msg *pb.StreamCommandBatchUpdatesRequest) (<-chan *pb.StreamCommandBatchUpdatesResponse, error) {
-	_, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	_, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}

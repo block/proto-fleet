@@ -14,6 +14,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
 	"github.com/golang/mock/gomock"
@@ -37,11 +38,16 @@ const (
 	testBatchStatusUpdateInterval   = time.Second
 	testDequeueLimit                = 500
 	testMaxFailureRetries           = 5
+	testSessionDuration             = 5 * time.Minute
+	testSessionIDBytes              = 32
+	testSessionCookieName           = "fleet_session"
+	testSessionCleanupInterval      = time.Hour
 )
 
 type ServiceProvider struct {
 	DB                     *sql.DB
 	TokenService           *token.Service
+	SessionService         *session.Service
 	AuthService            *auth.Service
 	PairingService         *pairing.Service
 	OnboardingService      *onboarding.Service
@@ -75,9 +81,20 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	userStore := sqlstores.NewSQLUserStore(db)
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	poolStore := sqlstores.NewSQLPoolStore(db, encryptService)
+	sessionStore := sqlstores.NewSQLSessionStore(db)
+
+	sessionConfig := session.Config{
+		Duration:        testSessionDuration,
+		IDBytes:         testSessionIDBytes,
+		CookieName:      testSessionCookieName,
+		CookieSecure:    false,
+		CookieSameSite:  "Strict",
+		CleanupInterval: testSessionCleanupInterval,
+	}
+	sessionService := session.NewService(sessionConfig, sessionStore)
 
 	// userStore implements both UserStore and UserManagementStore interfaces
-	authService := auth.NewService(userStore, userStore, transactor, tokenService, encryptService)
+	authService := auth.NewService(userStore, userStore, transactor, tokenService, sessionService, encryptService)
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
@@ -139,6 +156,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	return &ServiceProvider{
 		DB:                     db,
 		TokenService:           tokenService,
+		SessionService:         sessionService,
 		AuthService:            authService,
 		PairingService:         pairingService,
 		OnboardingService:      onboardingService,

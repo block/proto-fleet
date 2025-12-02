@@ -37,6 +37,8 @@ const (
 	// AuthServiceAuthenticateProcedure is the fully-qualified name of the AuthService's Authenticate
 	// RPC.
 	AuthServiceAuthenticateProcedure = "/auth.v1.AuthService/Authenticate"
+	// AuthServiceLogoutProcedure is the fully-qualified name of the AuthService's Logout RPC.
+	AuthServiceLogoutProcedure = "/auth.v1.AuthService/Logout"
 	// AuthServiceUpdatePasswordProcedure is the fully-qualified name of the AuthService's
 	// UpdatePassword RPC.
 	AuthServiceUpdatePasswordProcedure = "/auth.v1.AuthService/UpdatePassword"
@@ -60,9 +62,11 @@ const (
 
 // AuthServiceClient is a client for the auth.v1.AuthService service.
 type AuthServiceClient interface {
-	// Authenticate validates user credentials and returns an authentication token
-	// Returns a token and its expiration timestamp if authentication is successful
+	// Authenticate validates user credentials and creates a session
+	// Returns session information and sets a session cookie for subsequent requests
 	Authenticate(context.Context, *connect.Request[v1.AuthenticateRequest]) (*connect.Response[v1.AuthenticateResponse], error)
+	// Logout invalidates the current session
+	Logout(context.Context, *connect.Request[v1.LogoutRequest]) (*connect.Response[v1.LogoutResponse], error)
 	// UpdatePassword changes a user's password after verifying their current password
 	// Returns an error if the current password is incorrect
 	// The user must be authenticated to use this endpoint
@@ -95,6 +99,11 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 		authenticate: connect.NewClient[v1.AuthenticateRequest, v1.AuthenticateResponse](
 			httpClient,
 			baseURL+AuthServiceAuthenticateProcedure,
+			opts...,
+		),
+		logout: connect.NewClient[v1.LogoutRequest, v1.LogoutResponse](
+			httpClient,
+			baseURL+AuthServiceLogoutProcedure,
 			opts...,
 		),
 		updatePassword: connect.NewClient[v1.UpdatePasswordRequest, v1.UpdatePasswordResponse](
@@ -138,6 +147,7 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 // authServiceClient implements AuthServiceClient.
 type authServiceClient struct {
 	authenticate      *connect.Client[v1.AuthenticateRequest, v1.AuthenticateResponse]
+	logout            *connect.Client[v1.LogoutRequest, v1.LogoutResponse]
 	updatePassword    *connect.Client[v1.UpdatePasswordRequest, v1.UpdatePasswordResponse]
 	updateUsername    *connect.Client[v1.UpdateUsernameRequest, v1.UpdateUsernameResponse]
 	getUserAuditInfo  *connect.Client[v1.GetUserAuditInfoRequest, v1.GetUserAuditInfoResponse]
@@ -150,6 +160,11 @@ type authServiceClient struct {
 // Authenticate calls auth.v1.AuthService.Authenticate.
 func (c *authServiceClient) Authenticate(ctx context.Context, req *connect.Request[v1.AuthenticateRequest]) (*connect.Response[v1.AuthenticateResponse], error) {
 	return c.authenticate.CallUnary(ctx, req)
+}
+
+// Logout calls auth.v1.AuthService.Logout.
+func (c *authServiceClient) Logout(ctx context.Context, req *connect.Request[v1.LogoutRequest]) (*connect.Response[v1.LogoutResponse], error) {
+	return c.logout.CallUnary(ctx, req)
 }
 
 // UpdatePassword calls auth.v1.AuthService.UpdatePassword.
@@ -189,9 +204,11 @@ func (c *authServiceClient) DeactivateUser(ctx context.Context, req *connect.Req
 
 // AuthServiceHandler is an implementation of the auth.v1.AuthService service.
 type AuthServiceHandler interface {
-	// Authenticate validates user credentials and returns an authentication token
-	// Returns a token and its expiration timestamp if authentication is successful
+	// Authenticate validates user credentials and creates a session
+	// Returns session information and sets a session cookie for subsequent requests
 	Authenticate(context.Context, *connect.Request[v1.AuthenticateRequest]) (*connect.Response[v1.AuthenticateResponse], error)
+	// Logout invalidates the current session
+	Logout(context.Context, *connect.Request[v1.LogoutRequest]) (*connect.Response[v1.LogoutResponse], error)
 	// UpdatePassword changes a user's password after verifying their current password
 	// Returns an error if the current password is incorrect
 	// The user must be authenticated to use this endpoint
@@ -220,6 +237,11 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 	authServiceAuthenticateHandler := connect.NewUnaryHandler(
 		AuthServiceAuthenticateProcedure,
 		svc.Authenticate,
+		opts...,
+	)
+	authServiceLogoutHandler := connect.NewUnaryHandler(
+		AuthServiceLogoutProcedure,
+		svc.Logout,
 		opts...,
 	)
 	authServiceUpdatePasswordHandler := connect.NewUnaryHandler(
@@ -261,6 +283,8 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		switch r.URL.Path {
 		case AuthServiceAuthenticateProcedure:
 			authServiceAuthenticateHandler.ServeHTTP(w, r)
+		case AuthServiceLogoutProcedure:
+			authServiceLogoutHandler.ServeHTTP(w, r)
 		case AuthServiceUpdatePasswordProcedure:
 			authServiceUpdatePasswordHandler.ServeHTTP(w, r)
 		case AuthServiceUpdateUsernameProcedure:
@@ -286,6 +310,10 @@ type UnimplementedAuthServiceHandler struct{}
 
 func (UnimplementedAuthServiceHandler) Authenticate(context.Context, *connect.Request[v1.AuthenticateRequest]) (*connect.Response[v1.AuthenticateResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("auth.v1.AuthService.Authenticate is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) Logout(context.Context, *connect.Request[v1.LogoutRequest]) (*connect.Response[v1.LogoutResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("auth.v1.AuthService.Logout is not implemented"))
 }
 
 func (UnimplementedAuthServiceHandler) UpdatePassword(context.Context, *connect.Request[v1.UpdatePasswordRequest]) (*connect.Response[v1.UpdatePasswordResponse], error) {

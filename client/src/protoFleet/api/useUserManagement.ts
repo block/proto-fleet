@@ -6,7 +6,7 @@ import type {
   DeactivateUserRequest,
   ResetUserPasswordRequest,
 } from "@/protoFleet/api/generated/auth/v1/auth_pb";
-import { useAuthErrors, useAuthHeader } from "@/protoFleet/store";
+import { useAuthErrors } from "@/protoFleet/store";
 
 interface CreateUserProps {
   username: CreateUserRequest["username"];
@@ -45,13 +45,12 @@ interface DeactivateUserProps {
 }
 
 const useUserManagement = () => {
-  const authHeader = useAuthHeader();
   const { handleAuthErrors } = useAuthErrors();
 
   const createUser = useCallback(
     async ({ username, onSuccess, onError, onFinally }: CreateUserProps) => {
       await authClient
-        .createUser({ username }, authHeader)
+        .createUser({ username })
         .then((response) => {
           onSuccess?.(response.userId, response.username, response.temporaryPassword);
         })
@@ -67,13 +66,13 @@ const useUserManagement = () => {
           onFinally?.();
         });
     },
-    [authHeader, handleAuthErrors],
+    [handleAuthErrors],
   );
 
   const listUsers = useCallback(
     async ({ onSuccess, onError, onFinally }: ListUsersProps) => {
       await authClient
-        .listUsers({}, authHeader)
+        .listUsers({})
         .then((response) => {
           const users = response.users.map((user) => ({
             userId: user.userId,
@@ -97,13 +96,13 @@ const useUserManagement = () => {
           onFinally?.();
         });
     },
-    [authHeader, handleAuthErrors],
+    [handleAuthErrors],
   );
 
   const resetUserPassword = useCallback(
     async ({ userId, onSuccess, onError, onFinally }: ResetUserPasswordProps) => {
       await authClient
-        .resetUserPassword({ userId }, authHeader)
+        .resetUserPassword({ userId })
         .then((response) => {
           onSuccess?.(response.temporaryPassword);
         })
@@ -119,13 +118,13 @@ const useUserManagement = () => {
           onFinally?.();
         });
     },
-    [authHeader, handleAuthErrors],
+    [handleAuthErrors],
   );
 
   const deactivateUser = useCallback(
     async ({ userId, onSuccess, onError, onFinally }: DeactivateUserProps) => {
       await authClient
-        .deactivateUser({ userId }, authHeader)
+        .deactivateUser({ userId })
         .then(() => {
           onSuccess?.();
         })
@@ -141,7 +140,7 @@ const useUserManagement = () => {
           onFinally?.();
         });
     },
-    [authHeader, handleAuthErrors],
+    [handleAuthErrors],
   );
 
   return {

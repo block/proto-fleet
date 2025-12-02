@@ -3,16 +3,14 @@ import { onboardingClient } from "@/protoFleet/api/clients";
 import type { FleetOnboardingStatus } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
 import {
   useAuthErrors,
-  useAuthHeader,
-  useAuthTokens,
   useDevicePaired,
+  useIsAuthenticated,
   usePoolConfigured,
   useSetOnboardingStatus,
 } from "@/protoFleet/store";
 
 const useOnboardedStatus = () => {
-  const authTokens = useAuthTokens();
-  const authHeader = useAuthHeader();
+  const isAuthenticated = useIsAuthenticated();
   const poolConfigured = usePoolConfigured();
   const devicePaired = useDevicePaired();
   const setStatus = useSetOnboardingStatus();
@@ -20,7 +18,7 @@ const useOnboardedStatus = () => {
 
   const fetchStatus = useCallback(async (): Promise<FleetOnboardingStatus | null> => {
     try {
-      const response = await onboardingClient.getFleetOnboardingStatus({}, authHeader);
+      const response = await onboardingClient.getFleetOnboardingStatus({});
 
       if (response.status) {
         setStatus(response.status);
@@ -37,16 +35,16 @@ const useOnboardedStatus = () => {
       });
       return null;
     }
-  }, [authHeader, setStatus, handleAuthErrors]);
+  }, [setStatus, handleAuthErrors]);
 
   useEffect(() => {
-    if (!authTokens.accessToken.value) {
+    if (!isAuthenticated) {
       setStatus(null);
       return;
     }
 
     fetchStatus();
-  }, [fetchStatus, authTokens, setStatus]);
+  }, [fetchStatus, isAuthenticated, setStatus]);
 
   return {
     poolConfigured,

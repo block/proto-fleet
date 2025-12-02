@@ -10,6 +10,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
 	mm "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	telemetryModels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 
@@ -19,7 +20,6 @@ import (
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingpb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	telemetrypb "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
-	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 )
 
 const (
@@ -82,7 +82,7 @@ func validatePageSize(pageSize int32) int32 {
 }
 
 func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRequest) (*pb.ListPairedMinersResponse, error) {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(c)
+	info, err := session.GetInfo(c)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRe
 	}
 
 	// Get total count
-	total, err := s.deviceStore.GetTotalPairedDevices(c, claims.OrgID, nil)
+	total, err := s.deviceStore.GetTotalPairedDevices(c, info.OrganizationID, nil)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
 	}
@@ -114,13 +114,13 @@ func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRe
 
 // ListMinerStateSnapshots returns a paginated list of miners with their operational status and metrics
 func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMinerStateSnapshotsRequest) (*pb.ListMinerStateSnapshotsResponse, error) {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	// Convert to internal request format and delegate to shared builder
-	return s.buildSnapshotFromListRequest(ctx, claims.OrgID, req)
+	return s.buildSnapshotFromListRequest(ctx, info.OrganizationID, req)
 }
 
 // buildSnapshotFromListRequest builds response from ListMinerStateSnapshotsRequest
@@ -305,7 +305,7 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 
 // StreamMinerUpdates streams real-time measurement updates for miners
 func (s *Service) StreamMinerUpdates(ctx context.Context, req *pb.StreamMinerUpdatesRequest) (<-chan *pb.StreamMinerUpdatesResponse, error) {
-	_, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	_, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -530,7 +530,7 @@ func convertDeviceStatusStringToProto(status string) pb.DeviceStatus {
 // StreamMinerListUpdates streams incremental updates (additions/removals) for filtered miner list
 // Only sends changes when miners enter/exit filter criteriafleetmanagement.test
 func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMinerListUpdatesRequest) (<-chan *pb.StreamMinerListUpdatesResponse, error) {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -556,7 +556,7 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 		buildInitialTrackingState := func() error {
 			// Get ALL miners matching the filter (no pagination)
 			// We use a large page size to get all miners in one query
-			snapshot, err := s.buildSnapshot(ctx, claims.OrgID, maxPageSizeForTracking, "", req.Filter, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
+			snapshot, err := s.buildSnapshot(ctx, info.OrganizationID, maxPageSizeForTracking, "", req.Filter, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
 			if err != nil {
 				return err
 			}
@@ -569,7 +569,7 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 			}
 
 			slog.Info("initialized miner list tracking",
-				"orgID", claims.OrgID,
+				"orgID", info.OrganizationID,
 				"matchingMiners", len(currentMatchingDevices))
 
 			return nil
@@ -585,7 +585,7 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 		// We need to monitor all devices to detect when they enter/exit filter criteria
 		telemetryUpdateChan, unsubscribe, err := s.telemetry.SubscribeToTelemetryUpdates(
 			ctx,
-			claims.OrgID,
+			info.OrganizationID,
 			nil, // All devices in org
 			[]telemetryModels.UpdateType{telemetryModels.UpdateTypeDeviceStatus},
 		)
@@ -620,7 +620,7 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 				deviceID := string(update.DeviceID)
 
 				// Get the device's current information
-				device, err := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, deviceID, claims.OrgID)
+				device, err := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, deviceID, info.OrganizationID)
 				if err != nil {
 					slog.Error("failed to get device", "deviceID", deviceID, "error", err)
 					continue
@@ -645,7 +645,7 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 					sortedDeviceIDs = append(sortedDeviceIDs, deviceID)
 
 					// Get updated total count
-					total, err := s.deviceStore.GetTotalPairedDevices(ctx, claims.OrgID, filter)
+					total, err := s.deviceStore.GetTotalPairedDevices(ctx, info.OrganizationID, filter)
 					if err != nil {
 						slog.Error("failed to get total count", "error", err)
 						total = int64(len(currentMatchingDevices))
@@ -685,7 +685,7 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 					}
 
 					// Get updated total count
-					total, err := s.deviceStore.GetTotalPairedDevices(ctx, claims.OrgID, filter)
+					total, err := s.deviceStore.GetTotalPairedDevices(ctx, info.OrganizationID, filter)
 					if err != nil {
 						slog.Error("failed to get total count", "error", err)
 						total = int64(len(currentMatchingDevices))

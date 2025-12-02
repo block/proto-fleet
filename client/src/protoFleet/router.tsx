@@ -4,6 +4,7 @@ import { createBrowserRouter, LoaderFunction, Outlet, redirect } from "react-rou
 import App from "./components/App";
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
 import Miners from "./features/fleetManagement/components/Fleet";
+import { onboardingClient } from "@/protoFleet/api/clients";
 import Auth from "@/protoFleet/features/auth/pages/Auth";
 import UpdatePassword from "@/protoFleet/features/auth/pages/UpdatePassword";
 import Dashboard from "@/protoFleet/features/dashboard/pages/Dashboard";
@@ -16,7 +17,6 @@ import {
   Team,
 } from "@/protoFleet/features/settings";
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
-import { onboardingClient } from "@/protoFleet/api/clients";
 
 // Helper to check if an admin user has been created
 const checkFleetInitStatus = async (): Promise<boolean> => {

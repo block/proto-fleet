@@ -5,8 +5,8 @@ import (
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
-	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 )
 
 type Service struct {
@@ -22,12 +22,12 @@ func NewService(poolConfigurationStore interfaces.PoolConfigurationStore, transa
 }
 
 func (s *Service) ListPoolConfigurations(ctx context.Context) (*pb.ListPoolConfigurationsResponse, error) {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	poolConfigurations, err := s.poolConfigurationStore.ListPoolConfigurations(ctx, claims.OrgID)
+	poolConfigurations, err := s.poolConfigurationStore.ListPoolConfigurations(ctx, info.OrganizationID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error listing pool configurations: %v", err)
 	}
@@ -36,12 +36,12 @@ func (s *Service) ListPoolConfigurations(ctx context.Context) (*pb.ListPoolConfi
 }
 
 func (s *Service) GetPoolConfiguration(ctx context.Context, id int64) (*pb.GetPoolConfigurationResponse, error) {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	poolConfiguration, err := s.poolConfigurationStore.GetPoolConfiguration(ctx, claims.OrgID, id)
+	poolConfiguration, err := s.poolConfigurationStore.GetPoolConfiguration(ctx, info.OrganizationID, id)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error getting pool configuration: %v", err)
 	}
@@ -54,18 +54,18 @@ func (s *Service) UpsertPoolConfiguration(
 	poolConfiguration *pb.PoolConfigurationBase,
 	poolEntries []*pb.PoolConfigurationEntry,
 ) (*pb.UpsertPoolConfigurationResponse, error) {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
-		err := s.poolConfigurationStore.UpsertPoolConfiguration(ctx, claims.OrgID, poolConfiguration)
+		err := s.poolConfigurationStore.UpsertPoolConfiguration(ctx, info.OrganizationID, poolConfiguration)
 		if err != nil {
 			return nil, err
 		}
 
-		configID, err := s.poolConfigurationStore.GetPoolConfigurationIDByOrg(ctx, claims.OrgID)
+		configID, err := s.poolConfigurationStore.GetPoolConfigurationIDByOrg(ctx, info.OrganizationID)
 		if err != nil {
 			return nil, err
 		}
@@ -82,7 +82,7 @@ func (s *Service) UpsertPoolConfiguration(
 			}
 		}
 
-		updatedConfig, err := s.poolConfigurationStore.GetPoolConfiguration(ctx, claims.OrgID, configID)
+		updatedConfig, err := s.poolConfigurationStore.GetPoolConfiguration(ctx, info.OrganizationID, configID)
 		if err != nil {
 			return nil, err
 		}
@@ -103,12 +103,12 @@ func (s *Service) UpsertPoolConfiguration(
 }
 
 func (s *Service) DeletePoolConfiguration(ctx context.Context, id int64) (*pb.DeletePoolConfigurationResponse, error) {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	err = s.poolConfigurationStore.DeletePoolConfiguration(ctx, claims.OrgID, id)
+	err = s.poolConfigurationStore.DeletePoolConfiguration(ctx, info.OrganizationID, id)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error deleting pool configuration: %v", err)
 	}

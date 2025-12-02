@@ -1,18 +1,7 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import type { AuthTokens } from "../slices/authSlice";
-import { useAuthLoading, useAuthTokens } from "./useAuth";
+import { useAuthLoading, useIsAuthenticated as useIsAuthenticatedState, useSessionExpiry } from "./useAuth";
 import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
-
-// =============================================================================
-// Auth Utility Functions
-// =============================================================================
-
-export const getAuthHeader = (authTokens: AuthTokens) => {
-  return {
-    headers: { Authorization: `Bearer ${authTokens.accessToken.value}` },
-  };
-};
 
 // =============================================================================
 // Auth Access Hook
@@ -20,25 +9,34 @@ export const getAuthHeader = (authTokens: AuthTokens) => {
 
 const REDIRECT_DELAY = 600;
 
-export const useIsAuthenticated = (shouldCheckAccess = true) => {
-  const authTokens = useAuthTokens();
+/**
+ * Hook for checking authentication status and redirecting to login if needed.
+ * Uses session-based authentication with HTTP-only cookies.
+ */
+export const useCheckAuthentication = (shouldCheckAccess = true) => {
+  const isAuthenticated = useIsAuthenticatedState();
+  const sessionExpiry = useSessionExpiry();
   const loading = useAuthLoading();
   const navigate = useNavigate();
 
-  const dateNow = new Date();
-  const dateAccessToken = new Date(authTokens.accessToken.expiry);
-  const isValidAccessToken = dateAccessToken > dateNow;
+  // Check if session is valid (authenticated and not expired)
+  const isSessionValid = useMemo(() => {
+    if (!isAuthenticated || !sessionExpiry) {
+      return false;
+    }
+    return sessionExpiry > new Date();
+  }, [isAuthenticated, sessionExpiry]);
 
-  // Derive hasAccess directly from token validity
+  // Derive hasAccess directly from session validity
   // returns undefined if access check is disabled
-  // returns true if access token is valid
-  // returns false if access token is invalid
+  // returns true if session is valid
+  // returns false if session is invalid or expired
   const hasAccess = useMemo(() => {
     if (!shouldCheckAccess) {
       return undefined;
     }
-    return isValidAccessToken;
-  }, [shouldCheckAccess, isValidAccessToken]);
+    return isSessionValid;
+  }, [shouldCheckAccess, isSessionValid]);
 
   const checkAccess = useCallback(() => {
     let timeoutId: ReturnType<typeof setTimeout>;
@@ -46,7 +44,7 @@ export const useIsAuthenticated = (shouldCheckAccess = true) => {
       return;
     }
 
-    if (!isValidAccessToken) {
+    if (!isSessionValid) {
       pushToast({
         message: "Please login to continue.",
         status: TOAST_STATUSES.error,
@@ -56,7 +54,7 @@ export const useIsAuthenticated = (shouldCheckAccess = true) => {
       }, REDIRECT_DELAY);
     }
     return () => clearTimeout(timeoutId);
-  }, [shouldCheckAccess, isValidAccessToken, navigate]);
+  }, [shouldCheckAccess, isSessionValid, navigate]);
 
   useEffect(() => {
     checkAccess();

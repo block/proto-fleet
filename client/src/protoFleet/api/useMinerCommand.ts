@@ -18,7 +18,7 @@ import {
   UpdateMiningPoolsRequestSchema,
   UpdateMiningPoolsResponse,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
-import { useAuthErrors, useAuthHeader } from "@/protoFleet/store";
+import { useAuthErrors } from "@/protoFleet/store";
 
 interface BlinkLEDProps {
   blinkLEDRequest: BlinkLEDRequest;
@@ -65,13 +65,12 @@ interface UpdateMiningPoolsProps {
 }
 
 const useMinerCommand = () => {
-  const authHeader = useAuthHeader();
   const { handleAuthErrors } = useAuthErrors();
 
   const blinkLED = useCallback(
     async ({ blinkLEDRequest, onSuccess, onError }: BlinkLEDProps) => {
       await minerCommandClient
-        .blinkLED(blinkLEDRequest, authHeader)
+        .blinkLED(blinkLEDRequest)
         .then((response) => onSuccess(response))
         .catch((err) => {
           handleAuthErrors({
@@ -82,13 +81,13 @@ const useMinerCommand = () => {
           });
         });
     },
-    [authHeader, handleAuthErrors],
+    [handleAuthErrors],
   );
 
   const startMining = useCallback(
     async ({ startMiningRequest, onSuccess, onError }: StartMiningProps) => {
       await minerCommandClient
-        .startMining(startMiningRequest, authHeader)
+        .startMining(startMiningRequest)
         .then((response) => onSuccess(response))
         .catch((err) => {
           handleAuthErrors({
@@ -99,13 +98,13 @@ const useMinerCommand = () => {
           });
         });
     },
-    [authHeader, handleAuthErrors],
+    [handleAuthErrors],
   );
 
   const stopMining = useCallback(
     async ({ stopMiningRequest, onSuccess, onError }: StopMiningProps) => {
       await minerCommandClient
-        .stopMining(stopMiningRequest, authHeader)
+        .stopMining(stopMiningRequest)
         .then((response) => onSuccess(response))
         .catch((err) => {
           handleAuthErrors({
@@ -116,13 +115,13 @@ const useMinerCommand = () => {
           });
         });
     },
-    [authHeader, handleAuthErrors],
+    [handleAuthErrors],
   );
 
   const unpair = useCallback(
     async ({ unpairRequest, onSuccess, onError }: UnpairProps) => {
       await minerCommandClient
-        .unpair(unpairRequest, authHeader)
+        .unpair(unpairRequest)
         .then((response) => onSuccess(response))
         .catch((err) => {
           handleAuthErrors({
@@ -133,14 +132,13 @@ const useMinerCommand = () => {
           });
         });
     },
-    [authHeader, handleAuthErrors],
+    [handleAuthErrors],
   );
 
   const streamCommandBatchUpdates = useCallback(
     async ({ streamRequest, streamAbortController, onStreamData, onError }: StreamCommandBatchUpdatesProps) => {
       try {
         for await (const updateResponse of minerCommandClient.streamCommandBatchUpdates(streamRequest, {
-          ...authHeader,
           signal: streamAbortController?.signal,
         })) {
           onStreamData(updateResponse);
@@ -164,7 +162,7 @@ const useMinerCommand = () => {
         }
       }
     },
-    [authHeader, handleAuthErrors],
+    [handleAuthErrors],
   );
 
   const updateMiningPools = useCallback(
@@ -184,7 +182,7 @@ const useMinerCommand = () => {
       });
 
       await minerCommandClient
-        .updateMiningPools(updateMiningPoolsRequest, authHeader)
+        .updateMiningPools(updateMiningPoolsRequest)
         .then((response) => onSuccess(response))
         .catch((err) => {
           handleAuthErrors({
@@ -195,7 +193,7 @@ const useMinerCommand = () => {
           });
         });
     },
-    [authHeader, handleAuthErrors],
+    [handleAuthErrors],
   );
 
   return useMemo(

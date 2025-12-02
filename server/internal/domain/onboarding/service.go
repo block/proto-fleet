@@ -5,8 +5,8 @@ import (
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/onboarding/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
-	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 )
 
 type Service struct {
@@ -35,17 +35,17 @@ func (s *Service) GetFleetInitStatus(ctx context.Context) (*pb.FleetInitStatus, 
 }
 
 func (s *Service) GetFleetOnboardingStatus(ctx context.Context) (*pb.FleetOnboardingStatus, error) {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	totalPairedDevices, err := s.deviceStore.GetTotalPairedDevices(ctx, claims.OrgID, nil)
+	totalPairedDevices, err := s.deviceStore.GetTotalPairedDevices(ctx, info.OrganizationID, nil)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error getting number of paired devices: %v", err)
 	}
 
-	totalPools, err := s.poolStore.GetTotalPools(ctx, claims.OrgID)
+	totalPools, err := s.poolStore.GetTotalPools(ctx, info.OrganizationID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error getting number of configured pools: %v", err)
 	}

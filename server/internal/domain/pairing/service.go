@@ -17,9 +17,9 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
 	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	tmodels "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
-
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
@@ -407,7 +407,7 @@ func (s *Service) discoverDevice(ctx context.Context, ipAddress string, port str
 }
 
 func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, scannedIP string, scannedPort string, resultChan chan<- *pb.DiscoverResponse) error {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return err
 	}
@@ -419,7 +419,7 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 		// This prevents duplicate entries during network rescans
 		// Note: We use scannedIP/scannedPort (what we scanned) not discoveredDevice IP/port
 		// (which may have changed if device moved), to maintain stable identifiers per network endpoint
-		existingDevice, err := s.discoveredDeviceStore.GetByIPAndPort(ctx, claims.OrgID, scannedIP, scannedPort)
+		existingDevice, err := s.discoveredDeviceStore.GetByIPAndPort(ctx, info.OrganizationID, scannedIP, scannedPort)
 		if err != nil && !fleeterror.IsNotFoundError(err) {
 			// Database error - propagate instead of silently generating new identifier
 			return fleeterror.NewInternalErrorf("failed to check for existing device: %v", err)
@@ -443,7 +443,7 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 
 	orgDeviceID := discoverymodels.DeviceOrgIdentifier{
 		DeviceIdentifier: deviceIdentifier,
-		OrgID:            claims.OrgID,
+		OrgID:            info.OrganizationID,
 	}
 
 	// Override the IP/port with the scanned values to ensure consistency
@@ -515,7 +515,7 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 }
 
 func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairResponse, error) {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -527,7 +527,7 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 
 	// Create pairing records for each device
 	for _, deviceID := range r.DeviceIdentifiers {
-		err = s.pairDevice(ctx, deviceID, claims.OrgID, credentials)
+		err = s.pairDevice(ctx, deviceID, info.OrganizationID, credentials)
 		if err == nil {
 			deviceIDs = append(deviceIDs, models.DeviceIdentifier(deviceID))
 		} else {

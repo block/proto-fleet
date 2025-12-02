@@ -7,6 +7,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/ipscanner"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/scheduler"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
@@ -29,6 +30,7 @@ type Config struct {
 	Log          logging.Config      `embed:"" prefix:"logging" envprefix:"LOG_"`
 	HTTP         HTTPConfig          `embed:"" prefix:"http" envprefix:"HTTP_"`
 	Auth         token.Config        `embed:"" prefix:"auth" envprefix:"AUTH_"`
+	Session      session.Config      `embed:"" prefix:"session" envprefix:"SESSION_"`
 	Pools        pools.Config        `embed:"" prefix:"pools" envprefix:"POOLS_"`
 	Encrypt      encrypt.Config      `embed:"" prefix:"encrypt" envprefix:"ENCRYPT_"`
 	Command      command.Config      `embed:"" prefix:"fleet_command" envprefix:"FLEET_COMMAND_"`

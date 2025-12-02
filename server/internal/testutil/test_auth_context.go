@@ -2,20 +2,18 @@ package testutil
 
 import (
 	"context"
-	"time"
 
 	"connectrpc.com/authn"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 )
 
+// MockAuthContextForTesting creates a context with session info for testing.
+// This sets up the session-based authentication context expected by domain services.
 func MockAuthContextForTesting(ctx context.Context, userID, orgID int64) context.Context {
-	claims := &token.ClientAuthClaims{
-		UserID: userID,
-		OrgID:  orgID,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
-		},
+	info := &session.Info{
+		SessionID:      "test-session-id",
+		UserID:         userID,
+		OrganizationID: orgID,
 	}
-	return authn.SetInfo(ctx, claims)
+	return authn.SetInfo(ctx, info)
 }

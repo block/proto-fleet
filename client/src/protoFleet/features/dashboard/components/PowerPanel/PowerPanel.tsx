@@ -4,10 +4,10 @@ import { AggregationType } from "@/protoFleet/api/generated/telemetry/v1/telemet
 import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
-import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import LineChart from "@/protoFleet/components/LineChart";
-import SkeletonBar from "@/shared/components/SkeletonBar";
+import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { Duration } from "@/shared/components/DurationSelector";
+import SkeletonBar from "@/shared/components/SkeletonBar";
 
 interface PowerPanelProps {
   duration: Duration;

@@ -6,8 +6,8 @@ import (
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
-	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/secrets"
 	stratumv1 "github.com/btc-mining/proto-fleet/server/internal/infrastructure/stratum/v1"
 )
@@ -36,18 +36,18 @@ func (s *Service) UpdateDefaultPool(ctx context.Context, poolID int64) (*pb.Pool
 }
 
 func (s *Service) DeletePool(ctx context.Context, id int64) error {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return err
 	}
 
 	return s.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		return s.poolStore.SoftDeletePool(ctx, claims.OrgID, id)
+		return s.poolStore.SoftDeletePool(ctx, info.OrganizationID, id)
 	})
 }
 
 func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.Pool, error) {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -55,20 +55,20 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		// If setting as default, unset any other default pool first
 		if r.IsDefault {
-			err := s.poolStore.UnsetDefaultPool(ctx, claims.OrgID)
+			err := s.poolStore.UnsetDefaultPool(ctx, info.OrganizationID)
 			if err != nil {
 				return nil, fleeterror.NewInternalErrorf("failed to unset default pool: %v", err)
 			}
 		}
 
 		// Update the pool
-		err := s.poolStore.UpdatePool(ctx, r, claims.OrgID)
+		err := s.poolStore.UpdatePool(ctx, r, info.OrganizationID)
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to update pool: %v", err)
 		}
 
 		// Get the updated pool
-		updatedPool, err := s.poolStore.GetPool(ctx, claims.OrgID, r.PoolId)
+		updatedPool, err := s.poolStore.GetPool(ctx, info.OrganizationID, r.PoolId)
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to get updated pool: %v", err)
 		}
@@ -88,27 +88,27 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 }
 
 func (s *Service) CreatePool(ctx context.Context, poolConfig *pb.PoolConfig) (*pb.Pool, error) {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
-		totalPools, err := s.poolStore.GetTotalPools(ctx, claims.OrgID)
+		totalPools, err := s.poolStore.GetTotalPools(ctx, info.OrganizationID)
 		if err != nil {
 			return nil, err
 		}
 
 		isDefault := totalPools == 0
 
-		poolID, err := s.poolStore.CreatePool(ctx, poolConfig, claims.OrgID, isDefault)
+		poolID, err := s.poolStore.CreatePool(ctx, poolConfig, info.OrganizationID, isDefault)
 		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("error saving pool for org_id: %d, pool_name: %s: %v", claims.OrgID, poolConfig.PoolName, err)
+			return nil, fleeterror.NewInternalErrorf("error saving pool for org_id: %d, pool_name: %s: %v", info.OrganizationID, poolConfig.PoolName, err)
 		}
 
-		pool, err := s.poolStore.GetPool(ctx, claims.OrgID, poolID)
+		pool, err := s.poolStore.GetPool(ctx, info.OrganizationID, poolID)
 		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("error getting created pool for org_id: %d, pool_id: %d: %v", claims.OrgID, poolID, err)
+			return nil, fleeterror.NewInternalErrorf("error getting created pool for org_id: %d, pool_id: %d: %v", info.OrganizationID, poolID, err)
 		}
 
 		return pool, nil
@@ -126,12 +126,12 @@ func (s *Service) CreatePool(ctx context.Context, poolConfig *pb.PoolConfig) (*p
 }
 
 func (s *Service) ListPools(ctx context.Context) ([]*pb.Pool, error) {
-	claims, err := tokenDomain.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	pools, err := s.poolStore.ListPools(ctx, claims.OrgID)
+	pools, err := s.poolStore.ListPools(ctx, info.OrganizationID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error listing pools: %v", err)
 	}

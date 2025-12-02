@@ -3,35 +3,33 @@ package interceptors
 import (
 	"context"
 	"net/http"
-	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
-
-	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 
 	"connectrpc.com/authn"
 )
 
 type AuthInterceptor struct {
-	tokenService *token.Service
-	userStore    interfaces.UserStore
-	allowList    map[string]struct{}
+	sessionService *session.Service
+	userStore      interfaces.UserStore
+	allowList      map[string]struct{}
 }
 
 var _ connect.Interceptor = &AuthInterceptor{}
 
-func NewAuthInterceptor(tokenService *token.Service, userStore interfaces.UserStore, allowedProcedures []string) *AuthInterceptor {
+func NewAuthInterceptor(sessionService *session.Service, userStore interfaces.UserStore, allowedProcedures []string) *AuthInterceptor {
 	allowList := make(map[string]struct{})
 	for _, item := range allowedProcedures {
 		allowList[item] = struct{}{}
 	}
 
 	return &AuthInterceptor{
-		tokenService: tokenService,
-		userStore:    userStore,
-		allowList:    allowList,
+		sessionService: sessionService,
+		userStore:      userStore,
+		allowList:      allowList,
 	}
 }
 
@@ -69,33 +67,49 @@ func (i *AuthInterceptor) authenticate(ctx context.Context, procedure string, re
 		return ctx, nil
 	}
 
-	bearerToken, err := parseBearerToken(requestHeader)
+	sessionID, err := i.parseSessionCookie(requestHeader)
 	if err != nil {
 		return ctx, err
 	}
 
-	claims, err := i.tokenService.VerifyClientAuthJWT(bearerToken)
+	sess, err := i.sessionService.Validate(ctx, sessionID)
 	if err != nil {
 		return ctx, err
 	}
 
-	_, err = i.userStore.GetUserByID(ctx, claims.UserID)
+	_, err = i.userStore.GetUserByID(ctx, sess.UserID)
 	if err != nil {
-		return ctx, fleeterror.NewUnauthenticatedErrorf("User with id %d not found", claims.UserID)
+		return ctx, fleeterror.NewUnauthenticatedErrorf("User with id %d not found", sess.UserID)
 	}
 
-	return authn.SetInfo(ctx, claims), nil
+	info := &session.Info{
+		SessionID:      sess.SessionID,
+		UserID:         sess.UserID,
+		OrganizationID: sess.OrganizationID,
+	}
+
+	return authn.SetInfo(ctx, info), nil
 }
 
-func parseBearerToken(requestHeader http.Header) (string, error) {
-	authHeader := requestHeader.Get("Authorization")
-	if len(authHeader) == 0 {
-		return "", fleeterror.NewUnauthenticatedError("bearer token required but not provided")
+func (i *AuthInterceptor) parseSessionCookie(requestHeader http.Header) (string, error) {
+	cookieHeader := requestHeader.Get("Cookie")
+	if cookieHeader == "" {
+		return "", fleeterror.NewUnauthenticatedError("session cookie required but not provided")
 	}
 
-	if !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-		return "", fleeterror.NewUnauthenticatedError("Authorization header must contain a bearer token")
+	// Parse cookies from header
+	header := http.Header{}
+	header.Add("Cookie", cookieHeader)
+	request := http.Request{Header: header}
+
+	cookie, err := request.Cookie(i.sessionService.CookieName())
+	if err != nil {
+		return "", fleeterror.NewUnauthenticatedError("session cookie not found")
 	}
 
-	return authHeader[len("bearer "):], nil
+	if cookie.Value == "" {
+		return "", fleeterror.NewUnauthenticatedError("session cookie is empty")
+	}
+
+	return cookie.Value, nil
 }

@@ -7,7 +7,7 @@ import {
   MinerListFilter,
   StreamMinerListUpdatesRequestSchema,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { useAuthErrors, useAuthHeader, useFleetStore } from "@/protoFleet/store";
+import { useAuthErrors, useFleetStore } from "@/protoFleet/store";
 
 type UseStreamMinerListUpdatesOptions = {
   filter?: MinerListFilter;
@@ -36,7 +36,6 @@ type UseStreamMinerListUpdatesOptions = {
  */
 const useStreamMinerListUpdates = (options: UseStreamMinerListUpdatesOptions = {}) => {
   const { filter } = options;
-  const authHeader = useAuthHeader();
   const { handleAuthErrors } = useAuthErrors();
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -80,7 +79,6 @@ const useStreamMinerListUpdates = (options: UseStreamMinerListUpdatesOptions = {
       });
 
       for await (const response of fleetManagementClient.streamMinerListUpdates(request, {
-        ...authHeader,
         signal: controller.signal,
       })) {
         // Check if stream is still active
@@ -133,7 +131,7 @@ const useStreamMinerListUpdates = (options: UseStreamMinerListUpdatesOptions = {
         setIsLoading(false);
       }
     }
-  }, [filter, authHeader, handleAuthErrors]);
+  }, [filter, handleAuthErrors]);
 
   // Start stream on mount and when dependencies change
   useEffect(() => {

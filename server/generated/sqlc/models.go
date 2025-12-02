@@ -375,6 +375,27 @@ type Role struct {
 	DeletedAt   sql.NullTime
 }
 
+type Session struct {
+	ID int64
+	// Cryptographically secure random session identifier
+	SessionID string
+	// FK to user.id
+	UserID int64
+	// FK to organization.id (cached for performance)
+	OrganizationID int64
+	// Browser/client identifier
+	UserAgent sql.NullString
+	// Client IP (supports IPv6)
+	IpAddress sql.NullString
+	CreatedAt time.Time
+	// Updated on each request for sliding window
+	LastActivity time.Time
+	// Session expiry time
+	ExpiresAt time.Time
+	// Non-null if session was explicitly invalidated
+	RevokedAt sql.NullTime
+}
+
 type User struct {
 	ID                     int64
 	UserID                 string

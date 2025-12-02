@@ -1,14 +1,14 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { FleetOnboardingStatus } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
-import { useSetAuthTokens } from "@/protoFleet/store";
+import { useLogoutAction } from "@/protoFleet/api/useLogout";
 import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 
 const PAIR_MINERS_PROMPT = {
   title: "Finish setting up your fleet",
   subtitle:
-    "You’ve started configuring a new fleet on this network, but haven’t added any miners yet. Once miners are added, you’ll see live data and fleet performance here.",
+    "You've started configuring a new fleet on this network, but haven't added any miners yet. Once miners are added, you'll see live data and fleet performance here.",
   cta: "Add Miners",
   route: "/onboarding/miners",
 };
@@ -16,7 +16,7 @@ const PAIR_MINERS_PROMPT = {
 const CONFIGURE_POOL_PROMPT = {
   title: "Finish setting up your fleet",
   subtitle:
-    "You’ve added miners to your fleet, but haven’t configured a pool yet. Once you configure a pool, you’ll see live data and fleet performance here.",
+    "You've added miners to your fleet, but haven't configured a pool yet. Once you configure a pool, you'll see live data and fleet performance here.",
   cta: "Configure Pool",
   route: "/onboarding/settings",
 };
@@ -26,7 +26,7 @@ type CompleteOnboardingDialogProps = {
 };
 
 const CompleteOnboardingDialog = ({ onboardingStatus }: CompleteOnboardingDialogProps) => {
-  const setAuthTokens = useSetAuthTokens();
+  const logout = useLogoutAction();
   const navigate = useNavigate();
 
   const completeOnboarding: {
@@ -62,9 +62,7 @@ const CompleteOnboardingDialog = ({ onboardingStatus }: CompleteOnboardingDialog
         {
           text: "Logout",
           onClick: () => {
-            setAuthTokens({
-              accessToken: { value: "", expiry: new Date() },
-            });
+            logout();
           },
           variant: variants.secondary,
         },

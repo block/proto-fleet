@@ -2,26 +2,20 @@ import type { StateCreator } from "zustand";
 import type { FleetStore } from "../useFleetStore";
 
 // =============================================================================
-// Auth Types
-// =============================================================================
-
-export interface AuthTokens {
-  accessToken: { value: string; expiry: Date };
-}
-
-// =============================================================================
 // Auth Slice Interface
 // =============================================================================
 
 export interface AuthSlice {
-  authTokens: AuthTokens;
+  sessionExpiry: Date | null;
+  isAuthenticated: boolean;
   username: string;
   role: string;
   authLoading: boolean;
   temporaryPassword: string | null;
 
   // Actions
-  setAuthTokens: (tokens: AuthTokens) => void;
+  setSessionExpiry: (expiry: Date | null) => void;
+  setIsAuthenticated: (isAuthenticated: boolean) => void;
   setUsername: (username: string) => void;
   setRole: (role: string) => void;
   setAuthLoading: (loading: boolean) => void;
@@ -35,18 +29,22 @@ export interface AuthSlice {
 
 export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]], [], AuthSlice> = (set) => ({
   // Initial state
-  authTokens: {
-    accessToken: { value: "", expiry: new Date() },
-  },
+  sessionExpiry: null,
+  isAuthenticated: false,
   username: "",
   role: "",
   authLoading: true,
   temporaryPassword: null,
 
   // Actions
-  setAuthTokens: (tokens) =>
+  setSessionExpiry: (expiry) =>
     set((state) => {
-      state.auth.authTokens = tokens;
+      state.auth.sessionExpiry = expiry;
+    }),
+
+  setIsAuthenticated: (isAuthenticated) =>
+    set((state) => {
+      state.auth.isAuthenticated = isAuthenticated;
     }),
 
   setUsername: (username) =>
@@ -71,9 +69,8 @@ export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]
 
   logout: () =>
     set((state) => {
-      state.auth.authTokens = {
-        accessToken: { value: "", expiry: new Date() },
-      };
+      state.auth.sessionExpiry = null;
+      state.auth.isAuthenticated = false;
       state.auth.username = "";
       state.auth.role = "";
       state.auth.authLoading = false;

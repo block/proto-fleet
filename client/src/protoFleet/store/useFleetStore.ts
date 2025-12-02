@@ -23,7 +23,7 @@ export interface FleetStore {
 
 // Type for the partial state that we persist
 type PersistedFleetState = {
-  auth: Pick<AuthSlice, "authTokens" | "username" | "role">;
+  auth: Pick<AuthSlice, "sessionExpiry" | "isAuthenticated" | "username" | "role">;
   ui: Pick<UISlice, "theme" | "temperatureUnit" | "duration">;
 };
 
@@ -43,8 +43,8 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
       if (!auth && !ui) return null;
 
       // Reconstruct Date objects from stored ISO strings
-      if (auth?.state?.auth?.authTokens?.accessToken?.expiry) {
-        auth.state.auth.authTokens.accessToken.expiry = new Date(auth.state.auth.authTokens.accessToken.expiry);
+      if (auth?.state?.auth?.sessionExpiry) {
+        auth.state.auth.sessionExpiry = new Date(auth.state.auth.sessionExpiry);
       }
 
       // Combine the data
@@ -67,7 +67,8 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
           JSON.stringify({
             state: {
               auth: {
-                authTokens: state.auth.authTokens,
+                sessionExpiry: state.auth.sessionExpiry,
+                isAuthenticated: state.auth.isAuthenticated,
                 username: state.auth.username,
                 role: state.auth.role,
               },
@@ -121,7 +122,8 @@ export const useFleetStore = create<FleetStore>()(
           storage: createMultiKeyStorage(),
           partialize: (state) => ({
             auth: {
-              authTokens: state.auth.authTokens,
+              sessionExpiry: state.auth.sessionExpiry,
+              isAuthenticated: state.auth.isAuthenticated,
               username: state.auth.username,
               role: state.auth.role,
             },
@@ -133,17 +135,18 @@ export const useFleetStore = create<FleetStore>()(
           }),
           merge: (persistedState, currentState) => {
             const persisted = persistedState as any;
-            const hasPersistedTokens = persisted?.auth?.authTokens?.accessToken?.value;
+            const hasPersistedSession = persisted?.auth?.isAuthenticated && persisted?.auth?.sessionExpiry;
 
             return {
               ...currentState,
               auth: {
                 ...currentState.auth,
-                authTokens: persisted?.auth?.authTokens ?? currentState.auth.authTokens,
+                sessionExpiry: persisted?.auth?.sessionExpiry ?? currentState.auth.sessionExpiry,
+                isAuthenticated: persisted?.auth?.isAuthenticated ?? currentState.auth.isAuthenticated,
                 username: persisted?.auth?.username ?? currentState.auth.username,
                 role: persisted?.auth?.role ?? currentState.auth.role,
-                // If we have persisted tokens, set loading to false
-                authLoading: hasPersistedTokens ? false : currentState.auth.authLoading,
+                // If we have persisted session, set loading to false
+                authLoading: hasPersistedSession ? false : currentState.auth.authLoading,
               },
               ui: {
                 ...currentState.ui,

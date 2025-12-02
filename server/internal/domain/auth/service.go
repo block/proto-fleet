@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	id "github.com/btc-mining/proto-fleet/server/internal/infrastructure/id"
 
 	"github.com/go-sql-driver/mysql"
@@ -37,6 +39,7 @@ type Service struct {
 	userManagementStore stores.UserManagementStore
 	transactor          stores.Transactor
 	tokenSvc            *token.Service
+	sessionSvc          *session.Service
 	encryptSvc          *encrypt.Service
 }
 
@@ -45,6 +48,7 @@ func NewService(
 	userManagementStore stores.UserManagementStore,
 	transactor stores.Transactor,
 	tokenSvc *token.Service,
+	sessionSvc *session.Service,
 	encryptSvc *encrypt.Service,
 ) *Service {
 	return &Service{
@@ -52,58 +56,61 @@ func NewService(
 		userManagementStore: userManagementStore,
 		transactor:          transactor,
 		tokenSvc:            tokenSvc,
+		sessionSvc:          sessionSvc,
 		encryptSvc:          encryptSvc,
 	}
 }
 
-func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.AuthenticateRequest) (*authv1.AuthenticateResponse, error) {
+// AuthenticateUser validates credentials, creates a session, and returns user info with a session cookie.
+func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.AuthenticateRequest, userAgent, ipAddress string) (*authv1.AuthenticateResponse, *http.Cookie, error) {
 	user, err := s.userStore.GetUserByUsername(ctx, req.Username)
 	if err != nil {
-		return nil, newAuthenticationFailedError()
+		return nil, nil, newAuthenticationFailedError()
 	}
 
 	orgs, err := s.userStore.GetOrganizationsForUser(ctx, user.ID)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error listing user orgs: %v", err)
+		return nil, nil, fleeterror.NewInternalErrorf("error listing user orgs: %v", err)
 	}
 
 	if len(orgs) != 1 {
-		return nil, fleeterror.NewInternalErrorf("user should belong to exactly 1 org: was: %d", len(orgs))
+		return nil, nil, fleeterror.NewInternalErrorf("user should belong to exactly 1 org: was: %d", len(orgs))
 	}
 
 	// Compare hashed passwords
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		return nil, newAuthenticationFailedError()
+		return nil, nil, newAuthenticationFailedError()
 	}
 
-	// Update last login timestamp
+	// Update last login timestamp (non-critical, don't fail auth if this fails)
 	if err := s.userManagementStore.UpdateLastLogin(ctx, user.ID); err != nil {
-		// Log but don't fail authentication if this update fails
-		// The authentication was successful, so we return the token regardless
 		slog.Warn("failed to update last login timestamp", "user_id", user.ID, "error", err)
 	}
 
-	// Generate and return JWT authToken
-	authToken, exp, err := s.tokenSvc.GenerateClientAuthJWT(user.ID, orgs[0].ID)
+	// Create session
+	sess, err := s.sessionSvc.Create(ctx, user.ID, orgs[0].ID, userAgent, ipAddress)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Get user's role
 	roleName, err := s.userManagementStore.GetUserRoleName(ctx, user.ID, orgs[0].ID)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting user role: %v", err)
+		return nil, nil, fleeterror.NewInternalErrorf("error getting user role: %v", err)
 	}
 
 	// Get password updated timestamp
 	passwordUpdatedAt, err := s.userStore.PasswordUpdatedAt(ctx, user.ID)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting password updated timestamp: %v", err)
+		return nil, nil, fleeterror.NewInternalErrorf("error getting password updated timestamp: %v", err)
 	}
 
+	cookie := s.sessionSvc.CreateCookie(sess.SessionID)
+
 	return &authv1.AuthenticateResponse{
-		Token:       authToken,
-		TokenExpiry: exp,
+		// SessionExpiry is provided for client-side UI purposes (showing remaining time, triggering
+		// re-auth prompts). The actual session validation happens server-side via the HTTP-only cookie.
+		SessionExpiry: sess.ExpiresAt.Unix(),
 		UserInfo: &authv1.UserInfo{
 			UserId:                 user.UserID,
 			Username:               user.Username,
@@ -112,7 +119,28 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 			Role:                   roleName,
 			RequiresPasswordChange: user.RequiresPasswordChange,
 		},
-	}, nil
+	}, cookie, nil
+}
+
+// Logout invalidates the current session and returns a cookie to clear the session.
+func (s *Service) Logout(ctx context.Context) (*http.Cookie, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.sessionSvc.Revoke(ctx, info.SessionID); err != nil {
+		// Truncate session ID in logs to avoid leaking full identifier
+		truncatedID := info.SessionID
+		if len(info.SessionID) > 8 {
+			truncatedID = info.SessionID[:8] + "..."
+		}
+		slog.Warn("failed to revoke session", "session_id", truncatedID, "error", err)
+		// Return error so user knows logout may not be complete server-side
+		return nil, fleeterror.NewInternalErrorf("failed to revoke session: %v", err)
+	}
+
+	return s.sessionSvc.CreateLogoutCookie(), nil
 }
 
 func newAuthenticationFailedError() fleeterror.FleetError {
@@ -201,24 +229,24 @@ func (s *Service) UpdateUsername(ctx context.Context, username string) error {
 		return fleeterror.NewInvalidArgumentError("username cannot be empty")
 	}
 
-	claims, err := token.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return err
 	}
 
-	return s.userStore.UpdateUserUsername(ctx, claims.UserID, trimmedUsername)
+	return s.userStore.UpdateUserUsername(ctx, info.UserID, trimmedUsername)
 }
 
 func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRequest) error {
-	claims, err := token.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return err
 	}
 
 	return s.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		user, err := s.userStore.GetUserByID(ctx, claims.UserID)
+		user, err := s.userStore.GetUserByID(ctx, info.UserID)
 		if err != nil {
-			return fleeterror.NewForbiddenErrorf("error getting user by id, user_id: %d, error: %v", claims.UserID, err)
+			return fleeterror.NewForbiddenErrorf("error getting user by id, user_id: %d, error: %v", info.UserID, err)
 		}
 
 		if err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(r.CurrentPassword)); err != nil {
@@ -240,12 +268,12 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 		// generate salted password hash
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(r.NewPassword), bcrypt.DefaultCost)
 		if err != nil {
-			return fleeterror.NewInternalErrorf("error generating hash of new password for user_id: %d, because: %v", claims.UserID, err)
+			return fleeterror.NewInternalErrorf("error generating hash of new password for user_id: %d, because: %v", info.UserID, err)
 		}
 
 		// Always clear password change requirement when user updates their own password
 		if err = s.userManagementStore.UpdateUserPasswordAndClearPasswordChangeFlag(ctx, user.ID, string(hashedPassword)); err != nil {
-			return fleeterror.NewInternalErrorf("error updating password for user_id: %d, because: %v", claims.UserID, err)
+			return fleeterror.NewInternalErrorf("error updating password for user_id: %d, because: %v", info.UserID, err)
 		}
 
 		return nil
@@ -253,12 +281,12 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 }
 
 func (s *Service) GetUserAuditInfo(ctx context.Context) (*authv1.GetUserAuditInfoResponse, error) {
-	claims, err := token.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	date, err := s.userStore.PasswordUpdatedAt(ctx, claims.UserID)
+	date, err := s.userStore.PasswordUpdatedAt(ctx, info.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -276,12 +304,12 @@ func generateDefaultOrgName(orgID string) string {
 // checkCanManageUser checks if the current user can manage (deactivate/reset password) other users
 // Only SUPER_ADMIN users can manage other users
 func (s *Service) checkCanManageUser(ctx context.Context, organizationID int64) error {
-	claims, err := token.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return err
 	}
 
-	currentUserRoleName, err := s.userManagementStore.GetUserRoleName(ctx, claims.UserID, organizationID)
+	currentUserRoleName, err := s.userManagementStore.GetUserRoleName(ctx, info.UserID, organizationID)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("error getting current user role: %v", err)
 	}
@@ -307,12 +335,12 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 	}
 
 	// Get current user's org
-	claims, err := token.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	orgs, err := s.userStore.GetOrganizationsForUser(ctx, claims.UserID)
+	orgs, err := s.userStore.GetOrganizationsForUser(ctx, info.UserID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error getting user organizations: %v", err)
 	}
@@ -383,12 +411,12 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 
 // ListUsers returns all users in the current user's organization
 func (s *Service) ListUsers(ctx context.Context) (*authv1.ListUsersResponse, error) {
-	claims, err := token.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	orgs, err := s.userStore.GetOrganizationsForUser(ctx, claims.UserID)
+	orgs, err := s.userStore.GetOrganizationsForUser(ctx, info.UserID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error getting user organizations: %v", err)
 	}
@@ -426,12 +454,12 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 	}
 
 	// Get current user's organization
-	claims, err := token.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	orgs, err := s.userStore.GetOrganizationsForUser(ctx, claims.UserID)
+	orgs, err := s.userStore.GetOrganizationsForUser(ctx, info.UserID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error getting user organizations: %v", err)
 	}
@@ -482,12 +510,12 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 	}
 
 	// Get current user
-	claims, err := token.GetClientAuthJWTClaims(ctx)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	orgs, err := s.userStore.GetOrganizationsForUser(ctx, claims.UserID)
+	orgs, err := s.userStore.GetOrganizationsForUser(ctx, info.UserID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error getting user organizations: %v", err)
 	}
@@ -498,7 +526,7 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 
 	orgID := orgs[0].ID
 
-	currentUser, err := s.userStore.GetUserByID(ctx, claims.UserID)
+	currentUser, err := s.userStore.GetUserByID(ctx, info.UserID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error getting current user: %v", err)
 	}

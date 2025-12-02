@@ -151,6 +151,9 @@ export default [
     files: ["e2eTests/**/*.ts"],
     languageOptions: {
       ecmaVersion: "latest",
+      globals: {
+        ...globals.node,
+      },
       parser: typescriptEslintParser,
       parserOptions: {
         ecmaVersion: "latest",

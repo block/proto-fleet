@@ -2,18 +2,25 @@ import { useCallback } from "react";
 
 import { authClient } from "@/protoFleet/api/clients";
 import type { AuthenticateRequest } from "@/protoFleet/api/generated/auth/v1/auth_pb";
-import { useSetAuthLoading, useSetAuthTokens, useSetRole, useSetUsername } from "@/protoFleet/store";
+import {
+  useSetAuthLoading,
+  useSetIsAuthenticated,
+  useSetRole,
+  useSetSessionExpiry,
+  useSetUsername,
+} from "@/protoFleet/store";
 import { useAuthErrors } from "@/protoFleet/store/hooks/useAuth";
 
 interface LoginProps {
   onError?: (message: string) => void;
   onFinally?: () => void;
-  onSuccess?: (accessToken: string, requiresPasswordChange: boolean) => void;
+  onSuccess?: (requiresPasswordChange: boolean) => void;
   loginRequest: AuthenticateRequest;
 }
 
 const useLogin = () => {
-  const setAuthTokens = useSetAuthTokens();
+  const setSessionExpiry = useSetSessionExpiry();
+  const setIsAuthenticated = useSetIsAuthenticated();
   const setUsername = useSetUsername();
   const setRole = useSetRole();
   const setAuthLoading = useSetAuthLoading();
@@ -24,24 +31,21 @@ const useLogin = () => {
       await authClient
         .authenticate(loginRequest)
         .then((res) => {
-          const accessTokenValue = res.token;
-          const tokenExpiry = res.tokenExpiry;
+          const sessionExpiry = res.sessionExpiry;
           const userInfo = res.userInfo;
 
           if (!userInfo) {
             throw new Error("User info missing from authentication response");
           }
 
-          setAuthTokens({
-            accessToken: {
-              value: accessTokenValue,
-              expiry: new Date(Number(tokenExpiry) * 1000),
-            },
-          });
+          // Session cookie is automatically stored by browser
+          // We just track the expiry and user info in state
+          setSessionExpiry(new Date(Number(sessionExpiry) * 1000));
+          setIsAuthenticated(true);
           setUsername(userInfo.username);
           setRole(userInfo.role);
           setAuthLoading(false);
-          onSuccess?.(accessTokenValue, userInfo.requiresPasswordChange);
+          onSuccess?.(userInfo.requiresPasswordChange);
         })
         .catch((err) => {
           handleAuthErrors({
@@ -55,7 +59,7 @@ const useLogin = () => {
           onFinally?.();
         });
     },
-    [setAuthTokens, setUsername, setRole, setAuthLoading, handleAuthErrors],
+    [setSessionExpiry, setIsAuthenticated, setUsername, setRole, setAuthLoading, handleAuthErrors],
   );
 
   return login;

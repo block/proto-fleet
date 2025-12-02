@@ -1,6 +1,6 @@
+import { expect, test } from "@playwright/test";
 import fs from "fs";
 import path from "path";
-import { expect, test } from "@playwright/test";
 test.describe("Playwright base tests", () => {
   test.describe.configure({ mode: "default" });
 

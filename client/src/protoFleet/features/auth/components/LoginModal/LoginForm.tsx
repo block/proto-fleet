@@ -45,7 +45,7 @@ const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
         username: values.username,
         password: values.password,
       }),
-      onSuccess: (_accessToken, requiresPasswordChange) => {
+      onSuccess: (requiresPasswordChange: boolean) => {
         if (requiresPasswordChange) {
           setTemporaryPassword(values.password);
         }

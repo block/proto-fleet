@@ -3,7 +3,7 @@ import { useMatches } from "react-router-dom";
 
 import AppLayout from "@/protoFleet/components/AppLayout";
 import { requiresAuth } from "@/protoFleet/router";
-import { useIsAuthenticated } from "@/protoFleet/store";
+import { useCheckAuthentication } from "@/protoFleet/store";
 import { useDeviceTheme, useSetDeviceTheme, useTheme } from "@/protoFleet/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -40,7 +40,7 @@ const App = ({ children, fullscreen }: AppProps) => {
     return requiresAuth[currentPath] !== false;
   }, [currentPath]);
 
-  const { loading, hasAccess } = useIsAuthenticated(requireAuth);
+  const { loading, hasAccess } = useCheckAuthentication(requireAuth);
 
   // Show loading spinner ONLY if auth is required AND (loading OR access denied)
   const showLoading = requireAuth && (loading || hasAccess !== true);
