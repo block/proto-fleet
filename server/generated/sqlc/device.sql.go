@@ -481,6 +481,22 @@ func (q *Queries) GetPairedDevicesIds(ctx context.Context, orgID int64) ([]int64
 	return items, nil
 }
 
+const getTotalDevicesPendingAuth = `-- name: GetTotalDevicesPendingAuth :one
+SELECT COUNT(*)
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+WHERE dp.pairing_status = 'AUTHENTICATION_NEEDED'
+    AND d.deleted_at IS NULL
+    AND d.org_id = ?
+`
+
+func (q *Queries) GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error) {
+	row := q.queryRow(ctx, q.getTotalDevicesPendingAuthStmt, getTotalDevicesPendingAuth, orgID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getTotalMinerStateSnapshots = `-- name: GetTotalMinerStateSnapshots :one
 SELECT COUNT(*) as total
 FROM (

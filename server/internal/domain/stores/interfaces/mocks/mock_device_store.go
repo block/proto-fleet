@@ -163,6 +163,21 @@ func (mr *MockDeviceStoreMockRecorder) GetOfflineDevices(ctx, limit interface{})
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOfflineDevices", reflect.TypeOf((*MockDeviceStore)(nil).GetOfflineDevices), ctx, limit)
 }
 
+// GetTotalDevicesPendingAuth mocks base method.
+func (m *MockDeviceStore) GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTotalDevicesPendingAuth", ctx, orgID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetTotalDevicesPendingAuth indicates an expected call of GetTotalDevicesPendingAuth.
+func (mr *MockDeviceStoreMockRecorder) GetTotalDevicesPendingAuth(ctx, orgID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTotalDevicesPendingAuth", reflect.TypeOf((*MockDeviceStore)(nil).GetTotalDevicesPendingAuth), ctx, orgID)
+}
+
 // GetTotalPairedDevices mocks base method.
 func (m *MockDeviceStore) GetTotalPairedDevices(ctx context.Context, orgID int64, filter *interfaces.MinerFilter) (int64, error) {
 	m.ctrl.T.Helper()

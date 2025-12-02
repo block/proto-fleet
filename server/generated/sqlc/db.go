@@ -177,6 +177,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getSessionByIDStmt, err = db.PrepareContext(ctx, getSessionByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetSessionByID: %w", err)
 	}
+	if q.getTotalDevicesPendingAuthStmt, err = db.PrepareContext(ctx, getTotalDevicesPendingAuth); err != nil {
+		return nil, fmt.Errorf("error preparing query GetTotalDevicesPendingAuth: %w", err)
+	}
 	if q.getTotalMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, getTotalMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTotalMinerStateSnapshots: %w", err)
 	}
@@ -602,6 +605,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getSessionByIDStmt: %w", cerr)
 		}
 	}
+	if q.getTotalDevicesPendingAuthStmt != nil {
+		if cerr := q.getTotalDevicesPendingAuthStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getTotalDevicesPendingAuthStmt: %w", cerr)
+		}
+	}
 	if q.getTotalMinerStateSnapshotsStmt != nil {
 		if cerr := q.getTotalMinerStateSnapshotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getTotalMinerStateSnapshotsStmt: %w", cerr)
@@ -967,6 +975,7 @@ type Queries struct {
 	getRoleByIDStmt                                     *sql.Stmt
 	getRoleByNameStmt                                   *sql.Stmt
 	getSessionByIDStmt                                  *sql.Stmt
+	getTotalDevicesPendingAuthStmt                      *sql.Stmt
 	getTotalMinerStateSnapshotsStmt                     *sql.Stmt
 	getTotalPairedDevicesStmt                           *sql.Stmt
 	getTotalPoolsStmt                                   *sql.Stmt
@@ -1079,6 +1088,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRoleByIDStmt:                                     q.getRoleByIDStmt,
 		getRoleByNameStmt:                                   q.getRoleByNameStmt,
 		getSessionByIDStmt:                                  q.getSessionByIDStmt,
+		getTotalDevicesPendingAuthStmt:                      q.getTotalDevicesPendingAuthStmt,
 		getTotalMinerStateSnapshotsStmt:                     q.getTotalMinerStateSnapshotsStmt,
 		getTotalPairedDevicesStmt:                           q.getTotalPairedDevicesStmt,
 		getTotalPoolsStmt:                                   q.getTotalPoolsStmt,

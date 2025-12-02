@@ -76,6 +76,14 @@ WHERE dp.pairing_status = 'PAIRED'
     AND (sqlc.narg('status_filter') is null OR FIND_IN_SET(ds.status, sqlc.narg('status_filter')))
     AND (sqlc.narg('type_filter') is null OR FIND_IN_SET(dd.type, sqlc.narg('type_filter')));
 
+-- name: GetTotalDevicesPendingAuth :one
+SELECT COUNT(*)
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+WHERE dp.pairing_status = 'AUTHENTICATION_NEEDED'
+    AND d.deleted_at IS NULL
+    AND d.org_id = ?;
+
 -- name: UpsertDevicePairing :execresult
 INSERT INTO device_pairing (
     device_id,

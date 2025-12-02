@@ -639,7 +639,10 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 				slog.Error("failed to create AUTHENTICATION_NEEDED pairing record",
 					"device_identifier", discoveredDevice.DeviceIdentifier,
 					"error", txErr)
+				return txErr
 			}
+
+			return nil
 		}
 
 		// Preserve authentication errors - don't wrap them

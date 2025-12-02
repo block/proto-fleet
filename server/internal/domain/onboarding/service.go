@@ -45,6 +45,11 @@ func (s *Service) GetFleetOnboardingStatus(ctx context.Context) (*pb.FleetOnboar
 		return nil, fleeterror.NewInternalErrorf("error getting number of paired devices: %v", err)
 	}
 
+	totalDevicesPendingAuth, err := s.deviceStore.GetTotalDevicesPendingAuth(ctx, info.OrganizationID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting number of devices pending auth: %v", err)
+	}
+
 	totalPools, err := s.poolStore.GetTotalPools(ctx, info.OrganizationID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error getting number of configured pools: %v", err)
@@ -52,6 +57,6 @@ func (s *Service) GetFleetOnboardingStatus(ctx context.Context) (*pb.FleetOnboar
 
 	return &pb.FleetOnboardingStatus{
 		PoolConfigured: totalPools > 0,
-		DevicePaired:   totalPairedDevices > 0,
+		DevicePaired:   totalPairedDevices > 0 || totalDevicesPendingAuth > 0,
 	}, nil
 }

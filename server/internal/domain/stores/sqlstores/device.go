@@ -289,6 +289,10 @@ func (s *SQLDeviceStore) GetTotalPairedDevices(ctx context.Context, orgID int64,
 	})
 }
 
+func (s *SQLDeviceStore) GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error) {
+	return s.GetQueries(ctx).GetTotalDevicesPendingAuth(ctx, orgID)
+}
+
 func (s *SQLDeviceStore) ListPairedDevices(ctx context.Context, cursor string, pageSize int32) ([]*fm.PairedDevice, string, error) {
 	// Decode the cursor string to internal Cursor struct
 	internalCursor, err := s.decodeCursor(cursor)
