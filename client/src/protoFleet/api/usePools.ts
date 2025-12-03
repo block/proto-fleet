@@ -5,17 +5,10 @@ import type {
   CreatePoolRequest,
   DeletePoolRequest,
   ListPoolsResponse,
-  SetDefaultPoolRequest,
   UpdatePoolRequest,
   ValidatePoolRequest,
 } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import { useAuthErrors } from "@/protoFleet/store";
-
-interface SetDefaultPoolProps {
-  defaultPoolRequest: SetDefaultPoolRequest;
-  onSuccess: () => void;
-  onError?: (error: string) => void;
-}
 
 interface CreatePoolProps {
   createPoolRequest: CreatePoolRequest;
@@ -66,25 +59,6 @@ const usePools = () => {
   useEffect(() => {
     fetchPools();
   }, [fetchPools]);
-
-  const setDefaultPool = useCallback(
-    async ({ defaultPoolRequest, onSuccess, onError }: SetDefaultPoolProps) => {
-      await poolsClient
-        .setDefaultPool(defaultPoolRequest)
-        .then(() => {
-          onSuccess();
-        })
-        .catch((err) => {
-          handleAuthErrors({
-            error: err,
-            onError: () => {
-              onError?.(err?.message ?? String(err));
-            },
-          });
-        });
-    },
-    [handleAuthErrors],
-  );
 
   const createPool = useCallback(
     async ({ createPoolRequest, onSuccess, onError }: CreatePoolProps) => {
@@ -204,14 +178,13 @@ const usePools = () => {
     () => ({
       pools,
       miningPools,
-      setDefaultPool,
       createPool,
       updatePool,
       deletePool,
       validatePool,
       validatePoolPending,
     }),
-    [pools, miningPools, setDefaultPool, createPool, updatePool, deletePool, validatePool, validatePoolPending],
+    [pools, miningPools, createPool, updatePool, deletePool, validatePool, validatePoolPending],
   );
 };
 

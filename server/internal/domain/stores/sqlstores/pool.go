@@ -54,7 +54,7 @@ func (s *SQLPoolStore) GetTotalPools(ctx context.Context, orgID int64) (int64, e
 	return s.GetQueries(ctx).GetTotalPools(ctx, orgID)
 }
 
-func (s *SQLPoolStore) CreatePool(ctx context.Context, config *pb.PoolConfig, orgID int64, isDefault bool) (int64, error) {
+func (s *SQLPoolStore) CreatePool(ctx context.Context, config *pb.PoolConfig, orgID int64) (int64, error) {
 	password := ""
 	if config.Password != nil {
 		encryptedPassword, err := s.encryptor.Encrypt([]byte(config.Password.Value))
@@ -69,7 +69,6 @@ func (s *SQLPoolStore) CreatePool(ctx context.Context, config *pb.PoolConfig, or
 		Url:         config.Url,
 		Username:    config.Username,
 		PasswordEnc: password,
-		IsDefault:   sql.NullBool{Bool: isDefault, Valid: true},
 		CreatedAt:   time.Now(),
 		OrgID:       orgID,
 	})
@@ -114,27 +113,15 @@ func (s *SQLPoolStore) UpdatePool(ctx context.Context, request *pb.UpdatePoolReq
 		password = encryptedPassword
 	}
 
-	if request.IsDefault {
-		pool.IsDefault = sql.NullBool{Bool: true, Valid: true}
-	}
-
 	// Update the pool
 	return s.GetQueries(ctx).UpdatePool(ctx, sqlc.UpdatePoolParams{
 		PoolName:    pool.PoolName,
 		Url:         pool.Url,
 		Username:    pool.Username,
 		PasswordEnc: password,
-		IsDefault:   pool.IsDefault,
 		UpdatedAt:   time.Now(),
 		OrgID:       orgID,
 		ID:          request.PoolId,
-	})
-}
-
-func (s *SQLPoolStore) UnsetDefaultPool(ctx context.Context, orgID int64) error {
-	return s.GetQueries(ctx).UnsetDefaultPool(ctx, sqlc.UnsetDefaultPoolParams{
-		OrgID:     orgID,
-		UpdatedAt: time.Now(),
 	})
 }
 
@@ -147,10 +134,9 @@ func (s *SQLPoolStore) SoftDeletePool(ctx context.Context, orgID int64, poolID i
 
 func convertToProtoPool(pool sqlc.Pool) *pb.Pool {
 	return &pb.Pool{
-		PoolId:    pool.ID,
-		PoolName:  pool.PoolName,
-		Url:       pool.Url,
-		Username:  pool.Username,
-		IsDefault: pool.IsDefault.Valid && pool.IsDefault.Bool,
+		PoolId:   pool.ID,
+		PoolName: pool.PoolName,
+		Url:      pool.Url,
+		Username: pool.Username,
 	}
 }

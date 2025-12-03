@@ -329,28 +329,9 @@ type Pool struct {
 	Url         string
 	Username    string
 	PasswordEnc string
-	IsDefault   sql.NullBool
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	DeletedAt   sql.NullTime
-}
-
-type PoolConfiguration struct {
-	ID          int64
-	OrgID       int64
-	Name        string
-	Description sql.NullString
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-}
-
-type PoolConfigurationPool struct {
-	ID                  int64
-	PoolID              int64
-	PoolConfigurationID int64
-	Priority            int32
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
 }
 
 type QueueMessage struct {

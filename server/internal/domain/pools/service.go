@@ -28,13 +28,6 @@ func NewService(poolStore interfaces.PoolStore, transactor interfaces.Transactor
 	}
 }
 
-func (s *Service) UpdateDefaultPool(ctx context.Context, poolID int64) (*pb.Pool, error) {
-	return s.UpdatePool(ctx, &pb.UpdatePoolRequest{
-		PoolId:    poolID,
-		IsDefault: true,
-	})
-}
-
 func (s *Service) DeletePool(ctx context.Context, id int64) error {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
@@ -53,14 +46,6 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
-		// If setting as default, unset any other default pool first
-		if r.IsDefault {
-			err := s.poolStore.UnsetDefaultPool(ctx, info.OrganizationID)
-			if err != nil {
-				return nil, fleeterror.NewInternalErrorf("failed to unset default pool: %v", err)
-			}
-		}
-
 		// Update the pool
 		err := s.poolStore.UpdatePool(ctx, r, info.OrganizationID)
 		if err != nil {
@@ -94,14 +79,7 @@ func (s *Service) CreatePool(ctx context.Context, poolConfig *pb.PoolConfig) (*p
 	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
-		totalPools, err := s.poolStore.GetTotalPools(ctx, info.OrganizationID)
-		if err != nil {
-			return nil, err
-		}
-
-		isDefault := totalPools == 0
-
-		poolID, err := s.poolStore.CreatePool(ctx, poolConfig, info.OrganizationID, isDefault)
+		poolID, err := s.poolStore.CreatePool(ctx, poolConfig, info.OrganizationID)
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("error saving pool for org_id: %d, pool_name: %s: %v", info.OrganizationID, poolConfig.PoolName, err)
 		}

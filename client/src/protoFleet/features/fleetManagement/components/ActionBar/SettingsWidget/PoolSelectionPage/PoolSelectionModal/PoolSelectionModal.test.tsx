@@ -14,21 +14,18 @@ describe("PoolSelectionModal", () => {
       poolName: "Ocean Pool",
       url: "stratum+tcp://mine.ocean.xyz:3334",
       username: "ocean_user",
-      isDefault: false,
     }),
     create(PoolSchema, {
       poolId: BigInt(2),
       poolName: "Braiins Pool",
       url: "stratum+tcp://stratum.braiins.com:3333",
       username: "braiins_user",
-      isDefault: false,
     }),
     create(PoolSchema, {
       poolId: BigInt(3),
       poolName: "Foundry USA",
       url: "stratum+tcp://stratum.foundryusapool.com:3333",
       username: "foundry_user",
-      isDefault: false,
     }),
   ];
 
@@ -51,7 +48,6 @@ describe("PoolSelectionModal", () => {
       createPool: mockCreatePool,
       updatePool: vi.fn(),
       deletePool: vi.fn(),
-      setDefaultPool: vi.fn(),
       validatePoolPending: false,
     });
   });

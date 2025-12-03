@@ -24,18 +24,6 @@ func NewHandler(svc *pools.Service) *Handler {
 	}
 }
 
-func (h *Handler) SetDefaultPool(ctx context.Context, r *connect.Request[pb.SetDefaultPoolRequest]) (*connect.Response[pb.SetDefaultPoolResponse], error) {
-	pool, err := h.poolsSvc.UpdateDefaultPool(ctx, r.Msg.PoolId)
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(
-		&pb.SetDefaultPoolResponse{
-			Pool: pool,
-		}), nil
-}
-
 func (h *Handler) ListPools(ctx context.Context, _ *connect.Request[pb.ListPoolsRequest]) (*connect.Response[pb.ListPoolsResponse], error) {
 	listedPools, err := h.poolsSvc.ListPools(ctx)
 	if err != nil {

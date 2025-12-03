@@ -7,23 +7,13 @@ import "google/protobuf/wrappers.proto";
 import "buf/validate/validate.proto";
 
 service PoolsService {
-    // Sets the default pool configuration for the fleet
-    // This will be used as the base configuration for new miners
-    // or when resetting miners to default settings
-    // Any existing default pool will be replaced with this configuration
-    rpc SetDefaultPool(SetDefaultPoolRequest) returns (SetDefaultPoolResponse);
-
     // Lists all configured mining pools
-    // Returns pools ordered by priority (highest priority first)
     rpc ListPools(ListPoolsRequest) returns (ListPoolsResponse);
 
     // Creates a new mining pool configuration
-    // First pool created will be set as the default pool
-    // The new pool will be assigned the lowest priority by default
     rpc CreatePool(CreatePoolRequest) returns (CreatePoolResponse);
 
     // Updates an existing pool's configuration
-    // Can modify connection details and default status
     rpc UpdatePool(UpdatePoolRequest) returns (UpdatePoolResponse);
 
     // Deletes a pool configuration
@@ -52,21 +42,6 @@ message PoolConfig {
   string pool_name = 4;
 }
 
-// Request to set an existing pool as the default for the fleet
-// This pool will be used for new miners or when resetting to defaults
-message SetDefaultPoolRequest {
-  // ID of the existing pool to set as default
-  // Must reference a valid pool_id from a previously created pool
-  int64 pool_id = 1;
-}
-
-// Response to setting default pool configuration
-// Empty message as success/failure is indicated by gRPC status
-message SetDefaultPoolResponse {
-  // The updated default pool with all current values
-  Pool pool = 1;
-}
-
 enum PoolConnectionStatus {
   POOL_CONNECTION_STATUS_UNSPECIFIED = 0;
   POOL_CONNECTION_STATUS_IDLE = 1;
@@ -90,10 +65,6 @@ message Pool {
   // Pool name to identify this pool
   // Human-readable identifier for the pool within the fleet management system
   string pool_name = 4;
-
-  // Flag indicating whether the pool is the default pool
-  // Default pool is used for new miners and when resetting to defaults
-  bool is_default = 5;
 }
 
 // Request to retrieve all configured mining pools
@@ -136,10 +107,6 @@ message UpdatePoolRequest {
 
   // New password (optional, leave empty to keep current value)
   google.protobuf.StringValue password = 5;
-
-  // Whether this pool should be set as the default
-  // Setting to true will unset any previous default pool
-  bool is_default = 6;
 }
 
 // Response after updating a pool's configuration

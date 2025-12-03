@@ -52,7 +52,7 @@ func TestWithTransaction_OuterRollback(t *testing.T) {
 	err := transactor.RunInTx(ctx, func(ctx context.Context) error {
 		innerErr := transactor.RunInTx(ctx, func(ctx context.Context) error {
 			var createErr error
-			poolID, createErr = poolStore.CreatePool(ctx, testPoolConfig, 1, false)
+			poolID, createErr = poolStore.CreatePool(ctx, testPoolConfig, 1)
 			return createErr
 		})
 		require.NoError(t, innerErr)
@@ -86,7 +86,7 @@ func TestWithTransaction_InnerRollback(t *testing.T) {
 	var poolID int64
 	err := transactor.RunInTx(ctx, func(ctx context.Context) error {
 		var createErr error
-		poolID, createErr = poolStore.CreatePool(ctx, testPoolConfig, 1, false)
+		poolID, createErr = poolStore.CreatePool(ctx, testPoolConfig, 1)
 		require.NoError(t, createErr)
 		return transactor.RunInTx(ctx, func(_ context.Context) error {
 			return sql.ErrTxDone
@@ -125,13 +125,13 @@ func TestNestedTransactions_DatabaseLevel(t *testing.T) {
 	var outerPoolID, innerPoolID int64
 	err := transactor.RunInTx(ctx, func(outerCtx context.Context) error {
 		var outerErr error
-		outerPoolID, outerErr = poolStore.CreatePool(outerCtx, outerPoolConfig, 1, false)
+		outerPoolID, outerErr = poolStore.CreatePool(outerCtx, outerPoolConfig, 1)
 		require.NoError(t, outerErr)
 
 		// Attempt a nested transaction
 		return transactor.RunInTx(outerCtx, func(innerCtx context.Context) error {
 			var innerErr error
-			innerPoolID, innerErr = poolStore.CreatePool(innerCtx, innerPoolConfig, 1, false)
+			innerPoolID, innerErr = poolStore.CreatePool(innerCtx, innerPoolConfig, 1)
 			require.NoError(t, innerErr)
 
 			// If these are truly separate transactions at DB level, this would likely cause a deadlock

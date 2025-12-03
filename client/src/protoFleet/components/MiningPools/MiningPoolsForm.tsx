@@ -42,11 +42,7 @@ const MiningPoolsForm = ({ buttonLabel, onSaveRequested, onSaveDone, onSaveFaile
       return;
     }
     const currentPools = existingPools
-      .sort((a, b) =>
-        // always move default pool to the front, then sort by pool priority (lower number = higher priority)
-        // TODO fix me in the DASH-522
-        a.isDefault ? -1 : b.isDefault ? 1 : Number(a.poolId) - Number(b.poolId),
-      )
+      .sort((a, b) => Number(a.poolId) - Number(b.poolId))
       .map((pool: Pool) => ({
         ...pool,
         name: pool.poolName,

@@ -14,14 +14,12 @@ describe("Pools list", () => {
       poolName: "Client pool A1",
       url: "stratum+tcp://mine.ocean.xyz:3323",
       username: "user1",
-      isDefault: false,
     }),
     create(PoolSchema, {
       poolId: BigInt(2),
       poolName: "Client pool A2",
       url: "stratum+tcp://mine.ocean.xyz:3324",
       username: "user2",
-      isDefault: false,
     }),
   ];
 
@@ -40,7 +38,6 @@ describe("Pools list", () => {
       createPool: vi.fn(),
       updatePool: vi.fn(),
       deletePool: vi.fn(),
-      setDefaultPool: vi.fn(),
       validatePoolPending: false,
     });
   });

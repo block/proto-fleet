@@ -34,9 +34,6 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// PoolsServiceSetDefaultPoolProcedure is the fully-qualified name of the PoolsService's
-	// SetDefaultPool RPC.
-	PoolsServiceSetDefaultPoolProcedure = "/pools.v1.PoolsService/SetDefaultPool"
 	// PoolsServiceListPoolsProcedure is the fully-qualified name of the PoolsService's ListPools RPC.
 	PoolsServiceListPoolsProcedure = "/pools.v1.PoolsService/ListPools"
 	// PoolsServiceCreatePoolProcedure is the fully-qualified name of the PoolsService's CreatePool RPC.
@@ -52,20 +49,11 @@ const (
 
 // PoolsServiceClient is a client for the pools.v1.PoolsService service.
 type PoolsServiceClient interface {
-	// Sets the default pool configuration for the fleet
-	// This will be used as the base configuration for new miners
-	// or when resetting miners to default settings
-	// Any existing default pool will be replaced with this configuration
-	SetDefaultPool(context.Context, *connect.Request[v1.SetDefaultPoolRequest]) (*connect.Response[v1.SetDefaultPoolResponse], error)
 	// Lists all configured mining pools
-	// Returns pools ordered by priority (highest priority first)
 	ListPools(context.Context, *connect.Request[v1.ListPoolsRequest]) (*connect.Response[v1.ListPoolsResponse], error)
 	// Creates a new mining pool configuration
-	// First pool created will be set as the default pool
-	// The new pool will be assigned the lowest priority by default
 	CreatePool(context.Context, *connect.Request[v1.CreatePoolRequest]) (*connect.Response[v1.CreatePoolResponse], error)
 	// Updates an existing pool's configuration
-	// Can modify connection details and default status
 	UpdatePool(context.Context, *connect.Request[v1.UpdatePoolRequest]) (*connect.Response[v1.UpdatePoolResponse], error)
 	// Deletes a pool configuration
 	DeletePool(context.Context, *connect.Request[v1.DeletePoolRequest]) (*connect.Response[v1.DeletePoolResponse], error)
@@ -83,11 +71,6 @@ type PoolsServiceClient interface {
 func NewPoolsServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) PoolsServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &poolsServiceClient{
-		setDefaultPool: connect.NewClient[v1.SetDefaultPoolRequest, v1.SetDefaultPoolResponse](
-			httpClient,
-			baseURL+PoolsServiceSetDefaultPoolProcedure,
-			opts...,
-		),
 		listPools: connect.NewClient[v1.ListPoolsRequest, v1.ListPoolsResponse](
 			httpClient,
 			baseURL+PoolsServiceListPoolsProcedure,
@@ -118,17 +101,11 @@ func NewPoolsServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 
 // poolsServiceClient implements PoolsServiceClient.
 type poolsServiceClient struct {
-	setDefaultPool *connect.Client[v1.SetDefaultPoolRequest, v1.SetDefaultPoolResponse]
-	listPools      *connect.Client[v1.ListPoolsRequest, v1.ListPoolsResponse]
-	createPool     *connect.Client[v1.CreatePoolRequest, v1.CreatePoolResponse]
-	updatePool     *connect.Client[v1.UpdatePoolRequest, v1.UpdatePoolResponse]
-	deletePool     *connect.Client[v1.DeletePoolRequest, v1.DeletePoolResponse]
-	validatePool   *connect.Client[v1.ValidatePoolRequest, v1.ValidatePoolResponse]
-}
-
-// SetDefaultPool calls pools.v1.PoolsService.SetDefaultPool.
-func (c *poolsServiceClient) SetDefaultPool(ctx context.Context, req *connect.Request[v1.SetDefaultPoolRequest]) (*connect.Response[v1.SetDefaultPoolResponse], error) {
-	return c.setDefaultPool.CallUnary(ctx, req)
+	listPools    *connect.Client[v1.ListPoolsRequest, v1.ListPoolsResponse]
+	createPool   *connect.Client[v1.CreatePoolRequest, v1.CreatePoolResponse]
+	updatePool   *connect.Client[v1.UpdatePoolRequest, v1.UpdatePoolResponse]
+	deletePool   *connect.Client[v1.DeletePoolRequest, v1.DeletePoolResponse]
+	validatePool *connect.Client[v1.ValidatePoolRequest, v1.ValidatePoolResponse]
 }
 
 // ListPools calls pools.v1.PoolsService.ListPools.
@@ -158,20 +135,11 @@ func (c *poolsServiceClient) ValidatePool(ctx context.Context, req *connect.Requ
 
 // PoolsServiceHandler is an implementation of the pools.v1.PoolsService service.
 type PoolsServiceHandler interface {
-	// Sets the default pool configuration for the fleet
-	// This will be used as the base configuration for new miners
-	// or when resetting miners to default settings
-	// Any existing default pool will be replaced with this configuration
-	SetDefaultPool(context.Context, *connect.Request[v1.SetDefaultPoolRequest]) (*connect.Response[v1.SetDefaultPoolResponse], error)
 	// Lists all configured mining pools
-	// Returns pools ordered by priority (highest priority first)
 	ListPools(context.Context, *connect.Request[v1.ListPoolsRequest]) (*connect.Response[v1.ListPoolsResponse], error)
 	// Creates a new mining pool configuration
-	// First pool created will be set as the default pool
-	// The new pool will be assigned the lowest priority by default
 	CreatePool(context.Context, *connect.Request[v1.CreatePoolRequest]) (*connect.Response[v1.CreatePoolResponse], error)
 	// Updates an existing pool's configuration
-	// Can modify connection details and default status
 	UpdatePool(context.Context, *connect.Request[v1.UpdatePoolRequest]) (*connect.Response[v1.UpdatePoolResponse], error)
 	// Deletes a pool configuration
 	DeletePool(context.Context, *connect.Request[v1.DeletePoolRequest]) (*connect.Response[v1.DeletePoolResponse], error)
@@ -185,11 +153,6 @@ type PoolsServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewPoolsServiceHandler(svc PoolsServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	poolsServiceSetDefaultPoolHandler := connect.NewUnaryHandler(
-		PoolsServiceSetDefaultPoolProcedure,
-		svc.SetDefaultPool,
-		opts...,
-	)
 	poolsServiceListPoolsHandler := connect.NewUnaryHandler(
 		PoolsServiceListPoolsProcedure,
 		svc.ListPools,
@@ -217,8 +180,6 @@ func NewPoolsServiceHandler(svc PoolsServiceHandler, opts ...connect.HandlerOpti
 	)
 	return "/pools.v1.PoolsService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case PoolsServiceSetDefaultPoolProcedure:
-			poolsServiceSetDefaultPoolHandler.ServeHTTP(w, r)
 		case PoolsServiceListPoolsProcedure:
 			poolsServiceListPoolsHandler.ServeHTTP(w, r)
 		case PoolsServiceCreatePoolProcedure:
@@ -237,10 +198,6 @@ func NewPoolsServiceHandler(svc PoolsServiceHandler, opts ...connect.HandlerOpti
 
 // UnimplementedPoolsServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedPoolsServiceHandler struct{}
-
-func (UnimplementedPoolsServiceHandler) SetDefaultPool(context.Context, *connect.Request[v1.SetDefaultPoolRequest]) (*connect.Response[v1.SetDefaultPoolResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("pools.v1.PoolsService.SetDefaultPool is not implemented"))
-}
 
 func (UnimplementedPoolsServiceHandler) ListPools(context.Context, *connect.Request[v1.ListPoolsRequest]) (*connect.Response[v1.ListPoolsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("pools.v1.PoolsService.ListPools is not implemented"))

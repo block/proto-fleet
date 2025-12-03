@@ -13,21 +13,18 @@ const mockPools = [
     poolName: "Client pool A1",
     url: "stratum+tcp://mine.ocean.xyz:3334",
     username: "mann23",
-    isDefault: false,
   }),
   create(PoolSchema, {
     poolId: BigInt(2),
     poolName: "Client pool A2",
     url: "stratum+tcp://mine.ocean.xyz:3323",
     username: "mann25",
-    isDefault: false,
   }),
   create(PoolSchema, {
     poolId: BigInt(3),
     poolName: "Client pool A3",
     url: "stratum+tcp://mine.ocean.xyz:3344",
     username: "mann27",
-    isDefault: false,
   }),
 ];
 
@@ -46,7 +43,6 @@ vi.mock("@/protoFleet/api/usePools", () => ({
     createPool: vi.fn(),
     updatePool: vi.fn(),
     deletePool: vi.fn(),
-    setDefaultPool: vi.fn(),
     validatePoolPending: false,
   }),
 }));

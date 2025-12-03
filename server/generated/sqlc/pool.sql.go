@@ -12,8 +12,8 @@ import (
 )
 
 const createPool = `-- name: CreatePool :execresult
-INSERT INTO pool (org_id, pool_name, url, username, password_enc, is_default, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO pool (org_id, pool_name, url, username, password_enc, created_at)
+VALUES (?, ?, ?, ?, ?, ?)
 `
 
 type CreatePoolParams struct {
@@ -22,7 +22,6 @@ type CreatePoolParams struct {
 	Url         string
 	Username    string
 	PasswordEnc string
-	IsDefault   sql.NullBool
 	CreatedAt   time.Time
 }
 
@@ -33,7 +32,6 @@ func (q *Queries) CreatePool(ctx context.Context, arg CreatePoolParams) (sql.Res
 		arg.Url,
 		arg.Username,
 		arg.PasswordEnc,
-		arg.IsDefault,
 		arg.CreatedAt,
 	)
 }
@@ -50,7 +48,7 @@ func (q *Queries) DeletePool(ctx context.Context, id int64) error {
 }
 
 const getPool = `-- name: GetPool :one
-SELECT id, org_id, pool_name, url, username, password_enc, is_default, created_at, updated_at, deleted_at
+SELECT id, org_id, pool_name, url, username, password_enc, created_at, updated_at, deleted_at
 FROM pool
 WHERE org_id = ?
   AND id = ?
@@ -71,7 +69,6 @@ func (q *Queries) GetPool(ctx context.Context, arg GetPoolParams) (Pool, error) 
 		&i.Url,
 		&i.Username,
 		&i.PasswordEnc,
-		&i.IsDefault,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -94,7 +91,7 @@ func (q *Queries) GetTotalPools(ctx context.Context, orgID int64) (int64, error)
 }
 
 const listPools = `-- name: ListPools :many
-SELECT id, org_id, pool_name, url, username, password_enc, is_default, created_at, updated_at, deleted_at
+SELECT id, org_id, pool_name, url, username, password_enc, created_at, updated_at, deleted_at
 FROM pool
 WHERE org_id = ?
   AND deleted_at IS NULL
@@ -117,7 +114,6 @@ func (q *Queries) ListPools(ctx context.Context, orgID int64) ([]Pool, error) {
 			&i.Url,
 			&i.Username,
 			&i.PasswordEnc,
-			&i.IsDefault,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
@@ -152,31 +148,12 @@ func (q *Queries) SoftDeletePool(ctx context.Context, arg SoftDeletePoolParams) 
 	return err
 }
 
-const unsetDefaultPool = `-- name: UnsetDefaultPool :exec
-UPDATE pool
-SET is_default = FALSE,
-    updated_at    = ?
-WHERE org_id = ?
-  AND is_default = TRUE
-`
-
-type UnsetDefaultPoolParams struct {
-	UpdatedAt time.Time
-	OrgID     int64
-}
-
-func (q *Queries) UnsetDefaultPool(ctx context.Context, arg UnsetDefaultPoolParams) error {
-	_, err := q.exec(ctx, q.unsetDefaultPoolStmt, unsetDefaultPool, arg.UpdatedAt, arg.OrgID)
-	return err
-}
-
 const updatePool = `-- name: UpdatePool :exec
 UPDATE pool
 SET pool_name     = ?,
     url           = ?,
     username      = ?,
     password_enc = ?,
-    is_default    = ?,
     updated_at    = ?
 WHERE org_id = ?
   AND id = ?
@@ -187,7 +164,6 @@ type UpdatePoolParams struct {
 	Url         string
 	Username    string
 	PasswordEnc string
-	IsDefault   sql.NullBool
 	UpdatedAt   time.Time
 	OrgID       int64
 	ID          int64
@@ -199,7 +175,6 @@ func (q *Queries) UpdatePool(ctx context.Context, arg UpdatePoolParams) error {
 		arg.Url,
 		arg.Username,
 		arg.PasswordEnc,
-		arg.IsDefault,
 		arg.UpdatedAt,
 		arg.OrgID,
 		arg.ID,
