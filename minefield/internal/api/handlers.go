@@ -39,11 +39,11 @@ func (h *Handler) RegisterRoutes(router *mux.Router) {
 
 // TriggerErrorRequest is the request body for triggering an error
 type TriggerErrorRequest struct {
-	ErrorCode  string                 `json:"error_code"`
-	ErrorLevel string                 `json:"error_level,omitempty"`
-	Message    string                 `json:"message,omitempty"`
-	Details    map[string]interface{} `json:"details,omitempty"`
-	TTLSeconds *int                   `json:"ttl_seconds,omitempty"`
+	ErrorCode      string `json:"error_code"`
+	Source         string `json:"source"`           // "rig" | "fan" | "psu" | "hashboard"
+	ComponentIndex *int   `json:"component_index,omitempty"`
+	Message        string `json:"message,omitempty"`
+	TTLSeconds     *int   `json:"ttl_seconds,omitempty"`
 }
 
 // triggerError handles POST /api/errors/trigger
@@ -54,37 +54,29 @@ func (h *Handler) triggerError(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate error code
-	def := errors.GetErrorByCode(req.ErrorCode)
-	if def == nil {
-		http.Error(w, "Unknown error code", http.StatusBadRequest)
+	// Validate source
+	validSources := map[string]bool{
+		"rig":       true,
+		"fan":       true,
+		"psu":       true,
+		"hashboard": true,
+	}
+	if !validSources[req.Source] {
+		http.Error(w, "Invalid source. Must be one of: rig, fan, psu, hashboard", http.StatusBadRequest)
 		return
 	}
 
-	// Use defaults from definition if not provided
-	if req.ErrorLevel == "" {
-		req.ErrorLevel = def.DefaultLevel
-	}
+	// Use a default message if not provided
 	if req.Message == "" {
-		req.Message = def.Description
-	}
-
-	// Apply parameter defaults
-	if req.Details == nil {
-		req.Details = make(map[string]interface{})
-	}
-	for _, param := range def.Parameters {
-		if _, ok := req.Details[param.Name]; !ok && param.Default != nil {
-			req.Details[param.Name] = param.Default
-		}
+		req.Message = "Injected error: " + req.ErrorCode
 	}
 
 	// Trigger the error
 	error := h.errorStore.TriggerError(
 		req.ErrorCode,
-		req.ErrorLevel,
+		req.Source,
 		req.Message,
-		req.Details,
+		req.ComponentIndex,
 		req.TTLSeconds,
 	)
 

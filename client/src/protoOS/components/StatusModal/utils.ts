@@ -41,18 +41,16 @@ export const getComponentTitle = (type: ComponentType): string => {
 
 /**
  * Maps error source to ComponentType
- * Note: ASIC errors are transformed to HASHBOARD in errorTransformer before reaching here
  */
 export function mapErrorSourceToComponentType(source: ErrorSource): ComponentType | null {
-  const mapping: Record<Exclude<ErrorSource, "ASIC" | "POOL">, ComponentType> = {
+  const mapping: Record<ErrorSource, ComponentType | null> = {
     HASHBOARD: "hashboard",
     PSU: "psu",
     FAN: "fan",
-    SYSTEM: "controlBoard",
+    RIG: "controlBoard",
   };
 
-  // Cast is safe because we return null for undefined keys
-  return mapping[source as keyof typeof mapping] || null;
+  return mapping[source] || null;
 }
 
 /**
@@ -62,7 +60,7 @@ function transformMinerErrorToError(error: MinerError): ErrorData {
   return {
     componentName: getComponentDisplayName(error.source, error.componentIndex),
     message: error.message,
-    timestamp: error.insertedAt,
+    timestamp: error.timestamp,
   };
 }
 
@@ -229,7 +227,7 @@ export function transformErrorsForModal(
   return minerErrors.map((error) => ({
     componentName: getComponentDisplayName(error.source, error.componentIndex),
     message: error.message,
-    timestamp: error.insertedAt,
+    timestamp: error.timestamp,
     onClick: onErrorClick ? () => onErrorClick(error.source, error.componentIndex) : undefined,
   }));
 }

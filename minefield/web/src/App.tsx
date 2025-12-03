@@ -48,7 +48,7 @@ function App() {
       const errors = await api.getActiveErrors()
       // Create new array and sort by insertion time (newest first), then by ID for stable ordering
       return [...errors].sort((a, b) => {
-        const timeCompare = b.inserted_at - a.inserted_at
+        const timeCompare = b.timestamp - a.timestamp
         // If timestamps are the same, sort by ID for consistent ordering
         return timeCompare !== 0 ? timeCompare : a.id.localeCompare(b.id)
       })
@@ -162,9 +162,9 @@ function App() {
     for (const error of state.errors) {
       const request: TriggerErrorRequest = {
         error_code: error.error_code,
-        error_level: error.error_level,
+        source: error.source || 'rig',
         message: error.message,
-        details: error.details,
+        component_index: error.component_index,
         ttl_seconds: error.ttl_seconds,
       }
       await triggerMutation.mutateAsync(request)
@@ -177,6 +177,16 @@ function App() {
   const handleDeleteState = (name: string) => {
     deleteErrorState(name)
     loadSavedStates()
+  }
+
+  // Helper to determine source from error category
+  const getSourceFromCategory = (category: string): 'rig' | 'fan' | 'psu' | 'hashboard' => {
+    const categoryLower = category.toLowerCase()
+    if (categoryLower === 'cooling') return 'fan'
+    if (categoryLower === 'psu') return 'psu'
+    if (categoryLower === 'hashboard' || categoryLower === 'asic') return 'hashboard'
+    if (categoryLower === 'pool' || categoryLower === 'system') return 'rig'
+    return 'rig' // Default fallback
   }
 
   const handleTriggerError = () => {
@@ -204,11 +214,22 @@ function App() {
       }
     })
 
+    // Extract component_index from various parameter names
+    const componentIndex = details.component_index !== undefined
+      ? Number(details.component_index)
+      : details.fan_bay_index !== undefined
+      ? Number(details.fan_bay_index)
+      : details.psu_index !== undefined
+      ? Number(details.psu_index)
+      : details.hb_slot !== undefined
+      ? Number(details.hb_slot)
+      : undefined
+
     const request: TriggerErrorRequest = {
       error_code: selectedError.code,
-      error_level: selectedError.default_level,
+      source: selectedError.source as 'rig' | 'fan' | 'psu' | 'hashboard' || getSourceFromCategory(selectedError.category),
       message: selectedError.description,
-      details,
+      component_index: componentIndex,
     }
 
     if (ttl > 0) {
@@ -306,8 +327,8 @@ function App() {
                   {selectedError.description}
                 </p>
                 <p className="text-xs mt-1 text-gray-500 dark:text-gray-400">
-                  Level: <span className={selectedError.default_level === 'Error' ? 'text-red-500' : 'text-yellow-500'}>
-                    {selectedError.default_level}
+                  Category: <span className="text-blue-500">
+                    {selectedError.category}
                   </span>
                 </p>
               </div>
@@ -452,32 +473,21 @@ function App() {
                             {error.error_code}
                           </h3>
                           <span
-                            className={`px-2 py-1 text-xs rounded-md ${
-                              error.error_level === 'Error'
-                                ? 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200'
-                                : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-200'
-                            }`}
+                            className="px-2 py-1 text-xs rounded-md bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200"
                           >
-                            {error.error_level}
+                            {error.source.toUpperCase()}
                           </span>
                         </div>
                         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                           {error.message}
                         </p>
-                        {error.details && Object.keys(error.details).length > 0 && (
-                          <div className="mt-2">
-                            <details className="cursor-pointer">
-                              <summary className="text-xs text-gray-500 dark:text-gray-400">
-                                Details
-                              </summary>
-                              <pre className="mt-2 text-xs bg-gray-100 dark:bg-gray-700 p-2 rounded overflow-x-auto">
-                                {JSON.stringify(error.details, null, 2)}
-                              </pre>
-                            </details>
-                          </div>
+                        {error.component_index !== undefined && (
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            Component Index: {error.component_index}
+                          </p>
                         )}
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                          Created: {new Date(error.inserted_at * 1000).toLocaleString()}
+                          Created: {new Date(error.timestamp * 1000).toLocaleString()}
                           {error.ttl_seconds && ` • TTL: ${error.ttl_seconds}s`}
                         </p>
                       </div>

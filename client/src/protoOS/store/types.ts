@@ -223,24 +223,14 @@ export type FanMap = Map<number, FanHardwareData>;
 export type FanData = FanHardwareData & FanTelemetryData;
 
 // Error Types
-export type ErrorSource = "PSU" | "FAN" | "HASHBOARD" | "ASIC" | "SYSTEM" | "POOL";
-export type ErrorLevel = "ERROR" | "WARNING";
+export type ErrorSource = "RIG" | "FAN" | "PSU" | "HASHBOARD";
 
 export interface MinerError {
-  errorCode: string; // e.g. "04:0001"
-  errorLevel: ErrorLevel;
-  insertedAt: number; // Unix timestamp
-  expiredAt?: number; // Unix timestamp, optional
-  source: ErrorSource;
-
-  // 0-based index of the component within its type
-  // For ASIC errors (transformed to HASHBOARD), this is the hashboard index
-  componentIndex?: number;
-
-  // Descriptive message about the error
-  // Matches Error & Log Text column from fw failure mode spreadsheet
-  // e.g. "Power supply {slot} overvoltage detected: {mV}"
-  message: string;
+  errorCode: string; // Maps from error_code in API
+  timestamp?: number; // Unix timestamp from API (optional)
+  source: ErrorSource; // Maps directly from API source
+  componentIndex?: number; // 0-based index from API (optional)
+  message: string; // Error message from API
 }
 
 // Auth Types

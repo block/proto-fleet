@@ -3,7 +3,7 @@ export interface ErrorDefinition {
   name: string
   description: string
   category: string
-  default_level: 'Error' | 'Warning'
+  source?: string
   parameters: ParameterDefinition[]
 }
 
@@ -18,22 +18,19 @@ export interface ParameterDefinition {
 export interface InjectedError {
   id: string
   error_code: string
-  error_level: 'Error' | 'Warning'
+  source: 'rig' | 'fan' | 'psu' | 'hashboard'
   message: string
-  details: Record<string, any>
   component_index?: number
-  hashboard_index?: number
-  asic_index?: number
-  inserted_at: number
+  timestamp: number
   expired_at?: number
   ttl_seconds?: number
 }
 
 export interface TriggerErrorRequest {
   error_code: string
-  error_level?: 'Error' | 'Warning'
+  source: 'rig' | 'fan' | 'psu' | 'hashboard'
   message?: string
-  details?: Record<string, any>
+  component_index?: number
   ttl_seconds?: number
 }
 

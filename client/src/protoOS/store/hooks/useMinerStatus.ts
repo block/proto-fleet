@@ -142,12 +142,15 @@ export const useGroupedErrors = () => {
   return useMemo(() => {
     // Simple direct grouping by source
     // ASIC errors have already been transformed to HASHBOARD in the transformer
+    // Pool-related errors are RIG source errors with pool-specific error codes
+    const poolErrorCodes = ["NoPoolConfigured", "PoolConnectionLost"];
+
     return {
       hashboard: allErrors.filter((error) => error.source === "HASHBOARD"),
       psu: allErrors.filter((error) => error.source === "PSU"),
       fan: allErrors.filter((error) => error.source === "FAN"),
-      pool: allErrors.filter((error) => error.source === "POOL"),
-      system: allErrors.filter((error) => error.source === "SYSTEM"),
+      pool: allErrors.filter((error) => error.source === "RIG" && poolErrorCodes.includes(error.errorCode)),
+      system: allErrors.filter((error) => error.source === "RIG" && !poolErrorCodes.includes(error.errorCode)),
     };
   }, [allErrors]);
 };

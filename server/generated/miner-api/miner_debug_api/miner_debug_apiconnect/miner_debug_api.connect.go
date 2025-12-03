@@ -28,6 +28,7 @@ import (
 	connect "connectrpc.com/connect"
 	miner_common_api "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_common_api"
 	miner_debug_api "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_debug_api"
+	miner_error_code "github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_error_code"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -88,38 +89,15 @@ const (
 	// MinerDebugApiSetVoltageTuningModeProcedure is the fully-qualified name of the MinerDebugApi's
 	// SetVoltageTuningMode RPC.
 	MinerDebugApiSetVoltageTuningModeProcedure = "/miner_debug_api.MinerDebugApi/SetVoltageTuningMode"
-	// MinerDebugApiGetHashboardParameterProcedure is the fully-qualified name of the MinerDebugApi's
-	// GetHashboardParameter RPC.
-	MinerDebugApiGetHashboardParameterProcedure = "/miner_debug_api.MinerDebugApi/GetHashboardParameter"
-	// MinerDebugApiSetHashboardParameterProcedure is the fully-qualified name of the MinerDebugApi's
-	// SetHashboardParameter RPC.
-	MinerDebugApiSetHashboardParameterProcedure = "/miner_debug_api.MinerDebugApi/SetHashboardParameter"
-	// MinerDebugApiGetHashboardSupportedParametersProcedure is the fully-qualified name of the
-	// MinerDebugApi's GetHashboardSupportedParameters RPC.
-	MinerDebugApiGetHashboardSupportedParametersProcedure = "/miner_debug_api.MinerDebugApi/GetHashboardSupportedParameters"
 	// MinerDebugApiGetHashboardsRecoveryInfoProcedure is the fully-qualified name of the
 	// MinerDebugApi's GetHashboardsRecoveryInfo RPC.
 	MinerDebugApiGetHashboardsRecoveryInfoProcedure = "/miner_debug_api.MinerDebugApi/GetHashboardsRecoveryInfo"
 	// MinerDebugApiCreateMinerNotificationEventProcedure is the fully-qualified name of the
 	// MinerDebugApi's CreateMinerNotificationEvent RPC.
 	MinerDebugApiCreateMinerNotificationEventProcedure = "/miner_debug_api.MinerDebugApi/CreateMinerNotificationEvent"
-	// MinerDebugApiClearAsicNotificationEventProcedure is the fully-qualified name of the
-	// MinerDebugApi's ClearAsicNotificationEvent RPC.
-	MinerDebugApiClearAsicNotificationEventProcedure = "/miner_debug_api.MinerDebugApi/ClearAsicNotificationEvent"
-	// MinerDebugApiClearHashboardNotificationEventProcedure is the fully-qualified name of the
-	// MinerDebugApi's ClearHashboardNotificationEvent RPC.
-	MinerDebugApiClearHashboardNotificationEventProcedure = "/miner_debug_api.MinerDebugApi/ClearHashboardNotificationEvent"
-	// MinerDebugApiClearGenericNotificationEventProcedure is the fully-qualified name of the
-	// MinerDebugApi's ClearGenericNotificationEvent RPC.
-	MinerDebugApiClearGenericNotificationEventProcedure = "/miner_debug_api.MinerDebugApi/ClearGenericNotificationEvent"
-	// MinerDebugApiSetLedsProcedure is the fully-qualified name of the MinerDebugApi's SetLeds RPC.
-	MinerDebugApiSetLedsProcedure = "/miner_debug_api.MinerDebugApi/SetLeds"
-	// MinerDebugApiPlayLedSequenceProcedure is the fully-qualified name of the MinerDebugApi's
-	// PlayLedSequence RPC.
-	MinerDebugApiPlayLedSequenceProcedure = "/miner_debug_api.MinerDebugApi/PlayLedSequence"
-	// MinerDebugApiStopLedSequenceProcedure is the fully-qualified name of the MinerDebugApi's
-	// StopLedSequence RPC.
-	MinerDebugApiStopLedSequenceProcedure = "/miner_debug_api.MinerDebugApi/StopLedSequence"
+	// MinerDebugApiClearMinerNotificationEventProcedure is the fully-qualified name of the
+	// MinerDebugApi's ClearMinerNotificationEvent RPC.
+	MinerDebugApiClearMinerNotificationEventProcedure = "/miner_debug_api.MinerDebugApi/ClearMinerNotificationEvent"
 	// MinerDebugApiGetRecoveryLimitsConfigProcedure is the fully-qualified name of the MinerDebugApi's
 	// GetRecoveryLimitsConfig RPC.
 	MinerDebugApiGetRecoveryLimitsConfigProcedure = "/miner_debug_api.MinerDebugApi/GetRecoveryLimitsConfig"
@@ -178,19 +156,10 @@ type MinerDebugApiClient interface {
 	ClearPsuFaults(context.Context, *connect.Request[miner_debug_api.PsuRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	SetVoltageTuningMode(context.Context, *connect.Request[miner_debug_api.VoltageTuningModeRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	// Hashboard debug functionality
-	GetHashboardParameter(context.Context, *connect.Request[miner_debug_api.HashboardParameterRequest]) (*connect.Response[miner_debug_api.HashboardParameterResponse], error)
-	SetHashboardParameter(context.Context, *connect.Request[miner_debug_api.HashboardParameterRequest]) (*connect.Response[miner_debug_api.HashboardParameterResponse], error)
-	GetHashboardSupportedParameters(context.Context, *connect.Request[miner_debug_api.HashboardSupportedParametersRequest]) (*connect.Response[miner_debug_api.HashboardSupportedParametersResponse], error)
 	GetHashboardsRecoveryInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.HashboardsRecoveryInfoResponse], error)
 	// Notifications
-	CreateMinerNotificationEvent(context.Context, *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_debug_api.CreateMinerNotificationEventResponse], error)
-	ClearAsicNotificationEvent(context.Context, *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_common_api.ApiResultResponse], error)
-	ClearHashboardNotificationEvent(context.Context, *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_common_api.ApiResultResponse], error)
-	ClearGenericNotificationEvent(context.Context, *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_common_api.ApiResultResponse], error)
-	// Led control
-	SetLeds(context.Context, *connect.Request[miner_debug_api.SetLedsRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
-	PlayLedSequence(context.Context, *connect.Request[miner_debug_api.PlayLedSequenceRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
-	StopLedSequence(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	CreateMinerNotificationEvent(context.Context, *connect.Request[miner_error_code.Error]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	ClearMinerNotificationEvent(context.Context, *connect.Request[miner_error_code.Error]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	// Recovery limits
 	GetRecoveryLimitsConfig(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimitsConfig], error)
 	SetRecoveryLimitsConfig(context.Context, *connect.Request[miner_debug_api.SetRecoveryLimitsConfigMessage]) (*connect.Response[miner_common_api.ApiResultResponse], error)
@@ -285,59 +254,19 @@ func NewMinerDebugApiClient(httpClient connect.HTTPClient, baseURL string, opts 
 			baseURL+MinerDebugApiSetVoltageTuningModeProcedure,
 			opts...,
 		),
-		getHashboardParameter: connect.NewClient[miner_debug_api.HashboardParameterRequest, miner_debug_api.HashboardParameterResponse](
-			httpClient,
-			baseURL+MinerDebugApiGetHashboardParameterProcedure,
-			opts...,
-		),
-		setHashboardParameter: connect.NewClient[miner_debug_api.HashboardParameterRequest, miner_debug_api.HashboardParameterResponse](
-			httpClient,
-			baseURL+MinerDebugApiSetHashboardParameterProcedure,
-			opts...,
-		),
-		getHashboardSupportedParameters: connect.NewClient[miner_debug_api.HashboardSupportedParametersRequest, miner_debug_api.HashboardSupportedParametersResponse](
-			httpClient,
-			baseURL+MinerDebugApiGetHashboardSupportedParametersProcedure,
-			opts...,
-		),
 		getHashboardsRecoveryInfo: connect.NewClient[miner_common_api.EmptyRequest, miner_debug_api.HashboardsRecoveryInfoResponse](
 			httpClient,
 			baseURL+MinerDebugApiGetHashboardsRecoveryInfoProcedure,
 			opts...,
 		),
-		createMinerNotificationEvent: connect.NewClient[miner_debug_api.MinerNotificationEvent, miner_debug_api.CreateMinerNotificationEventResponse](
+		createMinerNotificationEvent: connect.NewClient[miner_error_code.Error, miner_common_api.ApiResultResponse](
 			httpClient,
 			baseURL+MinerDebugApiCreateMinerNotificationEventProcedure,
 			opts...,
 		),
-		clearAsicNotificationEvent: connect.NewClient[miner_debug_api.MinerNotificationEvent, miner_common_api.ApiResultResponse](
+		clearMinerNotificationEvent: connect.NewClient[miner_error_code.Error, miner_common_api.ApiResultResponse](
 			httpClient,
-			baseURL+MinerDebugApiClearAsicNotificationEventProcedure,
-			opts...,
-		),
-		clearHashboardNotificationEvent: connect.NewClient[miner_debug_api.MinerNotificationEvent, miner_common_api.ApiResultResponse](
-			httpClient,
-			baseURL+MinerDebugApiClearHashboardNotificationEventProcedure,
-			opts...,
-		),
-		clearGenericNotificationEvent: connect.NewClient[miner_debug_api.MinerNotificationEvent, miner_common_api.ApiResultResponse](
-			httpClient,
-			baseURL+MinerDebugApiClearGenericNotificationEventProcedure,
-			opts...,
-		),
-		setLeds: connect.NewClient[miner_debug_api.SetLedsRequest, miner_common_api.ApiResultResponse](
-			httpClient,
-			baseURL+MinerDebugApiSetLedsProcedure,
-			opts...,
-		),
-		playLedSequence: connect.NewClient[miner_debug_api.PlayLedSequenceRequest, miner_common_api.ApiResultResponse](
-			httpClient,
-			baseURL+MinerDebugApiPlayLedSequenceProcedure,
-			opts...,
-		),
-		stopLedSequence: connect.NewClient[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse](
-			httpClient,
-			baseURL+MinerDebugApiStopLedSequenceProcedure,
+			baseURL+MinerDebugApiClearMinerNotificationEventProcedure,
 			opts...,
 		),
 		getRecoveryLimitsConfig: connect.NewClient[miner_common_api.EmptyRequest, miner_debug_api.RecoveryLimitsConfig](
@@ -410,43 +339,35 @@ func NewMinerDebugApiClient(httpClient connect.HTTPClient, baseURL string, opts 
 
 // minerDebugApiClient implements MinerDebugApiClient.
 type minerDebugApiClient struct {
-	getMiningInitStats              *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.MiningInitStats]
-	enablePsu                       *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
-	disablePsu                      *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
-	setPsuOutputVoltage             *connect.Client[miner_debug_api.PsuOutputVoltageRequest, miner_common_api.ApiResultResponse]
-	getPsuOutputVoltage             *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuOutputVoltageResponse]
-	disablePsuVoltageConfiguration  *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
-	enablePsuVoltageConfiguration   *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
-	getPsuMeasurements              *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuMeasurementsResponse]
-	getPsuTemperatures              *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuTemperaturesResponse]
-	getPsuFanSpeeds                 *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuFanSpeedsResponse]
-	getPsuFaults                    *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuFaultsResponse]
-	clearPsuFaults                  *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
-	setVoltageTuningMode            *connect.Client[miner_debug_api.VoltageTuningModeRequest, miner_common_api.ApiResultResponse]
-	getHashboardParameter           *connect.Client[miner_debug_api.HashboardParameterRequest, miner_debug_api.HashboardParameterResponse]
-	setHashboardParameter           *connect.Client[miner_debug_api.HashboardParameterRequest, miner_debug_api.HashboardParameterResponse]
-	getHashboardSupportedParameters *connect.Client[miner_debug_api.HashboardSupportedParametersRequest, miner_debug_api.HashboardSupportedParametersResponse]
-	getHashboardsRecoveryInfo       *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.HashboardsRecoveryInfoResponse]
-	createMinerNotificationEvent    *connect.Client[miner_debug_api.MinerNotificationEvent, miner_debug_api.CreateMinerNotificationEventResponse]
-	clearAsicNotificationEvent      *connect.Client[miner_debug_api.MinerNotificationEvent, miner_common_api.ApiResultResponse]
-	clearHashboardNotificationEvent *connect.Client[miner_debug_api.MinerNotificationEvent, miner_common_api.ApiResultResponse]
-	clearGenericNotificationEvent   *connect.Client[miner_debug_api.MinerNotificationEvent, miner_common_api.ApiResultResponse]
-	setLeds                         *connect.Client[miner_debug_api.SetLedsRequest, miner_common_api.ApiResultResponse]
-	playLedSequence                 *connect.Client[miner_debug_api.PlayLedSequenceRequest, miner_common_api.ApiResultResponse]
-	stopLedSequence                 *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
-	getRecoveryLimitsConfig         *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.RecoveryLimitsConfig]
-	setRecoveryLimitsConfig         *connect.Client[miner_debug_api.SetRecoveryLimitsConfigMessage, miner_common_api.ApiResultResponse]
-	setFanSpeed                     *connect.Client[miner_debug_api.SetFanSpeedRequest, miner_common_api.ApiResultResponse]
-	getFanSpeed                     *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.GetFanSpeedResponse]
-	setTemperatureThreshold         *connect.Client[miner_debug_api.SetTemperatureThresholdRequest, miner_common_api.ApiResultResponse]
-	setTemperaturePidTuning         *connect.Client[miner_debug_api.SetTemperaturePidTuningRequest, miner_common_api.ApiResultResponse]
-	getMinerErrorStats              *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.MinerErrorStats]
-	resetMinerErrorStats            *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
-	getHashboardErrorStats          *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.HashboardErrorStatsList]
-	resetHashboardErrorStats        *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
-	getPsuErrorStats                *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.PsuErrorStatsList]
-	resetPsuErrorStats              *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
-	setHardwareError                *connect.Client[miner_debug_api.SetHardwareErrorRequest, miner_common_api.ApiResultResponse]
+	getMiningInitStats             *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.MiningInitStats]
+	enablePsu                      *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
+	disablePsu                     *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
+	setPsuOutputVoltage            *connect.Client[miner_debug_api.PsuOutputVoltageRequest, miner_common_api.ApiResultResponse]
+	getPsuOutputVoltage            *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuOutputVoltageResponse]
+	disablePsuVoltageConfiguration *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
+	enablePsuVoltageConfiguration  *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
+	getPsuMeasurements             *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuMeasurementsResponse]
+	getPsuTemperatures             *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuTemperaturesResponse]
+	getPsuFanSpeeds                *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuFanSpeedsResponse]
+	getPsuFaults                   *connect.Client[miner_debug_api.PsuRequest, miner_debug_api.PsuFaultsResponse]
+	clearPsuFaults                 *connect.Client[miner_debug_api.PsuRequest, miner_common_api.ApiResultResponse]
+	setVoltageTuningMode           *connect.Client[miner_debug_api.VoltageTuningModeRequest, miner_common_api.ApiResultResponse]
+	getHashboardsRecoveryInfo      *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.HashboardsRecoveryInfoResponse]
+	createMinerNotificationEvent   *connect.Client[miner_error_code.Error, miner_common_api.ApiResultResponse]
+	clearMinerNotificationEvent    *connect.Client[miner_error_code.Error, miner_common_api.ApiResultResponse]
+	getRecoveryLimitsConfig        *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.RecoveryLimitsConfig]
+	setRecoveryLimitsConfig        *connect.Client[miner_debug_api.SetRecoveryLimitsConfigMessage, miner_common_api.ApiResultResponse]
+	setFanSpeed                    *connect.Client[miner_debug_api.SetFanSpeedRequest, miner_common_api.ApiResultResponse]
+	getFanSpeed                    *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.GetFanSpeedResponse]
+	setTemperatureThreshold        *connect.Client[miner_debug_api.SetTemperatureThresholdRequest, miner_common_api.ApiResultResponse]
+	setTemperaturePidTuning        *connect.Client[miner_debug_api.SetTemperaturePidTuningRequest, miner_common_api.ApiResultResponse]
+	getMinerErrorStats             *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.MinerErrorStats]
+	resetMinerErrorStats           *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	getHashboardErrorStats         *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.HashboardErrorStatsList]
+	resetHashboardErrorStats       *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	getPsuErrorStats               *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.PsuErrorStatsList]
+	resetPsuErrorStats             *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	setHardwareError               *connect.Client[miner_debug_api.SetHardwareErrorRequest, miner_common_api.ApiResultResponse]
 }
 
 // GetMiningInitStats calls miner_debug_api.MinerDebugApi.GetMiningInitStats.
@@ -515,61 +436,19 @@ func (c *minerDebugApiClient) SetVoltageTuningMode(ctx context.Context, req *con
 	return c.setVoltageTuningMode.CallUnary(ctx, req)
 }
 
-// GetHashboardParameter calls miner_debug_api.MinerDebugApi.GetHashboardParameter.
-func (c *minerDebugApiClient) GetHashboardParameter(ctx context.Context, req *connect.Request[miner_debug_api.HashboardParameterRequest]) (*connect.Response[miner_debug_api.HashboardParameterResponse], error) {
-	return c.getHashboardParameter.CallUnary(ctx, req)
-}
-
-// SetHashboardParameter calls miner_debug_api.MinerDebugApi.SetHashboardParameter.
-func (c *minerDebugApiClient) SetHashboardParameter(ctx context.Context, req *connect.Request[miner_debug_api.HashboardParameterRequest]) (*connect.Response[miner_debug_api.HashboardParameterResponse], error) {
-	return c.setHashboardParameter.CallUnary(ctx, req)
-}
-
-// GetHashboardSupportedParameters calls
-// miner_debug_api.MinerDebugApi.GetHashboardSupportedParameters.
-func (c *minerDebugApiClient) GetHashboardSupportedParameters(ctx context.Context, req *connect.Request[miner_debug_api.HashboardSupportedParametersRequest]) (*connect.Response[miner_debug_api.HashboardSupportedParametersResponse], error) {
-	return c.getHashboardSupportedParameters.CallUnary(ctx, req)
-}
-
 // GetHashboardsRecoveryInfo calls miner_debug_api.MinerDebugApi.GetHashboardsRecoveryInfo.
 func (c *minerDebugApiClient) GetHashboardsRecoveryInfo(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.HashboardsRecoveryInfoResponse], error) {
 	return c.getHashboardsRecoveryInfo.CallUnary(ctx, req)
 }
 
 // CreateMinerNotificationEvent calls miner_debug_api.MinerDebugApi.CreateMinerNotificationEvent.
-func (c *minerDebugApiClient) CreateMinerNotificationEvent(ctx context.Context, req *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_debug_api.CreateMinerNotificationEventResponse], error) {
+func (c *minerDebugApiClient) CreateMinerNotificationEvent(ctx context.Context, req *connect.Request[miner_error_code.Error]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
 	return c.createMinerNotificationEvent.CallUnary(ctx, req)
 }
 
-// ClearAsicNotificationEvent calls miner_debug_api.MinerDebugApi.ClearAsicNotificationEvent.
-func (c *minerDebugApiClient) ClearAsicNotificationEvent(ctx context.Context, req *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return c.clearAsicNotificationEvent.CallUnary(ctx, req)
-}
-
-// ClearHashboardNotificationEvent calls
-// miner_debug_api.MinerDebugApi.ClearHashboardNotificationEvent.
-func (c *minerDebugApiClient) ClearHashboardNotificationEvent(ctx context.Context, req *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return c.clearHashboardNotificationEvent.CallUnary(ctx, req)
-}
-
-// ClearGenericNotificationEvent calls miner_debug_api.MinerDebugApi.ClearGenericNotificationEvent.
-func (c *minerDebugApiClient) ClearGenericNotificationEvent(ctx context.Context, req *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return c.clearGenericNotificationEvent.CallUnary(ctx, req)
-}
-
-// SetLeds calls miner_debug_api.MinerDebugApi.SetLeds.
-func (c *minerDebugApiClient) SetLeds(ctx context.Context, req *connect.Request[miner_debug_api.SetLedsRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return c.setLeds.CallUnary(ctx, req)
-}
-
-// PlayLedSequence calls miner_debug_api.MinerDebugApi.PlayLedSequence.
-func (c *minerDebugApiClient) PlayLedSequence(ctx context.Context, req *connect.Request[miner_debug_api.PlayLedSequenceRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return c.playLedSequence.CallUnary(ctx, req)
-}
-
-// StopLedSequence calls miner_debug_api.MinerDebugApi.StopLedSequence.
-func (c *minerDebugApiClient) StopLedSequence(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return c.stopLedSequence.CallUnary(ctx, req)
+// ClearMinerNotificationEvent calls miner_debug_api.MinerDebugApi.ClearMinerNotificationEvent.
+func (c *minerDebugApiClient) ClearMinerNotificationEvent(ctx context.Context, req *connect.Request[miner_error_code.Error]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return c.clearMinerNotificationEvent.CallUnary(ctx, req)
 }
 
 // GetRecoveryLimitsConfig calls miner_debug_api.MinerDebugApi.GetRecoveryLimitsConfig.
@@ -654,19 +533,10 @@ type MinerDebugApiHandler interface {
 	ClearPsuFaults(context.Context, *connect.Request[miner_debug_api.PsuRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	SetVoltageTuningMode(context.Context, *connect.Request[miner_debug_api.VoltageTuningModeRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	// Hashboard debug functionality
-	GetHashboardParameter(context.Context, *connect.Request[miner_debug_api.HashboardParameterRequest]) (*connect.Response[miner_debug_api.HashboardParameterResponse], error)
-	SetHashboardParameter(context.Context, *connect.Request[miner_debug_api.HashboardParameterRequest]) (*connect.Response[miner_debug_api.HashboardParameterResponse], error)
-	GetHashboardSupportedParameters(context.Context, *connect.Request[miner_debug_api.HashboardSupportedParametersRequest]) (*connect.Response[miner_debug_api.HashboardSupportedParametersResponse], error)
 	GetHashboardsRecoveryInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.HashboardsRecoveryInfoResponse], error)
 	// Notifications
-	CreateMinerNotificationEvent(context.Context, *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_debug_api.CreateMinerNotificationEventResponse], error)
-	ClearAsicNotificationEvent(context.Context, *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_common_api.ApiResultResponse], error)
-	ClearHashboardNotificationEvent(context.Context, *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_common_api.ApiResultResponse], error)
-	ClearGenericNotificationEvent(context.Context, *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_common_api.ApiResultResponse], error)
-	// Led control
-	SetLeds(context.Context, *connect.Request[miner_debug_api.SetLedsRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
-	PlayLedSequence(context.Context, *connect.Request[miner_debug_api.PlayLedSequenceRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
-	StopLedSequence(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	CreateMinerNotificationEvent(context.Context, *connect.Request[miner_error_code.Error]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	ClearMinerNotificationEvent(context.Context, *connect.Request[miner_error_code.Error]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	// Recovery limits
 	GetRecoveryLimitsConfig(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimitsConfig], error)
 	SetRecoveryLimitsConfig(context.Context, *connect.Request[miner_debug_api.SetRecoveryLimitsConfigMessage]) (*connect.Response[miner_common_api.ApiResultResponse], error)
@@ -757,21 +627,6 @@ func NewMinerDebugApiHandler(svc MinerDebugApiHandler, opts ...connect.HandlerOp
 		svc.SetVoltageTuningMode,
 		opts...,
 	)
-	minerDebugApiGetHashboardParameterHandler := connect.NewUnaryHandler(
-		MinerDebugApiGetHashboardParameterProcedure,
-		svc.GetHashboardParameter,
-		opts...,
-	)
-	minerDebugApiSetHashboardParameterHandler := connect.NewUnaryHandler(
-		MinerDebugApiSetHashboardParameterProcedure,
-		svc.SetHashboardParameter,
-		opts...,
-	)
-	minerDebugApiGetHashboardSupportedParametersHandler := connect.NewUnaryHandler(
-		MinerDebugApiGetHashboardSupportedParametersProcedure,
-		svc.GetHashboardSupportedParameters,
-		opts...,
-	)
 	minerDebugApiGetHashboardsRecoveryInfoHandler := connect.NewUnaryHandler(
 		MinerDebugApiGetHashboardsRecoveryInfoProcedure,
 		svc.GetHashboardsRecoveryInfo,
@@ -782,34 +637,9 @@ func NewMinerDebugApiHandler(svc MinerDebugApiHandler, opts ...connect.HandlerOp
 		svc.CreateMinerNotificationEvent,
 		opts...,
 	)
-	minerDebugApiClearAsicNotificationEventHandler := connect.NewUnaryHandler(
-		MinerDebugApiClearAsicNotificationEventProcedure,
-		svc.ClearAsicNotificationEvent,
-		opts...,
-	)
-	minerDebugApiClearHashboardNotificationEventHandler := connect.NewUnaryHandler(
-		MinerDebugApiClearHashboardNotificationEventProcedure,
-		svc.ClearHashboardNotificationEvent,
-		opts...,
-	)
-	minerDebugApiClearGenericNotificationEventHandler := connect.NewUnaryHandler(
-		MinerDebugApiClearGenericNotificationEventProcedure,
-		svc.ClearGenericNotificationEvent,
-		opts...,
-	)
-	minerDebugApiSetLedsHandler := connect.NewUnaryHandler(
-		MinerDebugApiSetLedsProcedure,
-		svc.SetLeds,
-		opts...,
-	)
-	minerDebugApiPlayLedSequenceHandler := connect.NewUnaryHandler(
-		MinerDebugApiPlayLedSequenceProcedure,
-		svc.PlayLedSequence,
-		opts...,
-	)
-	minerDebugApiStopLedSequenceHandler := connect.NewUnaryHandler(
-		MinerDebugApiStopLedSequenceProcedure,
-		svc.StopLedSequence,
+	minerDebugApiClearMinerNotificationEventHandler := connect.NewUnaryHandler(
+		MinerDebugApiClearMinerNotificationEventProcedure,
+		svc.ClearMinerNotificationEvent,
 		opts...,
 	)
 	minerDebugApiGetRecoveryLimitsConfigHandler := connect.NewUnaryHandler(
@@ -905,28 +735,12 @@ func NewMinerDebugApiHandler(svc MinerDebugApiHandler, opts ...connect.HandlerOp
 			minerDebugApiClearPsuFaultsHandler.ServeHTTP(w, r)
 		case MinerDebugApiSetVoltageTuningModeProcedure:
 			minerDebugApiSetVoltageTuningModeHandler.ServeHTTP(w, r)
-		case MinerDebugApiGetHashboardParameterProcedure:
-			minerDebugApiGetHashboardParameterHandler.ServeHTTP(w, r)
-		case MinerDebugApiSetHashboardParameterProcedure:
-			minerDebugApiSetHashboardParameterHandler.ServeHTTP(w, r)
-		case MinerDebugApiGetHashboardSupportedParametersProcedure:
-			minerDebugApiGetHashboardSupportedParametersHandler.ServeHTTP(w, r)
 		case MinerDebugApiGetHashboardsRecoveryInfoProcedure:
 			minerDebugApiGetHashboardsRecoveryInfoHandler.ServeHTTP(w, r)
 		case MinerDebugApiCreateMinerNotificationEventProcedure:
 			minerDebugApiCreateMinerNotificationEventHandler.ServeHTTP(w, r)
-		case MinerDebugApiClearAsicNotificationEventProcedure:
-			minerDebugApiClearAsicNotificationEventHandler.ServeHTTP(w, r)
-		case MinerDebugApiClearHashboardNotificationEventProcedure:
-			minerDebugApiClearHashboardNotificationEventHandler.ServeHTTP(w, r)
-		case MinerDebugApiClearGenericNotificationEventProcedure:
-			minerDebugApiClearGenericNotificationEventHandler.ServeHTTP(w, r)
-		case MinerDebugApiSetLedsProcedure:
-			minerDebugApiSetLedsHandler.ServeHTTP(w, r)
-		case MinerDebugApiPlayLedSequenceProcedure:
-			minerDebugApiPlayLedSequenceHandler.ServeHTTP(w, r)
-		case MinerDebugApiStopLedSequenceProcedure:
-			minerDebugApiStopLedSequenceHandler.ServeHTTP(w, r)
+		case MinerDebugApiClearMinerNotificationEventProcedure:
+			minerDebugApiClearMinerNotificationEventHandler.ServeHTTP(w, r)
 		case MinerDebugApiGetRecoveryLimitsConfigProcedure:
 			minerDebugApiGetRecoveryLimitsConfigHandler.ServeHTTP(w, r)
 		case MinerDebugApiSetRecoveryLimitsConfigProcedure:
@@ -1014,48 +828,16 @@ func (UnimplementedMinerDebugApiHandler) SetVoltageTuningMode(context.Context, *
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.SetVoltageTuningMode is not implemented"))
 }
 
-func (UnimplementedMinerDebugApiHandler) GetHashboardParameter(context.Context, *connect.Request[miner_debug_api.HashboardParameterRequest]) (*connect.Response[miner_debug_api.HashboardParameterResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.GetHashboardParameter is not implemented"))
-}
-
-func (UnimplementedMinerDebugApiHandler) SetHashboardParameter(context.Context, *connect.Request[miner_debug_api.HashboardParameterRequest]) (*connect.Response[miner_debug_api.HashboardParameterResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.SetHashboardParameter is not implemented"))
-}
-
-func (UnimplementedMinerDebugApiHandler) GetHashboardSupportedParameters(context.Context, *connect.Request[miner_debug_api.HashboardSupportedParametersRequest]) (*connect.Response[miner_debug_api.HashboardSupportedParametersResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.GetHashboardSupportedParameters is not implemented"))
-}
-
 func (UnimplementedMinerDebugApiHandler) GetHashboardsRecoveryInfo(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.HashboardsRecoveryInfoResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.GetHashboardsRecoveryInfo is not implemented"))
 }
 
-func (UnimplementedMinerDebugApiHandler) CreateMinerNotificationEvent(context.Context, *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_debug_api.CreateMinerNotificationEventResponse], error) {
+func (UnimplementedMinerDebugApiHandler) CreateMinerNotificationEvent(context.Context, *connect.Request[miner_error_code.Error]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.CreateMinerNotificationEvent is not implemented"))
 }
 
-func (UnimplementedMinerDebugApiHandler) ClearAsicNotificationEvent(context.Context, *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.ClearAsicNotificationEvent is not implemented"))
-}
-
-func (UnimplementedMinerDebugApiHandler) ClearHashboardNotificationEvent(context.Context, *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.ClearHashboardNotificationEvent is not implemented"))
-}
-
-func (UnimplementedMinerDebugApiHandler) ClearGenericNotificationEvent(context.Context, *connect.Request[miner_debug_api.MinerNotificationEvent]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.ClearGenericNotificationEvent is not implemented"))
-}
-
-func (UnimplementedMinerDebugApiHandler) SetLeds(context.Context, *connect.Request[miner_debug_api.SetLedsRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.SetLeds is not implemented"))
-}
-
-func (UnimplementedMinerDebugApiHandler) PlayLedSequence(context.Context, *connect.Request[miner_debug_api.PlayLedSequenceRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.PlayLedSequence is not implemented"))
-}
-
-func (UnimplementedMinerDebugApiHandler) StopLedSequence(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.StopLedSequence is not implemented"))
+func (UnimplementedMinerDebugApiHandler) ClearMinerNotificationEvent(context.Context, *connect.Request[miner_error_code.Error]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.ClearMinerNotificationEvent is not implemented"))
 }
 
 func (UnimplementedMinerDebugApiHandler) GetRecoveryLimitsConfig(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimitsConfig], error) {

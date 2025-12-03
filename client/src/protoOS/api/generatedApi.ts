@@ -110,6 +110,36 @@ export interface AuthTokens {
   refresh_token: string;
 }
 
+/** Information about an available PSU firmware file */
+export interface AvailablePsuFirmware {
+  /**
+   * SHA-256 hash of the firmware file
+   * @example "b5f8a2f4e5c19ac7e2e4d0a87f3a1a6b6e0c8b991f2e99a4f5cd5e512a5f4d1e3"
+   */
+  sha256: string;
+  /**
+   * Firmware file name
+   * @example "chicony-s24-1.18.22.bin"
+   */
+  filename: string;
+  /**
+   * Firmware version string
+   * @example "1.18.22"
+   */
+  firmware_version: string;
+  /**
+   * Compatible PSU model
+   * @example "S24"
+   */
+  model: string;
+  /**
+   * File size in bytes
+   * @format int64
+   * @example 1048576
+   */
+  size_bytes: number;
+}
+
 /** Request data for changing a user's password with current password verification */
 export interface ChangePasswordRequest {
   /**
@@ -763,6 +793,20 @@ export interface HashrateResponseHashratedata {
   duration?: TimeSeriesDuration;
 }
 
+/** Hashrate calculated over a specific time window */
+export interface HashrateWindow {
+  /**
+   * Duration of the time window in minutes
+   * @example 5
+   */
+  duration_minutes: number;
+  /**
+   * Hashrate in TH/s over the time window
+   * @example 120.5
+   */
+  hashrate_ths: number;
+}
+
 export interface LocateSystemParams {
   /**
    * The duration in seconds for which to turn on the LED, with a max value of 300 seconds. If not specified, a default value of 30 seconds will be used. Requests made while the LED is on will be ignored.
@@ -925,6 +969,11 @@ export interface MiningStatusMiningstatus {
 /** Mining target configuration for power and performance settings */
 export interface MiningTarget {
   /**
+   * If enabled, will keep power evenly distributed across bays to balance power phases.
+   * @example false
+   */
+  balance_bays?: boolean;
+  /**
    * The performance mode the miner will operate in. Modes:
    *  - MaximumHashrate: Will run at the power target to maximum hashrate.
    *  - Efficiency: Will run at or below the power target to optimize J/TH.
@@ -936,6 +985,11 @@ export interface MiningTarget {
 
 /** Response containing current mining target configuration */
 export interface MiningTargetResponse {
+  /**
+   * Phase balancing configuration state.
+   * @example false
+   */
+  balance_bays?: boolean;
   /** @example 2500 */
   default_power_target_watts?: number;
   /**
@@ -996,20 +1050,14 @@ export interface NetworkInfoNetworkinfo {
 
 /** Notification error information with source and details */
 export interface NotificationError {
-  asic_index?: number;
   component_index?: number;
-  /** @example "{"FanSlow":{"fan_rpm_target":1000,"fan_rpm_tach":900}}" */
-  details?: string;
   /** @example "FanSlow" */
   error_code?: string;
-  error_level?: "Error" | "Warning";
-  expired_at?: number;
-  hashboard_index?: number;
-  inserted_at?: number;
   /** @example "Fan 1 is not operating correctly." */
   message?: string;
-  /** @example "Miner" */
-  source?: "Miner" | "Hashboard" | "ASIC";
+  /** @example "rig" */
+  source?: "rig" | "fan" | "psu" | "hashboard";
+  timestamp?: number;
 }
 
 /** Operating system information and version details */
@@ -1103,6 +1151,16 @@ export interface Pool {
    * @example 134000
    */
   difficulty_rejected_shares?: number;
+  /**
+   * The number of duplicate shares that were detected and dropped by the pool interface.
+   * @example 5
+   */
+  duplicate?: number;
+  /**
+   * Hashrate calculated over different time windows. This field provides a flexible array format for future extensions.
+   * @example [{"duration_minutes":5,"hashrate_ths":120.5},{"duration_minutes":10,"hashrate_ths":118.3},{"duration_minutes":60,"hashrate_ths":115.7},{"duration_minutes":180,"hashrate_ths":116.2}]
+   */
+  hashrate?: HashrateWindow[];
   /**
    * Each pool has a unique ID from 0 to 2, with 0 representing the highest priority and 2 representing the lowest priority.
    * @example 0
@@ -1214,6 +1272,14 @@ export interface PoolsList {
   pools?: Pool[];
 }
 
+export interface PostUpdatePsuParams {
+  /**
+   * Force update even if already scheduled and bypass version checks during execution
+   * @default false
+   */
+  force?: boolean;
+}
+
 /** Response containing historical power consumption data over time */
 export interface PowerResponse {
   /** Power data response with time series information */
@@ -1231,6 +1297,14 @@ export interface PowerResponsePowerdata {
   data?: TimeSeriesData[];
   /** Duration of time series data returned. */
   duration?: TimeSeriesDuration;
+}
+
+/** Power supply information including firmware update status */
+export interface PowerSuppliesResponse {
+  /** PSU firmware update status information */
+  psu_update_status?: PsuUpdateStatus;
+  /** @example [{"psu_sn":"CHI123456789","slot":1,"manufacturer":"Chicony","hw_revision":"A1","model":"S24","vendor":"Chicony"}] */
+  psus_info?: PsuInfo[];
 }
 
 /** Available field types for PSU-level data */
@@ -1367,6 +1441,31 @@ export interface PsuTemperature {
   hotspot: number;
   /** Unit of measurement for metrics */
   unit: MetricUnit;
+}
+
+/** Status of PSU firmware update */
+export enum PsuUpdateResultStatus {
+  Scheduled = "scheduled",
+  Success = "success",
+  Timeout = "timeout",
+  Failed = "failed",
+  Unknown = "unknown",
+}
+
+/**
+ * PSU firmware update status information
+ * @example {"available_firmware":[{"filename":"chicony-s24-1.18.22.bin","firmware_version":"1.18.22","size_bytes":1048576,"sha256":"b5f8a2f4e5c19ac7e2e4d0a87f3a1a6b6e0c8b991f2e99a4f5cd5e512a5f4d1e3","model":"S24"}],"last_update":"2025-11-10T12:42:19Z","status":"success"}
+ */
+export interface PsuUpdateStatus {
+  available_firmware?: AvailablePsuFirmware[];
+  /**
+   * Timestamp of the last PSU firmware update
+   * @format date-time
+   * @example "2025-11-10T12:42:19Z"
+   */
+  last_update?: string;
+  /** Current status of PSU firmware update */
+  status: PsuUpdateResultStatus;
 }
 
 /**
@@ -2059,7 +2158,7 @@ export class HttpClient<SecurityDataType = unknown> {
 
 /**
  * @title Mining Development Kit API
- * @version 1.5.0
+ * @version 1.7.1
  * @license MIT (https://opensource.org/license/mit)
  * @baseUrl https://virtserver.swaggerhub.com/kkurucz/mining_development_kit_api/1.0.0
  * @contact <mining.support@block.xyz>
@@ -2729,7 +2828,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     /**
      * @description The get power supplies endpoint returns the full list of currently configured power supplies.
      *
-     * @tags PSUs, Power
+     * @tags PSUs
      * @name ListPowerSupplies
      * @request GET:/api/v1/hardware/psus
      */
@@ -2737,6 +2836,39 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<PsusInfo, MessageResponse>({
         path: `/api/v1/hardware/psus`,
         method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns information about all PSUs including firmware update status and available firmware updates.
+     *
+     * @tags PSUs
+     * @name GetPowerSupplies
+     * @request GET:/api/v1/power-supplies
+     */
+    getPowerSupplies: (params: RequestParams = {}) =>
+      this.request<PowerSuppliesResponse, MessageResponse>({
+        path: `/api/v1/power-supplies`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Schedules a PSU firmware update. This command enables the PSU update service so that the update will automatically run on the next reboot of the miner. Use the `force` parameter to bypass scheduling checks and allow re-flashing the same firmware version.
+     *
+     * @tags PSUs
+     * @name PostUpdatePsu
+     * @request POST:/api/v1/power-supplies/update
+     * @secure
+     */
+    postUpdatePsu: (query: PostUpdatePsuParams, params: RequestParams = {}) =>
+      this.request<MessageResponse, MessageResponse>({
+        path: `/api/v1/power-supplies/update`,
+        method: "POST",
+        query: query,
+        secure: true,
         format: "json",
         ...params,
       }),

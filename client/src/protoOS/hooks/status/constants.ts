@@ -139,6 +139,10 @@ export const singleErrorStatusTitles: Record<string, { title: string; subtitle: 
  * Used when displaying errors without specific error code mappings
  */
 export const genericStatusTitles: Record<ErrorSource, { title: string; subtitle: string }> = {
+  RIG: {
+    title: "Your miner has a system issue",
+    subtitle: "Check diagnostics for details",
+  },
   FAN: {
     title: "Your miner has a fan issue",
     subtitle: "Repair now to prevent overheating",
@@ -150,18 +154,6 @@ export const genericStatusTitles: Record<ErrorSource, { title: string; subtitle:
   HASHBOARD: {
     title: "Your miner has a hashboard issue",
     subtitle: "Repair now to prevent reduced hashrate",
-  },
-  ASIC: {
-    title: "Your miner has an ASIC issue",
-    subtitle: "Repair now to prevent reduced hashrate",
-  },
-  POOL: {
-    title: "Your miner has a pool connection issue",
-    subtitle: "Check pool configuration",
-  },
-  SYSTEM: {
-    title: "Your miner has a system issue",
-    subtitle: "Check diagnostics for details",
   },
 };
 

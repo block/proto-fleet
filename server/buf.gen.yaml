@@ -47,3 +47,15 @@ managed:
     - file_option: go_package
       value: github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_ui_api
       path: miner_ui_api.proto
+    - file_option: go_package
+      value: github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_psu_api
+      path: miner_psu_api.proto
+    - file_option: go_package
+      value: github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_fan_api
+      path: miner_fan_api.proto
+    - file_option: go_package
+      value: github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_hb_api
+      path: miner_hb_api.proto
+    - file_option: go_package
+      value: github.com/btc-mining/proto-fleet/server/generated/miner-api/miner_error_code
+      path: miner_error_code.proto

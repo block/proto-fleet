@@ -2,13 +2,13 @@ package errors
 
 // ErrorDefinition defines a type of error that can be triggered
 type ErrorDefinition struct {
-	Code         string                 `json:"code"`
-	Name         string                 `json:"name"`
-	Description  string                 `json:"description"`
-	Category     string                 `json:"category"`
-	DefaultLevel string                 `json:"default_level"` // Error or Warning
-	Parameters   []ParameterDefinition  `json:"parameters"`
-	Example      map[string]interface{} `json:"example,omitempty"`
+	Code        string                 `json:"code"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Category    string                 `json:"category"`
+	Source      string                 `json:"source"` // rig, fan, psu, hashboard
+	Parameters  []ParameterDefinition  `json:"parameters"`
+	Example     map[string]interface{} `json:"example,omitempty"`
 }
 
 // ParameterDefinition defines a parameter for an error type
@@ -33,11 +33,11 @@ func GetManualErrorDefinitions() []ErrorDefinition {
 	return []ErrorDefinition{
 		// Hashboard Errors
 		{
-			Code:         "HashboardOverheat",
-			Name:         "Hashboard Overheat",
-			Description:  "Hashboard temperature exceeds safe operating limits",
-			Category:     "Hashboard",
-			DefaultLevel: "Error",
+			Code:        "HashboardOverheat",
+			Name:        "Hashboard Overheat",
+			Description: "Hashboard temperature exceeds safe operating limits",
+			Category:    "Hashboard",
+			Source:      "hashboard",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},
@@ -49,7 +49,7 @@ func GetManualErrorDefinitions() []ErrorDefinition {
 			Name:         "Hashboard Power Lost",
 			Description:  "Hashboard has lost power",
 			Category:     "Hashboard",
-			DefaultLevel: "Error",
+			Source:      "hashboard",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},
@@ -60,7 +60,7 @@ func GetManualErrorDefinitions() []ErrorDefinition {
 			Name:         "Hashboard USB Connection Lost",
 			Description:  "Lost USB connection to hashboard",
 			Category:     "Hashboard",
-			DefaultLevel: "Error",
+			Source:      "hashboard",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},
@@ -73,18 +73,18 @@ func GetManualErrorDefinitions() []ErrorDefinition {
 			Name:         "ASIC Enumeration Failure",
 			Description:  "Failed to enumerate expected number of ASICs",
 			Category:     "ASIC",
-			DefaultLevel: "Error",
+			Source:      "hashboard",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},
 			},
 		},
 		{
-			Code:         "AsicOverTemp",
-			Name:         "ASIC Over Temperature",
-			Description:  "ASIC temperature exceeds safe operating limits",
-			Category:     "ASIC",
-			DefaultLevel: "Warning",
+			Code:        "AsicOverTemp",
+			Name:        "ASIC Over Temperature",
+			Description: "ASIC temperature exceeds safe operating limits",
+			Category:    "ASIC",
+			Source:      "hashboard",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},
@@ -93,11 +93,11 @@ func GetManualErrorDefinitions() []ErrorDefinition {
 			},
 		},
 		{
-			Code:         "AsicNotHashing",
-			Name:         "ASICs Not Hashing",
-			Description:  "One or more ASICs are not producing valid hashes",
-			Category:     "ASIC",
-			DefaultLevel: "Warning",
+			Code:        "AsicNotHashing",
+			Name:        "ASICs Not Hashing",
+			Description: "One or more ASICs are not producing valid hashes",
+			Category:    "ASIC",
+			Source:      "hashboard",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},
@@ -107,11 +107,11 @@ func GetManualErrorDefinitions() []ErrorDefinition {
 
 		// PSU Errors
 		{
-			Code:         "PSUHardwareFault",
-			Name:         "PSU Hardware Fault",
-			Description:  "Power supply unit has detected a hardware fault",
-			Category:     "PSU",
-			DefaultLevel: "Error",
+			Code:        "PSUHardwareFault",
+			Name:        "PSU Hardware Fault",
+			Description: "Power supply unit has detected a hardware fault",
+			Category:    "PSU",
+			Source:      "psu",
 			Parameters: []ParameterDefinition{
 				{Name: "psu_index", Type: "number", Required: false, Description: "PSU index", Default: 0},
 				{Name: "fault_type", Type: "string", Required: true, Description: "Type of fault"},
@@ -122,7 +122,7 @@ func GetManualErrorDefinitions() []ErrorDefinition {
 			Name:         "PSU Communication Lost",
 			Description:  "Lost communication with power supply unit",
 			Category:     "PSU",
-			DefaultLevel: "Error",
+			Source:      "psu",
 			Parameters: []ParameterDefinition{
 				{Name: "psu_index", Type: "number", Required: false, Description: "PSU index", Default: 0},
 			},
@@ -134,7 +134,7 @@ func GetManualErrorDefinitions() []ErrorDefinition {
 			Name:         "Fan Running Slow",
 			Description:  "Fan RPM is below expected speed",
 			Category:     "Cooling",
-			DefaultLevel: "Warning",
+			Source:      "fan",
 			Parameters: []ParameterDefinition{
 				{Name: "fan_bay_index", Type: "number", Required: true, Description: "Fan bay index"},
 				{Name: "fan_id", Type: "number", Required: true, Description: "Fan identifier"},
@@ -147,7 +147,7 @@ func GetManualErrorDefinitions() []ErrorDefinition {
 			Name:         "Fan Not Spinning",
 			Description:  "Fan has stopped spinning",
 			Category:     "Cooling",
-			DefaultLevel: "Error",
+			Source:      "fan",
 			Parameters: []ParameterDefinition{
 				{Name: "fan_bay_index", Type: "number", Required: true, Description: "Fan bay index"},
 				{Name: "fan_id", Type: "number", Required: true, Description: "Fan identifier"},
@@ -160,7 +160,7 @@ func GetManualErrorDefinitions() []ErrorDefinition {
 			Name:         "Insufficient Cooling",
 			Description:  "Not enough operational fans for adequate cooling",
 			Category:     "Cooling",
-			DefaultLevel: "Error",
+			Source:      "fan",
 			Parameters: []ParameterDefinition{
 				{Name: "bay_index", Type: "number", Required: true, Description: "Bay index"},
 				{Name: "num_operational_fans", Type: "number", Required: true, Description: "Number of operational fans"},
@@ -176,7 +176,7 @@ func GetManualErrorDefinitions() []ErrorDefinition {
 			Name:         "Pool Connection Lost",
 			Description:  "Lost connection to mining pool",
 			Category:     "Pool",
-			DefaultLevel: "Error",
+			Source:      "rig",
 			Parameters: []ParameterDefinition{
 				{Name: "pool_id", Type: "number", Required: false, Description: "Pool ID", Default: 1},
 				{Name: "pool_url", Type: "string", Required: false, Description: "Pool URL"},
@@ -187,7 +187,7 @@ func GetManualErrorDefinitions() []ErrorDefinition {
 			Name:         "No Pool Configured",
 			Description:  "No mining pool has been configured",
 			Category:     "Pool",
-			DefaultLevel: "Error",
+			Source:      "rig",
 			Parameters: []ParameterDefinition{},
 		},
 
@@ -197,7 +197,7 @@ func GetManualErrorDefinitions() []ErrorDefinition {
 			Name:         "Mixed Hashboard Types",
 			Description:  "Different hashboard types detected in the same system",
 			Category:     "System",
-			DefaultLevel: "Error",
+			Source:      "rig",
 			Parameters: []ParameterDefinition{
 				{Name: "types", Type: "array", Required: false, Description: "Array of detected hashboard types"},
 			},
@@ -207,7 +207,7 @@ func GetManualErrorDefinitions() []ErrorDefinition {
 			Name:         "Network Interface Down",
 			Description:  "Network interface is not operational",
 			Category:     "System",
-			DefaultLevel: "Error",
+			Source:      "rig",
 			Parameters: []ParameterDefinition{
 				{Name: "interface", Type: "string", Required: false, Description: "Interface name", Default: "eth0"},
 			},

@@ -17,7 +17,7 @@ function ControlBoardStatusCard() {
   const cpuCapacity = systemInfo?.os?.status?.cpu_load_percent || 0;
 
   // Check for errors
-  const errors = useErrorsByComponent("SYSTEM", 0);
+  const errors = useErrorsByComponent("RIG", 0);
   const hasErrors = errors.length > 0;
 
   const formatCpuCapacity = (capacity: number) => {
@@ -40,7 +40,7 @@ function ControlBoardStatusCard() {
           show={showComponentStatusModal}
           onClose={() => setShowComponentStatusModal(false)}
           componentAddress={{
-            source: "SYSTEM",
+            source: "RIG",
           }}
           showBackButton={false}
         />

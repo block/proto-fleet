@@ -1,7 +1,6 @@
 package errors
 
 import (
-	"encoding/json"
 	"sync"
 	"time"
 
@@ -23,164 +22,47 @@ func NewStore() *Store {
 
 // InjectedError represents an error injected into the system
 type InjectedError struct {
-	ID         string                 `json:"id"`
-	ErrorCode  string                 `json:"error_code"`
-	ErrorLevel string                 `json:"error_level"` // "Error" | "Warning"
-	Message    string                 `json:"message"`
-	Details    map[string]interface{} `json:"details"`
-	// Component indices for error location
+	ID             string `json:"id"`
+	ErrorCode      string `json:"error_code"`
+	Source         string `json:"source"` // "rig" | "fan" | "psu" | "hashboard"
 	ComponentIndex *int   `json:"component_index,omitempty"`
-	HashboardIndex *int   `json:"hashboard_index,omitempty"`
-	AsicIndex      *int   `json:"asic_index,omitempty"`
-	InsertedAt     int64  `json:"inserted_at"` // Unix timestamp
-	ExpiredAt      *int64 `json:"expired_at,omitempty"`
-	TTLSeconds     *int   `json:"ttl_seconds,omitempty"`
+	Message        string `json:"message"`
+	Timestamp      int64  `json:"timestamp"` // Unix timestamp
+	ExpiredAt      *int64 `json:"expired_at,omitempty"` // Internal tracking only
+	TTLSeconds     *int   `json:"ttl_seconds,omitempty"` // Internal tracking only
 }
 
 // ToAPIFormat converts the error to the miner API format
-// Following the NotificationError type from MDK_API.json
+// Following the simplified NotificationError type
 func (e *InjectedError) ToAPIFormat() map[string]interface{} {
 	apiError := map[string]interface{}{
-		"error_code":  e.ErrorCode,
-		"error_level": e.ErrorLevel,
-		"message":     e.Message,
-		"inserted_at": e.InsertedAt,
+		"error_code": e.ErrorCode,
+		"source":     e.Source,
+		"message":    e.Message,
+		"timestamp":  e.Timestamp,
 	}
 
-	// Determine source based on which indices are present
-	source := "Miner" // Default source
-	if e.AsicIndex != nil {
-		source = "ASIC"
-		apiError["asic_index"] = *e.AsicIndex
-	}
-	if e.HashboardIndex != nil {
-		if source != "ASIC" {
-			source = "Hashboard"
-		}
-		apiError["hashboard_index"] = *e.HashboardIndex
-	}
+	// Add component_index if set
 	if e.ComponentIndex != nil {
 		apiError["component_index"] = *e.ComponentIndex
-	}
-	apiError["source"] = source
-
-	// Add expired_at if set
-	if e.ExpiredAt != nil {
-		apiError["expired_at"] = *e.ExpiredAt
-	} else {
-		apiError["expired_at"] = 0 // Active errors have expired_at = 0
-	}
-
-	// Format details as a JSON string matching the Rust ErrorDetails enum
-	// The details field is a JSON string with the error variant as the key
-	if e.Details != nil && len(e.Details) > 0 {
-		// Build the details object based on the error code
-		var detailsObj interface{}
-
-		switch e.ErrorCode {
-		case "FanSlow", "FanNotSpinning":
-			// Match Rust struct: {fan_bay_index, fan_id, fan_pwm_target_pct, fan_rpm_tach}
-			detailsObj = map[string]interface{}{
-				e.ErrorCode: map[string]interface{}{
-					"fan_bay_index":      e.Details["fan_bay_index"],
-					"fan_id":            e.Details["fan_id"],
-					"fan_pwm_target_pct": e.Details["fan_pwm_target_pct"],
-					"fan_rpm_tach":      e.Details["fan_rpm_tach"],
-				},
-			}
-		case "HashboardOverheat":
-			// Match Rust struct: {hb_slot, hb_sn, temperature}
-			detailsObj = map[string]interface{}{
-				e.ErrorCode: map[string]interface{}{
-					"hb_slot":     e.Details["hb_slot"],
-					"hb_sn":       e.Details["hb_sn"],
-					"temperature": e.Details["temperature"],
-				},
-			}
-		case "AsicOverTemp":
-			// Match Rust struct: {hb_slot, hb_sn, asic_index, temperature}
-			detailsObj = map[string]interface{}{
-				e.ErrorCode: map[string]interface{}{
-					"hb_slot":     e.Details["hb_slot"],
-					"hb_sn":       e.Details["hb_sn"],
-					"asic_index":  e.Details["asic_index"],
-					"temperature": e.Details["temperature"],
-				},
-			}
-		case "PoolConnectionLost":
-			// Match Rust struct: {pool_id, pool_url}
-			detailsObj = map[string]interface{}{
-				e.ErrorCode: map[string]interface{}{
-					"pool_id":  e.Details["pool_id"],
-					"pool_url": e.Details["pool_url"],
-				},
-			}
-		case "NoPoolConfigured":
-			// Empty struct
-			detailsObj = map[string]interface{}{
-				e.ErrorCode: map[string]interface{}{},
-			}
-		case "HashboardPowerLost", "HashboardUsbConnectionLost":
-			// Match Rust struct: {hb_slot, hb_sn}
-			detailsObj = map[string]interface{}{
-				e.ErrorCode: map[string]interface{}{
-					"hb_slot": e.Details["hb_slot"],
-					"hb_sn":   e.Details["hb_sn"],
-				},
-			}
-		case "InsufficientCooling":
-			// Match Rust struct: {bay_index, num_operational_fans, num_expected_fans, failed_fans, required_fans}
-			detailsObj = map[string]interface{}{
-				e.ErrorCode: map[string]interface{}{
-					"bay_index":            e.Details["bay_index"],
-					"num_operational_fans": e.Details["num_operational_fans"],
-					"num_expected_fans":    e.Details["num_expected_fans"],
-					"failed_fans":         e.Details["failed_fans"],
-					"required_fans":       e.Details["required_fans"],
-				},
-			}
-		default:
-			// For any other error types, just wrap all details
-			detailsObj = map[string]interface{}{
-				e.ErrorCode: e.Details,
-			}
-		}
-
-		if detailsJSON, err := json.Marshal(detailsObj); err == nil {
-			apiError["details"] = string(detailsJSON)
-		}
 	}
 
 	return apiError
 }
 
 // TriggerError adds a new error to the store
-func (s *Store) TriggerError(errorCode, errorLevel, message string, details map[string]interface{}, ttlSeconds *int) *InjectedError {
+func (s *Store) TriggerError(errorCode, source, message string, componentIndex *int, ttlSeconds *int) *InjectedError {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	error := &InjectedError{
-		ID:         uuid.New().String(),
-		ErrorCode:  errorCode,
-		ErrorLevel: errorLevel,
-		Message:    message,
-		Details:    details,
-		InsertedAt: time.Now().Unix(),
-		TTLSeconds: ttlSeconds,
-	}
-
-	// Extract component indices from details if present
-	if compIdx, ok := details["component_index"].(float64); ok {
-		idx := int(compIdx)
-		error.ComponentIndex = &idx
-	}
-	if hbIdx, ok := details["hashboard_index"].(float64); ok {
-		idx := int(hbIdx)
-		error.HashboardIndex = &idx
-	}
-	if asicIdx, ok := details["asic_index"].(float64); ok {
-		idx := int(asicIdx)
-		error.AsicIndex = &idx
+		ID:             uuid.New().String(),
+		ErrorCode:      errorCode,
+		Source:         source,
+		Message:        message,
+		ComponentIndex: componentIndex,
+		Timestamp:      time.Now().Unix(),
+		TTLSeconds:     ttlSeconds,
 	}
 
 	// Set expiration if TTL is specified

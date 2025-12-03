@@ -60,7 +60,7 @@ const ProtoOSStatusModal = ({ show, onClose, componentAddress, showBackButton = 
   });
 
   // Stabilize component values to prevent unnecessary re-renders
-  const componentSource = component?.source || "SYSTEM";
+  const componentSource = component?.source || "RIG";
   const componentIndex = component?.componentIndex;
 
   // Fetch telemetry and hardware data for the selected component

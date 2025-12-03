@@ -12,7 +12,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Asic Over Temp",
 			Description:  "ASIC temperature exceeds safe operating limits",
 			Category:     "ASIC",
-			DefaultLevel: "Warning",
+			// DefaultLevel: "Warning",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},
@@ -25,7 +25,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Asic Under Temp",
 			Description:  "ASIC temperature is below minimum operating threshold",
 			Category:     "ASIC",
-			DefaultLevel: "Warning",
+			// DefaultLevel: "Warning",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},
@@ -38,7 +38,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Asic Over Voltage",
 			Description:  "ASIC voltage exceeds safe operating limits",
 			Category:     "ASIC",
-			DefaultLevel: "Error",
+			// DefaultLevel: "Error",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},
@@ -51,7 +51,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Asic Under Voltage",
 			Description:  "ASIC voltage is below minimum operating threshold",
 			Category:     "ASIC",
-			DefaultLevel: "Error",
+			// DefaultLevel: "Error",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},
@@ -64,7 +64,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Asic Ecc",
 			Description:  "ASIC ECC errors detected",
 			Category:     "ASIC",
-			DefaultLevel: "Error",
+			// DefaultLevel: "Error",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},
@@ -75,7 +75,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Asic Enumeration",
 			Description:  "Failed to enumerate expected number of ASICs",
 			Category:     "ASIC",
-			DefaultLevel: "Error",
+			// DefaultLevel: "Error",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},
@@ -86,7 +86,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Asic Not Hashing",
 			Description:  "One or more ASICs are not producing valid hashes",
 			Category:     "ASIC",
-			DefaultLevel: "Warning",
+			// DefaultLevel: "Warning",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},
@@ -98,7 +98,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Fan Slow",
 			Description:  "Fan RPM is below expected speed",
 			Category:     "Cooling",
-			DefaultLevel: "Warning",
+			// DefaultLevel: "Warning",
 			Parameters: []ParameterDefinition{
 				{Name: "fan_bay_index", Type: "number", Required: true, Description: "Fan bay index"},
 				{Name: "fan_id", Type: "number", Required: true, Description: "Fan identifier"},
@@ -111,7 +111,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Fan Not Spinning",
 			Description:  "Fan has stopped spinning",
 			Category:     "Cooling",
-			DefaultLevel: "Error",
+			// DefaultLevel: "Error",
 			Parameters: []ParameterDefinition{
 				{Name: "fan_bay_index", Type: "number", Required: true, Description: "Fan bay index"},
 				{Name: "fan_id", Type: "number", Required: true, Description: "Fan identifier"},
@@ -124,7 +124,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Fan Connected In Immersion",
 			Description:  "Fan connected while in immersion cooling mode",
 			Category:     "Cooling",
-			DefaultLevel: "Error",
+			// DefaultLevel: "Error",
 			Parameters: []ParameterDefinition{
 				{Name: "fan_bay_index", Type: "number", Required: true, Description: "Fan bay index"},
 				{Name: "fan_id", Type: "number", Required: true, Description: "Fan identifier"},
@@ -135,7 +135,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Hashboard Overheat",
 			Description:  "Hashboard temperature exceeds safe operating limits",
 			Category:     "Hashboard",
-			DefaultLevel: "Error",
+			// DefaultLevel: "Error",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},
@@ -147,7 +147,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Hashboard Over Voltage",
 			Description:  "Hashboard voltage exceeds safe operating limits",
 			Category:     "Hashboard",
-			DefaultLevel: "Error",
+			// DefaultLevel: "Error",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},
@@ -159,7 +159,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Hashboard Under Voltage",
 			Description:  "Hashboard voltage is below minimum operating threshold",
 			Category:     "Hashboard",
-			DefaultLevel: "Error",
+			// DefaultLevel: "Error",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},
@@ -171,7 +171,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Hashboard Over Current",
 			Description:  "Hashboard current exceeds safe operating limits",
 			Category:     "Hashboard",
-			DefaultLevel: "Error",
+			// DefaultLevel: "Error",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},
@@ -183,7 +183,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Hashboard Power Lost",
 			Description:  "Hashboard has lost power",
 			Category:     "Hashboard",
-			DefaultLevel: "Error",
+			// DefaultLevel: "Error",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},
@@ -194,7 +194,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Hashboard Usb Connection Lost",
 			Description:  "Lost USB connection to hashboard",
 			Category:     "Hashboard",
-			DefaultLevel: "Error",
+			// DefaultLevel: "Error",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},
@@ -205,7 +205,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Pool Connection Lost",
 			Description:  "Lost connection to mining pool",
 			Category:     "Pool",
-			DefaultLevel: "Error",
+			// DefaultLevel: "Error",
 			Parameters: []ParameterDefinition{
 				{Name: "pool_id", Type: "number", Required: true, Description: "Pool identifier"},
 				{Name: "pool_url", Type: "string", Required: true, Description: "Pool URL"},
@@ -216,7 +216,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "No Pool Configured",
 			Description:  "No mining pool has been configured",
 			Category:     "Pool",
-			DefaultLevel: "Error",
+			// DefaultLevel: "Error",
 			Parameters: []ParameterDefinition{
 			},
 		},
@@ -225,7 +225,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Psu Hardware Fault",
 			Description:  "Power supply unit has detected a hardware fault",
 			Category:     "PSU",
-			DefaultLevel: "Error",
+			// DefaultLevel: "Error",
 			Parameters: []ParameterDefinition{
 				{Name: "fault", Type: "object", Required: true, Description: "Fault information"},
 				{Name: "psu_bay_index", Type: "number", Required: true, Description: "PSU bay index"},
@@ -238,7 +238,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Psu Comms Lost",
 			Description:  "Lost communication with power supply unit",
 			Category:     "PSU",
-			DefaultLevel: "Error",
+			// DefaultLevel: "Error",
 			Parameters: []ParameterDefinition{
 				{Name: "psu_bay_index", Type: "number", Required: true, Description: "PSU bay index"},
 				{Name: "psu_index", Type: "number", Required: true, Description: "PSU index"},
@@ -250,7 +250,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Mixed Hashboard Types In Bay",
 			Description:  "Different hashboard types detected in the same system",
 			Category:     "System",
-			DefaultLevel: "Error",
+			// DefaultLevel: "Error",
 			Parameters: []ParameterDefinition{
 				{Name: "hashboards", Type: "array", Required: true, Description: "List of hashboard information"},
 			},
@@ -260,7 +260,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Insufficient Cooling",
 			Description:  "Not enough operational fans for adequate cooling",
 			Category:     "Cooling",
-			DefaultLevel: "Error",
+			// DefaultLevel: "Error",
 			Parameters: []ParameterDefinition{
 				{Name: "bay_index", Type: "number", Required: true, Description: "Bay index"},
 				{Name: "num_operational_fans", Type: "number", Required: true, Description: "Number of operational fans"},
@@ -274,7 +274,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Psu Recovery In Progress",
 			Description:  "PSU recovery in progress",
 			Category:     "PSU",
-			DefaultLevel: "Warning",
+			// DefaultLevel: "Warning",
 			Parameters: []ParameterDefinition{
 				{Name: "psu_bay_index", Type: "number", Required: true, Description: "PSU bay index"},
 				{Name: "psu_index", Type: "number", Required: true, Description: "PSU index"},
@@ -287,7 +287,7 @@ func GetGeneratedErrorDefinitions() []ErrorDefinition {
 			Name:         "Hb Recovery In Progress",
 			Description:  "Hashboard recovery in progress",
 			Category:     "Hashboard",
-			DefaultLevel: "Warning",
+			// DefaultLevel: "Warning",
 			Parameters: []ParameterDefinition{
 				{Name: "hb_slot", Type: "number", Required: true, Description: "Hashboard slot number"},
 				{Name: "hb_sn", Type: "string", Required: true, Description: "Hashboard serial number"},

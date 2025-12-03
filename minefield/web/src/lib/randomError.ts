@@ -115,15 +115,36 @@ export function generateRandomTTL(): number {
 }
 
 // Create a trigger request for a random error
+// Helper to determine source from error category
+function getSourceFromCategory(category: string): 'rig' | 'fan' | 'psu' | 'hashboard' {
+  const categoryLower = category.toLowerCase()
+  if (categoryLower === 'cooling') return 'fan'
+  if (categoryLower === 'psu') return 'psu'
+  if (categoryLower === 'hashboard' || categoryLower === 'asic') return 'hashboard'
+  if (categoryLower === 'pool' || categoryLower === 'system') return 'rig'
+  return 'rig' // Default fallback
+}
+
 export function createRandomErrorRequest(errorDef: ErrorDefinition): TriggerErrorRequest {
-  const details = generateRandomParameters(errorDef)
+  const parameters = generateRandomParameters(errorDef)
   const ttl = generateRandomTTL()
+
+  // Extract component_index if present in parameters
+  const componentIndex = parameters.component_index !== undefined
+    ? Number(parameters.component_index)
+    : parameters.fan_bay_index !== undefined
+    ? Number(parameters.fan_bay_index)
+    : parameters.psu_index !== undefined
+    ? Number(parameters.psu_index)
+    : parameters.hb_slot !== undefined
+    ? Number(parameters.hb_slot)
+    : undefined
 
   const request: TriggerErrorRequest = {
     error_code: errorDef.code,
-    error_level: errorDef.default_level,
+    source: errorDef.source as 'rig' | 'fan' | 'psu' | 'hashboard' || getSourceFromCategory(errorDef.category),
     message: errorDef.description,
-    details,
+    component_index: componentIndex,
   }
 
   if (ttl > 0) {

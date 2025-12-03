@@ -37,7 +37,7 @@ jobs:
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           token: "${{ steps.create_token.outputs.token }}"
-          submodules: true
+          submodules: recursive
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@00943011d9042930efac3dcd3a170e4273319bc8 # v4
@@ -46,7 +46,7 @@ jobs:
           role-to-assume: "arn:aws:iam::941377115117:role/GithubActions_ProtoFleet_Deploy_Develop"
 
       - name: Activate hermit
-        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318    # v1.1.4
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
 
       - name: Build simulator with ProtoOS dashboard Docker image
         shell: bash
@@ -92,7 +92,7 @@ jobs:
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           token: "${{ steps.create_token.outputs.token }}"
-          submodules: true
+          submodules: recursive
 
       - name: Setup AWS SSH
         uses: ./.github/actions/aws-ssh-setup

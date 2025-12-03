@@ -180,7 +180,7 @@ export {
 } from "./hooks/useNetworkInfo";
 
 export type { MiningStatus } from "./slices/minerStatusSlice";
-export type { MinerError, ErrorSource, ErrorLevel } from "./types";
+export type { MinerError, ErrorSource } from "./types";
 
 export {
   useAuthTokens,

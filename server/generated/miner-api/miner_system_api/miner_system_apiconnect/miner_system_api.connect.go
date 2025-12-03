@@ -51,6 +51,9 @@ const (
 	MinerSystemApiUpdateProcedure = "/miner_system_api.MinerSystemApi/Update"
 	// MinerSystemApiUploadProcedure is the fully-qualified name of the MinerSystemApi's Upload RPC.
 	MinerSystemApiUploadProcedure = "/miner_system_api.MinerSystemApi/Upload"
+	// MinerSystemApiSchedulePsuFirmwareUpdateProcedure is the fully-qualified name of the
+	// MinerSystemApi's SchedulePsuFirmwareUpdate RPC.
+	MinerSystemApiSchedulePsuFirmwareUpdateProcedure = "/miner_system_api.MinerSystemApi/SchedulePsuFirmwareUpdate"
 	// MinerSystemApiFactoryResetProcedure is the fully-qualified name of the MinerSystemApi's
 	// FactoryReset RPC.
 	MinerSystemApiFactoryResetProcedure = "/miner_system_api.MinerSystemApi/FactoryReset"
@@ -82,6 +85,8 @@ type MinerSystemApiClient interface {
 	Update(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.UpdateResponse], error)
 	// Endpoint for uploading update files and installing them
 	Upload(context.Context) *connect.ClientStreamForClient[miner_system_api.UploadRequest, miner_system_api.UploadResponse]
+	// Endpoint for scheduling PSU firmware update to run on next reboot
+	SchedulePsuFirmwareUpdate(context.Context, *connect.Request[miner_system_api.SchedulePsuFirmwareUpdateRequest]) (*connect.Response[miner_system_api.SchedulePsuFirmwareUpdateResponse], error)
 	// Endpoint for factory resetting the miner, clearing user data and rolling back to recovery image
 	FactoryReset(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	// Endpoint for clearing user settings and restoring defaults for the current version
@@ -128,6 +133,11 @@ func NewMinerSystemApiClient(httpClient connect.HTTPClient, baseURL string, opts
 			baseURL+MinerSystemApiUploadProcedure,
 			opts...,
 		),
+		schedulePsuFirmwareUpdate: connect.NewClient[miner_system_api.SchedulePsuFirmwareUpdateRequest, miner_system_api.SchedulePsuFirmwareUpdateResponse](
+			httpClient,
+			baseURL+MinerSystemApiSchedulePsuFirmwareUpdateProcedure,
+			opts...,
+		),
 		factoryReset: connect.NewClient[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse](
 			httpClient,
 			baseURL+MinerSystemApiFactoryResetProcedure,
@@ -143,14 +153,15 @@ func NewMinerSystemApiClient(httpClient connect.HTTPClient, baseURL string, opts
 
 // minerSystemApiClient implements MinerSystemApiClient.
 type minerSystemApiClient struct {
-	getNetwork        *connect.Client[miner_common_api.EmptyRequest, miner_system_api.GetNetworkResponse]
-	setNetwork        *connect.Client[miner_system_api.SetNetworkRequest, miner_system_api.SetNetworkResponse]
-	reboot            *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
-	getLogs           *connect.Client[miner_system_api.GetLogsRequest, miner_system_api.GetLogsResponse]
-	update            *connect.Client[miner_common_api.EmptyRequest, miner_system_api.UpdateResponse]
-	upload            *connect.Client[miner_system_api.UploadRequest, miner_system_api.UploadResponse]
-	factoryReset      *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
-	clearUserSettings *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	getNetwork                *connect.Client[miner_common_api.EmptyRequest, miner_system_api.GetNetworkResponse]
+	setNetwork                *connect.Client[miner_system_api.SetNetworkRequest, miner_system_api.SetNetworkResponse]
+	reboot                    *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	getLogs                   *connect.Client[miner_system_api.GetLogsRequest, miner_system_api.GetLogsResponse]
+	update                    *connect.Client[miner_common_api.EmptyRequest, miner_system_api.UpdateResponse]
+	upload                    *connect.Client[miner_system_api.UploadRequest, miner_system_api.UploadResponse]
+	schedulePsuFirmwareUpdate *connect.Client[miner_system_api.SchedulePsuFirmwareUpdateRequest, miner_system_api.SchedulePsuFirmwareUpdateResponse]
+	factoryReset              *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	clearUserSettings         *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
 }
 
 // GetNetwork calls miner_system_api.MinerSystemApi.GetNetwork.
@@ -183,6 +194,11 @@ func (c *minerSystemApiClient) Upload(ctx context.Context) *connect.ClientStream
 	return c.upload.CallClientStream(ctx)
 }
 
+// SchedulePsuFirmwareUpdate calls miner_system_api.MinerSystemApi.SchedulePsuFirmwareUpdate.
+func (c *minerSystemApiClient) SchedulePsuFirmwareUpdate(ctx context.Context, req *connect.Request[miner_system_api.SchedulePsuFirmwareUpdateRequest]) (*connect.Response[miner_system_api.SchedulePsuFirmwareUpdateResponse], error) {
+	return c.schedulePsuFirmwareUpdate.CallUnary(ctx, req)
+}
+
 // FactoryReset calls miner_system_api.MinerSystemApi.FactoryReset.
 func (c *minerSystemApiClient) FactoryReset(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
 	return c.factoryReset.CallUnary(ctx, req)
@@ -207,6 +223,8 @@ type MinerSystemApiHandler interface {
 	Update(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_system_api.UpdateResponse], error)
 	// Endpoint for uploading update files and installing them
 	Upload(context.Context, *connect.ClientStream[miner_system_api.UploadRequest]) (*connect.Response[miner_system_api.UploadResponse], error)
+	// Endpoint for scheduling PSU firmware update to run on next reboot
+	SchedulePsuFirmwareUpdate(context.Context, *connect.Request[miner_system_api.SchedulePsuFirmwareUpdateRequest]) (*connect.Response[miner_system_api.SchedulePsuFirmwareUpdateResponse], error)
 	// Endpoint for factory resetting the miner, clearing user data and rolling back to recovery image
 	FactoryReset(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	// Endpoint for clearing user settings and restoring defaults for the current version
@@ -249,6 +267,11 @@ func NewMinerSystemApiHandler(svc MinerSystemApiHandler, opts ...connect.Handler
 		svc.Upload,
 		opts...,
 	)
+	minerSystemApiSchedulePsuFirmwareUpdateHandler := connect.NewUnaryHandler(
+		MinerSystemApiSchedulePsuFirmwareUpdateProcedure,
+		svc.SchedulePsuFirmwareUpdate,
+		opts...,
+	)
 	minerSystemApiFactoryResetHandler := connect.NewUnaryHandler(
 		MinerSystemApiFactoryResetProcedure,
 		svc.FactoryReset,
@@ -273,6 +296,8 @@ func NewMinerSystemApiHandler(svc MinerSystemApiHandler, opts ...connect.Handler
 			minerSystemApiUpdateHandler.ServeHTTP(w, r)
 		case MinerSystemApiUploadProcedure:
 			minerSystemApiUploadHandler.ServeHTTP(w, r)
+		case MinerSystemApiSchedulePsuFirmwareUpdateProcedure:
+			minerSystemApiSchedulePsuFirmwareUpdateHandler.ServeHTTP(w, r)
 		case MinerSystemApiFactoryResetProcedure:
 			minerSystemApiFactoryResetHandler.ServeHTTP(w, r)
 		case MinerSystemApiClearUserSettingsProcedure:
@@ -308,6 +333,10 @@ func (UnimplementedMinerSystemApiHandler) Update(context.Context, *connect.Reque
 
 func (UnimplementedMinerSystemApiHandler) Upload(context.Context, *connect.ClientStream[miner_system_api.UploadRequest]) (*connect.Response[miner_system_api.UploadResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerSystemApi.Upload is not implemented"))
+}
+
+func (UnimplementedMinerSystemApiHandler) SchedulePsuFirmwareUpdate(context.Context, *connect.Request[miner_system_api.SchedulePsuFirmwareUpdateRequest]) (*connect.Response[miner_system_api.SchedulePsuFirmwareUpdateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_system_api.MinerSystemApi.SchedulePsuFirmwareUpdate is not implemented"))
 }
 
 func (UnimplementedMinerSystemApiHandler) FactoryReset(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
