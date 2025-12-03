@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: Setup Hermit
         uses: ./.github/actions/hermit-setup
@@ -58,14 +58,14 @@ jobs:
 
       # Upload to GitHub Actions artifacts
       - name: Upload server artifact for job use
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: proto-fleet-server-artifact
           path: ./server/proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz
           retention-days: 1
 
       - name: Upload ProtoFleet server artifact
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           files: ./server/proto-fleet-server-${{ github.event.release.tag_name }}.tar.gz
         env:
@@ -75,7 +75,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: Setup Hermit
         uses: ./.github/actions/hermit-setup
@@ -114,14 +114,14 @@ jobs:
 
       # Upload to GitHub Actions artifacts
       - name: Upload client artifact for job use
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: proto-fleet-client-artifact
           path: ./client/proto-fleet-client-${{ github.event.release.tag_name }}.tar.gz
           retention-days: 1
 
       - name: Upload ProtoFleet client artifact
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           files: ./client/proto-fleet-client-${{ github.event.release.tag_name }}.tar.gz
         env:
@@ -131,7 +131,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: Setup Hermit
         uses: ./.github/actions/hermit-setup
@@ -168,7 +168,7 @@ jobs:
           tar -czf proto-os-${{ github.event.release.tag_name }}.tar.gz dist/protoOS
 
       - name: Upload ProtoOS artifact
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           files: ./client/proto-os-${{ github.event.release.tag_name }}.tar.gz
         env:
@@ -192,7 +192,7 @@ jobs:
     needs: [build-proto-fleet-server, build-proto-fleet-client]
     steps:
       - name: Checkout code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: Create deployment directory structure
         run: |
@@ -252,7 +252,7 @@ jobs:
           tar -czf proto-fleet-${{ github.event.release.tag_name }}.tar.gz deployment
 
       - name: Upload full ProtoFleet deployment bundle
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           files: proto-fleet-${{ github.event.release.tag_name }}.tar.gz
         env:

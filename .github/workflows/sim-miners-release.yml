@@ -21,7 +21,7 @@ jobs:
           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
       - name: Checkout code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           token: "${{ steps.create_token.outputs.token }}"
           submodules: true
@@ -107,7 +107,7 @@ jobs:
           tar -czf proto-fleet-sim-miners.tar.gz -C deployment sim-miners
 
       - name: Upload sim-miners artifact
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           files: ./proto-fleet-sim-miners.tar.gz
         env:
