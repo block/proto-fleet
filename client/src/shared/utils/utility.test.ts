@@ -1,5 +1,5 @@
-import { describe, expect, test, vi } from "vitest";
-import { debounce, deepClone, formatHashrateWithUnit, getRowLabel } from "./utility";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { copyToClipboard, debounce, deepClone, formatHashrateWithUnit, getRowLabel } from "./utility";
 
 describe("deepClone", () => {
   test("should create a deep copy of an object", () => {
@@ -135,5 +135,102 @@ describe("formatHashrateWithUnit", () => {
 
   test("should handle undefined/null values", () => {
     expect(formatHashrateWithUnit()).toEqual({ value: 0, unit: "TH/S" });
+  });
+});
+
+describe("copyToClipboard", () => {
+  let originalClipboard: Clipboard | undefined;
+  let originalExecCommand: typeof document.execCommand;
+
+  beforeEach(() => {
+    originalClipboard = navigator.clipboard;
+    originalExecCommand = document.execCommand;
+  });
+
+  afterEach(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: originalClipboard,
+      writable: true,
+      configurable: true,
+    });
+    document.execCommand = originalExecCommand;
+  });
+
+  test("should use navigator.clipboard.writeText in secure context", async () => {
+    const mockWriteText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: mockWriteText },
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(window, "isSecureContext", {
+      value: true,
+      writable: true,
+      configurable: true,
+    });
+
+    await copyToClipboard("test text");
+
+    expect(mockWriteText).toHaveBeenCalledWith("test text");
+  });
+
+  test("should fall back to execCommand when not in secure context", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(window, "isSecureContext", {
+      value: false,
+      writable: true,
+      configurable: true,
+    });
+
+    const mockExecCommand = vi.fn().mockReturnValue(true);
+    document.execCommand = mockExecCommand;
+
+    await copyToClipboard("fallback text");
+
+    expect(mockExecCommand).toHaveBeenCalledWith("copy");
+  });
+
+  test("should throw error when execCommand fails", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(window, "isSecureContext", {
+      value: false,
+      writable: true,
+      configurable: true,
+    });
+
+    const mockExecCommand = vi.fn().mockReturnValue(false);
+    document.execCommand = mockExecCommand;
+
+    await expect(copyToClipboard("test")).rejects.toThrow("Copy command was unsuccessful");
+  });
+
+  test("should clean up textarea element after fallback copy", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(window, "isSecureContext", {
+      value: false,
+      writable: true,
+      configurable: true,
+    });
+
+    const mockExecCommand = vi.fn().mockReturnValue(true);
+    document.execCommand = mockExecCommand;
+
+    const initialChildCount = document.body.childElementCount;
+
+    await copyToClipboard("cleanup test");
+
+    expect(document.body.childElementCount).toBe(initialChildCount);
   });
 });

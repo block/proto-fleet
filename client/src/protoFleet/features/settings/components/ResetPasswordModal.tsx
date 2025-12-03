@@ -4,6 +4,7 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 import Modal from "@/shared/components/Modal";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
+import { copyToClipboard } from "@/shared/utils/utility";
 
 interface ResetPasswordModalProps {
   username: string;
@@ -22,12 +23,19 @@ const ResetPasswordModal = ({
 }: ResetPasswordModalProps) => {
   const handleCopyPassword = useCallback(() => {
     if (temporaryPassword) {
-      navigator.clipboard.writeText(temporaryPassword).then(() => {
-        pushToast({
-          message: "Password copied to clipboard",
-          status: STATUSES.success,
+      copyToClipboard(temporaryPassword)
+        .then(() => {
+          pushToast({
+            message: "Password copied to clipboard",
+            status: STATUSES.success,
+          });
+        })
+        .catch(() => {
+          pushToast({
+            message: "Failed to copy password",
+            status: STATUSES.error,
+          });
         });
-      });
     }
   }, [temporaryPassword]);
 

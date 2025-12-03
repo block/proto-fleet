@@ -1,8 +1,16 @@
 import { fireEvent, render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ResetPasswordModal from "./ResetPasswordModal";
+import * as utility from "@/shared/utils/utility";
 
 vi.mock("@/shared/features/toaster");
+vi.mock("@/shared/utils/utility", async () => {
+  const actual = await vi.importActual<typeof utility>("@/shared/utils/utility");
+  return {
+    ...actual,
+    copyToClipboard: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 const mockOnConfirm = vi.fn();
 const mockOnDismiss = vi.fn();
@@ -152,12 +160,6 @@ describe("ResetPasswordModal", () => {
     });
 
     it("allows copying temporary password", () => {
-      Object.assign(navigator, {
-        clipboard: {
-          writeText: vi.fn().mockResolvedValue(undefined),
-        },
-      });
-
       const { getByRole } = render(
         <ResetPasswordModal
           username="john_doe"
@@ -171,7 +173,7 @@ describe("ResetPasswordModal", () => {
       const copyButton = getByRole("button", { name: /copy password/i });
       fireEvent.click(copyButton);
 
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith("TempPass123!@#");
+      expect(utility.copyToClipboard).toHaveBeenCalledWith("TempPass123!@#");
     });
 
     it("renders Success icon container in success step", () => {

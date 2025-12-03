@@ -5,6 +5,7 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
+import { copyToClipboard } from "@/shared/utils/utility";
 
 interface AddTeamMemberModalProps {
   onDismiss: () => void;
@@ -50,12 +51,19 @@ const AddTeamMemberModal = ({ onDismiss, onSuccess }: AddTeamMemberModalProps) =
   }, [username, createUser]);
 
   const handleCopyPassword = useCallback(() => {
-    navigator.clipboard.writeText(temporaryPassword).then(() => {
-      pushToast({
-        message: "Password copied to clipboard",
-        status: STATUSES.success,
+    copyToClipboard(temporaryPassword)
+      .then(() => {
+        pushToast({
+          message: "Password copied to clipboard",
+          status: STATUSES.success,
+        });
+      })
+      .catch(() => {
+        pushToast({
+          message: "Failed to copy password",
+          status: STATUSES.error,
+        });
       });
-    });
   }, [temporaryPassword]);
 
   const handleDone = useCallback(() => {

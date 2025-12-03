@@ -95,3 +95,38 @@ export const refreshTokenExpiryTime = () => {
   // 15 days
   return new Date(new Date().getTime() + 15 * 24 * 60 * 60 * 1000);
 };
+
+/**
+ * Copies text to clipboard with fallback for non-secure contexts.
+ * Uses navigator.clipboard.writeText() in secure contexts (HTTPS, localhost),
+ * falls back to document.execCommand('copy') for HTTP contexts (e.g., local IP addresses).
+ */
+export const copyToClipboard = async (text: string): Promise<void> => {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+
+  const previouslyFocusedElement = document.activeElement as HTMLElement | null;
+
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.style.position = "fixed";
+  textArea.style.left = "-999999px";
+  textArea.style.top = "-999999px";
+  textArea.style.opacity = "0";
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+
+  try {
+    const successful = document.execCommand("copy");
+    if (!successful) {
+      throw new Error("Copy command was unsuccessful");
+    }
+  } finally {
+    document.body.removeChild(textArea);
+    if (previouslyFocusedElement && previouslyFocusedElement.focus) {
+      previouslyFocusedElement.focus();
+    }
+  }
+};
