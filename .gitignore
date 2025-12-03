@@ -16,3 +16,6 @@ plugin/proto/proto-plugin
 plugin/antminer/antminer-plugin
 
 server/plugins/*
+
+# Generated nginx config (copied from nginx.http.conf or nginx.https.conf by run-fleet.sh)
+deployment-files/client/nginx.conf

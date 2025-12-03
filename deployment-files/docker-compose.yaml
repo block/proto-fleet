@@ -15,6 +15,7 @@ services:
       DB_USERNAME: "${DB_USERNAME}"
       DB_PASSWORD: "${DB_PASSWORD}"
       ENCRYPT_SERVICE_MASTER_KEY: "${ENCRYPT_SERVICE_MASTER_KEY}"
+      SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-true}"
       PLUGINS_DIR: "/app/plugins"
       PLUGINS_ENABLED: "true"
     depends_on:
@@ -43,6 +44,8 @@ services:
       - fleet-api
     restart: always
     network_mode: host
+    volumes:
+      - ./ssl:/etc/nginx/ssl:ro
     logging:
       driver: "json-file"
       options:

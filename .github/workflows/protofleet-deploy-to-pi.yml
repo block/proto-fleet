@@ -166,7 +166,8 @@ jobs:
       - name: Copy deployment configuration files
         run: |
           cp deployment-files/client/Dockerfile deployment/client/
-          cp deployment-files/client/nginx.conf deployment/client/
+          cp deployment-files/client/nginx.http.conf deployment/client/
+          cp deployment-files/client/nginx.https.conf deployment/client/
           cp deployment-files/server/Dockerfile deployment/server/
           cp deployment-files/docker-compose.yaml deployment/
           cp server/docker-compose.base.yaml deployment/server/

@@ -7,6 +7,13 @@
 PROJECT_ROOT="$(pwd)"
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yaml"
 ENV_FILE="$PROJECT_ROOT/.env"
+SSL_DIR="$PROJECT_ROOT/ssl"
+SSL_CERT="$SSL_DIR/cert.pem"
+SSL_KEY="$SSL_DIR/key.pem"
+NGINX_CONF_DIR="$PROJECT_ROOT/client"
+
+# Protocol mode: "https" or "http"
+PROTOCOL_MODE="http"
 
 # ----------------------------------------------------------------------------
 # Helper Functions
@@ -34,6 +41,80 @@ validate_base64_key() {
     return 0  # Valid
 }
 
+# Get local network IP addresses (excludes loopback 127.x.x.x)
+get_local_ips() {
+    if [ "$(uname)" == "Darwin" ]; then
+        # macOS - get IPs from all active interfaces, exclude loopback
+        ifconfig | grep "inet " | grep -v "127\." | awk '{print $2}' | tr '\n' ' '
+    else
+        # Linux - get IPs from all active interfaces, exclude loopback
+        hostname -I 2>/dev/null | tr ' ' '\n' | grep -v "^127\." | tr '\n' ' ' || \
+        ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v "^127\." | tr '\n' ' '
+    fi
+}
+
+# Generate self-signed SSL certificate using OpenSSL
+generate_self_signed_cert() {
+    echo "Generating self-signed SSL certificate..."
+    mkdir -p "$SSL_DIR"
+
+    # Collect all addresses for the certificate
+    local san_entries="DNS:localhost,IP:127.0.0.1,IP:::1"
+
+    # Add local hostname
+    local hostname=$(hostname)
+    if [ -n "$hostname" ]; then
+        san_entries="$san_entries,DNS:$hostname,DNS:${hostname}.local"
+    fi
+
+    # Add all local network IPs
+    local local_ips=$(get_local_ips)
+    for ip in $local_ips; do
+        san_entries="$san_entries,IP:$ip"
+    done
+
+    echo "Certificate will be valid for: $san_entries"
+
+    # Generate self-signed certificate valid for 365 days
+    local openssl_output
+    openssl_output=$(openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+        -keyout "$SSL_KEY" \
+        -out "$SSL_CERT" \
+        -subj "/C=US/ST=Local/L=Local/O=ProtoFleet/CN=localhost" \
+        -addext "subjectAltName=$san_entries" 2>&1)
+    local openssl_status=$?
+
+    if [ $openssl_status -ne 0 ]; then
+        echo "Error: Failed to generate SSL certificate."
+        echo "$openssl_output"
+        return 1
+    fi
+
+    chmod 600 "$SSL_KEY"
+    chmod 644 "$SSL_CERT"
+    echo "Self-signed certificate generated successfully."
+    echo ""
+    echo "NOTE: Browsers will show a security warning for self-signed certificates."
+    echo "      You can accept the warning to proceed, or import the certificate"
+    echo "      into your browser/OS trust store."
+}
+
+# Copy appropriate nginx configuration based on protocol mode
+copy_nginx_config() {
+    local mode="$1"
+    local src_conf="$NGINX_CONF_DIR/nginx.${mode}.conf"
+
+    if [ ! -f "$src_conf" ]; then
+        echo "Error: nginx config not found: $src_conf"
+        return 1
+    fi
+
+    if ! cp "$src_conf" "$NGINX_CONF_DIR/nginx.conf"; then
+        echo "Error: Failed to copy nginx config"
+        return 1
+    fi
+}
+
 # ----------------------------------------------------------------------------
 # Docker Installation Check and Setup
 # ----------------------------------------------------------------------------
@@ -43,7 +124,7 @@ if ! command -v docker &> /dev/null; then
 
     if [ "$(uname)" == "Linux" ]; then
         curl -fsSL https://get.docker.com | sudo sh
-        
+
         if ! command -v docker &> /dev/null; then
             echo "Error: Docker installation failed. Please install Docker manually:"
             echo "Visit https://docs.docker.com/engine/install/"
@@ -65,7 +146,7 @@ if [ "$(uname)" == "Linux" ]; then
         echo "Configuring Docker to start on system boot..."
         sudo systemctl enable docker
     fi
-    
+
     # Check if current user is in the docker group
     if ! groups $USER | grep -q '\bdocker\b'; then
         echo "Adding current user to the docker group for passwordless Docker usage..."
@@ -305,6 +386,88 @@ if [ ! -f "$COMPOSE_FILE" ]; then
 fi
 
 # ----------------------------------------------------------------------------
+# SSL/TLS Configuration
+# ----------------------------------------------------------------------------
+
+echo ""
+echo "============================================================================"
+echo "SSL/TLS Configuration"
+echo "============================================================================"
+
+# Check if user-provided certificates exist
+if [ -f "$SSL_CERT" ] && [ -f "$SSL_KEY" ]; then
+    echo "Found existing SSL certificates in $SSL_DIR"
+    echo "  Certificate: $SSL_CERT"
+    echo "  Private Key: $SSL_KEY"
+    PROTOCOL_MODE="https"
+else
+    echo ""
+    echo "No SSL certificates found in $SSL_DIR"
+    echo ""
+    echo "Options:"
+    echo "  1) HTTP only (no encryption) - simplest for isolated LANs"
+    echo "  2) HTTPS with self-signed certificate - browsers will show warnings"
+    echo "  3) HTTPS with your own certificates - place cert.pem and key.pem in $SSL_DIR"
+    echo ""
+    echo -n "Select option [1]: "
+    read ssl_choice
+    ssl_choice=${ssl_choice:-1}
+
+    case "$ssl_choice" in
+        2)
+            if generate_self_signed_cert; then
+                PROTOCOL_MODE="https"
+            else
+                echo "Falling back to HTTP mode."
+                PROTOCOL_MODE="http"
+            fi
+            ;;
+        3)
+            echo ""
+            echo "Please place your SSL certificates in $SSL_DIR:"
+            echo "  - $SSL_CERT (certificate)"
+            echo "  - $SSL_KEY (private key)"
+            echo ""
+            echo "Then re-run this script."
+            exit 0
+            ;;
+        *)
+            echo "Using HTTP mode (no encryption)."
+            PROTOCOL_MODE="http"
+            ;;
+    esac
+fi
+
+echo ""
+echo "Protocol mode: $PROTOCOL_MODE"
+
+# Ensure SSL directory exists (required for docker-compose volume mount)
+mkdir -p "$SSL_DIR"
+
+# Write appropriate nginx configuration
+if ! copy_nginx_config "$PROTOCOL_MODE"; then
+    echo "Error: Failed to set up nginx configuration. Exiting."
+    exit 1
+fi
+
+# Update environment file with cookie security setting
+if grep -q "^SESSION_COOKIE_SECURE=" "$ENV_FILE"; then
+    # Update existing setting
+    if [ "$PROTOCOL_MODE" == "https" ]; then
+        sed -i.bak 's/^SESSION_COOKIE_SECURE=.*/SESSION_COOKIE_SECURE=true/' "$ENV_FILE" && rm -f "$ENV_FILE.bak"
+    else
+        sed -i.bak 's/^SESSION_COOKIE_SECURE=.*/SESSION_COOKIE_SECURE=false/' "$ENV_FILE" && rm -f "$ENV_FILE.bak"
+    fi
+else
+    # Add new setting
+    if [ "$PROTOCOL_MODE" == "https" ]; then
+        echo "SESSION_COOKIE_SECURE=true" >> "$ENV_FILE"
+    else
+        echo "SESSION_COOKIE_SECURE=false" >> "$ENV_FILE"
+    fi
+fi
+
+# ----------------------------------------------------------------------------
 # Docker Image Preparation
 # ----------------------------------------------------------------------------
 
@@ -340,7 +503,15 @@ docker compose -f "$COMPOSE_FILE" up -d
 # Check if docker compose was successful
 if [ $? -eq 0 ]; then
     echo "--------------------------------------------------------------"
-    echo "Proto Fleet is now running at: http://localhost:80"
+    echo "Proto Fleet is now running!"
+    echo ""
+    echo "Access URLs:"
+    protocol="http"
+    [ "$PROTOCOL_MODE" == "https" ] && protocol="https"
+    echo "  Local:  ${protocol}://localhost"
+    for ip in $(get_local_ips); do
+        echo "  LAN:    ${protocol}://$ip"
+    done
     echo "--------------------------------------------------------------"
 else
     echo "Error: Failed to start services. Check docker compose logs for details."

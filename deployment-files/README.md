@@ -50,6 +50,32 @@ The script will:
 - Preserve existing configuration files if present
 - Run the deployment script automatically
 
+### SSL/TLS Configuration
+
+During installation, you'll be prompted to choose a protocol mode:
+
+1. **HTTP only** (default) - No encryption. Simplest option for isolated/air-gapped LANs.
+2. **HTTPS with self-signed certificate** - Encryption enabled, but browsers will show security warnings.
+3. **HTTPS with your own certificates** - Use your own CA-signed or custom certificates.
+
+#### Using Your Own Certificates
+
+To use your own SSL certificates, place them in the `ssl/` directory before running the installation:
+
+```bash
+mkdir -p ssl
+cp /path/to/your/cert.pem ssl/cert.pem
+cp /path/to/your/key.pem ssl/key.pem
+```
+
+The script will auto-detect existing certificates and use HTTPS mode automatically.
+
+#### Certificate Requirements
+
+- Certificate file: `ssl/cert.pem` (PEM format)
+- Private key file: `ssl/key.pem` (PEM format, unencrypted)
+- For LAN access, ensure the certificate includes the server's IP address(es) in the Subject Alternative Names (SANs)
+
 ## Installing Simulator Miners
 
 ```bash
