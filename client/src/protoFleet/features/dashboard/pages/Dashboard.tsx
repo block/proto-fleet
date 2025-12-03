@@ -17,6 +17,7 @@ import {
   useTotalMiners,
 } from "@/protoFleet/store";
 import DurationSelector from "@/shared/components/DurationSelector";
+import { buildVersionInfo } from "@/shared/utils/version";
 
 const Dashboard = () => {
   const devicePaired = useDevicePaired();
@@ -30,6 +31,7 @@ const Dashboard = () => {
   const deviceStatusCounts = useDeviceStatusCounts();
   const duration = useDuration();
   const setDuration = useSetDuration();
+  const currentYear = new Date().getFullYear();
 
   return (
     <div className="h-full">
@@ -87,7 +89,7 @@ const Dashboard = () => {
             <p className="text-text-primary">
               Powerful mining tools. Built for decentralization.{" "}
               <span className="text-text-primary-50">
-                Proto Fleet v01.2.3 © 2025 Block, Inc.{" "}
+                Proto Fleet {buildVersionInfo.version} © {currentYear} Block, Inc.{" "}
                 <a
                   href="https://proto.xyz/privacy-policy"
                   target="_blank"

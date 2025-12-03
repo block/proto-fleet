@@ -95,7 +95,7 @@ jobs:
         run: |
           # Set separate version environment variables
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          export VITE_VERSION="${{ github.ref_name }}"
+          export VITE_VERSION="${{ github.event.release.tag_name }}"
           export VITE_BUILD_DATE="$BUILD_DATE"
           export VITE_COMMIT="${{ github.sha }}"
           npm run build:protoFleet
@@ -150,7 +150,7 @@ jobs:
         working-directory: ./client
         run: |
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          export VITE_VERSION="${{ github.ref_name }}"
+          export VITE_VERSION="${{ github.event.release.tag_name }}"
           export VITE_BUILD_DATE="$BUILD_DATE"
           export VITE_COMMIT="${{ github.sha }}"
           npm run build:protoOS
