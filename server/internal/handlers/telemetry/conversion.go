@@ -729,9 +729,20 @@ func fromCombinedMetrics(combinedMetrics models.CombinedMetric) (*telemetryv1.Ge
 		})
 	}
 
+	// Convert uptime status counts if present
+	var uptimeStatusCounts []*telemetryv1.UptimeStatusCount
+	for _, statusCount := range combinedMetrics.UptimeStatusCounts {
+		uptimeStatusCounts = append(uptimeStatusCounts, &telemetryv1.UptimeStatusCount{
+			Timestamp:       timestamppb.New(statusCount.Timestamp),
+			HashingCount:    statusCount.HashingCount,
+			NotHashingCount: statusCount.NotHashingCount,
+		})
+	}
+
 	return &telemetryv1.GetCombinedMetricsResponse{
 		Metrics:                 metrics,
 		NextPageToken:           combinedMetrics.NextPageToken,
 		TemperatureStatusCounts: temperatureStatusCounts,
+		UptimeStatusCounts:      uptimeStatusCounts,
 	}, nil
 }

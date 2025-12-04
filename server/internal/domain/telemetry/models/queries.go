@@ -88,6 +88,7 @@ type CombinedMetric struct {
 	Metrics                 []Metric                 `json:"metrics"`
 	NextPageToken           string                   `json:"next_page_token,omitempty"` // for pagination
 	TemperatureStatusCounts []TemperatureStatusCount `json:"temperature_status_counts,omitempty"`
+	UptimeStatusCounts      []UptimeStatusCount      `json:"uptime_status_counts,omitempty"`
 }
 
 // TemperatureStatusCount represents temperature status distribution at a point in time
@@ -97,4 +98,11 @@ type TemperatureStatusCount struct {
 	OkCount       int32     `json:"ok_count"`       // Count of miners 0-70°C
 	HotCount      int32     `json:"hot_count"`      // Count of miners 70-90°C
 	CriticalCount int32     `json:"critical_count"` // Count of miners > 90°C
+}
+
+// UptimeStatusCount represents uptime/hashing status distribution at a point in time
+type UptimeStatusCount struct {
+	Timestamp       time.Time `json:"timestamp"`
+	HashingCount    int32     `json:"hashing_count"`     // Count of miners actively hashing
+	NotHashingCount int32     `json:"not_hashing_count"` // Count of miners not hashing
 }

@@ -291,11 +291,22 @@ func (h *Handler) convertCombinedMetricsToStreamResponse(combinedMetrics models.
 		})
 	}
 
+	// Convert uptime status counts if present
+	var uptimeStatusCounts []*telemetryv1.UptimeStatusCount
+	for _, statusCount := range combinedMetrics.UptimeStatusCounts {
+		uptimeStatusCounts = append(uptimeStatusCounts, &telemetryv1.UptimeStatusCount{
+			Timestamp:       timestamppb.New(statusCount.Timestamp),
+			HashingCount:    statusCount.HashingCount,
+			NotHashingCount: statusCount.NotHashingCount,
+		})
+	}
+
 	nextUpdateTime := time.Now().Add(updateInterval)
 
 	return &telemetryv1.StreamCombinedMetricUpdatesResponse{
 		Metrics:                 metrics,
 		NextUpdateTime:          timestamppb.New(nextUpdateTime),
 		TemperatureStatusCounts: temperatureStatusCounts,
+		UptimeStatusCounts:      uptimeStatusCounts,
 	}, nil
 }

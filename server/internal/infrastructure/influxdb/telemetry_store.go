@@ -1148,13 +1148,12 @@ LIMIT 1000
 		}
 	}
 
-	if len(allMetrics) == 0 {
-		return models.CombinedMetric{}, fmt.Errorf("no combined metrics found in device_metrics")
+	// Sort metrics if we have any
+	if len(allMetrics) > 0 {
+		sort.Slice(allMetrics, func(i, j int) bool {
+			return allMetrics[i].OpenTime.Before(allMetrics[j].OpenTime)
+		})
 	}
-
-	sort.Slice(allMetrics, func(i, j int) bool {
-		return allMetrics[i].OpenTime.Before(allMetrics[j].OpenTime)
-	})
 
 	// Query temperature status counts if temperature is in the measurement types
 	var temperatureStatusCounts []models.TemperatureStatusCount
@@ -1300,9 +1299,143 @@ LIMIT 1000
 		})
 	}
 
+	// Query uptime status counts if uptime is in the measurement types
+	var uptimeStatusCounts []models.UptimeStatusCount
+	hasUptime := false
+	for _, mt := range query.MeasurementTypes {
+		if mt == models.MeasurementTypeUptime {
+			hasUptime = true
+			break
+		}
+	}
+
+	if hasUptime {
+		// Build device IDs filter (same as temperature)
+		deviceIDsStr := ""
+		if len(query.DeviceIDs) > 0 {
+			deviceIDsStr = fmt.Sprintf("AND device_id IN (%s)", s.buildDeviceIDsString(query.DeviceIDs))
+		}
+
+		// Query to get uptime/hashing status counts grouped by time buckets
+		// Use DATE_BIN to create regular time buckets (without gap filling)
+		// Categorize health: health_healthy_active = hashing, all others = not hashing
+		// Use window function to get the latest reading per device per bucket
+		uptimeStatusQuery := fmt.Sprintf(`
+	WITH ranked_readings AS (
+		SELECT
+			device_id,
+			DATE_BIN(INTERVAL '%d seconds', time, '2020-01-01T00:00:00Z'::TIMESTAMP) AS bucket_time,
+			health,
+			ROW_NUMBER() OVER (PARTITION BY device_id, DATE_BIN(INTERVAL '%d seconds', time, '2020-01-01T00:00:00Z'::TIMESTAMP) ORDER BY time DESC) as rn
+		FROM device_metrics
+		WHERE time >= $start_time
+		AND time <= $end_time
+		AND health IS NOT NULL
+		%s
+	),
+	latest_per_device AS (
+		SELECT
+			device_id,
+			bucket_time,
+			health
+		FROM ranked_readings
+		WHERE rn = 1
+	)
+	SELECT
+		bucket_time,
+		CASE
+			WHEN health = 'health_healthy_active' THEN 'hashing'
+			ELSE 'not_hashing'
+		END AS uptime_status,
+		COUNT(DISTINCT device_id) as count
+	FROM latest_per_device
+	GROUP BY bucket_time, uptime_status
+	ORDER BY bucket_time ASC
+		`, int(slideInterval.Seconds()), int(slideInterval.Seconds()), deviceIDsStr)
+
+		// Use the same parameter logic as metrics queries
+		params := s.getCombinedMetricsParams(query)
+
+		iterator, err := s.client.QueryPointValueWithParameters(ctx, uptimeStatusQuery, params)
+		if err != nil {
+			// Log but don't fail - uptime counts are optional
+			s.logger.Warn("failed to query uptime status counts", "error", err)
+		} else {
+			// Process pre-grouped results from InfluxDB
+			uptimeStatusCountsByTime := make(map[time.Time]map[string]int32)
+			for point, err := iterator.Next(); err != influxdb3.Done; point, err = iterator.Next() {
+				if err != nil {
+					continue
+				}
+
+				// Get bucket_time
+				var pointTime time.Time
+				if timeField := point.GetField("bucket_time"); timeField != nil {
+					if arrowTS, ok := timeField.(arrow.Timestamp); ok {
+						pointTime = time.Unix(0, int64(arrowTS))
+					}
+				}
+
+				if pointTime.IsZero() {
+					continue
+				}
+
+				// Get uptime status
+				status := ""
+				if statusField := point.GetField("uptime_status"); statusField != nil {
+					if s, ok := statusField.(string); ok {
+						status = s
+					}
+				}
+
+				// Get count
+				var count int32
+				if countField := point.GetField("count"); countField != nil {
+					switch v := countField.(type) {
+					case float64:
+						count = int32(v)
+					case int64:
+						if v > math.MaxInt32 || v < math.MinInt32 {
+							continue
+						}
+						count = int32(v)
+					case int32:
+						count = v
+					}
+				}
+
+				// Store count
+				if uptimeStatusCountsByTime[pointTime] == nil {
+					uptimeStatusCountsByTime[pointTime] = make(map[string]int32)
+				}
+				uptimeStatusCountsByTime[pointTime][status] = count
+			}
+
+			// Convert to UptimeStatusCount array
+			for timestamp, counts := range uptimeStatusCountsByTime {
+				uptimeStatusCounts = append(uptimeStatusCounts, models.UptimeStatusCount{
+					Timestamp:       timestamp,
+					HashingCount:    counts["hashing"],
+					NotHashingCount: counts["not_hashing"],
+				})
+			}
+
+			// Sort by timestamp
+			sort.Slice(uptimeStatusCounts, func(i, j int) bool {
+				return uptimeStatusCounts[i].Timestamp.Before(uptimeStatusCounts[j].Timestamp)
+			})
+		}
+	}
+
+	// Ensure we have at least some data to return
+	if len(allMetrics) == 0 && len(temperatureStatusCounts) == 0 && len(uptimeStatusCounts) == 0 {
+		return models.CombinedMetric{}, fmt.Errorf("no combined metrics found in device_metrics")
+	}
+
 	return models.CombinedMetric{
 		Metrics:                 allMetrics,
 		TemperatureStatusCounts: temperatureStatusCounts,
+		UptimeStatusCounts:      uptimeStatusCounts,
 		NextPageToken:           "", // Simplified - no pagination for device_metrics version
 	}, nil
 }

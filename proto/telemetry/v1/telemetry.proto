@@ -96,6 +96,13 @@ message TemperatureStatusCount {
   int32 critical_count = 5; // Count of miners > 90°C
 }
 
+// Uptime status distribution at a point in time
+message UptimeStatusCount {
+  google.protobuf.Timestamp timestamp = 1;
+  int32 hashing_count = 2;     // Count of miners actively hashing
+  int32 not_hashing_count = 3; // Count of miners not hashing
+}
+
 // Status of a miner
 enum DeviceStatus {
   // Status is unknown or not specified
@@ -301,6 +308,9 @@ message GetCombinedMetricsResponse {
 
     // Temperature status distribution across the fleet
     repeated TemperatureStatusCount temperature_status_counts = 3;
+
+    // Uptime status distribution across the fleet
+    repeated UptimeStatusCount uptime_status_counts = 4;
 }
 
 message StreamCombinedMetricUpdatesRequest {
@@ -322,5 +332,8 @@ message StreamCombinedMetricUpdatesResponse {
 
     // Real-time temperature status distribution
     repeated TemperatureStatusCount temperature_status_counts = 3;
+
+    // Real-time uptime status distribution
+    repeated UptimeStatusCount uptime_status_counts = 4;
 }
 
