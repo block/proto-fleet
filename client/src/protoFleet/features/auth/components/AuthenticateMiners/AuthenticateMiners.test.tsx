@@ -61,6 +61,7 @@ beforeEach(() => {
     totalMiners: 3,
     hasMore: false,
     isLoading: false,
+    hasInitialLoadCompleted: true,
     setFilter: vi.fn(),
     loadMore: vi.fn(),
     refetch: vi.fn(),
@@ -85,6 +86,7 @@ beforeEach(() => {
     totalMiners: 0,
     hasMore: false,
     isLoading: false,
+    hasInitialLoadCompleted: true,
     loadMore: vi.fn(),
     refetch: mockRefetchFleet,
   });

@@ -17,6 +17,8 @@ type UseAuthNeededMinersReturn = {
   hasMore: boolean;
   /** Whether the hook is currently loading data */
   isLoading: boolean;
+  /** Whether the initial load has completed */
+  hasInitialLoadCompleted: boolean;
   /** Update the filter for the miner list */
   setFilter: (filter: MinerListFilter) => void;
   /** Load the next page of miners */

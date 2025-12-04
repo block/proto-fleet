@@ -16,6 +16,7 @@ import {
   UpdateType,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useAuthErrors, useFleetStore, useMinerIds, useTotalMiners } from "@/protoFleet/store";
+import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 import { debounce } from "@/shared/utils/utility";
 
 type UseFleetOptions = {
@@ -125,6 +126,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
   // Internal state for the hook
   const [hasMore, setHasMore] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [hasInitialLoadCompleted, setHasInitialLoadCompleted] = useState(false);
   const [cursor, setCursor] = useState<string | undefined>();
 
   const updateMinerState = useCallback((response: StreamUpdatesResponse) => {
@@ -237,6 +239,12 @@ const useFleet = (options: UseFleetOptions = {}) => {
   const fetchMinerList = useCallback(
     async (filter: MinerListFilter | undefined, pageCursor?: string) => {
       setIsLoading(true);
+
+      // Reset initial load flag for non-pagination fetches (filter change or refetch)
+      if (!pageCursor) {
+        setHasInitialLoadCompleted(false);
+      }
+
       try {
         // Merge pairing statuses into the filter
         const filterWithPairingStatuses = filter ? { ...filter, pairingStatuses } : { pairingStatuses };
@@ -340,10 +348,24 @@ const useFleet = (options: UseFleetOptions = {}) => {
           error: error,
           onError: (err) => {
             console.error("Error fetching miner list:", err);
+
+            // Show toast for initial fetch errors (not pagination)
+            if (!pageCursor) {
+              pushToast({
+                status: TOAST_STATUSES.error,
+                message: "Failed to load miners. Please try again.",
+              });
+            }
           },
         });
       } finally {
         setIsLoading(false);
+
+        // Mark initial load as completed for non-pagination fetches (success or error)
+        // This ensures UI doesn't get stuck in permanent loading state on error
+        if (!pageCursor) {
+          setHasInitialLoadCompleted(true);
+        }
       }
     },
     [pairingStatuses, mode, pageSize, scope, handleAuthErrors],
@@ -475,6 +497,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
     totalMiners,
     hasMore,
     isLoading,
+    hasInitialLoadCompleted,
     loadMore,
     // Only return miners map for local scope (global scope uses store)
     ...(scope === "local" && { miners: localMiners }),

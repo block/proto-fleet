@@ -12,6 +12,9 @@ import { useNotifyPairingCompleted } from "@/protoFleet/store";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 
+// Stable reference to prevent re-renders
+const FLEET_PAIRING_STATUSES = [PairingStatus.PAIRED, PairingStatus.AUTHENTICATION_NEEDED];
+
 const Fleet = () => {
   // Track which miners are currently visible in viewport
   const { visibleMinerIds, registerMiner } = useVisibleMiners({
@@ -25,13 +28,13 @@ const Fleet = () => {
 
   // Fetch all devices (both paired and unpaired) with a single API call
   // Only subscribe to telemetry for visible miners
-  const { minerIds, totalMiners, hasMore, isLoading, loadMore, refetch } = useFleet({
+  const { minerIds, totalMiners, hasMore, isLoading, hasInitialLoadCompleted, loadMore, refetch } = useFleet({
     scope: "global",
-    pageSize: 20,
+    pageSize: 50,
     visibleMinerIds,
     mode: "snapshot",
     filter: currentFilter,
-    pairingStatuses: [PairingStatus.PAIRED, PairingStatus.AUTHENTICATION_NEEDED],
+    pairingStatuses: FLEET_PAIRING_STATUSES,
   });
 
   // Stream incremental updates for the current filter
@@ -72,11 +75,12 @@ const Fleet = () => {
           overflowContainer={false}
           onAddMiners={() => setShowAddMinersModal(true)}
           itemRef={registerMiner}
+          loading={!hasInitialLoadCompleted}
         />
       </ErrorBoundary>
 
       {hasMore ? (
-        <div className="mt-6 flex justify-center">
+        <div className="mt-6 mb-10 flex justify-center">
           <Button
             variant={variants.secondary}
             size={sizes.base}

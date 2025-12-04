@@ -30,6 +30,7 @@ import {
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import { Breakpoint } from "@/shared/constants/breakpoints";
 
 type MinerListProps = {
@@ -45,6 +46,10 @@ type MinerListProps = {
    * Used for viewport visibility tracking.
    */
   itemRef?: (itemKey: string, element: HTMLTableRowElement | null) => void;
+  /**
+   * Whether the list is loading. Shows a spinner in place of list items.
+   */
+  loading?: boolean;
 };
 
 // TODO: move this to state when we
@@ -69,6 +74,7 @@ const MinerList = ({
   onAddMiners,
   totalMiners,
   itemRef,
+  loading = false,
 }: MinerListProps) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -199,28 +205,34 @@ const MinerList = ({
         <Button text="Add miners" variant={variants.secondary} size={sizes.compact} onClick={onAddMiners} />
       </div>
 
-      <List<DeviceListItem, string, MinerColumn>
-        activeCols={activeCols}
-        colTitles={minerColTitles}
-        colConfig={minerColConfig}
-        filters={filters}
-        onServerFilter={handleServerFilter}
-        items={deviceItems}
-        itemKey={"deviceIdentifier"}
-        itemSelectable
-        renderActionBar={(selectedItems, clearSelection) => (
-          <div className="flex w-full justify-center">
-            <MinerListActionBar selectedMiners={selectedItems} onClearSelection={clearSelection} />
-          </div>
-        )}
-        containerClassName={listClassName}
-        paddingLeft={paddingLeft}
-        overflowContainer={overflowContainer}
-        total={totalMiners}
-        itemName={{ singular: "miner", plural: "miners" }}
-        itemRef={itemRef}
-        initialActiveFilters={initialActiveFilters}
-      />
+      {loading ? (
+        <div className="flex justify-center py-20">
+          <ProgressCircular indeterminate />
+        </div>
+      ) : (
+        <List<DeviceListItem, string, MinerColumn>
+          activeCols={activeCols}
+          colTitles={minerColTitles}
+          colConfig={minerColConfig}
+          filters={filters}
+          onServerFilter={handleServerFilter}
+          items={deviceItems}
+          itemKey={"deviceIdentifier"}
+          itemSelectable
+          renderActionBar={(selectedItems, clearSelection) => (
+            <div className="flex w-full justify-center">
+              <MinerListActionBar selectedMiners={selectedItems} onClearSelection={clearSelection} />
+            </div>
+          )}
+          containerClassName={listClassName}
+          paddingLeft={paddingLeft}
+          overflowContainer={overflowContainer}
+          total={totalMiners}
+          itemName={{ singular: "miner", plural: "miners" }}
+          itemRef={itemRef}
+          initialActiveFilters={initialActiveFilters}
+        />
+      )}
     </>
   );
 };
