@@ -16,6 +16,12 @@ interface LoginProps {
   onFinally?: () => void;
   onSuccess?: (requiresPasswordChange: boolean) => void;
   loginRequest: AuthenticateRequest;
+  /**
+   * When true, prevents automatic logout on authentication failure.
+   * Use this for re-authentication flows (e.g., password change verification)
+   * where a failed attempt should show an error, not log the user out.
+   */
+  skipLogoutOnError?: boolean;
 }
 
 const useLogin = () => {
@@ -27,7 +33,7 @@ const useLogin = () => {
   const { handleAuthErrors } = useAuthErrors();
 
   const login = useCallback(
-    async ({ loginRequest, onSuccess, onError, onFinally }: LoginProps) => {
+    async ({ loginRequest, onSuccess, onError, onFinally, skipLogoutOnError }: LoginProps) => {
       await authClient
         .authenticate(loginRequest)
         .then((res) => {
@@ -48,6 +54,11 @@ const useLogin = () => {
           onSuccess?.(userInfo.requiresPasswordChange);
         })
         .catch((err) => {
+          if (skipLogoutOnError) {
+            onError?.(err?.message ?? String(err));
+            return;
+          }
+
           handleAuthErrors({
             error: err,
             onError: () => {

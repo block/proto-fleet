@@ -106,6 +106,7 @@ const AuthenticationSettings = () => {
     setAuthApiError(null); // Clear any previous error
     login({
       loginRequest: create(AuthenticateRequestSchema, { username, password }),
+      skipLogoutOnError: true,
       onSuccess: () => {
         if (updatingState === "password") {
           setStep("updatePassword");
