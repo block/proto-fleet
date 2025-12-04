@@ -1,5 +1,4 @@
-import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import useFleet from "@/protoFleet/api/useFleet";
+import useFleetCounts from "@/protoFleet/api/useFleetCounts";
 import { EfficiencyPanel } from "@/protoFleet/features/dashboard/components/EfficiencyPanel";
 import FleetHealth from "@/protoFleet/features/dashboard/components/FleetHealth";
 import { HashratePanel } from "@/protoFleet/features/dashboard/components/HashratePanel";
@@ -9,26 +8,13 @@ import { TemperaturePanel } from "@/protoFleet/features/dashboard/components/Tem
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
-import {
-  useDevicePaired,
-  useDeviceStatusCounts,
-  useDuration,
-  useSetDuration,
-  useTotalMiners,
-} from "@/protoFleet/store";
+import { useDevicePaired, useDuration, useSetDuration } from "@/protoFleet/store";
 import DurationSelector from "@/shared/components/DurationSelector";
 import { buildVersionInfo } from "@/shared/utils/version";
 
 const Dashboard = () => {
   const devicePaired = useDevicePaired();
-  useFleet({
-    scope: "global",
-    mode: "metadata",
-    pageSize: 1,
-    pairingStatuses: [PairingStatus.PAIRED, PairingStatus.AUTHENTICATION_NEEDED],
-  }); // Ensure fleet data is loaded
-  const fleetSize = useTotalMiners();
-  const deviceStatusCounts = useDeviceStatusCounts();
+  const { totalMiners, stateCounts } = useFleetCounts();
   const duration = useDuration();
   const setDuration = useSetDuration();
   const currentYear = new Date().getFullYear();
@@ -46,10 +32,10 @@ const Dashboard = () => {
               {/* TODO: Get error counts from API */}
               <FleetErrors controlBoardErrors={0} fanErrors={0} hashboardErrors={0} psuErrors={0} />
               <FleetHealth
-                fleetSize={fleetSize ?? 1} // prevent division by zero
-                healthyMiners={deviceStatusCounts?.hashingCount ?? 0}
-                offlineMiners={deviceStatusCounts?.offlineCount ?? 0}
-                unhealthyMiners={(deviceStatusCounts?.sleepingCount ?? 0) + (deviceStatusCounts?.brokenCount ?? 0)}
+                fleetSize={totalMiners || 1} // prevent division by zero
+                healthyMiners={stateCounts?.hashingCount ?? 0}
+                offlineMiners={stateCounts?.offlineCount ?? 0}
+                unhealthyMiners={(stateCounts?.sleepingCount ?? 0) + (stateCounts?.brokenCount ?? 0)}
               />
             </div>
           </section>

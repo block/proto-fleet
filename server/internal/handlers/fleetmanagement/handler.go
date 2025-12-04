@@ -86,3 +86,12 @@ func (h *Handler) StreamMinerListUpdates(ctx context.Context, r *connect.Request
 		}
 	}
 }
+
+func (h *Handler) GetMinerStateCounts(ctx context.Context, r *connect.Request[pb.GetMinerStateCountsRequest]) (*connect.Response[pb.GetMinerStateCountsResponse], error) {
+	result, err := h.fleetMgmtSvc.GetMinerStateCounts(ctx, r.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(result), nil
+}

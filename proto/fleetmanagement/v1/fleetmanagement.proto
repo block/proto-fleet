@@ -26,6 +26,10 @@ service FleetManagementService {
   // Sends initial snapshot, then delta updates when miners enter/exit filter criteria
   // More efficient than sending full snapshots on each change
   rpc StreamMinerListUpdates(StreamMinerListUpdatesRequest) returns (stream StreamMinerListUpdatesResponse);
+
+  // Get counts of miners in different states without fetching miner data
+  // More efficient than ListMinerStateSnapshots when only counts are needed
+  rpc GetMinerStateCounts(GetMinerStateCountsRequest) returns (GetMinerStateCountsResponse);
 }
 
 enum FleetManagementServiceErrorCode {
@@ -394,6 +398,20 @@ message ListMinerStateSnapshotsResponse {
   // Useful for dynamically building type filter options in the UI
   // This includes all types across all pages, not just the current page
   repeated MinerType miner_types = 5;
+}
+
+// Request for getting miner state counts without fetching miner data
+message GetMinerStateCountsRequest {
+  // Reserved for future use
+}
+
+// Response containing miner state counts
+message GetMinerStateCountsResponse {
+  // Total number of miners matching the filter
+  int32 total_miners = 1;
+
+  // Counts of miners in different states
+  telemetry.v1.MinerStateCounts state_counts = 2;
 }
 
 message StreamMinerUpdatesRequest {

@@ -87,22 +87,18 @@ func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRe
 		return nil, err
 	}
 
-	// Validate and set page size
 	pageSize := validatePageSize(req.PageSize)
 
-	// Query the database
 	devices, nextCursor, err := s.deviceStore.ListPairedDevices(c, req.Cursor, pageSize)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to list miners: %v", err)
 	}
 
-	// Get total count
 	total, err := s.deviceStore.GetTotalPairedDevices(c, info.OrganizationID, nil)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
 	}
 
-	// Prepare response
 	resp := &pb.ListPairedMinersResponse{
 		Miners:      devices,
 		Cursor:      nextCursor,
@@ -119,13 +115,34 @@ func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMiner
 		return nil, err
 	}
 
-	// Convert to internal request format and delegate to shared builder
 	return s.buildSnapshotFromListRequest(ctx, info.OrganizationID, req)
 }
 
-// buildSnapshotFromListRequest builds response from ListMinerStateSnapshotsRequest
 func (s *Service) buildSnapshotFromListRequest(ctx context.Context, orgID int64, req *pb.ListMinerStateSnapshotsRequest) (*pb.ListMinerStateSnapshotsResponse, error) {
 	return s.buildSnapshot(ctx, orgID, req.PageSize, req.Cursor, req.Filter, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
+}
+
+// GetMinerStateCounts returns counts of miners in different states without fetching miner data
+func (s *Service) GetMinerStateCounts(ctx context.Context, _ *pb.GetMinerStateCountsRequest) (*pb.GetMinerStateCountsResponse, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	total, err := s.deviceStore.GetTotalPairedDevices(ctx, info.OrganizationID, nil)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
+	}
+
+	stateCounts, err := s.deviceStore.GetMinerStateCounts(ctx, info.OrganizationID, nil)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get state counts: %v", err)
+	}
+
+	return &pb.GetMinerStateCountsResponse{
+		TotalMiners: int32(total), //nolint:gosec
+		StateCounts: stateCounts,
+	}, nil
 }
 
 // buildSnapshot builds a ListMinerStateSnapshotsResponse with the given parameters
@@ -145,48 +162,24 @@ func (s *Service) buildSnapshot(
 		return nil, fleeterror.NewInternalErrorf("failed to parse filter parameters: %v", err)
 	}
 
-	// Validate and normalize page size
 	pageSize = validatePageSize(pageSize)
 
-	// Use unified query that handles all pairing statuses
 	snapshots, nextCursor, total, err := s.buildSnapshotsFromUnifiedQuery(ctx, orgID, cursor, pageSize, filter, dataMode, timeSeriesConfig, measurementConfigs)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get state counts (only relevant for paired devices or when filter includes paired)
 	var stateCounts *telemetrypb.MinerStateCounts
-	includePaired := len(filter.PairingStatuses) == 0 // Empty means all, which includes paired
-	for _, status := range filter.PairingStatuses {
-		if status == pb.PairingStatus_PAIRING_STATUS_PAIRED || status == pb.PairingStatus_PAIRING_STATUS_UNSPECIFIED {
-			includePaired = true
-			break
-		}
-	}
-	if includePaired {
+	if shouldIncludeStateCounts(filter.PairingStatuses) {
 		stateCounts, err = s.deviceStore.GetMinerStateCounts(ctx, orgID, filter)
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to get state counts: %v", err)
 		}
 	}
 
-	// Get available miner types
 	availableTypes, err := s.deviceStore.GetAvailableMinerTypes(ctx, orgID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get available miner types: %v", err)
-	}
-
-	// Convert miner types to proto enum
-	pbMinerTypes := make([]pb.MinerType, 0, len(availableTypes))
-	for _, minerType := range availableTypes {
-		switch minerType {
-		case mm.TypeProto:
-			pbMinerTypes = append(pbMinerTypes, pb.MinerType_MINER_TYPE_PROTO_RIG)
-		case mm.TypeAntminer:
-			pbMinerTypes = append(pbMinerTypes, pb.MinerType_MINER_TYPE_BITMAIN)
-		case mm.TypeUnknown, mm.TypeWhatsminer, mm.TypeAvalon:
-			// Skip types that don't have corresponding proto enum values
-		}
 	}
 
 	return &pb.ListMinerStateSnapshotsResponse{
@@ -194,11 +187,10 @@ func (s *Service) buildSnapshot(
 		Cursor:           nextCursor,
 		TotalMiners:      int32(total), //nolint:gosec
 		TotalStateCounts: stateCounts,
-		MinerTypes:       pbMinerTypes,
+		MinerTypes:       convertMinerTypesToProto(availableTypes),
 	}, nil
 }
 
-// buildSnapshotsFromUnifiedQuery uses the unified SQL query to fetch both paired and unpaired devices
 func (s *Service) buildSnapshotsFromUnifiedQuery(
 	ctx context.Context,
 	orgID int64,
@@ -209,13 +201,11 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 	timeSeriesConfig *commonpb.TimeSeriesConfig,
 	measurementConfigs []*pb.MeasurementConfig,
 ) ([]*pb.MinerStateSnapshot, string, int64, error) {
-	// Call device store to get unified results
 	rows, nextCursor, total, err := s.deviceStore.ListMinerStateSnapshots(ctx, orgID, cursor, pageSize, filter)
 	if err != nil {
 		return nil, "", 0, err
 	}
 
-	// Convert to snapshots
 	snapshots := make([]*pb.MinerStateSnapshot, 0, len(rows))
 	for _, row := range rows {
 		snapshot := &pb.MinerStateSnapshot{
@@ -223,7 +213,6 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 			Type:             row.Type,
 		}
 
-		// Handle nullable fields
 		if row.Model.Valid {
 			snapshot.Model = row.Model.String
 		}
@@ -231,7 +220,6 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 			snapshot.Manufacturer = row.Manufacturer.String
 		}
 
-		// Map pairing status from database to protobuf enum
 		switch row.PairingStatus {
 		case "PAIRED":
 			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_PAIRED
@@ -248,10 +236,8 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_UNPAIRED
 		}
 
-		// Determine if device is paired (for telemetry data fetching)
 		isPaired := row.PairingStatus == "PAIRED"
 
-		// For paired devices, fetch telemetry and additional data
 		if isPaired {
 			snapshot.MacAddress = row.MacAddress
 			if row.SerialNumber.Valid {
@@ -259,7 +245,6 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 			}
 			snapshot.Name = snapshot.Manufacturer + " " + snapshot.Model
 
-			// Get telemetry data
 			telemetry, err := s.telemetry.GetMinerTelemetry(ctx, row.DeviceIdentifier, dataMode, timeSeriesConfig, measurementConfigs)
 			if err == nil && telemetry != nil {
 				snapshot.PowerUsage = telemetry.PowerUsage
@@ -269,26 +254,21 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 				snapshot.Timestamp = telemetry.Timestamp
 			}
 
-			// Get component status
 			status, err := s.telemetry.GetMinerComponentStatus(ctx, row.DeviceIdentifier)
 			if err == nil && status != nil {
 				snapshot.Status = status
 			}
 
-			// Build URL from database fields
 			snapshot.IpAddress = row.IpAddress
 			snapshot.Url = constructWebViewURL(row.UrlScheme, row.IpAddress)
 
-			// Set device status
 			if row.DeviceStatus.Valid {
 				snapshot.DeviceStatus = convertDeviceStatusStringToProto(string(row.DeviceStatus.DeviceStatusStatus))
 			}
 		} else {
-			// For unpaired devices
 			snapshot.Name = snapshot.Manufacturer + " " + snapshot.Model
 			snapshot.IpAddress = row.IpAddress
 
-			// Build URL
 			url := row.UrlScheme + "://" + row.IpAddress
 			if row.Port != "" && row.Port != defaultHTTPPort && row.Port != defaultHTTPSPort {
 				url += ":" + row.Port
@@ -312,13 +292,11 @@ func (s *Service) StreamMinerUpdates(ctx context.Context, req *pb.StreamMinerUpd
 
 	responseChan := make(chan *pb.StreamMinerUpdatesResponse, measurementChannelBuffer)
 
-	// Start measurement stream
 	measurementChan, err := s.telemetry.StreamMeasurements(ctx, req.DeviceIdentifiers, req.MeasurementTypes)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to start measurement stream: %v", err)
 	}
 
-	// Start status stream if requested
 	var statusChan <-chan *pb.StreamMinerUpdatesResponse
 	if req.IncludeStatusUpdates {
 		statusChan, err = s.telemetry.StreamComponentStatus(ctx, req.DeviceIdentifiers)
@@ -327,11 +305,9 @@ func (s *Service) StreamMinerUpdates(ctx context.Context, req *pb.StreamMinerUpd
 		}
 	}
 
-	// Start goroutine to handle all streams
 	go func() {
 		defer close(responseChan)
 
-		// Create a ticker for heartbeats if requested
 		var heartbeatTicker *time.Ticker
 		if req.HeartbeatIntervalSeconds > 0 {
 			heartbeatTicker = time.NewTicker(time.Duration(req.HeartbeatIntervalSeconds) * time.Second)
@@ -379,22 +355,41 @@ func (s *Service) StreamMinerUpdates(ctx context.Context, req *pb.StreamMinerUpd
 	return responseChan, nil
 }
 
+// shouldIncludeStateCounts determines if state counts should be fetched based on pairing status filter.
+// State counts are only meaningful for devices that have telemetry data (PAIRED and AUTHENTICATION_NEEDED).
+// Per proto definition: empty slice means "no filter" (include all), UNSPECIFIED means "all statuses".
+func shouldIncludeStateCounts(pairingStatuses []pb.PairingStatus) bool {
+	if len(pairingStatuses) == 0 {
+		return true
+	}
+	for _, status := range pairingStatuses {
+		switch status {
+		case pb.PairingStatus_PAIRING_STATUS_PAIRED,
+			pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+			pb.PairingStatus_PAIRING_STATUS_UNSPECIFIED:
+			return true
+		case pb.PairingStatus_PAIRING_STATUS_UNPAIRED,
+			pb.PairingStatus_PAIRING_STATUS_PENDING,
+			pb.PairingStatus_PAIRING_STATUS_FAILED:
+			// These statuses don't have telemetry data, skip
+		}
+	}
+	return false
+}
+
 func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) {
-	// Initialize filter with defaults
 	filter := &interfaces.MinerFilter{
-		PairingStatuses: []pb.PairingStatus{}, // Empty means all
+		PairingStatuses: []pb.PairingStatus{},
 	}
 
 	if pbFilter == nil {
 		return filter, nil
 	}
 
-	// Handle new pairing_statuses field (preferred)
 	if len(pbFilter.PairingStatuses) > 0 {
 		filter.PairingStatuses = pbFilter.PairingStatuses
 	}
 
-	// Handle component_filters field
 	if len(pbFilter.ComponentFilters) > 0 {
 		componentFilters := make([]interfaces.ComponentFilter, 0, len(pbFilter.ComponentFilters))
 		for _, cf := range pbFilter.ComponentFilters {
@@ -444,7 +439,6 @@ func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) 
 		filter.DeviceStatusFilter = statusFilters
 	}
 
-	// Handle types filter
 	if len(pbFilter.Types) > 0 {
 		minerTypes := make([]mm.Type, 0, len(pbFilter.Types))
 		for _, t := range pbFilter.Types {
@@ -488,6 +482,23 @@ var componentStatusMap = map[pb.ComponentStatus]string{
 	pb.ComponentStatus_COMPONENT_STATUS_WARNING: "MAINTENANCE",
 	pb.ComponentStatus_COMPONENT_STATUS_ERROR:   "ERROR",
 	pb.ComponentStatus_COMPONENT_STATUS_OFFLINE: "OFFLINE",
+}
+
+// convertMinerTypesToProto converts domain miner types to protobuf enum values.
+// Types without corresponding proto enum values are skipped.
+func convertMinerTypesToProto(minerTypes []mm.Type) []pb.MinerType {
+	result := make([]pb.MinerType, 0, len(minerTypes))
+	for _, minerType := range minerTypes {
+		switch minerType {
+		case mm.TypeProto:
+			result = append(result, pb.MinerType_MINER_TYPE_PROTO_RIG)
+		case mm.TypeAntminer:
+			result = append(result, pb.MinerType_MINER_TYPE_BITMAIN)
+		case mm.TypeUnknown, mm.TypeWhatsminer, mm.TypeAvalon:
+			// Skip types that don't have corresponding proto enum values
+		}
+	}
+	return result
 }
 
 func convertMinerStatusToDeviceStatus(minerStatus mm.MinerStatus) pb.DeviceStatus {
@@ -537,7 +548,6 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 
 	responseChan := make(chan *pb.StreamMinerListUpdatesResponse, listUpdatesChannelBuffer)
 
-	// Set default heartbeat interval if not specified
 	heartbeatInterval := req.HeartbeatIntervalSeconds
 	if heartbeatInterval <= 0 {
 		heartbeatInterval = defaultHeartbeatIntervalSeconds
@@ -575,7 +585,6 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 			return nil
 		}
 
-		// Initialize tracking state
 		if err := buildInitialTrackingState(); err != nil {
 			slog.Error("failed to build initial tracking state", "error", err)
 			return
@@ -595,11 +604,9 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 		}
 		defer unsubscribe()
 
-		// Set up ticker for heartbeats
 		heartbeatTicker := time.NewTicker(time.Duration(heartbeatInterval) * time.Second)
 		defer heartbeatTicker.Stop()
 
-		// Parse filter once for reuse
 		filter, err := parseFilter(req.Filter)
 		if err != nil {
 			slog.Error("failed to parse filter", "error", err)
@@ -616,35 +623,26 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 					return
 				}
 
-				// Device status changed - check if it affects filter membership
 				deviceID := string(update.DeviceID)
 
-				// Get the device's current information
 				device, err := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, deviceID, info.OrganizationID)
 				if err != nil {
 					slog.Error("failed to get device", "deviceID", deviceID, "error", err)
 					continue
 				}
 
-				// Check if device now matches the filter
 				nowMatches := s.deviceMatchesFilter(device, filter, update.DeviceStatus)
 				wasMatching := currentMatchingDevices[deviceID]
 
-				// Generate delta if membership changed
 				if nowMatches && !wasMatching {
-					// Device added to filtered list
 					currentMatchingDevices[deviceID] = true
 
-					// Build miner snapshot for the added device
 					snapshot := s.buildMinerSnapshot(ctx, device, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
 
-					// Find the correct position to insert based on sort order
-					// For now, append to end. In production, you'd determine position based on
-					// the same sorting logic used by ListMinerStateSnapshots
+					// Position is appended to end for now; proper position would use ListMinerStateSnapshots sorting logic
 					position := len(sortedDeviceIDs)
 					sortedDeviceIDs = append(sortedDeviceIDs, deviceID)
 
-					// Get updated total count
 					total, err := s.deviceStore.GetTotalPairedDevices(ctx, info.OrganizationID, filter)
 					if err != nil {
 						slog.Error("failed to get total count", "error", err)
@@ -673,10 +671,8 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 					}
 
 				} else if !nowMatches && wasMatching {
-					// Device removed from filtered list
 					delete(currentMatchingDevices, deviceID)
 
-					// Remove from sorted list
 					for i, id := range sortedDeviceIDs {
 						if id == deviceID {
 							sortedDeviceIDs = append(sortedDeviceIDs[:i], sortedDeviceIDs[i+1:]...)
@@ -684,7 +680,6 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 						}
 					}
 
-					// Get updated total count
 					total, err := s.deviceStore.GetTotalPairedDevices(ctx, info.OrganizationID, filter)
 					if err != nil {
 						slog.Error("failed to get total count", "error", err)
@@ -709,7 +704,6 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 				}
 
 			case <-heartbeatTicker.C:
-				// Send heartbeat
 				resp := &pb.StreamMinerListUpdatesResponse{
 					Timestamp: timestamppb.Now(),
 					Update: &pb.StreamMinerListUpdatesResponse_Heartbeat{
@@ -732,10 +726,9 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 // deviceMatchesFilter checks if a device matches the given filter criteria
 func (s *Service) deviceMatchesFilter(device *pairingpb.Device, filter *interfaces.MinerFilter, status *mm.MinerStatus) bool {
 	if filter == nil {
-		return true // No filter means all devices match
+		return true
 	}
 
-	// Check device status filter
 	if len(filter.DeviceStatusFilter) > 0 {
 		deviceStatus := mm.MinerStatusUnknown
 		if status != nil {
@@ -754,7 +747,6 @@ func (s *Service) deviceMatchesFilter(device *pairingpb.Device, filter *interfac
 		}
 	}
 
-	// Check miner type filter
 	if len(filter.MinerType) > 0 {
 		deviceType := mm.ParseDeviceTypeOrUnknown(device.Type, device.Model)
 
@@ -776,7 +768,6 @@ func (s *Service) deviceMatchesFilter(device *pairingpb.Device, filter *interfac
 	return true
 }
 
-// buildMinerSnapshot builds a MinerStateSnapshot for a single device
 func (s *Service) buildMinerSnapshot(
 	ctx context.Context,
 	device *pairingpb.Device,
@@ -784,24 +775,18 @@ func (s *Service) buildMinerSnapshot(
 	timeSeriesConfig *commonpb.TimeSeriesConfig,
 	measurementConfigs []*pb.MeasurementConfig,
 ) *pb.MinerStateSnapshot {
-	// Get telemetry data
 	telemetry, err := s.telemetry.GetMinerTelemetry(ctx, device.DeviceIdentifier, dataMode, timeSeriesConfig, measurementConfigs)
 	if err != nil {
-		// Continue without telemetry - non-critical for snapshot
 		telemetry = nil
 	}
 
-	// Get component status
 	status, err := s.telemetry.GetMinerComponentStatus(ctx, device.DeviceIdentifier)
 	if err != nil {
-		// Continue without component status
 		status = nil
 	}
 
-	// Get device status
 	deviceStatuses, err := s.deviceStore.GetDeviceStatusForDeviceIdentifiers(ctx, []mm.DeviceIdentifier{mm.DeviceIdentifier(device.DeviceIdentifier)})
 	if err != nil {
-		// Continue with empty status map
 		deviceStatuses = make(map[mm.DeviceIdentifier]mm.MinerStatus)
 	}
 

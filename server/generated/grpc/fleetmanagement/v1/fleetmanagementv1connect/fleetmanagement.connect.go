@@ -46,6 +46,9 @@ const (
 	// FleetManagementServiceStreamMinerListUpdatesProcedure is the fully-qualified name of the
 	// FleetManagementService's StreamMinerListUpdates RPC.
 	FleetManagementServiceStreamMinerListUpdatesProcedure = "/fleetmanagement.v1.FleetManagementService/StreamMinerListUpdates"
+	// FleetManagementServiceGetMinerStateCountsProcedure is the fully-qualified name of the
+	// FleetManagementService's GetMinerStateCounts RPC.
+	FleetManagementServiceGetMinerStateCountsProcedure = "/fleetmanagement.v1.FleetManagementService/GetMinerStateCounts"
 )
 
 // FleetManagementServiceClient is a client for the fleetmanagement.v1.FleetManagementService
@@ -64,6 +67,9 @@ type FleetManagementServiceClient interface {
 	// Sends initial snapshot, then delta updates when miners enter/exit filter criteria
 	// More efficient than sending full snapshots on each change
 	StreamMinerListUpdates(context.Context, *connect.Request[v1.StreamMinerListUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamMinerListUpdatesResponse], error)
+	// Get counts of miners in different states without fetching miner data
+	// More efficient than ListMinerStateSnapshots when only counts are needed
+	GetMinerStateCounts(context.Context, *connect.Request[v1.GetMinerStateCountsRequest]) (*connect.Response[v1.GetMinerStateCountsResponse], error)
 }
 
 // NewFleetManagementServiceClient constructs a client for the
@@ -96,6 +102,11 @@ func NewFleetManagementServiceClient(httpClient connect.HTTPClient, baseURL stri
 			baseURL+FleetManagementServiceStreamMinerListUpdatesProcedure,
 			opts...,
 		),
+		getMinerStateCounts: connect.NewClient[v1.GetMinerStateCountsRequest, v1.GetMinerStateCountsResponse](
+			httpClient,
+			baseURL+FleetManagementServiceGetMinerStateCountsProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -105,6 +116,7 @@ type fleetManagementServiceClient struct {
 	listMinerStateSnapshots *connect.Client[v1.ListMinerStateSnapshotsRequest, v1.ListMinerStateSnapshotsResponse]
 	streamMinerUpdates      *connect.Client[v1.StreamMinerUpdatesRequest, v1.StreamMinerUpdatesResponse]
 	streamMinerListUpdates  *connect.Client[v1.StreamMinerListUpdatesRequest, v1.StreamMinerListUpdatesResponse]
+	getMinerStateCounts     *connect.Client[v1.GetMinerStateCountsRequest, v1.GetMinerStateCountsResponse]
 }
 
 // ListPairedMiners calls fleetmanagement.v1.FleetManagementService.ListPairedMiners.
@@ -127,6 +139,11 @@ func (c *fleetManagementServiceClient) StreamMinerListUpdates(ctx context.Contex
 	return c.streamMinerListUpdates.CallServerStream(ctx, req)
 }
 
+// GetMinerStateCounts calls fleetmanagement.v1.FleetManagementService.GetMinerStateCounts.
+func (c *fleetManagementServiceClient) GetMinerStateCounts(ctx context.Context, req *connect.Request[v1.GetMinerStateCountsRequest]) (*connect.Response[v1.GetMinerStateCountsResponse], error) {
+	return c.getMinerStateCounts.CallUnary(ctx, req)
+}
+
 // FleetManagementServiceHandler is an implementation of the
 // fleetmanagement.v1.FleetManagementService service.
 type FleetManagementServiceHandler interface {
@@ -143,6 +160,9 @@ type FleetManagementServiceHandler interface {
 	// Sends initial snapshot, then delta updates when miners enter/exit filter criteria
 	// More efficient than sending full snapshots on each change
 	StreamMinerListUpdates(context.Context, *connect.Request[v1.StreamMinerListUpdatesRequest], *connect.ServerStream[v1.StreamMinerListUpdatesResponse]) error
+	// Get counts of miners in different states without fetching miner data
+	// More efficient than ListMinerStateSnapshots when only counts are needed
+	GetMinerStateCounts(context.Context, *connect.Request[v1.GetMinerStateCountsRequest]) (*connect.Response[v1.GetMinerStateCountsResponse], error)
 }
 
 // NewFleetManagementServiceHandler builds an HTTP handler from the service implementation. It
@@ -171,6 +191,11 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 		svc.StreamMinerListUpdates,
 		opts...,
 	)
+	fleetManagementServiceGetMinerStateCountsHandler := connect.NewUnaryHandler(
+		FleetManagementServiceGetMinerStateCountsProcedure,
+		svc.GetMinerStateCounts,
+		opts...,
+	)
 	return "/fleetmanagement.v1.FleetManagementService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case FleetManagementServiceListPairedMinersProcedure:
@@ -181,6 +206,8 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 			fleetManagementServiceStreamMinerUpdatesHandler.ServeHTTP(w, r)
 		case FleetManagementServiceStreamMinerListUpdatesProcedure:
 			fleetManagementServiceStreamMinerListUpdatesHandler.ServeHTTP(w, r)
+		case FleetManagementServiceGetMinerStateCountsProcedure:
+			fleetManagementServiceGetMinerStateCountsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -204,4 +231,8 @@ func (UnimplementedFleetManagementServiceHandler) StreamMinerUpdates(context.Con
 
 func (UnimplementedFleetManagementServiceHandler) StreamMinerListUpdates(context.Context, *connect.Request[v1.StreamMinerListUpdatesRequest], *connect.ServerStream[v1.StreamMinerListUpdatesResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.StreamMinerListUpdates is not implemented"))
+}
+
+func (UnimplementedFleetManagementServiceHandler) GetMinerStateCounts(context.Context, *connect.Request[v1.GetMinerStateCountsRequest]) (*connect.Response[v1.GetMinerStateCountsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.GetMinerStateCounts is not implemented"))
 }
