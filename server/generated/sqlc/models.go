@@ -303,6 +303,29 @@ type DiscoveredDevice struct {
 	IsActive          bool
 }
 
+type Error struct {
+	ID                int64
+	ErrorID           string
+	OrgID             int64
+	MinerError        int32
+	Severity          int32
+	Summary           string
+	Impact            sql.NullString
+	CauseSummary      sql.NullString
+	RecommendedAction sql.NullString
+	FirstSeenAt       time.Time
+	LastSeenAt        time.Time
+	ClosedAt          sql.NullTime
+	DeviceID          int64
+	ComponentID       sql.NullString
+	ComponentType     sql.NullInt32
+	VendorCode        sql.NullString
+	Firmware          sql.NullString
+	Extra             json.RawMessage
+	CreatedAt         sql.NullTime
+	UpdatedAt         sql.NullTime
+}
+
 type MinerCredential struct {
 	ID          int64
 	DeviceID    int64
