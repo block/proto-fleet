@@ -162,6 +162,12 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	return metrics, nil
 }
 
+// GetErrors returns all active and historical errors for the device.
+// TODO (DASH-965): Implement GetErrors for Proto devices.
+func (d *Device) GetErrors(ctx context.Context) (sdk.DeviceErrors, error) {
+	return sdk.DeviceErrors{}, sdk.NewErrUnsupportedCapability("GetErrors not yet implemented for Proto devices")
+}
+
 // convertStatus converts miner-specific status to SDK format.
 //
 // This helper method demonstrates:

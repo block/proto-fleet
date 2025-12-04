@@ -29,6 +29,7 @@ type mockSDKDevice struct {
 	updatePoolsFunc    func(ctx context.Context, pools []sdk.MiningPoolConfig) error
 	downloadLogsFunc   func(ctx context.Context, since *time.Time, uuid string) (string, bool, error)
 	firmwareUpdateFunc func(ctx context.Context) error
+	getErrorsFunc      func(ctx context.Context) (sdk.DeviceErrors, error)
 	tryGetWebViewFunc  func(ctx context.Context) (string, bool, error)
 }
 
@@ -115,6 +116,13 @@ func (m *mockSDKDevice) FirmwareUpdate(ctx context.Context) error {
 
 func (m *mockSDKDevice) Unpair(ctx context.Context) error {
 	return nil
+}
+
+func (m *mockSDKDevice) GetErrors(ctx context.Context) (sdk.DeviceErrors, error) {
+	if m.getErrorsFunc != nil {
+		return m.getErrorsFunc(ctx)
+	}
+	return sdk.DeviceErrors{}, nil
 }
 
 func (m *mockSDKDevice) TryGetWebViewURL(ctx context.Context) (string, bool, error) {

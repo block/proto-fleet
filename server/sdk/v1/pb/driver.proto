@@ -377,6 +377,124 @@ message GetTimeSeriesDataResponse {
   string next_page_token = 2; // For pagination
 }
 
+// ============================================================================
+// Error System - Miner Error Taxonomy
+// ============================================================================
+
+// - 1xxx PSU & facility power at PSU terminals
+// - 2xxx Thermal & fans
+// - 3xxx Board/ASIC chain & hash performance
+// - 35xx Board-level power rails & protection (distinct from PSU)
+// - 4xxx Sensors (electrical faults, not just out-of-range)
+// - 5xxx Non-volatile storage / firmware
+// - 6xxx Control-plane & on-board comms (hardware-side)
+// - 8xxx Performance advisories (non-fatal)
+// - 9xxx Catch-alls / vendor-unknown
+enum MinerError {
+  MINER_ERROR_UNSPECIFIED              = 0;
+
+  // 1000–1499: PSU (unit-level faults)
+  PSU_NOT_PRESENT                          = 1000;
+  PSU_MODEL_MISMATCH                       = 1001;
+  PSU_COMMUNICATION_LOST                   = 1002;
+  PSU_FAULT_GENERIC                        = 1003;
+  PSU_INPUT_VOLTAGE_LOW                    = 1004;
+  PSU_INPUT_VOLTAGE_HIGH                   = 1005;
+  PSU_OUTPUT_VOLTAGE_FAULT                 = 1006;
+  PSU_OUTPUT_OVERCURRENT                   = 1007;
+  PSU_FAN_FAULT                            = 1008;
+  PSU_OVER_TEMPERATURE                     = 1009;
+  PSU_INPUT_PHASE_IMBALANCE                = 1010;
+  PSU_UNDER_TEMPERATURE                    = 1011;
+
+  // 2000–2499: Thermal & fans (device-level)
+  FAN_FAILED                               = 2000;
+  FAN_TACH_SIGNAL_LOST                     = 2001;
+  FAN_SPEED_DEVIATION                      = 2002;
+  INLET_OVER_TEMPERATURE                   = 2010;
+  DEVICE_OVER_TEMPERATURE                  = 2011;
+  DEVICE_UNDER_TEMPERATURE                 = 2012;
+
+  // 3000–3499: Hashboard / ASIC chain & core digital
+  HASHBOARD_NOT_PRESENT                    = 3000;
+  HASHBOARD_OVER_TEMPERATURE               = 3001;
+  HASHBOARD_MISSING_CHIPS                  = 3002;
+  ASIC_CHAIN_COMMUNICATION_LOST            = 3003;
+  ASIC_CLOCK_PLL_UNLOCKED                  = 3004;
+  ASIC_CRC_ERROR_EXCESSIVE                 = 3005;
+  HASHBOARD_ASIC_OVER_TEMPERATURE          = 3006;
+  HASHBOARD_ASIC_UNDER_TEMPERATURE         = 3007;
+
+  // 3500–3699: Board-level power rails & protection (distinct from PSU)
+  BOARD_POWER_PGOOD_MISSING                = 3500;
+  BOARD_POWER_OVERCURRENT                  = 3501;
+  BOARD_POWER_RAIL_UNDERVOLT               = 3502;
+  BOARD_POWER_RAIL_OVERVOLT                = 3503;
+  BOARD_POWER_SHORT_DETECTED               = 3504;
+
+  // 4000–4499: Sensors (electrical faults)
+  TEMP_SENSOR_OPEN_OR_SHORT                = 4000;
+  TEMP_SENSOR_FAULT                        = 4001;
+  VOLTAGE_SENSOR_FAULT                     = 4002;
+  CURRENT_SENSOR_FAULT                     = 4003;
+
+  // 5000–5499: Non-volatile storage / firmware (hardware-adjacent)
+  EEPROM_CRC_MISMATCH                      = 5000;
+  EEPROM_READ_FAILURE                      = 5001;
+  FIRMWARE_IMAGE_INVALID                   = 5002;
+  FIRMWARE_CONFIG_INVALID                  = 5003;
+
+  // 6000–6499: Control-plane & on-board comms (hardware-side)
+  CONTROL_BOARD_COMMUNICATION_LOST         = 6000;
+  CONTROL_BOARD_FAILURE                    = 6001;
+  DEVICE_INTERNAL_BUS_FAULT                = 6002;
+  DEVICE_COMMUNICATION_LOST                = 6003;
+  IO_MODULE_FAILURE                        = 6010;
+
+  // 8000–8499: Performance advisories (non-fatal canonical warnings)
+  HASHRATE_BELOW_TARGET                    = 8000;
+  HASHBOARD_WARN_CRC_HIGH                  = 8001;
+  THERMAL_MARGIN_LOW                       = 8002;
+
+  // 9000–9999: Catch-alls
+  VENDOR_ERROR_UNMAPPED                    = 9000;
+}
+
+// Severity represents the criticality level of an error
+enum Severity {
+  SEVERITY_UNSPECIFIED = 0;
+  SEVERITY_CRITICAL    = 1;  // Miner stops hashing or unsafe
+  SEVERITY_MAJOR       = 2;  // Degraded hashing / imminent trip
+  SEVERITY_MINOR       = 3;  // Recoverable, limited effect
+  SEVERITY_INFO        = 4;  // Informational / advisory
+}
+
+// ErrorMessage represents a miner error reported by a device.
+message ErrorMessage {
+  optional string error_id = 1;                     // ULID (globally unique, time-sortable). Plugins leave empty; fleet populates.
+  MinerError miner_error = 2;                       // REQUIRED
+  string cause_summary = 3;                         // Human-readable short cause
+  string recommended_action = 4;                    // Next best action
+  Severity severity = 5;                            // Technical severity classification
+
+  google.protobuf.Timestamp first_seen_at = 6;
+  google.protobuf.Timestamp last_seen_at = 7;
+  google.protobuf.Timestamp closed_at = 8;          // Optional closed/expired error
+
+  map<string, string> vendor_attributes = 9;        // e.g., firmware, code, serials
+
+  string device_id = 10;                            // Device this error belongs to
+  optional string component_id = 11;                // Optional component identifier
+  string impact = 12;                               // Human-readable business impact (e.g., "Stops mining", "Reduces hashrate by 30%")
+  string summary = 13;                              // High level summary - typically raw message from miner
+}
+
+// DeviceErrors contains all errors for a specific device
+message DeviceErrors {
+  string device_id = 1;
+  repeated ErrorMessage errors = 2;
+}
+
 // Driver service interface - all drivers must implement CoreV1
 service Driver {
   // CoreV1 - Driver Info - Required methods
@@ -417,4 +535,7 @@ service Driver {
   // Optional capabilities - return Unimplemented if not supported
   rpc BatchStatus(BatchStatusRequest) returns (StatusBatchResponse);
   rpc Subscribe(SubscribeRequest) returns (stream DeviceMetrics);
+
+  // CoreV1 - Error System - Required method
+  rpc GetErrors(DeviceRef) returns (DeviceErrors);
 }

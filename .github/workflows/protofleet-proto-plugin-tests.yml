@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: Activate hermit
-        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318    # v1.1.4
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
 
       - name: Lint protocol buffers
         run: |
@@ -49,10 +49,10 @@ jobs:
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           token: "${{ steps.create_token.outputs.token }}"
-          submodules: true
+          submodules: recursive
 
       - name: Activate hermit
-        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318    # v1.1.4
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
 
       - name: Configure cache
         uses: actions/cache@v4
@@ -79,13 +79,13 @@ jobs:
             echo "Attempt $i: Docker daemon not ready, waiting 2 seconds..."
             sleep 2
           done
-          
+
           # Verify Docker can pull images
           echo "Testing Docker image pull capability with hello-world..."
           docker pull hello-world:latest
           docker run --rm hello-world:latest
           echo "hello-world image works"
-          
+
           # Test the specific Ubuntu image that testcontainers will use
           echo "Testing Ubuntu 22.04 image pull (used by testcontainers)..."
           if docker pull ubuntu:22.04; then
@@ -96,7 +96,7 @@ jobs:
             echo "❌ Failed to pull ubuntu:22.04 - this is likely the root cause"
             exit 1
           fi
-          
+
           echo "Docker daemon is fully functional with all required images"
 
       - name: Ensure miner-firmware submodule is correct

@@ -172,6 +172,12 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	return status, nil
 }
 
+// GetErrors returns all active and historical errors for the device.
+// TODO (DASH-971): Implement GetErrors for Antminer devices.
+func (d *Device) GetErrors(ctx context.Context) (sdk.DeviceErrors, error) {
+	return sdk.DeviceErrors{}, sdk.NewErrUnsupportedCapability("GetErrors not yet implemented for Antminer devices")
+}
+
 // convertStatus converts Antminer-specific status to SDK format.
 func (d *Device) convertStatus(minerStatus *antminer.Status, telemetry *antminer.Telemetry) sdk.DeviceMetrics {
 	now := time.Now()

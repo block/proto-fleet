@@ -292,6 +292,44 @@ func (mr *MockDeviceMaintenanceMockRecorder) Unpair(ctx interface{}) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Unpair", reflect.TypeOf((*MockDeviceMaintenance)(nil).Unpair), ctx)
 }
 
+// MockDeviceErrorReporting is a mock of DeviceErrorReporting interface.
+type MockDeviceErrorReporting struct {
+	ctrl     *gomock.Controller
+	recorder *MockDeviceErrorReportingMockRecorder
+}
+
+// MockDeviceErrorReportingMockRecorder is the mock recorder for MockDeviceErrorReporting.
+type MockDeviceErrorReportingMockRecorder struct {
+	mock *MockDeviceErrorReporting
+}
+
+// NewMockDeviceErrorReporting creates a new mock instance.
+func NewMockDeviceErrorReporting(ctrl *gomock.Controller) *MockDeviceErrorReporting {
+	mock := &MockDeviceErrorReporting{ctrl: ctrl}
+	mock.recorder = &MockDeviceErrorReportingMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockDeviceErrorReporting) EXPECT() *MockDeviceErrorReportingMockRecorder {
+	return m.recorder
+}
+
+// GetErrors mocks base method.
+func (m *MockDeviceErrorReporting) GetErrors(ctx context.Context) (sdk.DeviceErrors, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetErrors", ctx)
+	ret0, _ := ret[0].(sdk.DeviceErrors)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetErrors indicates an expected call of GetErrors.
+func (mr *MockDeviceErrorReportingMockRecorder) GetErrors(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetErrors", reflect.TypeOf((*MockDeviceErrorReporting)(nil).GetErrors), ctx)
+}
+
 // MockDeviceOptional is a mock of DeviceOptional interface.
 type MockDeviceOptional struct {
 	ctrl     *gomock.Controller
@@ -475,6 +513,21 @@ func (m *MockDevice) FirmwareUpdate(ctx context.Context) error {
 func (mr *MockDeviceMockRecorder) FirmwareUpdate(ctx interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FirmwareUpdate", reflect.TypeOf((*MockDevice)(nil).FirmwareUpdate), ctx)
+}
+
+// GetErrors mocks base method.
+func (m *MockDevice) GetErrors(ctx context.Context) (sdk.DeviceErrors, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetErrors", ctx)
+	ret0, _ := ret[0].(sdk.DeviceErrors)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetErrors indicates an expected call of GetErrors.
+func (mr *MockDeviceMockRecorder) GetErrors(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetErrors", reflect.TypeOf((*MockDevice)(nil).GetErrors), ctx)
 }
 
 // ID mocks base method.

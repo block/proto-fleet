@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	sdkerrors "github.com/btc-mining/proto-fleet/server/sdk/v1/errors"
 	pb "github.com/btc-mining/proto-fleet/server/sdk/v1/pb/generated"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
@@ -266,6 +267,34 @@ func (s *DriverGRPCServer) DeviceStatus(ctx context.Context, req *pb.DeviceRef) 
 	}
 
 	return deviceMetricsToProto(metrics), nil
+}
+
+func (s *DriverGRPCServer) GetErrors(ctx context.Context, req *pb.DeviceRef) (*pb.DeviceErrors, error) {
+	s.mu.RLock()
+	device, exists := s.devices[req.DeviceId]
+	s.mu.RUnlock()
+
+	if !exists {
+		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
+	}
+
+	deviceErrors, err := device.GetErrors(ctx)
+	if err != nil {
+		return nil, sdkErrorToGRPCStatus(err)
+	}
+
+	// The ErrorID field will be empty in the protobuf, to be populated by fleet server
+	pbErrors := make([]*pb.ErrorMessage, len(deviceErrors.Errors))
+	for i, devErr := range deviceErrors.Errors {
+		// Convert DeviceError to ErrorMessage with empty ErrorID for now
+		errMsg := devErr.ToErrorMessage("")
+		pbErrors[i] = errMsg.ToProto()
+	}
+
+	return &pb.DeviceErrors{
+		DeviceId: deviceErrors.DeviceID,
+		Errors:   pbErrors,
+	}, nil
 }
 
 func (s *DriverGRPCServer) CloseDevice(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {
@@ -684,6 +713,17 @@ func (d *DeviceGRPCClient) Status(ctx context.Context) (DeviceMetrics, error) {
 	}
 
 	return deviceMetricsFromProto(resp), nil
+}
+
+func (d *DeviceGRPCClient) GetErrors(ctx context.Context) (DeviceErrors, error) {
+	resp, err := d.client.GetErrors(ctx, &pb.DeviceRef{
+		DeviceId: d.deviceID,
+	})
+	if err != nil {
+		return DeviceErrors{}, err
+	}
+
+	return sdkerrors.DeviceErrorsFromProto(resp), nil
 }
 
 func (d *DeviceGRPCClient) Close(ctx context.Context) error {

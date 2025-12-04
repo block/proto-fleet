@@ -41,6 +41,7 @@ const (
 	Driver_GetDeviceWebViewURL_FullMethodName = "/sdk.v1.Driver/GetDeviceWebViewURL"
 	Driver_BatchStatus_FullMethodName         = "/sdk.v1.Driver/BatchStatus"
 	Driver_Subscribe_FullMethodName           = "/sdk.v1.Driver/Subscribe"
+	Driver_GetErrors_FullMethodName           = "/sdk.v1.Driver/GetErrors"
 )
 
 // DriverClient is the client API for Driver service.
@@ -77,6 +78,8 @@ type DriverClient interface {
 	// Optional capabilities - return Unimplemented if not supported
 	BatchStatus(ctx context.Context, in *BatchStatusRequest, opts ...grpc.CallOption) (*StatusBatchResponse, error)
 	Subscribe(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (Driver_SubscribeClient, error)
+	// CoreV1 - Error System - Required method
+	GetErrors(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*DeviceErrors, error)
 }
 
 type driverClient struct {
@@ -299,6 +302,15 @@ func (x *driverSubscribeClient) Recv() (*DeviceMetrics, error) {
 	return m, nil
 }
 
+func (c *driverClient) GetErrors(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*DeviceErrors, error) {
+	out := new(DeviceErrors)
+	err := c.cc.Invoke(ctx, Driver_GetErrors_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DriverServer is the server API for Driver service.
 // All implementations must embed UnimplementedDriverServer
 // for forward compatibility
@@ -333,6 +345,8 @@ type DriverServer interface {
 	// Optional capabilities - return Unimplemented if not supported
 	BatchStatus(context.Context, *BatchStatusRequest) (*StatusBatchResponse, error)
 	Subscribe(*SubscribeRequest, Driver_SubscribeServer) error
+	// CoreV1 - Error System - Required method
+	GetErrors(context.Context, *DeviceRef) (*DeviceErrors, error)
 	mustEmbedUnimplementedDriverServer()
 }
 
@@ -402,6 +416,9 @@ func (UnimplementedDriverServer) BatchStatus(context.Context, *BatchStatusReques
 }
 func (UnimplementedDriverServer) Subscribe(*SubscribeRequest, Driver_SubscribeServer) error {
 	return status.Errorf(codes.Unimplemented, "method Subscribe not implemented")
+}
+func (UnimplementedDriverServer) GetErrors(context.Context, *DeviceRef) (*DeviceErrors, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetErrors not implemented")
 }
 func (UnimplementedDriverServer) mustEmbedUnimplementedDriverServer() {}
 
@@ -797,6 +814,24 @@ func (x *driverSubscribeServer) Send(m *DeviceMetrics) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _Driver_GetErrors_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeviceRef)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).GetErrors(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_GetErrors_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).GetErrors(ctx, req.(*DeviceRef))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Driver_ServiceDesc is the grpc.ServiceDesc for Driver service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -883,6 +918,10 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BatchStatus",
 			Handler:    _Driver_BatchStatus_Handler,
+		},
+		{
+			MethodName: "GetErrors",
+			Handler:    _Driver_GetErrors_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

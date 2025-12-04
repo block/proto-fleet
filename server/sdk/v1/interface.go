@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/btc-mining/proto-fleet/server/sdk/v1/errors"
 )
 
 // DriverIdentifier contains driver identification information
@@ -187,6 +189,29 @@ type DeviceMetrics struct {
 }
 
 // ============================================================================
+// Error Reporting Types
+// ============================================================================
+
+// DeviceError represents an error reported by a plugin for a device.
+// This is the plugin-facing error type without the fleet-managed ErrorID field.
+// Plugins populate this type and return it from GetErrors().
+type DeviceError = errors.DeviceError
+
+// DeviceErrors contains all plugin-reported errors for a specific device.
+// This is returned by plugin GetErrors() calls.
+type DeviceErrors = errors.DeviceErrors
+
+// ErrorMessage represents a fleet-tracked miner error.
+// This type includes fleet-managed fields (ErrorID, DeviceID).
+type ErrorMessage = errors.ErrorMessage
+
+// MinerError represents the standardized classification of device errors
+type MinerError = errors.MinerError
+
+// Severity represents the criticality level of an error
+type Severity = errors.Severity
+
+// ============================================================================
 // Other SDK Types
 // ============================================================================
 
@@ -345,6 +370,13 @@ type DeviceMaintenance interface {
 	Unpair(ctx context.Context) error
 }
 
+// DeviceErrorReporting represents device error reporting operations
+type DeviceErrorReporting interface {
+	// CoreV1 - Error System (required)
+	// GetErrors returns all active and historical errors for the device
+	GetErrors(ctx context.Context) (DeviceErrors, error)
+}
+
 // DeviceOptional represents optional device capabilities
 type DeviceOptional interface {
 	// Optional capabilities - return (result, false, nil) if unsupported
@@ -361,6 +393,7 @@ type Device interface {
 	DeviceControl
 	DeviceConfiguration
 	DeviceMaintenance
+	DeviceErrorReporting
 	DeviceOptional
 }
 
