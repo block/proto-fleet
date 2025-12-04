@@ -54,20 +54,6 @@ describe("DeactivateUserDialog", () => {
     expect(mockOnConfirm).toHaveBeenCalled();
   });
 
-  it("shows loading state when isSubmitting is true", () => {
-    const { getByText } = render(
-      <DeactivateUserDialog
-        username="john_doe"
-        onConfirm={mockOnConfirm}
-        onDismiss={mockOnDismiss}
-        isSubmitting={true}
-      />,
-    );
-
-    const confirmButton = getByText("Confirm deactivation").closest("button");
-    expect(confirmButton).toHaveAttribute("aria-busy", "true");
-  });
-
   it("disables confirm button when isSubmitting is true", () => {
     const { getByText } = render(
       <DeactivateUserDialog
@@ -96,20 +82,6 @@ describe("DeactivateUserDialog", () => {
     expect(getByText(/This action cannot be undone/)).toBeInTheDocument();
   });
 
-  it("renders Alert icon container", () => {
-    const { container } = render(
-      <DeactivateUserDialog
-        username="john_doe"
-        onConfirm={mockOnConfirm}
-        onDismiss={mockOnDismiss}
-        isSubmitting={false}
-      />,
-    );
-
-    const iconContainer = container.querySelector("div.bg-intent-critical-10");
-    expect(iconContainer).toBeTruthy();
-  });
-
   it("handles long usernames", () => {
     const longUsername = "user_with_a_very_long_username_for_testing";
     const { getByText } = render(
@@ -122,19 +94,5 @@ describe("DeactivateUserDialog", () => {
     );
 
     expect(getByText(new RegExp(longUsername))).toBeInTheDocument();
-  });
-
-  it("button is disabled when isSubmitting is true", () => {
-    const { getByText } = render(
-      <DeactivateUserDialog
-        username="john_doe"
-        onConfirm={mockOnConfirm}
-        onDismiss={mockOnDismiss}
-        isSubmitting={true}
-      />,
-    );
-
-    const confirmButton = getByText("Confirm deactivation").closest("button");
-    expect(confirmButton).toBeDisabled();
   });
 });

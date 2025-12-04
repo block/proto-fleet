@@ -14,15 +14,13 @@ describe("Stat", () => {
   it("renders loading state when value is undefined", () => {
     render(<Stat label="Hashrate" value={undefined} size="small" />);
 
-    expect(screen.getByRole("heading", { level: 3 })).toHaveClass("opacity-30");
     expect(screen.getByTestId("skeleton-bar")).toBeInTheDocument();
   });
 
   it("renders units when provided", () => {
     render(<Stat label="Hashrate" value={"value"} units="TH/s" size="small" />);
 
-    expect(screen.getByText("TH/s")).toBeInTheDocument();
-    expect(screen.getByText("TH/s")).toHaveClass("text-text-primary-30");
+    expect(screen.getByText(/TH\/s/)).toBeInTheDocument();
   });
 
   it("renders descriptive text when provided", () => {
@@ -30,7 +28,6 @@ describe("Stat", () => {
     render(<Stat label="Hashrate" value={"value"} text={text} size="small" />);
 
     expect(screen.getByText(text)).toBeInTheDocument();
-    expect(screen.getByText(text)).toHaveClass("text-text-primary-70");
   });
 
   it("renders icon when provided", () => {

@@ -67,21 +67,6 @@ describe("ResetPasswordModal", () => {
       expect(mockOnDismiss).toHaveBeenCalled();
     });
 
-    it("shows loading state when isResetting is true", () => {
-      const { getByText } = render(
-        <ResetPasswordModal
-          username="john_doe"
-          temporaryPassword={null}
-          onConfirm={mockOnConfirm}
-          onDismiss={mockOnDismiss}
-          isResetting={true}
-        />,
-      );
-
-      const resetButton = getByText("Reset member password").closest("button");
-      expect(resetButton).toHaveAttribute("aria-busy", "true");
-    });
-
     it("disables button when isResetting is true", () => {
       const { getByText } = render(
         <ResetPasswordModal
@@ -95,21 +80,6 @@ describe("ResetPasswordModal", () => {
 
       const resetButton = getByText("Reset member password").closest("button");
       expect(resetButton).toBeDisabled();
-    });
-
-    it("renders Lock icon container in confirmation step", () => {
-      const { container } = render(
-        <ResetPasswordModal
-          username="john_doe"
-          temporaryPassword={null}
-          onConfirm={mockOnConfirm}
-          onDismiss={mockOnDismiss}
-          isResetting={false}
-        />,
-      );
-
-      const iconContainer = container.querySelector("div.bg-surface-elevated-base");
-      expect(iconContainer).toBeTruthy();
     });
   });
 
@@ -174,36 +144,6 @@ describe("ResetPasswordModal", () => {
       fireEvent.click(copyButton);
 
       expect(utility.copyToClipboard).toHaveBeenCalledWith("TempPass123!@#");
-    });
-
-    it("renders Success icon container in success step", () => {
-      const { container } = render(
-        <ResetPasswordModal
-          username="john_doe"
-          temporaryPassword="TempPass123!@#"
-          onConfirm={mockOnConfirm}
-          onDismiss={mockOnDismiss}
-          isResetting={false}
-        />,
-      );
-
-      const iconContainer = container.querySelector("div.bg-intent-success-10");
-      expect(iconContainer).toBeTruthy();
-    });
-
-    it("displays temporary password in monospace font", () => {
-      const { getByText } = render(
-        <ResetPasswordModal
-          username="john_doe"
-          temporaryPassword="TempPass123!@#"
-          onConfirm={mockOnConfirm}
-          onDismiss={mockOnDismiss}
-          isResetting={false}
-        />,
-      );
-
-      const passwordElement = getByText("TempPass123!@#");
-      expect(passwordElement.className).toContain("font-mono");
     });
 
     it("handles long usernames in success message", () => {

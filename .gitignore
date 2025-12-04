@@ -1,6 +1,7 @@
 .hermit/
 .idea
 .DS_Store
+node_modules/
 server/influx_config/.env
 **/.goose/
 

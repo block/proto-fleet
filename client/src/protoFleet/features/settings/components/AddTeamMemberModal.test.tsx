@@ -173,7 +173,7 @@ describe("AddTeamMemberModal", () => {
 
     await waitFor(() => {
       const saveButton = getByText("Save").closest("button");
-      expect(saveButton).toHaveAttribute("aria-busy", "true");
+      expect(saveButton).toBeDisabled();
     });
 
     resolveCreate();
@@ -230,12 +230,14 @@ describe("AddTeamMemberModal", () => {
     expect(mockOnDismiss).toHaveBeenCalled();
   });
 
-  it("calls onDismiss when clicking close button in step 1", () => {
-    const { getByRole } = render(<AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />);
+  it("calls onDismiss when clicking close button in step 1", async () => {
+    const { getByTestId } = render(<AddTeamMemberModal onDismiss={mockOnDismiss} onSuccess={mockOnSuccess} />);
 
-    const closeButton = getByRole("button", { name: /close/i });
+    const closeButton = getByTestId("header-icon-button");
     fireEvent.click(closeButton);
 
-    expect(mockOnDismiss).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(mockOnDismiss).toHaveBeenCalled();
+    });
   });
 });

@@ -1,0 +1,116 @@
+name: ProtoFleet Server Checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/protofleet-server-checks.yml"
+      - "server/**"
+      - "plugin/**"
+      - "proto/**"
+      - "go.work"
+      - "go.work.sum"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/protofleet-server-checks.yml"
+      - "server/**"
+      - "plugin/**"
+      - "proto/**"
+      - "go.work"
+      - "go.work.sum"
+  workflow_dispatch:
+
+jobs:
+  # Lint protobuf definitions
+  proto-lint:
+    name: Protobuf Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
+
+      - name: Lint protobuf definitions
+        run: just lint
+
+  # Go quality checks (format, lint) for all modules
+  go-quality:
+    name: Go Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
+
+      - name: Configure Go cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-workspace-${{ hashFiles('**/go.sum', 'go.work') }}
+          restore-keys: |
+            ${{ runner.os }}-go-workspace-
+            ${{ runner.os }}-go-
+
+      - name: Check Go formatting
+        run: |
+          # Check if any files need formatting
+          unformatted=$(gofmt -l server/ plugin/)
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not formatted correctly:"
+            echo "$unformatted"
+            echo ""
+            echo "Run 'gofmt -w .' to fix formatting"
+            exit 1
+          fi
+          echo "All Go files are properly formatted"
+
+      - name: Lint server
+        run: |
+          cd server
+          just lint
+
+      - name: Lint proto plugin
+        run: |
+          cd plugin/proto
+          just lint
+
+      - name: Lint antminer plugin
+        run: |
+          cd plugin/antminer
+          just lint
+
+  # Build all Go modules
+  go-build:
+    name: Go Build
+    runs-on: ubuntu-latest
+    needs: [proto-lint, go-quality]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
+
+      - name: Configure Go cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-workspace-${{ hashFiles('**/go.sum', 'go.work') }}
+          restore-keys: |
+            ${{ runner.os }}-go-workspace-
+            ${{ runner.os }}-go-
+
+      - name: Build all modules
+        run: |
+          go build ./server/...
+          go build ./plugin/proto/...
+          go build ./plugin/antminer/...

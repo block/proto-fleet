@@ -75,6 +75,8 @@ describe("List actions", () => {
     fireEvent.click(getByText(actions[0].title));
     expect(actions[0].actionHandler).toHaveBeenCalledWith(item);
 
+    // Popover closes after click, so we need to reopen it to test another action
+    fireEvent.click(triggerButton);
     fireEvent.click(getByText(actions[1].title));
     expect(actions[1].actionHandler).toHaveBeenCalledWith(item);
   });
