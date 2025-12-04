@@ -16,27 +16,31 @@ const temperatureSegmentConfig: SegmentConfig = {
     color: "var(--color-intent-info-fill)",
     label: "Cold",
     displayInBreakdown: true,
-    index: 2, // Third in order
+    showButton: false,
+    index: 2,
   },
   ok: {
     color: "var(--color-intent-info-20)",
-    label: "Normal",
+    label: "Healthy",
     displayInBreakdown: true,
-    index: 3, // Fourth in order
+    index: 3,
+    showButton: false,
     percentageLabel: "Within optimal range", // Custom label for normal temperature
   },
   hot: {
     color: "var(--color-intent-warning-fill)",
     label: "Hot",
     displayInBreakdown: true,
-    index: 1, // Second in order
+    showButton: false,
+    index: 1,
   },
   critical: {
     color: "var(--color-intent-critical-fill)",
     label: "Critical",
     displayInBreakdown: true,
+    showButton: false,
     icon: <Triangle />,
-    index: 0, // First in order
+    index: 0,
     buttonVariant: "primary", // Use primary button for critical items
   },
 };

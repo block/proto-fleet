@@ -3,41 +3,26 @@ export interface SegmentedBarChartData {
   [key: string]: number; // Dynamic segment keys
 }
 
+export interface ResponsiveValue<T> {
+  phone?: T;
+  tablet?: T;
+  laptop?: T;
+  desktop?: T;
+}
+
 export interface SegmentedBarChartProps {
   chartData: SegmentedBarChartData[] | null;
   segmentKeys: string[];
   colorMap?: { [key: string]: string };
   units?: string;
   percentageDisplay?: boolean;
-  segmentsLabel?: string;
-  showTooltip?: boolean;
-  animate?: boolean;
   className?: string;
   height?: number;
-  barWidth?: number;
-  xAxisPadding?: number; // Padding for X-axis in pixels (controls spacing between bars)
-  yAxisPadding?: number; // Percentage to extend Y-axis above max value (e.g., 0.1 = 10%)
+  barWidth?: number | ResponsiveValue<number>;
+  barGap?: number | ResponsiveValue<number>; // Gap between bars in pixels, if omitted bars will be evenly spaced to fill the container
   yAxisTickCount?: number; // Number of horizontal grid lines/ticks (default: 3)
   xAxisTickInterval?: number; // Show tick every N bars (default: 1 = show all)
   showDateLabel?: boolean; // Show date (e.g., "2/11") instead of time on X-axis
   lastTickOverride?: string; // Custom text for the last tick (e.g., "live")
-  toolTipKey?: string | null; // Key to display in tooltip, null to hide tooltip, undefined for total
-}
-
-export interface SegmentedBarTooltipProps {
-  active?: boolean;
-  payload?: any; // Recharts default payload (we won't use this)
-  customPayload?: {
-    datetime: number;
-    total: number;
-    segments: Array<{
-      key: string;
-      value: number;
-      color: string;
-    }>;
-  };
-  units?: string;
-  percentageDisplay?: boolean;
-  barPosition?: { x: number; y: number; index: number };
-  toolTipKey?: string | null;
+  toolTipKey?: string | null; // Key to display in tooltip, null to hide tooltip, "total" for total value
 }

@@ -1,6 +1,6 @@
-import { create } from "@bufbuild/protobuf";
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import PoolSelectionPage from "./PoolSelectionPage";
 import { PoolSchema } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 

@@ -1,24 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
+import { MouseEvent, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-
-import {
-  BAR_ANIMATION_DURATION,
-  barProps,
-  cartesianGridProps,
-  DEFAULT_BAR_WIDTH,
-  DEFAULT_CHART_HEIGHT,
-  DEFAULT_Y_AXIS_TICK_COUNT,
-  defaultColors,
-  xAxisProps,
-  yAxisProps,
-} from "./constants";
-import CustomSegmentedBar from "./CustomSegmentedBar";
-import SegmentedXAxisTick from "./SegmentedXAxisTick";
-import SegmentedBarTooltip from "./Tooltip/SegmentedBarTooltip";
 import type { SegmentedBarChartProps } from "./types";
-import ChartWrapper from "@/shared/components/Chart/ChartWrapper";
-import useMeasure from "@/shared/hooks/useMeasure";
+import { formatDate, formatTime, getResponsiveValue } from "./utils";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
+import { getDisplayValue } from "@/shared/utils/stringUtils";
 
 const SegmentedBarChart = ({
   chartData,
@@ -26,58 +11,58 @@ const SegmentedBarChart = ({
   colorMap,
   units = "",
   percentageDisplay = false,
-  showTooltip = true,
-  animate = false,
-  className,
-  height = DEFAULT_CHART_HEIGHT,
-  barWidth = DEFAULT_BAR_WIDTH,
-  xAxisPadding: customXAxisPadding,
-  yAxisPadding = 0,
-  yAxisTickCount = DEFAULT_Y_AXIS_TICK_COUNT,
+  yAxisTickCount = 3,
   xAxisTickInterval = 1,
+  className,
+  height = 200,
+  barWidth = 12,
+  barGap,
   showDateLabel = false,
+  toolTipKey = "total",
   lastTickOverride,
-  toolTipKey,
 }: SegmentedBarChartProps) => {
-  const [shouldAnimate, setShouldAnimate] = useState(animate);
-  const [hoveredBar, setHoveredBar] = useState<{
-    x: number;
-    y: number;
-    index: number;
-  } | null>(null);
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-  const chartRef = useRef<HTMLDivElement>(null);
+  const [hoveredBar, setHoveredBar] = useState<number | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const viewport = useWindowDimensions();
 
-  // Measure the chart container to get actual width
-  const [measureRef, contentRect] = useMeasure<HTMLDivElement>();
+  // Get responsive values and ensure they're integers to avoid subpixel rendering
+  const actualBarWidth = Math.round(getResponsiveValue(barWidth, 12, viewport));
+  const actualBarGap = getResponsiveValue(barGap, undefined as number | undefined, viewport);
+  const actualBarGapRounded = actualBarGap !== undefined ? Math.round(actualBarGap) : undefined;
 
-  // Transform data for custom bar rendering
+  // Transform data for rendering
   const transformedData = useMemo(() => {
     if (!chartData) return null;
 
-    // Use default colors if colorMap not provided
+    // Default colors if not provided
+    const defaultColors = [
+      "var(--color-extended-navy-fill)",
+      "var(--color-surface-5)",
+      "var(--color-intent-warning-fill)",
+      "var(--color-intent-critical-fill)",
+      "var(--color-extended-pink-fill)",
+      "var(--color-extended-purple-fill)",
+      "var(--color-extended-forest-fill)",
+      "var(--color-extended-teal-fill)",
+    ];
+
     const getColorForSegment = (key: string, index: number) => {
       if (colorMap && colorMap[key]) {
         return colorMap[key];
       }
-      // Use color from array by index, fallback to first color if index is out of bounds
       return defaultColors[index] || defaultColors[0];
     };
 
     return chartData.map((item) => {
-      // Calculate actual total for this data point
-      const actualTotal = segmentKeys.reduce((sum, key) => {
-        return sum + item[key];
-      }, 0);
+      const actualTotal = segmentKeys.reduce((sum, key) => sum + item[key], 0);
 
       if (percentageDisplay) {
-        // For percentage display, convert values to percentages
         return {
           datetime: item.datetime,
-          total: 100, // Always 100 for percentage display
+          total: 100,
           segments: segmentKeys.map((key, index) => {
             const val = item[key];
-            // Convert to percentage of total
             const percentageValue = actualTotal > 0 ? (val / actualTotal) * 100 : 0;
             return {
               key,
@@ -87,232 +72,198 @@ const SegmentedBarChart = ({
           }),
         };
       } else {
-        // For normal display, use actual values
         return {
           datetime: item.datetime,
           total: actualTotal,
-          segments: segmentKeys.map((key, index) => {
-            const val = item[key];
-            return {
-              key,
-              value: val,
-              color: getColorForSegment(key, index),
-            };
-          }),
+          segments: segmentKeys.map((key, index) => ({
+            key,
+            value: item[key],
+            color: getColorForSegment(key, index),
+          })),
         };
       }
     });
   }, [chartData, segmentKeys, colorMap, percentageDisplay]);
 
-  // Calculate x-axis padding based on chart width and bar dimensions
-  // Use custom padding if provided, otherwise calculate automatically
-  const xAxisPadding = useMemo(() => {
-    // Use custom padding if provided
-    if (customXAxisPadding !== undefined) {
-      return customXAxisPadding;
-    }
+  // Calculate max value for Y-axis scaling
+  const maxValue = useMemo(() => {
+    if (percentageDisplay) return 100;
+    if (!transformedData) return 0;
+    return Math.max(...transformedData.map((d) => d.total));
+  }, [transformedData, percentageDisplay]);
 
-    // Otherwise calculate automatically
-    if (!transformedData || transformedData.length === 0) return 0;
-
-    const chartWidth = contentRect.width;
-    if (chartWidth === 0) return 0; // No width measured yet
-
-    const numBars = transformedData.length;
-    const totalBarWidth = barWidth * numBars;
-
-    // Calculate the padding needed on each side
-    // This centers the bars with equal spacing on left and right
-    const padding = Math.max(0, (chartWidth - totalBarWidth) / numBars) / 2;
-
-    return padding;
-  }, [customXAxisPadding, contentRect.width, transformedData, barWidth]);
-
-  // Calculate Y-axis domain with optional padding
-  const yAxisDomain = useMemo(() => {
-    if (percentageDisplay) {
-      return [0, 100]; // Use 100 for percentage scale
-    }
-
-    // Calculate max value from data
-    const maxValue = transformedData?.reduce((max, item) => Math.max(max, item.total), 0) || 0;
-
-    // If no data or all zeros, use a default scale to prevent tick overlap
-    if (maxValue === 0) {
-      return [0, 100]; // Default scale when no data
-    }
-
-    if (yAxisPadding > 0) {
-      return [0, maxValue * (1 + yAxisPadding)];
-    }
-
-    // Default: scale to data max
-    return [0, maxValue];
-  }, [percentageDisplay, yAxisPadding, transformedData]);
-
-  // Calculate tick values for evenly spaced grid lines
+  // Y-axis tick values
   const yAxisTicks = useMemo(() => {
-    if (percentageDisplay) {
-      // For percentage display, create evenly spaced ticks from 0 to 100
-      const ticks = [];
-      for (let i = 0; i <= yAxisTickCount; i++) {
-        ticks.push((i * 100) / yAxisTickCount);
-      }
-      return ticks;
-    }
-
-    // For normal display, calculate based on domain
-    const maxValue =
-      typeof yAxisDomain[1] === "number"
-        ? yAxisDomain[1]
-        : transformedData?.reduce((max, item) => Math.max(max, item.total), 0) || 0;
-
     const ticks = [];
+    const step = maxValue / yAxisTickCount;
     for (let i = 0; i <= yAxisTickCount; i++) {
-      ticks.push((maxValue * i) / yAxisTickCount);
+      ticks.push(Math.round(step * i));
     }
-    return ticks;
-  }, [percentageDisplay, yAxisTickCount, yAxisDomain, transformedData]);
+    return ticks.reverse();
+  }, [maxValue, yAxisTickCount]);
 
-  // Handle animation lifecycle
-  useEffect(() => {
-    if (animate) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setShouldAnimate(true);
-      const timeoutId = setTimeout(() => {
-        setShouldAnimate(false);
-      }, BAR_ANIMATION_DURATION);
+  // Calculate exact container width when using fixed barGap to avoid subpixel rounding
+  const containerWidth = useMemo(() => {
+    if (actualBarGapRounded === undefined || !transformedData) return undefined;
 
-      return () => clearTimeout(timeoutId);
+    const barCount = transformedData.length;
+    if (barCount === 0) return undefined;
+
+    // Total width = (barWidth * barCount) + (gap * (barCount - 1))
+    // Use rounded values to ensure integer pixel widths
+    const totalBarsWidth = actualBarWidth * barCount;
+    const totalGapsWidth = actualBarGapRounded * (barCount - 1);
+    return totalBarsWidth + totalGapsWidth;
+  }, [actualBarGapRounded, actualBarWidth, transformedData]);
+
+  const handleBarHover = (index: number, event: MouseEvent<HTMLDivElement>) => {
+    if (toolTipKey === null) return;
+
+    const rect = event.currentTarget.firstElementChild?.getBoundingClientRect();
+    const containerRect = containerRef.current?.getBoundingClientRect();
+
+    if (containerRect) {
+      setHoveredBar(index);
+      setTooltipPosition({
+        x: rect ? rect.left - containerRect.left + rect.width / 2 : 0,
+        y: rect ? rect.top - containerRect.top - 8 : 0,
+      });
     }
-  }, [animate]);
+  };
+
+  const tooltipText = useMemo(() => {
+    if (hoveredBar === null || !transformedData) return null;
+    const dataPoint = transformedData[hoveredBar];
+    const key = toolTipKey;
+
+    const value =
+      key === "total" ? dataPoint.total : dataPoint.segments.find((segment) => segment.key === key)?.value || null;
+
+    if (!value) return null;
+
+    const formattedValue = getDisplayValue(value);
+    return formattedValue ? `${formattedValue}${percentageDisplay ? "%" : units}` : null;
+  }, [hoveredBar, transformedData, toolTipKey, percentageDisplay, units]);
+
+  const handleBarLeave = () => {
+    setHoveredBar(null);
+    setTooltipPosition(null);
+  };
 
   if (!transformedData || transformedData.length === 0) {
     return (
-      <div className={clsx("flex h-full w-full items-center justify-center text-text-primary-50", className)}>
-        <span>No data available</span>
+      <div className={clsx("flex items-center justify-center", className)} style={{ height }}>
+        <span className="text-text-tertiary">No data available</span>
       </div>
     );
   }
 
   return (
-    <div
-      ref={(el) => {
-        chartRef.current = el;
-        measureRef(el);
-      }}
-      className={clsx("outline-none", className)}
-      style={{ height }}
-      onMouseMove={(e) => {
-        // Get the element under the mouse
-        const element = e.target as Element;
+    <div ref={containerRef} className={clsx("relative flex flex-col pb-8", className)} style={{ height }}>
+      {/* Chart area with Y-axis grid lines */}
+      <div className="relative flex flex-1 items-end">
+        {/* Y-axis grid lines */}
+        <div className="pointer-events-none absolute inset-0 flex flex-col justify-between border-b border-core-primary-5">
+          {yAxisTicks.map((tick) => (
+            <div
+              key={tick}
+              className="flex items-center border-t border-core-primary-5"
+              style={{ height: `${100 / yAxisTicks.length}%` }}
+            ></div>
+          ))}
+        </div>
 
-        // Check if we're hovering over any element that's part of a bar group
-        // This includes the <g> element or any of its children
-        let currentElement: Element | null = element;
-        let isOverBar = false;
+        {/* Bars container */}
+        <div
+          className={clsx("h-full", {
+            "flex w-full items-end justify-between": actualBarGapRounded === undefined,
+            "relative mx-auto justify-center": actualBarGapRounded !== undefined,
+          })}
+          style={{
+            width: containerWidth !== undefined ? `${containerWidth}px` : undefined,
+          }}
+        >
+          {transformedData.map((data, index) => {
+            const barHeight = maxValue > 0 ? (data.total / maxValue) * 100 : 0;
+            const isLast = index === transformedData.length - 1;
+            const showTick = !showDateLabel && index % xAxisTickInterval === 0;
 
-        // Walk up the DOM to check if we're in a bar group
-        while (currentElement && currentElement !== e.currentTarget) {
-          if (currentElement.tagName === "g" && (currentElement as HTMLElement).style.cursor === "default") {
-            isOverBar = true;
-            break;
-          }
-          currentElement = currentElement.parentElement;
-        }
+            // Calculate exact position when using fixed gap
+            const barPosition =
+              actualBarGapRounded !== undefined ? index * (actualBarWidth + actualBarGapRounded) : undefined;
 
-        // If not over a bar clear the state
-        if (!isOverBar && hoveredIndex !== null) {
-          setHoveredIndex(null);
-          setHoveredBar(null);
-        }
-      }}
-      onMouseLeave={() => {
-        setHoveredIndex(null);
-        setHoveredBar(null);
-      }}
-    >
-      <ChartWrapper className="h-full w-full [&_*:focus]:outline-none [&_svg]:outline-none">
-        <BarChart data={transformedData} margin={{ top: 5, right: 0, bottom: 5, left: 0 }}>
-          <CartesianGrid {...cartesianGridProps} />
+            return (
+              <div
+                key={index}
+                className={clsx("group cursor-pointer", {
+                  "relative flex grow flex-col items-center justify-end": actualBarGapRounded === undefined,
+                  "absolute bottom-0 flex flex-col items-center justify-end": actualBarGapRounded !== undefined,
+                })}
+                style={{
+                  height: "100%",
+                  width: actualBarGapRounded !== undefined ? `${actualBarWidth}px` : "auto",
+                  left: barPosition !== undefined ? `${barPosition}px` : undefined,
+                }}
+                onMouseEnter={(e) => handleBarHover(index, e)}
+                onMouseLeave={handleBarLeave}
+              >
+                {/* Segmented bar */}
+                <div
+                  className="box-border flex flex-col-reverse overflow-hidden rounded-sm transition-shadow group-hover:shadow-[0_0_0_4px_theme(--color-core-primary-20)]"
+                  style={{
+                    height: `${barHeight}%`,
+                    width: `${actualBarWidth}px`,
+                    minWidth: `${actualBarWidth}px`,
+                    maxWidth: `${actualBarWidth}px`,
+                  }}
+                >
+                  {data.segments.map((segment, segIndex) => {
+                    const segmentHeight = data.total > 0 ? (segment.value / data.total) * 100 : 0;
 
-          <XAxis
-            {...xAxisProps}
-            dataKey="datetime"
-            scale="linear"
-            type="number"
-            domain={["dataMin", "dataMax"]}
-            padding={{ left: xAxisPadding, right: xAxisPadding }}
-            tickCount={showDateLabel ? 1 : transformedData.length}
-            ticks={
-              showDateLabel && transformedData && transformedData.length > 0
-                ? [
-                    // Calculate middle timestamp
-                    transformedData[Math.floor(transformedData.length / 2)].datetime,
-                  ]
-                : undefined
-            }
-            interval={showDateLabel ? 0 : xAxisTickInterval - 1}
-            tick={(props: any) => {
-              const lastTickValue =
-                transformedData && transformedData.length > 0
-                  ? transformedData[transformedData.length - 1].datetime
-                  : null;
-              return (
-                <SegmentedXAxisTick
-                  {...props}
-                  showDateLabel={showDateLabel}
-                  lastTickOverride={lastTickOverride}
-                  isLastTick={props.payload?.value === lastTickValue}
-                />
-              );
-            }}
-          />
-
-          <YAxis {...yAxisProps} domain={yAxisDomain} ticks={yAxisTicks} />
-
-          {showTooltip && toolTipKey !== null && hoveredIndex !== null && hoveredBar && transformedData && (
-            <Tooltip
-              cursor={false}
-              position={{ x: hoveredBar.x, y: hoveredBar.y - 8 }}
-              isAnimationActive={false}
-              content={
-                <SegmentedBarTooltip
-                  active={true}
-                  units={units}
-                  percentageDisplay={percentageDisplay}
-                  barPosition={hoveredBar}
-                  toolTipKey={toolTipKey}
-                  customPayload={transformedData[hoveredBar.index]}
-                />
-              }
-            />
+                    return (
+                      <div
+                        key={segIndex}
+                        className="w-full"
+                        style={{
+                          height: `${segmentHeight}%`,
+                          backgroundColor: `${segment.color}`,
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+                {showTick && (
+                  <div className="absolute top-full left-1/2 mt-3 -translate-x-1/2 text-center text-200 text-text-primary-50">
+                    {isLast && lastTickOverride ? lastTickOverride : formatTime(data.datetime)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {/* Centered date label when showDateLabel is true */}
+          {showDateLabel && transformedData.length > 0 && (
+            <div className="absolute top-full left-1/2 mt-3 -translate-x-1/2 text-center text-200 text-text-primary-50">
+              {formatDate(transformedData[Math.floor(transformedData.length / 2)].datetime)}
+            </div>
           )}
+        </div>
+      </div>
 
-          <Bar
-            dataKey="total"
-            fill="transparent"
-            barSize={barWidth}
-            {...barProps}
-            isAnimationActive={shouldAnimate}
-            shape={(props: any) => (
-              <CustomSegmentedBar
-                {...props}
-                percentageDisplay={percentageDisplay}
-                isHovered={hoveredIndex === props.index}
-                onMouseEnter={(x: number, y: number) => {
-                  setHoveredIndex(props.index);
-                  setHoveredBar({ x, y, index: props.index });
-                }}
-                onMouseLeave={() => {
-                  setHoveredIndex(null);
-                  setHoveredBar(null);
-                }}
-              />
-            )}
-          />
-        </BarChart>
-      </ChartWrapper>
+      {/* Tooltip */}
+      {tooltipText !== null && hoveredBar !== null && tooltipPosition && (
+        <div
+          className="pointer-events-none absolute z-10 rounded-lg bg-surface-base p-3 text-nowrap shadow-100"
+          style={{
+            left: `${tooltipPosition.x}px`,
+            top: `${tooltipPosition.y}px`,
+            transform: "translateX(-50%) translateY(-100%)",
+          }}
+        >
+          <div className="space-y-1 text-xs">
+            <div className="text-text-secondary">{tooltipText}</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

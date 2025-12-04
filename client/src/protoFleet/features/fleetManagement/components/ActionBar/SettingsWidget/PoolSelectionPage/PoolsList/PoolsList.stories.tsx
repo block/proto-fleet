@@ -1,5 +1,5 @@
-import { create } from "@bufbuild/protobuf";
 import { vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import PoolsListComponent from ".";
 import { PoolSchema } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 

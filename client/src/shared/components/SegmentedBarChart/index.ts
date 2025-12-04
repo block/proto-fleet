@@ -1,2 +1,2 @@
 export { default } from "./SegmentedBarChart";
-export type { SegmentedBarChartProps, SegmentedBarChartData } from "./types";
+export type { SegmentedBarChartData, SegmentedBarChartProps } from "./types";

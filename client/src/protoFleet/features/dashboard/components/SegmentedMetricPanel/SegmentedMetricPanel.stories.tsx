@@ -116,10 +116,11 @@ const temperatureSegmentConfig: SegmentConfig = {
     index: 2, // Third in order
   },
   ok: {
-    color: "var(--color-intent-success-fill)",
-    label: "Normal",
+    color: "var(--color-intent-info-20)",
+    label: "Healthy",
     displayInBreakdown: true,
     index: 3, // Fourth in order
+    showButton: false,
     percentageLabel: "Within optimal range", // Custom label for normal temperature
   },
   hot: {

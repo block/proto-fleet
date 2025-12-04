@@ -17,6 +17,7 @@ export interface SegmentConfig {
     index?: number; // Controls the order segments appear in the breakdown
     buttonVariant?: ButtonVariant; // Button variant for the segment
     percentageLabel?: string; // Custom label to show instead of "n% of miners"
+    showButton?: boolean; // Whether to show the button with miner count (defaults to true)
   };
 }
 

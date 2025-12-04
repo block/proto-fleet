@@ -1,283 +1,418 @@
-import React from "react";
-import SegmentedBarChart, { type SegmentedBarChartData, type SegmentedBarChartProps } from ".";
+import type { Meta, StoryObj } from "@storybook/react";
+import SegmentedBarChart from "./SegmentedBarChart";
+import type { SegmentedBarChartData } from "./types";
 
-// Generate mock data for stories
-const generateMockData = (
-  points: number = 12,
-  startTime: number = Date.now() - 12 * 60 * 60 * 1000,
-): SegmentedBarChartData[] => {
-  return Array.from({ length: points }, (_, index) => {
-    const timestamp = startTime + index * 60 * 60 * 1000; // Hourly data
-
-    // Generate random values
-    const active = Math.floor(Math.random() * 40) + 30;
-    const inactive = Math.floor(Math.random() * 30) + 20;
-    const error = Math.floor(Math.random() * 20) + 10;
-
-    return {
-      datetime: timestamp,
-      active,
-      inactive,
-      error,
-    };
-  });
-};
-
-// Generate mock data with varying totals to demonstrate percentage display
-const generatePercentageData = (points: number = 12): SegmentedBarChartData[] => {
-  const startTime = Date.now() - 12 * 60 * 60 * 1000;
-
-  return Array.from({ length: points }, (_, index) => {
-    const timestamp = startTime + index * 60 * 60 * 1000;
-
-    // Generate values with varying totals (not percentages)
-    // Total will vary between 150-350
-    const baseTotal = 150 + Math.floor(Math.random() * 200);
-
-    // Generate random proportions
-    const running = Math.floor(baseTotal * (0.1 + Math.random() * 0.2)); // 10-30% of total
-    const idle = Math.floor(baseTotal * (0.4 + Math.random() * 0.2)); // 40-60% of total
-    const maintenance = Math.floor(baseTotal * (0.05 + Math.random() * 0.1)); // 5-15% of total
-    const offline = baseTotal - running - idle - maintenance; // Remainder
-
-    return {
-      datetime: timestamp,
-      running,
-      idle,
-      maintenance,
-      offline,
-    };
-  });
-};
-
-// Generate mock data for online/offline status (as device counts)
-const generateOnlineOfflineData = (points: number = 12): SegmentedBarChartData[] => {
-  const startTime = Date.now() - 12 * 60 * 60 * 1000;
-
-  return Array.from({ length: points }, (_, index) => {
-    const timestamp = startTime + index * 60 * 60 * 1000;
-
-    // Generate realistic device counts
-    // Total devices varies between 80-120
-    const totalDevices = 80 + Math.floor(Math.random() * 40);
-    const offlinePercent = Math.random() * 0.2; // 0-20% offline
-    const offline = Math.floor(totalDevices * offlinePercent);
-    const online = totalDevices - offline;
-
-    return {
-      datetime: timestamp,
-      online,
-      offline,
-    };
-  });
-};
-
-type StoryType = SegmentedBarChartProps;
-
-// Container wrapper for consistent sizing and centering
-const StoryContainer = ({ children }: { children: React.ReactNode }) => (
-  <div className="flex h-screen w-full items-center justify-center bg-surface-5">
-    <div className="w-[600px] rounded-lg bg-surface-base p-4">{children}</div>
-  </div>
-);
-
-export const Default = (props: StoryType) => {
-  return (
-    <StoryContainer>
-      <SegmentedBarChart {...props} />
-    </StoryContainer>
-  );
-};
-
-Default.args = {
-  chartData: generateMockData(12),
-  segmentKeys: ["active", "inactive", "error"],
-  showTooltip: true,
-  segmentsLabel: "Hashrate",
-  units: " TH/S",
-  yAxisPadding: 0.15, // 15% padding above max value
-  xAxisTickInterval: 2,
-};
-
-export const PercentageDisplay = (props: StoryType) => {
-  return (
-    <StoryContainer>
-      <SegmentedBarChart {...props} />
-    </StoryContainer>
-  );
-};
-
-PercentageDisplay.args = {
-  chartData: generatePercentageData(12),
-  segmentKeys: ["running", "idle", "maintenance", "offline"],
-  percentageDisplay: true,
-  showTooltip: true,
-  segmentsLabel: "Status Distribution",
-  units: "%",
-  xAxisTickInterval: 1,
-};
-
-export const OnlineOffline = (props: StoryType) => {
-  return (
-    <StoryContainer>
-      <SegmentedBarChart {...props} />
-    </StoryContainer>
-  );
-};
-
-OnlineOffline.args = {
-  chartData: generateOnlineOfflineData(12),
-  segmentKeys: ["online", "offline"],
-  colorMap: {
-    online: "--color-core-primary-fill",
-    offline: "--color-intent-critical-fill",
-  },
-  percentageDisplay: true,
-  showTooltip: true,
-  toolTipKey: "online",
-  segmentsLabel: "Device Status",
-  units: "%",
-  xAxisTickInterval: 2,
-};
-
-export const WithAnimation = (props: StoryType) => {
-  return (
-    <StoryContainer>
-      <SegmentedBarChart {...props} />
-    </StoryContainer>
-  );
-};
-
-WithAnimation.args = {
-  chartData: generateMockData(12),
-  segmentKeys: ["active", "inactive", "error"],
-  showTooltip: true,
-  animate: true,
-  segmentsLabel: "Animated Chart",
-  units: " TH/S",
-  yAxisPadding: 0.15,
-  xAxisTickInterval: 1,
-};
-
-WithAnimation.parameters = {
-  docs: {
-    description: {
-      story: "Example with animation enabled. Bars will animate from bottom to top on initial render.",
-    },
-  },
-};
-
-export const WithCustomXAxisPadding = (props: StoryType) => {
-  return (
-    <StoryContainer>
-      <SegmentedBarChart {...props} />
-    </StoryContainer>
-  );
-};
-
-WithCustomXAxisPadding.args = {
-  chartData: generateMockData(12),
-  segmentKeys: ["active", "inactive", "error"],
-  showTooltip: true,
-  segmentsLabel: "Custom X-Axis Padding",
-  units: " TH/S",
-  xAxisPadding: 12, // Creates spacing by adding padding to the X-axis
-  barWidth: 20,
-  yAxisPadding: 0.15,
-  xAxisTickInterval: 1,
-};
-
-WithCustomXAxisPadding.parameters = {
-  docs: {
-    description: {
-      story:
-        "Example with custom xAxisPadding of 12px. This controls the spacing between bars by adjusting the padding on the X-axis, which works with linear/time scales.",
-    },
-  },
-};
-
-// Export default meta for Storybook
-export default {
-  title: "Shared/SegmentedBarChart",
+const meta = {
+  title: "shared/SegmentedBarChart",
   component: SegmentedBarChart,
-  tags: ["autodocs"],
   parameters: {
-    docs: {
-      description: {
-        component:
-          "A segmented bar chart component that displays stacked data with customizable colors, tooltips, and percentage display mode. Supports animation, custom segment colors, and selective tooltip display for specific segments.",
-      },
-    },
+    layout: "centered",
   },
+  decorators: [
+    (Story) => (
+      <div style={{ width: "800px", padding: "2rem", backgroundColor: "var(--color-surface-base)" }}>
+        <Story />
+      </div>
+    ),
+  ],
+  tags: ["autodocs"],
   argTypes: {
-    chartData: {
-      description: "Array of data points with datetime and segment values",
-      control: { type: "object" },
-    },
-    segmentKeys: {
-      description: "Array of keys to extract from chartData for each segment",
-      control: { type: "array" },
-    },
-    colorMap: {
-      description: "Optional mapping of segment keys to CSS color variables",
-      control: { type: "object" },
-    },
-    units: {
-      description: "Units to display in tooltips (e.g., ' TH/s', '%', ' devices')",
-      control: { type: "text" },
-    },
-    percentageDisplay: {
-      description: "When true, displays bars as percentages with full height",
-      control: { type: "boolean" },
-    },
-    segmentsLabel: {
-      description: "Label for the segments (currently unused)",
-      control: { type: "text" },
-    },
-    showTooltip: {
-      description: "Whether to show tooltips on hover",
-      control: { type: "boolean" },
-    },
-    animate: {
-      description: "Whether to animate bars on initial render (default: false)",
-      control: { type: "boolean" },
-      defaultValue: false,
-    },
-    className: {
-      description: "Additional CSS classes for the container",
-      control: { type: "text" },
+    barWidth: {
+      control: { type: "number", min: 4, max: 20, step: 1 },
+      description: "Width of each bar in pixels",
     },
     height: {
-      description: "Height of the chart in pixels",
-      control: { type: "number" },
+      control: { type: "number", min: 100, max: 400, step: 20 },
+      description: "Height of the chart",
     },
-    barWidth: {
-      description: "Width of each bar in pixels",
-      control: { type: "number" },
-    },
-    barGap: {
-      description: "Gap between bars in pixels (Note: only works with categorical scales)",
-      control: { type: "number" },
-    },
-    xAxisPadding: {
-      description: "Padding for X-axis in pixels (controls spacing between bars)",
-      control: { type: "number" },
-    },
-    yAxisPadding: {
-      description: "Percentage to extend Y-axis above max value (e.g., 0.1 = 10%)",
-      control: { type: "number" },
-    },
-    yAxisTickCount: {
-      description: "Number of horizontal grid lines/ticks",
-      control: { type: "number" },
-    },
-    xAxisTickInterval: {
-      description: "Show tick every N bars (1 = show all)",
-      control: { type: "number" },
+    percentageDisplay: {
+      control: "boolean",
+      description: "Display values as percentages",
     },
     toolTipKey: {
-      description: "Key to display in tooltip, null to hide tooltip, undefined for total",
-      control: { type: "text" },
+      control: { type: "select" },
+      options: ["total", "normal", "hot", "cold", "critical", null],
+      description: "Key to display in tooltip (null to disable)",
+    },
+    showDateLabel: {
+      control: "boolean",
+      description: "Show date instead of time on X-axis",
     },
   },
+} satisfies Meta<typeof SegmentedBarChart>;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+// Generate sample data
+const generateData = (points: number, baseTime: number = Date.now()): SegmentedBarChartData[] => {
+  const data: SegmentedBarChartData[] = [];
+  for (let i = 0; i < points; i++) {
+    const normal = 60 + Math.random() * 30;
+    const hot = Math.random() * 5;
+    const cold = Math.random() * 3;
+    const critical = Math.random() * 2;
+
+    data.push({
+      datetime: baseTime + i * 3600000, // 1 hour intervals
+      normal: Math.round(normal),
+      hot: Math.round(hot),
+      cold: Math.round(cold),
+      critical: Math.round(critical),
+    });
+  }
+  return data;
+};
+
+// Temperature color map
+const temperatureColorMap = {
+  normal: "var(--color-extended-navy-fill)",
+  hot: "var(--color-surface-10)",
+  cold: "var(--color-intent-warning-fill)",
+  critical: "var(--color-intent-critical-fill)",
+};
+
+export const Default: Story = {
+  args: {
+    chartData: generateData(24),
+    segmentKeys: ["normal", "hot", "cold", "critical"],
+    colorMap: temperatureColorMap,
+    units: " miners",
+    height: 200,
+    percentageDisplay: false,
+    showDateLabel: false,
+    xAxisTickInterval: 2,
+  },
+};
+
+export const PercentageDisplay: Story = {
+  args: {
+    ...Default.args,
+    percentageDisplay: true,
+    units: "%",
+  },
+};
+
+export const FewBars: Story = {
+  name: "Few Bars (2 bars with 4px gap)",
+  args: {
+    chartData: generateData(2),
+    segmentKeys: ["normal", "hot", "cold", "critical"],
+    colorMap: temperatureColorMap,
+    units: " miners",
+    barWidth: 8,
+    height: 200,
+    toolTipKey: "total",
+    percentageDisplay: true,
+    showDateLabel: false,
+  },
+};
+
+export const MediumBars: Story = {
+  name: "Medium Bars (8 bars with 4px gaps)",
+  args: {
+    chartData: generateData(8),
+    segmentKeys: ["normal", "hot", "cold", "critical"],
+    colorMap: temperatureColorMap,
+    units: " miners",
+    barWidth: 8,
+    height: 200,
+    toolTipKey: "total",
+    percentageDisplay: true,
+    showDateLabel: false,
+  },
+};
+
+export const ManyBars: Story = {
+  name: "Many Bars (24 bars with 4px gaps)",
+  args: {
+    chartData: generateData(24),
+    segmentKeys: ["normal", "hot", "cold", "critical"],
+    colorMap: temperatureColorMap,
+    units: " miners",
+    barWidth: 8,
+    height: 200,
+    toolTipKey: "total",
+    percentageDisplay: true,
+    showDateLabel: false,
+  },
+};
+
+export const WithDateLabel: Story = {
+  args: {
+    ...Default.args,
+    showDateLabel: true,
+    chartData: generateData(7, Date.now() - 3 * 24 * 3600000), // 3 days ago
+  },
+};
+
+export const CustomBarWidth: Story = {
+  name: "Custom Bar Width (12px bars)",
+  args: {
+    ...Default.args,
+    barWidth: 12,
+    chartData: generateData(16),
+  },
+};
+
+export const NoData: Story = {
+  args: {
+    ...Default.args,
+    chartData: null,
+  },
+};
+
+export const MultipleCharts: Story = {
+  name: "Multiple Charts Side by Side",
+  args: {
+    chartData: generateData(8),
+    segmentKeys: ["normal", "hot", "cold", "critical"],
+    colorMap: temperatureColorMap,
+    barWidth: 8,
+    height: 200,
+    percentageDisplay: true,
+  },
+  render: () => {
+    const chart1Data = generateData(2);
+    const chart2Data = generateData(8);
+    const chart3Data = generateData(4);
+
+    return (
+      <div style={{ display: "flex", gap: "0", width: "100%" }}>
+        <div style={{ flex: 1 }}>
+          <SegmentedBarChart
+            chartData={chart1Data}
+            segmentKeys={["normal", "hot", "cold", "critical"]}
+            colorMap={temperatureColorMap}
+            barWidth={8}
+            barGap={8}
+            height={200}
+            percentageDisplay={true}
+            showDateLabel={true}
+          />
+        </div>
+        <div style={{ flex: 1 }}>
+          <SegmentedBarChart
+            chartData={chart2Data}
+            segmentKeys={["normal", "hot", "cold", "critical"]}
+            colorMap={temperatureColorMap}
+            barWidth={8}
+            barGap={8}
+            height={200}
+            percentageDisplay={true}
+            showDateLabel={true}
+          />
+        </div>
+        <div style={{ flex: 1 }}>
+          <SegmentedBarChart
+            chartData={chart3Data}
+            segmentKeys={["normal", "hot", "cold", "critical"]}
+            colorMap={temperatureColorMap}
+            barWidth={8}
+            barGap={8}
+            height={200}
+            percentageDisplay={true}
+            showDateLabel={true}
+          />
+        </div>
+      </div>
+    );
+  },
+};
+
+export const InteractiveSpacing: Story = {
+  name: "Interactive Spacing Demo",
+  args: {
+    chartData: generateData(6),
+    segmentKeys: ["normal", "hot", "cold", "critical"],
+    colorMap: temperatureColorMap,
+    barWidth: 8,
+    barGap: 4,
+    height: 200,
+    percentageDisplay: true,
+  },
+  render: () => {
+    const data = generateData(6);
+
+    return (
+      <div style={{ padding: "20px" }}>
+        <h3 style={{ marginBottom: "20px", color: "var(--color-text-primary)" }}>Exact 4px gaps between 8px bars</h3>
+        <div style={{ position: "relative" }}>
+          <SegmentedBarChart
+            chartData={data}
+            segmentKeys={["normal", "hot", "cold", "critical"]}
+            colorMap={temperatureColorMap}
+            barWidth={8}
+            barGap={4}
+            height={200}
+            percentageDisplay={true}
+          />
+          {/* Visual guide showing the spacing */}
+          <div
+            style={{
+              position: "absolute",
+              bottom: "30px",
+              left: "40px",
+              right: "20px",
+              height: "20px",
+              display: "flex",
+              gap: "4px",
+              alignItems: "center",
+              pointerEvents: "none",
+            }}
+          >
+            {data.map((_, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center" }}>
+                <div
+                  style={{
+                    width: "8px",
+                    height: "2px",
+                    backgroundColor: "var(--color-primary-500)",
+                    opacity: 0.5,
+                  }}
+                />
+                {i < data.length - 1 && (
+                  <div
+                    style={{
+                      width: "4px",
+                      height: "10px",
+                      borderLeft: "1px dashed var(--color-danger-500)",
+                      borderRight: "1px dashed var(--color-danger-500)",
+                      marginLeft: "0",
+                      opacity: 0.5,
+                    }}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  },
+};
+
+export const ResponsiveBarWidth: Story = {
+  name: "Responsive Bar Width",
+  args: {
+    chartData: generateData(12),
+    segmentKeys: ["normal", "hot", "cold", "critical"],
+    colorMap: temperatureColorMap,
+    units: " miners",
+    barWidth: {
+      phone: 6,
+      tablet: 8,
+      laptop: 10,
+      desktop: 12,
+    },
+    height: 200,
+    percentageDisplay: false,
+    toolTipKey: "total",
+  },
+  render: (args) => (
+    <div style={{ padding: "20px" }}>
+      <p style={{ marginBottom: "20px", color: "var(--color-text-secondary)" }}>
+        Bar width varies by viewport: phone: 6px, tablet: 8px, laptop: 10px, desktop: 12px. Resize your browser window
+        to see the responsive behavior.
+      </p>
+      <SegmentedBarChart {...args} />
+    </div>
+  ),
+};
+
+export const ResponsiveBarGap: Story = {
+  name: "Responsive Bar Gap",
+  args: {
+    chartData: generateData(10),
+    segmentKeys: ["normal", "hot", "cold", "critical"],
+    colorMap: temperatureColorMap,
+    units: " miners",
+    barWidth: 8,
+    barGap: {
+      phone: 2,
+      tablet: 4,
+      laptop: 6,
+      desktop: 8,
+    },
+    height: 200,
+    percentageDisplay: false,
+    toolTipKey: "total",
+  },
+  render: (args) => (
+    <div style={{ padding: "20px" }}>
+      <p style={{ marginBottom: "20px", color: "var(--color-text-secondary)" }}>
+        Bar gap varies by viewport: phone: 2px, tablet: 4px, laptop: 6px, desktop: 8px. Resize your browser window to
+        see the responsive behavior.
+      </p>
+      <SegmentedBarChart {...args} />
+    </div>
+  ),
+};
+
+export const ResponsiveBoth: Story = {
+  name: "Responsive Width & Gap",
+  args: {
+    chartData: generateData(8),
+    segmentKeys: ["normal", "hot", "cold", "critical"],
+    colorMap: temperatureColorMap,
+    units: " miners",
+    barWidth: {
+      phone: 6,
+      tablet: 8,
+      laptop: 10,
+      desktop: 12,
+    },
+    barGap: {
+      phone: 2,
+      tablet: 4,
+      laptop: 6,
+      desktop: 8,
+    },
+    height: 200,
+    percentageDisplay: true,
+    toolTipKey: "total",
+  },
+  render: (args) => (
+    <div style={{ padding: "20px" }}>
+      <p style={{ marginBottom: "20px", color: "var(--color-text-secondary)" }}>
+        Both bar width and gap are responsive:
+        <br />
+        Phone: 6px bars with 2px gaps | Tablet: 8px bars with 4px gaps
+        <br />
+        Laptop: 10px bars with 6px gaps | Desktop: 12px bars with 8px gaps
+      </p>
+      <SegmentedBarChart {...args} />
+    </div>
+  ),
+};
+
+export const PartialResponsive: Story = {
+  name: "Partial Responsive Values",
+  args: {
+    chartData: generateData(10),
+    segmentKeys: ["normal", "hot", "cold", "critical"],
+    colorMap: temperatureColorMap,
+    units: " miners",
+    barWidth: {
+      phone: 6,
+      desktop: 12,
+      // tablet and laptop will inherit from available values
+    },
+    barGap: 4, // Static gap across all viewports
+    height: 200,
+    percentageDisplay: false,
+    toolTipKey: "total",
+  },
+  render: (args) => (
+    <div style={{ padding: "20px" }}>
+      <p style={{ marginBottom: "20px", color: "var(--color-text-secondary)" }}>
+        Bar width is responsive with only phone (6px) and desktop (12px) defined.
+        <br />
+        Tablet and laptop will fall back to the next available value.
+        <br />
+        Bar gap is static at 4px across all viewports.
+      </p>
+      <SegmentedBarChart {...args} />
+    </div>
+  ),
 };

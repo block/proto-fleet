@@ -26,12 +26,12 @@ export const getHourlyIntervals = (duration: string): number[] => {
   const now = new Date();
   const intervals: number[] = [];
 
-  // Always show 12 intervals
+  // Always try to show 12 intervals
   const intervalCount = 12;
 
   // Calculate interval in minutes
   const totalMinutes = hours * 60;
-  let minutesPerInterval = Math.floor(totalMinutes / intervalCount);
+  let minutesPerInterval = totalMinutes / intervalCount;
 
   // Round to clean boundaries for better readability
   if (minutesPerInterval <= 5) {
@@ -55,45 +55,41 @@ export const getHourlyIntervals = (duration: string): number[] => {
     minutesPerInterval = Math.ceil(minutesPerInterval / 60) * 60;
   }
 
-  // Round current time down to the nearest interval boundary
+  // Round current time UP to the next interval boundary
   const endTime = new Date(now);
   endTime.setSeconds(0, 0);
-
-  // Round down to nearest interval
   const currentMinutes = endTime.getMinutes();
-  const roundedMinutes = Math.floor(currentMinutes / minutesPerInterval) * minutesPerInterval;
-  endTime.setMinutes(roundedMinutes);
+  const roundedMinutes = Math.ceil(currentMinutes / minutesPerInterval) * minutesPerInterval;
 
-  // Generate intervals working backwards from end time
-  const currentTime = Date.now();
-  for (let i = 0; i < intervalCount; i++) {
-    const minutesBack = i * minutesPerInterval;
-    const intervalTime = new Date(endTime.getTime() - minutesBack * 60 * 1000);
-
-    // Only include intervals within our duration and not in the future
-    if (minutesBack < totalMinutes && intervalTime.getTime() <= currentTime) {
-      intervals.unshift(intervalTime.getTime());
-    }
+  // If we rounded up to 60 minutes, move to the next hour
+  if (roundedMinutes === 60) {
+    endTime.setHours(endTime.getHours() + 1);
+    endTime.setMinutes(0);
+  } else {
+    endTime.setMinutes(roundedMinutes);
   }
 
-  // Ensure we always have exactly 12 intervals
-  // If we have fewer, add earlier intervals
-  while (intervals.length < intervalCount && intervals.length > 0) {
-    const firstInterval = new Date(intervals[0]);
-    firstInterval.setMinutes(firstInterval.getMinutes() - minutesPerInterval);
-    intervals.unshift(firstInterval.getTime());
+  // Calculate the start time (going back from the rounded end time)
+  const startTime = endTime.getTime() - totalMinutes * 60 * 1000;
+
+  // Generate intervals from start to end
+  for (let i = 0; i < intervalCount; i++) {
+    const intervalTime = startTime + i * minutesPerInterval * 60 * 1000;
+    intervals.push(intervalTime);
   }
 
   return intervals;
 };
 
 /**
- * Find the data point immediately before a given timestamp
+ * Find the data point immediately before or at a given timestamp
  */
 export const findDataPointBefore = (
   data: TemperatureStatusCount[],
   timestamp: number,
 ): TemperatureStatusCount | null => {
+  if (!data || data.length === 0) return null;
+
   // Find the last data point that is before or at the timestamp
   let bestPoint: TemperatureStatusCount | null = null;
 
@@ -277,8 +273,6 @@ export const getCurrentBreakdown = (data: TemperatureStatusCount[], segmentConfi
   const latestCount = data[data.length - 1];
   const total = latestCount.coldCount + latestCount.okCount + latestCount.hotCount + latestCount.criticalCount;
 
-  if (total === 0) return [];
-
   const breakdown = [];
 
   // Map the counts to segments based on config
@@ -292,9 +286,9 @@ export const getCurrentBreakdown = (data: TemperatureStatusCount[], segmentConfi
   for (const [key, config] of Object.entries(segmentConfig)) {
     const count = countMap[key] || 0;
 
-    // Only include segments that should be displayed in breakdown
-    if (config.displayInBreakdown !== false && count > 0) {
-      const percentageValue = Math.round((count / total) * 100);
+    // Include all segments that should be displayed in breakdown, regardless of count
+    if (config.displayInBreakdown !== false) {
+      const percentageValue = total > 0 ? Math.round((count / total) * 100) : 0;
       const percentageLabel = config.percentageLabel || `${percentageValue}% of miners`;
 
       breakdown.push({
@@ -307,6 +301,7 @@ export const getCurrentBreakdown = (data: TemperatureStatusCount[], segmentConfi
         icon: config.icon,
         index: config.index ?? 999, // Default to 999 if no index specified
         buttonVariant: config.buttonVariant ?? "secondary", // Default to secondary if not specified
+        showButton: config.showButton !== false, // Default to true if not specified
       });
     }
   }

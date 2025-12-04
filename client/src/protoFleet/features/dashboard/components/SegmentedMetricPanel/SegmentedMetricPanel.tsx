@@ -7,6 +7,21 @@ import Button, { variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
 import SegmentedBarChart from "@/shared/components/SegmentedBarChart";
 
+// Constants for bar chart display
+const MULTI_DAY_BAR_WIDTH = {
+  desktop: 8,
+  laptop: 6,
+  tablet: 8,
+  phone: 6,
+};
+
+const MULTI_DAY_BAR_GAP = {
+  desktop: 4,
+  laptop: 2,
+  tablet: 2,
+  phone: 2,
+};
+
 export const SegmentedMetricPanel = ({
   title,
   headline,
@@ -48,55 +63,17 @@ export const SegmentedMetricPanel = ({
   // Calculate bar width for multi-chart layout
   const barWidth = useMemo(() => {
     if (!isMultiDay) return undefined;
-
-    // Fixed 8px bar width for all multi-day charts
-    return 8;
+    return MULTI_DAY_BAR_WIDTH;
   }, [isMultiDay]);
 
-  // Calculate width percentages for each chart based on number of bars and desired spacing
-  // TODO: This isnt working quite right yet
+  // Calculate equal chart widths for multi-day view
   const chartWidths = useMemo(() => {
     if (!isMultiDay) return ["100%"];
 
-    // We want 4px gaps between bars within each chart
-    const targetGap = 4;
-    const effectiveBarWidth = 8; // Fixed 8px for multi-day charts
-
-    // Calculate the pixel width needed for each chart
-    // Width = numBars * barWidth + (numBars - 1) * gap + padding
-    const chartPixelWidths = processedChartData.map((dayData) => {
-      const numBars = dayData.length;
-      if (numBars === 0) return 0;
-
-      // Calculate minimum width needed for this chart with 4px gaps
-      const barsWidth = numBars * effectiveBarWidth;
-      const gapsWidth = Math.max(0, (numBars - 1) * targetGap);
-      const padding = 20; // Some padding on sides for visual breathing room
-
-      return barsWidth + gapsWidth + padding;
-    });
-
-    // Calculate total width needed
-    const totalPixelWidth = chartPixelWidths.reduce((sum, width) => sum + width, 0);
-
-    // Convert to percentages
-    return chartPixelWidths.map((pixelWidth) => {
-      if (totalPixelWidth === 0) return "0%";
-      const widthPercent = (pixelWidth / totalPixelWidth) * 100;
-      return `${widthPercent}%`;
-    });
+    const numberOfCharts = processedChartData.length;
+    const chartWidthPercentage = `${100 / numberOfCharts}%`;
+    return processedChartData.map(() => chartWidthPercentage);
   }, [isMultiDay, processedChartData]);
-
-  // Calculate X-axis padding for multi-day charts
-  // Since we're using a linear time scale and controlling spacing through chart widths,
-  // we just need minimal padding for visual breathing room
-  const xAxisPadding = useMemo(() => {
-    if (!isMultiDay) return undefined;
-
-    // Small padding value for visual breathing room at chart edges
-    // The actual spacing between bars is controlled by the chart width calculations above
-    return 10;
-  }, [isMultiDay]);
 
   // Generate headline using the generator function if provided, otherwise use static headline
   const computedHeadline = useMemo(() => {
@@ -121,10 +98,10 @@ export const SegmentedMetricPanel = ({
 
   return (
     <div
-      className={`flex w-full flex-row overflow-hidden rounded-xl bg-surface-base phone:flex-col phone:gap-6 ${className || ""}`}
+      className={`flex w-full flex-row overflow-hidden rounded-xl bg-surface-base phone:flex-col phone:gap-6 tablet:flex-col tablet:gap-6 ${className || ""}`}
     >
       {/* Left Panel: ChartWidget with SegmentedBarChart(s) */}
-      <ChartWidget stats={stat} className="w-1/2 rounded-none! phone:w-full">
+      <ChartWidget stats={stat} className="w-1/2 rounded-none! phone:w-full tablet:w-full">
         <div className={`w-full ${isMultiDay ? "flex flex-row" : ""}`}>
           {processedChartData.map((dayData, index) => {
             // Use pre-calculated width for this chart
@@ -141,14 +118,12 @@ export const SegmentedMetricPanel = ({
                   segmentKeys={segmentKeys}
                   colorMap={colorMap}
                   height={DEFAULT_CHART_HEIGHT}
-                  showTooltip={true}
-                  animate={false}
                   percentageDisplay={true}
                   xAxisTickInterval={isMultiDay ? (hours <= 48 ? 3 : 2) : 1}
                   yAxisTickCount={4}
                   toolTipKey={null}
                   barWidth={barWidth}
-                  xAxisPadding={xAxisPadding}
+                  barGap={isMultiDay ? MULTI_DAY_BAR_GAP : undefined}
                   showDateLabel={isMultiDay}
                   lastTickOverride={!isMultiDay && hours < 24 ? "live" : undefined}
                 />
@@ -159,7 +134,7 @@ export const SegmentedMetricPanel = ({
       </ChartWidget>
 
       {/* Right Panel: Current Values Breakdown */}
-      <div className="flex w-1/2 flex-col justify-between space-y-3 rounded-xl bg-surface-base p-10 phone:w-full phone:gap-4 phone:p-6 phone:pt-0">
+      <div className="flex w-1/2 flex-col justify-between space-y-3 rounded-xl bg-surface-base p-10 phone:w-full phone:gap-4 phone:p-6 phone:pt-0 tablet:w-full tablet:gap-4 tablet:p-6 tablet:pt-0">
         {currentBreakdown.map((segment, idx) => (
           <div key={segment.key} className="relative flex grow flex-row items-center">
             {/* Icon or color indicator */}
@@ -177,15 +152,17 @@ export const SegmentedMetricPanel = ({
               <span className="text-text-secondary text-300">{segment.percentageLabel}</span>
             </div>
 
-            {/* Button with count */}
-            <Button
-              variant={variants[segment.buttonVariant] || variants.secondary}
-              size="compact"
-              onClick={() => {}}
-              className="pointer-events-none"
-            >
-              {segment.count} {segment.count === 1 ? "miner" : "miners"}
-            </Button>
+            {/* Button with count - only show if showButton is true */}
+            {segment.showButton && (
+              <Button
+                variant={variants[segment.buttonVariant] || variants.secondary}
+                size="compact"
+                onClick={() => {}}
+                className="pointer-events-none"
+              >
+                {segment.count} {segment.count === 1 ? "miner" : "miners"}
+              </Button>
+            )}
 
             {/* Divider between segments (not on last item) */}
             {idx < currentBreakdown.length - 1 && <Divider className="absolute -bottom-4 left-0 w-full" />}

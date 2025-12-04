@@ -1,9 +1,9 @@
-import { create } from "@bufbuild/protobuf";
 import { fireEvent, render } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import PoolsList from ".";
-import usePools from "@/protoFleet/api/usePools";
 import { PoolSchema } from "@/protoFleet/api/generated/pools/v1/pools_pb";
+import usePools from "@/protoFleet/api/usePools";
 
 vi.mock("@/protoFleet/api/usePools");
 
