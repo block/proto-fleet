@@ -215,7 +215,6 @@ const Team = () => {
           colConfig={colConfig}
           total={users.length}
           itemName={{ singular: "member", plural: "members" }}
-          overflowContainer={false}
           noDataElement={
             <div className="py-10 text-center text-text-primary-50">
               No team members found. Add your first member to get started.

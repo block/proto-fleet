@@ -21,7 +21,8 @@ const General = () => {
 
   return (
     <>
-      <div className="mx-auto flex max-w-xl flex-col gap-6">
+      <div className="flex flex-col gap-6">
+        <Header title="General" titleSize="text-heading-300" />
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-4 rounded-xl border border-border-5 p-6">
             <Header title="Network details" titleSize="text-heading-200" />

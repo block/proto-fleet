@@ -7,7 +7,7 @@ const HomeLayout = ({ children }: { children?: ReactNode }) => {
     <>
       <div className="flex grow flex-row">
         <SecondaryNavigation items={secondaryNavItems} />
-        <div className="grow p-10 phone:p-6">{children}</div>
+        <div className="min-w-0 grow p-10 phone:p-6">{children}</div>
       </div>
     </>
   );

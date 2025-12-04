@@ -31,18 +31,16 @@ const SecondaryNavigation = ({ items }: SecondaryNavigationProps) => {
   return (
     <ul
       data-testid="secondary-nav"
-      className="flex min-h-[calc(100vh-theme(spacing.1)*15)] w-[176px] flex-col gap-3 border-r border-border-5 px-2 pt-3 text-text-primary-70"
+      className="flex min-h-[calc(100vh-(--spacing(1))*15)] w-[176px] shrink-0 flex-col gap-3 px-3 pt-3 text-text-primary-70"
     >
       {visibleItems.map((item, idx) => {
         return (
           <li key={idx}>
             <Link
               to={"/" + stripLeadingSlash(item.path)}
-              className={clsx(
-                "block rounded-lg px-2 py-1 text-emphasis-300",
-                "hover:text-text-primary",
-                isCurrentPath(item.path) ? "bg-core-primary-5 text-text-primary" : "text-text-primary-70",
-              )}
+              className={clsx("block rounded-lg px-2 py-1 text-emphasis-300 text-text-primary-70", {
+                "bg-core-primary-5": isCurrentPath(item.path),
+              })}
             >
               {item.label}
             </Link>

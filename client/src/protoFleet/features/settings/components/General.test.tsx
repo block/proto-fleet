@@ -31,6 +31,12 @@ beforeEach(() => {
 });
 
 describe("General", () => {
+  it("renders page title", () => {
+    const { getByText } = render(<General />);
+
+    expect(getByText("General")).toBeInTheDocument();
+  });
+
   it("renders software version", () => {
     const { getByText } = render(<General />);
 

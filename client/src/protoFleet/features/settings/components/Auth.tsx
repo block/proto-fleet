@@ -201,7 +201,7 @@ const AuthenticationSettings = () => {
 
   return (
     <>
-      <div className="mx-auto flex max-w-xl flex-col gap-6">
+      <div className="flex flex-col gap-6">
         <Header
           title="Security"
           titleSize="text-heading-300"
