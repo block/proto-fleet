@@ -90,7 +90,7 @@ const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
 
             <Input
               id={ids.username}
-              label="ProtoFleet username"
+              label="Proto Fleet username"
               initValue={values.username}
               onChange={handleChange}
               testId="username"
@@ -99,7 +99,7 @@ const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
 
             <Input
               id={ids.password}
-              label="ProtoFleet password"
+              label="Proto Fleet password"
               onChange={handleChange}
               type="password"
               initValue={values.password}

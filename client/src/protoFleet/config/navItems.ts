@@ -52,7 +52,7 @@ export const secondaryNavItems: SecondaryNavItem[] = [
   },
   {
     path: "/settings/mining-pools",
-    label: "Mining Pools",
+    label: "Pools",
     parent: "/settings",
   },
 ];
