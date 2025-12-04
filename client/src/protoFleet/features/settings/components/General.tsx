@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import { useSetTemperatureUnit, useSetTheme, useTemperatureUnit, useTheme } from "@/protoFleet/store";
+import Header from "@/shared/components/Header";
 import Row from "@/shared/components/Row";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { TemperatureUnitsSwitcher, ThemeSwitcher } from "@/shared/features/preferences";
 import { convertToSentenceCase } from "@/shared/utils/stringUtils";
+import { buildVersionInfo } from "@/shared/utils/version";
 
 const SkeletonLoader = <SkeletonBar className="h-[22px] w-24" />;
 
@@ -19,57 +21,58 @@ const General = () => {
 
   return (
     <>
-      <div className="mx-auto flex max-w-xl flex-col gap-5">
-        <div>
-          <h3 className="mb-2 text-heading-100">Network</h3>
-          <Row className="flex justify-between">
-            <div>Gateway</div>
-            <div>{networkInfo?.gateway ?? SkeletonLoader}</div>
-          </Row>
-          <Row divider={false} className="flex justify-between">
-            <div>Subnet mask</div>
-            <div>{networkInfo?.subnet ?? SkeletonLoader}</div>
-          </Row>
+      <div className="mx-auto flex max-w-xl flex-col gap-6">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 rounded-xl border border-border-5 p-6">
+            <Header title="Network details" titleSize="text-heading-200" />
+            <div>
+              <Row className="flex justify-between" divider>
+                <div className="text-300">Subnet mask</div>
+                <div className="text-300">{networkInfo?.subnet ?? SkeletonLoader}</div>
+              </Row>
+              <Row className="flex justify-between" divider={false}>
+                <div className="text-300">Gateway</div>
+                <div className="text-300">{networkInfo?.gateway ?? SkeletonLoader}</div>
+              </Row>
+            </div>
+          </div>
+          <div className="flex flex-col gap-4 rounded-xl border border-border-5 p-6">
+            <Header title="Preferences" titleSize="text-heading-200" />
+            <div>
+              <Row className="flex justify-between" divider>
+                <div className="text-300">Theme</div>
+                <button
+                  type="button"
+                  onClick={() => setShowThemeSwitcher(true)}
+                  className="text-300 text-intent-warning-fill hover:underline"
+                >
+                  {convertToSentenceCase(theme)}
+                </button>
+                {showThemeSwitcher && (
+                  <ThemeSwitcher onClickDone={() => setShowThemeSwitcher(false)} theme={theme} setTheme={setTheme} />
+                )}
+              </Row>
+              <Row className="flex justify-between" divider={false}>
+                <div className="text-300">Temperature</div>
+                <button
+                  type="button"
+                  onClick={() => setShowTemperatureUnitsSwitcher(true)}
+                  className="text-300 text-intent-warning-fill hover:underline"
+                >
+                  {temperatureUnit === "C" ? "Celsius" : "Fahrenheit"}
+                </button>
+                {showTemperatureUnitsSwitcher && (
+                  <TemperatureUnitsSwitcher
+                    onClickDone={() => setShowTemperatureUnitsSwitcher(false)}
+                    temperatureUnit={temperatureUnit}
+                    setTemperatureUnit={setTemperatureUnit}
+                  />
+                )}
+              </Row>
+            </div>
+          </div>
         </div>
-        <div>
-          <h3 className="mb-2 text-heading-100">Preferences</h3>
-          <Row className="flex justify-between">
-            <h4 className="text-emphasis-300">Theme</h4>
-            <a
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                setShowThemeSwitcher(true);
-              }}
-              className="text-300 text-intent-warning-fill hover:underline"
-            >
-              {convertToSentenceCase(theme)}
-            </a>
-            {showThemeSwitcher && (
-              <ThemeSwitcher onClickDone={() => setShowThemeSwitcher(false)} theme={theme} setTheme={setTheme} />
-            )}
-          </Row>
-          <Row className="flex justify-between">
-            <h4 className="text-emphasis-300">Temperature</h4>
-            <a
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                setShowTemperatureUnitsSwitcher(true);
-              }}
-              className="text-300 text-intent-warning-fill hover:underline"
-            >
-              {temperatureUnit === "C" ? "Celsius" : "Fahrenheit"}
-            </a>
-            {showTemperatureUnitsSwitcher && (
-              <TemperatureUnitsSwitcher
-                onClickDone={() => setShowTemperatureUnitsSwitcher(false)}
-                temperatureUnit={temperatureUnit}
-                setTemperatureUnit={setTemperatureUnit}
-              />
-            )}
-          </Row>
-        </div>
+        <p className="text-300 text-text-primary-50">Proto Fleet {buildVersionInfo.version}</p>
       </div>
     </>
   );
