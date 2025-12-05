@@ -80,6 +80,78 @@ This will:
 3. Run the server in docker compose with watch enabled on the fleet service
 4. Start serving the API on the configured address (default: http://localhost:4000)
 
+## Error Query Service (Testing/Development Only)
+
+The Error Query Service provides a mock error management system for testing and development. It can return controlled seed data or randomly generated errors for devices.
+
+> **Note:** This is temporary scaffolding to enable client development while server-side error query logic is being implemented.
+
+### Seed Data Configuration
+
+To use controlled error data instead of random generation, create a YAML seed file and configure the service:
+
+```bash
+# Via environment variable
+ERROR_QUERY_TEST_ERROR_SEED_FILE=./seed_errors.yaml fleetd
+```
+
+**Docker Compose:** In `server/docker-compose.yaml`, uncomment the seed file lines:
+```yaml
+environment:
+  ERROR_QUERY_TEST_ERROR_SEED_FILE: "/app/testdata/seed_errors.yaml"
+volumes:
+  - ./internal/domain/errorquery/testdata:/app/testdata:ro
+```
+
+**Behavior:**
+- Devices listed in the seed file use **only** the errors defined in the file
+- Devices **not** in the seed file get randomly generated errors (30% probability per device)
+- To force a device to have no errors, include it with an empty errors list: `errors: []`
+
+### Seed File Format
+
+See `internal/domain/errorquery/testdata/seed_errors.yaml` for an example. Basic structure:
+
+```yaml
+devices:
+  - device_id: 1
+    device_type: proto
+    errors:
+      - canonical_error: HASHBOARD_OVER_TEMPERATURE
+        severity: major
+        first_seen_ago: 2h
+        last_seen_ago: 5m
+
+  - device_id: 2
+    device_type: proto
+    errors: []  # Healthy device with no errors
+```
+
+### Available Options
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `canonical_error` | Error code (with or without `MINER_ERROR_` prefix) | `HASHBOARD_OVER_TEMPERATURE` |
+| `severity` | `critical`, `major`, `minor`, or `info` | `major` |
+| `cause_summary` | Human-readable cause description | `"PSU temperature exceeded threshold"` |
+| `recommended_action` | Suggested remediation | `"Check cooling system"` |
+| `impact` | Effect on operations | `"Reduced hashrate"` |
+| `component_id` | Format: `{device_id}_{type}_{index}` | `"1_psu_0"` |
+| `first_seen_ago` | Duration since first occurrence | `2h`, `7d`, `30m` |
+| `last_seen_ago` | Duration since last occurrence | `5m`, `1h` |
+| `closed` | Mark error as resolved | `true` |
+| `vendor_attributes` | Custom key-value metadata | `psu_temp_c: "87"` |
+
+### Miner Error Categories
+
+- **PSU errors**: `PSU_NOT_PRESENT`, `PSU_OVER_TEMPERATURE`, `PSU_INPUT_VOLTAGE_LOW`, etc.
+- **Thermal/Fan errors**: `FAN_FAILED`, `FAN_SPEED_DEVIATION`, `INLET_OVER_TEMPERATURE`, etc.
+- **Hashboard errors**: `HASHBOARD_NOT_PRESENT`, `HASHBOARD_OVER_TEMPERATURE`, `HASHBOARD_MISSING_CHIPS`, etc.
+- **Board power errors**: `BOARD_POWER_OVERCURRENT_TRIP`, `BOARD_POWER_RAIL_UNDERVOLT`, etc.
+- **Sensor errors**: `TEMP_SENSOR_FAULT`, `VOLTAGE_SENSOR_FAULT`, etc.
+- **Firmware errors**: `FIRMWARE_IMAGE_INVALID`, `EEPROM_CRC_MISMATCH`, etc.
+- **Control plane errors**: `CONTROL_BOARD_COMMUNICATION_LOST`, `DEVICE_INTERNAL_BUS_FAULT`, etc.
+
 ## Interacting with the service
 
 ### HTTP API

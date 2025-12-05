@@ -1,0 +1,166 @@
+# Error Query Service - Seed Data Configuration
+#
+# This file defines controlled error data for testing the Error Query Service.
+# Devices listed here will use ONLY the errors defined below (no random generation).
+# Devices NOT listed here will have errors randomly generated (30% probability).
+#
+# Usage:
+#   Set the ERROR_QUERY_SEED_FILE environment variable to point to this file:
+#   ERROR_QUERY_SEED_FILE=./error_seeds.yaml
+#
+#   Or use the command line flag:
+#   --errorquery-seed-file=./error_seeds.yaml
+
+devices:
+  # Device 1: Critical PSU issue (status will be ERROR)
+  - device_id: 1
+    device_type: "S19 Pro"
+    errors:
+      - canonical_error: PSU_OVER_TEMPERATURE
+        severity: MAJOR
+        cause_summary: "PSU #0 temperature at 87°C, exceeds 85°C threshold"
+        recommended_action: "Improve facility cooling or reduce load"
+        impact: "PSU may shut down if temperature continues to rise"
+        component_id: "1_psu_0"
+        first_seen_ago: "2h"
+        last_seen_ago: "5m"
+        vendor_attributes:
+          psu_model: "APW12"
+          psu_temp_c: "87"
+          threshold_c: "85"
+
+  # Device 2: Multiple hashboard issues (status will be DEGRADED)
+  - device_id: 2
+    device_type: "S19"
+    errors:
+      - canonical_error: HASHBOARD_MISSING_CHIPS
+        severity: MAJOR
+        cause_summary: "Hashboard 1 detecting only 118 of 126 chips"
+        component_id: "2_hashboard_1"
+        first_seen_ago: "1d"
+        last_seen_ago: "10m"
+        vendor_attributes:
+          expected_chips: "126"
+          detected_chips: "118"
+          board_serial: "HB12345678"
+
+      - canonical_error: HASHRATE_BELOW_TARGET
+        severity: INFO
+        cause_summary: "Current hashrate 95 TH/s, target 110 TH/s"
+        component_id: "2_hashboard_1"
+        first_seen_ago: "1d"
+        last_seen_ago: "5m"
+        vendor_attributes:
+          current_hashrate_ths: "95"
+          target_hashrate_ths: "110"
+
+  # Device 3: Fan warnings (status will be WARNING)
+  - device_id: 3
+    device_type: "R2"
+    errors:
+      - canonical_error: FAN_SPEED_DEVIATION
+        severity: MINOR
+        cause_summary: "Fan #0 running at 4200 RPM, target 6000 RPM"
+        component_id: "3_fan_0"
+        first_seen_ago: "6h"
+        last_seen_ago: "1m"
+        vendor_attributes:
+          target_rpm: "6000"
+          actual_rpm: "4200"
+          deviation_percent: "30"
+
+      - canonical_error: THERMAL_MARGIN_LOW
+        severity: INFO
+        cause_summary: "Inlet temperature 38°C, approaching 40°C limit"
+        component_id: "3_fan_0"
+        first_seen_ago: "3h"
+        last_seen_ago: "2m"
+
+  # Device 4: Resolved errors (closed)
+  - device_id: 4
+    device_type: "S19 Pro"
+    errors:
+      - canonical_error: PSU_INPUT_VOLTAGE_LOW
+        severity: MAJOR
+        cause_summary: "Input voltage dropped to 198V"
+        component_id: "4_psu_0"
+        first_seen_ago: "2d"
+        last_seen_ago: "1d"
+        closed: true  # This error has been resolved
+
+  # Device 5: Critical control board failure
+  - device_id: 5
+    device_type: "S19"
+    errors:
+      - canonical_error: CONTROL_BOARD_COMMUNICATION_LOST
+        severity: CRITICAL
+        cause_summary: "No response from control board for 30 seconds"
+        component_id: "5_controlboard_0"
+        first_seen_ago: "30m"
+        last_seen_ago: "1m"
+        vendor_attributes:
+          last_response_time: "2024-01-15T10:30:00Z"
+          retry_count: "5"
+
+  # Device 6: No errors (empty list = healthy device)
+  - device_id: 6
+    device_type: "R2"
+    errors: []
+
+# ============================================================================
+# YAML Reference
+# ============================================================================
+#
+# canonical_error values (can use with or without CANONICAL_ERROR_ prefix):
+#   PSU errors (100-149):
+#     - PSU_NOT_PRESENT, PSU_MODEL_MISMATCH, PSU_COMMUNICATION_LOST
+#     - PSU_FAULT_GENERIC, PSU_INPUT_VOLTAGE_LOW, PSU_INPUT_VOLTAGE_HIGH
+#     - PSU_OUTPUT_VOLTAGE_FAULT, PSU_OUTPUT_OVERCURRENT, PSU_FAN_FAILED
+#     - PSU_OVER_TEMPERATURE, PSU_INPUT_PHASE_IMBALANCE, PSU_UNDER_TEMPERATURE
+#
+#   Thermal/Fan errors (200-229):
+#     - FAN_FAILED, FAN_TACH_SIGNAL_LOST, FAN_SPEED_DEVIATION
+#     - INLET_OVER_TEMPERATURE, DEVICE_OVER_TEMPERATURE, DEVICE_UNDER_TEMPERATURE
+#
+#   Hashboard errors (300-349):
+#     - HASHBOARD_NOT_PRESENT, HASHBOARD_OVER_TEMPERATURE, HASHBOARD_MISSING_CHIPS
+#     - ASIC_CHAIN_COMMUNICATION_LOST, ASIC_CLOCK_PLL_UNLOCKED, ASIC_CRC_ERROR_EXCESSIVE
+#     - HASHBOARD_ASIC_OVER_TEMPERATURE, HASHBOARD_ASIC_UNDER_TEMPERATURE
+#
+#   Board power errors (350-369):
+#     - BOARD_POWER_PGOOD_MISSING, BOARD_POWER_OVERCURRENT_TRIP
+#     - BOARD_POWER_RAIL_UNDERVOLT, BOARD_POWER_RAIL_OVERVOLT, BOARD_POWER_SHORT_DETECTED
+#
+#   Sensor errors (400-429):
+#     - TEMP_SENSOR_OPEN_OR_SHORT, TEMP_SENSOR_FAULT
+#     - VOLTAGE_SENSOR_FAULT, CURRENT_SENSOR_FAULT
+#
+#   Firmware/Storage errors (500-549):
+#     - EEPROM_CRC_MISMATCH, EEPROM_READ_FAILURE
+#     - FIRMWARE_IMAGE_INVALID, FIRMWARE_CONFIG_INVALID
+#
+#   Control plane errors (600-649):
+#     - CONTROL_BOARD_COMMUNICATION_LOST, CONTROL_BOARD_FAILURE
+#     - DEVICE_INTERNAL_BUS_FAULT, DEVICE_COMMUNICATION_LOST, IO_MODULE_FAILURE
+#
+#   Performance advisories (800-829):
+#     - HASHRATE_BELOW_TARGET, HASHBOARD_WARN_CRC_HIGH, THERMAL_MARGIN_LOW
+#
+#   Catch-all (900+):
+#     - VENDOR_ERROR_UNMAPPED
+#
+# severity values (can use short names):
+#   - CRITICAL (or SEVERITY_CRITICAL) - Miner stops hashing or unsafe
+#   - MAJOR (or SEVERITY_MAJOR) - Degraded hashing / imminent trip
+#   - MINOR (or SEVERITY_MINOR) - Recoverable, limited effect
+#   - INFO (or SEVERITY_INFO) - Informational / advisory
+#
+# time duration formats:
+#   - "30s" - 30 seconds
+#   - "5m" - 5 minutes
+#   - "2h" - 2 hours
+#   - "7d" - 7 days (custom extension)
+#
+# component_id format: "{device_id}_{type}_{index}"
+#   Types: psu, fan, hashboard, controlboard, eeprom, iomodule
+#   Examples: "1_psu_0", "2_hashboard_1", "3_fan_2"

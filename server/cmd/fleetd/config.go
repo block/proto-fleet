@@ -5,6 +5,7 @@ import (
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/capabilities"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/errorquery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/ipscanner"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
@@ -26,19 +27,20 @@ type HTTPConfig struct {
 	SuppressCors      bool          `help:"Suppress CORS" default:"false" env:"SUPPRESS_CORS"`
 }
 type Config struct {
-	DB           db.Config           `embed:"" prefix:"db" envprefix:"DB_"`
-	Log          logging.Config      `embed:"" prefix:"logging" envprefix:"LOG_"`
-	HTTP         HTTPConfig          `embed:"" prefix:"http" envprefix:"HTTP_"`
-	Auth         token.Config        `embed:"" prefix:"auth" envprefix:"AUTH_"`
-	Session      session.Config      `embed:"" prefix:"session" envprefix:"SESSION_"`
-	Pools        pools.Config        `embed:"" prefix:"pools" envprefix:"POOLS_"`
-	Encrypt      encrypt.Config      `embed:"" prefix:"encrypt" envprefix:"ENCRYPT_"`
-	Command      command.Config      `embed:"" prefix:"fleet_command" envprefix:"FLEET_COMMAND_"`
-	Queue        queue.Config        `embed:"" prefix:"fleet_queue" envprefix:"FLEET_QUEUE_"`
-	InfluxDB     influxdb.Config     `embed:"" prefix:"influxdb" envprefix:"INFLUXDB3_"`
-	Telemetry    telemetry.Config    `embed:"" prefix:"telemetry" envprefix:"TELEMETRY_"`
-	Scheduler    scheduler.Config    `embed:"" prefix:"scheduler" envprefix:"SCHEDULER_"`
-	Capabilities capabilities.Config `embed:"" prefix:"capabilities" envprefix:"CAPABILITIES_"`
-	Plugins      plugins.Config      `embed:"" prefix:"plugins" envprefix:"PLUGINS_"`
-	IPScanner    ipscanner.Config    `embed:"" prefix:"ipscanner" envprefix:"IPSCANNER_"`
+	DB             db.Config             `embed:"" prefix:"db" envprefix:"DB_"`
+	Log            logging.Config        `embed:"" prefix:"logging" envprefix:"LOG_"`
+	HTTP           HTTPConfig            `embed:"" prefix:"http" envprefix:"HTTP_"`
+	Auth           token.Config          `embed:"" prefix:"auth" envprefix:"AUTH_"`
+	Session        session.Config        `embed:"" prefix:"session" envprefix:"SESSION_"`
+	Pools          pools.Config          `embed:"" prefix:"pools" envprefix:"POOLS_"`
+	Encrypt        encrypt.Config        `embed:"" prefix:"encrypt" envprefix:"ENCRYPT_"`
+	Command        command.Config        `embed:"" prefix:"fleet_command" envprefix:"FLEET_COMMAND_"`
+	Queue          queue.Config          `embed:"" prefix:"fleet_queue" envprefix:"FLEET_QUEUE_"`
+	InfluxDB       influxdb.Config       `embed:"" prefix:"influxdb" envprefix:"INFLUXDB3_"`
+	Telemetry      telemetry.Config      `embed:"" prefix:"telemetry" envprefix:"TELEMETRY_"`
+	Scheduler      scheduler.Config      `embed:"" prefix:"scheduler" envprefix:"SCHEDULER_"`
+	Capabilities   capabilities.Config   `embed:"" prefix:"capabilities" envprefix:"CAPABILITIES_"`
+	Plugins        plugins.Config        `embed:"" prefix:"plugins" envprefix:"PLUGINS_"`
+	IPScanner      ipscanner.Config      `embed:"" prefix:"ipscanner" envprefix:"IPSCANNER_"`
+	ErrorQueryTest errorquery.TestConfig `embed:"" prefix:"errorquery-test" envprefix:"ERROR_QUERY_TEST_"`
 }
