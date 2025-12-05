@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionPage";
 import BulkActionConfirmDialog from "../BulkActions/BulkActionConfirmDialog";
 import { BulkAction } from "../BulkActions/types";
-import { settingsActions, SupportedAction } from "./constants";
+import { performanceActions, settingsActions, SupportedAction } from "./constants";
+import ManagePowerModal from "./ManagePowerModal";
 import { useMinerActions } from "./useMinerActions";
+import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -31,6 +33,9 @@ const SingleMinerActionsMenu = ({ deviceIdentifier, onActionStart, onActionCompl
     numberOfMiners,
     handleMiningPoolSuccess,
     handleMiningPoolError,
+    showManagePowerModal,
+    handleManagePowerConfirm,
+    handleManagePowerDismiss,
   } = useMinerActions({
     selectedMiners,
     onActionStart,
@@ -81,6 +86,9 @@ const SingleMinerActionsMenu = ({ deviceIdentifier, onActionStart, onActionCompl
         handleMiningPoolSuccess={handleMiningPoolSuccess}
         handleMiningPoolError={handleMiningPoolError}
         handleCancel={handleCancel}
+        showManagePowerModal={showManagePowerModal}
+        handleManagePowerConfirm={handleManagePowerConfirm}
+        handleManagePowerDismiss={handleManagePowerDismiss}
       />
     </PopoverProvider>
   );
@@ -103,6 +111,9 @@ interface SingleMinerActionsMenuInnerProps {
   handleMiningPoolSuccess: (batchIdentifier: string) => void;
   handleMiningPoolError: (error: string) => void;
   handleCancel: () => void;
+  showManagePowerModal: boolean;
+  handleManagePowerConfirm: (performanceMode: PerformanceMode) => void;
+  handleManagePowerDismiss: () => void;
 }
 
 const SingleMinerActionsMenuInner = ({
@@ -122,6 +133,9 @@ const SingleMinerActionsMenuInner = ({
   handleMiningPoolSuccess,
   handleMiningPoolError,
   handleCancel,
+  showManagePowerModal,
+  handleManagePowerConfirm,
+  handleManagePowerDismiss,
 }: SingleMinerActionsMenuInnerProps) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
 
@@ -191,6 +205,13 @@ const SingleMinerActionsMenuInner = ({
           onSuccess={handleMiningPoolSuccess}
           onError={handleMiningPoolError}
           onDismiss={handleCancel}
+        />
+      )}
+      {currentAction === performanceActions.managePower && (
+        <ManagePowerModal
+          show={showManagePowerModal}
+          onConfirm={handleManagePowerConfirm}
+          onDismiss={handleManagePowerDismiss}
         />
       )}
     </div>

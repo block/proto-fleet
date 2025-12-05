@@ -13,7 +13,7 @@ export type DeviceAction = (typeof deviceActions)[keyof typeof deviceActions];
 
 // Performance Actions
 export const performanceActions = {
-  performanceMode: "performance-mode",
+  managePower: "manage-power",
   curtail: "curtail",
 } as const;
 
@@ -46,6 +46,7 @@ export const loadingMessages: Record<string, string> = {
   [deviceActions.shutdown]: "Shutting down",
   [deviceActions.unpair]: "Unpairing",
   [deviceActions.wakeUp]: "Waking up",
+  [performanceActions.managePower]: "Updating power",
   [performanceActions.curtail]: "Curtailing miners",
   [settingsActions.miningPool]: "Assigning pools",
 };
@@ -57,6 +58,7 @@ export const successMessages: Record<string, string> = {
   [deviceActions.shutdown]: "Shut down",
   [deviceActions.unpair]: "Unpaired",
   [deviceActions.wakeUp]: "Woke up",
+  [performanceActions.managePower]: "Power updated",
   [performanceActions.curtail]: "Miners curtailed",
   [settingsActions.miningPool]: "Assigned pools to",
 };

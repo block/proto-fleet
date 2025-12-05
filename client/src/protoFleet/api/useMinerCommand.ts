@@ -7,6 +7,9 @@ import {
   BlinkLEDResponse,
   DeviceListSchema,
   DeviceSelectorSchema,
+  PerformanceMode,
+  SetPowerTargetRequestSchema,
+  SetPowerTargetResponse,
   StartMiningRequest,
   StartMiningResponse,
   StopMiningRequest,
@@ -61,6 +64,13 @@ interface UpdateMiningPoolsProps {
   deviceIdentifiers: string[];
   poolConfig: PoolConfig;
   onSuccess: (value: UpdateMiningPoolsResponse) => void;
+  onError?: (error: string) => void;
+}
+
+interface SetPowerTargetProps {
+  deviceIdentifiers: string[];
+  performanceMode: PerformanceMode;
+  onSuccess: (value: SetPowerTargetResponse) => void;
   onError?: (error: string) => void;
 }
 
@@ -196,6 +206,35 @@ const useMinerCommand = () => {
     [handleAuthErrors],
   );
 
+  const setPowerTarget = useCallback(
+    async ({ deviceIdentifiers, performanceMode, onSuccess, onError }: SetPowerTargetProps) => {
+      const setPowerTargetRequest = create(SetPowerTargetRequestSchema, {
+        deviceSelector: create(DeviceSelectorSchema, {
+          selectionType: {
+            case: "includeDevices",
+            value: create(DeviceListSchema, {
+              deviceIdentifiers,
+            }),
+          },
+        }),
+        performanceMode,
+      });
+
+      await minerCommandClient
+        .setPowerTarget(setPowerTargetRequest)
+        .then((response) => onSuccess(response))
+        .catch((err) => {
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
+        });
+    },
+    [handleAuthErrors],
+  );
+
   return useMemo(
     () => ({
       blinkLED,
@@ -204,8 +243,9 @@ const useMinerCommand = () => {
       unpair,
       streamCommandBatchUpdates,
       updateMiningPools,
+      setPowerTarget,
     }),
-    [blinkLED, startMining, stopMining, unpair, streamCommandBatchUpdates, updateMiningPools],
+    [blinkLED, startMining, stopMining, unpair, streamCommandBatchUpdates, updateMiningPools, setPowerTarget],
   );
 };
 

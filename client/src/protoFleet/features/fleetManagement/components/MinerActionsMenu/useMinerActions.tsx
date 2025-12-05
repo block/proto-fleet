@@ -15,6 +15,8 @@ import {
   BlinkLEDResponse,
   DeviceListSchema,
   DeviceSelectorSchema,
+  PerformanceMode,
+  SetPowerTargetResponse,
   StartMiningRequestSchema,
   StartMiningResponse,
   StopMiningRequestSchema,
@@ -48,9 +50,10 @@ interface UseMinerActionsParams {
 }
 
 export const useMinerActions = ({ selectedMiners, onActionStart, onActionComplete }: UseMinerActionsParams) => {
-  const { startMining, stopMining, blinkLED, unpair, streamCommandBatchUpdates } = useMinerCommand();
+  const { startMining, stopMining, blinkLED, unpair, streamCommandBatchUpdates, setPowerTarget } = useMinerCommand();
 
   const [currentAction, setCurrentAction] = useState<SupportedAction | null>(null);
+  const [showManagePowerModal, setShowManagePowerModal] = useState(false);
   const miningPoolToastIdRef = useRef<number | null>(null);
 
   const numberOfMiners = useMemo(() => selectedMiners.length, [selectedMiners]);
@@ -126,6 +129,36 @@ export const useMinerActions = ({ selectedMiners, onActionStart, onActionComplet
     },
     [handleError],
   );
+
+  const handleManagePowerConfirm = useCallback(
+    (performanceMode: PerformanceMode) => {
+      setShowManagePowerModal(false);
+
+      const id = pushToast({
+        message: `${loadingMessages[performanceActions.managePower]} ${minersMessage}`,
+        status: TOAST_STATUSES.loading,
+        longRunning: true,
+        onClose: () => onActionComplete?.(),
+      });
+
+      setPowerTarget({
+        deviceIdentifiers: selectedMiners,
+        performanceMode,
+        onSuccess: (value: SetPowerTargetResponse) =>
+          handleSuccess(performanceActions.managePower, id, value.batchIdentifier),
+        onError: handleError.bind(null, id),
+      });
+
+      setCurrentAction(null);
+    },
+    [selectedMiners, setPowerTarget, handleSuccess, handleError, onActionComplete],
+  );
+
+  const handleManagePowerDismiss = useCallback(() => {
+    setShowManagePowerModal(false);
+    setCurrentAction(null);
+    onActionComplete?.();
+  }, [onActionComplete]);
 
   const handleConfirmation = useCallback(async () => {
     if (currentAction === null) return;
@@ -279,9 +312,10 @@ export const useMinerActions = ({ selectedMiners, onActionStart, onActionComplet
     };
 
     // Performance actions handlers
-    const handlePerformanceMode = () => {
-      setCurrentAction(performanceActions.performanceMode);
-      // TODO modal
+    const handleManagePower = () => {
+      setCurrentAction(performanceActions.managePower);
+      setShowManagePowerModal(true);
+      onActionStart?.();
     };
 
     // TODO: Implement Curtail action
@@ -398,10 +432,10 @@ export const useMinerActions = ({ selectedMiners, onActionStart, onActionComplet
       },
       // Performance actions
       {
-        action: performanceActions.performanceMode,
-        title: "Performance mode",
+        action: performanceActions.managePower,
+        title: "Manage power",
         icon: <Speedometer />,
-        actionHandler: handlePerformanceMode,
+        actionHandler: handleManagePower,
         requiresConfirmation: false,
       },
       // TODO: Implement Curtail action
@@ -473,5 +507,8 @@ export const useMinerActions = ({ selectedMiners, onActionStart, onActionComplet
     numberOfMiners,
     handleMiningPoolSuccess,
     handleMiningPoolError,
+    showManagePowerModal,
+    handleManagePowerConfirm,
+    handleManagePowerDismiss,
   };
 };

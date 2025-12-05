@@ -1,6 +1,7 @@
 import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionPage";
 import BulkActionsWidget, { BulkActionsPopover } from "../BulkActions";
-import { settingsActions, SupportedAction } from "./constants";
+import { performanceActions, settingsActions, SupportedAction } from "./constants";
+import ManagePowerModal from "./ManagePowerModal";
 import { useMinerActions } from "./useMinerActions";
 import { ChevronDown } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -20,6 +21,9 @@ const MinerActionsMenu = ({ selectedMiners, onActionStart, onActionComplete }: M
     handleCancel,
     handleMiningPoolSuccess,
     handleMiningPoolError,
+    showManagePowerModal,
+    handleManagePowerConfirm,
+    handleManagePowerDismiss,
   } = useMinerActions({
     selectedMiners,
     onActionStart,
@@ -50,6 +54,13 @@ const MinerActionsMenu = ({ selectedMiners, onActionStart, onActionComplete }: M
           onSuccess={handleMiningPoolSuccess}
           onError={handleMiningPoolError}
           onDismiss={handleCancel}
+        />
+      )}
+      {currentAction === performanceActions.managePower && (
+        <ManagePowerModal
+          show={showManagePowerModal}
+          onConfirm={handleManagePowerConfirm}
+          onDismiss={handleManagePowerDismiss}
         />
       )}
     </PopoverProvider>
