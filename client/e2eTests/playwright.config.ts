@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { testConfig } from "./config/test.config";
 
 /**
  * Read environment variables from file.
@@ -19,19 +20,20 @@ export default defineConfig({
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
-  retries: process.env.CI ? 2 : 0,
-  /* Opt out of parallel tests on CI. */
+  retries: 0,
+  /* Opt out of parallel tests on CI for more stability */
   workers: process.env.CI ? 1 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-  reporter: "html",
+  reporter: process.env.CI ? [["html"], ["github"]] : "html",
+  /* Global timeout for each test */
+  timeout: testConfig.timeouts,
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
-    /* Base URL to use in actions like `await page.goto('')`. */
-    // baseURL: 'http://localhost:3000',
+    /* Base URL to use in actions like `await page.goto('/')`. */
+    baseURL: testConfig.baseUrl,
 
     /* Capture screenshots (only on failure) and video (retain on failure) so they appear in the HTML report */
-    // screenshot: 'only-on-failure',
-    screenshot: "on",
+    screenshot: "only-on-failure",
     video: "retain-on-failure",
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */

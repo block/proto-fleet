@@ -1,0 +1,27 @@
+/* eslint-disable playwright/expect-expect */
+import { testConfig } from "../config/test.config";
+import { test } from "../fixtures/pageFixtures";
+
+test.describe("Proto Fleet - Authentication", () => {
+  test.describe.configure({ mode: "default" });
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/");
+  });
+
+  test("Sign in with admin", async ({ authPage, settingsPage, settingsTeamPage }) => {
+    await test.step("Log in as admin user", async () => {
+      await authPage.inputUsername(testConfig.users.admin.username);
+      await authPage.inputPassword(testConfig.users.admin.password);
+      await authPage.clickLogin();
+      await authPage.validateLoggedIn();
+    });
+
+    await test.step("Navigate to Team Settings and validate admin access", async () => {
+      await authPage.navigateToSettingsPage();
+      await settingsPage.clickNavigateToTeamSettings();
+      await settingsTeamPage.validateTeamSettingsPageOpened();
+      await settingsTeamPage.validateIsAdmin();
+    });
+  });
+});

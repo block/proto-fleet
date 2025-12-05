@@ -1,0 +1,276 @@
+name: ProtoFleet E2E Tests
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/protofleet-e2e-tests.yml"
+      - "client/e2eTests/**"
+  schedule:
+    # Run daily at 7 AM UTC on main branch
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  e2e-tests:
+    timeout-minutes: 40
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Create GitHub App token
+        id: create_token
+        uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a # v2.1.0
+        with:
+          app_id: ${{ secrets.GH_APP_ID }}
+          private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          token: "${{ steps.create_token.outputs.token }}"
+          submodules: recursive
+
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3.7.1
+
+      - name: Cache Docker layers
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-e2e-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-e2e-
+            ${{ runner.os }}-buildx-
+
+      - name: Cache Go dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum', 'go.work') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Cache Node modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            client/node_modules
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-node-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: client
+        run: npx playwright install --with-deps chromium
+
+      - name: Build ProtoOS and ProtoFleet
+        working-directory: client
+        run: |
+          # Skip lint in CI to avoid import order issues from merged main branch
+          npm run build:protoOS
+          npm run build:protoFleet
+
+      - name: Copy ProtoOS build to miner-firmware
+        run: |
+          mkdir -p miner-firmware/docker/sim/protoOS/dist/protoOS
+          cp -r client/dist/protoOS/* miner-firmware/docker/sim/protoOS/dist/protoOS/
+
+          # Verify ProtoOS files were copied successfully
+          if [ ! -f "miner-firmware/docker/sim/protoOS/dist/protoOS/index.html" ]; then
+            echo "ERROR: ProtoOS build files not copied correctly"
+            exit 1
+          fi
+          echo "ProtoOS files copied and verified"
+
+      - name: Build plugins for CI (Linux AMD64)
+        run: |
+          # CI runners use linux/amd64, not arm64
+          # CGO_ENABLED=0 creates static binaries that work in Alpine (musl libc)
+          echo "Syncing Go workspace..."
+          go work sync
+          echo "Building static plugins for Linux AMD64..."
+          mkdir -p server/plugins
+          (cd plugin/proto && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../../server/plugins/proto-plugin .)
+          (cd plugin/antminer && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../../server/plugins/antminer-plugin .)
+          chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
+          echo "Plugins built successfully"
+
+      - name: Start MySQL and InfluxDB first
+        working-directory: server
+        run: |
+          # Start just MySQL and InfluxDB with more lenient health checks
+          docker compose up -d mysql influxdb
+
+          # Wait for MySQL with manual check (more lenient than healthcheck)
+          echo "Waiting for MySQL to be ready..."
+          for i in {1..60}; do
+            if docker compose exec -T mysql mysqladmin ping -h localhost --silent 2>/dev/null; then
+              echo "MySQL is ready!"
+              break
+            fi
+            echo "Attempt $i/60: MySQL not ready yet, waiting..."
+            sleep 2
+          done
+
+          # Wait for InfluxDB
+          echo "Waiting for InfluxDB to be ready..."
+          for i in {1..30}; do
+            if curl -f http://localhost:8181/health 2>/dev/null; then
+              echo "InfluxDB is ready!"
+              break
+            fi
+            echo "Attempt $i/30: InfluxDB not ready yet, waiting..."
+            sleep 2
+          done
+
+          # Pre-populate InfluxDB token to avoid race condition with manage_token.sh
+          # The fleet-api reads from this file on startup, overriding env vars
+          echo "INFLUXDB3_AUTH_TOKEN=apiv3_aJMkJi99eIiYeLKPjcN2dLtUMK7yHv8mR8RWeJyY8dal36nV85ELxKxx-IBWBXYKMctOgNKExZ5NmLmWeihqoA" > influx_config/.env
+
+      - name: Start backend services
+        working-directory: server
+        run: |
+          # Start fleet-api service with environment variables
+          AUTH_CLIENT_SECRET_KEY="00000000000000000000000000000000000000000000" \
+          ENCRYPT_SERVICE_MASTER_KEY="EV0g7BoFQnqshvzep9knZsUUmvsqSBsjDAJus7ri0B8=" \
+          docker compose up -d fleet-api
+
+          # Run database migrations
+          just db-migrate
+
+          # Verify backend is ready with better error handling
+          echo "Verifying backend API is ready..."
+          for i in {1..90}; do
+            if curl -f http://localhost:4000/health 2>/dev/null; then
+              echo "Backend is ready!"
+              exit 0
+            fi
+            echo "Attempt $i/90: Backend not ready yet, waiting..."
+            sleep 2
+          done
+
+          # If we get here, backend didn't start
+          echo "ERROR: Backend failed to start within 3 minutes"
+          echo "=== Fleet API logs ==="
+          docker compose logs fleet-api
+          echo "=== MySQL logs ==="
+          docker compose logs mysql
+          echo "=== InfluxDB logs ==="
+          docker compose logs influxdb
+          exit 1
+
+      - name: Start simulated miners
+        working-directory: server
+        run: |
+          # Scale up miner simulators (5 MMS + 5 Antminer + 2 single instances = 12 total)
+          docker compose up -d --scale mms=5 --scale fake-antminer=5
+
+          # Give miners time to start
+          sleep 10
+
+      - name: Start frontend
+        working-directory: client
+        env:
+          VITE_VERSION: ${{ github.sha }}
+          VITE_BUILD_DATE: ${{ github.event.head_commit.timestamp }}
+          VITE_COMMIT: ${{ github.sha }}
+        run: |
+          # Start frontend in background (already built in earlier step)
+          npx vite preview --mode protoFleet --port 5173 --host & 
+          VITE_PID=$!
+          echo "Vite PID: $VITE_PID"
+
+          # Wait for frontend to be ready
+          echo "Waiting for frontend..."
+          timeout 60 bash -c 'until curl -f http://localhost:5173 2>/dev/null; do sleep 2; done'
+          echo "Frontend is ready!"
+
+      - name: Run Playwright tests
+        working-directory: client
+        run: npx playwright test --config=e2eTests/playwright.config.ts
+        env:
+          CI: true
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: client/playwright-report/
+          retention-days: 30
+
+      - name: Add job summary with test results
+        if: ${{ !cancelled() }}
+        run: |
+          echo "## 🎭 Playwright E2E Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📊 **[View HTML Report](https://btc-mining.github.io/proto-fleet/e2e-reports/latest)**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📦 **Test artifacts:** Available in the artifacts section below" >> $GITHUB_STEP_SUMMARY
+
+      - name: Publish Playwright report to GitHub Pages
+        if: ${{ !cancelled() }}
+        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4.0.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./client/playwright-report
+          destination_dir: e2e-reports/latest
+          keep_files: false
+
+      - name: Comment PR with report link
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const reportUrl = `https://${context.repo.owner}.github.io/${context.repo.repo}/e2e-reports/latest`;
+            const artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const body = `## 🎭 Playwright E2E Test Report
+
+            📊 **[View HTML Report](${reportUrl})**
+            📦 **[Download Artifacts](${artifactUrl})**
+
+            *Report for workflow run #${context.runNumber}*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Upload test screenshots
+        uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # v4.5.0
+        if: failure()
+        with:
+          name: playwright-screenshots
+          path: client/e2eTests/test-results/
+          retention-days: 7
+
+      - name: Dump backend logs on failure
+        if: failure()
+        working-directory: server
+        run: |
+          echo "=== Fleet API Logs ==="
+          docker compose logs fleet-api
+          echo "=== MySQL Logs ==="
+          docker compose logs mysql
+          echo "=== InfluxDB Logs ==="
+          docker compose logs influxdb
+
+      - name: Cleanup
+        if: always()
+        working-directory: server
+        run: docker compose down -v

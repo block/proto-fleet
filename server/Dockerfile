@@ -34,6 +34,11 @@ COPY --from=builder /app/out/fleetd /app/fleetd
 
 RUN chmod 755 /app/fleetd
 
+# Create plugins directory
+# Plugins are typically mounted via docker-compose volume for local dev
+# For CI/E2E, plugins must be built before docker build and will be copied here
+RUN mkdir -p /app/plugins
+
 # Expose the port your application listens on
 EXPOSE 4000
 
