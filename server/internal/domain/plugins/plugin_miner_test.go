@@ -26,6 +26,7 @@ type mockSDKDevice struct {
 	blinkLEDFunc       func(ctx context.Context) error
 	rebootFunc         func(ctx context.Context) error
 	setCoolingModeFunc func(ctx context.Context, mode sdk.CoolingMode) error
+	setPowerTargetFunc func(ctx context.Context, performanceMode sdk.PerformanceMode) error
 	updatePoolsFunc    func(ctx context.Context, pools []sdk.MiningPoolConfig) error
 	downloadLogsFunc   func(ctx context.Context, since *time.Time, uuid string) (string, bool, error)
 	firmwareUpdateFunc func(ctx context.Context) error
@@ -89,6 +90,13 @@ func (m *mockSDKDevice) Reboot(ctx context.Context) error {
 func (m *mockSDKDevice) SetCoolingMode(ctx context.Context, mode sdk.CoolingMode) error {
 	if m.setCoolingModeFunc != nil {
 		return m.setCoolingModeFunc(ctx, mode)
+	}
+	return nil
+}
+
+func (m *mockSDKDevice) SetPowerTarget(ctx context.Context, performanceMode sdk.PerformanceMode) error {
+	if m.setPowerTargetFunc != nil {
+		return m.setPowerTargetFunc(ctx, performanceMode)
 	}
 	return nil
 }

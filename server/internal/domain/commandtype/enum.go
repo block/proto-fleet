@@ -15,6 +15,7 @@ const (
 	// StopMining represents a command to halt mining operations
 	StopMining
 	SetCoolingMode
+	SetPowerTarget
 	UpdateMiningPools
 	DownloadLogs
 	Reboot
@@ -32,6 +33,8 @@ func (t *Type) String() string {
 		return "StopMining"
 	case SetCoolingMode:
 		return "SetCoolingMode"
+	case SetPowerTarget:
+		return "SetPowerTarget"
 	case UpdateMiningPools:
 		return "UpdateMiningPools"
 	case DownloadLogs:
@@ -58,6 +61,8 @@ func FromString(s string) (Type, error) {
 		return StopMining, nil
 	case "SetCoolingMode":
 		return SetCoolingMode, nil
+	case "SetPowerTarget":
+		return SetPowerTarget, nil
 	case "UpdateMiningPools":
 		return UpdateMiningPools, nil
 	case "DownloadLogs":

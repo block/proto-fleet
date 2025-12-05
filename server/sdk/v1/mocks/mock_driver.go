@@ -211,6 +211,20 @@ func (mr *MockDeviceConfigurationMockRecorder) SetCoolingMode(ctx, mode interfac
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCoolingMode", reflect.TypeOf((*MockDeviceConfiguration)(nil).SetCoolingMode), ctx, mode)
 }
 
+// SetPowerTarget mocks base method.
+func (m *MockDeviceConfiguration) SetPowerTarget(ctx context.Context, performanceMode sdk.PerformanceMode) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPowerTarget", ctx, performanceMode)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetPowerTarget indicates an expected call of SetPowerTarget.
+func (mr *MockDeviceConfigurationMockRecorder) SetPowerTarget(ctx, performanceMode interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPowerTarget", reflect.TypeOf((*MockDeviceConfiguration)(nil).SetPowerTarget), ctx, performanceMode)
+}
+
 // UpdateMiningPools mocks base method.
 func (m *MockDeviceConfiguration) UpdateMiningPools(ctx context.Context, pools []sdk.MiningPoolConfig) error {
 	m.ctrl.T.Helper()
@@ -570,6 +584,20 @@ func (m *MockDevice) SetCoolingMode(ctx context.Context, mode sdk.CoolingMode) e
 func (mr *MockDeviceMockRecorder) SetCoolingMode(ctx, mode interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCoolingMode", reflect.TypeOf((*MockDevice)(nil).SetCoolingMode), ctx, mode)
+}
+
+// SetPowerTarget mocks base method.
+func (m *MockDevice) SetPowerTarget(ctx context.Context, performanceMode sdk.PerformanceMode) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPowerTarget", ctx, performanceMode)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetPowerTarget indicates an expected call of SetPowerTarget.
+func (mr *MockDeviceMockRecorder) SetPowerTarget(ctx, performanceMode interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPowerTarget", reflect.TypeOf((*MockDevice)(nil).SetPowerTarget), ctx, performanceMode)
 }
 
 // StartMining mocks base method.

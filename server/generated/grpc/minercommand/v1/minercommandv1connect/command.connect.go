@@ -46,6 +46,9 @@ const (
 	// MinerCommandServiceSetCoolingModeProcedure is the fully-qualified name of the
 	// MinerCommandService's SetCoolingMode RPC.
 	MinerCommandServiceSetCoolingModeProcedure = "/minercommand.v1.MinerCommandService/SetCoolingMode"
+	// MinerCommandServiceSetPowerTargetProcedure is the fully-qualified name of the
+	// MinerCommandService's SetPowerTarget RPC.
+	MinerCommandServiceSetPowerTargetProcedure = "/minercommand.v1.MinerCommandService/SetPowerTarget"
 	// MinerCommandServiceUpdateMiningPoolsProcedure is the fully-qualified name of the
 	// MinerCommandService's UpdateMiningPools RPC.
 	MinerCommandServiceUpdateMiningPoolsProcedure = "/minercommand.v1.MinerCommandService/UpdateMiningPools"
@@ -79,6 +82,7 @@ type MinerCommandServiceClient interface {
 	// The operation is attempted on all miners even if some fail
 	StartMining(context.Context, *connect.Request[v1.StartMiningRequest]) (*connect.Response[v1.StartMiningResponse], error)
 	SetCoolingMode(context.Context, *connect.Request[v1.SetCoolingModeRequest]) (*connect.Response[v1.SetCoolingModeResponse], error)
+	SetPowerTarget(context.Context, *connect.Request[v1.SetPowerTargetRequest]) (*connect.Response[v1.SetPowerTargetResponse], error)
 	UpdateMiningPools(context.Context, *connect.Request[v1.UpdateMiningPoolsRequest]) (*connect.Response[v1.UpdateMiningPoolsResponse], error)
 	DownloadLogs(context.Context, *connect.Request[v1.DownloadLogsRequest]) (*connect.Response[v1.DownloadLogsResponse], error)
 	BlinkLED(context.Context, *connect.Request[v1.BlinkLEDRequest]) (*connect.Response[v1.BlinkLEDResponse], error)
@@ -119,6 +123,11 @@ func NewMinerCommandServiceClient(httpClient connect.HTTPClient, baseURL string,
 		setCoolingMode: connect.NewClient[v1.SetCoolingModeRequest, v1.SetCoolingModeResponse](
 			httpClient,
 			baseURL+MinerCommandServiceSetCoolingModeProcedure,
+			opts...,
+		),
+		setPowerTarget: connect.NewClient[v1.SetPowerTargetRequest, v1.SetPowerTargetResponse](
+			httpClient,
+			baseURL+MinerCommandServiceSetPowerTargetProcedure,
 			opts...,
 		),
 		updateMiningPools: connect.NewClient[v1.UpdateMiningPoolsRequest, v1.UpdateMiningPoolsResponse](
@@ -165,6 +174,7 @@ type minerCommandServiceClient struct {
 	stopMining                *connect.Client[v1.StopMiningRequest, v1.StopMiningResponse]
 	startMining               *connect.Client[v1.StartMiningRequest, v1.StartMiningResponse]
 	setCoolingMode            *connect.Client[v1.SetCoolingModeRequest, v1.SetCoolingModeResponse]
+	setPowerTarget            *connect.Client[v1.SetPowerTargetRequest, v1.SetPowerTargetResponse]
 	updateMiningPools         *connect.Client[v1.UpdateMiningPoolsRequest, v1.UpdateMiningPoolsResponse]
 	downloadLogs              *connect.Client[v1.DownloadLogsRequest, v1.DownloadLogsResponse]
 	blinkLED                  *connect.Client[v1.BlinkLEDRequest, v1.BlinkLEDResponse]
@@ -192,6 +202,11 @@ func (c *minerCommandServiceClient) StartMining(ctx context.Context, req *connec
 // SetCoolingMode calls minercommand.v1.MinerCommandService.SetCoolingMode.
 func (c *minerCommandServiceClient) SetCoolingMode(ctx context.Context, req *connect.Request[v1.SetCoolingModeRequest]) (*connect.Response[v1.SetCoolingModeResponse], error) {
 	return c.setCoolingMode.CallUnary(ctx, req)
+}
+
+// SetPowerTarget calls minercommand.v1.MinerCommandService.SetPowerTarget.
+func (c *minerCommandServiceClient) SetPowerTarget(ctx context.Context, req *connect.Request[v1.SetPowerTargetRequest]) (*connect.Response[v1.SetPowerTargetResponse], error) {
+	return c.setPowerTarget.CallUnary(ctx, req)
 }
 
 // UpdateMiningPools calls minercommand.v1.MinerCommandService.UpdateMiningPools.
@@ -240,6 +255,7 @@ type MinerCommandServiceHandler interface {
 	// The operation is attempted on all miners even if some fail
 	StartMining(context.Context, *connect.Request[v1.StartMiningRequest]) (*connect.Response[v1.StartMiningResponse], error)
 	SetCoolingMode(context.Context, *connect.Request[v1.SetCoolingModeRequest]) (*connect.Response[v1.SetCoolingModeResponse], error)
+	SetPowerTarget(context.Context, *connect.Request[v1.SetPowerTargetRequest]) (*connect.Response[v1.SetPowerTargetResponse], error)
 	UpdateMiningPools(context.Context, *connect.Request[v1.UpdateMiningPoolsRequest]) (*connect.Response[v1.UpdateMiningPoolsResponse], error)
 	DownloadLogs(context.Context, *connect.Request[v1.DownloadLogsRequest]) (*connect.Response[v1.DownloadLogsResponse], error)
 	BlinkLED(context.Context, *connect.Request[v1.BlinkLEDRequest]) (*connect.Response[v1.BlinkLEDResponse], error)
@@ -276,6 +292,11 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 	minerCommandServiceSetCoolingModeHandler := connect.NewUnaryHandler(
 		MinerCommandServiceSetCoolingModeProcedure,
 		svc.SetCoolingMode,
+		opts...,
+	)
+	minerCommandServiceSetPowerTargetHandler := connect.NewUnaryHandler(
+		MinerCommandServiceSetPowerTargetProcedure,
+		svc.SetPowerTarget,
 		opts...,
 	)
 	minerCommandServiceUpdateMiningPoolsHandler := connect.NewUnaryHandler(
@@ -323,6 +344,8 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 			minerCommandServiceStartMiningHandler.ServeHTTP(w, r)
 		case MinerCommandServiceSetCoolingModeProcedure:
 			minerCommandServiceSetCoolingModeHandler.ServeHTTP(w, r)
+		case MinerCommandServiceSetPowerTargetProcedure:
+			minerCommandServiceSetPowerTargetHandler.ServeHTTP(w, r)
 		case MinerCommandServiceUpdateMiningPoolsProcedure:
 			minerCommandServiceUpdateMiningPoolsHandler.ServeHTTP(w, r)
 		case MinerCommandServiceDownloadLogsProcedure:
@@ -360,6 +383,10 @@ func (UnimplementedMinerCommandServiceHandler) StartMining(context.Context, *con
 
 func (UnimplementedMinerCommandServiceHandler) SetCoolingMode(context.Context, *connect.Request[v1.SetCoolingModeRequest]) (*connect.Response[v1.SetCoolingModeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.SetCoolingMode is not implemented"))
+}
+
+func (UnimplementedMinerCommandServiceHandler) SetPowerTarget(context.Context, *connect.Request[v1.SetPowerTargetRequest]) (*connect.Response[v1.SetPowerTargetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.SetPowerTarget is not implemented"))
 }
 
 func (UnimplementedMinerCommandServiceHandler) UpdateMiningPools(context.Context, *connect.Request[v1.UpdateMiningPoolsRequest]) (*connect.Response[v1.UpdateMiningPoolsResponse], error) {

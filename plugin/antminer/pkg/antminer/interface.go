@@ -33,6 +33,8 @@ type AntminerClient interface {
 	SetCredentials(credentials sdk.UsernamePassword) error
 	SetCoolingMode(ctx context.Context, mode web.CoolingMode) error
 	UpdatePools(ctx context.Context, pools []Pool) error
+	GetMinerConfig(ctx context.Context) (*web.MinerConfig, error)
+	SetMinerConfig(ctx context.Context, config *web.MinerConfig) error
 	BlinkLED(ctx context.Context, duration time.Duration) error
 	Reboot(ctx context.Context) error
 

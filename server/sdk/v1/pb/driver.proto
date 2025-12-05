@@ -291,6 +291,17 @@ message SetCoolingModeRequest {
   CoolingMode mode = 2;
 }
 
+enum PerformanceMode {
+  PERFORMANCE_MODE_UNSPECIFIED = 0;
+  PERFORMANCE_MODE_MAXIMUM_HASHRATE = 1;
+  PERFORMANCE_MODE_EFFICIENCY = 2;
+}
+
+message SetPowerTargetRequest {
+  DeviceRef ref = 1;
+  PerformanceMode performance_mode = 2;
+}
+
 message MiningPool {
   int32 priority = 1;        // 0 = default, 1 = backup1, 2 = backup2
   string url = 2;            // e.g., stratum+tcp://pool.example:3333
@@ -518,6 +529,7 @@ service Driver {
 
   // CoreV1 - Configuration methods - Required methods
   rpc SetCoolingMode(SetCoolingModeRequest) returns (google.protobuf.Empty);
+  rpc SetPowerTarget(SetPowerTargetRequest) returns (google.protobuf.Empty);
   rpc UpdateMiningPools(UpdateMiningPoolsRequest) returns (google.protobuf.Empty);
   rpc DownloadLogs(DownloadLogsRequest) returns (DownloadLogsResponse);
   rpc UpdateFirmware(DeviceRef) returns (google.protobuf.Empty);

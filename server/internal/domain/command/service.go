@@ -329,6 +329,25 @@ func (s *Service) SetCoolingMode(ctx context.Context, deviceSelector *pb.DeviceS
 	}, nil
 }
 
+func (s *Service) SetPowerTarget(ctx context.Context, deviceSelector *pb.DeviceSelector, performanceMode pb.PerformanceMode) (*pb.SetPowerTargetResponse, error) {
+	pt := dto.PowerTargetPayload{
+		PerformanceMode: performanceMode,
+	}
+	commandBatchLogUUID, err := s.processCommand(
+		ctx,
+		&Command{commandType: commandtype.SetPowerTarget, deviceSelector: deviceSelector, payload: pt},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
+
+	return &pb.SetPowerTargetResponse{
+		BatchIdentifier: commandBatchLogUUID,
+	}, nil
+}
+
 func (s *Service) createMiningPoolDTO(ctx context.Context, poolID int64, priorityIncrement uint32) (*dto.MiningPool, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {

@@ -561,6 +561,38 @@ func (c *Client) SetCoolingMode(ctx context.Context, mode sdk.CoolingMode) error
 	return nil
 }
 
+// SetPowerTarget configures the power target and performance mode.
+func (c *Client) SetPowerTarget(ctx context.Context, powerTargetW uint32, performanceMode sdk.PerformanceMode) error {
+	ctx = c.withAuth(ctx)
+
+	// Convert SDK performance mode to API enum
+	var apiMode miner_data_api.PerformanceMode
+	switch performanceMode {
+	case sdk.PerformanceModeMaximumHashrate:
+		apiMode = miner_data_api.PerformanceMode_PERFORMANCE_MODE_MAXIMUM_HASHRATE
+	case sdk.PerformanceModeEfficiency:
+		apiMode = miner_data_api.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY
+	case sdk.PerformanceModeUnspecified:
+		apiMode = miner_data_api.PerformanceMode_PERFORMANCE_MODE_MAXIMUM_HASHRATE
+	default:
+		apiMode = miner_data_api.PerformanceMode_PERFORMANCE_MODE_MAXIMUM_HASHRATE
+	}
+
+	resp, err := c.commandClient.SetPowerTarget(ctx, connect.NewRequest(&miner_command_api.PowerTargetRequest{
+		PowerTargetW:    powerTargetW,
+		PerformanceMode: apiMode,
+	}))
+	if err != nil {
+		return fmt.Errorf("failed to set power target: %w", err)
+	}
+
+	if resp.Msg.Result != miner_common_api.ApiResult_RESULT_SUCCESS {
+		return fmt.Errorf("set power target failed: %s", resp.Msg.String())
+	}
+
+	return nil
+}
+
 // UpdatePools configures mining pools.
 func (c *Client) UpdatePools(ctx context.Context, pools []Pool) error {
 	ctx = c.withAuth(ctx)

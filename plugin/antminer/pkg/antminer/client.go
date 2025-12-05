@@ -357,6 +357,26 @@ func (c *Client) UpdatePools(ctx context.Context, pools []Pool) error {
 	return c.webClient.SetMinerConfig(ctx, connInfo, config)
 }
 
+// GetMinerConfig retrieves the current miner configuration
+func (c *Client) GetMinerConfig(ctx context.Context) (*web.MinerConfig, error) {
+	if c.credentials == nil {
+		return nil, fmt.Errorf("credentials required for miner configuration")
+	}
+
+	connInfo := c.getWebConnectionInfo()
+	return c.webClient.GetMinerConfig(ctx, connInfo)
+}
+
+// SetMinerConfig updates the miner configuration
+func (c *Client) SetMinerConfig(ctx context.Context, config *web.MinerConfig) error {
+	if c.credentials == nil {
+		return fmt.Errorf("credentials required for miner configuration")
+	}
+
+	connInfo := c.getWebConnectionInfo()
+	return c.webClient.SetMinerConfig(ctx, connInfo, config)
+}
+
 // BlinkLED triggers LED identification
 func (c *Client) BlinkLED(ctx context.Context, duration time.Duration) error {
 	if c.credentials == nil {

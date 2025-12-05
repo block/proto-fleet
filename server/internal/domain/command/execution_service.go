@@ -205,6 +205,13 @@ func (es *ExecutionService) workerExecuteCommand(ctx context.Context, commandTyp
 			return fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", coolingExtractErr)
 		}
 		err = minerInfo.SetCoolingMode(ctx, p)
+	case commandtype.SetPowerTarget:
+		var p dto.PowerTargetPayload
+		powerExtractErr := json.Unmarshal(message.Payload, &p)
+		if powerExtractErr != nil {
+			return fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", powerExtractErr)
+		}
+		err = minerInfo.SetPowerTarget(ctx, p)
 	case commandtype.UpdateMiningPools:
 		var p dto.UpdateMiningPoolsPayload
 		updateExtractErr := json.Unmarshal(message.Payload, &p)

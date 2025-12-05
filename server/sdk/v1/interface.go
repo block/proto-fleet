@@ -229,6 +229,18 @@ const (
 	CoolingModeManual
 )
 
+// PerformanceMode represents the power/performance profile for mining operations
+type PerformanceMode int
+
+const (
+	// PerformanceModeUnspecified represents an unspecified performance mode
+	PerformanceModeUnspecified PerformanceMode = iota
+	// PerformanceModeMaximumHashrate push miner for peak hashrate output
+	PerformanceModeMaximumHashrate
+	// PerformanceModeEfficiency limit miner to conserve energy consumption
+	PerformanceModeEfficiency
+)
+
 // APIKey represents API key authentication
 type APIKey struct {
 	Key string
@@ -359,6 +371,7 @@ type DeviceControl interface {
 type DeviceConfiguration interface {
 	// CoreV1 - Configuration methods (required)
 	SetCoolingMode(ctx context.Context, mode CoolingMode) error
+	SetPowerTarget(ctx context.Context, performanceMode PerformanceMode) error
 	UpdateMiningPools(ctx context.Context, pools []MiningPoolConfig) error
 }
 

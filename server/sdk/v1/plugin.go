@@ -755,6 +755,14 @@ func (d *DeviceGRPCClient) SetCoolingMode(ctx context.Context, mode CoolingMode)
 	return err
 }
 
+func (d *DeviceGRPCClient) SetPowerTarget(ctx context.Context, performanceMode PerformanceMode) error {
+	_, err := d.client.SetPowerTarget(ctx, &pb.SetPowerTargetRequest{
+		Ref:             &pb.DeviceRef{DeviceId: d.deviceID},
+		PerformanceMode: pb.PerformanceMode(safeIntToInt32(int(performanceMode))),
+	})
+	return err
+}
+
 func (d *DeviceGRPCClient) UpdateMiningPools(ctx context.Context, pools []MiningPoolConfig) error {
 	pbPools := make([]*pb.MiningPool, len(pools))
 	for i, pool := range pools {

@@ -277,6 +277,49 @@ func (d *Device) SetCoolingMode(ctx context.Context, mode sdk.CoolingMode) error
 	return d.client.SetCoolingMode(ctx, web.CoolingMode(mode))
 }
 
+// SetPowerTarget implements the SDK Device interface.
+// Maps performance modes to Antminer work modes:
+//   - MAXIMUM_HASHRATE -> bitmain-work-mode = "0" (normal operation)
+//   - EFFICIENCY -> bitmain-work-mode = "2" (low power mode)
+func (d *Device) SetPowerTarget(ctx context.Context, performanceMode sdk.PerformanceMode) error {
+	slog.Info("Setting power target via work mode", "deviceID", d.id, "performanceMode", performanceMode)
+
+	// Map performance mode to work mode
+	var workMode web.BitmainWorkMode
+	switch performanceMode {
+	case sdk.PerformanceModeMaximumHashrate:
+		workMode = web.BitmainWorkModeStart // "0" - Normal operation
+	case sdk.PerformanceModeEfficiency:
+		workMode = web.BitmainWorkModeLowPower // "2" - Low power mode
+	case sdk.PerformanceModeUnspecified:
+		return fmt.Errorf("performance mode must be specified for Antminer devices")
+	default:
+		return fmt.Errorf("unsupported performance mode: %v", performanceMode)
+	}
+
+	// Get current configuration
+	config, err := d.client.GetMinerConfig(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get current miner config: %w", err)
+	}
+
+	// Update work mode
+	config.BitmainWorkMode = workMode
+
+	// Apply configuration
+	if err := d.client.SetMinerConfig(ctx, config); err != nil {
+		return fmt.Errorf("failed to set work mode: %w", err)
+	}
+
+	// Clear cached status to force refresh on next Status() call
+	d.statusMutex.Lock()
+	defer d.statusMutex.Unlock()
+	d.lastStatus = nil
+
+	slog.Info("Successfully set work mode", "deviceID", d.id, "workMode", workMode)
+	return nil
+}
+
 // UpdateMiningPools implements the SDK Device interface.
 func (d *Device) UpdateMiningPools(ctx context.Context, pools []sdk.MiningPoolConfig) error {
 	var antminerPools []antminer.Pool

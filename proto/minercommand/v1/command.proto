@@ -58,6 +58,21 @@ message SetCoolingModeResponse {
   string batch_identifier = 1;
 }
 
+enum PerformanceMode {
+  PERFORMANCE_MODE_UNSPECIFIED = 0;
+  PERFORMANCE_MODE_MAXIMUM_HASHRATE = 1;
+  PERFORMANCE_MODE_EFFICIENCY = 2;
+}
+
+message SetPowerTargetRequest {
+  DeviceSelector device_selector = 1;
+  PerformanceMode performance_mode = 2;
+}
+
+message SetPowerTargetResponse {
+  string batch_identifier = 1;
+}
+
 message UpdateMiningPoolsRequest {
   DeviceSelector device_selector = 1;
   int64 default_pool_id = 2;
@@ -157,6 +172,8 @@ service MinerCommandService {
   rpc StartMining(StartMiningRequest) returns (StartMiningResponse);
 
   rpc SetCoolingMode(SetCoolingModeRequest) returns (SetCoolingModeResponse);
+
+  rpc SetPowerTarget(SetPowerTargetRequest) returns (SetPowerTargetResponse);
 
   rpc UpdateMiningPools(UpdateMiningPoolsRequest) returns (UpdateMiningPoolsResponse);
 

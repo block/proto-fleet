@@ -73,6 +73,18 @@ func (h *Handler) SetCoolingMode(
 	return connect.NewResponse(resp), nil
 }
 
+func (h *Handler) SetPowerTarget(
+	ctx context.Context,
+	req *connect.Request[pb.SetPowerTargetRequest],
+) (*connect.Response[pb.SetPowerTargetResponse], error) {
+	resp, err := h.commandSvc.SetPowerTarget(ctx, req.Msg.DeviceSelector, req.Msg.PerformanceMode)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(resp), nil
+}
+
 func (h *Handler) UpdateMiningPools(
 	ctx context.Context,
 	req *connect.Request[pb.UpdateMiningPoolsRequest],

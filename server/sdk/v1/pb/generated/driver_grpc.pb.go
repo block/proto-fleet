@@ -32,6 +32,7 @@ const (
 	Driver_BlinkLED_FullMethodName            = "/sdk.v1.Driver/BlinkLED"
 	Driver_Reboot_FullMethodName              = "/sdk.v1.Driver/Reboot"
 	Driver_SetCoolingMode_FullMethodName      = "/sdk.v1.Driver/SetCoolingMode"
+	Driver_SetPowerTarget_FullMethodName      = "/sdk.v1.Driver/SetPowerTarget"
 	Driver_UpdateMiningPools_FullMethodName   = "/sdk.v1.Driver/UpdateMiningPools"
 	Driver_DownloadLogs_FullMethodName        = "/sdk.v1.Driver/DownloadLogs"
 	Driver_UpdateFirmware_FullMethodName      = "/sdk.v1.Driver/UpdateFirmware"
@@ -65,6 +66,7 @@ type DriverClient interface {
 	Reboot(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// CoreV1 - Configuration methods - Required methods
 	SetCoolingMode(ctx context.Context, in *SetCoolingModeRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	SetPowerTarget(ctx context.Context, in *SetPowerTargetRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	UpdateMiningPools(ctx context.Context, in *UpdateMiningPoolsRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	DownloadLogs(ctx context.Context, in *DownloadLogsRequest, opts ...grpc.CallOption) (*DownloadLogsResponse, error)
 	UpdateFirmware(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -192,6 +194,15 @@ func (c *driverClient) Reboot(ctx context.Context, in *DeviceRef, opts ...grpc.C
 func (c *driverClient) SetCoolingMode(ctx context.Context, in *SetCoolingModeRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, Driver_SetCoolingMode_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *driverClient) SetPowerTarget(ctx context.Context, in *SetPowerTargetRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Driver_SetPowerTarget_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -332,6 +343,7 @@ type DriverServer interface {
 	Reboot(context.Context, *DeviceRef) (*emptypb.Empty, error)
 	// CoreV1 - Configuration methods - Required methods
 	SetCoolingMode(context.Context, *SetCoolingModeRequest) (*emptypb.Empty, error)
+	SetPowerTarget(context.Context, *SetPowerTargetRequest) (*emptypb.Empty, error)
 	UpdateMiningPools(context.Context, *UpdateMiningPoolsRequest) (*emptypb.Empty, error)
 	DownloadLogs(context.Context, *DownloadLogsRequest) (*DownloadLogsResponse, error)
 	UpdateFirmware(context.Context, *DeviceRef) (*emptypb.Empty, error)
@@ -389,6 +401,9 @@ func (UnimplementedDriverServer) Reboot(context.Context, *DeviceRef) (*emptypb.E
 }
 func (UnimplementedDriverServer) SetCoolingMode(context.Context, *SetCoolingModeRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetCoolingMode not implemented")
+}
+func (UnimplementedDriverServer) SetPowerTarget(context.Context, *SetPowerTargetRequest) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetPowerTarget not implemented")
 }
 func (UnimplementedDriverServer) UpdateMiningPools(context.Context, *UpdateMiningPoolsRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateMiningPools not implemented")
@@ -649,6 +664,24 @@ func _Driver_SetCoolingMode_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Driver_SetPowerTarget_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetPowerTargetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).SetPowerTarget(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_SetPowerTarget_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).SetPowerTarget(ctx, req.(*SetPowerTargetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Driver_UpdateMiningPools_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UpdateMiningPoolsRequest)
 	if err := dec(in); err != nil {
@@ -886,6 +919,10 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetCoolingMode",
 			Handler:    _Driver_SetCoolingMode_Handler,
+		},
+		{
+			MethodName: "SetPowerTarget",
+			Handler:    _Driver_SetPowerTarget_Handler,
 		},
 		{
 			MethodName: "UpdateMiningPools",

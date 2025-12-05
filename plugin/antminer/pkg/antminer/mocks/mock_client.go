@@ -95,6 +95,21 @@ func (mr *MockAntminerClientMockRecorder) GetDevs(ctx interface{}) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevs", reflect.TypeOf((*MockAntminerClient)(nil).GetDevs), ctx)
 }
 
+// GetMinerConfig mocks base method.
+func (m *MockAntminerClient) GetMinerConfig(ctx context.Context) (*web.MinerConfig, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMinerConfig", ctx)
+	ret0, _ := ret[0].(*web.MinerConfig)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMinerConfig indicates an expected call of GetMinerConfig.
+func (mr *MockAntminerClientMockRecorder) GetMinerConfig(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerConfig", reflect.TypeOf((*MockAntminerClient)(nil).GetMinerConfig), ctx)
+}
+
 // GetPools mocks base method.
 func (m *MockAntminerClient) GetPools(ctx context.Context) (*rpc.PoolsResponse, error) {
 	m.ctrl.T.Helper()
@@ -224,6 +239,20 @@ func (m *MockAntminerClient) SetCredentials(credentials sdk.UsernamePassword) er
 func (mr *MockAntminerClientMockRecorder) SetCredentials(credentials interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCredentials", reflect.TypeOf((*MockAntminerClient)(nil).SetCredentials), credentials)
+}
+
+// SetMinerConfig mocks base method.
+func (m *MockAntminerClient) SetMinerConfig(ctx context.Context, config *web.MinerConfig) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetMinerConfig", ctx, config)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetMinerConfig indicates an expected call of SetMinerConfig.
+func (mr *MockAntminerClientMockRecorder) SetMinerConfig(ctx, config interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetMinerConfig", reflect.TypeOf((*MockAntminerClient)(nil).SetMinerConfig), ctx, config)
 }
 
 // StartMining mocks base method.

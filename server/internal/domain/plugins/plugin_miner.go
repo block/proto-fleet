@@ -194,6 +194,27 @@ func (p *PluginMiner) SetCoolingMode(ctx context.Context, payload dto.CoolingMod
 	return nil
 }
 
+// SetPowerTarget implements interfaces.Miner
+func (p *PluginMiner) SetPowerTarget(ctx context.Context, payload dto.PowerTargetPayload) error {
+	// Convert protobuf performance mode to SDK performance mode
+	var sdkMode sdk.PerformanceMode
+	switch payload.PerformanceMode {
+	case pb.PerformanceMode_PERFORMANCE_MODE_MAXIMUM_HASHRATE:
+		sdkMode = sdk.PerformanceModeMaximumHashrate
+	case pb.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY:
+		sdkMode = sdk.PerformanceModeEfficiency
+	case pb.PerformanceMode_PERFORMANCE_MODE_UNSPECIFIED:
+		sdkMode = sdk.PerformanceModeUnspecified
+	default:
+		sdkMode = sdk.PerformanceModeUnspecified
+	}
+
+	if err := p.sdkDevice.SetPowerTarget(ctx, sdkMode); err != nil {
+		return fleeterror.NewInternalErrorf("failed to set power target: %v", err)
+	}
+	return nil
+}
+
 // UpdateMiningPools implements interfaces.Miner
 func (p *PluginMiner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
 	// Convert Fleet pool configs to SDK pool configs

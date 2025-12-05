@@ -319,6 +319,20 @@ func (mr *MockMinerMockRecorder) SetCoolingMode(ctx, payload interface{}) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCoolingMode", reflect.TypeOf((*MockMiner)(nil).SetCoolingMode), ctx, payload)
 }
 
+// SetPowerTarget mocks base method.
+func (m *MockMiner) SetPowerTarget(ctx context.Context, payload dto.PowerTargetPayload) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPowerTarget", ctx, payload)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetPowerTarget indicates an expected call of SetPowerTarget.
+func (mr *MockMinerMockRecorder) SetPowerTarget(ctx, payload interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPowerTarget", reflect.TypeOf((*MockMiner)(nil).SetPowerTarget), ctx, payload)
+}
+
 // StartMining mocks base method.
 func (m *MockMiner) StartMining(ctx context.Context) error {
 	m.ctrl.T.Helper()

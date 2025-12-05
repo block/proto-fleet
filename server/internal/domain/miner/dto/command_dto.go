@@ -6,6 +6,10 @@ type CoolingModePayload struct {
 	Mode pb.CoolingMode `json:"mode"`
 }
 
+type PowerTargetPayload struct {
+	PerformanceMode pb.PerformanceMode `json:"performance_mode"`
+}
+
 type MiningPool struct {
 	Priority uint32 `json:"priority"`
 	URL      string `json:"url"`
