@@ -27,6 +27,7 @@ import {
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
+import { useFleetStore } from "@/protoFleet/store";
 import {
   // ArrowLeftCompact, // TODO: Uncomment when Factory Reset is implemented
   // Curtail, // TODO: Uncomment when Curtail is implemented
@@ -119,6 +120,10 @@ export const useMinerActions = ({ selectedMiners, onActionStart, onActionComplet
           message: `${successMessages[action]} ${successCount} out of ${totalCount} ${minersMessage}`,
           status: TOAST_STATUSES.success,
         });
+
+        if (action === deviceActions.unpair && successCount > 0) {
+          useFleetStore.getState().fleet.refetchMiners?.();
+        }
       });
     },
     [streamCommandBatchUpdates],
