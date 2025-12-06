@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionPage";
 import BulkActionsWidget, { BulkActionsPopover } from "../BulkActions";
 import { performanceActions, settingsActions, SupportedAction } from "./constants";
@@ -14,6 +15,11 @@ interface MinerActionsMenuProps {
 }
 
 const MinerActionsMenu = ({ selectedMiners, onActionStart, onActionComplete }: MinerActionsMenuProps) => {
+  const selectedMinersWithStatus = useMemo(
+    () => selectedMiners.map((id) => ({ deviceIdentifier: id })),
+    [selectedMiners],
+  );
+
   const {
     currentAction,
     popoverActions,
@@ -25,7 +31,7 @@ const MinerActionsMenu = ({ selectedMiners, onActionStart, onActionComplete }: M
     handleManagePowerConfirm,
     handleManagePowerDismiss,
   } = useMinerActions({
-    selectedMiners,
+    selectedMiners: selectedMinersWithStatus,
     onActionStart,
     onActionComplete,
   });
@@ -50,7 +56,7 @@ const MinerActionsMenu = ({ selectedMiners, onActionStart, onActionComplete }: M
       />
       {currentAction === settingsActions.miningPool && (
         <PoolSelectionPageWrapper
-          deviceIdentifiers={selectedMiners}
+          selectedMiners={selectedMinersWithStatus}
           onSuccess={handleMiningPoolSuccess}
           onError={handleMiningPoolError}
           onDismiss={handleCancel}

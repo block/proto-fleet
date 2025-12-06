@@ -1,20 +1,24 @@
+import { useMemo } from "react";
 import PoolSelectionPage from "./PoolSelectionPage";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
+import type { MinerSelection } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/useMinerActions";
 
 interface PoolSelectionPageWrapperProps {
-  deviceIdentifiers: string[];
+  selectedMiners: MinerSelection[];
   onSuccess: (batchIdentifier: string) => void;
   onError: (error: string) => void;
   onDismiss: () => void;
 }
 
 const PoolSelectionPageWrapper = ({
-  deviceIdentifiers,
+  selectedMiners,
   onSuccess,
   onError,
   onDismiss: onDismiss,
 }: PoolSelectionPageWrapperProps) => {
   const { updateMiningPools } = useMinerCommand();
+
+  const deviceIdentifiers = useMemo(() => selectedMiners.map((m) => m.deviceIdentifier), [selectedMiners]);
 
   const handleAssignPools = async (
     defaultPoolId: string | undefined,

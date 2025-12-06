@@ -25,6 +25,7 @@ import {
   UnpairRequestSchema,
   UnpairResponse,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import {
   // ArrowLeftCompact, // TODO: Uncomment when Factory Reset is implemented
@@ -43,8 +44,13 @@ import {
 import { variants } from "@/shared/components/Button";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
 
+export interface MinerSelection {
+  deviceIdentifier: string;
+  deviceStatus?: DeviceStatus;
+}
+
 interface UseMinerActionsParams {
-  selectedMiners: string[];
+  selectedMiners: MinerSelection[];
   onActionStart?: () => void;
   onActionComplete?: () => void;
 }
@@ -57,6 +63,19 @@ export const useMinerActions = ({ selectedMiners, onActionStart, onActionComplet
   const miningPoolToastIdRef = useRef<number | null>(null);
 
   const numberOfMiners = useMemo(() => selectedMiners.length, [selectedMiners]);
+
+  // Extract device identifiers for API calls
+  const deviceIdentifiers = useMemo(() => selectedMiners.map((m) => m.deviceIdentifier), [selectedMiners]);
+
+  // Determine device status for power state actions
+  const deviceStatus = useMemo(() => {
+    if (selectedMiners.length === 0) return undefined;
+
+    const firstStatus = selectedMiners[0]?.deviceStatus;
+    const allHaveSameStatus = selectedMiners.every((m) => m.deviceStatus === firstStatus);
+
+    return allHaveSameStatus ? firstStatus : undefined;
+  }, [selectedMiners]);
 
   const handleSuccess = useCallback(
     (action: SupportedAction, originalToastId: number, batchIdentifier: string) => {
@@ -142,7 +161,7 @@ export const useMinerActions = ({ selectedMiners, onActionStart, onActionComplet
       });
 
       setPowerTarget({
-        deviceIdentifiers: selectedMiners,
+        deviceIdentifiers,
         performanceMode,
         onSuccess: (value: SetPowerTargetResponse) =>
           handleSuccess(performanceActions.managePower, id, value.batchIdentifier),
@@ -151,7 +170,7 @@ export const useMinerActions = ({ selectedMiners, onActionStart, onActionComplet
 
       setCurrentAction(null);
     },
-    [selectedMiners, setPowerTarget, handleSuccess, handleError, onActionComplete],
+    [deviceIdentifiers, setPowerTarget, handleSuccess, handleError, onActionComplete],
   );
 
   const handleManagePowerDismiss = useCallback(() => {
@@ -178,7 +197,7 @@ export const useMinerActions = ({ selectedMiners, onActionStart, onActionComplet
             selectionType: {
               case: "includeDevices",
               value: create(DeviceListSchema, {
-                deviceIdentifiers: selectedMiners,
+                deviceIdentifiers,
               }),
             },
           }),
@@ -196,7 +215,7 @@ export const useMinerActions = ({ selectedMiners, onActionStart, onActionComplet
             selectionType: {
               case: "includeDevices",
               value: create(DeviceListSchema, {
-                deviceIdentifiers: selectedMiners,
+                deviceIdentifiers,
               }),
             },
           }),
@@ -214,7 +233,7 @@ export const useMinerActions = ({ selectedMiners, onActionStart, onActionComplet
             selectionType: {
               case: "includeDevices",
               value: create(DeviceListSchema, {
-                deviceIdentifiers: selectedMiners,
+                deviceIdentifiers,
               }),
             },
           }),
@@ -234,7 +253,7 @@ export const useMinerActions = ({ selectedMiners, onActionStart, onActionComplet
         });
     }
     setCurrentAction(null);
-  }, [currentAction, onActionComplete, selectedMiners, startMining, stopMining, unpair, handleSuccess, handleError]);
+  }, [currentAction, onActionComplete, deviceIdentifiers, startMining, stopMining, unpair, handleSuccess, handleError]);
 
   const handleCancel = useCallback(() => {
     if (miningPoolToastIdRef.current !== null) {
@@ -261,7 +280,7 @@ export const useMinerActions = ({ selectedMiners, onActionStart, onActionComplet
           selectionType: {
             case: "includeDevices",
             value: create(DeviceListSchema, {
-              deviceIdentifiers: selectedMiners,
+              deviceIdentifiers,
             }),
           },
         }),
@@ -353,6 +372,48 @@ export const useMinerActions = ({ selectedMiners, onActionStart, onActionComplet
       // TODO show modal
     };
 
+    const sleepAction: BulkAction<SupportedAction> = {
+      action: deviceActions.shutdown,
+      title: "Sleep",
+      icon: <Power />,
+      actionHandler: handleShutDown,
+      requiresConfirmation: true,
+      confirmation: {
+        title: `Sleep ${numberOfMiners} ${numberOfMiners === 1 ? "miner" : "miners"}?`,
+        subtitle: `${numberOfMiners === 1 ? "This miner" : "These miners"} will go to sleep and stop hashing.`,
+        confirmAction: {
+          title: "Sleep",
+          variant: variants.primary,
+        },
+        testId: "shutdown-confirm-button",
+      },
+    };
+
+    const wakeUpAction: BulkAction<SupportedAction> = {
+      action: deviceActions.wakeUp,
+      title: "Wake up",
+      icon: <Play />,
+      actionHandler: handleWakeUp,
+      requiresConfirmation: true,
+      confirmation: {
+        title: `Wake up ${numberOfMiners} ${numberOfMiners === 1 ? "miner" : "miners"}?`,
+        subtitle: `${numberOfMiners === 1 ? "This miner" : "These miners"} will wake up and start hashing.`,
+        confirmAction: {
+          title: "Wake up",
+          variant: variants.primary,
+        },
+        testId: "wake-up-confirm-button",
+      },
+    };
+
+    // Determine which power state actions to show based on device status
+    const powerStateActions =
+      deviceStatus === undefined
+        ? [sleepAction, wakeUpAction] // Bulk actions: show both
+        : deviceStatus === DeviceStatus.INACTIVE
+          ? [wakeUpAction] // Single miner asleep: show wake up only
+          : [sleepAction]; // Single miner active: show sleep only
+
     return [
       // Device actions
       {
@@ -403,38 +464,7 @@ export const useMinerActions = ({ selectedMiners, onActionStart, onActionComplet
           testId: "reboot-confirm-button",
         },
       },
-      {
-        action: deviceActions.shutdown,
-        title: "Sleep",
-        icon: <Power />,
-        actionHandler: handleShutDown,
-        requiresConfirmation: true,
-        confirmation: {
-          title: `Sleep ${numberOfMiners} ${numberOfMiners === 1 ? "miner" : "miners"}?`,
-          subtitle: `${numberOfMiners === 1 ? "This miner" : "These miners"} will go to sleep and stop hashing.`,
-          confirmAction: {
-            title: "Sleep",
-            variant: variants.primary,
-          },
-          testId: "shutdown-confirm-button",
-        },
-      },
-      {
-        action: deviceActions.wakeUp,
-        title: "Wake up",
-        icon: <Play />,
-        actionHandler: handleWakeUp,
-        requiresConfirmation: true,
-        confirmation: {
-          title: `Wake up ${numberOfMiners} ${numberOfMiners === 1 ? "miner" : "miners"}?`,
-          subtitle: `${numberOfMiners === 1 ? "This miner" : "These miners"} will wake up and start hashing.`,
-          confirmAction: {
-            title: "Wake up",
-            variant: variants.primary,
-          },
-          testId: "wake-up-confirm-button",
-        },
-      },
+      ...powerStateActions,
       // Performance actions
       {
         action: performanceActions.managePower,
@@ -501,7 +531,16 @@ export const useMinerActions = ({ selectedMiners, onActionStart, onActionComplet
         },
       },
     ] as BulkAction<SupportedAction>[];
-  }, [blinkLED, handleSuccess, handleError, numberOfMiners, onActionStart, onActionComplete, selectedMiners]);
+  }, [
+    blinkLED,
+    handleSuccess,
+    handleError,
+    numberOfMiners,
+    onActionStart,
+    onActionComplete,
+    deviceIdentifiers,
+    deviceStatus,
+  ]);
 
   return {
     currentAction,

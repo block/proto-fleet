@@ -4,8 +4,9 @@ import BulkActionConfirmDialog from "../BulkActions/BulkActionConfirmDialog";
 import { BulkAction } from "../BulkActions/types";
 import { performanceActions, settingsActions, SupportedAction } from "./constants";
 import ManagePowerModal from "./ManagePowerModal";
-import { useMinerActions } from "./useMinerActions";
+import { type MinerSelection, useMinerActions } from "./useMinerActions";
 import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import { useMinerDeviceStatus } from "@/protoFleet/store/hooks/useFleet";
 import { Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -22,7 +23,9 @@ interface SingleMinerActionsMenuProps {
 }
 
 const SingleMinerActionsMenu = ({ deviceIdentifier, onActionStart, onActionComplete }: SingleMinerActionsMenuProps) => {
-  const selectedMiners = useMemo(() => [deviceIdentifier], [deviceIdentifier]);
+  const deviceStatus = useMinerDeviceStatus(deviceIdentifier);
+
+  const selectedMiners = useMemo(() => [{ deviceIdentifier, deviceStatus }], [deviceIdentifier, deviceStatus]);
 
   const {
     currentAction,
@@ -107,7 +110,7 @@ interface SingleMinerActionsMenuInnerProps {
   handleCancelClick: () => void;
   setCurrentAction: (action: SupportedAction | null) => void;
   onActionComplete?: () => void;
-  selectedMiners: string[];
+  selectedMiners: MinerSelection[];
   handleMiningPoolSuccess: (batchIdentifier: string) => void;
   handleMiningPoolError: (error: string) => void;
   handleCancel: () => void;
@@ -201,7 +204,7 @@ const SingleMinerActionsMenuInner = ({
         })}
       {currentAction === settingsActions.miningPool && (
         <PoolSelectionPageWrapper
-          deviceIdentifiers={selectedMiners}
+          selectedMiners={selectedMiners}
           onSuccess={handleMiningPoolSuccess}
           onError={handleMiningPoolError}
           onDismiss={handleCancel}
