@@ -41,7 +41,7 @@ import {
   Unpair,
 } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
-import { pushToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
+import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
 
 interface UseMinerActionsParams {
   selectedMiners: string[];
@@ -237,6 +237,11 @@ export const useMinerActions = ({ selectedMiners, onActionStart, onActionComplet
   }, [currentAction, onActionComplete, selectedMiners, startMining, stopMining, unpair, handleSuccess, handleError]);
 
   const handleCancel = useCallback(() => {
+    if (miningPoolToastIdRef.current !== null) {
+      removeToast(miningPoolToastIdRef.current);
+      miningPoolToastIdRef.current = null;
+    }
+
     setCurrentAction(null);
     onActionComplete?.();
   }, [onActionComplete]);
