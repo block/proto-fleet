@@ -10,10 +10,6 @@ import "buf/validate/validate.proto";
 
 // Service for managing fleet-wide settings and configurations
 service FleetManagementService {
-  // Lists all miners that have been paired with the fleet management system
-  // Supports pagination for handling large fleets efficiently
-  rpc ListPairedMiners(ListPairedMinersRequest) returns (ListPairedMinersResponse);
-
   // List all devices in the fleet (paired and/or unpaired) optionally with their telemetry data
   // Returns a paginated list of devices with their operational status and metrics
   // Use the pairing_status filter to control whether to return paired, unpaired, or both
@@ -35,54 +31,6 @@ service FleetManagementService {
 enum FleetManagementServiceErrorCode {
   FLEET_MANAGEMENT_SERVICE_ERROR_CODE_UNSPECIFIED = 0;
   FLEET_MANAGEMENT_SERVICE_ERROR_CODE_INVALID_PAGINATION_CURSOR = 1;
-}
-
-// Request to list paired miners with pagination support
-message ListPairedMinersRequest {
-  // Maximum number of miners to return in a single response
-  // Server may return fewer miners than specified
-  // If not specified, a default of 50 will be used
-  // Maximum allowed value is 1000
-  int32 page_size = 1 [(buf.validate.field).int32 = {
-    gte: 0,  // Allow 0 to use default
-    lte: 1000  // Maximum page size
-  }];
-
-  // A pagination cursor returned by a previous call to this endpoint
-  // Provide this cursor to retrieve the next set of results for the original query
-  // Leave empty for first request
-  string cursor = 2;
-}
-
-// Response containing a list of paired miners with pagination support
-message ListPairedMinersResponse {
-  // List of paired miners for the current page
-  // Ordered by device_identifier by default
-  repeated PairedDevice miners = 1;
-
-  // The pagination cursor to be used in a subsequent request
-  // If empty, this is the final page of results
-  string cursor = 2;
-
-  // Total number of miners available across all pages
-  // Useful for UI pagination controls
-  int32 total_miners = 3;
-}
-
-// Represents a miner that has been paired with the fleet management system
-message PairedDevice {
-  // Unique identifier for the device within the fleet
-  // Used as the primary reference for the device in API calls
-  string device_identifier = 1;
-
-  // Manufacturer-assigned serial number
-  // Useful for physical identification and warranty purposes
-  string serial_number = 2;
-
-  // Physical MAC address of the device
-  // Format: XX:XX:XX:XX:XX:XX
-  // Used for network identification
-  string mac_address = 3;
 }
 
 // MinerStateSnapshot represents the operational state of a mining device

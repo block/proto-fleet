@@ -95,16 +95,6 @@ Content-Type: application/json
   "device_identifiers": ["c9ea3eea-60b6-414f-9207-88bf3a1154d2", "eb6993d9-85c4-4ed9-865b-7833aac82af4" ]
 }
 
-### list paired miners
-
-POST {{host}}/fleetmanagement.v1.FleetManagementService/ListPairedMiners
-Authorization: Bearer {{auth_token}}
-Content-Type: application/json
-
-{
-  "page_size": 10
-}
-
 ### list unpaired devices
 
 POST {{host}}/fleetmanagement.v1.FleetManagementService/ListUnpairedDevices

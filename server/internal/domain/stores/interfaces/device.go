@@ -54,8 +54,6 @@ type DeviceStore interface {
 	GetDeviceWithIPAssignment(ctx context.Context, deviceIdentifier string, orgID int64) (*discoverymodels.DiscoveredDevice, error)
 	GetTotalPairedDevices(ctx context.Context, orgID int64, filter *MinerFilter) (int64, error)
 	GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error)
-	ListPairedDevices(ctx context.Context, cursor string, pageSize int32) ([]*fm.PairedDevice, string, error)
-	ListPairedMinersWithStatus(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *MinerFilter) ([]*pb.Device, string, error)
 	GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models.DeviceIdentifier, error)
 	GetMinerStateCounts(ctx context.Context, orgID int64, filter *MinerFilter) (*tm.MinerStateCounts, error)
 	GetAvailableMinerTypes(ctx context.Context, orgID int64) ([]mm.Type, error)

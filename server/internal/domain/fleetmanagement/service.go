@@ -81,33 +81,6 @@ func validatePageSize(pageSize int32) int32 {
 	return pageSize
 }
 
-func (s *Service) ListPairedMiners(c context.Context, req *pb.ListPairedMinersRequest) (*pb.ListPairedMinersResponse, error) {
-	info, err := session.GetInfo(c)
-	if err != nil {
-		return nil, err
-	}
-
-	pageSize := validatePageSize(req.PageSize)
-
-	devices, nextCursor, err := s.deviceStore.ListPairedDevices(c, req.Cursor, pageSize)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to list miners: %v", err)
-	}
-
-	total, err := s.deviceStore.GetTotalPairedDevices(c, info.OrganizationID, nil)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
-	}
-
-	resp := &pb.ListPairedMinersResponse{
-		Miners:      devices,
-		Cursor:      nextCursor,
-		TotalMiners: int32(total), //nolint:gosec
-	}
-
-	return resp, nil
-}
-
 // ListMinerStateSnapshots returns a paginated list of miners with their operational status and metrics
 func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMinerStateSnapshotsRequest) (*pb.ListMinerStateSnapshotsResponse, error) {
 	info, err := session.GetInfo(ctx)

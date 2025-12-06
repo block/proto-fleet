@@ -24,16 +24,6 @@ func NewHandler(fleetMgmtSvc *fleetmanagement.Service) *Handler {
 	}
 }
 
-// ListPairedMiners implements fleetmanagementv1connect.FleetManagementServiceHandler.
-func (h *Handler) ListPairedMiners(ctx context.Context, r *connect.Request[pb.ListPairedMinersRequest]) (*connect.Response[pb.ListPairedMinersResponse], error) {
-	result, err := h.fleetMgmtSvc.ListPairedMiners(ctx, r.Msg)
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(result), nil
-}
-
 func (h *Handler) ListMinerStateSnapshots(ctx context.Context, r *connect.Request[pb.ListMinerStateSnapshotsRequest]) (*connect.Response[pb.ListMinerStateSnapshotsResponse], error) {
 	result, err := h.fleetMgmtSvc.ListMinerStateSnapshots(ctx, r.Msg)
 	if err != nil {

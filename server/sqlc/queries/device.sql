@@ -29,31 +29,6 @@ SET
   dd.url_scheme = ?
 WHERE d.id = ?;
 
--- name: ListPairedDevices :many
-SELECT
-    d.device_identifier,
-    d.mac_address,
-    d.serial_number,
-    dd.model,
-    dd.manufacturer,
-    dd.type,
-    dp.id as cursor_id,
-    d.id as device_id
-FROM device d
-JOIN discovered_device dd ON d.discovered_device_id = dd.id
-JOIN device_pairing dp ON d.id = dp.device_id
-WHERE dp.pairing_status = 'PAIRED'
-    AND d.org_id = ?
-    AND d.deleted_at IS NULL
-    AND (
-        -- If cursor provided, filter by it, otherwise return all
-        COALESCE(sqlc.narg('cursor_id'), 0) = 0
-        OR
-        (dp.id > sqlc.narg('cursor_id') OR (dp.id = sqlc.narg('cursor_id') AND d.id > sqlc.narg('device_cursor_id')))
-    )
-ORDER BY dp.id, d.id
-LIMIT ?;
-
 -- name: GetPairedDevicesIds :many
 SELECT
     d.id as device_id
@@ -130,40 +105,6 @@ SET
 WHERE device_identifier = ?
   AND org_id = ?
   AND deleted_at IS NULL;
-
--- name: ListPairedMinersWithStatus :many
-SELECT
-    d.device_identifier,
-    d.mac_address,
-    d.serial_number,
-    dd.model,
-    dd.manufacturer,
-    dd.type,
-    ds.status as device_status,
-    ds.status_timestamp,
-    ds.status_details,
-    dd.ip_address,
-    dd.port,
-    dd.url_scheme,
-    dp.id as cursor_id,
-    d.id as device_id
-FROM device d
-JOIN discovered_device dd ON d.discovered_device_id = dd.id
-JOIN device_pairing dp ON d.id = dp.device_id
-LEFT JOIN device_status ds ON d.id = ds.device_id
-WHERE dp.pairing_status = 'PAIRED'
-    AND d.deleted_at IS NULL
-    AND d.org_id = ?
-    AND (
-        -- If cursor provided, filter by it, otherwise return all
-        COALESCE(sqlc.narg('cursor_id'), 0) = 0
-        OR
-        (dp.id > sqlc.narg('cursor_id') OR (dp.id = sqlc.narg('cursor_id') AND d.id > sqlc.narg('device_cursor_id')))
-    )
-    AND (sqlc.narg('status_filter') is null OR FIND_IN_SET(ds.status, sqlc.narg('status_filter')))
-    AND (sqlc.narg('type_filter') is null OR FIND_IN_SET(dd.type, sqlc.narg('type_filter')))
-ORDER BY dp.id, d.id
-LIMIT ?;
 
 -- name: GetDevicePairingStatusByDeviceDatabaseID :one
 SELECT

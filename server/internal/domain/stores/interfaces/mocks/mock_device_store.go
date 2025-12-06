@@ -8,7 +8,6 @@ import (
 	context "context"
 	reflect "reflect"
 
-	fleetmanagementv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	telemetryv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1"
 	sqlc "github.com/btc-mining/proto-fleet/server/generated/sqlc"
@@ -222,38 +221,6 @@ func (m *MockDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int
 func (mr *MockDeviceStoreMockRecorder) ListMinerStateSnapshots(ctx, orgID, cursor, pageSize, filter interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMinerStateSnapshots", reflect.TypeOf((*MockDeviceStore)(nil).ListMinerStateSnapshots), ctx, orgID, cursor, pageSize, filter)
-}
-
-// ListPairedDevices mocks base method.
-func (m *MockDeviceStore) ListPairedDevices(ctx context.Context, cursor string, pageSize int32) ([]*fleetmanagementv1.PairedDevice, string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListPairedDevices", ctx, cursor, pageSize)
-	ret0, _ := ret[0].([]*fleetmanagementv1.PairedDevice)
-	ret1, _ := ret[1].(string)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
-}
-
-// ListPairedDevices indicates an expected call of ListPairedDevices.
-func (mr *MockDeviceStoreMockRecorder) ListPairedDevices(ctx, cursor, pageSize interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPairedDevices", reflect.TypeOf((*MockDeviceStore)(nil).ListPairedDevices), ctx, cursor, pageSize)
-}
-
-// ListPairedMinersWithStatus mocks base method.
-func (m *MockDeviceStore) ListPairedMinersWithStatus(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *interfaces.MinerFilter) ([]*pairingv1.Device, string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListPairedMinersWithStatus", ctx, orgID, cursor, pageSize, filter)
-	ret0, _ := ret[0].([]*pairingv1.Device)
-	ret1, _ := ret[1].(string)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
-}
-
-// ListPairedMinersWithStatus indicates an expected call of ListPairedMinersWithStatus.
-func (mr *MockDeviceStoreMockRecorder) ListPairedMinersWithStatus(ctx, orgID, cursor, pageSize, filter interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPairedMinersWithStatus", reflect.TypeOf((*MockDeviceStore)(nil).ListPairedMinersWithStatus), ctx, orgID, cursor, pageSize, filter)
 }
 
 // UpdateDeviceInfo mocks base method.

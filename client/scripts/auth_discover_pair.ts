@@ -269,46 +269,47 @@ async function main() {
       console.error("Error during Nmap scan:", error);
     }
 
-    // Step 4: Check paired miners
-    console.log("\n=== Step 4: Listing Paired Miners ===");
+    // Step 4: Check paired miners using ListMinerStateSnapshots
+    console.log("\n=== Step 4: Listing Miner State Snapshots ===");
 
     try {
       // First, we need to import the FleetManagement service
       const fleetModule = await import("../src/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb");
       const FleetManagementService = fleetModule.FleetManagementService;
-      const ListPairedMinersRequestSchema = fleetModule.ListPairedMinersRequestSchema;
+      const ListMinerStateSnapshotsRequestSchema = fleetModule.ListMinerStateSnapshotsRequestSchema;
 
       // Create a client for the FleetManagement service
       const fleetClient = createClient(FleetManagementService, transport);
 
-      // Create a request to list paired miners
-      const listRequest = create(ListPairedMinersRequestSchema, {
+      // Create a request to list miner state snapshots
+      const listRequest = create(ListMinerStateSnapshotsRequestSchema, {
         pageSize: 10,
       });
 
       console.log(listRequest);
 
       // Make the request
-      const listResponse = await fleetClient.listPairedMiners(listRequest, {
+      const listResponse = await fleetClient.listMinerStateSnapshots(listRequest, {
         headers,
       });
 
       if (listResponse.miners && listResponse.miners.length > 0) {
-        console.log(`Found ${listResponse.miners.length} paired miners:`);
+        console.log(`Found ${listResponse.miners.length} miners:`);
 
         // Convert BigInt values to strings for safe JSON serialization
         const minersForDisplay = listResponse.miners.map((miner) => ({
           deviceIdentifier: miner.deviceIdentifier,
           macAddress: miner.macAddress,
           serialNumber: miner.serialNumber || "(no serial number)",
+          status: miner.status,
         }));
 
         console.log(JSON.stringify(minersForDisplay, null, 2));
       } else {
-        console.log("No paired miners found.");
+        console.log("No miners found.");
       }
     } catch (error) {
-      console.error("Error listing paired miners:", error);
+      console.error("Error listing miner state snapshots:", error);
     }
   } catch (error) {
     console.error("Authentication failed:", error);

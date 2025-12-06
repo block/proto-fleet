@@ -211,16 +211,15 @@ func (s *DatabaseService) GetDevicePairingByDeviceIdentifier(databaseDeviceID in
 	})
 }
 
-func (s *DatabaseService) GetTotalDevicePairings(orgID int64, limit int32) (int, error) {
+func (s *DatabaseService) GetTotalDevicePairings(orgID int64, _ int32) (int, error) {
 	return db2.WithTransaction(context.Background(), s.DB, func(q *sqlc.Queries) (int, error) {
-		pairings, err := q.ListPairedMinersWithStatus(context.Background(), sqlc.ListPairedMinersWithStatusParams{
+		count, err := q.GetTotalPairedDevices(context.Background(), sqlc.GetTotalPairedDevicesParams{
 			OrgID: orgID,
-			Limit: limit,
 		})
 		if err != nil {
 			return 0, err
 		}
-		return len(pairings), nil
+		return int(count), nil
 	})
 }
 
