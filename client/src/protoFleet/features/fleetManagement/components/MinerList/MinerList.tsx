@@ -84,6 +84,11 @@ const MinerList = ({
   // Parse URL params to get initial active filters
   const initialActiveFilters = useMemo(() => parseUrlToActiveFilters(searchParams), [searchParams]);
 
+  // Determine if any filters are currently active from URL params
+  const hasActiveFilters = useMemo(() => {
+    return searchParams.has("status") || searchParams.has("issues") || searchParams.has("type");
+  }, [searchParams]);
+
   const filters = useMemo(() => {
     return [
       {
@@ -219,9 +224,15 @@ const MinerList = ({
           items={deviceItems}
           itemKey={"deviceIdentifier"}
           itemSelectable
-          renderActionBar={(selectedItems, clearSelection) => (
+          hasActiveFilters={hasActiveFilters}
+          renderActionBar={(selectedItems, clearSelection, selectionMode) => (
             <div className="flex w-full justify-center">
-              <MinerListActionBar selectedMiners={selectedItems} onClearSelection={clearSelection} />
+              <MinerListActionBar
+                selectedMiners={selectedItems}
+                onClearSelection={clearSelection}
+                selectionMode={selectionMode}
+                totalCount={totalMiners}
+              />
             </div>
           )}
           containerClassName={listClassName}

@@ -17,9 +17,11 @@ export const ActionBar = ({ numberOfMiners }: ActionBarArgs) => {
       <ActionBarComponent
         className="fixed right-0 bottom-4 left-0 z-20"
         selectedItems={selectedMiners}
+        selectionMode="subset"
         renderActions={(setHidden) => (
           <MinerActionsMenu
             selectedMiners={selectedMiners}
+            selectionMode="subset"
             onActionStart={() => setHidden(true)}
             onActionComplete={() => setHidden(false)}
           />

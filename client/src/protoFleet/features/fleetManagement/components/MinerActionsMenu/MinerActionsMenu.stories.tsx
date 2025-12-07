@@ -9,6 +9,7 @@ export const MinerActionsMenu = () => {
     <div className="flex h-screen items-center justify-center bg-grayscale-gray-87">
       <MinerActionsMenuComponent
         selectedMiners={selectedMiners}
+        selectionMode="subset"
         onActionStart={action("Action started")}
         onActionComplete={action("Action completed")}
       />

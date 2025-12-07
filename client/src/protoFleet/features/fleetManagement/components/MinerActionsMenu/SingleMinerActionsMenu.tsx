@@ -41,6 +41,8 @@ const SingleMinerActionsMenu = ({ deviceIdentifier, onActionStart, onActionCompl
     handleManagePowerDismiss,
   } = useMinerActions({
     selectedMiners,
+    // Single-miner actions always target a specific device, never "all devices"
+    selectionMode: "subset",
     onActionStart,
     onActionComplete,
   });
@@ -205,6 +207,7 @@ const SingleMinerActionsMenuInner = ({
       {currentAction === settingsActions.miningPool && (
         <PoolSelectionPageWrapper
           selectedMiners={selectedMiners}
+          selectionMode="subset"
           onSuccess={handleMiningPoolSuccess}
           onError={handleMiningPoolError}
           onDismiss={handleCancel}

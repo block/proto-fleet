@@ -77,6 +77,7 @@ describe("Action Bar", () => {
         renderActions={(setHidden) => (
           <MinerActionsMenu
             selectedMiners={selectedMiners}
+            selectionMode="subset"
             onActionStart={() => {
               onActionStartMock();
               setHidden(true);

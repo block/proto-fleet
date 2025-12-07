@@ -12,6 +12,8 @@ import { PopoverProvider } from "@/shared/components/Popover";
 import { Breakpoint, breakpoints } from "@/shared/constants/breakpoints";
 import { useStickyState } from "@/shared/hooks/useStickyState";
 
+type SelectionMode = "none" | "all" | "subset";
+
 type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string> = {
   activeCols: ColKey[];
   colTitles: ColTitles<ColKey>;
@@ -30,7 +32,11 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   disabled?: boolean;
   actions?: ListAction<ListItem>[];
   noDataElement?: ReactNode;
-  renderActionBar?: (selectedItems: ItemKeyValueType[], clearSelection: () => void) => ReactNode;
+  renderActionBar?: (
+    selectedItems: ItemKeyValueType[],
+    clearSelection: () => void,
+    selectionMode: SelectionMode,
+  ) => ReactNode;
   containerClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   overflowContainer?: boolean;
@@ -48,6 +54,18 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    * @param element - The tr element for the row (null on unmount)
    */
   itemRef?: (itemKey: ItemKeyValueType, element: HTMLTableRowElement | null) => void;
+  /**
+   * Whether server-side filters are currently active.
+   * Used to determine selection mode: "all" (no filters) vs "subset" (with filters).
+   */
+  hasActiveFilters?: boolean;
+  /**
+   * Callback when selection mode changes.
+   * Called with "all" when Select All is clicked with no filters,
+   * "subset" for individual selections or Select All with filters,
+   * "none" when selection is cleared.
+   */
+  onSelectionModeChange?: (mode: SelectionMode) => void;
 };
 
 const cellClassList = "text-left";
@@ -87,19 +105,27 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   total,
   itemName = { singular: "item", plural: "items" },
   itemRef,
+  hasActiveFilters = false,
+  onSelectionModeChange,
 }: ListProps<ListItem, ItemKeyValueType, ColKey>) => {
   const { refs, stickyState } = useStickyState();
 
   const [selectedItems, setSelectedItems] = useState<ItemKeyValueType[]>(initialSelectedItems);
   const [filteredItems, setFilteredItems] = useState<ListItem[]>(items);
+  const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
   const isServerSideFiltering = useMemo(() => onServerFilter !== undefined, [onServerFilter]);
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
       const selection = items.map((item) => item[itemKey] as ItemKeyValueType);
       customSetSelectedItems ? customSetSelectedItems(selection) : setSelectedItems(selection);
+      const newMode = hasActiveFilters ? "subset" : "all";
+      setSelectionMode(newMode);
+      onSelectionModeChange?.(newMode);
     } else {
       customSetSelectedItems ? customSetSelectedItems([]) : setSelectedItems([]);
+      setSelectionMode("none");
+      onSelectionModeChange?.("none");
     }
   };
 
@@ -113,12 +139,18 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       return prev;
     };
 
+    let newSelectedItems: ItemKeyValueType[];
     if (customSetSelectedItems && customSelectedItems) {
-      const newSelectedItems = cb(customSelectedItems);
+      newSelectedItems = cb(customSelectedItems);
       customSetSelectedItems(newSelectedItems);
     } else {
-      setSelectedItems(cb);
+      newSelectedItems = cb(selectedItems);
+      setSelectedItems(newSelectedItems);
     }
+
+    const newMode = newSelectedItems.length === 0 ? "none" : "subset";
+    setSelectionMode(newMode);
+    onSelectionModeChange?.(newMode);
   };
 
   const allSelected = useMemo(() => {
@@ -148,22 +180,53 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     }
   }, [items, isServerSideFiltering]);
 
-  // Clear selected items that are no longer in the current items list
+  // Sync selected items when items list changes
   useEffect(() => {
     const currentItemKeys = new Set(items.map((item) => item[itemKey] as ItemKeyValueType));
+    const currentSelected = customSelectedItems ?? selectedItems;
 
+    // In "all" mode, ensure all current items are selected (handles Load More)
+    if (selectionMode === "all") {
+      // Only update if there are items not yet selected
+      const allSelected = items.every((item) => currentSelected.includes(item[itemKey] as ItemKeyValueType));
+      if (!allSelected) {
+        const allCurrentItems = items.map((item) => item[itemKey] as ItemKeyValueType);
+        if (customSetSelectedItems) {
+          customSetSelectedItems(allCurrentItems);
+        } else {
+          setSelectedItems(allCurrentItems);
+        }
+      }
+      return;
+    }
+
+    // In "subset" or "none" mode, clean up stale selections (items that no longer exist)
     if (customSetSelectedItems && customSelectedItems) {
       const newSelectedItems = customSelectedItems.filter((selectedKey) => currentItemKeys.has(selectedKey));
       if (newSelectedItems.length !== customSelectedItems.length) {
         customSetSelectedItems(newSelectedItems);
+        const newMode = newSelectedItems.length === 0 ? "none" : "subset";
+        setSelectionMode(newMode);
+        onSelectionModeChange?.(newMode);
       }
     } else {
-      setSelectedItems((prevSelected) => {
-        const newSelectedItems = prevSelected.filter((selectedKey) => currentItemKeys.has(selectedKey));
-        return newSelectedItems.length !== prevSelected.length ? newSelectedItems : prevSelected;
-      });
+      const newSelectedItems = selectedItems.filter((selectedKey) => currentItemKeys.has(selectedKey));
+      if (newSelectedItems.length !== selectedItems.length) {
+        setSelectedItems(newSelectedItems);
+        const newMode = newSelectedItems.length === 0 ? "none" : "subset";
+        setSelectionMode(newMode);
+        onSelectionModeChange?.(newMode);
+      }
     }
-  }, [items, itemKey, customSetSelectedItems, customSelectedItems]);
+  }, [
+    items,
+    itemKey,
+    customSetSelectedItems,
+    customSelectedItems,
+    selectedItems,
+    selectionMode,
+    onSelectionModeChange,
+  ]);
 
   const paddingCssVariables = useMemo(() => {
     const style: Record<string, string> = {};
@@ -356,7 +419,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
           )}
         </div>
         {renderActionBar && (
-          <div className="w-full">{renderActionBar(selectedItems, () => handleSelectAll(false))}</div>
+          <div className="w-full">{renderActionBar(selectedItems, () => handleSelectAll(false), selectionMode)}</div>
         )}
       </div>
     </div>
@@ -364,3 +427,4 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
 };
 
 export default List;
+export type { SelectionMode };

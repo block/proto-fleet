@@ -1,23 +1,53 @@
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { DismissTiny } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
 import { sizes } from "@/shared/components/ButtonGroup";
+import { type SelectionMode } from "@/shared/components/List";
 
 interface ActionBarProps {
   className?: string;
+  /** IDs of currently selected items (used for count display in "subset" mode) */
   selectedItems: string[];
+  /**
+   * How items were selected:
+   * - "all": user clicked "Select All" with no filters (targets entire fleet)
+   * - "subset": user selected specific items or "Select All" with filters active
+   * - "none": no selection (ActionBar will be hidden)
+   * @default "subset"
+   */
+  selectionMode?: SelectionMode;
+  /**
+   * Total number of items in the fleet. Used to display accurate count when
+   * selectionMode is "all", since selectedItems only contains visible page items.
+   */
+  totalCount?: number;
   renderActions: (setHidden: (hidden: boolean) => void) => ReactNode;
   onClose?: () => void;
 }
 
-const ActionBar = ({ className, selectedItems, renderActions, onClose }: ActionBarProps) => {
+const ActionBar = ({
+  className,
+  selectedItems,
+  selectionMode = "subset",
+  totalCount,
+  renderActions,
+  onClose,
+}: ActionBarProps) => {
   const [show, setShow] = useState(false);
   const [hidden, setHidden] = useState(false);
 
   useEffect(() => {
     setShow(selectedItems.length > 0);
   }, [selectedItems]);
+
+  const selectionText = useMemo(() => {
+    if (selectionMode === "all") {
+      const count = totalCount ?? selectedItems.length;
+      return `All ${count} miner${count === 1 ? "" : "s"} selected`;
+    }
+    return `${selectedItems.length} miner${selectedItems.length === 1 ? "" : "s"} selected`;
+  }, [selectionMode, selectedItems.length, totalCount]);
 
   const handleClose = () => {
     setShow(false);
@@ -49,7 +79,7 @@ const ActionBar = ({ className, selectedItems, renderActions, onClose }: ActionB
             testId="close-button"
             onClick={handleClose}
           />
-          <div className="w-full text-emphasis-300 text-grayscale-white-90">{selectedItems.length} miners selected</div>
+          <div className="w-full text-emphasis-300 text-grayscale-white-90">{selectionText}</div>
         </div>
         <div className="flex flex-wrap justify-start gap-3">{renderActions(setHidden)}</div>
       </div>

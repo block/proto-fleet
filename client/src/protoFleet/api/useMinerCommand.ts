@@ -5,8 +5,7 @@ import { minerCommandClient } from "@/protoFleet/api/clients";
 import {
   BlinkLEDRequest,
   BlinkLEDResponse,
-  DeviceListSchema,
-  DeviceSelectorSchema,
+  DeviceSelector,
   PerformanceMode,
   SetPowerTargetRequestSchema,
   SetPowerTargetResponse,
@@ -61,14 +60,14 @@ export interface PoolConfig {
 }
 
 interface UpdateMiningPoolsProps {
-  deviceIdentifiers: string[];
+  deviceSelector: DeviceSelector;
   poolConfig: PoolConfig;
   onSuccess: (value: UpdateMiningPoolsResponse) => void;
   onError?: (error: string) => void;
 }
 
 interface SetPowerTargetProps {
-  deviceIdentifiers: string[];
+  deviceSelector: DeviceSelector;
   performanceMode: PerformanceMode;
   onSuccess: (value: SetPowerTargetResponse) => void;
   onError?: (error: string) => void;
@@ -176,16 +175,9 @@ const useMinerCommand = () => {
   );
 
   const updateMiningPools = useCallback(
-    async ({ deviceIdentifiers, poolConfig, onSuccess, onError }: UpdateMiningPoolsProps) => {
+    async ({ deviceSelector, poolConfig, onSuccess, onError }: UpdateMiningPoolsProps) => {
       const updateMiningPoolsRequest = create(UpdateMiningPoolsRequestSchema, {
-        deviceSelector: create(DeviceSelectorSchema, {
-          selectionType: {
-            case: "includeDevices",
-            value: create(DeviceListSchema, {
-              deviceIdentifiers,
-            }),
-          },
-        }),
+        deviceSelector,
         defaultPoolId: poolConfig.defaultPoolId ? BigInt(poolConfig.defaultPoolId) : undefined,
         backup1PoolId: poolConfig.backup1PoolId ? BigInt(poolConfig.backup1PoolId) : undefined,
         backup2PoolId: poolConfig.backup2PoolId ? BigInt(poolConfig.backup2PoolId) : undefined,
@@ -207,16 +199,9 @@ const useMinerCommand = () => {
   );
 
   const setPowerTarget = useCallback(
-    async ({ deviceIdentifiers, performanceMode, onSuccess, onError }: SetPowerTargetProps) => {
+    async ({ deviceSelector, performanceMode, onSuccess, onError }: SetPowerTargetProps) => {
       const setPowerTargetRequest = create(SetPowerTargetRequestSchema, {
-        deviceSelector: create(DeviceSelectorSchema, {
-          selectionType: {
-            case: "includeDevices",
-            value: create(DeviceListSchema, {
-              deviceIdentifiers,
-            }),
-          },
-        }),
+        deviceSelector,
         performanceMode,
       });
 

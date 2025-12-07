@@ -17,6 +17,7 @@ describe("Miner list action bar", () => {
 
   const actionBarProps = {
     selectedMiners: ["MAC1"],
+    selectionMode: "subset" as const,
   };
 
   // TODO: Fix this test - requires mocking useMinerCommand and toast system

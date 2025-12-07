@@ -233,4 +233,159 @@ describe("List", () => {
     expect(mockAction).toHaveBeenCalled();
     expect(mockAction).toHaveBeenCalledWith(testItems[0]);
   });
+
+  describe("selection mode", () => {
+    it("sets mode to 'all' when Select All is clicked without active filters", () => {
+      const onSelectionModeChange = vi.fn();
+
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          hasActiveFilters={false}
+          onSelectionModeChange={onSelectionModeChange}
+        />,
+      );
+
+      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
+      fireEvent.click(selectAllCheckbox);
+
+      expect(onSelectionModeChange).toHaveBeenCalledWith("all");
+    });
+
+    it("sets mode to 'subset' when Select All is clicked with active filters", () => {
+      const onSelectionModeChange = vi.fn();
+
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          hasActiveFilters={true}
+          onSelectionModeChange={onSelectionModeChange}
+        />,
+      );
+
+      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
+      fireEvent.click(selectAllCheckbox);
+
+      expect(onSelectionModeChange).toHaveBeenCalledWith("subset");
+    });
+
+    it("sets mode to 'subset' when individual item is selected", () => {
+      const onSelectionModeChange = vi.fn();
+
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          hasActiveFilters={false}
+          onSelectionModeChange={onSelectionModeChange}
+        />,
+      );
+
+      const selectItemCheckboxes = Array.from(
+        getByTestId("list-body").querySelectorAll("input[type='checkbox']"),
+      ) as HTMLInputElement[];
+
+      fireEvent.click(selectItemCheckboxes[0]);
+
+      expect(onSelectionModeChange).toHaveBeenCalledWith("subset");
+    });
+
+    it("sets mode to 'none' when selection is cleared via Select All toggle", () => {
+      const onSelectionModeChange = vi.fn();
+
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          hasActiveFilters={false}
+          onSelectionModeChange={onSelectionModeChange}
+        />,
+      );
+
+      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
+
+      // Select all
+      fireEvent.click(selectAllCheckbox);
+      expect(onSelectionModeChange).toHaveBeenLastCalledWith("all");
+
+      // Deselect all
+      fireEvent.click(selectAllCheckbox);
+      expect(onSelectionModeChange).toHaveBeenLastCalledWith("none");
+    });
+
+    it("transitions from 'all' to 'subset' when individual item is deselected", () => {
+      const onSelectionModeChange = vi.fn();
+
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          hasActiveFilters={false}
+          onSelectionModeChange={onSelectionModeChange}
+        />,
+      );
+
+      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
+      const selectItemCheckboxes = Array.from(
+        getByTestId("list-body").querySelectorAll("input[type='checkbox']"),
+      ) as HTMLInputElement[];
+
+      // Select all (mode = "all")
+      fireEvent.click(selectAllCheckbox);
+      expect(onSelectionModeChange).toHaveBeenLastCalledWith("all");
+
+      // Deselect one item (mode should transition to "subset")
+      fireEvent.click(selectItemCheckboxes[0]);
+      expect(onSelectionModeChange).toHaveBeenLastCalledWith("subset");
+    });
+
+    it("passes selectionMode to renderActionBar callback", () => {
+      const renderActionBar = vi.fn(
+        (_selectedItems: TestItemKey[], _clearSelection: () => void, selectionMode: string) => (
+          <div data-testid="selection-mode">{selectionMode}</div>
+        ),
+      );
+
+      const { getByTestId } = render(
+        <List<TestItem, TestItemKey>
+          activeCols={activeCols}
+          colTitles={testColTitles}
+          colConfig={testColConfig}
+          items={testItems}
+          itemKey="id"
+          itemSelectable
+          hasActiveFilters={false}
+          renderActionBar={renderActionBar}
+        />,
+      );
+
+      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
+      fireEvent.click(selectAllCheckbox);
+
+      expect(renderActionBar).toHaveBeenCalled();
+      expect(getByTestId("selection-mode").textContent).toBe("all");
+    });
+  });
 });
