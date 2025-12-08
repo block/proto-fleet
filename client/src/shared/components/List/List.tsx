@@ -1,7 +1,6 @@
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 
-import { Ellipsis } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Filters from "@/shared/components/List/Filters";
@@ -331,13 +330,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                     ))}
                     {actions.length > 0 && (
                       <th className={thClassList}>
-                        <div className="w-11 truncate overflow-hidden">
-                          {actions.length > 1 && (
-                            <button className="align-middle text-text-primary-30 hover:cursor-pointer hover:text-text-primary-50">
-                              <Ellipsis />
-                            </button>
-                          )}
-                        </div>
+                        <div className="w-11 truncate overflow-hidden" />
                       </th>
                     )}
                   </tr>
