@@ -1,9 +1,9 @@
 import { useCallback, useMemo, useState } from "react";
 
-import { usePoll } from "./usePoll";
 import { type GetCurrentTelemetryParams, type TelemetryData } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { type AsicHardwareData, getAsicId, useMinerStore } from "@/protoOS/store";
+import { usePoll } from "@/shared/hooks/usePoll";
 
 interface UseTelemetryProps {
   level?: GetCurrentTelemetryParams["level"];

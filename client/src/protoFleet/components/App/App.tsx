@@ -1,6 +1,7 @@
-import { ReactNode, useMemo } from "react";
+import { ReactNode, useEffect, useMemo, useRef } from "react";
 import { useMatches } from "react-router-dom";
 
+import { onboardingClient } from "@/protoFleet/api/clients";
 import AppLayout from "@/protoFleet/components/AppLayout";
 import { requiresAuth } from "@/protoFleet/router";
 import { useCheckAuthentication } from "@/protoFleet/store";
@@ -9,6 +10,8 @@ import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useApplyTheme } from "@/shared/features/preferences";
 import { Toaster } from "@/shared/features/toaster";
+import { isBackendDownError } from "@/shared/utils/backendHealth";
+import { redirectFromFleetDown } from "@/shared/utils/fleetDownRedirect";
 
 interface AppProps {
   children?: ReactNode;
@@ -16,6 +19,44 @@ interface AppProps {
 }
 
 const App = ({ children, fullscreen }: AppProps) => {
+  // ============================================================================
+  // BACKEND HEALTH CHECK
+  // ============================================================================
+  const healthCheckDone = useRef(false);
+
+  useEffect(() => {
+    // Only run health check once on initial mount
+    if (healthCheckDone.current) return;
+    healthCheckDone.current = true;
+
+    const isOnFleetDownErrorPage = window.location.pathname === "/fleet-down";
+    let isMounted = true;
+
+    // Check if backend is available by making a lightweight API call
+    const checkBackendHealth = async () => {
+      try {
+        await onboardingClient.getFleetInitStatus({});
+
+        // If backend is up and we're on the error page, redirect back to app
+        if (isOnFleetDownErrorPage && isMounted) {
+          redirectFromFleetDown();
+        }
+      } catch (error: unknown) {
+        // Only redirect to error page if backend is down AND not already on error page
+        if (isBackendDownError(error) && !isOnFleetDownErrorPage && isMounted) {
+          const currentPath = window.location.pathname + window.location.search + window.location.hash;
+          window.location.href = `/fleet-down?from=${encodeURIComponent(currentPath)}`;
+        }
+      }
+    };
+
+    checkBackendHealth();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   // ============================================================================
   // THEME APPLICATION
   // ============================================================================

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { usePoll } from "./usePoll";
 import { HashboardStatsHashboardstats } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { AsicHardwareData, getAsicId } from "@/protoOS/store";
 import { useMinerStore } from "@/protoOS/store";
+import { usePoll } from "@/shared/hooks/usePoll";
 interface UseHashboardStatusProps {
   hashboardSerialNumbers: string[];
   poll?: boolean;

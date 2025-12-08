@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { usePoll } from "./usePoll";
 import { type TimeSeriesRequest, type TimeSeriesResponse } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { getAsicId, useMinerStore } from "@/protoOS/store";
 import type { Duration } from "@/shared/components/DurationSelector";
+import { usePoll } from "@/shared/hooks/usePoll";
 
 /**
  * Get time range in milliseconds based on Duration selector value

@@ -17,6 +17,7 @@ import {
   Team,
 } from "@/protoFleet/features/settings";
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
+import FleetDown from "@/shared/components/FleetDown";
 
 // Helper to check if an admin user has been created
 const checkFleetInitStatus = async (): Promise<boolean> => {
@@ -81,6 +82,7 @@ export const requiresAuth: Record<string, boolean> = {
   "/auth": false,
   "/welcome": false,
   "/update-password": true, // Requires auth but is a special intermediate step
+  "/fleet-down": false, // Error page doesn't require auth
   // All other routes require auth by default
 };
 
@@ -139,6 +141,9 @@ const router = createBrowserRouter([
   createRoute("/onboarding/miners", <MinersPage />),
   createRoute("/onboarding/security", <SecurityPage />, { fullscreen: true }),
   createRoute("/onboarding/settings", <SettingsPage />, { fullscreen: true }),
+
+  // Error routes (fullscreen)
+  createRoute("/fleet-down", <FleetDown />, { fullscreen: true }),
 ]);
 
 export default router;

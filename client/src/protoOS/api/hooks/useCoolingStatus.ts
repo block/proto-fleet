@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { TOTAL_FAN_SLOTS } from "../constants";
-import { usePoll } from "./usePoll";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import { CoolingConfig, CoolingStatusCoolingstatus, FanStatus, HttpResponse } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useAuthErrors, useAuthHeader, useMinerStore } from "@/protoOS/store";
+import { usePoll } from "@/shared/hooks/usePoll";
 
 // Extended type to account for null fan statuses when slots are missing
 export type CoolingStatusWithNullableFans = Omit<CoolingStatusCoolingstatus, "fans"> & {

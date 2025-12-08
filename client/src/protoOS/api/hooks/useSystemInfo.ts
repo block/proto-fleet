@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useRef } from "react";
 
-import { usePoll } from "./usePoll";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import {
   useSetSystemInfo,
@@ -12,6 +11,7 @@ import {
   useSystemInfo as useSystemInfoFromStore,
   useSystemInfoPending,
 } from "@/protoOS/store";
+import { usePoll } from "@/shared/hooks/usePoll";
 
 interface UseSystemInfoProps {
   poll?: boolean;

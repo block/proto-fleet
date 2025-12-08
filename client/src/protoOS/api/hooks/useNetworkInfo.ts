@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useRef } from "react";
 
-import { usePoll } from "./usePoll";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import {
   useNetworkInfoError,
@@ -10,6 +9,7 @@ import {
   useSetNetworkInfoError,
   useSetNetworkInfoPending,
 } from "@/protoOS/store";
+import { usePoll } from "@/shared/hooks/usePoll";
 
 interface UseNetworkInfoProps {
   poll?: boolean;

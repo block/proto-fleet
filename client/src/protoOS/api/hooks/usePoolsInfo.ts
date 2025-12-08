@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { usePoll } from "./usePoll";
 import { Pool } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useSetPoolsInfo } from "@/protoOS/store";
+import { usePoll } from "@/shared/hooks/usePoll";
 
 export interface FetchPoolsInfoProps {
   onError?: (response?: string) => void;

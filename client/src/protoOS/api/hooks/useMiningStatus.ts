@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { usePoll } from "./usePoll";
 import { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useSetMiningStatus } from "@/protoOS/store";
+import { usePoll } from "@/shared/hooks/usePoll";
 
 interface getMiningStatusProps {
   onSuccess?: (res?: MiningStatusMiningstatus) => void;

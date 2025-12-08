@@ -71,7 +71,7 @@ const Toast = ({ message, onClose, status, index, numToasts, ttl = defaultTtl }:
           <div className="flex grow items-center space-x-3 transition-opacity duration-300">
             {status === STATUSES.loading && <ProgressCircular indeterminate />}
             {status === STATUSES.success && <Success className="text-intent-success-fill" />}
-            {status === STATUSES.error && <Alert className="text-intent-warning-fill" />}
+            {status === STATUSES.error && <Alert className="text-intent-critical-fill" />}
             <div className="text-heading-100 text-text-primary">{message}</div>
           </div>
           <button onClick={onClose}>

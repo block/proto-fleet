@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { usePoll } from "./usePoll";
 import { ErrorListResponse } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useSetErrors } from "@/protoOS/store";
 import type { MinerError } from "@/protoOS/store/types";
 import { transformErrors } from "@/protoOS/store/utils/errorTransformer";
+import { usePoll } from "@/shared/hooks/usePoll";
 
 type UseErrorsProps = {
   poll?: boolean;
