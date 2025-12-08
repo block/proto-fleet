@@ -283,12 +283,9 @@ func (s *DriverGRPCServer) GetErrors(ctx context.Context, req *pb.DeviceRef) (*p
 		return nil, sdkErrorToGRPCStatus(err)
 	}
 
-	// The ErrorID field will be empty in the protobuf, to be populated by fleet server
-	pbErrors := make([]*pb.ErrorMessage, len(deviceErrors.Errors))
+	pbErrors := make([]*pb.DeviceError, len(deviceErrors.Errors))
 	for i, devErr := range deviceErrors.Errors {
-		// Convert DeviceError to ErrorMessage with empty ErrorID for now
-		errMsg := devErr.ToErrorMessage("")
-		pbErrors[i] = errMsg.ToProto()
+		pbErrors[i] = devErr.ToProto()
 	}
 
 	return &pb.DeviceErrors{

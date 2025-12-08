@@ -107,10 +107,22 @@ const (
 	SeverityInfo        Severity = pb.Severity_SEVERITY_INFO     // Informational / advisory
 )
 
+// ComponentType represents the type of hardware component
+type ComponentType = pb.ComponentType
+
+const (
+	ComponentTypeUnspecified  ComponentType = pb.ComponentType_COMPONENT_TYPE_UNSPECIFIED
+	ComponentTypePSU          ComponentType = pb.ComponentType_COMPONENT_TYPE_PSU
+	ComponentTypeHashBoard    ComponentType = pb.ComponentType_COMPONENT_TYPE_HASH_BOARD
+	ComponentTypeFan          ComponentType = pb.ComponentType_COMPONENT_TYPE_FAN
+	ComponentTypeControlBoard ComponentType = pb.ComponentType_COMPONENT_TYPE_CONTROL_BOARD
+	ComponentTypeEEPROM       ComponentType = pb.ComponentType_COMPONENT_TYPE_EEPROM
+	ComponentTypeIOModule     ComponentType = pb.ComponentType_COMPONENT_TYPE_IO_MODULE
+)
+
 // DeviceError represents an error reported by a plugin for a device.
 // This is the plugin-facing error type without fleet-managed ErrorID.
 // Plugins populate this type and return it from GetErrors().
-// The fleet server then constructs ErrorMessage by adding ErrorID.
 type DeviceError struct {
 	MinerError        MinerError        // REQUIRED
 	CauseSummary      string            // Human-readable short cause
@@ -121,41 +133,8 @@ type DeviceError struct {
 	ClosedAt          *time.Time        // Optional closed/expired error
 	VendorAttributes  map[string]string // e.g., firmware, code, serials
 	DeviceID          string            // Device this error belongs to
-	ComponentID       *string           // Optional component identifier
-	Impact            string            // Human-readable business impact (e.g., "Stops mining", "Reduces hashrate by 30%")
-	Summary           string            // High level summary - typically raw message from miner
-}
-
-func (de DeviceError) ToErrorMessage(errorID string) ErrorMessage {
-	return ErrorMessage{
-		ErrorID:           errorID,
-		MinerError:        de.MinerError,
-		CauseSummary:      de.CauseSummary,
-		RecommendedAction: de.RecommendedAction,
-		Severity:          de.Severity,
-		FirstSeenAt:       de.FirstSeenAt,
-		LastSeenAt:        de.LastSeenAt,
-		ClosedAt:          de.ClosedAt,
-		VendorAttributes:  de.VendorAttributes,
-		DeviceID:          de.DeviceID,
-		ComponentID:       de.ComponentID,
-		Impact:            de.Impact,
-		Summary:           de.Summary,
-	}
-}
-
-type ErrorMessage struct {
-	ErrorID           string            // ULID (globally unique, time-sortable)
-	MinerError        MinerError        // REQUIRED
-	CauseSummary      string            // Human-readable short cause
-	RecommendedAction string            // Next best action
-	Severity          Severity          // Technical severity classification
-	FirstSeenAt       time.Time         // When error was first observed
-	LastSeenAt        time.Time         // When error was last observed
-	ClosedAt          *time.Time        // Optional closed/expired error
-	VendorAttributes  map[string]string // e.g., firmware, code, serials
-	DeviceID          string            // Device this error belongs to
-	ComponentID       *string           // Optional component identifier
+	ComponentID       *string           // Optional component identifier (numeric index as string, e.g., "0", "1", "2")
+	ComponentType     ComponentType     // Type of component (PSU, fan, hashboard, etc.)
 	Impact            string            // Human-readable business impact (e.g., "Stops mining", "Reduces hashrate by 30%")
 	Summary           string            // High level summary - typically raw message from miner
 }
@@ -171,9 +150,8 @@ type DeviceErrors struct {
 // Conversion Functions - SDK <-> Protobuf
 // ============================================================================
 
-// DeviceErrorFromProto converts protobuf ErrorMessage to SDK DeviceError.
-// This strips the fleet-managed ErrorID field from the protobuf message.
-func DeviceErrorFromProto(pb *pb.ErrorMessage) DeviceError {
+// DeviceErrorFromProto converts protobuf DeviceError to SDK DeviceError.
+func DeviceErrorFromProto(pb *pb.DeviceError) DeviceError {
 	if pb == nil {
 		return DeviceError{}
 	}
@@ -208,14 +186,15 @@ func DeviceErrorFromProto(pb *pb.ErrorMessage) DeviceError {
 		VendorAttributes:  pb.VendorAttributes,
 		DeviceID:          pb.DeviceId,
 		ComponentID:       componentID,
+		ComponentType:     pb.ComponentType,
 		Impact:            pb.Impact,
 		Summary:           pb.Summary,
 	}
 }
 
-// ToProto converts SDK ErrorMessage to protobuf
-func (e ErrorMessage) ToProto() *pb.ErrorMessage {
-	pbErr := &pb.ErrorMessage{
+// ToProto converts SDK DeviceError to protobuf
+func (e DeviceError) ToProto() *pb.DeviceError {
+	pbErr := &pb.DeviceError{
 		MinerError:        e.MinerError,
 		CauseSummary:      e.CauseSummary,
 		RecommendedAction: e.RecommendedAction,
@@ -224,13 +203,9 @@ func (e ErrorMessage) ToProto() *pb.ErrorMessage {
 		LastSeenAt:        timestamppb.New(e.LastSeenAt),
 		VendorAttributes:  e.VendorAttributes,
 		DeviceId:          e.DeviceID,
+		ComponentType:     e.ComponentType,
 		Impact:            e.Impact,
 		Summary:           e.Summary,
-	}
-
-	// Optional error ID (empty when sent from plugins, populated by fleet)
-	if e.ErrorID != "" {
-		pbErr.ErrorId = &e.ErrorID
 	}
 
 	if e.ClosedAt != nil {
@@ -244,59 +219,7 @@ func (e ErrorMessage) ToProto() *pb.ErrorMessage {
 	return pbErr
 }
 
-// FromProto converts protobuf ErrorMessage to SDK type
-func FromProto(pb *pb.ErrorMessage) ErrorMessage {
-	if pb == nil {
-		return ErrorMessage{}
-	}
-
-	// Required timestamp fields
-	var firstSeenAt, lastSeenAt time.Time
-	if pb.FirstSeenAt != nil {
-		firstSeenAt = pb.FirstSeenAt.AsTime()
-	}
-	if pb.LastSeenAt != nil {
-		lastSeenAt = pb.LastSeenAt.AsTime()
-	}
-
-	// Optional timestamp field
-	var closedAt *time.Time
-	if pb.ClosedAt != nil {
-		t := pb.ClosedAt.AsTime()
-		closedAt = &t
-	}
-
-	// Optional component ID
-	var componentID *string
-	if pb.ComponentId != nil {
-		componentID = pb.ComponentId
-	}
-
-	// Optional error ID (may be empty from plugins, populated by fleet)
-	var errorID string
-	if pb.ErrorId != nil {
-		errorID = *pb.ErrorId
-	}
-
-	return ErrorMessage{
-		ErrorID:           errorID,
-		MinerError:        pb.MinerError,
-		CauseSummary:      pb.CauseSummary,
-		RecommendedAction: pb.RecommendedAction,
-		Severity:          pb.Severity,
-		FirstSeenAt:       firstSeenAt,
-		LastSeenAt:        lastSeenAt,
-		ClosedAt:          closedAt,
-		VendorAttributes:  pb.VendorAttributes,
-		DeviceID:          pb.DeviceId,
-		ComponentID:       componentID,
-		Impact:            pb.Impact,
-		Summary:           pb.Summary,
-	}
-}
-
 // DeviceErrorsFromProto converts protobuf DeviceErrors to SDK DeviceErrors.
-// This strips fleet-managed fields (ErrorID, DeviceID) from each error.
 func DeviceErrorsFromProto(pb *pb.DeviceErrors) DeviceErrors {
 	if pb == nil {
 		return DeviceErrors{}

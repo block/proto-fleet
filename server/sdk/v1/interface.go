@@ -201,15 +201,14 @@ type DeviceError = errors.DeviceError
 // This is returned by plugin GetErrors() calls.
 type DeviceErrors = errors.DeviceErrors
 
-// ErrorMessage represents a fleet-tracked miner error.
-// This type includes fleet-managed fields (ErrorID, DeviceID).
-type ErrorMessage = errors.ErrorMessage
-
 // MinerError represents the standardized classification of device errors
 type MinerError = errors.MinerError
 
 // Severity represents the criticality level of an error
 type Severity = errors.Severity
+
+// ComponentType represents the type of hardware component
+type ComponentType = errors.ComponentType
 
 // ============================================================================
 // Other SDK Types

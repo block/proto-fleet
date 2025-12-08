@@ -19,7 +19,7 @@ var (
 
 func createFullDeviceError() DeviceError {
 	closedAt := testErrorTime.Add(10 * time.Minute)
-	componentID := "psu-0"
+	componentID := "0"
 
 	return DeviceError{
 		MinerError:        PSUOutputOvercurrent,
@@ -35,35 +35,35 @@ func createFullDeviceError() DeviceError {
 			"rail":           "12V",
 			"firmware":       "v2.1.3",
 		},
-		DeviceID:    "device-123",
-		ComponentID: &componentID,
-		Impact:      "Stops mining immediately",
-		Summary:     "PSU Overcurrent Fault",
+		DeviceID:      "device-123",
+		ComponentID:   &componentID,
+		ComponentType: ComponentTypePSU,
+		Impact:        "Stops mining immediately",
+		Summary:       "PSU Overcurrent Fault",
 	}
 }
 
 func createMinimalDeviceError() DeviceError {
 	return DeviceError{
-		MinerError:  FanFailed,
-		Severity:    SeverityMajor,
-		DeviceID:    "device-456",
-		FirstSeenAt: testErrorTime,
-		LastSeenAt:  testErrorTime,
+		MinerError:    FanFailed,
+		Severity:      SeverityMajor,
+		DeviceID:      "device-456",
+		FirstSeenAt:   testErrorTime,
+		LastSeenAt:    testErrorTime,
+		ComponentType: ComponentTypeUnspecified,
 	}
 }
 
-func TestErrorMessageRoundTrip_Full(t *testing.T) {
+func TestDeviceErrorRoundTrip_Full(t *testing.T) {
 	// Arrange
-	deviceError := createFullDeviceError()
-	original := deviceError.ToErrorMessage("01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	original := createFullDeviceError()
 
 	// Act
 	pbError := original.ToProto()
 	require.NotNil(t, pbError)
-	converted := FromProto(pbError)
+	converted := DeviceErrorFromProto(pbError)
 
 	// Assert
-	assert.Equal(t, original.ErrorID, converted.ErrorID)
 	assert.Equal(t, original.MinerError, converted.MinerError)
 	assert.Equal(t, original.CauseSummary, converted.CauseSummary)
 	assert.Equal(t, original.RecommendedAction, converted.RecommendedAction)
@@ -76,21 +76,20 @@ func TestErrorMessageRoundTrip_Full(t *testing.T) {
 	assert.Equal(t, original.DeviceID, converted.DeviceID)
 	require.NotNil(t, converted.ComponentID)
 	assert.Equal(t, *original.ComponentID, *converted.ComponentID)
+	assert.Equal(t, original.ComponentType, converted.ComponentType)
 	assert.Equal(t, original.Impact, converted.Impact)
 	assert.Equal(t, original.Summary, converted.Summary)
 }
 
-func TestErrorMessageRoundTrip_Minimal(t *testing.T) {
+func TestDeviceErrorRoundTrip_Minimal(t *testing.T) {
 	// Arrange
-	deviceError := createMinimalDeviceError()
-	original := deviceError.ToErrorMessage("01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	original := createMinimalDeviceError()
 
 	// Act
 	pbError := original.ToProto()
-	converted := FromProto(pbError)
+	converted := DeviceErrorFromProto(pbError)
 
 	// Assert
-	assert.Equal(t, original.ErrorID, converted.ErrorID)
 	assert.Equal(t, original.MinerError, converted.MinerError)
 	assert.Equal(t, original.Severity, converted.Severity)
 	assert.Equal(t, original.DeviceID, converted.DeviceID)
@@ -101,7 +100,7 @@ func TestErrorMessageRoundTrip_Minimal(t *testing.T) {
 	assert.Equal(t, original.FirstSeenAt.Unix(), converted.FirstSeenAt.Unix())
 }
 
-func TestErrorMessageRoundTrip_AllMinerErrors(t *testing.T) {
+func TestDeviceErrorRoundTrip_AllMinerErrors(t *testing.T) {
 	// Arrange
 	minerErrors := []MinerError{
 		// PSU errors
@@ -135,18 +134,17 @@ func TestErrorMessageRoundTrip_AllMinerErrors(t *testing.T) {
 	for _, errCode := range minerErrors {
 		t.Run(errCode.String(), func(t *testing.T) {
 			// Arrange
-			deviceError := DeviceError{
+			original := DeviceError{
 				MinerError:  errCode,
 				Severity:    SeverityMajor,
 				DeviceID:    "test-device",
 				FirstSeenAt: testErrorTime,
 				LastSeenAt:  testErrorTime,
 			}
-			original := deviceError.ToErrorMessage("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 
 			// Act
 			pbError := original.ToProto()
-			converted := FromProto(pbError)
+			converted := DeviceErrorFromProto(pbError)
 
 			// Assert
 			assert.Equal(t, original.MinerError, converted.MinerError)
@@ -154,7 +152,7 @@ func TestErrorMessageRoundTrip_AllMinerErrors(t *testing.T) {
 	}
 }
 
-func TestErrorMessageRoundTrip_AllSeverities(t *testing.T) {
+func TestDeviceErrorRoundTrip_AllSeverities(t *testing.T) {
 	// Arrange
 	severities := []Severity{
 		SeverityCritical,
@@ -166,18 +164,17 @@ func TestErrorMessageRoundTrip_AllSeverities(t *testing.T) {
 	for _, sev := range severities {
 		t.Run(sev.String(), func(t *testing.T) {
 			// Arrange
-			deviceError := DeviceError{
+			original := DeviceError{
 				MinerError:  FanFailed,
 				Severity:    sev,
 				DeviceID:    "test-device",
 				FirstSeenAt: testErrorTime,
 				LastSeenAt:  testErrorTime,
 			}
-			original := deviceError.ToErrorMessage("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 
 			// Act
 			pbError := original.ToProto()
-			converted := FromProto(pbError)
+			converted := DeviceErrorFromProto(pbError)
 
 			// Assert
 			assert.Equal(t, original.Severity, converted.Severity)
@@ -186,18 +183,17 @@ func TestErrorMessageRoundTrip_AllSeverities(t *testing.T) {
 }
 
 func TestDeviceErrorFromProto(t *testing.T) {
-	// Arrange - Create protobuf ErrorMessage with ErrorID
+	// Arrange - Create protobuf DeviceError
 	closedAt := testErrorTime.Add(10 * time.Minute)
-	componentID := "psu-0"
+	componentID := "0"
 
 	deviceError := createFullDeviceError()
-	errorMessage := deviceError.ToErrorMessage("01ARZ3NDEKTSV4RRFFQ69G5FAV")
-	pbError := errorMessage.ToProto()
+	pbError := deviceError.ToProto()
 
-	// Act - Convert to DeviceError (strips ErrorID)
+	// Act - Convert to DeviceError
 	converted := DeviceErrorFromProto(pbError)
 
-	// Assert - ErrorID should be stripped, all other fields preserved
+	// Assert - All fields preserved
 	assert.Equal(t, deviceError.MinerError, converted.MinerError)
 	assert.Equal(t, deviceError.CauseSummary, converted.CauseSummary)
 	assert.Equal(t, deviceError.RecommendedAction, converted.RecommendedAction)
@@ -210,6 +206,7 @@ func TestDeviceErrorFromProto(t *testing.T) {
 	assert.Equal(t, deviceError.DeviceID, converted.DeviceID)
 	require.NotNil(t, converted.ComponentID)
 	assert.Equal(t, componentID, *converted.ComponentID)
+	assert.Equal(t, deviceError.ComponentType, converted.ComponentType)
 	assert.Equal(t, deviceError.Impact, converted.Impact)
 	assert.Equal(t, deviceError.Summary, converted.Summary)
 }
@@ -218,16 +215,16 @@ func TestDeviceErrorsFromProto_MultipleErrors(t *testing.T) {
 	// Arrange - Create protobuf DeviceErrors
 	pbErrors := &pb.DeviceErrors{
 		DeviceId: "device-789",
-		Errors: []*pb.ErrorMessage{
-			createFullDeviceError().ToErrorMessage("01ARZ3NDEKTSV4RRFFQ69G5FAV").ToProto(),
-			createMinimalDeviceError().ToErrorMessage("01ARZ3NDEKTSV4RRFFQ69G5FAW").ToProto(),
+		Errors: []*pb.DeviceError{
+			createFullDeviceError().ToProto(),
+			createMinimalDeviceError().ToProto(),
 			DeviceError{
 				MinerError:  HashboardOverTemperature,
 				Severity:    SeverityMajor,
 				DeviceID:    "device-789",
 				FirstSeenAt: testErrorTime,
 				LastSeenAt:  testErrorTime,
-			}.ToErrorMessage("01ARZ3NDEKTSV4RRFFQ69G5FAX").ToProto(),
+			}.ToProto(),
 		},
 	}
 
@@ -238,7 +235,7 @@ func TestDeviceErrorsFromProto_MultipleErrors(t *testing.T) {
 	assert.Equal(t, "device-789", converted.DeviceID)
 	assert.Len(t, converted.Errors, 3)
 
-	// Verify errors (ErrorID should be stripped)
+	// Verify errors
 	assert.Equal(t, PSUOutputOvercurrent, converted.Errors[0].MinerError)
 	assert.Equal(t, FanFailed, converted.Errors[1].MinerError)
 	assert.Equal(t, HashboardOverTemperature, converted.Errors[2].MinerError)
@@ -248,7 +245,7 @@ func TestDeviceErrorsFromProto_EmptyErrors(t *testing.T) {
 	// Arrange
 	pbErrors := &pb.DeviceErrors{
 		DeviceId: "device-empty",
-		Errors:   []*pb.ErrorMessage{},
+		Errors:   []*pb.DeviceError{},
 	}
 
 	// Act
@@ -270,7 +267,7 @@ func TestDeviceErrorsFromProto_NilProtobuf(t *testing.T) {
 	assert.Nil(t, converted.Errors)
 }
 
-func TestErrorMessage_OptionalFields(t *testing.T) {
+func TestDeviceError_OptionalFields(t *testing.T) {
 	// Arrange
 	tests := []struct {
 		name        string
@@ -302,7 +299,7 @@ func TestErrorMessage_OptionalFields(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
-			deviceError := DeviceError{
+			original := DeviceError{
 				MinerError:  FanFailed,
 				Severity:    SeverityMajor,
 				DeviceID:    "test",
@@ -311,11 +308,10 @@ func TestErrorMessage_OptionalFields(t *testing.T) {
 				ClosedAt:    tt.closedAt,
 				ComponentID: tt.componentID,
 			}
-			original := deviceError.ToErrorMessage("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 
 			// Act
 			pbError := original.ToProto()
-			converted := FromProto(pbError)
+			converted := DeviceErrorFromProto(pbError)
 
 			// Assert
 			if tt.closedAt == nil {
@@ -335,7 +331,7 @@ func TestErrorMessage_OptionalFields(t *testing.T) {
 	}
 }
 
-func TestErrorMessage_VendorAttributes_Various(t *testing.T) {
+func TestDeviceError_VendorAttributes_Various(t *testing.T) {
 	// Arrange
 	tests := []struct {
 		name       string
@@ -369,7 +365,7 @@ func TestErrorMessage_VendorAttributes_Various(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
-			deviceError := DeviceError{
+			original := DeviceError{
 				MinerError:       PSUFaultGeneric,
 				Severity:         SeverityMajor,
 				DeviceID:         "test",
@@ -377,11 +373,10 @@ func TestErrorMessage_VendorAttributes_Various(t *testing.T) {
 				LastSeenAt:       testErrorTime,
 				VendorAttributes: tt.attributes,
 			}
-			original := deviceError.ToErrorMessage("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 
 			// Act
 			pbError := original.ToProto()
-			converted := FromProto(pbError)
+			converted := DeviceErrorFromProto(pbError)
 
 			// Assert
 			if tt.attributes == nil {
@@ -391,30 +386,4 @@ func TestErrorMessage_VendorAttributes_Various(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestDeviceError_ToErrorMessage(t *testing.T) {
-	// Arrange
-	deviceError := createFullDeviceError()
-	errorID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-
-	// Act
-	errorMessage := deviceError.ToErrorMessage(errorID)
-
-	// Assert - verify fleet-managed field is set
-	assert.Equal(t, errorID, errorMessage.ErrorID)
-
-	// Assert - verify all DeviceError fields are copied
-	assert.Equal(t, deviceError.MinerError, errorMessage.MinerError)
-	assert.Equal(t, deviceError.CauseSummary, errorMessage.CauseSummary)
-	assert.Equal(t, deviceError.RecommendedAction, errorMessage.RecommendedAction)
-	assert.Equal(t, deviceError.Severity, errorMessage.Severity)
-	assert.Equal(t, deviceError.FirstSeenAt, errorMessage.FirstSeenAt)
-	assert.Equal(t, deviceError.LastSeenAt, errorMessage.LastSeenAt)
-	assert.Equal(t, deviceError.ClosedAt, errorMessage.ClosedAt)
-	assert.Equal(t, deviceError.VendorAttributes, errorMessage.VendorAttributes)
-	assert.Equal(t, deviceError.DeviceID, errorMessage.DeviceID)
-	assert.Equal(t, deviceError.ComponentID, errorMessage.ComponentID)
-	assert.Equal(t, deviceError.Impact, errorMessage.Impact)
-	assert.Equal(t, deviceError.Summary, errorMessage.Summary)
 }

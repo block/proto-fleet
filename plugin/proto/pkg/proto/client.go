@@ -681,6 +681,22 @@ func (c *Client) GetLogs(ctx context.Context, _ *time.Time, maxLines int) (strin
 	return logContent, false, nil
 }
 
+// GetErrors retrieves error data from the miner.
+func (c *Client) GetErrors(ctx context.Context) (*miner_data_api.ErrorsResponse, error) {
+	ctx = c.withAuth(ctx)
+
+	resp, err := c.dataClient.GetErrors(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get errors: %w", err)
+	}
+
+	if resp.Msg.Result != miner_common_api.ApiResult_RESULT_SUCCESS {
+		return nil, fmt.Errorf("get errors failed: %s", resp.Msg.Result)
+	}
+
+	return resp.Msg, nil
+}
+
 // Reboot reboots the miner.
 func (c *Client) Reboot(ctx context.Context) error {
 	ctx = c.withAuth(ctx)

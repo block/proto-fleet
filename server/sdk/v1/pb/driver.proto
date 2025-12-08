@@ -480,30 +480,42 @@ enum Severity {
   SEVERITY_INFO        = 4;  // Informational / advisory
 }
 
-// ErrorMessage represents a miner error reported by a device.
-message ErrorMessage {
-  optional string error_id = 1;                     // ULID (globally unique, time-sortable). Plugins leave empty; fleet populates.
-  MinerError miner_error = 2;                       // REQUIRED
-  string cause_summary = 3;                         // Human-readable short cause
-  string recommended_action = 4;                    // Next best action
-  Severity severity = 5;                            // Technical severity classification
+// ComponentType represents the type of hardware component
+enum ComponentType {
+  COMPONENT_TYPE_UNSPECIFIED = 0;
+  COMPONENT_TYPE_PSU = 1;
+  COMPONENT_TYPE_HASH_BOARD = 2;
+  COMPONENT_TYPE_FAN = 3;
+  COMPONENT_TYPE_CONTROL_BOARD = 4;
+  COMPONENT_TYPE_EEPROM = 5;
+  COMPONENT_TYPE_IO_MODULE = 6;
+}
 
-  google.protobuf.Timestamp first_seen_at = 6;
-  google.protobuf.Timestamp last_seen_at = 7;
-  google.protobuf.Timestamp closed_at = 8;          // Optional closed/expired error
+// DeviceError represents a miner error reported by a device.
+// This is the plugin-facing error type without fleet-managed ErrorID.
+message DeviceError {
+  MinerError miner_error = 1;                       // REQUIRED
+  string cause_summary = 2;                         // Human-readable short cause
+  string recommended_action = 3;                    // Next best action
+  Severity severity = 4;                            // Technical severity classification
 
-  map<string, string> vendor_attributes = 9;        // e.g., firmware, code, serials
+  google.protobuf.Timestamp first_seen_at = 5;
+  google.protobuf.Timestamp last_seen_at = 6;
+  google.protobuf.Timestamp closed_at = 7;          // Optional closed/expired error
 
-  string device_id = 10;                            // Device this error belongs to
-  optional string component_id = 11;                // Optional component identifier
-  string impact = 12;                               // Human-readable business impact (e.g., "Stops mining", "Reduces hashrate by 30%")
-  string summary = 13;                              // High level summary - typically raw message from miner
+  map<string, string> vendor_attributes = 8;        // e.g., firmware, code, serials
+
+  string device_id = 9;                             // Device this error belongs to
+  optional string component_id = 10;                // Optional component identifier (numeric index as string, e.g., "0", "1", "2")
+  string impact = 11;                               // Human-readable business impact (e.g., "Stops mining", "Reduces hashrate by 30%")
+  string summary = 12;                              // High level summary - typically raw message from miner
+  ComponentType component_type = 13;                // Type of component (PSU, fan, hashboard, etc.)
 }
 
 // DeviceErrors contains all errors for a specific device
 message DeviceErrors {
   string device_id = 1;
-  repeated ErrorMessage errors = 2;
+  repeated DeviceError errors = 2;
 }
 
 // Driver service interface - all drivers must implement CoreV1
