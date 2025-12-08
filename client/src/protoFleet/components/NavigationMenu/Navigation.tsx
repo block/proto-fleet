@@ -29,7 +29,7 @@ const Navigation = ({ items, className }: NavigationProps) => {
   return (
     <div
       className={clsx(
-        "flex min-h-screen w-60 flex-col justify-between bg-surface-base text-text-primary-70 laptop:w-full laptop:bg-core-primary-5 desktop:w-full desktop:bg-core-primary-5",
+        "flex min-h-screen w-60 flex-col justify-between bg-surface-base text-text-primary-70 laptop:w-full laptop:bg-surface-5 desktop:w-full desktop:bg-surface-5",
         "laptop:items-center desktop:items-center",
         "tablet:absolute tablet:z-30",
         "phone:absolute phone:z-30",

@@ -31,6 +31,7 @@ const DurationSelector = ({ className, duration, onSelect }: DurationSelectorPro
             size="compact"
             text={d}
             onClick={() => handleSelect(d)}
+            className={clsx({ "hover:opacity-100!": isSelected })}
           />
         );
       })}

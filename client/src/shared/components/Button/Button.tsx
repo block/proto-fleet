@@ -81,7 +81,7 @@ const Button = ({
         },
         // color and bg - secondary
         {
-          "bg-core-primary-10 text-text-primary hover:opacity-80": secondary && !disabledState,
+          "bg-core-primary-5 text-text-primary hover:opacity-80": secondary && !disabledState,
           "bg-core-primary-5 text-text-primary-50": secondary && disabledState,
         },
         // color and bg - danger

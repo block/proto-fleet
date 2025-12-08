@@ -11,6 +11,7 @@ import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
 import { useDevicePaired, useDuration, useSetDuration } from "@/protoFleet/store";
 import DurationSelector from "@/shared/components/DurationSelector";
+import { useStickyState } from "@/shared/hooks/useStickyState";
 import { buildVersionInfo } from "@/shared/utils/version";
 
 const Dashboard = () => {
@@ -19,6 +20,7 @@ const Dashboard = () => {
   const duration = useDuration();
   const setDuration = useSetDuration();
   const currentYear = new Date().getFullYear();
+  const { refs } = useStickyState();
 
   return (
     <div className="h-full">
@@ -42,12 +44,15 @@ const Dashboard = () => {
           </section>
 
           {/* Performance Section */}
-          <section className="flex flex-col gap-6 p-10 pb-6 phone:p-6 tablet:p-6">
-            <SectionHeading heading="Performance">
-              <DurationSelector duration={duration} onSelect={setDuration} />
-            </SectionHeading>
+          <section className="pb-6">
+            <div ref={refs.vertical.start} />
+            <div className="sticky top-0 z-2 bg-surface-5 px-10 pt-10 pb-6 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6">
+              <SectionHeading heading="Performance">
+                <DurationSelector duration={duration} onSelect={setDuration} />
+              </SectionHeading>
+            </div>
 
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1 px-10 phone:px-6 tablet:px-6">
               {/* Hashrate Panel - shows fleet hashrate over time */}
               <HashratePanel duration={duration} />
 
@@ -67,10 +72,12 @@ const Dashboard = () => {
               </div>
             </div>
 
-            <p className="text-300 text-text-primary">
+            <p className="px-10 pt-6 text-300 text-text-primary phone:px-6 tablet:px-6">
               Data gaps may occur where third-party miner telemetry is unavailable. Efficiency and power reports will
               not reflect Antminer devices.
             </p>
+            {/* eslint-disable-next-line react-hooks/refs */}
+            <div ref={refs.vertical.end} />
           </section>
 
           {/* Privacy Policy */}

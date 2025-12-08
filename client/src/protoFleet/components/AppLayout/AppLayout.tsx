@@ -28,7 +28,7 @@ const AppLayout = ({ children }: Props) => {
       </div>
 
       <div
-        className={`fixed top-0 right-0 bottom-[calc(100vh-theme(spacing.1)*15)] left-16 z-40 ${isDashboard ? "bg-core-primary-5" : "bg-surface-base"} phone:bottom-[calc(100vh-theme(spacing.1)*12)] phone:left-0 tablet:bottom-[calc(100vh-theme(spacing.1)*12)] tablet:left-0`}
+        className={`fixed top-0 right-0 bottom-[calc(100vh-theme(spacing.1)*15)] left-16 z-40 ${isDashboard ? "bg-surface-5" : "bg-surface-base"} phone:bottom-[calc(100vh-theme(spacing.1)*12)] phone:left-0 tablet:bottom-[calc(100vh-theme(spacing.1)*12)] tablet:left-0`}
       >
         <PageHeader openMenu={() => setIsMenuOpen(true)} />
       </div>
@@ -36,7 +36,7 @@ const AppLayout = ({ children }: Props) => {
       <div
         className={clsx(
           "fixed top-[calc(theme(spacing.1)*15)] right-0 bottom-0 left-16 z-20 overflow-auto",
-          isDashboard ? "bg-core-primary-5" : "bg-surface-base",
+          isDashboard ? "bg-surface-5" : "bg-surface-base",
           "phone:left-0 tablet:top-[calc(theme(spacing.1)*12)] tablet:left-0",
           showPhoneWidgets ? "phone:top-[calc(theme(spacing.1)*12+57px)]" : "phone:top-[calc(theme(spacing.1)*12)]",
         )}
