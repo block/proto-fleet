@@ -1,4 +1,6 @@
 import { useMemo } from "react";
+import clsx from "clsx";
+
 import { DEFAULT_CHART_HEIGHT } from "./constants";
 import type { SegmentedMetricPanelProps } from "./types";
 import { durationToHours, getCurrentBreakdown, processMultiDayChartData } from "./utils";
@@ -152,13 +154,13 @@ export const SegmentedMetricPanel = ({
               <span className="text-text-secondary text-300">{segment.percentageLabel}</span>
             </div>
 
-            {/* Button with count - only show if showButton is true */}
-            {segment.showButton && (
+            {/* Button with count - only show if showButton is true and count > 0 */}
+            {segment.showButton && segment.count > 0 && (
               <Button
                 variant={variants[segment.buttonVariant] || variants.secondary}
                 size="compact"
-                onClick={() => {}}
-                className="pointer-events-none"
+                onClick={segment.onClick}
+                className={clsx({ "pointer-events-none": !segment.onClick })}
               >
                 {segment.count} {segment.count === 1 ? "miner" : "miners"}
               </Button>

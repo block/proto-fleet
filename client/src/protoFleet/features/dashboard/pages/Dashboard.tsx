@@ -5,6 +5,7 @@ import { HashratePanel } from "@/protoFleet/features/dashboard/components/Hashra
 import { PowerPanel } from "@/protoFleet/features/dashboard/components/PowerPanel";
 import SectionHeading from "@/protoFleet/features/dashboard/components/SectionHeading";
 import { TemperaturePanel } from "@/protoFleet/features/dashboard/components/TemperaturePanel";
+import { UptimePanel } from "@/protoFleet/features/dashboard/components/UptimePanel";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
@@ -50,6 +51,9 @@ const Dashboard = () => {
               {/* Hashrate Panel - shows fleet hashrate over time */}
               <HashratePanel duration={duration} />
 
+              {/* Uptime Panel - shows uptime status distribution */}
+              <UptimePanel duration={duration} />
+
               {/* Temperature Panel - shows temperature status distribution */}
               <TemperaturePanel duration={duration} />
 
@@ -63,7 +67,6 @@ const Dashboard = () => {
               </div>
             </div>
 
-            {/* TODO: Add Uptime chart */}
             <p className="text-300 text-text-primary">
               Data gaps may occur where third-party miner telemetry is unavailable. Efficiency and power reports will
               not reflect Antminer devices.

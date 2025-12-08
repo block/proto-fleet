@@ -1,5 +1,21 @@
-import type { SegmentConfig, SegmentedBarChartData } from "./types";
-import type { TemperatureStatusCount } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import type { SegmentConfig, SegmentedBarChartData, StatusCount } from "./types";
+
+/**
+ * Convert segment key to field name (e.g., "cold" -> "coldCount", "notHashing" -> "notHashingCount")
+ */
+const segmentKeyToFieldName = (key: string): string => {
+  return `${key}Count`;
+};
+
+/**
+ * Get count value from data point for a given segment key
+ */
+const getCountForSegment = (dataPoint: StatusCount | null, segmentKey: string): number => {
+  if (!dataPoint) return 0;
+  const fieldName = segmentKeyToFieldName(segmentKey);
+  const value = dataPoint[fieldName];
+  return typeof value === "number" ? value : 0;
+};
 
 /**
  * Convert duration string to hours
@@ -84,14 +100,11 @@ export const getHourlyIntervals = (duration: string): number[] => {
 /**
  * Find the data point immediately before or at a given timestamp
  */
-export const findDataPointBefore = (
-  data: TemperatureStatusCount[],
-  timestamp: number,
-): TemperatureStatusCount | null => {
+export const findDataPointBefore = (data: StatusCount[], timestamp: number): StatusCount | null => {
   if (!data || data.length === 0) return null;
 
   // Find the last data point that is before or at the timestamp
-  let bestPoint: TemperatureStatusCount | null = null;
+  let bestPoint: StatusCount | null = null;
 
   for (const point of data) {
     const pointTime = point.timestamp ? Number(point.timestamp.seconds) * 1000 + point.timestamp.nanos / 1000000 : 0;
@@ -107,25 +120,26 @@ export const findDataPointBefore = (
 };
 
 /**
- * Process raw temperature status counts into chart data
+ * Process raw status counts into chart data
  */
 export const processChartData = (
-  data: TemperatureStatusCount[],
+  data: StatusCount[],
   duration: string,
-  _segmentConfig: SegmentConfig,
+  segmentConfig: SegmentConfig,
 ): SegmentedBarChartData[] => {
   const hourlyIntervals = getHourlyIntervals(duration);
   const processedData: SegmentedBarChartData[] = [];
+  const segmentKeys = Object.keys(segmentConfig);
 
   // If no data, return empty data points for all intervals
   if (!data || data.length === 0) {
-    return hourlyIntervals.map((interval) => ({
-      datetime: interval,
-      cold: 0,
-      ok: 0,
-      hot: 0,
-      critical: 0,
-    }));
+    return hourlyIntervals.map((interval) => {
+      const chartPoint: SegmentedBarChartData = { datetime: interval };
+      segmentKeys.forEach((key) => {
+        chartPoint[key] = 0;
+      });
+      return chartPoint;
+    });
   }
 
   // Sort data by timestamp
@@ -140,13 +154,10 @@ export const processChartData = (
     const dataPoint = findDataPointBefore(sortedData, interval);
 
     // Always create a chart point for every interval
-    const chartPoint: SegmentedBarChartData = {
-      datetime: interval,
-      cold: dataPoint ? dataPoint.coldCount : 0,
-      ok: dataPoint ? dataPoint.okCount : 0,
-      hot: dataPoint ? dataPoint.hotCount : 0,
-      critical: dataPoint ? dataPoint.criticalCount : 0,
-    };
+    const chartPoint: SegmentedBarChartData = { datetime: interval };
+    segmentKeys.forEach((key) => {
+      chartPoint[key] = getCountForSegment(dataPoint, key);
+    });
     processedData.push(chartPoint);
   }
 
@@ -217,19 +228,20 @@ export const getMultiDayIntervals = (duration: string): number[][] => {
  * Process data for multi-day charts
  */
 export const processMultiDayChartData = (
-  data: TemperatureStatusCount[],
+  data: StatusCount[],
   duration: string,
-  _segmentConfig: SegmentConfig,
+  segmentConfig: SegmentConfig,
 ): SegmentedBarChartData[][] => {
   const hours = durationToHours(duration);
 
   // For durations <= 24h, use single chart
   if (hours <= 24) {
-    return [processChartData(data, duration, _segmentConfig)];
+    return [processChartData(data, duration, segmentConfig)];
   }
 
   const dayIntervals = getMultiDayIntervals(duration);
   const processedDays: SegmentedBarChartData[][] = [];
+  const segmentKeys = Object.keys(segmentConfig);
 
   // Sort data by timestamp
   const sortedData = data
@@ -247,13 +259,10 @@ export const processMultiDayChartData = (
     for (const interval of intervals) {
       const dataPoint = findDataPointBefore(sortedData, interval);
 
-      const chartPoint: SegmentedBarChartData = {
-        datetime: interval,
-        cold: dataPoint ? dataPoint.coldCount : 0,
-        ok: dataPoint ? dataPoint.okCount : 0,
-        hot: dataPoint ? dataPoint.hotCount : 0,
-        critical: dataPoint ? dataPoint.criticalCount : 0,
-      };
+      const chartPoint: SegmentedBarChartData = { datetime: interval };
+      segmentKeys.forEach((key) => {
+        chartPoint[key] = getCountForSegment(dataPoint, key);
+      });
       dayData.push(chartPoint);
     }
 
@@ -266,30 +275,25 @@ export const processMultiDayChartData = (
 /**
  * Calculate current breakdown from the last data entry
  */
-export const getCurrentBreakdown = (data: TemperatureStatusCount[], segmentConfig: SegmentConfig) => {
+export const getCurrentBreakdown = (data: StatusCount[], segmentConfig: SegmentConfig) => {
   if (!data || data.length === 0) return [];
 
   // Get the most recent data point
   const latestCount = data[data.length - 1];
-  const total = latestCount.coldCount + latestCount.okCount + latestCount.hotCount + latestCount.criticalCount;
+  const segmentKeys = Object.keys(segmentConfig);
+
+  // Calculate total from all segment counts
+  const total = segmentKeys.reduce((sum, key) => sum + getCountForSegment(latestCount, key), 0);
 
   const breakdown = [];
 
-  // Map the counts to segments based on config
-  const countMap: Record<string, number> = {
-    cold: latestCount.coldCount,
-    ok: latestCount.okCount,
-    hot: latestCount.hotCount,
-    critical: latestCount.criticalCount,
-  };
-
   for (const [key, config] of Object.entries(segmentConfig)) {
-    const count = countMap[key] || 0;
+    const count = getCountForSegment(latestCount, key);
 
     // Include all segments that should be displayed in breakdown, regardless of count
     if (config.displayInBreakdown !== false) {
       const percentageValue = total > 0 ? Math.round((count / total) * 100) : 0;
-      const percentageLabel = config.percentageLabel || `${percentageValue}% of miners`;
+      const percentageLabel = config.percentageLabel || `${percentageValue}% of fleet`;
 
       breakdown.push({
         key,
@@ -302,6 +306,7 @@ export const getCurrentBreakdown = (data: TemperatureStatusCount[], segmentConfi
         index: config.index ?? 999, // Default to 999 if no index specified
         buttonVariant: config.buttonVariant ?? "secondary", // Default to secondary if not specified
         showButton: config.showButton !== false, // Default to true if not specified
+        onClick: config.onClick, // Pass through the onClick handler
       });
     }
   }
