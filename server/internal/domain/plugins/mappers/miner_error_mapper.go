@@ -6,8 +6,13 @@ import (
 	sdkv1models "github.com/btc-mining/proto-fleet/server/sdk/v1/errors"
 )
 
+const (
+	// minValidEnumValue represents the minimum valid value for enum types
+	minValidEnumValue = 0
+)
+
 func SDKMinerErrorToFleetMinerError(errCode sdkv1models.MinerError) models.MinerError {
-	if errCode < 0 {
+	if errCode < minValidEnumValue {
 		return models.MinerErrorUnspecified
 	}
 	// #nosec G115 -- Validated non-negative above; protobuf enums are never negative in practice
@@ -15,7 +20,7 @@ func SDKMinerErrorToFleetMinerError(errCode sdkv1models.MinerError) models.Miner
 }
 
 func SDKSeverityToFleetSeverity(sev sdkv1models.Severity) models.Severity {
-	if sev < 0 {
+	if sev < minValidEnumValue {
 		return models.SeverityUnspecified
 	}
 	// #nosec G115 -- Validated non-negative above; protobuf enums are never negative in practice

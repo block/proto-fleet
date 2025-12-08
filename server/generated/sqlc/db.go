@@ -93,6 +93,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDeviceIDByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceIDByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceIDByDeviceIdentifier: %w", err)
 	}
+	if q.getDeviceIDByIdentifierStmt, err = db.PrepareContext(ctx, getDeviceIDByIdentifier); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceIDByIdentifier: %w", err)
+	}
 	if q.getDeviceIDsByDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getDeviceIDsByDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceIDsByDeviceIdentifiers: %w", err)
 	}
@@ -126,6 +129,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDiscoveredDeviceByIPAndPortStmt, err = db.PrepareContext(ctx, getDiscoveredDeviceByIPAndPort); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDiscoveredDeviceByIPAndPort: %w", err)
 	}
+	if q.getErrorByErrorIDStmt, err = db.PrepareContext(ctx, getErrorByErrorID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetErrorByErrorID: %w", err)
+	}
+	if q.getErrorByIDStmt, err = db.PrepareContext(ctx, getErrorByID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetErrorByID: %w", err)
+	}
 	if q.getMessagesToProcessStmt, err = db.PrepareContext(ctx, getMessagesToProcess); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMessagesToProcess: %w", err)
 	}
@@ -134,6 +143,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getOfflineDevicesStmt, err = db.PrepareContext(ctx, getOfflineDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOfflineDevices: %w", err)
+	}
+	if q.getOpenErrorByDedupKeyStmt, err = db.PrepareContext(ctx, getOpenErrorByDedupKey); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOpenErrorByDedupKey: %w", err)
 	}
 	if q.getOrganizationByIDStmt, err = db.PrepareContext(ctx, getOrganizationByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrganizationByID: %w", err)
@@ -200,6 +212,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.insertDeviceStmt, err = db.PrepareContext(ctx, insertDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertDevice: %w", err)
+	}
+	if q.insertErrorStmt, err = db.PrepareContext(ctx, insertError); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertError: %w", err)
 	}
 	if q.isBatchFinishedStmt, err = db.PrepareContext(ctx, isBatchFinished); err != nil {
 		return nil, fmt.Errorf("error preparing query IsBatchFinished: %w", err)
@@ -275,6 +290,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.updateMessageStatusStmt, err = db.PrepareContext(ctx, updateMessageStatus); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateMessageStatus: %w", err)
+	}
+	if q.updateOpenErrorStmt, err = db.PrepareContext(ctx, updateOpenError); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateOpenError: %w", err)
 	}
 	if q.updateOrganizationStmt, err = db.PrepareContext(ctx, updateOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateOrganization: %w", err)
@@ -438,6 +456,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getDeviceIDByDeviceIdentifierStmt: %w", cerr)
 		}
 	}
+	if q.getDeviceIDByIdentifierStmt != nil {
+		if cerr := q.getDeviceIDByIdentifierStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceIDByIdentifierStmt: %w", cerr)
+		}
+	}
 	if q.getDeviceIDsByDeviceIdentifiersStmt != nil {
 		if cerr := q.getDeviceIDsByDeviceIdentifiersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceIDsByDeviceIdentifiersStmt: %w", cerr)
@@ -493,6 +516,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getDiscoveredDeviceByIPAndPortStmt: %w", cerr)
 		}
 	}
+	if q.getErrorByErrorIDStmt != nil {
+		if cerr := q.getErrorByErrorIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getErrorByErrorIDStmt: %w", cerr)
+		}
+	}
+	if q.getErrorByIDStmt != nil {
+		if cerr := q.getErrorByIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getErrorByIDStmt: %w", cerr)
+		}
+	}
 	if q.getMessagesToProcessStmt != nil {
 		if cerr := q.getMessagesToProcessStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getMessagesToProcessStmt: %w", cerr)
@@ -506,6 +539,11 @@ func (q *Queries) Close() error {
 	if q.getOfflineDevicesStmt != nil {
 		if cerr := q.getOfflineDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getOfflineDevicesStmt: %w", cerr)
+		}
+	}
+	if q.getOpenErrorByDedupKeyStmt != nil {
+		if cerr := q.getOpenErrorByDedupKeyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOpenErrorByDedupKeyStmt: %w", cerr)
 		}
 	}
 	if q.getOrganizationByIDStmt != nil {
@@ -616,6 +654,11 @@ func (q *Queries) Close() error {
 	if q.insertDeviceStmt != nil {
 		if cerr := q.insertDeviceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertDeviceStmt: %w", cerr)
+		}
+	}
+	if q.insertErrorStmt != nil {
+		if cerr := q.insertErrorStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertErrorStmt: %w", cerr)
 		}
 	}
 	if q.isBatchFinishedStmt != nil {
@@ -741,6 +784,11 @@ func (q *Queries) Close() error {
 	if q.updateMessageStatusStmt != nil {
 		if cerr := q.updateMessageStatusStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateMessageStatusStmt: %w", cerr)
+		}
+	}
+	if q.updateOpenErrorStmt != nil {
+		if cerr := q.updateOpenErrorStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateOpenErrorStmt: %w", cerr)
 		}
 	}
 	if q.updateOrganizationStmt != nil {
@@ -875,6 +923,7 @@ type Queries struct {
 	getDeviceByIDStmt                                   *sql.Stmt
 	getDeviceByIdentifierStmt                           *sql.Stmt
 	getDeviceIDByDeviceIdentifierStmt                   *sql.Stmt
+	getDeviceIDByIdentifierStmt                         *sql.Stmt
 	getDeviceIDsByDeviceIdentifiersStmt                 *sql.Stmt
 	getDeviceIdentifierByIDStmt                         *sql.Stmt
 	getDevicePairingStatusByDeviceDatabaseIDStmt        *sql.Stmt
@@ -886,9 +935,12 @@ type Queries struct {
 	getDiscoveredDeviceByDeviceIdentifierStmt           *sql.Stmt
 	getDiscoveredDeviceByIDStmt                         *sql.Stmt
 	getDiscoveredDeviceByIPAndPortStmt                  *sql.Stmt
+	getErrorByErrorIDStmt                               *sql.Stmt
+	getErrorByIDStmt                                    *sql.Stmt
 	getMessagesToProcessStmt                            *sql.Stmt
 	getMinerCredentialsByDeviceIDStmt                   *sql.Stmt
 	getOfflineDevicesStmt                               *sql.Stmt
+	getOpenErrorByDedupKeyStmt                          *sql.Stmt
 	getOrganizationByIDStmt                             *sql.Stmt
 	getOrganizationByNameStmt                           *sql.Stmt
 	getOrganizationByOrgIDStmt                          *sql.Stmt
@@ -911,6 +963,7 @@ type Queries struct {
 	getUsersForOrganizationStmt                         *sql.Stmt
 	hasUserStmt                                         *sql.Stmt
 	insertDeviceStmt                                    *sql.Stmt
+	insertErrorStmt                                     *sql.Stmt
 	isBatchFinishedStmt                                 *sql.Stmt
 	isBatchProcessingStmt                               *sql.Stmt
 	listMinerStateSnapshotsStmt                         *sql.Stmt
@@ -936,6 +989,7 @@ type Queries struct {
 	updateLastLoginStmt                                 *sql.Stmt
 	updateMessageAfterFailureStmt                       *sql.Stmt
 	updateMessageStatusStmt                             *sql.Stmt
+	updateOpenErrorStmt                                 *sql.Stmt
 	updateOrganizationStmt                              *sql.Stmt
 	updatePoolStmt                                      *sql.Stmt
 	updateRoleStmt                                      *sql.Stmt
@@ -979,6 +1033,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceByIDStmt:                                   q.getDeviceByIDStmt,
 		getDeviceByIdentifierStmt:                           q.getDeviceByIdentifierStmt,
 		getDeviceIDByDeviceIdentifierStmt:                   q.getDeviceIDByDeviceIdentifierStmt,
+		getDeviceIDByIdentifierStmt:                         q.getDeviceIDByIdentifierStmt,
 		getDeviceIDsByDeviceIdentifiersStmt:                 q.getDeviceIDsByDeviceIdentifiersStmt,
 		getDeviceIdentifierByIDStmt:                         q.getDeviceIdentifierByIDStmt,
 		getDevicePairingStatusByDeviceDatabaseIDStmt:        q.getDevicePairingStatusByDeviceDatabaseIDStmt,
@@ -990,9 +1045,12 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDiscoveredDeviceByDeviceIdentifierStmt:           q.getDiscoveredDeviceByDeviceIdentifierStmt,
 		getDiscoveredDeviceByIDStmt:                         q.getDiscoveredDeviceByIDStmt,
 		getDiscoveredDeviceByIPAndPortStmt:                  q.getDiscoveredDeviceByIPAndPortStmt,
+		getErrorByErrorIDStmt:                               q.getErrorByErrorIDStmt,
+		getErrorByIDStmt:                                    q.getErrorByIDStmt,
 		getMessagesToProcessStmt:                            q.getMessagesToProcessStmt,
 		getMinerCredentialsByDeviceIDStmt:                   q.getMinerCredentialsByDeviceIDStmt,
 		getOfflineDevicesStmt:                               q.getOfflineDevicesStmt,
+		getOpenErrorByDedupKeyStmt:                          q.getOpenErrorByDedupKeyStmt,
 		getOrganizationByIDStmt:                             q.getOrganizationByIDStmt,
 		getOrganizationByNameStmt:                           q.getOrganizationByNameStmt,
 		getOrganizationByOrgIDStmt:                          q.getOrganizationByOrgIDStmt,
@@ -1015,6 +1073,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getUsersForOrganizationStmt:                         q.getUsersForOrganizationStmt,
 		hasUserStmt:                                         q.hasUserStmt,
 		insertDeviceStmt:                                    q.insertDeviceStmt,
+		insertErrorStmt:                                     q.insertErrorStmt,
 		isBatchFinishedStmt:                                 q.isBatchFinishedStmt,
 		isBatchProcessingStmt:                               q.isBatchProcessingStmt,
 		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,
@@ -1040,6 +1099,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateLastLoginStmt:                                 q.updateLastLoginStmt,
 		updateMessageAfterFailureStmt:                       q.updateMessageAfterFailureStmt,
 		updateMessageStatusStmt:                             q.updateMessageStatusStmt,
+		updateOpenErrorStmt:                                 q.updateOpenErrorStmt,
 		updateOrganizationStmt:                              q.updateOrganizationStmt,
 		updatePoolStmt:                                      q.updatePoolStmt,
 		updateRoleStmt:                                      q.updateRoleStmt,
