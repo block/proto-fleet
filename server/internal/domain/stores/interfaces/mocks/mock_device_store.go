@@ -42,6 +42,21 @@ func (m *MockDeviceStore) EXPECT() *MockDeviceStoreMockRecorder {
 	return m.recorder
 }
 
+// AllDevicesBelongToOrg mocks base method.
+func (m *MockDeviceStore) AllDevicesBelongToOrg(ctx context.Context, deviceIdentifiers []string, orgID int64) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AllDevicesBelongToOrg", ctx, deviceIdentifiers, orgID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AllDevicesBelongToOrg indicates an expected call of AllDevicesBelongToOrg.
+func (mr *MockDeviceStoreMockRecorder) AllDevicesBelongToOrg(ctx, deviceIdentifiers, orgID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AllDevicesBelongToOrg", reflect.TypeOf((*MockDeviceStore)(nil).AllDevicesBelongToOrg), ctx, deviceIdentifiers, orgID)
+}
+
 // GetAllPairedDeviceIdentifiers mocks base method.
 func (m *MockDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models1.DeviceIdentifier, error) {
 	m.ctrl.T.Helper()

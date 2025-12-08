@@ -67,7 +67,6 @@ const useAuthNeededMiners = (options: UseAuthNeededMinersOptions = {}): UseAuthN
     scope: "local", // Use local state to avoid conflicts with global fleet view
     pageSize,
     pairingStatuses: [PairingStatus.AUTHENTICATION_NEEDED],
-    mode: "metadata",
   }) as UseAuthNeededMinersReturn;
 };
 

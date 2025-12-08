@@ -24,13 +24,24 @@ import (
 )
 
 const (
-	// Conversion factor from MH/s to TH/s
-	mhsToThsConversionFactor = 1e6
-	// Conversion factor from watts to kilowatts
+	// Conversion factors
+	mhsToThsConversionFactor  = 1e6
 	wattsToKwConversionFactor = 1e3
+	jhToJthConversionFactor   = 1e12
 
-	// default ticker for status updates
-	defaultStatusUpdateInterval = 1 * time.Second
+	// Default intervals
+	defaultStatusUpdateInterval     = 1 * time.Second
+	defaultDeviceStatusPollInterval = 10 * time.Second
+	defaultFetchInterval            = 10 * time.Second
+	defaultDevicePollInterval       = 10 * time.Minute
+	defaultHeartbeatInterval        = 30 * time.Second
+	defaultBroadcasterPollInterval  = 5 * time.Second
+	componentStatusStreamInterval   = 5 * time.Second
+
+	// Channel buffer sizes
+	streamResponseChannelBuffer = 100
+	statusUpdateChannelBuffer   = 100
+	subscriberChannelBuffer     = 100
 )
 
 // convertHashrateToThs converts hashrate from MH/s to TH/s
@@ -43,9 +54,75 @@ func convertPowerToKw(valueInWatts float64) float64 {
 	return valueInWatts / wattsToKwConversionFactor
 }
 
+// convertTelemetryValue converts a measurement value from storage format to API format
+// based on the measurement type. This centralizes unit conversion logic for:
+// - Hashrate: MH/s → TH/s
+// - Power: Watts → Kilowatts
+// - Efficiency: J/H → J/TH
+// - All other measurement types: no conversion (returned as-is)
+func convertTelemetryValue(value float64, measurementType models.MeasurementType) float64 {
+	switch measurementType {
+	case models.MeasurementTypeHashrate:
+		return convertHashrateToThs(value)
+	case models.MeasurementTypePower:
+		return convertPowerToKw(value)
+	case models.MeasurementTypeEfficiency:
+		return value * jhToJthConversionFactor
+	case models.MeasurementTypeUnknown,
+		models.MeasurementTypeTemperature,
+		models.MeasurementTypeFanSpeed,
+		models.MeasurementTypeVoltage,
+		models.MeasurementTypeCurrent,
+		models.MeasurementTypeUptime,
+		models.MeasurementTypeErrorRate:
+		return value
+	default:
+		return value
+	}
+}
+
+// parseTimeSeriesConfig converts a protobuf TimeSeriesConfig to a models.TimeRange
+// This centralizes the logic for extracting time ranges from different config types:
+// - LookbackPeriod: Calculates start/end based on current time minus duration
+// - Interval: Uses explicit start/end times from config
+// - Default: Falls back to last hour if no selection provided
+func parseTimeSeriesConfig(config *commonpb.TimeSeriesConfig) models.TimeRange {
+	var timeRange models.TimeRange
+
+	switch ts := config.TimeSelection.(type) {
+	case *commonpb.TimeSeriesConfig_LookbackPeriod:
+		endTime := time.Now()
+		startTime := endTime.Add(-ts.LookbackPeriod.AsDuration())
+		timeRange.StartTime = &startTime
+		timeRange.EndTime = &endTime
+
+	case *commonpb.TimeSeriesConfig_Interval:
+		if ts.Interval.StartTime != nil {
+			startTime := ts.Interval.StartTime.AsTime()
+			timeRange.StartTime = &startTime
+		}
+		if ts.Interval.EndTime != nil {
+			endTime := ts.Interval.EndTime.AsTime()
+			timeRange.EndTime = &endTime
+		}
+
+	default:
+		// Default to last hour if no time selection
+		endTime := time.Now()
+		startTime := endTime.Add(-time.Hour)
+		timeRange.StartTime = &startTime
+		timeRange.EndTime = &endTime
+	}
+
+	return timeRange
+}
+
 const (
 	defaultUpdateInterval = 1 * time.Minute
 	defaultGranularity    = 1 * time.Minute
+
+	// Page size for combined metrics query
+	defaultCombinedMetricsPageSize = 100
 )
 
 //go:generate mockgen -source=service.go -destination=mocks/mock_service.go -package=mock UpdateScheduler,TelemetryDataStore,MinerGetter
@@ -161,8 +238,7 @@ func (s *TelemetryService) GetOrCreateBroadcaster(ctx context.Context, orgID int
 		return broadcaster, nil
 	}
 
-	// Create new broadcaster
-	pollInterval := 5 * time.Second // default
+	pollInterval := defaultBroadcasterPollInterval
 	if s.config.FetchInterval > 0 {
 		pollInterval = s.config.FetchInterval
 	}
@@ -192,7 +268,7 @@ func (s *TelemetryService) GetOrCreateBroadcaster(ctx context.Context, orgID int
 func (s *TelemetryService) gatherDeviceStatusRoutine(ctx context.Context) {
 	interval := s.config.DeviceStatusPollInterval
 	if interval <= 0 {
-		interval = 10 * time.Second // Default interval if not configured
+		interval = defaultDeviceStatusPollInterval
 	}
 
 	ticker := time.NewTicker(interval)
@@ -225,10 +301,9 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
 		go s.worker(ctx)
 	}
 
-	// Periodically fetch devices that need telemetry data
 	fetchInterval := s.config.FetchInterval
 	if fetchInterval <= 0 {
-		fetchInterval = 10 * time.Second // Default interval if not configured
+		fetchInterval = defaultFetchInterval
 	}
 	ticker := time.NewTicker(fetchInterval)
 	defer ticker.Stop()
@@ -254,7 +329,7 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
 func (s *TelemetryService) devicePollingRoutine(ctx context.Context) {
 	pollInterval := s.config.DevicePollInterval
 	if pollInterval <= 0 {
-		pollInterval = 10 * time.Minute // Default interval if not configured
+		pollInterval = defaultDevicePollInterval
 	}
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
@@ -520,7 +595,7 @@ func (s *TelemetryService) StreamDeviceStatusUpdates(ctx context.Context, query 
 		defer close(updateChan)
 		heartbeatInterval := *query.HeartbeatInterval
 		if heartbeatInterval <= 0 {
-			heartbeatInterval = 30 * time.Second // Default heartbeat interval if not configured
+			heartbeatInterval = defaultHeartbeatInterval
 		}
 		ticker := time.NewTicker(heartbeatInterval)
 
@@ -664,7 +739,7 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 		MeasurementTypes: query.MeasurementTypes,
 		AggregationTypes: query.AggregationTypes,
 		SlideInterval:    &query.Granularity,
-		PageSize:         100,
+		PageSize:         defaultCombinedMetricsPageSize,
 	}
 
 	now := time.Now()
@@ -801,6 +876,193 @@ func (s *TelemetryService) GetMinerTelemetry(ctx context.Context, deviceID strin
 	}, nil
 }
 
+// GetBatchMinerTelemetry returns telemetry data for multiple miners in a single batch query.
+// This is optimized to reduce N+1 query patterns by fetching telemetry for all requested devices
+// in a single database query per measurement type, instead of per-device queries.
+func (s *TelemetryService) GetBatchMinerTelemetry(ctx context.Context, deviceIDs []string, dataMode pb.DataMode, timeSeriesConfig *commonpb.TimeSeriesConfig, measurementConfigs []*pb.MeasurementConfig) (map[string]*fleetmanagementModels.MinerTelemetry, error) {
+	if len(deviceIDs) == 0 {
+		return make(map[string]*fleetmanagementModels.MinerTelemetry), nil
+	}
+
+	// Create a map of measurement type to its config for easy lookup
+	configMap := make(map[pb.MeasurementConfig_MeasurementType]*pb.MeasurementConfig)
+	for _, config := range measurementConfigs {
+		configMap[config.MeasurementType] = config
+	}
+
+	// Initialize result map
+	result := make(map[string]*fleetmanagementModels.MinerTelemetry, len(deviceIDs))
+	for _, deviceID := range deviceIDs {
+		result[deviceID] = &fleetmanagementModels.MinerTelemetry{
+			PowerUsage:  []*commonpb.Measurement{},
+			Temperature: []*commonpb.Measurement{},
+			Hashrate:    []*commonpb.Measurement{},
+			Efficiency:  []*commonpb.Measurement{},
+			Timestamp:   timestamppb.Now(),
+		}
+	}
+
+	// Helper function to get effective data mode and time series config for a measurement type
+	getEffectiveConfig := func(mType pb.MeasurementConfig_MeasurementType) (pb.DataMode, *commonpb.TimeSeriesConfig) {
+		if config, ok := configMap[mType]; ok {
+			return config.DataMode, config.TimeSeriesConfig
+		}
+		return dataMode, timeSeriesConfig
+	}
+
+	// Process each measurement type in batch
+	measurementTypes := []struct {
+		pbType       pb.MeasurementConfig_MeasurementType
+		internalType models.MeasurementType
+		setter       func(deviceID string, measurements []*commonpb.Measurement)
+	}{
+		{
+			pb.MeasurementConfig_MEASUREMENT_TYPE_POWER_USAGE,
+			models.MeasurementTypePower,
+			func(deviceID string, measurements []*commonpb.Measurement) {
+				if t, ok := result[deviceID]; ok {
+					t.PowerUsage = measurements
+				}
+			},
+		},
+		{
+			pb.MeasurementConfig_MEASUREMENT_TYPE_TEMPERATURE,
+			models.MeasurementTypeTemperature,
+			func(deviceID string, measurements []*commonpb.Measurement) {
+				if t, ok := result[deviceID]; ok {
+					t.Temperature = measurements
+				}
+			},
+		},
+		{
+			pb.MeasurementConfig_MEASUREMENT_TYPE_HASHRATE,
+			models.MeasurementTypeHashrate,
+			func(deviceID string, measurements []*commonpb.Measurement) {
+				if t, ok := result[deviceID]; ok {
+					t.Hashrate = measurements
+				}
+			},
+		},
+		{
+			pb.MeasurementConfig_MEASUREMENT_TYPE_EFFICIENCY,
+			models.MeasurementTypeEfficiency,
+			func(deviceID string, measurements []*commonpb.Measurement) {
+				if t, ok := result[deviceID]; ok {
+					t.Efficiency = measurements
+				}
+			},
+		},
+	}
+
+	for _, mt := range measurementTypes {
+		effectiveDataMode, effectiveTSConfig := getEffectiveConfig(mt.pbType)
+
+		// Skip if metadata mode
+		if effectiveDataMode == pb.DataMode_DATA_MODE_METADATA {
+			continue
+		}
+
+		// Batch fetch based on mode
+		if effectiveDataMode == pb.DataMode_DATA_MODE_TIME_SERIES && effectiveTSConfig != nil {
+			measurementsByDevice, err := s.getBatchTimeSeriesMeasurements(ctx, deviceIDs, mt.internalType, effectiveTSConfig)
+			if err != nil {
+				// Log but don't fail the entire batch
+				slog.Warn("failed to get batch time series telemetry",
+					slog.String("measurement_type", mt.internalType.String()),
+					slog.Any("error", err))
+				continue
+			}
+			for deviceID, measurements := range measurementsByDevice {
+				mt.setter(deviceID, measurements)
+			}
+		} else {
+			// SNAPSHOT mode - get latest measurements
+			measurementsByDevice, err := s.getBatchLatestMeasurements(ctx, deviceIDs, mt.internalType)
+			if err != nil {
+				// Log but don't fail the entire batch
+				slog.Warn("failed to get batch latest telemetry",
+					slog.String("measurement_type", mt.internalType.String()),
+					slog.Any("error", err))
+				continue
+			}
+			for deviceID, measurements := range measurementsByDevice {
+				mt.setter(deviceID, measurements)
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// getBatchLatestMeasurements retrieves the latest measurements for multiple devices in a single query
+func (s *TelemetryService) getBatchLatestMeasurements(ctx context.Context, deviceIDs []string, measurementType models.MeasurementType) (map[string][]*commonpb.Measurement, error) {
+	// Convert device IDs to internal type
+	internalDeviceIDs := make([]models.DeviceIdentifier, len(deviceIDs))
+	for i, id := range deviceIDs {
+		internalDeviceIDs[i] = models.DeviceIdentifier(id)
+	}
+
+	query := models.LatestTelemetryQuery{
+		DeviceIDs:        internalDeviceIDs,
+		MeasurementTypes: []models.MeasurementType{measurementType},
+	}
+
+	telemetryData, err := s.telemetryDataStore.GetLatestTelemetry(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get batch latest telemetry: %w", err)
+	}
+
+	// Group results by device ID
+	result := make(map[string][]*commonpb.Measurement)
+	for _, data := range telemetryData {
+		deviceID := data.Tags["device_id"]
+		if value, ok := data.Fields["value"].(float64); ok {
+			value = convertTelemetryValue(value, measurementType)
+			result[deviceID] = append(result[deviceID], &commonpb.Measurement{
+				Value:     value,
+				Timestamp: timestamppb.New(data.Timestamp),
+			})
+		}
+	}
+
+	return result, nil
+}
+
+// getBatchTimeSeriesMeasurements retrieves time series measurements for multiple devices in a single query
+func (s *TelemetryService) getBatchTimeSeriesMeasurements(ctx context.Context, deviceIDs []string, measurementType models.MeasurementType, timeSeriesConfig *commonpb.TimeSeriesConfig) (map[string][]*commonpb.Measurement, error) {
+	// Convert device IDs to internal type
+	internalDeviceIDs := make([]models.DeviceIdentifier, len(deviceIDs))
+	for i, id := range deviceIDs {
+		internalDeviceIDs[i] = models.DeviceIdentifier(id)
+	}
+
+	query := models.TimeSeriesTelemetryQuery{
+		DeviceIDs:        internalDeviceIDs,
+		MeasurementTypes: []models.MeasurementType{measurementType},
+		TimeRange:        parseTimeSeriesConfig(timeSeriesConfig),
+	}
+
+	telemetryData, err := s.telemetryDataStore.GetTimeSeriesTelemetry(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get batch time series telemetry: %w", err)
+	}
+
+	// Group results by device ID
+	result := make(map[string][]*commonpb.Measurement)
+	for _, data := range telemetryData {
+		deviceID := data.Tags["device_id"]
+		if value, ok := data.Fields["value"].(float64); ok {
+			value = convertTelemetryValue(value, measurementType)
+			result[deviceID] = append(result[deviceID], &commonpb.Measurement{
+				Value:     value,
+				Timestamp: timestamppb.New(data.Timestamp),
+			})
+		}
+	}
+
+	return result, nil
+}
+
 // GetMinerComponentStatus returns the latest component status for a miner
 func (s *TelemetryService) GetMinerComponentStatus(ctx context.Context, _ string) (*pb.MinerComponentStatus, error) {
 	return &pb.MinerComponentStatus{
@@ -811,15 +1073,13 @@ func (s *TelemetryService) GetMinerComponentStatus(ctx context.Context, _ string
 	}, nil
 }
 
-// StreamMeasurements streams measurement updates for the specified miners and measurement types
 func (s *TelemetryService) StreamMeasurements(ctx context.Context, deviceIDs []string, measurementTypes []pb.MeasurementConfig_MeasurementType) (<-chan *pb.StreamMinerUpdatesResponse, error) {
-	// Get org ID from context
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session info: %w", err)
 	}
 
-	responseChan := make(chan *pb.StreamMinerUpdatesResponse, 100)
+	responseChan := make(chan *pb.StreamMinerUpdatesResponse, streamResponseChannelBuffer)
 
 	// Convert device IDs and measurement types to internal models
 	internalDeviceIDs := make([]models.DeviceIdentifier, len(deviceIDs))
@@ -842,11 +1102,10 @@ func (s *TelemetryService) StreamMeasurements(ctx context.Context, deviceIDs []s
 		return nil, fmt.Errorf("failed to get broadcaster: %w", err)
 	}
 
-	// Subscribe to broadcaster with filters
 	updateChan, unsubscribe, err := broadcaster.Subscribe(ctx, SubscriptionConfig{
 		DeviceIDs:        internalDeviceIDs,
 		MeasurementTypes: internalMeasurementTypes,
-		BufferSize:       100,
+		BufferSize:       subscriberChannelBuffer,
 	})
 	if err != nil {
 		close(responseChan)
@@ -882,9 +1141,8 @@ func (s *TelemetryService) StreamMeasurements(ctx context.Context, deviceIDs []s
 	return responseChan, nil
 }
 
-// StreamComponentStatus streams component status updates for the specified miners
 func (s *TelemetryService) StreamComponentStatus(ctx context.Context, deviceIDs []string) (<-chan *pb.StreamMinerUpdatesResponse, error) {
-	responseChan := make(chan *pb.StreamMinerUpdatesResponse, 100)
+	responseChan := make(chan *pb.StreamMinerUpdatesResponse, streamResponseChannelBuffer)
 
 	// Convert device IDs to internal models
 	internalDeviceIDs := make([]models.DeviceIdentifier, len(deviceIDs))
@@ -909,7 +1167,7 @@ func (s *TelemetryService) StreamComponentStatus(ctx context.Context, deviceIDs 
 	go func() {
 		defer close(responseChan)
 
-		ticker := time.NewTicker(5 * time.Second) // Status updates every 5 seconds
+		ticker := time.NewTicker(componentStatusStreamInterval)
 		defer ticker.Stop()
 
 		for {
@@ -1014,12 +1272,11 @@ func (s *TelemetryService) SubscribeToTelemetryUpdates(ctx context.Context, orgI
 		return nil, nil, fmt.Errorf("failed to get broadcaster: %w", err)
 	}
 
-	// Subscribe with optional event type filtering
 	updateChan, unsubscribe, err := broadcaster.Subscribe(ctx, SubscriptionConfig{
 		DeviceIDs:        internalDeviceIDs,
-		MeasurementTypes: nil, // Subscribe to all measurement types
+		MeasurementTypes: nil,
 		EventTypes:       eventTypes,
-		BufferSize:       100,
+		BufferSize:       subscriberChannelBuffer,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to subscribe to broadcaster: %w", err)
@@ -1101,14 +1358,7 @@ func (s *TelemetryService) getLatestMeasurements(ctx context.Context, deviceID s
 	var measurements []*commonpb.Measurement
 	for _, data := range telemetryData {
 		if value, ok := data.Fields["value"].(float64); ok {
-			// Convert units from storage format to API format
-			if measurementType == models.MeasurementTypeHashrate {
-				value = convertHashrateToThs(value) // MH/s to TH/s
-			} else if measurementType == models.MeasurementTypePower {
-				value = convertPowerToKw(value) // W to kW
-			} else if measurementType == models.MeasurementTypeEfficiency {
-				value *= 1e12 // J/H to J/TH
-			}
+			value = convertTelemetryValue(value, measurementType)
 			measurements = append(measurements, &commonpb.Measurement{
 				Value:     value,
 				Timestamp: timestamppb.New(data.Timestamp),
@@ -1121,38 +1371,10 @@ func (s *TelemetryService) getLatestMeasurements(ctx context.Context, deviceID s
 
 // getTimeSeriesMeasurements retrieves time series measurements for a device and measurement type
 func (s *TelemetryService) getTimeSeriesMeasurements(ctx context.Context, deviceID string, measurementType models.MeasurementType, timeSeriesConfig *commonpb.TimeSeriesConfig) ([]*commonpb.Measurement, error) {
-	// Convert time series config to internal query
 	query := models.TimeSeriesTelemetryQuery{
 		DeviceIDs:        []models.DeviceIdentifier{models.DeviceIdentifier(deviceID)},
 		MeasurementTypes: []models.MeasurementType{measurementType},
-	}
-
-	// Set time range based on config
-	switch ts := timeSeriesConfig.TimeSelection.(type) {
-	case *commonpb.TimeSeriesConfig_LookbackPeriod:
-		endTime := time.Now()
-		startTime := endTime.Add(-ts.LookbackPeriod.AsDuration())
-		query.TimeRange = models.TimeRange{
-			StartTime: &startTime,
-			EndTime:   &endTime,
-		}
-	case *commonpb.TimeSeriesConfig_Interval:
-		if ts.Interval.StartTime != nil {
-			startTime := ts.Interval.StartTime.AsTime()
-			query.TimeRange.StartTime = &startTime
-		}
-		if ts.Interval.EndTime != nil {
-			endTime := ts.Interval.EndTime.AsTime()
-			query.TimeRange.EndTime = &endTime
-		}
-	default:
-		// Default to last hour if no time selection
-		endTime := time.Now()
-		startTime := endTime.Add(-time.Hour)
-		query.TimeRange = models.TimeRange{
-			StartTime: &startTime,
-			EndTime:   &endTime,
-		}
+		TimeRange:        parseTimeSeriesConfig(timeSeriesConfig),
 	}
 
 	telemetryData, err := s.telemetryDataStore.GetTimeSeriesTelemetry(ctx, query)
@@ -1163,14 +1385,7 @@ func (s *TelemetryService) getTimeSeriesMeasurements(ctx context.Context, device
 	var measurements []*commonpb.Measurement
 	for _, data := range telemetryData {
 		if value, ok := data.Fields["value"].(float64); ok {
-			// Convert units from storage format to API format
-			if measurementType == models.MeasurementTypeHashrate {
-				value = convertHashrateToThs(value) // MH/s to TH/s
-			} else if measurementType == models.MeasurementTypePower {
-				value = convertPowerToKw(value) // W to kW
-			} else if measurementType == models.MeasurementTypeEfficiency {
-				value *= 1e12 // J/H to J/TH
-			}
+			value = convertTelemetryValue(value, measurementType)
 			measurements = append(measurements, &commonpb.Measurement{
 				Value:     value,
 				Timestamp: timestamppb.New(data.Timestamp),
@@ -1225,16 +1440,9 @@ func (s *TelemetryService) convertTelemetryUpdateToResponse(update models.Teleme
 			return nil
 		}
 
-		// Extract value from fields
 		var value float64
 		if val, ok := update.Data.Fields["value"].(float64); ok {
-			value = val
-			// Convert hashrate from MH/s to TH/s and power from watts to kW
-			if internalMeasurementType == models.MeasurementTypeHashrate {
-				value = convertHashrateToThs(value)
-			} else if internalMeasurementType == models.MeasurementTypePower {
-				value = convertPowerToKw(value)
-			}
+			value = convertTelemetryValue(val, internalMeasurementType)
 		}
 
 		return &pb.StreamMinerUpdatesResponse{
@@ -1273,7 +1481,7 @@ func (s *TelemetryService) convertTelemetryUpdateToResponse(update models.Teleme
 }
 
 func (s *TelemetryService) StreamMinerStateCounts(ctx context.Context, orgID int64, updateInterval time.Duration) (<-chan models.TelemetryUpdate, error) {
-	ch := make(chan models.TelemetryUpdate, 100)
+	ch := make(chan models.TelemetryUpdate, statusUpdateChannelBuffer)
 
 	go func() {
 		defer close(ch)

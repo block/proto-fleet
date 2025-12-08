@@ -8,16 +8,61 @@ import (
 	"time"
 )
 
+const (
+	// RPC connection timeout
+	rpcConnectionTimeout = 30 * time.Second
+
+	// RPC status codes
+	statusCodeVersion = 11
+	statusCodeSummary = 11
+	statusCodePools   = 7
+	statusCodeDevices = 9
+
+	// Hashrate variation values (GH/s)
+	hashrate5sVariation  = 2000
+	hashrate30mVariation = 1000
+
+	// Time offset for device responses (seconds)
+	deviceTimeOffset = 6
+
+	// Test data values for summary response
+	mockGetworkCount        = 34537
+	mockAcceptedCount       = 73280
+	mockRejectedCount       = 75
+	mockHardwareErrorsCount = 63
+	mockUtilityValue        = 12.79
+	mockDiscardedCount      = 32426300
+	mockStaleCount          = 44
+	mockGetFailuresCount    = 3
+	mockLocalWorkCount      = 32459750
+	mockRemoteFailuresCount = 0
+	mockNetworkBlocksCount  = 571
+	mockTotalMH             = 8.18439346825e13
+	mockWorkUtility         = 3320110.48
+	mockDifficultyAccepted  = 18995326976.0
+	mockDifficultyRejected  = 19333120.0
+	mockDifficultyStale     = 0.0
+	mockBestShare           = 13416269691
+	mockDevicePercentage    = 0.0
+	mockASCIndex            = 0
+	mockDeviceID            = 0
+	mockDiff1Work           = 0
+	mockLastSharePool       = 0
+	mockDifficultyValue     = 18995326976
+	mockMessageID           = 1
+
+	// Conversion factor for TH/s to GH/s
+	thsToGhsConversionFactor = 1000
+)
+
 func handleRPCConnection(conn net.Conn, state *MinerState) {
 	defer conn.Close()
 
-	// Set a read deadline to prevent hanging connections
-	if err := conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+	if err := conn.SetReadDeadline(time.Now().Add(rpcConnectionTimeout)); err != nil {
 		log.Printf("Failed to set read deadline: %v", err)
 		return
 	}
 
-	// Read request
 	var request RPCRequest
 	decoder := json.NewDecoder(conn)
 	if err := decoder.Decode(&request); err != nil {
@@ -27,7 +72,6 @@ func handleRPCConnection(conn net.Conn, state *MinerState) {
 
 	log.Printf("Received RPC command: %s", request.Command)
 
-	// Process command and create response
 	var response interface{}
 	switch request.Command {
 	case "version":
@@ -43,7 +87,6 @@ func handleRPCConnection(conn net.Conn, state *MinerState) {
 		response = map[string]string{"error": "unknown command"}
 	}
 
-	// Send response
 	if err := json.NewEncoder(conn).Encode(response); err != nil {
 		log.Printf("Failed to encode response: %v", err)
 		return
@@ -61,7 +104,7 @@ func generateVersionResponse(state *MinerState) VersionResponse {
 				{
 					Status: "S",
 					When:   now,
-					Code:   11,
+					Code:   statusCodeVersion,
 					Msg:    "BMMiner versions",
 				},
 			},
@@ -84,8 +127,7 @@ func generateSummaryResponse(state *MinerState) SummaryResponse {
 
 	now := time.Now().Unix()
 
-	// Calculate some values based on state
-	hashRateGHS := state.HashRate * 1000 // Convert TH/s to GH/s
+	hashRateGHS := state.HashRate * thsToGhsConversionFactor
 
 	return SummaryResponse{
 		RPCResponse: RPCResponse{
@@ -93,7 +135,7 @@ func generateSummaryResponse(state *MinerState) SummaryResponse {
 				{
 					Status:      "S",
 					When:        now,
-					Code:        11,
+					Code:        statusCodeSummary,
 					Msg:         "Summary",
 					Description: "cgminer 1.0.0",
 				},
@@ -102,35 +144,35 @@ func generateSummaryResponse(state *MinerState) SummaryResponse {
 		Summary: []SummaryInfo{
 			{
 				Elapsed:            DefaultElapsedTime,
-				GHS5s:              hashRateGHS - 2000, // Slight variation for 5s
+				GHS5s:              hashRateGHS - hashrate5sVariation,
 				GHSav:              hashRateGHS,
-				GHS30m:             hashRateGHS + 1000, // Slight variation for 30m
-				FoundBlocks:        0,
-				Getwork:            34537,
-				Accepted:           73280,
-				Rejected:           75,
-				HardwareErrors:     63,
-				Utility:            12.79,
-				Discarded:          32426300,
-				Stale:              44,
-				GetFailures:        3,
-				LocalWork:          32459750,
-				RemoteFailures:     0,
-				NetworkBlocks:      571,
-				TotalMH:            8.18439346825e13,
-				WorkUtility:        3320110.48,
-				DifficultyAccepted: 18995326976.0,
-				DifficultyRejected: 19333120.0,
-				DifficultyStale:    0.0,
-				BestShare:          13416269691,
-				DeviceHardwarePerc: 0.0,
-				DeviceRejectedPerc: 0.0,
-				PoolRejectedPerc:   0.0,
-				PoolStalePerc:      0.0,
+				GHS30m:             hashRateGHS + hashrate30mVariation,
+				FoundBlocks:        mockDiff1Work,
+				Getwork:            mockGetworkCount,
+				Accepted:           mockAcceptedCount,
+				Rejected:           mockRejectedCount,
+				HardwareErrors:     mockHardwareErrorsCount,
+				Utility:            mockUtilityValue,
+				Discarded:          mockDiscardedCount,
+				Stale:              mockStaleCount,
+				GetFailures:        mockGetFailuresCount,
+				LocalWork:          mockLocalWorkCount,
+				RemoteFailures:     mockRemoteFailuresCount,
+				NetworkBlocks:      mockNetworkBlocksCount,
+				TotalMH:            mockTotalMH,
+				WorkUtility:        mockWorkUtility,
+				DifficultyAccepted: mockDifficultyAccepted,
+				DifficultyRejected: mockDifficultyRejected,
+				DifficultyStale:    mockDifficultyStale,
+				BestShare:          mockBestShare,
+				DeviceHardwarePerc: mockDevicePercentage,
+				DeviceRejectedPerc: mockDevicePercentage,
+				PoolRejectedPerc:   mockDevicePercentage,
+				PoolStalePerc:      mockDevicePercentage,
 				LastGetwork:        now,
 			},
 		},
-		ID: 1,
+		ID: mockMessageID,
 	}
 }
 
@@ -163,7 +205,7 @@ func generatePoolsResponse(state *MinerState) PoolsResponse {
 				{
 					Status: "S",
 					When:   now,
-					Code:   7,
+					Code:   statusCodePools,
 					Msg:    fmt.Sprintf("%d Pool(s)", len(state.Pools)),
 				},
 			},
@@ -181,28 +223,28 @@ func generateDevsResponse(state *MinerState) DevsResponse {
 	// Create one device according to the example format
 	devices := []DeviceInfo{
 		{
-			ASC:                 0,
+			ASC:                 mockASCIndex,
 			Name:                "BTM_SOC",
-			ID:                  0,
+			ID:                  mockDeviceID,
 			Enabled:             "Y",
 			Status:              "Alive",
-			Tenperature:         0.0,
-			MHSav:               0.0,
-			MHS5s:               0.0,
-			Accepted:            73280,
-			Rejected:            75,
-			HardwareErrors:      0,
-			Utility:             0.0,
-			LastSharePool:       0,
-			LastShareTime:       now - 6,
-			TotalMH:             0.0,
-			Diff1Work:           0,
-			DifficultyAccepted:  18995326976,
-			DifficultyRejected:  19333120,
-			LastShareDifficulty: now - 6,
-			LastValidWork:       now - 6,
-			DeviceHardwarePerc:  0.0,
-			DeviceRejectedPerc:  0.0,
+			Tenperature:         DefaultTemperature,
+			MHSav:               mockDevicePercentage,
+			MHS5s:               mockDevicePercentage,
+			Accepted:            mockAcceptedCount,
+			Rejected:            mockRejectedCount,
+			HardwareErrors:      mockDiff1Work,
+			Utility:             mockDevicePercentage,
+			LastSharePool:       mockLastSharePool,
+			LastShareTime:       now - deviceTimeOffset,
+			TotalMH:             mockDevicePercentage,
+			Diff1Work:           mockDiff1Work,
+			DifficultyAccepted:  mockDifficultyValue,
+			DifficultyRejected:  int(mockDifficultyRejected),
+			LastShareDifficulty: now - deviceTimeOffset,
+			LastValidWork:       now - deviceTimeOffset,
+			DeviceHardwarePerc:  mockDevicePercentage,
+			DeviceRejectedPerc:  mockDevicePercentage,
 			DeviceElapsed:       DefaultElapsedTime,
 		},
 	}
@@ -213,13 +255,13 @@ func generateDevsResponse(state *MinerState) DevsResponse {
 				{
 					Status:      "S",
 					When:        now,
-					Code:        9,
+					Code:        statusCodeDevices,
 					Msg:         "1 ASC(s)",
 					Description: "cgminer 1.0.0",
 				},
 			},
 		},
 		Devices: devices,
-		ID:      1,
+		ID:      mockMessageID,
 	}
 }

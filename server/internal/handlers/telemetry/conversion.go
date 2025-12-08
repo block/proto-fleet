@@ -16,6 +16,11 @@ import (
 
 const (
 	defaultPageSize = 100
+
+	// Conversion factors for telemetry units
+	mhsToThsConversionFactor  = 1e6  // Convert hashrate from MH/s to TH/s
+	wattsToKwConversionFactor = 1e3  // Convert power from watts to kilowatts
+	jhToJthConversionFactor   = 1e12 // Convert efficiency from J/H to J/TH
 )
 
 func deviceIDsToModels(deviceIDs []string) []models.DeviceIdentifier {
@@ -422,9 +427,11 @@ func fromTelemetryData(telemetryData []models.Telemetry) ([]*telemetryv1.Telemet
 
 		// Convert units from storage format to API format
 		if measurementType == telemetryv1.MeasurementType_MEASUREMENT_TYPE_HASHRATE {
-			value /= 1e6 // Convert hashrate from MH/s to TH/s
+			value /= mhsToThsConversionFactor
+		} else if measurementType == telemetryv1.MeasurementType_MEASUREMENT_TYPE_POWER {
+			value /= wattsToKwConversionFactor
 		} else if measurementType == telemetryv1.MeasurementType_MEASUREMENT_TYPE_EFFICIENCY {
-			value *= 1e12 // Convert efficiency from J/H to J/TH
+			value *= jhToJthConversionFactor
 		}
 
 		result[i] = &telemetryv1.TelemetryData{
@@ -587,7 +594,7 @@ func fromAggregatedTelemetry(aggregatedData []models.AggregatedTelemetry) ([]*te
 		// Convert units from storage format to API format
 		value := data.Value
 		if measurementType == telemetryv1.MeasurementType_MEASUREMENT_TYPE_EFFICIENCY {
-			value *= 1e12 // Convert efficiency from J/H to J/TH
+			value *= jhToJthConversionFactor
 		}
 
 		result[i] = &telemetryv1.AggregatedTelemetry{
@@ -701,7 +708,7 @@ func fromCombinedMetrics(combinedMetrics models.CombinedMetric) (*telemetryv1.Ge
 			// Convert units from storage format to API format
 			value := aggValue.Value
 			if measurementType == telemetryv1.MeasurementType_MEASUREMENT_TYPE_EFFICIENCY {
-				value *= 1e12 // Convert efficiency from J/H to J/TH
+				value *= jhToJthConversionFactor
 			}
 
 			aggregatedValues[j] = &telemetryv1.AggregatedValue{

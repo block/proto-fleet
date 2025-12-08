@@ -1,14 +1,17 @@
 package fleetmanagement_test
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
+	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingpb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	minermodels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -59,7 +62,6 @@ func TestService_ListMinerStateSnapshots_ShouldReturnAllDevices(t *testing.T) {
 
 	req := &pb.ListMinerStateSnapshotsRequest{
 		PageSize: 10,
-		DataMode: pb.DataMode_DATA_MODE_METADATA,
 		// No filter - should return all devices
 	}
 
@@ -150,7 +152,6 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByPairingStatus(t *testing.
 
 			req := &pb.ListMinerStateSnapshotsRequest{
 				PageSize: 10,
-				DataMode: pb.DataMode_DATA_MODE_METADATA,
 				Filter: &pb.MinerListFilter{
 					PairingStatuses: tc.pairingStatuses,
 				},
@@ -195,7 +196,6 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByDeviceStatus(t *testing.T
 	// Act - Filter for ONLINE devices only
 	req := &pb.ListMinerStateSnapshotsRequest{
 		PageSize: 10,
-		DataMode: pb.DataMode_DATA_MODE_METADATA,
 		Filter: &pb.MinerListFilter{
 			DeviceStatus: []pb.DeviceStatus{pb.DeviceStatus_DEVICE_STATUS_ONLINE},
 		},
@@ -227,7 +227,6 @@ func TestService_ListMinerStateSnapshots_ShouldSupportPagination(t *testing.T) {
 	// Request with page size of 2
 	req := &pb.ListMinerStateSnapshotsRequest{
 		PageSize: 2,
-		DataMode: pb.DataMode_DATA_MODE_METADATA,
 	}
 
 	// Act - Get first page
@@ -272,7 +271,6 @@ func TestService_ListMinerStateSnapshots_ShouldUseDefaultPageSize(t *testing.T) 
 	// Request with page size of 0 (should use default of 50)
 	req := &pb.ListMinerStateSnapshotsRequest{
 		PageSize: 0,
-		DataMode: pb.DataMode_DATA_MODE_METADATA,
 	}
 
 	// Act
@@ -303,7 +301,6 @@ func TestService_ListMinerStateSnapshots_ShouldCapMaxPageSize(t *testing.T) {
 	// Request with very large page size (should be capped to max of 1000)
 	req := &pb.ListMinerStateSnapshotsRequest{
 		PageSize: 5000,
-		DataMode: pb.DataMode_DATA_MODE_METADATA,
 	}
 
 	// Act
@@ -331,7 +328,6 @@ func TestService_ListMinerStateSnapshots_ShouldReturnEmptyForNoDevices(t *testin
 
 	req := &pb.ListMinerStateSnapshotsRequest{
 		PageSize: 10,
-		DataMode: pb.DataMode_DATA_MODE_METADATA,
 	}
 
 	// Act
@@ -391,7 +387,6 @@ func TestService_ListMinerStateSnapshots_ShouldCombineMultipleFilters(t *testing
 	// Act - Filter for PAIRED devices with ONLINE status
 	req := &pb.ListMinerStateSnapshotsRequest{
 		PageSize: 10,
-		DataMode: pb.DataMode_DATA_MODE_METADATA,
 		Filter: &pb.MinerListFilter{
 			PairingStatuses: []pb.PairingStatus{pb.PairingStatus_PAIRING_STATUS_PAIRED},
 			DeviceStatus:    []pb.DeviceStatus{pb.DeviceStatus_DEVICE_STATUS_ONLINE},
@@ -405,4 +400,59 @@ func TestService_ListMinerStateSnapshots_ShouldCombineMultipleFilters(t *testing
 	assert.Len(t, resp.Miners, 1, "Should return only PAIRED devices with ONLINE status")
 	assert.Equal(t, pb.PairingStatus_PAIRING_STATUS_PAIRED, resp.Miners[0].PairingStatus)
 	assert.Equal(t, pb.DeviceStatus_DEVICE_STATUS_ONLINE, resp.Miners[0].DeviceStatus)
+}
+
+func TestService_GetBatchMinerTelemetry_ShouldReturnForbiddenForUnauthorizedDevices(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	// Arrange - create first user and their devices
+	testContext1 := testutil.InitializeDBServiceInfrastructure(t)
+	user1 := testContext1.DatabaseService.CreateSuperAdminUser()
+	user1DeviceIDs := testContext1.DatabaseService.CreateTestMiners(user1.OrganizationID, 2, "https://172.17.0.1:2121")
+
+	// Arrange - create second user in a different organization with their own devices
+	user2 := testContext1.DatabaseService.CreateSuperAdminUser2()
+	user2DeviceIDs := testContext1.DatabaseService.CreateTestMiners(user2.OrganizationID, 1, "https://172.17.0.2:2121")
+
+	service := testContext1.ServiceProvider.FleetManagementService
+
+	// Act - user1 tries to access user2's device
+	ctx := testutil.MockAuthContextForTesting(t.Context(), user1.DatabaseID, user1.OrganizationID)
+	req := &pb.GetBatchMinerTelemetryRequest{
+		DeviceIdentifiers: []string{user2DeviceIDs[0]},
+		DataMode:          pb.DataMode_DATA_MODE_SNAPSHOT,
+	}
+	_, err := service.GetBatchMinerTelemetry(ctx, req)
+
+	// Assert - should get forbidden error
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.True(t, errors.As(err, &fleetErr), "expected FleetError")
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+
+	// Act - user1 tries to access mix of own and user2's devices
+	req = &pb.GetBatchMinerTelemetryRequest{
+		DeviceIdentifiers: []string{user1DeviceIDs[0], user2DeviceIDs[0]},
+		DataMode:          pb.DataMode_DATA_MODE_SNAPSHOT,
+	}
+	_, err = service.GetBatchMinerTelemetry(ctx, req)
+
+	// Assert - should still get forbidden error (fail fast)
+	require.Error(t, err)
+	require.True(t, errors.As(err, &fleetErr), "expected FleetError")
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+
+	// Act - user1 accesses only their own devices
+	req = &pb.GetBatchMinerTelemetryRequest{
+		DeviceIdentifiers: user1DeviceIDs,
+		DataMode:          pb.DataMode_DATA_MODE_SNAPSHOT,
+	}
+	resp, err := service.GetBatchMinerTelemetry(ctx, req)
+
+	// Assert - should succeed
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Len(t, resp.Miners, 2)
 }

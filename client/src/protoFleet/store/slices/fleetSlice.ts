@@ -10,6 +10,7 @@ import {
   type MeasurementUpdate,
   MinerComponentStatus,
   type MinerStateSnapshot,
+  type MinerTelemetry,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
   DeviceStatus,
@@ -156,6 +157,7 @@ export interface FleetSlice {
   setRefetchCallback: (callback?: () => void) => void;
   updateMinerMeasurement: (deviceId: string, measurement: MeasurementUpdate) => void;
   updateMinerTelemetry: (deviceId: string, telemetryUpdate: TelemetryUpdate) => void;
+  updateBatchTelemetry: (telemetryData: MinerTelemetry[]) => void;
   updateMinerComponentStatus: (deviceId: string, status: ComponentStatusUpdate) => void;
   updateMinerDeviceStatus: (deviceId: string, deviceStatusUpdate: DeviceStatusUpdate) => void;
   updateMinerTimestamp: (deviceId: string, timestamp: any) => void;
@@ -283,6 +285,36 @@ export const createFleetSlice: StateCreator<FleetStore, [["zustand/immer", never
       if (miner) {
         updateTelemetryMeasurement(telemetryUpdate, miner);
       }
+    }),
+
+  updateBatchTelemetry: (telemetryData) =>
+    set((state) => {
+      telemetryData.forEach((telemetry) => {
+        const miner = state.fleet.miners[telemetry.deviceIdentifier];
+        if (miner) {
+          if (telemetry.powerUsage.length > 0) {
+            miner.powerUsage = telemetry.powerUsage;
+          }
+          if (telemetry.temperature.length > 0) {
+            miner.temperature = telemetry.temperature;
+          }
+          if (telemetry.hashrate.length > 0) {
+            miner.hashrate = telemetry.hashrate;
+          }
+          if (telemetry.efficiency.length > 0) {
+            miner.efficiency = telemetry.efficiency;
+          }
+          if (telemetry.status) {
+            miner.status = telemetry.status;
+          }
+          if (telemetry.timestamp) {
+            miner.timestamp = telemetry.timestamp;
+          }
+          if (telemetry.deviceStatus) {
+            miner.deviceStatus = telemetry.deviceStatus;
+          }
+        }
+      });
     }),
 
   updateMinerComponentStatus: (deviceId, statusUpdate) =>

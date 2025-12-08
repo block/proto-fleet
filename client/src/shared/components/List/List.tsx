@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -8,6 +8,7 @@ import { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/type
 import ListActions from "@/shared/components/List/ListActions";
 import { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
 import { PopoverProvider } from "@/shared/components/Popover";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import { Breakpoint, breakpoints } from "@/shared/constants/breakpoints";
 import { useStickyState } from "@/shared/hooks/useStickyState";
 
@@ -65,6 +66,20 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    * "none" when selection is cleared.
    */
   onSelectionModeChange?: (mode: SelectionMode) => void;
+  /*
+   * Optional callback for infinite scroll. Called when the user scrolls
+   * near the bottom of the list.
+   */
+  onLoadMore?: () => void;
+  /**
+   * Whether more items are available to load. When false, onLoadMore
+   * will not be triggered.
+   */
+  hasMore?: boolean;
+  /**
+   * Whether the list is currently loading more items.
+   */
+  isLoadingMore?: boolean;
 };
 
 const cellClassList = "text-left";
@@ -106,8 +121,12 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   itemRef,
   hasActiveFilters = false,
   onSelectionModeChange,
+  onLoadMore,
+  hasMore = false,
+  isLoadingMore = false,
 }: ListProps<ListItem, ItemKeyValueType, ColKey>) => {
   const { refs, stickyState } = useStickyState();
+  const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
 
   const [selectedItems, setSelectedItems] = useState<ItemKeyValueType[]>(initialSelectedItems);
   const [filteredItems, setFilteredItems] = useState<ListItem[]>(items);
@@ -226,6 +245,33 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     selectionMode,
     onSelectionModeChange,
   ]);
+
+  // Infinite scroll: trigger loadMore when scroll reaches near bottom
+  useEffect(() => {
+    if (!onLoadMore || !hasMore || isLoadingMore) return;
+
+    const trigger = loadMoreTriggerRef.current;
+    if (!trigger) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting && hasMore && !isLoadingMore) {
+          onLoadMore();
+        }
+      },
+      {
+        rootMargin: "200px", // Start loading 200px before reaching the bottom
+        threshold: 0,
+      },
+    );
+
+    observer.observe(trigger);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [onLoadMore, hasMore, isLoadingMore]);
 
   const paddingCssVariables = useMemo(() => {
     const style: Record<string, string> = {};
@@ -404,6 +450,12 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                   ))}
                 </tbody>
               </table>
+              {/* Infinite scroll trigger element */}
+              {onLoadMore && hasMore && (
+                <div ref={loadMoreTriggerRef} className="flex justify-center py-6">
+                  {isLoadingMore && <ProgressCircular indeterminate />}
+                </div>
+              )}
               {/* eslint-disable-next-line react-hooks/refs */}
               <div ref={refs.vertical.end} />
             </>

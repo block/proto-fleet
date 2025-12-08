@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { type Measurement } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import { useMinerHashrate } from "@/protoFleet/store";
 import HashRateValue from "@/shared/components/HashRateValue";
@@ -13,25 +12,32 @@ type HashrateProps = {
 
 const Hashrate = ({ deviceIdentifier, hashrate: hashrateProps }: HashrateProps) => {
   const hashrateFromStore = useMinerHashrate(deviceIdentifier || "");
-  const hashrate = hashrateProps || hashrateFromStore;
+  const hashrate = hashrateProps ?? hashrateFromStore;
 
-  const latestMeasurement = useMemo(() => getLatestMeasurementWithData(hashrate), [hashrate]);
+  // undefined = telemetry not loaded yet (show skeleton)
+  if (hashrate === undefined) {
+    return (
+      <div className="relative inline-flex h-full w-full flex-row items-center gap-2 pr-6 whitespace-nowrap">
+        <SkeletonBar className="w-full" />
+        <div className="h-5 w-10" />
+      </div>
+    );
+  }
 
-  const latestValue = latestMeasurement?.value;
+  // null = miner is inactive/offline (show blank)
+  if (hashrate === null) {
+    return null;
+  }
 
-  if (hashrate === undefined) return "N/A";
+  const latestValue = getLatestMeasurementWithData(hashrate)?.value;
 
   return (
     <div className="relative inline-flex h-full w-full flex-row items-center gap-2 pr-6 whitespace-nowrap">
-      {hashrate ? (
-        <div>
-          <HashRateValue value={latestValue} />
-        </div>
-      ) : (
-        <SkeletonBar className="w-full" />
-      )}
+      <div>
+        <HashRateValue value={latestValue} />
+      </div>
       <div className="h-5 w-10">
-        {hashrate && hashrate.length ? (
+        {hashrate.length > 0 && (
           <Sparkline
             data={hashrate
               .filter((h) => h.timestamp !== undefined)
@@ -41,7 +47,7 @@ const Hashrate = ({ deviceIdentifier, hashrate: hashrateProps }: HashrateProps) 
               }))}
             threshold={20}
           />
-        ) : null}
+        )}
       </div>
     </div>
   );

@@ -11,6 +11,41 @@ import (
 	"strings"
 )
 
+const allDevicesBelongToOrg = `-- name: AllDevicesBelongToOrg :one
+SELECT COUNT(*) = ? as all_belong
+FROM device
+WHERE device_identifier IN (/*SLICE:device_identifiers*/?)
+  AND org_id = ?
+  AND deleted_at IS NULL
+`
+
+type AllDevicesBelongToOrgParams struct {
+	ExpectedCount     interface{}
+	DeviceIdentifiers []string
+	OrgID             int64
+}
+
+// Returns true if all provided device identifiers belong to the specified organization.
+// Used for authorization checks - fails fast if any device is not owned by the org.
+func (q *Queries) AllDevicesBelongToOrg(ctx context.Context, arg AllDevicesBelongToOrgParams) (bool, error) {
+	query := allDevicesBelongToOrg
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.ExpectedCount)
+	if len(arg.DeviceIdentifiers) > 0 {
+		for _, v := range arg.DeviceIdentifiers {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(arg.DeviceIdentifiers))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.OrgID)
+	row := q.queryRow(ctx, nil, query, queryParams...)
+	var all_belong bool
+	err := row.Scan(&all_belong)
+	return all_belong, err
+}
+
 const countMinersByState = `-- name: CountMinersByState :one
 SELECT
     COUNT(CASE WHEN ds.status = 'ACTIVE' THEN 1 END) as hashing_count,

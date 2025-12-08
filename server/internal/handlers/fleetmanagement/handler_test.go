@@ -13,7 +13,6 @@ func TestHandler_ListMinerStateSnapshots(t *testing.T) {
 	tests := []struct {
 		name         string
 		minerURLs    []string
-		dataMode     pb.DataMode
 		expectedURLs []string
 	}{
 		{
@@ -21,7 +20,6 @@ func TestHandler_ListMinerStateSnapshots(t *testing.T) {
 			minerURLs: []string{
 				"https://172.17.0.1:2121",
 			},
-			dataMode: pb.DataMode_DATA_MODE_SNAPSHOT,
 			expectedURLs: []string{
 				"https://172.17.0.1",
 			},
@@ -31,7 +29,6 @@ func TestHandler_ListMinerStateSnapshots(t *testing.T) {
 			minerURLs: []string{
 				"http://172.17.0.2:2121",
 			},
-			dataMode: pb.DataMode_DATA_MODE_SNAPSHOT,
 			expectedURLs: []string{
 				"http://172.17.0.2",
 			},
@@ -41,7 +38,6 @@ func TestHandler_ListMinerStateSnapshots(t *testing.T) {
 			minerURLs: []string{
 				"http://172.17.0.3:4028",
 			},
-			dataMode: pb.DataMode_DATA_MODE_SNAPSHOT,
 			expectedURLs: []string{
 				"http://172.17.0.3",
 			},
@@ -53,7 +49,6 @@ func TestHandler_ListMinerStateSnapshots(t *testing.T) {
 				"http://172.17.0.2:2121",
 				"http://172.17.0.3:4028",
 			},
-			dataMode: pb.DataMode_DATA_MODE_SNAPSHOT,
 			expectedURLs: []string{
 				"https://172.17.0.1",
 				"http://172.17.0.2",
@@ -78,7 +73,6 @@ func TestHandler_ListMinerStateSnapshots(t *testing.T) {
 
 			req := &pb.ListMinerStateSnapshotsRequest{
 				PageSize: 5,
-				DataMode: tc.dataMode,
 			}
 
 			// Act

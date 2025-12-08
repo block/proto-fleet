@@ -17,6 +17,11 @@ type TelemetryCollector interface {
 	// GetMinerTelemetry returns the latest telemetry data for a miner
 	GetMinerTelemetry(ctx context.Context, deviceID string, dataMode pb.DataMode, timeSeriesConfig *commonpb.TimeSeriesConfig, measurementConfigs []*pb.MeasurementConfig) (*models.MinerTelemetry, error)
 
+	// GetBatchMinerTelemetry returns telemetry data for multiple miners in a single batch query
+	// This is optimized to reduce N+1 query patterns by fetching telemetry for all requested devices
+	// in a single database query instead of per-device queries.
+	GetBatchMinerTelemetry(ctx context.Context, deviceIDs []string, dataMode pb.DataMode, timeSeriesConfig *commonpb.TimeSeriesConfig, measurementConfigs []*pb.MeasurementConfig) (map[string]*models.MinerTelemetry, error)
+
 	// GetMinerComponentStatus returns the latest component status for a miner
 	GetMinerComponentStatus(ctx context.Context, deviceID string) (*pb.MinerComponentStatus, error)
 
@@ -42,35 +47,28 @@ func NewMockTelemetryCollector() TelemetryCollector {
 func (m *MockTelemetryCollector) GetMinerTelemetry(ctx context.Context, _ string, dataMode pb.DataMode, timeSeriesConfig *commonpb.TimeSeriesConfig, measurementConfigs []*pb.MeasurementConfig) (*models.MinerTelemetry, error) {
 	now := timestamppb.Now()
 
-	// Create a map of measurement type to its config for easy lookup
 	configMap := make(map[pb.MeasurementConfig_MeasurementType]*pb.MeasurementConfig)
 	for _, config := range measurementConfigs {
 		configMap[config.MeasurementType] = config
 	}
 
-	// Helper function to get measurements based on type and config
 	getMeasurements := func(mType pb.MeasurementConfig_MeasurementType) []*commonpb.Measurement {
-		// Check if there's a specific config for this measurement type
 		if config, ok := configMap[mType]; ok {
-			// Use measurement-specific config
 			if config.DataMode == pb.DataMode_DATA_MODE_METADATA {
 				return []*commonpb.Measurement{}
 			}
 			if config.DataMode == pb.DataMode_DATA_MODE_TIME_SERIES && config.TimeSeriesConfig != nil {
 				return generateTimeSeriesMeasurements(mType, config.TimeSeriesConfig)
 			}
-			// For SNAPSHOT or unspecified, return single measurement
 			return []*commonpb.Measurement{generateSnapshotMeasurement(mType, now)}
 		}
 
-		// No specific config, use global settings
 		if dataMode == pb.DataMode_DATA_MODE_METADATA {
 			return []*commonpb.Measurement{}
 		}
 		if dataMode == pb.DataMode_DATA_MODE_TIME_SERIES && timeSeriesConfig != nil {
 			return generateTimeSeriesMeasurements(mType, timeSeriesConfig)
 		}
-		// Default to SNAPSHOT mode
 		return []*commonpb.Measurement{generateSnapshotMeasurement(mType, now)}
 	}
 
@@ -83,7 +81,6 @@ func (m *MockTelemetryCollector) GetMinerTelemetry(ctx context.Context, _ string
 	}, nil
 }
 
-// Helper function to generate a single measurement
 func generateSnapshotMeasurement(mType pb.MeasurementConfig_MeasurementType, timestamp *timestamppb.Timestamp) *commonpb.Measurement {
 	return &commonpb.Measurement{
 		Value:     generateMockValue(mType),
@@ -91,11 +88,17 @@ func generateSnapshotMeasurement(mType pb.MeasurementConfig_MeasurementType, tim
 	}
 }
 
-// Helper function to generate time series measurements
+const (
+	// Time series defaults
+	defaultLookbackPeriod    = 1 * time.Hour
+	defaultResolutionSeconds = 60
+	mockTelemetryChannelSize = 100
+	defaultHeartbeatSeconds  = 30
+)
+
 func generateTimeSeriesMeasurements(mType pb.MeasurementConfig_MeasurementType, config *commonpb.TimeSeriesConfig) []*commonpb.Measurement {
 	var startTime, endTime time.Time
 
-	// Determine time range based on config
 	switch ts := config.TimeSelection.(type) {
 	case *commonpb.TimeSeriesConfig_LookbackPeriod:
 		endTime = time.Now()
@@ -104,7 +107,7 @@ func generateTimeSeriesMeasurements(mType pb.MeasurementConfig_MeasurementType, 
 		if ts.Interval.StartTime != nil {
 			startTime = ts.Interval.StartTime.AsTime()
 		} else {
-			startTime = time.Now().Add(-time.Hour) // Default to last hour
+			startTime = time.Now().Add(-defaultLookbackPeriod)
 		}
 		if ts.Interval.EndTime != nil {
 			endTime = ts.Interval.EndTime.AsTime()
@@ -112,15 +115,13 @@ func generateTimeSeriesMeasurements(mType pb.MeasurementConfig_MeasurementType, 
 			endTime = time.Now()
 		}
 	default:
-		// Default to last hour if no time selection
 		endTime = time.Now()
-		startTime = endTime.Add(-time.Hour)
+		startTime = endTime.Add(-defaultLookbackPeriod)
 	}
 
-	// Generate data points based on resolution
 	resolution := config.Resolution
 	if resolution <= 0 {
-		resolution = 60 // Default to 1 minute resolution
+		resolution = defaultResolutionSeconds
 	}
 
 	var measurements []*commonpb.Measurement
@@ -148,13 +149,23 @@ func (m *MockTelemetryCollector) GetMinerComponentStatus(ctx context.Context, _ 
 	}, nil
 }
 
+const (
+	// Stream channel buffer sizes
+	streamMeasurementsChannelBuffer = 100
+	streamStatusChannelBuffer       = 100
+
+	// Mock stream intervals
+	mockMeasurementInterval = 1 * time.Second
+	mockStatusInterval      = 5 * time.Second
+)
+
 func (m *MockTelemetryCollector) StreamMeasurements(ctx context.Context, deviceIDs []string, measurementTypes []pb.MeasurementConfig_MeasurementType) (<-chan *pb.StreamMinerUpdatesResponse, error) {
-	ch := make(chan *pb.StreamMinerUpdatesResponse, 100)
+	ch := make(chan *pb.StreamMinerUpdatesResponse, streamMeasurementsChannelBuffer)
 
 	go func() {
 		defer close(ch)
 
-		ticker := time.NewTicker(time.Second)
+		ticker := time.NewTicker(mockMeasurementInterval)
 		defer ticker.Stop()
 
 		for {
@@ -193,12 +204,12 @@ func (m *MockTelemetryCollector) StreamMeasurements(ctx context.Context, deviceI
 }
 
 func (m *MockTelemetryCollector) StreamComponentStatus(ctx context.Context, deviceIDs []string) (<-chan *pb.StreamMinerUpdatesResponse, error) {
-	ch := make(chan *pb.StreamMinerUpdatesResponse, 100)
+	ch := make(chan *pb.StreamMinerUpdatesResponse, streamStatusChannelBuffer)
 
 	go func() {
 		defer close(ch)
 
-		ticker := time.NewTicker(5 * time.Second) // Status changes less frequently
+		ticker := time.NewTicker(mockStatusInterval)
 		defer ticker.Stop()
 
 		for {
@@ -242,16 +253,30 @@ func (m *MockTelemetryCollector) StreamComponentStatus(ctx context.Context, devi
 	return ch, nil
 }
 
+const (
+	// Mock data generation ranges
+	maxPowerUsageWatts    = 3000.0
+	minTemperatureCelsius = 40.0
+	maxTemperatureCelsius = 80.0
+	tempRangeCelsius      = maxTemperatureCelsius - minTemperatureCelsius
+	minHashrateThs        = 100.0
+	maxHashrateThs        = 150.0
+	hashrateRangeThs      = maxHashrateThs - minHashrateThs
+	minEfficiencyJth      = 30.0
+	maxEfficiencyJth      = 40.0
+	efficiencyRangeJth    = maxEfficiencyJth - minEfficiencyJth
+)
+
 func generateMockValue(mType pb.MeasurementConfig_MeasurementType) float64 {
 	switch mType {
 	case pb.MeasurementConfig_MEASUREMENT_TYPE_POWER_USAGE:
-		return rand.Float64() * 3000 // 0-3000W
+		return rand.Float64() * maxPowerUsageWatts
 	case pb.MeasurementConfig_MEASUREMENT_TYPE_TEMPERATURE:
-		return rand.Float64()*40 + 40 // 40-80°C
+		return rand.Float64()*tempRangeCelsius + minTemperatureCelsius
 	case pb.MeasurementConfig_MEASUREMENT_TYPE_HASHRATE:
-		return rand.Float64()*50 + 100 // 100-150 TH/s
+		return rand.Float64()*hashrateRangeThs + minHashrateThs
 	case pb.MeasurementConfig_MEASUREMENT_TYPE_EFFICIENCY:
-		return rand.Float64()*10 + 30 // 30-40 J/TH
+		return rand.Float64()*efficiencyRangeJth + minEfficiencyJth
 	case pb.MeasurementConfig_MEASUREMENT_TYPE_UNSPECIFIED:
 		return 0
 	default:
@@ -269,20 +294,30 @@ func generateMockStatus() pb.ComponentStatus {
 }
 
 func (m *MockTelemetryCollector) SubscribeToTelemetryUpdates(ctx context.Context, _ int64, _ []string, _ []telemetryModels.UpdateType) (<-chan telemetryModels.TelemetryUpdate, func(), error) {
-	ch := make(chan telemetryModels.TelemetryUpdate, 100)
+	ch := make(chan telemetryModels.TelemetryUpdate, mockTelemetryChannelSize)
 
-	// Use a cancel context to coordinate cleanup
 	subCtx, cancel := context.WithCancel(ctx)
 
-	// Mock implementation - just return an empty channel that closes when context is done
 	go func() {
 		<-subCtx.Done()
 		close(ch)
 	}()
 
 	unsubscribe := func() {
-		cancel() // Signal the goroutine to close the channel
+		cancel()
 	}
 
 	return ch, unsubscribe, nil
+}
+
+func (m *MockTelemetryCollector) GetBatchMinerTelemetry(ctx context.Context, deviceIDs []string, dataMode pb.DataMode, timeSeriesConfig *commonpb.TimeSeriesConfig, measurementConfigs []*pb.MeasurementConfig) (map[string]*models.MinerTelemetry, error) {
+	result := make(map[string]*models.MinerTelemetry, len(deviceIDs))
+	for _, deviceID := range deviceIDs {
+		telemetry, err := m.GetMinerTelemetry(ctx, deviceID, dataMode, timeSeriesConfig, measurementConfigs)
+		if err != nil {
+			continue
+		}
+		result[deviceID] = telemetry
+	}
+	return result, nil
 }

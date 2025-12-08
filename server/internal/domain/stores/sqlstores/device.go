@@ -610,3 +610,17 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 
 	return rows, nextCursor, total, nil
 }
+
+// AllDevicesBelongToOrg returns true if all provided device identifiers belong to the specified organization.
+// Used for authorization checks - returns false if any device is not owned by the org.
+func (s *SQLDeviceStore) AllDevicesBelongToOrg(ctx context.Context, deviceIdentifiers []string, orgID int64) (bool, error) {
+	if len(deviceIdentifiers) == 0 {
+		return true, nil
+	}
+
+	return s.getQueries(ctx).AllDevicesBelongToOrg(ctx, sqlc.AllDevicesBelongToOrgParams{
+		ExpectedCount:     len(deviceIdentifiers),
+		DeviceIdentifiers: deviceIdentifiers,
+		OrgID:             orgID,
+	})
+}

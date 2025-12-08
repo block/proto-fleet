@@ -130,6 +130,15 @@ SELECT id
 FROM device
 WHERE device_identifier IN (sqlc.slice('device_identifiers'));
 
+-- name: AllDevicesBelongToOrg :one
+-- Returns true if all provided device identifiers belong to the specified organization.
+-- Used for authorization checks - fails fast if any device is not owned by the org.
+SELECT COUNT(*) = sqlc.arg('expected_count') as all_belong
+FROM device
+WHERE device_identifier IN (sqlc.slice('device_identifiers'))
+  AND org_id = ?
+  AND deleted_at IS NULL;
+
 -- name: GetAllPairedDeviceIdentifiers :many
 SELECT d.device_identifier
 FROM device d

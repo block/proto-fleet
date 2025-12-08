@@ -12,7 +12,8 @@ const (
 	DefaultRejected       = 0
 	DefaultDiscarded      = 0
 	DefaultDifficulty     = 1024.0
-	DefaultLastShareDelay = 600 // seconds ago
+	DefaultLastShareDelay = 600  // seconds ago
+	DefaultTemperature    = 72.0 // Celsius - realistic ASIC chip temperature
 )
 
 // Common structs for API responses

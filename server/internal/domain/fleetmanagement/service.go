@@ -81,18 +81,14 @@ func validatePageSize(pageSize int32) int32 {
 	return pageSize
 }
 
-// ListMinerStateSnapshots returns a paginated list of miners with their operational status and metrics
+// ListMinerStateSnapshots returns a paginated list of miners with their metadata (no telemetry)
 func (s *Service) ListMinerStateSnapshots(ctx context.Context, req *pb.ListMinerStateSnapshotsRequest) (*pb.ListMinerStateSnapshotsResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return s.buildSnapshotFromListRequest(ctx, info.OrganizationID, req)
-}
-
-func (s *Service) buildSnapshotFromListRequest(ctx context.Context, orgID int64, req *pb.ListMinerStateSnapshotsRequest) (*pb.ListMinerStateSnapshotsResponse, error) {
-	return s.buildSnapshot(ctx, orgID, req.PageSize, req.Cursor, req.Filter, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
+	return s.buildSnapshot(ctx, info.OrganizationID, req.PageSize, req.Cursor, req.Filter)
 }
 
 // GetMinerStateCounts returns counts of miners in different states without fetching miner data
@@ -118,7 +114,55 @@ func (s *Service) GetMinerStateCounts(ctx context.Context, _ *pb.GetMinerStateCo
 	}, nil
 }
 
-// buildSnapshot builds a ListMinerStateSnapshotsResponse with the given parameters
+// GetBatchMinerTelemetry returns telemetry data for multiple miners by their device identifiers.
+// This is optimized for fetching telemetry after an initial metadata-only list load.
+// Returns an authorization error if any device identifier does not belong to the user's organization.
+// Note: Proto validation enforces min_items: 1, so empty requests are rejected at the handler level.
+func (s *Service) GetBatchMinerTelemetry(ctx context.Context, req *pb.GetBatchMinerTelemetryRequest) (*pb.GetBatchMinerTelemetryResponse, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Verify all requested devices belong to the user's organization
+	allBelong, err := s.deviceStore.AllDevicesBelongToOrg(ctx, req.DeviceIdentifiers, info.OrganizationID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to validate device identifiers: %v", err)
+	}
+	if !allBelong {
+		return nil, fleeterror.NewForbiddenError("access denied to one or more requested devices")
+	}
+
+	telemetryMap, err := s.telemetry.GetBatchMinerTelemetry(
+		ctx,
+		req.DeviceIdentifiers,
+		req.DataMode,
+		req.TimeSeriesConfig,
+		req.MeasurementConfigs,
+	)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get batch telemetry: %v", err)
+	}
+
+	miners := make([]*pb.MinerTelemetry, 0, len(telemetryMap))
+	for deviceID, telemetry := range telemetryMap {
+		minerTelemetry := &pb.MinerTelemetry{
+			DeviceIdentifier: deviceID,
+			PowerUsage:       telemetry.PowerUsage,
+			Temperature:      telemetry.Temperature,
+			Hashrate:         telemetry.Hashrate,
+			Efficiency:       telemetry.Efficiency,
+			Timestamp:        telemetry.Timestamp,
+		}
+		miners = append(miners, minerTelemetry)
+	}
+
+	return &pb.GetBatchMinerTelemetryResponse{
+		Miners: miners,
+	}, nil
+}
+
+// buildSnapshot builds a ListMinerStateSnapshotsResponse with metadata only (no telemetry)
 // This is the shared implementation used by ListMinerStateSnapshots and StreamMinerListUpdates
 func (s *Service) buildSnapshot(
 	ctx context.Context,
@@ -126,9 +170,6 @@ func (s *Service) buildSnapshot(
 	pageSize int32,
 	cursor string,
 	filterProto *pb.MinerListFilter,
-	dataMode pb.DataMode,
-	timeSeriesConfig *commonpb.TimeSeriesConfig,
-	measurementConfigs []*pb.MeasurementConfig,
 ) (*pb.ListMinerStateSnapshotsResponse, error) {
 	filter, err := parseFilter(filterProto)
 	if err != nil {
@@ -137,7 +178,7 @@ func (s *Service) buildSnapshot(
 
 	pageSize = validatePageSize(pageSize)
 
-	snapshots, nextCursor, total, err := s.buildSnapshotsFromUnifiedQuery(ctx, orgID, cursor, pageSize, filter, dataMode, timeSeriesConfig, measurementConfigs)
+	snapshots, nextCursor, total, err := s.buildSnapshotsFromUnifiedQuery(ctx, orgID, cursor, pageSize, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -170,9 +211,6 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 	cursor string,
 	pageSize int32,
 	filter *interfaces.MinerFilter,
-	dataMode pb.DataMode,
-	timeSeriesConfig *commonpb.TimeSeriesConfig,
-	measurementConfigs []*pb.MeasurementConfig,
 ) ([]*pb.MinerStateSnapshot, string, int64, error) {
 	rows, nextCursor, total, err := s.deviceStore.ListMinerStateSnapshots(ctx, orgID, cursor, pageSize, filter)
 	if err != nil {
@@ -205,7 +243,6 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 		case "UNPAIRED":
 			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_UNPAIRED
 		default:
-			// Default to unpaired for unknown statuses
 			snapshot.PairingStatus = pb.PairingStatus_PAIRING_STATUS_UNPAIRED
 		}
 
@@ -217,15 +254,6 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 				snapshot.SerialNumber = row.SerialNumber.String
 			}
 			snapshot.Name = snapshot.Manufacturer + " " + snapshot.Model
-
-			telemetry, err := s.telemetry.GetMinerTelemetry(ctx, row.DeviceIdentifier, dataMode, timeSeriesConfig, measurementConfigs)
-			if err == nil && telemetry != nil {
-				snapshot.PowerUsage = telemetry.PowerUsage
-				snapshot.Temperature = telemetry.Temperature
-				snapshot.Hashrate = telemetry.Hashrate
-				snapshot.Efficiency = telemetry.Efficiency
-				snapshot.Timestamp = telemetry.Timestamp
-			}
 
 			status, err := s.telemetry.GetMinerComponentStatus(ctx, row.DeviceIdentifier)
 			if err == nil && status != nil {
@@ -529,23 +557,17 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 	go func() {
 		defer close(responseChan)
 
-		// Track current set of device IDs that match the filter with their positions
-		// We maintain a sorted list to provide accurate positions for additions
 		currentMatchingDevices := make(map[string]bool)
-		sortedDeviceIDs := []string{} // Maintain sorted order
+		sortedDeviceIDs := []string{}
 
 		// Build initial tracking state of ALL miners matching the filter
 		// This is not sent to the client - they use ListMinerStateSnapshots for initial display
 		buildInitialTrackingState := func() error {
-			// Get ALL miners matching the filter (no pagination)
-			// We use a large page size to get all miners in one query
-			snapshot, err := s.buildSnapshot(ctx, info.OrganizationID, maxPageSizeForTracking, "", req.Filter, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
+			snapshot, err := s.buildSnapshot(ctx, info.OrganizationID, maxPageSizeForTracking, "", req.Filter)
 			if err != nil {
 				return err
 			}
 
-			// Track initial device IDs for delta calculation
-			// Miners are already sorted from buildSnapshot
 			for _, miner := range snapshot.Miners {
 				currentMatchingDevices[miner.DeviceIdentifier] = true
 				sortedDeviceIDs = append(sortedDeviceIDs, miner.DeviceIdentifier)
@@ -610,9 +632,8 @@ func (s *Service) StreamMinerListUpdates(ctx context.Context, req *pb.StreamMine
 				if nowMatches && !wasMatching {
 					currentMatchingDevices[deviceID] = true
 
-					snapshot := s.buildMinerSnapshot(ctx, device, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
+					snapshot := s.buildMinerSnapshotWithTelemetry(ctx, device, req.DataMode, req.TimeSeriesConfig, req.MeasurementConfigs)
 
-					// Position is appended to end for now; proper position would use ListMinerStateSnapshots sorting logic
 					position := len(sortedDeviceIDs)
 					sortedDeviceIDs = append(sortedDeviceIDs, deviceID)
 
@@ -741,7 +762,8 @@ func (s *Service) deviceMatchesFilter(device *pairingpb.Device, filter *interfac
 	return true
 }
 
-func (s *Service) buildMinerSnapshot(
+// buildMinerSnapshotWithTelemetry builds a snapshot with optional telemetry for streaming updates
+func (s *Service) buildMinerSnapshotWithTelemetry(
 	ctx context.Context,
 	device *pairingpb.Device,
 	dataMode pb.DataMode,

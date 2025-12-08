@@ -2,9 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { fleetManagementClient, telemetryClient } from "@/protoFleet/api/clients";
 import {
-  DataMode,
   DeviceStatusUpdateSchema,
-  MeasurementConfig_MeasurementType,
   MinerListFilter,
   MinerStateSnapshot,
   PairingStatus,
@@ -40,17 +38,10 @@ type UseFleetOptions = {
    * with the new subset of miners.
    */
   visibleMinerIds?: Set<string>;
-  mode?: "snapshot" | "metadata" | "timeseries";
 };
 
 // Constants to prevent re-renders from unstable default values
 const DEFAULT_PAIRING_STATUSES: PairingStatus[] = [];
-
-const DataModeMapping = {
-  snapshot: DataMode.SNAPSHOT,
-  metadata: DataMode.METADATA,
-  timeseries: DataMode.TIME_SERIES,
-} as const;
 
 /**
  * Hook for managing fleet data with automatic loading, filtering, and pagination.
@@ -79,7 +70,7 @@ const DataModeMapping = {
  * });
  *
  * // With visible miners for optimized telemetry streaming
- * const { minerIds, totalMiners, hasMore, isLoading, setFilter, loadMore, refetch } = useFleet({
+ * const { minerIds, totalMiners, hasMore, isLoading, loadMore, refetch } = useFleet({
  *   scope: 'global',
  *   visibleMinerIds: myVisibleMinerIds,
  *   pageSize: 25
@@ -104,7 +95,6 @@ const useFleet = (options: UseFleetOptions = {}) => {
     pairingStatuses = DEFAULT_PAIRING_STATUSES, // Use stable reference to prevent re-renders
     scope = "local",
     visibleMinerIds,
-    mode = "metadata",
   } = options;
   const { handleAuthErrors } = useAuthErrors();
 
@@ -249,45 +239,10 @@ const useFleet = (options: UseFleetOptions = {}) => {
         // Merge pairing statuses into the filter
         const filterWithPairingStatuses = filter ? { ...filter, pairingStatuses } : { pairingStatuses };
 
-        const dataMode = DataModeMapping[mode];
-
         const response = await fleetManagementClient.listMinerStateSnapshots({
           pageSize,
           cursor: pageCursor,
           filter: filterWithPairingStatuses,
-          dataMode,
-          measurementConfigs:
-            dataMode === DataMode.METADATA
-              ? undefined
-              : [
-                  {
-                    measurementType: MeasurementConfig_MeasurementType.HASHRATE,
-                    dataMode: DataMode.TIME_SERIES,
-                    timeSeriesConfig: {
-                      timeSelection: {
-                        case: "lookbackPeriod",
-                        value: {
-                          seconds: BigInt(600),
-                          nanos: 0,
-                        },
-                      },
-                      resolution: 100,
-                    },
-                  },
-                  // Get snapshot values for other measurements
-                  {
-                    measurementType: MeasurementConfig_MeasurementType.POWER_USAGE,
-                    dataMode: DataMode.SNAPSHOT,
-                  },
-                  {
-                    measurementType: MeasurementConfig_MeasurementType.TEMPERATURE,
-                    dataMode: DataMode.SNAPSHOT,
-                  },
-                  {
-                    measurementType: MeasurementConfig_MeasurementType.EFFICIENCY,
-                    dataMode: DataMode.SNAPSHOT,
-                  },
-                ],
         });
 
         const { miners, cursor: newCursor, totalMiners: responseTotalMiners, totalStateCounts } = response;
@@ -368,7 +323,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
         }
       }
     },
-    [pairingStatuses, mode, pageSize, scope, handleAuthErrors],
+    [pairingStatuses, pageSize, scope, handleAuthErrors],
   );
 
   // Debounced version of fetchMinerList for internal use

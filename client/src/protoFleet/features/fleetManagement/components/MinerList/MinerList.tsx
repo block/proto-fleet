@@ -50,6 +50,19 @@ type MinerListProps = {
    * Whether the list is loading. Shows a spinner in place of list items.
    */
   loading?: boolean;
+  /**
+   * Optional callback for infinite scroll. Called when the user scrolls
+   * near the bottom of the list.
+   */
+  onLoadMore?: () => void;
+  /**
+   * Whether more items are available to load.
+   */
+  hasMore?: boolean;
+  /**
+   * Whether the list is currently loading more items.
+   */
+  isLoadingMore?: boolean;
 };
 
 // TODO: move this to state when we
@@ -75,13 +88,15 @@ const MinerList = ({
   totalMiners,
   itemRef,
   loading = false,
+  onLoadMore,
+  hasMore = false,
+  isLoadingMore = false,
 }: MinerListProps) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   const deviceItems: DeviceListItem[] = useMemo(() => minerIds.map((id) => ({ deviceIdentifier: id })), [minerIds]);
 
-  // Parse URL params to get initial active filters
   const initialActiveFilters = useMemo(() => parseUrlToActiveFilters(searchParams), [searchParams]);
 
   // Determine if any filters are currently active from URL params
@@ -137,7 +152,6 @@ const MinerList = ({
         componentFilters: [],
       });
 
-      // Handle status dropdown filter
       const statusFilters = filters.dropdownFilters.status;
       if (statusFilters !== undefined && statusFilters.length > 0) {
         // Only apply status filtering if specific statuses are selected
@@ -160,7 +174,6 @@ const MinerList = ({
       }
       // If statusFilters is undefined or empty, don't add any status filter (show all)
 
-      // Handle type dropdown filter
       const typeFilters = filters.dropdownFilters.type;
       typeFilters?.forEach((filter) => {
         switch (filter) {
@@ -172,7 +185,6 @@ const MinerList = ({
             break;
         }
       });
-      // Handle issues dropdown filter with component-specific filtering
       const issueFilters = filters.dropdownFilters.issues;
       issueFilters?.forEach((issue) => {
         const componentFilter = create(ComponentStatusFilterSchema, {
@@ -242,6 +254,9 @@ const MinerList = ({
           itemName={{ singular: "miner", plural: "miners" }}
           itemRef={itemRef}
           initialActiveFilters={initialActiveFilters}
+          onLoadMore={onLoadMore}
+          hasMore={hasMore}
+          isLoadingMore={isLoadingMore}
         />
       )}
     </>

@@ -101,7 +101,7 @@ services:
           cpus: "0.5"
           memory: 512M
         reservations:
-          memory: 128M
+          memory: 64M
     networks:
       - fleet-network
     cap_add:

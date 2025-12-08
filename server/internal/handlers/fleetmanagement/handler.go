@@ -45,7 +45,6 @@ func (h *Handler) StreamMinerUpdates(ctx context.Context, r *connect.Request[pb.
 			return fmt.Errorf("stream context cancelled: %w", ctx.Err())
 		case resp, ok := <-responseChan:
 			if !ok {
-				// Channel closed, stream complete
 				return nil
 			}
 			if err := stream.Send(resp); err != nil {
@@ -67,7 +66,6 @@ func (h *Handler) StreamMinerListUpdates(ctx context.Context, r *connect.Request
 			return fmt.Errorf("stream context cancelled: %w", ctx.Err())
 		case resp, ok := <-responseChan:
 			if !ok {
-				// Channel closed, stream complete
 				return nil
 			}
 			if err := stream.Send(resp); err != nil {
@@ -79,6 +77,15 @@ func (h *Handler) StreamMinerListUpdates(ctx context.Context, r *connect.Request
 
 func (h *Handler) GetMinerStateCounts(ctx context.Context, r *connect.Request[pb.GetMinerStateCountsRequest]) (*connect.Response[pb.GetMinerStateCountsResponse], error) {
 	result, err := h.fleetMgmtSvc.GetMinerStateCounts(ctx, r.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(result), nil
+}
+
+func (h *Handler) GetBatchMinerTelemetry(ctx context.Context, r *connect.Request[pb.GetBatchMinerTelemetryRequest]) (*connect.Response[pb.GetBatchMinerTelemetryResponse], error) {
+	result, err := h.fleetMgmtSvc.GetBatchMinerTelemetry(ctx, r.Msg)
 	if err != nil {
 		return nil, err
 	}

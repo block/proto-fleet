@@ -46,6 +46,9 @@ const (
 	// FleetManagementServiceGetMinerStateCountsProcedure is the fully-qualified name of the
 	// FleetManagementService's GetMinerStateCounts RPC.
 	FleetManagementServiceGetMinerStateCountsProcedure = "/fleetmanagement.v1.FleetManagementService/GetMinerStateCounts"
+	// FleetManagementServiceGetBatchMinerTelemetryProcedure is the fully-qualified name of the
+	// FleetManagementService's GetBatchMinerTelemetry RPC.
+	FleetManagementServiceGetBatchMinerTelemetryProcedure = "/fleetmanagement.v1.FleetManagementService/GetBatchMinerTelemetry"
 )
 
 // FleetManagementServiceClient is a client for the fleetmanagement.v1.FleetManagementService
@@ -64,6 +67,10 @@ type FleetManagementServiceClient interface {
 	// Get counts of miners in different states without fetching miner data
 	// More efficient than ListMinerStateSnapshots when only counts are needed
 	GetMinerStateCounts(context.Context, *connect.Request[v1.GetMinerStateCountsRequest]) (*connect.Response[v1.GetMinerStateCountsResponse], error)
+	// Get telemetry data for a batch of miners by their device identifiers
+	// This is optimized for fetching telemetry for multiple miners in a single request
+	// Use this after initial metadata-only list load to populate telemetry for visible rows
+	GetBatchMinerTelemetry(context.Context, *connect.Request[v1.GetBatchMinerTelemetryRequest]) (*connect.Response[v1.GetBatchMinerTelemetryResponse], error)
 }
 
 // NewFleetManagementServiceClient constructs a client for the
@@ -96,6 +103,11 @@ func NewFleetManagementServiceClient(httpClient connect.HTTPClient, baseURL stri
 			baseURL+FleetManagementServiceGetMinerStateCountsProcedure,
 			opts...,
 		),
+		getBatchMinerTelemetry: connect.NewClient[v1.GetBatchMinerTelemetryRequest, v1.GetBatchMinerTelemetryResponse](
+			httpClient,
+			baseURL+FleetManagementServiceGetBatchMinerTelemetryProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -105,6 +117,7 @@ type fleetManagementServiceClient struct {
 	streamMinerUpdates      *connect.Client[v1.StreamMinerUpdatesRequest, v1.StreamMinerUpdatesResponse]
 	streamMinerListUpdates  *connect.Client[v1.StreamMinerListUpdatesRequest, v1.StreamMinerListUpdatesResponse]
 	getMinerStateCounts     *connect.Client[v1.GetMinerStateCountsRequest, v1.GetMinerStateCountsResponse]
+	getBatchMinerTelemetry  *connect.Client[v1.GetBatchMinerTelemetryRequest, v1.GetBatchMinerTelemetryResponse]
 }
 
 // ListMinerStateSnapshots calls fleetmanagement.v1.FleetManagementService.ListMinerStateSnapshots.
@@ -127,6 +140,11 @@ func (c *fleetManagementServiceClient) GetMinerStateCounts(ctx context.Context, 
 	return c.getMinerStateCounts.CallUnary(ctx, req)
 }
 
+// GetBatchMinerTelemetry calls fleetmanagement.v1.FleetManagementService.GetBatchMinerTelemetry.
+func (c *fleetManagementServiceClient) GetBatchMinerTelemetry(ctx context.Context, req *connect.Request[v1.GetBatchMinerTelemetryRequest]) (*connect.Response[v1.GetBatchMinerTelemetryResponse], error) {
+	return c.getBatchMinerTelemetry.CallUnary(ctx, req)
+}
+
 // FleetManagementServiceHandler is an implementation of the
 // fleetmanagement.v1.FleetManagementService service.
 type FleetManagementServiceHandler interface {
@@ -143,6 +161,10 @@ type FleetManagementServiceHandler interface {
 	// Get counts of miners in different states without fetching miner data
 	// More efficient than ListMinerStateSnapshots when only counts are needed
 	GetMinerStateCounts(context.Context, *connect.Request[v1.GetMinerStateCountsRequest]) (*connect.Response[v1.GetMinerStateCountsResponse], error)
+	// Get telemetry data for a batch of miners by their device identifiers
+	// This is optimized for fetching telemetry for multiple miners in a single request
+	// Use this after initial metadata-only list load to populate telemetry for visible rows
+	GetBatchMinerTelemetry(context.Context, *connect.Request[v1.GetBatchMinerTelemetryRequest]) (*connect.Response[v1.GetBatchMinerTelemetryResponse], error)
 }
 
 // NewFleetManagementServiceHandler builds an HTTP handler from the service implementation. It
@@ -171,6 +193,11 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 		svc.GetMinerStateCounts,
 		opts...,
 	)
+	fleetManagementServiceGetBatchMinerTelemetryHandler := connect.NewUnaryHandler(
+		FleetManagementServiceGetBatchMinerTelemetryProcedure,
+		svc.GetBatchMinerTelemetry,
+		opts...,
+	)
 	return "/fleetmanagement.v1.FleetManagementService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case FleetManagementServiceListMinerStateSnapshotsProcedure:
@@ -181,6 +208,8 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 			fleetManagementServiceStreamMinerListUpdatesHandler.ServeHTTP(w, r)
 		case FleetManagementServiceGetMinerStateCountsProcedure:
 			fleetManagementServiceGetMinerStateCountsHandler.ServeHTTP(w, r)
+		case FleetManagementServiceGetBatchMinerTelemetryProcedure:
+			fleetManagementServiceGetBatchMinerTelemetryHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -204,4 +233,8 @@ func (UnimplementedFleetManagementServiceHandler) StreamMinerListUpdates(context
 
 func (UnimplementedFleetManagementServiceHandler) GetMinerStateCounts(context.Context, *connect.Request[v1.GetMinerStateCountsRequest]) (*connect.Response[v1.GetMinerStateCountsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.GetMinerStateCounts is not implemented"))
+}
+
+func (UnimplementedFleetManagementServiceHandler) GetBatchMinerTelemetry(context.Context, *connect.Request[v1.GetBatchMinerTelemetryRequest]) (*connect.Response[v1.GetBatchMinerTelemetryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.GetBatchMinerTelemetry is not implemented"))
 }

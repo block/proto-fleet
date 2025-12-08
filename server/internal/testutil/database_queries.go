@@ -124,6 +124,85 @@ func (s *DatabaseService) CreateSuperAdminUser() *TestUser {
 	return &testUser
 }
 
+// CreateSuperAdminUser2 creates a second test user in a different organization.
+// Use this when testing cross-organization authorization.
+func (s *DatabaseService) CreateSuperAdminUser2() *TestUser {
+	username := "bob@example.com"
+	password := "password123"
+	organizationName := "Super organization 2"
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	assert.NoError(s.t, err, "could not hash pass")
+
+	externalUserID := id.GenerateID()
+
+	var testUser TestUser
+	testUser.Username = username
+	testUser.Password = password
+
+	err = db2.WithTransactionNoResult(context.Background(), s.DB, func(q *sqlc.Queries) error {
+		userResult, err := q.CreateUser(context.Background(), sqlc.CreateUserParams{
+			UserID:       externalUserID,
+			Username:     username,
+			PasswordHash: string(hashedPassword),
+			CreatedAt:    time.Now(),
+		})
+		if err != nil {
+			return fleeterror.NewInternalErrorf("error creating user: %v", err)
+		}
+
+		userID, err := userResult.LastInsertId()
+		if err != nil {
+			return fleeterror.NewInternalErrorf("error getting last inserted id: %v", err)
+		}
+		testUser.DatabaseID = userID
+
+		orgResult, err := q.CreateOrganization(context.Background(), sqlc.CreateOrganizationParams{
+			Name:                organizationName,
+			OrgID:               organizationName,
+			MinerAuthPrivateKey: s.config.MinerAuthPrivateKey,
+		})
+		if err != nil {
+			return fleeterror.NewInternalErrorf("error creating organization: %v", err)
+		}
+
+		orgID, err := orgResult.LastInsertId()
+		if err != nil {
+			return fleeterror.NewInternalErrorf("error getting org id: %v", err)
+		}
+
+		roleResult, err := q.UpsertRole(context.Background(), sqlc.UpsertRoleParams{
+			Name: "SUPER_ADMIN",
+			Description: sql.NullString{
+				String: "Super admin role for testing",
+				Valid:  true,
+			},
+		})
+		if err != nil {
+			return fleeterror.NewInternalErrorf("error creating role: %v", err)
+		}
+
+		roleID, err := roleResult.LastInsertId()
+		if err != nil {
+			return fleeterror.NewInternalErrorf("error getting role id: %v", err)
+		}
+
+		err = q.CreateUserOrganization(context.Background(), sqlc.CreateUserOrganizationParams{
+			UserID:         userID,
+			RoleID:         roleID,
+			OrganizationID: orgID,
+		})
+		if err != nil {
+			return fleeterror.NewInternalErrorf("error associating user with org: %v", err)
+		}
+		testUser.OrganizationID = orgID
+
+		return nil
+	})
+	assert.NoError(s.t, err, "db transaction error")
+
+	return &testUser
+}
+
 func (s *DatabaseService) CreateDevice(organizationID int64, minerType models.Type) DeviceIdentification {
 	uuidCurrent := id.GenerateID()
 	deviceIdentification, err := db2.WithTransaction(context.Background(), s.DB, func(q *sqlc.Queries) (DeviceIdentification, error) {

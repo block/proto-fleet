@@ -26,6 +26,11 @@ service FleetManagementService {
   // Get counts of miners in different states without fetching miner data
   // More efficient than ListMinerStateSnapshots when only counts are needed
   rpc GetMinerStateCounts(GetMinerStateCountsRequest) returns (GetMinerStateCountsResponse);
+
+  // Get telemetry data for a batch of miners by their device identifiers
+  // This is optimized for fetching telemetry for multiple miners in a single request
+  // Use this after initial metadata-only list load to populate telemetry for visible rows
+  rpc GetBatchMinerTelemetry(GetBatchMinerTelemetryRequest) returns (GetBatchMinerTelemetryResponse);
 }
 
 enum FleetManagementServiceErrorCode {
@@ -192,7 +197,9 @@ message MeasurementConfig {
   common.v1.TimeSeriesConfig time_series_config = 3;
 }
 
-// Request to list miners with their telemetry data
+// Request to list miners with their metadata (no telemetry data)
+// Returns paginated list of miners with identification info and status
+// Use GetBatchMinerTelemetry to fetch telemetry for specific miners after initial load
 message ListMinerStateSnapshotsRequest {
   // Maximum number of miners to return in a single response
   // Server may return fewer miners than specified
@@ -208,20 +215,12 @@ message ListMinerStateSnapshotsRequest {
   // Leave empty for first request
   string cursor = 2;
 
-  // Global data mode that applies to all measurements unless overridden
-  // by a specific measurement configuration
-  DataMode data_mode = 3;
-
-  // Global time series config that applies to all measurements unless overridden
-  // Required when global data_mode is TIME_SERIES and no per-measurement configs are provided
-  common.v1.TimeSeriesConfig time_series_config = 4;
-  
-  // Per-measurement configurations that override the global settings
-  // If provided for a measurement type, these settings take precedence over global settings
-  repeated MeasurementConfig measurement_configs = 5;
-
   // Filter criteria for the miners to return
   MinerListFilter filter = 6;
+
+  // Reserved field numbers for removed fields (data_mode, time_series_config, measurement_configs)
+  reserved 3, 4, 5;
+  reserved "data_mode", "time_series_config", "measurement_configs";
 }
 
 // Determines whether to return current snapshot or historical time series data
@@ -487,4 +486,60 @@ message MinerAddition {
 
   // Position where the miner should be inserted (for maintaining sort order)
   int32 position = 2;
+}
+
+// Request to get telemetry data for a batch of miners
+message GetBatchMinerTelemetryRequest {
+  // Device identifiers of miners to fetch telemetry for
+  // Maximum of 100 device IDs per request
+  repeated string device_identifiers = 1 [(buf.validate.field).repeated = {
+    min_items: 1,
+    max_items: 100
+  }];
+
+  // Global data mode that applies to all measurements unless overridden
+  // by a specific measurement configuration
+  DataMode data_mode = 2;
+
+  // Global time series config that applies to all measurements unless overridden
+  // Required when global data_mode is TIME_SERIES and no per-measurement configs are provided
+  common.v1.TimeSeriesConfig time_series_config = 3;
+
+  // Per-measurement configurations that override the global settings
+  // If provided for a measurement type, these settings take precedence over global settings
+  repeated MeasurementConfig measurement_configs = 4;
+}
+
+// Response containing telemetry data for a batch of miners
+message GetBatchMinerTelemetryResponse {
+  // Telemetry data for each requested miner
+  // Key is the device_identifier, value contains the telemetry measurements
+  repeated MinerTelemetry miners = 1;
+}
+
+// Telemetry data for a single miner
+message MinerTelemetry {
+  // Device identifier this telemetry belongs to
+  string device_identifier = 1;
+
+  // Power consumption measurements in kilowatts (kW)
+  repeated common.v1.Measurement power_usage = 2;
+
+  // Temperature measurements in degrees Celsius
+  repeated common.v1.Measurement temperature = 3;
+
+  // Hashrate measurements in TH/s (terahash per second)
+  repeated common.v1.Measurement hashrate = 4;
+
+  // Energy efficiency measurements in joules per terahash (j/TH)
+  repeated common.v1.Measurement efficiency = 5;
+
+  // Health status of various miner components
+  MinerComponentStatus status = 6;
+
+  // Timestamp when this telemetry was captured
+  google.protobuf.Timestamp timestamp = 7;
+
+  // Current operational status of the device
+  DeviceStatus device_status = 8;
 }

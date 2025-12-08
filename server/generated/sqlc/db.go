@@ -27,6 +27,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.adminResetUserPasswordStmt, err = db.PrepareContext(ctx, adminResetUserPassword); err != nil {
 		return nil, fmt.Errorf("error preparing query AdminResetUserPassword: %w", err)
 	}
+	if q.allDevicesBelongToOrgStmt, err = db.PrepareContext(ctx, allDevicesBelongToOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query AllDevicesBelongToOrg: %w", err)
+	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, countActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveUnpairedDiscoveredDevices: %w", err)
 	}
@@ -323,6 +326,11 @@ func (q *Queries) Close() error {
 	if q.adminResetUserPasswordStmt != nil {
 		if cerr := q.adminResetUserPasswordStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing adminResetUserPasswordStmt: %w", cerr)
+		}
+	}
+	if q.allDevicesBelongToOrgStmt != nil {
+		if cerr := q.allDevicesBelongToOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing allDevicesBelongToOrgStmt: %w", cerr)
 		}
 	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt != nil {
@@ -845,6 +853,7 @@ type Queries struct {
 	db                                                  DBTX
 	tx                                                  *sql.Tx
 	adminResetUserPasswordStmt                          *sql.Stmt
+	allDevicesBelongToOrgStmt                           *sql.Stmt
 	countActiveUnpairedDiscoveredDevicesStmt            *sql.Stmt
 	countMinersByStateStmt                              *sql.Stmt
 	createCommandBatchLogStmt                           *sql.Stmt
@@ -948,6 +957,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		db:                                                  tx,
 		tx:                                                  tx,
 		adminResetUserPasswordStmt:                          q.adminResetUserPasswordStmt,
+		allDevicesBelongToOrgStmt:                           q.allDevicesBelongToOrgStmt,
 		countActiveUnpairedDiscoveredDevicesStmt:            q.countActiveUnpairedDiscoveredDevicesStmt,
 		countMinersByStateStmt:                              q.countMinersByStateStmt,
 		createCommandBatchLogStmt:                           q.createCommandBatchLogStmt,

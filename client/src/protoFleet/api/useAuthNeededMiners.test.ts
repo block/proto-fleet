@@ -35,7 +35,6 @@ describe("useAuthNeededMiners", () => {
       scope: "local",
       pageSize: 100,
       pairingStatuses: [PairingStatus.AUTHENTICATION_NEEDED],
-      mode: "metadata",
     });
   });
 
@@ -46,7 +45,6 @@ describe("useAuthNeededMiners", () => {
       scope: "local",
       pageSize: 50,
       pairingStatuses: [PairingStatus.AUTHENTICATION_NEEDED],
-      mode: "metadata",
     });
   });
 
@@ -70,14 +68,6 @@ describe("useAuthNeededMiners", () => {
     const callArgs = vi.mocked(useFleet).mock.calls[0]?.[0];
     expect(callArgs).toBeDefined();
     expect(callArgs?.pairingStatuses).toEqual([PairingStatus.AUTHENTICATION_NEEDED]);
-  });
-
-  it("uses metadata mode for minimal data transfer", () => {
-    renderHook(() => useAuthNeededMiners());
-
-    const callArgs = vi.mocked(useFleet).mock.calls[0]?.[0];
-    expect(callArgs).toBeDefined();
-    expect(callArgs?.mode).toBe("metadata");
   });
 
   describe("pagination", () => {
