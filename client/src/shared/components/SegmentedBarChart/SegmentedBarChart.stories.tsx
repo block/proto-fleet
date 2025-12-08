@@ -29,11 +29,6 @@ const meta = {
       control: "boolean",
       description: "Display values as percentages",
     },
-    toolTipKey: {
-      control: { type: "select" },
-      options: ["total", "normal", "hot", "cold", "critical", null],
-      description: "Key to display in tooltip (null to disable)",
-    },
     showDateLabel: {
       control: "boolean",
       description: "Show date instead of time on X-axis",
@@ -102,7 +97,6 @@ export const FewBars: Story = {
     units: " miners",
     barWidth: 8,
     height: 200,
-    toolTipKey: "total",
     percentageDisplay: true,
     showDateLabel: false,
   },
@@ -117,7 +111,6 @@ export const MediumBars: Story = {
     units: " miners",
     barWidth: 8,
     height: 200,
-    toolTipKey: "total",
     percentageDisplay: true,
     showDateLabel: false,
   },
@@ -132,7 +125,6 @@ export const ManyBars: Story = {
     units: " miners",
     barWidth: 8,
     height: 200,
-    toolTipKey: "total",
     percentageDisplay: true,
     showDateLabel: false,
   },
@@ -307,7 +299,6 @@ export const ResponsiveBarWidth: Story = {
     },
     height: 200,
     percentageDisplay: false,
-    toolTipKey: "total",
   },
   render: (args) => (
     <div style={{ padding: "20px" }}>
@@ -336,7 +327,6 @@ export const ResponsiveBarGap: Story = {
     },
     height: 200,
     percentageDisplay: false,
-    toolTipKey: "total",
   },
   render: (args) => (
     <div style={{ padding: "20px" }}>
@@ -370,7 +360,6 @@ export const ResponsiveBoth: Story = {
     },
     height: 200,
     percentageDisplay: true,
-    toolTipKey: "total",
   },
   render: (args) => (
     <div style={{ padding: "20px" }}>
@@ -401,7 +390,6 @@ export const PartialResponsive: Story = {
     barGap: 4, // Static gap across all viewports
     height: 200,
     percentageDisplay: false,
-    toolTipKey: "total",
   },
   render: (args) => (
     <div style={{ padding: "20px" }}>

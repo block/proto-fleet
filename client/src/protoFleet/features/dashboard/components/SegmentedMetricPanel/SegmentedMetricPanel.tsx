@@ -119,11 +119,12 @@ export const SegmentedMetricPanel = ({
                   chartData={dayData}
                   segmentKeys={segmentKeys}
                   colorMap={colorMap}
+                  segmentConfig={segmentConfig}
+                  units={{ singular: "miner", plural: "miners" }}
                   height={DEFAULT_CHART_HEIGHT}
                   percentageDisplay={true}
                   xAxisTickInterval={isMultiDay ? (hours <= 48 ? 3 : 2) : 1}
                   yAxisTickCount={4}
-                  toolTipKey={null}
                   barWidth={barWidth}
                   barGap={isMultiDay ? MULTI_DAY_BAR_GAP : undefined}
                   showDateLabel={isMultiDay}
