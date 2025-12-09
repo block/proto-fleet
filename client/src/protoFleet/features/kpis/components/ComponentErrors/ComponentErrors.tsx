@@ -30,7 +30,7 @@ const ComponentErrors = ({ icon, heading, errorCount, href, className }: Compone
           "flex h-12 w-12 justify-center rounded-lg",
           !isLoading && errorCount > 0
             ? "bg-intent-critical-fill text-text-contrast"
-            : "bg-surface-5 text-text-primary-70",
+            : "bg-surface-5 text-text-primary-70 dark:bg-core-primary-5",
         )}
       >
         {icon}
@@ -47,8 +47,8 @@ const ComponentErrors = ({ icon, heading, errorCount, href, className }: Compone
   );
 
   const baseClassName = clsx(
-    "flex items-center gap-3 rounded-xl bg-surface-base p-4",
-    href && "hover:bg-core-primary-5",
+    "flex items-center gap-3 rounded-xl bg-surface-base dark:bg-core-primary-5 p-4",
+    href && "hover:bg-core-primary-10",
     className,
   );
 

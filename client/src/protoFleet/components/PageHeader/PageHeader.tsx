@@ -50,7 +50,12 @@ const PageHeader = ({ openMenu }: PageHeaderProps) => {
         </div>
       </div>
       {showPhoneWidgets && (
-        <div className={clsx("flex h-[57px] items-center", isDashboard ? "bg-surface-5" : "bg-surface-base")}>
+        <div
+          className={clsx(
+            "flex h-[57px] items-center",
+            isDashboard ? "bg-surface-5 dark:bg-surface-base" : "bg-surface-base",
+          )}
+        >
           <HeaderWidgets className="ml-5" />
         </div>
       )}

@@ -46,7 +46,7 @@ const Dashboard = () => {
           {/* Performance Section */}
           <section className="pb-6">
             <div ref={refs.vertical.start} />
-            <div className="sticky top-0 z-2 bg-surface-5 px-10 pt-10 pb-6 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6">
+            <div className="sticky top-0 z-2 bg-surface-5 px-10 pt-10 pb-6 dark:bg-surface-base phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6">
               <SectionHeading heading="Performance">
                 <DurationSelector duration={duration} onSelect={setDuration} />
               </SectionHeading>

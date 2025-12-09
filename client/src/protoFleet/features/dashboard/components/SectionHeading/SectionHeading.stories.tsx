@@ -21,7 +21,7 @@ export const SectionHeading = ({ heading, controlType }: SectionHeadingArgs) => 
   };
 
   return (
-    <div className="bg-surface-5 p-10">
+    <div className="bg-surface-5 p-10 dark:bg-surface-base">
       <SectionHeadingComponent heading={heading}>{renderControls()}</SectionHeadingComponent>
     </div>
   );

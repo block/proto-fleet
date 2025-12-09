@@ -100,10 +100,13 @@ export const SegmentedMetricPanel = ({
 
   return (
     <div
-      className={`flex w-full flex-row overflow-hidden rounded-xl bg-surface-base phone:flex-col phone:gap-6 tablet:flex-col tablet:gap-6 ${className || ""}`}
+      className={`flex w-full flex-row overflow-hidden rounded-xl bg-surface-base dark:bg-core-primary-5 phone:flex-col phone:gap-6 tablet:flex-col tablet:gap-6 ${className || ""}`}
     >
       {/* Left Panel: ChartWidget with SegmentedBarChart(s) */}
-      <ChartWidget stats={stat} className="w-1/2 rounded-none! phone:w-full tablet:w-full">
+      <ChartWidget
+        stats={stat}
+        className="w-1/2 rounded-none! bg-transparent dark:bg-transparent phone:w-full tablet:w-full"
+      >
         <div className={`w-full ${isMultiDay ? "flex flex-row" : ""}`}>
           {processedChartData.map((dayData, index) => {
             // Use pre-calculated width for this chart
@@ -137,7 +140,7 @@ export const SegmentedMetricPanel = ({
       </ChartWidget>
 
       {/* Right Panel: Current Values Breakdown */}
-      <div className="flex w-1/2 flex-col justify-between space-y-3 rounded-xl bg-surface-base p-10 phone:w-full phone:gap-4 phone:p-6 phone:pt-0 tablet:w-full tablet:gap-4 tablet:p-6 tablet:pt-0">
+      <div className="flex w-1/2 flex-col justify-between space-y-3 bg-transparent p-10 dark:bg-transparent phone:w-full phone:gap-4 phone:p-6 phone:pt-0 tablet:w-full tablet:gap-4 tablet:p-6 tablet:pt-0">
         {currentBreakdown.map((segment, idx) => (
           <div key={segment.key} className="relative flex grow flex-row items-center">
             {/* Icon or color indicator */}
