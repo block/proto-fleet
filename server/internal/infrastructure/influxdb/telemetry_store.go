@@ -1014,7 +1014,7 @@ SELECT
 	SUM(device_latest) as sum_value
 FROM per_device_aggregations
 GROUP BY bucket
-ORDER BY bucket ASC
+ORDER BY bucket DESC
 LIMIT 1000
 `, int(slideInterval.Seconds()), fieldName, fieldName, fieldName, fieldName, fieldName, deviceIDsStr)
 		} else {
@@ -1039,7 +1039,7 @@ SELECT
 	SUM(latest_value) as sum_value
 FROM latest_per_device
 GROUP BY bucket
-ORDER BY bucket ASC
+ORDER BY bucket DESC
 LIMIT 1000
 `, int(slideInterval.Seconds()), fieldName, fieldName, deviceIDsStr)
 		}
@@ -1426,6 +1426,12 @@ LIMIT 1000
 			})
 		}
 	}
+
+	// Sort metrics by OpenTime in ascending order (oldest to newest)
+	// Query uses DESC to prioritize recent data within LIMIT, but clients expect ASC for charting
+	sort.Slice(allMetrics, func(i, j int) bool {
+		return allMetrics[i].OpenTime.Before(allMetrics[j].OpenTime)
+	})
 
 	// Ensure we have at least some data to return
 	if len(allMetrics) == 0 && len(temperatureStatusCounts) == 0 && len(uptimeStatusCounts) == 0 {

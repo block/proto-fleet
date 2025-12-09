@@ -6,6 +6,7 @@ import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelem
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import LineChart from "@/protoFleet/components/LineChart";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
+import { padChartDataWithNulls } from "@/protoFleet/features/dashboard/utils/chartDataPadding";
 import { Duration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
@@ -56,8 +57,11 @@ export function EfficiencyPanel({ duration }: EfficiencyPanelProps) {
       metricsToTransform = [...data.metrics, ...newMetrics];
     }
 
-    return transformEfficiencyMetricsToChartData(metricsToTransform);
-  }, [data, latestData]);
+    const transformedData = transformEfficiencyMetricsToChartData(metricsToTransform);
+
+    // Pad with null values for the full duration
+    return padChartDataWithNulls(transformedData, duration);
+  }, [data, latestData, duration]);
 
   // Get the latest efficiency value for the stat display
   const currentEfficiency = useMemo(() => {

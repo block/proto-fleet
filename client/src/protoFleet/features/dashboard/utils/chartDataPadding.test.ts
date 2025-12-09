@@ -1,0 +1,117 @@
+import { describe, expect, it } from "vitest";
+import { padChartDataWithNulls } from "./chartDataPadding";
+import type { ChartData } from "@/shared/components/LineChart/types";
+
+describe("padChartDataWithNulls", () => {
+  it("should return empty array when input is empty", () => {
+    const result = padChartDataWithNulls([], "1h");
+    expect(result).toEqual([]);
+  });
+
+  it("should pad data with null values for missing timestamps", () => {
+    const now = Date.now();
+    const thirtyMinutesAgo = now - 1800 * 1000;
+
+    // Simulate having only 2 data points in the last hour
+    const data: ChartData[] = [
+      { datetime: thirtyMinutesAgo, hashrate: 100 },
+      { datetime: now, hashrate: 150 },
+    ];
+
+    const result = padChartDataWithNulls(data, "1h");
+
+    // Should have many more points (1 hour / 90 seconds = 40 buckets)
+    expect(result.length).toBeGreaterThan(2);
+    expect(result.length).toBeLessThanOrEqual(41); // 3600 / 90 = 40, plus potential rounding
+
+    // First points should be null (no data in the first part of the hour)
+    const firstNullPoint = result.find((point) => point.datetime < thirtyMinutesAgo);
+    expect(firstNullPoint).toBeDefined();
+    expect(firstNullPoint?.hashrate).toBeNull();
+
+    // Original data points should be preserved
+    const preservedPoints = result.filter((point) => point.hashrate !== null);
+    expect(preservedPoints.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("should preserve all numeric fields from original data", () => {
+    const now = Date.now();
+
+    interface MultiMetricData extends ChartData {
+      hashrate: number | null;
+      power: number | null;
+      efficiency: number | null;
+    }
+
+    const data: MultiMetricData[] = [{ datetime: now, hashrate: 100, power: 2000, efficiency: 50 }];
+
+    const result = padChartDataWithNulls(data, "1h");
+
+    // Check that a null point has all the same fields
+    const nullPoint = result.find((point) => point.hashrate === null);
+    expect(nullPoint).toBeDefined();
+    expect(nullPoint).toHaveProperty("hashrate");
+    expect(nullPoint).toHaveProperty("power");
+    expect(nullPoint).toHaveProperty("efficiency");
+    expect(nullPoint?.hashrate).toBeNull();
+    expect(nullPoint?.power).toBeNull();
+    expect(nullPoint?.efficiency).toBeNull();
+  });
+
+  it("should handle different duration strings correctly", () => {
+    const now = Date.now();
+
+    const data: ChartData[] = [{ datetime: now, hashrate: 100 }];
+
+    // 1 hour should have ~40 buckets (3600s / 90s)
+    const result1h = padChartDataWithNulls(data, "1h");
+    expect(result1h.length).toBeGreaterThan(30);
+    expect(result1h.length).toBeLessThanOrEqual(50);
+
+    // 12 hours should have ~480 buckets (43200s / 90s)
+    const result12h = padChartDataWithNulls(data, "12h");
+    expect(result12h.length).toBeGreaterThan(400);
+    expect(result12h.length).toBeLessThanOrEqual(500);
+
+    // 24 hours should have ~960 buckets
+    const result24h = padChartDataWithNulls(data, "24h");
+    expect(result24h.length).toBeGreaterThan(900);
+    expect(result24h.length).toBeLessThanOrEqual(1000);
+  });
+
+  it("should use 90-second granularity for bucketing", () => {
+    const now = Date.now();
+    const granularity = 90 * 1000; // 90 seconds in milliseconds
+
+    const data: ChartData[] = [{ datetime: now, hashrate: 100 }];
+
+    const result = padChartDataWithNulls(data, "1h");
+
+    // Check that timestamps are at 90-second intervals
+    for (let i = 1; i < result.length; i++) {
+      const timeDiff = result[i].datetime - result[i - 1].datetime;
+      expect(timeDiff).toBe(granularity);
+    }
+  });
+
+  it("should match existing data to correct buckets", () => {
+    const now = Date.now();
+    const granularity = 90 * 1000;
+
+    // Create a timestamp that's already on a 90-second boundary
+    const bucketTime = Math.floor(now / granularity) * granularity;
+
+    const data: ChartData[] = [{ datetime: bucketTime, hashrate: 100 }];
+
+    const result = padChartDataWithNulls(data, "1h");
+
+    // The data point should be preserved (not replaced with null)
+    const matchingPoint = result.find((point) => {
+      const pointBucket = Math.floor(point.datetime / granularity) * granularity;
+      return pointBucket === bucketTime;
+    });
+
+    expect(matchingPoint).toBeDefined();
+    expect(matchingPoint?.hashrate).toBe(100);
+  });
+});
