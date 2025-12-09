@@ -43,6 +43,7 @@ import (
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
 	authDomain "github.com/btc-mining/proto-fleet/server/internal/domain/auth"
 	commandDomain "github.com/btc-mining/proto-fleet/server/internal/domain/command"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/errorquery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/errorquery/testdata"
 	fleetmanagementDomain "github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
@@ -212,12 +213,17 @@ func start(config *Config) error {
 	}
 	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, tokenSvc, pluginManager)
 
+	// Create diagnostics service for error polling
+	errorStore := sqlstores.NewSQLErrorStore(conn)
+	diagnosticsService := diagnostics.NewService(errorStore)
+
 	telemetryService := telemetry.NewTelemetryService(
 		config.Telemetry,
 		influxdbService,
 		minerService,
 		scheduler,
 		deviceStore,
+		diagnosticsService,
 	)
 
 	if err := telemetryService.Start(context.Background()); err != nil {

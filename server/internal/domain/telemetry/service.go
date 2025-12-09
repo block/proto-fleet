@@ -157,6 +157,7 @@ type TelemetryService struct {
 	telemetryDataStore TelemetryDataStore
 	minerManager       MinerGetter
 	deviceStore        stores.DeviceStore
+	errorPoller        ErrorPoller
 	mux                sync.Mutex
 	tasks              chan models.Device
 	statusTasks        chan models.Device
@@ -166,13 +167,14 @@ type TelemetryService struct {
 	broadcasters       sync.Map // map[int64]*TelemetryBroadcaster - keyed by orgID
 }
 
-func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager MinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore) *TelemetryService {
+func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager MinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore, errorPoller ErrorPoller) *TelemetryService {
 	return &TelemetryService{
 		config:             config,
 		telemetryDataStore: telemetryDataStore,
 		minerManager:       minerManager,
 		updateScheduler:    scheduler,
 		deviceStore:        deviceStore,
+		errorPoller:        errorPoller,
 		// channel for tasks to process telemetry data, it is set so that there is at least 1 queued task for every worker.
 		tasks:            make(chan models.Device, config.ConcurrencyLimit),
 		statusTasks:      make(chan models.Device, config.ConcurrencyLimit),
@@ -401,6 +403,8 @@ func (s *TelemetryService) worker(ctx context.Context) {
 				}
 			}
 
+			s.pollErrorsForDevice(ctx, device)
+
 		case device := <-s.statusTasks:
 			if err := s.GetStatusForDevice(ctx, device); err != nil {
 				slog.Warn("failed to get status for device", "deviceID", device.ID, "error", err)
@@ -427,6 +431,23 @@ func (s *TelemetryService) handleAuthenticationFailure(ctx context.Context, devi
 	}
 
 	return nil
+}
+
+// pollErrorsForDevice polls errors from a device alongside telemetry collection.
+func (s *TelemetryService) pollErrorsForDevice(ctx context.Context, device models.Device) {
+	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, device.ID)
+	if err != nil {
+		slog.Debug("failed to get miner for error polling", "deviceID", device.ID, "error", err)
+		return
+	}
+
+	result := s.errorPoller.PollErrors(ctx, miner)
+	if result.UpsertsFailed > 0 {
+		slog.Debug("error polling had upsert failures",
+			"deviceID", device.ID,
+			"upsertsFailed", result.UpsertsFailed,
+			"errorsUpserted", result.ErrorsUpserted)
+	}
 }
 
 func (s *TelemetryService) GetStatusForDevice(ctx context.Context, device models.Device) error {

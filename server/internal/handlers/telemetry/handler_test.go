@@ -30,9 +30,10 @@ func TestHandler_NewHandler(t *testing.T) {
 	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
 
 	config := telemetry.Config{}
-	service := telemetry.NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore)
+	service := telemetry.NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
 
 	handler := NewHandler(service)
 
@@ -104,8 +105,9 @@ func TestHandler_GetSnapshot(t *testing.T) {
 			mockMinerGetter := mock.NewMockMinerGetter(ctrl)
 			mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+			mockErrorPoller := mock.NewMockErrorPoller(ctrl)
 
-			service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore)
+			service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
 			handler := NewHandler(service)
 
 			resp, err := handler.GetSnapshot(t.Context(), connect.NewRequest(tt.request))
@@ -196,8 +198,9 @@ func TestHandler_GetTimeSeries(t *testing.T) {
 			mockMinerGetter := mock.NewMockMinerGetter(ctrl)
 			mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+			mockErrorPoller := mock.NewMockErrorPoller(ctrl)
 
-			service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore)
+			service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
 			handler := NewHandler(service)
 
 			resp, err := handler.GetTimeSeries(t.Context(), connect.NewRequest(tt.request))
@@ -278,8 +281,9 @@ func TestHandler_GetMetadata(t *testing.T) {
 			mockMinerGetter := mock.NewMockMinerGetter(ctrl)
 			mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+			mockErrorPoller := mock.NewMockErrorPoller(ctrl)
 
-			service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore)
+			service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
 			handler := NewHandler(service)
 
 			resp, err := handler.GetMetadata(t.Context(), connect.NewRequest(tt.request))
@@ -379,8 +383,9 @@ func TestHandler_GetAggregated(t *testing.T) {
 			mockMinerGetter := mock.NewMockMinerGetter(ctrl)
 			mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+			mockErrorPoller := mock.NewMockErrorPoller(ctrl)
 
-			service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore)
+			service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
 			handler := NewHandler(service)
 
 			resp, err := handler.GetAggregatedSnapshot(t.Context(), connect.NewRequest(tt.request))
@@ -652,8 +657,9 @@ func TestHandler_GetCombinedMetrics(t *testing.T) {
 			mockMinerGetter := mock.NewMockMinerGetter(ctrl)
 			mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+			mockErrorPoller := mock.NewMockErrorPoller(ctrl)
 
-			service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore)
+			service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
 			handler := NewHandler(service)
 
 			resp, err := handler.GetCombinedMetrics(t.Context(), connect.NewRequest(tt.request))
@@ -807,8 +813,9 @@ func TestHandler_StreamCombinedMetricUpdates_Integration(t *testing.T) {
 	mockMinerGetter := mock.NewMockMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
 
-	service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore)
+	service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
 
 	// Test the streaming functionality
 	query := models.StreamCombinedMetricsQuery{
