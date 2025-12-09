@@ -10,6 +10,7 @@ import (
 
 	"github.com/btc-mining/proto-fleet/plugin/antminer/internal/types"
 	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer"
+	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/rpc"
 	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/web"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 )
@@ -173,9 +174,50 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 }
 
 // GetErrors returns all active and historical errors for the device.
-// TODO (DASH-971): Implement GetErrors for Antminer devices.
+// Since CGMiner RPC provides point-in-time metrics (not historical errors),
+// errors are detected heuristically from current metric values.
 func (d *Device) GetErrors(ctx context.Context) (sdk.DeviceErrors, error) {
-	return sdk.DeviceErrors{}, sdk.NewErrUnsupportedCapability("GetErrors not yet implemented for Antminer devices")
+	// Fetch data from CGMiner RPC in parallel - collect all available data even if some calls fail
+	var summaryResp *rpc.SummaryResponse
+	var devsResp *rpc.DevsResponse
+	var poolsResp *rpc.PoolsResponse
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	go func() {
+		defer wg.Done()
+		var err error
+		if summaryResp, err = d.client.GetSummary(ctx); err != nil {
+			slog.Warn("Failed to get summary for error detection", "deviceID", d.id, "error", err)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		var err error
+		if devsResp, err = d.client.GetDevs(ctx); err != nil {
+			slog.Warn("Failed to get devs for error detection", "deviceID", d.id, "error", err)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		var err error
+		if poolsResp, err = d.client.GetPools(ctx); err != nil {
+			slog.Warn("Failed to get pools for error detection", "deviceID", d.id, "error", err)
+		}
+	}()
+
+	wg.Wait()
+
+	// Detect errors from the collected data
+	errors := detectErrors(summaryResp, devsResp, poolsResp, d.id)
+
+	return sdk.DeviceErrors{
+		DeviceID: d.id,
+		Errors:   errors,
+	}, nil
 }
 
 // convertStatus converts Antminer-specific status to SDK format.

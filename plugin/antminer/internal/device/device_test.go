@@ -7,6 +7,7 @@ import (
 	"github.com/btc-mining/proto-fleet/plugin/antminer/internal/types"
 	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer"
 	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/mocks"
+	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/rpc"
 	"github.com/btc-mining/proto-fleet/plugin/antminer/pkg/antminer/web"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 	"github.com/golang/mock/gomock"
@@ -652,4 +653,89 @@ func TestDevice_BlinkLED(t *testing.T) {
 
 	err := device.BlinkLED(t.Context())
 	require.NoError(t, err)
+}
+
+func TestDevice_GetErrors(t *testing.T) {
+	ctx := t.Context()
+
+	t.Run("healthy_device_no_errors", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockClient := mocks.NewMockAntminerClient(ctrl)
+		device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+		defer cleanupDevice(t, device, mockClient)
+
+		// Mock RPC calls returning healthy data
+		mockClient.EXPECT().GetSummary(gomock.Any()).Return(&rpc.SummaryResponse{
+			Summary: []rpc.SummaryInfo{
+				{HardwareErrors: 10, DeviceHardwarePercent: 0.1, DeviceRejectedPercent: 0.5},
+			},
+		}, nil)
+		mockClient.EXPECT().GetDevs(gomock.Any()).Return(&rpc.DevsResponse{
+			Devs: []rpc.DevInfo{
+				{ASC: 0, Status: "Alive", Enabled: "Y", Temperature: 70.0, MHSAv: 100000000},
+			},
+		}, nil)
+		mockClient.EXPECT().GetPools(gomock.Any()).Return(&rpc.PoolsResponse{
+			Pools: []rpc.PoolInfo{
+				{Pool: 0, URL: "stratum+tcp://pool.example.com:3333", Status: "Alive"},
+			},
+		}, nil)
+
+		errors, err := device.GetErrors(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, testDeviceID, errors.DeviceID)
+		assert.Empty(t, errors.Errors, "Expected no errors for healthy device")
+	})
+
+	t.Run("device_with_errors", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockClient := mocks.NewMockAntminerClient(ctrl)
+		device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+		defer cleanupDevice(t, device, mockClient)
+
+		// Mock RPC calls returning problematic data
+		mockClient.EXPECT().GetSummary(gomock.Any()).Return(&rpc.SummaryResponse{
+			Summary: []rpc.SummaryInfo{
+				{HardwareErrors: 10, DeviceHardwarePercent: 0.1, DeviceRejectedPercent: 0.5},
+			},
+		}, nil)
+		mockClient.EXPECT().GetDevs(gomock.Any()).Return(&rpc.DevsResponse{
+			Devs: []rpc.DevInfo{
+				{ASC: 0, Status: "Alive", Enabled: "Y", Temperature: 96.0, MHSAv: 100000000}, // Overheating
+			},
+		}, nil)
+		mockClient.EXPECT().GetPools(gomock.Any()).Return(&rpc.PoolsResponse{
+			Pools: []rpc.PoolInfo{
+				{Pool: 0, URL: "stratum+tcp://pool.example.com:3333", Status: "Dead"}, // Pool down
+			},
+		}, nil)
+
+		errors, err := device.GetErrors(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, testDeviceID, errors.DeviceID)
+		assert.Len(t, errors.Errors, 2, "Expected 2 errors (temperature + pool)")
+	})
+
+	t.Run("rpc_failures_graceful_degradation", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockClient := mocks.NewMockAntminerClient(ctrl)
+		device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+		defer cleanupDevice(t, device, mockClient)
+
+		// All RPC calls fail - should still return empty errors, not fail
+		mockClient.EXPECT().GetSummary(gomock.Any()).Return(nil, assert.AnError)
+		mockClient.EXPECT().GetDevs(gomock.Any()).Return(nil, assert.AnError)
+		mockClient.EXPECT().GetPools(gomock.Any()).Return(nil, assert.AnError)
+
+		errors, err := device.GetErrors(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, testDeviceID, errors.DeviceID)
+		assert.Empty(t, errors.Errors, "Expected empty errors when RPC fails")
+	})
 }
