@@ -15,7 +15,7 @@ export type MinerColumn = (typeof minerCols)[keyof typeof minerCols];
 
 export const minerColTitles: ColTitles<MinerColumn> = {
   name: "Name",
-  macAddress: "Mac Address",
+  macAddress: "MAC Address",
   ipAddress: "IP Address",
   status: "Status",
   hashrate: "Hashrate",
