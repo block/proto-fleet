@@ -143,6 +143,7 @@ func NewPluginMinerWithCredentials(
 
 	// Wrap the SDK device in PluginMiner
 	return NewPluginMiner(
+		config.OrgID,
 		models.DeviceIdentifier(config.DeviceIdentifier),
 		config.MinerType,
 		config.DeviceSerialNumber,

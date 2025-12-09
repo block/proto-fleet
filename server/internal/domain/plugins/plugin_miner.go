@@ -7,6 +7,7 @@ import (
 	"time"
 
 	pb "github.com/btc-mining/proto-fleet/server/generated/grpc/minercommand/v1"
+	diagnosticsModels "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
@@ -33,6 +34,7 @@ var _ interfaces.MinerInfo = &PluginMiner{}
 //   - Option 2: Track SDK devices in plugin manager and close them during shutdown
 //   - Option 3: Document that plugin processes handle cleanup on exit
 type PluginMiner struct {
+	orgID          int64
 	deviceID       models.DeviceIdentifier
 	deviceType     models.Type
 	serialNumber   string
@@ -43,6 +45,7 @@ type PluginMiner struct {
 
 // NewPluginMiner creates a new PluginMiner wrapper around an SDK Device
 func NewPluginMiner(
+	orgID int64,
 	deviceID models.DeviceIdentifier,
 	deviceType models.Type,
 	serialNumber string,
@@ -51,6 +54,7 @@ func NewPluginMiner(
 	deviceInfo sdk.DeviceInfo,
 ) *PluginMiner {
 	return &PluginMiner{
+		orgID:          orgID,
 		deviceID:       deviceID,
 		deviceType:     deviceType,
 		serialNumber:   serialNumber,
@@ -63,6 +67,11 @@ func NewPluginMiner(
 // GetID implements interfaces.MinerInfo
 func (p *PluginMiner) GetID() models.DeviceIdentifier {
 	return p.deviceID
+}
+
+// GetOrgID implements interfaces.MinerInfo
+func (p *PluginMiner) GetOrgID() int64 {
+	return p.orgID
 }
 
 // GetType implements interfaces.MinerInfo
@@ -82,10 +91,8 @@ func (p *PluginMiner) GetConnectionInfo() networking.ConnectionInfo {
 
 // GetWebViewURL implements interfaces.MinerInfo
 func (p *PluginMiner) GetWebViewURL() *url.URL {
-	// Try to get the web view URL from the SDK device
 	webViewURL, supported, err := p.sdkDevice.TryGetWebViewURL(context.Background())
 	if err != nil || !supported || webViewURL == "" {
-		// Fall back to constructing from connection info
 		return p.connectionInfo.GetURL()
 	}
 
@@ -99,13 +106,11 @@ func (p *PluginMiner) GetWebViewURL() *url.URL {
 // GetDeviceMetrics implements interfaces.Miner
 // This is the critical method that bridges SDK metrics to Fleet's V2 format
 func (p *PluginMiner) GetDeviceMetrics(ctx context.Context) (modelsV2.DeviceMetrics, error) {
-	// Call the SDK Device's Status method
 	sdkMetrics, err := p.sdkDevice.Status(ctx)
 	if err != nil {
 		return modelsV2.DeviceMetrics{}, fleeterror.NewInternalErrorf("failed to get SDK device metrics: %v", err)
 	}
 
-	// Use the SDK mapper to convert to V2 format
 	v2Metrics := mappers.SDKDeviceMetricsToV2(sdkMetrics)
 
 	return v2Metrics, nil
@@ -121,13 +126,11 @@ func (p *PluginMiner) GetTelemetry(ctx context.Context, _ time.Time) ([]telemetr
 
 // GetDeviceStatus implements interfaces.Miner
 func (p *PluginMiner) GetDeviceStatus(ctx context.Context) (models.MinerStatus, error) {
-	// Get device metrics to determine status
 	metrics, err := p.sdkDevice.Status(ctx)
 	if err != nil {
 		return models.MinerStatusOffline, fleeterror.NewInternalErrorf("failed to get device status: %v", err)
 	}
 
-	// Map health status to miner status
 	var status models.MinerStatus
 	switch metrics.Health {
 	case sdk.HealthHealthyActive:
@@ -175,7 +178,6 @@ func (p *PluginMiner) StopMining(ctx context.Context) error {
 
 // SetCoolingMode implements interfaces.Miner
 func (p *PluginMiner) SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error {
-	// Convert protobuf cooling mode to SDK cooling mode
 	var sdkMode sdk.CoolingMode
 	switch payload.Mode {
 	case pb.CoolingMode_COOLING_MODE_AIR_COOLED:
@@ -196,7 +198,6 @@ func (p *PluginMiner) SetCoolingMode(ctx context.Context, payload dto.CoolingMod
 
 // SetPowerTarget implements interfaces.Miner
 func (p *PluginMiner) SetPowerTarget(ctx context.Context, payload dto.PowerTargetPayload) error {
-	// Convert protobuf performance mode to SDK performance mode
 	var sdkMode sdk.PerformanceMode
 	switch payload.PerformanceMode {
 	case pb.PerformanceMode_PERFORMANCE_MODE_MAXIMUM_HASHRATE:
@@ -217,17 +218,14 @@ func (p *PluginMiner) SetPowerTarget(ctx context.Context, payload dto.PowerTarge
 
 // UpdateMiningPools implements interfaces.Miner
 func (p *PluginMiner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
-	// Convert Fleet pool configs to SDK pool configs
 	sdkPools := []sdk.MiningPoolConfig{}
 
-	// Add default pool
 	poolConfig, err := validateAndConvertPoolConfig(payload.DefaultPool, "default")
 	if err != nil {
 		return err
 	}
 	sdkPools = append(sdkPools, poolConfig)
 
-	// Add backup pools if present
 	if payload.Backup1Pool != nil {
 		poolConfig, err := validateAndConvertPoolConfig(*payload.Backup1Pool, "backup1")
 		if err != nil {
@@ -259,9 +257,6 @@ func (p *PluginMiner) BlinkLED(ctx context.Context) error {
 
 // DownloadLogs implements interfaces.Miner
 func (p *PluginMiner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
-	// Call SDK device's DownloadLogs method
-	// The SDK returns (logData, moreData, error), but Fleet's interface doesn't use the return values
-	// The logs are expected to be handled by the SDK/plugin implementation
 	_, _, err := p.sdkDevice.DownloadLogs(ctx, nil, batchLogUUID)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to download logs: %v", err)
@@ -283,6 +278,15 @@ func (p *PluginMiner) Unpair(ctx context.Context) error {
 		return fleeterror.NewInternalErrorf("failed to unpair device: %v", err)
 	}
 	return nil
+}
+
+// GetErrors implements interfaces.Miner
+func (p *PluginMiner) GetErrors(ctx context.Context) (diagnosticsModels.DeviceErrors, error) {
+	sdkErrors, err := p.sdkDevice.GetErrors(ctx)
+	if err != nil {
+		return diagnosticsModels.DeviceErrors{}, fleeterror.NewInternalErrorf("failed to get device errors: %v", err)
+	}
+	return mappers.SDKDeviceErrorsToFleetDeviceErrors(sdkErrors), nil
 }
 
 // validateAndConvertPoolConfig validates and converts a mining pool config from Fleet format to SDK format.

@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"time"
 
+	diagnosticsModels "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
@@ -17,6 +18,7 @@ import (
 type MinerInfo interface {
 	GetType() models.Type
 	GetID() models.DeviceIdentifier
+	GetOrgID() int64
 	GetSerialNumber() string
 	GetConnectionInfo() networking.ConnectionInfo
 	GetWebViewURL() *url.URL
@@ -51,4 +53,7 @@ type Miner interface {
 
 	// GetDeviceStatus
 	GetDeviceStatus(ctx context.Context) (models.MinerStatus, error)
+
+	// Diagnostics operations
+	GetErrors(ctx context.Context) (diagnosticsModels.DeviceErrors, error)
 }

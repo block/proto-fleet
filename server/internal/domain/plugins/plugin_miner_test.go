@@ -140,7 +140,6 @@ func (m *mockSDKDevice) TryGetWebViewURL(ctx context.Context) (string, bool, err
 	return "", false, nil
 }
 
-// Implement remaining optional methods
 func (m *mockSDKDevice) TryBatchStatus(ctx context.Context, _ []string) (map[string]sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil
 }
@@ -153,11 +152,14 @@ func (m *mockSDKDevice) TryGetTimeSeriesData(ctx context.Context, _ []string, _,
 	return nil, "", false, nil
 }
 
+const testOrgID = int64(1)
+
 func createTestPluginMiner() (*PluginMiner, *mockSDKDevice) {
 	connInfo, _ := networking.NewConnectionInfo("192.168.1.100", "4028", networking.ProtocolHTTP)
 	mockDevice := &mockSDKDevice{id: "test-device"}
 
 	pm := NewPluginMiner(
+		testOrgID,
 		models.DeviceIdentifier("test-device-123"),
 		models.TypeAntminer,
 		"SN123456",
@@ -170,6 +172,11 @@ func createTestPluginMiner() (*PluginMiner, *mockSDKDevice) {
 	)
 
 	return pm, mockDevice
+}
+
+func TestPluginMiner_GetOrgID(t *testing.T) {
+	pm, _ := createTestPluginMiner()
+	assert.Equal(t, testOrgID, pm.GetOrgID())
 }
 
 func TestPluginMiner_GetDeviceMetrics_Success(t *testing.T) {
@@ -277,7 +284,6 @@ func TestPluginMiner_GetWebViewURL_FromSDK(t *testing.T) {
 func TestPluginMiner_GetWebViewURL_FallbackToConnectionInfo(t *testing.T) {
 	pm, mockDevice := createTestPluginMiner()
 
-	// SDK doesn't provide web view URL
 	mockDevice.tryGetWebViewFunc = func(ctx context.Context) (string, bool, error) {
 		return "", false, nil
 	}
@@ -297,7 +303,6 @@ func TestPluginMiner_GetWebViewURL_SDKError(t *testing.T) {
 
 	url := pm.GetWebViewURL()
 
-	// Should fall back to connection info on error
 	require.NotNil(t, url)
 	assert.Equal(t, "http://192.168.1.100:4028", url.String())
 }
@@ -470,6 +475,122 @@ func TestPluginMiner_GetWebViewURL_InvalidURL(t *testing.T) {
 
 	url := pm.GetWebViewURL()
 
-	// Should return nil for invalid URLs
 	assert.Nil(t, url)
+}
+
+func TestPluginMiner_GetErrors_Success(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+
+	now := time.Now()
+	componentID := "0"
+	mockDevice.getErrorsFunc = func(ctx context.Context) (sdk.DeviceErrors, error) {
+		return sdk.DeviceErrors{
+			DeviceID: "test-device",
+			Errors: []sdk.DeviceError{
+				{
+					MinerError:   1003, // PSU_FAULT_GENERIC
+					Severity:     1,    // Critical
+					Summary:      "PSU fault detected",
+					FirstSeenAt:  now,
+					LastSeenAt:   now,
+					ComponentID:  &componentID,
+					DeviceID:     "test-device",
+					CauseSummary: "Power supply unit failure",
+				},
+			},
+		}, nil
+	}
+
+	deviceErrors, err := pm.GetErrors(t.Context())
+
+	require.NoError(t, err)
+	assert.Equal(t, "test-device", deviceErrors.DeviceID)
+	require.Len(t, deviceErrors.Errors, 1)
+	assert.Equal(t, "PSU fault detected", deviceErrors.Errors[0].Summary)
+}
+
+func TestPluginMiner_GetErrors_SDKError(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+
+	expectedErr := errors.New("device communication error")
+	mockDevice.getErrorsFunc = func(ctx context.Context) (sdk.DeviceErrors, error) {
+		return sdk.DeviceErrors{}, expectedErr
+	}
+
+	_, err := pm.GetErrors(t.Context())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get device errors")
+}
+
+func TestPluginMiner_GetErrors_EmptyErrors(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+
+	mockDevice.getErrorsFunc = func(ctx context.Context) (sdk.DeviceErrors, error) {
+		return sdk.DeviceErrors{
+			DeviceID: "test-device",
+			Errors:   []sdk.DeviceError{},
+		}, nil
+	}
+
+	deviceErrors, err := pm.GetErrors(t.Context())
+
+	require.NoError(t, err)
+	assert.Equal(t, "test-device", deviceErrors.DeviceID)
+	assert.Empty(t, deviceErrors.Errors)
+}
+
+func TestPluginMiner_GetErrors_MapsAllFields(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+
+	now := time.Now()
+	closedAt := now.Add(time.Hour)
+	componentID := "2"
+	mockDevice.getErrorsFunc = func(ctx context.Context) (sdk.DeviceErrors, error) {
+		return sdk.DeviceErrors{
+			DeviceID: "device-123",
+			Errors: []sdk.DeviceError{
+				{
+					MinerError:        2000, // FAN_FAILED
+					CauseSummary:      "Fan stopped spinning",
+					RecommendedAction: "Replace the fan",
+					Severity:          2, // Major
+					FirstSeenAt:       now,
+					LastSeenAt:        now.Add(time.Minute),
+					ClosedAt:          &closedAt,
+					VendorAttributes: map[string]string{
+						"vendor_code": "FAN_001",
+						"firmware":    "v1.2.3",
+					},
+					DeviceID:    "device-123",
+					ComponentID: &componentID,
+					Impact:      "Reduced cooling capacity",
+					Summary:     "Fan stall detected on fan 2",
+				},
+			},
+		}, nil
+	}
+
+	deviceErrors, err := pm.GetErrors(t.Context())
+
+	require.NoError(t, err)
+	assert.Equal(t, "device-123", deviceErrors.DeviceID)
+	require.Len(t, deviceErrors.Errors, 1)
+
+	errMsg := deviceErrors.Errors[0]
+	assert.NotZero(t, errMsg.MinerError, "MinerError should be mapped")
+	assert.Equal(t, "Fan stopped spinning", errMsg.CauseSummary)
+	assert.Equal(t, "Replace the fan", errMsg.RecommendedAction)
+	assert.NotZero(t, errMsg.Severity, "Severity should be mapped")
+	assert.Equal(t, now, errMsg.FirstSeenAt)
+	assert.Equal(t, now.Add(time.Minute), errMsg.LastSeenAt)
+	assert.NotNil(t, errMsg.ClosedAt)
+	assert.Equal(t, closedAt, *errMsg.ClosedAt)
+	assert.Equal(t, "device-123", errMsg.DeviceID)
+	require.NotNil(t, errMsg.ComponentID)
+	assert.Equal(t, "2", *errMsg.ComponentID)
+	assert.Equal(t, "Reduced cooling capacity", errMsg.Impact)
+	assert.Equal(t, "Fan stall detected on fan 2", errMsg.Summary)
+	assert.Equal(t, "FAN_001", errMsg.VendorCode)
+	assert.Equal(t, "v1.2.3", errMsg.Firmware)
 }

@@ -21,7 +21,6 @@ func setupErrorTestData(t *testing.T, db *sql.DB) (orgID int64, deviceIdentifier
 	ctx := t.Context()
 	queries := sqlc.New(db)
 
-	// Create organization
 	orgResult, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
 		Name: "Test Error Org",
 	})
@@ -29,7 +28,6 @@ func setupErrorTestData(t *testing.T, db *sql.DB) (orgID int64, deviceIdentifier
 	orgID, err = orgResult.LastInsertId()
 	require.NoError(t, err)
 
-	// Create discovered_device (required for device FK)
 	deviceIdentifier = "test-error-device-123"
 	ddResult, err := db.ExecContext(ctx, `
 		INSERT INTO discovered_device (org_id, device_identifier, model, manufacturer, type, ip_address, port, url_scheme)
@@ -39,7 +37,6 @@ func setupErrorTestData(t *testing.T, db *sql.DB) (orgID int64, deviceIdentifier
 	discoveredDeviceID, err := ddResult.LastInsertId()
 	require.NoError(t, err)
 
-	// Create device (required to resolve device_identifier)
 	_, err = db.ExecContext(ctx, `
 		INSERT INTO device (org_id, discovered_device_id, device_identifier, mac_address, serial_number)
 		VALUES (?, ?, ?, 'AA:BB:CC:DD:EE:FF', 'SN-ERROR-TEST-001')
@@ -88,6 +85,7 @@ func TestSQLErrorStore_UpsertError_ShouldInsertNewError(t *testing.T) {
 	ctx := t.Context()
 	orgID, deviceIdentifier := setupErrorTestData(t, db)
 
+	// Arrange
 	errMsg := createTestErrorMessage(deviceIdentifier)
 
 	// Act
@@ -120,14 +118,14 @@ func TestSQLErrorStore_UpsertError_ShouldUpdateExistingOpenError(t *testing.T) {
 	ctx := t.Context()
 	orgID, deviceIdentifier := setupErrorTestData(t, db)
 
-	// Insert first error
+	// Arrange: Insert first error
 	errMsg := createTestErrorMessage(deviceIdentifier)
 	first, err := store.UpsertError(ctx, orgID, deviceIdentifier, errMsg)
 	require.NoError(t, err)
 	originalErrorID := first.ErrorID
 	originalFirstSeenAt := first.FirstSeenAt
 
-	// Update with same dedup key but different mutable fields
+	// Arrange: Update with same dedup key but different mutable fields
 	time.Sleep(10 * time.Millisecond) // Ensure time difference
 	errMsg.Severity = models.SeverityCritical
 	errMsg.Summary = "Updated summary"
@@ -158,14 +156,14 @@ func TestSQLErrorStore_UpsertError_ShouldCloseErrorWhenClosedAtSet(t *testing.T)
 	ctx := t.Context()
 	orgID, deviceIdentifier := setupErrorTestData(t, db)
 
-	// Insert open error
+	// Arrange: Insert open error
 	errMsg := createTestErrorMessage(deviceIdentifier)
 	first, err := store.UpsertError(ctx, orgID, deviceIdentifier, errMsg)
 	require.NoError(t, err)
 	require.Nil(t, first.ClosedAt)
 	originalErrorID := first.ErrorID
 
-	// Close via upsert
+	// Arrange: Close via upsert
 	closedAt := time.Now().Truncate(time.Microsecond)
 	errMsg.ClosedAt = &closedAt
 	errMsg.LastSeenAt = closedAt
@@ -191,7 +189,7 @@ func TestSQLErrorStore_UpsertError_ShouldInsertAlreadyClosedError(t *testing.T) 
 	ctx := t.Context()
 	orgID, deviceIdentifier := setupErrorTestData(t, db)
 
-	// Create error with ClosedAt already set (historical import)
+	// Arrange: Create error with ClosedAt already set (historical import)
 	errMsg := createTestErrorMessage(deviceIdentifier)
 	closedAt := time.Now().Add(-24 * time.Hour).Truncate(time.Microsecond)
 	errMsg.ClosedAt = &closedAt
@@ -217,20 +215,20 @@ func TestSQLErrorStore_UpsertError_ShouldCreateNewErrorWhenExistingIsClosed(t *t
 	ctx := t.Context()
 	orgID, deviceIdentifier := setupErrorTestData(t, db)
 
-	// Step 1: Create open error
+	// Arrange: Step 1 - Create open error
 	errMsg := createTestErrorMessage(deviceIdentifier)
 	errorA, err := store.UpsertError(ctx, orgID, deviceIdentifier, errMsg)
 	require.NoError(t, err)
 	errorAID := errorA.ErrorID
 
-	// Step 2: Close error A via upsert
+	// Arrange: Step 2 - Close error A via upsert
 	closedAt := time.Now().Truncate(time.Microsecond)
 	errMsg.ClosedAt = &closedAt
 	errMsg.LastSeenAt = closedAt
 	_, err = store.UpsertError(ctx, orgID, deviceIdentifier, errMsg)
 	require.NoError(t, err)
 
-	// Step 3: Create new occurrence (same dedup key, ClosedAt=nil)
+	// Arrange: Step 3 - Create new occurrence (same dedup key, ClosedAt=nil)
 	errMsg.ClosedAt = nil
 	errMsg.FirstSeenAt = time.Now().Truncate(time.Microsecond)
 	errMsg.LastSeenAt = time.Now().Truncate(time.Microsecond)
@@ -244,7 +242,7 @@ func TestSQLErrorStore_UpsertError_ShouldCreateNewErrorWhenExistingIsClosed(t *t
 	assert.NotEqual(t, errorAID, errorB.ErrorID, "Should have NEW ErrorID")
 	assert.Nil(t, errorB.ClosedAt, "New error should be open")
 
-	// Verify both records exist in DB
+	// Assert: Verify both records exist in DB
 	var count int
 	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM errors WHERE org_id = ?", orgID).Scan(&count)
 	require.NoError(t, err)
@@ -261,7 +259,7 @@ func TestSQLErrorStore_UpsertError_ShouldDedupWithNullComponents(t *testing.T) {
 	ctx := t.Context()
 	orgID, deviceIdentifier := setupErrorTestData(t, db)
 
-	// Insert error with NULL component_id and Unspecified component_type
+	// Arrange: Insert error with NULL component_id and Unspecified component_type
 	errMsg := createTestErrorMessage(deviceIdentifier)
 	errMsg.ComponentID = nil
 	errMsg.ComponentType = models.ComponentTypeUnspecified
@@ -270,7 +268,7 @@ func TestSQLErrorStore_UpsertError_ShouldDedupWithNullComponents(t *testing.T) {
 	require.NoError(t, err)
 	originalErrorID := first.ErrorID
 
-	// Update with same dedup key (both components NULL)
+	// Arrange: Update with same dedup key (both components NULL)
 	errMsg.Summary = "Updated with null components"
 
 	// Act
@@ -282,7 +280,7 @@ func TestSQLErrorStore_UpsertError_ShouldDedupWithNullComponents(t *testing.T) {
 	assert.Equal(t, originalErrorID, updated.ErrorID, "Should update existing error")
 	assert.Equal(t, "Updated with null components", updated.Summary)
 
-	// Verify only one record exists
+	// Assert: Verify only one record exists
 	var count int
 	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM errors WHERE org_id = ?", orgID).Scan(&count)
 	require.NoError(t, err)
@@ -299,7 +297,7 @@ func TestSQLErrorStore_UpsertError_ShouldNotDedupWhenComponentsDiffer(t *testing
 	ctx := t.Context()
 	orgID, deviceIdentifier := setupErrorTestData(t, db)
 
-	// Insert error with ComponentID="hashboard-0"
+	// Arrange: Insert error with ComponentID="hashboard-0"
 	errMsg := createTestErrorMessage(deviceIdentifier)
 	componentID := "hashboard-0"
 	errMsg.ComponentID = &componentID
@@ -309,7 +307,7 @@ func TestSQLErrorStore_UpsertError_ShouldNotDedupWhenComponentsDiffer(t *testing
 	require.NoError(t, err)
 	firstErrorID := first.ErrorID
 
-	// Insert error with ComponentID=nil (different dedup key)
+	// Arrange: Insert error with ComponentID=nil (different dedup key)
 	errMsg.ComponentID = nil
 	errMsg.ComponentType = models.ComponentTypeUnspecified
 
@@ -321,7 +319,7 @@ func TestSQLErrorStore_UpsertError_ShouldNotDedupWhenComponentsDiffer(t *testing
 	require.NotNil(t, second)
 	assert.NotEqual(t, firstErrorID, second.ErrorID, "Should create NEW error (different dedup key)")
 
-	// Verify two records exist
+	// Assert: Verify two records exist
 	var count int
 	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM errors WHERE org_id = ?", orgID).Scan(&count)
 	require.NoError(t, err)
@@ -337,7 +335,7 @@ func TestSQLErrorStore_UpsertError_ShouldReturnErrorForUnknownDevice(t *testing.
 	store := sqlstores.NewSQLErrorStore(db)
 	ctx := t.Context()
 
-	// Create org only, no device
+	// Arrange: Create org only, no device
 	queries := sqlc.New(db)
 	orgResult, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
 		Name: "Test Org No Device",
@@ -371,7 +369,7 @@ func TestSQLErrorStore_UpsertError_ShouldMapAllFieldsCorrectly(t *testing.T) {
 	ctx := t.Context()
 	orgID, deviceIdentifier := setupErrorTestData(t, db)
 
-	// Create error with ALL fields populated
+	// Arrange: Create error with ALL fields populated
 	componentID := "psu-0"
 	errMsg := &models.ErrorMessage{
 		MinerError:        models.PSUOverTemperature,
@@ -398,7 +396,7 @@ func TestSQLErrorStore_UpsertError_ShouldMapAllFieldsCorrectly(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	// Verify all fields
+	// Assert: Verify all fields
 	assert.NotEmpty(t, result.ErrorID)
 	assert.Equal(t, models.PSUOverTemperature, result.MinerError)
 	assert.Equal(t, models.SeverityCritical, result.Severity)
@@ -414,7 +412,7 @@ func TestSQLErrorStore_UpsertError_ShouldMapAllFieldsCorrectly(t *testing.T) {
 	assert.Equal(t, "v2.0.1", result.Firmware)
 	assert.Nil(t, result.ClosedAt)
 
-	// Verify VendorAttributes stored in DB as JSON
+	// Assert: Verify VendorAttributes stored in DB as JSON
 	var extraJSON []byte
 	err = db.QueryRowContext(ctx,
 		"SELECT extra FROM errors WHERE error_id = ?", result.ErrorID).Scan(&extraJSON)

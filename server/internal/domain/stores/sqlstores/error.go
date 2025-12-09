@@ -42,7 +42,6 @@ func (s *SQLErrorStore) getQueries(ctx context.Context) *sqlc.Queries {
 func (s *SQLErrorStore) UpsertError(ctx context.Context, orgID int64, deviceIdentifier string, errMsg *models.ErrorMessage) (*models.ErrorMessage, error) {
 	q := s.getQueries(ctx)
 
-	// Resolve device_identifier to device_id
 	deviceID, err := q.GetDeviceIDByIdentifier(ctx, sqlc.GetDeviceIDByIdentifierParams{
 		DeviceIdentifier: deviceIdentifier,
 		OrgID:            orgID,
@@ -54,7 +53,6 @@ func (s *SQLErrorStore) UpsertError(ctx context.Context, orgID int64, deviceIden
 		return nil, fleeterror.NewInternalErrorf("failed to resolve device identifier: %v", err)
 	}
 
-	// Prepare nullable fields for dedup lookup
 	componentID := sql.NullString{String: "", Valid: false}
 	if errMsg.ComponentID != nil {
 		componentID = sql.NullString{String: *errMsg.ComponentID, Valid: true}
@@ -62,11 +60,9 @@ func (s *SQLErrorStore) UpsertError(ctx context.Context, orgID int64, deviceIden
 
 	componentType := sql.NullInt32{Int32: unsetDatabaseID, Valid: false}
 	if errMsg.ComponentType != models.ComponentTypeUnspecified {
-		// #nosec G115 -- ComponentType enum values are bounded (max 4), safe for int32
-		componentType = sql.NullInt32{Int32: int32(errMsg.ComponentType), Valid: true}
+		componentType = sql.NullInt32{Int32: int32(errMsg.ComponentType), Valid: true} // #nosec G115 -- ComponentType enum values bounded (max 4), safe for int32
 	}
 
-	// Check for existing open error with same dedup key using NULL-safe equality (<=>)
 	existingError, dbErr := q.GetOpenErrorByDedupKey(ctx, sqlc.GetOpenErrorByDedupKeyParams{
 		OrgID:         orgID,
 		DeviceID:      deviceID,
@@ -80,18 +76,15 @@ func (s *SQLErrorStore) UpsertError(ctx context.Context, orgID int64, deviceIden
 	}
 	noOpenErrorExists := errors.Is(dbErr, sql.ErrNoRows) || existingError.ID == unsetDatabaseID
 
-	// Prepare extra JSON from VendorAttributes
 	extra, err := json.Marshal(errMsg.VendorAttributes)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to marshal vendor attributes: %v", err)
 	}
 
 	if noOpenErrorExists {
-		// No open error exists - insert new error
 		return s.insertNewError(ctx, q, orgID, deviceID, errMsg, componentID, componentType, extra)
 	}
 
-	// Open error exists - update mutable fields
 	return s.updateExistingError(ctx, q, orgID, &existingError, errMsg, extra)
 }
 
@@ -135,7 +128,6 @@ func (s *SQLErrorStore) insertNewError(
 		return nil, fleeterror.NewInternalErrorf("failed to get last insert ID: %v", err)
 	}
 
-	// Fetch and return the complete record
 	dbError, err := q.GetErrorByID(ctx, sqlc.GetErrorByIDParams{
 		ID:    insertedID,
 		OrgID: orgID,
@@ -172,7 +164,6 @@ func (s *SQLErrorStore) updateExistingError(
 		return nil, fleeterror.NewInternalErrorf("failed to update error: %v", err)
 	}
 
-	// Fetch and return the updated record
 	dbError, err := q.GetErrorByID(ctx, sqlc.GetErrorByIDParams{
 		ID:    existingError.ID,
 		OrgID: orgID,
@@ -226,31 +217,28 @@ func toErrorMessage(dbError *sqlc.Error, deviceIdentifier string) *models.ErrorM
 	}
 }
 
+// safeInt32ToEnum converts int32 from DB to any enum type, returning the specified default for negative values.
+// The generic type constraint ~uint allows this to work with any uint-based enum types.
+func safeInt32ToEnum[T ~uint](val int32, defaultValue T) T {
+	if val < minValidEnumValue {
+		return defaultValue
+	}
+	return T(val) // #nosec G115 -- Validated non-negative; DB values come from our controlled inserts
+}
+
 // safeInt32ToMinerError converts int32 from DB to MinerError, returning Unspecified for negative values.
 func safeInt32ToMinerError(val int32) models.MinerError {
-	if val < minValidEnumValue {
-		return models.MinerErrorUnspecified
-	}
-	// #nosec G115 -- Validated non-negative; DB values come from our controlled inserts
-	return models.MinerError(val)
+	return safeInt32ToEnum(val, models.MinerErrorUnspecified)
 }
 
 // safeInt32ToSeverity converts int32 from DB to Severity, returning Unspecified for negative values.
 func safeInt32ToSeverity(val int32) models.Severity {
-	if val < minValidEnumValue {
-		return models.SeverityUnspecified
-	}
-	// #nosec G115 -- Validated non-negative; DB values come from our controlled inserts
-	return models.Severity(val)
+	return safeInt32ToEnum(val, models.SeverityUnspecified)
 }
 
 // safeInt32ToComponentType converts int32 from DB to ComponentType, returning Unspecified for negative values.
 func safeInt32ToComponentType(val int32) models.ComponentType {
-	if val < minValidEnumValue {
-		return models.ComponentTypeUnspecified
-	}
-	// #nosec G115 -- Validated non-negative; DB values come from our controlled inserts
-	return models.ComponentType(val)
+	return safeInt32ToEnum(val, models.ComponentTypeUnspecified)
 }
 
 // toNullTime converts a *time.Time to sql.NullTime for database operations.

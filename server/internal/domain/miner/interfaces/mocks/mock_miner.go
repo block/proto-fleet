@@ -10,10 +10,11 @@ import (
 	reflect "reflect"
 	time "time"
 
+	models "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	dto "github.com/btc-mining/proto-fleet/server/internal/domain/miner/dto"
-	models "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
-	models0 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
-	models1 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
+	models0 "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
+	models1 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
+	models2 "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models/v2"
 	networking "github.com/btc-mining/proto-fleet/server/internal/infrastructure/networking"
 	gomock "github.com/golang/mock/gomock"
 )
@@ -56,10 +57,10 @@ func (mr *MockMinerInfoMockRecorder) GetConnectionInfo() *gomock.Call {
 }
 
 // GetID mocks base method.
-func (m *MockMinerInfo) GetID() models.DeviceIdentifier {
+func (m *MockMinerInfo) GetID() models0.DeviceIdentifier {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetID")
-	ret0, _ := ret[0].(models.DeviceIdentifier)
+	ret0, _ := ret[0].(models0.DeviceIdentifier)
 	return ret0
 }
 
@@ -67,6 +68,20 @@ func (m *MockMinerInfo) GetID() models.DeviceIdentifier {
 func (mr *MockMinerInfoMockRecorder) GetID() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetID", reflect.TypeOf((*MockMinerInfo)(nil).GetID))
+}
+
+// GetOrgID mocks base method.
+func (m *MockMinerInfo) GetOrgID() int64 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOrgID")
+	ret0, _ := ret[0].(int64)
+	return ret0
+}
+
+// GetOrgID indicates an expected call of GetOrgID.
+func (mr *MockMinerInfoMockRecorder) GetOrgID() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrgID", reflect.TypeOf((*MockMinerInfo)(nil).GetOrgID))
 }
 
 // GetSerialNumber mocks base method.
@@ -84,10 +99,10 @@ func (mr *MockMinerInfoMockRecorder) GetSerialNumber() *gomock.Call {
 }
 
 // GetType mocks base method.
-func (m *MockMinerInfo) GetType() models.Type {
+func (m *MockMinerInfo) GetType() models0.Type {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetType")
-	ret0, _ := ret[0].(models.Type)
+	ret0, _ := ret[0].(models0.Type)
 	return ret0
 }
 
@@ -191,10 +206,10 @@ func (mr *MockMinerMockRecorder) GetConnectionInfo() *gomock.Call {
 }
 
 // GetDeviceMetrics mocks base method.
-func (m *MockMiner) GetDeviceMetrics(ctx context.Context) (models1.DeviceMetrics, error) {
+func (m *MockMiner) GetDeviceMetrics(ctx context.Context) (models2.DeviceMetrics, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDeviceMetrics", ctx)
-	ret0, _ := ret[0].(models1.DeviceMetrics)
+	ret0, _ := ret[0].(models2.DeviceMetrics)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -206,10 +221,10 @@ func (mr *MockMinerMockRecorder) GetDeviceMetrics(ctx interface{}) *gomock.Call 
 }
 
 // GetDeviceStatus mocks base method.
-func (m *MockMiner) GetDeviceStatus(ctx context.Context) (models.MinerStatus, error) {
+func (m *MockMiner) GetDeviceStatus(ctx context.Context) (models0.MinerStatus, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDeviceStatus", ctx)
-	ret0, _ := ret[0].(models.MinerStatus)
+	ret0, _ := ret[0].(models0.MinerStatus)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -220,11 +235,26 @@ func (mr *MockMinerMockRecorder) GetDeviceStatus(ctx interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceStatus", reflect.TypeOf((*MockMiner)(nil).GetDeviceStatus), ctx)
 }
 
+// GetErrors mocks base method.
+func (m *MockMiner) GetErrors(ctx context.Context) (models.DeviceErrors, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetErrors", ctx)
+	ret0, _ := ret[0].(models.DeviceErrors)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetErrors indicates an expected call of GetErrors.
+func (mr *MockMinerMockRecorder) GetErrors(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetErrors", reflect.TypeOf((*MockMiner)(nil).GetErrors), ctx)
+}
+
 // GetID mocks base method.
-func (m *MockMiner) GetID() models.DeviceIdentifier {
+func (m *MockMiner) GetID() models0.DeviceIdentifier {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetID")
-	ret0, _ := ret[0].(models.DeviceIdentifier)
+	ret0, _ := ret[0].(models0.DeviceIdentifier)
 	return ret0
 }
 
@@ -232,6 +262,20 @@ func (m *MockMiner) GetID() models.DeviceIdentifier {
 func (mr *MockMinerMockRecorder) GetID() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetID", reflect.TypeOf((*MockMiner)(nil).GetID))
+}
+
+// GetOrgID mocks base method.
+func (m *MockMiner) GetOrgID() int64 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOrgID")
+	ret0, _ := ret[0].(int64)
+	return ret0
+}
+
+// GetOrgID indicates an expected call of GetOrgID.
+func (mr *MockMinerMockRecorder) GetOrgID() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrgID", reflect.TypeOf((*MockMiner)(nil).GetOrgID))
 }
 
 // GetSerialNumber mocks base method.
@@ -249,10 +293,10 @@ func (mr *MockMinerMockRecorder) GetSerialNumber() *gomock.Call {
 }
 
 // GetTelemetry mocks base method.
-func (m *MockMiner) GetTelemetry(ctx context.Context, after time.Time) ([]models0.Telemetry, error) {
+func (m *MockMiner) GetTelemetry(ctx context.Context, after time.Time) ([]models1.Telemetry, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetTelemetry", ctx, after)
-	ret0, _ := ret[0].([]models0.Telemetry)
+	ret0, _ := ret[0].([]models1.Telemetry)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -264,10 +308,10 @@ func (mr *MockMinerMockRecorder) GetTelemetry(ctx, after interface{}) *gomock.Ca
 }
 
 // GetType mocks base method.
-func (m *MockMiner) GetType() models.Type {
+func (m *MockMiner) GetType() models0.Type {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetType")
-	ret0, _ := ret[0].(models.Type)
+	ret0, _ := ret[0].(models0.Type)
 	return ret0
 }
 
