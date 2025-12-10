@@ -72,13 +72,34 @@ func TestDescribeDriver(t *testing.T) {
 	assert.True(t, capabilities[sdk.CapabilityDiscovery])
 	assert.True(t, capabilities[sdk.CapabilityPairing])
 
+	// Check command capabilities
+	assert.True(t, capabilities[sdk.CapabilityReboot])
+	assert.False(t, capabilities[sdk.CapabilityMiningStart])
+	assert.False(t, capabilities[sdk.CapabilityMiningStop])
+	assert.True(t, capabilities[sdk.CapabilityLEDBlink])
+	assert.False(t, capabilities[sdk.CapabilityFactoryReset])
+	assert.False(t, capabilities[sdk.CapabilityCoolingModeAir])
+	assert.False(t, capabilities[sdk.CapabilityCoolingModeImmerse])
+	assert.True(t, capabilities[sdk.CapabilityPoolConfig])
+	assert.True(t, capabilities[sdk.CapabilityPoolPriority])
+	assert.False(t, capabilities[sdk.CapabilityLogsDownload])
+
+	// Check telemetry capabilities
+	assert.True(t, capabilities[sdk.CapabilityRealtimeTelemetry])
+	assert.False(t, capabilities[sdk.CapabilityHistoricalData])
+
+	// Check firmware capabilities
+	assert.True(t, capabilities[sdk.CapabilityFirmware])
+	assert.False(t, capabilities[sdk.CapabilityOTAUpdate])
+	assert.True(t, capabilities[sdk.CapabilityManualUpload])
+
+	// Check authentication capabilities
+	assert.True(t, capabilities[sdk.CapabilityBasicAuth])
+
 	// Check that unsupported capabilities are false
 	assert.False(t, capabilities[sdk.CapabilityPollingPlugin])
 	assert.False(t, capabilities[sdk.CapabilityBatchStatus])
 	assert.False(t, capabilities[sdk.CapabilityStreaming])
-	assert.False(t, capabilities[sdk.CapabilityReboot])
-	assert.False(t, capabilities[sdk.CapabilityFirmware])
-	assert.False(t, capabilities[sdk.CapabilityPoolConfig])
 }
 
 func TestDiscoverDevice_Success(t *testing.T) {

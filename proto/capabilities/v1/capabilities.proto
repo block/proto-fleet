@@ -47,44 +47,32 @@ message AuthenticationCapabilities {
 
 // Command operations supported by the miner
 message CommandCapabilities {
-  option (buf.validate.message).cel = {
-    id: "cooling_modes_check",
-    message: "If cooling_mode_supported is true, then cooling_modes_available must not be empty",
-    expression: "!this.cooling_mode_supported || size(this.cooling_modes_available) > 0"
-  };
-
   // Basic operations
   bool reboot_supported = 1;
   bool mining_start_supported = 2;
   bool mining_stop_supported = 3;
-  
+
   // LED operations
   bool led_blink_supported = 4;
-  
+
   // Advanced operations
   bool factory_reset_supported = 5;
-  
+
   // Cooling control
-  bool cooling_mode_supported = 6;
-  repeated string cooling_modes_available = 7 [(buf.validate.field).repeated = {
-    items: {
-      string: {
-        min_len: 1,
-        max_len: 50
-      }
-    }
-  }];
-  
+  bool air_cooling_supported = 12;
+  bool immersion_cooling_supported = 13;
+
   // Pool management
   bool pool_switching_supported = 8;
-  int32 pool_max_count = 9 [(buf.validate.field).int32 = {
-    gt: 0,
-    lte: 10,
-  }];
+  int32 pool_max_count = 9;
   bool pool_priority_supported = 10;
 
   // Log management
   bool logs_download_supported = 11;
+
+  // Reserved field numbers for removed fields
+  reserved 6, 7;
+  reserved "cooling_mode_supported", "cooling_modes_available";
 }
 
 // Telemetry data capabilities
@@ -110,12 +98,6 @@ message TelemetryCapabilities {
   bool per_chip_stats_reported = 12;
   bool per_board_stats_reported = 13;
   bool psu_stats_reported = 14;
-  
-  // Telemetry intervals
-  int32 polling_interval_seconds_recommended = 15 [(buf.validate.field).int32 = {
-    gt: 0,
-    lte: 3600,
-  }];
 }
 
 // Firmware update capabilities

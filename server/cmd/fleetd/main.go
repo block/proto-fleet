@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/capabilities"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/ipscanner"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
 	minerModels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
@@ -241,11 +240,6 @@ func start(config *Config) error {
 		}
 	}()
 
-	capabilitiesSvc, err := capabilities.NewService(config.Capabilities)
-	if err != nil {
-		return err
-	}
-
 	var pairers []pairingDomain.Pairer
 
 	supportedTypes := pluginService.GetSupportedMinerTypes()
@@ -260,7 +254,7 @@ func start(config *Config) error {
 		transactor,
 		tokenSvc,
 		discoveryService,
-		capabilitiesSvc,
+		pluginService,
 		telemetryService,
 		pairers...,
 	)

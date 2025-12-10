@@ -3,6 +3,7 @@ package plugins
 import (
 	"testing"
 
+	pairingpb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	sdk "github.com/btc-mining/proto-fleet/server/sdk/v1"
 	sdkMocks "github.com/btc-mining/proto-fleet/server/sdk/v1/mocks"
@@ -370,4 +371,158 @@ func TestService_Shutdown(t *testing.T) {
 	err := service.Shutdown(ctx)
 
 	assert.NoError(t, err)
+}
+
+func TestService_GetMinerCapabilitiesForDevice_NilDevice(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	manager := NewManager(&Config{})
+	service := createTestServiceForServiceTest(t, ctrl, manager)
+
+	ctx := t.Context()
+	result := service.GetMinerCapabilitiesForDevice(ctx, nil)
+
+	assert.Nil(t, result)
+}
+
+func TestService_GetMinerCapabilitiesForDevice_NoPluginForType(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	manager := NewManager(&Config{})
+	service := createTestServiceForServiceTest(t, ctrl, manager)
+
+	device := &pairingpb.Device{
+		Type:         "asic",
+		Model:        "Antminer S19",
+		Manufacturer: "Bitmain",
+	}
+
+	ctx := t.Context()
+	result := service.GetMinerCapabilitiesForDevice(ctx, device)
+
+	assert.Nil(t, result)
+}
+
+func TestService_GetMinerCapabilitiesForDevice_UnknownDeviceType(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	manager := NewManager(&Config{})
+	service := createTestServiceForServiceTest(t, ctrl, manager)
+
+	device := &pairingpb.Device{
+		Type:         "",
+		Model:        "Unknown Model",
+		Manufacturer: "Unknown",
+	}
+
+	ctx := t.Context()
+	result := service.GetMinerCapabilitiesForDevice(ctx, device)
+
+	assert.Nil(t, result)
+}
+
+func TestService_GetMinerCapabilitiesForDevice_AntminerSuccess(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	manager := NewManager(&Config{})
+	service := createTestServiceForServiceTest(t, ctrl, manager)
+
+	// Register Antminer plugin with capabilities
+	antminerCaps := sdk.Capabilities{
+		sdk.CapabilityBasicAuth:         true,
+		sdk.CapabilityReboot:            true,
+		sdk.CapabilityLEDBlink:          true,
+		sdk.CapabilityPoolConfig:        true,
+		sdk.CapabilityRealtimeTelemetry: true,
+		sdk.CapabilityHashrateReported:  true,
+		sdk.CapabilityManualUpload:      true,
+	}
+
+	mockPlugin := &LoadedPlugin{
+		Name:       "antminer-plugin",
+		Caps:       antminerCaps,
+		MinerTypes: []models.Type{models.TypeAntminer},
+	}
+	manager.pluginsByType[models.TypeAntminer] = mockPlugin
+	manager.plugins["antminer-plugin"] = mockPlugin
+
+	device := &pairingpb.Device{
+		Type:         "asic",
+		Model:        "Antminer S19",
+		Manufacturer: "Bitmain",
+	}
+
+	ctx := t.Context()
+	result := service.GetMinerCapabilitiesForDevice(ctx, device)
+
+	require.NotNil(t, result)
+	assert.Equal(t, "Bitmain", result.Manufacturer)
+
+	// Verify telemetry capabilities
+	require.NotNil(t, result.Telemetry)
+	assert.True(t, result.Telemetry.RealtimeTelemetrySupported)
+
+	// Verify command capabilities
+	require.NotNil(t, result.Commands)
+	assert.True(t, result.Commands.RebootSupported)
+	assert.True(t, result.Commands.LedBlinkSupported)
+	assert.False(t, result.Commands.AirCoolingSupported)
+	assert.False(t, result.Commands.ImmersionCoolingSupported)
+}
+
+func TestService_GetMinerCapabilitiesForDevice_ProtoSuccess(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	manager := NewManager(&Config{})
+	service := createTestServiceForServiceTest(t, ctrl, manager)
+
+	// Register Proto plugin with capabilities
+	protoCaps := sdk.Capabilities{
+		sdk.CapabilityAsymmetricAuth:     true,
+		sdk.CapabilityReboot:             true,
+		sdk.CapabilityMiningStart:        true,
+		sdk.CapabilityMiningStop:         true,
+		sdk.CapabilityCoolingModeAir:     true,
+		sdk.CapabilityCoolingModeImmerse: true,
+		sdk.CapabilityPoolConfig:         true,
+		sdk.CapabilityRealtimeTelemetry:  true,
+		sdk.CapabilityHistoricalData:     true,
+		sdk.CapabilityOTAUpdate:          true,
+	}
+
+	mockPlugin := &LoadedPlugin{
+		Name:       "proto-plugin",
+		Caps:       protoCaps,
+		MinerTypes: []models.Type{models.TypeProto},
+	}
+	manager.pluginsByType[models.TypeProto] = mockPlugin
+	manager.plugins["proto-plugin"] = mockPlugin
+
+	// Model must start with "rig" to be recognized as Proto device
+	device := &pairingpb.Device{
+		Type:         "asic",
+		Model:        "Rig 1",
+		Manufacturer: "Proto",
+	}
+
+	ctx := t.Context()
+	result := service.GetMinerCapabilitiesForDevice(ctx, device)
+
+	require.NotNil(t, result)
+	assert.Equal(t, "Proto", result.Manufacturer)
+
+	// Verify telemetry capabilities
+	require.NotNil(t, result.Telemetry)
+	assert.True(t, result.Telemetry.RealtimeTelemetrySupported)
+	assert.True(t, result.Telemetry.HistoricalDataSupported)
+
+	// Verify command capabilities with cooling modes
+	require.NotNil(t, result.Commands)
+	assert.True(t, result.Commands.AirCoolingSupported)
+	assert.True(t, result.Commands.ImmersionCoolingSupported)
 }

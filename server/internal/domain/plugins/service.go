@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"sync"
 
+	capabilitiespb "github.com/btc-mining/proto-fleet/server/generated/grpc/capabilities/v1"
+	pairingpb "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	discoverymodels "github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery/models"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
@@ -106,6 +108,32 @@ func (s *Service) GetPluginCapabilities(minerType models.Type) (sdk.Capabilities
 	}
 
 	return plugin.Caps, nil
+}
+
+// GetMinerCapabilitiesForDevice returns the protobuf MinerCapabilities for a device.
+// It determines the miner type from the device and retrieves capabilities from the
+// corresponding plugin. Returns nil if no plugin is available for the device type.
+func (s *Service) GetMinerCapabilitiesForDevice(_ context.Context, device *pairingpb.Device) *capabilitiespb.MinerCapabilities {
+	if device == nil {
+		return nil
+	}
+
+	minerType, err := models.TypeFromDeviceInfo(device.Type, device.Model)
+	if err != nil {
+		slog.Debug("Failed to determine miner type for device",
+			"type", device.Type,
+			"model", device.Model,
+			"error", err)
+		return nil
+	}
+
+	plugin, exists := s.manager.GetPluginForMinerType(minerType)
+	if !exists {
+		slog.Debug("No plugin available for miner type", "type", minerType)
+		return nil
+	}
+
+	return ConvertToMinerCapabilities(plugin.Caps, device.Manufacturer)
 }
 
 // ValidatePluginHealth checks if all loaded plugins are healthy

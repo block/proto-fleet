@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/btc-mining/proto-fleet/server/internal/domain/capabilities"
+	capabilitiespb "github.com/btc-mining/proto-fleet/server/generated/grpc/capabilities/v1"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
@@ -90,9 +90,14 @@ func adjustIPRangeStartForNetworkAddresses(ipAddr uint32) uint32 {
 	return ipAddr
 }
 
-//go:generate mockgen -source=service.go -destination=mocks/mock_service.go -package=mocks Listener
+//go:generate mockgen -source=service.go -destination=mocks/mock_service.go -package=mocks Listener,CapabilitiesProvider
 type Listener interface {
 	AddDevices(ctx context.Context, deviceID ...tmodels.DeviceIdentifier) error
+}
+
+// CapabilitiesProvider provides miner capabilities from plugins
+type CapabilitiesProvider interface {
+	GetMinerCapabilitiesForDevice(ctx context.Context, device *pb.Device) *capabilitiespb.MinerCapabilities
 }
 
 // Service handles the core device discovery functionality
@@ -102,7 +107,7 @@ type Service struct {
 	transactor            interfaces.Transactor
 	tokenService          *tokenDomain.Service
 	minerDiscoveryService *minerdiscovery.Service
-	capabilitiesService   *capabilities.Service
+	capabilitiesProvider  CapabilitiesProvider
 	pairers               map[models.Type]Pairer
 	listener              Listener
 }
@@ -113,7 +118,7 @@ func NewService(
 	transactor interfaces.Transactor,
 	tokenService *tokenDomain.Service,
 	minerDiscoveryService *minerdiscovery.Service,
-	capabilitiesService *capabilities.Service,
+	capabilitiesProvider CapabilitiesProvider,
 	listener Listener,
 	pairers ...Pairer,
 ) *Service {
@@ -128,7 +133,7 @@ func NewService(
 		transactor:            transactor,
 		tokenService:          tokenService,
 		minerDiscoveryService: minerDiscoveryService,
-		capabilitiesService:   capabilitiesService,
+		capabilitiesProvider:  capabilitiesProvider,
 		pairers:               pairersMap,
 		listener:              listener,
 	}
@@ -457,7 +462,7 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 		return err
 	}
 
-	minerCapabilities := s.capabilitiesService.GetCapabilitiesForDevice(ctx, &discoveredDevice.Device)
+	minerCapabilities := s.capabilitiesProvider.GetMinerCapabilitiesForDevice(ctx, &discoveredDevice.Device)
 	result.Device.Capabilities = minerCapabilities
 
 	select {

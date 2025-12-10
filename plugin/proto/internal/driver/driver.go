@@ -82,38 +82,46 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 		sdk.CapabilityDiscovery:   true, // We can discover devices on the network
 		sdk.CapabilityPairing:     true, // We can pair with discovered devices
 
-		// Management capabilities - optional but recommended
-		sdk.CapabilityReboot:     true, // We can reboot devices
-		sdk.CapabilityFirmware:   true, // We can update device firmware
-		sdk.CapabilityPoolConfig: true, // We can configure mining pools
+		// Command capabilities
+		sdk.CapabilityReboot:             true,  // We can reboot devices
+		sdk.CapabilityMiningStart:        true,  // We can start mining
+		sdk.CapabilityMiningStop:         true,  // We can stop mining
+		sdk.CapabilityLEDBlink:           true,  // We can blink LED for identification
+		sdk.CapabilityFactoryReset:       false, // Factory reset not supported
+		sdk.CapabilityCoolingModeAir:     true,  // We support air cooling mode
+		sdk.CapabilityCoolingModeImmerse: true,  // We support immersion cooling mode
+		sdk.CapabilityPoolConfig:         true,  // We can configure mining pools
+		sdk.CapabilityPoolPriority:       true,  // We can set pool priority
+		sdk.CapabilityLogsDownload:       true,  // We can download device logs
+
+		// Telemetry capabilities
+		sdk.CapabilityRealtimeTelemetry: true, // We support real-time telemetry
+		sdk.CapabilityHistoricalData:    true, // We support historical data
+		sdk.CapabilityHashrateReported:  true, // We report hashrate
+		sdk.CapabilityPowerUsage:        true, // We report power usage
+		sdk.CapabilityTemperature:       true, // We report temperature
+		sdk.CapabilityFanSpeed:          true, // We report fan speed
+		sdk.CapabilityEfficiency:        true, // We report efficiency
+		sdk.CapabilityUptime:            true, // We report uptime
+		sdk.CapabilityErrorCount:        true, // We report error count
+		sdk.CapabilityMinerStatus:       true, // We report miner status
+		sdk.CapabilityPoolStats:         true, // We report pool stats
+		sdk.CapabilityPerChipStats:      true, // We report per-chip stats
+		sdk.CapabilityPerBoardStats:     true, // We report per-board stats
+		sdk.CapabilityPSUStats:          true, // We report PSU stats
+
+		// Firmware capabilities
+		sdk.CapabilityFirmware:     true, // We can update device firmware
+		sdk.CapabilityOTAUpdate:    true, // We support OTA updates
+		sdk.CapabilityManualUpload: true, // We support manual firmware upload
+
+		// Authentication capabilities
+		sdk.CapabilityAsymmetricAuth: true, // We use asymmetric key authentication
 
 		// Advanced capabilities - not yet implemented
 		sdk.CapabilityPollingPlugin: false, // Plugin-side polling not supported
 		sdk.CapabilityBatchStatus:   false, // Batch operations not supported
 		sdk.CapabilityStreaming:     false, // Real-time streaming not supported
-
-		// Additional capabilities from proto-rig configuration
-		"factory_reset":         false, // factoryResetSupported: false
-		"cooling_mode":          true,  // coolingModeSupported: true
-		"logs_download":         true,  // logsDownloadSupported: true
-		"realtime_telemetry":    true,  // realtimeTelemetrySupported: true
-		"historical_data":       true,  // historicalDataSupported: true
-		"hashrate_reported":     true,  // hashrateReported: true
-		"power_usage_reported":  true,  // powerUsageReported: true
-		"temperature_reported":  true,  // temperatureReported: true
-		"fan_speed_reported":    true,  // fanSpeedReported: true
-		"efficiency_reported":   true,  // efficiencyReported: true
-		"uptime_reported":       true,  // uptimeReported: true
-		"error_count_reported":  true,  // errorCountReported: true
-		"miner_status_reported": true,  // minerStatusReported: true
-		"pool_stats_reported":   true,  // poolStatsReported: true
-		"per_chip_stats":        true,  // perChipStatsReported: true
-		"per_board_stats":       true,  // perBoardStatsReported: true
-		"psu_stats_reported":    true,  // psuStatsReported: true
-		"ota_update":            true,  // otaUpdateSupported: true
-		"manual_upload":         true,  // manualUploadSupported: true
-		"asymmetric_auth":       true,  // authentication.supportedMethods: ["asymmetric"]
-		"pool_priority":         true,  // poolPrioritySupported: true
 	}
 
 	return deviceInfo, capabilities, nil

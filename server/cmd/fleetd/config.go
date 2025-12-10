@@ -3,7 +3,6 @@ package main
 import (
 	"time"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/capabilities"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/errorquery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/ipscanner"
@@ -39,7 +38,6 @@ type Config struct {
 	InfluxDB       influxdb.Config       `embed:"" prefix:"influxdb" envprefix:"INFLUXDB3_"`
 	Telemetry      telemetry.Config      `embed:"" prefix:"telemetry" envprefix:"TELEMETRY_"`
 	Scheduler      scheduler.Config      `embed:"" prefix:"scheduler" envprefix:"SCHEDULER_"`
-	Capabilities   capabilities.Config   `embed:"" prefix:"capabilities" envprefix:"CAPABILITIES_"`
 	Plugins        plugins.Config        `embed:"" prefix:"plugins" envprefix:"PLUGINS_"`
 	IPScanner      ipscanner.Config      `embed:"" prefix:"ipscanner" envprefix:"IPSCANNER_"`
 	ErrorQueryTest errorquery.TestConfig `embed:"" prefix:"errorquery-test" envprefix:"ERROR_QUERY_TEST_"`

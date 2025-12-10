@@ -68,7 +68,7 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
 	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
-	capabilitiesService := testContext.ServiceProvider.CapabilitiesService
+	pluginService := testContext.ServiceProvider.PluginService
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
@@ -86,7 +86,7 @@ func setupTestService(t *testing.T, testContext *testutil.TestContext, adminUser
 		transactor,
 		tokenService,
 		discoveryService,
-		capabilitiesService,
+		pluginService,
 		mockListener,
 		pairers...,
 	)
@@ -523,7 +523,7 @@ func TestPairDevices(t *testing.T) {
 		discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
 		transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
 		deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
-		capabilitiesService := testContext.ServiceProvider.CapabilitiesService
+		pluginService := testContext.ServiceProvider.PluginService
 
 		pairingService := pairing.NewService(
 			discoveredDeviceStore,
@@ -531,7 +531,7 @@ func TestPairDevices(t *testing.T) {
 			transactor,
 			tokenService,
 			discoveryService,
-			capabilitiesService,
+			pluginService,
 			nil,
 			// No pairers registered
 		)

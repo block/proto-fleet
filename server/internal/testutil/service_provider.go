@@ -3,17 +3,16 @@ package testutil
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/files"
 
-	"github.com/btc-mining/proto-fleet/server/internal/domain/capabilities"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/miner"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/minerdiscovery"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
@@ -59,7 +58,7 @@ type ServiceProvider struct {
 	UserStore              *sqlstores.SQLUserStore
 	FilesService           *files.Service
 	MinerService           *miner.Service
-	CapabilitiesService    *capabilities.Service
+	PluginService          *plugins.Service
 }
 
 func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvider {
@@ -120,12 +119,14 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	// Use mock proto pairer instead of legacy implementation
 	protoPairer := NewMockProtoPairer(ctrl)
 
-	capabilitiesService, err := capabilities.NewService(capabilities.Config{
-		CapabilitiesPath: filepath.Join("miner-configs", "capabilities.yaml"),
-	})
-	assert.NoError(t, err)
+	// Create plugin manager and service for capabilities
+	pluginConfig := &plugins.Config{
+		Enabled: false, // Plugins disabled in tests by default
+	}
+	pluginManager := plugins.NewManager(pluginConfig)
+	pluginService := plugins.NewService(pluginManager)
 
-	pairingService := pairing.NewService(discoveredDeviceStore, deviceStore, transactor, tokenService, minerDiscoveryService, capabilitiesService, listenerMock, protoPairer)
+	pairingService := pairing.NewService(discoveredDeviceStore, deviceStore, transactor, tokenService, minerDiscoveryService, pluginService, listenerMock, protoPairer)
 
 	commandConfig := &command.Config{
 		MaxWorkers:                       testMaxWorkers,
@@ -168,6 +169,6 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 		UserStore:              userStore,
 		FilesService:           filesService,
 		MinerService:           minerService,
-		CapabilitiesService:    capabilitiesService,
+		PluginService:          pluginService,
 	}
 }

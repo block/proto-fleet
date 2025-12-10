@@ -437,8 +437,40 @@ const (
 	CapabilityDiscovery = "discovery" // Device discovery support
 	CapabilityPairing   = "pairing"   // Device pairing support
 
-	// Admin capabilities
-	CapabilityReboot     = "reboot"      // Device reboot support
-	CapabilityFirmware   = "firmware"    // Firmware update support
-	CapabilityPoolConfig = "pool_config" // Pool configuration support
+	// Command capabilities
+	CapabilityReboot             = "reboot"               // Device reboot support
+	CapabilityMiningStart        = "mining_start"         // Start mining support
+	CapabilityMiningStop         = "mining_stop"          // Stop mining support
+	CapabilityLEDBlink           = "led_blink"            // LED blink support
+	CapabilityFactoryReset       = "factory_reset"        // Factory reset support
+	CapabilityCoolingModeAir     = "cooling_mode_air"     // Air cooling mode support
+	CapabilityCoolingModeImmerse = "cooling_mode_immerse" // Immersion cooling mode support
+	CapabilityPoolConfig         = "pool_config"          // Pool configuration support
+	CapabilityPoolPriority       = "pool_priority"        // Pool priority support
+	CapabilityLogsDownload       = "logs_download"        // Device logs download support
+
+	// Telemetry capabilities
+	CapabilityRealtimeTelemetry = "realtime_telemetry"    // Real-time telemetry support
+	CapabilityHistoricalData    = "historical_data"       // Historical data support
+	CapabilityHashrateReported  = "hashrate_reported"     // Hashrate reported
+	CapabilityPowerUsage        = "power_usage_reported"  // Power usage reported
+	CapabilityTemperature       = "temperature_reported"  // Temperature reported
+	CapabilityFanSpeed          = "fan_speed_reported"    // Fan speed reported
+	CapabilityEfficiency        = "efficiency_reported"   // Efficiency reported
+	CapabilityUptime            = "uptime_reported"       // Uptime reported
+	CapabilityErrorCount        = "error_count_reported"  // Error count reported
+	CapabilityMinerStatus       = "miner_status_reported" // Miner status reported
+	CapabilityPoolStats         = "pool_stats_reported"   // Pool stats reported
+	CapabilityPerChipStats      = "per_chip_stats"        // Per-chip stats reported
+	CapabilityPerBoardStats     = "per_board_stats"       // Per-board stats reported
+	CapabilityPSUStats          = "psu_stats_reported"    // PSU stats reported
+
+	// Firmware capabilities
+	CapabilityFirmware     = "firmware"      // Firmware update support (generic)
+	CapabilityOTAUpdate    = "ota_update"    // OTA update support
+	CapabilityManualUpload = "manual_upload" // Manual firmware upload support
+
+	// Authentication capabilities
+	CapabilityBasicAuth      = "basic_auth"      // Basic (username/password) authentication
+	CapabilityAsymmetricAuth = "asymmetric_auth" // Asymmetric key authentication
 )

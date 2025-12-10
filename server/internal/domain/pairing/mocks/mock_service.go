@@ -8,6 +8,8 @@ import (
 	context "context"
 	reflect "reflect"
 
+	capabilitiesv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/capabilities/v1"
+	pairingv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/pairing/v1"
 	models "github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/models"
 	gomock "github.com/golang/mock/gomock"
 )
@@ -52,4 +54,41 @@ func (mr *MockListenerMockRecorder) AddDevices(ctx interface{}, deviceID ...inte
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]interface{}{ctx}, deviceID...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddDevices", reflect.TypeOf((*MockListener)(nil).AddDevices), varargs...)
+}
+
+// MockCapabilitiesProvider is a mock of CapabilitiesProvider interface.
+type MockCapabilitiesProvider struct {
+	ctrl     *gomock.Controller
+	recorder *MockCapabilitiesProviderMockRecorder
+}
+
+// MockCapabilitiesProviderMockRecorder is the mock recorder for MockCapabilitiesProvider.
+type MockCapabilitiesProviderMockRecorder struct {
+	mock *MockCapabilitiesProvider
+}
+
+// NewMockCapabilitiesProvider creates a new mock instance.
+func NewMockCapabilitiesProvider(ctrl *gomock.Controller) *MockCapabilitiesProvider {
+	mock := &MockCapabilitiesProvider{ctrl: ctrl}
+	mock.recorder = &MockCapabilitiesProviderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockCapabilitiesProvider) EXPECT() *MockCapabilitiesProviderMockRecorder {
+	return m.recorder
+}
+
+// GetMinerCapabilitiesForDevice mocks base method.
+func (m *MockCapabilitiesProvider) GetMinerCapabilitiesForDevice(ctx context.Context, device *pairingv1.Device) *capabilitiesv1.MinerCapabilities {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMinerCapabilitiesForDevice", ctx, device)
+	ret0, _ := ret[0].(*capabilitiesv1.MinerCapabilities)
+	return ret0
+}
+
+// GetMinerCapabilitiesForDevice indicates an expected call of GetMinerCapabilitiesForDevice.
+func (mr *MockCapabilitiesProviderMockRecorder) GetMinerCapabilitiesForDevice(ctx, device interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerCapabilitiesForDevice", reflect.TypeOf((*MockCapabilitiesProvider)(nil).GetMinerCapabilitiesForDevice), ctx, device)
 }
