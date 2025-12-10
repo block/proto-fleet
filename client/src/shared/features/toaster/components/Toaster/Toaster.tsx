@@ -28,8 +28,8 @@ const Toaster = () => {
         setToasts((prev) => prev.filter((t) => t.id !== data.id));
       } else if (data.action == ACTIONS.update) {
         setToasts((prev) => {
-          const index = prev.findIndex((t) => t.id == data.toast.id);
-          if (index == undefined) {
+          const index = prev.findIndex((t) => t.id === data.toast.id);
+          if (index === -1) {
             return prev;
           }
 

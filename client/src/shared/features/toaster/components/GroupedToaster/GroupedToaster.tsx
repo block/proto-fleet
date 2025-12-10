@@ -4,6 +4,7 @@ import clsx from "clsx";
 import { removeToast } from "../../ToastsObserver";
 import { type ToastType } from "../../types";
 import ResizeablePanel from "@/protoOS/features/auth/components/LoginModal/ResizeablePanel";
+import { Alert, Success } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import GroupedToast from "@/shared/features/toaster/components/GroupedToaster/GroupedToast";
@@ -16,6 +17,22 @@ interface GroupedToasterProps {
 const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const timeoutId = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasAutoExpandedRef = useRef(false);
+
+  const allCompleted = toasts.every((toast) => toast.status === STATUSES.success || toast.status === STATUSES.error);
+  const hasErrors = toasts.some((toast) => toast.status === STATUSES.error);
+
+  // Auto-expand once when errors are detected to draw user attention
+  useEffect(() => {
+    if (allCompleted && hasErrors && !isExpanded && !hasAutoExpandedRef.current) {
+      hasAutoExpandedRef.current = true;
+      queueMicrotask(() => setIsExpanded(true));
+    }
+    // Reset when all toasts are cleared (for next batch of toasts)
+    if (toasts.length === 0) {
+      hasAutoExpandedRef.current = false;
+    }
+  }, [allCompleted, hasErrors, isExpanded, toasts.length]);
 
   const handleToastClose = (id: number, customOnClose?: () => void) => {
     removeToast(id);
@@ -23,6 +40,7 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
   };
 
   // When user doesn't expand the toaster, the toasts would never get removed
+  // Skip auto-dismiss if there are errors so the user can see the error details
   useEffect(() => {
     const clearTimeoutWithCheck = () => {
       if (timeoutId.current !== null) {
@@ -31,11 +49,11 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
       }
     };
 
-    if (toasts.length === 0 || isExpanded) {
+    if (toasts.length === 0 || isExpanded || hasErrors) {
       clearTimeoutWithCheck();
     }
 
-    if (toasts.length !== 0 && !isExpanded) {
+    if (toasts.length !== 0 && !isExpanded && !hasErrors) {
       clearTimeoutWithCheck();
 
       timeoutId.current = setTimeout(
@@ -51,7 +69,7 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
     }
 
     return clearTimeoutWithCheck;
-  }, [toasts, isExpanded]);
+  }, [toasts, isExpanded, hasErrors]);
 
   if (toasts.length === 0) return null;
 
@@ -81,20 +99,30 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
                   animate={{ x: 0, opacity: 1 }}
                   exit={{ x: "-100%", opacity: 0 }}
                   transition={{ duration: 0.3 }}
+                  className="mr-3"
                 >
-                  <ProgressCircular
-                    key="progress"
-                    className="mr-3"
-                    indeterminate
-                    dataTestId="header-progress-circular"
-                  />
+                  {allCompleted ? (
+                    hasErrors ? (
+                      <Alert className="text-intent-critical-fill" data-testid="header-error-icon" />
+                    ) : (
+                      <Success className="text-intent-success-fill" data-testid="header-success-icon" />
+                    )
+                  ) : (
+                    <ProgressCircular indeterminate dataTestId="header-progress-circular" />
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>
             <motion.div layout transition={{ duration: 0.3 }}>
               <div className="flex flex-col">
                 <div className="text-emphasis-300 text-text-primary">
-                  {toasts.length === 1 ? "Update in progress" : `${toasts.length} updates in progress`}
+                  {allCompleted
+                    ? toasts.length === 1
+                      ? "Update complete"
+                      : `${toasts.length} updates complete`
+                    : toasts.length === 1
+                      ? "Update in progress"
+                      : `${toasts.length} updates in progress`}
                 </div>
               </div>
             </motion.div>
@@ -119,8 +147,10 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
             <Button
               className="mt-2 w-full"
               variant={variants.secondary}
-              text="Close"
-              onClick={() => setIsExpanded(false)}
+              text="Dismiss"
+              onClick={() => {
+                toasts.forEach((toast) => handleToastClose(toast.id, toast.onClose));
+              }}
             />
           </>
         )}

@@ -10,8 +10,9 @@ type GroupedToastProps = Omit<ToastType, "id"> & {
 };
 
 const GroupedToast = ({ message, onClose, status, progress, ttl = defaultTtl }: GroupedToastProps) => {
+  // Only auto-dismiss success toasts, keep error toasts visible for user attention
   useEffect(() => {
-    if (status !== STATUSES.success && status !== STATUSES.error) return;
+    if (status !== STATUSES.success) return;
 
     if (ttl !== false) {
       const toID = setTimeout(onClose, ttl);
