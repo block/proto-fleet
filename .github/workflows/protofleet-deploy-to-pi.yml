@@ -9,7 +9,7 @@ on:
         default: 'main'
         type: string
       environment:
-        description: 'Deployment environment (Raspberry Pi location)'
+        description: 'Raspberry Pi runner to deploy to (self-hosted runners with proto-fleet-rpi tag)'
         required: true
         type: choice
         options:
@@ -202,7 +202,7 @@ jobs:
           retention-days: 1
 
   deploy-to-pi:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, proto-fleet-rpi, '${{ inputs.environment }}']
     needs: [build-deployment-bundle]
     environment: ${{ inputs.environment }}
     steps:
@@ -211,101 +211,8 @@ jobs:
         with:
           ref: ${{ inputs.branch }}
 
-      - name: Download deployment bundle
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+      - name: Deploy ProtoFleet to ${{ inputs.environment }}
+        uses: ./.github/actions/deploy-protofleet
         with:
-          name: proto-fleet-deployment-bundle
-          path: .
-
-      - name: Setup SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.PI_SSH_PRIVATE_KEY }}" > ~/.ssh/pi_key
-          chmod 600 ~/.ssh/pi_key
-          ssh-keyscan -H ${{ vars.PI_HOST }} >> ~/.ssh/known_hosts || true
-
-      - name: Check SSH connection
-        run: |
-          ssh -i ~/.ssh/pi_key -o StrictHostKeyChecking=no ${{ vars.PI_USER }}@${{ vars.PI_HOST }} 'echo "SSH connection successful"'
-
-      - name: Copy deployment bundle to Raspberry Pi
-        run: |
-          scp -i ~/.ssh/pi_key -o StrictHostKeyChecking=no \
-            proto-fleet-deployment.tar.gz \
-            ${{ vars.PI_USER }}@${{ vars.PI_HOST }}:/tmp/
-
-      - name: Deploy on Raspberry Pi
-        run: |
-          ssh -i ~/.ssh/pi_key -o StrictHostKeyChecking=no \
-            ${{ vars.PI_USER }}@${{ vars.PI_HOST }} << 'ENDSSH'
-          set -e
-
-          # Determine installation directory
-          INSTALL_DIR="${{ vars.INSTALL_DIR }}"
-          if [ -z "$INSTALL_DIR" ]; then
-            INSTALL_DIR="$HOME/proto-fleet"
-          fi
-
-          echo "Installing ProtoFleet to: $INSTALL_DIR"
-
-          # Create installation directory
-          mkdir -p "$INSTALL_DIR"
-
-          # Check if there's an existing .env file to preserve
-          ENV_FILE="$INSTALL_DIR/deployment/server/influx_config/.env"
-          if [ -f "$ENV_FILE" ]; then
-            echo "Backing up existing .env file..."
-            cp "$ENV_FILE" /tmp/.env.backup
-          fi
-
-          # Extract deployment bundle
-          echo "Extracting deployment bundle..."
-          tar -xzf /tmp/proto-fleet-deployment.tar.gz -C "$INSTALL_DIR"
-
-          # Restore .env file if it existed
-          if [ -f "/tmp/.env.backup" ]; then
-            echo "Restoring .env file..."
-            cp /tmp/.env.backup "$ENV_FILE"
-            rm /tmp/.env.backup
-          fi
-
-          # Clean up tarball
-          rm /tmp/proto-fleet-deployment.tar.gz
-
-          # Navigate to deployment directory
-          cd "$INSTALL_DIR/deployment"
-
-          # Make run-fleet.sh executable
-          chmod +x run-fleet.sh
-
-          # Run the deployment script
-          echo "Running deployment script..."
-          ./run-fleet.sh
-
-          echo "Deployment complete!"
-          ENDSSH
-
-      - name: Verify deployment
-        run: |
-          ssh -i ~/.ssh/pi_key -o StrictHostKeyChecking=no \
-            ${{ vars.PI_USER }}@${{ vars.PI_HOST }} << 'ENDSSH'
-
-          INSTALL_DIR="${{ vars.INSTALL_DIR }}"
-          if [ -z "$INSTALL_DIR" ]; then
-            INSTALL_DIR="$HOME/proto-fleet"
-          fi
-
-          cd "$INSTALL_DIR/deployment"
-
-          echo "Checking Docker containers..."
-          docker compose ps
-
-          echo ""
-          echo "Deployment version:"
-          cat version.txt
-          ENDSSH
-
-      - name: Clean up SSH key
-        if: always()
-        run: |
-          rm -f ~/.ssh/pi_key
+          artifact_name: proto-fleet-deployment-bundle
+          install_dir: ${{ vars.INSTALL_DIR }}

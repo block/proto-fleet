@@ -1,0 +1,135 @@
+name: Deploy ProtoFleet
+description: Deploy ProtoFleet deployment bundle to a target environment
+
+inputs:
+  artifact_name:
+    description: 'Name of the deployment bundle artifact'
+    required: true
+  install_dir:
+    description: 'Installation directory (defaults to $HOME/proto-fleet)'
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Download deployment bundle
+      uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: /tmp
+
+    - name: Deploy ProtoFleet
+      shell: bash
+      run: |
+        set -e
+
+        # Determine installation directory
+        INSTALL_DIR="${{ inputs.install_dir }}"
+        if [ -z "$INSTALL_DIR" ]; then
+          INSTALL_DIR="$HOME/proto-fleet"
+        fi
+
+        echo "Installing ProtoFleet to: $INSTALL_DIR"
+
+        # Create installation directory
+        mkdir -p "$INSTALL_DIR"
+
+        # Check if there's an existing .env file to preserve
+        ENV_FILE="$INSTALL_DIR/deployment/server/influx_config/.env"
+        if [ -f "$ENV_FILE" ]; then
+          echo "Backing up existing .env file..."
+          cp "$ENV_FILE" /tmp/.env.backup
+        fi
+
+        # Find the deployment bundle (support both dev and release naming)
+        BUNDLE_FILE=$(find /tmp -maxdepth 1 \( -name "proto-fleet-deployment*.tar.gz" -o -name "proto-fleet-*.tar.gz" \) | head -n 1)
+
+        if [ -z "$BUNDLE_FILE" ]; then
+          echo "Error: Could not find deployment bundle in /tmp"
+          ls -la /tmp
+          exit 1
+        fi
+
+        # Extract deployment bundle
+        echo "Extracting deployment bundle: $BUNDLE_FILE"
+        tar -xzf "$BUNDLE_FILE" -C "$INSTALL_DIR"
+
+        # Restore .env file if it existed
+        if [ -f "/tmp/.env.backup" ]; then
+          echo "Restoring .env file..."
+          cp /tmp/.env.backup "$ENV_FILE"
+          rm /tmp/.env.backup
+        fi
+
+        # Clean up tarball
+        rm "$BUNDLE_FILE"
+
+        # Navigate to deployment directory
+        cd "$INSTALL_DIR/deployment"
+
+        # Make run-fleet.sh executable
+        chmod +x run-fleet.sh
+
+        # Run the deployment script
+        echo "Running deployment script..."
+        ./run-fleet.sh
+
+        echo "Deployment complete!"
+
+    - name: Verify deployment
+      shell: bash
+      run: |
+        set -e
+
+        INSTALL_DIR="${{ inputs.install_dir }}"
+        if [ -z "$INSTALL_DIR" ]; then
+          INSTALL_DIR="$HOME/proto-fleet"
+        fi
+
+        cd "$INSTALL_DIR/deployment"
+
+        echo "Verifying deployment..."
+        echo ""
+        echo "Deployment version:"
+        cat version.txt
+        echo ""
+
+        # Check that all required containers are running
+        echo "Checking container status..."
+        EXPECTED_CONTAINERS=("fleetd" "mysql" "influxdb")
+        FAILED=0
+
+        for container in "${EXPECTED_CONTAINERS[@]}"; do
+          # Check if container exists and is running
+          if ! docker compose ps --format json | jq -e ".[] | select(.Service == \"$container\" and .State == \"running\")" > /dev/null 2>&1; then
+            echo "❌ Container '$container' is not running"
+            FAILED=1
+          else
+            echo "✅ Container '$container' is running"
+
+            # Check health status if available
+            HEALTH=$(docker compose ps --format json | jq -r ".[] | select(.Service == \"$container\") | .Health // \"none\"")
+            if [ "$HEALTH" != "none" ]; then
+              if [ "$HEALTH" != "healthy" ]; then
+                echo "   ⚠️  Health status: $HEALTH"
+                FAILED=1
+              else
+                echo "   ✅ Health status: $HEALTH"
+              fi
+            fi
+          fi
+        done
+
+        echo ""
+        echo "Full container status:"
+        docker compose ps
+
+        if [ $FAILED -eq 1 ]; then
+          echo ""
+          echo "❌ Deployment verification failed - one or more containers are not healthy"
+          exit 1
+        fi
+
+        echo ""
+        echo "✅ Deployment verification successful - all containers are running and healthy"

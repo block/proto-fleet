@@ -251,6 +251,14 @@ jobs:
         run: |
           tar -czf proto-fleet-${{ github.event.release.tag_name }}.tar.gz deployment
 
+      # Upload to GitHub Actions artifacts for deployment job
+      - name: Upload deployment bundle artifact
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: proto-fleet-deployment-bundle
+          path: proto-fleet-${{ github.event.release.tag_name }}.tar.gz
+          retention-days: 1
+
       - name: Upload full ProtoFleet deployment bundle
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
@@ -298,3 +306,22 @@ jobs:
             deployment/version.txt \
             s3://proto-fleet/releases/fleet/latest/version.txt \
             --acl public-read
+
+  deploy-to-all-pis:
+    runs-on: [self-hosted, proto-fleet-rpi, '${{ matrix.environment }}']
+    needs: [build-proto-fleet]
+    if: github.event.release.prerelease == false
+    strategy:
+      matrix:
+        environment: [pi-stl, pi-mar, pi-fxsj, pi-dalton]
+      fail-fast: false
+    environment: ${{ matrix.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Deploy ProtoFleet to ${{ matrix.environment }}
+        uses: ./.github/actions/deploy-protofleet
+        with:
+          artifact_name: proto-fleet-deployment-bundle
+          install_dir: ${{ vars.INSTALL_DIR }}
