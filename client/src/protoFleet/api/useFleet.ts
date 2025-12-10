@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { create } from "@bufbuild/protobuf";
+import { create, equals } from "@bufbuild/protobuf";
 import { fleetManagementClient, telemetryClient } from "@/protoFleet/api/clients";
 import {
   DeviceStatusUpdateSchema,
   MinerListFilter,
+  MinerListFilterSchema,
   MinerStateSnapshot,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -365,12 +366,18 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
   // Track if this is the initial load and previous filter
   const hasLoadedRef = useRef(false);
-  const previousFilterRef = useRef(filter);
+  const previousFilterRef = useRef<MinerListFilter | undefined>(undefined);
 
   // Fetch data when filter changes
   useEffect(() => {
-    // Check if filter actually changed (using object reference comparison)
-    const filterChanged = previousFilterRef.current !== filter;
+    // Check if filter actually changed using protobuf deep equality
+    const filtersEqual =
+      previousFilterRef.current === filter || // Both undefined or same reference
+      (previousFilterRef.current !== undefined &&
+        filter !== undefined &&
+        equals(MinerListFilterSchema, previousFilterRef.current, filter));
+
+    const filterChanged = !filtersEqual;
 
     if (hasLoadedRef.current && !filterChanged) {
       return; // Skip if not first load and filter hasn't changed
