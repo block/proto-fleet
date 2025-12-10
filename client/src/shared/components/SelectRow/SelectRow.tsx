@@ -16,6 +16,7 @@ export interface SelectRowProps {
   text: string | ReactNode;
   sideText?: string | ReactNode;
   type: SelectType;
+  "data-testid"?: string;
 }
 
 const SelectRow = ({
@@ -29,6 +30,7 @@ const SelectRow = ({
   text,
   sideText,
   type,
+  "data-testid": dataTestId,
 }: SelectRowProps) => {
   const isCheckbox = useMemo(() => type === selectTypes.checkbox, [type]);
   const isRadio = useMemo(() => type === selectTypes.radio, [type]);
@@ -49,6 +51,7 @@ const SelectRow = ({
           "cursor-pointer bg-surface-default text-text-primary hover:bg-core-primary-5",
           className,
         )}
+        data-testid={dataTestId}
         onClick={() => onChange(id, !isSelected)}
       >
         <div className="flex grow items-center">

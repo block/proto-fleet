@@ -52,6 +52,7 @@ const TemperatureUnitsSwitcher = ({
             isSelected={temperatureUnit === "C"}
             onChange={handleChange}
             type={selectTypes.radio}
+            data-testid="celsius-option"
           />
           <SelectRow
             id={"F"}
@@ -59,6 +60,7 @@ const TemperatureUnitsSwitcher = ({
             isSelected={temperatureUnit === "F"}
             onChange={handleChange}
             type={selectTypes.radio}
+            data-testid="fahrenheit-option"
           />
         </div>
       </PopoverContent>

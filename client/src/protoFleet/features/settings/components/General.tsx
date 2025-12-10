@@ -57,6 +57,7 @@ const General = () => {
                 <div className="text-300">Temperature</div>
                 <button
                   type="button"
+                  data-testid="temperature-button"
                   onClick={() => setShowTemperatureUnitsSwitcher(true)}
                   className="text-300 text-intent-warning-fill hover:underline"
                 >

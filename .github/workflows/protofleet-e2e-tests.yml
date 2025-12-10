@@ -110,6 +110,10 @@ jobs:
       - name: Start MySQL and InfluxDB first
         working-directory: server
         run: |
+          # Pre-create .env file with proper permissions so InfluxDB can write to it
+          touch influx_config/.env
+          chmod 666 influx_config/.env
+
           # Start just MySQL and InfluxDB with more lenient health checks
           docker compose up -d mysql influxdb
 
@@ -135,9 +139,17 @@ jobs:
             sleep 2
           done
 
-          # Pre-populate InfluxDB token to avoid race condition with manage_token.sh
-          # The fleet-api reads from this file on startup, overriding env vars
-          echo "INFLUXDB3_AUTH_TOKEN=apiv3_aJMkJi99eIiYeLKPjcN2dLtUMK7yHv8mR8RWeJyY8dal36nV85ELxKxx-IBWBXYKMctOgNKExZ5NmLmWeihqoA" > influx_config/.env
+          # Wait for manage_token.sh to create and populate the token
+          echo "Waiting for InfluxDB token to be created..."
+          for i in {1..30}; do
+            if [ -f influx_config/.env ] && grep -q "INFLUXDB3_AUTH_TOKEN=apiv3" influx_config/.env; then
+              echo "InfluxDB token is ready!"
+              cat influx_config/.env
+              break
+            fi
+            echo "Attempt $i/30: Token not ready yet, waiting..."
+            sleep 2
+          done
 
       - name: Start backend services
         working-directory: server

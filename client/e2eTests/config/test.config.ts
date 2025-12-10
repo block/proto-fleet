@@ -13,6 +13,11 @@ export const testConfig = {
     password: "root",
   },
 
-  timeouts: 30000,
+  testTimeout: 180000,
+  actionTimeout: 30000,
+  interval: 500,
   expectedMinerCount: 12, // Default amount of virtual miners
 };
+
+export const DEFAULT_TIMEOUT = testConfig.actionTimeout;
+export const DEFAULT_INTERVAL = testConfig.interval;
