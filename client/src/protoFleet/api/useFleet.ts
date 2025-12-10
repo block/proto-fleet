@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { create, equals } from "@bufbuild/protobuf";
 import { fleetManagementClient, telemetryClient } from "@/protoFleet/api/clients";
 import {
@@ -16,7 +16,6 @@ import {
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useAuthErrors, useFleetStore, useMinerIds, useTotalMiners } from "@/protoFleet/store";
 import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
-import { debounce } from "@/shared/utils/utility";
 
 type UseFleetOptions = {
   filter?: MinerListFilter;
@@ -327,23 +326,52 @@ const useFleet = (options: UseFleetOptions = {}) => {
     [pairingStatuses, pageSize, scope, handleAuthErrors],
   );
 
-  // Debounced version of fetchMinerList for internal use
-  const fetchMiners = useMemo(() => {
-    return debounce(fetchMinerList, 300);
+  // Store fetchMinerList in a ref to avoid dependency issues
+  const fetchMinerListRef = useRef(fetchMinerList);
+  useEffect(() => {
+    fetchMinerListRef.current = fetchMinerList;
   }, [fetchMinerList]);
 
-  const loadMore = useCallback(() => {
-    if (hasMore && !isLoading) {
-      // Fetch next page with debounce
-      fetchMiners(filter, cursor);
-    }
-  }, [hasMore, isLoading, filter, cursor, fetchMiners]);
+  // Store filter in a ref for stable callbacks (refetch, loadMore)
+  // This prevents callback recreation when filter object reference changes
+  const filterRef = useRef(filter);
+  useEffect(() => {
+    filterRef.current = filter;
+  }, [filter]);
 
-  const refetch = useCallback(() => {
-    if (!isLoading) {
-      fetchMiners(filter, undefined); // Reset cursor to start fresh
+  // Store cursor in a ref for stable loadMore callback
+  const cursorRef = useRef(cursor);
+  useEffect(() => {
+    cursorRef.current = cursor;
+  }, [cursor]);
+
+  // Store isLoading in a ref for stable callbacks
+  const isLoadingRef = useRef(isLoading);
+  useEffect(() => {
+    isLoadingRef.current = isLoading;
+  }, [isLoading]);
+
+  // Store hasMore in a ref for stable loadMore callback
+  const hasMoreRef = useRef(hasMore);
+  useEffect(() => {
+    hasMoreRef.current = hasMore;
+  }, [hasMore]);
+
+  // Stable loadMore callback - uses refs to avoid recreating on state changes
+  const loadMore = useCallback(() => {
+    if (hasMoreRef.current && !isLoadingRef.current) {
+      // Fetch next page - use refs to get current values
+      fetchMinerListRef.current(filterRef.current, cursorRef.current);
     }
-  }, [isLoading, filter, fetchMiners]);
+  }, []);
+
+  // Stable refetch callback - uses refs to avoid recreating on state changes
+  const refetch = useCallback(() => {
+    if (!isLoadingRef.current) {
+      // Reset cursor to start fresh - use ref for current filter
+      fetchMinerListRef.current(filterRef.current, undefined);
+    }
+  }, []);
 
   // Set up refetch callback for the store (only for global scope)
   useEffect(() => {
@@ -357,12 +385,6 @@ const useFleet = (options: UseFleetOptions = {}) => {
       useFleetStore.getState().fleet.setRefetchCallback(undefined);
     };
   }, [refetch, scope]);
-
-  // Store fetchMinerList in a ref to avoid dependency issues
-  const fetchMinerListRef = useRef(fetchMinerList);
-  useEffect(() => {
-    fetchMinerListRef.current = fetchMinerList;
-  }, [fetchMinerList]);
 
   // Track if this is the initial load and previous filter
   const hasLoadedRef = useRef(false);

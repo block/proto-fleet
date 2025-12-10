@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { create } from "@bufbuild/protobuf";
+import { create, equals } from "@bufbuild/protobuf";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
 import {
   DataMode,
   MeasurementConfig_MeasurementType,
   MinerListFilter,
+  MinerListFilterSchema,
   StreamMinerListUpdatesRequestSchema,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useAuthErrors, useFleetStore } from "@/protoFleet/store";
@@ -42,6 +43,15 @@ const useStreamMinerListUpdates = (options: UseStreamMinerListUpdatesOptions = {
   const [isLoading, setIsLoading] = useState(false); // No initial load
   const [error, setError] = useState<string | null>(null);
 
+  // Store filter in a ref for stable callback
+  const filterRef = useRef(filter);
+  useEffect(() => {
+    filterRef.current = filter;
+  }, [filter]);
+
+  // Track previous filter for deep comparison
+  const previousFilterRef = useRef<MinerListFilter | undefined>(undefined);
+
   // Start streaming miner list updates
   const startStream = useCallback(async () => {
     // Abort any existing stream
@@ -55,9 +65,12 @@ const useStreamMinerListUpdates = (options: UseStreamMinerListUpdatesOptions = {
     setIsLoading(true);
     setError(null);
 
+    // Use ref to get current filter value
+    const currentFilter = filterRef.current;
+
     try {
       const request = create(StreamMinerListUpdatesRequestSchema, {
-        filter,
+        filter: currentFilter,
         dataMode: DataMode.METADATA,
         heartbeatIntervalSeconds: 30,
         measurementConfigs: [
@@ -131,10 +144,25 @@ const useStreamMinerListUpdates = (options: UseStreamMinerListUpdatesOptions = {
         setIsLoading(false);
       }
     }
-  }, [filter, handleAuthErrors]);
+  }, [handleAuthErrors]);
 
-  // Start stream on mount and when dependencies change
+  // Start stream on mount and restart when filter actually changes (deep comparison)
   useEffect(() => {
+    // Check if filter actually changed using protobuf deep equality
+    const filtersEqual =
+      previousFilterRef.current === filter || // Both undefined or same reference
+      (previousFilterRef.current !== undefined &&
+        filter !== undefined &&
+        equals(MinerListFilterSchema, previousFilterRef.current, filter));
+
+    if (filtersEqual && abortControllerRef.current) {
+      // Filter hasn't actually changed and stream is running, skip restart
+      return;
+    }
+
+    // Update previous filter ref
+    previousFilterRef.current = filter;
+
     startStream();
 
     // Cleanup on unmount
@@ -144,7 +172,7 @@ const useStreamMinerListUpdates = (options: UseStreamMinerListUpdatesOptions = {
         abortControllerRef.current = null;
       }
     };
-  }, [startStream]);
+  }, [filter, startStream]);
 
   return {
     isLoading,
