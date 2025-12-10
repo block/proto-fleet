@@ -148,4 +148,9 @@ export class MinersPage extends BasePage {
   async validateTemperatureUnitCelsius() {
     await this.validateTemperatureUnit("°C");
   }
+
+  async validateActiveFilter(filterLabel: string) {
+    const activeFilterButton = this.page.locator(`[data-testid*="active-filter-"]`, { hasText: filterLabel });
+    await expect(activeFilterButton).toBeVisible();
+  }
 }

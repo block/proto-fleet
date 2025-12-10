@@ -35,6 +35,11 @@ export class BasePage {
     await expect(titleLocator).toBeHidden();
   }
 
+  async navigateToHomePage() {
+    await this.page.locator(`//*[@data-testid="navigation-menu"]//*[@href='/']`).click();
+    await expect(this.page).toHaveURL(/.*\/$/);
+  }
+
   async navigateToMinersPage() {
     await this.page.locator(`//*[@data-testid="navigation-menu"]//*[@href='/miners']`).click();
     await expect(this.page).toHaveURL(/.*\/miners/);

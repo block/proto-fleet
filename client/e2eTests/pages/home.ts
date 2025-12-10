@@ -6,6 +6,10 @@ export class HomePage extends BasePage {
     await this.validateTitle("Complete setup");
   }
 
+  async validateHomePageOpened() {
+    await expect(this.page).toHaveURL(/.*\/$/);
+  }
+
   async clickAuthenticateMinersButton() {
     await this.click("Authenticate");
   }
@@ -32,5 +36,21 @@ export class HomePage extends BasePage {
 
   async validateAuthenticateMinersButtonNotVisible() {
     await expect(this.page.getByRole("button", { name: "Authenticate" })).toBeHidden();
+  }
+
+  async clickControlBoardsLink() {
+    await this.page.getByRole("link", { name: "Control Boards" }).click();
+  }
+
+  async clickFansLink() {
+    await this.page.getByRole("link", { name: "Fans" }).click();
+  }
+
+  async clickHashboardsLink() {
+    await this.page.getByRole("link", { name: "Hashboards" }).click();
+  }
+
+  async clickPowerSuppliesLink() {
+    await this.page.getByRole("link", { name: "Power supplies" }).click();
   }
 }

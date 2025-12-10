@@ -78,6 +78,7 @@ const DropdownFilterPopover = ({
                 "text-text-primary hover:bg-core-primary-5",
               )}
               onClick={() => handleToggleItem(item.id)}
+              data-testid={`filter-option-${item.id}`}
             >
               <div className="grow text-emphasis-300">{item.label}</div>
               <Checkbox checked={displaySelectedItems.includes(item.id)} />

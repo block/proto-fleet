@@ -216,6 +216,7 @@ const Filters = <ItemType,>({
               key={`${item.filterValue}-${item.id}`}
               prefixIcon={<DismissTiny />}
               onClick={() => handleRemoveDropdownFilter(item.id, item.filterValue)}
+              testId={`active-filter-${item.filterValue}-${item.id}`}
             >
               {item.label}
             </Button>

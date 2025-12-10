@@ -30,7 +30,6 @@ const FilterContent = ({
   onSelect,
   withButtons = false,
   className,
-  testId,
 }: DropdownFilterProps) => {
   const [showPopover, setShowPopover] = useState(false);
   const { triggerRef } = usePopover();
@@ -115,7 +114,7 @@ const FilterContent = ({
           textColor="text-text-primary"
           className="overflow-hidden !px-3"
           onClick={() => setShowPopover((prev) => !prev)}
-          testId={testId}
+          testId={`filter-dropdown-${title}`}
           suffixIcon={
             <div
               className={clsx("opacity-60 transition-transform duration-200", {

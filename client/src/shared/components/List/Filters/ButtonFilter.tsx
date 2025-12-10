@@ -29,6 +29,7 @@ const ButtonFilter = ({
       variant={isActive ? "primary" : "ghost"}
       onClick={() => setActiveFilter(filter)}
       prefixIcon={status && <StatusCircle status={status} width="w-2" variant="simple" removeMargin={true} />}
+      testId={`filter-button-${filter}`}
     >
       {title} {count !== undefined && <span className="opacity-50">{count}</span>}
     </Button>
