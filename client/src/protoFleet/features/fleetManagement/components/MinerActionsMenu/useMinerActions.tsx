@@ -14,6 +14,8 @@ import {
   BlinkLEDRequestSchema,
   BlinkLEDResponse,
   PerformanceMode,
+  RebootRequestSchema,
+  RebootResponse,
   SetPowerTargetResponse,
   StartMiningRequestSchema,
   StartMiningResponse,
@@ -66,7 +68,8 @@ export const useMinerActions = ({
   onActionStart,
   onActionComplete,
 }: UseMinerActionsParams) => {
-  const { startMining, stopMining, blinkLED, unpair, streamCommandBatchUpdates, setPowerTarget } = useMinerCommand();
+  const { startMining, stopMining, blinkLED, unpair, reboot, streamCommandBatchUpdates, setPowerTarget } =
+    useMinerCommand();
 
   const [currentAction, setCurrentAction] = useState<SupportedAction | null>(null);
   const [showManagePowerModal, setShowManagePowerModal] = useState(false);
@@ -257,6 +260,17 @@ export const useMinerActions = ({
         });
         break;
       }
+      case deviceActions.reboot: {
+        const rebootRequest = create(RebootRequestSchema, {
+          deviceSelector,
+        });
+        reboot({
+          rebootRequest: rebootRequest,
+          onSuccess: (value: RebootResponse) => handleSuccess(deviceActions.reboot, id, value.batchIdentifier),
+          onError: handleError.bind(null, id),
+        });
+        break;
+      }
       default:
         // TODO remove this once all actions are implemented
         updateToast(id, {
@@ -265,7 +279,17 @@ export const useMinerActions = ({
         });
     }
     setCurrentAction(null);
-  }, [currentAction, onActionComplete, deviceSelector, startMining, stopMining, unpair, handleSuccess, handleError]);
+  }, [
+    currentAction,
+    onActionComplete,
+    deviceSelector,
+    startMining,
+    stopMining,
+    unpair,
+    reboot,
+    handleSuccess,
+    handleError,
+  ]);
 
   const handleCancel = useCallback(() => {
     if (miningPoolToastIdRef.current !== null) {

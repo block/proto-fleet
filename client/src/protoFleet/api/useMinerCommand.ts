@@ -7,6 +7,8 @@ import {
   BlinkLEDResponse,
   DeviceSelector,
   PerformanceMode,
+  RebootRequest,
+  RebootResponse,
   SetPowerTargetRequestSchema,
   SetPowerTargetResponse,
   StartMiningRequest,
@@ -43,6 +45,12 @@ interface StopMiningProps {
 interface UnpairProps {
   unpairRequest: UnpairRequest;
   onSuccess: (value: UnpairResponse) => void;
+  onError?: (error: string) => void;
+}
+
+interface RebootProps {
+  rebootRequest: RebootRequest;
+  onSuccess: (value: RebootResponse) => void;
   onError?: (error: string) => void;
 }
 
@@ -144,6 +152,23 @@ const useMinerCommand = () => {
     [handleAuthErrors],
   );
 
+  const reboot = useCallback(
+    async ({ rebootRequest, onSuccess, onError }: RebootProps) => {
+      await minerCommandClient
+        .reboot(rebootRequest)
+        .then((response) => onSuccess(response))
+        .catch((err) => {
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(err?.message ?? String(err));
+            },
+          });
+        });
+    },
+    [handleAuthErrors],
+  );
+
   const streamCommandBatchUpdates = useCallback(
     async ({ streamRequest, streamAbortController, onStreamData, onError }: StreamCommandBatchUpdatesProps) => {
       try {
@@ -226,11 +251,12 @@ const useMinerCommand = () => {
       startMining,
       stopMining,
       unpair,
+      reboot,
       streamCommandBatchUpdates,
       updateMiningPools,
       setPowerTarget,
     }),
-    [blinkLED, startMining, stopMining, unpair, streamCommandBatchUpdates, updateMiningPools, setPowerTarget],
+    [blinkLED, startMining, stopMining, unpair, reboot, streamCommandBatchUpdates, updateMiningPools, setPowerTarget],
   );
 };
 
