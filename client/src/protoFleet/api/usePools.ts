@@ -94,6 +94,7 @@ const usePools = () => {
       await poolsClient
         .updatePool(updatePoolRequest)
         .then(() => {
+          fetchPools();
           onSuccess?.();
         })
         .catch((err) => {
@@ -105,7 +106,7 @@ const usePools = () => {
           });
         });
     },
-    [handleAuthErrors],
+    [handleAuthErrors, fetchPools],
   );
 
   const deletePool = useCallback(

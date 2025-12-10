@@ -2,9 +2,9 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
 
 import { navigationItems } from "../constants";
-import MorphingPlusMinus from "../MorphingPlusMinus";
 import NavigationItem from "../NavigationItem";
 import { NavigationItemValue } from "../types";
+import MorphingPlusMinus from "@/shared/components/MorphingPlusMinus";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
 

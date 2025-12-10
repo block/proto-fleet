@@ -2,9 +2,9 @@ import clsx from "clsx";
 
 import { IconProps } from "./types";
 
-const Ellipsis = ({ className, width = "w-[20px]" }: IconProps) => {
+const Ellipsis = ({ className, width = "w-[20px]", onClick }: IconProps) => {
   return (
-    <div className={clsx(width, className)}>
+    <div className={clsx(width, className)} onClick={onClick}>
       <svg width="100%" height="100%" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path
           fillRule="evenodd"

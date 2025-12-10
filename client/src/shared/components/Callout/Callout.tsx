@@ -66,21 +66,38 @@ const Callout = ({
         borderColor: "border-current",
         onClick: onDismiss,
         variant: variants.secondary,
+        className: "!px-1.5 !py-1.5",
       });
     }
     return result;
   }, [buttonOnClick, buttonText, dismissible, onDismiss]);
+
+  let iconColor = "text-intent-info-fill"; // default value
+  switch (intent) {
+    case "danger":
+      iconColor = "text-intent-critical-fill";
+      break;
+    case "warning":
+      iconColor = "text-intent-warning-fill";
+      break;
+    case "success":
+      iconColor = "text-intent-success-fill";
+      break;
+    case "information":
+      iconColor = "text-intent-info-fill";
+      break;
+  }
 
   return (
     <div className={clsx("rounded-xl shadow-100", className)}>
       {header && /(information|success|warning|danger)/.test(intent) && (
         <div className={clsx("rounded-t-xl px-4 py-1 text-emphasis-300 text-text-contrast", bgColor)}>{header}</div>
       )}
-      <div className="flex rounded-xl bg-surface-elevated-base p-4 text-text-primary">
+      <div className="flex rounded-xl bg-surface-elevated-base px-5 py-2.5 text-text-primary">
         <div
-          className={clsx("mr-3", {
-            "mt-1": buttonText,
-            "mt-[2px]": !buttonText,
+          className={clsx("mr-3", iconColor, {
+            "mt-1": buttonText || dismissible,
+            "mt-0.5": !buttonText && !dismissible,
           })}
         >
           {prefixIcon}

@@ -8,6 +8,8 @@ const computeBasePosition = (
   triggerRect: UseMeasureRect,
   popoverRect: UseMeasureRect,
   offset: number,
+  xOffset: number,
+  yOffset: number,
   position?: Position,
 ) => {
   let top;
@@ -49,6 +51,10 @@ const computeBasePosition = (
     }
   }
 
+  // Apply custom offsets
+  top += yOffset;
+  left += xOffset;
+
   return { top, left };
 };
 
@@ -57,6 +63,8 @@ type PopoverRenderMode = "inline" | "portal-fixed" | "portal-scrolling";
 const usePopoverPosition = (
   triggerRef: MutableRefObject<HTMLDivElement | null>,
   offset: number,
+  xOffset: number,
+  yOffset: number,
   renderMode: PopoverRenderMode,
   position?: Position,
 ) => {
@@ -103,14 +111,14 @@ const usePopoverPosition = (
 
       let finalPosition = position;
 
-      let { top, left } = computeBasePosition(triggerRect, popoverRect, offset, finalPosition);
+      let { top, left } = computeBasePosition(triggerRect, popoverRect, offset, xOffset, yOffset, finalPosition);
 
       // handle overflow on top
       // top position on page is less than some margin
       if (top + triggerRect.top < minimalMargin) {
         // flip position from top to bottom
         finalPosition = flipPosition(finalPosition);
-        ({ top, left } = computeBasePosition(triggerRect, popoverRect, offset, finalPosition));
+        ({ top, left } = computeBasePosition(triggerRect, popoverRect, offset, xOffset, yOffset, finalPosition));
       }
 
       // handle overflow on bottom
@@ -118,7 +126,7 @@ const usePopoverPosition = (
       if (top + triggerRect.bottom + popoverRect.height > viewportHeight - minimalMargin) {
         // flip position from bottom to top
         finalPosition = flipPosition(finalPosition);
-        ({ top, left } = computeBasePosition(triggerRect, popoverRect, offset, finalPosition));
+        ({ top, left } = computeBasePosition(triggerRect, popoverRect, offset, xOffset, yOffset, finalPosition));
       }
 
       // handle overflow on the left side
@@ -171,6 +179,8 @@ const usePopoverPosition = (
     popoverRect,
     position,
     offset,
+    xOffset,
+    yOffset,
     initialPageOffset,
     viewportWidth,
     viewportHeight,

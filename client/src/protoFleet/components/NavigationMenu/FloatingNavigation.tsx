@@ -38,7 +38,7 @@ const FloatingNavigation = ({ items, closeMenu }: FloatingNavigationProps) => {
           "animate-[slide-left-nav_.3s_ease-in-out]": !isVisible,
         })}
       >
-        <Navigation items={items} className="rounded-r-xl" />
+        <Navigation items={items} className="rounded-r-xl" closeMenu={handleCloseMenu} />
       </div>
     </div>
   );

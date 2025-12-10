@@ -14,6 +14,8 @@ import { Position } from "@/shared/constants";
 type PopoverProps = PopoverContentProps & {
   position?: Position;
   offset?: number;
+  xOffset?: number;
+  yOffset?: number;
 };
 
 /**
@@ -34,6 +36,8 @@ type PopoverProps = PopoverContentProps & {
  * @param {string} [props.className] - Additional class names to apply to the popover.
  * @param {Position} [props.position] - The position of the popover relative to the trigger element.
  * @param {number} [props.offset=minimalMargin] - The offset of the popover from the trigger element.
+ * @param {number} [props.xOffset=0] - Additional horizontal offset in pixels (positive moves right, negative moves left).
+ * @param {number} [props.yOffset=0] - Additional vertical offset in pixels (positive moves down, negative moves up).
  * @param {keyof typeof popoverSizes} [props.size=popoverSizes.normal] - The size of the popover.
  * @param {string} [props.subtitle] - The subtitle of the popover.
  * @param {string} [props.testId] - The test ID for the popover.
@@ -48,6 +52,8 @@ const Popover = ({
   className,
   position,
   offset = minimalMargin,
+  xOffset = 0,
+  yOffset = 0,
   size = popoverSizes.normal,
   subtitle,
   testId,
@@ -60,6 +66,8 @@ const Popover = ({
   const { popoverAnimation, popoverStyle, popoverRef } = usePopoverPosition(
     triggerRef,
     offset ?? minimalMargin,
+    xOffset,
+    yOffset,
     renderMode,
     position,
   );

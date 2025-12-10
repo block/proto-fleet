@@ -4,12 +4,14 @@ import { poolInfoAttributes } from "./constants";
 import { urlValidationErrors } from "./PoolForm/constants";
 import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "./types";
 
-import { Alert, Info, Success } from "@/shared/assets/icons";
+import { Alert, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { variants } from "@/shared/components/Button";
 import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
+import { sizes } from "@/shared/components/Modal/constants";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 import { deepClone } from "@/shared/utils/utility";
 
 interface PoolModalProps {
@@ -21,6 +23,7 @@ interface PoolModalProps {
   isTestingConnection: boolean;
   testConnection: (args: PoolConnectionTestProps) => void;
   onSave?: (pool: PoolInfo, isPasswordSet: boolean) => Promise<void>;
+  mode?: "add" | "edit";
 }
 
 const PoolModal = ({
@@ -32,7 +35,9 @@ const PoolModal = ({
   isTestingConnection,
   testConnection,
   onSave,
+  mode = "add",
 }: PoolModalProps) => {
+  const { isPhone, isTablet } = useWindowDimensions();
   const [draftPoolInfo, setDraftPoolInfo] = useState(deepClone(pools));
   const [urlError, setUrlError] = useState<string | undefined>();
   const [showCallout, setShowCallout] = useState(false);
@@ -40,6 +45,8 @@ const PoolModal = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isPasswordSet, setIsPasswordSet] = useState(false);
   const [saveError, setSaveError] = useState(false);
+
+  const modalSize = isPhone || isTablet ? sizes.fullscreen : sizes.large;
 
   const showNotConnectedCallout = useMemo(
     () => showCallout && !isTestingConnection && error,
@@ -149,38 +156,33 @@ const PoolModal = ({
           variant: variants.primary,
           testId: "pool-save-button",
           disabled: isSaveDisabled,
+          dismissModalOnClick: false,
         },
       ]}
-      contentHeader="Add pool"
+      contentHeader={mode === "add" ? "Add pool" : "Edit pool"}
       onDismiss={onDismiss}
       divider={false}
-      size="large"
+      size={modalSize}
     >
       <div className="mb-6 text-text-primary-70">Hashrate contributes to default mining pools.</div>
       <DismissibleCalloutWrapper
-        icon={<Success className="text-intent-success-fill" />}
+        icon={<Success />}
         intent={intents.success}
         onDismiss={() => setShowCallout(false)}
         show={showConnectedCallout}
-        title="Pool connected successfully"
+        title="Pool connection successful"
         testId="pool-connected-callout"
       />
       <DismissibleCalloutWrapper
-        icon={<Info width={iconSizes.xLarge} />}
-        intent={intents.warning}
+        icon={<Alert width={iconSizes.medium} />}
+        intent={intents.danger}
         onDismiss={() => setShowCallout(false)}
         show={showNotConnectedCallout}
-        title={
-          <>
-            We couldn't connect with your pool.
-            <br />
-            Review your pool details and try again.
-          </>
-        }
+        title="We couldn't connect with your pool. Review your pool details and try again."
         testId="pool-not-connected-callout"
       />
       <DismissibleCalloutWrapper
-        icon={<Alert width={iconSizes.xLarge} />}
+        icon={<Alert width={iconSizes.medium} />}
         intent={intents.danger}
         onDismiss={() => setSaveError(false)}
         show={showSaveErrorCallout}

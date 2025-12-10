@@ -24,7 +24,7 @@ const AlertsCallout = ({ alerts, numberOfMinersInFleet }: AlertsCalloutProps) =>
       <div className="mb-10">
         <Callout
           intent={intents.warning}
-          prefixIcon={<Alert className="text-text-warning" />}
+          prefixIcon={<Alert />}
           title={numberOfAlerts + " miners need attention"}
           subtitle={
             Math.ceil((numberOfAlerts / numberOfMinersInFleet) * 100) +

@@ -30,7 +30,7 @@ const DismissibleCalloutWrapper = ({
         "transition-[max-height,margin] duration-200 ease-in-out",
         {
           "max-h-0 overflow-hidden": !show,
-          "mb-4": show,
+          "mb-6": show,
           "max-h-96": show,
         },
         className,
@@ -38,8 +38,8 @@ const DismissibleCalloutWrapper = ({
       data-testid={testId}
     >
       <Callout
-        buttonOnClick={onDismiss}
-        buttonText="Dismiss"
+        dismissible={true}
+        onDismiss={onDismiss}
         intent={intent}
         prefixIcon={icon}
         subtitle={subtitle}

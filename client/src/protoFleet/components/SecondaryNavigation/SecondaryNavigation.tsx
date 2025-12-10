@@ -2,6 +2,7 @@ import { Link, useLocation } from "react-router-dom";
 import { clsx } from "clsx";
 
 import { type SecondaryNavItem } from "@/protoFleet/config/navItems";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 import { stripLeadingSlash } from "@/shared/utils/stringUtils";
 
 type SecondaryNavigationProps = {
@@ -10,6 +11,10 @@ type SecondaryNavigationProps = {
 
 const SecondaryNavigation = ({ items }: SecondaryNavigationProps) => {
   const { pathname } = useLocation();
+  const { isPhone, isTablet } = useWindowDimensions();
+
+  // Hide on mobile and tablet since secondary nav items are shown in main menu
+  if (isPhone || isTablet) return null;
 
   // Filter items to only show those whose parent matches the current path
   const visibleItems = items.filter((item) => {

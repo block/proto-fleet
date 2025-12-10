@@ -23,7 +23,7 @@ const ErrorCallout = () => {
 
   const prefixIcon = useMemo(() => {
     if (hasIssues) {
-      return <Alert className="text-text-critical" width={iconSizes.medium} />;
+      return <Alert width={iconSizes.medium} />;
     }
 
     return undefined;
