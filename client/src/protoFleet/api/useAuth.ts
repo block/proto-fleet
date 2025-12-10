@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { ConnectError } from "@connectrpc/connect";
 import { authClient, onboardingClient } from "@/protoFleet/api/clients";
 import { UpdatePasswordRequest, UpdateUsernameRequest } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { CreateAdminLoginRequest } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
@@ -85,7 +86,7 @@ const useAuth = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(err?.message ?? String(err));
+              onError?.(ConnectError.from(err).rawMessage);
             },
           });
         })

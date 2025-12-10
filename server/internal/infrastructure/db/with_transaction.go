@@ -92,6 +92,11 @@ func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action fun
 		currentBackoff = time.Duration(float64(currentBackoff) * config.BackoffMultiplier)
 	}
 
+	// Preserve FleetError if the original error was already a business error
+	var fleetErr fleeterror.FleetError
+	if errors.As(lastErr, &fleetErr) {
+		return zero, fleetErr
+	}
 	return zero, fleeterror.NewInternalErrorf("transaction failed after %d attempts: %v", config.MaxAttempts, lastErr)
 }
 

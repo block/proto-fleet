@@ -164,8 +164,8 @@ const AuthenticationSettings = () => {
           },
         });
       },
-      onError: () => {
-        setPasswordUpdateApiError("Failed to update password. Please try again.");
+      onError: (error: string) => {
+        setPasswordUpdateApiError(error || "Failed to update password. Please try again.");
         setIsSubmitting(false);
       },
     });

@@ -251,7 +251,7 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 
 		if err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(r.CurrentPassword)); err != nil {
 			return fleeterror.NewErrorWithEndpointCode(
-				"old password is not valid",
+				"Invalid current password.",
 				connect.CodeInvalidArgument,
 				int32(authv1.UpdatePasswordErrorCode_UPDATE_PASSWORD_ERROR_CODE_INVALID_OLD_PASSWORD),
 			)
@@ -259,7 +259,7 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 
 		if r.CurrentPassword == r.NewPassword {
 			return fleeterror.NewErrorWithEndpointCode(
-				"new password is the same as old password",
+				"New password cannot be the same as current password.",
 				connect.CodeInvalidArgument,
 				int32(authv1.UpdatePasswordErrorCode_UPDATE_PASSWORD_ERROR_CODE_NEW_PASSWORD_SAME_AS_OLD_PASSWORD),
 			)
