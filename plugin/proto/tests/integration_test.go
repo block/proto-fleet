@@ -221,6 +221,35 @@ func TestProtoPluginIntegration(t *testing.T) {
 			}
 		})
 
+		// Test power target configuration
+		t.Run("Power Target", func(t *testing.T) {
+			// Test setting different performance modes
+			// SetPowerTarget internally calls GetPowerTarget to retrieve dynamic bounds
+			performanceModes := []sdk.PerformanceMode{
+				sdk.PerformanceModeMaximumHashrate,
+				sdk.PerformanceModeEfficiency,
+				sdk.PerformanceModeMaximumHashrate, // Reset to max hashrate
+			}
+
+			for i := range performanceModes {
+				mode := performanceModes[i]
+				t.Run(fmt.Sprintf("SetPowerTarget_%v", mode), func(t *testing.T) {
+					err := device.SetPowerTarget(ctx, mode)
+					require.NoError(t, err, "SetPowerTarget should not fail for mode %v", mode)
+				})
+			}
+
+			// Test that unspecified mode returns an error
+			t.Run("SetPowerTarget_Unspecified", func(t *testing.T) {
+				err := device.SetPowerTarget(ctx, sdk.PerformanceModeUnspecified)
+				require.Error(t, err, "SetPowerTarget should fail for unspecified mode")
+				assert.Contains(t, err.Error(), "must be specified", "Error should indicate mode must be specified")
+			})
+
+			// Allow miner to stabilize after power target changes
+			time.Sleep(30 * time.Second)
+		})
+
 		// Test mining pool configuration
 		t.Run("Mining Pools", func(t *testing.T) {
 			pools := []sdk.MiningPoolConfig{

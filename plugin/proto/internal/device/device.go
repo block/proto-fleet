@@ -35,10 +35,6 @@ const (
 
 	teraHashToHashConversion                   = 1e12
 	joulesPerTeraHashToJoulesPerHashConversion = 1e-12
-
-	// Power target defaults for performance modes (in watts)
-	maximumHashratePowerTargetW = 4000 // Maximum performance mode power target
-	efficiencyPowerTargetW      = 3400 // Efficiency mode power target
 )
 
 // Device implements the SDK Device interface for a single Proto miner.
@@ -436,24 +432,30 @@ func (d *Device) SetCoolingMode(ctx context.Context, mode sdk.CoolingMode) error
 // SetPowerTarget implements the SDK Device interface.
 //
 // This method configures the power target based on performance mode.
-// The backend automatically maps performance modes to hardware-appropriate power targets:
-//   - MAXIMUM_HASHRATE -> 4000W
-//   - EFFICIENCY -> 3400W
+// Power target values are dynamically retrieved from the miner's hardware capabilities:
+//   - MAXIMUM_HASHRATE -> uses the miner's maximum power target (MaxW)
+//   - EFFICIENCY -> uses the miner's default power target (DefaultW)
 func (d *Device) SetPowerTarget(ctx context.Context, performanceMode sdk.PerformanceMode) error {
-	var powerTargetW uint32
+	// Retrieve dynamic power target bounds from the miner
+	powerTargetInfo, err := d.client.GetPowerTarget(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get power target info: %w", err)
+	}
 
+	var powerTargetW uint32
 	switch performanceMode {
 	case sdk.PerformanceModeMaximumHashrate:
-		powerTargetW = maximumHashratePowerTargetW
+		powerTargetW = powerTargetInfo.MaxW
 	case sdk.PerformanceModeEfficiency:
-		powerTargetW = efficiencyPowerTargetW
+		powerTargetW = powerTargetInfo.DefaultW
 	case sdk.PerformanceModeUnspecified:
 		return fmt.Errorf("performance mode must be specified")
 	default:
 		return fmt.Errorf("unsupported performance mode: %v", performanceMode)
 	}
 
-	slog.Info("Setting power target", "deviceID", d.id, "powerTargetW", powerTargetW, "performanceMode", performanceMode)
+	slog.Info("Setting power target", "deviceID", d.id, "powerTargetW", powerTargetW, "performanceMode", performanceMode,
+		"maxW", powerTargetInfo.MaxW, "defaultW", powerTargetInfo.DefaultW)
 
 	if err := d.client.SetPowerTarget(ctx, powerTargetW, performanceMode); err != nil {
 		return fmt.Errorf("failed to set power target: %w", err)

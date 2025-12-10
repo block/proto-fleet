@@ -144,6 +144,15 @@ type PSUTelemetry struct {
 	HotspotTemperatureC float64
 }
 
+// PowerTargetInfo represents power target configuration and bounds from the miner.
+type PowerTargetInfo struct {
+	CurrentW uint32
+	MinW     uint32
+	MaxW     uint32
+	DefaultW uint32
+	Mode     sdk.PerformanceMode
+}
+
 // AuthTokenContextKey is the key used to store auth tokens in context
 type contextKey string
 
@@ -591,6 +600,39 @@ func (c *Client) SetPowerTarget(ctx context.Context, powerTargetW uint32, perfor
 	}
 
 	return nil
+}
+
+// GetPowerTarget retrieves the current power target configuration and bounds from the miner.
+func (c *Client) GetPowerTarget(ctx context.Context) (*PowerTargetInfo, error) {
+	ctx = c.withAuth(ctx)
+
+	resp, err := c.dataClient.GetPowerTarget(ctx, connect.NewRequest(&miner_common_api.EmptyRequest{}))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get power target: %w", err)
+	}
+
+	if resp.Msg.Result != miner_common_api.ApiResult_RESULT_SUCCESS {
+		return nil, fmt.Errorf("get power target failed: %s", resp.Msg.String())
+	}
+
+	// Convert API performance mode to SDK performance mode
+	var mode sdk.PerformanceMode
+	switch resp.Msg.PerformanceMode {
+	case miner_data_api.PerformanceMode_PERFORMANCE_MODE_MAXIMUM_HASHRATE:
+		mode = sdk.PerformanceModeMaximumHashrate
+	case miner_data_api.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY:
+		mode = sdk.PerformanceModeEfficiency
+	default:
+		mode = sdk.PerformanceModeUnspecified
+	}
+
+	return &PowerTargetInfo{
+		CurrentW: resp.Msg.PowerTargetW,
+		MinW:     resp.Msg.PowerTargetMinW,
+		MaxW:     resp.Msg.PowerTargetMaxW,
+		DefaultW: resp.Msg.DefaultPowerTargetW,
+		Mode:     mode,
+	}, nil
 }
 
 // UpdatePools configures mining pools.
