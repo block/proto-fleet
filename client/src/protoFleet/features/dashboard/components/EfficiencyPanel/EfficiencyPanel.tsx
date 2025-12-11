@@ -2,11 +2,13 @@ import { useMemo } from "react";
 import { transformEfficiencyMetricsToChartData } from "./utils";
 import { AggregationType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import useFleetCounts from "@/protoFleet/api/useFleetCounts";
 import { useStreamingTelemetryMetrics } from "@/protoFleet/api/useStreamingTelemetryMetrics";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import LineChart from "@/protoFleet/components/LineChart";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { padChartDataWithNulls } from "@/protoFleet/features/dashboard/utils/chartDataPadding";
+import { getMinerCountSubtitle } from "@/protoFleet/features/dashboard/utils/minerCountSubtitle";
 import { Duration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
@@ -40,6 +42,9 @@ export function EfficiencyPanel({ duration }: EfficiencyPanelProps) {
 
   // Enable streaming updates
   const { latestData } = useStreamingTelemetryMetrics(streamingOptions);
+
+  // Get total fleet size for "X of Y miners reporting"
+  const { totalMiners } = useFleetCounts();
 
   // Transform metrics data to chart format
   const chartData = useMemo(() => {
@@ -78,6 +83,13 @@ export function EfficiencyPanel({ duration }: EfficiencyPanelProps) {
     return avgValue ?? null;
   }, [data]);
 
+  // Get device count from latest metric
+  const deviceCount = useMemo(() => {
+    if (!data?.metrics || data.metrics.length === 0) return null;
+    const latestMetric = data.metrics[data.metrics.length - 1];
+    return latestMetric.deviceCount ?? null;
+  }, [data]);
+
   if (isLoading) {
     const stat = {
       label: "Efficiency",
@@ -109,6 +121,7 @@ export function EfficiencyPanel({ duration }: EfficiencyPanelProps) {
     label: "Efficiency",
     value: efficiencyDisplayValue,
     units: "J/TH",
+    subtitle: getMinerCountSubtitle(deviceCount, totalMiners),
   };
 
   return (

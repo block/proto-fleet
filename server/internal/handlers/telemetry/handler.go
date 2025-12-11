@@ -276,6 +276,7 @@ func (h *Handler) convertCombinedMetricsToStreamResponse(combinedMetrics models.
 			MeasurementType:  measurementType,
 			OpenTime:         timestamppb.New(metric.OpenTime),
 			AggregatedValues: aggregatedValues,
+			DeviceCount:      metric.DeviceCount,
 		}
 	}
 

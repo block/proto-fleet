@@ -359,6 +359,7 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
           titleSize="text-heading-300"
           subtitle="If miners use different credentials, we'll try each attempt until all miners are configured."
           subtitleSize="text-300"
+          className="bg-surface-elevated-base"
         />
       )}
       {errorMessage !== null && (
@@ -374,7 +375,7 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
           }}
         />
       )}
-      <div className="mt-6 rounded-2xl bg-surface-5 p-6">
+      <div className="mt-6 rounded-2xl bg-surface-5 p-6 dark:bg-core-primary-5">
         <div className="flex w-full flex-wrap gap-4">
           <div
             className={clsx({
@@ -427,6 +428,7 @@ const AuthenticateMiners = ({ onClose, onSuccess }: AuthenticateMinersProps) => 
               customSelectedItems={selectedMiners}
               customSetSelectedItems={setSelectedMiners}
               containerClassName="max-h-[50vh]"
+              stickyBgColor="bg-surface-elevated-base"
             />
           </div>
           <ModalSelectAllFooter

@@ -1011,7 +1011,8 @@ SELECT
 	SUM(device_avg) as avg_value,
 	SUM(device_min) as min_value,
 	SUM(device_max) as max_value,
-	SUM(device_latest) as sum_value
+	SUM(device_latest) as sum_value,
+	COUNT(DISTINCT device_id) as device_count
 FROM per_device_aggregations
 GROUP BY bucket
 ORDER BY bucket DESC
@@ -1036,7 +1037,8 @@ SELECT
 	AVG(latest_value) as avg_value,
 	MIN(latest_value) as min_value,
 	MAX(latest_value) as max_value,
-	SUM(latest_value) as sum_value
+	SUM(latest_value) as sum_value,
+	COUNT(DISTINCT device_id) as device_count
 FROM latest_per_device
 GROUP BY bucket
 ORDER BY bucket DESC
@@ -1121,6 +1123,27 @@ LIMIT 1000
 				}
 			}
 
+			// Extract device count
+			var deviceCount int32
+			if countField := point.GetField("device_count"); countField != nil {
+				if val, ok := countField.(int64); ok {
+					if val > math.MaxInt32 {
+						s.logger.Warn("device count exceeds max int32, capping",
+							slog.String("field", fieldName),
+							slog.Int64("count", val))
+						deviceCount = math.MaxInt32
+					} else if val < 0 {
+						s.logger.Warn("device count is negative, setting to 0",
+							slog.String("field", fieldName),
+							slog.Int64("count", val))
+						deviceCount = 0
+					} else {
+						// #nosec G115 -- Conversion is safe: explicitly validated val is within [0, MaxInt32] range
+						deviceCount = int32(val)
+					}
+				}
+			}
+
 			// Filter by requested aggregation types
 			if len(query.AggregationTypes) > 0 {
 				requestedTypes := make(map[models.AggregationType]bool)
@@ -1142,6 +1165,7 @@ LIMIT 1000
 					MeasurementType:  measurementType,
 					AggregatedValues: aggregatedValues,
 					OpenTime:         bucketTime,
+					DeviceCount:      deviceCount,
 				}
 				allMetrics = append(allMetrics, metric)
 			}

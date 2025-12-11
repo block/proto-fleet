@@ -721,6 +721,7 @@ func fromCombinedMetrics(combinedMetrics models.CombinedMetric) (*telemetryv1.Ge
 			MeasurementType:  measurementType,
 			OpenTime:         timestamppb.New(metric.OpenTime),
 			AggregatedValues: aggregatedValues,
+			DeviceCount:      metric.DeviceCount,
 		}
 	}
 

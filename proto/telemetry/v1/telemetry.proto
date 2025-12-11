@@ -300,6 +300,7 @@ message Metric {
     MeasurementType measurement_type = 1;
     google.protobuf.Timestamp open_time = 2;
     repeated AggregatedValue aggregated_values = 3; // e.g., AVERAGE, MIN, MAX
+    int32 device_count = 4; // Number of devices reporting this metric
 }
 
 message GetCombinedMetricsResponse {

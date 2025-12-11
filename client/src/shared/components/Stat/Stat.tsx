@@ -12,6 +12,7 @@ const Stat = ({
   label,
   value,
   text,
+  subtitle,
   units,
   size,
   icon,
@@ -33,15 +34,29 @@ const Stat = ({
 
   return (
     <div className="relative grid gap-y-1">
-      <div
-        role="heading"
-        aria-level={headingLevel}
-        className={clsx(
-          "text-heading-50 text-text-primary-50 transition-opacity duration-500",
-          value === undefined ? "opacity-30" : "opacity-100",
+      <div className="flex items-center justify-between gap-2">
+        <div
+          role="heading"
+          aria-level={headingLevel}
+          className={clsx(
+            "text-heading-50 text-text-primary-50 transition-opacity duration-500",
+            value === undefined ? "opacity-30" : "opacity-100",
+          )}
+        >
+          {label}
+        </div>
+        {subtitle && (
+          <div
+            className={clsx(
+              "text-heading-50 text-text-primary-50 transition-opacity duration-500",
+              value === undefined ? "opacity-30" : "opacity-100",
+            )}
+            role="status"
+            aria-label="Data reporting status"
+          >
+            {subtitle}
+          </div>
         )}
-      >
-        {label}
       </div>
       {value === undefined ? (
         <SkeletonBar

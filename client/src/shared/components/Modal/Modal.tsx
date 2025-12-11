@@ -121,7 +121,7 @@ const Modal = ({
         data-testid="modal"
       >
         {showHeader && (
-          <div className="sticky top-0 bg-surface-elevated-base pt-6">
+          <div className="sticky top-0 z-10 bg-surface-elevated-base pt-6">
             <Header
               title={title}
               description={description}

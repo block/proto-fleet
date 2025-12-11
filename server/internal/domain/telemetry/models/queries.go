@@ -83,6 +83,7 @@ type Metric struct {
 	MeasurementType  MeasurementType   `json:"measurement_type"`
 	AggregatedValues []AggregatedValue `json:"aggregated_values"`
 	OpenTime         time.Time         `json:"open_time"`
+	DeviceCount      int32             `json:"device_count"`
 }
 type CombinedMetric struct {
 	Metrics                 []Metric                 `json:"metrics"`
