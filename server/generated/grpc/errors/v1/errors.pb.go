@@ -287,14 +287,14 @@ func (Severity) EnumDescriptor() ([]byte, []int) {
 }
 
 // Aggregated status based on error severity waterfall
-// ERROR if any CRITICAL, else DEGRADED if any MAJOR, else WARNING if any MINOR/INFO, else OK
+// ERROR if any CRITICAL, WARNING if any MAJOR/MINOR/INFO, else OK
 type Status int32
 
 const (
 	Status_STATUS_UNSPECIFIED Status = 0
-	Status_STATUS_OK          Status = 1
-	Status_STATUS_WARNING     Status = 2
-	Status_STATUS_ERROR       Status = 3
+	Status_STATUS_OK          Status = 1 // No open errors
+	Status_STATUS_WARNING     Status = 2 // Major, minor, or info severity errors present
+	Status_STATUS_ERROR       Status = 3 // Critical severity errors present
 )
 
 // Enum value maps for Status.
@@ -940,7 +940,7 @@ func (x *ComponentError) GetCountsBySeverity() map[string]int32 {
 // Simple filter with field lists
 type SimpleFilter struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
-	DeviceIdentifiers []string               `protobuf:"bytes,1,rep,name=device_identifiers,json=deviceIdentifiers,proto3" json:"device_identifiers,omitempty"` // device_identifiers of the Devices
+	DeviceIdentifiers []string               `protobuf:"bytes,1,rep,name=device_identifiers,json=deviceIdentifiers,proto3" json:"device_identifiers,omitempty"` // Device identifiers (e.g., "proto-12345")
 	DeviceTypes       []string               `protobuf:"bytes,2,rep,name=device_types,json=deviceTypes,proto3" json:"device_types,omitempty"`                   // Model names (e.g., "R2", "S19")
 	ComponentIds      []string               `protobuf:"bytes,3,rep,name=component_ids,json=componentIds,proto3" json:"component_ids,omitempty"`
 	ComponentTypes    []ComponentType        `protobuf:"varint,4,rep,packed,name=component_types,json=componentTypes,proto3,enum=errors.v1.ComponentType" json:"component_types,omitempty"`
@@ -1101,12 +1101,14 @@ func (x *Filter) GetIncludeClosed() bool {
 
 // Query request with pagination
 type QueryRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ResultView    ResultView             `protobuf:"varint,1,opt,name=result_view,json=resultView,proto3,enum=errors.v1.ResultView" json:"result_view,omitempty"`
-	Filter        *Filter                `protobuf:"bytes,2,opt,name=filter,proto3" json:"filter,omitempty"`
-	PageSize      int32                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	PageToken     string                 `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
-	OrderBy       string                 `protobuf:"bytes,5,opt,name=order_by,json=orderBy,proto3" json:"order_by,omitempty"` // Default: "severity DESC, last_seen_at DESC, error_id DESC"
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	ResultView ResultView             `protobuf:"varint,1,opt,name=result_view,json=resultView,proto3,enum=errors.v1.ResultView" json:"result_view,omitempty"`
+	Filter     *Filter                `protobuf:"bytes,2,opt,name=filter,proto3" json:"filter,omitempty"`
+	PageSize   int32                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken  string                 `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	// Reserved for future use. Currently sorting is fixed: severity DESC, last_seen_at DESC, error_id DESC.
+	// This field is ignored by the server.
+	OrderBy       string `protobuf:"bytes,5,opt,name=order_by,json=orderBy,proto3" json:"order_by,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

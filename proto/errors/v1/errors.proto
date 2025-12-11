@@ -109,12 +109,12 @@ enum Severity {
 }
 
 // Aggregated status based on error severity waterfall
-// ERROR if any CRITICAL, else DEGRADED if any MAJOR, else WARNING if any MINOR/INFO, else OK
+// ERROR if any CRITICAL, WARNING if any MAJOR/MINOR/INFO, else OK
 enum Status {
   STATUS_UNSPECIFIED = 0;
-  STATUS_OK = 1;
-  STATUS_WARNING = 2;
-  STATUS_ERROR = 3;
+  STATUS_OK = 1;       // No open errors
+  STATUS_WARNING = 2;  // Major, minor, or info severity errors present
+  STATUS_ERROR = 3;    // Critical severity errors present
 }
 
 // Type of component that can have errors
@@ -192,7 +192,7 @@ message ComponentError {
 
 // Simple filter with field lists
 message SimpleFilter {
-  repeated string device_identifiers = 1;           // device_identifiers of the Devices
+  repeated string device_identifiers = 1;           // Device identifiers (e.g., "proto-12345")
   repeated string device_types = 2;                 // Model names (e.g., "R2", "S19")
   repeated string component_ids = 3;
   repeated ComponentType component_types = 4;
@@ -215,7 +215,9 @@ message QueryRequest {
   Filter filter = 2;
   int32 page_size = 3 [(buf.validate.field).int32 = {gte: 1, lte: 1000}];
   string page_token = 4;
-  string order_by = 5;                              // Default: "severity DESC, last_seen_at DESC, error_id DESC"
+  // Reserved for future use. Currently sorting is fixed: severity DESC, last_seen_at DESC, error_id DESC.
+  // This field is ignored by the server.
+  string order_by = 5;
 }
 
 // Query response with polymorphic result

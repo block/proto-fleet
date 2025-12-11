@@ -257,7 +257,7 @@ export const ComponentErrorSchema: GenMessage<ComponentError> = /*@__PURE__*/ me
  */
 export type SimpleFilter = Message<"errors.v1.SimpleFilter"> & {
   /**
-   * device_identifiers of the Devices
+   * Device identifiers (e.g., "proto-12345")
    *
    * @generated from field: repeated string device_identifiers = 1;
    */
@@ -370,7 +370,8 @@ export type QueryRequest = Message<"errors.v1.QueryRequest"> & {
   pageToken: string;
 
   /**
-   * Default: "severity DESC, last_seen_at DESC, error_id DESC"
+   * Reserved for future use. Currently sorting is fixed: severity DESC, last_seen_at DESC, error_id DESC.
+   * This field is ignored by the server.
    *
    * @generated from field: string order_by = 5;
    */
@@ -1033,7 +1034,7 @@ export const SeveritySchema: GenEnum<Severity> = /*@__PURE__*/ enumDesc(file_err
 
 /**
  * Aggregated status based on error severity waterfall
- * ERROR if any CRITICAL, else DEGRADED if any MAJOR, else WARNING if any MINOR/INFO, else OK
+ * ERROR if any CRITICAL, WARNING if any MAJOR/MINOR/INFO, else OK
  *
  * @generated from enum errors.v1.Status
  */
@@ -1044,16 +1045,22 @@ export enum Status {
   UNSPECIFIED = 0,
 
   /**
+   * No open errors
+   *
    * @generated from enum value: STATUS_OK = 1;
    */
   OK = 1,
 
   /**
+   * Major, minor, or info severity errors present
+   *
    * @generated from enum value: STATUS_WARNING = 2;
    */
   WARNING = 2,
 
   /**
+   * Critical severity errors present
+   *
    * @generated from enum value: STATUS_ERROR = 3;
    */
   ERROR = 3,

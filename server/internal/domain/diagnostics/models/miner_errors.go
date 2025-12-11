@@ -127,7 +127,8 @@ type ErrorMessage struct {
 	LastSeenAt        time.Time         // When error was last observed
 	ClosedAt          *time.Time        // Optional closed/expired error
 	VendorAttributes  map[string]string // e.g., firmware, code, serials
-	DeviceID          string            // Device this error belongs to
+	DeviceID          string            // Device identifier this error belongs to
+	DeviceType        string            // Model name (e.g., "S19", "R2") - populated from discovered_device
 	ComponentID       *string           // Optional component identifier
 	ComponentType     ComponentType     // Type of hardware component (hashboard, fan, PSU, etc.)
 	Impact            string            // Human-readable business impact (e.g., "Stops mining", "Reduces hashrate by 30%")

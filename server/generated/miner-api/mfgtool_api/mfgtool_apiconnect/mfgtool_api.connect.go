@@ -73,9 +73,9 @@ const (
 	BaseApiGetRunErrorsProcedure = "/mfgtool_api.BaseApi/GetRunErrors"
 	// BaseApiGetRunStatusProcedure is the fully-qualified name of the BaseApi's GetRunStatus RPC.
 	BaseApiGetRunStatusProcedure = "/mfgtool_api.BaseApi/GetRunStatus"
-	// BaseApiGetRecoveryLimitsConfigProcedure is the fully-qualified name of the BaseApi's
-	// GetRecoveryLimitsConfig RPC.
-	BaseApiGetRecoveryLimitsConfigProcedure = "/mfgtool_api.BaseApi/GetRecoveryLimitsConfig"
+	// BaseApiGetRecoveryLimitsProcedure is the fully-qualified name of the BaseApi's GetRecoveryLimits
+	// RPC.
+	BaseApiGetRecoveryLimitsProcedure = "/mfgtool_api.BaseApi/GetRecoveryLimits"
 	// BaseApiGetNetworkStatusProcedure is the fully-qualified name of the BaseApi's GetNetworkStatus
 	// RPC.
 	BaseApiGetNetworkStatusProcedure = "/mfgtool_api.BaseApi/GetNetworkStatus"
@@ -108,7 +108,7 @@ type BaseApiClient interface {
 	StopRun(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	GetRunErrors(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[mfgtool_api.RunErrorsResponse], error)
 	GetRunStatus(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[mfgtool_api.RunStatusResponse], error)
-	GetRecoveryLimitsConfig(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimitsConfig], error)
+	GetRecoveryLimits(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimits], error)
 	GetNetworkStatus(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[mfgtool_api.NetworkStatus], error)
 	SetNetworkIpStatic(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	SetNetworkIpDhcp(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
@@ -187,9 +187,9 @@ func NewBaseApiClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			baseURL+BaseApiGetRunStatusProcedure,
 			opts...,
 		),
-		getRecoveryLimitsConfig: connect.NewClient[miner_common_api.EmptyRequest, miner_debug_api.RecoveryLimitsConfig](
+		getRecoveryLimits: connect.NewClient[miner_common_api.EmptyRequest, miner_debug_api.RecoveryLimits](
 			httpClient,
-			baseURL+BaseApiGetRecoveryLimitsConfigProcedure,
+			baseURL+BaseApiGetRecoveryLimitsProcedure,
 			opts...,
 		),
 		getNetworkStatus: connect.NewClient[miner_common_api.EmptyRequest, mfgtool_api.NetworkStatus](
@@ -227,25 +227,25 @@ func NewBaseApiClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 
 // baseApiClient implements BaseApiClient.
 type baseApiClient struct {
-	getApplicationInfo      *connect.Client[miner_common_api.EmptyRequest, mfgtool_api.ApplicationInfo]
-	getControlBoardInfo     *connect.Client[miner_common_api.EmptyRequest, miner_data_api.ControlBoardInfo]
-	getHashboardsInfo       *connect.Client[miner_common_api.EmptyRequest, miner_data_api.HashboardsInfoResponse]
-	getPsuInfo              *connect.Client[miner_debug_api.PsuRequest, mfgtool_api.PsuInfoResponse]
-	setOtp                  *connect.Client[mfgtool_api.OtpRequest, miner_common_api.ApiResultResponse]
-	getOtp                  *connect.Client[mfgtool_api.OtpRequest, mfgtool_api.OtpResponse]
-	setSecurity             *connect.Client[mfgtool_api.SecurityRequest, mfgtool_api.SecurityResponse]
-	getSecurity             *connect.Client[mfgtool_api.SecurityRequest, mfgtool_api.SecurityResponse]
-	startRun                *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
-	stopRun                 *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
-	getRunErrors            *connect.Client[miner_common_api.EmptyRequest, mfgtool_api.RunErrorsResponse]
-	getRunStatus            *connect.Client[miner_common_api.EmptyRequest, mfgtool_api.RunStatusResponse]
-	getRecoveryLimitsConfig *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.RecoveryLimitsConfig]
-	getNetworkStatus        *connect.Client[miner_common_api.EmptyRequest, mfgtool_api.NetworkStatus]
-	setNetworkIpStatic      *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
-	setNetworkIpDhcp        *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
-	restartNetwork          *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
-	getNetworkConfig        *connect.Client[miner_common_api.EmptyRequest, mfgtool_api.NetworkCfgFilenames]
-	getIpAddress            *connect.Client[miner_common_api.EmptyRequest, mfgtool_api.NetworkIpAddr]
+	getApplicationInfo  *connect.Client[miner_common_api.EmptyRequest, mfgtool_api.ApplicationInfo]
+	getControlBoardInfo *connect.Client[miner_common_api.EmptyRequest, miner_data_api.ControlBoardInfo]
+	getHashboardsInfo   *connect.Client[miner_common_api.EmptyRequest, miner_data_api.HashboardsInfoResponse]
+	getPsuInfo          *connect.Client[miner_debug_api.PsuRequest, mfgtool_api.PsuInfoResponse]
+	setOtp              *connect.Client[mfgtool_api.OtpRequest, miner_common_api.ApiResultResponse]
+	getOtp              *connect.Client[mfgtool_api.OtpRequest, mfgtool_api.OtpResponse]
+	setSecurity         *connect.Client[mfgtool_api.SecurityRequest, mfgtool_api.SecurityResponse]
+	getSecurity         *connect.Client[mfgtool_api.SecurityRequest, mfgtool_api.SecurityResponse]
+	startRun            *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	stopRun             *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	getRunErrors        *connect.Client[miner_common_api.EmptyRequest, mfgtool_api.RunErrorsResponse]
+	getRunStatus        *connect.Client[miner_common_api.EmptyRequest, mfgtool_api.RunStatusResponse]
+	getRecoveryLimits   *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.RecoveryLimits]
+	getNetworkStatus    *connect.Client[miner_common_api.EmptyRequest, mfgtool_api.NetworkStatus]
+	setNetworkIpStatic  *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	setNetworkIpDhcp    *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	restartNetwork      *connect.Client[miner_common_api.EmptyRequest, miner_common_api.ApiResultResponse]
+	getNetworkConfig    *connect.Client[miner_common_api.EmptyRequest, mfgtool_api.NetworkCfgFilenames]
+	getIpAddress        *connect.Client[miner_common_api.EmptyRequest, mfgtool_api.NetworkIpAddr]
 }
 
 // GetApplicationInfo calls mfgtool_api.BaseApi.GetApplicationInfo.
@@ -308,9 +308,9 @@ func (c *baseApiClient) GetRunStatus(ctx context.Context, req *connect.Request[m
 	return c.getRunStatus.CallUnary(ctx, req)
 }
 
-// GetRecoveryLimitsConfig calls mfgtool_api.BaseApi.GetRecoveryLimitsConfig.
-func (c *baseApiClient) GetRecoveryLimitsConfig(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimitsConfig], error) {
-	return c.getRecoveryLimitsConfig.CallUnary(ctx, req)
+// GetRecoveryLimits calls mfgtool_api.BaseApi.GetRecoveryLimits.
+func (c *baseApiClient) GetRecoveryLimits(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimits], error) {
+	return c.getRecoveryLimits.CallUnary(ctx, req)
 }
 
 // GetNetworkStatus calls mfgtool_api.BaseApi.GetNetworkStatus.
@@ -357,7 +357,7 @@ type BaseApiHandler interface {
 	StopRun(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	GetRunErrors(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[mfgtool_api.RunErrorsResponse], error)
 	GetRunStatus(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[mfgtool_api.RunStatusResponse], error)
-	GetRecoveryLimitsConfig(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimitsConfig], error)
+	GetRecoveryLimits(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimits], error)
 	GetNetworkStatus(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[mfgtool_api.NetworkStatus], error)
 	SetNetworkIpStatic(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	SetNetworkIpDhcp(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
@@ -432,9 +432,9 @@ func NewBaseApiHandler(svc BaseApiHandler, opts ...connect.HandlerOption) (strin
 		svc.GetRunStatus,
 		opts...,
 	)
-	baseApiGetRecoveryLimitsConfigHandler := connect.NewUnaryHandler(
-		BaseApiGetRecoveryLimitsConfigProcedure,
-		svc.GetRecoveryLimitsConfig,
+	baseApiGetRecoveryLimitsHandler := connect.NewUnaryHandler(
+		BaseApiGetRecoveryLimitsProcedure,
+		svc.GetRecoveryLimits,
 		opts...,
 	)
 	baseApiGetNetworkStatusHandler := connect.NewUnaryHandler(
@@ -493,8 +493,8 @@ func NewBaseApiHandler(svc BaseApiHandler, opts ...connect.HandlerOption) (strin
 			baseApiGetRunErrorsHandler.ServeHTTP(w, r)
 		case BaseApiGetRunStatusProcedure:
 			baseApiGetRunStatusHandler.ServeHTTP(w, r)
-		case BaseApiGetRecoveryLimitsConfigProcedure:
-			baseApiGetRecoveryLimitsConfigHandler.ServeHTTP(w, r)
+		case BaseApiGetRecoveryLimitsProcedure:
+			baseApiGetRecoveryLimitsHandler.ServeHTTP(w, r)
 		case BaseApiGetNetworkStatusProcedure:
 			baseApiGetNetworkStatusHandler.ServeHTTP(w, r)
 		case BaseApiSetNetworkIpStaticProcedure:
@@ -564,8 +564,8 @@ func (UnimplementedBaseApiHandler) GetRunStatus(context.Context, *connect.Reques
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mfgtool_api.BaseApi.GetRunStatus is not implemented"))
 }
 
-func (UnimplementedBaseApiHandler) GetRecoveryLimitsConfig(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimitsConfig], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mfgtool_api.BaseApi.GetRecoveryLimitsConfig is not implemented"))
+func (UnimplementedBaseApiHandler) GetRecoveryLimits(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimits], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mfgtool_api.BaseApi.GetRecoveryLimits is not implemented"))
 }
 
 func (UnimplementedBaseApiHandler) GetNetworkStatus(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[mfgtool_api.NetworkStatus], error) {

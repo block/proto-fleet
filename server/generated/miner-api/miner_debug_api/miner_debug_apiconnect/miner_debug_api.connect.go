@@ -98,12 +98,12 @@ const (
 	// MinerDebugApiClearMinerNotificationEventProcedure is the fully-qualified name of the
 	// MinerDebugApi's ClearMinerNotificationEvent RPC.
 	MinerDebugApiClearMinerNotificationEventProcedure = "/miner_debug_api.MinerDebugApi/ClearMinerNotificationEvent"
-	// MinerDebugApiGetRecoveryLimitsConfigProcedure is the fully-qualified name of the MinerDebugApi's
-	// GetRecoveryLimitsConfig RPC.
-	MinerDebugApiGetRecoveryLimitsConfigProcedure = "/miner_debug_api.MinerDebugApi/GetRecoveryLimitsConfig"
-	// MinerDebugApiSetRecoveryLimitsConfigProcedure is the fully-qualified name of the MinerDebugApi's
-	// SetRecoveryLimitsConfig RPC.
-	MinerDebugApiSetRecoveryLimitsConfigProcedure = "/miner_debug_api.MinerDebugApi/SetRecoveryLimitsConfig"
+	// MinerDebugApiGetRecoveryLimitsProcedure is the fully-qualified name of the MinerDebugApi's
+	// GetRecoveryLimits RPC.
+	MinerDebugApiGetRecoveryLimitsProcedure = "/miner_debug_api.MinerDebugApi/GetRecoveryLimits"
+	// MinerDebugApiSetRecoveryLimitsProcedure is the fully-qualified name of the MinerDebugApi's
+	// SetRecoveryLimits RPC.
+	MinerDebugApiSetRecoveryLimitsProcedure = "/miner_debug_api.MinerDebugApi/SetRecoveryLimits"
 	// MinerDebugApiSetFanSpeedProcedure is the fully-qualified name of the MinerDebugApi's SetFanSpeed
 	// RPC.
 	MinerDebugApiSetFanSpeedProcedure = "/miner_debug_api.MinerDebugApi/SetFanSpeed"
@@ -161,8 +161,8 @@ type MinerDebugApiClient interface {
 	CreateMinerNotificationEvent(context.Context, *connect.Request[miner_error_code.Error]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	ClearMinerNotificationEvent(context.Context, *connect.Request[miner_error_code.Error]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	// Recovery limits
-	GetRecoveryLimitsConfig(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimitsConfig], error)
-	SetRecoveryLimitsConfig(context.Context, *connect.Request[miner_debug_api.SetRecoveryLimitsConfigMessage]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	GetRecoveryLimits(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimits], error)
+	SetRecoveryLimits(context.Context, *connect.Request[miner_debug_api.SetRecoveryLimitsMessage]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	// Fan control
 	SetFanSpeed(context.Context, *connect.Request[miner_debug_api.SetFanSpeedRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	GetFanSpeed(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.GetFanSpeedResponse], error)
@@ -269,14 +269,14 @@ func NewMinerDebugApiClient(httpClient connect.HTTPClient, baseURL string, opts 
 			baseURL+MinerDebugApiClearMinerNotificationEventProcedure,
 			opts...,
 		),
-		getRecoveryLimitsConfig: connect.NewClient[miner_common_api.EmptyRequest, miner_debug_api.RecoveryLimitsConfig](
+		getRecoveryLimits: connect.NewClient[miner_common_api.EmptyRequest, miner_debug_api.RecoveryLimits](
 			httpClient,
-			baseURL+MinerDebugApiGetRecoveryLimitsConfigProcedure,
+			baseURL+MinerDebugApiGetRecoveryLimitsProcedure,
 			opts...,
 		),
-		setRecoveryLimitsConfig: connect.NewClient[miner_debug_api.SetRecoveryLimitsConfigMessage, miner_common_api.ApiResultResponse](
+		setRecoveryLimits: connect.NewClient[miner_debug_api.SetRecoveryLimitsMessage, miner_common_api.ApiResultResponse](
 			httpClient,
-			baseURL+MinerDebugApiSetRecoveryLimitsConfigProcedure,
+			baseURL+MinerDebugApiSetRecoveryLimitsProcedure,
 			opts...,
 		),
 		setFanSpeed: connect.NewClient[miner_debug_api.SetFanSpeedRequest, miner_common_api.ApiResultResponse](
@@ -355,8 +355,8 @@ type minerDebugApiClient struct {
 	getHashboardsRecoveryInfo      *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.HashboardsRecoveryInfoResponse]
 	createMinerNotificationEvent   *connect.Client[miner_error_code.Error, miner_common_api.ApiResultResponse]
 	clearMinerNotificationEvent    *connect.Client[miner_error_code.Error, miner_common_api.ApiResultResponse]
-	getRecoveryLimitsConfig        *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.RecoveryLimitsConfig]
-	setRecoveryLimitsConfig        *connect.Client[miner_debug_api.SetRecoveryLimitsConfigMessage, miner_common_api.ApiResultResponse]
+	getRecoveryLimits              *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.RecoveryLimits]
+	setRecoveryLimits              *connect.Client[miner_debug_api.SetRecoveryLimitsMessage, miner_common_api.ApiResultResponse]
 	setFanSpeed                    *connect.Client[miner_debug_api.SetFanSpeedRequest, miner_common_api.ApiResultResponse]
 	getFanSpeed                    *connect.Client[miner_common_api.EmptyRequest, miner_debug_api.GetFanSpeedResponse]
 	setTemperatureThreshold        *connect.Client[miner_debug_api.SetTemperatureThresholdRequest, miner_common_api.ApiResultResponse]
@@ -451,14 +451,14 @@ func (c *minerDebugApiClient) ClearMinerNotificationEvent(ctx context.Context, r
 	return c.clearMinerNotificationEvent.CallUnary(ctx, req)
 }
 
-// GetRecoveryLimitsConfig calls miner_debug_api.MinerDebugApi.GetRecoveryLimitsConfig.
-func (c *minerDebugApiClient) GetRecoveryLimitsConfig(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimitsConfig], error) {
-	return c.getRecoveryLimitsConfig.CallUnary(ctx, req)
+// GetRecoveryLimits calls miner_debug_api.MinerDebugApi.GetRecoveryLimits.
+func (c *minerDebugApiClient) GetRecoveryLimits(ctx context.Context, req *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimits], error) {
+	return c.getRecoveryLimits.CallUnary(ctx, req)
 }
 
-// SetRecoveryLimitsConfig calls miner_debug_api.MinerDebugApi.SetRecoveryLimitsConfig.
-func (c *minerDebugApiClient) SetRecoveryLimitsConfig(ctx context.Context, req *connect.Request[miner_debug_api.SetRecoveryLimitsConfigMessage]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return c.setRecoveryLimitsConfig.CallUnary(ctx, req)
+// SetRecoveryLimits calls miner_debug_api.MinerDebugApi.SetRecoveryLimits.
+func (c *minerDebugApiClient) SetRecoveryLimits(ctx context.Context, req *connect.Request[miner_debug_api.SetRecoveryLimitsMessage]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return c.setRecoveryLimits.CallUnary(ctx, req)
 }
 
 // SetFanSpeed calls miner_debug_api.MinerDebugApi.SetFanSpeed.
@@ -538,8 +538,8 @@ type MinerDebugApiHandler interface {
 	CreateMinerNotificationEvent(context.Context, *connect.Request[miner_error_code.Error]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	ClearMinerNotificationEvent(context.Context, *connect.Request[miner_error_code.Error]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	// Recovery limits
-	GetRecoveryLimitsConfig(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimitsConfig], error)
-	SetRecoveryLimitsConfig(context.Context, *connect.Request[miner_debug_api.SetRecoveryLimitsConfigMessage]) (*connect.Response[miner_common_api.ApiResultResponse], error)
+	GetRecoveryLimits(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimits], error)
+	SetRecoveryLimits(context.Context, *connect.Request[miner_debug_api.SetRecoveryLimitsMessage]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	// Fan control
 	SetFanSpeed(context.Context, *connect.Request[miner_debug_api.SetFanSpeedRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error)
 	GetFanSpeed(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.GetFanSpeedResponse], error)
@@ -642,14 +642,14 @@ func NewMinerDebugApiHandler(svc MinerDebugApiHandler, opts ...connect.HandlerOp
 		svc.ClearMinerNotificationEvent,
 		opts...,
 	)
-	minerDebugApiGetRecoveryLimitsConfigHandler := connect.NewUnaryHandler(
-		MinerDebugApiGetRecoveryLimitsConfigProcedure,
-		svc.GetRecoveryLimitsConfig,
+	minerDebugApiGetRecoveryLimitsHandler := connect.NewUnaryHandler(
+		MinerDebugApiGetRecoveryLimitsProcedure,
+		svc.GetRecoveryLimits,
 		opts...,
 	)
-	minerDebugApiSetRecoveryLimitsConfigHandler := connect.NewUnaryHandler(
-		MinerDebugApiSetRecoveryLimitsConfigProcedure,
-		svc.SetRecoveryLimitsConfig,
+	minerDebugApiSetRecoveryLimitsHandler := connect.NewUnaryHandler(
+		MinerDebugApiSetRecoveryLimitsProcedure,
+		svc.SetRecoveryLimits,
 		opts...,
 	)
 	minerDebugApiSetFanSpeedHandler := connect.NewUnaryHandler(
@@ -741,10 +741,10 @@ func NewMinerDebugApiHandler(svc MinerDebugApiHandler, opts ...connect.HandlerOp
 			minerDebugApiCreateMinerNotificationEventHandler.ServeHTTP(w, r)
 		case MinerDebugApiClearMinerNotificationEventProcedure:
 			minerDebugApiClearMinerNotificationEventHandler.ServeHTTP(w, r)
-		case MinerDebugApiGetRecoveryLimitsConfigProcedure:
-			minerDebugApiGetRecoveryLimitsConfigHandler.ServeHTTP(w, r)
-		case MinerDebugApiSetRecoveryLimitsConfigProcedure:
-			minerDebugApiSetRecoveryLimitsConfigHandler.ServeHTTP(w, r)
+		case MinerDebugApiGetRecoveryLimitsProcedure:
+			minerDebugApiGetRecoveryLimitsHandler.ServeHTTP(w, r)
+		case MinerDebugApiSetRecoveryLimitsProcedure:
+			minerDebugApiSetRecoveryLimitsHandler.ServeHTTP(w, r)
 		case MinerDebugApiSetFanSpeedProcedure:
 			minerDebugApiSetFanSpeedHandler.ServeHTTP(w, r)
 		case MinerDebugApiGetFanSpeedProcedure:
@@ -840,12 +840,12 @@ func (UnimplementedMinerDebugApiHandler) ClearMinerNotificationEvent(context.Con
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.ClearMinerNotificationEvent is not implemented"))
 }
 
-func (UnimplementedMinerDebugApiHandler) GetRecoveryLimitsConfig(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimitsConfig], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.GetRecoveryLimitsConfig is not implemented"))
+func (UnimplementedMinerDebugApiHandler) GetRecoveryLimits(context.Context, *connect.Request[miner_common_api.EmptyRequest]) (*connect.Response[miner_debug_api.RecoveryLimits], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.GetRecoveryLimits is not implemented"))
 }
 
-func (UnimplementedMinerDebugApiHandler) SetRecoveryLimitsConfig(context.Context, *connect.Request[miner_debug_api.SetRecoveryLimitsConfigMessage]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.SetRecoveryLimitsConfig is not implemented"))
+func (UnimplementedMinerDebugApiHandler) SetRecoveryLimits(context.Context, *connect.Request[miner_debug_api.SetRecoveryLimitsMessage]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("miner_debug_api.MinerDebugApi.SetRecoveryLimits is not implemented"))
 }
 
 func (UnimplementedMinerDebugApiHandler) SetFanSpeed(context.Context, *connect.Request[miner_debug_api.SetFanSpeedRequest]) (*connect.Response[miner_common_api.ApiResultResponse], error) {
