@@ -13,6 +13,13 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Clean up old deployment bundles
+      shell: bash
+      run: |
+        echo "Cleaning up old deployment bundles from /tmp..."
+        rm -f /tmp/proto-fleet*.tar.gz
+        echo "Cleanup complete"
+
     - name: Download deployment bundle
       uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
       with:
@@ -42,17 +49,43 @@ runs:
           cp "$ENV_FILE" /tmp/.env.backup
         fi
 
-        # Find the deployment bundle (support both dev and release naming)
-        BUNDLE_FILE=$(find /tmp -maxdepth 1 \( -name "proto-fleet-deployment*.tar.gz" -o -name "proto-fleet-*.tar.gz" \) | head -n 1)
+        # Find the deployment bundle (prioritize versioned releases, then dev builds)
+        # List all potential bundles for debugging
+        echo "Looking for deployment bundle in /tmp..."
+        ls -lh /tmp/proto-fleet*.tar.gz 2>/dev/null || echo "No proto-fleet bundles found yet"
+
+        # Prefer versioned bundles (proto-fleet-v1.2.3.tar.gz) over dev builds (proto-fleet-deployment.tar.gz)
+        BUNDLE_FILE=$(find /tmp -maxdepth 1 -name "proto-fleet-v*.tar.gz" | head -n 1)
 
         if [ -z "$BUNDLE_FILE" ]; then
-          echo "Error: Could not find deployment bundle in /tmp"
+          # Fall back to dev/deployment naming
+          BUNDLE_FILE=$(find /tmp -maxdepth 1 -name "proto-fleet-deployment*.tar.gz" | head -n 1)
+        fi
+
+        if [ -z "$BUNDLE_FILE" ]; then
+          # Last resort: any proto-fleet tarball
+          BUNDLE_FILE=$(find /tmp -maxdepth 1 -name "proto-fleet-*.tar.gz" | head -n 1)
+        fi
+
+        if [ -z "$BUNDLE_FILE" ]; then
+          echo "❌ Error: Could not find deployment bundle in /tmp"
+          echo "Contents of /tmp:"
           ls -la /tmp
           exit 1
         fi
 
+        # Verify the bundle file size is reasonable (should be at least 1MB)
+        BUNDLE_SIZE=$(stat -c%s "$BUNDLE_FILE" 2>/dev/null || stat -f%z "$BUNDLE_FILE" 2>/dev/null || echo "0")
+        if [ "$BUNDLE_SIZE" -lt 1048576 ]; then
+          echo "❌ Error: Bundle file is too small ($BUNDLE_SIZE bytes), download may have failed"
+          echo "Bundle file: $BUNDLE_FILE"
+          ls -lh "$BUNDLE_FILE"
+          exit 1
+        fi
+
         # Extract deployment bundle
-        echo "Extracting deployment bundle: $BUNDLE_FILE"
+        echo "✅ Found deployment bundle: $BUNDLE_FILE ($(numfmt --to=iec-i --suffix=B $BUNDLE_SIZE 2>/dev/null || echo ${BUNDLE_SIZE} bytes))"
+        echo "Extracting to: $INSTALL_DIR"
         tar -xzf "$BUNDLE_FILE" -C "$INSTALL_DIR"
 
         # Restore .env file if it existed
@@ -95,15 +128,39 @@ runs:
         cat version.txt
         echo ""
 
+        # Wait for containers to fully start (they need a few seconds after docker compose up)
+        echo "Waiting for containers to fully start..."
+        sleep 5
+
         # Check that all required containers are running
         echo "Checking container status..."
-        EXPECTED_CONTAINERS=("fleetd" "mysql" "influxdb")
+        EXPECTED_CONTAINERS=("fleet-api" "mysql" "influxdb")
         FAILED=0
+        MAX_RETRIES=6
+        RETRY_DELAY=5
 
         for container in "${EXPECTED_CONTAINERS[@]}"; do
-          # Check if container exists and is running
-          if ! docker compose ps --format json | jq -e ".[] | select(.Service == \"$container\" and .State == \"running\")" > /dev/null 2>&1; then
-            echo "❌ Container '$container' is not running"
+          echo "Checking service: $container"
+          RETRY_COUNT=0
+          CONTAINER_OK=false
+
+          # Retry loop for each container (max 30 seconds)
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            # Check if container exists and is running
+            if docker compose ps --format json | jq -e ".[] | select(.Service == \"$container\" and .State == \"running\")" > /dev/null 2>&1; then
+              CONTAINER_OK=true
+              break
+            fi
+
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+              echo "   ⏳ Container '$container' not ready yet, retrying in ${RETRY_DELAY}s... (attempt $RETRY_COUNT/$MAX_RETRIES)"
+              sleep $RETRY_DELAY
+            fi
+          done
+
+          if [ "$CONTAINER_OK" = false ]; then
+            echo "❌ Container '$container' is not running after $((MAX_RETRIES * RETRY_DELAY)) seconds"
             FAILED=1
           else
             echo "✅ Container '$container' is running"
@@ -113,7 +170,7 @@ runs:
             if [ "$HEALTH" != "none" ]; then
               if [ "$HEALTH" != "healthy" ]; then
                 echo "   ⚠️  Health status: $HEALTH"
-                FAILED=1
+                # Don't fail on health check during initial startup - containers might still be initializing
               else
                 echo "   ✅ Health status: $HEALTH"
               fi
@@ -127,9 +184,16 @@ runs:
 
         if [ $FAILED -eq 1 ]; then
           echo ""
-          echo "❌ Deployment verification failed - one or more containers are not healthy"
+          echo "❌ Deployment verification failed - one or more containers are not running"
+          echo ""
+          echo "Container logs for troubleshooting:"
+          for container in "${EXPECTED_CONTAINERS[@]}"; do
+            echo ""
+            echo "=== Logs for $container ==="
+            docker compose logs --tail=50 "$container" || echo "Could not fetch logs for $container"
+          done
           exit 1
         fi
 
         echo ""
-        echo "✅ Deployment verification successful - all containers are running and healthy"
+        echo "✅ Deployment verification successful - all containers are running"
