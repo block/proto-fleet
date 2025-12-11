@@ -12,6 +12,7 @@ import PoolModal from "@/shared/components/MiningPools/PoolModal";
 import type { PoolInfo } from "@/shared/components/MiningPools/types";
 import { getEmptyPoolsInfo } from "@/shared/components/MiningPools/utility";
 import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
 import { positions } from "@/shared/constants";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
@@ -211,7 +212,7 @@ const PoolRowInner = ({ pool, onEdit, onTestConnection, connectionStatus }: Pool
 };
 
 const MiningPools = () => {
-  const { pools, createPool, updatePool, validatePool, validatePoolPending } = usePools();
+  const { pools, createPool, updatePool, validatePool, validatePoolPending, isLoading } = usePools();
   const { isPhone, isTablet } = useWindowDimensions();
   const [showAddPoolModal, setShowAddPoolModal] = useState(false);
   const [showEditPoolModal, setShowEditPoolModal] = useState(false);
@@ -323,6 +324,15 @@ const MiningPools = () => {
     },
     [editingPool, updatePool],
   );
+
+  // Loading state - show spinner while fetching
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-20">
+        <ProgressCircular indeterminate />
+      </div>
+    );
+  }
 
   // Empty state - no pools configured
   if (pools.length === 0) {

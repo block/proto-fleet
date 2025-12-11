@@ -49,6 +49,7 @@ describe("PoolSelectionModal", () => {
       updatePool: vi.fn(),
       deletePool: vi.fn(),
       validatePoolPending: false,
+      isLoading: false,
     });
   });
 

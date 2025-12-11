@@ -13,6 +13,7 @@ vi.mock("@/protoFleet/api/usePools", () => ({
     deletePool: vi.fn(),
     validatePool: vi.fn(),
     validatePoolPending: false,
+    isLoading: false,
   })),
 }));
 
@@ -38,6 +39,31 @@ beforeEach(() => {
 });
 
 describe("MiningPools", () => {
+  describe("Loading state", () => {
+    it("displays loading spinner when isLoading is true", async () => {
+      const usePools = (await import("@/protoFleet/api/usePools")).default;
+      vi.mocked(usePools).mockReturnValueOnce({
+        pools: [],
+        miningPools: [],
+        createPool: vi.fn(),
+        updatePool: vi.fn(),
+        deletePool: vi.fn(),
+        validatePool: vi.fn(),
+        validatePoolPending: false,
+        isLoading: true,
+      });
+
+      render(<MiningPools />);
+
+      // Should show loading spinner (SVG with animate-spin class)
+      const spinner = document.querySelector(".animate-spin");
+      expect(spinner).toBeInTheDocument();
+
+      // Should not show empty state or table content
+      expect(screen.queryByText("Add a pool to start assigning your miners.")).not.toBeInTheDocument();
+    });
+  });
+
   describe("Empty state", () => {
     it("renders empty state when no pools exist", () => {
       render(<MiningPools />);
@@ -81,6 +107,7 @@ describe("MiningPools", () => {
         deletePool: vi.fn(),
         validatePool: vi.fn(),
         validatePoolPending: false,
+        isLoading: false,
       });
     });
 
@@ -156,6 +183,7 @@ describe("MiningPools", () => {
         deletePool: vi.fn(),
         validatePool: mockValidatePool as any,
         validatePoolPending: false,
+        isLoading: false,
       });
     });
 
@@ -235,6 +263,7 @@ describe("MiningPools", () => {
         deletePool: vi.fn(),
         validatePool: vi.fn(),
         validatePoolPending: false,
+        isLoading: false,
       });
     });
 
@@ -344,6 +373,7 @@ describe("MiningPools", () => {
         deletePool: vi.fn(),
         validatePool: vi.fn(),
         validatePoolPending: false,
+        isLoading: false,
       });
     });
 

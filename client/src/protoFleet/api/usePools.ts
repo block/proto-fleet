@@ -39,22 +39,33 @@ const usePools = () => {
   const { handleAuthErrors } = useAuthErrors();
 
   const [pools, setPools] = useState<ListPoolsResponse["pools"]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const fetchPools = useCallback(async () => {
-    try {
-      const response = await poolsClient.listPools({});
+  const fetchPools = useCallback(
+    async (showLoading = true) => {
+      try {
+        if (showLoading) {
+          setIsLoading(true);
+        }
+        const response = await poolsClient.listPools({});
 
-      setPools(response.pools);
-    } catch (error) {
-      handleAuthErrors({
-        error: error,
-        onError: () => {
-          console.error("Error fetching pools:", error);
-          throw error;
-        },
-      });
-    }
-  }, [setPools, handleAuthErrors]);
+        setPools(response.pools);
+      } catch (error) {
+        handleAuthErrors({
+          error: error,
+          onError: () => {
+            console.error("Error fetching pools:", error);
+            throw error;
+          },
+        });
+      } finally {
+        if (showLoading) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [setPools, handleAuthErrors],
+  );
 
   useEffect(() => {
     fetchPools();
@@ -94,7 +105,7 @@ const usePools = () => {
       await poolsClient
         .updatePool(updatePoolRequest)
         .then(() => {
-          fetchPools();
+          fetchPools(false); // Don't show loading spinner on refetch
           onSuccess?.();
         })
         .catch((err) => {
@@ -184,8 +195,9 @@ const usePools = () => {
       deletePool,
       validatePool,
       validatePoolPending,
+      isLoading,
     }),
-    [pools, miningPools, createPool, updatePool, deletePool, validatePool, validatePoolPending],
+    [pools, miningPools, createPool, updatePool, deletePool, validatePool, validatePoolPending, isLoading],
   );
 };
 
