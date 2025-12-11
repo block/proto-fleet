@@ -39,8 +39,11 @@ export const SegmentedMetricPanel = ({
     [chartData, duration, segmentConfig],
   );
 
-  // Calculate current breakdown from latest data
-  const currentBreakdown = useMemo(() => getCurrentBreakdown(chartData, segmentConfig), [chartData, segmentConfig]);
+  // Calculate current breakdown from processed chart data (shares logic with chart)
+  const currentBreakdown = useMemo(
+    () => getCurrentBreakdown(processedChartData, segmentConfig),
+    [processedChartData, segmentConfig],
+  );
 
   // Extract segment keys from config
   const segmentKeys = useMemo(() => Object.keys(segmentConfig), [segmentConfig]);

@@ -273,22 +273,26 @@ export const processMultiDayChartData = (
 };
 
 /**
- * Calculate current breakdown from the last data entry
+ * Calculate current breakdown from processed chart data
  */
-export const getCurrentBreakdown = (data: StatusCount[], segmentConfig: SegmentConfig) => {
-  if (!data || data.length === 0) return [];
+export const getCurrentBreakdown = (processedChartData: SegmentedBarChartData[][], segmentConfig: SegmentConfig) => {
+  // Get the last chart (for multi-day view, this is the most recent day)
+  if (!processedChartData || processedChartData.length === 0) return [];
+  const lastChart = processedChartData[processedChartData.length - 1];
 
-  // Get the most recent data point
-  const latestCount = data[data.length - 1];
+  // Get the last data point from the last chart (most recent bar)
+  if (!lastChart || lastChart.length === 0) return [];
+  const latestDataPoint = lastChart[lastChart.length - 1];
+
   const segmentKeys = Object.keys(segmentConfig);
 
   // Calculate total from all segment counts
-  const total = segmentKeys.reduce((sum, key) => sum + getCountForSegment(latestCount, key), 0);
+  const total = segmentKeys.reduce((sum, key) => sum + ((latestDataPoint[key] as number) || 0), 0);
 
   const breakdown = [];
 
   for (const [key, config] of Object.entries(segmentConfig)) {
-    const count = getCountForSegment(latestCount, key);
+    const count = (latestDataPoint[key] as number) || 0;
 
     // Include all segments that should be displayed in breakdown, regardless of count
     if (config.displayInBreakdown !== false) {
