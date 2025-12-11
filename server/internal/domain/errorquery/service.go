@@ -253,7 +253,8 @@ func (s *Service) applyFilters(errors []ErrorRecord, filter *errorsv1.Filter, de
 	return result
 }
 
-// matchesFilter checks if an error matches the filter criteria.
+// matchesFilter checks if an error matches all filter criteria (AND logic).
+// TODO(DASH-1048): Add OR logic support controlled by filter.SimpleLogic field.
 func (s *Service) matchesFilter(err ErrorRecord, filter *errorsv1.Filter, deviceTypeMap map[string]string) bool {
 	// Check include_closed.
 	if !filter.GetIncludeClosed() && err.ClosedAt != nil {
@@ -273,10 +274,7 @@ func (s *Service) matchesFilter(err ErrorRecord, filter *errorsv1.Filter, device
 		return true
 	}
 
-	// Check if we're using AND or OR logic.
-	useOr := filter.GetSimpleLogic() == errorsv1.GlobalLogic_GLOBAL_LOGIC_OR
-
-	matches := []bool{}
+	// AND logic: all provided filter criteria must match.
 
 	// Check device IDs.
 	if len(simpleFilter.GetDeviceIdentifiers()) > 0 {
@@ -287,7 +285,9 @@ func (s *Service) matchesFilter(err ErrorRecord, filter *errorsv1.Filter, device
 				break
 			}
 		}
-		matches = append(matches, match)
+		if !match {
+			return false
+		}
 	}
 
 	// Check device types.
@@ -300,7 +300,9 @@ func (s *Service) matchesFilter(err ErrorRecord, filter *errorsv1.Filter, device
 				break
 			}
 		}
-		matches = append(matches, match)
+		if !match {
+			return false
+		}
 	}
 
 	// Check component IDs.
@@ -312,7 +314,9 @@ func (s *Service) matchesFilter(err ErrorRecord, filter *errorsv1.Filter, device
 				break
 			}
 		}
-		matches = append(matches, match)
+		if !match {
+			return false
+		}
 	}
 
 	// Check component types.
@@ -325,7 +329,9 @@ func (s *Service) matchesFilter(err ErrorRecord, filter *errorsv1.Filter, device
 				break
 			}
 		}
-		matches = append(matches, match)
+		if !match {
+			return false
+		}
 	}
 
 	// Check miner errors.
@@ -337,7 +343,9 @@ func (s *Service) matchesFilter(err ErrorRecord, filter *errorsv1.Filter, device
 				break
 			}
 		}
-		matches = append(matches, match)
+		if !match {
+			return false
+		}
 	}
 
 	// Check severities.
@@ -349,30 +357,11 @@ func (s *Service) matchesFilter(err ErrorRecord, filter *errorsv1.Filter, device
 				break
 			}
 		}
-		matches = append(matches, match)
-	}
-
-	// If no filter criteria specified, match all.
-	if len(matches) == 0 {
-		return true
-	}
-
-	// Apply logic.
-	if useOr {
-		for _, m := range matches {
-			if m {
-				return true
-			}
-		}
-		return false
-	}
-
-	// AND logic.
-	for _, m := range matches {
-		if !m {
+		if !match {
 			return false
 		}
 	}
+
 	return true
 }
 

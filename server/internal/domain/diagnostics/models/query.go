@@ -9,12 +9,13 @@ import (
 // ============================================================================
 
 // FilterLogic determines how filter criteria are combined.
+// TODO(DASH-1048): Re-enable OR logic support in SQL queries and service layer.
 type FilterLogic uint
 
 const (
 	FilterLogicUnspecified FilterLogic = 0
-	FilterLogicAND         FilterLogic = 1 // All criteria must match
-	FilterLogicOR          FilterLogic = 2 // Any criterion can match
+	FilterLogicAND         FilterLogic = 1 // All criteria must match (currently the only supported mode)
+	FilterLogicOR          FilterLogic = 2 // Any criterion can match (not yet implemented)
 )
 
 // QueryFilter represents filter criteria for error queries.

@@ -35,6 +35,51 @@ func (m *MockErrorStore) EXPECT() *MockErrorStoreMockRecorder {
 	return m.recorder
 }
 
+// CountComponents mocks base method.
+func (m *MockErrorStore) CountComponents(ctx context.Context, opts *models.QueryOptions) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountComponents", ctx, opts)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountComponents indicates an expected call of CountComponents.
+func (mr *MockErrorStoreMockRecorder) CountComponents(ctx, opts interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountComponents", reflect.TypeOf((*MockErrorStore)(nil).CountComponents), ctx, opts)
+}
+
+// CountDevices mocks base method.
+func (m *MockErrorStore) CountDevices(ctx context.Context, opts *models.QueryOptions) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountDevices", ctx, opts)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountDevices indicates an expected call of CountDevices.
+func (mr *MockErrorStoreMockRecorder) CountDevices(ctx, opts interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountDevices", reflect.TypeOf((*MockErrorStore)(nil).CountDevices), ctx, opts)
+}
+
+// CountErrors mocks base method.
+func (m *MockErrorStore) CountErrors(ctx context.Context, opts *models.QueryOptions) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountErrors", ctx, opts)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountErrors indicates an expected call of CountErrors.
+func (mr *MockErrorStoreMockRecorder) CountErrors(ctx, opts interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountErrors", reflect.TypeOf((*MockErrorStore)(nil).CountErrors), ctx, opts)
+}
+
 // GetErrorByErrorID mocks base method.
 func (m *MockErrorStore) GetErrorByErrorID(ctx context.Context, orgID int64, errorID string) (*models.ErrorMessage, error) {
 	m.ctrl.T.Helper()
@@ -48,6 +93,51 @@ func (m *MockErrorStore) GetErrorByErrorID(ctx context.Context, orgID int64, err
 func (mr *MockErrorStoreMockRecorder) GetErrorByErrorID(ctx, orgID, errorID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetErrorByErrorID", reflect.TypeOf((*MockErrorStore)(nil).GetErrorByErrorID), ctx, orgID, errorID)
+}
+
+// QueryComponentKeys mocks base method.
+func (m *MockErrorStore) QueryComponentKeys(ctx context.Context, opts *models.QueryOptions) ([]models.ComponentKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "QueryComponentKeys", ctx, opts)
+	ret0, _ := ret[0].([]models.ComponentKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// QueryComponentKeys indicates an expected call of QueryComponentKeys.
+func (mr *MockErrorStoreMockRecorder) QueryComponentKeys(ctx, opts interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QueryComponentKeys", reflect.TypeOf((*MockErrorStore)(nil).QueryComponentKeys), ctx, opts)
+}
+
+// QueryDeviceKeys mocks base method.
+func (m *MockErrorStore) QueryDeviceKeys(ctx context.Context, opts *models.QueryOptions) ([]models.DeviceKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "QueryDeviceKeys", ctx, opts)
+	ret0, _ := ret[0].([]models.DeviceKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// QueryDeviceKeys indicates an expected call of QueryDeviceKeys.
+func (mr *MockErrorStoreMockRecorder) QueryDeviceKeys(ctx, opts interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QueryDeviceKeys", reflect.TypeOf((*MockErrorStore)(nil).QueryDeviceKeys), ctx, opts)
+}
+
+// QueryErrors mocks base method.
+func (m *MockErrorStore) QueryErrors(ctx context.Context, opts *models.QueryOptions) ([]models.ErrorMessage, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "QueryErrors", ctx, opts)
+	ret0, _ := ret[0].([]models.ErrorMessage)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// QueryErrors indicates an expected call of QueryErrors.
+func (mr *MockErrorStoreMockRecorder) QueryErrors(ctx, opts interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QueryErrors", reflect.TypeOf((*MockErrorStore)(nil).QueryErrors), ctx, opts)
 }
 
 // UpsertError mocks base method.

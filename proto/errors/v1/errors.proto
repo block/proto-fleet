@@ -136,11 +136,12 @@ enum ResultView {
   RESULT_VIEW_DEVICE = 3;     // Grouped by device
 }
 
-// Global logic for combining filter criteria
+// Global logic for combining filter criteria.
+// TODO(DASH-1048): Currently only AND logic is implemented. OR support planned.
 enum GlobalLogic {
   GLOBAL_LOGIC_UNSPECIFIED = 0;
-  GLOBAL_LOGIC_AND = 1;
-  GLOBAL_LOGIC_OR = 2;
+  GLOBAL_LOGIC_AND = 1;  // All criteria must match (default, currently only mode)
+  GLOBAL_LOGIC_OR = 2;   // Any criterion can match (not yet implemented)
 }
 
 // A single error instance

@@ -9,8 +9,335 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 )
+
+const countComponentsWithErrors = `-- name: CountComponentsWithErrors :one
+SELECT COUNT(*) as total FROM (
+    SELECT DISTINCT e.device_id, e.component_id
+    FROM errors e
+    JOIN device d ON e.device_id = d.id
+    JOIN discovered_device dd ON d.discovered_device_id = dd.id
+    WHERE e.org_id = ?
+        AND (? IS NULL OR e.last_seen_at >= ?)
+        AND (? IS NULL OR e.last_seen_at <= ?)
+        AND (? = TRUE OR e.closed_at IS NULL)
+        -- Filter criteria (AND logic): all provided filters must match
+        AND (? IS NULL OR d.device_identifier IN (/*SLICE:device_identifiers*/?))
+        AND (? IS NULL OR dd.model IN (/*SLICE:device_types*/?))
+        AND (? IS NULL OR e.severity IN (/*SLICE:severities*/?))
+        AND (? IS NULL OR e.miner_error IN (/*SLICE:miner_errors*/?))
+        AND (? IS NULL OR e.component_type IN (/*SLICE:component_types*/?))
+        AND (? IS NULL OR e.component_id IN (/*SLICE:component_ids*/?))
+) as component_count
+`
+
+type CountComponentsWithErrorsParams struct {
+	OrgID               int64
+	TimeFrom            sql.NullTime
+	TimeTo              sql.NullTime
+	IncludeClosed       interface{}
+	DeviceFilter        interface{}
+	DeviceIdentifiers   []string
+	DeviceTypeFilter    interface{}
+	DeviceTypes         []sql.NullString
+	SeverityFilter      interface{}
+	Severities          []int32
+	MinerErrorFilter    interface{}
+	MinerErrors         []int32
+	ComponentTypeFilter interface{}
+	ComponentTypes      []sql.NullInt32
+	ComponentIDFilter   interface{}
+	ComponentIds        []sql.NullString
+}
+
+// Counts distinct (device_id, component_id) pairs that have errors matching filter criteria.
+// TODO(DASH-1048): Add CASE statement to support OR logic via use_or_logic parameter.
+func (q *Queries) CountComponentsWithErrors(ctx context.Context, arg CountComponentsWithErrorsParams) (int64, error) {
+	query := countComponentsWithErrors
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.OrgID)
+	queryParams = append(queryParams, arg.TimeFrom)
+	queryParams = append(queryParams, arg.TimeFrom)
+	queryParams = append(queryParams, arg.TimeTo)
+	queryParams = append(queryParams, arg.TimeTo)
+	queryParams = append(queryParams, arg.IncludeClosed)
+	queryParams = append(queryParams, arg.DeviceFilter)
+	if len(arg.DeviceIdentifiers) > 0 {
+		for _, v := range arg.DeviceIdentifiers {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(arg.DeviceIdentifiers))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.DeviceTypeFilter)
+	if len(arg.DeviceTypes) > 0 {
+		for _, v := range arg.DeviceTypes {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:device_types*/?", strings.Repeat(",?", len(arg.DeviceTypes))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:device_types*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.SeverityFilter)
+	if len(arg.Severities) > 0 {
+		for _, v := range arg.Severities {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:severities*/?", strings.Repeat(",?", len(arg.Severities))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:severities*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.MinerErrorFilter)
+	if len(arg.MinerErrors) > 0 {
+		for _, v := range arg.MinerErrors {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:miner_errors*/?", strings.Repeat(",?", len(arg.MinerErrors))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:miner_errors*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.ComponentTypeFilter)
+	if len(arg.ComponentTypes) > 0 {
+		for _, v := range arg.ComponentTypes {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:component_types*/?", strings.Repeat(",?", len(arg.ComponentTypes))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:component_types*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.ComponentIDFilter)
+	if len(arg.ComponentIds) > 0 {
+		for _, v := range arg.ComponentIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:component_ids*/?", strings.Repeat(",?", len(arg.ComponentIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:component_ids*/?", "NULL", 1)
+	}
+	row := q.queryRow(ctx, nil, query, queryParams...)
+	var total int64
+	err := row.Scan(&total)
+	return total, err
+}
+
+const countDevicesWithErrors = `-- name: CountDevicesWithErrors :one
+SELECT COUNT(DISTINCT e.device_id) as total
+FROM errors e
+JOIN device d ON e.device_id = d.id
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+WHERE e.org_id = ?
+    AND (? IS NULL OR e.last_seen_at >= ?)
+    AND (? IS NULL OR e.last_seen_at <= ?)
+    AND (? = TRUE OR e.closed_at IS NULL)
+    -- Filter criteria (AND logic): all provided filters must match
+    AND (? IS NULL OR d.device_identifier IN (/*SLICE:device_identifiers*/?))
+    AND (? IS NULL OR dd.model IN (/*SLICE:device_types*/?))
+    AND (? IS NULL OR e.severity IN (/*SLICE:severities*/?))
+    AND (? IS NULL OR e.miner_error IN (/*SLICE:miner_errors*/?))
+    AND (? IS NULL OR e.component_type IN (/*SLICE:component_types*/?))
+    AND (? IS NULL OR e.component_id IN (/*SLICE:component_ids*/?))
+`
+
+type CountDevicesWithErrorsParams struct {
+	OrgID               int64
+	TimeFrom            sql.NullTime
+	TimeTo              sql.NullTime
+	IncludeClosed       interface{}
+	DeviceFilter        interface{}
+	DeviceIdentifiers   []string
+	DeviceTypeFilter    interface{}
+	DeviceTypes         []sql.NullString
+	SeverityFilter      interface{}
+	Severities          []int32
+	MinerErrorFilter    interface{}
+	MinerErrors         []int32
+	ComponentTypeFilter interface{}
+	ComponentTypes      []sql.NullInt32
+	ComponentIDFilter   interface{}
+	ComponentIds        []sql.NullString
+}
+
+// Counts distinct devices that have errors matching filter criteria.
+// TODO(DASH-1048): Add CASE statement to support OR logic via use_or_logic parameter.
+func (q *Queries) CountDevicesWithErrors(ctx context.Context, arg CountDevicesWithErrorsParams) (int64, error) {
+	query := countDevicesWithErrors
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.OrgID)
+	queryParams = append(queryParams, arg.TimeFrom)
+	queryParams = append(queryParams, arg.TimeFrom)
+	queryParams = append(queryParams, arg.TimeTo)
+	queryParams = append(queryParams, arg.TimeTo)
+	queryParams = append(queryParams, arg.IncludeClosed)
+	queryParams = append(queryParams, arg.DeviceFilter)
+	if len(arg.DeviceIdentifiers) > 0 {
+		for _, v := range arg.DeviceIdentifiers {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(arg.DeviceIdentifiers))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.DeviceTypeFilter)
+	if len(arg.DeviceTypes) > 0 {
+		for _, v := range arg.DeviceTypes {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:device_types*/?", strings.Repeat(",?", len(arg.DeviceTypes))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:device_types*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.SeverityFilter)
+	if len(arg.Severities) > 0 {
+		for _, v := range arg.Severities {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:severities*/?", strings.Repeat(",?", len(arg.Severities))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:severities*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.MinerErrorFilter)
+	if len(arg.MinerErrors) > 0 {
+		for _, v := range arg.MinerErrors {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:miner_errors*/?", strings.Repeat(",?", len(arg.MinerErrors))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:miner_errors*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.ComponentTypeFilter)
+	if len(arg.ComponentTypes) > 0 {
+		for _, v := range arg.ComponentTypes {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:component_types*/?", strings.Repeat(",?", len(arg.ComponentTypes))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:component_types*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.ComponentIDFilter)
+	if len(arg.ComponentIds) > 0 {
+		for _, v := range arg.ComponentIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:component_ids*/?", strings.Repeat(",?", len(arg.ComponentIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:component_ids*/?", "NULL", 1)
+	}
+	row := q.queryRow(ctx, nil, query, queryParams...)
+	var total int64
+	err := row.Scan(&total)
+	return total, err
+}
+
+const countErrors = `-- name: CountErrors :one
+SELECT COUNT(*) as total
+FROM errors e
+JOIN device d ON e.device_id = d.id
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+WHERE e.org_id = ?
+    AND (? IS NULL OR e.last_seen_at >= ?)
+    AND (? IS NULL OR e.last_seen_at <= ?)
+    AND (? = TRUE OR e.closed_at IS NULL)
+    -- Filter criteria (AND logic): all provided filters must match
+    AND (? IS NULL OR d.device_identifier IN (/*SLICE:device_identifiers*/?))
+    AND (? IS NULL OR dd.model IN (/*SLICE:device_types*/?))
+    AND (? IS NULL OR e.severity IN (/*SLICE:severities*/?))
+    AND (? IS NULL OR e.miner_error IN (/*SLICE:miner_errors*/?))
+    AND (? IS NULL OR e.component_type IN (/*SLICE:component_types*/?))
+    AND (? IS NULL OR e.component_id IN (/*SLICE:component_ids*/?))
+`
+
+type CountErrorsParams struct {
+	OrgID               int64
+	TimeFrom            sql.NullTime
+	TimeTo              sql.NullTime
+	IncludeClosed       interface{}
+	DeviceFilter        interface{}
+	DeviceIdentifiers   []string
+	DeviceTypeFilter    interface{}
+	DeviceTypes         []sql.NullString
+	SeverityFilter      interface{}
+	Severities          []int32
+	MinerErrorFilter    interface{}
+	MinerErrors         []int32
+	ComponentTypeFilter interface{}
+	ComponentTypes      []sql.NullInt32
+	ComponentIDFilter   interface{}
+	ComponentIds        []sql.NullString
+}
+
+// Counts errors with AND filter logic (same logic as QueryErrors without pagination).
+// TODO(DASH-1048): Add CASE statement to support OR logic via use_or_logic parameter.
+func (q *Queries) CountErrors(ctx context.Context, arg CountErrorsParams) (int64, error) {
+	query := countErrors
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.OrgID)
+	queryParams = append(queryParams, arg.TimeFrom)
+	queryParams = append(queryParams, arg.TimeFrom)
+	queryParams = append(queryParams, arg.TimeTo)
+	queryParams = append(queryParams, arg.TimeTo)
+	queryParams = append(queryParams, arg.IncludeClosed)
+	queryParams = append(queryParams, arg.DeviceFilter)
+	if len(arg.DeviceIdentifiers) > 0 {
+		for _, v := range arg.DeviceIdentifiers {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(arg.DeviceIdentifiers))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.DeviceTypeFilter)
+	if len(arg.DeviceTypes) > 0 {
+		for _, v := range arg.DeviceTypes {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:device_types*/?", strings.Repeat(",?", len(arg.DeviceTypes))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:device_types*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.SeverityFilter)
+	if len(arg.Severities) > 0 {
+		for _, v := range arg.Severities {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:severities*/?", strings.Repeat(",?", len(arg.Severities))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:severities*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.MinerErrorFilter)
+	if len(arg.MinerErrors) > 0 {
+		for _, v := range arg.MinerErrors {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:miner_errors*/?", strings.Repeat(",?", len(arg.MinerErrors))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:miner_errors*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.ComponentTypeFilter)
+	if len(arg.ComponentTypes) > 0 {
+		for _, v := range arg.ComponentTypes {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:component_types*/?", strings.Repeat(",?", len(arg.ComponentTypes))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:component_types*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.ComponentIDFilter)
+	if len(arg.ComponentIds) > 0 {
+		for _, v := range arg.ComponentIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:component_ids*/?", strings.Repeat(",?", len(arg.ComponentIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:component_ids*/?", "NULL", 1)
+	}
+	row := q.queryRow(ctx, nil, query, queryParams...)
+	var total int64
+	err := row.Scan(&total)
+	return total, err
+}
 
 const getDeviceIDByIdentifier = `-- name: GetDeviceIDByIdentifier :one
 SELECT id FROM device WHERE device_identifier = ? AND org_id = ?
@@ -239,6 +566,558 @@ func (q *Queries) InsertError(ctx context.Context, arg InsertErrorParams) (sql.R
 		arg.Extra,
 		arg.ClosedAt,
 	)
+}
+
+const queryComponentKeysWithErrors = `-- name: QueryComponentKeysWithErrors :many
+
+SELECT
+    e.device_id,
+    d.device_identifier,
+    e.component_id,
+    MIN(e.severity) as worst_severity
+FROM errors e
+JOIN device d ON e.device_id = d.id
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+WHERE e.org_id = ?
+    AND (? IS NULL OR e.last_seen_at >= ?)
+    AND (? IS NULL OR e.last_seen_at <= ?)
+    AND (? = TRUE OR e.closed_at IS NULL)
+    -- Filter criteria (AND logic): all provided filters must match
+    AND (? IS NULL OR d.device_identifier IN (/*SLICE:device_identifiers*/?))
+    AND (? IS NULL OR dd.model IN (/*SLICE:device_types*/?))
+    AND (? IS NULL OR e.severity IN (/*SLICE:severities*/?))
+    AND (? IS NULL OR e.miner_error IN (/*SLICE:miner_errors*/?))
+    AND (? IS NULL OR e.component_type IN (/*SLICE:component_types*/?))
+    AND (? IS NULL OR e.component_id IN (/*SLICE:component_ids*/?))
+    -- Component cursor: keyset pagination using (worst_severity, device_id, component_id) compound key
+    -- Must skip rows where (worst_severity, device_id, component_id) <= cursor position in sort order
+GROUP BY e.device_id, d.device_identifier, e.component_id
+HAVING (
+    ? IS NULL
+    OR MIN(e.severity) > ?
+    OR (MIN(e.severity) = ? AND e.device_id > ?)
+    OR (MIN(e.severity) = ? AND e.device_id = ? AND (
+        e.component_id > ?
+        OR (? IS NULL AND e.component_id IS NOT NULL)
+    ))
+)
+ORDER BY worst_severity ASC, e.device_id ASC, e.component_id ASC
+LIMIT ?
+`
+
+type QueryComponentKeysWithErrorsParams struct {
+	OrgID               int64
+	TimeFrom            sql.NullTime
+	TimeTo              sql.NullTime
+	IncludeClosed       interface{}
+	DeviceFilter        interface{}
+	DeviceIdentifiers   []string
+	DeviceTypeFilter    interface{}
+	DeviceTypes         []sql.NullString
+	SeverityFilter      interface{}
+	Severities          []int32
+	MinerErrorFilter    interface{}
+	MinerErrors         []int32
+	ComponentTypeFilter interface{}
+	ComponentTypes      []sql.NullInt32
+	ComponentIDFilter   interface{}
+	ComponentIds        []sql.NullString
+	CursorSeverity      sql.NullInt32
+	CursorDeviceID      sql.NullInt64
+	CursorComponentID   sql.NullString
+	Limit               int32
+}
+
+type QueryComponentKeysWithErrorsRow struct {
+	DeviceID         int64
+	DeviceIdentifier string
+	ComponentID      sql.NullString
+	WorstSeverity    interface{}
+}
+
+// ============================================================================
+// Component-Based Pagination Queries
+// ============================================================================
+// Gets distinct (device_id, component_id) pairs that have errors, sorted by worst severity.
+// Uses cursor-based pagination on (device_id, component_id) for ResultViewComponent pagination.
+// Returns device_identifier (for re-filtering) alongside device_id (for keyset pagination).
+// TODO(DASH-1048): Add CASE statement to support OR logic via use_or_logic parameter.
+func (q *Queries) QueryComponentKeysWithErrors(ctx context.Context, arg QueryComponentKeysWithErrorsParams) ([]QueryComponentKeysWithErrorsRow, error) {
+	query := queryComponentKeysWithErrors
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.OrgID)
+	queryParams = append(queryParams, arg.TimeFrom)
+	queryParams = append(queryParams, arg.TimeFrom)
+	queryParams = append(queryParams, arg.TimeTo)
+	queryParams = append(queryParams, arg.TimeTo)
+	queryParams = append(queryParams, arg.IncludeClosed)
+	queryParams = append(queryParams, arg.DeviceFilter)
+	if len(arg.DeviceIdentifiers) > 0 {
+		for _, v := range arg.DeviceIdentifiers {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(arg.DeviceIdentifiers))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.DeviceTypeFilter)
+	if len(arg.DeviceTypes) > 0 {
+		for _, v := range arg.DeviceTypes {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:device_types*/?", strings.Repeat(",?", len(arg.DeviceTypes))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:device_types*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.SeverityFilter)
+	if len(arg.Severities) > 0 {
+		for _, v := range arg.Severities {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:severities*/?", strings.Repeat(",?", len(arg.Severities))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:severities*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.MinerErrorFilter)
+	if len(arg.MinerErrors) > 0 {
+		for _, v := range arg.MinerErrors {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:miner_errors*/?", strings.Repeat(",?", len(arg.MinerErrors))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:miner_errors*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.ComponentTypeFilter)
+	if len(arg.ComponentTypes) > 0 {
+		for _, v := range arg.ComponentTypes {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:component_types*/?", strings.Repeat(",?", len(arg.ComponentTypes))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:component_types*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.ComponentIDFilter)
+	if len(arg.ComponentIds) > 0 {
+		for _, v := range arg.ComponentIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:component_ids*/?", strings.Repeat(",?", len(arg.ComponentIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:component_ids*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.CursorSeverity)
+	queryParams = append(queryParams, arg.CursorSeverity)
+	queryParams = append(queryParams, arg.CursorSeverity)
+	queryParams = append(queryParams, arg.CursorDeviceID)
+	queryParams = append(queryParams, arg.CursorSeverity)
+	queryParams = append(queryParams, arg.CursorDeviceID)
+	queryParams = append(queryParams, arg.CursorComponentID)
+	queryParams = append(queryParams, arg.CursorComponentID)
+	queryParams = append(queryParams, arg.Limit)
+	rows, err := q.query(ctx, nil, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryComponentKeysWithErrorsRow
+	for rows.Next() {
+		var i QueryComponentKeysWithErrorsRow
+		if err := rows.Scan(
+			&i.DeviceID,
+			&i.DeviceIdentifier,
+			&i.ComponentID,
+			&i.WorstSeverity,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const queryDeviceIDsWithErrors = `-- name: QueryDeviceIDsWithErrors :many
+
+SELECT
+    e.device_id,
+    d.device_identifier,
+    MIN(e.severity) as worst_severity
+FROM errors e
+JOIN device d ON e.device_id = d.id
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+WHERE e.org_id = ?
+    AND (? IS NULL OR e.last_seen_at >= ?)
+    AND (? IS NULL OR e.last_seen_at <= ?)
+    AND (? = TRUE OR e.closed_at IS NULL)
+    -- Filter criteria (AND logic): all provided filters must match
+    AND (? IS NULL OR d.device_identifier IN (/*SLICE:device_identifiers*/?))
+    AND (? IS NULL OR dd.model IN (/*SLICE:device_types*/?))
+    AND (? IS NULL OR e.severity IN (/*SLICE:severities*/?))
+    AND (? IS NULL OR e.miner_error IN (/*SLICE:miner_errors*/?))
+    AND (? IS NULL OR e.component_type IN (/*SLICE:component_types*/?))
+    AND (? IS NULL OR e.component_id IN (/*SLICE:component_ids*/?))
+    -- Device cursor: keyset pagination using (worst_severity, device_id) compound key
+    -- Must skip rows where (worst_severity, device_id) <= cursor position in sort order
+GROUP BY e.device_id, d.device_identifier
+HAVING (
+    ? IS NULL
+    OR MIN(e.severity) > ?
+    OR (MIN(e.severity) = ? AND e.device_id > ?)
+)
+ORDER BY worst_severity ASC, e.device_id ASC
+LIMIT ?
+`
+
+type QueryDeviceIDsWithErrorsParams struct {
+	OrgID               int64
+	TimeFrom            sql.NullTime
+	TimeTo              sql.NullTime
+	IncludeClosed       interface{}
+	DeviceFilter        interface{}
+	DeviceIdentifiers   []string
+	DeviceTypeFilter    interface{}
+	DeviceTypes         []sql.NullString
+	SeverityFilter      interface{}
+	Severities          []int32
+	MinerErrorFilter    interface{}
+	MinerErrors         []int32
+	ComponentTypeFilter interface{}
+	ComponentTypes      []sql.NullInt32
+	ComponentIDFilter   interface{}
+	ComponentIds        []sql.NullString
+	CursorSeverity      sql.NullInt32
+	CursorDeviceID      sql.NullInt64
+	Limit               int32
+}
+
+type QueryDeviceIDsWithErrorsRow struct {
+	DeviceID         int64
+	DeviceIdentifier string
+	WorstSeverity    interface{}
+}
+
+// ============================================================================
+// Device-Based Pagination Queries
+// ============================================================================
+// Gets distinct device IDs that have errors, sorted by worst severity then device_id.
+// Uses cursor-based pagination on device_id for ResultViewDevice pagination.
+// Returns both device_id (for keyset pagination) and device_identifier (for re-filtering).
+// TODO(DASH-1048): Add CASE statement to support OR logic via use_or_logic parameter.
+func (q *Queries) QueryDeviceIDsWithErrors(ctx context.Context, arg QueryDeviceIDsWithErrorsParams) ([]QueryDeviceIDsWithErrorsRow, error) {
+	query := queryDeviceIDsWithErrors
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.OrgID)
+	queryParams = append(queryParams, arg.TimeFrom)
+	queryParams = append(queryParams, arg.TimeFrom)
+	queryParams = append(queryParams, arg.TimeTo)
+	queryParams = append(queryParams, arg.TimeTo)
+	queryParams = append(queryParams, arg.IncludeClosed)
+	queryParams = append(queryParams, arg.DeviceFilter)
+	if len(arg.DeviceIdentifiers) > 0 {
+		for _, v := range arg.DeviceIdentifiers {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(arg.DeviceIdentifiers))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.DeviceTypeFilter)
+	if len(arg.DeviceTypes) > 0 {
+		for _, v := range arg.DeviceTypes {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:device_types*/?", strings.Repeat(",?", len(arg.DeviceTypes))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:device_types*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.SeverityFilter)
+	if len(arg.Severities) > 0 {
+		for _, v := range arg.Severities {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:severities*/?", strings.Repeat(",?", len(arg.Severities))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:severities*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.MinerErrorFilter)
+	if len(arg.MinerErrors) > 0 {
+		for _, v := range arg.MinerErrors {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:miner_errors*/?", strings.Repeat(",?", len(arg.MinerErrors))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:miner_errors*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.ComponentTypeFilter)
+	if len(arg.ComponentTypes) > 0 {
+		for _, v := range arg.ComponentTypes {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:component_types*/?", strings.Repeat(",?", len(arg.ComponentTypes))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:component_types*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.ComponentIDFilter)
+	if len(arg.ComponentIds) > 0 {
+		for _, v := range arg.ComponentIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:component_ids*/?", strings.Repeat(",?", len(arg.ComponentIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:component_ids*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.CursorSeverity)
+	queryParams = append(queryParams, arg.CursorSeverity)
+	queryParams = append(queryParams, arg.CursorSeverity)
+	queryParams = append(queryParams, arg.CursorDeviceID)
+	queryParams = append(queryParams, arg.Limit)
+	rows, err := q.query(ctx, nil, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryDeviceIDsWithErrorsRow
+	for rows.Next() {
+		var i QueryDeviceIDsWithErrorsRow
+		if err := rows.Scan(&i.DeviceID, &i.DeviceIdentifier, &i.WorstSeverity); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const queryErrors = `-- name: QueryErrors :many
+
+SELECT
+    e.id,
+    e.error_id,
+    e.org_id,
+    e.miner_error,
+    e.severity,
+    e.summary,
+    e.impact,
+    e.cause_summary,
+    e.recommended_action,
+    e.first_seen_at,
+    e.last_seen_at,
+    e.closed_at,
+    e.device_id,
+    e.component_id,
+    e.component_type,
+    e.vendor_code,
+    e.firmware,
+    e.extra,
+    e.created_at,
+    e.updated_at,
+    d.device_identifier,
+    dd.model as device_type
+FROM errors e
+JOIN device d ON e.device_id = d.id
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+WHERE e.org_id = ?
+    -- Base filters (always AND)
+    AND (? IS NULL OR e.last_seen_at >= ?)
+    AND (? IS NULL OR e.last_seen_at <= ?)
+    AND (? = TRUE OR e.closed_at IS NULL)
+    -- Filter criteria (AND logic): all provided filters must match
+    AND (? IS NULL OR d.device_identifier IN (/*SLICE:device_identifiers*/?))
+    AND (? IS NULL OR dd.model IN (/*SLICE:device_types*/?))
+    AND (? IS NULL OR e.severity IN (/*SLICE:severities*/?))
+    AND (? IS NULL OR e.miner_error IN (/*SLICE:miner_errors*/?))
+    AND (? IS NULL OR e.component_type IN (/*SLICE:component_types*/?))
+    AND (? IS NULL OR e.component_id IN (/*SLICE:component_ids*/?))
+    -- Cursor pagination: skip rows before cursor position
+    AND (
+        ? IS NULL
+        OR e.severity > ?
+        OR (e.severity = ? AND e.last_seen_at < ?)
+        OR (e.severity = ? AND e.last_seen_at = ? AND e.error_id < ?)
+    )
+ORDER BY e.severity ASC, e.last_seen_at DESC, e.error_id DESC
+LIMIT ?
+`
+
+type QueryErrorsParams struct {
+	OrgID               int64
+	TimeFrom            sql.NullTime
+	TimeTo              sql.NullTime
+	IncludeClosed       interface{}
+	DeviceFilter        interface{}
+	DeviceIdentifiers   []string
+	DeviceTypeFilter    interface{}
+	DeviceTypes         []sql.NullString
+	SeverityFilter      interface{}
+	Severities          []int32
+	MinerErrorFilter    interface{}
+	MinerErrors         []int32
+	ComponentTypeFilter interface{}
+	ComponentTypes      []sql.NullInt32
+	ComponentIDFilter   interface{}
+	ComponentIds        []sql.NullString
+	CursorSeverity      sql.NullInt32
+	CursorLastSeen      sql.NullTime
+	CursorErrorID       sql.NullString
+	Limit               int32
+}
+
+type QueryErrorsRow struct {
+	ID                int64
+	ErrorID           string
+	OrgID             int64
+	MinerError        int32
+	Severity          int32
+	Summary           string
+	Impact            sql.NullString
+	CauseSummary      sql.NullString
+	RecommendedAction sql.NullString
+	FirstSeenAt       time.Time
+	LastSeenAt        time.Time
+	ClosedAt          sql.NullTime
+	DeviceID          int64
+	ComponentID       sql.NullString
+	ComponentType     sql.NullInt32
+	VendorCode        sql.NullString
+	Firmware          sql.NullString
+	Extra             json.RawMessage
+	CreatedAt         sql.NullTime
+	UpdatedAt         sql.NullTime
+	DeviceIdentifier  string
+	DeviceType        sql.NullString
+}
+
+// ============================================================================
+// Query Errors (AND Filter Logic)
+// ============================================================================
+// Queries errors with AND filter logic where all provided filter criteria must match.
+// Time range and include_closed are always applied as base filters.
+// Uses cursor-based pagination with (severity, last_seen_at, error_id) ordering.
+// TODO(DASH-1048): Add CASE statement to support OR logic via use_or_logic parameter.
+func (q *Queries) QueryErrors(ctx context.Context, arg QueryErrorsParams) ([]QueryErrorsRow, error) {
+	query := queryErrors
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.OrgID)
+	queryParams = append(queryParams, arg.TimeFrom)
+	queryParams = append(queryParams, arg.TimeFrom)
+	queryParams = append(queryParams, arg.TimeTo)
+	queryParams = append(queryParams, arg.TimeTo)
+	queryParams = append(queryParams, arg.IncludeClosed)
+	queryParams = append(queryParams, arg.DeviceFilter)
+	if len(arg.DeviceIdentifiers) > 0 {
+		for _, v := range arg.DeviceIdentifiers {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", strings.Repeat(",?", len(arg.DeviceIdentifiers))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:device_identifiers*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.DeviceTypeFilter)
+	if len(arg.DeviceTypes) > 0 {
+		for _, v := range arg.DeviceTypes {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:device_types*/?", strings.Repeat(",?", len(arg.DeviceTypes))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:device_types*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.SeverityFilter)
+	if len(arg.Severities) > 0 {
+		for _, v := range arg.Severities {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:severities*/?", strings.Repeat(",?", len(arg.Severities))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:severities*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.MinerErrorFilter)
+	if len(arg.MinerErrors) > 0 {
+		for _, v := range arg.MinerErrors {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:miner_errors*/?", strings.Repeat(",?", len(arg.MinerErrors))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:miner_errors*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.ComponentTypeFilter)
+	if len(arg.ComponentTypes) > 0 {
+		for _, v := range arg.ComponentTypes {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:component_types*/?", strings.Repeat(",?", len(arg.ComponentTypes))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:component_types*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.ComponentIDFilter)
+	if len(arg.ComponentIds) > 0 {
+		for _, v := range arg.ComponentIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:component_ids*/?", strings.Repeat(",?", len(arg.ComponentIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:component_ids*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.CursorSeverity)
+	queryParams = append(queryParams, arg.CursorSeverity)
+	queryParams = append(queryParams, arg.CursorSeverity)
+	queryParams = append(queryParams, arg.CursorLastSeen)
+	queryParams = append(queryParams, arg.CursorSeverity)
+	queryParams = append(queryParams, arg.CursorLastSeen)
+	queryParams = append(queryParams, arg.CursorErrorID)
+	queryParams = append(queryParams, arg.Limit)
+	rows, err := q.query(ctx, nil, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryErrorsRow
+	for rows.Next() {
+		var i QueryErrorsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ErrorID,
+			&i.OrgID,
+			&i.MinerError,
+			&i.Severity,
+			&i.Summary,
+			&i.Impact,
+			&i.CauseSummary,
+			&i.RecommendedAction,
+			&i.FirstSeenAt,
+			&i.LastSeenAt,
+			&i.ClosedAt,
+			&i.DeviceID,
+			&i.ComponentID,
+			&i.ComponentType,
+			&i.VendorCode,
+			&i.Firmware,
+			&i.Extra,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeviceIdentifier,
+			&i.DeviceType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const updateOpenError = `-- name: UpdateOpenError :exec

@@ -17,6 +17,41 @@ type ErrorStore interface {
 	// Returns the full error record after the operation.
 	UpsertError(ctx context.Context, orgID int64, deviceIdentifier string, errMsg *models.ErrorMessage) (*models.ErrorMessage, error)
 
-	// GetErrorByErrorID retrieves a single error by its error_id (ULID).
+	// QueryErrors retrieves errors matching filter criteria using AND logic.
+	// All provided filter criteria must match for an error to be returned.
+	// Time range and include_closed filters are always applied.
+	// Returns errors sorted by severity ASC (critical first), last_seen_at DESC, error_id DESC.
+	// TODO(DASH-1048): Add OR logic support where any filter criterion can match.
+	QueryErrors(ctx context.Context, opts *models.QueryOptions) ([]models.ErrorMessage, error)
+
+	// CountErrors returns the total count of errors matching filter criteria.
+	// Uses AND logic: all provided filter criteria must match.
+	// TODO(DASH-1048): Add OR logic support controlled by opts.Filter.Logic.
+	CountErrors(ctx context.Context, opts *models.QueryOptions) (int64, error)
+
+	// GetErrorByErrorID retrieves a single error by its ULID, scoped to organization.
+	// Returns fleeterror.NotFoundError if the error does not exist.
 	GetErrorByErrorID(ctx context.Context, orgID int64, errorID string) (*models.ErrorMessage, error)
+
+	// ============================================================================
+	// Entity-Based Pagination Methods
+	// ============================================================================
+
+	// QueryDeviceKeys retrieves distinct device keys (ID + worst severity) with errors matching filter criteria.
+	// Returns device keys sorted by worst severity (critical first), then by device_id.
+	// Used for ResultViewDevice pagination where PageSize represents device count.
+	// The WorstSeverity field is required for correct cursor-based keyset pagination.
+	QueryDeviceKeys(ctx context.Context, opts *models.QueryOptions) ([]models.DeviceKey, error)
+
+	// CountDevices returns the count of distinct devices with errors matching filter criteria.
+	CountDevices(ctx context.Context, opts *models.QueryOptions) (int64, error)
+
+	// QueryComponentKeys retrieves distinct component keys (device_id, component_id, worst severity).
+	// Returns component keys sorted by worst severity, then by device_id, then by component_id.
+	// Used for ResultViewComponent pagination where PageSize represents component count.
+	// The WorstSeverity field is required for correct cursor-based keyset pagination.
+	QueryComponentKeys(ctx context.Context, opts *models.QueryOptions) ([]models.ComponentKey, error)
+
+	// CountComponents returns the count of distinct components with errors matching filter criteria.
+	CountComponents(ctx context.Context, opts *models.QueryOptions) (int64, error)
 }

@@ -455,13 +455,14 @@ func (ResultView) EnumDescriptor() ([]byte, []int) {
 	return file_errors_v1_errors_proto_rawDescGZIP(), []int{4}
 }
 
-// Global logic for combining filter criteria
+// Global logic for combining filter criteria.
+// TODO(DASH-1048): Currently only AND logic is implemented. OR support planned.
 type GlobalLogic int32
 
 const (
 	GlobalLogic_GLOBAL_LOGIC_UNSPECIFIED GlobalLogic = 0
-	GlobalLogic_GLOBAL_LOGIC_AND         GlobalLogic = 1
-	GlobalLogic_GLOBAL_LOGIC_OR          GlobalLogic = 2
+	GlobalLogic_GLOBAL_LOGIC_AND         GlobalLogic = 1 // All criteria must match (default, currently only mode)
+	GlobalLogic_GLOBAL_LOGIC_OR          GlobalLogic = 2 // Any criterion can match (not yet implemented)
 )
 
 // Enum value maps for GlobalLogic.

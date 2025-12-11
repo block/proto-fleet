@@ -33,6 +33,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, countActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveUnpairedDiscoveredDevices: %w", err)
 	}
+	if q.countComponentsWithErrorsStmt, err = db.PrepareContext(ctx, countComponentsWithErrors); err != nil {
+		return nil, fmt.Errorf("error preparing query CountComponentsWithErrors: %w", err)
+	}
+	if q.countDevicesWithErrorsStmt, err = db.PrepareContext(ctx, countDevicesWithErrors); err != nil {
+		return nil, fmt.Errorf("error preparing query CountDevicesWithErrors: %w", err)
+	}
+	if q.countErrorsStmt, err = db.PrepareContext(ctx, countErrors); err != nil {
+		return nil, fmt.Errorf("error preparing query CountErrors: %w", err)
+	}
 	if q.countMinersByStateStmt, err = db.PrepareContext(ctx, countMinersByState); err != nil {
 		return nil, fmt.Errorf("error preparing query CountMinersByState: %w", err)
 	}
@@ -249,6 +258,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.passwordUpdatedAtStmt, err = db.PrepareContext(ctx, passwordUpdatedAt); err != nil {
 		return nil, fmt.Errorf("error preparing query PasswordUpdatedAt: %w", err)
 	}
+	if q.queryComponentKeysWithErrorsStmt, err = db.PrepareContext(ctx, queryComponentKeysWithErrors); err != nil {
+		return nil, fmt.Errorf("error preparing query QueryComponentKeysWithErrors: %w", err)
+	}
+	if q.queryDeviceIDsWithErrorsStmt, err = db.PrepareContext(ctx, queryDeviceIDsWithErrors); err != nil {
+		return nil, fmt.Errorf("error preparing query QueryDeviceIDsWithErrors: %w", err)
+	}
+	if q.queryErrorsStmt, err = db.PrepareContext(ctx, queryErrors); err != nil {
+		return nil, fmt.Errorf("error preparing query QueryErrors: %w", err)
+	}
 	if q.revokeSessionStmt, err = db.PrepareContext(ctx, revokeSession); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeSession: %w", err)
 	}
@@ -354,6 +372,21 @@ func (q *Queries) Close() error {
 	if q.countActiveUnpairedDiscoveredDevicesStmt != nil {
 		if cerr := q.countActiveUnpairedDiscoveredDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countActiveUnpairedDiscoveredDevicesStmt: %w", cerr)
+		}
+	}
+	if q.countComponentsWithErrorsStmt != nil {
+		if cerr := q.countComponentsWithErrorsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countComponentsWithErrorsStmt: %w", cerr)
+		}
+	}
+	if q.countDevicesWithErrorsStmt != nil {
+		if cerr := q.countDevicesWithErrorsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countDevicesWithErrorsStmt: %w", cerr)
+		}
+	}
+	if q.countErrorsStmt != nil {
+		if cerr := q.countErrorsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countErrorsStmt: %w", cerr)
 		}
 	}
 	if q.countMinersByStateStmt != nil {
@@ -716,6 +749,21 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing passwordUpdatedAtStmt: %w", cerr)
 		}
 	}
+	if q.queryComponentKeysWithErrorsStmt != nil {
+		if cerr := q.queryComponentKeysWithErrorsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing queryComponentKeysWithErrorsStmt: %w", cerr)
+		}
+	}
+	if q.queryDeviceIDsWithErrorsStmt != nil {
+		if cerr := q.queryDeviceIDsWithErrorsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing queryDeviceIDsWithErrorsStmt: %w", cerr)
+		}
+	}
+	if q.queryErrorsStmt != nil {
+		if cerr := q.queryErrorsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing queryErrorsStmt: %w", cerr)
+		}
+	}
 	if q.revokeSessionStmt != nil {
 		if cerr := q.revokeSessionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing revokeSessionStmt: %w", cerr)
@@ -903,6 +951,9 @@ type Queries struct {
 	adminResetUserPasswordStmt                          *sql.Stmt
 	allDevicesBelongToOrgStmt                           *sql.Stmt
 	countActiveUnpairedDiscoveredDevicesStmt            *sql.Stmt
+	countComponentsWithErrorsStmt                       *sql.Stmt
+	countDevicesWithErrorsStmt                          *sql.Stmt
+	countErrorsStmt                                     *sql.Stmt
 	countMinersByStateStmt                              *sql.Stmt
 	createCommandBatchLogStmt                           *sql.Stmt
 	createOrganizationStmt                              *sql.Stmt
@@ -975,6 +1026,9 @@ type Queries struct {
 	markCommandBatchFinishedWithStartedAtStmt           *sql.Stmt
 	markCommandBatchProcessingStmt                      *sql.Stmt
 	passwordUpdatedAtStmt                               *sql.Stmt
+	queryComponentKeysWithErrorsStmt                    *sql.Stmt
+	queryDeviceIDsWithErrorsStmt                        *sql.Stmt
+	queryErrorsStmt                                     *sql.Stmt
 	revokeSessionStmt                                   *sql.Stmt
 	softDeleteOrganizationStmt                          *sql.Stmt
 	softDeletePoolStmt                                  *sql.Stmt
@@ -1013,6 +1067,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		adminResetUserPasswordStmt:                          q.adminResetUserPasswordStmt,
 		allDevicesBelongToOrgStmt:                           q.allDevicesBelongToOrgStmt,
 		countActiveUnpairedDiscoveredDevicesStmt:            q.countActiveUnpairedDiscoveredDevicesStmt,
+		countComponentsWithErrorsStmt:                       q.countComponentsWithErrorsStmt,
+		countDevicesWithErrorsStmt:                          q.countDevicesWithErrorsStmt,
+		countErrorsStmt:                                     q.countErrorsStmt,
 		countMinersByStateStmt:                              q.countMinersByStateStmt,
 		createCommandBatchLogStmt:                           q.createCommandBatchLogStmt,
 		createOrganizationStmt:                              q.createOrganizationStmt,
@@ -1085,6 +1142,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		markCommandBatchFinishedWithStartedAtStmt:           q.markCommandBatchFinishedWithStartedAtStmt,
 		markCommandBatchProcessingStmt:                      q.markCommandBatchProcessingStmt,
 		passwordUpdatedAtStmt:                               q.passwordUpdatedAtStmt,
+		queryComponentKeysWithErrorsStmt:                    q.queryComponentKeysWithErrorsStmt,
+		queryDeviceIDsWithErrorsStmt:                        q.queryDeviceIDsWithErrorsStmt,
+		queryErrorsStmt:                                     q.queryErrorsStmt,
 		revokeSessionStmt:                                   q.revokeSessionStmt,
 		softDeleteOrganizationStmt:                          q.softDeleteOrganizationStmt,
 		softDeletePoolStmt:                                  q.softDeletePoolStmt,

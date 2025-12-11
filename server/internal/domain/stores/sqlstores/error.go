@@ -338,3 +338,577 @@ func toNullTime(t *time.Time) sql.NullTime {
 	}
 	return sql.NullTime{Time: *t, Valid: true}
 }
+
+// ============================================================================
+// Query Methods
+// ============================================================================
+
+// QueryErrors retrieves errors with configurable filter logic (AND/OR).
+func (s *SQLErrorStore) QueryErrors(ctx context.Context, opts *models.QueryOptions) ([]models.ErrorMessage, error) {
+	q := s.getQueries(ctx)
+	params := buildQueryParams(opts)
+
+	rows, err := q.QueryErrors(ctx, params)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to query errors: %v", err)
+	}
+
+	return convertRowsToMessages(rows), nil
+}
+
+// CountErrors returns the total count of errors with configurable filter logic (AND/OR).
+func (s *SQLErrorStore) CountErrors(ctx context.Context, opts *models.QueryOptions) (int64, error) {
+	q := s.getQueries(ctx)
+	params := buildCountParams(opts)
+
+	count, err := q.CountErrors(ctx, params)
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count errors: %v", err)
+	}
+
+	return count, nil
+}
+
+// ============================================================================
+// Parameter Building Helpers
+// ============================================================================
+
+// filterParams is a generic holder for filter values that can be populated from QueryFilter.
+// Filter flags use any to allow nil (SQL NULL) when filter is not active.
+// When a filter is active, the flag is set to true; otherwise it remains nil.
+type filterParams struct {
+	DeviceFilter        any
+	DeviceIdentifiers   []string
+	DeviceTypeFilter    any
+	DeviceTypes         []sql.NullString
+	SeverityFilter      any
+	Severities          []int32
+	MinerErrorFilter    any
+	MinerErrors         []int32
+	ComponentTypeFilter any
+	ComponentTypes      []sql.NullInt32
+	ComponentIDFilter   any
+	ComponentIds        []sql.NullString
+}
+
+// applyFilterToParams populates filter parameters from a QueryFilter.
+// This extracts the common filter-building logic repeated 4 times in buildQueryParamsAND,
+// buildQueryParamsOR, buildCountParamsAND, and buildCountParamsOR.
+func applyFilterToParams(filter *models.QueryFilter) filterParams {
+	var fp filterParams
+
+	if len(filter.DeviceIdentifiers) > 0 {
+		fp.DeviceFilter = true
+		fp.DeviceIdentifiers = filter.DeviceIdentifiers
+	}
+
+	if len(filter.DeviceTypes) > 0 {
+		fp.DeviceTypeFilter = true
+		fp.DeviceTypes = stringsToNullStrings(filter.DeviceTypes)
+	}
+
+	if len(filter.Severities) > 0 {
+		fp.SeverityFilter = true
+		fp.Severities = severitiesToInt32s(filter.Severities)
+	}
+
+	if len(filter.MinerErrors) > 0 {
+		fp.MinerErrorFilter = true
+		fp.MinerErrors = minerErrorsToInt32s(filter.MinerErrors)
+	}
+
+	if len(filter.ComponentTypes) > 0 {
+		fp.ComponentTypeFilter = true
+		fp.ComponentTypes = componentTypesToNullInt32s(filter.ComponentTypes)
+	}
+
+	if len(filter.ComponentIDs) > 0 {
+		fp.ComponentIDFilter = true
+		fp.ComponentIds = stringsToNullStrings(filter.ComponentIDs)
+	}
+
+	return fp
+}
+
+// applyTimeFilter converts time filter values to sql.NullTime.
+func applyTimeFilter(timeFrom, timeTo *time.Time) (sql.NullTime, sql.NullTime) {
+	var fromNull, toNull sql.NullTime
+	if timeFrom != nil {
+		fromNull = sql.NullTime{Time: *timeFrom, Valid: true}
+	}
+	if timeTo != nil {
+		toNull = sql.NullTime{Time: *timeTo, Valid: true}
+	}
+	return fromNull, toNull
+}
+
+// applyCursor converts page token to cursor parameters.
+func applyCursor(pageToken string) (sql.NullInt32, sql.NullTime, sql.NullString) {
+	cursor := parseCursor(pageToken)
+	if cursor == nil {
+		return sql.NullInt32{}, sql.NullTime{}, sql.NullString{}
+	}
+	return sql.NullInt32{Int32: int32(cursor.Severity), Valid: true}, // #nosec G115 -- Severity enum bounded (max 4)
+		sql.NullTime{Time: cursor.LastSeenAt, Valid: true},
+		sql.NullString{String: cursor.ErrorID, Valid: true}
+}
+
+// buildQueryParams converts QueryOptions to sqlc.QueryErrorsParams.
+// TODO(DASH-1048): Re-add UseOrLogic parameter to support OR filter logic.
+func buildQueryParams(opts *models.QueryOptions) sqlc.QueryErrorsParams {
+	filter := opts.Filter
+	if filter == nil {
+		filter = &models.QueryFilter{}
+	}
+
+	params := sqlc.QueryErrorsParams{
+		OrgID:         opts.OrgID,
+		IncludeClosed: filter.IncludeClosed,
+		Limit:         normalizeLimit(opts.PageSize),
+	}
+
+	params.TimeFrom, params.TimeTo = applyTimeFilter(filter.TimeFrom, filter.TimeTo)
+
+	fp := applyFilterToParams(filter)
+	params.DeviceFilter = fp.DeviceFilter
+	params.DeviceIdentifiers = fp.DeviceIdentifiers
+	params.DeviceTypeFilter = fp.DeviceTypeFilter
+	params.DeviceTypes = fp.DeviceTypes
+	params.SeverityFilter = fp.SeverityFilter
+	params.Severities = fp.Severities
+	params.MinerErrorFilter = fp.MinerErrorFilter
+	params.MinerErrors = fp.MinerErrors
+	params.ComponentTypeFilter = fp.ComponentTypeFilter
+	params.ComponentTypes = fp.ComponentTypes
+	params.ComponentIDFilter = fp.ComponentIDFilter
+	params.ComponentIds = fp.ComponentIds
+
+	params.CursorSeverity, params.CursorLastSeen, params.CursorErrorID = applyCursor(opts.PageToken)
+
+	return params
+}
+
+// buildCountParams converts QueryOptions to sqlc.CountErrorsParams.
+// TODO(DASH-1048): Re-add UseOrLogic parameter to support OR filter logic.
+func buildCountParams(opts *models.QueryOptions) sqlc.CountErrorsParams {
+	filter := opts.Filter
+	if filter == nil {
+		filter = &models.QueryFilter{}
+	}
+
+	params := sqlc.CountErrorsParams{
+		OrgID:         opts.OrgID,
+		IncludeClosed: filter.IncludeClosed,
+	}
+
+	params.TimeFrom, params.TimeTo = applyTimeFilter(filter.TimeFrom, filter.TimeTo)
+
+	fp := applyFilterToParams(filter)
+	params.DeviceFilter = fp.DeviceFilter
+	params.DeviceIdentifiers = fp.DeviceIdentifiers
+	params.DeviceTypeFilter = fp.DeviceTypeFilter
+	params.DeviceTypes = fp.DeviceTypes
+	params.SeverityFilter = fp.SeverityFilter
+	params.Severities = fp.Severities
+	params.MinerErrorFilter = fp.MinerErrorFilter
+	params.MinerErrors = fp.MinerErrors
+	params.ComponentTypeFilter = fp.ComponentTypeFilter
+	params.ComponentTypes = fp.ComponentTypes
+	params.ComponentIDFilter = fp.ComponentIDFilter
+	params.ComponentIds = fp.ComponentIds
+
+	return params
+}
+
+// ============================================================================
+// Row Conversion Helpers
+// ============================================================================
+
+// convertRowsToMessages converts sqlc query results to domain models.
+func convertRowsToMessages(rows []sqlc.QueryErrorsRow) []models.ErrorMessage {
+	messages := make([]models.ErrorMessage, 0, len(rows))
+	for _, row := range rows {
+		messages = append(messages, queryRowToMessage(
+			row.ErrorID,
+			row.MinerError,
+			row.Severity,
+			row.Summary,
+			row.Impact,
+			row.CauseSummary,
+			row.RecommendedAction,
+			row.FirstSeenAt,
+			row.LastSeenAt,
+			row.ClosedAt,
+			row.ComponentID,
+			row.ComponentType,
+			row.VendorCode,
+			row.Firmware,
+			row.Extra,
+			row.DeviceIdentifier,
+			row.DeviceType,
+		))
+	}
+	return messages
+}
+
+// queryRowToMessage converts individual row fields to an ErrorMessage.
+func queryRowToMessage(
+	errorID string,
+	minerError int32,
+	severity int32,
+	summary string,
+	impact sql.NullString,
+	causeSummary sql.NullString,
+	recommendedAction sql.NullString,
+	firstSeenAt time.Time,
+	lastSeenAt time.Time,
+	closedAt sql.NullTime,
+	componentID sql.NullString,
+	componentType sql.NullInt32,
+	vendorCode sql.NullString,
+	firmware sql.NullString,
+	extra json.RawMessage,
+	deviceIdentifier string,
+	deviceType sql.NullString,
+) models.ErrorMessage {
+	var closedAtPtr *time.Time
+	if closedAt.Valid {
+		closedAtPtr = &closedAt.Time
+	}
+
+	var componentIDPtr *string
+	if componentID.Valid {
+		componentIDPtr = &componentID.String
+	}
+
+	var vendorAttrs map[string]string
+	if len(extra) > 0 {
+		if err := json.Unmarshal(extra, &vendorAttrs); err != nil {
+			slog.Warn("failed to unmarshal vendor attributes", "error_id", errorID, "error", err)
+		}
+	}
+
+	return models.ErrorMessage{
+		ErrorID:           errorID,
+		MinerError:        safeInt32ToMinerError(minerError),
+		Severity:          safeInt32ToSeverity(severity),
+		Summary:           summary,
+		Impact:            impact.String,
+		CauseSummary:      causeSummary.String,
+		RecommendedAction: recommendedAction.String,
+		FirstSeenAt:       firstSeenAt,
+		LastSeenAt:        lastSeenAt,
+		ClosedAt:          closedAtPtr,
+		DeviceID:          deviceIdentifier,
+		DeviceType:        deviceType.String,
+		ComponentID:       componentIDPtr,
+		ComponentType:     safeInt32ToComponentType(componentType.Int32),
+		VendorCode:        vendorCode.String,
+		Firmware:          firmware.String,
+		VendorAttributes:  vendorAttrs,
+	}
+}
+
+// ============================================================================
+// Type Conversion Helpers
+// ============================================================================
+
+// normalizeLimit ensures page size is within valid bounds.
+func normalizeLimit(pageSize int) int32 {
+	if pageSize <= 0 {
+		return int32(models.DefaultPageSize)
+	}
+	if pageSize > models.MaxPageSize {
+		return int32(models.MaxPageSize)
+	}
+	return int32(pageSize) // #nosec G115 -- Validated within bounds (1-1000)
+}
+
+// stringsToNullStrings converts a string slice to sql.NullString slice.
+func stringsToNullStrings(strs []string) []sql.NullString {
+	result := make([]sql.NullString, len(strs))
+	for i, s := range strs {
+		result[i] = sql.NullString{String: s, Valid: true}
+	}
+	return result
+}
+
+// severitiesToInt32s converts Severity slice to int32 slice.
+func severitiesToInt32s(severities []models.Severity) []int32 {
+	result := make([]int32, len(severities))
+	for i, s := range severities {
+		result[i] = int32(s) // #nosec G115 -- Severity enum bounded (max 4)
+	}
+	return result
+}
+
+// minerErrorsToInt32s converts MinerError slice to int32 slice.
+func minerErrorsToInt32s(errors []models.MinerError) []int32 {
+	result := make([]int32, len(errors))
+	for i, e := range errors {
+		result[i] = int32(e) // #nosec G115 -- MinerError enum bounded by protobuf (max ~9000)
+	}
+	return result
+}
+
+// componentTypesToNullInt32s converts ComponentType slice to sql.NullInt32 slice.
+func componentTypesToNullInt32s(types []models.ComponentType) []sql.NullInt32 {
+	result := make([]sql.NullInt32, len(types))
+	for i, t := range types {
+		result[i] = sql.NullInt32{Int32: int32(t), Valid: true} // #nosec G115 -- ComponentType enum bounded (max 4)
+	}
+	return result
+}
+
+// parseCursor decodes a page token into cursor components.
+// Returns nil if token is empty or invalid.
+func parseCursor(token string) *models.PageCursor {
+	if token == "" {
+		return nil
+	}
+
+	cursor, err := models.DecodeCursor(token)
+	if err != nil {
+		slog.Warn("failed to decode cursor", "error", err)
+		return nil
+	}
+
+	return cursor
+}
+
+// ============================================================================
+// Entity-Based Pagination Methods
+// ============================================================================
+
+// QueryDeviceKeys retrieves distinct device keys (ID + worst severity) with errors matching filter criteria.
+func (s *SQLErrorStore) QueryDeviceKeys(ctx context.Context, opts *models.QueryOptions) ([]models.DeviceKey, error) {
+	q := s.getQueries(ctx)
+	params := buildDeviceQueryParams(opts)
+
+	rows, err := q.QueryDeviceIDsWithErrors(ctx, params)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to query device keys: %v", err)
+	}
+
+	keys := make([]models.DeviceKey, len(rows))
+	for i, row := range rows {
+		// WorstSeverity from MIN() aggregate returns interface{}, extract as int32
+		var worstSeverity models.Severity
+		if severity, ok := row.WorstSeverity.(int64); ok {
+			worstSeverity = safeInt32ToEnum(int32(severity), models.SeverityUnspecified) // #nosec G115 -- Severity bounded 0-4
+		}
+		keys[i] = models.DeviceKey{
+			DeviceID:         row.DeviceID,
+			DeviceIdentifier: row.DeviceIdentifier,
+			WorstSeverity:    worstSeverity,
+		}
+	}
+	return keys, nil
+}
+
+// CountDevices returns the count of distinct devices with errors matching filter criteria.
+func (s *SQLErrorStore) CountDevices(ctx context.Context, opts *models.QueryOptions) (int64, error) {
+	q := s.getQueries(ctx)
+	params := buildDeviceCountParams(opts)
+
+	count, err := q.CountDevicesWithErrors(ctx, params)
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count devices: %v", err)
+	}
+	return count, nil
+}
+
+// QueryComponentKeys retrieves distinct (device_id, component_id) pairs with worst severity.
+func (s *SQLErrorStore) QueryComponentKeys(ctx context.Context, opts *models.QueryOptions) ([]models.ComponentKey, error) {
+	q := s.getQueries(ctx)
+	params := buildComponentQueryParams(opts)
+
+	rows, err := q.QueryComponentKeysWithErrors(ctx, params)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to query component keys: %v", err)
+	}
+
+	keys := make([]models.ComponentKey, len(rows))
+	for i, row := range rows {
+		var componentID *string
+		if row.ComponentID.Valid {
+			componentID = &row.ComponentID.String
+		}
+		// WorstSeverity from MIN() aggregate returns interface{}, extract as int32
+		var worstSeverity models.Severity
+		if severity, ok := row.WorstSeverity.(int64); ok {
+			worstSeverity = safeInt32ToEnum(int32(severity), models.SeverityUnspecified) // #nosec G115 -- Severity bounded 0-4
+		}
+		keys[i] = models.ComponentKey{
+			DeviceID:         row.DeviceID,
+			DeviceIdentifier: row.DeviceIdentifier,
+			ComponentID:      componentID,
+			WorstSeverity:    worstSeverity,
+		}
+	}
+	return keys, nil
+}
+
+// CountComponents returns the count of distinct components with errors matching filter criteria.
+func (s *SQLErrorStore) CountComponents(ctx context.Context, opts *models.QueryOptions) (int64, error) {
+	q := s.getQueries(ctx)
+	params := buildComponentCountParams(opts)
+
+	count, err := q.CountComponentsWithErrors(ctx, params)
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count components: %v", err)
+	}
+	return count, nil
+}
+
+// ============================================================================
+// Entity-Based Parameter Builders
+// ============================================================================
+
+// buildDeviceQueryParams converts QueryOptions to sqlc.QueryDeviceIDsWithErrorsParams.
+// TODO(DASH-1048): Re-add UseOrLogic parameter to support OR filter logic.
+func buildDeviceQueryParams(opts *models.QueryOptions) sqlc.QueryDeviceIDsWithErrorsParams {
+	filter := opts.Filter
+	if filter == nil {
+		filter = &models.QueryFilter{}
+	}
+
+	params := sqlc.QueryDeviceIDsWithErrorsParams{
+		OrgID:         opts.OrgID,
+		IncludeClosed: filter.IncludeClosed,
+		Limit:         normalizeLimit(opts.PageSize),
+	}
+
+	params.TimeFrom, params.TimeTo = applyTimeFilter(filter.TimeFrom, filter.TimeTo)
+
+	fp := applyFilterToParams(filter)
+	params.DeviceFilter = fp.DeviceFilter
+	params.DeviceIdentifiers = fp.DeviceIdentifiers
+	params.DeviceTypeFilter = fp.DeviceTypeFilter
+	params.DeviceTypes = fp.DeviceTypes
+	params.SeverityFilter = fp.SeverityFilter
+	params.Severities = fp.Severities
+	params.MinerErrorFilter = fp.MinerErrorFilter
+	params.MinerErrors = fp.MinerErrors
+	params.ComponentTypeFilter = fp.ComponentTypeFilter
+	params.ComponentTypes = fp.ComponentTypes
+	params.ComponentIDFilter = fp.ComponentIDFilter
+	params.ComponentIds = fp.ComponentIds
+
+	// Apply device cursor (severity, device_id)
+	cursorSeverity, cursorDeviceID, _ := models.DecodeDeviceCursor(opts.PageToken)
+	if cursorDeviceID > 0 {
+		params.CursorSeverity = sql.NullInt32{Int32: int32(cursorSeverity), Valid: true} // #nosec G115 -- Severity enum bounded (max 4)
+		params.CursorDeviceID = sql.NullInt64{Int64: cursorDeviceID, Valid: true}
+	}
+
+	return params
+}
+
+// buildDeviceCountParams converts QueryOptions to sqlc.CountDevicesWithErrorsParams.
+// TODO(DASH-1048): Re-add UseOrLogic parameter to support OR filter logic.
+func buildDeviceCountParams(opts *models.QueryOptions) sqlc.CountDevicesWithErrorsParams {
+	filter := opts.Filter
+	if filter == nil {
+		filter = &models.QueryFilter{}
+	}
+
+	params := sqlc.CountDevicesWithErrorsParams{
+		OrgID:         opts.OrgID,
+		IncludeClosed: filter.IncludeClosed,
+	}
+
+	params.TimeFrom, params.TimeTo = applyTimeFilter(filter.TimeFrom, filter.TimeTo)
+
+	fp := applyFilterToParams(filter)
+	params.DeviceFilter = fp.DeviceFilter
+	params.DeviceIdentifiers = fp.DeviceIdentifiers
+	params.DeviceTypeFilter = fp.DeviceTypeFilter
+	params.DeviceTypes = fp.DeviceTypes
+	params.SeverityFilter = fp.SeverityFilter
+	params.Severities = fp.Severities
+	params.MinerErrorFilter = fp.MinerErrorFilter
+	params.MinerErrors = fp.MinerErrors
+	params.ComponentTypeFilter = fp.ComponentTypeFilter
+	params.ComponentTypes = fp.ComponentTypes
+	params.ComponentIDFilter = fp.ComponentIDFilter
+	params.ComponentIds = fp.ComponentIds
+
+	return params
+}
+
+// buildComponentQueryParams converts QueryOptions to sqlc.QueryComponentKeysWithErrorsParams.
+// TODO(DASH-1048): Re-add UseOrLogic parameter to support OR filter logic.
+func buildComponentQueryParams(opts *models.QueryOptions) sqlc.QueryComponentKeysWithErrorsParams {
+	filter := opts.Filter
+	if filter == nil {
+		filter = &models.QueryFilter{}
+	}
+
+	params := sqlc.QueryComponentKeysWithErrorsParams{
+		OrgID:         opts.OrgID,
+		IncludeClosed: filter.IncludeClosed,
+		Limit:         normalizeLimit(opts.PageSize),
+	}
+
+	params.TimeFrom, params.TimeTo = applyTimeFilter(filter.TimeFrom, filter.TimeTo)
+
+	fp := applyFilterToParams(filter)
+	params.DeviceFilter = fp.DeviceFilter
+	params.DeviceIdentifiers = fp.DeviceIdentifiers
+	params.DeviceTypeFilter = fp.DeviceTypeFilter
+	params.DeviceTypes = fp.DeviceTypes
+	params.SeverityFilter = fp.SeverityFilter
+	params.Severities = fp.Severities
+	params.MinerErrorFilter = fp.MinerErrorFilter
+	params.MinerErrors = fp.MinerErrors
+	params.ComponentTypeFilter = fp.ComponentTypeFilter
+	params.ComponentTypes = fp.ComponentTypes
+	params.ComponentIDFilter = fp.ComponentIDFilter
+	params.ComponentIds = fp.ComponentIds
+
+	// Apply component cursor (severity, device_id, component_id)
+	cursorSeverity, cursorDeviceID, cursorComponentID, _ := models.DecodeComponentCursor(opts.PageToken)
+	if cursorDeviceID > 0 {
+		params.CursorSeverity = sql.NullInt32{Int32: int32(cursorSeverity), Valid: true} // #nosec G115 -- Severity enum bounded (max 4)
+		params.CursorDeviceID = sql.NullInt64{Int64: cursorDeviceID, Valid: true}
+		if cursorComponentID != nil {
+			params.CursorComponentID = sql.NullString{String: *cursorComponentID, Valid: true}
+		}
+		// If cursorComponentID is nil, CursorComponentID stays as zero value (Valid: false = NULL)
+	}
+
+	return params
+}
+
+// buildComponentCountParams converts QueryOptions to sqlc.CountComponentsWithErrorsParams.
+// TODO(DASH-1048): Re-add UseOrLogic parameter to support OR filter logic.
+func buildComponentCountParams(opts *models.QueryOptions) sqlc.CountComponentsWithErrorsParams {
+	filter := opts.Filter
+	if filter == nil {
+		filter = &models.QueryFilter{}
+	}
+
+	params := sqlc.CountComponentsWithErrorsParams{
+		OrgID:         opts.OrgID,
+		IncludeClosed: filter.IncludeClosed,
+	}
+
+	params.TimeFrom, params.TimeTo = applyTimeFilter(filter.TimeFrom, filter.TimeTo)
+
+	fp := applyFilterToParams(filter)
+	params.DeviceFilter = fp.DeviceFilter
+	params.DeviceIdentifiers = fp.DeviceIdentifiers
+	params.DeviceTypeFilter = fp.DeviceTypeFilter
+	params.DeviceTypes = fp.DeviceTypes
+	params.SeverityFilter = fp.SeverityFilter
+	params.Severities = fp.Severities
+	params.MinerErrorFilter = fp.MinerErrorFilter
+	params.MinerErrors = fp.MinerErrors
+	params.ComponentTypeFilter = fp.ComponentTypeFilter
+	params.ComponentTypes = fp.ComponentTypes
+	params.ComponentIDFilter = fp.ComponentIDFilter
+	params.ComponentIds = fp.ComponentIds
+
+	return params
+}

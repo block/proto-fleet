@@ -1157,7 +1157,8 @@ export enum ResultView {
 export const ResultViewSchema: GenEnum<ResultView> = /*@__PURE__*/ enumDesc(file_errors_v1_errors, 4);
 
 /**
- * Global logic for combining filter criteria
+ * Global logic for combining filter criteria.
+ * TODO(DASH-1048): Currently only AND logic is implemented. OR support planned.
  *
  * @generated from enum errors.v1.GlobalLogic
  */
@@ -1168,11 +1169,15 @@ export enum GlobalLogic {
   UNSPECIFIED = 0,
 
   /**
+   * All criteria must match (default, currently only mode)
+   *
    * @generated from enum value: GLOBAL_LOGIC_AND = 1;
    */
   AND = 1,
 
   /**
+   * Any criterion can match (not yet implemented)
+   *
    * @generated from enum value: GLOBAL_LOGIC_OR = 2;
    */
   OR = 2,
