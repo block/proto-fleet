@@ -39,10 +39,14 @@ const formatUrlForWrapping = (url: string) => {
 
 // Add zero-width spaces at good break points in usernames
 const formatUsernameForWrapping = (username: string) => {
-  return username
-    .replace(/(_)/g, "$1\u200B") // After underscore
-    .replace(/(\.)(?=\w)/g, "$1\u200B") // After . followed by word char
-    .replace(/(-)/g, "$1\u200B"); // After hyphen
+  return (
+    username
+      .replace(/(_)/g, "$1\u200B") // After underscore
+      .replace(/(\.)(?=\w)/g, "$1\u200B") // After . followed by word char
+      .replace(/(-)/g, "$1\u200B") // After hyphen
+      // Add break opportunities in long continuous strings every 15 characters
+      .replace(/([a-zA-Z0-9]{15})/g, "$1\u200B")
+  );
 };
 
 // Shared hook for pool row data and menu state
@@ -123,14 +127,14 @@ const PoolRowDesktop = ({ pool, onEdit, onTestConnection, connectionStatus }: Po
   const { showMenu, setShowMenu, triggerRef, formattedUrl, formattedUsername } = usePoolRowData(pool);
 
   return (
-    <div className="hidden text-300 text-text-primary laptop:grid laptop:grid-cols-3">
+    <div className="grid grid-cols-3 gap-1 text-300 text-text-primary">
       <div className="flex items-center py-3">{pool.poolName || "—"}</div>
       <div className="flex flex-col justify-center py-3">
-        <span>{formattedUrl}</span>
+        <span className="break-all">{formattedUrl}</span>
         {connectionStatus === "failed" && <span className="text-200 text-text-critical">Connection failed</span>}
       </div>
-      <div className="flex items-center justify-between py-3">
-        <span>{formattedUsername}</span>
+      <div className="flex items-center justify-between gap-4 py-3">
+        <span className="break-all">{formattedUsername}</span>
         <PoolRowMenu
           pool={pool}
           showMenu={showMenu}
@@ -148,23 +152,23 @@ const PoolRowMobile = ({ pool, onEdit, onTestConnection, connectionStatus }: Poo
   const { showMenu, setShowMenu, triggerRef, formattedUrl, formattedUsername } = usePoolRowData(pool);
 
   return (
-    <div className="grid grid-cols-2 items-start py-4 laptop:hidden">
+    <div className="grid grid-cols-2 items-start py-4">
       {/* Left column: Pool name and URL */}
       <div className="flex flex-col">
         {pool.poolName ? (
           <>
             <div className="text-300 text-text-primary">{pool.poolName}</div>
-            <div className="text-200 text-text-primary-70">{formattedUrl}</div>
+            <div className="text-200 break-all text-text-primary-70">{formattedUrl}</div>
           </>
         ) : (
-          <div className="text-300 text-text-primary">{formattedUrl}</div>
+          <div className="text-300 break-all text-text-primary">{formattedUrl}</div>
         )}
         {connectionStatus === "failed" && <span className="text-200 text-text-critical">Connection failed</span>}
       </div>
 
       {/* Right column: Username and ellipsis */}
-      <div className="flex items-center justify-between self-center">
-        <div className="text-300 text-text-primary">{formattedUsername}</div>
+      <div className="flex items-center justify-between gap-4 self-center">
+        <div className="text-300 break-all text-text-primary">{formattedUsername}</div>
         <PoolRowMenu
           pool={pool}
           showMenu={showMenu}
@@ -379,20 +383,23 @@ const MiningPools = () => {
         </div>
 
         <div className="flex flex-col">
-          {/* Desktop: Table header */}
-          <div className="hidden text-emphasis-300 text-text-primary-50 laptop:grid laptop:grid-cols-3">
-            <Row>Name</Row>
-            <Row>URL</Row>
-            <Row>Username</Row>
-          </div>
-
-          {/* Mobile & Tablet: Card header */}
-          <div className="grid grid-cols-2 border-b border-core-primary-10 py-3 text-emphasis-300 text-text-primary-50 laptop:hidden">
-            <div>Name</div>
-            <div className="flex items-center justify-between">
-              <div>Username</div>
+          {/* Conditional header based on screen size */}
+          {isPhone || isTablet ? (
+            /* Mobile & Tablet: Card header */
+            <div className="grid grid-cols-2 border-b border-core-primary-10 py-3 text-emphasis-300 text-text-primary-50">
+              <div>Name</div>
+              <div className="flex items-center justify-between">
+                <div>Username</div>
+              </div>
             </div>
-          </div>
+          ) : (
+            /* Desktop: Table header */
+            <div className="grid grid-cols-3 gap-1 text-emphasis-300 text-text-primary-50">
+              <Row>Name</Row>
+              <Row>URL</Row>
+              <Row>Username</Row>
+            </div>
+          )}
 
           {/* Table body */}
           <div>
