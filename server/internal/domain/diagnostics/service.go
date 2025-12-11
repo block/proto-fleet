@@ -88,3 +88,8 @@ func (s *Service) upsertErrors(ctx context.Context, orgID int64, deviceID minerM
 	}
 	return upserted, failed
 }
+
+// ListMinerErrors returns metadata for all canonical miner error codes.
+func (s *Service) ListMinerErrors(_ context.Context) map[models.MinerError]models.MinerErrorInfo {
+	return models.GetMinerErrorInfo()
+}

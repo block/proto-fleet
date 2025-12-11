@@ -4,6 +4,7 @@ package errorquery
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"connectrpc.com/connect"
 
@@ -108,11 +109,28 @@ func (h *Handler) ListMinerErrors(
 	ctx context.Context,
 	_ *connect.Request[errorsv1.ListMinerErrorsRequest],
 ) (*connect.Response[errorsv1.ListMinerErrorsResponse], error) {
-	resp, err := h.service.ListMinerErrors(ctx)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+	metadata := h.diagnosticsService.ListMinerErrors(ctx)
+
+	var items []*errorsv1.MinerErrorInfo
+	for code, info := range metadata {
+		if code == models.MinerErrorUnspecified {
+			continue
+		}
+		items = append(items, &errorsv1.MinerErrorInfo{
+			Code:            errorsv1.MinerError(code), // #nosec G115 -- MinerError enum values bounded by protobuf
+			Name:            info.Name,
+			DefaultSummary:  info.DefaultSummary,
+			DefaultSeverity: errorsv1.Severity(info.DefaultSeverity), // #nosec G115 -- Severity enum values bounded (max 4)
+			DefaultAction:   info.DefaultAction,
+			DefaultImpact:   info.DefaultImpact,
+		})
 	}
-	return connect.NewResponse(resp), nil
+
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Code < items[j].Code
+	})
+
+	return connect.NewResponse(&errorsv1.ListMinerErrorsResponse{Items: items}), nil
 }
 
 // Watch handles the Watch streaming RPC call.

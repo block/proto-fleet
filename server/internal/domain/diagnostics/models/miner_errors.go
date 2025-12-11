@@ -144,10 +144,7 @@ type DeviceErrors struct {
 }
 
 // MinerErrorInfo provides default metadata for a canonical miner error code.
-// This information is used when displaying error codes to operators and for
-// documentation purposes.
 type MinerErrorInfo struct {
-	Code            MinerError
 	Name            string
 	DefaultSummary  string
 	DefaultSeverity Severity
@@ -155,411 +152,365 @@ type MinerErrorInfo struct {
 	DefaultImpact   string
 }
 
+var minerErrorInfo = map[MinerError]MinerErrorInfo{
+	// PSU errors (1000-1999)
+	PSUNotPresent: {
+		Name:            "PSU Not Present",
+		DefaultSummary:  "Power supply unit is not detected",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Check PSU installation and connections",
+		DefaultImpact:   "Miner cannot operate without power supply",
+	},
+	PSUModelMismatch: {
+		Name:            "PSU Model Mismatch",
+		DefaultSummary:  "PSU model does not match expected configuration",
+		DefaultSeverity: SeverityMajor,
+		DefaultAction:   "Verify PSU model matches device requirements",
+		DefaultImpact:   "May cause power delivery issues or reduced performance",
+	},
+	PSUCommunicationLost: {
+		Name:            "PSU Communication Lost",
+		DefaultSummary:  "Communication with PSU has been lost",
+		DefaultSeverity: SeverityMajor,
+		DefaultAction:   "Check PSU connection cables and restart device",
+		DefaultImpact:   "Cannot monitor PSU status or adjust power settings",
+	},
+	PSUFaultGeneric: {
+		Name:            "PSU Fault",
+		DefaultSummary:  "General PSU fault detected",
+		DefaultSeverity: SeverityMajor,
+		DefaultAction:   "Inspect PSU for damage or overheating",
+		DefaultImpact:   "Power delivery may be compromised",
+	},
+	PSUInputVoltageLow: {
+		Name:            "PSU Input Voltage Low",
+		DefaultSummary:  "Input voltage to PSU is below acceptable range",
+		DefaultSeverity: SeverityMajor,
+		DefaultAction:   "Check facility power supply and voltage levels",
+		DefaultImpact:   "May cause power instability or shutdown",
+	},
+	PSUInputVoltageHigh: {
+		Name:            "PSU Input Voltage High",
+		DefaultSummary:  "Input voltage to PSU is above acceptable range",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Immediately check facility power; may damage equipment",
+		DefaultImpact:   "Risk of equipment damage",
+	},
+	PSUOutputVoltageFault: {
+		Name:            "PSU Output Voltage Fault",
+		DefaultSummary:  "PSU output voltage is outside acceptable range",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Replace PSU immediately",
+		DefaultImpact:   "Miner may shut down or sustain damage",
+	},
+	PSUOutputOvercurrent: {
+		Name:            "PSU Output Overcurrent",
+		DefaultSummary:  "PSU output current exceeds safe limits",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Check for short circuits; reduce load or replace PSU",
+		DefaultImpact:   "Stops mining to prevent equipment damage",
+	},
+	PSUFanFault: {
+		Name:            "PSU Fan Failed",
+		DefaultSummary:  "Cooling fan in PSU has failed",
+		DefaultSeverity: SeverityMajor,
+		DefaultAction:   "Replace PSU; risk of overheating",
+		DefaultImpact:   "PSU may overheat and shut down",
+	},
+	PSUOverTemperature: {
+		Name:            "PSU Over Temperature",
+		DefaultSummary:  "PSU temperature exceeds safe operating range",
+		DefaultSeverity: SeverityMajor,
+		DefaultAction:   "Improve cooling; check PSU fan and ambient temperature",
+		DefaultImpact:   "May cause thermal shutdown",
+	},
+	PSUInputPhaseImbalance: {
+		Name:            "PSU Input Phase Imbalance",
+		DefaultSummary:  "Three-phase power input is imbalanced",
+		DefaultSeverity: SeverityMinor,
+		DefaultAction:   "Check facility power distribution",
+		DefaultImpact:   "Reduced efficiency; potential for long-term damage",
+	},
+	PSUUnderTemperature: {
+		Name:            "PSU Under Temperature",
+		DefaultSummary:  "PSU temperature is below operating range",
+		DefaultSeverity: SeverityInfo,
+		DefaultAction:   "Allow warmup time; check ambient conditions",
+		DefaultImpact:   "May affect startup reliability",
+	},
+
+	// Thermal & Fan errors (2000-2999)
+	FanFailed: {
+		Name:            "Fan Failed",
+		DefaultSummary:  "Cooling fan has stopped working",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Replace failed fan immediately",
+		DefaultImpact:   "Miner will thermal throttle or shut down",
+	},
+	FanTachSignalLost: {
+		Name:            "Fan Tach Signal Lost",
+		DefaultSummary:  "Fan speed sensor signal not detected",
+		DefaultSeverity: SeverityMajor,
+		DefaultAction:   "Check fan connection; may need replacement",
+		DefaultImpact:   "Cannot verify fan operation",
+	},
+	FanSpeedDeviation: {
+		Name:            "Fan Speed Deviation",
+		DefaultSummary:  "Fan speed differs significantly from target",
+		DefaultSeverity: SeverityMinor,
+		DefaultAction:   "Monitor fan; may indicate wear or obstruction",
+		DefaultImpact:   "Reduced cooling efficiency",
+	},
+	InletOverTemperature: {
+		Name:            "Inlet Over Temperature",
+		DefaultSummary:  "Ambient air temperature at inlet is too high",
+		DefaultSeverity: SeverityMajor,
+		DefaultAction:   "Improve facility cooling; check HVAC system",
+		DefaultImpact:   "Reduces cooling capacity; may cause throttling",
+	},
+	DeviceOverTemperature: {
+		Name:            "Device Over Temperature",
+		DefaultSummary:  "Device internal temperature exceeds safe limits",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Immediately reduce load or improve cooling",
+		DefaultImpact:   "Stops mining to prevent damage",
+	},
+	DeviceUnderTemperature: {
+		Name:            "Device Under Temperature",
+		DefaultSummary:  "Device temperature is below operating range",
+		DefaultSeverity: SeverityInfo,
+		DefaultAction:   "Allow warmup; check ambient conditions",
+		DefaultImpact:   "May affect reliability during startup",
+	},
+
+	// Hashboard / ASIC errors (3000-3999)
+	HashboardNotPresent: {
+		Name:            "Hashboard Not Present",
+		DefaultSummary:  "Hashboard is not detected",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Check hashboard connection and seating",
+		DefaultImpact:   "Reduces mining capacity by one board",
+	},
+	HashboardOverTemperature: {
+		Name:            "Hashboard Over Temperature",
+		DefaultSummary:  "Hashboard temperature exceeds safe limits",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Improve cooling; check thermal paste and heatsinks",
+		DefaultImpact:   "Board will throttle or shut down",
+	},
+	HashboardMissingChips: {
+		Name:            "Hashboard Missing Chips",
+		DefaultSummary:  "Some ASIC chips on board are not responding",
+		DefaultSeverity: SeverityMajor,
+		DefaultAction:   "Inspect board; may need repair or replacement",
+		DefaultImpact:   "Reduced hashrate from affected board",
+	},
+	ASICChainCommunicationLost: {
+		Name:            "ASIC Chain Communication Lost",
+		DefaultSummary:  "Cannot communicate with ASIC chain",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Restart miner; check board connections",
+		DefaultImpact:   "Affected hashboard is offline",
+	},
+	ASICClockPLLUnlocked: {
+		Name:            "ASIC Clock PLL Unlocked",
+		DefaultSummary:  "ASIC clock phase-locked loop is not locked",
+		DefaultSeverity: SeverityMajor,
+		DefaultAction:   "Restart miner; may indicate chip failure",
+		DefaultImpact:   "Affected chips cannot hash correctly",
+	},
+	ASICCRCErrorExcessive: {
+		Name:            "ASIC CRC Error Excessive",
+		DefaultSummary:  "High rate of CRC errors from ASIC chips",
+		DefaultSeverity: SeverityMajor,
+		DefaultAction:   "Check board connections; may need repair",
+		DefaultImpact:   "Reduced effective hashrate",
+	},
+	HashboardASICOverTemperature: {
+		Name:            "Hashboard ASIC Over Temperature",
+		DefaultSummary:  "ASIC chip temperature exceeds safe limits",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Improve cooling immediately",
+		DefaultImpact:   "Chip will throttle or shut down",
+	},
+	HashboardASICUnderTemperature: {
+		Name:            "Hashboard ASIC Under Temperature",
+		DefaultSummary:  "ASIC chip temperature is below operating range",
+		DefaultSeverity: SeverityInfo,
+		DefaultAction:   "Allow warmup time",
+		DefaultImpact:   "May affect reliability during startup",
+	},
+
+	// Board-level power errors (3500-3999)
+	BoardPowerPGOODMissing: {
+		Name:            "Board Power Good Missing",
+		DefaultSummary:  "Power good signal not received from board",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Check board power connections",
+		DefaultImpact:   "Board cannot operate",
+	},
+	BoardPowerOvercurrent: {
+		Name:            "Board Power Overcurrent Trip",
+		DefaultSummary:  "Board power protection triggered due to overcurrent",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Check for shorts; board may need repair",
+		DefaultImpact:   "Board is disabled for protection",
+	},
+	BoardPowerRailUndervolt: {
+		Name:            "Board Power Rail Undervolt",
+		DefaultSummary:  "Board power rail voltage is too low",
+		DefaultSeverity: SeverityMajor,
+		DefaultAction:   "Check power connections and PSU capacity",
+		DefaultImpact:   "Board performance may be degraded",
+	},
+	BoardPowerRailOvervolt: {
+		Name:            "Board Power Rail Overvolt",
+		DefaultSummary:  "Board power rail voltage is too high",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Check PSU output; risk of damage",
+		DefaultImpact:   "Board may be damaged",
+	},
+	BoardPowerShortDetected: {
+		Name:            "Board Power Short Detected",
+		DefaultSummary:  "Short circuit detected on board power",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Inspect board immediately; needs repair",
+		DefaultImpact:   "Board is disabled; risk of damage",
+	},
+
+	// Sensor errors (4000-4999)
+	TempSensorOpenOrShort: {
+		Name:            "Temperature Sensor Open or Short",
+		DefaultSummary:  "Temperature sensor circuit is open or shorted",
+		DefaultSeverity: SeverityMajor,
+		DefaultAction:   "Replace sensor",
+		DefaultImpact:   "Cannot monitor temperature accurately",
+	},
+	TempSensorFault: {
+		Name:            "Temperature Sensor Fault",
+		DefaultSummary:  "Temperature sensor is reporting invalid readings",
+		DefaultSeverity: SeverityMinor,
+		DefaultAction:   "Check sensor connection; may need replacement",
+		DefaultImpact:   "Temperature readings may be inaccurate",
+	},
+	VoltageSensorFault: {
+		Name:            "Voltage Sensor Fault",
+		DefaultSummary:  "Voltage sensor is reporting invalid readings",
+		DefaultSeverity: SeverityMinor,
+		DefaultAction:   "Check sensor; may need calibration or replacement",
+		DefaultImpact:   "Voltage monitoring may be inaccurate",
+	},
+	CurrentSensorFault: {
+		Name:            "Current Sensor Fault",
+		DefaultSummary:  "Current sensor is reporting invalid readings",
+		DefaultSeverity: SeverityMinor,
+		DefaultAction:   "Check sensor; may need calibration or replacement",
+		DefaultImpact:   "Current monitoring may be inaccurate",
+	},
+
+	// Storage / Firmware errors (5000-5999)
+	EEPROMCRCMismatch: {
+		Name:            "EEPROM CRC Mismatch",
+		DefaultSummary:  "EEPROM data checksum verification failed",
+		DefaultSeverity: SeverityMajor,
+		DefaultAction:   "Re-flash configuration; EEPROM may be failing",
+		DefaultImpact:   "Device configuration may be corrupted",
+	},
+	EEPROMReadFailure: {
+		Name:            "EEPROM Read Failure",
+		DefaultSummary:  "Unable to read from EEPROM",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Check EEPROM chip; may need replacement",
+		DefaultImpact:   "Cannot load device configuration",
+	},
+	FirmwareImageInvalid: {
+		Name:            "Firmware Image Invalid",
+		DefaultSummary:  "Firmware image verification failed",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Re-flash firmware from known good source",
+		DefaultImpact:   "Device may not operate correctly",
+	},
+	FirmwareConfigInvalid: {
+		Name:            "Firmware Config Invalid",
+		DefaultSummary:  "Firmware configuration is invalid or corrupted",
+		DefaultSeverity: SeverityMajor,
+		DefaultAction:   "Reset to factory defaults or re-configure",
+		DefaultImpact:   "Device may not operate as expected",
+	},
+
+	// Control-plane errors (6000-6999)
+	ControlBoardCommunicationLost: {
+		Name:            "Control Board Communication Lost",
+		DefaultSummary:  "Communication with control board has been lost",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Restart device; check control board connections",
+		DefaultImpact:   "Device cannot be monitored or controlled",
+	},
+	ControlBoardFailure: {
+		Name:            "Control Board Failure",
+		DefaultSummary:  "Control board has failed",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Replace control board",
+		DefaultImpact:   "Device is non-operational",
+	},
+	DeviceInternalBusFault: {
+		Name:            "Device Internal Bus Fault",
+		DefaultSummary:  "Internal communication bus has faulted",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Restart device; may need repair",
+		DefaultImpact:   "Components cannot communicate",
+	},
+	DeviceCommunicationLost: {
+		Name:            "Device Communication Lost",
+		DefaultSummary:  "Network communication with device has been lost",
+		DefaultSeverity: SeverityCritical,
+		DefaultAction:   "Check network connection and device power",
+		DefaultImpact:   "Device cannot be monitored remotely",
+	},
+	IOModuleFailure: {
+		Name:            "IO Module Failure",
+		DefaultSummary:  "I/O module has failed",
+		DefaultSeverity: SeverityMajor,
+		DefaultAction:   "Check I/O connections; module may need replacement",
+		DefaultImpact:   "Some device I/O functions unavailable",
+	},
+
+	// Performance advisories (8000-8999)
+	HashrateBelowTarget: {
+		Name:            "Hashrate Below Target",
+		DefaultSummary:  "Current hashrate is below expected target",
+		DefaultSeverity: SeverityInfo,
+		DefaultAction:   "Check for throttling, chip failures, or pool issues",
+		DefaultImpact:   "Reduced mining revenue",
+	},
+	HashboardWarnCRCHigh: {
+		Name:            "Hashboard CRC Warning",
+		DefaultSummary:  "CRC error rate is elevated but within tolerance",
+		DefaultSeverity: SeverityInfo,
+		DefaultAction:   "Monitor for increase; may indicate developing issue",
+		DefaultImpact:   "Slight reduction in effective hashrate",
+	},
+	ThermalMarginLow: {
+		Name:            "Thermal Margin Low",
+		DefaultSummary:  "Temperature is approaching thermal limits",
+		DefaultSeverity: SeverityInfo,
+		DefaultAction:   "Consider improving cooling",
+		DefaultImpact:   "Risk of throttling if temperature rises",
+	},
+
+	// Catch-all (9000-9999)
+	VendorErrorUnmapped: {
+		Name:            "Vendor Error Unmapped",
+		DefaultSummary:  "Vendor-specific error not yet mapped to canonical code",
+		DefaultSeverity: SeverityInfo,
+		DefaultAction:   "Check vendor documentation for error details",
+		DefaultImpact:   "Unknown; depends on vendor error",
+	},
+}
+
 // GetMinerErrorInfo returns default metadata for all miner error codes.
 // This provides a comprehensive reference for all canonical error codes
 // supported by the fleet system.
 func GetMinerErrorInfo() map[MinerError]MinerErrorInfo {
-	return map[MinerError]MinerErrorInfo{
-		// PSU errors (1000-1999)
-		PSUNotPresent: {
-			Code:            PSUNotPresent,
-			Name:            "PSU Not Present",
-			DefaultSummary:  "Power supply unit is not detected",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Check PSU installation and connections",
-			DefaultImpact:   "Miner cannot operate without power supply",
-		},
-		PSUModelMismatch: {
-			Code:            PSUModelMismatch,
-			Name:            "PSU Model Mismatch",
-			DefaultSummary:  "PSU model does not match expected configuration",
-			DefaultSeverity: SeverityMajor,
-			DefaultAction:   "Verify PSU model matches device requirements",
-			DefaultImpact:   "May cause power delivery issues or reduced performance",
-		},
-		PSUCommunicationLost: {
-			Code:            PSUCommunicationLost,
-			Name:            "PSU Communication Lost",
-			DefaultSummary:  "Communication with PSU has been lost",
-			DefaultSeverity: SeverityMajor,
-			DefaultAction:   "Check PSU connection cables and restart device",
-			DefaultImpact:   "Cannot monitor PSU status or adjust power settings",
-		},
-		PSUFaultGeneric: {
-			Code:            PSUFaultGeneric,
-			Name:            "PSU Fault",
-			DefaultSummary:  "General PSU fault detected",
-			DefaultSeverity: SeverityMajor,
-			DefaultAction:   "Inspect PSU for damage or overheating",
-			DefaultImpact:   "Power delivery may be compromised",
-		},
-		PSUInputVoltageLow: {
-			Code:            PSUInputVoltageLow,
-			Name:            "PSU Input Voltage Low",
-			DefaultSummary:  "Input voltage to PSU is below acceptable range",
-			DefaultSeverity: SeverityMajor,
-			DefaultAction:   "Check facility power supply and voltage levels",
-			DefaultImpact:   "May cause power instability or shutdown",
-		},
-		PSUInputVoltageHigh: {
-			Code:            PSUInputVoltageHigh,
-			Name:            "PSU Input Voltage High",
-			DefaultSummary:  "Input voltage to PSU is above acceptable range",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Immediately check facility power; may damage equipment",
-			DefaultImpact:   "Risk of equipment damage",
-		},
-		PSUOutputVoltageFault: {
-			Code:            PSUOutputVoltageFault,
-			Name:            "PSU Output Voltage Fault",
-			DefaultSummary:  "PSU output voltage is outside acceptable range",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Replace PSU immediately",
-			DefaultImpact:   "Miner may shut down or sustain damage",
-		},
-		PSUOutputOvercurrent: {
-			Code:            PSUOutputOvercurrent,
-			Name:            "PSU Output Overcurrent",
-			DefaultSummary:  "PSU output current exceeds safe limits",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Check for short circuits; reduce load or replace PSU",
-			DefaultImpact:   "Stops mining to prevent equipment damage",
-		},
-		PSUFanFault: {
-			Code:            PSUFanFault,
-			Name:            "PSU Fan Failed",
-			DefaultSummary:  "Cooling fan in PSU has failed",
-			DefaultSeverity: SeverityMajor,
-			DefaultAction:   "Replace PSU; risk of overheating",
-			DefaultImpact:   "PSU may overheat and shut down",
-		},
-		PSUOverTemperature: {
-			Code:            PSUOverTemperature,
-			Name:            "PSU Over Temperature",
-			DefaultSummary:  "PSU temperature exceeds safe operating range",
-			DefaultSeverity: SeverityMajor,
-			DefaultAction:   "Improve cooling; check PSU fan and ambient temperature",
-			DefaultImpact:   "May cause thermal shutdown",
-		},
-		PSUInputPhaseImbalance: {
-			Code:            PSUInputPhaseImbalance,
-			Name:            "PSU Input Phase Imbalance",
-			DefaultSummary:  "Three-phase power input is imbalanced",
-			DefaultSeverity: SeverityMinor,
-			DefaultAction:   "Check facility power distribution",
-			DefaultImpact:   "Reduced efficiency; potential for long-term damage",
-		},
-		PSUUnderTemperature: {
-			Code:            PSUUnderTemperature,
-			Name:            "PSU Under Temperature",
-			DefaultSummary:  "PSU temperature is below operating range",
-			DefaultSeverity: SeverityInfo,
-			DefaultAction:   "Allow warmup time; check ambient conditions",
-			DefaultImpact:   "May affect startup reliability",
-		},
-
-		// Thermal & Fan errors (2000-2999)
-		FanFailed: {
-			Code:            FanFailed,
-			Name:            "Fan Failed",
-			DefaultSummary:  "Cooling fan has stopped working",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Replace failed fan immediately",
-			DefaultImpact:   "Miner will thermal throttle or shut down",
-		},
-		FanTachSignalLost: {
-			Code:            FanTachSignalLost,
-			Name:            "Fan Tach Signal Lost",
-			DefaultSummary:  "Fan speed sensor signal not detected",
-			DefaultSeverity: SeverityMajor,
-			DefaultAction:   "Check fan connection; may need replacement",
-			DefaultImpact:   "Cannot verify fan operation",
-		},
-		FanSpeedDeviation: {
-			Code:            FanSpeedDeviation,
-			Name:            "Fan Speed Deviation",
-			DefaultSummary:  "Fan speed differs significantly from target",
-			DefaultSeverity: SeverityMinor,
-			DefaultAction:   "Monitor fan; may indicate wear or obstruction",
-			DefaultImpact:   "Reduced cooling efficiency",
-		},
-		InletOverTemperature: {
-			Code:            InletOverTemperature,
-			Name:            "Inlet Over Temperature",
-			DefaultSummary:  "Ambient air temperature at inlet is too high",
-			DefaultSeverity: SeverityMajor,
-			DefaultAction:   "Improve facility cooling; check HVAC system",
-			DefaultImpact:   "Reduces cooling capacity; may cause throttling",
-		},
-		DeviceOverTemperature: {
-			Code:            DeviceOverTemperature,
-			Name:            "Device Over Temperature",
-			DefaultSummary:  "Device internal temperature exceeds safe limits",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Immediately reduce load or improve cooling",
-			DefaultImpact:   "Stops mining to prevent damage",
-		},
-		DeviceUnderTemperature: {
-			Code:            DeviceUnderTemperature,
-			Name:            "Device Under Temperature",
-			DefaultSummary:  "Device temperature is below operating range",
-			DefaultSeverity: SeverityInfo,
-			DefaultAction:   "Allow warmup; check ambient conditions",
-			DefaultImpact:   "May affect reliability during startup",
-		},
-
-		// Hashboard / ASIC errors (3000-3999)
-		HashboardNotPresent: {
-			Code:            HashboardNotPresent,
-			Name:            "Hashboard Not Present",
-			DefaultSummary:  "Hashboard is not detected",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Check hashboard connection and seating",
-			DefaultImpact:   "Reduces mining capacity by one board",
-		},
-		HashboardOverTemperature: {
-			Code:            HashboardOverTemperature,
-			Name:            "Hashboard Over Temperature",
-			DefaultSummary:  "Hashboard temperature exceeds safe limits",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Improve cooling; check thermal paste and heatsinks",
-			DefaultImpact:   "Board will throttle or shut down",
-		},
-		HashboardMissingChips: {
-			Code:            HashboardMissingChips,
-			Name:            "Hashboard Missing Chips",
-			DefaultSummary:  "Some ASIC chips on board are not responding",
-			DefaultSeverity: SeverityMajor,
-			DefaultAction:   "Board may need repair or replacement",
-			DefaultImpact:   "Reduced hashrate from affected board",
-		},
-		ASICChainCommunicationLost: {
-			Code:            ASICChainCommunicationLost,
-			Name:            "ASIC Chain Communication Lost",
-			DefaultSummary:  "Cannot communicate with ASIC chain",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Restart miner; check board connections",
-			DefaultImpact:   "Affected hashboard is offline",
-		},
-		ASICClockPLLUnlocked: {
-			Code:            ASICClockPLLUnlocked,
-			Name:            "ASIC Clock PLL Unlocked",
-			DefaultSummary:  "ASIC clock phase-locked loop is not locked",
-			DefaultSeverity: SeverityMajor,
-			DefaultAction:   "Restart miner; may indicate chip failure",
-			DefaultImpact:   "Affected chips cannot hash correctly",
-		},
-		ASICCRCErrorExcessive: {
-			Code:            ASICCRCErrorExcessive,
-			Name:            "ASIC CRC Error Excessive",
-			DefaultSummary:  "High rate of CRC errors from ASIC chips",
-			DefaultSeverity: SeverityMajor,
-			DefaultAction:   "Check board connections; may need repair",
-			DefaultImpact:   "Reduced effective hashrate",
-		},
-		HashboardASICOverTemperature: {
-			Code:            HashboardASICOverTemperature,
-			Name:            "Hashboard ASIC Over Temperature",
-			DefaultSummary:  "ASIC chip temperature exceeds safe limits",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Improve cooling immediately",
-			DefaultImpact:   "Chip will throttle or shut down",
-		},
-		HashboardASICUnderTemperature: {
-			Code:            HashboardASICUnderTemperature,
-			Name:            "Hashboard ASIC Under Temperature",
-			DefaultSummary:  "ASIC chip temperature is below operating range",
-			DefaultSeverity: SeverityInfo,
-			DefaultAction:   "Allow warmup time",
-			DefaultImpact:   "May affect reliability during startup",
-		},
-
-		// Board-level power errors (3500-3999)
-		BoardPowerPGOODMissing: {
-			Code:            BoardPowerPGOODMissing,
-			Name:            "Board Power Good Missing",
-			DefaultSummary:  "Power good signal not received from board",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Check board power connections",
-			DefaultImpact:   "Board cannot operate",
-		},
-		BoardPowerOvercurrent: {
-			Code:            BoardPowerOvercurrent,
-			Name:            "Board Power Overcurrent Trip",
-			DefaultSummary:  "Board power protection triggered due to overcurrent",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Check for shorts; board may need repair",
-			DefaultImpact:   "Board is disabled for protection",
-		},
-		BoardPowerRailUndervolt: {
-			Code:            BoardPowerRailUndervolt,
-			Name:            "Board Power Rail Undervolt",
-			DefaultSummary:  "Board power rail voltage is too low",
-			DefaultSeverity: SeverityMajor,
-			DefaultAction:   "Check power connections and PSU capacity",
-			DefaultImpact:   "Board performance may be degraded",
-		},
-		BoardPowerRailOvervolt: {
-			Code:            BoardPowerRailOvervolt,
-			Name:            "Board Power Rail Overvolt",
-			DefaultSummary:  "Board power rail voltage is too high",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Check PSU output; risk of damage",
-			DefaultImpact:   "Board may be damaged",
-		},
-		BoardPowerShortDetected: {
-			Code:            BoardPowerShortDetected,
-			Name:            "Board Power Short Detected",
-			DefaultSummary:  "Short circuit detected on board power",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Board needs immediate inspection and repair",
-			DefaultImpact:   "Board is disabled; risk of damage",
-		},
-
-		// Sensor errors (4000-4999)
-		TempSensorOpenOrShort: {
-			Code:            TempSensorOpenOrShort,
-			Name:            "Temperature Sensor Open or Short",
-			DefaultSummary:  "Temperature sensor circuit is open or shorted",
-			DefaultSeverity: SeverityMajor,
-			DefaultAction:   "Sensor needs replacement",
-			DefaultImpact:   "Cannot monitor temperature accurately",
-		},
-		TempSensorFault: {
-			Code:            TempSensorFault,
-			Name:            "Temperature Sensor Fault",
-			DefaultSummary:  "Temperature sensor is reporting invalid readings",
-			DefaultSeverity: SeverityMinor,
-			DefaultAction:   "Check sensor connection; may need replacement",
-			DefaultImpact:   "Temperature readings may be inaccurate",
-		},
-		VoltageSensorFault: {
-			Code:            VoltageSensorFault,
-			Name:            "Voltage Sensor Fault",
-			DefaultSummary:  "Voltage sensor is reporting invalid readings",
-			DefaultSeverity: SeverityMinor,
-			DefaultAction:   "Check sensor; may need calibration or replacement",
-			DefaultImpact:   "Voltage monitoring may be inaccurate",
-		},
-		CurrentSensorFault: {
-			Code:            CurrentSensorFault,
-			Name:            "Current Sensor Fault",
-			DefaultSummary:  "Current sensor is reporting invalid readings",
-			DefaultSeverity: SeverityMinor,
-			DefaultAction:   "Check sensor; may need calibration or replacement",
-			DefaultImpact:   "Current monitoring may be inaccurate",
-		},
-
-		// Storage / Firmware errors (5000-5999)
-		EEPROMCRCMismatch: {
-			Code:            EEPROMCRCMismatch,
-			Name:            "EEPROM CRC Mismatch",
-			DefaultSummary:  "EEPROM data checksum verification failed",
-			DefaultSeverity: SeverityMajor,
-			DefaultAction:   "Re-flash configuration; EEPROM may be failing",
-			DefaultImpact:   "Device configuration may be corrupted",
-		},
-		EEPROMReadFailure: {
-			Code:            EEPROMReadFailure,
-			Name:            "EEPROM Read Failure",
-			DefaultSummary:  "Unable to read from EEPROM",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Check EEPROM chip; may need replacement",
-			DefaultImpact:   "Cannot load device configuration",
-		},
-		FirmwareImageInvalid: {
-			Code:            FirmwareImageInvalid,
-			Name:            "Firmware Image Invalid",
-			DefaultSummary:  "Firmware image verification failed",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Re-flash firmware from known good source",
-			DefaultImpact:   "Device may not operate correctly",
-		},
-		FirmwareConfigInvalid: {
-			Code:            FirmwareConfigInvalid,
-			Name:            "Firmware Config Invalid",
-			DefaultSummary:  "Firmware configuration is invalid or corrupted",
-			DefaultSeverity: SeverityMajor,
-			DefaultAction:   "Reset to factory defaults or re-configure",
-			DefaultImpact:   "Device may not operate as expected",
-		},
-
-		// Control-plane errors (6000-6999)
-		ControlBoardCommunicationLost: {
-			Code:            ControlBoardCommunicationLost,
-			Name:            "Control Board Communication Lost",
-			DefaultSummary:  "Communication with control board has been lost",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Restart device; check control board connections",
-			DefaultImpact:   "Device cannot be monitored or controlled",
-		},
-		ControlBoardFailure: {
-			Code:            ControlBoardFailure,
-			Name:            "Control Board Failure",
-			DefaultSummary:  "Control board has failed",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Control board needs replacement",
-			DefaultImpact:   "Device is non-operational",
-		},
-		DeviceInternalBusFault: {
-			Code:            DeviceInternalBusFault,
-			Name:            "Device Internal Bus Fault",
-			DefaultSummary:  "Internal communication bus has faulted",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Restart device; may need repair",
-			DefaultImpact:   "Components cannot communicate",
-		},
-		DeviceCommunicationLost: {
-			Code:            DeviceCommunicationLost,
-			Name:            "Device Communication Lost",
-			DefaultSummary:  "Network communication with device has been lost",
-			DefaultSeverity: SeverityCritical,
-			DefaultAction:   "Check network connection and device power",
-			DefaultImpact:   "Device cannot be monitored remotely",
-		},
-		IOModuleFailure: {
-			Code:            IOModuleFailure,
-			Name:            "IO Module Failure",
-			DefaultSummary:  "I/O module has failed",
-			DefaultSeverity: SeverityMajor,
-			DefaultAction:   "Check I/O connections; module may need replacement",
-			DefaultImpact:   "Some device I/O functions unavailable",
-		},
-
-		// Performance advisories (8000-8999)
-		HashrateBelowTarget: {
-			Code:            HashrateBelowTarget,
-			Name:            "Hashrate Below Target",
-			DefaultSummary:  "Current hashrate is below expected target",
-			DefaultSeverity: SeverityInfo,
-			DefaultAction:   "Check for throttling, chip failures, or pool issues",
-			DefaultImpact:   "Reduced mining revenue",
-		},
-		HashboardWarnCRCHigh: {
-			Code:            HashboardWarnCRCHigh,
-			Name:            "Hashboard CRC Warning",
-			DefaultSummary:  "CRC error rate is elevated but within tolerance",
-			DefaultSeverity: SeverityInfo,
-			DefaultAction:   "Monitor for increase; may indicate developing issue",
-			DefaultImpact:   "Slight reduction in effective hashrate",
-		},
-		ThermalMarginLow: {
-			Code:            ThermalMarginLow,
-			Name:            "Thermal Margin Low",
-			DefaultSummary:  "Temperature is approaching thermal limits",
-			DefaultSeverity: SeverityInfo,
-			DefaultAction:   "Consider improving cooling",
-			DefaultImpact:   "Risk of throttling if temperature rises",
-		},
-
-		// Catch-all (9000-9999)
-		VendorErrorUnmapped: {
-			Code:            VendorErrorUnmapped,
-			Name:            "Vendor Error Unmapped",
-			DefaultSummary:  "Vendor-specific error not yet mapped to canonical code",
-			DefaultSeverity: SeverityInfo,
-			DefaultAction:   "Check vendor documentation for error details",
-			DefaultImpact:   "Unknown; depends on vendor error",
-		},
-	}
+	return minerErrorInfo
 }
