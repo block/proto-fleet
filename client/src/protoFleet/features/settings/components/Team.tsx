@@ -191,7 +191,7 @@ const Team = () => {
   }, [canAddTeamMembers, handleResetPassword]);
 
   return (
-    <div className="mx-auto flex max-w-full flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <Header title="Team" titleSize="text-heading-300" />
         {canAddTeamMembers && (
