@@ -7,6 +7,7 @@ package testdata
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	errorsv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1"
@@ -84,7 +85,7 @@ func convertSeedFile(seedFile SeedFile) ([]errorquery.SeedData, error) {
 		}
 
 		result = append(result, errorquery.SeedData{
-			DeviceID:   device.DeviceID,
+			DeviceID:   strconv.FormatInt(device.DeviceID, 10),
 			DeviceType: device.DeviceType,
 			Errors:     errors,
 		})
@@ -176,7 +177,7 @@ func convertErrorSeed(seed ErrorSeed, deviceID int64, metadata map[errorsv1.Mine
 		LastSeenAt:        lastSeenAt,
 		ClosedAt:          closedAt,
 		VendorAttributes:  seed.VendorAttributes,
-		DeviceID:          deviceID,
+		DeviceID:          strconv.FormatInt(deviceID, 10),
 		ComponentID:       seed.ComponentID,
 	}, nil
 }

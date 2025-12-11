@@ -9,7 +9,12 @@ import (
 
 	errorsv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1"
 	"github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1/errorsv1connect"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/errorquery"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // Ensure Handler implements the service interface.
@@ -17,13 +22,15 @@ var _ errorsv1connect.ErrorQueryServiceHandler = &Handler{}
 
 // Handler implements the ErrorQueryService gRPC handlers.
 type Handler struct {
-	service *errorquery.Service
+	service            *errorquery.Service
+	diagnosticsService *diagnostics.Service
 }
 
 // NewHandler creates a new error query handler.
-func NewHandler(service *errorquery.Service) *Handler {
+func NewHandler(service *errorquery.Service, diagnosticsService *diagnostics.Service) *Handler {
 	return &Handler{
-		service: service,
+		service:            service,
+		diagnosticsService: diagnosticsService,
 	}
 }
 
@@ -49,14 +56,51 @@ func (h *Handler) GetError(
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("error_id is required"))
 	}
 
-	errorMsg, err := h.service.GetError(ctx, errorID)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, err)
+	}
+	orgID := info.OrganizationID
+
+	errorMsg, err := h.diagnosticsService.GetError(ctx, orgID, errorID)
+	if fleeterror.IsNotFoundError(err) {
 		return nil, connect.NewError(connect.CodeNotFound, err)
+	} else if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
+	protoError := convertDomainErrorToProto(errorMsg)
+
 	return connect.NewResponse(&errorsv1.GetErrorResponse{
-		Error: errorMsg,
+		Error: protoError,
 	}), nil
+}
+
+// convertDomainErrorToProto converts a domain ErrorMessage to protobuf ErrorMessage.
+func convertDomainErrorToProto(domainErr *models.ErrorMessage) *errorsv1.ErrorMessage {
+	msg := &errorsv1.ErrorMessage{
+		ErrorId:           domainErr.ErrorID,
+		CanonicalError:    errorsv1.MinerError(domainErr.MinerError), // #nosec G115 -- MinerError enum bounded by protobuf (max ~9000), safe for int32
+		Summary:           domainErr.Summary,
+		CauseSummary:      domainErr.CauseSummary,
+		RecommendedAction: domainErr.RecommendedAction,
+		Severity:          errorsv1.Severity(domainErr.Severity), // #nosec G115 -- Severity enum bounded (max 4), safe for int32
+		FirstSeenAt:       timestamppb.New(domainErr.FirstSeenAt),
+		LastSeenAt:        timestamppb.New(domainErr.LastSeenAt),
+		VendorAttributes:  domainErr.VendorAttributes,
+		DeviceIdentifier:  domainErr.DeviceID,
+		Impact:            domainErr.Impact,
+	}
+
+	if domainErr.ClosedAt != nil {
+		msg.ClosedAt = timestamppb.New(*domainErr.ClosedAt)
+	}
+
+	if domainErr.ComponentID != nil {
+		msg.ComponentId = domainErr.ComponentID
+	}
+
+	return msg
 }
 
 // ListMinerErrors handles the ListMinerErrors RPC call.

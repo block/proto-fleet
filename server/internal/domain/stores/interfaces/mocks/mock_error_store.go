@@ -35,6 +35,21 @@ func (m *MockErrorStore) EXPECT() *MockErrorStoreMockRecorder {
 	return m.recorder
 }
 
+// GetErrorByErrorID mocks base method.
+func (m *MockErrorStore) GetErrorByErrorID(ctx context.Context, orgID int64, errorID string) (*models.ErrorMessage, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetErrorByErrorID", ctx, orgID, errorID)
+	ret0, _ := ret[0].(*models.ErrorMessage)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetErrorByErrorID indicates an expected call of GetErrorByErrorID.
+func (mr *MockErrorStoreMockRecorder) GetErrorByErrorID(ctx, orgID, errorID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetErrorByErrorID", reflect.TypeOf((*MockErrorStore)(nil).GetErrorByErrorID), ctx, orgID, errorID)
+}
+
 // UpsertError mocks base method.
 func (m *MockErrorStore) UpsertError(ctx context.Context, orgID int64, deviceIdentifier string, errMsg *models.ErrorMessage) (*models.ErrorMessage, error) {
 	m.ctrl.T.Helper()

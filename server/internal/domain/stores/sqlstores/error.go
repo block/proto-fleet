@@ -175,46 +175,136 @@ func (s *SQLErrorStore) updateExistingError(
 	return toErrorMessage(&dbError, errMsg.DeviceID), nil
 }
 
-// toErrorMessage converts a sqlc.Error to a domain models.ErrorMessage.
+// GetErrorByErrorID retrieves a single error by its error_id (ULID).
+func (s *SQLErrorStore) GetErrorByErrorID(ctx context.Context, orgID int64, errorID string) (*models.ErrorMessage, error) {
+	q := s.getQueries(ctx)
+
+	row, err := q.GetErrorByErrorID(ctx, sqlc.GetErrorByErrorIDParams{
+		ErrorID: errorID,
+		OrgID:   orgID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("error not found: %s", errorID)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to get error: %v", err)
+	}
+
+	return toErrorMessageFromRow(&row), nil
+}
+
+// errorFields holds the common database fields needed to construct an ErrorMessage.
+// This struct abstracts the differences between sqlc.Error and sqlc.GetErrorByErrorIDRow.
+type errorFields struct {
+	ErrorID           string
+	MinerError        int32
+	CauseSummary      sql.NullString
+	RecommendedAction sql.NullString
+	Severity          int32
+	FirstSeenAt       time.Time
+	LastSeenAt        time.Time
+	ClosedAt          sql.NullTime
+	Extra             json.RawMessage
+	ComponentID       sql.NullString
+	ComponentType     sql.NullInt32
+	Impact            sql.NullString
+	Summary           string
+	VendorCode        sql.NullString
+	Firmware          sql.NullString
+	DeviceIdentifier  string
+}
+
+// buildErrorMessage converts common error fields to a domain models.ErrorMessage.
 // Design note: NULL database values for optional string fields (CauseSummary, RecommendedAction,
 // Impact, VendorCode, Firmware) are intentionally converted to empty strings. This is symmetric
 // with toNullString which treats empty strings as NULL when writing to the database.
-func toErrorMessage(dbError *sqlc.Error, deviceIdentifier string) *models.ErrorMessage {
+func buildErrorMessage(fields errorFields) *models.ErrorMessage {
 	var closedAt *time.Time
-	if dbError.ClosedAt.Valid {
-		closedAt = &dbError.ClosedAt.Time
+	if fields.ClosedAt.Valid {
+		closedAt = &fields.ClosedAt.Time
 	}
 
 	var componentID *string
-	if dbError.ComponentID.Valid {
-		componentID = &dbError.ComponentID.String
+	if fields.ComponentID.Valid {
+		componentID = &fields.ComponentID.String
 	}
 
 	var vendorAttrs map[string]string
-	if len(dbError.Extra) > 0 {
-		if err := json.Unmarshal(dbError.Extra, &vendorAttrs); err != nil {
-			slog.Warn("failed to unmarshal vendor attributes", "error_id", dbError.ErrorID, "error", err)
+	if len(fields.Extra) > 0 {
+		if err := json.Unmarshal(fields.Extra, &vendorAttrs); err != nil {
+			slog.Warn("failed to unmarshal vendor attributes", "error_id", fields.ErrorID, "error", err)
 		}
 	}
 
+	var componentType models.ComponentType
+	if fields.ComponentType.Valid {
+		componentType = safeInt32ToComponentType(fields.ComponentType.Int32)
+	} else {
+		componentType = models.ComponentTypeUnspecified
+	}
+
 	return &models.ErrorMessage{
-		ErrorID:           dbError.ErrorID,
-		MinerError:        safeInt32ToMinerError(dbError.MinerError),
-		CauseSummary:      dbError.CauseSummary.String,
-		RecommendedAction: dbError.RecommendedAction.String,
-		Severity:          safeInt32ToSeverity(dbError.Severity),
-		FirstSeenAt:       dbError.FirstSeenAt,
-		LastSeenAt:        dbError.LastSeenAt,
+		ErrorID:           fields.ErrorID,
+		MinerError:        safeInt32ToMinerError(fields.MinerError),
+		CauseSummary:      fields.CauseSummary.String,
+		RecommendedAction: fields.RecommendedAction.String,
+		Severity:          safeInt32ToSeverity(fields.Severity),
+		FirstSeenAt:       fields.FirstSeenAt,
+		LastSeenAt:        fields.LastSeenAt,
 		ClosedAt:          closedAt,
 		VendorAttributes:  vendorAttrs,
-		DeviceID:          deviceIdentifier,
+		DeviceID:          fields.DeviceIdentifier,
 		ComponentID:       componentID,
-		ComponentType:     safeInt32ToComponentType(dbError.ComponentType.Int32),
-		Impact:            dbError.Impact.String,
-		Summary:           dbError.Summary,
-		VendorCode:        dbError.VendorCode.String,
-		Firmware:          dbError.Firmware.String,
+		ComponentType:     componentType,
+		Impact:            fields.Impact.String,
+		Summary:           fields.Summary,
+		VendorCode:        fields.VendorCode.String,
+		Firmware:          fields.Firmware.String,
 	}
+}
+
+// toErrorMessage converts a sqlc.Error to a domain models.ErrorMessage.
+func toErrorMessage(dbError *sqlc.Error, deviceIdentifier string) *models.ErrorMessage {
+	return buildErrorMessage(errorFields{
+		ErrorID:           dbError.ErrorID,
+		MinerError:        dbError.MinerError,
+		CauseSummary:      dbError.CauseSummary,
+		RecommendedAction: dbError.RecommendedAction,
+		Severity:          dbError.Severity,
+		FirstSeenAt:       dbError.FirstSeenAt,
+		LastSeenAt:        dbError.LastSeenAt,
+		ClosedAt:          dbError.ClosedAt,
+		Extra:             dbError.Extra,
+		ComponentID:       dbError.ComponentID,
+		ComponentType:     dbError.ComponentType,
+		Impact:            dbError.Impact,
+		Summary:           dbError.Summary,
+		VendorCode:        dbError.VendorCode,
+		Firmware:          dbError.Firmware,
+		DeviceIdentifier:  deviceIdentifier,
+	})
+}
+
+// toErrorMessageFromRow converts a GetErrorByErrorIDRow to a domain models.ErrorMessage.
+func toErrorMessageFromRow(row *sqlc.GetErrorByErrorIDRow) *models.ErrorMessage {
+	return buildErrorMessage(errorFields{
+		ErrorID:           row.ErrorID,
+		MinerError:        row.MinerError,
+		CauseSummary:      row.CauseSummary,
+		RecommendedAction: row.RecommendedAction,
+		Severity:          row.Severity,
+		FirstSeenAt:       row.FirstSeenAt,
+		LastSeenAt:        row.LastSeenAt,
+		ClosedAt:          row.ClosedAt,
+		Extra:             row.Extra,
+		ComponentID:       row.ComponentID,
+		ComponentType:     row.ComponentType,
+		Impact:            row.Impact,
+		Summary:           row.Summary,
+		VendorCode:        row.VendorCode,
+		Firmware:          row.Firmware,
+		DeviceIdentifier:  row.DeviceIdentifier,
+	})
 }
 
 // safeInt32ToEnum converts int32 from DB to any enum type, returning the specified default for negative values.

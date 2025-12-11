@@ -19,7 +19,7 @@ type ErrorRecord struct {
 	LastSeenAt        time.Time
 	ClosedAt          *time.Time
 	VendorAttributes  map[string]string
-	DeviceID          int64
+	DeviceID          string
 	ComponentID       string // Format: "{deviceID}_{type}_{index}" or empty for device-level errors
 	Impact            string
 }
@@ -27,7 +27,7 @@ type ErrorRecord struct {
 // SeedData represents seed data for a device's errors.
 // FOR TESTING/DEVELOPMENT ONLY - used to inject deterministic error data.
 type SeedData struct {
-	DeviceID   int64
+	DeviceID   string
 	DeviceType string
 	Errors     []ErrorRecord
 }

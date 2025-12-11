@@ -115,7 +115,7 @@ func generateVersionResponse(state *MinerState) VersionResponse {
 				API:         "3.1",
 				Miner:       state.MinerType,
 				CompileTime: "2023-05-01",
-				Type:        "Antminer " + state.MinerType,
+				Type:        state.MinerType,
 			},
 		},
 	}
@@ -128,6 +128,30 @@ func generateSummaryResponse(state *MinerState) SummaryResponse {
 	now := time.Now().Unix()
 
 	hashRateGHS := state.HashRate * thsToGhsConversionFactor
+
+	// Apply error configuration
+	hwErrors := mockHardwareErrorsCount
+	hwPercent := mockDevicePercentage
+	if state.ErrorConfig.HWErrorCount > 0 {
+		hwErrors = state.ErrorConfig.HWErrorCount
+	}
+	if state.ErrorConfig.HWErrorPercent > 0 {
+		hwPercent = state.ErrorConfig.HWErrorPercent
+	}
+
+	rejected := mockRejectedCount
+	rejectedPercent := mockDevicePercentage
+	if state.ErrorConfig.RejectedCount > 0 {
+		rejected = state.ErrorConfig.RejectedCount
+	}
+	if state.ErrorConfig.RejectedPercent > 0 {
+		rejectedPercent = state.ErrorConfig.RejectedPercent
+	}
+
+	stale := mockStaleCount
+	if state.ErrorConfig.StaleCount > 0 {
+		stale = state.ErrorConfig.StaleCount
+	}
 
 	return SummaryResponse{
 		RPCResponse: RPCResponse{
@@ -150,11 +174,11 @@ func generateSummaryResponse(state *MinerState) SummaryResponse {
 				FoundBlocks:        mockDiff1Work,
 				Getwork:            mockGetworkCount,
 				Accepted:           mockAcceptedCount,
-				Rejected:           mockRejectedCount,
-				HardwareErrors:     mockHardwareErrorsCount,
+				Rejected:           rejected,
+				HardwareErrors:     hwErrors,
 				Utility:            mockUtilityValue,
 				Discarded:          mockDiscardedCount,
-				Stale:              mockStaleCount,
+				Stale:              stale,
 				GetFailures:        mockGetFailuresCount,
 				LocalWork:          mockLocalWorkCount,
 				RemoteFailures:     mockRemoteFailuresCount,
@@ -165,9 +189,9 @@ func generateSummaryResponse(state *MinerState) SummaryResponse {
 				DifficultyRejected: mockDifficultyRejected,
 				DifficultyStale:    mockDifficultyStale,
 				BestShare:          mockBestShare,
-				DeviceHardwarePerc: mockDevicePercentage,
-				DeviceRejectedPerc: mockDevicePercentage,
-				PoolRejectedPerc:   mockDevicePercentage,
+				DeviceHardwarePerc: hwPercent,
+				DeviceRejectedPerc: rejectedPercent,
+				PoolRejectedPerc:   rejectedPercent,
 				PoolStalePerc:      mockDevicePercentage,
 				LastGetwork:        now,
 			},
@@ -182,20 +206,38 @@ func generatePoolsResponse(state *MinerState) PoolsResponse {
 
 	now := time.Now().Unix()
 
+	// Apply error configuration
+	poolStatus := "Alive"
+	if state.ErrorConfig.PoolNotAlive {
+		poolStatus = "Dead"
+	}
+
+	getFailures := int64(0)
+	if state.ErrorConfig.PoolGetFailures > 0 {
+		getFailures = int64(state.ErrorConfig.PoolGetFailures)
+	}
+
+	remoteFailures := int64(0)
+	if state.ErrorConfig.PoolRemoteFailures > 0 {
+		remoteFailures = int64(state.ErrorConfig.PoolRemoteFailures)
+	}
+
 	pools := make([]PoolStatus, len(state.Pools))
 	for i, pool := range state.Pools {
 		pools[i] = PoolStatus{
-			URL:        pool.URL,
-			User:       pool.User,
-			Status:     "Alive",
-			Priority:   i,
-			GetWorks:   DefaultGetWorks,
-			Accepted:   DefaultAccepted,
-			Rejected:   DefaultRejected,
-			Discarded:  DefaultDiscarded,
-			LastShare:  int(now) - DefaultLastShareDelay,
-			Difficulty: DefaultDifficulty,
-			Diff1Share: DefaultAccepted,
+			URL:            pool.URL,
+			User:           pool.User,
+			Status:         poolStatus,
+			Priority:       i,
+			GetWorks:       DefaultGetWorks,
+			Accepted:       DefaultAccepted,
+			Rejected:       DefaultRejected,
+			Discarded:      DefaultDiscarded,
+			LastShare:      int(now) - DefaultLastShareDelay,
+			Difficulty:     DefaultDifficulty,
+			Diff1Share:     DefaultAccepted,
+			GetFailures:    getFailures,
+			RemoteFailures: remoteFailures,
 		}
 	}
 
@@ -220,20 +262,60 @@ func generateDevsResponse(state *MinerState) DevsResponse {
 
 	now := time.Now().Unix()
 
+	// Apply error configuration
+	boardTemp := DefaultTemperature
+	if state.ErrorConfig.BoardTemperature > 0 {
+		boardTemp = state.ErrorConfig.BoardTemperature
+	}
+
+	boardEnabled := "Y"
+	if state.ErrorConfig.BoardDisabled {
+		boardEnabled = "N"
+	}
+
+	boardStatus := "Alive"
+	if state.ErrorConfig.BoardNotAlive {
+		boardStatus = "Dead"
+	}
+
+	boardHashrate := state.HashRate * thsToGhsConversionFactor
+	if state.ErrorConfig.BoardNotHashing {
+		boardHashrate = 0
+	}
+
+	hwErrors := mockDiff1Work
+	if state.ErrorConfig.HWErrorCount > 0 {
+		hwErrors = state.ErrorConfig.HWErrorCount
+	}
+
+	hwPercent := mockDevicePercentage
+	if state.ErrorConfig.HWErrorPercent > 0 {
+		hwPercent = state.ErrorConfig.HWErrorPercent
+	}
+
+	rejected := mockRejectedCount
+	rejectedPercent := mockDevicePercentage
+	if state.ErrorConfig.RejectedCount > 0 {
+		rejected = state.ErrorConfig.RejectedCount
+	}
+	if state.ErrorConfig.RejectedPercent > 0 {
+		rejectedPercent = state.ErrorConfig.RejectedPercent
+	}
+
 	// Create one device according to the example format
 	devices := []DeviceInfo{
 		{
 			ASC:                 mockASCIndex,
 			Name:                "BTM_SOC",
 			ID:                  mockDeviceID,
-			Enabled:             "Y",
-			Status:              "Alive",
-			Tenperature:         DefaultTemperature,
-			MHSav:               mockDevicePercentage,
-			MHS5s:               mockDevicePercentage,
+			Enabled:             boardEnabled,
+			Status:              boardStatus,
+			Tenperature:         boardTemp,
+			MHSav:               boardHashrate,
+			MHS5s:               boardHashrate,
 			Accepted:            mockAcceptedCount,
-			Rejected:            mockRejectedCount,
-			HardwareErrors:      mockDiff1Work,
+			Rejected:            rejected,
+			HardwareErrors:      hwErrors,
 			Utility:             mockDevicePercentage,
 			LastSharePool:       mockLastSharePool,
 			LastShareTime:       now - deviceTimeOffset,
@@ -243,8 +325,8 @@ func generateDevsResponse(state *MinerState) DevsResponse {
 			DifficultyRejected:  int(mockDifficultyRejected),
 			LastShareDifficulty: now - deviceTimeOffset,
 			LastValidWork:       now - deviceTimeOffset,
-			DeviceHardwarePerc:  mockDevicePercentage,
-			DeviceRejectedPerc:  mockDevicePercentage,
+			DeviceHardwarePerc:  hwPercent,
+			DeviceRejectedPerc:  rejectedPercent,
 			DeviceElapsed:       DefaultElapsedTime,
 		},
 	}

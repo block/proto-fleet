@@ -34,17 +34,19 @@ type VersionInfo struct {
 }
 
 type PoolStatus struct {
-	URL        string  `json:"url"`
-	User       string  `json:"user"`
-	Status     string  `json:"status"`
-	Priority   int     `json:"priority"`
-	GetWorks   int     `json:"getworks"`
-	Accepted   int     `json:"accepted"`
-	Rejected   int     `json:"rejected"`
-	Discarded  int     `json:"discarded"`
-	LastShare  int     `json:"last_share"`
-	Difficulty float64 `json:"difficulty"`
-	Diff1Share int     `json:"diff1_share"`
+	URL            string  `json:"url"`
+	User           string  `json:"user"`
+	Status         string  `json:"status"`
+	Priority       int     `json:"priority"`
+	GetWorks       int     `json:"getworks"`
+	Accepted       int     `json:"accepted"`
+	Rejected       int     `json:"rejected"`
+	Discarded      int     `json:"discarded"`
+	LastShare      int     `json:"last_share"`
+	Difficulty     float64 `json:"difficulty"`
+	Diff1Share     int     `json:"diff1_share"`
+	GetFailures    int64   `json:"get_failures"`
+	RemoteFailures int64   `json:"remote_failures"`
 }
 
 type DeviceInfo struct {
@@ -91,6 +93,33 @@ type MinerState struct {
 	Username        string
 	Password        string
 	IsBlinking      bool
+	// Error simulation fields
+	ErrorConfig ErrorConfig
+}
+
+// ErrorConfig holds configuration for simulating various error conditions
+type ErrorConfig struct {
+	// Temperature errors
+	BoardTemperature float64 // Temperature for board (0 = use default)
+
+	// Hardware error rates
+	HWErrorPercent float64 // Hardware error percentage (e.g., 5.0 for 5%)
+	HWErrorCount   int     // Absolute hardware error count
+
+	// Share rejection
+	RejectedPercent float64 // Rejected share percentage
+	RejectedCount   int     // Absolute rejected count
+	StaleCount      int     // Stale share count
+
+	// Hashboard status
+	BoardDisabled   bool // Set board to disabled
+	BoardNotAlive   bool // Set board status to not "Alive"
+	BoardNotHashing bool // Set board hashrate to 0
+
+	// Pool connectivity
+	PoolNotAlive       bool // Set pool status to not "Alive"
+	PoolGetFailures    int  // Pool get failure count
+	PoolRemoteFailures int  // Pool remote failure count
 }
 
 // Pool represents a mining pool configuration

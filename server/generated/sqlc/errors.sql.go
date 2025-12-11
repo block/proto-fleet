@@ -30,7 +30,12 @@ func (q *Queries) GetDeviceIDByIdentifier(ctx context.Context, arg GetDeviceIDBy
 }
 
 const getErrorByErrorID = `-- name: GetErrorByErrorID :one
-SELECT id, error_id, org_id, miner_error, severity, summary, impact, cause_summary, recommended_action, first_seen_at, last_seen_at, closed_at, device_id, component_id, component_type, vendor_code, firmware, extra, created_at, updated_at FROM errors WHERE error_id = ? AND org_id = ?
+SELECT
+    e.id, e.error_id, e.org_id, e.miner_error, e.severity, e.summary, e.impact, e.cause_summary, e.recommended_action, e.first_seen_at, e.last_seen_at, e.closed_at, e.device_id, e.component_id, e.component_type, e.vendor_code, e.firmware, e.extra, e.created_at, e.updated_at,
+    d.device_identifier
+FROM errors e
+JOIN device d ON e.device_id = d.id AND e.org_id = d.org_id
+WHERE e.error_id = ? AND e.org_id = ?
 `
 
 type GetErrorByErrorIDParams struct {
@@ -38,10 +43,34 @@ type GetErrorByErrorIDParams struct {
 	OrgID   int64
 }
 
-// Fetches an error by external ULID, scoped to organization.
-func (q *Queries) GetErrorByErrorID(ctx context.Context, arg GetErrorByErrorIDParams) (Error, error) {
+type GetErrorByErrorIDRow struct {
+	ID                int64
+	ErrorID           string
+	OrgID             int64
+	MinerError        int32
+	Severity          int32
+	Summary           string
+	Impact            sql.NullString
+	CauseSummary      sql.NullString
+	RecommendedAction sql.NullString
+	FirstSeenAt       time.Time
+	LastSeenAt        time.Time
+	ClosedAt          sql.NullTime
+	DeviceID          int64
+	ComponentID       sql.NullString
+	ComponentType     sql.NullInt32
+	VendorCode        sql.NullString
+	Firmware          sql.NullString
+	Extra             json.RawMessage
+	CreatedAt         sql.NullTime
+	UpdatedAt         sql.NullTime
+	DeviceIdentifier  string
+}
+
+// Fetches an error by external ULID with device_identifier, scoped to organization.
+func (q *Queries) GetErrorByErrorID(ctx context.Context, arg GetErrorByErrorIDParams) (GetErrorByErrorIDRow, error) {
 	row := q.queryRow(ctx, q.getErrorByErrorIDStmt, getErrorByErrorID, arg.ErrorID, arg.OrgID)
-	var i Error
+	var i GetErrorByErrorIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.ErrorID,
@@ -63,6 +92,7 @@ func (q *Queries) GetErrorByErrorID(ctx context.Context, arg GetErrorByErrorIDPa
 		&i.Extra,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeviceIdentifier,
 	)
 	return i, err
 }

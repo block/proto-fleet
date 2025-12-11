@@ -40,8 +40,13 @@ WHERE id = ? AND closed_at IS NULL;
 SELECT * FROM errors WHERE id = ? AND org_id = ?;
 
 -- name: GetErrorByErrorID :one
--- Fetches an error by external ULID, scoped to organization.
-SELECT * FROM errors WHERE error_id = ? AND org_id = ?;
+-- Fetches an error by external ULID with device_identifier, scoped to organization.
+SELECT
+    e.*,
+    d.device_identifier
+FROM errors e
+JOIN device d ON e.device_id = d.id AND e.org_id = d.org_id
+WHERE e.error_id = ? AND e.org_id = ?;
 
 -- name: GetDeviceIDByIdentifier :one
 -- Resolves device_identifier to internal device_id.

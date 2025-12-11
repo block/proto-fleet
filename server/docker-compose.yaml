@@ -123,13 +123,121 @@ services:
       - 4028
       - 80
     deploy:
-      replicas: 5 # Default is 5 instances, can be overridden with --scale
+      replicas: 2
       resources:
         limits:
           cpus: "0.25"
           memory: 128M
         reservations:
           memory: 64M
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+  fake-antminer-high-temp:
+    build:
+      context: ./fake-antminer
+      dockerfile: Dockerfile
+    environment:
+      MINER_TYPE: "Antminer S17"
+      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      ERROR_BOARD_TEMP: "96.0"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    expose:
+      - 4028
+      - 80
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+  fake-antminer-hw-errors:
+    build:
+      context: ./fake-antminer
+      dockerfile: Dockerfile
+    environment:
+      MINER_TYPE: "Antminer S21"
+      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      ERROR_HW_PERCENT: "6.5"
+      ERROR_HW_COUNT: "1500"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    expose:
+      - 4028
+      - 80
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+  fake-antminer-board-dead:
+    build:
+      context: ./fake-antminer
+      dockerfile: Dockerfile
+    environment:
+      MINER_TYPE: "Antminer S21 XP"
+      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      ERROR_BOARD_NOT_ALIVE: "true"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    expose:
+      - 4028
+      - 80
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+  fake-antminer-pool-issues:
+    build:
+      context: ./fake-antminer
+      dockerfile: Dockerfile
+    environment:
+      MINER_TYPE: "Antminer S17 XP"
+      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      ERROR_POOL_NOT_ALIVE: "true"
+      ERROR_POOL_GET_FAILURES: "15"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    expose:
+      - 4028
+      - 80
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+  fake-antminer-rejected-shares:
+    build:
+      context: ./fake-antminer
+      dockerfile: Dockerfile
+    environment:
+      MINER_TYPE: "Antminer S18"
+      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      ERROR_REJECTED_PERCENT: "12.0"
+      ERROR_STALE_COUNT: "150"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    expose:
+      - 4028
+      - 80
     networks:
       - fleet-network
     cap_add:
@@ -162,7 +270,7 @@ services:
       context: ./fake-antminer
       dockerfile: Dockerfile
     environment:
-      MINER_TYPE: "Antminer S19 XP"
+      MINER_TYPE: "Antminer S19"
       FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]

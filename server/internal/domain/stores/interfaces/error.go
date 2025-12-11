@@ -16,4 +16,7 @@ type ErrorStore interface {
 	// If no open error exists (or only closed), it inserts a new error with a new ULID.
 	// Returns the full error record after the operation.
 	UpsertError(ctx context.Context, orgID int64, deviceIdentifier string, errMsg *models.ErrorMessage) (*models.ErrorMessage, error)
+
+	// GetErrorByErrorID retrieves a single error by its error_id (ULID).
+	GetErrorByErrorID(ctx context.Context, orgID int64, errorID string) (*models.ErrorMessage, error)
 }

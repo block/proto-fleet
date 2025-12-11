@@ -112,9 +112,9 @@ var componentCounts = map[errorsv1.ComponentType]int{
 // FakeErrorManager provides in-memory error management with seeded and generated errors.
 type FakeErrorManager struct {
 	mu              sync.RWMutex
-	seededErrors    map[int64][]ErrorRecord // deviceID -> errors
-	generatedErrors map[int64][]ErrorRecord // deviceID -> errors
-	deviceTypes     map[int64]string        // deviceID -> device type (model)
+	seededErrors    map[string][]ErrorRecord // deviceID -> errors
+	generatedErrors map[string][]ErrorRecord // deviceID -> errors
+	deviceTypes     map[string]string        // deviceID -> device type (model)
 	metadata        map[errorsv1.MinerError]*MinerErrorMetadata
 	errorIndex      map[string]*ErrorRecord // errorID -> error for fast lookup
 }
@@ -122,9 +122,9 @@ type FakeErrorManager struct {
 // NewFakeErrorManager creates a new fake error manager with empty state.
 func NewFakeErrorManager() *FakeErrorManager {
 	return &FakeErrorManager{
-		seededErrors:    make(map[int64][]ErrorRecord),
-		generatedErrors: make(map[int64][]ErrorRecord),
-		deviceTypes:     make(map[int64]string),
+		seededErrors:    make(map[string][]ErrorRecord),
+		generatedErrors: make(map[string][]ErrorRecord),
+		deviceTypes:     make(map[string]string),
 		metadata:        BuildMinerErrorMetadata(),
 		errorIndex:      make(map[string]*ErrorRecord),
 	}
@@ -154,7 +154,7 @@ func (m *FakeErrorManager) Seed(data []SeedData) {
 }
 
 // GetErrorsForDevice returns all errors (seeded + generated) for a device.
-func (m *FakeErrorManager) GetErrorsForDevice(deviceID int64) []ErrorRecord {
+func (m *FakeErrorManager) GetErrorsForDevice(deviceID string) []ErrorRecord {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -195,7 +195,7 @@ func (m *FakeErrorManager) GetErrorByID(errorID string) (*ErrorRecord, bool) {
 }
 
 // EnsureErrorsExist generates errors for a device if none exist yet (seeded or generated).
-func (m *FakeErrorManager) EnsureErrorsExist(deviceID int64, deviceType string) {
+func (m *FakeErrorManager) EnsureErrorsExist(deviceID string, deviceType string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -231,14 +231,14 @@ func (m *FakeErrorManager) EnsureErrorsExist(deviceID int64, deviceType string) 
 }
 
 // GetDeviceType returns the device type for a device ID.
-func (m *FakeErrorManager) GetDeviceType(deviceID int64) string {
+func (m *FakeErrorManager) GetDeviceType(deviceID string) string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.deviceTypes[deviceID]
 }
 
 // SetDeviceType sets the device type for a device ID.
-func (m *FakeErrorManager) SetDeviceType(deviceID int64, deviceType string) {
+func (m *FakeErrorManager) SetDeviceType(deviceID string, deviceType string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.deviceTypes[deviceID] = deviceType
@@ -263,7 +263,7 @@ func (m *FakeErrorManager) shouldGenerateErrors() bool {
 }
 
 // generateErrorsForDevice creates random errors for a device.
-func (m *FakeErrorManager) generateErrorsForDevice(deviceID int64, _ string) []ErrorRecord {
+func (m *FakeErrorManager) generateErrorsForDevice(deviceID string, _ string) []ErrorRecord {
 	var errors []ErrorRecord
 
 	// Select random number of components to affect.
@@ -337,7 +337,7 @@ func (m *FakeErrorManager) selectRandomErrors(errors []errorsv1.MinerError, n in
 }
 
 // createErrorRecord creates a new error record with random timestamps.
-func (m *FakeErrorManager) createErrorRecord(deviceID int64, componentID string, errCode errorsv1.MinerError) ErrorRecord {
+func (m *FakeErrorManager) createErrorRecord(deviceID string, componentID string, errCode errorsv1.MinerError) ErrorRecord {
 	meta, ok := m.metadata[errCode]
 	if !ok {
 		meta = &MinerErrorMetadata{
@@ -387,9 +387,9 @@ func (m *FakeErrorManager) createErrorRecord(deviceID int64, componentID string,
 }
 
 // formatComponentID creates a component ID in the format "{deviceID}_{type}_{index}".
-func (m *FakeErrorManager) formatComponentID(deviceID int64, compType errorsv1.ComponentType, index int) string {
+func (m *FakeErrorManager) formatComponentID(deviceID string, compType errorsv1.ComponentType, index int) string {
 	typeStr := componentTypeToString(compType)
-	return fmt.Sprintf("%d_%s_%d", deviceID, typeStr, index)
+	return fmt.Sprintf("%s_%s_%d", deviceID, typeStr, index)
 }
 
 // componentTypeToString returns a short string for the component type.

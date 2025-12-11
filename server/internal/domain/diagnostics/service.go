@@ -31,6 +31,11 @@ func NewService(errorStore storeInterfaces.ErrorStore) *Service {
 	}
 }
 
+// GetError retrieves a single error by ID.
+func (s *Service) GetError(ctx context.Context, orgID int64, errorID string) (*models.ErrorMessage, error) {
+	return s.errorStore.GetErrorByErrorID(ctx, orgID, errorID)
+}
+
 // PollErrors fetches errors from each miner and upserts them to the datastore.
 // Individual miner failures are logged and counted in PollResult. If the context
 // is cancelled, processing stops and Cancelled is set to true in the result.

@@ -157,7 +157,7 @@ message ErrorMessage {
   google.protobuf.Timestamp closed_at = 9;          // Optional: when error was resolved
 
   map<string, string> vendor_attributes = 10;        // e.g., firmware, code, serials
-  int64 device_id = 11;                             // Device this error belongs to
+  string device_identifier = 11;                    // device_identifier of the Device this error belongs to
   optional string component_id = 12;                // Optional component identifier
   string impact = 13;                               // Human-readable business impact
 }
@@ -171,7 +171,7 @@ message Summary {
 
 // Errors grouped by device
 message DeviceError {
-  int64 device_id = 1;
+  string device_identifier = 1;
   string device_type = 2;                           // Model name
   Status status = 3;
   Summary summary = 4;
@@ -183,7 +183,7 @@ message DeviceError {
 message ComponentError {
   string component_id = 1;
   ComponentType component_type = 2;
-  int64 device_id = 3;
+  string device_identifier = 3;
   Status status = 4;
   Summary summary = 5;
   repeated ErrorMessage errors = 6;
@@ -192,7 +192,7 @@ message ComponentError {
 
 // Simple filter with field lists
 message SimpleFilter {
-  repeated int64 device_ids = 1;                    // Database primary keys
+  repeated string device_identifiers = 1;           // device_identifiers of the Devices
   repeated string device_types = 2;                 // Model names (e.g., "R2", "S19")
   repeated string component_ids = 3;
   repeated ComponentType component_types = 4;

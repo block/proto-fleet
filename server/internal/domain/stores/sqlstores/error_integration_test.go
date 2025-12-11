@@ -422,3 +422,38 @@ func TestSQLErrorStore_UpsertError_ShouldMapAllFieldsCorrectly(t *testing.T) {
 	assert.Contains(t, string(extraJSON), `"threshold"`)
 	assert.Contains(t, string(extraJSON), `"85"`)
 }
+
+func TestSQLErrorStore_GetErrorByErrorID_ShouldReturnError(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	// Arrange
+	db := testutil.GetTestDB(t)
+	store := sqlstores.NewSQLErrorStore(db)
+	ctx := t.Context()
+	orgID, deviceIdentifier := setupErrorTestData(t, db)
+
+	errMsg := createTestErrorMessage(deviceIdentifier)
+	inserted, err := store.UpsertError(ctx, orgID, deviceIdentifier, errMsg)
+	require.NoError(t, err)
+
+	// Act
+	result, err := store.GetErrorByErrorID(ctx, orgID, inserted.ErrorID)
+
+	// Assert
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, deviceIdentifier, result.DeviceID)
+	assert.Equal(t, inserted.ErrorID, result.ErrorID)
+	assert.Equal(t, inserted.MinerError, result.MinerError)
+	assert.Equal(t, inserted.Summary, result.Summary)
+	assert.Equal(t, inserted.CauseSummary, result.CauseSummary)
+	assert.Equal(t, inserted.RecommendedAction, result.RecommendedAction)
+	assert.Equal(t, inserted.FirstSeenAt, result.FirstSeenAt)
+	assert.Equal(t, inserted.LastSeenAt, result.LastSeenAt)
+	assert.Equal(t, inserted.ClosedAt, result.ClosedAt)
+	assert.Equal(t, inserted.VendorAttributes, result.VendorAttributes)
+	assert.Equal(t, inserted.VendorCode, result.VendorCode)
+	assert.Equal(t, inserted.Firmware, result.Firmware)
+}

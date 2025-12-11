@@ -180,14 +180,14 @@ func (s *Service) Watch(ctx context.Context, filter *errorsv1.Filter) (<-chan *e
 }
 
 // resolveDevices returns device IDs and their types for the given filter.
-func (s *Service) resolveDevices(ctx context.Context, orgID int64, filter *errorsv1.Filter) ([]int64, []string, error) {
-	var deviceIDs []int64
+func (s *Service) resolveDevices(ctx context.Context, orgID int64, filter *errorsv1.Filter) ([]string, []string, error) {
+	var deviceIDs []string
 	var deviceTypes []string
 
 	simpleFilter := filter.GetSimple()
-	if simpleFilter != nil && len(simpleFilter.GetDeviceIds()) > 0 {
+	if simpleFilter != nil && len(simpleFilter.GetDeviceIdentifiers()) > 0 {
 		// Use device IDs from filter.
-		for _, id := range simpleFilter.GetDeviceIds() {
+		for _, id := range simpleFilter.GetDeviceIdentifiers() {
 			// Verify each device belongs to org.
 			if err := s.verifyDeviceOwnership(ctx, id, orgID); err != nil {
 				continue // Skip devices that don't belong to this org.
@@ -208,7 +208,7 @@ func (s *Service) resolveDevices(ctx context.Context, orgID int64, filter *error
 			if device.DeviceID == 0 {
 				continue // Skip unpaired devices
 			}
-			deviceIDs = append(deviceIDs, device.DeviceID)
+			deviceIDs = append(deviceIDs, device.DeviceIdentifier)
 			deviceType := ""
 			if device.Model.Valid {
 				deviceType = device.Model.String
@@ -216,7 +216,7 @@ func (s *Service) resolveDevices(ctx context.Context, orgID int64, filter *error
 			deviceTypes = append(deviceTypes, deviceType)
 
 			// Store the device type mapping.
-			s.fakeManager.SetDeviceType(device.DeviceID, deviceType)
+			s.fakeManager.SetDeviceType(device.DeviceIdentifier, deviceType)
 		}
 	}
 
@@ -224,20 +224,20 @@ func (s *Service) resolveDevices(ctx context.Context, orgID int64, filter *error
 }
 
 // verifyDeviceOwnership checks if a device belongs to the given org.
-func (s *Service) verifyDeviceOwnership(_ context.Context, _ int64, _ int64) error {
+func (s *Service) verifyDeviceOwnership(_ context.Context, _ string, _ int64) error {
 	// For the fake manager, we'll assume all devices are accessible.
 	// In a real implementation, this would check the device store.
 	return nil
 }
 
 // applyFilters filters errors based on the request filter.
-func (s *Service) applyFilters(errors []ErrorRecord, filter *errorsv1.Filter, deviceTypes []string, deviceIDs []int64) []ErrorRecord {
+func (s *Service) applyFilters(errors []ErrorRecord, filter *errorsv1.Filter, deviceTypes []string, deviceIDs []string) []ErrorRecord {
 	if filter == nil {
 		return errors
 	}
 
 	// Build device type map.
-	deviceTypeMap := make(map[int64]string)
+	deviceTypeMap := make(map[string]string)
 	for i, id := range deviceIDs {
 		if i < len(deviceTypes) {
 			deviceTypeMap[id] = deviceTypes[i]
@@ -254,7 +254,7 @@ func (s *Service) applyFilters(errors []ErrorRecord, filter *errorsv1.Filter, de
 }
 
 // matchesFilter checks if an error matches the filter criteria.
-func (s *Service) matchesFilter(err ErrorRecord, filter *errorsv1.Filter, deviceTypeMap map[int64]string) bool {
+func (s *Service) matchesFilter(err ErrorRecord, filter *errorsv1.Filter, deviceTypeMap map[string]string) bool {
 	// Check include_closed.
 	if !filter.GetIncludeClosed() && err.ClosedAt != nil {
 		return false
@@ -279,9 +279,9 @@ func (s *Service) matchesFilter(err ErrorRecord, filter *errorsv1.Filter, device
 	matches := []bool{}
 
 	// Check device IDs.
-	if len(simpleFilter.GetDeviceIds()) > 0 {
+	if len(simpleFilter.GetDeviceIdentifiers()) > 0 {
 		match := false
-		for _, id := range simpleFilter.GetDeviceIds() {
+		for _, id := range simpleFilter.GetDeviceIdentifiers() {
 			if err.DeviceID == id {
 				match = true
 				break
@@ -395,19 +395,19 @@ func (s *Service) buildErrorPageResponse(errors []ErrorRecord, offset, pageSize 
 }
 
 // buildComponentPageResponse creates a response grouped by component.
-func (s *Service) buildComponentPageResponse(errors []ErrorRecord, deviceTypes []string, deviceIDs []int64, offset, pageSize int, view errorsv1.ResultView) (*errorsv1.QueryResponse, error) {
+func (s *Service) buildComponentPageResponse(errors []ErrorRecord, deviceTypes []string, deviceIDs []string, offset, pageSize int, view errorsv1.ResultView) (*errorsv1.QueryResponse, error) {
 	// Group errors by component.
 	componentMap := make(map[string][]ErrorRecord)
 	for _, err := range errors {
 		key := err.ComponentID
 		if key == "" {
-			key = fmt.Sprintf("%d_device", err.DeviceID)
+			key = fmt.Sprintf("%s_device", err.DeviceID)
 		}
 		componentMap[key] = append(componentMap[key], err)
 	}
 
 	// Build device type map.
-	deviceTypeMap := make(map[int64]string)
+	deviceTypeMap := make(map[string]string)
 	for i, id := range deviceIDs {
 		if i < len(deviceTypes) {
 			deviceTypeMap[id] = deviceTypes[i]
@@ -437,7 +437,7 @@ func (s *Service) buildComponentPageResponse(errors []ErrorRecord, deviceTypes [
 		componentErrors = append(componentErrors, &errorsv1.ComponentError{
 			ComponentId:      componentID,
 			ComponentType:    compType,
-			DeviceId:         deviceID,
+			DeviceIdentifier: deviceID,
 			Status:           CalculateStatus(compErrors),
 			Summary:          GenerateSummary(compErrors),
 			Errors:           items,
@@ -462,15 +462,15 @@ func (s *Service) buildComponentPageResponse(errors []ErrorRecord, deviceTypes [
 }
 
 // buildDevicePageResponse creates a response grouped by device.
-func (s *Service) buildDevicePageResponse(errors []ErrorRecord, deviceTypes []string, deviceIDs []int64, offset, pageSize int, view errorsv1.ResultView) (*errorsv1.QueryResponse, error) {
+func (s *Service) buildDevicePageResponse(errors []ErrorRecord, deviceTypes []string, deviceIDs []string, offset, pageSize int, view errorsv1.ResultView) (*errorsv1.QueryResponse, error) {
 	// Group errors by device.
-	deviceMap := make(map[int64][]ErrorRecord)
+	deviceMap := make(map[string][]ErrorRecord)
 	for _, err := range errors {
 		deviceMap[err.DeviceID] = append(deviceMap[err.DeviceID], err)
 	}
 
 	// Build device type map.
-	deviceTypeMap := make(map[int64]string)
+	deviceTypeMap := make(map[string]string)
 	for i, id := range deviceIDs {
 		if i < len(deviceTypes) {
 			deviceTypeMap[id] = deviceTypes[i]
@@ -486,7 +486,7 @@ func (s *Service) buildDevicePageResponse(errors []ErrorRecord, deviceTypes []st
 		}
 
 		deviceErrors = append(deviceErrors, &errorsv1.DeviceError{
-			DeviceId:         deviceID,
+			DeviceIdentifier: deviceID,
 			DeviceType:       deviceTypeMap[deviceID],
 			Status:           CalculateStatus(devErrors),
 			Summary:          GenerateSummary(devErrors),
@@ -512,7 +512,7 @@ func (s *Service) buildDevicePageResponse(errors []ErrorRecord, deviceTypes []st
 }
 
 // sendWatchUpdate sends an update event on the watch channel.
-func (s *Service) sendWatchUpdate(ch chan<- *errorsv1.WatchResponse, deviceIDs []int64, deviceTypes []string, filter *errorsv1.Filter, kind errorsv1.WatchResponse_Kind) {
+func (s *Service) sendWatchUpdate(ch chan<- *errorsv1.WatchResponse, deviceIDs []string, deviceTypes []string, filter *errorsv1.Filter, kind errorsv1.WatchResponse_Kind) {
 	// Collect all errors.
 	var allErrors []ErrorRecord
 	for _, deviceID := range deviceIDs {
@@ -558,7 +558,7 @@ func convertErrorRecordToProto(err *ErrorRecord) *errorsv1.ErrorMessage {
 		FirstSeenAt:       timestamppb.New(err.FirstSeenAt),
 		LastSeenAt:        timestamppb.New(err.LastSeenAt),
 		VendorAttributes:  err.VendorAttributes,
-		DeviceId:          err.DeviceID,
+		DeviceIdentifier:  err.DeviceID,
 		Impact:            err.Impact,
 	}
 

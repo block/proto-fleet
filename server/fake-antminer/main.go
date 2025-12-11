@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -26,6 +27,9 @@ func main() {
 	}
 
 	log.Printf("Starting fake Antminer server: %s (SN: %s)", minerType, serialNumber)
+
+	// Parse error configuration from environment
+	errorConfig := parseErrorConfig()
 
 	// Create miner state
 	state := &MinerState{
@@ -47,8 +51,9 @@ func main() {
 				Pass: "x",
 			},
 		},
-		Username: "root",
-		Password: "root",
+		Username:    "root",
+		Password:    "root",
+		ErrorConfig: errorConfig,
 	}
 
 	// Create context for graceful shutdown
@@ -231,4 +236,49 @@ func errorResponse(w http.ResponseWriter, message string, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	fmt.Fprintf(w, `{"error": "%s"}`, message)
+}
+
+// parseErrorConfig reads error configuration from environment variables
+func parseErrorConfig() ErrorConfig {
+	return ErrorConfig{
+		BoardTemperature:   parseFloat("ERROR_BOARD_TEMP", 0),
+		HWErrorPercent:     parseFloat("ERROR_HW_PERCENT", 0),
+		HWErrorCount:       parseInt("ERROR_HW_COUNT", 0),
+		RejectedPercent:    parseFloat("ERROR_REJECTED_PERCENT", 0),
+		RejectedCount:      parseInt("ERROR_REJECTED_COUNT", 0),
+		StaleCount:         parseInt("ERROR_STALE_COUNT", 0),
+		BoardDisabled:      parseBool("ERROR_BOARD_DISABLED", false),
+		BoardNotAlive:      parseBool("ERROR_BOARD_NOT_ALIVE", false),
+		BoardNotHashing:    parseBool("ERROR_BOARD_NOT_HASHING", false),
+		PoolNotAlive:       parseBool("ERROR_POOL_NOT_ALIVE", false),
+		PoolGetFailures:    parseInt("ERROR_POOL_GET_FAILURES", 0),
+		PoolRemoteFailures: parseInt("ERROR_POOL_REMOTE_FAILURES", 0),
+	}
+}
+
+func parseFloat(key string, defaultValue float64) float64 {
+	if val := os.Getenv(key); val != "" {
+		if f, err := strconv.ParseFloat(val, 64); err == nil {
+			return f
+		}
+	}
+	return defaultValue
+}
+
+func parseInt(key string, defaultValue int) int {
+	if val := os.Getenv(key); val != "" {
+		if i, err := strconv.Atoi(val); err == nil {
+			return i
+		}
+	}
+	return defaultValue
+}
+
+func parseBool(key string, defaultValue bool) bool {
+	if val := os.Getenv(key); val != "" {
+		if b, err := strconv.ParseBool(val); err == nil {
+			return b
+		}
+	}
+	return defaultValue
 }
