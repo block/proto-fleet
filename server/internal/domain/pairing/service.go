@@ -31,8 +31,10 @@ import (
 )
 
 const (
-	// concurrentDiscoveryLimit limits the number of concurrent device discovery operations
-	concurrentDiscoveryLimit = 10
+	// concurrentDiscoveryLimit limits the number of concurrent device discovery operations.
+	// 25 provides good parallelism for typical fleet sizes (dozens to hundreds of miners)
+	// without overwhelming the network or local resources.
+	concurrentDiscoveryLimit = 25
 
 	// IP address constants for network address filtering
 	networkAddressLastOctet = 0   // Network address last octet (.0)
@@ -41,12 +43,26 @@ const (
 	localhostFirstOctet     = 127 // Localhost IP range first octet (127.x.x.x)
 
 	// IP address bit masks
-	ipv4LocalhostMask    = 0xFF000000 // Mask for checking IPv4 address class
-	ipv4LocalhostPrefix  = 0x7F000000 // IPv4 localhost prefix (127.0.0.0/8)
-	ipv4LastOctetMask    = 0xFF       // Mask for extracting last octet
-	ipv4FirstOctetShift  = 24         // Bit shift to extract first octet
-	ipv4SecondOctetShift = 16         // Bit shift to extract second octet
-	ipv4ThirdOctetShift  = 8          // Bit shift to extract third octet
+	ipv4LocalhostMask   = 0xFF000000 // Mask for checking IPv4 address class
+	ipv4LocalhostPrefix = 0x7F000000 // IPv4 localhost prefix (127.0.0.0/8)
+	ipv4LastOctetMask   = 0xFF       // Mask for extracting last octet
+
+	// Discovery timeout constants
+	defaultNmapTimeoutSeconds     = 120              // Overall timeout for nmap discovery operation
+	defaultIPDiscoveryTimeoutSecs = 120              // Overall timeout for IP-based discovery (list/range)
+	perDeviceDiscoveryTimeout     = 10 * time.Second // Timeout for probing a single device
+
+	// Nmap tuning parameters for faster scanning
+	nmapMaxRetriesPerHost = 1 // Reduce retries to speed up scanning of unresponsive hosts
+
+	// nmapHostTimeoutMilliseconds is the max time nmap waits for a single host to respond.
+	// 5s balances allowing slow devices to respond while keeping scans reasonably fast.
+	nmapHostTimeoutMilliseconds = 5000
+
+	// nmapMinRTTTimeoutMilliseconds sets the minimum round-trip time (RTT) for probe packets.
+	// This sets a floor on how long nmap waits before retransmitting probes. 100ms is a reasonable
+	// baseline for local networks - lower values may cause unnecessary retransmissions.
+	nmapMinRTTTimeoutMilliseconds = 100
 )
 
 // shouldSkipNetworkOrGatewayAddress returns true if the IPv4 address is a network address (.0)
@@ -80,10 +96,11 @@ func adjustIPRangeStartForNetworkAddresses(ipAddr uint32) uint32 {
 	}
 
 	lastOctet := ipAddr & ipv4LastOctetMask
-	if lastOctet == networkAddressLastOctet {
+	switch lastOctet {
+	case networkAddressLastOctet:
 		// Network address (.0), skip to .2
 		return ipAddr + firstHostAddressOffset
-	} else if lastOctet == gatewayAddressLastOctet {
+	case gatewayAddressLastOctet:
 		// Gateway address (.1), skip to .2
 		return ipAddr + 1
 	}
@@ -224,27 +241,35 @@ func (s *Service) DiscoverWithMDNS(ctx context.Context, r *pb.MDNSModeRequest) (
 func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (<-chan *pb.DiscoverResponse, error) {
 	resultChan := make(chan *pb.DiscoverResponse)
 
+	// Apply server-controlled timeout for the entire discovery operation
+	timeoutCtx, cancel := context.WithTimeout(ctx, defaultNmapTimeoutSeconds*time.Second)
+
 	go func() {
+		defer cancel()
 		defer close(resultChan)
 
 		var scanner *nmap.Scanner
 		var err error
-		if len(r.Ports) == 0 && r.FastScan {
-			scanner, err = nmap.NewScanner(
-				ctx,
-				nmap.WithTargets(r.Target),
-				nmap.WithFastMode(),
-				nmap.WithDisabledDNSResolution(),
-			)
-		} else {
-			scanner, err = nmap.NewScanner(
-				ctx,
-				nmap.WithTargets(r.Target),
-				nmap.WithPorts(strings.Join(r.Ports, ",")),
-				nmap.WithDisabledDNSResolution(),
-			)
+
+		// Common nmap options for faster scanning
+		nmapOpts := []nmap.Option{
+			nmap.WithTargets(r.Target),
+			nmap.WithDisabledDNSResolution(),
+			nmap.WithTimingTemplate(nmap.TimingAggressive), // -T4 for faster scanning
+			nmap.WithMaxRetries(nmapMaxRetriesPerHost),
+			nmap.WithHostTimeout(time.Duration(nmapHostTimeoutMilliseconds) * time.Millisecond),
+			nmap.WithMinRTTTimeout(time.Duration(nmapMinRTTTimeoutMilliseconds) * time.Millisecond),
 		}
 
+		if len(r.Ports) == 0 {
+			resultChan <- &pb.DiscoverResponse{
+				Error: "ports must be specified for nmap discovery",
+			}
+			return
+		}
+		nmapOpts = append(nmapOpts, nmap.WithPorts(strings.Join(r.Ports, ",")))
+
+		scanner, err = nmap.NewScanner(timeoutCtx, nmapOpts...)
 		if err != nil {
 			resultChan <- &pb.DiscoverResponse{
 				Error: fmt.Sprintf("failed to create scanner: %v", err),
@@ -252,13 +277,54 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 			return
 		}
 
+		slog.Debug("Starting nmap scan",
+			"target", r.Target,
+			"ports", r.Ports,
+			"timeout_seconds", defaultNmapTimeoutSeconds)
+
 		result, _, err := scanner.Run()
 		if err != nil {
-			resultChan <- &pb.DiscoverResponse{
+			if errors.Is(err, context.DeadlineExceeded) {
+				slog.Info("Nmap scan timed out",
+					"target", r.Target,
+					"timeout_seconds", defaultNmapTimeoutSeconds)
+				// After timeout, we cannot probe hosts because the context is expired.
+				// Send timeout error and return.
+				select {
+				case resultChan <- &pb.DiscoverResponse{
+					Error: fmt.Sprintf("scan timed out after %d seconds; some devices may not have been discovered", defaultNmapTimeoutSeconds),
+				}:
+				case <-timeoutCtx.Done():
+				}
+				return
+			}
+			// Non-timeout error
+			select {
+			case resultChan <- &pb.DiscoverResponse{
 				Error: fmt.Sprintf("scan failed: %v", err),
+			}:
+			case <-timeoutCtx.Done():
 			}
 			return
 		}
+
+		if result == nil {
+			// Scan timed out with no results - notify caller explicitly
+			select {
+			case resultChan <- &pb.DiscoverResponse{
+				Error: fmt.Sprintf("scan timed out after %d seconds without finding any hosts; verify the target network range is correct and devices are powered on", defaultNmapTimeoutSeconds),
+			}:
+			case <-timeoutCtx.Done():
+			}
+			return
+		}
+
+		// Collect all host:port combinations to probe
+		type hostPort struct {
+			ip   string
+			port string
+		}
+		var hostsToProbe []hostPort
 
 		for _, host := range result.Hosts {
 			if len(host.Addresses) == 0 {
@@ -298,13 +364,44 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 			}
 
 			for _, port := range host.Ports {
-				portStr := fmt.Sprintf("%d", port.ID)
-				err := s.discoverDevice(ctx, ipAddress, portStr, resultChan)
-				if err != nil {
-					slog.Debug("device discovery failed", "error", err)
+				if port.Status() == "open" {
+					hostsToProbe = append(hostsToProbe, hostPort{
+						ip:   ipAddress,
+						port: fmt.Sprintf("%d", port.ID),
+					})
 				}
 			}
 		}
+
+		slog.Debug("Probing discovered hosts",
+			"hosts_to_probe", len(hostsToProbe))
+
+		// Probe discovered hosts in parallel with concurrency limit
+		var wg sync.WaitGroup
+		semaphore := make(chan struct{}, concurrentDiscoveryLimit)
+
+		for _, hp := range hostsToProbe {
+			// Acquire semaphore with timeout support to prevent goroutine leak
+			select {
+			case <-timeoutCtx.Done():
+				slog.Debug("Discovery timeout reached, stopping device probing")
+				wg.Wait()
+				return
+			case semaphore <- struct{}{}:
+				wg.Add(1)
+				go func(ip, port string) {
+					defer wg.Done()
+					defer func() { <-semaphore }()
+
+					err := s.discoverDevice(timeoutCtx, ip, port, resultChan)
+					if err != nil {
+						slog.Debug("device discovery failed", "ip", ip, "port", port, "error", err)
+					}
+				}(hp.ip, hp.port)
+			}
+		}
+
+		wg.Wait()
 	}()
 
 	return resultChan, nil
@@ -325,28 +422,36 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 	// Skip network address (.0) and gateway (.1) to avoid discovery issues
 	startIP = adjustIPRangeStartForNetworkAddresses(startIP)
 
+	// Apply server-controlled timeout for the entire discovery operation
+	timeoutCtx, cancel := context.WithTimeout(ctx, defaultIPDiscoveryTimeoutSecs*time.Second)
+
 	go func() {
+		defer cancel()
 		defer close(resultChan)
 
 		var wg sync.WaitGroup
 		semaphore := make(chan struct{}, concurrentDiscoveryLimit)
 
 		for ip := startIP; ip <= endIP; ip++ {
+			// Acquire semaphore with timeout support to prevent goroutine leak
 			select {
-			case <-ctx.Done():
+			case <-timeoutCtx.Done():
+				slog.Debug("Discovery timeout reached, stopping IP range scan")
+				wg.Wait()
 				return
-			default:
+			case semaphore <- struct{}{}:
 				wg.Add(1)
-				semaphore <- struct{}{} // Acquire semaphore
-
 				go func(ipAddr string) {
 					defer wg.Done()
-					defer func() { <-semaphore }() // Release semaphore
+					defer func() { <-semaphore }()
 
 					for _, port := range r.Ports {
-						err := s.discoverDevice(ctx, ipAddr, port, resultChan)
+						if timeoutCtx.Err() != nil {
+							return
+						}
+						err := s.discoverDevice(timeoutCtx, ipAddr, port, resultChan)
 						if err != nil {
-							slog.Debug("device discovery failed", "error", err)
+							slog.Debug("device discovery failed", "ip", ipAddr, "port", port, "error", err)
 						}
 					}
 				}(uint32ToIP(ip))
@@ -363,28 +468,36 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeRequest) (<-chan *pb.DiscoverResponse, error) {
 	resultChan := make(chan *pb.DiscoverResponse)
 
+	// Apply server-controlled timeout for the entire discovery operation
+	timeoutCtx, cancel := context.WithTimeout(ctx, defaultIPDiscoveryTimeoutSecs*time.Second)
+
 	go func() {
+		defer cancel()
 		defer close(resultChan)
 
 		var wg sync.WaitGroup
 		semaphore := make(chan struct{}, concurrentDiscoveryLimit)
 
 		for _, ip := range r.IpAddresses {
+			// Acquire semaphore with timeout support to prevent goroutine leak
 			select {
-			case <-ctx.Done():
+			case <-timeoutCtx.Done():
+				slog.Debug("Discovery timeout reached, stopping IP list scan")
+				wg.Wait()
 				return
-			default:
+			case semaphore <- struct{}{}:
 				wg.Add(1)
-				semaphore <- struct{}{} // Acquire semaphore
-
 				go func(ipAddr string) {
 					defer wg.Done()
-					defer func() { <-semaphore }() // Release semaphore
+					defer func() { <-semaphore }()
 
 					for _, port := range r.Ports {
-						err := s.discoverDevice(ctx, ipAddr, port, resultChan)
+						if timeoutCtx.Err() != nil {
+							return
+						}
+						err := s.discoverDevice(timeoutCtx, ipAddr, port, resultChan)
 						if err != nil {
-							slog.Debug("device discovery failed", "error", err)
+							slog.Debug("device discovery failed", "ip", ipAddr, "port", port, "error", err)
 						}
 					}
 				}(ip)
@@ -398,12 +511,19 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 }
 
 func (s *Service) discoverDevice(ctx context.Context, ipAddress string, port string, resultChan chan<- *pb.DiscoverResponse) error {
-	discoveredDevice, err := s.minerDiscoveryService.Discover(ctx, ipAddress, port)
+	// Apply per-device discovery timeout to prevent individual slow devices from blocking others
+	discoveryCtx, cancel := context.WithTimeout(ctx, perDeviceDiscoveryTimeout)
+	defer cancel()
+
+	discoveredDevice, err := s.minerDiscoveryService.Discover(discoveryCtx, ipAddress, port)
 	if err != nil {
-		slog.Debug("Discovery failed",
-			"ipAddress", ipAddress,
-			"port", port,
-			"error", err)
+		// Only log non-timeout errors at debug level; timeouts are expected for non-miner hosts
+		if !errors.Is(err, context.DeadlineExceeded) {
+			slog.Debug("Discovery failed",
+				"ipAddress", ipAddress,
+				"port", port,
+				"error", err)
+		}
 
 		return err
 	}

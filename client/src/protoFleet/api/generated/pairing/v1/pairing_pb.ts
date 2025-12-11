@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_pairing_v1_pairing: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChhwYWlyaW5nL3YxL3BhaXJpbmcucHJvdG8SCnBhaXJpbmcudjEi8gEKBkRldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRISCgppcF9hZGRyZXNzGAIgASgJEgwKBHBvcnQYAyABKAkSEwoLbWFjX2FkZHJlc3MYBCABKAkSFQoNc2VyaWFsX251bWJlchgFIAEoCRINCgVtb2RlbBgGIAEoCRIUCgxtYW51ZmFjdHVyZXIYByABKAkSEgoKdXJsX3NjaGVtZRgIIAEoCRIMCgR0eXBlGAkgASgJEjgKDGNhcGFiaWxpdGllcxgKIAEoCzIiLmNhcGFiaWxpdGllcy52MS5NaW5lckNhcGFiaWxpdGllcyJDCgtDcmVkZW50aWFscxIQCgh1c2VybmFtZRgBIAEoCRIVCghwYXNzd29yZBgCIAEoCUgAiAEBQgsKCV9wYXNzd29yZCJQCg9NRE5TTW9kZVJlcXVlc3QSFAoMc2VydmljZV90eXBlGAEgASgJEg4KBmRvbWFpbhgCIAEoCRIXCg90aW1lb3V0X3NlY29uZHMYAyABKAUiQwoPTm1hcE1vZGVSZXF1ZXN0Eg4KBnRhcmdldBgBIAEoCRINCgVwb3J0cxgCIAMoCRIRCglmYXN0X3NjYW4YAyABKAgiXgoSSVBSYW5nZU1vZGVSZXF1ZXN0EhAKCHN0YXJ0X2lwGAEgASgJEg4KBmVuZF9pcBgCIAEoCRINCgVwb3J0cxgDIAMoCRIXCg90aW1lb3V0X3NlY29uZHMYBCABKAUiUQoRSVBMaXN0TW9kZVJlcXVlc3QSFAoMaXBfYWRkcmVzc2VzGAEgAygJEg0KBXBvcnRzGAIgAygJEhcKD3RpbWVvdXRfc2Vjb25kcxgDIAEoBSLZAQoPRGlzY292ZXJSZXF1ZXN0EjAKB2lwX2xpc3QYASABKAsyHS5wYWlyaW5nLnYxLklQTGlzdE1vZGVSZXF1ZXN0SAASMgoIaXBfcmFuZ2UYAiABKAsyHi5wYWlyaW5nLnYxLklQUmFuZ2VNb2RlUmVxdWVzdEgAEisKBG1kbnMYAyABKAsyGy5wYWlyaW5nLnYxLk1ETlNNb2RlUmVxdWVzdEgAEisKBG5tYXAYBCABKAsyGy5wYWlyaW5nLnYxLk5tYXBNb2RlUmVxdWVzdEgAQgYKBG1vZGUiRgoQRGlzY292ZXJSZXNwb25zZRIjCgdkZXZpY2VzGAEgAygLMhIucGFpcmluZy52MS5EZXZpY2USDQoFZXJyb3IYAiABKAkiVwoLUGFpclJlcXVlc3QSGgoSZGV2aWNlX2lkZW50aWZpZXJzGAEgAygJEiwKC2NyZWRlbnRpYWxzGAIgASgLMhcucGFpcmluZy52MS5DcmVkZW50aWFscyIpCgxQYWlyUmVzcG9uc2USGQoRZmFpbGVkX2RldmljZV9pZHMYASADKAkylAEKDlBhaXJpbmdTZXJ2aWNlEkcKCERpc2NvdmVyEhsucGFpcmluZy52MS5EaXNjb3ZlclJlcXVlc3QaHC5wYWlyaW5nLnYxLkRpc2NvdmVyUmVzcG9uc2UwARI5CgRQYWlyEhcucGFpcmluZy52MS5QYWlyUmVxdWVzdBoYLnBhaXJpbmcudjEuUGFpclJlc3BvbnNlQrUBCg5jb20ucGFpcmluZy52MUIMUGFpcmluZ1Byb3RvUAFaTGdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvcGFpcmluZy92MTtwYWlyaW5ndjGiAgNQWFiqAgpQYWlyaW5nLlYxygIKUGFpcmluZ1xWMeICFlBhaXJpbmdcVjFcR1BCTWV0YWRhdGHqAgtQYWlyaW5nOjpWMWIGcHJvdG8z",
+    "ChhwYWlyaW5nL3YxL3BhaXJpbmcucHJvdG8SCnBhaXJpbmcudjEi8gEKBkRldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRISCgppcF9hZGRyZXNzGAIgASgJEgwKBHBvcnQYAyABKAkSEwoLbWFjX2FkZHJlc3MYBCABKAkSFQoNc2VyaWFsX251bWJlchgFIAEoCRINCgVtb2RlbBgGIAEoCRIUCgxtYW51ZmFjdHVyZXIYByABKAkSEgoKdXJsX3NjaGVtZRgIIAEoCRIMCgR0eXBlGAkgASgJEjgKDGNhcGFiaWxpdGllcxgKIAEoCzIiLmNhcGFiaWxpdGllcy52MS5NaW5lckNhcGFiaWxpdGllcyJDCgtDcmVkZW50aWFscxIQCgh1c2VybmFtZRgBIAEoCRIVCghwYXNzd29yZBgCIAEoCUgAiAEBQgsKCV9wYXNzd29yZCJQCg9NRE5TTW9kZVJlcXVlc3QSFAoMc2VydmljZV90eXBlGAEgASgJEg4KBmRvbWFpbhgCIAEoCRIXCg90aW1lb3V0X3NlY29uZHMYAyABKAUiNgoPTm1hcE1vZGVSZXF1ZXN0Eg4KBnRhcmdldBgBIAEoCRINCgVwb3J0cxgCIAMoCUoECAMQBCJLChJJUFJhbmdlTW9kZVJlcXVlc3QSEAoIc3RhcnRfaXAYASABKAkSDgoGZW5kX2lwGAIgASgJEg0KBXBvcnRzGAMgAygJSgQIBBAFIj4KEUlQTGlzdE1vZGVSZXF1ZXN0EhQKDGlwX2FkZHJlc3NlcxgBIAMoCRINCgVwb3J0cxgCIAMoCUoECAMQBCLZAQoPRGlzY292ZXJSZXF1ZXN0EjAKB2lwX2xpc3QYASABKAsyHS5wYWlyaW5nLnYxLklQTGlzdE1vZGVSZXF1ZXN0SAASMgoIaXBfcmFuZ2UYAiABKAsyHi5wYWlyaW5nLnYxLklQUmFuZ2VNb2RlUmVxdWVzdEgAEisKBG1kbnMYAyABKAsyGy5wYWlyaW5nLnYxLk1ETlNNb2RlUmVxdWVzdEgAEisKBG5tYXAYBCABKAsyGy5wYWlyaW5nLnYxLk5tYXBNb2RlUmVxdWVzdEgAQgYKBG1vZGUiRgoQRGlzY292ZXJSZXNwb25zZRIjCgdkZXZpY2VzGAEgAygLMhIucGFpcmluZy52MS5EZXZpY2USDQoFZXJyb3IYAiABKAkiVwoLUGFpclJlcXVlc3QSGgoSZGV2aWNlX2lkZW50aWZpZXJzGAEgAygJEiwKC2NyZWRlbnRpYWxzGAIgASgLMhcucGFpcmluZy52MS5DcmVkZW50aWFscyIpCgxQYWlyUmVzcG9uc2USGQoRZmFpbGVkX2RldmljZV9pZHMYASADKAkylAEKDlBhaXJpbmdTZXJ2aWNlEkcKCERpc2NvdmVyEhsucGFpcmluZy52MS5EaXNjb3ZlclJlcXVlc3QaHC5wYWlyaW5nLnYxLkRpc2NvdmVyUmVzcG9uc2UwARI5CgRQYWlyEhcucGFpcmluZy52MS5QYWlyUmVxdWVzdBoYLnBhaXJpbmcudjEuUGFpclJlc3BvbnNlQrUBCg5jb20ucGFpcmluZy52MUIMUGFpcmluZ1Byb3RvUAFaTGdpdGh1Yi5jb20vYnRjLW1pbmluZy9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvcGFpcmluZy92MTtwYWlyaW5ndjGiAgNQWFiqAgpQYWlyaW5nLlYxygIKUGFpcmluZ1xWMeICFlBhaXJpbmdcVjFcR1BCTWV0YWRhdGHqAgtQYWlyaW5nOjpWMWIGcHJvdG8z",
     [file_capabilities_v1_capabilities],
   );
 
@@ -175,20 +175,12 @@ export type NmapModeRequest = Message<"pairing.v1.NmapModeRequest"> & {
   target: string;
 
   /**
-   * Specific ports to scan
-   * If specified, fast_scan is ignored
+   * Ports to scan (required). Miner-specific ports should be provided by the client
+   * based on the configured plugins/device types.
    *
    * @generated from field: repeated string ports = 2;
    */
   ports: string[];
-
-  /**
-   * Whether to perform a fast scan (fewer ports, quicker results)
-   * Ignored if specific ports are provided
-   *
-   * @generated from field: bool fast_scan = 3;
-   */
-  fastScan: boolean;
 };
 
 /**
@@ -223,13 +215,6 @@ export type IPRangeModeRequest = Message<"pairing.v1.IPRangeModeRequest"> & {
    * @generated from field: repeated string ports = 3;
    */
   ports: string[];
-
-  /**
-   * Maximum time to spend scanning, in seconds
-   *
-   * @generated from field: int32 timeout_seconds = 4;
-   */
-  timeoutSeconds: number;
 };
 
 /**
@@ -259,13 +244,6 @@ export type IPListModeRequest = Message<"pairing.v1.IPListModeRequest"> & {
    * @generated from field: repeated string ports = 2;
    */
   ports: string[];
-
-  /**
-   * Maximum time to spend scanning, in seconds
-   *
-   * @generated from field: int32 timeout_seconds = 3;
-   */
-  timeoutSeconds: number;
 };
 
 /**

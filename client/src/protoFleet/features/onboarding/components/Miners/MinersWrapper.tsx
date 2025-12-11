@@ -95,7 +95,6 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
         value: {
           target: networkInfo.subnet,
           ports: defaultDiscoveryPorts,
-          fastScan: false,
         },
       },
     });
@@ -134,7 +133,6 @@ const MinersPage = ({ mode = "onboarding", onExit }: MinersPageProps) => {
           value: {
             ipAddresses: ipAddresses,
             ports: defaultDiscoveryPorts,
-            timeoutSeconds: defaultTimeout,
           },
         },
       });

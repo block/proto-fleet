@@ -208,7 +208,6 @@ async function main() {
       const nmapModeRequest = create(NmapModeRequestSchema, {
         target: "192.168.2.0/24",
         ports: ["2121"],
-        fastScan: false,
       });
 
       const discoverRequest = create(DiscoverRequestSchema, {
