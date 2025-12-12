@@ -17,8 +17,9 @@ import (
 )
 
 // newTestService creates a diagnostics service for testing with the given mock error store.
+// Uses context.Background() for the closer goroutine which will be cleaned up when tests complete.
 func newTestService(mockErrorStore *storeMocks.MockErrorStore) *Service {
-	return NewService(Config{}, mockErrorStore)
+	return NewService(context.Background(), Config{}, mockErrorStore)
 }
 
 func TestPollErrors_WithNoMiners_ShouldReturnEmptyResult(t *testing.T) {

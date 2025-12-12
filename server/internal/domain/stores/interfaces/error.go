@@ -2,6 +2,7 @@ package interfaces
 
 import (
 	"context"
+	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 )
@@ -54,4 +55,13 @@ type ErrorStore interface {
 
 	// CountComponents returns the count of distinct components with errors matching filter criteria.
 	CountComponents(ctx context.Context, opts *models.QueryOptions) (int64, error)
+
+	// ============================================================================
+	// Error Lifecycle Management
+	// ============================================================================
+
+	// CloseStaleErrors closes all open errors where last_seen_at is older than the threshold.
+	// This is a bulk operation that operates globally across all organizations.
+	// Returns the number of errors closed.
+	CloseStaleErrors(ctx context.Context, threshold time.Duration) (int64, error)
 }

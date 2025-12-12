@@ -13,6 +13,24 @@ import (
 	"time"
 )
 
+const closeStaleErrors = `-- name: CloseStaleErrors :execresult
+
+UPDATE errors
+SET closed_at = CURRENT_TIMESTAMP(6)
+WHERE closed_at IS NULL
+  AND last_seen_at < ?
+`
+
+// ============================================================================
+// Error Lifecycle Management
+// ============================================================================
+// Closes all open errors where last_seen_at is older than the specified cutoff time.
+// This is a bulk operation that operates globally across all organizations.
+// Used by the error closer background thread to auto-close stale errors.
+func (q *Queries) CloseStaleErrors(ctx context.Context, cutoffTime time.Time) (sql.Result, error) {
+	return q.exec(ctx, q.closeStaleErrorsStmt, closeStaleErrors, cutoffTime)
+}
+
 const countComponentsWithErrors = `-- name: CountComponentsWithErrors :one
 SELECT COUNT(*) as total FROM (
     SELECT DISTINCT e.device_id, e.component_id

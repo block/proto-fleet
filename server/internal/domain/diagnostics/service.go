@@ -33,12 +33,17 @@ type Service struct {
 	errorStore storeInterfaces.ErrorStore
 }
 
-// NewService creates a new diagnostics service.
-func NewService(config Config, errorStore storeInterfaces.ErrorStore) *Service {
-	return &Service{
+// NewService creates a new diagnostics service and starts the error closer goroutine.
+// The closer runs until the provided context is cancelled.
+func NewService(ctx context.Context, config Config, errorStore storeInterfaces.ErrorStore) *Service {
+	s := &Service{
 		config:     config,
 		errorStore: errorStore,
 	}
+
+	go s.runCloser(ctx)
+
+	return s
 }
 
 // GetError retrieves a single error by ID.

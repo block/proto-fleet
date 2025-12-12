@@ -7,6 +7,7 @@ package mocks
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	models "github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 	gomock "github.com/golang/mock/gomock"
@@ -33,6 +34,21 @@ func NewMockErrorStore(ctrl *gomock.Controller) *MockErrorStore {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockErrorStore) EXPECT() *MockErrorStoreMockRecorder {
 	return m.recorder
+}
+
+// CloseStaleErrors mocks base method.
+func (m *MockErrorStore) CloseStaleErrors(ctx context.Context, threshold time.Duration) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CloseStaleErrors", ctx, threshold)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CloseStaleErrors indicates an expected call of CloseStaleErrors.
+func (mr *MockErrorStoreMockRecorder) CloseStaleErrors(ctx, threshold interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CloseStaleErrors", reflect.TypeOf((*MockErrorStore)(nil).CloseStaleErrors), ctx, threshold)
 }
 
 // CountComponents mocks base method.

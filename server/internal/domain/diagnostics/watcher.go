@@ -55,15 +55,8 @@ func newWatcher(s *Service, orgID int64, opts *WatchOptions, config Config) *wat
 		opts = &WatchOptions{}
 	}
 
-	bufferSize := config.WatchChannelBuffer
-	if bufferSize <= 0 {
-		bufferSize = defaultWatchChannelBuffer
-	}
-
-	pollInterval := config.WatchPollInterval
-	if pollInterval <= 0 {
-		pollInterval = defaultWatchPollInterval
-	}
+	bufferSize := getConfigIntOrDefault(config.WatchChannelBuffer, defaultWatchChannelBuffer)
+	pollInterval := getConfigDurationOrDefault(config.WatchPollInterval, defaultWatchPollInterval)
 
 	// Pre-build base filter from options (immutable fields copied once)
 	baseFilter := &models.QueryFilter{

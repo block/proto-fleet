@@ -248,3 +248,16 @@ SELECT COUNT(*) as total FROM (
         AND (sqlc.narg('component_type_filter') IS NULL OR e.component_type IN (sqlc.slice('component_types')))
         AND (sqlc.narg('component_id_filter') IS NULL OR e.component_id IN (sqlc.slice('component_ids')))
 ) as component_count;
+
+-- ============================================================================
+-- Error Lifecycle Management
+-- ============================================================================
+
+-- name: CloseStaleErrors :execresult
+-- Closes all open errors where last_seen_at is older than the specified cutoff time.
+-- This is a bulk operation that operates globally across all organizations.
+-- Used by the error closer background thread to auto-close stale errors.
+UPDATE errors
+SET closed_at = CURRENT_TIMESTAMP(6)
+WHERE closed_at IS NULL
+  AND last_seen_at < sqlc.arg('cutoff_time');

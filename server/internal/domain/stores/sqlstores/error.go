@@ -224,10 +224,7 @@ func buildErrorMessage(fields errorFields) *models.ErrorMessage {
 		closedAt = &fields.ClosedAt.Time
 	}
 
-	var componentID *string
-	if fields.ComponentID.Valid {
-		componentID = &fields.ComponentID.String
-	}
+	componentID := nullStringToPtr(fields.ComponentID)
 
 	var vendorAttrs map[string]string
 	if len(fields.Extra) > 0 {
@@ -339,6 +336,16 @@ func toNullTime(t *time.Time) sql.NullTime {
 	return sql.NullTime{Time: *t, Valid: true}
 }
 
+// nullStringToPtr converts a sql.NullString to a *string pointer.
+// Returns nil if the NullString is not valid, otherwise returns a pointer to the string value.
+// This helper consolidates the repeated pattern of converting database nullable strings to Go pointers.
+func nullStringToPtr(ns sql.NullString) *string {
+	if !ns.Valid {
+		return nil
+	}
+	return &ns.String
+}
+
 // ============================================================================
 // Query Methods
 // ============================================================================
@@ -392,8 +399,7 @@ type filterParams struct {
 }
 
 // applyFilterToParams populates filter parameters from a QueryFilter.
-// This extracts the common filter-building logic repeated 4 times in buildQueryParamsAND,
-// buildQueryParamsOR, buildCountParamsAND, and buildCountParamsOR.
+// This extracts the common filter-building logic repeated in multiple parameter builders.
 func applyFilterToParams(filter *models.QueryFilter) filterParams {
 	var fp filterParams
 
@@ -428,6 +434,93 @@ func applyFilterToParams(filter *models.QueryFilter) filterParams {
 	}
 
 	return fp
+}
+
+// assignFilterParams assigns filterParams fields to a params struct.
+// This helper consolidates the repeated 12-line assignment block that appears 6 times
+// in buildQueryParams, buildCountParams, buildDeviceQueryParams, buildDeviceCountParams,
+// buildComponentQueryParams, and buildComponentCountParams.
+func assignFilterParams(fp filterParams, target interface{}) {
+	switch p := target.(type) {
+	case *sqlc.QueryErrorsParams:
+		p.DeviceFilter = fp.DeviceFilter
+		p.DeviceIdentifiers = fp.DeviceIdentifiers
+		p.DeviceTypeFilter = fp.DeviceTypeFilter
+		p.DeviceTypes = fp.DeviceTypes
+		p.SeverityFilter = fp.SeverityFilter
+		p.Severities = fp.Severities
+		p.MinerErrorFilter = fp.MinerErrorFilter
+		p.MinerErrors = fp.MinerErrors
+		p.ComponentTypeFilter = fp.ComponentTypeFilter
+		p.ComponentTypes = fp.ComponentTypes
+		p.ComponentIDFilter = fp.ComponentIDFilter
+		p.ComponentIds = fp.ComponentIds
+	case *sqlc.CountErrorsParams:
+		p.DeviceFilter = fp.DeviceFilter
+		p.DeviceIdentifiers = fp.DeviceIdentifiers
+		p.DeviceTypeFilter = fp.DeviceTypeFilter
+		p.DeviceTypes = fp.DeviceTypes
+		p.SeverityFilter = fp.SeverityFilter
+		p.Severities = fp.Severities
+		p.MinerErrorFilter = fp.MinerErrorFilter
+		p.MinerErrors = fp.MinerErrors
+		p.ComponentTypeFilter = fp.ComponentTypeFilter
+		p.ComponentTypes = fp.ComponentTypes
+		p.ComponentIDFilter = fp.ComponentIDFilter
+		p.ComponentIds = fp.ComponentIds
+	case *sqlc.QueryDeviceIDsWithErrorsParams:
+		p.DeviceFilter = fp.DeviceFilter
+		p.DeviceIdentifiers = fp.DeviceIdentifiers
+		p.DeviceTypeFilter = fp.DeviceTypeFilter
+		p.DeviceTypes = fp.DeviceTypes
+		p.SeverityFilter = fp.SeverityFilter
+		p.Severities = fp.Severities
+		p.MinerErrorFilter = fp.MinerErrorFilter
+		p.MinerErrors = fp.MinerErrors
+		p.ComponentTypeFilter = fp.ComponentTypeFilter
+		p.ComponentTypes = fp.ComponentTypes
+		p.ComponentIDFilter = fp.ComponentIDFilter
+		p.ComponentIds = fp.ComponentIds
+	case *sqlc.CountDevicesWithErrorsParams:
+		p.DeviceFilter = fp.DeviceFilter
+		p.DeviceIdentifiers = fp.DeviceIdentifiers
+		p.DeviceTypeFilter = fp.DeviceTypeFilter
+		p.DeviceTypes = fp.DeviceTypes
+		p.SeverityFilter = fp.SeverityFilter
+		p.Severities = fp.Severities
+		p.MinerErrorFilter = fp.MinerErrorFilter
+		p.MinerErrors = fp.MinerErrors
+		p.ComponentTypeFilter = fp.ComponentTypeFilter
+		p.ComponentTypes = fp.ComponentTypes
+		p.ComponentIDFilter = fp.ComponentIDFilter
+		p.ComponentIds = fp.ComponentIds
+	case *sqlc.QueryComponentKeysWithErrorsParams:
+		p.DeviceFilter = fp.DeviceFilter
+		p.DeviceIdentifiers = fp.DeviceIdentifiers
+		p.DeviceTypeFilter = fp.DeviceTypeFilter
+		p.DeviceTypes = fp.DeviceTypes
+		p.SeverityFilter = fp.SeverityFilter
+		p.Severities = fp.Severities
+		p.MinerErrorFilter = fp.MinerErrorFilter
+		p.MinerErrors = fp.MinerErrors
+		p.ComponentTypeFilter = fp.ComponentTypeFilter
+		p.ComponentTypes = fp.ComponentTypes
+		p.ComponentIDFilter = fp.ComponentIDFilter
+		p.ComponentIds = fp.ComponentIds
+	case *sqlc.CountComponentsWithErrorsParams:
+		p.DeviceFilter = fp.DeviceFilter
+		p.DeviceIdentifiers = fp.DeviceIdentifiers
+		p.DeviceTypeFilter = fp.DeviceTypeFilter
+		p.DeviceTypes = fp.DeviceTypes
+		p.SeverityFilter = fp.SeverityFilter
+		p.Severities = fp.Severities
+		p.MinerErrorFilter = fp.MinerErrorFilter
+		p.MinerErrors = fp.MinerErrors
+		p.ComponentTypeFilter = fp.ComponentTypeFilter
+		p.ComponentTypes = fp.ComponentTypes
+		p.ComponentIDFilter = fp.ComponentIDFilter
+		p.ComponentIds = fp.ComponentIds
+	}
 }
 
 // applyTimeFilter converts time filter values to sql.NullTime.
@@ -468,21 +561,7 @@ func buildQueryParams(opts *models.QueryOptions) sqlc.QueryErrorsParams {
 	}
 
 	params.TimeFrom, params.TimeTo = applyTimeFilter(filter.TimeFrom, filter.TimeTo)
-
-	fp := applyFilterToParams(filter)
-	params.DeviceFilter = fp.DeviceFilter
-	params.DeviceIdentifiers = fp.DeviceIdentifiers
-	params.DeviceTypeFilter = fp.DeviceTypeFilter
-	params.DeviceTypes = fp.DeviceTypes
-	params.SeverityFilter = fp.SeverityFilter
-	params.Severities = fp.Severities
-	params.MinerErrorFilter = fp.MinerErrorFilter
-	params.MinerErrors = fp.MinerErrors
-	params.ComponentTypeFilter = fp.ComponentTypeFilter
-	params.ComponentTypes = fp.ComponentTypes
-	params.ComponentIDFilter = fp.ComponentIDFilter
-	params.ComponentIds = fp.ComponentIds
-
+	assignFilterParams(applyFilterToParams(filter), &params)
 	params.CursorSeverity, params.CursorLastSeen, params.CursorErrorID = applyCursor(opts.PageToken)
 
 	return params
@@ -502,20 +581,7 @@ func buildCountParams(opts *models.QueryOptions) sqlc.CountErrorsParams {
 	}
 
 	params.TimeFrom, params.TimeTo = applyTimeFilter(filter.TimeFrom, filter.TimeTo)
-
-	fp := applyFilterToParams(filter)
-	params.DeviceFilter = fp.DeviceFilter
-	params.DeviceIdentifiers = fp.DeviceIdentifiers
-	params.DeviceTypeFilter = fp.DeviceTypeFilter
-	params.DeviceTypes = fp.DeviceTypes
-	params.SeverityFilter = fp.SeverityFilter
-	params.Severities = fp.Severities
-	params.MinerErrorFilter = fp.MinerErrorFilter
-	params.MinerErrors = fp.MinerErrors
-	params.ComponentTypeFilter = fp.ComponentTypeFilter
-	params.ComponentTypes = fp.ComponentTypes
-	params.ComponentIDFilter = fp.ComponentIDFilter
-	params.ComponentIds = fp.ComponentIds
+	assignFilterParams(applyFilterToParams(filter), &params)
 
 	return params
 }
@@ -576,10 +642,7 @@ func queryRowToMessage(
 		closedAtPtr = &closedAt.Time
 	}
 
-	var componentIDPtr *string
-	if componentID.Valid {
-		componentIDPtr = &componentID.String
-	}
+	componentIDPtr := nullStringToPtr(componentID)
 
 	var vendorAttrs map[string]string
 	if len(extra) > 0 {
@@ -730,10 +793,7 @@ func (s *SQLErrorStore) QueryComponentKeys(ctx context.Context, opts *models.Que
 
 	keys := make([]models.ComponentKey, len(rows))
 	for i, row := range rows {
-		var componentID *string
-		if row.ComponentID.Valid {
-			componentID = &row.ComponentID.String
-		}
+		componentID := nullStringToPtr(row.ComponentID)
 		// WorstSeverity from MIN() aggregate returns interface{}, extract as int32
 		var worstSeverity models.Severity
 		if severity, ok := row.WorstSeverity.(int64); ok {
@@ -780,20 +840,7 @@ func buildDeviceQueryParams(opts *models.QueryOptions) sqlc.QueryDeviceIDsWithEr
 	}
 
 	params.TimeFrom, params.TimeTo = applyTimeFilter(filter.TimeFrom, filter.TimeTo)
-
-	fp := applyFilterToParams(filter)
-	params.DeviceFilter = fp.DeviceFilter
-	params.DeviceIdentifiers = fp.DeviceIdentifiers
-	params.DeviceTypeFilter = fp.DeviceTypeFilter
-	params.DeviceTypes = fp.DeviceTypes
-	params.SeverityFilter = fp.SeverityFilter
-	params.Severities = fp.Severities
-	params.MinerErrorFilter = fp.MinerErrorFilter
-	params.MinerErrors = fp.MinerErrors
-	params.ComponentTypeFilter = fp.ComponentTypeFilter
-	params.ComponentTypes = fp.ComponentTypes
-	params.ComponentIDFilter = fp.ComponentIDFilter
-	params.ComponentIds = fp.ComponentIds
+	assignFilterParams(applyFilterToParams(filter), &params)
 
 	// Apply device cursor (severity, device_id)
 	cursorSeverity, cursorDeviceID, _ := models.DecodeDeviceCursor(opts.PageToken)
@@ -819,20 +866,7 @@ func buildDeviceCountParams(opts *models.QueryOptions) sqlc.CountDevicesWithErro
 	}
 
 	params.TimeFrom, params.TimeTo = applyTimeFilter(filter.TimeFrom, filter.TimeTo)
-
-	fp := applyFilterToParams(filter)
-	params.DeviceFilter = fp.DeviceFilter
-	params.DeviceIdentifiers = fp.DeviceIdentifiers
-	params.DeviceTypeFilter = fp.DeviceTypeFilter
-	params.DeviceTypes = fp.DeviceTypes
-	params.SeverityFilter = fp.SeverityFilter
-	params.Severities = fp.Severities
-	params.MinerErrorFilter = fp.MinerErrorFilter
-	params.MinerErrors = fp.MinerErrors
-	params.ComponentTypeFilter = fp.ComponentTypeFilter
-	params.ComponentTypes = fp.ComponentTypes
-	params.ComponentIDFilter = fp.ComponentIDFilter
-	params.ComponentIds = fp.ComponentIds
+	assignFilterParams(applyFilterToParams(filter), &params)
 
 	return params
 }
@@ -852,20 +886,7 @@ func buildComponentQueryParams(opts *models.QueryOptions) sqlc.QueryComponentKey
 	}
 
 	params.TimeFrom, params.TimeTo = applyTimeFilter(filter.TimeFrom, filter.TimeTo)
-
-	fp := applyFilterToParams(filter)
-	params.DeviceFilter = fp.DeviceFilter
-	params.DeviceIdentifiers = fp.DeviceIdentifiers
-	params.DeviceTypeFilter = fp.DeviceTypeFilter
-	params.DeviceTypes = fp.DeviceTypes
-	params.SeverityFilter = fp.SeverityFilter
-	params.Severities = fp.Severities
-	params.MinerErrorFilter = fp.MinerErrorFilter
-	params.MinerErrors = fp.MinerErrors
-	params.ComponentTypeFilter = fp.ComponentTypeFilter
-	params.ComponentTypes = fp.ComponentTypes
-	params.ComponentIDFilter = fp.ComponentIDFilter
-	params.ComponentIds = fp.ComponentIds
+	assignFilterParams(applyFilterToParams(filter), &params)
 
 	// Apply component cursor (severity, device_id, component_id)
 	cursorSeverity, cursorDeviceID, cursorComponentID, _ := models.DecodeComponentCursor(opts.PageToken)
@@ -895,20 +916,31 @@ func buildComponentCountParams(opts *models.QueryOptions) sqlc.CountComponentsWi
 	}
 
 	params.TimeFrom, params.TimeTo = applyTimeFilter(filter.TimeFrom, filter.TimeTo)
-
-	fp := applyFilterToParams(filter)
-	params.DeviceFilter = fp.DeviceFilter
-	params.DeviceIdentifiers = fp.DeviceIdentifiers
-	params.DeviceTypeFilter = fp.DeviceTypeFilter
-	params.DeviceTypes = fp.DeviceTypes
-	params.SeverityFilter = fp.SeverityFilter
-	params.Severities = fp.Severities
-	params.MinerErrorFilter = fp.MinerErrorFilter
-	params.MinerErrors = fp.MinerErrors
-	params.ComponentTypeFilter = fp.ComponentTypeFilter
-	params.ComponentTypes = fp.ComponentTypes
-	params.ComponentIDFilter = fp.ComponentIDFilter
-	params.ComponentIds = fp.ComponentIds
+	assignFilterParams(applyFilterToParams(filter), &params)
 
 	return params
+}
+
+// ============================================================================
+// Error Lifecycle Management
+// ============================================================================
+
+// CloseStaleErrors closes all open errors where last_seen_at is older than the threshold.
+// This is a bulk operation that operates globally across all organizations.
+func (s *SQLErrorStore) CloseStaleErrors(ctx context.Context, threshold time.Duration) (int64, error) {
+	q := s.getQueries(ctx)
+
+	cutoffTime := time.Now().Add(-threshold)
+
+	result, err := q.CloseStaleErrors(ctx, cutoffTime)
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to close stale errors: %v", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to get rows affected: %v", err)
+	}
+
+	return rowsAffected, nil
 }

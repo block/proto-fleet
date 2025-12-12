@@ -206,7 +206,7 @@ func TestHandler_GetError(t *testing.T) {
 			mockErrorStore := storesMocks.NewMockErrorStore(ctrl)
 			tt.setupMocks(mockErrorStore)
 
-			diagnosticsSvc := diagnostics.NewService(diagnostics.Config{}, mockErrorStore)
+			diagnosticsSvc := diagnostics.NewService(context.Background(), diagnostics.Config{}, mockErrorStore)
 			fakeManager := errorquery.NewFakeErrorManager()
 			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 			errorQuerySvc := errorquery.NewService(fakeManager, mockDeviceStore)

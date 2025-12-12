@@ -212,9 +212,11 @@ func start(config *Config) error {
 	}
 	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, tokenSvc, pluginManager)
 
-	// Create diagnostics service for error polling
+	// Create diagnostics service for error polling and auto-closing stale errors
+	diagnosticsCtx, diagnosticsCancel := context.WithCancel(context.Background())
+	defer diagnosticsCancel()
 	errorStore := sqlstores.NewSQLErrorStore(conn)
-	diagnosticsService := diagnostics.NewService(config.Diagnostics, errorStore)
+	diagnosticsService := diagnostics.NewService(diagnosticsCtx, config.Diagnostics, errorStore)
 
 	telemetryService := telemetry.NewTelemetryService(
 		config.Telemetry,

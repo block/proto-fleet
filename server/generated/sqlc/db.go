@@ -30,6 +30,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.allDevicesBelongToOrgStmt, err = db.PrepareContext(ctx, allDevicesBelongToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query AllDevicesBelongToOrg: %w", err)
 	}
+	if q.closeStaleErrorsStmt, err = db.PrepareContext(ctx, closeStaleErrors); err != nil {
+		return nil, fmt.Errorf("error preparing query CloseStaleErrors: %w", err)
+	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, countActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveUnpairedDiscoveredDevices: %w", err)
 	}
@@ -367,6 +370,11 @@ func (q *Queries) Close() error {
 	if q.allDevicesBelongToOrgStmt != nil {
 		if cerr := q.allDevicesBelongToOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing allDevicesBelongToOrgStmt: %w", cerr)
+		}
+	}
+	if q.closeStaleErrorsStmt != nil {
+		if cerr := q.closeStaleErrorsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing closeStaleErrorsStmt: %w", cerr)
 		}
 	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt != nil {
@@ -950,6 +958,7 @@ type Queries struct {
 	tx                                                  *sql.Tx
 	adminResetUserPasswordStmt                          *sql.Stmt
 	allDevicesBelongToOrgStmt                           *sql.Stmt
+	closeStaleErrorsStmt                                *sql.Stmt
 	countActiveUnpairedDiscoveredDevicesStmt            *sql.Stmt
 	countComponentsWithErrorsStmt                       *sql.Stmt
 	countDevicesWithErrorsStmt                          *sql.Stmt
@@ -1066,6 +1075,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		tx:                                                  tx,
 		adminResetUserPasswordStmt:                          q.adminResetUserPasswordStmt,
 		allDevicesBelongToOrgStmt:                           q.allDevicesBelongToOrgStmt,
+		closeStaleErrorsStmt:                                q.closeStaleErrorsStmt,
 		countActiveUnpairedDiscoveredDevicesStmt:            q.countActiveUnpairedDiscoveredDevicesStmt,
 		countComponentsWithErrorsStmt:                       q.countComponentsWithErrorsStmt,
 		countDevicesWithErrorsStmt:                          q.countDevicesWithErrorsStmt,
