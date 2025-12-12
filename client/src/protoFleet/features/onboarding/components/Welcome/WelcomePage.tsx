@@ -1,4 +1,4 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -41,6 +41,16 @@ const WelcomePage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>();
   const [showWelcome, setShowWelcome] = useState(false);
+  const navigationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear navigation timeout on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (navigationTimeoutRef.current) {
+        clearTimeout(navigationTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleContinue = (password: string, username: string) => {
     const credentials = {
@@ -55,9 +65,12 @@ const WelcomePage = () => {
           loginRequest: create(AuthenticateRequestSchema, credentials),
           onFinally: () => {
             setShowWelcome(true);
-            setTimeout(() => {
+            // Clear any existing timeout before setting a new one
+            if (navigationTimeoutRef.current) {
+              clearTimeout(navigationTimeoutRef.current);
+            }
+            navigationTimeoutRef.current = setTimeout(() => {
               navigate("/onboarding/miners");
-              setShowWelcome(false);
             }, WELCOME_SCREEN_TIMEOUT);
           },
         });

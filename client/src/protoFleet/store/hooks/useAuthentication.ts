@@ -56,9 +56,8 @@ export const useCheckAuthentication = (shouldCheckAccess = true) => {
     return () => clearTimeout(timeoutId);
   }, [shouldCheckAccess, isSessionValid, navigate]);
 
-  useEffect(() => {
-    checkAccess();
-  }, [checkAccess]);
+  // checkAccess returns a cleanup function that clears any pending redirect timeouts
+  useEffect(() => checkAccess(), [checkAccess]);
 
   return { checkAccess, hasAccess, loading };
 };
