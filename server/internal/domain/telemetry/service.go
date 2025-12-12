@@ -187,7 +187,7 @@ func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.De
 		return nil
 	}
 	for _, id := range deviceID {
-		s.tasks <- models.Device{ID: id, LastUpdatedAt: time.Now().Add(-s.config.NewDeviceLookback)} // Initialize with current time minus lookback duration
+		s.tasks <- models.Device{ID: id, LastUpdatedAt: time.Now().Add(-s.config.NewDeviceLookback)}
 		s.trackedDevices.Store(id, struct{}{})
 	}
 	return s.updateScheduler.AddNewDevices(ctx, deviceID...)
@@ -218,7 +218,6 @@ func (s *TelemetryService) Stop(ctx context.Context) error {
 	defer close(s.tasks)
 	defer close(s.statusTasks)
 
-	// Stop all broadcasters
 	s.broadcasters.Range(func(_, value interface{}) bool {
 		if broadcaster, ok := value.(*TelemetryBroadcaster); ok {
 			broadcaster.Stop()
@@ -231,7 +230,6 @@ func (s *TelemetryService) Stop(ctx context.Context) error {
 
 // GetOrCreateBroadcaster returns the broadcaster for an organization, creating it if needed
 func (s *TelemetryService) GetOrCreateBroadcaster(ctx context.Context, orgID int64) (*TelemetryBroadcaster, error) {
-	// Try to load existing broadcaster
 	if val, ok := s.broadcasters.Load(orgID); ok {
 		broadcaster, ok := val.(*TelemetryBroadcaster)
 		if !ok {
@@ -247,10 +245,8 @@ func (s *TelemetryService) GetOrCreateBroadcaster(ctx context.Context, orgID int
 
 	broadcaster := NewTelemetryBroadcaster(orgID, s.telemetryDataStore, pollInterval)
 
-	// Try to store it (may race with another goroutine)
 	actual, loaded := s.broadcasters.LoadOrStore(orgID, broadcaster)
 	if loaded {
-		// Another goroutine created it first, use that one
 		actualBroadcaster, ok := actual.(*TelemetryBroadcaster)
 		if !ok {
 			return nil, fmt.Errorf("invalid broadcaster type for org %d", orgID)
@@ -258,7 +254,6 @@ func (s *TelemetryService) GetOrCreateBroadcaster(ctx context.Context, orgID int
 		return actualBroadcaster, nil
 	}
 
-	// We created it, start it
 	if err := broadcaster.Start(ctx); err != nil {
 		s.broadcasters.Delete(orgID)
 		return nil, fmt.Errorf("failed to start broadcaster for org %d: %w", orgID, err)
@@ -294,11 +289,10 @@ func (s *TelemetryService) gatherDeviceStatusRoutine(ctx context.Context) {
 
 func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
 	if !s.mux.TryLock() {
-		return // Another routine is already running
+		return
 	}
 	defer s.mux.Unlock()
 
-	// Spin up workers to fetch telemetry data
 	for range s.config.ConcurrencyLimit {
 		go s.worker(ctx)
 	}
@@ -314,7 +308,6 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// Fetch devices that need telemetry data, considering the staleness threshold and fetch interval
 			lookback := time.Now().Add(s.lookBackDuration)
 			devices, err := s.updateScheduler.FetchDevices(ctx, lookback)
 			if err != nil {
@@ -336,7 +329,6 @@ func (s *TelemetryService) devicePollingRoutine(ctx context.Context) {
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
-	// Run once immediately on startup
 	if err := s.loadPairedDevices(ctx); err != nil {
 		slog.Error("failed to load paired devices on startup", "error", err)
 	}
@@ -434,7 +426,12 @@ func (s *TelemetryService) handleAuthenticationFailure(ctx context.Context, devi
 }
 
 // pollErrorsForDevice polls errors from a device alongside telemetry collection.
+// If no errorPoller is configured, this is a no-op.
 func (s *TelemetryService) pollErrorsForDevice(ctx context.Context, device models.Device) {
+	if s.errorPoller == nil {
+		return
+	}
+
 	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, device.ID)
 	if err != nil {
 		slog.Debug("failed to get miner for error polling", "deviceID", device.ID, "error", err)
@@ -456,14 +453,12 @@ func (s *TelemetryService) GetStatusForDevice(ctx context.Context, device models
 		return fmt.Errorf("failed to get miner from device ID %s: %w", device.ID, err)
 	}
 
-	// Get old status before updating
 	oldStatuses, err := s.deviceStore.GetDeviceStatusForDeviceIdentifiers(ctx, []models.DeviceIdentifier{device.ID})
 	if err != nil {
 		slog.Warn("failed to get old device status", "deviceID", device.ID, "error", err)
 	}
 	oldStatus, hadOldStatus := oldStatuses[device.ID]
 
-	// Get new status from miner
 	newStatus, err := miner.GetDeviceStatus(ctx)
 	if err != nil {
 		slog.Error("Telemetry service failed to get device status",
@@ -471,16 +466,12 @@ func (s *TelemetryService) GetStatusForDevice(ctx context.Context, device models
 			"error", err)
 	}
 
-	// Update database
 	err = s.deviceStore.UpsertDeviceStatus(ctx, device.ID, newStatus, "")
 	if err != nil {
 		return fmt.Errorf("failed to upsert device status for device %s: %w", device.ID, err)
 	}
 
-	// Publish status change event if status changed
 	if hadOldStatus && oldStatus != newStatus {
-		// Publish to all organization broadcasters
-		// TODO: Optimize by caching device -> org mapping
 		s.broadcasters.Range(func(_, value interface{}) bool {
 			if broadcaster, ok := value.(*TelemetryBroadcaster); ok {
 				broadcaster.PublishStatusChange(device.ID, newStatus)
@@ -516,25 +507,20 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 	ctx, cancel := context.WithTimeout(ctx, s.config.MetricTimeout)
 	defer cancel()
 	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, device.ID)
-	// TODO(DASH-446): update to handle dor unique miner discovery errors.
 	if err != nil {
 		return fmt.Errorf("failed to get miner from device ID %s: %w", device.ID, err)
 	}
 
-	// Try the new GetDeviceMetrics method (best effort - don't fail if it errors)
 	deviceMetrics, err := miner.GetDeviceMetrics(ctx)
 	if err == nil {
-		// Success - store using the new method
 		err = s.telemetryDataStore.StoreDeviceMetrics(ctx, deviceMetrics)
 		if err != nil {
 			slog.Error("Failed to store device metrics",
 				"device_id", device.ID,
 				"error", err)
-			// Don't return - we still want to collect the old telemetry format
 		}
 	}
 
-	// Always call GetTelemetry to collect the old format
 	telemetry, err := miner.GetTelemetry(ctx, device.LastUpdatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to get telemetry measurements for device %s: %w", device.ID, err)
@@ -562,7 +548,6 @@ func (s *TelemetryService) GetLatestTelemetry(ctx context.Context, query models.
 		return nil, err
 	}
 
-	// Convert hashrate values from MH/s to TH/s and power values from watts to kW
 	for i := range telemetryData {
 		if telemetryData[i].Measurement == models.MeasurementTypeHashrate.InfluxMeasurementName() {
 			if value, ok := telemetryData[i].Fields["value"].(float64); ok {
@@ -584,7 +569,6 @@ func (s *TelemetryService) GetTimeSeriesTelemetry(ctx context.Context, query mod
 		return nil, err
 	}
 
-	// Convert hashrate values from MH/s to TH/s and power values from watts to kW
 	for i := range telemetryData {
 		if telemetryData[i].Measurement == models.MeasurementTypeHashrate.InfluxMeasurementName() {
 			if value, ok := telemetryData[i].Fields["value"].(float64); ok {
@@ -609,7 +593,6 @@ func (s *TelemetryService) StreamTelemetryUpdates(ctx context.Context, query mod
 }
 
 func (s *TelemetryService) StreamDeviceStatusUpdates(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error) {
-	// Create a new channel for device status updates
 	updateChan := make(chan models.TelemetryUpdate)
 
 	go func() {
@@ -625,7 +608,6 @@ func (s *TelemetryService) StreamDeviceStatusUpdates(ctx context.Context, query 
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				// Fetch device status updates from the telemetry data store
 				statuses, err := s.deviceStore.GetDeviceStatusForDeviceIdentifiers(ctx, query.DeviceIDs)
 				if err != nil {
 					slog.Error("failed to get device status", "deviceIDs", query.DeviceIDs, "error", err)
@@ -657,7 +639,6 @@ func (s *TelemetryService) GetAggregatedTelemetry(ctx context.Context, query mod
 		return nil, err
 	}
 
-	// Convert hashrate values from MH/s to TH/s and power values from watts to kW
 	for i := range aggregatedData {
 		if aggregatedData[i].MeasurementType == models.MeasurementTypeHashrate {
 			aggregatedData[i].Value = convertHashrateToThs(aggregatedData[i].Value)
@@ -675,7 +656,6 @@ func (s *TelemetryService) GetCombinedMetrics(ctx context.Context, query models.
 		return models.CombinedMetric{}, err
 	}
 
-	// Convert hashrate values from MH/s to TH/s and power values from watts to kW
 	for i := range combinedMetrics.Metrics {
 		if combinedMetrics.Metrics[i].MeasurementType == models.MeasurementTypeHashrate {
 			for j := range combinedMetrics.Metrics[i].AggregatedValues {
@@ -797,8 +777,6 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 
 	combinedMetrics, err := s.GetCombinedMetrics(ctx, combinedQuery)
 	if err != nil {
-		// Handle "no metrics found" as an expected condition - send empty result instead of failing
-		// This allows the stream to continue even when there's no data in the current time window
 		if strings.Contains(err.Error(), "no combined metrics found") {
 			combinedMetrics = models.CombinedMetric{
 				Metrics: []models.Metric{},
@@ -808,7 +786,6 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 		}
 	}
 
-	// Count metrics for logging
 	totalAggregateValues := 0
 	for _, metric := range combinedMetrics.Metrics {
 		totalAggregateValues += len(metric.AggregatedValues)
@@ -1165,20 +1142,17 @@ func (s *TelemetryService) StreamMeasurements(ctx context.Context, deviceIDs []s
 func (s *TelemetryService) StreamComponentStatus(ctx context.Context, deviceIDs []string) (<-chan *pb.StreamMinerUpdatesResponse, error) {
 	responseChan := make(chan *pb.StreamMinerUpdatesResponse, streamResponseChannelBuffer)
 
-	// Convert device IDs to internal models
 	internalDeviceIDs := make([]models.DeviceIdentifier, len(deviceIDs))
 	for i, id := range deviceIDs {
 		internalDeviceIDs[i] = models.DeviceIdentifier(id)
 	}
 
-	// Create stream query for device status updates
 	streamQuery := models.StreamQuery{
 		DeviceIDs:        internalDeviceIDs,
-		MeasurementTypes: []models.MeasurementType{}, // Empty for status updates
+		MeasurementTypes: []models.MeasurementType{},
 		IncludeHeartbeat: true,
 	}
 
-	// Start streaming from the telemetry data store
 	updateChan, err := s.telemetryDataStore.StreamTelemetryUpdates(ctx, streamQuery)
 	if err != nil {
 		close(responseChan)
@@ -1196,7 +1170,6 @@ func (s *TelemetryService) StreamComponentStatus(ctx context.Context, deviceIDs 
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				// Periodically check component status for each device
 				for _, deviceID := range deviceIDs {
 					status, err := s.GetMinerComponentStatus(ctx, deviceID)
 					if err != nil {
@@ -1204,7 +1177,6 @@ func (s *TelemetryService) StreamComponentStatus(ctx context.Context, deviceIDs 
 						continue
 					}
 
-					// Create status update responses for each component
 					components := []struct {
 						component pb.ComponentStatusUpdate_Component
 						status    pb.ComponentStatus
@@ -1239,11 +1211,9 @@ func (s *TelemetryService) StreamComponentStatus(ctx context.Context, deviceIDs 
 					return
 				}
 
-				// Handle device status updates from the telemetry stream
 				if update.Type == models.UpdateTypeDeviceStatus && update.Status != nil {
 					pbStatus := internalComponentStatusToPb(*update.Status)
 
-					// Create status updates for all components (simplified approach)
 					components := []pb.ComponentStatusUpdate_Component{
 						pb.ComponentStatusUpdate_COMPONENT_CONTROL_BOARD,
 						pb.ComponentStatusUpdate_COMPONENT_FANS,
@@ -1281,13 +1251,11 @@ func (s *TelemetryService) StreamComponentStatus(ctx context.Context, deviceIDs 
 // This allows consumers to receive telemetry events without the conversion to protobuf responses
 // eventTypes filters which event types to receive (empty means all types)
 func (s *TelemetryService) SubscribeToTelemetryUpdates(ctx context.Context, orgID int64, deviceIDs []string, eventTypes []models.UpdateType) (<-chan models.TelemetryUpdate, func(), error) {
-	// Convert device IDs to internal models
 	internalDeviceIDs := make([]models.DeviceIdentifier, len(deviceIDs))
 	for i, id := range deviceIDs {
 		internalDeviceIDs[i] = models.DeviceIdentifier(id)
 	}
 
-	// Get or create broadcaster for this organization
 	broadcaster, err := s.GetOrCreateBroadcaster(ctx, orgID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get broadcaster: %w", err)
@@ -1426,11 +1394,9 @@ func (s *TelemetryService) convertTelemetryUpdateToResponse(update models.Teleme
 			return nil
 		}
 
-		// Extract measurement type from the telemetry data
 		measurementName := update.Data.Measurement
 		var internalMeasurementType models.MeasurementType
 
-		// Map measurement name to internal type
 		//nolint:exhaustive // we handle all a few measurements for now
 		switch measurementName {
 		case "power_w":
@@ -1443,13 +1409,11 @@ func (s *TelemetryService) convertTelemetryUpdateToResponse(update models.Teleme
 			internalMeasurementType = models.MeasurementTypeEfficiency
 
 		default:
-			return nil // Unknown measurement type
+			return nil
 		}
 
-		// Convert to protobuf measurement type
 		pbMeasurementType := internalMeasurementTypeToPb(internalMeasurementType)
 
-		// Check if this measurement type is requested
 		typeRequested := false
 		for _, requestedType := range measurementTypes {
 			if requestedType == pbMeasurementType {
@@ -1490,7 +1454,6 @@ func (s *TelemetryService) convertTelemetryUpdateToResponse(update models.Teleme
 		}
 
 	case models.UpdateTypeError:
-		// For error updates, we could log them but not necessarily send them to clients
 		if update.Error != nil {
 			slog.Warn("telemetry stream error", "error", *update.Error, "deviceID", update.DeviceID)
 		}
