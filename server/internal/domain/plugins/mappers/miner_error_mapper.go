@@ -27,6 +27,36 @@ func SDKSeverityToFleetSeverity(sev sdkv1models.Severity) models.Severity {
 	return models.Severity(sev)
 }
 
+// SDKComponentTypeToFleetComponentType converts SDK ComponentType to fleet domain ComponentType.
+// SDK and Fleet have different enum value assignments, so explicit mapping is required.
+func SDKComponentTypeToFleetComponentType(sdkType sdkv1models.ComponentType) models.ComponentType {
+	if sdkType < minValidEnumValue {
+		return models.ComponentTypeUnspecified
+	}
+
+	switch sdkType {
+	case sdkv1models.ComponentTypeUnspecified:
+		return models.ComponentTypeUnspecified
+	case sdkv1models.ComponentTypePSU:
+		return models.ComponentTypePSU
+	case sdkv1models.ComponentTypeHashBoard:
+		return models.ComponentTypeHashBoards
+	case sdkv1models.ComponentTypeFan:
+		return models.ComponentTypeFans
+	case sdkv1models.ComponentTypeControlBoard:
+		return models.ComponentTypeControlBoard
+	case sdkv1models.ComponentTypeEEPROM:
+		// No Fleet equivalent - map to Unspecified
+		return models.ComponentTypeUnspecified
+	case sdkv1models.ComponentTypeIOModule:
+		// No Fleet equivalent - map to Unspecified
+		return models.ComponentTypeUnspecified
+	default:
+		// Unknown component type - map to Unspecified
+		return models.ComponentTypeUnspecified
+	}
+}
+
 // SDKDeviceErrorsToFleetDeviceErrors converts SDK DeviceErrors (plural) to fleet domain DeviceErrors.
 func SDKDeviceErrorsToFleetDeviceErrors(sdkErrors sdkv1.DeviceErrors) models.DeviceErrors {
 	errors := make([]models.ErrorMessage, len(sdkErrors.Errors))
@@ -53,7 +83,7 @@ func SDKDeviceErrorToFleetErrorMessage(sdkError sdkv1.DeviceError) models.ErrorM
 		VendorAttributes:  sdkError.VendorAttributes,
 		DeviceID:          sdkError.DeviceID,
 		ComponentID:       sdkError.ComponentID,
-		ComponentType:     models.ComponentTypeUnspecified, // Not defined in SDK yet
+		ComponentType:     SDKComponentTypeToFleetComponentType(sdkError.ComponentType),
 		Impact:            sdkError.Impact,
 		Summary:           sdkError.Summary,
 		VendorCode:        sdkError.VendorAttributes["vendor_code"],

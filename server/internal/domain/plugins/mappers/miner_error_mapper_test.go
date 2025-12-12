@@ -15,6 +15,7 @@ import (
 func TestSDKDeviceErrorsToFleetDeviceErrors(t *testing.T) {
 	now := time.Now()
 	componentID := "hashboard-0"
+	fanComponentID := "2"
 
 	sdkErrors := sdkv1.DeviceErrors{
 		DeviceID: "device-123",
@@ -30,10 +31,11 @@ func TestSDKDeviceErrorsToFleetDeviceErrors(t *testing.T) {
 					"vendor_code": "E001",
 					"firmware":    "v1.2.3",
 				},
-				DeviceID:    "device-123",
-				ComponentID: &componentID,
-				Impact:      "Reduced hashrate",
-				Summary:     "Temperature warning on hashboard 0",
+				DeviceID:      "device-123",
+				ComponentID:   &componentID,
+				ComponentType: sdkv1errors.ComponentTypeHashBoard, // SDK value 2
+				Impact:        "Reduced hashrate",
+				Summary:       "Temperature warning on hashboard 0",
 			},
 			{
 				MinerError:        2000, // FanFailed
@@ -44,9 +46,24 @@ func TestSDKDeviceErrorsToFleetDeviceErrors(t *testing.T) {
 				LastSeenAt:        now,
 				VendorAttributes:  map[string]string{},
 				DeviceID:          "device-123",
-				ComponentID:       nil,
+				ComponentID:       &fanComponentID,
+				ComponentType:     sdkv1errors.ComponentTypeFan, // SDK value 3
 				Impact:            "Device may overheat",
 				Summary:           "Fan failure detected",
+			},
+			{
+				MinerError:        1000, // PSU issue
+				CauseSummary:      "PSU not responding",
+				RecommendedAction: "Check PSU connection",
+				Severity:          1, // Critical
+				FirstSeenAt:       now.Add(-30 * time.Minute),
+				LastSeenAt:        now,
+				VendorAttributes:  map[string]string{},
+				DeviceID:          "device-123",
+				ComponentID:       nil,
+				ComponentType:     sdkv1errors.ComponentTypePSU, // SDK value 1
+				Impact:            "No power",
+				Summary:           "PSU failure",
 			},
 		},
 	}
@@ -54,7 +71,7 @@ func TestSDKDeviceErrorsToFleetDeviceErrors(t *testing.T) {
 	result := SDKDeviceErrorsToFleetDeviceErrors(sdkErrors)
 
 	assert.Equal(t, "device-123", result.DeviceID)
-	require.Len(t, result.Errors, 2)
+	require.Len(t, result.Errors, 3)
 
 	// First error - hashboard over temp
 	err0 := result.Errors[0]
@@ -63,6 +80,9 @@ func TestSDKDeviceErrorsToFleetDeviceErrors(t *testing.T) {
 	assert.Equal(t, "E001", err0.VendorCode)
 	assert.Equal(t, "v1.2.3", err0.Firmware)
 	assert.Empty(t, err0.ErrorID)
+	require.NotNil(t, err0.ComponentID)
+	assert.Equal(t, "hashboard-0", *err0.ComponentID)
+	assert.Equal(t, models.ComponentTypeHashBoards, err0.ComponentType, "HashBoard type should map to HashBoards")
 
 	// Second error - fan failed
 	err1 := result.Errors[1]
@@ -70,7 +90,16 @@ func TestSDKDeviceErrorsToFleetDeviceErrors(t *testing.T) {
 	assert.Equal(t, models.Severity(1), err1.Severity)
 	assert.Empty(t, err1.VendorCode)
 	assert.Empty(t, err1.Firmware)
-	assert.Nil(t, err1.ComponentID)
+	require.NotNil(t, err1.ComponentID)
+	assert.Equal(t, "2", *err1.ComponentID)
+	assert.Equal(t, models.ComponentTypeFans, err1.ComponentType, "Fan type should map to Fans")
+
+	// Third error - PSU issue
+	err2 := result.Errors[2]
+	assert.Equal(t, models.MinerError(1000), err2.MinerError)
+	assert.Equal(t, models.Severity(1), err2.Severity)
+	assert.Nil(t, err2.ComponentID)
+	assert.Equal(t, models.ComponentTypePSU, err2.ComponentType, "PSU type should map correctly")
 }
 
 func TestSDKMinerErrorToFleetMinerError(t *testing.T) {
@@ -109,6 +138,67 @@ func TestSDKSeverityToFleetSeverity(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := SDKSeverityToFleetSeverity(tt.input)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestSDKComponentTypeToFleetComponentType(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    sdkv1errors.ComponentType
+		expected models.ComponentType
+	}{
+		{
+			name:     "unspecified_maps_to_unspecified",
+			input:    sdkv1errors.ComponentTypeUnspecified,
+			expected: models.ComponentTypeUnspecified,
+		},
+		{
+			name:     "psu_maps_correctly",
+			input:    sdkv1errors.ComponentTypePSU,
+			expected: models.ComponentTypePSU,
+		},
+		{
+			name:     "hashboard_maps_to_hashboards",
+			input:    sdkv1errors.ComponentTypeHashBoard,
+			expected: models.ComponentTypeHashBoards,
+		},
+		{
+			name:     "fan_maps_to_fans",
+			input:    sdkv1errors.ComponentTypeFan,
+			expected: models.ComponentTypeFans,
+		},
+		{
+			name:     "control_board_maps_correctly",
+			input:    sdkv1errors.ComponentTypeControlBoard,
+			expected: models.ComponentTypeControlBoard,
+		},
+		{
+			name:     "eeprom_maps_to_unspecified",
+			input:    sdkv1errors.ComponentTypeEEPROM,
+			expected: models.ComponentTypeUnspecified,
+		},
+		{
+			name:     "io_module_maps_to_unspecified",
+			input:    sdkv1errors.ComponentTypeIOModule,
+			expected: models.ComponentTypeUnspecified,
+		},
+		{
+			name:     "negative_returns_unspecified",
+			input:    -1,
+			expected: models.ComponentTypeUnspecified,
+		},
+		{
+			name:     "unknown_high_value_returns_unspecified",
+			input:    999,
+			expected: models.ComponentTypeUnspecified,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := SDKComponentTypeToFleetComponentType(tt.input)
+			assert.Equal(t, tt.expected, result, "ComponentType mapping failed for %v", tt.input)
 		})
 	}
 }
