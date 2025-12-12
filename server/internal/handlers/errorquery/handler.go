@@ -40,11 +40,21 @@ func (h *Handler) Query(
 	ctx context.Context,
 	req *connect.Request[errorsv1.QueryRequest],
 ) (*connect.Response[errorsv1.QueryResponse], error) {
-	resp, err := h.service.Query(ctx, req.Msg)
+	info, err := session.GetInfo(ctx)
 	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, err)
+	}
+
+	opts := convertQueryRequestToDomain(info.OrganizationID, req.Msg)
+
+	result, err := h.diagnosticsService.Query(ctx, opts)
+	if fleeterror.IsInvalidArgumentError(err) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	} else if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(resp), nil
+
+	return connect.NewResponse(convertQueryResultToProto(result)), nil
 }
 
 // GetError handles the GetError RPC call.

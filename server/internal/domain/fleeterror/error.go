@@ -276,3 +276,22 @@ func IsNotFoundError(err error) bool {
 
 	return false
 }
+
+// IsInvalidArgumentError checks if an error is an invalid argument error
+func IsInvalidArgumentError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var fleetErr FleetError
+	if errors.As(err, &fleetErr) {
+		return fleetErr.GRPCCode == connect.CodeInvalidArgument
+	}
+
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) {
+		return connectErr.Code() == connect.CodeInvalidArgument
+	}
+
+	return false
+}

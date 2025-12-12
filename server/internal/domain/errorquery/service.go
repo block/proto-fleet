@@ -7,6 +7,7 @@ import (
 	"time"
 
 	errorsv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
 	tokenDomain "github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -39,7 +40,7 @@ func (s *Service) Query(ctx context.Context, req *errorsv1.QueryRequest) (*error
 	pageSize := NormalizePageSize(req.GetPageSize())
 	cursor, err := DecodePageToken(req.GetPageToken())
 	if err != nil {
-		return nil, fmt.Errorf("invalid page token: %w", err)
+		return nil, fleeterror.NewInvalidArgumentError("invalid page token: " + err.Error())
 	}
 
 	// Get device IDs to query.
@@ -96,12 +97,12 @@ func (s *Service) GetError(ctx context.Context, errorID string) (*errorsv1.Error
 	// Look up the error.
 	errorRecord, ok := s.fakeManager.GetErrorByID(errorID)
 	if !ok {
-		return nil, fmt.Errorf("error not found: %s", errorID)
+		return nil, fleeterror.NewNotFoundError("error not found: " + errorID)
 	}
 
 	// Verify the device belongs to this org.
 	if err := s.verifyDeviceOwnership(ctx, errorRecord.DeviceID, orgID); err != nil {
-		return nil, fmt.Errorf("error not found: %s", errorID)
+		return nil, fleeterror.NewNotFoundError("error not found: " + errorID)
 	}
 
 	return convertErrorRecordToProto(errorRecord), nil
