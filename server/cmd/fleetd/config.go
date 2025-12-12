@@ -4,20 +4,20 @@ import (
 	"time"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/command"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/errorquery"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/ipscanner"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/plugins"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/pools"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/session"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/telemetry/scheduler"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/influxdb"
-	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
-
-	"github.com/btc-mining/proto-fleet/server/internal/domain/pools"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/token"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/db"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/influxdb"
 	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/logging"
+	"github.com/btc-mining/proto-fleet/server/internal/infrastructure/queue"
 )
 
 type HTTPConfig struct {
@@ -40,5 +40,6 @@ type Config struct {
 	Scheduler      scheduler.Config      `embed:"" prefix:"scheduler" envprefix:"SCHEDULER_"`
 	Plugins        plugins.Config        `embed:"" prefix:"plugins" envprefix:"PLUGINS_"`
 	IPScanner      ipscanner.Config      `embed:"" prefix:"ipscanner" envprefix:"IPSCANNER_"`
+	Diagnostics    diagnostics.Config    `embed:"" prefix:"diagnostics" envprefix:"DIAGNOSTICS_"`
 	ErrorQueryTest errorquery.TestConfig `embed:"" prefix:"errorquery-test" envprefix:"ERROR_QUERY_TEST_"`
 }

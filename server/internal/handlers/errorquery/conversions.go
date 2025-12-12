@@ -3,6 +3,7 @@ package errorquery
 
 import (
 	errorsv1 "github.com/btc-mining/proto-fleet/server/generated/grpc/errors/v1"
+	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics"
 	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 )
 
@@ -192,5 +193,51 @@ func severityToString(sev models.Severity) string {
 		return "INFO"
 	default:
 		return "UNSPECIFIED"
+	}
+}
+
+// ============================================================================
+// Watch Conversions
+// ============================================================================
+
+// convertWatchRequestToDomain converts a proto WatchRequest to domain WatchOptions.
+func convertWatchRequestToDomain(req *errorsv1.WatchRequest) *diagnostics.WatchOptions {
+	opts := &diagnostics.WatchOptions{}
+
+	if req.GetFilter() != nil {
+		opts.Filter = convertFilterToDomain(req.GetFilter())
+	}
+
+	return opts
+}
+
+// convertWatchUpdateToProto converts a domain WatchUpdate to proto WatchResponse.
+func convertWatchUpdateToProto(update *diagnostics.WatchUpdate) *errorsv1.WatchResponse {
+	resp := &errorsv1.WatchResponse{
+		Kind: convertWatchKindToProto(update.Kind),
+	}
+
+	if len(update.Errors) > 0 {
+		resp.Result = &errorsv1.WatchResponse_Errors{
+			Errors: &errorsv1.Errors{
+				Items: convertErrorMessagesToProto(update.Errors),
+			},
+		}
+	}
+
+	return resp
+}
+
+// convertWatchKindToProto converts a domain WatchKind to proto WatchResponse_Kind.
+func convertWatchKindToProto(kind diagnostics.WatchKind) errorsv1.WatchResponse_Kind {
+	switch kind {
+	case diagnostics.WatchKindOpened:
+		return errorsv1.WatchResponse_KIND_OPENED
+	case diagnostics.WatchKindUpdated:
+		return errorsv1.WatchResponse_KIND_UPDATED
+	case diagnostics.WatchKindClosed:
+		return errorsv1.WatchResponse_KIND_CLOSED
+	default:
+		return errorsv1.WatchResponse_KIND_UNSPECIFIED
 	}
 }

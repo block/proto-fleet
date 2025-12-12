@@ -29,12 +29,14 @@ type PollResult struct {
 
 // Service manages diagnostic information polling and storage.
 type Service struct {
+	config     Config
 	errorStore storeInterfaces.ErrorStore
 }
 
 // NewService creates a new diagnostics service.
-func NewService(errorStore storeInterfaces.ErrorStore) *Service {
+func NewService(config Config, errorStore storeInterfaces.ErrorStore) *Service {
 	return &Service{
+		config:     config,
 		errorStore: errorStore,
 	}
 }
@@ -366,4 +368,27 @@ func buildDeviceTypeMap(errors []models.ErrorMessage) map[int64]string {
 		}
 	}
 	return deviceTypeMap
+}
+
+// ============================================================================
+// Watch Methods
+// ============================================================================
+
+// Watch creates a streaming watch for errors that match the given options.
+// Returns a channel that receives updates at the configured poll interval.
+// The channel is closed when the context is cancelled.
+//
+// Note: Watch is designed for real-time change monitoring, not historical data retrieval.
+// Only errors that change after the watch starts will be reported.
+//
+// Event types:
+//   - WatchKindOpened: Newly created errors (first_seen_at within current poll window)
+//   - WatchKindUpdated: Existing errors that were updated (first_seen_at before poll window)
+//   - WatchKindClosed: Errors that have been resolved (closed_at is now set)
+func (s *Service) Watch(ctx context.Context, orgID int64, opts *WatchOptions) (<-chan *WatchUpdate, error) {
+	w := newWatcher(s, orgID, opts, s.config)
+
+	go w.run(ctx)
+
+	return w.updateChan, nil
 }

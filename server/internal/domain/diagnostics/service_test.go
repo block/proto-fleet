@@ -16,11 +16,16 @@ import (
 	storeMocks "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
 
+// newTestService creates a diagnostics service for testing with the given mock error store.
+func newTestService(mockErrorStore *storeMocks.MockErrorStore) *Service {
+	return NewService(Config{}, mockErrorStore)
+}
+
 func TestPollErrors_WithNoMiners_ShouldReturnEmptyResult(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 
 	result := svc.PollErrors(t.Context())
 
@@ -62,7 +67,7 @@ func TestPollErrors_WithSingleMiner_ShouldUpsertErrors(t *testing.T) {
 		return errMsg, nil
 	})
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 	result := svc.PollErrors(t.Context(), mockMiner)
 
 	assert.Equal(t, 1, result.MinersProcessed)
@@ -111,7 +116,7 @@ func TestPollErrors_WithMultipleMiners_ShouldProcessAll(t *testing.T) {
 			return errMsg, nil
 		})
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 	result := svc.PollErrors(t.Context(), mockMiner1, mockMiner2)
 
 	assert.Equal(t, 2, result.MinersProcessed)
@@ -142,7 +147,7 @@ func TestPollErrors_WhenMinerGetErrorsFails_ShouldContinueToNextMiner(t *testing
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
 	mockErrorStore.EXPECT().UpsertError(gomock.Any(), int64(1), "success-device", gomock.Any()).Return(&models.ErrorMessage{}, nil)
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 	result := svc.PollErrors(t.Context(), failingMiner, successMiner)
 
 	assert.Equal(t, 1, result.MinersProcessed)
@@ -175,7 +180,7 @@ func TestPollErrors_WhenUpsertFails_ShouldContinueToNextError(t *testing.T) {
 		mockErrorStore.EXPECT().UpsertError(gomock.Any(), int64(1), "test-device", gomock.Any()).Return(&models.ErrorMessage{}, nil),
 	)
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 	result := svc.PollErrors(t.Context(), mockMiner)
 
 	assert.Equal(t, 1, result.MinersProcessed)
@@ -197,7 +202,7 @@ func TestPollErrors_WithMinerReturningNoErrors_ShouldSkipUpsert(t *testing.T) {
 
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 	result := svc.PollErrors(t.Context(), mockMiner)
 
 	assert.Equal(t, 1, result.MinersProcessed)
@@ -225,7 +230,7 @@ func TestPollErrors_WithMultipleErrorsFromSingleMiner_ShouldUpsertAll(t *testing
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
 	mockErrorStore.EXPECT().UpsertError(gomock.Any(), int64(1), "multi-error-device", gomock.Any()).Times(3).Return(&models.ErrorMessage{}, nil)
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 	result := svc.PollErrors(t.Context(), mockMiner)
 
 	assert.Equal(t, 1, result.MinersProcessed)
@@ -268,7 +273,7 @@ func TestPollErrors_WithMixedMinerResults_ShouldHandleGracefully(t *testing.T) {
 	mockErrorStore.EXPECT().UpsertError(gomock.Any(), int64(1), "device-1", gomock.Any()).Return(&models.ErrorMessage{}, nil)
 	mockErrorStore.EXPECT().UpsertError(gomock.Any(), int64(1), "device-4", gomock.Any()).Return(&models.ErrorMessage{}, nil)
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 	result := svc.PollErrors(t.Context(), miner1, miner2, miner3, miner4)
 
 	assert.Equal(t, 3, result.MinersProcessed)
@@ -286,7 +291,7 @@ func TestPollErrors_WithCancelledContext_ShouldSetCancelledFlag(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 	result := svc.PollErrors(ctx, mockMiner)
 
 	assert.True(t, result.Cancelled)
@@ -311,7 +316,7 @@ func TestQuery_WithNoFilters_ShouldReturnAllOpenErrors(t *testing.T) {
 	mockErrorStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return(mockErrors, nil)
 	mockErrorStore.EXPECT().CountErrors(gomock.Any(), gomock.Any()).Return(int64(2), nil)
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 	opts := &models.QueryOptions{
 		OrgID: 1,
 	}
@@ -336,7 +341,7 @@ func TestQuery_WithORLogic_ShouldUseORQuery(t *testing.T) {
 	mockErrorStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return(mockErrors, nil)
 	mockErrorStore.EXPECT().CountErrors(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 	opts := &models.QueryOptions{
 		OrgID: 1,
 		Filter: &models.QueryFilter{
@@ -370,7 +375,7 @@ func TestQuery_WithComponentView_ShouldGroupByComponent(t *testing.T) {
 	mockErrorStore.EXPECT().CountComponents(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	mockErrorStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return(mockErrors, nil)
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 	opts := &models.QueryOptions{
 		OrgID:      1,
 		ResultView: models.ResultViewComponent,
@@ -406,7 +411,7 @@ func TestQuery_WithDeviceView_ShouldGroupByDevice(t *testing.T) {
 	mockErrorStore.EXPECT().CountDevices(gomock.Any(), gomock.Any()).Return(int64(2), nil)
 	mockErrorStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return(mockErrors, nil)
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 	opts := &models.QueryOptions{
 		OrgID:      1,
 		ResultView: models.ResultViewDevice,
@@ -427,7 +432,7 @@ func TestQuery_WhenQueryFails_ShouldReturnError(t *testing.T) {
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
 	mockErrorStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return(nil, errors.New("database error"))
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 	opts := &models.QueryOptions{
 		OrgID: 1,
 	}
@@ -445,7 +450,7 @@ func TestQuery_WhenCountFails_ShouldReturnError(t *testing.T) {
 	mockErrorStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return([]models.ErrorMessage{}, nil)
 	mockErrorStore.EXPECT().CountErrors(gomock.Any(), gomock.Any()).Return(int64(0), errors.New("count error"))
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 	opts := &models.QueryOptions{
 		OrgID: 1,
 	}
@@ -463,7 +468,7 @@ func TestQuery_WithNilOpts_ShouldUseDefaults(t *testing.T) {
 	mockErrorStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return([]models.ErrorMessage{}, nil)
 	mockErrorStore.EXPECT().CountErrors(gomock.Any(), gomock.Any()).Return(int64(0), nil)
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 
 	result, err := svc.Query(t.Context(), nil)
 
@@ -490,7 +495,7 @@ func TestQuery_WithFullPage_ShouldReturnNextPageToken(t *testing.T) {
 	mockErrorStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return(mockErrors, nil)
 	mockErrorStore.EXPECT().CountErrors(gomock.Any(), gomock.Any()).Return(int64(100), nil)
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 	opts := &models.QueryOptions{
 		OrgID: 1,
 	}
@@ -514,7 +519,7 @@ func TestQuery_WithPartialPage_ShouldNotReturnNextPageToken(t *testing.T) {
 	mockErrorStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return(mockErrors, nil)
 	mockErrorStore.EXPECT().CountErrors(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 	opts := &models.QueryOptions{
 		OrgID: 1,
 	}
@@ -545,7 +550,7 @@ func TestGetError_WithValidErrorID_ShouldReturnError(t *testing.T) {
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
 	mockErrorStore.EXPECT().GetErrorByErrorID(gomock.Any(), int64(1), "01HQXYZ123ABC").Return(expectedError, nil)
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 
 	result, err := svc.GetError(t.Context(), 1, "01HQXYZ123ABC")
 
@@ -561,7 +566,7 @@ func TestGetError_WithNotFoundError_ShouldReturnError(t *testing.T) {
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
 	mockErrorStore.EXPECT().GetErrorByErrorID(gomock.Any(), int64(1), "NONEXISTENT").Return(nil, errors.New("not found"))
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 
 	result, err := svc.GetError(t.Context(), 1, "NONEXISTENT")
 
@@ -575,7 +580,7 @@ func TestQuery_WithInvalidPageToken_ShouldReturnError(t *testing.T) {
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
 	// No calls expected since we should error before querying
 
-	svc := NewService(mockErrorStore)
+	svc := newTestService(mockErrorStore)
 	opts := &models.QueryOptions{
 		OrgID:     1,
 		PageToken: "invalid-not-base64!!!", // Invalid cursor token

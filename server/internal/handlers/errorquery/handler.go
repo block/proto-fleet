@@ -35,14 +35,23 @@ func NewHandler(service *errorquery.Service, diagnosticsService *diagnostics.Ser
 	}
 }
 
+// getSessionInfo retrieves session information from the context and returns an authentication error if not present.
+func getSessionInfo(ctx context.Context) (*session.Info, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, err)
+	}
+	return info, nil
+}
+
 // Query handles the Query RPC call.
 func (h *Handler) Query(
 	ctx context.Context,
 	req *connect.Request[errorsv1.QueryRequest],
 ) (*connect.Response[errorsv1.QueryResponse], error) {
-	info, err := session.GetInfo(ctx)
+	info, err := getSessionInfo(ctx)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeUnauthenticated, err)
+		return nil, err
 	}
 
 	opts := convertQueryRequestToDomain(info.OrganizationID, req.Msg)
@@ -67,9 +76,9 @@ func (h *Handler) GetError(
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("error_id is required"))
 	}
 
-	info, err := session.GetInfo(ctx)
+	info, err := getSessionInfo(ctx)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeUnauthenticated, err)
+		return nil, err
 	}
 	orgID := info.OrganizationID
 
@@ -149,7 +158,14 @@ func (h *Handler) Watch(
 	req *connect.Request[errorsv1.WatchRequest],
 	stream *connect.ServerStream[errorsv1.WatchResponse],
 ) error {
-	updateChan, err := h.service.Watch(ctx, req.Msg.GetFilter())
+	info, err := getSessionInfo(ctx)
+	if err != nil {
+		return err
+	}
+
+	opts := convertWatchRequestToDomain(req.Msg)
+
+	updateChan, err := h.diagnosticsService.Watch(ctx, info.OrganizationID, opts)
 	if err != nil {
 		return connect.NewError(connect.CodeInternal, err)
 	}
@@ -158,12 +174,13 @@ func (h *Handler) Watch(
 		select {
 		case <-ctx.Done():
 			return connect.NewError(connect.CodeAborted, ctx.Err())
-		case event, ok := <-updateChan:
+		case update, ok := <-updateChan:
 			if !ok {
 				return nil
 			}
-			if err := stream.Send(event); err != nil {
-				return fmt.Errorf("failed to send watch event: %w", err)
+			protoResp := convertWatchUpdateToProto(update)
+			if err := stream.Send(protoResp); err != nil {
+				return connect.NewError(connect.CodeInternal, fmt.Errorf("failed to send watch event: %w", err))
 			}
 		}
 	}

@@ -214,7 +214,7 @@ func start(config *Config) error {
 
 	// Create diagnostics service for error polling
 	errorStore := sqlstores.NewSQLErrorStore(conn)
-	diagnosticsService := diagnostics.NewService(errorStore)
+	diagnosticsService := diagnostics.NewService(config.Diagnostics, errorStore)
 
 	telemetryService := telemetry.NewTelemetryService(
 		config.Telemetry,
