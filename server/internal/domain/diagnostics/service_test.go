@@ -362,16 +362,17 @@ func TestQuery_WithComponentView_ShouldGroupByComponent(t *testing.T) {
 
 	now := time.Now()
 	hb0 := "HB0"
+	// Use realistic device identifier (not a numeric string)
 	mockErrors := []models.ErrorMessage{
-		{ErrorID: "ERR1", Severity: models.SeverityCritical, LastSeenAt: now, DeviceID: "123", ComponentID: &hb0, ComponentType: models.ComponentTypeHashBoards, DeviceType: "S19"},
-		{ErrorID: "ERR2", Severity: models.SeverityMajor, LastSeenAt: now, DeviceID: "123", ComponentID: &hb0, ComponentType: models.ComponentTypeHashBoards, DeviceType: "S19"},
+		{ErrorID: "ERR1", Severity: models.SeverityCritical, LastSeenAt: now, DeviceID: "proto-123", ComponentID: &hb0, ComponentType: models.ComponentTypeHashBoards, DeviceType: "S19"},
+		{ErrorID: "ERR2", Severity: models.SeverityMajor, LastSeenAt: now, DeviceID: "proto-123", ComponentID: &hb0, ComponentType: models.ComponentTypeHashBoards, DeviceType: "S19"},
 	}
 	mockComponentKeys := []models.ComponentKey{
-		{DeviceID: 123, ComponentID: &hb0, WorstSeverity: models.SeverityCritical},
+		{DeviceID: 123, DeviceIdentifier: "proto-123", ComponentID: &hb0, WorstSeverity: models.SeverityCritical},
 	}
 
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
-	// New two-query approach: first get component keys, then count, then fetch errors
+	// Two-query approach: first get component keys, then count, then fetch errors
 	mockErrorStore.EXPECT().QueryComponentKeys(gomock.Any(), gomock.Any()).Return(mockComponentKeys, nil)
 	mockErrorStore.EXPECT().CountComponents(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	mockErrorStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return(mockErrors, nil)
@@ -389,25 +390,28 @@ func TestQuery_WithComponentView_ShouldGroupByComponent(t *testing.T) {
 	assert.Empty(t, result.Errors)
 	assert.Len(t, result.ComponentErrs, 1)
 	assert.Equal(t, "HB0", result.ComponentErrs[0].ComponentID)
-	assert.Equal(t, int64(1), result.TotalCount) // TotalCount is now component count
+	assert.Equal(t, int64(1), result.TotalCount)
+	// CRITICAL: Verify errors are actually populated in the component group
+	assert.Len(t, result.ComponentErrs[0].Errors, 2, "errors should be populated in component group")
 }
 
 func TestQuery_WithDeviceView_ShouldGroupByDevice(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
 	now := time.Now()
+	// Use realistic device identifiers (not numeric strings)
 	mockErrors := []models.ErrorMessage{
-		{ErrorID: "ERR1", Severity: models.SeverityCritical, LastSeenAt: now, DeviceID: "123", DeviceType: "S19"},
-		{ErrorID: "ERR2", Severity: models.SeverityMajor, LastSeenAt: now, DeviceID: "123", DeviceType: "S19"},
-		{ErrorID: "ERR3", Severity: models.SeverityMinor, LastSeenAt: now, DeviceID: "456", DeviceType: "R2"},
+		{ErrorID: "ERR1", Severity: models.SeverityCritical, LastSeenAt: now, DeviceID: "proto-123", DeviceType: "S19"},
+		{ErrorID: "ERR2", Severity: models.SeverityMajor, LastSeenAt: now, DeviceID: "proto-123", DeviceType: "S19"},
+		{ErrorID: "ERR3", Severity: models.SeverityMinor, LastSeenAt: now, DeviceID: "antminer-456", DeviceType: "R2"},
 	}
 	mockDeviceKeys := []models.DeviceKey{
-		{DeviceID: 123, WorstSeverity: models.SeverityCritical},
-		{DeviceID: 456, WorstSeverity: models.SeverityMinor},
+		{DeviceID: 123, DeviceIdentifier: "proto-123", WorstSeverity: models.SeverityCritical},
+		{DeviceID: 456, DeviceIdentifier: "antminer-456", WorstSeverity: models.SeverityMinor},
 	}
 
 	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
-	// New two-query approach: first get device keys, then count, then fetch errors
+	// Two-query approach: first get device keys, then count, then fetch errors
 	mockErrorStore.EXPECT().QueryDeviceKeys(gomock.Any(), gomock.Any()).Return(mockDeviceKeys, nil)
 	mockErrorStore.EXPECT().CountDevices(gomock.Any(), gomock.Any()).Return(int64(2), nil)
 	mockErrorStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return(mockErrors, nil)
@@ -424,7 +428,22 @@ func TestQuery_WithDeviceView_ShouldGroupByDevice(t *testing.T) {
 	assert.NotNil(t, result)
 	assert.Empty(t, result.Errors)
 	assert.Len(t, result.DeviceErrs, 2)
-	assert.Equal(t, int64(2), result.TotalCount) // TotalCount is now device count
+	assert.Equal(t, int64(2), result.TotalCount)
+	// CRITICAL: Verify errors are actually populated in each device group
+	// Find the device group for proto-123 (should have 2 errors)
+	var protoDevice *models.DeviceErrorGroup
+	var antminerDevice *models.DeviceErrorGroup
+	for i := range result.DeviceErrs {
+		if result.DeviceErrs[i].DeviceID == 123 {
+			protoDevice = &result.DeviceErrs[i]
+		} else if result.DeviceErrs[i].DeviceID == 456 {
+			antminerDevice = &result.DeviceErrs[i]
+		}
+	}
+	assert.NotNil(t, protoDevice, "proto-123 device group should exist")
+	assert.NotNil(t, antminerDevice, "antminer-456 device group should exist")
+	assert.Len(t, protoDevice.Errors, 2, "proto-123 should have 2 errors")
+	assert.Len(t, antminerDevice.Errors, 1, "antminer-456 should have 1 error")
 }
 
 func TestQuery_WhenQueryFails_ShouldReturnError(t *testing.T) {

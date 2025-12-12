@@ -333,23 +333,25 @@ func TestSortErrors_WithSameSeverityAndTime_ShouldSortByErrorIDDescending(t *tes
 
 func TestGroupByDevice_WithEmptySlice_ShouldReturnEmptySlice(t *testing.T) {
 	// Act
-	result := GroupByDevice([]models.ErrorMessage{}, map[int64]string{})
+	result := GroupByDevice([]models.ErrorMessage{}, map[string]models.DeviceKey{})
 
 	// Assert
 	assert.Empty(t, result)
 }
 
 func TestGroupByDevice_WithSingleDevice_ShouldGroupCorrectly(t *testing.T) {
-	// Arrange
+	// Arrange - use realistic device identifier (not a numeric string)
 	now := time.Now()
 	errors := []models.ErrorMessage{
-		{DeviceID: "123", Severity: models.SeverityCritical, LastSeenAt: now},
-		{DeviceID: "123", Severity: models.SeverityMajor, LastSeenAt: now},
+		{DeviceID: "proto-123", DeviceType: "S19", Severity: models.SeverityCritical, LastSeenAt: now},
+		{DeviceID: "proto-123", DeviceType: "S19", Severity: models.SeverityMajor, LastSeenAt: now},
 	}
-	deviceTypeMap := map[int64]string{123: "S19"}
+	deviceKeyMap := map[string]models.DeviceKey{
+		"proto-123": {DeviceID: 123, DeviceIdentifier: "proto-123"},
+	}
 
 	// Act
-	result := GroupByDevice(errors, deviceTypeMap)
+	result := GroupByDevice(errors, deviceKeyMap)
 
 	// Assert
 	assert.Len(t, result, 1)
@@ -360,26 +362,49 @@ func TestGroupByDevice_WithSingleDevice_ShouldGroupCorrectly(t *testing.T) {
 }
 
 func TestGroupByDevice_WithMultipleDevices_ShouldGroupAndSort(t *testing.T) {
-	// Arrange
+	// Arrange - use realistic device identifiers
 	now := time.Now()
 	errors := []models.ErrorMessage{
-		{DeviceID: "100", Severity: models.SeverityMinor, LastSeenAt: now},
-		{DeviceID: "200", Severity: models.SeverityCritical, LastSeenAt: now},
-		{DeviceID: "100", Severity: models.SeverityMinor, LastSeenAt: now},
+		{DeviceID: "antminer-100", DeviceType: "R2", Severity: models.SeverityMinor, LastSeenAt: now},
+		{DeviceID: "proto-200", DeviceType: "S19", Severity: models.SeverityCritical, LastSeenAt: now},
+		{DeviceID: "antminer-100", DeviceType: "R2", Severity: models.SeverityMinor, LastSeenAt: now},
 	}
-	deviceTypeMap := map[int64]string{100: "R2", 200: "S19"}
+	deviceKeyMap := map[string]models.DeviceKey{
+		"antminer-100": {DeviceID: 100, DeviceIdentifier: "antminer-100"},
+		"proto-200":    {DeviceID: 200, DeviceIdentifier: "proto-200"},
+	}
 
 	// Act
-	result := GroupByDevice(errors, deviceTypeMap)
+	result := GroupByDevice(errors, deviceKeyMap)
 
 	// Assert
 	assert.Len(t, result, 2)
-	// Device 200 should be first (has ERROR status due to critical)
+	// Device proto-200 should be first (has ERROR status due to critical)
 	assert.Equal(t, int64(200), result[0].DeviceID)
 	assert.Equal(t, models.StatusError, result[0].Status)
-	// Device 100 should be second (has WARNING status due to minor)
+	// Device antminer-100 should be second (has WARNING status due to minor)
 	assert.Equal(t, int64(100), result[1].DeviceID)
 	assert.Equal(t, models.StatusWarning, result[1].Status)
+}
+
+func TestGroupByDevice_WithDeviceNotInKeyMap_ShouldSkipErrors(t *testing.T) {
+	// Arrange - errors for devices not in the key map should be skipped
+	now := time.Now()
+	errors := []models.ErrorMessage{
+		{DeviceID: "proto-123", DeviceType: "S19", Severity: models.SeverityCritical, LastSeenAt: now},
+		{DeviceID: "unknown-device", DeviceType: "X1", Severity: models.SeverityMajor, LastSeenAt: now},
+	}
+	deviceKeyMap := map[string]models.DeviceKey{
+		"proto-123": {DeviceID: 123, DeviceIdentifier: "proto-123"},
+	}
+
+	// Act
+	result := GroupByDevice(errors, deviceKeyMap)
+
+	// Assert - only device in key map should be included
+	assert.Len(t, result, 1)
+	assert.Equal(t, int64(123), result[0].DeviceID)
+	assert.Len(t, result[0].Errors, 1)
 }
 
 // ============================================================================
@@ -388,42 +413,47 @@ func TestGroupByDevice_WithMultipleDevices_ShouldGroupAndSort(t *testing.T) {
 
 func TestGroupByComponent_WithEmptySlice_ShouldReturnEmptySlice(t *testing.T) {
 	// Act
-	result := GroupByComponent([]models.ErrorMessage{}, map[int64]string{})
+	result := GroupByComponent([]models.ErrorMessage{}, map[string]models.ComponentKey{})
 
 	// Assert
 	assert.Empty(t, result)
 }
 
 func TestGroupByComponent_WithComponentID_ShouldGroupByComponent(t *testing.T) {
-	// Arrange
+	// Arrange - use realistic device identifier
 	now := time.Now()
 	hashboard0 := "HB0"
 	hashboard1 := "HB1"
 	errors := []models.ErrorMessage{
-		{DeviceID: "123", ComponentID: &hashboard0, ComponentType: models.ComponentTypeHashBoards, Severity: models.SeverityCritical, LastSeenAt: now},
-		{DeviceID: "123", ComponentID: &hashboard0, ComponentType: models.ComponentTypeHashBoards, Severity: models.SeverityMajor, LastSeenAt: now},
-		{DeviceID: "123", ComponentID: &hashboard1, ComponentType: models.ComponentTypeHashBoards, Severity: models.SeverityMinor, LastSeenAt: now},
+		{DeviceID: "proto-123", ComponentID: &hashboard0, ComponentType: models.ComponentTypeHashBoards, DeviceType: "S19", Severity: models.SeverityCritical, LastSeenAt: now},
+		{DeviceID: "proto-123", ComponentID: &hashboard0, ComponentType: models.ComponentTypeHashBoards, DeviceType: "S19", Severity: models.SeverityMajor, LastSeenAt: now},
+		{DeviceID: "proto-123", ComponentID: &hashboard1, ComponentType: models.ComponentTypeHashBoards, DeviceType: "S19", Severity: models.SeverityMinor, LastSeenAt: now},
 	}
-	deviceTypeMap := map[int64]string{123: "S19"}
+	componentKeyMap := map[string]models.ComponentKey{
+		"proto-123_HB0": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentID: &hashboard0},
+		"proto-123_HB1": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentID: &hashboard1},
+	}
 
 	// Act
-	result := GroupByComponent(errors, deviceTypeMap)
+	result := GroupByComponent(errors, componentKeyMap)
 
 	// Assert
 	assert.Len(t, result, 2)
 }
 
 func TestGroupByComponent_WithoutComponentID_ShouldGroupByDevice(t *testing.T) {
-	// Arrange
+	// Arrange - use realistic device identifier
 	now := time.Now()
 	errors := []models.ErrorMessage{
-		{DeviceID: "123", ComponentType: models.ComponentTypeUnspecified, Severity: models.SeverityMajor, LastSeenAt: now},
-		{DeviceID: "123", ComponentType: models.ComponentTypeUnspecified, Severity: models.SeverityMinor, LastSeenAt: now},
+		{DeviceID: "proto-123", ComponentType: models.ComponentTypeUnspecified, DeviceType: "S19", Severity: models.SeverityMajor, LastSeenAt: now},
+		{DeviceID: "proto-123", ComponentType: models.ComponentTypeUnspecified, DeviceType: "S19", Severity: models.SeverityMinor, LastSeenAt: now},
 	}
-	deviceTypeMap := map[int64]string{123: "S19"}
+	componentKeyMap := map[string]models.ComponentKey{
+		"proto-123_device": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentID: nil},
+	}
 
 	// Act
-	result := GroupByComponent(errors, deviceTypeMap)
+	result := GroupByComponent(errors, componentKeyMap)
 
 	// Assert
 	assert.Len(t, result, 1)
@@ -431,18 +461,21 @@ func TestGroupByComponent_WithoutComponentID_ShouldGroupByDevice(t *testing.T) {
 }
 
 func TestGroupByComponent_SortsByStatus(t *testing.T) {
-	// Arrange
+	// Arrange - use realistic device identifier
 	now := time.Now()
 	psu := "PSU0"
 	fan := "FAN0"
 	errors := []models.ErrorMessage{
-		{DeviceID: "123", ComponentID: &fan, ComponentType: models.ComponentTypeFans, Severity: models.SeverityMinor, LastSeenAt: now},
-		{DeviceID: "123", ComponentID: &psu, ComponentType: models.ComponentTypePSU, Severity: models.SeverityCritical, LastSeenAt: now},
+		{DeviceID: "proto-123", ComponentID: &fan, ComponentType: models.ComponentTypeFans, DeviceType: "S19", Severity: models.SeverityMinor, LastSeenAt: now},
+		{DeviceID: "proto-123", ComponentID: &psu, ComponentType: models.ComponentTypePSU, DeviceType: "S19", Severity: models.SeverityCritical, LastSeenAt: now},
 	}
-	deviceTypeMap := map[int64]string{123: "S19"}
+	componentKeyMap := map[string]models.ComponentKey{
+		"proto-123_PSU0": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentID: &psu},
+		"proto-123_FAN0": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentID: &fan},
+	}
 
 	// Act
-	result := GroupByComponent(errors, deviceTypeMap)
+	result := GroupByComponent(errors, componentKeyMap)
 
 	// Assert
 	assert.Len(t, result, 2)
@@ -452,71 +485,41 @@ func TestGroupByComponent_SortsByStatus(t *testing.T) {
 	assert.Equal(t, models.StatusWarning, result[1].Status)
 }
 
-func TestGroupByComponent_WithUnparseableDeviceID_ShouldSkipErrors(t *testing.T) {
-	// Arrange - errors with non-numeric DeviceIDs should be skipped to prevent cross-contamination
+func TestGroupByComponent_WithComponentNotInKeyMap_ShouldSkipErrors(t *testing.T) {
+	// Arrange - errors for components not in the key map should be skipped
 	now := time.Now()
 	hb0 := "HB0"
 	errors := []models.ErrorMessage{
-		{DeviceID: "not-a-number", ComponentID: &hb0, ComponentType: models.ComponentTypeHashBoards, Severity: models.SeverityCritical, LastSeenAt: now},
-		{DeviceID: "also-invalid", ComponentID: &hb0, ComponentType: models.ComponentTypeHashBoards, Severity: models.SeverityMajor, LastSeenAt: now},
+		{DeviceID: "proto-123", ComponentID: &hb0, ComponentType: models.ComponentTypeHashBoards, DeviceType: "S19", Severity: models.SeverityCritical, LastSeenAt: now},
 	}
+	componentKeyMap := map[string]models.ComponentKey{} // Empty map
 
 	// Act
-	result := GroupByComponent(errors, map[int64]string{})
+	result := GroupByComponent(errors, componentKeyMap)
 
-	// Assert - all errors should be skipped since deviceID parses to 0
+	// Assert - no components should be included
 	assert.Empty(t, result)
 }
 
-func TestGroupByComponent_WithMixedValidAndInvalidDeviceIDs_ShouldOnlyIncludeValid(t *testing.T) {
-	// Arrange
+func TestGroupByComponent_WithMixedKeysInMap_ShouldOnlyIncludeMatched(t *testing.T) {
+	// Arrange - only errors for components in the key map should be included
 	now := time.Now()
 	hb0 := "HB0"
+	hb1 := "HB1"
 	errors := []models.ErrorMessage{
-		{DeviceID: "123", ComponentID: &hb0, ComponentType: models.ComponentTypeHashBoards, Severity: models.SeverityCritical, LastSeenAt: now},
-		{DeviceID: "invalid", ComponentID: &hb0, ComponentType: models.ComponentTypeHashBoards, Severity: models.SeverityMajor, LastSeenAt: now},
+		{DeviceID: "proto-123", ComponentID: &hb0, ComponentType: models.ComponentTypeHashBoards, DeviceType: "S19", Severity: models.SeverityCritical, LastSeenAt: now},
+		{DeviceID: "proto-123", ComponentID: &hb1, ComponentType: models.ComponentTypeHashBoards, DeviceType: "S19", Severity: models.SeverityMajor, LastSeenAt: now},
 	}
-	deviceTypeMap := map[int64]string{123: "S19"}
+	componentKeyMap := map[string]models.ComponentKey{
+		"proto-123_HB0": {DeviceID: 123, DeviceIdentifier: "proto-123", ComponentID: &hb0},
+	}
 
 	// Act
-	result := GroupByComponent(errors, deviceTypeMap)
+	result := GroupByComponent(errors, componentKeyMap)
 
-	// Assert - only the valid deviceID error should be included
+	// Assert - only HB0 component should be included
 	assert.Len(t, result, 1)
 	assert.Equal(t, int64(123), result[0].DeviceID)
 	assert.Len(t, result[0].Errors, 1)
-}
-
-func TestGroupByDevice_WithUnparseableDeviceID_ShouldSkipErrors(t *testing.T) {
-	// Arrange - errors with non-numeric DeviceIDs should be skipped
-	now := time.Now()
-	errors := []models.ErrorMessage{
-		{DeviceID: "not-a-number", Severity: models.SeverityCritical, LastSeenAt: now},
-		{DeviceID: "also-invalid", Severity: models.SeverityMajor, LastSeenAt: now},
-	}
-
-	// Act
-	result := GroupByDevice(errors, map[int64]string{})
-
-	// Assert - all errors should be skipped
-	assert.Empty(t, result)
-}
-
-func TestGroupByDevice_WithMixedValidAndInvalidDeviceIDs_ShouldOnlyIncludeValid(t *testing.T) {
-	// Arrange
-	now := time.Now()
-	errors := []models.ErrorMessage{
-		{DeviceID: "456", Severity: models.SeverityCritical, LastSeenAt: now},
-		{DeviceID: "invalid-id", Severity: models.SeverityMajor, LastSeenAt: now},
-		{DeviceID: "456", Severity: models.SeverityMinor, LastSeenAt: now},
-	}
-	deviceTypeMap := map[int64]string{456: "R2"}
-
-	// Act
-	result := GroupByDevice(errors, deviceTypeMap)
-
-	// Assert - only valid deviceID errors should be grouped
-	assert.Len(t, result, 1)
-	assert.Equal(t, int64(456), result[0].DeviceID)
-	assert.Len(t, result[0].Errors, 2)
+	assert.Equal(t, "HB0", result[0].ComponentID)
 }

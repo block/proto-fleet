@@ -2,7 +2,6 @@ package diagnostics
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
@@ -10,12 +9,6 @@ import (
 	minerInterfaces "github.com/btc-mining/proto-fleet/server/internal/domain/miner/interfaces"
 	minerModels "github.com/btc-mining/proto-fleet/server/internal/domain/miner/models"
 	storeInterfaces "github.com/btc-mining/proto-fleet/server/internal/domain/stores/interfaces"
-)
-
-const (
-	// componentKeyNullMarker marks nil/NULL component IDs in string keys
-	// to distinguish from empty strings in device-level errors
-	componentKeyNullMarker = "*"
 )
 
 // PollResult contains the outcome of a PollErrors operation.
@@ -227,8 +220,8 @@ func (s *Service) queryByDevice(ctx context.Context, opts *models.QueryOptions) 
 	}
 
 	// Step 4: Group by device and build result
-	deviceTypeMap := buildDeviceTypeMap(errors)
-	deviceGroups := GroupByDevice(errors, deviceTypeMap)
+	deviceKeyMap := buildDeviceKeyMap(deviceKeys)
+	deviceGroups := GroupByDevice(errors, deviceKeyMap)
 
 	return &models.QueryResult{
 		TotalCount:    totalDevices,
@@ -273,15 +266,14 @@ func (s *Service) queryByComponent(ctx context.Context, opts *models.QueryOption
 		return nil, err
 	}
 
-	// Step 4: Group by component and filter to only requested components
-	deviceTypeMap := buildDeviceTypeMap(errors)
-	allComponentGroups := GroupByComponent(errors, deviceTypeMap)
-	filteredGroups := filterComponentGroups(allComponentGroups, componentKeys)
+	// Step 4: Group by component and build result
+	componentKeyMap := buildComponentKeyMap(componentKeys)
+	componentGroups := GroupByComponent(errors, componentKeyMap)
 
 	return &models.QueryResult{
 		TotalCount:    totalComponents,
 		NextPageToken: BuildNextComponentPageToken(componentKeys, opts.PageSize),
-		ComponentErrs: filteredGroups,
+		ComponentErrs: componentGroups,
 	}, nil
 }
 
@@ -332,47 +324,25 @@ func extractDeviceIdentifiersFromComponentKeys(keys []models.ComponentKey) []str
 	return identifiers
 }
 
-// filterComponentGroups filters component groups to only include those in the requested keys.
-func filterComponentGroups(groups []models.ComponentErrors, keys []models.ComponentKey) []models.ComponentErrors {
-	keySet := make(map[string]bool)
+// buildDeviceKeyMap creates a mapping from device_identifier (string) to DeviceKey.
+// Used for GroupByDevice to look up numeric device_id from string identifier.
+func buildDeviceKeyMap(keys []models.DeviceKey) map[string]models.DeviceKey {
+	keyMap := make(map[string]models.DeviceKey, len(keys))
 	for _, key := range keys {
-		keySet[componentKeyString(key.DeviceID, key.ComponentID)] = true
+		keyMap[key.DeviceIdentifier] = key
 	}
-
-	var filtered []models.ComponentErrors
-	for _, group := range groups {
-		// Convert group.ComponentID (string) to *string for key matching
-		var componentID *string
-		if group.ComponentID != "" {
-			componentID = &group.ComponentID
-		}
-		if keySet[componentKeyString(group.DeviceID, componentID)] {
-			filtered = append(filtered, group)
-		}
-	}
-	return filtered
+	return keyMap
 }
 
-// componentKeyString creates a string key for component lookup.
-// Uses componentKeyNullMarker for nil/NULL component IDs to distinguish from empty string.
-func componentKeyString(deviceID int64, componentID *string) string {
-	if componentID == nil {
-		return fmt.Sprintf("%d_%s", deviceID, componentKeyNullMarker)
+// buildComponentKeyMap creates a mapping from component key string to ComponentKey.
+// The key format is "{deviceIdentifier}_{componentID}" or "{deviceIdentifier}_device".
+// Used for GroupByComponent to look up numeric device_id from string identifier.
+func buildComponentKeyMap(keys []models.ComponentKey) map[string]models.ComponentKey {
+	keyMap := make(map[string]models.ComponentKey, len(keys))
+	for _, key := range keys {
+		keyMap[buildComponentKeyFromKey(key)] = key
 	}
-	return fmt.Sprintf("%d_%s", deviceID, *componentID)
-}
-
-// buildDeviceTypeMap creates a mapping from device_id (parsed from identifier) to device type.
-// Uses the DeviceType field from query results which comes from the discovered_device JOIN.
-func buildDeviceTypeMap(errors []models.ErrorMessage) map[int64]string {
-	deviceTypeMap := make(map[int64]string)
-	for _, err := range errors {
-		deviceID := parseDeviceID(err.DeviceID)
-		if deviceID != invalidDeviceID && err.DeviceType != "" {
-			deviceTypeMap[deviceID] = err.DeviceType
-		}
-	}
-	return deviceTypeMap
+	return keyMap
 }
 
 // ============================================================================

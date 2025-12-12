@@ -2,21 +2,13 @@ package diagnostics
 
 import (
 	"fmt"
-	"log/slog"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/btc-mining/proto-fleet/server/internal/domain/diagnostics/models"
 )
 
 const (
-	// invalidDeviceID indicates a device ID that failed to parse as int64
-	invalidDeviceID = 0
-	// decimalBase is the numeric base for parsing device IDs
-	decimalBase = 10
-	// int64Bits is the bit size for parsing device IDs
-	int64Bits = 64
 	// deviceLevelComponentKey is the suffix used for device-level errors (no component)
 	deviceLevelComponentKey = "device"
 )
@@ -172,25 +164,14 @@ func SortErrors(errors []models.ErrorMessage) {
 // ============================================================================
 
 // GroupByComponent groups errors by their component, returning ComponentErrors slices.
-// deviceTypeMap maps device_id to device type (model name).
-// Errors with unparseable device IDs are skipped to prevent cross-contamination.
-func GroupByComponent(errors []models.ErrorMessage, deviceTypeMap map[int64]string) []models.ComponentErrors {
+// componentKeyMap maps "deviceIdentifier_componentID" to ComponentKey containing numeric device ID.
+// Errors for components not in componentKeyMap are skipped (shouldn't happen in normal flow).
+func GroupByComponent(errors []models.ErrorMessage, componentKeyMap map[string]models.ComponentKey) []models.ComponentErrors {
 	componentMap := make(map[string][]models.ErrorMessage)
-	componentDeviceMap := make(map[string]int64)
-	componentTypeMap := make(map[string]models.ComponentType)
 
 	for _, err := range errors {
-		deviceID := parseDeviceID(err.DeviceID)
-		if deviceID == invalidDeviceID {
-			continue
-		}
-		key := buildComponentKey(err)
+		key := buildComponentKeyFromError(err)
 		componentMap[key] = append(componentMap[key], err)
-
-		if _, exists := componentDeviceMap[key]; !exists {
-			componentDeviceMap[key] = deviceID
-			componentTypeMap[key] = err.ComponentType
-		}
 	}
 
 	var result []models.ComponentErrors
@@ -199,19 +180,27 @@ func GroupByComponent(errors []models.ErrorMessage, deviceTypeMap map[int64]stri
 			continue
 		}
 
-		deviceID := componentDeviceMap[key]
-		componentType := componentTypeMap[key]
+		compKey, exists := componentKeyMap[key]
+		if !exists {
+			continue
+		}
 
 		var componentID string
 		if compErrors[0].ComponentID != nil {
 			componentID = *compErrors[0].ComponentID
 		}
 
+		// Get device type from first error (all errors for same component have same type)
+		deviceType := ""
+		if len(compErrors) > 0 {
+			deviceType = compErrors[0].DeviceType
+		}
+
 		result = append(result, models.ComponentErrors{
 			ComponentID:      componentID,
-			ComponentType:    componentType,
-			DeviceID:         deviceID,
-			DeviceType:       deviceTypeMap[deviceID],
+			ComponentType:    compErrors[0].ComponentType,
+			DeviceID:         compKey.DeviceID,
+			DeviceType:       deviceType,
 			Status:           CalculateStatus(compErrors),
 			Summary:          GenerateSummary(compErrors),
 			Errors:           compErrors,
@@ -227,23 +216,28 @@ func GroupByComponent(errors []models.ErrorMessage, deviceTypeMap map[int64]stri
 }
 
 // GroupByDevice groups errors by their device, returning DeviceErrorGroup slices.
-// deviceTypeMap maps device_id to device type (model name).
-// Errors with unparseable device IDs are skipped to prevent cross-contamination.
-func GroupByDevice(errors []models.ErrorMessage, deviceTypeMap map[int64]string) []models.DeviceErrorGroup {
-	deviceMap := make(map[int64][]models.ErrorMessage)
+// deviceKeyMap maps device_identifier (string) to DeviceKey containing numeric ID and metadata.
+// Errors for devices not in deviceKeyMap are skipped (shouldn't happen in normal flow).
+func GroupByDevice(errors []models.ErrorMessage, deviceKeyMap map[string]models.DeviceKey) []models.DeviceErrorGroup {
+	deviceMap := make(map[string][]models.ErrorMessage)
 	for _, err := range errors {
-		deviceID := parseDeviceID(err.DeviceID)
-		if deviceID == invalidDeviceID {
-			continue
-		}
-		deviceMap[deviceID] = append(deviceMap[deviceID], err)
+		deviceMap[err.DeviceID] = append(deviceMap[err.DeviceID], err)
 	}
 
 	var result []models.DeviceErrorGroup
-	for deviceID, devErrors := range deviceMap {
+	for deviceIdentifier, devErrors := range deviceMap {
+		deviceKey, exists := deviceKeyMap[deviceIdentifier]
+		if !exists {
+			continue
+		}
+		// Get device type from first error (all errors for same device have same type)
+		deviceType := ""
+		if len(devErrors) > 0 {
+			deviceType = devErrors[0].DeviceType
+		}
 		result = append(result, models.DeviceErrorGroup{
-			DeviceID:         deviceID,
-			DeviceType:       deviceTypeMap[deviceID],
+			DeviceID:         deviceKey.DeviceID,
+			DeviceType:       deviceType,
 			Status:           CalculateStatus(devErrors),
 			Summary:          GenerateSummary(devErrors),
 			Errors:           devErrors,
@@ -262,26 +256,21 @@ func GroupByDevice(errors []models.ErrorMessage, deviceTypeMap map[int64]string)
 // Helper Functions
 // ============================================================================
 
-// buildComponentKey creates a unique key for grouping errors by component.
-// Returns "{deviceID}_{componentID}" or "{deviceID}_device" if no component ID.
-func buildComponentKey(err models.ErrorMessage) string {
+// buildComponentKeyFromError creates a unique key for grouping errors by component.
+// Returns "{deviceIdentifier}_{componentID}" or "{deviceIdentifier}_device" if no component ID.
+// Uses device identifier string (not numeric ID) as the key prefix.
+func buildComponentKeyFromError(err models.ErrorMessage) string {
 	if err.ComponentID != nil && *err.ComponentID != "" {
 		return fmt.Sprintf("%s_%s", err.DeviceID, *err.ComponentID)
 	}
 	return fmt.Sprintf("%s_%s", err.DeviceID, deviceLevelComponentKey)
 }
 
-// parseDeviceID converts a device identifier string to int64.
-// Returns invalidDeviceID (0) if parsing fails. Empty strings return 0 silently,
-// while non-empty invalid strings are logged at debug level.
-func parseDeviceID(deviceID string) int64 {
-	if deviceID == "" {
-		return invalidDeviceID
+// buildComponentKeyFromKey creates a unique key from a ComponentKey for map lookups.
+// Returns "{deviceIdentifier}_{componentID}" or "{deviceIdentifier}_device" if no component ID.
+func buildComponentKeyFromKey(key models.ComponentKey) string {
+	if key.ComponentID != nil && *key.ComponentID != "" {
+		return fmt.Sprintf("%s_%s", key.DeviceIdentifier, *key.ComponentID)
 	}
-	id, err := strconv.ParseInt(deviceID, decimalBase, int64Bits)
-	if err != nil {
-		slog.Debug("failed to parse device ID as int64", "deviceID", deviceID, "error", err)
-		return invalidDeviceID
-	}
-	return id
+	return fmt.Sprintf("%s_%s", key.DeviceIdentifier, deviceLevelComponentKey)
 }
