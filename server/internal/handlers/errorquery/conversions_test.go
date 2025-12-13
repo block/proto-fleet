@@ -240,8 +240,8 @@ func TestConvertQueryResultToProto_WithComponentResult_ShouldReturnComponentsRes
 	require.Len(t, resp.GetComponents().Items, 1)
 	comp := resp.GetComponents().Items[0]
 	require.Equal(t, "ctrl-0", comp.ComponentId)
-	// ComponentTypeControlBoard is 1 in both domain and proto (PSU in proto)
-	require.Equal(t, errorsv1.ComponentType(models.ComponentTypeControlBoard), comp.ComponentType)
+	// Domain ControlBoard (1) maps to Proto ControlBoard (4) - values differ between enums
+	require.Equal(t, errorsv1.ComponentType_COMPONENT_TYPE_CONTROL_BOARD, comp.ComponentType)
 	require.Equal(t, "device-456", comp.DeviceIdentifier)
 	require.Equal(t, errorsv1.Status_STATUS_WARNING, comp.Status)
 }

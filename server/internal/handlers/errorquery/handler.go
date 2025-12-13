@@ -110,6 +110,7 @@ func convertDomainErrorToProto(domainErr *models.ErrorMessage) *errorsv1.ErrorMe
 		VendorAttributes:  domainErr.VendorAttributes,
 		DeviceIdentifier:  domainErr.DeviceID,
 		Impact:            domainErr.Impact,
+		ComponentType:     domainComponentTypeToProto(domainErr.ComponentType),
 	}
 
 	if domainErr.ClosedAt != nil {

@@ -161,6 +161,7 @@ message ErrorMessage {
   string device_identifier = 11;                    // device_identifier of the Device this error belongs to
   optional string component_id = 12;                // Optional component identifier
   string impact = 13;                               // Human-readable business impact
+  ComponentType component_type = 14;                // Type of hardware component (hashboard, fan, PSU, etc.)
 }
 
 // Rich summary structure for aggregated views

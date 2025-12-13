@@ -147,7 +147,7 @@ func convertComponentErrorsToProto(components []models.ComponentErrors) []*error
 		}
 		result[i] = &errorsv1.ComponentError{
 			ComponentId:      comp.ComponentID,
-			ComponentType:    errorsv1.ComponentType(comp.ComponentType), // #nosec G115 -- ComponentType enum bounded (max 6), safe for int32
+			ComponentType:    domainComponentTypeToProto(comp.ComponentType),
 			DeviceIdentifier: deviceIdentifier,
 			Status:           errorsv1.Status(comp.Status), // #nosec G115 -- Status enum bounded (max 3), safe for int32
 			Summary:          convertSummaryToProto(comp.Summary),
@@ -239,5 +239,22 @@ func convertWatchKindToProto(kind diagnostics.WatchKind) errorsv1.WatchResponse_
 		return errorsv1.WatchResponse_KIND_CLOSED
 	default:
 		return errorsv1.WatchResponse_KIND_UNSPECIFIED
+	}
+}
+
+// domainComponentTypeToProto converts domain ComponentType to proto ComponentType.
+// Domain and proto enums have different numeric values, so explicit mapping is required.
+func domainComponentTypeToProto(ct models.ComponentType) errorsv1.ComponentType {
+	switch ct {
+	case models.ComponentTypePSU:
+		return errorsv1.ComponentType_COMPONENT_TYPE_PSU
+	case models.ComponentTypeFans:
+		return errorsv1.ComponentType_COMPONENT_TYPE_FAN
+	case models.ComponentTypeHashBoards:
+		return errorsv1.ComponentType_COMPONENT_TYPE_HASH_BOARD
+	case models.ComponentTypeControlBoard:
+		return errorsv1.ComponentType_COMPONENT_TYPE_CONTROL_BOARD
+	default:
+		return errorsv1.ComponentType_COMPONENT_TYPE_UNSPECIFIED
 	}
 }

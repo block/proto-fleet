@@ -515,3 +515,38 @@ var minerErrorInfo = map[MinerError]MinerErrorInfo{
 func GetMinerErrorInfo() map[MinerError]MinerErrorInfo {
 	return minerErrorInfo
 }
+
+// MinerError code range boundaries for component type mapping.
+// Max values use range boundaries (e.g., 1999 instead of 1011) so new error codes
+// within a category are automatically mapped without requiring constant updates.
+const (
+	psuErrorMin          MinerError = 1000
+	psuErrorMax          MinerError = 1999
+	fanThermalErrorMin   MinerError = 2000
+	fanThermalErrorMax   MinerError = 2999
+	hashboardErrorMin    MinerError = 3000
+	hashboardErrorMax    MinerError = 3499
+	boardPowerErrorMin   MinerError = 3500
+	boardPowerErrorMax   MinerError = 3999
+	controlPlaneErrorMin MinerError = 6000
+	controlPlaneErrorMax MinerError = 6999
+)
+
+// DefaultComponentTypeForMinerError returns the default ComponentType for a MinerError.
+// Used when ingesting errors that don't specify a component type.
+func DefaultComponentTypeForMinerError(err MinerError) ComponentType {
+	switch {
+	case err >= psuErrorMin && err <= psuErrorMax:
+		return ComponentTypePSU
+	case err >= fanThermalErrorMin && err <= fanThermalErrorMax:
+		return ComponentTypeFans
+	case err >= hashboardErrorMin && err <= hashboardErrorMax:
+		return ComponentTypeHashBoards
+	case err >= boardPowerErrorMin && err <= boardPowerErrorMax:
+		return ComponentTypeHashBoards
+	case err >= controlPlaneErrorMin && err <= controlPlaneErrorMax:
+		return ComponentTypeControlBoard
+	default:
+		return ComponentTypeUnspecified
+	}
+}

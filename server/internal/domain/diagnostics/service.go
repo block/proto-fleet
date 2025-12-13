@@ -84,8 +84,12 @@ func (s *Service) PollErrors(ctx context.Context, miners ...minerInterfaces.Mine
 
 // upsertErrors upserts a list of errors for a single device.
 // Returns the count of successful upserts and failed upserts.
+// Applies default ComponentType based on MinerError if not already specified.
 func (s *Service) upsertErrors(ctx context.Context, orgID int64, deviceID minerModels.DeviceIdentifier, errors []models.ErrorMessage) (upserted, failed int) {
 	for i := range errors {
+		if errors[i].ComponentType == models.ComponentTypeUnspecified {
+			errors[i].ComponentType = models.DefaultComponentTypeForMinerError(errors[i].MinerError)
+		}
 		_, err := s.errorStore.UpsertError(ctx, orgID, string(deviceID), &errors[i])
 		if err != nil {
 			slog.Warn("failed to upsert error", "deviceID", deviceID, "orgID", orgID, "minerError", errors[i].MinerError, "error", err)

@@ -65,6 +65,7 @@ func TestPollErrors_WithSingleMiner_ShouldUpsertErrors(t *testing.T) {
 		assert.Equal(t, models.HashboardOverTemperature, errMsg.MinerError)
 		assert.Equal(t, models.SeverityMajor, errMsg.Severity)
 		assert.Equal(t, "Test error", errMsg.Summary)
+		assert.Equal(t, models.ComponentTypeHashBoards, errMsg.ComponentType, "should default ComponentType from MinerError")
 		return errMsg, nil
 	})
 
