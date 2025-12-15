@@ -932,7 +932,10 @@ func (s *SQLErrorStore) CloseStaleErrors(ctx context.Context, threshold time.Dur
 
 	cutoffTime := time.Now().Add(-threshold)
 
-	result, err := q.CloseStaleErrors(ctx, cutoffTime)
+	result, err := q.CloseStaleErrors(ctx, sqlc.CloseStaleErrorsParams{
+		CutoffTime:       cutoffTime,
+		StatusCutoffTime: sql.NullTime{Time: cutoffTime, Valid: true},
+	})
 	if err != nil {
 		return 0, fleeterror.NewInternalErrorf("failed to close stale errors: %v", err)
 	}

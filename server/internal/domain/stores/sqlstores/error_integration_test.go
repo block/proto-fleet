@@ -988,3 +988,154 @@ func TestSQLErrorStore_CountComponents_ShouldCountUniqueComponents(t *testing.T)
 func strPtr(s string) *string {
 	return &s
 }
+
+// ============================================================================
+// CloseStaleErrors Tests
+// ============================================================================
+
+func TestSQLErrorStore_CloseStaleErrors_ShouldCloseOnlyStaleErrorsWithRecentPoll(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIdentifier := setupErrorTestData(t)
+	store := sqlstores.NewSQLErrorStore(db)
+	queries := sqlc.New(db)
+	ctx := t.Context()
+
+	// Get device ID for status insertion
+	deviceID, err := queries.GetDeviceIDByIdentifier(ctx, sqlc.GetDeviceIDByIdentifierParams{
+		DeviceIdentifier: deviceIdentifier,
+		OrgID:            orgID,
+	})
+	require.NoError(t, err)
+
+	// Arrange: Create a stale error (last seen 5 minutes ago)
+	staleError := createTestErrorMessage(deviceIdentifier)
+	staleTime := time.Now().Add(-5 * time.Minute).Truncate(time.Microsecond)
+	staleError.FirstSeenAt = staleTime.Add(-time.Hour)
+	staleError.LastSeenAt = staleTime
+	inserted, err := store.UpsertError(ctx, orgID, deviceIdentifier, staleError)
+	require.NoError(t, err)
+
+	// Arrange: Insert recent device status (1 minute ago) - confirms device was polled
+	recentStatus := time.Now().Add(-1 * time.Minute).Truncate(time.Microsecond)
+	err = queries.UpsertDeviceStatus(ctx, sqlc.UpsertDeviceStatusParams{
+		DeviceID:        deviceID,
+		StatusTimestamp: sql.NullTime{Time: recentStatus, Valid: true},
+		Status:          sqlc.DeviceStatusStatusACTIVE,
+		StatusDetails:   sql.NullString{String: "{}", Valid: true},
+	})
+	require.NoError(t, err)
+
+	// Act: Close errors stale for more than 3 minutes
+	threshold := 3 * time.Minute
+	closed, err := store.CloseStaleErrors(ctx, threshold)
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), closed, "Should close 1 stale error")
+
+	// Assert: Verify error is now closed
+	closedError, err := store.GetErrorByErrorID(ctx, orgID, inserted.ErrorID)
+	require.NoError(t, err)
+	assert.NotNil(t, closedError.ClosedAt, "Error should be closed")
+}
+
+func TestSQLErrorStore_CloseStaleErrors_ShouldNotCloseIfNoRecentPoll(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIdentifier := setupErrorTestData(t)
+	store := sqlstores.NewSQLErrorStore(db)
+	queries := sqlc.New(db)
+	ctx := t.Context()
+
+	// Get device ID for status insertion
+	deviceID, err := queries.GetDeviceIDByIdentifier(ctx, sqlc.GetDeviceIDByIdentifierParams{
+		DeviceIdentifier: deviceIdentifier,
+		OrgID:            orgID,
+	})
+	require.NoError(t, err)
+
+	// Arrange: Create a stale error (last seen 5 minutes ago)
+	staleError := createTestErrorMessage(deviceIdentifier)
+	staleTime := time.Now().Add(-5 * time.Minute).Truncate(time.Microsecond)
+	staleError.FirstSeenAt = staleTime.Add(-time.Hour)
+	staleError.LastSeenAt = staleTime
+	inserted, err := store.UpsertError(ctx, orgID, deviceIdentifier, staleError)
+	require.NoError(t, err)
+
+	// Arrange: Insert OLD device status (10 minutes ago) - no recent poll confirmation
+	oldStatus := time.Now().Add(-10 * time.Minute).Truncate(time.Microsecond)
+	err = queries.UpsertDeviceStatus(ctx, sqlc.UpsertDeviceStatusParams{
+		DeviceID:        deviceID,
+		StatusTimestamp: sql.NullTime{Time: oldStatus, Valid: true},
+		Status:          sqlc.DeviceStatusStatusACTIVE,
+		StatusDetails:   sql.NullString{String: "{}", Valid: true},
+	})
+	require.NoError(t, err)
+
+	// Act: Close errors stale for more than 3 minutes
+	threshold := 3 * time.Minute
+	closed, err := store.CloseStaleErrors(ctx, threshold)
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), closed, "Should NOT close error without recent poll")
+
+	// Assert: Verify error is still open
+	openError, err := store.GetErrorByErrorID(ctx, orgID, inserted.ErrorID)
+	require.NoError(t, err)
+	assert.Nil(t, openError.ClosedAt, "Error should still be open")
+}
+
+func TestSQLErrorStore_CloseStaleErrors_ShouldNotCloseRecentErrors(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIdentifier := setupErrorTestData(t)
+	store := sqlstores.NewSQLErrorStore(db)
+	queries := sqlc.New(db)
+	ctx := t.Context()
+
+	// Get device ID for status insertion
+	deviceID, err := queries.GetDeviceIDByIdentifier(ctx, sqlc.GetDeviceIDByIdentifierParams{
+		DeviceIdentifier: deviceIdentifier,
+		OrgID:            orgID,
+	})
+	require.NoError(t, err)
+
+	// Arrange: Create a RECENT error (last seen 1 minute ago)
+	recentError := createTestErrorMessage(deviceIdentifier)
+	recentTime := time.Now().Add(-1 * time.Minute).Truncate(time.Microsecond)
+	recentError.FirstSeenAt = recentTime.Add(-time.Hour)
+	recentError.LastSeenAt = recentTime
+	inserted, err := store.UpsertError(ctx, orgID, deviceIdentifier, recentError)
+	require.NoError(t, err)
+
+	// Arrange: Insert recent device status
+	recentStatus := time.Now().Add(-30 * time.Second).Truncate(time.Microsecond)
+	err = queries.UpsertDeviceStatus(ctx, sqlc.UpsertDeviceStatusParams{
+		DeviceID:        deviceID,
+		StatusTimestamp: sql.NullTime{Time: recentStatus, Valid: true},
+		Status:          sqlc.DeviceStatusStatusACTIVE,
+		StatusDetails:   sql.NullString{String: "{}", Valid: true},
+	})
+	require.NoError(t, err)
+
+	// Act: Close errors stale for more than 3 minutes
+	threshold := 3 * time.Minute
+	closed, err := store.CloseStaleErrors(ctx, threshold)
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), closed, "Should NOT close recent error")
+
+	// Assert: Verify error is still open
+	openError, err := store.GetErrorByErrorID(ctx, orgID, inserted.ErrorID)
+	require.NoError(t, err)
+	assert.Nil(t, openError.ClosedAt, "Error should still be open")
+}

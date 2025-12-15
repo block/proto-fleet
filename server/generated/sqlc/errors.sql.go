@@ -19,16 +19,26 @@ UPDATE errors
 SET closed_at = CURRENT_TIMESTAMP(6)
 WHERE closed_at IS NULL
   AND last_seen_at < ?
+  AND EXISTS (
+    SELECT 1
+    FROM device_status ds
+    WHERE ds.device_id = errors.device_id
+      AND ds.status_timestamp >= ?
+  )
 `
+
+type CloseStaleErrorsParams struct {
+	CutoffTime       time.Time
+	StatusCutoffTime sql.NullTime
+}
 
 // ============================================================================
 // Error Lifecycle Management
 // ============================================================================
-// Closes all open errors where last_seen_at is older than the specified cutoff time.
-// This is a bulk operation that operates globally across all organizations.
-// Used by the error closer background thread to auto-close stale errors.
-func (q *Queries) CloseStaleErrors(ctx context.Context, cutoffTime time.Time) (sql.Result, error) {
-	return q.exec(ctx, q.closeStaleErrorsStmt, closeStaleErrors, cutoffTime)
+// Closes stale errors only when device was successfully polled after the staleness cutoff time.
+// This ensures we have confirmed the error is absent from a recent poll.
+func (q *Queries) CloseStaleErrors(ctx context.Context, arg CloseStaleErrorsParams) (sql.Result, error) {
+	return q.exec(ctx, q.closeStaleErrorsStmt, closeStaleErrors, arg.CutoffTime, arg.StatusCutoffTime)
 }
 
 const countComponentsWithErrors = `-- name: CountComponentsWithErrors :one
