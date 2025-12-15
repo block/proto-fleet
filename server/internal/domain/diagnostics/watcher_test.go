@@ -20,12 +20,13 @@ import (
 func TestNewWatcher_WithValidConfig_ShouldUseConfigValues(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	config := Config{
 		WatchPollInterval:  30 * time.Second,
 		WatchChannelBuffer: 20,
 	}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 
 	w := newWatcher(svc, 1, nil, config)
 
@@ -38,12 +39,13 @@ func TestNewWatcher_WithValidConfig_ShouldUseConfigValues(t *testing.T) {
 func TestNewWatcher_WithZeroConfig_ShouldUseFallbackDefaults(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	config := Config{
 		WatchPollInterval:  0, // Zero - should use default
 		WatchChannelBuffer: 0, // Zero - should use default
 	}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 
 	w := newWatcher(svc, 1, nil, config)
 
@@ -54,12 +56,13 @@ func TestNewWatcher_WithZeroConfig_ShouldUseFallbackDefaults(t *testing.T) {
 func TestNewWatcher_WithNegativeConfig_ShouldUseFallbackDefaults(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	config := Config{
 		WatchPollInterval:  -5 * time.Second,
 		WatchChannelBuffer: -10,
 	}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 
 	w := newWatcher(svc, 1, nil, config)
 
@@ -70,8 +73,9 @@ func TestNewWatcher_WithNegativeConfig_ShouldUseFallbackDefaults(t *testing.T) {
 func TestNewWatcher_WithNilOpts_ShouldCreateEmptyOpts(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
-	svc := NewService(context.Background(), Config{}, mockStore)
+	svc := NewService(context.Background(), Config{}, mockStore, mockTransactor)
 
 	w := newWatcher(svc, 1, nil, Config{})
 
@@ -81,8 +85,9 @@ func TestNewWatcher_WithNilOpts_ShouldCreateEmptyOpts(t *testing.T) {
 func TestNewWatcher_WithOpts_ShouldPreserveOpts(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
-	svc := NewService(context.Background(), Config{}, mockStore)
+	svc := NewService(context.Background(), Config{}, mockStore, mockTransactor)
 	opts := &WatchOptions{
 		Filter: &models.QueryFilter{
 			DeviceIdentifiers: []string{"device-1"},
@@ -102,8 +107,9 @@ func TestNewWatcher_WithOpts_ShouldPreserveOpts(t *testing.T) {
 func TestBuildFilterWithTimeFrom_WithNoOptsFilter_ShouldSetTimeFromAndIncludeClosed(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
-	svc := NewService(context.Background(), Config{}, mockStore)
+	svc := NewService(context.Background(), Config{}, mockStore, mockTransactor)
 	w := newWatcher(svc, 1, nil, Config{})
 	w.lastPollTime = time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 
@@ -117,8 +123,9 @@ func TestBuildFilterWithTimeFrom_WithNoOptsFilter_ShouldSetTimeFromAndIncludeClo
 func TestBuildFilterWithTimeFrom_WithOptsFilter_ShouldMergeFilters(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
-	svc := NewService(context.Background(), Config{}, mockStore)
+	svc := NewService(context.Background(), Config{}, mockStore, mockTransactor)
 	opts := &WatchOptions{
 		Filter: &models.QueryFilter{
 			DeviceIdentifiers: []string{"device-1", "device-2"},
@@ -147,10 +154,11 @@ func TestBuildFilterWithTimeFrom_WithOptsFilter_ShouldMergeFilters(t *testing.T)
 func TestBuildFilterWithTimeFrom_WithOptsFilterHavingTimeTo_ShouldIgnoreUserTime(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	userTimeFrom := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	userTimeTo := time.Date(2024, 1, 31, 0, 0, 0, 0, time.UTC)
-	svc := NewService(context.Background(), Config{}, mockStore)
+	svc := NewService(context.Background(), Config{}, mockStore, mockTransactor)
 	opts := &WatchOptions{
 		Filter: &models.QueryFilter{
 			TimeFrom:      &userTimeFrom, // Should be ignored
@@ -179,9 +187,10 @@ func TestBuildFilterWithTimeFrom_WithOptsFilterHavingTimeTo_ShouldIgnoreUserTime
 func TestSendEvent_WithSpaceInChannel_ShouldSendUpdate(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	config := Config{WatchChannelBuffer: 5}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 	w := newWatcher(svc, 1, nil, config)
 
 	ctx := context.Background()
@@ -203,9 +212,10 @@ func TestSendEvent_WithSpaceInChannel_ShouldSendUpdate(t *testing.T) {
 func TestSendEvent_WithFullChannel_ShouldDropUpdate(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	config := Config{WatchChannelBuffer: 1}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 	w := newWatcher(svc, 1, nil, config)
 
 	ctx := context.Background()
@@ -233,10 +243,11 @@ func TestSendEvent_WithFullChannel_ShouldDropUpdate(t *testing.T) {
 func TestSendEvent_WithCancelledContextAndFullChannel_ShouldNotBlock(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	// Use buffer size 1 and fill it
 	config := Config{WatchChannelBuffer: 1}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 	w := newWatcher(svc, 1, nil, config)
 
 	// Fill the channel
@@ -269,6 +280,7 @@ func TestSendEvent_WithCancelledContextAndFullChannel_ShouldNotBlock(t *testing.
 func TestPollAndSend_WithNewError_ShouldSendKindOpened(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	pollTime := time.Now()
 	// Error with first_seen_at AFTER lastPollTime = NEW error
@@ -280,7 +292,7 @@ func TestPollAndSend_WithNewError_ShouldSendKindOpened(t *testing.T) {
 	mockStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return(mockErrors, nil)
 
 	config := Config{WatchChannelBuffer: 10}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 	w := newWatcher(svc, 1, nil, config)
 	w.lastPollTime = pollTime
 
@@ -300,6 +312,7 @@ func TestPollAndSend_WithNewError_ShouldSendKindOpened(t *testing.T) {
 func TestPollAndSend_WithUpdatedError_ShouldSendKindUpdated(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	pollTime := time.Now()
 	// Error with first_seen_at BEFORE lastPollTime = existing error that was UPDATED
@@ -312,7 +325,7 @@ func TestPollAndSend_WithUpdatedError_ShouldSendKindUpdated(t *testing.T) {
 	mockStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return(mockErrors, nil)
 
 	config := Config{WatchChannelBuffer: 10}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 	w := newWatcher(svc, 1, nil, config)
 	w.lastPollTime = pollTime
 
@@ -332,6 +345,7 @@ func TestPollAndSend_WithUpdatedError_ShouldSendKindUpdated(t *testing.T) {
 func TestPollAndSend_WithClosedError_ShouldSendKindClosed(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	pollTime := time.Now()
 	closedAt := pollTime.Add(1 * time.Second)
@@ -342,7 +356,7 @@ func TestPollAndSend_WithClosedError_ShouldSendKindClosed(t *testing.T) {
 	mockStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return(mockErrors, nil)
 
 	config := Config{WatchChannelBuffer: 10}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 	w := newWatcher(svc, 1, nil, config)
 	w.lastPollTime = pollTime
 
@@ -362,6 +376,7 @@ func TestPollAndSend_WithClosedError_ShouldSendKindClosed(t *testing.T) {
 func TestPollAndSend_WithMixedErrorStates_ShouldSendAllThreeKinds(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	pollTime := time.Now()
 	closedAt := pollTime.Add(1 * time.Second)
@@ -378,7 +393,7 @@ func TestPollAndSend_WithMixedErrorStates_ShouldSendAllThreeKinds(t *testing.T) 
 	mockStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return(mockErrors, nil)
 
 	config := Config{WatchChannelBuffer: 10}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 	w := newWatcher(svc, 1, nil, config)
 	w.lastPollTime = pollTime
 
@@ -409,6 +424,7 @@ func TestPollAndSend_WithMixedErrorStates_ShouldSendAllThreeKinds(t *testing.T) 
 func TestPollAndSend_WithErrorAtExactPollTime_ShouldClassifyAsOpened(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	pollTime := time.Now()
 	// Error with first_seen_at EQUAL to lastPollTime should be NEW (edge case)
@@ -419,7 +435,7 @@ func TestPollAndSend_WithErrorAtExactPollTime_ShouldClassifyAsOpened(t *testing.
 	mockStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return(mockErrors, nil)
 
 	config := Config{WatchChannelBuffer: 10}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 	w := newWatcher(svc, 1, nil, config)
 	w.lastPollTime = pollTime
 
@@ -438,11 +454,12 @@ func TestPollAndSend_WithErrorAtExactPollTime_ShouldClassifyAsOpened(t *testing.
 func TestPollAndSend_WithNoErrors_ShouldNotSendAnyUpdates(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	mockStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return([]models.ErrorMessage{}, nil)
 
 	config := Config{WatchChannelBuffer: 10}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 	w := newWatcher(svc, 1, nil, config)
 	w.lastPollTime = time.Now()
 
@@ -460,11 +477,12 @@ func TestPollAndSend_WithNoErrors_ShouldNotSendAnyUpdates(t *testing.T) {
 func TestPollAndSend_WhenQueryFails_ShouldNotSendUpdates(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	mockStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return(nil, assert.AnError)
 
 	config := Config{WatchChannelBuffer: 10}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 	w := newWatcher(svc, 1, nil, config)
 	w.lastPollTime = time.Now()
 
@@ -482,11 +500,12 @@ func TestPollAndSend_WhenQueryFails_ShouldNotSendUpdates(t *testing.T) {
 func TestPollAndSend_ShouldUpdateLastPollTime(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	mockStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return([]models.ErrorMessage{}, nil)
 
 	config := Config{WatchChannelBuffer: 10}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 	w := newWatcher(svc, 1, nil, config)
 
 	originalTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -505,6 +524,7 @@ func TestPollAndSend_ShouldUpdateLastPollTime(t *testing.T) {
 func TestRun_WithImmediateCancellation_ShouldCloseChannel(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	// Even with immediate cancellation, initial poll may or may not happen
 	// depending on timing, so we allow any calls
@@ -514,7 +534,7 @@ func TestRun_WithImmediateCancellation_ShouldCloseChannel(t *testing.T) {
 		WatchPollInterval:  100 * time.Millisecond,
 		WatchChannelBuffer: 5,
 	}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 	w := newWatcher(svc, 1, nil, config)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -542,6 +562,7 @@ func TestRun_WithImmediateCancellation_ShouldCloseChannel(t *testing.T) {
 func TestRun_WithCancellationAfterInitialPoll_ShouldCloseChannel(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	// Return an error with old first_seen_at so it classifies as UPDATED
 	mockStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -556,7 +577,7 @@ func TestRun_WithCancellationAfterInitialPoll_ShouldCloseChannel(t *testing.T) {
 		WatchPollInterval:  500 * time.Millisecond, // Long interval so we can control cancellation
 		WatchChannelBuffer: 10,
 	}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 	w := newWatcher(svc, 1, nil, config)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -598,6 +619,7 @@ func TestRun_WithCancellationAfterInitialPoll_ShouldCloseChannel(t *testing.T) {
 func TestWatch_ShouldReturnChannel(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	// Expect initial poll
 	mockStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return([]models.ErrorMessage{}, nil).AnyTimes()
@@ -606,7 +628,7 @@ func TestWatch_ShouldReturnChannel(t *testing.T) {
 		WatchPollInterval:  100 * time.Millisecond,
 		WatchChannelBuffer: 10,
 	}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -620,6 +642,7 @@ func TestWatch_ShouldReturnChannel(t *testing.T) {
 func TestWatch_WithOpts_ShouldUseFilter(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	// Verify that the filter is applied by checking QueryErrors is called
 	mockStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -635,7 +658,7 @@ func TestWatch_WithOpts_ShouldUseFilter(t *testing.T) {
 		WatchPollInterval:  100 * time.Millisecond,
 		WatchChannelBuffer: 10,
 	}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -656,6 +679,7 @@ func TestWatch_WithOpts_ShouldUseFilter(t *testing.T) {
 func TestWatch_ChannelClosesOnContextCancel(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	mockStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return([]models.ErrorMessage{}, nil).AnyTimes()
 
@@ -663,7 +687,7 @@ func TestWatch_ChannelClosesOnContextCancel(t *testing.T) {
 		WatchPollInterval:  50 * time.Millisecond,
 		WatchChannelBuffer: 10,
 	}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -687,6 +711,7 @@ func TestWatch_ChannelClosesOnContextCancel(t *testing.T) {
 func TestWatch_SendsCorrectKindBasedOnErrorState(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	// The mock will be called and we need to return errors that will be
 	// classified based on their first_seen_at relative to lastPollTime.
@@ -704,7 +729,7 @@ func TestWatch_SendsCorrectKindBasedOnErrorState(t *testing.T) {
 		WatchPollInterval:  1 * time.Second,
 		WatchChannelBuffer: 10,
 	}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -725,6 +750,7 @@ func TestWatch_SendsCorrectKindBasedOnErrorState(t *testing.T) {
 func TestWatch_UsesServiceConfig(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	// Return errors with old first_seen_at so they classify as UPDATED (not new)
 	mockStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -740,7 +766,7 @@ func TestWatch_UsesServiceConfig(t *testing.T) {
 		WatchPollInterval:  50 * time.Millisecond, // Short poll interval
 		WatchChannelBuffer: 3,
 	}
-	svc := NewService(context.Background(), config, mockStore)
+	svc := NewService(context.Background(), config, mockStore, mockTransactor)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

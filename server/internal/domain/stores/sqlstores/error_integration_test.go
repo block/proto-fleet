@@ -28,6 +28,12 @@ func setupErrorTestData(t *testing.T) (db *sql.DB, orgID int64, deviceIdentifier
 	return testContext.DatabaseService.DB, adminUser.OrganizationID, device.ID
 }
 
+// newErrorStore creates an ErrorStore with a transactor for integration tests.
+func newErrorStore(db *sql.DB) *sqlstores.SQLErrorStore {
+	transactor := sqlstores.NewSQLTransactor(db)
+	return sqlstores.NewSQLErrorStore(db, transactor)
+}
+
 // createTestErrorMessage builds an ErrorMessage with default test values.
 func createTestErrorMessage(deviceID string) *models.ErrorMessage {
 	now := time.Now().Truncate(time.Microsecond)
@@ -147,7 +153,7 @@ func TestSQLErrorStore_UpsertError_ShouldInsertNewError(t *testing.T) {
 	}
 
 	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange
@@ -179,7 +185,7 @@ func TestSQLErrorStore_UpsertError_ShouldUpdateExistingOpenError(t *testing.T) {
 	}
 
 	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Insert first error
@@ -216,7 +222,7 @@ func TestSQLErrorStore_UpsertError_ShouldCloseErrorWhenClosedAtSet(t *testing.T)
 	}
 
 	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Insert open error
@@ -248,7 +254,7 @@ func TestSQLErrorStore_UpsertError_ShouldInsertAlreadyClosedError(t *testing.T) 
 	}
 
 	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Create error with ClosedAt already set (historical import)
@@ -273,7 +279,7 @@ func TestSQLErrorStore_UpsertError_ShouldCreateNewErrorWhenExistingIsClosed(t *t
 	}
 
 	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Step 1 - Create open error
@@ -316,7 +322,7 @@ func TestSQLErrorStore_UpsertError_ShouldDedupWithNullComponents(t *testing.T) {
 	}
 
 	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Insert error with NULL component_id and Unspecified component_type
@@ -353,7 +359,7 @@ func TestSQLErrorStore_UpsertError_ShouldNotDedupWhenComponentsDiffer(t *testing
 	}
 
 	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Insert error with ComponentID="hashboard-0"
@@ -391,7 +397,7 @@ func TestSQLErrorStore_UpsertError_ShouldReturnErrorForUnknownDevice(t *testing.
 	}
 
 	db := testutil.GetTestDB(t)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Create org only, no device
@@ -424,7 +430,7 @@ func TestSQLErrorStore_UpsertError_ShouldMapAllFieldsCorrectly(t *testing.T) {
 	}
 
 	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Create error with ALL fields populated
@@ -488,7 +494,7 @@ func TestSQLErrorStore_GetErrorByErrorID_ShouldReturnError(t *testing.T) {
 
 	// Arrange
 	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	errMsg := createTestErrorMessage(deviceIdentifier)
@@ -525,7 +531,7 @@ func TestSQLErrorStore_QueryErrors_ShouldReturnAllOpenErrors(t *testing.T) {
 	}
 
 	db, orgID, deviceIdentifiers := setupMultiDeviceErrorData(t, 3)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Create 3 errors on different devices
@@ -550,7 +556,7 @@ func TestSQLErrorStore_QueryErrors_WithSeverityFilter_ShouldFilterBySeverity(t *
 	}
 
 	db, orgID, deviceIdentifiers := setupMultiDeviceErrorData(t, 3)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Create errors with different severities
@@ -584,7 +590,7 @@ func TestSQLErrorStore_QueryErrors_WithDeviceFilter_ShouldFilterByDevice(t *test
 	}
 
 	db, orgID, deviceIdentifiers := setupMultiDeviceErrorData(t, 3)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Create one error per device
@@ -619,7 +625,7 @@ func TestSQLErrorStore_QueryErrors_WithMultipleFilters_ShouldMatchAll(t *testing
 	}
 
 	db, orgID, deviceIdentifiers := setupMultiDeviceErrorData(t, 3)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange:
@@ -655,7 +661,7 @@ func TestSQLErrorStore_QueryErrors_WithCursor_ShouldPaginate(t *testing.T) {
 	}
 
 	db, orgID, deviceIdentifiers := setupMultiDeviceErrorData(t, 5)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Create 5 errors, one per device with same severity for predictable ordering
@@ -712,7 +718,7 @@ func TestSQLErrorStore_CountErrors_ShouldCountMatchingErrors(t *testing.T) {
 	}
 
 	db, orgID, deviceIdentifiers := setupMultiDeviceErrorData(t, 3)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Create 3 errors
@@ -737,7 +743,7 @@ func TestSQLErrorStore_CountErrors_WithFilters_ShouldCountFiltered(t *testing.T)
 	}
 
 	db, orgID, deviceIdentifiers := setupMultiDeviceErrorData(t, 3)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Create errors with different severities
@@ -772,7 +778,7 @@ func TestSQLErrorStore_QueryDeviceKeys_ShouldReturnUniqueDevices(t *testing.T) {
 	}
 
 	db, orgID, deviceIdentifiers := setupMultiDeviceErrorData(t, 3)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Create multiple errors per device
@@ -800,7 +806,7 @@ func TestSQLErrorStore_QueryDeviceKeys_ShouldPaginateByDevice(t *testing.T) {
 	}
 
 	db, orgID, deviceIdentifiers := setupMultiDeviceErrorData(t, 5)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Create errors with varying severities per device for predictable ordering
@@ -860,7 +866,7 @@ func TestSQLErrorStore_CountDevices_ShouldCountUniqueDevices(t *testing.T) {
 	}
 
 	db, orgID, deviceIdentifiers := setupMultiDeviceErrorData(t, 3)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Create multiple errors per device (6 errors total, 3 devices)
@@ -891,7 +897,7 @@ func TestSQLErrorStore_QueryComponentKeys_ShouldReturnUniqueComponents(t *testin
 	}
 
 	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Create errors for different components on same device
@@ -918,7 +924,7 @@ func TestSQLErrorStore_QueryComponentKeys_ShouldHandleNullComponentID(t *testing
 	}
 
 	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Create device-level error (nil ComponentID) and component-level error
@@ -960,7 +966,7 @@ func TestSQLErrorStore_CountComponents_ShouldCountUniqueComponents(t *testing.T)
 	}
 
 	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	ctx := t.Context()
 
 	// Arrange: Create 3 unique components, with multiple errors per component
@@ -999,7 +1005,7 @@ func TestSQLErrorStore_CloseStaleErrors_ShouldCloseOnlyStaleErrorsWithRecentPoll
 	}
 
 	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	queries := sqlc.New(db)
 	ctx := t.Context()
 
@@ -1048,7 +1054,7 @@ func TestSQLErrorStore_CloseStaleErrors_ShouldNotCloseIfNoRecentPoll(t *testing.
 	}
 
 	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	queries := sqlc.New(db)
 	ctx := t.Context()
 
@@ -1097,7 +1103,7 @@ func TestSQLErrorStore_CloseStaleErrors_ShouldNotCloseRecentErrors(t *testing.T)
 	}
 
 	db, orgID, deviceIdentifier := setupErrorTestData(t)
-	store := sqlstores.NewSQLErrorStore(db)
+	store := newErrorStore(db)
 	queries := sqlc.New(db)
 	ctx := t.Context()
 

@@ -26,11 +26,13 @@ var _ interfaces.ErrorStore = &SQLErrorStore{}
 
 type SQLErrorStore struct {
 	SQLConnectionManager
+	transactor interfaces.Transactor
 }
 
-func NewSQLErrorStore(conn *sql.DB) *SQLErrorStore {
+func NewSQLErrorStore(conn *sql.DB, transactor interfaces.Transactor) *SQLErrorStore {
 	return &SQLErrorStore{
 		SQLConnectionManager: NewSQLConnectionManager(conn),
+		transactor:           transactor,
 	}
 }
 
@@ -40,52 +42,60 @@ func (s *SQLErrorStore) getQueries(ctx context.Context) *sqlc.Queries {
 
 // UpsertError inserts a new error or updates an existing open error with the same dedup key.
 func (s *SQLErrorStore) UpsertError(ctx context.Context, orgID int64, deviceIdentifier string, errMsg *models.ErrorMessage) (*models.ErrorMessage, error) {
-	q := s.getQueries(ctx)
+	var result *models.ErrorMessage
+	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		q := s.getQueries(txCtx)
 
-	deviceID, err := q.GetDeviceIDByIdentifier(ctx, sqlc.GetDeviceIDByIdentifierParams{
-		DeviceIdentifier: deviceIdentifier,
-		OrgID:            orgID,
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fleeterror.NewNotFoundErrorf("device not found: %s", deviceIdentifier)
+		deviceID, err := q.GetDeviceIDByIdentifier(txCtx, sqlc.GetDeviceIDByIdentifierParams{
+			DeviceIdentifier: deviceIdentifier,
+			OrgID:            orgID,
+		})
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fleeterror.NewNotFoundErrorf("device not found: %s", deviceIdentifier)
+			}
+			return fleeterror.NewInternalErrorf("failed to resolve device identifier: %v", err)
 		}
-		return nil, fleeterror.NewInternalErrorf("failed to resolve device identifier: %v", err)
-	}
 
-	componentID := sql.NullString{String: "", Valid: false}
-	if errMsg.ComponentID != nil {
-		componentID = sql.NullString{String: *errMsg.ComponentID, Valid: true}
-	}
+		componentID := sql.NullString{String: "", Valid: false}
+		if errMsg.ComponentID != nil {
+			componentID = sql.NullString{String: *errMsg.ComponentID, Valid: true}
+		}
 
-	componentType := sql.NullInt32{Int32: unsetDatabaseID, Valid: false}
-	if errMsg.ComponentType != models.ComponentTypeUnspecified {
-		componentType = sql.NullInt32{Int32: int32(errMsg.ComponentType), Valid: true} // #nosec G115 -- ComponentType enum values bounded (max 4), safe for int32
-	}
+		componentType := sql.NullInt32{Int32: unsetDatabaseID, Valid: false}
+		if errMsg.ComponentType != models.ComponentTypeUnspecified {
+			componentType = sql.NullInt32{Int32: int32(errMsg.ComponentType), Valid: true} // #nosec G115 -- ComponentType enum values bounded (max 4), safe for int32
+		}
 
-	existingError, dbErr := q.GetOpenErrorByDedupKey(ctx, sqlc.GetOpenErrorByDedupKeyParams{
-		OrgID:         orgID,
-		DeviceID:      deviceID,
-		MinerError:    int32(errMsg.MinerError), // #nosec G115 -- MinerError enum values bounded by protobuf (max ~9000)
-		ComponentID:   componentID,
-		ComponentType: componentType,
+		existingError, dbErr := q.GetOpenErrorByDedupKey(txCtx, sqlc.GetOpenErrorByDedupKeyParams{
+			OrgID:         orgID,
+			DeviceID:      deviceID,
+			MinerError:    int32(errMsg.MinerError), // #nosec G115 -- MinerError enum values bounded by protobuf (max ~9000)
+			ComponentID:   componentID,
+			ComponentType: componentType,
+		})
+
+		if dbErr != nil && !errors.Is(dbErr, sql.ErrNoRows) {
+			return fleeterror.NewInternalErrorf("failed to check for existing error: %v", dbErr)
+		}
+		noOpenErrorExists := errors.Is(dbErr, sql.ErrNoRows) || existingError.ID == unsetDatabaseID
+
+		extra, err := json.Marshal(errMsg.VendorAttributes)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("failed to marshal vendor attributes: %v", err)
+		}
+
+		if noOpenErrorExists {
+			result, err = s.insertNewError(txCtx, q, orgID, deviceID, errMsg, componentID, componentType, extra)
+		} else {
+			result, err = s.updateExistingError(txCtx, q, orgID, &existingError, errMsg, extra)
+		}
+		return err
 	})
-
-	if dbErr != nil && !errors.Is(dbErr, sql.ErrNoRows) {
-		return nil, fleeterror.NewInternalErrorf("failed to check for existing error: %v", dbErr)
-	}
-	noOpenErrorExists := errors.Is(dbErr, sql.ErrNoRows) || existingError.ID == unsetDatabaseID
-
-	extra, err := json.Marshal(errMsg.VendorAttributes)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to marshal vendor attributes: %v", err)
+		return nil, err
 	}
-
-	if noOpenErrorExists {
-		return s.insertNewError(ctx, q, orgID, deviceID, errMsg, componentID, componentType, extra)
-	}
-
-	return s.updateExistingError(ctx, q, orgID, &existingError, errMsg, extra)
+	return result, nil
 }
 
 func (s *SQLErrorStore) insertNewError(

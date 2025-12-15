@@ -24,14 +24,16 @@ type PollResult struct {
 type Service struct {
 	config     Config
 	errorStore storeInterfaces.ErrorStore
+	transactor storeInterfaces.Transactor
 }
 
 // NewService creates a new diagnostics service and starts the error closer goroutine.
 // The closer runs until the provided context is cancelled.
-func NewService(ctx context.Context, config Config, errorStore storeInterfaces.ErrorStore) *Service {
+func NewService(ctx context.Context, config Config, errorStore storeInterfaces.ErrorStore, transactor storeInterfaces.Transactor) *Service {
 	s := &Service{
 		config:     config,
 		errorStore: errorStore,
+		transactor: transactor,
 	}
 
 	go s.runCloser(ctx)
@@ -90,6 +92,7 @@ func (s *Service) upsertErrors(ctx context.Context, orgID int64, deviceID minerM
 		if errors[i].ComponentType == models.ComponentTypeUnspecified {
 			errors[i].ComponentType = models.DefaultComponentTypeForMinerError(errors[i].MinerError)
 		}
+
 		_, err := s.errorStore.UpsertError(ctx, orgID, string(deviceID), &errors[i])
 		if err != nil {
 			slog.Warn("failed to upsert error", "deviceID", deviceID, "orgID", orgID, "minerError", errors[i].MinerError, "error", err)
@@ -171,12 +174,19 @@ func (s *Service) queryByError(ctx context.Context, opts *models.QueryOptions) (
 		return nil, err
 	}
 
-	errors, err := s.errorStore.QueryErrors(ctx, opts)
-	if err != nil {
-		return nil, err
-	}
+	var errors []models.ErrorMessage
+	var totalCount int64
 
-	totalCount, err := s.errorStore.CountErrors(ctx, opts)
+	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		var err error
+		errors, err = s.errorStore.QueryErrors(txCtx, opts)
+		if err != nil {
+			return err
+		}
+
+		totalCount, err = s.errorStore.CountErrors(txCtx, opts)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -196,14 +206,34 @@ func (s *Service) queryByDevice(ctx context.Context, opts *models.QueryOptions) 
 		return nil, err
 	}
 
-	// Step 1: Get paginated device keys (with severity for cursor)
-	deviceKeys, err := s.errorStore.QueryDeviceKeys(ctx, opts)
-	if err != nil {
-		return nil, err
-	}
+	var deviceKeys []models.DeviceKey
+	var totalDevices int64
+	var errors []models.ErrorMessage
 
-	// Step 2: Get total device count
-	totalDevices, err := s.errorStore.CountDevices(ctx, opts)
+	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		var err error
+		// Step 1: Get paginated device keys (with severity for cursor)
+		deviceKeys, err = s.errorStore.QueryDeviceKeys(txCtx, opts)
+		if err != nil {
+			return err
+		}
+
+		// Step 2: Get total device count
+		totalDevices, err = s.errorStore.CountDevices(txCtx, opts)
+		if err != nil {
+			return err
+		}
+
+		if len(deviceKeys) == 0 {
+			return nil
+		}
+
+		// Step 3: Get ALL errors for these specific devices
+		deviceIdentifiers := extractDeviceIdentifiersFromDeviceKeys(deviceKeys)
+		errorOpts := cloneOptsWithDeviceFilter(opts, deviceIdentifiers)
+		errors, err = s.errorStore.QueryErrors(txCtx, errorOpts)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -213,14 +243,6 @@ func (s *Service) queryByDevice(ctx context.Context, opts *models.QueryOptions) 
 			TotalCount: totalDevices,
 			DeviceErrs: []models.DeviceErrorGroup{},
 		}, nil
-	}
-
-	// Step 3: Get ALL errors for these specific devices
-	deviceIdentifiers := extractDeviceIdentifiersFromDeviceKeys(deviceKeys)
-	errorOpts := cloneOptsWithDeviceFilter(opts, deviceIdentifiers)
-	errors, err := s.errorStore.QueryErrors(ctx, errorOpts)
-	if err != nil {
-		return nil, err
 	}
 
 	// Step 4: Group by device and build result
@@ -242,14 +264,35 @@ func (s *Service) queryByComponent(ctx context.Context, opts *models.QueryOption
 		return nil, err
 	}
 
-	// Step 1: Get paginated component keys
-	componentKeys, err := s.errorStore.QueryComponentKeys(ctx, opts)
-	if err != nil {
-		return nil, err
-	}
+	var componentKeys []models.ComponentKey
+	var totalComponents int64
+	var errors []models.ErrorMessage
 
-	// Step 2: Get total component count
-	totalComponents, err := s.errorStore.CountComponents(ctx, opts)
+	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		var err error
+		// Step 1: Get paginated component keys
+		componentKeys, err = s.errorStore.QueryComponentKeys(txCtx, opts)
+		if err != nil {
+			return err
+		}
+
+		// Step 2: Get total component count
+		totalComponents, err = s.errorStore.CountComponents(txCtx, opts)
+		if err != nil {
+			return err
+		}
+
+		if len(componentKeys) == 0 {
+			return nil
+		}
+
+		// Step 3: Get ALL errors for these specific components
+		// We filter by the device identifiers that have components in our result set
+		deviceIdentifiers := extractDeviceIdentifiersFromComponentKeys(componentKeys)
+		errorOpts := cloneOptsWithDeviceFilter(opts, deviceIdentifiers)
+		errors, err = s.errorStore.QueryErrors(txCtx, errorOpts)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -259,15 +302,6 @@ func (s *Service) queryByComponent(ctx context.Context, opts *models.QueryOption
 			TotalCount:    totalComponents,
 			ComponentErrs: []models.ComponentErrors{},
 		}, nil
-	}
-
-	// Step 3: Get ALL errors for these specific components
-	// We filter by the device identifiers that have components in our result set
-	deviceIdentifiers := extractDeviceIdentifiersFromComponentKeys(componentKeys)
-	errorOpts := cloneOptsWithDeviceFilter(opts, deviceIdentifiers)
-	errors, err := s.errorStore.QueryErrors(ctx, errorOpts)
-	if err != nil {
-		return nil, err
 	}
 
 	// Step 4: Group by component and build result

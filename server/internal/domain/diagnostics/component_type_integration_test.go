@@ -179,7 +179,7 @@ func TestPollErrors_WithSDKErrorsHavingComponentTypes_ShouldPreserveComponentTyp
 	}
 
 	// Create service and poll errors
-	svc := newTestService(mockErrorStore)
+	svc := newTestService(ctrl, mockErrorStore)
 	result := svc.PollErrors(context.Background(), mockMiner)
 
 	// Verify the poll results
@@ -247,7 +247,7 @@ func TestUpsertError_WithSameErrorCodeButDifferentComponentTypes_ShouldTreatAsDi
 			return errMsg, nil
 		})
 
-	svc := newTestService(mockErrorStore)
+	svc := newTestService(ctrl, mockErrorStore)
 	result := svc.PollErrors(context.Background(), mockMiner)
 
 	assert.Equal(t, 2, result.ErrorsUpserted, "Both errors should be upserted (different ComponentType)")

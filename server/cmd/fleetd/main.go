@@ -215,8 +215,8 @@ func start(config *Config) error {
 	// Create diagnostics service for error polling and auto-closing stale errors
 	diagnosticsCtx, diagnosticsCancel := context.WithCancel(context.Background())
 	defer diagnosticsCancel()
-	errorStore := sqlstores.NewSQLErrorStore(conn)
-	diagnosticsService := diagnostics.NewService(diagnosticsCtx, config.Diagnostics, errorStore)
+	errorStore := sqlstores.NewSQLErrorStore(conn, transactor)
+	diagnosticsService := diagnostics.NewService(diagnosticsCtx, config.Diagnostics, errorStore, transactor)
 
 	telemetryService := telemetry.NewTelemetryService(
 		config.Telemetry,

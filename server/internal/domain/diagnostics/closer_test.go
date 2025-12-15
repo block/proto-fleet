@@ -18,6 +18,7 @@ import (
 func TestCloser_WithValidConfig_ShouldCallCloseStaleErrors(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	mockStore.EXPECT().
 		CloseStaleErrors(gomock.Any(), 2*time.Minute).
@@ -30,7 +31,7 @@ func TestCloser_WithValidConfig_ShouldCallCloseStaleErrors(t *testing.T) {
 		CloserStalenessThreshold: 2 * time.Minute,
 	}
 
-	_ = NewService(ctx, config, mockStore)
+	_ = NewService(ctx, config, mockStore, mockTransactor)
 
 	time.Sleep(50 * time.Millisecond)
 	cancel()
@@ -39,6 +40,7 @@ func TestCloser_WithValidConfig_ShouldCallCloseStaleErrors(t *testing.T) {
 func TestCloser_WithZeroConfig_ShouldUseDefaults(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	mockStore.EXPECT().
 		CloseStaleErrors(gomock.Any(), defaultCloserStalenessThreshold).
@@ -48,7 +50,7 @@ func TestCloser_WithZeroConfig_ShouldUseDefaults(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	config := Config{}
 
-	_ = NewService(ctx, config, mockStore)
+	_ = NewService(ctx, config, mockStore, mockTransactor)
 
 	time.Sleep(10 * time.Millisecond)
 	cancel()
@@ -57,6 +59,7 @@ func TestCloser_WithZeroConfig_ShouldUseDefaults(t *testing.T) {
 func TestCloser_WhenContextCancelled_ShouldStop(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	mockStore.EXPECT().
 		CloseStaleErrors(gomock.Any(), gomock.Any()).
@@ -69,7 +72,7 @@ func TestCloser_WhenContextCancelled_ShouldStop(t *testing.T) {
 		CloserStalenessThreshold: 2 * time.Minute,
 	}
 
-	_ = NewService(ctx, config, mockStore)
+	_ = NewService(ctx, config, mockStore, mockTransactor)
 
 	cancel()
 
@@ -79,6 +82,7 @@ func TestCloser_WhenContextCancelled_ShouldStop(t *testing.T) {
 func TestCloser_WhenCloseStaleErrorsFails_ShouldContinuePolling(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	gomock.InOrder(
 		mockStore.EXPECT().
@@ -96,7 +100,7 @@ func TestCloser_WhenCloseStaleErrorsFails_ShouldContinuePolling(t *testing.T) {
 		CloserStalenessThreshold: 2 * time.Minute,
 	}
 
-	_ = NewService(ctx, config, mockStore)
+	_ = NewService(ctx, config, mockStore, mockTransactor)
 
 	time.Sleep(50 * time.Millisecond)
 	cancel()
@@ -105,6 +109,7 @@ func TestCloser_WhenCloseStaleErrorsFails_ShouldContinuePolling(t *testing.T) {
 func TestCloser_WithNegativeConfig_ShouldUseDefaults(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
 
 	mockStore.EXPECT().
 		CloseStaleErrors(gomock.Any(), defaultCloserStalenessThreshold).
@@ -117,7 +122,7 @@ func TestCloser_WithNegativeConfig_ShouldUseDefaults(t *testing.T) {
 		CloserStalenessThreshold: -2 * time.Minute,
 	}
 
-	_ = NewService(ctx, config, mockStore)
+	_ = NewService(ctx, config, mockStore, mockTransactor)
 
 	time.Sleep(10 * time.Millisecond)
 	cancel()
