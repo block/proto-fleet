@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { SegmentConfig, SegmentedBarChartData } from "./types";
-import { getCurrentBreakdown } from "./utils";
+import { create } from "@bufbuild/protobuf";
+import { TimestampSchema } from "@bufbuild/protobuf/wkt";
+import type { SegmentConfig, SegmentedBarChartData, StatusCount } from "./types";
+import { getCurrentBreakdown, processChartData, processMultiDayChartData } from "./utils";
 
 describe("getCurrentBreakdown", () => {
   const mockSegmentConfig: SegmentConfig = {
@@ -324,5 +326,332 @@ describe("getCurrentBreakdown", () => {
       expect(hashingSegment?.count).toBe(lastBar.hashing);
       expect(notHashingSegment?.count).toBe(lastBar.notHashing);
     });
+  });
+});
+
+describe("processChartData - Last interval uses latest data", () => {
+  const segmentConfig: SegmentConfig = {
+    cold: {
+      color: "var(--color-core-blue-60)",
+      label: "Cold",
+      displayInBreakdown: true,
+      showButton: false,
+      index: 0,
+    },
+    ok: {
+      color: "var(--color-core-green-60)",
+      label: "OK",
+      displayInBreakdown: true,
+      showButton: false,
+      index: 1,
+    },
+    hot: {
+      color: "var(--color-core-orange-60)",
+      label: "Hot",
+      displayInBreakdown: true,
+      showButton: false,
+      index: 2,
+    },
+    critical: {
+      color: "var(--color-core-red-60)",
+      label: "Critical",
+      displayInBreakdown: true,
+      showButton: false,
+      index: 3,
+    },
+  };
+
+  it("should use most recent data point for last interval even if after boundary", () => {
+    const now = Date.now();
+    const data: StatusCount[] = [
+      {
+        timestamp: create(TimestampSchema, {
+          seconds: BigInt(Math.floor((now - 10 * 60 * 1000) / 1000)),
+          nanos: 0,
+        }),
+        coldCount: 5,
+        okCount: 10,
+        hotCount: 2,
+        criticalCount: 0,
+      }, // 10 min ago
+      {
+        timestamp: create(TimestampSchema, {
+          seconds: BigInt(Math.floor((now - 2 * 60 * 1000) / 1000)),
+          nanos: 0,
+        }),
+        coldCount: 8,
+        okCount: 12,
+        hotCount: 3,
+        criticalCount: 1,
+      }, // 2 min ago (latest)
+    ];
+
+    const result = processChartData(data, "12h", segmentConfig);
+    const lastBar = result[result.length - 1];
+
+    // Last bar should use latest data (coldCount: 8), not interval-bounded data
+    expect(lastBar.cold).toBe(8);
+    expect(lastBar.ok).toBe(12);
+    expect(lastBar.hot).toBe(3);
+    expect(lastBar.critical).toBe(1);
+  });
+
+  it("should use interval-bounded data for non-last intervals", () => {
+    const now = Date.now();
+    const data: StatusCount[] = [
+      {
+        timestamp: create(TimestampSchema, {
+          seconds: BigInt(Math.floor((now - 10 * 60 * 1000) / 1000)),
+          nanos: 0,
+        }),
+        coldCount: 5,
+        okCount: 10,
+        hotCount: 2,
+        criticalCount: 0,
+      }, // 10 min ago
+      {
+        timestamp: create(TimestampSchema, {
+          seconds: BigInt(Math.floor((now - 2 * 60 * 1000) / 1000)),
+          nanos: 0,
+        }),
+        coldCount: 8,
+        okCount: 12,
+        hotCount: 3,
+        criticalCount: 1,
+      }, // 2 min ago (latest)
+    ];
+
+    const result = processChartData(data, "12h", segmentConfig);
+
+    // First bars should use interval-bounded data, not latest
+    // Verify that at least one non-last bar exists and doesn't use latest data
+    expect(result.length).toBeGreaterThan(1);
+
+    // The first bar should use the first data point (or null if no data before that interval)
+    const firstBar = result[0];
+    // First bar might be 0 if no data before that interval
+    // But it definitely shouldn't have the latest values (8, 12, 3, 1)
+    const isUsingLatestData =
+      firstBar.cold === 8 && firstBar.ok === 12 && firstBar.hot === 3 && firstBar.critical === 1;
+    expect(isUsingLatestData).toBe(false);
+  });
+
+  it("should handle empty data gracefully", () => {
+    const data: StatusCount[] = [];
+
+    const result = processChartData(data, "12h", segmentConfig);
+
+    // Should return 12 intervals with all zeros
+    expect(result.length).toBe(12);
+    result.forEach((bar) => {
+      expect(bar.cold).toBe(0);
+      expect(bar.ok).toBe(0);
+      expect(bar.hot).toBe(0);
+      expect(bar.critical).toBe(0);
+    });
+  });
+
+  it("should handle single data point correctly", () => {
+    const now = Date.now();
+    const data: StatusCount[] = [
+      {
+        timestamp: create(TimestampSchema, {
+          seconds: BigInt(Math.floor((now - 5 * 60 * 1000) / 1000)),
+          nanos: 0,
+        }),
+        coldCount: 3,
+        okCount: 7,
+        hotCount: 1,
+        criticalCount: 0,
+      },
+    ];
+
+    const result = processChartData(data, "12h", segmentConfig);
+    const lastBar = result[result.length - 1];
+
+    // Last bar should use the only data point
+    expect(lastBar.cold).toBe(3);
+    expect(lastBar.ok).toBe(7);
+    expect(lastBar.hot).toBe(1);
+    expect(lastBar.critical).toBe(0);
+  });
+});
+
+describe("processMultiDayChartData - Last interval uses latest data", () => {
+  const segmentConfig: SegmentConfig = {
+    cold: {
+      color: "var(--color-core-blue-60)",
+      label: "Cold",
+      displayInBreakdown: true,
+      showButton: false,
+      index: 0,
+    },
+    ok: {
+      color: "var(--color-core-green-60)",
+      label: "OK",
+      displayInBreakdown: true,
+      showButton: false,
+      index: 1,
+    },
+    hot: {
+      color: "var(--color-core-orange-60)",
+      label: "Hot",
+      displayInBreakdown: true,
+      showButton: false,
+      index: 2,
+    },
+    critical: {
+      color: "var(--color-core-red-60)",
+      label: "Critical",
+      displayInBreakdown: true,
+      showButton: false,
+      index: 3,
+    },
+  };
+
+  it("should use most recent data point for last interval of last day", () => {
+    const now = Date.now();
+    const data: StatusCount[] = [
+      {
+        timestamp: create(TimestampSchema, {
+          seconds: BigInt(Math.floor((now - 48 * 60 * 60 * 1000) / 1000)),
+          nanos: 0,
+        }),
+        coldCount: 3,
+        okCount: 8,
+        hotCount: 1,
+        criticalCount: 0,
+      }, // 48 hours ago
+      {
+        timestamp: create(TimestampSchema, {
+          seconds: BigInt(Math.floor((now - 2 * 60 * 1000) / 1000)),
+          nanos: 0,
+        }),
+        coldCount: 8,
+        okCount: 12,
+        hotCount: 3,
+        criticalCount: 1,
+      }, // 2 min ago (latest)
+    ];
+
+    const result = processMultiDayChartData(data, "48h", segmentConfig);
+
+    // Get the last chart (last day)
+    const lastDay = result[result.length - 1];
+    const lastBar = lastDay[lastDay.length - 1];
+
+    // Last bar of last day should use latest data
+    expect(lastBar.cold).toBe(8);
+    expect(lastBar.ok).toBe(12);
+    expect(lastBar.hot).toBe(3);
+    expect(lastBar.critical).toBe(1);
+  });
+
+  it("should use interval-bounded data for non-last intervals", () => {
+    const now = Date.now();
+    const data: StatusCount[] = [
+      {
+        timestamp: create(TimestampSchema, {
+          seconds: BigInt(Math.floor((now - 48 * 60 * 60 * 1000) / 1000)),
+          nanos: 0,
+        }),
+        coldCount: 2,
+        okCount: 5,
+        hotCount: 0,
+        criticalCount: 0,
+      }, // 48 hours ago
+      {
+        timestamp: create(TimestampSchema, {
+          seconds: BigInt(Math.floor((now - 2 * 60 * 1000) / 1000)),
+          nanos: 0,
+        }),
+        coldCount: 8,
+        okCount: 12,
+        hotCount: 3,
+        criticalCount: 1,
+      }, // 2 min ago (latest)
+    ];
+
+    const result = processMultiDayChartData(data, "48h", segmentConfig);
+
+    // First day's bars should not all use the latest data
+    const firstDay = result[0];
+    const firstBar = firstDay[0];
+
+    // First bar should not have latest values
+    const isUsingLatestData =
+      firstBar.cold === 8 && firstBar.ok === 12 && firstBar.hot === 3 && firstBar.critical === 1;
+    expect(isUsingLatestData).toBe(false);
+  });
+
+  it("should handle empty data gracefully", () => {
+    const data: StatusCount[] = [];
+
+    const result = processMultiDayChartData(data, "48h", segmentConfig);
+
+    // Should return structured data with zeros
+    expect(result.length).toBeGreaterThan(0);
+    result.forEach((day) => {
+      day.forEach((bar) => {
+        expect(bar.cold).toBe(0);
+        expect(bar.ok).toBe(0);
+        expect(bar.hot).toBe(0);
+        expect(bar.critical).toBe(0);
+      });
+    });
+  });
+
+  it("should delegate to processChartData for durations <= 24h", () => {
+    const now = Date.now();
+    const data: StatusCount[] = [
+      {
+        timestamp: create(TimestampSchema, {
+          seconds: BigInt(Math.floor((now - 2 * 60 * 1000) / 1000)),
+          nanos: 0,
+        }),
+        coldCount: 5,
+        okCount: 10,
+        hotCount: 2,
+        criticalCount: 1,
+      },
+    ];
+
+    const result = processMultiDayChartData(data, "12h", segmentConfig);
+
+    // Should return single-day array
+    expect(result.length).toBe(1);
+    const singleDay = result[0];
+    const lastBar = singleDay[singleDay.length - 1];
+
+    // Last bar should use latest data (same as processChartData)
+    expect(lastBar.cold).toBe(5);
+    expect(lastBar.ok).toBe(10);
+  });
+
+  it("should handle single data point correctly across multiple days", () => {
+    const now = Date.now();
+    const data: StatusCount[] = [
+      {
+        timestamp: create(TimestampSchema, {
+          seconds: BigInt(Math.floor((now - 5 * 60 * 1000) / 1000)),
+          nanos: 0,
+        }),
+        coldCount: 3,
+        okCount: 7,
+        hotCount: 1,
+        criticalCount: 0,
+      },
+    ];
+
+    const result = processMultiDayChartData(data, "48h", segmentConfig);
+
+    // Last bar of last day should use the only data point
+    const lastDay = result[result.length - 1];
+    const lastBar = lastDay[lastDay.length - 1];
+
+    expect(lastBar.cold).toBe(3);
+    expect(lastBar.ok).toBe(7);
+    expect(lastBar.hot).toBe(1);
+    expect(lastBar.critical).toBe(0);
   });
 });

@@ -150,8 +150,14 @@ export const processChartData = (
   });
 
   // For each hourly interval, find the appropriate data point
-  for (const interval of hourlyIntervals) {
-    const dataPoint = findDataPointBefore(sortedData, interval);
+  for (let i = 0; i < hourlyIntervals.length; i++) {
+    const interval = hourlyIntervals[i];
+    const isLastInterval = i === hourlyIntervals.length - 1;
+
+    // For last interval, use absolute latest data; for others, use data at interval
+    const dataPoint = isLastInterval
+      ? sortedData[sortedData.length - 1] // Latest data
+      : findDataPointBefore(sortedData, interval); // Data at interval boundary
 
     // Always create a chart point for every interval
     const chartPoint: SegmentedBarChartData = { datetime: interval };
@@ -243,21 +249,41 @@ export const processMultiDayChartData = (
   const processedDays: SegmentedBarChartData[][] = [];
   const segmentKeys = Object.keys(segmentConfig);
 
+  // If no data, return empty data points for all intervals
+  if (!data || data.length === 0) {
+    return dayIntervals.map((intervals) => {
+      return intervals.map((interval) => {
+        const chartPoint: SegmentedBarChartData = { datetime: interval };
+        segmentKeys.forEach((key) => {
+          chartPoint[key] = 0;
+        });
+        return chartPoint;
+      });
+    });
+  }
+
   // Sort data by timestamp
-  const sortedData = data
-    ? [...data].sort((a, b) => {
-        const timeA = a.timestamp ? Number(a.timestamp.seconds) : 0;
-        const timeB = b.timestamp ? Number(b.timestamp.seconds) : 0;
-        return timeA - timeB;
-      })
-    : [];
+  const sortedData = [...data].sort((a, b) => {
+    const timeA = a.timestamp ? Number(a.timestamp.seconds) : 0;
+    const timeB = b.timestamp ? Number(b.timestamp.seconds) : 0;
+    return timeA - timeB;
+  });
 
   // Process each day's intervals
-  for (const intervals of dayIntervals) {
+  for (let dayIndex = 0; dayIndex < dayIntervals.length; dayIndex++) {
+    const intervals = dayIntervals[dayIndex];
     const dayData: SegmentedBarChartData[] = [];
 
-    for (const interval of intervals) {
-      const dataPoint = findDataPointBefore(sortedData, interval);
+    for (let i = 0; i < intervals.length; i++) {
+      const interval = intervals[i];
+      const isLastIntervalOfLastDay =
+        dayIndex === dayIntervals.length - 1 && // Last day
+        i === intervals.length - 1; // Last interval of that day
+
+      // For last interval of last day, use absolute latest data
+      const dataPoint = isLastIntervalOfLastDay
+        ? sortedData[sortedData.length - 1]
+        : findDataPointBefore(sortedData, interval);
 
       const chartPoint: SegmentedBarChartData = { datetime: interval };
       segmentKeys.forEach((key) => {
