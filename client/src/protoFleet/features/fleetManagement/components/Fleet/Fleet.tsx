@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import useBatchTelemetry from "@/protoFleet/api/useBatchTelemetry";
@@ -36,6 +36,15 @@ const Fleet = () => {
   });
 
   const { fetchBatchTelemetry, resetFetchedIds } = useBatchTelemetry();
+
+  // Reset telemetry cache when refetch completes (e.g., after unpair)
+  const prevHasInitialLoadCompletedRef = useRef(hasInitialLoadCompleted);
+  useEffect(() => {
+    if (hasInitialLoadCompleted && !prevHasInitialLoadCompletedRef.current) {
+      resetFetchedIds();
+    }
+    prevHasInitialLoadCompletedRef.current = hasInitialLoadCompleted;
+  }, [hasInitialLoadCompleted, resetFetchedIds]);
 
   useEffect(() => {
     if (hasInitialLoadCompleted && visibleMinerIds.size > 0) {
